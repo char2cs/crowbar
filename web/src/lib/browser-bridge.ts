@@ -10,20 +10,8 @@ export interface BrowserRect {
   height: number
 }
 
-interface NavigatedEvent {
-  id: string
-  url: string
-}
-
-interface TitleEvent {
-  id: string
-  title: string
-}
-
-interface LoadingEvent {
-  id: string
-  loading: boolean
-}
+/** A report from tab `id`: its new url, title or loading state. */
+type TabEvent<K extends string, V> = { id: string } & Record<K, V>
 
 export interface BrowserScreenshot {
   /** Base64, no data: prefix. */
@@ -39,7 +27,9 @@ function invoke<T = void>(cmd: string, args?: Record<string, unknown>): Promise<
 }
 
 // The event API loads with the first listener, keeping it out of the entry bundle.
+// Outside the desktop app no webview exists to report, and Tauri's listen would throw.
 async function listenTo<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
+  if (!isDesktopApp()) return () => {}
   const { listen } = await import('@tauri-apps/api/event')
   return listen<T>(event, (e) => handler(e.payload))
 }
@@ -69,10 +59,13 @@ export const browserApi = {
   copyText: (text: string) => invoke<void>('browser_copy_text', { text }),
   capabilities: () => invoke<{ clearData: boolean }>('browser_capabilities'),
   clearData: () => invoke<void>('browser_clear_data'),
-  onNavigated: (handler: (e: NavigatedEvent) => void): Promise<UnlistenFn> =>
-    listenTo<NavigatedEvent>('browser://navigated', handler),
-  onLoading: (handler: (e: LoadingEvent) => void): Promise<UnlistenFn> =>
-    listenTo<LoadingEvent>('browser://loading', handler),
-  onTitle: (handler: (e: TitleEvent) => void): Promise<UnlistenFn> =>
-    listenTo<TitleEvent>('browser://title', handler),
+  onNavigated: (handler: (e: TabEvent<'url', string>) => void): Promise<UnlistenFn> =>
+    listenTo('browser://navigated', handler),
+  onLoading: (handler: (e: TabEvent<'loading', boolean>) => void): Promise<UnlistenFn> =>
+    listenTo('browser://loading', handler),
+  onTitle: (handler: (e: TabEvent<'title', string>) => void): Promise<UnlistenFn> =>
+    listenTo('browser://title', handler),
+  /** The page asked for a new window (target=_blank, window.open) at `url`. */
+  onNewWindow: (handler: (e: TabEvent<'url', string>) => void): Promise<UnlistenFn> =>
+    listenTo('browser://new-window', handler),
 }

@@ -83,16 +83,9 @@ pub async fn accept_then_close(listener: &UnixListener) {
     }
 }
 
-/// A wedged daemon: it completes the upgrade and then never touches the socket again
-/// — never reads it, never answers, never closes it.
-///
-/// Getting this peer right is the whole point of the two tests below. Retiring a
-/// connection ends the writer, which half-closes our socket (`SHUT_WR`) — and a
-/// *healthy* daemon reacts to that EOF by closing its end, which wakes our reader all
-/// by itself. So a fake daemon that reads its socket cannot tell a working teardown
-/// from a broken one: both look identical. This one never reads, so nothing but our
-/// own cancellation can free the descriptor, which is precisely the case cancellation
-/// exists for — and the case a wedged daemon actually presents.
+/// A wedged daemon: completes the upgrade, then never reads, answers or closes the socket. A
+/// healthy peer answers our retire half-close (`SHUT_WR`) by closing, waking our reader and hiding
+/// a broken teardown; this one leaves only our own cancellation to free the descriptor.
 pub fn spawn_wedged_daemon(listener: UnixListener) {
     tokio::spawn(async move {
         if let Ok((stream, _)) = listener.accept().await {
@@ -104,10 +97,8 @@ pub fn spawn_wedged_daemon(listener: UnixListener) {
     });
 }
 
-/// Same wedged peer as [`spawn_wedged_daemon`], but accepting connections forever
-/// rather than one. A window-scoping test needs two live connections on one
-/// listener; with the single-accept version the second `open_bridge` would block on
-/// a peer that never accepts.
+/// [`spawn_wedged_daemon`] accepting forever rather than once: a window-scoping test needs two live
+/// connections on one listener, and a single-accept peer would block the second `open_bridge`.
 pub fn spawn_wedged_daemon_multi(listener: UnixListener) {
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {

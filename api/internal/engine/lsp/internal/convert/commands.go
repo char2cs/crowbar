@@ -1,32 +1,35 @@
 package convert
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"log/slog"
+)
 
-// ClientCodeActions shapes a textDocument/codeAction result for the editor:
-// every workspace edit names workspace-relative files, and only commands the
-// server itself runs (canRun) survive — a bare command it cannot run is
-// dropped, and an action's unrunnable command is stripped, keeping its edit.
-// A result that does not decode is passed through unchanged.
+// ClientCodeActions shapes a codeAction result for the editor: edits name
+// workspace-relative files and only commands the server runs (canRun) survive. Undecodable
+// results pass through; an undecodable entry is dropped and logged.
 func ClientCodeActions(
 	worktreePath string,
 	raw json.RawMessage,
 	canRun func(string) bool,
 ) json.RawMessage {
 	var actions []map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &actions); err != nil {
+	if !decodes(raw, &actions) {
 		return raw
 	}
 	kept := make([]map[string]json.RawMessage, 0, len(actions))
 	for _, action := range actions {
-		if clientCodeAction(worktreePath, action, canRun) {
+		keep, err := clientCodeAction(worktreePath, action, canRun)
+		if err != nil {
+			slog.Warn("lsp: code action dropped", "entry", entryName(action), "err", err)
+			continue
+		}
+		if keep {
 			kept = append(kept, action)
 		}
 	}
-	out, err := json.Marshal(kept)
-	if err != nil {
-		return raw
-	}
-	return out
+	return marshalOr(kept, raw)
 }
 
 // clientCodeAction rewrites one Command | CodeAction in place and reports
@@ -35,69 +38,119 @@ func clientCodeAction(
 	worktreePath string,
 	action map[string]json.RawMessage,
 	canRun func(string) bool,
-) bool {
+) (bool, error) {
 	var bare string
 	if json.Unmarshal(action["command"], &bare) == nil && bare != "" {
-		return canRun(bare)
+		return canRun(bare), nil
 	}
-	if cmd, ok := action["command"]; ok && !canRun(commandName(cmd)) {
-		delete(action, "command")
+	if err := dropUnrunnable(action, canRun); err != nil {
+		return false, err
 	}
 	if edit, ok := action["edit"]; ok {
 		action["edit"] = RelWorkspaceEdit(worktreePath, edit)
 	}
 	_, hasEdit := action["edit"]
 	_, hasCommand := action["command"]
-	return hasEdit || hasCommand
+	return hasEdit || hasCommand, nil
 }
 
-// ClientLenses shapes a textDocument/codeLens result (an array) or a
-// codeLens/resolve result (one lens) for the editor: a lens whose command the
-// server cannot run keeps its title but loses the command, so the editor
-// shows it as a label rather than a button that fails.
+// dropUnrunnable strips an action's command when the server cannot run it.
+func dropUnrunnable(
+	action map[string]json.RawMessage,
+	canRun func(string) bool,
+) error {
+	cmd, ok := action["command"]
+	if !ok {
+		return nil
+	}
+	name, err := commandName(cmd)
+	if err != nil || canRun(name) {
+		return err
+	}
+	delete(action, "command")
+	return nil
+}
+
+// ClientLenses shapes a codeLens or codeLens/resolve result for the editor: a lens whose
+// command the server cannot run keeps its title only. Undecodable results pass through;
+// an undecodable lens command is dropped and logged (a resolved lens becomes null).
 func ClientLenses(
 	raw json.RawMessage,
 	canRun func(string) bool,
 ) json.RawMessage {
 	var lenses []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &lenses); err == nil {
+		kept := lenses[:0] // in place: a null result stays null, an empty one empty
 		for _, lens := range lenses {
-			clientLens(lens, canRun)
+			if err := clientLens(lens, canRun); err != nil {
+				slog.Warn("lsp: code lens dropped", "entry", entryName(lens), "err", err)
+				continue
+			}
+			kept = append(kept, lens)
 		}
-		return marshalOr(lenses, raw)
+		return marshalOr(kept, raw)
 	}
 	var lens map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &lens); err != nil || lens == nil {
+	if !decodes(raw, &lens) || lens == nil {
 		return raw
 	}
-	clientLens(lens, canRun)
+	if err := clientLens(lens, canRun); err != nil {
+		slog.Warn("lsp: code lens dropped", "entry", entryName(lens), "err", err)
+		return json.RawMessage("null")
+	}
 	return marshalOr(lens, raw)
 }
 
 func clientLens(
 	lens map[string]json.RawMessage,
 	canRun func(string) bool,
-) {
+) error {
 	cmd, ok := lens["command"]
-	if !ok || canRun(commandName(cmd)) {
-		return
+	if !ok {
+		return nil
+	}
+	name, err := commandName(cmd)
+	if err != nil || canRun(name) {
+		return err
 	}
 	var title struct {
 		Title string `json:"title"`
 	}
-	_ = json.Unmarshal(cmd, &title)
+	if err := json.Unmarshal(cmd, &title); err != nil {
+		return fmt.Errorf("convert: lens command title: %w", err)
+	}
 	lens["command"] = marshalOr(map[string]string{"title": title.Title, "command": ""}, cmd)
+	return nil
 }
 
 // commandName reads an LSP Command's command identifier ("" when absent).
 func commandName(
 	raw json.RawMessage,
-) string {
+) (string, error) {
 	var cmd struct {
 		Command string `json:"command"`
 	}
-	_ = json.Unmarshal(raw, &cmd)
-	return cmd.Command
+	if err := json.Unmarshal(raw, &cmd); err != nil {
+		return "", fmt.Errorf("convert: command identifier: %w", err)
+	}
+	return cmd.Command, nil
+}
+
+// entryName names a dropped entry in the log: its title, or a lens's range.
+func entryName(entry map[string]json.RawMessage) string {
+	if title, ok := entry["title"]; ok {
+		return string(title)
+	}
+	return string(entry["range"])
+}
+
+// decodes reports whether raw has v's shape: a result of another shape is not
+// one this package shapes.
+func decodes(
+	raw json.RawMessage,
+	v any,
+) bool {
+	return json.Unmarshal(raw, v) == nil
 }
 
 func marshalOr(

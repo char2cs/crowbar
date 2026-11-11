@@ -13,22 +13,9 @@ type BlockNode = {
   children?: [{ text?: string }]
 }
 
-// Base UI's hover-to-open submenu (Turn into / Align) genuinely races its own
-// auto-close under jsdom: there's no real layout, so every anchor rect
-// (including the submenu trigger's) is 0×0×0×0, and the pending open — which
-// only resolves asynchronously — loses that race to Base UI's own close path
-// often enough to make a `fireEvent.pointerEnter`/`findByText('Heading 1')`
-// gesture flaky in THIS harness specifically (heavier module graph than
-// context-menu.test.tsx's bare `<ContextMenu>` render, so more real
-// wall-clock time elapses before `findByText`'s polling wins the race —
-// confirmed live: `console.trace`'d `handleClose` fired mid-`findByText`,
-// called from Base UI's `MenuPositioner`, not from any click of ours). That's
-// a jsdom/Base UI timing quirk, not something `block-context-menu.tsx`
-// controls, so submenu wiring is verified a different way below: capture the
-// `items` array `BlockContextMenu` passes to the shared `ContextMenu`, and
-// invoke a nested item's `onClick` directly — still the real
-// `BlockSelectionPlugin` transform, just reached without depending on Base
-// UI's hover timing.
+// Base UI's hover-opened submenus race their own auto-close under jsdom (0×0 anchor rects), so
+// submenu wiring is checked by capturing the `items` passed to `ContextMenu` and invoking a nested
+// item's `onClick` — still the real `BlockSelectionPlugin` transform.
 const { capturedItems } = vi.hoisted(() => ({
   capturedItems: { current: null as ContextMenuItem[] | null },
 }))

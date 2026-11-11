@@ -2,10 +2,8 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { useHasViewStrip } from '@/features/panes/hooks/use-tab-view-ids'
 
-// See the `isAtTopEdge` check's own doc below for why this isn't 10.
-// Exported: `useMacTrafficLightSync` re-runs the identical "is this row the
-// one true top-left corner" test from outside any one row's own component
-// tree, and must agree with this hook on where that line falls.
+// The top pane's row sits at its 8px gutter plus the pane border (10px with a 2px border), so
+// 20 leaves headroom. Shared with useMacTrafficLightSync, which must agree on the corner test.
 export const EDGE_THRESHOLD = 20
 
 interface UsePaneTopRowEdgesResult {
@@ -15,19 +13,9 @@ interface UsePaneTopRowEdgesResult {
   isAtTopEdge: boolean
 }
 
-/**
- * Is THIS element's own bounding box flush against a window edge? Extracted
- * from `useTabBarScroll` (the geometry it always measured off `tabBarRef`)
- * so any "pane top row" can read the same window-edge facts — TabBar's own
- * row, and now `ChatOnlyPaneHeader`'s, need the identical macOS
- * traffic-light inset (`isAtLeftEdge && isAtTopEdge`) regardless of which
- * row happens to be occupying a pane's top-left corner.
- *
- * `deps` re-runs the check for a position-only layout change a
- * `ResizeObserver` (SIZE changes only) would miss — e.g. the sidebar
- * flipping side, which shifts a pane without resizing it. The view strip
- * opening or closing above the panes is such a change, so it is always a dep.
- */
+/** Whether this row's box is flush against each window edge (the traffic-light inset needs left
+ *  && top). `deps` re-checks position-only changes a ResizeObserver misses, such as the sidebar
+ *  flipping side; the view strip toggling is always one. */
 export function usePaneTopRowEdges(deps: unknown[] = []): UsePaneTopRowEdgesResult {
   const hasViewStrip = useHasViewStrip()
   const rowRef = useRef<HTMLDivElement>(null)
@@ -48,18 +36,8 @@ export function usePaneTopRowEdges(deps: unknown[] = []): UsePaneTopRowEdgesResu
       if (hasBox) measuredRef.current = true
       setIsAtLeftEdge((rect?.left ?? 1) < EDGE_THRESHOLD)
       setIsAtRightEdge((rect?.right ?? 0) > window.innerWidth - EDGE_THRESHOLD)
-      // Top edge matters for the macOS traffic-light inset: in a vertical
-      // split every pane's top row is at the window's LEFT edge, but only
-      // the one at the window's TOP overlaps the window controls.
-      //
-      // EDGE_THRESHOLD, not 10: the pane actually touching the window's top
-      // still carries its own TOP_GUTTER inset (8px) PLUS the pane box's own
-      // border-top width on top of that (pane-border.ts's BORDER) — a real,
-      // measured rect.top of exactly 10 with a 2px border. A `< 10` cutoff
-      // missed that by a hair and silently dropped the traffic-light inset
-      // (reported live: "Untitled chat" tab rendering flush under the
-      // window controls). 20 leaves headroom for the border to grow again
-      // without this snapping back.
+      // In a vertical split every pane's row is at the LEFT edge; only the one at the TOP sits
+      // under the window controls.
       setIsAtTopEdge((rect?.top ?? 1) < EDGE_THRESHOLD)
     }
     check()

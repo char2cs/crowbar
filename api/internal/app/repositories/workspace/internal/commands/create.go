@@ -89,7 +89,7 @@ func (c CreateWorkspace) EmitEvent(
 		kind = domain.WorkspaceKindGit
 	}
 	// Seed the lifecycle status from the protected flag: a protected branch
-	// starts locked, every other workspace starts new (00 §6.1).
+	// starts locked, every other workspace starts new.
 	status := domain.WorkspaceStatusNew
 	if c.Protected {
 		status = domain.WorkspaceStatusLocked

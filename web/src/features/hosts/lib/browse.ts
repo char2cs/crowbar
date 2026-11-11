@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 
 /** One child of a directory on a host's own filesystem (`GET /v0/system/browse`). */
 export interface BrowseEntry {

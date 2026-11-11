@@ -4,12 +4,13 @@ package worktree_test
 
 import (
 	"net/http"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -53,12 +54,6 @@ func (s *WorktreeSuite) repoChatBase(chatID string) string {
 	return "/v0/projects/" + s.imported.ProjectID +
 		"/repos/" + s.imported.RepoID +
 		"/chats/" + chatID
-}
-
-// importBatchURL returns the batch branch-import route, the sole surviving
-// import mount (spec §8 step 6 deleted its .../workspaces/import twin).
-func (s *WorktreeSuite) importBatchURL() string {
-	return "/v0/projects/" + s.imported.ProjectID + "/repos/" + s.imported.RepoID + "/chats/import-batch"
 }
 
 // createChild creates a child workspace under the suite's parent and returns
@@ -130,7 +125,7 @@ func (s *WorktreeSuite) mergeIntoParent(childID, chatID, strategy string) string
 	before := s.getWorkspace(chatID)
 	preMergeFork, _ := before["forkPointSha"].(string)
 
-	watcher := s.Env.DialChat(s.T(), chatID)
+	watcher := s.Env.HoldProjects(s.T())
 	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/merge-into-parent", map[string]any{
 		"strategy": strategy,
 	})
@@ -158,133 +153,6 @@ func (s *WorktreeSuite) TestWorktree_createChildAddsWorktreeOnDisk() {
 	s.Assert().Equal(s.parentID, child["parentId"])
 
 	kit.AssertWorkspaceConsistency(t, s.Env, s.imported.RepoPath, childID)
-}
-
-// TestWorktree_importCreatesWorkspacesForBranches exercises the batch import
-// endpoint end-to-end over the real daemon: POST .../chats/import-batch with a
-// set of branches returns 202 and each branch's worktree is provisioned and
-// linked to its own owning chat. The fixture repo has no GitHub PRs, so this
-// pins the no-PR path (each branch forks from the default) — the PR-parenting
-// logic is unit-integration-tested against a stubbed PR graph in the worktree
-// usecase.
-//
-// It blocks on each chat's "workspace_set" lifecycle frame rather than a
-// worktree_state one carrying the branch: the atomic mint-then-attach sequence
-// batch import shares with a single chat create (hierarchyOwningChats.
-// AttachOwningWorkspace, container.go — the same pattern
-// chat.SpawnChatWithOwnWorktree uses) mints the owning chat BEFORE the
-// workspace exists, so the workspace's OWN creation-time push resolves no
-// owning chat and is dropped (pushChatWorktree, container.go); attaching the
-// chat afterward only emits the terse chat-lifecycle event, never a re-push of
-// the linked workspace's git state. So "workspace_set" — not a branch-bearing
-// frame — is the only reliable per-branch completion signal this route
-// produces; each branch's actual state is then asserted directly on disk.
-func (s *WorktreeSuite) TestWorktree_importCreatesWorkspacesForBranches() {
-	t := s.T()
-	watcher := s.Env.DialRepoChats(t, s.imported.ProjectID, s.imported.RepoID)
-
-	resp := s.Env.POST(t, s.importBatchURL(), map[string]any{
-		"branches": []string{"import/alpha", "import/beta"},
-	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-
-	linked := map[string]bool{}
-	watcher.ReadUntil(t, 20*time.Second, func(m map[string]any) bool {
-		if m["repoId"] != s.imported.RepoID || m["kind"] != "workspace_set" {
-			return false
-		}
-		if wsID, _ := m["workspaceId"].(string); wsID != "" {
-			linked[wsID] = true
-		}
-		return len(linked) >= 2
-	})
-
-	s.Assert().True(kit.BranchExists(t, s.imported.RepoPath, "import/alpha"),
-		"import must create branch import/alpha")
-	s.Assert().True(kit.BranchExists(t, s.imported.RepoPath, "import/beta"),
-		"import must create branch import/beta")
-}
-
-// TestWorktree_importHeldBranchYieldsPlaceholder is the black-box regression for
-// the confirmed production hang: importing a branch that a worktree OUTSIDE
-// Crowbar already has checked out produced nothing at all. git refuses to check
-// a branch out twice, CreateChild failed, the batch swallowed it and returned
-// success, and the handler's error channel is a no-op without a workspace id —
-// so no frame ever reached this stream and the client's optimistic import row,
-// which is cleared only by a workspace for that branch, spun forever with
-// nothing surfaced.
-//
-// The contract asserted here is that EVERY imported branch produces a row a
-// client can learn of: an unmaterialisable one arrives as a placeholder (no
-// localPath, carrying the holder path) that the client can explain, retry and
-// detach.
-//
-// The row is confirmed over REST rather than a branch-bearing WS frame, for
-// the same reason TestWorktree_importCreatesWorkspacesForBranches gives:
-// batch import mints the owning chat before the workspace exists and only
-// broadcasts the terse "workspace_set" link afterward, never the linked
-// workspace's own git state (container.go's pushChatWorktree needs the chat
-// to already be attached, and nothing re-pushes once it is). "workspace_set"
-// firing at all is still the regression's core proof — the old bug was that
-// a held branch produced NO frame whatsoever and the client's row spun
-// forever; here the chat is reliably linked, and its placeholder shape is
-// then read off the row directly.
-func (s *WorktreeSuite) TestWorktree_importHeldBranchYieldsPlaceholder() {
-	t := s.T()
-
-	// A live worktree outside crowbar home holds the branch — the production
-	// trigger was another tool's worktree under ~/.superconductor.
-	holderPath := filepath.Join(t.TempDir(), "external-holder")
-	kit.GitRun(t, s.imported.RepoPath, "worktree", "add", "-b", "import/held", holderPath)
-
-	watcher := s.Env.DialRepoChats(t, s.imported.ProjectID, s.imported.RepoID)
-	resp := s.Env.POST(t, s.importBatchURL(), map[string]any{
-		"branches": []string{"import/held"},
-	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-
-	var chatID string
-	watcher.ReadUntil(t, 20*time.Second, func(m map[string]any) bool {
-		if m["repoId"] != s.imported.RepoID || m["kind"] != "workspace_set" {
-			return false
-		}
-		if wsID, _ := m["workspaceId"].(string); wsID != "" {
-			chatID, _ = m["chatId"].(string)
-			return true
-		}
-		return false
-	})
-	s.Require().NotEmpty(chatID, "import must link the held branch's workspace to an owning chat")
-	s.Env.Quiesce()
-
-	placeholder := s.getWorkspace(chatID)
-	s.Require().Equal("import/held", placeholder["branch"],
-		"the linked chat must own the import/held branch, not some other row the batch created")
-
-	s.Assert().Empty(placeholder["localPath"],
-		"a held branch has no managed worktree — the empty path IS the placeholder signal")
-	s.Assert().NotEmpty(placeholder["heldByPath"],
-		"the holder path is what the placeholder toast and the Detach… modal render")
-	s.Assert().NotEqual("locked", placeholder["status"],
-		"an imported feature branch must not be locked; locked survives provisioning "+
-			"and would block merge/rename/delete forever")
-}
-
-// TestWorktree_importDefaultBranchIsRefusedSynchronously pins the other silent
-// hang: the import chain walk terminates AT the default branch, so a request
-// naming it created nothing while still answering 202 — leaving the caller's
-// optimistic row waiting on a workspace that was never coming. It must be
-// refused on the request path, where the caller can surface it.
-func (s *WorktreeSuite) TestWorktree_importDefaultBranchIsRefusedSynchronously() {
-	t := s.T()
-
-	resp := s.Env.POST(t, s.importBatchURL(), map[string]any{
-		"branches": []string{s.defaultBranch()},
-	})
-	defer resp.Body.Close()
-	kit.RequireStatus(t, resp, http.StatusConflict)
 }
 
 // TestWorktree_mergeStrategyMerge verifies the fast-forward merge advances the parent.
@@ -326,7 +194,7 @@ func (s *WorktreeSuite) TestWorktree_mergeDeleteSourceRemovesChild() {
 	childID, chatID, worktreePath := s.createChild("feature/merge-delete-source")
 	kit.CommitFile(t, worktreePath, "md.txt", "child change\n", "child commit")
 
-	watcher := s.Env.DialChat(t, chatID)
+	watcher := s.Env.HoldProjects(t)
 	resp := s.Env.POST(t, s.repoChatBase(chatID)+"/merge-into-parent", map[string]any{
 		"strategy":     "merge",
 		"deleteSource": true,
@@ -334,18 +202,10 @@ func (s *WorktreeSuite) TestWorktree_mergeDeleteSourceRemovesChild() {
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
 
-	// Merge runs, then the child is cascade-deleted. The workspace delete's own
-	// "deleted" worktree_state frame is NOT a reliable signal to wait on: it
-	// races the SAME delete's registered dependent-forget reactor
-	// (container.go's forgetDependents → purgeWorkspaceChats, wired on every
-	// workspace delete via RegisterDeleteReactor), which forgets the child's
-	// owning chat asynchronously — and pushChatWorktree drops the tombstone
-	// outright once that chat no longer resolves (a workspace with no owning
-	// chat pushes nothing). That reactor's OWN forget, in contrast, always
-	// fires and always broadcasts the owning chat's "deleted" lifecycle event,
-	// so THAT is the deterministic completion signal here.
-	watcher.ReadUntil(t, 10*time.Second, func(m map[string]any) bool {
-		return m["chatId"] == chatID && m["kind"] == "deleted"
+	// Merge runs, then the child is cascade-deleted: its owning chat's purge,
+	// the cascade's last step, is the completion signal.
+	watcher.Next(t, 10*time.Second, stream.KindChatEntity, func(m map[string]any) bool {
+		return m["id"] == chatID && m["gone"] == true
 	})
 
 	s.Assert().NotEqual(parentTipBefore, kit.RevParse(t, s.parentPath, "HEAD"),
@@ -370,7 +230,7 @@ func (s *WorktreeSuite) TestWorktree_mergeDeleteSourceKeepsNonLeafChild() {
 	preMergeFork, _ := s.getWorkspace(chatID)["forkPointSha"].(string)
 	grandchildID, _, _ := s.createChildUnder(childID, "feature/non-leaf-grandchild")
 
-	watcher := s.Env.DialChat(t, chatID)
+	watcher := s.Env.HoldProjects(t)
 	resp := s.Env.POST(t, s.repoChatBase(chatID)+"/merge-into-parent", map[string]any{
 		"strategy":     "merge",
 		"deleteSource": true,
@@ -438,7 +298,7 @@ func (s *WorktreeSuite) TestWorktree_reparent() {
 	childID, childChatID, childPath := s.createChild("feature/child")
 	kit.CommitFile(t, childPath, "child.txt", "child\n", "child commit")
 
-	watcher := s.Env.DialChat(t, childChatID)
+	watcher := s.Env.HoldProjects(t)
 	// newParentId still names a WORKSPACE (git lineage), not a chat — see
 	// ChatReparent's own doc.
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{
@@ -458,10 +318,6 @@ func (s *WorktreeSuite) TestWorktree_reparent() {
 	s.Assert().Equal(parentBTip, reloaded["forkPointSha"])
 }
 
-// TestWorktree_reparentWithChildrenRejected verifies the has_children guard. The
-// guard runs in the background (00 §4: reparent is 202+async), so the rejection
-// surfaces as a lastError on the workspace WS rather than a synchronous 409. The
-// child's git history must be untouched.
 // TestWorktree_reparentConflictMovesButStaysClean verifies the try-then-warn
 // model: a reparent whose rebase conflicts MOVES the child under the new parent
 // anyway, but ABORTS the rebase so the worktree stays clean (never stuck), and
@@ -476,7 +332,7 @@ func (s *WorktreeSuite) TestWorktree_reparentConflictMovesButStaysClean() {
 	childID, childChatID, childPath := s.createChild("feature/child-conflict")
 	kit.CommitFile(t, childPath, "shared.txt", "child version\n", "child edit") // same file, diverging
 
-	watcher := s.Env.DialChat(t, childChatID)
+	watcher := s.Env.HoldProjects(t)
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{"newParentId": parentBID})
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
@@ -513,7 +369,7 @@ func (s *WorktreeSuite) TestWorktree_rebaseOntoParentConflictKeepsForResolve() {
 	childID, childChatID, childPath := s.createChild("feature/rop-child")
 	kit.CommitFile(t, childPath, "shared.txt", "child version\n", "child edit")
 
-	watcher := s.Env.DialChat(t, childChatID)
+	watcher := s.Env.HoldProjects(t)
 	// Move it under parentB: conflict → moved-but-conflicting, clean worktree.
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{"newParentId": parentBID})
 	kit.RequireStatus(t, resp, http.StatusAccepted)
@@ -523,9 +379,8 @@ func (s *WorktreeSuite) TestWorktree_rebaseOntoParentConflictKeepsForResolve() {
 	})
 
 	// User clicks "Rebase onto parent" → keep the conflict for resolution.
-	// The row is already pr-conflicts from the reparent above, and the working
-	// overlay re-broadcasts the current row when the async op begins — so wait
-	// on the op's real outcome (the persisted fork point), not the status alone.
+	// The row is already pr-conflicts from the reparent above, so wait on the
+	// op's real outcome (the persisted fork point), not the status alone.
 	resp2 := s.Env.POST(t, s.repoChatBase(childChatID)+"/rebase-onto-parent", map[string]any{})
 	kit.RequireStatus(t, resp2, http.StatusAccepted)
 	resp2.Body.Close()
@@ -540,29 +395,23 @@ func (s *WorktreeSuite) TestWorktree_rebaseOntoParentConflictKeepsForResolve() {
 		"the rebase is kept in progress (detached HEAD) for the user to resolve")
 }
 
-// TestWorktree_asyncOpBroadcastsWorkingOverlay pins the working-overlay
-// contract on the wire: accepting an async workspace mutation immediately
-// broadcasts the row with working=true (the tree spinner starts with the 202),
-// and the op's completion broadcasts working=false so the spinner always
-// resolves.
-func (s *WorktreeSuite) TestWorktree_asyncOpBroadcastsWorkingOverlay() {
+// TestWorktree_asyncOpSettlesItsOperation pins the operation contract on the
+// wire: an async workspace mutation answers 202 with its operation, and the
+// operations stream carries it to a terminal state.
+func (s *WorktreeSuite) TestWorktree_asyncOpSettlesItsOperation() {
 	t := s.T()
 
-	childID, chatID, _ := s.createChild("feature/working-overlay")
-	watcher := s.Env.DialChat(t, chatID)
-
+	_, chatID, _ := s.createChild("feature/working-overlay")
 	resp := s.Env.POST(t, s.repoChatBase(chatID)+"/sync", map[string]any{})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-
-	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
-		return m["working"] == true
-	})
-	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
-		return m["working"] == false
-	})
+	op := s.Env.AwaitOperation(t, resp, 10*time.Second)
+	s.Equal(domain.OpWorkspaceSync, op.Kind)
+	s.Equal(domain.OpSucceeded, op.State)
 }
 
+// TestWorktree_reparentWithChildrenRejected verifies the has_children guard. The
+// guard runs after the 202, so the rejection fails the reparent's operation
+// rather than answering a synchronous 409. The child's git history must be
+// untouched.
 func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 	t := s.T()
 
@@ -575,13 +424,10 @@ func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 	// Create a grandchild of `child` — Reparent must reject when child has children.
 	s.createChildUnder(childID, "feature/grandchild-rejected")
 
-	watcher := s.Env.DialChat(t, childChatID)
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{
 		"newParentId": parentBID,
 	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-	kit.WaitForWorkspaceLastError(t, watcher, childID, 5*time.Second)
+	s.Equal(domain.OpFailed, s.Env.AwaitOperation(t, resp, 5*time.Second).State)
 
 	childTipAfterRejection := kit.RevParse(t, childPath, "HEAD")
 	s.Assert().Equal(childTipBefore, childTipAfterRejection, "rejected reparent must not mutate git")
@@ -595,8 +441,8 @@ func (s *WorktreeSuite) TestWorktree_reparentWithChildrenRejected() {
 // testing: reparenting a workspace onto ITSELF was unguarded, producing
 // parentId == id. That self-loop detached the node in the tree AND made it
 // permanently unreparentable (the leaf check counted the node as its own child).
-// The guard now rejects it; the rejection surfaces as a lastError (reparent is
-// 202+async) and the workspace's parent and git history are untouched.
+// The guard now rejects it; the rejection fails the reparent's operation and the
+// workspace's parent and git history are untouched.
 func (s *WorktreeSuite) TestRegression_ReparentOntoSelfRejected() {
 	t := s.T()
 
@@ -604,14 +450,13 @@ func (s *WorktreeSuite) TestRegression_ReparentOntoSelfRejected() {
 	kit.CommitFile(t, childPath, "c.txt", "c\n", "child commit")
 	childTipBefore := kit.RevParse(t, childPath, "HEAD")
 
-	watcher := s.Env.DialChat(t, childChatID)
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{
 		"newParentId": childID, // onto itself
 	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
-	le := kit.WaitForWorkspaceLastError(t, watcher, childID, 5*time.Second)
-	s.Assert().Contains(le, "itself", "self-parent must be rejected with a clear error")
+	op := s.Env.AwaitOperation(t, resp, 5*time.Second)
+	s.Require().Equal(domain.OpFailed, op.State)
+	s.Require().NotNil(op.Error)
+	s.Contains(op.Error.Message, "itself", "self-parent must be rejected with a clear error")
 
 	reloaded := s.getWorkspace(childChatID)
 	s.Assert().Equal(s.parentID, reloaded["parentId"], "self-parent must not change the parent")
@@ -663,7 +508,7 @@ func (s *WorktreeSuite) TestRegression_CreateWorkspace_RemoteBranchAbsent_Create
 func (s *WorktreeSuite) TestRegression_MergeEligibility_SiblingState() {
 	t := s.T()
 
-	parentID, parentChatID, _ := s.createChild("feature/elig-parent")
+	parentID, _, _ := s.createChild("feature/elig-parent")
 
 	// Idle parent → a freshly created child can merge locally onto the parent
 	// branch. A bare create mints no owning chat, and pushChatWorktree pushes
@@ -677,7 +522,7 @@ func (s *WorktreeSuite) TestRegression_MergeEligibility_SiblingState() {
 		"an idle parent must make a freshly created child eligible to merge locally")
 
 	// Lock the parent → the child's eligibility flips to false.
-	parentWatcher := s.Env.DialChat(t, parentChatID)
+	parentWatcher := s.Env.HoldProjects(t)
 	s.Env.PushProviderState(t, parentID, kit.ProviderState{Protected: true})
 	kit.WaitForWorkspaceState(t, parentWatcher, parentID, "locked", 5*time.Second)
 
@@ -698,28 +543,21 @@ func (s *WorktreeSuite) TestWorktree_deleteCascadeSkipsLockedChild() {
 	t := s.T()
 
 	rootID, rootChatID, _ := s.createChild("feature/root-cascade")
-	lockedID, lockedChatID, _ := s.createChildUnder(rootID, "feature/locked-branch")
+	lockedID, _, _ := s.createChildUnder(rootID, "feature/locked-branch")
 
 	// Lock the child via a protected provider state.
-	lockWatcher := s.Env.DialChat(t, lockedChatID)
+	lockWatcher := s.Env.HoldProjects(t)
 	s.Env.PushProviderState(t, lockedID, kit.ProviderState{Protected: true})
 	kit.WaitForWorkspaceState(t, lockWatcher, lockedID, "locked", 5*time.Second)
 
-	rootWatcher := s.Env.DialChat(t, rootChatID)
+	rootWatcher := s.Env.HoldProjects(t)
 	resp := s.Env.DELETE(t, s.repoChatBase(rootChatID))
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
-	// DeleteChat reaps rootID's worktree AND purges rootChatID itself in the SAME
-	// request (chatFolderUsecase.DeleteChat: reap-then-purge). The two race on
-	// the wire: pushChatWorktree needs the owning chat to still resolve at the
-	// moment the workspace's own "deleted" worktree_state frame is built
-	// (container.go — a workspace with no resolved owning chat pushes NOTHING),
-	// and that chat can already be gone by then — so the worktree's own
-	// tombstone is not a reliable signal to wait on here. The chat's own
-	// "deleted" lifecycle frame is, since it is what this same purge
-	// unconditionally emits.
-	rootWatcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["chatId"] == rootChatID && m["kind"] == "deleted"
+	// DeleteChat reaps rootID's worktree, then purges rootChatID: the chat
+	// going is the signal the delete landed.
+	rootWatcher.Next(t, 5*time.Second, stream.KindChatEntity, func(m map[string]any) bool {
+		return m["id"] == rootChatID && m["gone"] == true
 	})
 
 	// The frame above proves the delete command landed; QuiesceReactors then

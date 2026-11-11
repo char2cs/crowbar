@@ -2,14 +2,8 @@ import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import { Switch } from '@/components/ui/switch'
 import Section, { SettingRow } from '../settings-section'
 
-/**
- * Which surface a chat opens on. Its own component so the Agents tab stays
- * within react-doctor's `no-giant-component`.
- *
- * The copy has one job beyond naming the switch: to say that turning it OFF
- * takes nothing away. Chat and Terminal are peers inside every chat, and this
- * only decides which of the two is in front when the chat appears.
- */
+// Which surface a chat opens on. The copy must say turning it off takes nothing away: Chat and
+// Terminal are peers in every chat, and this only picks which is in front.
 export function ChatPresentationSetting() {
   const chatIsDefaultPresentation = useSettingsStore((s) => s.settings.chatIsDefaultPresentation)
   const updateSetting = useSettingsStore((s) => s.updateSetting)

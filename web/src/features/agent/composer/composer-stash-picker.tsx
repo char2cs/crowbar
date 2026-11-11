@@ -22,7 +22,6 @@ function savedLabel(createdAt: string): string {
     : 'Saved draft'
 }
 
-/** A small Crowbar-native menu shown only when an empty composer has choices. */
 export function ComposerStashPicker({ items, onSelect, onClose }: ComposerStashPickerProps) {
   const listRef = useRef<HTMLDivElement>(null)
 

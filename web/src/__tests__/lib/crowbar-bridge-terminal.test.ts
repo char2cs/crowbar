@@ -77,7 +77,7 @@ describe('TerminalConnection', () => {
     expect(frames.map((f) => !f.exit && f.snapshot)).toEqual([true, false])
   })
 
-  // B4: the exit frame is the only thing that ends a terminal; the close that
+  // The exit frame is the only thing that ends a terminal; the close that
   // follows it is not a drop, so nothing reconnects an exited session.
   it('delivers the exit frame in order and does not report the following close as a drop', () => {
     const socket = fakeSocket()
@@ -274,6 +274,24 @@ describe('openTerminal / terminalKill / terminalListLive', () => {
     fetchSpy.mockClear()
     await terminalKill('never-seen')
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('a kill of a session that already exited succeeds; any other failure rejects', async () => {
+    const refuse = (status: number, error: string) => ({
+      ok: false,
+      status,
+      json: async () => ({ success: false, error, data: null }),
+    })
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(refuse(404, 'no such session'))
+      .mockResolvedValueOnce(refuse(500, 'pty: kill: permission denied'))
+    vi.stubGlobal('fetch', fetchSpy)
+    openTerminal('gone', '/v0/chats/c9/terminals')
+    openTerminal('stuck', '/v0/chats/c9/terminals')
+
+    await expect(terminalKill('gone')).resolves.toBeUndefined()
+    await expect(terminalKill('stuck')).rejects.toThrow('permission denied')
   })
 
   it('lists live session ids from the one DTO shape every terminals route serves', async () => {

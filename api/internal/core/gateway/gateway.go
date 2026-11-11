@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -9,10 +10,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/tlsid"
 )
 
-// New binds every listener the daemon serves for host (see bindAddrs),
-// closing any it already bound if a later one fails.
-func New(host string, id *tlsid.Identity) ([]net.Listener, error) {
-	addrs, err := bindAddrs(host)
+// New binds every listener the daemon serves for host (see bindAddrs), closing
+// any it already bound if a later one fails. socket is the socket of the home
+// the caller holds, which a bare "unix://" binds, so the two never disagree.
+func New(host, socket string, id *tlsid.Identity) ([]net.Listener, error) {
+	addrs, err := bindAddrs(host, socket)
 	if err != nil {
 		return nil, err
 	}
@@ -21,7 +23,7 @@ func New(host string, id *tlsid.Identity) ([]net.Listener, error) {
 		ln, err := listen(addr, id)
 		if err != nil {
 			for _, bound := range listeners {
-				_ = bound.Close()
+				err = errors.Join(err, bound.Close())
 			}
 			return nil, err
 		}
@@ -37,14 +39,17 @@ func Exposed(host string) bool {
 }
 
 // bindAddrs lists the addresses New binds for host, in bind order. A
-// network-exposed tcp:// host also binds the local unix socket: `crowbar pair`
+// network-exposed tcp:// host also binds the home's unix socket: `crowbar pair`
 // only dials that socket, and pairing must work from the daemon's own host.
-func bindAddrs(host string) ([]string, error) {
+func bindAddrs(host, socket string) ([]string, error) {
+	local := "unix://" + socket
 	switch {
+	case host == "unix://":
+		return []string{local}, nil
 	case strings.HasPrefix(host, "unix://"):
 		return []string{host}, nil
 	case Exposed(host):
-		return []string{"unix://", host}, nil
+		return []string{local, host}, nil
 	case strings.HasPrefix(host, "tcp://"):
 		return []string{host}, nil
 	default:

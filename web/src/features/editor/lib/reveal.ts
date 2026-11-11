@@ -1,76 +1,49 @@
-/**
- * Reveal a file position in the editor — the one navigation path for
- * go-to-definition, references, jump-list Back/Forward and "open at line".
- *
- * The cursor is placed once the pane's retained Monaco widget actually shows
- * the target model ({@link editorReadyFor}), not after a guessed delay: the old
- * 100–150 ms timers raced the lazy editor chunk and the model swap, and placed
- * the cursor by a character offset computed from whichever buffer happened to
- * be active — the wrong file on a slow switch, the wrong line on a large one.
- */
+// The one navigation path for definition, references, jump-list Back/Forward and "open at line".
+// The cursor is placed once the pane's retained widget shows the target model, never after a
+// guessed delay, which races the lazy editor chunk and the model swap.
 import type * as Monaco from 'monaco-editor'
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
+import type { DocumentTarget } from '@/lib/api/documents'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
-import {
-  getActiveWorkspaceStore,
-  getWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
-import type { ActiveEditorRegistry } from './active-editor-context'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { activeEditors } from './active-editor-context'
 
 type CodeEditor = Monaco.editor.ICodeEditor
 
 export interface RevealTarget {
-  workspaceId: string
-  /** Workspace-relative path. */
-  path: string
+  doc: DocumentTarget
   /** 0-based LSP-style position. */
   position?: { line: number; character: number }
   /** Called with the buffer that will be shown, just before it is activated. */
   beforeShow?: (bufferId: string) => void
 }
 
-function findEditorBufferId(workspaceId: string, path: string): string | null {
-  const buffer = windowPaneStore
-    .getState()
-    .buffers.find((b) => isEditorContent(b) && b.path === path && b.workspaceId === workspaceId)
-  return buffer?.id ?? null
-}
-
-/**
- * Make `bufferId` the active tab of the pane that holds it, or attach it to
- * the active pane when none does (a pane only renders tabs in its own
- * editorTabIds — activating one it does not hold leaves it blank).
- */
-function showBufferInPane(bufferId: string): string {
-  const state = windowPaneStore.getState()
-  const holding = state.paneActions.getPaneByEditorTabId(bufferId)
-  if (holding) {
-    state.paneActions.setActivePane(holding.id)
-    state.paneActions.activateEditorTabInPane(holding.id, bufferId)
-    return holding.id
+function placeCursor(editor: CodeEditor, target: RevealTarget): void {
+  if (target.position) {
+    const position = {
+      lineNumber: target.position.line + 1,
+      column: target.position.character + 1,
+    }
+    editor.setSelection({
+      startLineNumber: position.lineNumber,
+      startColumn: position.column,
+      endLineNumber: position.lineNumber,
+      endColumn: position.column,
+    })
+    editor.revealPositionInCenterIfOutsideViewport(position)
   }
-  const buffer = state.buffers.find((b) => b.id === bufferId)
-  if (buffer) state.paneActions.addEditorTabToPane(state.activePaneId, buffer)
-  return state.activePaneId
+  editor.focus()
 }
 
-function registriesFor(workspaceId: string): ActiveEditorRegistry[] {
-  const own = getWorkspaceStore(workspaceId)?.activeEditorRegistry
-  const active = getActiveWorkspaceStore()?.activeEditorRegistry
-  return [own, active].filter((r, i, all): r is ActiveEditorRegistry => !!r && all.indexOf(r) === i)
-}
-
-/**
- * Resolves with the pane's editor once it shows `path`, or null if the pane
- * moves to another tab (or the buffer closes) first. No timeout: the pane
- * either shows the buffer or the user navigated away.
- */
-function editorReadyFor(
+/** Place the cursor the moment the pane's editor shows `uri` and resolve with that editor; null
+ *  if the pane moves to another tab or the buffer closes first. No timeout: the pane either shows
+ *  the buffer or the user navigated away. */
+function placeWhenShown(
   paneId: string,
-  workspaceId: string,
-  path: string,
+  uri: string,
   bufferId: string,
+  target: RevealTarget,
 ): Promise<CodeEditor | null> {
   return new Promise((resolve) => {
     const cleanups: Array<() => void> = []
@@ -92,60 +65,32 @@ function editorReadyFor(
         state.panes[paneId]?.activeEditorTabId !== bufferId
       )
     }
-    for (const registry of registriesFor(workspaceId)) {
-      own(
-        registry.subscribe(paneId, (ctx) => {
-          if (ctx?.filePath === path && ctx.editor) settle(ctx.editor as CodeEditor)
-        }),
-      )
-    }
+    // By uri, not path: one window registry sees every document.
+    own(
+      activeEditors.subscribe(paneId, (ctx) => {
+        if (settled || ctx?.uri !== uri || !ctx.editor) return
+        // Placed inside the notification, before dev (StrictMode) can remount the
+        // widget: the manager hands its view state, cursor included, to the survivor.
+        placeCursor(ctx.editor as CodeEditor, target)
+        settle(ctx.editor as CodeEditor)
+      }),
+    )
     if (abandoned()) settle(null)
     own(windowPaneStore.subscribe(() => abandoned() && settle(null)))
   })
 }
 
-function placeCursor(editor: CodeEditor, target: RevealTarget): void {
-  if (target.position) {
-    const position = {
-      lineNumber: target.position.line + 1,
-      column: target.position.character + 1,
-    }
-    editor.setSelection({
-      startLineNumber: position.lineNumber,
-      startColumn: position.column,
-      endLineNumber: position.lineNumber,
-      endColumn: position.column,
-    })
-    editor.revealPositionInCenterIfOutsideViewport(position)
-  }
-  editor.focus()
-}
-
-/**
- * Open (or switch to) `target.path` in `target.workspaceId` and place the
- * cursor. Resolves with the editor showing it, or null when the file could
- * not be opened or the user navigated away before it showed. Read failures
- * propagate so callers can tell the user.
- */
+/** Open (or switch to) `target.doc` and place the cursor; resolves with that editor, or null if
+ *  the open failed (it reports why) or the user navigated away. A remount may replace the editor;
+ *  the survivor restores the cursor from view state and usePaneEditorSatellites focuses it. */
 export async function revealInEditor(target: RevealTarget): Promise<CodeEditor | null> {
-  let bufferId = findEditorBufferId(target.workspaceId, target.path)
-  if (!bufferId) {
-    // Read through the target's own workspace: sibling worktrees share
-    // relative paths with different content.
-    const content = await readWorkspaceFile(target.workspaceId, target.path)
-    bufferId =
-      findEditorBufferId(target.workspaceId, target.path) ??
-      windowPaneStore.getState().bufferActions.openContent({
-        type: 'editor',
-        path: target.path,
-        name: target.path.split('/').pop() || target.path,
-        content,
-        workspaceId: target.workspaceId,
-      })
-  }
-  target.beforeShow?.(bufferId)
-  const paneId = showBufferInPane(bufferId)
-  const editor = await editorReadyFor(paneId, target.workspaceId, target.path, bufferId)
-  if (editor) placeCursor(editor, target)
-  return editor
+  const bufferId = await openDocument(target.doc, { beforeShow: target.beforeShow })
+  if (!bufferId) return null
+  const state = windowPaneStore.getState()
+  const buffer = state.buffers.find((b) => b.id === bufferId)
+  if (!buffer || !isEditorContent(buffer)) return null
+  const paneId = state.panes[state.activePaneId]?.editorTabIds.includes(bufferId)
+    ? state.activePaneId
+    : (state.paneActions.getPaneByEditorTabId(bufferId)?.id ?? state.activePaneId)
+  return placeWhenShown(paneId, documentUri(documentRefOf(buffer)), bufferId, target)
 }

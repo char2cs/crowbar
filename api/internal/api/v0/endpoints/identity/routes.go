@@ -9,16 +9,8 @@ import (
 	identityhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity/handlers"
 )
 
-// Register mounts the identity GET route on the flat chat-scoped group (spec
-// §7.1), the only surface identity is addressable through: chats/:chatId/
-// identity. identity is spec §4.2's shared bucket — the worktree answers
-// once, and every chat holding it gets that answer — resolved from the
-// request context by chatScoped's own resolveChatWorktree middleware (see
-// handlers.Handlers.resolveWorkspace).
-//
-// The old /projects/:projectId/repos/:repoId/workspaces/:wsId/identity mount
-// is gone (spec §8 step 6): every caller had already moved to the mount kept
-// here.
+// Register mounts GET /v0/chats/:chatId/identity. Identity belongs to the
+// worktree, so every chat holding it gets the same answer.
 func Register(
 	chatScoped *gin.RouterGroup,
 	identity identityhandlers.IdentityResolver,

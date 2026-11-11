@@ -12,38 +12,39 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // fakeNodeCreator stands in for the Node surface WithNodes wires: it records
 // every Create call so a test can prove a workspace's own Node row was minted
 // (or was not, when the create itself failed) with no separate backfill step.
 type fakeNodeCreator struct {
-	created []domain.Node
+	created []tree.Node
 	err     error
 }
 
 func (f *fakeNodeCreator) Create(
 	_ context.Context,
 	id string,
-	kind domain.NodeKind,
+	kind tree.Kind,
 	parentID string,
 	order int,
-) (domain.Node, error) {
+) (tree.Node, error) {
 	if f.err != nil {
-		return domain.Node{}, f.err
+		return tree.Node{}, f.err
 	}
-	n := domain.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
+	n := tree.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
 	f.created = append(f.created, n)
 	return n, nil
 }
 
-func (f *fakeNodeCreator) idFor(id string) (domain.Node, bool) {
+func (f *fakeNodeCreator) idFor(id string) (tree.Node, bool) {
 	for _, n := range f.created {
 		if n.ID == id {
 			return n, true
 		}
 	}
-	return domain.Node{}, false
+	return tree.Node{}, false
 }
 
 // TestCreateChild_NoRepoPath_MintsWorkspaceNode proves the path-less/no-worktree
@@ -67,7 +68,7 @@ func TestCreateChild_NoRepoPath_MintsWorkspaceNode(t *testing.T) {
 
 	n, ok := nodes.idFor(out.ID)
 	require.True(t, ok, "the new workspace must have its own Node row the instant it is created")
-	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+	assert.Equal(t, tree.KindWorkspace, n.Kind)
 }
 
 // TestCreateChild_WorktreeBacked_MintsWorkspaceNode proves the real,
@@ -95,7 +96,7 @@ func TestCreateChild_WorktreeBacked_MintsWorkspaceNode(t *testing.T) {
 
 	n, ok := nodes.idFor(out.ID)
 	require.True(t, ok, "a live fork's workspace must have its own Node row the instant it is created")
-	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+	assert.Equal(t, tree.KindWorkspace, n.Kind)
 }
 
 // TestCreateChild_AdoptMainWorktree_MintsWorkspaceNode proves the repo-home
@@ -124,7 +125,7 @@ func TestCreateChild_AdoptMainWorktree_MintsWorkspaceNode(t *testing.T) {
 
 	n, ok := nodes.idFor(out.ID)
 	require.True(t, ok, "the adopted repo-home workspace must have its own Node row the instant it is created")
-	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+	assert.Equal(t, tree.KindWorkspace, n.Kind)
 }
 
 // TestCreateFromImport_Placeholder_MintsWorkspaceNode proves the batch-import
@@ -146,14 +147,14 @@ func TestCreateFromImport_Placeholder_MintsWorkspaceNode(t *testing.T) {
 	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
 		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "main",
-		Branches: []string{"feat/x"},
-	})
+		Branches: branches("feat/x"),
+	}, &outcomes{})
 	require.NoError(t, err, "a free branch that fails to materialise still yields a placeholder row")
 	require.NotEmpty(t, placeholderID)
 
 	n, ok := nodes.idFor(placeholderID)
 	require.True(t, ok, "the placeholder workspace must have its own Node row the instant it is created")
-	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+	assert.Equal(t, tree.KindWorkspace, n.Kind)
 }
 
 // TestCreateChild_NoWithNodesOption_UsesNoOpDefaultAndStillSucceeds proves
@@ -321,13 +322,16 @@ func TestCreateFromImport_Placeholder_NodeMintFails_RollsBackWorkspaceAndChat(t 
 	uc := hierarchy.New(inner, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(), hierarchy.WithNodes(nodes))
 	chats := withOwningChats(uc)
 
+	got := &outcomes{}
 	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
 		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "main",
-		Branches: []string{"feat/x"},
-	})
+		Branches: branches("feat/x"),
+	}, got)
 
-	require.Error(t, err, "a placeholder whose own node row could not be minted produces no row at all")
+	require.NoError(t, err)
+	require.ErrorContains(t, got.of(t, "feat/x").Err, "node create boom",
+		"a placeholder whose own node row could not be minted is reported with why")
 	require.NotEmpty(t, createdID)
 	assert.Equal(t, []string{createdID}, deletedIDs,
 		"the placeholder whose own node row could not be minted must be taken back out")

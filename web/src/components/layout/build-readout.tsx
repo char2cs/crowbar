@@ -124,20 +124,12 @@ function Lines({ info, frame }: { info: BuildInfo; frame: FrameStats }) {
   return <ReadoutText lines={parts.lines} net={parts.net} hosts={<HostEntries />} />
 }
 
-/**
- * Build, daemon connection and frame stats, set like a net-graph: pale yellow
- * monospace with a dark outline, straight on the chrome. Purely visual: it
- * takes no layout space and no pointer events, so a tab under it stays
- * clickable. It is as wide as its text up to 42ch, then wraps between segments,
- * growing down from its anchor (`top-auto bottom-0` grows up); an anchor with a
- * real box (the sidebar foot) passes `w-auto` and both side insets.
- * On the phone the sidebar page draws it instead (`NativeReadoutView`).
- * The frame loop and the store watchers run only while this is shown
- * (Settings → Appearance → Build readout).
- */
+// Build, connection and frame stats drawn like a net-graph, taking no layout or pointer events so
+// tabs under it stay clickable; wraps between segments past 42ch. The phone draws it natively;
+// the frame loop and watchers run only while the setting shows it.
 export function BuildReadout({ className }: { className?: string }) {
   const info = useResolvedBuildInfo()
-  const visible = useSettingsStore((s) => s.settings.showBuildReadout)
+  const visible = useSettingsStore((s) => s.settings.buildReadout)
   const phone = hasNativeChrome()
   const frame = useFrameStats(visible && !phone)
   if (!visible || !info || phone) return null

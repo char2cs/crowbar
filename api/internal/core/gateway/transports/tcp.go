@@ -12,11 +12,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/tlsid"
 )
 
-// NewTCP binds a TCP listener. A loopback bind stays plaintext — the dev
-// path — regardless of id. A non-loopback bind terminates TLS using id's
-// server identity when supplied, and is refused outright when it is not; no
-// client certificate is ever requested (server-TLS-only, not mTLS — auth is
-// the bearer token carried in the request, not the connection).
+// NewTCP binds a TCP listener. A loopback bind stays plaintext (the dev path); a
+// non-loopback bind requires id and terminates server-only TLS with it, since auth is
+// the request's bearer token, not a client certificate.
 func NewTCP(
 	host string,
 	id *tlsid.Identity,
@@ -40,10 +38,8 @@ func NewTCP(
 	return tlsListen(ln, id), nil
 }
 
-// listenPlaintext binds the loopback dev listener and says loudly what it is:
-// no request on it is authenticated, so anything that relays remote traffic
-// onto it (a reverse proxy, an ssh -L, a published port) hands that traffic
-// the whole API.
+// listenPlaintext binds the loopback dev listener and warns loudly: nothing on it is
+// authenticated, so anything relaying remote traffic onto it exposes the whole API.
 func listenPlaintext(addr string) (net.Listener, error) {
 	ln, err := listenTCP(addr)
 	if err != nil {
@@ -77,10 +73,9 @@ func IsNetworkExposed(host string) bool {
 	return isNonLoopbackBind(strings.TrimPrefix(host, "tcp://"))
 }
 
-// isNonLoopbackBind reports whether addr binds beyond loopback. Only a literal
-// loopback IP (127.0.0.0/8, ::1) or exactly "localhost" stays local: an empty
-// or wildcard host binds every interface, and any other DNS name resolves
-// wherever its owner points it, so it is treated as exposed.
+// isNonLoopbackBind reports whether addr binds beyond loopback. Only a literal loopback
+// IP or exactly "localhost" stays local; an empty or wildcard host binds every interface,
+// and any other DNS name resolves wherever its owner points it.
 func isNonLoopbackBind(addr string) bool {
 	h, _, err := net.SplitHostPort(addr)
 	if err != nil {

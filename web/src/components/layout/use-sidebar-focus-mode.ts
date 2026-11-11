@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { SIDEBAR_PANEL_TABS } from './sidebar-panel-tabs'
 
@@ -11,19 +11,13 @@ function surfaceOf(target: EventTarget | null) {
   return SIDEBAR_PANEL_TABS.find((t) => t.tab === kind) ?? null
 }
 
-/**
- * Focus crossing into a different kind of pane surface (editor, diff, chat or
- * terminal) moves the sidebar mode, when the `sidebarFollowsFocus` setting is on. Unmarked focus (a dialog, the mode bar)
- * is no crossing, so a manual choice holds until the next one. Focus before
- * the user's first press (startup restoring an editor, a terminal
- * auto-focusing) is not theirs, so the persisted mode survives it.
- */
+// With `sidebarFollowsFocus`, focus crossing into another pane surface kind moves the sidebar
+// mode. Unmarked focus is no crossing, so a manual choice holds; focus before the user's first
+// press (startup restore) is not theirs, so the persisted mode survives it.
 export function useSidebarFocusMode(): void {
   const follows = useSettingsStore((s) => s.settings.sidebarFollowsFocus)
-  // No isTrusted check: startup focus is programmatic, never a press, and
-  // jsdom cannot produce trusted events for the tests that drive this gate.
-  // Tracked apart from the focus listener so flipping the setting (itself a
-  // press) does not hand focus back to "startup".
+  // No isTrusted check (startup focus is never a press; jsdom can't make trusted events). Tracked
+  // apart from the focus listener so flipping the setting doesn't reset to "startup".
   const interacted = useRef(false)
   useEffect(() => {
     const onInteract = () => {
@@ -48,7 +42,7 @@ export function useSidebarFocusMode(): void {
       if (!interacted.current || !surface.available(useFocusedWorkspaceContextStore.getState())) {
         return
       }
-      useSidebarStore.getState().setActiveTab(surface.tab)
+      treeUiStore.getState().setActiveTab(surface.tab)
     }
     document.addEventListener('focusin', onFocusIn)
     return () => document.removeEventListener('focusin', onFocusIn)

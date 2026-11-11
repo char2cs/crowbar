@@ -29,7 +29,7 @@ import (
 // the wrong worktree, or none, loses the user's edit.
 
 // recordingFiles is stubFiles with one question answered: which workspace id
-// did the handler pass? It embeds the shared stub so the 8-method Files
+// did the handler pass? It embeds the shared stub so the 6-method Files
 // interface stays defined in one place and only the calls under test are
 // overridden.
 type recordingFiles struct {
@@ -64,10 +64,10 @@ func (r *recordingFiles) Tree(
 	return []domain.FileNode{}, nil
 }
 
-func (r *recordingFiles) WriteContent(
+func (r *recordingFiles) CreateFile(
 	_ context.Context,
 	wsID string,
-	_, _, _ string,
+	_ string,
 	_ time.Time,
 ) error {
 	r.record(wsID)
@@ -109,12 +109,12 @@ func filesRouterForScopes(
 		c.Next()
 	})
 	chatScoped.GET("/files/tree", h.Tree)
-	chatScoped.PUT("/files/content", h.SaveContent)
+	chatScoped.POST("/files", h.Create)
 	chatScoped.DELETE("/files", h.Delete)
 
 	wsScoped := r.Group("/v0")
 	wsScoped.GET("/workspaces/:wsId/files/tree", h.Tree)
-	wsScoped.PUT("/workspaces/:wsId/files/content", h.SaveContent)
+	wsScoped.POST("/workspaces/:wsId/files", h.Create)
 	wsScoped.DELETE("/workspaces/:wsId/files", h.Delete)
 
 	return r
@@ -145,10 +145,9 @@ func TestChatScopedWrite_ActsOnTheResolvedWorktree(t *testing.T) {
 	files := &recordingFiles{}
 	r := filesRouterForScopes(t, files)
 
-	rec := do(r, http.MethodPut, "/v0/chats/chat-1/files/content",
-		map[string]string{"path": "a.go", "content": "hello"})
+	rec := do(r, http.MethodPost, "/v0/chats/chat-1/files", map[string]string{"path": "a.go"})
 
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, "ws-resolved", files.last(t))
 }
 
@@ -177,16 +176,11 @@ func TestWorkspaceScopedRoutesStillActOnTheirPathParam(t *testing.T) {
 		method string
 		path   string
 		body   any
+		status int
 	}{
-		{"read", http.MethodGet, "/v0/workspaces/ws-direct/files/tree", nil},
-		{
-			"write", http.MethodPut, "/v0/workspaces/ws-direct/files/content",
-			map[string]string{"path": "a.go", "content": "hello"},
-		},
-		{
-			"delete", http.MethodDelete, "/v0/workspaces/ws-direct/files",
-			map[string]string{"path": "a.go"},
-		},
+		{"read", http.MethodGet, "/v0/workspaces/ws-direct/files/tree", nil, http.StatusOK},
+		{"write", http.MethodPost, "/v0/workspaces/ws-direct/files", map[string]string{"path": "a.go"}, http.StatusCreated},
+		{"delete", http.MethodDelete, "/v0/workspaces/ws-direct/files", map[string]string{"path": "a.go"}, http.StatusOK},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -195,7 +189,7 @@ func TestWorkspaceScopedRoutesStillActOnTheirPathParam(t *testing.T) {
 
 			rec := do(r, tc.method, tc.path, tc.body)
 
-			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, tc.status, rec.Code)
 			assert.Equal(t, "ws-direct", files.last(t))
 		})
 	}

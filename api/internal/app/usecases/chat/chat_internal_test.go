@@ -5,29 +5,25 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // ─── from wiring_internal_test.go ─────────────────────────────────────
 
 type wiringChats struct{ agentchat.EventStore }
-
-type wiringRunners struct{ agentrunner.EventStore }
-
-type wiringActivity struct{ agentactivity.EventStore }
 
 type wiringWorkspace struct{ WorkspaceReader }
 
@@ -44,7 +40,7 @@ type wiringPrefs struct {
 type screenReadingCommander struct{}
 
 func (screenReadingCommander) CreateCommand(
-	context.Context, string, string, []string, []string, func(),
+	context.Context, string, string, []string, []string, func(engineterminal.Exit),
 ) (string, error) {
 	return "", nil
 }
@@ -65,36 +61,27 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 // field must come back non-nil, so a field added to any of them is guarded the day
 // it is added; anything added here has to carry the reason it is legitimately nil
 // after construction.
-var constructorUnsetFields = map[string]string{
-	"runners.promptSettled": "wired by StartTerminalWaitSweep, not New: it " +
-		"publishes through the hub, a layer above this one, and stays nil in a " +
-		"daemon with no detector (internal/runner/runner.go).",
-	"turns.feed": "wired by StartTerminalWaitSweep beside promptSettled, for the " +
-		"same reason: a daemon with nobody to publish to records the message when " +
-		"it finishes instead (internal/turn/turns.go).",
-}
+var constructorUnsetFields = map[string]string{}
 
 // sharedInstances are the pieces of in-flight state that MUST be one instance
 // across the components holding them, listed as the field each component knows
-// them by. The names differ on purpose — a registry the hook side calls `turns`
-// is what the lifecycle side blocks on as `inflightTurns` — so the sharing cannot
-// be inferred from the field name and has to be stated.
+// them by, so the sharing cannot be inferred from the field name and has to be
+// stated.
 //
 // A second instance of any of these does not fail to compile and does not fail a
-// test that exercises one path at a time. It wedges a switch on a turn nothing
-// will ever complete, or puts two CLIs on one chat.
+// test that exercises one path at a time. It puts two CLIs on one chat.
 var sharedInstances = map[string][]string{
-	"the work mirror":     {"conversations.work", "turns.work", "runners.work"},
-	"the spawn gate":      {"conversations.spawns", "runners.spawns"},
-	"the turn registry":   {"turns.turns", "runners.inflightTurns"},
-	"the turn-start gate": {"turns.turnStarts", "runners.turnStarts"},
-	"the hook barrier":    {"turns.pendingHooks", "runners.pendingHooks"},
-	"the telemetry store": {"conversations.telemetry", "turns.telemetry"},
-	"the answer desk":     {"answers", "turns.answers", "runners.answers"},
-	"the chat record":     {"conversations", "turns.conversations", "runners.conversations"},
+	// A hook and a user-initiated spawn on one chat are ordered by this one lock;
+	// a second would let a hook land inside the decision it contradicts.
+	"the chat locks":      {"ingress.locks", "runners.chatLock"},
+	"the telemetry store": {"conversations.telemetry", "recorder.telemetry"},
+	"the answer desk":     {"answers", "recorder.answers", "runners.answers"},
+	"the chat record":     {"conversations", "recorder.titles", "runners.conversations"},
 	"the provider table":  {"providers", "runners.providers"},
-	"the CLI lifecycle":   {"runners", "conversations.runners", "turns.runners"},
-	"the hook ingress":    {"turns", "runners.turns"},
+	"the CLI lifecycle":   {"runners", "conversations.runners", "recorder.runners", "ingress.runners"},
+	"the turn record":     {"recorder", "ingress.turns", "ingress.descriptors"},
+	"the chat ledger":     {"ledger", "conversations.ledger", "recorder.ledger", "runners.ledger", "ingress.ledger"},
+	"the payload store":   {"blobs", "conversations.blobs", "recorder.blobs"},
 }
 
 var nilableKinds = map[reflect.Kind]bool{
@@ -121,10 +108,15 @@ func newWiringFixture(t *testing.T) *Usecase {
 	home := t.TempDir()
 	agentsEngine := engineagents.New()
 	t.Cleanup(agentsEngine.Close)
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	chatLedger, err := ledgerstore.Open(t.Context(), db, time.Now)
+	require.NoError(t, err)
+	blobs, err := ledgerstore.OpenBlobs(t.TempDir())
+	require.NoError(t, err)
 	return New(Deps{
 		Chats:         wiringChats{},
-		Runners:       wiringRunners{},
-		Activity:      wiringActivity{},
+		Blobs:         blobs,
 		Agents:        agentsEngine,
 		Terminal:      screenReadingCommander{},
 		Workspace:     wiringWorkspace{},
@@ -132,6 +124,7 @@ func newWiringFixture(t *testing.T) *Usecase {
 		Lineage:       wiringLineage{},
 		ProviderPrefs: wiringPrefs{},
 		Home:          func() (string, error) { return home, nil },
+		Ledger:        chatLedger,
 		Minter:        minter,
 		Tools:         agenttools.Deps{},
 		// Folders/Nodes are ALWAYS wired in production (container.go, both
@@ -171,9 +164,10 @@ func walkable(u *Usecase) map[string]any {
 	return map[string]any{
 		"":              u,
 		"conversations": u.conversations,
-		"turns":         u.turns,
+		"recorder":      u.recorder,
 		"runners":       u.runners,
 		"providers":     u.providers,
+		"ingress":       u.ingress,
 	}
 }
 
@@ -309,137 +303,6 @@ func TestNew_WiresTheToolSurfaceBackToTheUsecase(t *testing.T) {
 // Each test was verified to FAIL when its invariant was inverted; the inversion and
 // the message it produces are recorded in the comment above it.
 
-// §7.1 — the hook ingress is never GIVEN the spawn gate.
-//
-// A hook must never block and must never fail: by the time it arrives the CLI has
-// already acted. If ingest could take that gate, a SwitchProvider holding it while it
-// parks waiting for the turn to finish would deadlock the CLI that is trying to report
-// that very turn.
-//
-// This used to be asserted by watching a goroutine not block, which proves something
-// about the goroutine and nothing about production. Since the decomposition it is
-// STRUCTURAL: New hands the spawn gate to the chat record and to the CLI lifecycle,
-// and to nothing else, so the hook ingress cannot take a lock it was never given.
-//
-// Inverted (add Spawns to turn.Deps and pass sh.spawns to it): fails with "the hook
-// ingress was handed the spawn gate".
-func TestInvariant_TheHookIngressIsNeverGivenTheSpawnGate(t *testing.T) {
-	t.Parallel()
-	u := newWiringFixture(t)
-
-	spawnGate := fieldPointer(t, u, "runners.spawns")
-	if spawnGate != fieldPointer(t, u, "conversations.spawns") {
-		t.Fatal("precondition: the two paths that DO take the spawn gate must share one")
-	}
-
-	for name, held := range gatesHeldBy(u.turns) {
-		if held == spawnGate {
-			t.Fatalf("the hook ingress was handed the spawn gate as %q: a switch holding "+
-				"it would deadlock the CLI trying to report the very turn the switch is "+
-				"waiting for", name)
-		}
-	}
-}
-
-// gatesHeldBy collects every per-chat gate a component holds, by field name. The
-// ingress legitimately holds two of them (the turn-start interlock and the
-// per-runner hook gate); what it must never hold is the spawn gate.
-func gatesHeldBy(component any) map[string]uintptr {
-	held := map[string]uintptr{}
-	fields := reflect.ValueOf(component).Elem()
-	for i := range fields.NumField() {
-		field := fields.Field(i)
-		if field.Kind() != reflect.Pointer || field.IsNil() {
-			continue
-		}
-		if field.Type() != reflect.TypeFor[*inflight.Gate]() {
-			continue
-		}
-		held[fields.Type().Field(i).Name] = field.Pointer()
-	}
-	return held
-}
-
-// §7.2 — an UNKNOWN work state is never read as idle.
-//
-// The in-memory mirror is authoritative only once something has written to it. A
-// switch asks "is this chat working?" and, if the mirror knows nothing, must fall back
-// to the aggregate rather than assume idle — assuming idle is what killed a CLI still
-// doing background work after its turn ended.
-//
-// This is the decision the ordering in closeTurn exists to protect (work.set runs
-// before the deferred turns.complete). Asserting those two calls' order inside a test
-// would only test the test; this asserts the behaviour that makes the order matter.
-//
-// Inverted (make chatWorking return `false, nil` when the mirror is unknown instead of
-// reading the aggregate): fails with "an unknown work state was read as idle".
-func TestInvariant_AnUnknownWorkStateFallsBackToTheAggregate(t *testing.T) {
-	t.Parallel()
-	work := inflight.NewWork()
-	turns := turn.New(turn.Deps{Chats: workingChats{working: true}, Work: work})
-
-	if _, known, _ := work.Observe("chat-1"); known {
-		t.Fatal("precondition: the mirror must know nothing about this chat")
-	}
-
-	working, err := turns.ChatWorking(t.Context(), "chat-1")
-	if err != nil {
-		t.Fatalf("chatWorking: %v", err)
-	}
-	if !working {
-		t.Fatal("an unknown work state was read as idle; the aggregate says the chat IS " +
-			"working, and a switch trusting this would kill a CLI mid-background-work")
-	}
-
-	// Once the mirror knows, it wins: it is newer than any aggregate read.
-	work.Set("chat-1", false)
-	if working, err := turns.ChatWorking(t.Context(), "chat-1"); err != nil || working {
-		t.Fatalf("a KNOWN mirror state must win over the aggregate, got (%v,%v)", working, err)
-	}
-}
-
-// §7.3 — liveness is row existence: the runner points at the chat, the chat never
-// points back.
-//
-// Two places recording "who is live" is two places that can disagree, and the one that
-// disagrees silently is the one that keeps a dead CLI on screen.
-//
-// Inverted (add a live-runner field to the chat aggregate and assert on it here):
-// there is no second source to read, which is the point.
-func TestInvariant_TheChatCarriesNoLivenessFlagOfItsOwn(t *testing.T) {
-	t.Parallel()
-	// A compile-time statement, deliberately: if someone adds a Live/Running field to
-	// the chat aggregate, this file is where the argument against it lives.
-	work := inflight.NewWork()
-	if _, known, _ := work.Observe("never-seen"); known {
-		t.Fatal("an unseen chat reported a KNOWN work state; liveness must come from " +
-			"the runner row's existence, never from a flag the chat carries")
-	}
-}
-
-// §7.6 — the exactly-once hook ingress is a DECLARED method, never discovered at
-// runtime.
-//
-// It used to be found with a `, ok` type assertion. A port that only MIGHT carry it is
-// a port a mis-wire drops silently: every hook takes the un-journalled path, every
-// relay retry applies twice, and nothing fails until a user sees the same turn twice.
-//
-// Inverted (remove IngestHookDelivery from the TurnUsecase interface, or stop the
-// concrete type implementing it): this file stops compiling, which is the entire point
-// — the guarantee is a compile error, not a test failure.
-func TestInvariant_TheExactlyOnceHookIngressIsCompileTimeWired(t *testing.T) {
-	t.Parallel()
-	// The concrete type the container builds must satisfy the port INCLUDING the
-	// journalled ingress. If this ever needs a type assertion to be true, the
-	// invariant is already broken.
-	var _ interface {
-		IngestHookDelivery(
-			ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
-			rawPayload []byte,
-		) error
-	} = (*Usecase)(nil)
-}
-
 // §7.4 — a runner is ended with SIGTERM, never SIGKILL.
 //
 // Graceful matters twice: a well-behaved CLI flushes its native transcript on SIGTERM,
@@ -462,7 +325,7 @@ func TestInvariant_TheOnlyWayToEndARunnerIsGraceful(t *testing.T) {
 type terminalCommanderShape struct{}
 
 func (terminalCommanderShape) CreateCommand(
-	_ context.Context, _, _ string, _, _ []string, _ func(),
+	_ context.Context, _, _ string, _, _ []string, _ func(engineterminal.Exit),
 ) (string, error) {
 	return "", nil
 }
@@ -474,14 +337,3 @@ func (terminalCommanderShape) TerminateGraceful(_ context.Context, _ string) err
 func (terminalCommanderShape) Write(_ context.Context, _ string, _ []byte) error { return nil }
 
 func (terminalCommanderShape) SessionLive(_ context.Context, _ string) bool { return false }
-
-// workingChats is the chat store as this file needs it: an aggregate reporting that a
-// chat is working, so the fallback in chatWorking has something to fall back TO.
-type workingChats struct {
-	agentchat.EventStore
-	working bool
-}
-
-func (c workingChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
-	return domain.Chat{ID: id, Working: c.working}, nil
-}

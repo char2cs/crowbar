@@ -36,8 +36,10 @@ capture exists; it is a genuine codex Stop hook payload all the same, from the
 CLI's own internal memory-consolidation session). Only the paths were already
 shortened, by that test file's own author.
 
-No recorded hooks-transport payload exists for PreToolUse, PostToolUse,
-PreCompact, or PostCompact — tool_pre/tool_post/compact_pre/compact_post's own
+`PreToolUse.json`, `PreToolUse.mcp.json`, `PreToolUse.spawnAgent.json` and
+`PreToolUse.applyPatch.json` are VERBATIM codex 0.158.0 captures (a shell command, an MCP
+call, a spawned agent, a patch). No recorded
+hooks-transport payload exists for PostToolUse, PreCompact, or PostCompact — their own
 `hooks:` blocks in codex.yaml are UNVERIFIED against real traffic; their field
 names are carried over unchanged from the pre-channel-split `||` fallback
 terms. Capturing them needs a real `codex` CLI driven through an actual tool
@@ -65,3 +67,35 @@ recorded "method") so the fix is proven against the real captures here, not
 skipped. See spec.ChannelBlock.ByWire's doc comment, and apidriver_test.go's
 TestStart_ByWireOverlayNamesTheToolOnThePermissionCard for the live,
 over-the-wire proof.
+
+## Tool captures (codex 0.158.0, 2026-10-16)
+
+`item_completed.commandExecution.read.json`, `item_completed.commandExecutionFailed.json`,
+`item_started.mcpToolCall.json` and `item_completed.mcpToolCall.json` are live app-server
+captures, paths mapped to `/ws`, thread and turn ids replaced by placeholders. The
+`-schema` twins stay until a live failed MCP call and a live web search are captured.
+
+## Multi-agent v2 captures (codex-cli 0.164.0, 2026-11-07)
+
+`item_started.subAgentActivity.json` is a live app-server capture, verbatim (it
+carries no path): model gpt-6.1-sol, whose `model/list` entry reports
+`multiAgentVersion: "v2"`, asked to spawn one agent and wait for it. On v2 a spawn
+is no `collabAgentToolCall` spawnAgent: the parent's thread reports
+`subAgentActivity` items (`kind` started, interacted, completed) naming the child's
+`agentThreadId` and `agentPath` ("/root/<name>"), and the child's own turn rides the
+same connection under that thread id with no `thread/started` of its own. The parent
+waits with a `collabAgentToolCall` wait whose `receiverThreadIds` is empty.
+`item_started.subAgentActivity.interacted.json` is the same kind of capture, verbatim,
+from a turn asked to send its agent a follow-up: codex reports it as
+`kind: "interacted"` (no collab tool call), then runs a second turn on the child's thread.
+
+## File-change captures (codex-cli 0.164.0, 2026-11-08)
+
+`item_started.fileChange.json`, `item_completed.fileChange.json` (one patch adding two
+files and updating one), `item_completed.fileChange.delete.json`,
+`item_completed.fileChange.move.json` (a rename: its `diff` is codex's own "Moved to:"
+line) and `item_completed.fileChangeDeclined.json` (an add the person denied) are live
+app-server captures off Crowbar's own connection, paths mapped to `/ws` (a file outside
+the workspace to `/`), thread and turn ids replaced by placeholders. They replace the
+`-schema` fileChange twins, which claimed an added file's `diff` is null: live, it is the
+file's whole content, and a deleted file's is its old content.

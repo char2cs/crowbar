@@ -39,11 +39,8 @@ interface LogRowProps {
   onToggle: (id: number) => void
 }
 
-/**
- * One daemon log line: time, level, then the message and every other key as
- * `key=value`. The component is not a column of its own (most lines have none);
- * it is in the record JSON, one click away.
- */
+/** One daemon log line: time, level, message, then every other key as `key=value`. The
+ *  component gets no column (most lines have none); it is in the record JSON, one click away. */
 export const LogRow = memo(function LogRow({ id, record, expanded, onToggle }: LogRowProps) {
   return (
     <div data-slot="log-row" data-level={record.level}>

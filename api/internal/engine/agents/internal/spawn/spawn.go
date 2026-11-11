@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
@@ -25,7 +26,7 @@ func Plan(
 		Cwd:        ctx.Cwd,
 		TmpDir:     ctx.Tmp,
 		Env:        env.Clear(baseEnv, d.Spawn.Env.Clear),
-		Cleanup:    func() { _ = os.RemoveAll(ctx.Tmp) },
+		Cleanup:    func() { removeTmp(ctx.Tmp) },
 	}
 	PrependArgs(d, ctx, plan)
 
@@ -40,15 +41,9 @@ func Plan(
 	return plan, nil
 }
 
-// PrependArgs puts d.Spawn.Args at the front of plan.Argv — the flags any
-// interactive invocation of the provider's own executable needs (e.g.
-// codex's --dangerously-bypass-hook-trust), regardless of which entry point
-// is building the plan. Plan uses this for the primary spawn; the api
-// package's attach path (an interactive TUI in every way that matters here)
-// must use it too, or an attached CLI never gets flags the primary spawn
-// always carries. The api package's serve path deliberately does NOT call
-// this — it invokes a genuinely different, non-interactive subcommand that
-// these flags don't apply to.
+// PrependArgs puts d.Spawn.Args, the flags every INTERACTIVE invocation needs, at
+// the front of plan.Argv. The primary spawn and api attach both use it; api serve
+// does not, as it runs a non-interactive subcommand the flags don't apply to.
 func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnPlan) {
 	args := make([]string, len(d.Spawn.Args))
 	for i, a := range d.Spawn.Args {
@@ -60,8 +55,8 @@ func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnP
 // KnownVerb reports whether verb names an inject step Crowbar can apply.
 func KnownVerb(verb string) bool { return verbs.Known(verb) }
 
-// Inject applies a descriptor's MCPInject, ConfigInjection and HooksInjection
-// steps, plus any caller-supplied extra, onto a PTY plan — in that order. A PTY
+// Inject applies a descriptor's MCPInject, ConfigInjection, HooksInjection and
+// AddDirs steps, plus any caller-supplied extra, onto a PTY plan — in that order. A PTY
 // reports over the hooks channel, so it is the one process that gets hooks.
 func Inject(
 	d *spec.Descriptor,
@@ -91,11 +86,13 @@ func inject(
 	extra []spec.InjectStep,
 	hooks bool,
 ) error {
-	steps := make([]spec.InjectStep, 0, len(d.MCPInject)+len(d.ConfigInjection)+len(d.HooksInjection)+len(extra))
+	steps := make([]spec.InjectStep, 0,
+		len(d.MCPInject)+len(d.ConfigInjection)+len(d.HooksInjection)+len(d.AddDirs)+len(extra))
 	steps = append(steps, d.MCPInject...)
 	steps = append(steps, d.ConfigInjection...)
 	if hooks {
 		steps = append(steps, d.HooksInjection...)
+		steps = append(steps, d.AddDirs...)
 	}
 	steps = append(steps, extra...)
 
@@ -135,4 +132,12 @@ func PromptSteps(d *spec.Descriptor, resume bool) ([]spec.InjectStep, bool) {
 		steps = d.Presentation.PromptSubmit.Resume
 	}
 	return spec.CloneSteps(steps), true
+}
+
+// removeTmp deletes a spawn's scratch directory. A teardown has no caller to
+// hand a failure to, so it is logged.
+func removeTmp(dir string) {
+	if err := os.RemoveAll(dir); err != nil {
+		slog.Warn("agents: spawn: remove the scratch directory", "dir", dir, "err", err)
+	}
 }

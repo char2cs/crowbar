@@ -25,14 +25,14 @@ func TestMain(m *testing.M) {
 	case "":
 		os.Exit(m.Run())
 	case "stdout":
-		fmt.Fprint(os.Stdout, os.Getenv("HELPER_PAYLOAD"))
+		_, _ = fmt.Fprint(os.Stdout, os.Getenv("HELPER_PAYLOAD"))
 	case "stderr":
 		fmt.Fprint(os.Stderr, os.Getenv("HELPER_PAYLOAD"))
 	case "flood":
 		n, _ := strconv.Atoi(os.Getenv("HELPER_PAYLOAD"))
 		chunk := strings.Repeat("x", 1024)
 		for range n {
-			fmt.Fprint(os.Stdout, chunk)
+			_, _ = fmt.Fprint(os.Stdout, chunk)
 		}
 	case "exit":
 		code, _ := strconv.Atoi(os.Getenv("HELPER_PAYLOAD"))
@@ -47,7 +47,7 @@ func TestMain(m *testing.M) {
 		if err == nil {
 			wd = resolved
 		}
-		fmt.Fprint(os.Stdout, wd)
+		_, _ = fmt.Fprint(os.Stdout, wd)
 	}
 	os.Exit(0)
 }
@@ -98,9 +98,9 @@ func TestRunner_Run_NonZeroExitCarriesTheCodeAndNoOutput(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, exec.ErrCommandFailed)
-	code, ok := exec.ExitCode(err)
-	require.True(t, ok)
-	assert.Equal(t, 3, code)
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+	assert.Equal(t, 3, exitErr.Code)
 	assert.NotContains(t, err.Error(), os.Args[0], "an error must never leak the executable path")
 }
 

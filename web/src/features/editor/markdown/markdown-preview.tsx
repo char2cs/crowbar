@@ -1,35 +1,44 @@
 import './styles.css'
 import { useCallback, useMemo, useRef } from 'react'
-import { useStore } from 'zustand'
-import { useShallow } from 'zustand/react/shallow'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
-import { workspaceFileExists } from '@/features/file-system/controllers/platform'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { hasTextContent } from '@/features/panes/types/pane-content'
+import { exists } from '@/features/file-system/controllers/platform'
+import { siblingRef } from '@/features/editor/documents/document-ref'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { usePreviewSource } from '@/features/editor/documents/use-preview-source'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { LinkWorkspaceContext } from '@/lib/markdown-link'
 import { openWorkspaceLink } from '@/lib/workspace-link'
 import { useSettingsStore } from '@/features/settings/store'
 import { logger } from '../utils/logger'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { splitFrontmatter } from './plate/markdown-frontmatter'
-import { resolvePreviewLinkPath } from './resolve-preview-link'
 
 export interface MarkdownPreviewProps {
-  /**
-   * The `markdownPreview` buffer this instance renders. Also the key its scroll
-   * offset is retained under, since PaneContainer unmounts the preview whenever
-   * another tab is active in the pane. Omitted by the legacy CodeEditor host,
-   * which falls back to the active pane's buffer and keeps no scroll.
-   */
+  /** The `markdownPreview` buffer rendered, and the key its scroll offset is kept under (the
+   *  pane unmounts the preview behind another tab). Omitted by the legacy CodeEditor host, which
+   *  falls back to the active pane's buffer and keeps no scroll. */
   bufferId?: string
 }
 
-/** GitHub-style heading slug: `## Getting Started` → `getting-started`. */
-function openLinkedFile(wsId: string, path: string): Promise<void> {
-  return openWorkspaceFile(wsId, path, { preview: true })
+/** Open a relative link from `source`'s document. An extension-less workspace link also tries
+ *  `.md`, checked up front because a failed open reports itself and cannot drive a retry. */
+async function openLinkedDocument(source: DocumentRef, href: string): Promise<void> {
+  const target = siblingRef(source, href)
+  if (target.authority === 'host') {
+    await openDocument(target, { preview: true })
+    return
+  }
+  const { workspaceId, path } = target
+  if (await exists(workspaceId, path)) {
+    await openDocument(target, { preview: true })
+  } else if (!path.endsWith('.md') && (await exists(workspaceId, `${path}.md`))) {
+    await openDocument(workspaceRef(workspaceId, `${path}.md`), { preview: true })
+  } else {
+    logger.warn('MarkdownPreview', `File not found: ${path}`)
+  }
 }
 
+/** GitHub-style heading slug: `## Getting Started` → `getting-started`. */
 function slugify(text: string): string {
   return text
     .trim()
@@ -51,33 +60,9 @@ function findAnchorTarget(root: HTMLElement | null, id: string): Element | null 
 }
 
 export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
-  const { sourceBufferPath, sourceWorkspaceId, sourceContent } = useStore(
-    windowPaneStore,
-    useShallow((state) => {
-      // Prefer the buffer this instance was handed: with a split, the pane
-      // rendering the preview is not necessarily the ACTIVE pane, and reading
-      // the active pane's buffer would show another pane's file.
-      const ownBuffer = bufferId ? state.buffers.find((buffer) => buffer.id === bufferId) : null
-      const activeBufferId = state.panes[state.activePaneId]?.activeEditorTabId ?? null
-      const activeBuffer =
-        ownBuffer ??
-        (activeBufferId ? state.buffers.find((buffer) => buffer.id === activeBufferId) : null)
-      const sourceBuffer =
-        activeBuffer?.type === 'markdownPreview'
-          ? (state.buffers.find(
-              (buffer) =>
-                buffer.path === activeBuffer.sourceFilePath &&
-                buffer.workspaceId === activeBuffer.workspaceId,
-            ) ?? activeBuffer)
-          : activeBuffer
-
-      return {
-        sourceBufferPath: sourceBuffer?.path,
-        sourceWorkspaceId: sourceBuffer?.workspaceId,
-        sourceContent: sourceBuffer && hasTextContent(sourceBuffer) ? sourceBuffer.content : '',
-      }
-    }),
-  )
+  const { content: sourceContent, doc: sourceDoc } = usePreviewSource(bufferId)
+  // Links in a host document belong to no workspace, so none is refused as another host's.
+  const sourceWorkspaceId = sourceDoc?.authority === 'workspace' ? sourceDoc.workspaceId : null
   const fontSize = useSettingsStore((state) => state.settings.fontSize)
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -87,10 +72,8 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   // not prose: markdown would read its `---` fences as a rule and a heading.
   const body = useMemo(() => splitFrontmatter(sourceContent).body, [sourceContent])
 
-  // A tab switch unmounts this pane entirely (PaneContainer renders only the
-  // active buffer), so the scroll offset has to be retained outside the
-  // component. Restored once the rendered document is in the DOM — before
-  // that the scroll box is empty and any offset would be clamped away.
+  // A tab switch unmounts this pane, so the scroll offset is kept outside it. Restored once the
+  // rendered body is in the DOM; before that the box is empty and any offset clamps away.
   usePreservedScroll(containerRef, bufferId ?? null, body !== '')
 
   const handleLinkClick = useCallback(
@@ -100,7 +83,9 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
 
       if (!link) return
 
-      const href = link.getAttribute('href')
+      // The link plugin renders a relative url without `href` (it only emits
+      // urls it deems safe to navigate); its own url stays on the element.
+      const href = link.getAttribute('href') ?? link.getAttribute('data-slate-url')
       if (!href) return
 
       e.preventDefault()
@@ -123,41 +108,21 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
 
       if (isExternalLink) {
         try {
-          await openWorkspaceLink(href, sourceWorkspaceId ?? null)
+          await openWorkspaceLink(href, sourceWorkspaceId)
         } catch (error) {
           logger.error('MarkdownPreview', 'Failed to open external link:', error)
         }
         return
       }
 
-      if (!sourceBufferPath || !sourceWorkspaceId) return
-
-      const targetPath = resolvePreviewLinkPath(href, sourceBufferPath)
-
+      if (!sourceDoc) return
       try {
-        // The `.md`-suffix retry is why this keeps a pre-check instead of just
-        // opening optimistically: bare markdown links ([spec](./spec)) are
-        // extension-less by convention, and the open path swallows its own
-        // failure into a toast, so a failed open cannot drive the second
-        // attempt. `workspaceFileExists` costs one lazy directory listing and rejects on a
-        // real daemon error rather than reporting "not there".
-        if (await workspaceFileExists(sourceWorkspaceId, targetPath)) {
-          await openLinkedFile(sourceWorkspaceId, targetPath)
-          return
-        }
-
-        const withMd = targetPath.endsWith('.md') ? targetPath : `${targetPath}.md`
-        if (await workspaceFileExists(sourceWorkspaceId, withMd)) {
-          await openLinkedFile(sourceWorkspaceId, withMd)
-          return
-        }
-
-        logger.warn('MarkdownPreview', `File not found: ${targetPath}`)
+        await openLinkedDocument(sourceDoc, href)
       } catch (error) {
         logger.error('MarkdownPreview', 'Failed to handle link:', error)
       }
     },
-    [sourceBufferPath, sourceWorkspaceId],
+    [sourceDoc, sourceWorkspaceId],
   )
 
   const handleWheelCapture = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
@@ -174,12 +139,8 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
   return (
     <div
       ref={containerRef}
-      // handleLinkClick is pure event delegation: it walks up to the nearest
-      // real <a> (target.closest('a')) rendered inside the sanitized markdown
-      // below and only acts on that. The actual interactive elements are
-      // those anchors — already natively focusable and keyboard-activatable
-      // (Enter on a focused link fires a bubbling click, which lands right
-      // here) — so this wrapper carries no semantics of its own.
+      // Pure delegation: handleLinkClick acts only on the nearest real <a>, which is natively
+      // focusable and fires a bubbling click on Enter, so this wrapper has no semantics of its own.
       role="presentation"
       className="markdown-preview flex h-full justify-center overflow-auto bg-transparent p-6"
       style={{
@@ -190,7 +151,7 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
       onWheelCapture={handleWheelCapture}
     >
       <div className="markdown-content w-full max-w-3xl">
-        <LinkWorkspaceContext value={sourceWorkspaceId ?? null}>
+        <LinkWorkspaceContext value={sourceWorkspaceId}>
           {body && <MarkdownMessageStatic>{body}</MarkdownMessageStatic>}
         </LinkWorkspaceContext>
       </div>

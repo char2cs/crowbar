@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostNotResolvedError } from '@/lib/host-path'
 import {
+  isProjectGone,
   hostIdForChat,
   hostIdForProject,
   hostIdForWorkspace,
@@ -10,11 +11,23 @@ import {
   useHostResolved,
   useResolvedHost,
 } from '@/lib/host-resolve'
-import { useProjectDataStore } from '@/lib/store/projects'
+import {
+  chatEntity,
+  putEntities,
+  resetEntities,
+  seedProjects,
+  workspaceDTO,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { failed, idle, loading, success, type Loadable } from '@/lib/loadable'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { entityStore } from '@/core/entities/entity-store'
+import { hostScope } from '@/core/stream/host-scope'
+import * as localDaemon from '@/features/hosts/lib/local-daemon'
+import {
+  destroyHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
 import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
@@ -34,12 +47,16 @@ const project = (id: string, hostId: string): Project => ({
   hostId,
 })
 
+// As pairing does: an install that ever had a host remembers it.
 function configureHosts(...ids: string[]): void {
-  useHostConfigStore.setState({ hosts: ids.map(host) })
+  useHostConfigStore.setState((s) => ({
+    hosts: ids.map(host),
+    remoteEverPaired: s.remoteEverPaired || ids.length > 0,
+  }))
 }
 
 function loadProjects(...projects: Project[]): void {
-  useProjectDataStore.setState({ data: success(projects) })
+  seedProjects(projects)
 }
 
 function unresolved(call: () => unknown): HostNotResolvedError {
@@ -58,12 +75,13 @@ function recordScope(wsId: string, projectId: string): void {
 
 beforeEach(() => {
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  resetEntities()
   __resetWorkspaceScopesForTest()
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+  destroyHostRuntime('host-1')
 })
 
 describe('hostIdForProject', () => {
@@ -73,8 +91,6 @@ describe('hostIdForProject', () => {
     expect(hostIdForProject('anything')).toBe('local')
     loadProjects(project('p-local', 'local'))
     expect(hostIdForProject('p-local')).toBe('local')
-    expect(hostIdForProject('p-unknown')).toBe('local')
-    useProjectDataStore.setState({ data: loading() })
     expect(hostIdForProject('p-unknown')).toBe('local')
   })
 
@@ -102,23 +118,14 @@ describe('hostIdForProject', () => {
     expect(unresolved(() => hostIdForProject('p1')).message).toMatch(/project list is not loaded/)
   })
 
-  it('keeps resolving from the held list while it re-reads or a re-read failed', () => {
-    configureHosts('host-1')
-    const held = success([project('p-remote', 'host-1')])
-    useProjectDataStore.setState({ data: loading(held) })
-    expect(hostIdForProject('p-remote')).toBe('host-1')
-    useProjectDataStore.setState({ data: failed(new Error('boom'), held) })
-    expect(hostIdForProject('p-remote')).toBe('host-1')
-  })
-
-  // Settings -> Hosts -> Revoke removes the host and leaves its project rows.
+  // Settings -> Hosts -> Revoke removes the host, and its project rows with it.
   it('throws for a remote project once its host is no longer configured', () => {
     configureHosts('host-1')
     loadProjects(project('p-remote', 'host-1'))
     expect(hostIdForProject('p-remote')).toBe('host-1')
     configureHosts()
     expect(unresolved(() => hostIdForProject('p-remote')).message).toMatch(
-      /its host "host-1" is not configured/,
+      /not in the project list/,
     )
     expect(unresolved(() => hostIdForProject('p-other')).message).toMatch(/not in the project list/)
   })
@@ -128,40 +135,7 @@ describe('hostIdForProject', () => {
     loadProjects(project('p-on-1', 'host-1'))
     expect(hostIdForProject('p-on-1')).toBe('host-1')
     configureHosts('host-2')
-    expect(unresolved(() => hostIdForProject('p-on-1')).message).toMatch(
-      /its host "host-1" is not configured/,
-    )
-  })
-
-  // Rows from the projects-by-host cache (or a corrupt crowbar.hosts) with no host configured.
-  it.each<[string, Loadable<Project[]>]>([
-    ['loaded', success([project('p-remote', 'host-1')])],
-    ['re-reading', loading(success([project('p-remote', 'host-1')]))],
-    ['failed re-read', failed(new Error('boom'), success([project('p-remote', 'host-1')]))],
-  ])('throws for remote-tagged rows held while no host is configured (%s)', (_state, data) => {
-    useProjectDataStore.setState({ data })
-    expect(unresolved(() => hostIdForProject('p-remote')).message).toMatch(
-      /"host-1" is not configured/,
-    )
-    expect(unresolved(() => hostIdForProject('p-unknown')).message).toMatch(
-      /not in the project list/,
-    )
-  })
-
-  it('throws, whichever row comes first, for an id held on more than one host', () => {
-    configureHosts('host-1')
-    loadProjects(project('p-dup', 'local'), project('p-dup', 'host-1'))
-    expect(unresolved(() => hostIdForProject('p-dup')).message).toMatch(
-      /more than one host \(local, host-1\)/,
-    )
-    loadProjects(project('p-dup', 'host-1'), project('p-dup', 'local'))
-    expect(() => hostIdForProject('p-dup')).toThrow(HostNotResolvedError)
-  })
-
-  it('resolves an id repeated on one host', () => {
-    configureHosts('host-1')
-    loadProjects(project('p-dup', 'host-1'), project('p-dup', 'host-1'))
-    expect(hostIdForProject('p-dup')).toBe('host-1')
+    expect(unresolved(() => hostIdForProject('p-on-1')).message).toMatch(/not in the project list/)
   })
 })
 
@@ -196,7 +170,7 @@ describe('after a remote host was paired and revoked', () => {
 
   it('does not resolve an unknown id, whether the list is empty or has not loaded', () => {
     pairThenRevoke()
-    useProjectDataStore.setState({ data: idle() })
+    resetEntities()
     expect(() => hostIdForProject('p-unknown')).toThrow(HostNotResolvedError)
     loadProjects()
     expect(() => hostIdForProject('p-unknown')).toThrow(HostNotResolvedError)
@@ -242,9 +216,7 @@ describe('hostIdForWorkspace', () => {
     recordScope('ws-remote', 'p-remote')
     expect(hostIdForWorkspace('ws-remote')).toBe('host-1')
     configureHosts()
-    expect(unresolved(() => hostIdForWorkspace('ws-remote')).message).toMatch(
-      /"host-1" is not configured/,
-    )
+    expect(unresolved(() => hostIdForWorkspace('ws-remote')).projectId).toBe('p-remote')
   })
 
   it('throws for an unrecorded workspace while remote rows are held, with or without hosts', () => {
@@ -282,6 +254,13 @@ describe('hostIdForChat', () => {
     loadProjects(project('p-local', 'local'))
     ownedBy('ws-1', 'p-local', 'chat-1')
     expect(unresolved(() => hostIdForChat('sibling')).message).toMatch(/no workspace scope records/)
+  })
+
+  it('places a held chat no scope owns (a sibling) by the host that streamed it', () => {
+    configureHosts('host-1')
+    loadProjects(project('p-local', 'local'), project('p-remote', 'host-1'))
+    putEntities('chat', [chatEntity({ id: 'sibling', projectId: 'p-remote' })], 'host-1')
+    expect(hostIdForChat('sibling')).toBe('host-1')
   })
 
   it('is local for an unowned chat only while no remote could exist', () => {
@@ -390,39 +369,13 @@ describe('useHostResolved', () => {
     expect(result.current).toBe(false)
   })
 
-  it('goes false when the last host is revoked while its project rows linger', () => {
+  it('goes false when the last host is revoked, its project rows leaving with it', () => {
     configureHosts('host-1')
     loadProjects(project('p-remote', 'host-1'))
     const { result } = renderHook(() => useHostResolved({ projectId: 'p-remote' }))
     expect(result.current).toBe(true)
     act(() => configureHosts())
     expect(result.current).toBe(false)
-  })
-
-  it.each<[string, Loadable<Project[]>]>([
-    ['loaded', success([project('p-remote', 'host-1')])],
-    ['re-reading', loading(success([project('p-remote', 'host-1')]))],
-    ['failed re-read', failed(new Error('boom'), success([project('p-remote', 'host-1')]))],
-  ])('is false for remote-tagged rows held while no host is configured (%s)', (_state, data) => {
-    useProjectDataStore.setState({ data })
-    const { result } = renderHook(() => useHostResolved({ projectId: 'p-remote' }))
-    expect(result.current).toBe(false)
-  })
-
-  it('is false for an id held on more than one host', () => {
-    configureHosts('host-1')
-    loadProjects(project('p-dup', 'local'), project('p-dup', 'host-1'))
-    const { result } = renderHook(() => useHostResolved({ projectId: 'p-dup' }))
-    expect(result.current).toBe(false)
-  })
-
-  it('does not flap while a loaded list re-reads', () => {
-    configureHosts('host-1')
-    const held = success([project('p-remote', 'host-1')])
-    useProjectDataStore.setState({ data: held })
-    const { result } = renderHook(() => useHostResolved({ projectId: 'p-remote' }))
-    act(() => useProjectDataStore.setState({ data: loading(held) }))
-    expect(result.current).toBe(true)
   })
 })
 
@@ -448,5 +401,60 @@ describe('useResolvedHost', () => {
     expect(result.current).toBe('host-1')
     act(() => configureHosts())
     expect(result.current).toBeNull()
+  })
+})
+
+describe('the owner of a held row', () => {
+  const hostUp = (hostId: string) => getOrCreateHostRuntime(hostId).getState().setStatus('up')
+  // `hostId`'s projects scope has synced, holding `projects`.
+  const synced = (hostId: string, ...projects: Project[]) => {
+    putEntities('project', projects, hostId)
+    entityStore.setState((s) => ({
+      loaded: { ...s.loaded, [hostScope(hostId, 'projects')]: true },
+    }))
+  }
+
+  it('a chat streamed by host-1 resolves to host-1 with no workspace scope recorded', () => {
+    configureHosts('host-1')
+    synced('host-1', project('p-r', 'host-1'))
+    putEntities('chat', [chatEntity({ id: 'c-r', projectId: 'p-r' })], 'host-1')
+    putEntities('workspace', [workspaceDTO({ id: 'ws-r', projectId: 'p-r' })], 'host-1')
+    expect(hostIdForChat('c-r')).toBe('host-1')
+    expect(hostIdForWorkspace('ws-r')).toBe('host-1')
+  })
+
+  it('an id no up host has listed after all synced is absent', () => {
+    configureHosts('host-1')
+    hostUp('host-1')
+    synced('local', project('p-l', 'local'))
+    synced('host-1', project('p-r', 'host-1'))
+    expect(unresolved(() => hostIdForProject('p-x')).message).toMatch(/not in the project list/)
+    expect(isProjectGone('p-x')).toBe(true)
+  })
+
+  it('an id while host-1 is still syncing is unknown', () => {
+    configureHosts('host-1')
+    hostUp('host-1')
+    synced('local', project('p-l', 'local'))
+    expect(unresolved(() => hostIdForProject('p-x')).message).toMatch(/not loaded/)
+    expect(isProjectGone('p-x')).toBe(false)
+  })
+
+  it('a twin is unresolved naming both hosts', () => {
+    configureHosts('host-1')
+    synced('local', project('p1', 'local'))
+    synced('host-1', project('p1', 'host-1'))
+    expect(unresolved(() => hostIdForProject('p1')).message).toMatch(
+      /more than one host \(local, host-1\)/,
+    )
+  })
+
+  it("on the phone, which has no daemon of its own, a host's synced list is the list", () => {
+    vi.spyOn(localDaemon, 'hasLocalDaemon').mockReturnValue(false)
+    configureHosts('host-1')
+    expect(unresolved(() => hostIdForProject('p-r')).message).toMatch(/not loaded/)
+    synced('host-1', project('p-r', 'host-1'))
+    expect(hostIdForProject('p-r')).toBe('host-1')
+    expect(unresolved(() => hostIdForProject('p-x')).message).toMatch(/not in the project list/)
   })
 })

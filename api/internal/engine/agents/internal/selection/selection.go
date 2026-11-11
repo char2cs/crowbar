@@ -1,6 +1,9 @@
 package selection
 
 import (
+	"maps"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -27,20 +30,9 @@ func Efforts(
 	return append([]string(nil), d.Effort.Available[spec.EffortFallbackKey]...)
 }
 
-// permissionCanonicalOrder is Crowbar's own guarded → trusted → full-auto
-// ordering, least to most permissive — purely for PermissionLevels' own
-// stable-order guarantee below, mirroring the identical ordering
-// runner.canonicalPermissionLevels keeps on the OTHER side of the
-// engine/agents package boundary (that package cannot reach this one's
-// internal spec types, so it keeps its own copy of the same three names).
-var permissionCanonicalOrder = []string{"guarded", "trusted", "full-auto"}
-
-// PermissionLevels reports which of Crowbar's own level names this provider
-// can actually reach — the descriptor's own permission_levels.levels map
-// keys, and nothing clamped or inferred beyond them, in Crowbar's fixed
-// least-to-most-permissive order (a map's own iteration order is random,
-// which would jitter a rendered menu on every reload). A provider with no
-// permission_levels block at all offers none.
+// PermissionLevels reports the Crowbar level names this provider declares in
+// permission_levels.levels, nothing inferred, in Crowbar's fixed least-to-most
+// permissive order so a menu never jitters with map iteration.
 func PermissionLevels(
 	d *spec.Descriptor,
 ) []string {
@@ -48,7 +40,7 @@ func PermissionLevels(
 		return nil
 	}
 	out := make([]string, 0, len(d.PermissionLevels.Levels))
-	for _, level := range permissionCanonicalOrder {
+	for _, level := range domain.PermissionLevels() {
 		if _, ok := d.PermissionLevels.Levels[level]; ok {
 			out = append(out, level)
 		}
@@ -57,16 +49,26 @@ func PermissionLevels(
 }
 
 // PermissionVars is level's own named values (see PermissionLevelSpec's own
-// doc comment) — nil for a level the provider doesn't declare, same as an
-// absent block.
+// doc comment), with its after-leave values over them when left — nil for a
+// level the provider doesn't declare, same as an absent block.
 func PermissionVars(
 	d *spec.Descriptor,
 	level string,
+	left bool,
 ) map[string]string {
 	if d == nil || d.PermissionLevels == nil {
 		return nil
 	}
-	return d.PermissionLevels.Levels[level].Vars
+	l := d.PermissionLevels.Levels[level]
+	if !left || len(l.VarsAfterLeave) == 0 {
+		return l.Vars
+	}
+	out := maps.Clone(l.Vars)
+	if out == nil {
+		out = map[string]string{}
+	}
+	maps.Copy(out, l.VarsAfterLeave)
+	return out
 }
 
 // Steps is sel on the argv of a process the spawn FORKS.
@@ -92,12 +94,9 @@ func Steps(
 	return out
 }
 
-// APISteps is sel on the api channel's own `serve` argv — the carrier a spawn
-// that forks no process at all has instead of Steps.
-//
-// A permission level contributes nothing here on purpose, and is not missing:
-// its api carrier is vars:, which the establish call's send: tree renders
-// (PermissionVars), not an argv this could put a step on.
+// APISteps is sel on the api channel's `serve` argv, used instead of Steps when a
+// spawn forks no process. Permission levels deliberately add nothing: their api
+// carrier is vars:, rendered into the establish call's send: tree.
 func APISteps(
 	d *spec.Descriptor,
 	sel models.Selection,

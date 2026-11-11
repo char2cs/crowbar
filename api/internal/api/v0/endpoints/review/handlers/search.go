@@ -11,13 +11,9 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// defaultSearchLimit and maxSearchLimit bound every search this endpoint runs.
-//
-// gitdomain.SearchOpts treats Limit <= 0 as unlimited, which is safe only for a
-// caller that knows its query is narrow. No HTTP caller does: a one-letter query
-// over a million-line diff would collect a hit per line. The endpoint therefore
-// never exposes that mode — every value out of range lands inside the bounds
-// instead of disabling them.
+// defaultSearchLimit and maxSearchLimit bound every search. SearchOpts reads Limit <= 0 as
+// unlimited, which an HTTP caller's one-letter query would turn into a hit per line, so
+// out-of-range values are clamped rather than disabling the bound.
 const (
 	defaultSearchLimit = 200
 	maxSearchLimit     = 1000
@@ -29,14 +25,9 @@ type searchResponse struct {
 	Truncated bool                  `json:"truncated"`
 }
 
-// SearchDiff handles GET /v0/chats/:chatId/review/search?q=&regex=&case=&limit=,
-// returning the file and line number of every match in the branch diff's
-// content plus whether the limit cut the results short.
-//
-// It is find-in-diff moved server-side: the client only ever holds a window of
-// the patch, so it has nothing left to search locally. An empty q is the state
-// a find box opens in and answers an empty result rather than an error or a
-// whole-diff scan.
+// SearchDiff handles GET /v0/chats/:chatId/review/search?q=&regex=&case=&limit=: server-side
+// find-in-diff, since the client holds only a window of the patch. It returns match locations and
+// whether the limit cut them short; an empty q is an empty result.
 func (h *Handlers) SearchDiff(
 	ctx *gin.Context,
 ) {
@@ -53,7 +44,7 @@ func (h *Handlers) SearchDiff(
 		opts,
 	)
 	if err != nil {
-		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	if hits == nil {
@@ -84,10 +75,8 @@ func searchOpts(
 	}, nil
 }
 
-// searchFlag reads a boolean query parameter. An absent one is false — the
-// forgiving literal, case-insensitive search a find box wants — while an
-// unparseable one is a 400, because silently reading a typo as "false" would
-// answer a different search than the one asked for.
+// searchFlag reads a boolean query parameter: absent is false, unparseable is a 400 rather than a
+// silent "false" that would answer a different search.
 func searchFlag(
 	raw string,
 	name string,

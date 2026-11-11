@@ -36,10 +36,6 @@ func Match(d *spec.Descriptor, prompt string) (spec.InjectedPromptSpec, bool) {
 	return generic, found
 }
 
-func Declared(d *spec.Descriptor) bool {
-	return d != nil && len(d.InjectedPrompts) > 0
-}
-
 // unwrap drops one leading `<tag ...>` line, returning "" when there is none.
 func unwrap(body string) string {
 	if !strings.HasPrefix(body, "<") {

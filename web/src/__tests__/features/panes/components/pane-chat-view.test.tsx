@@ -6,7 +6,7 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
   AgentChatPaneGate: () =>
@@ -39,7 +39,7 @@ async function freshModule(): Promise<Module> {
 }
 
 function renderView({ PaneChatView }: Module) {
-  render(
+  const view = (isActivePane: boolean) =>
     createElement(PaneChatView, {
       ref: null,
       paneId: 'p1',
@@ -53,10 +53,11 @@ function renderView({ PaneChatView }: Module) {
       alongsideEditor: false,
       chatFillsPane: true,
       isBottomPane: false,
-      isActivePane: true,
+      isActivePane,
       isVisible: true,
-    }),
-  )
+    })
+  const { rerender } = render(view(true))
+  return { blur: () => rerender(view(false)) }
 }
 
 describe('PaneChatView chat surface loading', () => {
@@ -73,6 +74,18 @@ describe('PaneChatView chat surface loading', () => {
     await act(async () => {})
 
     expect(screen.getByTestId('chat-surface')).toBeTruthy()
+  })
+
+  // A type swap from the lazy wrapper to the loaded surface would remount the chat.
+  it('keeps the same chat surface when it re-renders after the chunk lands', async () => {
+    const mod = await freshModule()
+    const { blur } = renderView(mod)
+    await act(async () => {})
+    const surface = screen.getByTestId('chat-surface')
+
+    blur()
+
+    expect(screen.getByTestId('chat-surface')).toBe(surface)
   })
 
   it('renders the chat surface in the first commit once it was preloaded', async () => {
@@ -99,7 +112,7 @@ describe('PaneChatView sidebar surface', () => {
   async function renderChatColumn() {
     const mod = await freshModule()
     await mod.preloadAgentChatPane()
-    useSidebarStore.setState({ ...getInitialState(), activeTab: 'files' })
+    treeUiStore.setState({ activeTab: 'files' })
     render(createElement(FocusMode))
     renderView(mod)
   }
@@ -109,12 +122,12 @@ describe('PaneChatView sidebar surface', () => {
     // Focus only moves the mode once the user has pressed something.
     fireEvent.pointerDown(document.body)
     act(() => screen.getByTestId('chat-surface').focus())
-    expect(useSidebarStore.getState().activeTab).toBe('chats')
+    expect(treeUiStore.getState().activeTab).toBe('chats')
   })
 
   it('a click on transcript text with nothing focusable under the pointer shows Chats', async () => {
     await renderChatColumn()
     await userEvent.click(screen.getByText('transcript message'))
-    expect(useSidebarStore.getState().activeTab).toBe('chats')
+    expect(treeUiStore.getState().activeTab).toBe('chats')
   })
 })

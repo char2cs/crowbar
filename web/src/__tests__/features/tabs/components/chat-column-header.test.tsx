@@ -1,12 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { Repo, Workspace } from '@/core/entities/repo-types'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Repo, Workspace } from '@/lib/store/sidebar'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
   return {
@@ -24,10 +25,8 @@ function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
 
 function renderHeader() {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: { ...s.agentChats, chats: [makeChat()] },
-  }))
+  resetChatStore()
+  writeChat(makeChat())
   return render(
     createElement(
       WorkspaceStoreContext.Provider,
@@ -47,22 +46,18 @@ function renderHeader() {
 // renders first), but none of TabBar's pane-level actions — branch-review
 // shortcut and close-view already live in the IDE sector's own row.
 describe('ChatColumnHeader', () => {
-  afterEach(() => {
-    useSidebarStore.setState({ repos: [] })
-  })
+  afterEach(resetEntities)
 
   it('shows the workspace route under the title', () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'repo-1',
-          name: 'crowbar',
-          workspaces: [
-            { id: 'w1', branch: 'fix/refactor-chats', parentBranch: 'develop' } as Workspace,
-          ],
-        } as Repo,
-      ],
-    })
+    seedRepos([
+      {
+        id: 'repo-1',
+        name: 'crowbar',
+        workspaces: [
+          { id: 'w1', branch: 'fix/refactor-chats', parentBranch: 'develop' } as Workspace,
+        ],
+      } as Repo,
+    ])
     renderHeader()
     expect(screen.getByTestId('chat-branch-header-route')).toHaveTextContent(
       /^crowbar\/develop\/fix\/refactor-chats$/,

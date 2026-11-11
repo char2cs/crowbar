@@ -6,25 +6,22 @@ interface InlineRenameInputProps {
   /** Branch rows draw their label monospace (sidebar-row.tsx); match it so
    *  the editor doesn't change typeface under the cursor. */
   mono?: boolean
-  /** Shown only while `defaultValue` is empty (the browser's own rule) — a
-   *  rename always seeds a real current name, so this is effectively a
-   *  create-only affordance: what an unlabeled, empty row would otherwise
-   *  give no hint it even wants (see `CREATE_ROW_PLACEHOLDER`'s own doc). */
+  /** Shows only while the value is empty, so it hints a create; a rename seeds a real name. */
   placeholder?: string
   /** Replaces the row-label text style (size, weight, family). */
   className?: string
-  onConfirm: (value: string) => void
+  /** A promise keeps the input open until it settles; a rejection leaves it open to edit again. */
+  onConfirm: (value: string) => void | Promise<void>
   onCancel: () => void
+  /** Leaving the input drops the edit instead of confirming it. */
+  cancelOnBlur?: boolean
+  /** The id of the message saying why the last value was refused. */
+  errorId?: string
 }
 
-/**
- * A row's label, replaced in place by a real, focused, pre-selected
- * `<input>` — this is develop's actual double-click-to-rename behavior
- * (`workspace-inline-input.tsx`, deleted in the tree-retirement commit
- * f119a402, rebuilt fresh here per "no legacy"). Enter confirms, Escape
- * cancels, and blur confirms unless Enter/Escape already handled it —
- * `handledRef` is what stops blur from double-firing after either did.
- */
+// The row's label replaced in place by a focused, pre-selected input. Enter confirms, Escape
+// cancels, blur confirms (or cancels) — `handledRef` keeps blur and a second Enter from firing
+// again after Enter/Escape, until a refused confirm hands the input back.
 export function InlineRenameInput({
   defaultValue,
   mono,
@@ -32,6 +29,8 @@ export function InlineRenameInput({
   className,
   onConfirm,
   onCancel,
+  cancelOnBlur,
+  errorId,
 }: InlineRenameInputProps) {
   const ref = useRef<HTMLInputElement>(null)
   const handledRef = useRef(false)
@@ -41,23 +40,26 @@ export function InlineRenameInput({
     if (!input) return
     input.focus()
     input.select()
-    // The editor does not always mount where the gesture happened: a rename
-    // started from a Recents row draws on that row's TREE copy instead
-    // (`inlineRenameDisabled`, view-row.tsx), and the context menu can
-    // rename a row the shared scroller has scrolled away from. focus() alone
-    // leaves the caret in an input that is off-screen.
+    // The editor may mount away from the gesture (a Recents rename draws on the tree copy, or a
+    // row scrolled out of view), and focus() alone leaves the caret off-screen.
     input.scrollIntoView({ block: 'nearest' })
   }, [])
 
   function tryConfirm(value: string) {
     const trimmed = value.trim()
-    if (trimmed) onConfirm(trimmed)
-    else onCancel()
+    if (!trimmed) return onCancel()
+    const settled = onConfirm(trimmed)
+    if (!settled) return
+    void settled.catch(() => {
+      handledRef.current = false
+      ref.current?.focus()
+    })
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault()
+      if (handledRef.current) return
       handledRef.current = true
       tryConfirm(e.currentTarget.value)
     } else if (e.key === 'Escape') {
@@ -69,7 +71,8 @@ export function InlineRenameInput({
 
   function handleBlur(e: React.FocusEvent<HTMLInputElement>) {
     if (handledRef.current) return
-    tryConfirm(e.currentTarget.value)
+    if (cancelOnBlur) onCancel()
+    else tryConfirm(e.currentTarget.value)
   }
 
   return (
@@ -80,6 +83,8 @@ export function InlineRenameInput({
       placeholder={placeholder}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
+      aria-invalid={errorId ? true : undefined}
+      aria-describedby={errorId}
       className={cn(
         'min-w-0 flex-1 truncate bg-transparent text-left text-[13px] font-medium outline-none',
         mono && 'font-mono',

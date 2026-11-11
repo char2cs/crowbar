@@ -2,6 +2,7 @@ package tree_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,7 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // Two locked branches at order 0: the sidebar draws the OLDER first (a branch
@@ -25,12 +28,12 @@ func TestRegression_PlaceChat_TiedAnchorsSortByWorkspaceCreatedAtNotID(t *testin
 		gitStatus.SetRepo(id, repoID)
 		gitStatus.SetBranch(id, true)
 		gitStatus.SetCreatedAt(id, at)
-		nodes.Rows = append(nodes.Rows, domain.Node{ID: id, Kind: domain.NodeKindWorkspace, ParentID: "", Order: 0})
+		nodes.Rows = append(nodes.Rows, dtree.Node{ID: id, Kind: dtree.KindWorkspace, ParentID: "", Order: 0})
 	}
 	chats.Rows = append(chats.Rows,
 		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(300, 0)},
 	)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 2})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "c1", Kind: dtree.KindChat, ParentID: "", Order: 2})
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{ParentID: name(""), Order: index(1)})
 	require.NoError(t, err)
@@ -54,17 +57,69 @@ func TestRegression_PlaceChat_CountsALegacyNodelessLockedBranch(t *testing.T) {
 		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(300, 0)},
 		domain.Chat{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(400, 0)},
 	)
-	nodes.Rows = []domain.Node{
-		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 1},
-		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "", Order: 2},
+	nodes.Rows = []dtree.Node{
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "", Order: 1},
+		{ID: "c2", Kind: dtree.KindChat, ParentID: "", Order: 2},
 	}
 
 	// Drawn [legacy-locked, c1, c2]; drop c2 right after the branch.
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2", tree.PlaceInput{ParentID: name(""), Order: index(1)})
 	require.NoError(t, err)
 	anchor := nodeRowFor(t, nodes, "legacy-locked")
-	assert.Equal(t, domain.NodeKindWorkspace, anchor.Kind, "the first write under the level mints the legacy anchor's Node")
+	assert.Equal(t, dtree.KindWorkspace, anchor.Kind, "the first write under the level mints the legacy anchor's Node")
 	assert.Equal(t, 0, anchor.Order)
 	assert.Equal(t, 1, nodeRowFor(t, nodes, "c2").Order)
 	assert.Equal(t, 2, nodeRowFor(t, nodes, "c1").Order)
+}
+
+// A workspace read that fails is a failed placement, not a zero value: a
+// branch drawn at the oldest slot or at the root would misplace the drop.
+func TestPlaceChat_AFailedAnchorReadIsReturned(t *testing.T) {
+	for label, fail := range map[string]func(*mocks.AgentWorkspaceGitStatus, error){
+		"created at":  func(g *mocks.AgentWorkspaceGitStatus, err error) { g.CreatedAtErr = err },
+		"fork parent": func(g *mocks.AgentWorkspaceGitStatus, err error) { g.ForkParentErr = err },
+	} {
+		t.Run(label, func(t *testing.T) {
+			chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
+			gitStatus.SetRepo(workspaceID, repoID)
+			gitStatus.SetDefault(repoID, workspaceID)
+			gitStatus.SetRepo("legacy-locked", repoID)
+			gitStatus.SetBranch("legacy-locked", true)
+			chats.Rows = append(chats.Rows,
+				domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(300, 0)},
+			)
+			nodes.Rows = []dtree.Node{{ID: "c1", Kind: dtree.KindChat, ParentID: "", Order: 1}}
+			cause := errors.New("workspace read down")
+			fail(gitStatus, cause)
+
+			_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{ParentID: name(""), Order: index(0)})
+
+			require.ErrorIs(t, err, cause)
+		})
+	}
+}
+
+// A Node whose workspace is gone (deleted, its Node not yet swept) is not this
+// level's to draw; it must not fail the read of everything beside it.
+func TestPlaceChat_ANodeWhoseWorkspaceIsGoneIsSkipped(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
+	gitStatus.SetRepo(workspaceID, repoID)
+	gitStatus.SetDefault(repoID, workspaceID)
+	for i, id := range []string{"p", "c1", "c2"} {
+		chats.Rows = append(chats.Rows, domain.Chat{
+			ID: id, Type: domain.ChatTypeChat, WorkspaceID: workspaceID, CreatedAt: time.Unix(int64(300+i), 0),
+		})
+	}
+	nodes.Rows = []dtree.Node{
+		{ID: "p", Kind: dtree.KindChat, ParentID: "", Order: 0},
+		{ID: "gone-ws", Kind: dtree.KindWorkspace, ParentID: "p", Order: 0},
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "p", Order: 1},
+		{ID: "c2", Kind: dtree.KindChat, ParentID: "p", Order: 2},
+	}
+
+	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2", tree.PlaceInput{ParentID: name("p"), Order: index(0)})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, nodeRowFor(t, nodes, "c2").Order)
+	assert.Equal(t, 1, nodeRowFor(t, nodes, "c1").Order)
 }

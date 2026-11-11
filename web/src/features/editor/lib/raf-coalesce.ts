@@ -1,21 +1,6 @@
-/**
- * raf-coalesce — collapse a burst of synchronous calls into ONE trailing
- * `requestAnimationFrame` flush.
- *
- * Used to take the per-cursor / per-keystroke cursor+selection store sync OFF
- * the editor hot path: every cursor move / model-content change calls
- * `schedule()`, but the wrapped task runs at most ONCE per animation frame —
- * reading the editor's CURRENT state once and writing it coalesced. A burst of N
- * keystrokes therefore produces ≤1 store write per frame instead of N.
- *
- * The task is trailing (it reads live state at flush time, so it always reflects
- * the final position of the burst). `flush()` runs any pending task synchronously
- * (e.g. before a deliberate read of the store); `cancel()` drops a pending task
- * (call on dispose so a queued frame never fires against a torn-down editor).
- *
- * Falls back to `setTimeout(fn, 0)` where `requestAnimationFrame` is absent
- * (jsdom, background tabs) so behavior is preserved off the rAF path.
- */
+// Collapse a burst of synchronous calls into one trailing requestAnimationFrame flush (cursor and
+// selection store sync off the keystroke path). Trailing, so it reads final state; `cancel()` on
+// dispose so a queued frame never hits a torn-down editor. Falls back to setTimeout(fn, 0).
 
 export interface RafCoalescer {
   /** Schedule a trailing flush of `task` for the next frame (idempotent). */
@@ -27,14 +12,9 @@ export interface RafCoalescer {
 }
 
 export interface RafCoalescerOptions {
-  /**
-   * Consulted at schedule time. While it returns a value > 0, the trailing flush
-   * runs at most once per that many milliseconds instead of once per frame — for
-   * a burst that outlives a single gesture and whose consumer does not need
-   * frame resolution. Still trailing: the task reads live state when it runs, and
-   * `flush()` forces the pending one out (call it when the gesture ends so the
-   * final state is never left sitting in a throttled timer).
-   */
+  /** Read at schedule time: while > 0, flush at most once per that many ms instead of per frame,
+   *  for bursts that outlive a gesture. Still trailing; call `flush()` when the gesture ends so
+   *  the final state isn't left in a throttled timer. */
   minIntervalMs?: () => number
 }
 
@@ -44,11 +24,8 @@ const now = () =>
     ? performance.now()
     : Date.now()
 
-/**
- * Wrap `task` in a once-per-frame trailing scheduler. `task` reads live state at
- * flush time, so repeated `schedule()` calls within a frame collapse to a single
- * invocation that reflects the latest state.
- */
+/** Wrap `task` in a once-per-frame trailing scheduler: `schedule()` calls within a frame collapse
+ *  to one invocation that reads the latest state. */
 export function createRafCoalescer(
   task: () => void,
   options: RafCoalescerOptions = {},

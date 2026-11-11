@@ -51,21 +51,24 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
     },
   }
 })
-vi.mock('@/features/editor/lsp/lsp-query', () => ({ query: vi.fn(), modelTarget: vi.fn() }))
+vi.mock('@/features/editor/lsp/lsp-query', () => ({ query: vi.fn() }))
 vi.mock('@/features/editor/lsp/lsp-client', () => {
   const request = vi.fn()
   return { LspClient: { getInstance: () => ({ request }) } }
 })
 
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
 import { LspClient } from '@/features/editor/lsp/lsp-client'
 import { query } from '@/features/editor/lsp/lsp-query'
 import { registerLspProviders } from '@/features/editor/lsp/monaco-lsp-providers'
+import { workspaceRef } from '@/lib/api/documents'
 import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
-import { toast } from '@/features/window/stores/toast-store'
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
@@ -115,7 +118,7 @@ describe('LSP commands', () => {
     expect(lenses[1].command).toEqual({ id: '', title: '3 references' })
 
     const goMod = { pushEditOperations: vi.fn() }
-    monaco.models.set(fileUri('ws1', 'go.mod'), goMod)
+    monaco.models.set(documentUri(workspaceRef('ws1', 'go.mod')), goMod)
     request.mockResolvedValue({
       result: null,
       edits: [{ changes: { 'go.mod': [{ range, newText: 'require x\n' }] } }],
@@ -160,7 +163,6 @@ describe('LSP commands', () => {
   })
 
   it('applies the edits a command made in the order the server made them', async () => {
-    resetWindowPaneStoreForTests()
     vi.mocked(query).mockResolvedValue({
       target,
       result: [{ title: 'Fill', command: 'gopls.fill', arguments: [] }],
@@ -171,14 +173,8 @@ describe('LSP commands', () => {
       { markers: [], trigger: 1 },
       none,
     )) as { actions: Monaco.languages.CodeAction[] }
-    // An open buffer with no Monaco model: its edits go read → apply → write.
-    const id = windowPaneStore.getState().bufferActions.openContent({
-      type: 'editor',
-      path: 'fill.go',
-      name: 'fill.go',
-      content: 'a',
-      workspaceId: 'ws1',
-    })
+    const fill = { pushEditOperations: vi.fn() }
+    monaco.models.set(documentUri(workspaceRef('ws1', 'fill.go')), fill)
     const at = (character: number) => ({
       start: { line: 0, character },
       end: { line: 0, character },
@@ -194,39 +190,38 @@ describe('LSP commands', () => {
 
     await run(actions[0].command)
 
-    const content = () => {
-      const buffer = windowPaneStore.getState().buffers.find((b) => b.id === id)
-      return buffer && 'content' in buffer ? buffer.content : undefined
-    }
-    await vi.waitFor(() => expect(content()).toBe('xya'))
+    await vi.waitFor(() => expect(fill.pushEditOperations).toHaveBeenCalledTimes(2))
+    const texts = fill.pushEditOperations.mock.calls.map(([, ops]) => ops[0].text)
+    expect(texts).toEqual(['x', 'y'])
+  })
+
+  it('a refused command reports the daemon’s reason', async () => {
+    const toasts = watchToasts()
+    request.mockRejectedValue(refusal('gopls exited', 'failed_dependency'))
+    await run({ id: 'crowbar.lsp.runCommand', title: 'x', arguments: ['ws1', 'main.go', null, {}] })
+    await vi.waitFor(() => expectReported(toasts, 'Command failed', 'gopls exited'))
+  })
+
+  it('a command refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    const toasts = watchToasts()
+    request.mockRejectedValue(migratingRefusal())
+    await run({ id: 'crowbar.lsp.runCommand', title: 'x', arguments: ['ws1', 'main.go', null, {}] })
+    await vi.waitFor(() => expectMigratingShown(toasts))
   })
 })
 
-// A server command the daemon could not run says so under the command's own title: in the
-// daemon's words, or naming the remote host that failed it.
-describe('a failed LSP command', () => {
+// A command a remote host failed names that host under the command's own title.
+describe('a failed LSP command on a remote host', () => {
   afterEach(() => {
-    vi.restoreAllMocks()
     destroyHostRuntime('h1')
     resetHostWorld()
   })
 
-  it.each([
-    ['in its own words', () => new Error('gopls crashed'), 'gopls crashed'],
-    [
-      'naming the remote host that failed it',
-      () => (pairRemoteHost('h1', 'Studio Mac'), proxyMarkerError('host-unreachable', 'h1')),
-      'Couldn’t reach Studio Mac',
-    ],
-  ])('is toasted %s', async (_, failure, description) => {
-    const toastError = vi.spyOn(toast, 'error').mockReturnValue('')
-    request.mockReset().mockRejectedValue(failure())
-    const command = { title: 'Tidy', command: 'gopls.tidy', arguments: [] }
-
-    monaco.commands.get('crowbar.lsp.runCommand')?.(undefined, 'ws1', 'main.go', null, command)
-
-    await vi.waitFor(() =>
-      expect(toastError).toHaveBeenCalledExactlyOnceWith('Command failed', description),
-    )
+  it('is reported naming the host', async () => {
+    const toasts = watchToasts()
+    pairRemoteHost('h1', 'Studio Mac')
+    request.mockReset().mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+    await run({ id: 'crowbar.lsp.runCommand', title: 'x', arguments: ['ws1', 'main.go', null, {}] })
+    await vi.waitFor(() => expectReported(toasts, 'Command failed', 'Couldn’t reach Studio Mac'))
   })
 })

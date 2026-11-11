@@ -1,17 +1,25 @@
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
-import { promoteRepoDraft } from './create-actions'
-import { draftOfPane, type DraftPrompt } from './draft-thread'
-import { promoteHomeDraft } from './home-actions'
+import { draftLanding, draftOfPane, finishDraftThread, type DraftPrompt } from './draft-thread'
+import { startThread } from './thread-create'
 
-/**
- * The draft in `paneId` becomes a real chat carrying `prompt` as its first
- * message. Resolves when the create settles; a refused create toasts and
- * leaves the draft in place to be sent again.
- */
-export function promoteDraftThread(paneId: string, prompt: DraftPrompt): Promise<void> {
+// Turns the pane's draft into a real chat with `prompt` as its first message. A refused create
+// toasts and leaves the draft to send again. `typedSince` reads the draft's box as the chat opens.
+// Kept out of the sidebar's create actions so the chat outbox stays out of the boot bundle.
+export function promoteDraftThread(
+  paneId: string,
+  prompt: DraftPrompt,
+  typedSince: () => string,
+): Promise<void> {
   const draft = draftOfPane(paneId)
   if (!draft) return Promise.resolve()
-  return getHomeWorkspaceId(draft.projectId) === draft.workspaceId
-    ? promoteHomeDraft(draft, prompt)
-    : promoteRepoDraft(draft, prompt)
+  const home = getHomeWorkspaceId(draft.projectId) === draft.workspaceId
+  return startThread({
+    inFlightKey: `draft:${draft.draftId}`,
+    projectId: draft.projectId,
+    workspaceId: draft.workspaceId,
+    // A home draft lands at the panel root; a repo draft under its row, else its workspace.
+    parentId: home ? '' : draft.parentId || draft.workspaceId,
+    ...draftLanding(prompt),
+    onCreated: (chatId) => finishDraftThread(draft, chatId, prompt, typedSince),
+  })
 }

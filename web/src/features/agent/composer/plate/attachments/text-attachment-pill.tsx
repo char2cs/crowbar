@@ -14,12 +14,7 @@ function countLines(text: string): number {
   return text.length === 0 ? 0 : text.split('\n').length
 }
 
-/** Pasted-text attachment: a boxed card (same footprint every attachment
- *  kind now shares — see attachment-box.ts) showing the line count, and a
- *  read-only modal showing the raw text verbatim — no markdown rendering
- *  (per the design spec, "no markdown for now"). Was a thin, single-line
- *  pill; reported live as needing to look like an actual attachment (Claude's
- *  own image-attachment card was the reference point), not a tag. */
+/** The modal shows the raw text verbatim, with no markdown rendering. */
 export function TextAttachmentPill({ text }: TextAttachmentPillProps) {
   const [open, setOpen] = useState(false)
   const lineCount = countLines(text)

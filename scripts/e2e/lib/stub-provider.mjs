@@ -3,10 +3,9 @@ import { join } from 'node:path'
 
 export const STUB_PROVIDER_ID = 'e2estub'
 
-// `cat` stays alive on its PTY, so a chat keeps a live runner while the test
-// plays the provider's hooks at the daemon by hand: no login, no network, and
-// the same hook path a real CLI uses. The symlink gives the process a name the
-// suite can count with `ps` without ever matching the user's own `cat`.
+// `cat` stays alive on its PTY, so a chat keeps a live runner while the test plays the
+// provider's hooks by hand over the real hook route and runner token: no login, no network.
+// The symlinked name lets the suite count it with `ps` without matching the user's own `cat`.
 export const STUB_BIN_NAME = 'e2e-stub-provider'
 
 function descriptor(bin) {
@@ -23,7 +22,7 @@ events:
     in: user_prompt
     map:
       message: prompt
-      subagent_id: agent_id
+      scope_id: agent_id
   turn_stop:
     in: turn_stop
     map:
@@ -54,14 +53,14 @@ events:
       tool_id: tool_use_id
       tool_name: tool_name
       tool_target: tool_input.command
-      subagent_id: agent_id
+      scope_id: agent_id
   tool_post:
     in: tool_post
     map:
       session_id: session_id
       tool_id: tool_use_id
       tool_name: tool_name
-      subagent_id: agent_id
+      scope_id: agent_id
   permission:
     ask: permission
     timeout_seconds: 120
@@ -81,13 +80,17 @@ injected_prompts:
 hooks_injection:
   - set_env:
       name: STUB_HOOK
-      value: "{crowbar_hook} hook any --segment {segid}"
+      value: "{hook_curl} {hook_url}"
+  - write_file:
+      path: "{crowbar_home}/e2e-tokens/{segid}"
+      content: "{runner_token}"
 runtime:
   transport: hooks
   hooks:
     format: json
 session:
   resume: { arg: "--resume {id}" }
+  persists: turn_start
 model:
   available: [sonnet, opus]
   strategy: restart_tui

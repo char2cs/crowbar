@@ -3,6 +3,7 @@ package outbound_test
 import (
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -17,7 +18,7 @@ func desc() *spec.Descriptor {
 				Out:  spec.WireRef{"turn/start"},
 				Send: map[string]string{"threadId": "{session_id}", "input": "{text}"},
 			},
-			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": {"session_id"}}},
+			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": mapping.Paths("session_id")}},
 		},
 	}
 }
@@ -80,19 +81,5 @@ func TestResolve_SubstitutesEveryOccurrence(t *testing.T) {
 	})
 	if send["threadId"] != "s-9" || send["input"] != "hello" {
 		t.Fatalf("got %+v", send)
-	}
-}
-
-// Declared lists what Crowbar can SEND, which is what a capability flag is built from.
-func TestDeclared_ListsOnlyOutboundEventsSorted(t *testing.T) {
-	got := outbound.Declared(desc())
-	want := []string{"compact_start", "interrupt", "prompt"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
-		}
 	}
 }

@@ -2,6 +2,7 @@ package conversation_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,34 +11,18 @@ import (
 
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // handoffCap discovers the live defaultChatLogTurns cap through the real
-// RecentHandoffWindow rather than a copy of the number: a probe slice far
+// HandoffWindow rather than a copy of the number: a probe slice far
 // larger than any plausible cap always comes back trimmed to exactly it, so a
 // future change to the cap cannot leave this file silently testing the wrong
 // boundary.
 func handoffCap(t *testing.T) int {
 	t.Helper()
-	kept, _ := agenttools.RecentHandoffWindow("probe", make([]struct{}, 100_000))
+	_, _, kept := agenttools.HandoffWindow("probe", make([]struct{}, 100_000), -1)
 	return len(kept)
-}
-
-// waitForClockTick blocks until real time.Now() has strictly advanced past its
-// current instant — a real signal (the clock itself), never a guessed sleep
-// duration. Needed wherever a gap boundary is a strict `>` against wall time
-// (TurnsSince): two turns recorded back-to-back against the real sqlite-backed
-// activity store can otherwise land on the identical instant, and the second
-// is silently excluded from "since" rather than by RecentHandoffWindow's own
-// cap — exactly the false positive a gap test here must not be exposed to.
-func waitForClockTick(t *testing.T) {
-	t.Helper()
-	start := time.Now()
-	for time.Now().Equal(start) {
-		if time.Since(start) > 2*time.Second {
-			t.Fatal("real clock never advanced")
-		}
-	}
 }
 
 // recordNumberedTurns appends n user turns with distinguishable text
@@ -46,12 +31,8 @@ func waitForClockTick(t *testing.T) {
 func recordNumberedTurns(t *testing.T, f fixture, chat domain.Chat, prefix string, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
-		require.NoError(t, f.conversations.RecordTurn(
-			t.Context(), chat, "claude", "runner-1", "session-1", "user",
-			fmt.Sprintf("%s-%d", prefix, i), "",
-		))
+		say(t, f, chat.ID, fmt.Sprintf("%s-%d", prefix, i))
 	}
-	f.settle()
 }
 
 // A gap under the cap must render exactly as it did before this cap existed:
@@ -60,7 +41,7 @@ func TestAssembleConversation_UnderTheCapCarriesEveryTurnAndNoNote(t *testing.T)
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "", "ws-1", "", "")
 	require.NoError(t, err)
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
@@ -76,14 +57,13 @@ func TestAssembleConversation_UnderTheCapCarriesEveryTurnAndNoNote(t *testing.T)
 	}
 }
 
-// The fresh-join path (cut zero, the whole ledger) must trim the same way the
-// resume path does: this pins the bug where a long-running chat on the OTHER
-// provider dumped its entire history into the next provider's context.
-func TestAssembleConversation_FreshJoinOverTheCapKeepsOnlyTheMostRecent(t *testing.T) {
+// The fresh-join path (cut zero, the whole ledger) is capped too, so a long chat
+// never dumps its whole history into the next provider, but its first ask leads.
+func TestAssembleConversation_FreshJoinOverTheCapKeepsTheFirstAskAndTheMostRecent(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "", "ws-1", "", "")
 	require.NoError(t, err)
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
@@ -93,9 +73,12 @@ func TestAssembleConversation_FreshJoinOverTheCapKeepsOnlyTheMostRecent(t *testi
 	blob, err := f.conversations.AssembleConversation(t.Context(), chatID, false, time.Time{})
 
 	require.NoError(t, err)
-	assert.NotContains(t, blob, "turn-0\n", "the oldest turn must be trimmed from a fresh join")
-	assert.Contains(t, blob, fmt.Sprintf("turn-%d", total-1), "the newest turn must survive")
-	assert.Contains(t, blob, "get_chat_log", "a trimmed handoff must point at how to read the rest")
+	first := strings.Index(blob, "turn-0\n")
+	note := strings.Index(blob, "earlier turns are omitted")
+	newest := strings.Index(blob, fmt.Sprintf("turn-%d\n", total-1))
+	assert.True(t, first >= 0 && first < note && note < newest,
+		"first ask, then the omission note, then the newest turn:\n%s", blob)
+	assert.NotContains(t, blob, "turn-1\n", "the turns after the first ask are the ones trimmed")
 }
 
 // The resume path caps the GAP itself, not just the ledger as a whole: turns
@@ -106,7 +89,7 @@ func TestAssembleConversation_ResumeGapOverTheCapKeepsOnlyTheMostRecentOfTheGap(
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "", "ws-1", "", "")
 	require.NoError(t, err)
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
@@ -115,11 +98,6 @@ func TestAssembleConversation_ResumeGapOverTheCapKeepsOnlyTheMostRecentOfTheGap(
 	turnsBefore, err := f.conversations.ChatTurns(t.Context(), chatID)
 	require.NoError(t, err)
 	leftAt := turnsBefore[len(turnsBefore)-1].At
-
-	// Without a real tick between them, the first gap turn below can land on
-	// the identical wall-clock instant as leftAt and be silently excluded from
-	// the gap by TurnsSince's own strict `>` filter — see waitForClockTick.
-	waitForClockTick(t)
 
 	total := handoffCap(t) + 5
 	recordNumberedTurns(t, f, chat, "gap", total)
@@ -132,4 +110,28 @@ func TestAssembleConversation_ResumeGapOverTheCapKeepsOnlyTheMostRecentOfTheGap(
 		"the oldest turn OF THE GAP must be trimmed once the gap itself exceeds the cap")
 	assert.Contains(t, blob, fmt.Sprintf("gap-%d", total-1), "the newest gap turn must survive")
 	assert.Contains(t, blob, "get_chat_log")
+}
+
+// A person's clear ends the conversation the next CLI is told about: what was said
+// before it was discarded on purpose, so no handoff carries it.
+func TestAssembleConversation_ACarriesNothingFromBeforeTheConversationWasCleared(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, stubLineage{})
+	chatID, err := f.conversations.MintChat(t.Context(), "", "ws-1", "", "")
+	require.NoError(t, err)
+	say(t, f, chatID, "before-clear")
+	st, err := f.ledger.State(t.Context(), chatID)
+	require.NoError(t, err)
+	cleared, err := ledger.AnnounceCleared(st, "claude", "S2")
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), chatID, cleared...)
+	require.NoError(t, err)
+	say(t, f, chatID, "after-clear")
+
+	blob, err := f.conversations.AssembleHandoff(t.Context(), chatID)
+
+	require.NoError(t, err)
+	assert.NotContains(t, blob, "before-clear")
+	assert.Contains(t, blob, "after-clear")
 }

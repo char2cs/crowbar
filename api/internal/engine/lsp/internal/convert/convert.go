@@ -1,5 +1,5 @@
 // Package convert translates between LSP wire types and the Crowbar domain
-// DTOs defined in internal/domain/lsp (10 §6). Each mapping is a small,
+// DTOs defined in internal/domain/lsp. Each mapping is a small,
 // pure function with no side effects.
 package convert
 
@@ -98,17 +98,9 @@ func URIFromPath(
 	return "file://" + path
 }
 
-// WorkspaceRelPath expresses an absolute filesystem path relative to
-// worktreePath. Language servers answer with absolute URIs, but every path
-// Crowbar's frontend can act on is workspace-relative — editor buffers are keyed
-// that way and the files API rejects absolute paths outright (safepath) — so
-// every path leaving the LSP surface passes through here.
-//
-// A path the worktree does not contain (a standard-library or module-cache
-// source a definition can legitimately resolve to) has no relative form and is
-// returned unchanged. Its leading separator is what lets callers tell the two
-// apart and report an out-of-workspace target instead of issuing a read that
-// cannot succeed.
+// WorkspaceRelPath expresses an absolute path relative to worktreePath, since the
+// frontend only acts on workspace-relative paths. A path outside the worktree (stdlib,
+// module cache) is returned unchanged; its leading separator marks it out-of-workspace.
 func WorkspaceRelPath(
 	worktreePath string,
 	path string,

@@ -26,7 +26,7 @@ const RENDER_WHITESPACE_MODES = new Set<Settings['renderWhitespace']>([
   'trailing',
   'all',
 ])
-// The static "Geist Mono" cut is no longer bundled; its variable cut replaces it.
+// Only the variable Geist Mono cut is bundled, so a persisted static one maps to it.
 const REMOVED_STATIC_GEIST_MONO = /^(\s*)(['"]?)Geist Mono\2(\s*(?:,|$))/i
 
 function normalizeMonoFontFamily(fontFamily: string): string {
@@ -54,15 +54,8 @@ function normalizeFileTreeIndentSize(value: number): number {
   return Math.min(FILE_TREE_INDENT_SIZE_MAX, Math.max(FILE_TREE_INDENT_SIZE_MIN, snapped))
 }
 
-/**
- * `Theme` is a bare `string`, so a persisted id survives the theme it names being
- * renamed or removed ('terra', 'zen'). Coerce an id the registry doesn't know
- * back to the default at READ time — a graceful fallback, not a migration pass —
- * so no consumer has to guess what a dead id means.
- *
- * The registry is the source of truth, so a theme uploaded this session (the only
- * way a non-builtin id exists — uploads aren't persisted) still round-trips.
- */
+// A persisted theme id can outlive its theme, so an id the registry doesn't know reads as the
+// default. Checked against the registry, so a theme uploaded this session still round-trips.
 function normalizeTheme(value: unknown): Settings['theme'] {
   if (typeof value === 'string' && themeRegistry.getTheme(value)) {
     return value
@@ -71,19 +64,12 @@ function normalizeTheme(value: unknown): Settings['theme'] {
   return getDefaultSetting('theme')
 }
 
-/**
- * Anything but a boolean here — an older profile, a hand-edited export — carries
- * no choice at all, so it resolves to the default rather than to `false`.
- */
+// A non-boolean (older profile, hand-edited export) carries no choice: the default, not `false`.
 function normalizeChatIsDefaultPresentation(value: unknown): boolean {
   return typeof value === 'boolean' ? value : getDefaultSetting('chatIsDefaultPresentation')
 }
 
-/**
- * The dev split-view switch. Same rule as above and for the same reason: a value
- * that is not a boolean carries no choice, so it resolves to the default (off)
- * rather than to whatever `Boolean(value)` happens to say.
- */
+// The dev split-view switch: a non-boolean resolves to the default (off), as above.
 function normalizeChatSplitPresentationEnabled(value: unknown): boolean {
   return typeof value === 'boolean' ? value : getDefaultSetting('chatSplitPresentationEnabled')
 }

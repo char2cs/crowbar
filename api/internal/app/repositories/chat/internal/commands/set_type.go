@@ -8,21 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetType rewrites which KIND of row a chat is, leaving its id, placement,
-// workspace and conversation exactly as they stand.
-//
-// It exists for one fact the taxonomy has to survive: what a row IS can change
-// after the row is made. A workspace that was an ordinary worktree when its
-// owning row was minted becomes a locked branch the moment the user locks it or
-// the provider reports its branch protected, and the row that owns it is then a
-// BRANCH row — the same row, playing a different part. Retyping it is what keeps
-// "one workspace, one owning row" true across that change; minting a second row
-// of the right type would leave two rows both claiming the workspace.
-//
-// A FOLDER is out of bounds in both directions. Folder rows and chat rows share
-// one table but not one set of verbs — a folder delete PROMOTES what it held
-// where a chat delete CASCADES into it — so a retype across that line would hand
-// existing rows the opposite rule from the one they were filed under.
+// SetType rewrites which kind of row a chat is, leaving its id, workspace and
+// conversation as they stand. Only chat and workflow are valid targets; a folder
+// is refused in both directions because folders delete by promoting, not cascading.
 type SetType struct {
 	ID   string
 	Type domain.ChatType

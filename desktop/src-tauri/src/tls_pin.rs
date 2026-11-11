@@ -1,8 +1,6 @@
-//! Fingerprint pinning for remote daemon connections: instead of validating a
-//! certificate chain against a CA (there is none — every daemon's identity is
-//! self-signed, `api/internal/core/tlsid`), a remote host's certificate is
-//! trusted exactly when its fingerprint matches the one the user confirmed
-//! during pairing.
+//! Fingerprint pinning for remote daemons: their identities are self-signed
+//! (`api/internal/core/tlsid`), so a certificate is trusted exactly when its fingerprint
+//! matches the one the user confirmed during pairing.
 
 use std::fmt;
 use std::sync::Arc;
@@ -27,10 +25,8 @@ pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Renders a certificate's SHA-256 as grouped lowercase hex — byte-identical
-/// in format to the Go daemon's `tlsid.FingerprintOf`, so the string a human
-/// reads from `crowbar pair` on the daemon's own host and the string shown
-/// here during pairing are directly comparable.
+/// A certificate's SHA-256 as grouped lowercase hex, byte-identical to the daemon's
+/// `tlsid.FingerprintOf`, so `crowbar pair`'s output and the pairing UI compare directly.
 pub fn fingerprint_of(der: &[u8]) -> String {
     display_fingerprint(&certificate_digest(der))
 }
@@ -135,10 +131,8 @@ impl ServerCertVerifier for PinnedVerifier {
     }
 }
 
-/// Builds a rustls client config that trusts only the certificate `pin`
-/// names. The crypto provider is explicit so signature checks never
-/// depend on whichever process-wide default happens to be installed. Both
-/// ends are ours, so only TLS 1.3 is offered.
+/// A rustls client config trusting only `pin`'s certificate. The crypto provider is
+/// explicit so signature checks never depend on a process-wide default; TLS 1.3 only.
 pub fn pinned_client_config(pin: Pin) -> Arc<rustls::ClientConfig> {
     let provider = Arc::new(aws_lc_rs::default_provider());
     let verifier = Arc::new(PinnedVerifier::new(pin, &provider));
@@ -164,10 +158,9 @@ mod tests {
 
     #[test]
     fn fingerprint_of_has_the_go_side_format() {
-        // Format contract with api/internal/core/tlsid/tlsid.go's FingerprintOf:
-        // "SHA256:" + six groups of 4 lowercase hex chars, space-separated —
-        // the first 24 hex chars (12 bytes) of the SHA-256 digest, truncated
-        // the same way on both sides so a human can visually compare them.
+        // Format contract with api/internal/core/tlsid/tlsid.go's FingerprintOf: "SHA256:" + six
+        // space-separated groups of 4 lowercase hex chars (the first 12 digest bytes), truncated the
+        // same way on both sides so a human can visually compare them.
         let fp = fingerprint_of(b"anything");
         assert!(fp.starts_with("SHA256:"));
         let groups: Vec<&str> = fp["SHA256:".len()..].trim().split(' ').collect();

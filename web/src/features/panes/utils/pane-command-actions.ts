@@ -47,18 +47,9 @@ export function toggleActiveEditorGroupLock(): boolean {
   return true
 }
 
-// Opens the Branch Review surface for the given workspace as a pane tab.
-// Returns the opened buffer id, or null when there is no workspace to open
-// one for. The caller supplies the workspace: a button living inside a
-// SPECIFIC pane (TabBar, ChatOnlyPaneHeader) must open review for THAT
-// pane's own chat/workspace, never whichever one happens to be globally
-// active — a different pane in the same split can easily be showing a
-// different chat and workspace entirely.
-//
-// `paneId` names the pane the review lands in (C8) — an INACTIVE pane's own
-// review button opens it in that pane, not in whichever one has focus. Omit
-// it only for a caller with no pane of its own. `replaceTabId` is a New Tab
-// page the review takes the place of.
+// Opens Branch Review as a tab; null without a workspace. The caller names workspace and pane
+// (C8): a pane's own button reviews that pane's workspace, in that pane, whatever has focus.
+// `replaceTabId` is a New Tab page the review replaces.
 export function openBranchReviewForWorkspace(
   wsId: string | null | undefined,
   paneId?: string,
@@ -76,24 +67,9 @@ export function openBranchReviewForWorkspace(
     )
 }
 
-// Law 3 (spec §7.2): "nothing lands in a pane of its own; everything lands in
-// the editor view [of a chat]". A pane must hold a chat before anything opens
-// into its editor view. When `paneId` already has one, `openTab` just runs.
-// `openTab` is handed the pane to open into — `paneId`, or the pane already
-// showing the workspace's owning chat — and the workspace the tab belongs to, and
-// opens there explicitly (C8).
-//
-// Every workspace already has a real, permanent owning chat — the daemon
-// mints one per locked branch, repo home and project home
-// (rows-from-repo.ts's `branchRowIds` doc) — so a chatless PANE never means a
-// chatless WORKSPACE. This resolves and reuses that owning chat
-// (`getOwningChatId`, the same read every other workspace-scoped surface
-// uses — lsp-client.ts, terminal.tsx, branch-review-pane.tsx, etc.) rather
-// than minting a second, redundant chat, which is what this used to do
-// unconditionally on any pane that merely hadn't been told its workspace's
-// chat yet. If no owning chat can be resolved (e.g. the sidebar hasn't
-// loaded this workspace's scope yet), this does nothing — never creates one
-// as a side effect of opening a terminal, a file, or a branch review.
+// A pane must hold a chat before anything opens in its editor view (spec §7.2). A chatless pane
+// gets the workspace's owning chat (revealed where already shown), never a new one; with no
+// owning chat resolved yet this does nothing. `openTab` gets the target pane and workspace.
 export function ensurePaneChatThenOpen(
   wsId: string,
   paneId: string,
@@ -141,7 +117,6 @@ export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): bo
     return false
   }
 
-  // I8 (Task 26 fix round 1): same activeBufferId dead-field bug as above.
   return splitEditorGroup(activePane.id, direction, activePane.activeEditorTabId)
 }
 
@@ -254,8 +229,6 @@ export function moveActiveEditorToAdjacentGroup(direction: 'next' | 'previous'):
     return false
   }
 
-  // I8 (Task 26 fix round 1): moveBufferToPane has not existed on PaneActions
-  // since Task 1's editorTabIds rename — real name is moveEditorTabToPane.
   state.paneActions.moveEditorTabToPane(activePane.activeEditorTabId, activePane.id, targetPane.id)
   return true
 }

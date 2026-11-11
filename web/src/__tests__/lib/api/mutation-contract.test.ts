@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import {
-  postProject,
-  postRepo,
-  renameRepo,
-  importBranches,
-  renameWorkspaceBranch,
-  apiFetch,
-} from '@/lib/api'
+import { postProject, postRepo, renameRepo, importBranches, renameWorkspaceBranch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
 // §3/§7: every entity mutation is hierarchical and fire-and-forget — the daemon
@@ -30,23 +24,23 @@ function lastCall(): [string, RequestInit] {
   return fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, RequestInit]
 }
 
-describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
-  test('POST /v0/projects → 202, resolves undefined', async () => {
-    const res = await postProject('my-proj', '/tmp/my-proj', 'local')
+describe('hierarchical mutations', () => {
+  test('POST /v0/projects sends its operation id', async () => {
+    await postProject('my-proj', '/tmp/my-proj', 'op-1', 'local')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects')
     expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op-1')
     expect(JSON.parse(init.body as string)).toEqual({ name: 'my-proj', path: '/tmp/my-proj' })
-    expect(res).toBeUndefined()
   })
 
-  test('POST /v0/projects/:p/repos → 202, resolves undefined', async () => {
-    const res = await postRepo('p1', 'crowbar', '/tmp/crowbar')
+  test('POST /v0/projects/:p/repos sends its operation id', async () => {
+    await postRepo('p1', 'crowbar', '/tmp/crowbar', 'op-2')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects/p1/repos')
     expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op-2')
     expect(JSON.parse(init.body as string)).toEqual({ name: 'crowbar', path: '/tmp/crowbar' })
-    expect(res).toBeUndefined()
   })
 
   test('PATCH /v0/projects/:p/repos/:r body {name} → 204, resolves undefined', async () => {
@@ -61,13 +55,17 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
 
   // Batch import moved onto the chat surface with the rest of creation: a
   // worktree is created and held by a chat, never by a route of its own.
-  test('POST .../chats/import-batch body {branches} → 202, resolves undefined', async () => {
-    const res = await importBranches('p1', 'r1', ['feature/x', 'feature/y'])
+  test('POST .../chats/import-batch sends each branch with its chat id and lock, and the operation key', async () => {
+    const branches = [
+      { name: 'feature/x', chatId: 'c1', lock: true },
+      { name: 'feature/y', chatId: 'c2', lock: false },
+    ]
+    await importBranches('p1', 'r1', branches, 'op1')
     const [url, init] = lastCall()
     expect(url).toBe('/v0/projects/p1/repos/r1/chats/import-batch')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toEqual({ branches: ['feature/x', 'feature/y'] })
-    expect(res).toBeUndefined()
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op1')
+    expect(JSON.parse(init.body as string)).toEqual({ branches })
   })
 
   // It stays ONE call over the set rather than N single-branch creates. Only the
@@ -76,10 +74,11 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
   // for a branch another worktree already holds; a loop would drop all three
   // silently, and answer 202 while doing so.
   test('sends every branch in ONE request, never one request per branch', async () => {
-    await importBranches('p1', 'r1', ['a', 'b', 'c'])
+    const branches = ['a', 'b', 'c'].map((name) => ({ name, chatId: `chat-${name}`, lock: false }))
+    await importBranches('p1', 'r1', branches, 'op1')
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [, init] = lastCall()
-    expect(JSON.parse(init.body as string).branches).toEqual(['a', 'b', 'c'])
+    expect(JSON.parse(init.body as string).branches).toEqual(branches)
   })
 
   // A branch rename is a WORKTREE verb, so it is addressed by the chat holding

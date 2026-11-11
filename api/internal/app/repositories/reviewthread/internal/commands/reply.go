@@ -9,11 +9,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ReplyReviewThread appends a message to an existing thread (09 §3).
-//
-// ProviderID and ChatID attribute the appended message to the agent that wrote
-// it; a human reply leaves both empty. Like OpenReviewThread's, they are not
-// validated — attribution is decoration on a message, never authority.
+// ReplyReviewThread appends a message to an existing thread. ProviderID and ChatID
+// attribute it to an agent (empty for a human) and, as on open, are unvalidated.
 type ReplyReviewThread struct {
 	ID         string
 	MessageID  string
@@ -41,7 +38,7 @@ func (c ReplyReviewThread) Validate(
 	current *domain.ReviewThread,
 ) error {
 	if current == nil {
-		return fmt.Errorf("reply review thread: %w", asynxModels.ErrValidation)
+		return domain.ReviewThreadNotFound(asynxModels.ErrValidation)
 	}
 	if c.MessageID == "" {
 		return fmt.Errorf("reply review thread: missing message id: %w", asynxModels.ErrValidation)

@@ -1,5 +1,5 @@
 import type React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // @base-ui/react ships pure ESM and gets its own React copy in the
@@ -22,26 +22,27 @@ vi.mock('@/components/ui/avatar', () => ({
   AvatarFallback: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
+import * as fetchApi from '@/lib/api/fetch'
+import * as nativeDialog from '@/lib/native-dialog'
+import * as bridge from '@/lib/crowbar-bridge'
+
+const realApiFetch = fetchApi.apiFetch
 const apiFetch = vi.fn().mockResolvedValue(undefined)
-vi.mock('@/lib/api', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
-
+vi.spyOn(fetchApi, 'apiFetch').mockImplementation((...args) => apiFetch(...args))
 const openDialog = vi.fn()
-vi.mock('@/lib/native-dialog', () => ({
-  openNativeDialog: (...args: unknown[]) => openDialog(...args),
-}))
-
+vi.spyOn(nativeDialog, 'openNativeDialog').mockImplementation((...args) => openDialog(...args))
 const isTauri = vi.fn(() => false)
-vi.mock('@/lib/crowbar-bridge', () => ({
-  isTauri: () => isTauri(),
-  convertFileSrc: (path: string) => `asset://staged${path}`,
-}))
-
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
-}))
+vi.spyOn(bridge, 'isTauri').mockImplementation(() => isTauri())
+vi.spyOn(bridge, 'convertFileSrc').mockImplementation((path) => `asset://staged${path}`)
 
 import { IconPopover } from '@/components/layout/icon-popover'
-import { toast } from '@/features/window/stores/toast-store'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
@@ -76,6 +77,24 @@ describe('IconPopover — real (non-staged) mode is unchanged', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
 
     expect(apiFetch).toHaveBeenCalledExactlyOnceWith('/v0/projects/p1/icon', { method: 'DELETE' })
+  })
+
+  it('a refused reset reports the daemon’s reason', async () => {
+    const toasts = watchToasts()
+    apiFetch.mockRejectedValueOnce(refusal('icon is read-only'))
+    render(<IconPopover {...baseProps} base="/v0/projects/p1" emoji="🚀" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+
+    await waitFor(() => expectReported(toasts, 'Failed to reset icon', 'icon is read-only'))
+  })
+
+  it('a reset refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    const toasts = watchToasts()
+    apiFetch.mockRejectedValueOnce(migratingRefusal())
+    render(<IconPopover {...baseProps} base="/v0/projects/p1" emoji="🚀" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+
+    await waitFor(() => expectMigratingShown(toasts))
   })
 
   // A caller may wrap this trigger in a bare, unstyled `<span>` — that span is
@@ -183,12 +202,14 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
   })
 
   it('refuses an image over the 2 MB icon limit before reading or sending it', async () => {
+    const toasts = watchToasts()
     serveImage('x', 2 * 1024 * 1024 + 1)
     render(<IconPopover {...baseProps} base={REMOTE} />)
     upload()
 
-    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledOnce())
-    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/icon\.png.*2 MB/))
+    await waitFor(() =>
+      expectReported(toasts, 'Failed to set icon', 'icon.png is larger than the 2 MB icon limit'),
+    )
     expect(reads).toEqual(['HEAD asset://staged/Users/me/icon.png'])
     expect(apiFetch).not.toHaveBeenCalled()
   })
@@ -208,8 +229,8 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
   })
 
   it('says the host is no longer paired, and sends it nothing, when it was removed meanwhile', async () => {
-    const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
-    apiFetch.mockImplementation(actual.apiFetch)
+    const toasts = watchToasts()
+    apiFetch.mockImplementation(realApiFetch)
     pairRemoteHost('h1', 'Studio Mac')
     let pick!: (path: string) => void
     openDialog.mockReturnValue(new Promise((resolve) => (pick = resolve)))
@@ -220,9 +241,11 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
     pick('/Users/me/icon.png')
 
     await vi.waitFor(() =>
-      expect(toast.error).toHaveBeenCalledExactlyOnceWith(
-        'That host is no longer paired with this computer',
-        'Pair it again in Settings → Hosts to use it.',
+      expect(toasts).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          description: expect.stringMatching(/no longer paired/),
+        }),
       ),
     )
     expect(sentTo('crowbar://')).toEqual([])

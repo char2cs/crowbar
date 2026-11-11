@@ -1,5 +1,7 @@
-import { newQueuedPrompt, savePromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
+import { saveDraft } from '@/features/agent/composer/lib/draft-persistence'
+import { sendPrompt } from '@/features/agent/stores/chat-outbox'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 
 /** Where a draft thread lives, and where its chat will be created. */
 export interface DraftSpec {
@@ -35,16 +37,28 @@ export function draftOfPane(paneId: string): DraftSpec | null {
   }
 }
 
-/**
- * The draft became a chat: its first prompt is queued for that chat, and the
- * pane re-points at it in the same step. The queue is written first so the
- * chat's view finds the prompt on its first render and sends it.
- */
-export function finishDraftThread(draft: DraftSpec, chatId: string, prompt: DraftPrompt): void {
-  savePromptQueue(draft.workspaceId, chatId, [
-    newQueuedPrompt(prompt.text, 0, prompt.provider, prompt.model, prompt.effort),
-  ])
+/** Where a draft's chat starts: on Chat, which sends the prompt (Terminal holds it unsent),
+ *  and on the agent the prompt was written for. */
+export function draftLanding(prompt: DraftPrompt): {
+  presentation: LandingChatPresentation
+  providerId: string
+} {
+  return { presentation: 'chat', providerId: prompt.provider }
+}
+
+/** The draft became a chat: its first prompt goes to that chat's outbox, which
+ *  sends it once the chat can take it, and the pane re-points at it in the same step.
+ *  What was typed after the send leaves with the draft's box, so it becomes the
+ *  chat's unsent draft, which the chat's own box restores. */
+export function finishDraftThread(
+  draft: DraftSpec,
+  chatId: string,
+  prompt: DraftPrompt,
+  typedSince: () => string,
+): void {
+  sendPrompt(draft.workspaceId, chatId, { ...prompt, steer: false })
   const { panes, paneActions } = windowPaneStore.getState()
   if (panes[draft.paneId]?.chatId !== draft.draftId) return
+  saveDraft(chatId, typedSince())
   paneActions.retargetPane(draft.paneId, chatId, null)
 }

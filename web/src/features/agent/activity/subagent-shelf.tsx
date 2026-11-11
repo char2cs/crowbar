@@ -1,39 +1,48 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { SubagentIcon } from '@/features/agent/shared/agent-icons'
-import type { AgentActivity } from '@/features/agent/api/agent-api'
-import { fitShelf, formatElapsed, type ShelfToken } from '@/features/agent/activity/lib/shelf-fit'
+import { useTextClock } from '@/features/agent/activity/lib/text-clock'
+import { useSubagentAction } from '@/features/agent/hooks/use-subagent-action'
+import { useChatStore } from '@/features/agent/stores/chat-store'
+import type { SubagentItem } from '@/features/agent/stores/lib/transcript-items'
+import { fitShelf, type ShelfToken } from '@/features/agent/activity/lib/shelf-fit'
 import { cn } from '@/lib/utils'
 
 /** Rough px per character of a token's label, for the pre-layout estimate. */
 const CHAR_PX = 6.2
 const TOKEN_CHROME_PX = 32
+const CLOCK_CHARS = 4
 
 function estimate(token: ShelfToken, dense: boolean): number {
   const name = dense ? '' : (token.agentType ?? '')
-  const clock = formatElapsed(token.elapsed)
-  return TOKEN_CHROME_PX + (name.length + clock.length) * CHAR_PX
+  return TOKEN_CHROME_PX + (name.length + CLOCK_CHARS) * CHAR_PX
 }
 
-/**
- * How many subagents are running, and for how long — the live status strip
- * pinned above the composer. A finished subagent is not drawn here any more
- * (see `AgentTurnSubagents`, transcript/turn-tools.tsx): it gets the SAME
- * `.tok` chip, just attached to the turn it belongs to (or the last turn,
- * for one with no turn of its own) rather than floating above the input for
- * the rest of the conversation.
- *
- * The live strip itself is still the flat count+clock it always was:
- * `AgentSubagent` carries an id, an optional type and two timestamps while
- * running, and a native (Claude) subagent never has more to show than that.
- * It sheds detail in a fixed order as a fan-out widens (see `fitShelf`), and
- * the count and clocks are the two things that never drop.
- */
-export function SubagentShelf({ activity }: { activity: AgentActivity }) {
+function Token({ chatId, card, dense }: { chatId: string; card: SubagentItem; dense: boolean }) {
+  const action = useSubagentAction(chatId, card.scope)
+  const clockRef = useTextClock(card.startedAt)
+  return (
+    <span className="tok">
+      <i />
+      {!dense && <span className="ty">{card.title || card.type}</span>}
+      {!dense && <span className="act">{action}</span>}
+      <b data-testid="agent-subagent-clock" ref={clockRef} />
+    </span>
+  )
+}
+
+/** The running subagents above the composer: each one's title, current action
+ *  and clock. It sheds detail as a fan-out widens (`fitShelf`); the count and
+ *  the clocks never drop. */
+export function SubagentShelf({ chatId }: { chatId: string }) {
   const lineRef = useRef<HTMLSpanElement>(null)
   const [width, setWidth] = useState(0)
-  const [now, setNow] = useState(() => Date.now())
-
-  const running = activity.subagents.filter((subagent) => !subagent.endedAt)
+  const running = useChatStore(
+    useShallow((s) => {
+      const feed = s.feeds[chatId]
+      return (feed?.facts.liveSubagents ?? []).map((id) => feed?.items.get(id) as SubagentItem)
+    }),
+  )
 
   useLayoutEffect(() => {
     const node = lineRef.current
@@ -45,20 +54,15 @@ export function SubagentShelf({ activity }: { activity: AgentActivity }) {
     return () => observer.disconnect()
   }, [])
 
-  useEffect(() => {
-    if (running.length === 0) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [running.length])
-
   const measure = useCallback(estimate, [])
 
   if (running.length === 0) return null
 
-  const tokens: ShelfToken[] = running.map((subagent) => ({
-    id: subagent.id,
-    agentType: subagent.agentType,
-    elapsed: Math.max(0, Math.round((now - Date.parse(subagent.startedAt)) / 1000)),
+  const byId = new Map(running.map((card) => [card.id, card]))
+  const tokens: ShelfToken[] = running.map((card) => ({
+    id: card.id,
+    agentType: card.title || card.type,
+    elapsed: 0,
   }))
   const layout = fitShelf(tokens, width, measure)
 
@@ -74,11 +78,7 @@ export function SubagentShelf({ activity }: { activity: AgentActivity }) {
       </span>
       <span className="subline" ref={lineRef}>
         {layout.shown.map((token) => (
-          <span className="tok" key={token.id}>
-            <i />
-            {!layout.dense && token.agentType && <span className="ty">{token.agentType}</span>}
-            <b>{formatElapsed(token.elapsed)}</b>
-          </span>
+          <Token key={token.id} chatId={chatId} card={byId.get(token.id)!} dense={layout.dense} />
         ))}
       </span>
       {layout.overflow > 0 && <span className="submore">+{layout.overflow}</span>}

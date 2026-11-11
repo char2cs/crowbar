@@ -19,7 +19,6 @@ function entry(overrides: Partial<EditorPortalEntry> = {}): EditorPortalEntry {
   return {
     node: document.createElement('div'),
     activeEditorBufferId: 'buf-a',
-    isPreview: false,
     isActiveSurface: true,
     ...overrides,
   }

@@ -7,7 +7,14 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
+import * as openDocumentModule from '@/features/editor/documents/open-document'
+import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
+import type { Chat } from '@/core/entities/repo-types'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+
+const openUntitled = vi.spyOn(openDocumentModule, 'openUntitledDocument').mockResolvedValue('')
+const homeThread = () =>
+  seedHomeTree('p1', { chats: [{ id: 'thread-1', repoId: '', title: 't', order: 0 } as Chat] })
 
 const ensurePaneChatThenOpen = vi.hoisted(() => vi.fn())
 const openContent = vi.hoisted(() => vi.fn())
@@ -38,9 +45,10 @@ describe('NewTabView', () => {
     vi.clearAllMocks()
     platform.mobile = false
     resetWindowPaneStoreForTests()
-    useHomeTreeStore.setState({ trees: {} })
-    ensurePaneChatThenOpen.mockImplementation((_ws, _pane, open: (p: string) => void) =>
-      open('pane-x'),
+    resetEntities()
+    __resetWorkspaceScopesForTest()
+    ensurePaneChatThenOpen.mockImplementation(
+      (ws: string, _pane, open: (p: string, w: string) => void) => open('pane-x', ws),
     )
   })
 
@@ -71,16 +79,16 @@ describe('NewTabView', () => {
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
     await userEvent.click(screen.getByRole('button', { name: /new terminal/i }))
     expect(ensurePaneChatThenOpen).toHaveBeenCalledWith('w1', ROOT_PANE_ID, expect.any(Function))
-    expect(openContent).toHaveBeenCalledWith({ type: 'terminal' }, { paneId: 'pane-x' })
+    expect(openContent).toHaveBeenCalledWith(
+      { type: 'terminal', workspaceId: 'w1' },
+      { paneId: 'pane-x' },
+    )
   })
 
   it('opens an untitled file through the pane-chat guard', async () => {
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
     await userEvent.click(screen.getByRole('button', { name: /new file/i }))
-    expect(openContent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'editor', path: 'untitled:Untitled' }),
-      { paneId: 'pane-x' },
-    )
+    expect(openUntitled).toHaveBeenCalledWith('w1', 'pane-x', undefined)
   })
 
   // Same gate as the header's shortcut: a thread owns no branch to review.
@@ -97,7 +105,7 @@ describe('NewTabView', () => {
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" replaceTabId="page-1" />)
     await userEvent.click(screen.getByRole('button', { name: /new terminal/i }))
     expect(openContent).toHaveBeenLastCalledWith(
-      { type: 'terminal' },
+      { type: 'terminal', workspaceId: 'w1' },
       { paneId: 'pane-x', replaceTabId: 'page-1' },
     )
     await userEvent.click(screen.getByRole('button', { name: /new browser/i }))
@@ -106,10 +114,7 @@ describe('NewTabView', () => {
       replaceTabId: 'page-1',
     })
     await userEvent.click(screen.getByRole('button', { name: /new file/i }))
-    expect(openContent).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'editor' }), {
-      paneId: 'pane-x',
-      replaceTabId: 'page-1',
-    })
+    expect(openUntitled).toHaveBeenLastCalledWith('w1', 'pane-x', 'page-1')
     await userEvent.click(screen.getByRole('button', { name: /review branch/i }))
     expect(openBranchReviewForWorkspace).toHaveBeenCalledWith('w1', ROOT_PANE_ID, 'page-1')
   })
@@ -118,10 +123,16 @@ describe('NewTabView', () => {
     // A chat in a project home borrows its workspace: a thread.
     windowPaneStore.getState().paneActions.openChat('thread-1', { projectId: 'p1' })
     const paneId = windowPaneStore.getState().activePaneId
-    useHomeTreeStore.setState({
-      trees: { p1: { chats: [{ id: 'thread-1' }], folders: [] } as unknown as HomeTree },
-    })
+    homeThread()
     render(<NewTabView paneId={paneId} wsId="w1" />)
+    expect(screen.queryByRole('button', { name: /review branch/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
+  })
+
+  // A project home has no repo, so no branch; before any chat its pane is chatless.
+  it('hides Review Branch in a project home before it holds a chat', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-p1' })
+    render(<NewTabView paneId={ROOT_PANE_ID} wsId="home-p1" />)
     expect(screen.queryByRole('button', { name: /review branch/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
   })
@@ -156,9 +167,7 @@ describe('NewTabView', () => {
 
     windowPaneStore.getState().paneActions.openChat('thread-1', { projectId: 'p1' })
     const paneId = windowPaneStore.getState().activePaneId
-    useHomeTreeStore.setState({
-      trees: { p1: { chats: [{ id: 'thread-1' }], folders: [] } as unknown as HomeTree },
-    })
+    homeThread()
     render(<NewTabView paneId={paneId} wsId="w1" />)
     expect(screen.queryByRole('button', { name: /review branch/i })).not.toBeInTheDocument()
   })

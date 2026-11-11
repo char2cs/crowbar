@@ -1,31 +1,19 @@
-/**
- * Keymap domain types.
- *
- * A "chord" is a single keystroke combination (modifiers + a key), stored in a
- * normalized, platform-neutral string form such as `mod+\`, `mod+shift+t`,
- * `mod+alt+arrowleft`. `mod` resolves to Cmd on macOS and Ctrl elsewhere.
- */
+// A chord is one keystroke combination stored platform-neutral, e.g. `mod+shift+t`;
+// `mod` resolves to Cmd on macOS and Ctrl elsewhere.
 
 /** Categories used to group commands in the Keybindings settings tab. */
 export type CommandCategory = 'Panes' | 'Tabs' | 'Editor' | 'Navigation' | 'Chats'
 
-/**
- * A command is a finite, knowable action that can be bound to a key chord.
- * Commands are extracted from the keyboard hooks that already exist in the
- * codebase — this is not an open-ended command system.
- */
+/** A bindable action from the fixed set the keyboard hooks implement. */
 export interface Command {
-  /** Stable identifier, e.g. `panes.splitRight`. */
+  /** Stable identifier, e.g. `panes.navigateLeft`. */
   id: string
   /** Human-readable label shown in the settings tab. */
   label: string
   category: CommandCategory
   /** Default chord in normalized string form. */
   defaultChord: string
-  /**
-   * Whether the live binding is resolved from the registry (live-editable) or
-   * still hardcoded in a hook and only represented here for display.
-   */
+  /** True when the live binding resolves from the registry; false when a hook hardcodes it. */
   liveEditable: boolean
 }
 

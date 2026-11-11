@@ -5,18 +5,19 @@ import { useFileExplorerDragDrop } from '@/features/file-explorer/file-explorer/
 import type { FileEntry } from '@/features/file-system/types/app'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useDragStore } from '@/features/panes/stores/drag-store'
-import { moveWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { workspaceRef } from '@/lib/api/documents'
+import { moveFile } from '@/features/file-system/controllers/platform'
 
-// moveWorkspaceFile is the only async side effect on drop; stub it so a "drop on a
+// moveFile is the only async side effect on drop; stub it so a "drop on a
 // directory" never hits the real platform controller.
 vi.mock('@/features/file-system/controllers/platform', () => ({
-  moveWorkspaceFile: vi.fn().mockResolvedValue(undefined),
+  moveFile: vi.fn().mockResolvedValue(undefined),
 }))
 
-const { openWorkspaceFile } = vi.hoisted(() => ({
-  openWorkspaceFile: vi.fn(async () => {}),
+const { openDocument } = vi.hoisted(() => ({
+  openDocument: vi.fn(async () => null),
 }))
-vi.mock('@/features/files/lib/file-tree-handlers', () => ({ openWorkspaceFile }))
+vi.mock('@/features/editor/documents/open-document', () => ({ openDocument }))
 
 const makeFile = (name: string, path: string, isDir = false): FileEntry => ({
   name,
@@ -27,7 +28,7 @@ const makeFile = (name: string, path: string, isDir = false): FileEntry => ({
 const mouseEvent = (type: string, x = 50, y = 50) =>
   new MouseEvent(type, { clientX: x, clientY: y, bubbles: true })
 
-describe('useFileExplorerDragDrop — stable listener subscription (H13)', () => {
+describe('useFileExplorerDragDrop — stable listener subscription', () => {
   // Spelled out rather than `ReturnType<typeof vi.spyOn>`: vi.spyOn is
   // overloaded, so bare ReturnType resolves the generic to its constraint and
   // yields Mock<Procedure> — whose mock.calls is any[], which makes the
@@ -180,9 +181,8 @@ describe('useFileExplorerDragDrop — stable listener subscription (H13)', () =>
   })
 })
 
-// A file dragged out of the explorer and dropped on a pane opens as a tab of
-// THAT pane, named explicitly (C8) — never a pane of its own, whatever edge
-// zone it lands in (spec §6.3/§7.2), and never through a window-global bus.
+// A file dragged out of the explorer onto a pane opens as a tab of that pane, named explicitly:
+// never a pane of its own, whatever edge zone it lands in, and never through a window-global bus.
 describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   let pane: HTMLElement
 
@@ -201,7 +201,7 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
   afterEach(() => {
     pane.remove()
     setActiveWorkspaceId(null)
-    openWorkspaceFile.mockClear()
+    openDocument.mockClear()
     delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
     delete (document as unknown as { elementsFromPoint?: unknown }).elementsFromPoint
   })
@@ -222,8 +222,8 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
     return result
   }
 
-  it('opens the file in the pane it was dropped on, by id', () => {
-    setActiveWorkspaceId('ws-in-view')
+  it('opens the file of its own workspace in the pane it was dropped on, by id', () => {
+    setActiveWorkspaceId('ws-other')
     const result = drag(makeFile('a.ts', 'src/a.ts'))
     expect(useDragStore.getState().file).toEqual({ path: 'src/a.ts', name: 'a.ts', isDir: false })
 
@@ -232,18 +232,19 @@ describe('useFileExplorerDragDrop — dropping a file on a pane', () => {
       document.dispatchEvent(mouseEvent('mouseup', 1, 50))
     })
 
-    expect(openWorkspaceFile).toHaveBeenCalledWith('ws-a', 'src/a.ts', { paneId: 'pane-b' })
+    expect(openDocument).toHaveBeenCalledWith(workspaceRef('ws-a', 'src/a.ts'), {
+      paneId: 'pane-b',
+    })
     expect(result.current.dragState.isDragging).toBe(false)
     expect(useDragStore.getState().file).toBeNull()
   })
 
   it('ignores a directory drop', () => {
-    setActiveWorkspaceId('ws-in-view')
     drag(makeFile('src', 'src', true))
     act(() => {
       document.dispatchEvent(mouseEvent('mouseup', 50, 50))
     })
-    expect(openWorkspaceFile).not.toHaveBeenCalled()
+    expect(openDocument).not.toHaveBeenCalled()
   })
 })
 
@@ -268,7 +269,7 @@ describe('useFileExplorerDragDrop — moving a file within the tree', () => {
   afterEach(() => {
     document.body.replaceChildren()
     setActiveWorkspaceId(null)
-    vi.mocked(moveWorkspaceFile).mockClear()
+    vi.mocked(moveFile).mockClear()
     delete (document as unknown as { elementFromPoint?: unknown }).elementFromPoint
   })
 
@@ -294,7 +295,7 @@ describe('useFileExplorerDragDrop — moving a file within the tree', () => {
       document.dispatchEvent(mouseEvent('mouseup', 20, 20))
     })
 
-    expect(moveWorkspaceFile).toHaveBeenCalledExactlyOnceWith('ws-a', 'src/a.ts', 'dst/a.ts')
+    expect(moveFile).toHaveBeenCalledExactlyOnceWith('ws-a', 'src/a.ts', 'dst/a.ts')
     expect(onFileMove).toHaveBeenCalledWith('src/a.ts', 'dst/a.ts')
   })
 })

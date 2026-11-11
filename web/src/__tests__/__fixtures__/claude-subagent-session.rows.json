@@ -1,0 +1,696 @@
+[
+  {
+    "chatId": "id-1",
+    "seq": 1,
+    "kind": "session_bound",
+    "at": "2026-10-01T12:00:01Z",
+    "body": {
+      "provider": "claude",
+      "sessionId": "id-2",
+      "cause": "assigned"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 2,
+    "kind": "runner_started",
+    "at": "2026-10-01T12:00:02Z",
+    "body": {
+      "runnerId": "id-3",
+      "provider": "claude",
+      "terminalSession": "id-4",
+      "launchModel": "",
+      "launchEffort": "",
+      "launchPermissionLevel": "full-auto",
+      "resumeSessionId": ""
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 3,
+    "kind": "user_message",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:03Z",
+    "body": {
+      "text": "Launch two subagents in the background with the Agent tool (general-purpose), each must Read a.txt then run Bash 'echo hi'. Report each in one line. Then say DONE.",
+      "origin": "provider"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 4,
+    "kind": "turn_started",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:04Z",
+    "body": {
+      "providerTurnId": "e0ff2382-e36e-4989-b778-101a8ff77351",
+      "runnerId": "id-3",
+      "provider": "claude",
+      "sessionId": "id-2",
+      "persists": "turn_start"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 5,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:05Z",
+    "body": {
+      "toolId": "toolu_01WSQufNJYj2eK5KNdEpoRcD",
+      "phase": "pre",
+      "name": "Agent",
+      "kind": "subagent",
+      "title": "Read a.txt and echo",
+      "inputRef": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+      "inputKey": "0000000000000000000000000000000000000000000000000000000000000006"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 6,
+    "kind": "subagent",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:06Z",
+    "body": {
+      "phase": "start",
+      "spawnToolId": "toolu_01WSQufNJYj2eK5KNdEpoRcD",
+      "title": "Read a.txt and echo"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 7,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:07Z",
+    "body": {
+      "toolId": "toolu_016j35Ninp2VVyLS9qM3rE7v",
+      "phase": "pre",
+      "name": "Agent",
+      "kind": "subagent",
+      "title": "Read a.txt and echo",
+      "inputRef": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+      "inputKey": "0000000000000000000000000000000000000000000000000000000000000006"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 8,
+    "kind": "subagent",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:08Z",
+    "body": {
+      "phase": "start",
+      "spawnToolId": "toolu_016j35Ninp2VVyLS9qM3rE7v",
+      "title": "Read a.txt and echo"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 9,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:09Z",
+    "body": {
+      "toolId": "toolu_01WSQufNJYj2eK5KNdEpoRcD",
+      "phase": "post",
+      "name": "Agent",
+      "kind": "subagent",
+      "title": "Read a.txt and echo",
+      "inputRef": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+      "resultRef": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+      "status": "ok",
+      "durationMs": 42,
+      "spawnsScope": "a3edc502687d15840"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 10,
+    "kind": "subagent",
+    "turnId": "id-5",
+    "scope": "a3edc502687d15840",
+    "at": "2026-10-01T12:00:10Z",
+    "body": {
+      "phase": "bound",
+      "spawnToolId": "toolu_01WSQufNJYj2eK5KNdEpoRcD",
+      "title": "Read a.txt and echo"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 11,
+    "kind": "subagent",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:11Z",
+    "body": {
+      "phase": "start",
+      "type": "general-purpose"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 12,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:12Z",
+    "body": {
+      "toolId": "toolu_016j35Ninp2VVyLS9qM3rE7v",
+      "phase": "post",
+      "name": "Agent",
+      "kind": "subagent",
+      "title": "Read a.txt and echo",
+      "inputRef": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+      "resultRef": "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+      "status": "ok",
+      "durationMs": 368,
+      "spawnsScope": "a6fec6ffa95979d56"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 13,
+    "kind": "subagent",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:13Z",
+    "body": {
+      "phase": "bound",
+      "spawnToolId": "toolu_016j35Ninp2VVyLS9qM3rE7v",
+      "title": "Read a.txt and echo"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 14,
+    "kind": "assistant_text",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:14Z",
+    "body": {
+      "messageId": "afdda833-8347-4096-8718-2ee080e783ed",
+      "index": 0,
+      "text": "Both subagents are running in the background. I haven't received a result from either one yet, so I have nothing to report on them.\n\n"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 15,
+    "kind": "assistant_text",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:15Z",
+    "body": {
+      "messageId": "afdda833-8347-4096-8718-2ee080e783ed",
+      "index": 1,
+      "final": true,
+      "text": "DONE"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 16,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a3edc502687d15840",
+    "at": "2026-10-01T12:00:16Z",
+    "body": {
+      "toolId": "toolu_01B4Lb9yWM9AG4VZvCiBF3My",
+      "phase": "pre",
+      "name": "Read",
+      "kind": "read",
+      "target": "a.txt",
+      "inputRef": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+      "inputKey": "0000000000000000000000000000000000000000000000000000000000000009"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 17,
+    "kind": "assistant_text",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:17Z",
+    "body": {
+      "messageId": "afdda833-8347-4096-8718-2ee080e783ed",
+      "index": -1,
+      "text": "Both subagents are running in the background. I haven't received a result from either one yet, so I have nothing to report on them.\n\nDONE"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 18,
+    "kind": "turn_ended",
+    "turnId": "id-5",
+    "at": "2026-10-01T12:00:18Z",
+    "body": {
+      "status": "done",
+      "runnerId": "id-3",
+      "effort": "medium"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 19,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a3edc502687d15840",
+    "at": "2026-10-01T12:00:19Z",
+    "body": {
+      "toolId": "toolu_01D6BYkNGTsQmEXHndvuQdmL",
+      "phase": "pre",
+      "name": "Bash",
+      "kind": "execute",
+      "title": "Print hi",
+      "target": "echo hi",
+      "inputRef": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+      "inputKey": "000000000000000000000000000000000000000000000000000000000000000a"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 20,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:20Z",
+    "body": {
+      "toolId": "toolu_01JkWZBYqBZc5RnNY6jtXney",
+      "phase": "pre",
+      "name": "Read",
+      "kind": "read",
+      "target": "a.txt",
+      "inputRef": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+      "inputKey": "0000000000000000000000000000000000000000000000000000000000000009"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 21,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:21Z",
+    "body": {
+      "toolId": "toolu_01GbJAehHiV7cYuCxu4pkHHH",
+      "phase": "pre",
+      "name": "Bash",
+      "kind": "execute",
+      "title": "Print hi",
+      "target": "echo hi",
+      "inputRef": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+      "inputKey": "000000000000000000000000000000000000000000000000000000000000000a"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 22,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:22Z",
+    "body": {
+      "toolId": "toolu_01JkWZBYqBZc5RnNY6jtXney",
+      "phase": "post",
+      "name": "Read",
+      "kind": "read",
+      "target": "a.txt",
+      "inputRef": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+      "resultRef": "sha256:000000000000000000000000000000000000000000000000000000000000000b",
+      "status": "ok",
+      "durationMs": 13
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 23,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a3edc502687d15840",
+    "at": "2026-10-01T12:00:23Z",
+    "body": {
+      "toolId": "toolu_01B4Lb9yWM9AG4VZvCiBF3My",
+      "phase": "post",
+      "name": "Read",
+      "kind": "read",
+      "target": "a.txt",
+      "inputRef": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+      "resultRef": "sha256:000000000000000000000000000000000000000000000000000000000000000b",
+      "status": "ok",
+      "durationMs": 32
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 24,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a3edc502687d15840",
+    "at": "2026-10-01T12:00:24Z",
+    "body": {
+      "toolId": "toolu_01D6BYkNGTsQmEXHndvuQdmL",
+      "phase": "post",
+      "name": "Bash",
+      "kind": "execute",
+      "title": "Print hi",
+      "target": "echo hi",
+      "inputRef": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+      "resultRef": "sha256:000000000000000000000000000000000000000000000000000000000000000c",
+      "status": "ok",
+      "durationMs": 881,
+      "output": "hi"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 25,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:25Z",
+    "body": {
+      "toolId": "toolu_01GbJAehHiV7cYuCxu4pkHHH",
+      "phase": "post",
+      "name": "Bash",
+      "kind": "execute",
+      "title": "Print hi",
+      "target": "echo hi",
+      "inputRef": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+      "resultRef": "sha256:000000000000000000000000000000000000000000000000000000000000000c",
+      "status": "ok",
+      "durationMs": 792,
+      "output": "hi"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 26,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a3edc502687d15840",
+    "at": "2026-10-01T12:00:26Z",
+    "body": {
+      "toolId": "toolu_01Hf7jzsd6SNxrAeh6rRWyhL",
+      "phase": "pre",
+      "name": "SubagentHandback",
+      "kind": "meta",
+      "inputRef": "sha256:000000000000000000000000000000000000000000000000000000000000000d",
+      "inputKey": "000000000000000000000000000000000000000000000000000000000000000d"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 27,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:27Z",
+    "body": {
+      "toolId": "toolu_012aUdAwLxwbcLAjCwLWuoKq",
+      "phase": "pre",
+      "name": "SubagentHandback",
+      "kind": "meta",
+      "inputRef": "sha256:000000000000000000000000000000000000000000000000000000000000000e",
+      "inputKey": "000000000000000000000000000000000000000000000000000000000000000e"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 28,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a3edc502687d15840",
+    "at": "2026-10-01T12:00:28Z",
+    "body": {
+      "toolId": "toolu_01Hf7jzsd6SNxrAeh6rRWyhL",
+      "phase": "post",
+      "name": "SubagentHandback",
+      "kind": "meta",
+      "inputRef": "sha256:000000000000000000000000000000000000000000000000000000000000000d",
+      "resultRef": "sha256:000000000000000000000000000000000000000000000000000000000000000f",
+      "status": "ok",
+      "durationMs": 147
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 29,
+    "kind": "subagent",
+    "turnId": "id-5",
+    "scope": "a3edc502687d15840",
+    "at": "2026-10-01T12:00:29Z",
+    "body": {
+      "phase": "result",
+      "result": "a.txt contains \"alpha\" (one line), and `echo hi` printed \"hi\"."
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 30,
+    "kind": "turn_started",
+    "turnId": "id-16",
+    "at": "2026-10-01T12:00:30Z",
+    "body": {
+      "providerTurnId": "bfbceb05-8583-4143-8108-046be645e2c6",
+      "runnerId": "id-3",
+      "provider": "claude",
+      "sessionId": "id-2",
+      "persists": "turn_start"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 31,
+    "kind": "tool_call",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:31Z",
+    "body": {
+      "toolId": "toolu_012aUdAwLxwbcLAjCwLWuoKq",
+      "phase": "post",
+      "name": "SubagentHandback",
+      "kind": "meta",
+      "inputRef": "sha256:000000000000000000000000000000000000000000000000000000000000000e",
+      "resultRef": "sha256:000000000000000000000000000000000000000000000000000000000000000f",
+      "status": "ok",
+      "durationMs": 2
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 32,
+    "kind": "subagent",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:32Z",
+    "body": {
+      "phase": "stop",
+      "type": "general-purpose"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 33,
+    "kind": "assistant_text",
+    "turnId": "id-16",
+    "at": "2026-10-01T12:00:33Z",
+    "body": {
+      "messageId": "cbb30487-884f-4ad1-9d03-eba728324b01",
+      "index": 0,
+      "text": "Agent 1: a.txt contains \"alpha\" (one line), and `echo hi` printed \"hi\".\n\n"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 34,
+    "kind": "assistant_text",
+    "turnId": "id-16",
+    "at": "2026-10-01T12:00:34Z",
+    "body": {
+      "messageId": "cbb30487-884f-4ad1-9d03-eba728324b01",
+      "index": -1,
+      "text": "Agent 1: a.txt contains \"alpha\" (one line), and `echo hi` printed \"hi\".\n\nThe second agent hasn't reported yet."
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 35,
+    "kind": "turn_ended",
+    "turnId": "id-16",
+    "at": "2026-10-01T12:00:35Z",
+    "body": {
+      "status": "done",
+      "runnerId": "id-3",
+      "effort": "medium"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 36,
+    "kind": "assistant_text",
+    "turnId": "id-16",
+    "at": "2026-10-01T12:00:36Z",
+    "body": {
+      "messageId": "cbb30487-884f-4ad1-9d03-eba728324b01",
+      "index": 1,
+      "final": true,
+      "text": "The second agent hasn't reported yet."
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 37,
+    "kind": "subagent",
+    "turnId": "id-5",
+    "scope": "a6fec6ffa95979d56",
+    "at": "2026-10-01T12:00:37Z",
+    "body": {
+      "phase": "result",
+      "result": "a.txt contains the single line \"alpha\", and `echo hi` printed \"hi\"."
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 38,
+    "kind": "turn_started",
+    "turnId": "id-17",
+    "at": "2026-10-01T12:00:38Z",
+    "body": {
+      "providerTurnId": "b73e6e69-1815-4901-ab94-ad9c84278ff7",
+      "runnerId": "id-3",
+      "provider": "claude",
+      "sessionId": "id-2",
+      "persists": "turn_start"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 39,
+    "kind": "assistant_text",
+    "turnId": "id-17",
+    "at": "2026-10-01T12:00:39Z",
+    "body": {
+      "messageId": "06bdbc86-72e9-42a1-b100-ef26f1aa5ca6",
+      "index": 0,
+      "text": "Agent 2: a.txt contains the single line \"alpha\", and `echo hi` printed \"hi\".\n\n"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 40,
+    "kind": "assistant_text",
+    "turnId": "id-17",
+    "at": "2026-10-01T12:00:40Z",
+    "body": {
+      "messageId": "06bdbc86-72e9-42a1-b100-ef26f1aa5ca6",
+      "index": 1,
+      "final": true,
+      "text": "DONE"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 41,
+    "kind": "assistant_text",
+    "turnId": "id-17",
+    "at": "2026-10-01T12:00:41Z",
+    "body": {
+      "messageId": "06bdbc86-72e9-42a1-b100-ef26f1aa5ca6",
+      "index": -1,
+      "text": "Agent 2: a.txt contains the single line \"alpha\", and `echo hi` printed \"hi\".\n\nDONE"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 42,
+    "kind": "turn_ended",
+    "turnId": "id-17",
+    "at": "2026-10-01T12:00:42Z",
+    "body": {
+      "status": "done",
+      "runnerId": "id-3",
+      "effort": "medium"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 43,
+    "kind": "marker",
+    "at": "2026-10-01T12:00:43Z",
+    "body": {
+      "kind": "compaction_started",
+      "detail": "manual"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 44,
+    "kind": "marker",
+    "at": "2026-10-01T12:00:44Z",
+    "body": {
+      "kind": "compaction_ended",
+      "detail": "manual"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 45,
+    "kind": "user_message",
+    "turnId": "id-18",
+    "at": "2026-10-01T12:00:45Z",
+    "body": {
+      "text": "what is 2+2? one word",
+      "origin": "provider"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 46,
+    "kind": "turn_started",
+    "turnId": "id-18",
+    "at": "2026-10-01T12:00:46Z",
+    "body": {
+      "providerTurnId": "0143f4d7-3f19-4cea-9e2c-26307da77e73",
+      "runnerId": "id-3",
+      "provider": "claude",
+      "sessionId": "id-2",
+      "persists": "turn_start"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 47,
+    "kind": "assistant_text",
+    "turnId": "id-18",
+    "at": "2026-10-01T12:00:47Z",
+    "body": {
+      "messageId": "1a324b85-fb5f-468c-904c-86ac1a31ac92",
+      "index": 0,
+      "final": true,
+      "text": "Four"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 48,
+    "kind": "assistant_text",
+    "turnId": "id-18",
+    "at": "2026-10-01T12:00:48Z",
+    "body": {
+      "messageId": "1a324b85-fb5f-468c-904c-86ac1a31ac92",
+      "index": -1,
+      "text": "Four"
+    }
+  },
+  {
+    "chatId": "id-1",
+    "seq": 49,
+    "kind": "turn_ended",
+    "turnId": "id-18",
+    "at": "2026-10-01T12:00:49Z",
+    "body": {
+      "status": "done",
+      "runnerId": "id-3",
+      "effort": "medium"
+    }
+  }
+]

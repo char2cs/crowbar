@@ -3,10 +3,13 @@
 package watch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"path/filepath"
+	"syscall"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -32,24 +35,30 @@ type fsnotifyBackend struct {
 }
 
 func newBackend(
+	ctx context.Context,
 	spec watchSpec,
 ) (backend, error) {
+	if spec.file {
+		return newFileBackend(spec.tree)
+	}
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("new fsnotify watcher: %w", err)
 	}
 	b := &fsnotifyBackend{fsw: fsw, spec: spec}
-	if err := b.addRecursive(spec.tree); err != nil {
-		_ = fsw.Close()
-		return nil, fmt.Errorf("add recursive %s: %w", spec.tree, err)
+	if err := b.addRecursive(ctx, spec.tree); err != nil {
+		return nil, errors.Join(fmt.Errorf("add recursive %s: %w", spec.tree, err), fsw.Close())
 	}
 	// HEAD and packed-refs are replaced by rename, which ends a watch on the file
-	// itself, so their directories are watched instead. A path may be absent.
+	// itself, so their directories are watched instead.
 	for _, dir := range spec.gitDirs {
-		_ = fsw.Add(dir)
+		b.watchBestEffort(dir)
 	}
 	for _, root := range spec.refTrees {
 		b.watchRefTree(root)
+	}
+	for _, anchor := range spec.anchors {
+		b.watchBestEffort(filepath.Dir(anchor))
 	}
 	return b, nil
 }
@@ -63,6 +72,7 @@ func (b *fsnotifyBackend) errors() <-chan error {
 }
 
 func (b *fsnotifyBackend) created(
+	ctx context.Context,
 	path string,
 ) {
 	for _, root := range b.spec.refTrees {
@@ -77,14 +87,31 @@ func (b *fsnotifyBackend) created(
 		}
 	}
 	if isUnder(path, b.spec.tree) {
-		_ = b.addRecursive(path)
+		// A walk cut short by Stop is not a failure.
+		err := b.addRecursive(ctx, path)
+		if err != nil && ctx.Err() == nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, fsnotify.ErrClosed) {
+			slog.WarnContext(ctx, "watch: follow new directory", "path", path, "err", err)
+		}
 	}
 }
 
 func (b *fsnotifyBackend) removed(
 	path string,
 ) {
-	_ = b.fsw.Remove(path)
+	dropWatch(b.fsw, path)
+}
+
+// dropWatch removes path's watch. The kernel drops a deleted directory's watch
+// itself (EINVAL on the explicit removal), and files were never watched, so a
+// watch already gone is not a failure.
+func dropWatch(
+	fsw *fsnotify.Watcher,
+	path string,
+) {
+	err := fsw.Remove(path)
+	if err != nil && !errors.Is(err, fsnotify.ErrNonExistentWatch) && !errors.Is(err, syscall.EINVAL) {
+		slog.Warn("watch: drop watch", "path", path, "err", err)
+	}
 }
 
 func (b *fsnotifyBackend) close() error {
@@ -92,8 +119,10 @@ func (b *fsnotifyBackend) close() error {
 }
 
 // addRecursive watches root and every subdirectory spec.skip keeps. WalkDir
-// reads entry types from the listing, so files are never lstat'd.
+// reads entry types from the listing, so files are never lstat'd. It checks ctx
+// at each directory, so a stop never waits out the walk of a large tree.
 func (b *fsnotifyBackend) addRecursive(
+	ctx context.Context,
 	root string,
 ) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -102,6 +131,9 @@ func (b *fsnotifyBackend) addRecursive(
 		}
 		if !d.IsDir() {
 			return nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
 		if b.spec.skip(path) {
 			return filepath.SkipDir
@@ -121,10 +153,35 @@ func (b *fsnotifyBackend) addRecursive(
 func (b *fsnotifyBackend) watchRefTree(
 	root string,
 ) {
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err == nil && d.IsDir() {
-			_ = b.fsw.Add(path)
+			return b.add(path)
 		}
 		return nil
 	})
+	if err != nil {
+		slog.Warn("watch: ref tree not fully watched", "root", root, "err", err)
+	}
+}
+
+// watchBestEffort watches dir, logging the failures that are not a path being
+// absent or unreadable.
+func (b *fsnotifyBackend) watchBestEffort(
+	dir string,
+) {
+	if err := b.add(dir); err != nil {
+		slog.Warn("watch: directory not watched", "dir", dir, "err", err)
+	}
+}
+
+// add watches dir. A dir that is absent or unreadable is not an error (git dirs and ref
+// trees may not exist yet), nor is a watcher that Stop has already closed.
+func (b *fsnotifyBackend) add(
+	dir string,
+) error {
+	err := b.fsw.Add(dir)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, fsnotify.ErrClosed) {
+		return nil
+	}
+	return err
 }

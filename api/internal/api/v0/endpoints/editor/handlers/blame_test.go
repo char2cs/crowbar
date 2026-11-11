@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -42,6 +43,20 @@ func TestBlame_EmptyArrayNotNull(t *testing.T) {
 	r := newRouter(&fakeLSP{}, &fakeGit{})
 
 	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/blame?path=main.go", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	env := decode(t, rec)
+	assert.True(t, env.Success)
+	assert.Equal(t, "[]", string(env.Data))
+}
+
+// A file git has never committed (new, untracked, or just saved from an
+// untitled buffer) is simply unblamed, not a daemon failure.
+func TestBlame_NoHistory_EmptyArray(t *testing.T) {
+	err := fmt.Errorf("blame: file: %w", gitdomain.ErrNoHistory)
+	r := newRouter(&fakeLSP{}, &fakeGit{err: err})
+
+	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/blame?path=new.go", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	env := decode(t, rec)

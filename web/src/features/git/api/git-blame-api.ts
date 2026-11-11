@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { chatBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
 
@@ -14,11 +14,8 @@ export interface BlameEntry {
   commitMessage: string
 }
 
-/**
- * Blame a workspace-relative file (GET /v0/chats/:chatId/blame?path=).
- * Resolves null when the workspace cannot be addressed yet (home workspace,
- * owning chat not recorded).
- */
+/** Blame a workspace-relative file; null while the workspace can't be addressed yet (home
+ *  workspace, owning chat not recorded). */
 export async function getBlame(
   wsId: string,
   path: string,

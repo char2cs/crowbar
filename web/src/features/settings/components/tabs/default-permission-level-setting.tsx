@@ -3,8 +3,8 @@ import {
   getDefaultPermissionLevel,
   PERMISSION_LEVEL_OPTIONS,
   updateDefaultPermissionLevel,
-} from '@/features/agent/api/agent-api'
-import type { PermissionLevel } from '@/features/agent/api/agent-api'
+} from '@/features/agent/api/agent-providers-api'
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { toast } from '@/features/window/stores/toast-store'
 import {
   Select,
@@ -16,14 +16,8 @@ import {
 import { SettingRow } from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 
-/**
- * How much of a new chat's tool-call approval Crowbar answers automatically.
- * Unlike the rest of this tab's rows, this one is backend-owned rather than
- * the localStorage `updateSetting` path — the daemon applies it the moment a
- * new chat starts, so it talks straight to GET/PUT
- * /v0/settings/chat/permission-level, optimistic-set-then-reconcile like
- * `ProvidersSettings`'s own `commit()`.
- */
+// How much of a new chat's tool approval Crowbar answers itself. Daemon-owned (applied when a chat
+// starts), so it is GET/PUT /v0/settings/chat/permission-level, optimistic then reconciled.
 export function DefaultPermissionLevelSetting() {
   const { level, change } = useDefaultPermissionLevel()
   return <PermissionLevelRow level={level} onChange={change} />
@@ -51,12 +45,8 @@ export function useDefaultPermissionLevel(hostId?: string) {
     }
   }, [hostId])
 
-  // Scoped to THIS component's own sequence of writes — not
-  // agent-providers-store's generation counter, which arbitrates several call
-  // sites sharing one array. Here there is one writer, but that writer can
-  // still fire twice before the first PUT settles (pick Trusted, then Full
-  // Auto before Trusted's response lands): without a fence, a late rejection
-  // for the first pick would rewind the second, already-successful one.
+  // One writer can still fire twice before the first PUT settles; without this fence a late
+  // rejection of the first pick would rewind the second, successful one.
   const writeGeneration = useRef(0)
 
   const change = useCallback(

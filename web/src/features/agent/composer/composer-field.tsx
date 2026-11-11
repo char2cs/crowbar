@@ -3,73 +3,67 @@ import {
   ChatMarkdownEditor,
   type CaretEdges,
   type ChatMarkdownEditorHandle,
+  type ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { COMPOSER_LINE_HEIGHT } from '@/features/agent/composer/lib/handle-geometry'
 
 interface ComposerFieldProps {
   wsId: string
   chatId: string
-  /** The draft to OPEN with. The box owns its text after that — see the editor. */
-  initialValue: string
+  placement: 'document' | 'dock'
   placeholder: string
   expanded: boolean
   controls?: string
-  onChange: (value: string) => void
+  onShapeChange: (shape: ComposerShape, edited: boolean) => void
   onKeyDown: (
     event: KeyboardEvent<HTMLDivElement>,
     readMarkdown: () => string,
     caret: CaretEdges,
+    shape: ComposerShape,
   ) => void
   /** Reported on every change, so the handle can ride the last line. */
   onHeightChange: (height: number) => void
-  /** The box replaces one the person was typing in: keep the keyboard up. */
-  focusOnMount?: boolean
   /** Forwarded straight through to `ChatMarkdownEditor` — see
    *  `ChatMarkdownEditorHandle` for what a caller outside the field can do
    *  with it. */
   ref?: Ref<ChatMarkdownEditorHandle>
 }
 
-/**
- * The composer's text field: one line of markdown that grows.
- *
- * Rich rather than a textarea, because what is typed here IS markdown — the
- * agent reads it as markdown, and the transcript renders the answer as markdown.
- * A box that showed `**bold**` as four characters and five letters was the one
- * place in the conversation where the same text meant two different things.
- */
+// A style prop, not a class: Slate's Editable writes `min-height: 20px` INLINE,
+// and spreads the caller's style after its own defaults.
+const DOCK_STYLE = { minHeight: COMPOSER_LINE_HEIGHT } satisfies CSSProperties
+
+// The composer's one-line field that grows. Rich, not a textarea: the agent reads it and the
+// transcript renders it as markdown, so the box shows `**bold**` the way the rest of the chat does.
 export function ComposerField({
   wsId,
   chatId,
-  initialValue,
+  placement,
   placeholder,
   expanded,
   controls,
-  onChange,
+  onShapeChange,
   onKeyDown,
   onHeightChange,
-  focusOnMount,
   ref,
 }: ComposerFieldProps) {
+  const document = placement === 'document'
   return (
     <ChatMarkdownEditor
       ref={ref}
       wsId={wsId}
       chatId={chatId}
-      initialValue={initialValue}
+      persistAs={chatId}
       placeholder={placeholder}
-      ariaLabel="Message the agent"
+      ariaLabel={document ? 'Describe the change' : 'Message the agent'}
       expanded={expanded}
       controls={controls}
       autoFocus
-      focusOnMount={focusOnMount}
-      onChange={onChange}
+      onShapeChange={onShapeChange}
       onKeyDown={onKeyDown}
       onHeightChange={onHeightChange}
-      // A style prop, not a class: Slate's Editable writes `min-height: 20px`
-      // INLINE, which beats any class. Slate spreads the caller's style after
-      // its own defaults, so this is the one place the value can be set.
-      style={{ minHeight: COMPOSER_LINE_HEIGHT } satisfies CSSProperties}
+      className={document ? 'blk' : undefined}
+      style={document ? undefined : DOCK_STYLE}
     />
   )
 }

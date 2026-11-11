@@ -3,28 +3,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }))
 vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
 
-import {
-  actionErrorMessage,
-  toastActionFailure,
-  toastHostFailure,
-} from '@/features/hosts/lib/host-failure-notice'
+import { actionErrorMessage, toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
+import { report } from '@/lib/errors/report'
+import { toastManager } from '@/lib/toast-manager'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   destroyHostRuntime,
   getHostRuntime,
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
-import { ApiError, HostNotConfiguredError, proxyMarkerError } from '@/lib/api/errors'
+import { HostNotConfiguredError, proxyMarkerError } from '@/lib/api/errors'
+import { ApiError } from '@/lib/errors/api-error'
 import { HostNotResolvedError } from '@/lib/host-path'
-import { failed } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
+import { hostIdForProject, hostIdForWorkspace } from '@/lib/host-resolve'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
-  markHostsRead,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { markProjectsSynced } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const unreachable = (hostId = 'h1') => proxyMarkerError('host-unreachable', hostId)!
 const changed = (hostId = 'h1') => proxyMarkerError('host-identity-changed', hostId)!
@@ -115,8 +114,17 @@ describe('an action that failed because of its remote host', () => {
 })
 
 describe('an action whose host could not be told yet', () => {
-  const unresolved = (projectId = 'p-remote') =>
-    new HostNotResolvedError('project', projectId, 'the project list is not loaded')
+  // As the URL builders throw it: placed against the lists as they are at the throw.
+  const thrown = (resolve: () => unknown): HostNotResolvedError => {
+    try {
+      resolve()
+    } catch (err) {
+      if (err instanceof HostNotResolvedError) return err
+    }
+    throw new Error('expected the host not to resolve')
+  }
+  const unresolved = (projectId = 'p-remote') => thrown(() => hostIdForProject(projectId))
+  afterEach(() => __resetWorkspaceScopesForTest())
 
   it('says the projects are still loading while the list has not been read', () => {
     toastHostFailure(unresolved())
@@ -124,19 +132,9 @@ describe('an action whose host could not be told yet', () => {
     expect(toasted()).toBe('Still loading your projects | Try again in a moment.')
   })
 
-  it('says the projects could not be loaded when the read failed', () => {
-    useProjectDataStore.setState({ data: failed(new Error('daemon down')) })
-
-    toastHostFailure(unresolved())
-
-    expect(toastError).toHaveBeenCalledExactlyOnceWith(
-      'Couldn’t load your projects',
-      'Check that Crowbar can reach its daemon, then retry.',
-    )
-  })
-
   it('sends a project held on a host that is not configured to Hosts', () => {
     loadProjects(projectOn('p-gone', 'h2'))
+    markProjectsSynced('h1')
 
     toastHostFailure(unresolved('p-gone'))
 
@@ -145,23 +143,11 @@ describe('an action whose host could not be told yet', () => {
     )
   })
 
-  it('says a project no host has any more is gone from the list', () => {
-    loadProjects(projectOn('p-local', 'local'))
-    markHostsRead('h1')
-
-    toastHostFailure(unresolved('p-vanished'))
-
-    expect(toastError).toHaveBeenCalledExactlyOnceWith('This project is no longer in your list')
-  })
-
   it('places a workspace through the project its scope names', () => {
     loadProjects(projectOn('p-gone', 'h2'))
-    const err = new HostNotResolvedError(
-      'workspace',
-      'ws-1',
-      'its host is not configured',
-      'p-gone',
-    )
+    markProjectsSynced('h1')
+    recordWorkspaceScope({ projectId: 'p-gone', repoId: 'r1', wsId: 'ws-1' })
+    const err = thrown(() => hostIdForWorkspace('ws-1'))
 
     toastHostFailure(err)
 
@@ -193,16 +179,6 @@ describe('a failure that is not its host’s', () => {
     expect(statusOf('h1')).toBe('up')
   })
 
-  it('is toasted with its own words, or the fallback for a non-error', () => {
-    toastActionFailure(
-      new ApiError('branch is taken', 409, undefined, undefined, 'local'),
-      'Failed',
-    )
-    toastActionFailure('kaboom', 'Failed to rename branch')
-
-    expect(toastError.mock.calls).toEqual([['branch is taken'], ['Failed to rename branch']])
-  })
-
   it('is described in its own words inline', () => {
     expect(actionErrorMessage(new Error('locked'), 'Failed')).toBe('locked')
     expect(actionErrorMessage(42, 'Failed to commit changes')).toBe('Failed to commit changes')
@@ -217,12 +193,16 @@ describe('inline and toasted host failures read the same', () => {
     expect(statusOf('h1')).toBe('needs-repair')
   })
 
-  it('a host failure toasted by an action is the host’s notice, not the action’s text', () => {
-    toastActionFailure(unreachable(), 'Failed to rename folder')
+  it('a host failure an action reports is worded by the host, under the action', () => {
+    const add = vi.spyOn(toastManager, 'add')
 
-    expect(toastError).toHaveBeenCalledExactlyOnceWith(
-      'Couldn’t reach Studio Mac',
-      'Check that it is online in Settings → Hosts.',
+    report(unreachable(), { action: 'Failed to rename folder' })
+
+    expect(add).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        title: 'Failed to rename folder',
+        description: 'Couldn’t reach Studio Mac',
+      }),
     )
   })
 })

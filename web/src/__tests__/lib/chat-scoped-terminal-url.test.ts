@@ -87,9 +87,8 @@ describe('terminalsBaseForWorkspace', () => {
     expect(() => terminalsBaseForWorkspace('ws-2')).toThrow(/no owning chat/)
   })
 
-  // REGRESSION: a home shell used to need the home's owner chat resolved; a
-  // legacy home that had none (or lost it) could never open a terminal. The
-  // daemon serves /home/terminals project-scoped, exactly like /home/files.
+  // A home shell never needs the home's owner chat: the daemon serves /home/terminals
+  // project-scoped, like /home/files.
   it('keeps the project home on its own /home/terminals mount, owner or not', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
 

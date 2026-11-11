@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The frontend sends a chatless workspace's OWN id as parentId (its row id):
@@ -17,10 +17,10 @@ import (
 // backfill) the create mints that anchor row first and then proceeds.
 func TestCreateChat_ThreadUnderAChatlessWorkspaceNode_IsPlacedUnderTheWorkspaceId(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: workspaceID, Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: workspaceID, Kind: dtree.KindWorkspace})
 	chats.NextID = "c-new"
 
-	chatID, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	chatID, _, err := createChat(context.Background(), uc, workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, workspaceID, nodeRowFor(t, nodes, "c-new").ParentID)
@@ -28,10 +28,10 @@ func TestCreateChat_ThreadUnderAChatlessWorkspaceNode_IsPlacedUnderTheWorkspaceI
 
 func TestCreateChat_ForkUnderAChatlessWorkspaceNode_PlacesThenSpawns(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: workspaceID, Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: workspaceID, Kind: dtree.KindWorkspace})
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	require.Len(t, chats.SpawnedOwnWorktree, 1)
 	assert.Equal(t, workspaceID, chats.SpawnedOwnWorktree[0].ParentAtStart)
@@ -41,15 +41,29 @@ func TestRegression_CreateChat_UnderAChatlessWorkspaceWithNoNodeRow_MintsTheAnch
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	anchor := nodeRowFor(t, nodes, workspaceID)
-	assert.Equal(t, domain.NodeKindWorkspace, anchor.Kind)
+	assert.Equal(t, dtree.KindWorkspace, anchor.Kind)
 	assert.Equal(t, workspaceID, nodeRowFor(t, nodes, "c-new").ParentID)
 
 	chats.NextID = "c-fork"
-	_, _, err = uc.CreateChat(context.Background(), "", "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err = createChat(context.Background(), uc, "", "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	require.Len(t, chats.SpawnedOwnWorktree, 1)
 	assert.Equal(t, workspaceID, chats.SpawnedOwnWorktree[0].ParentAtStart)
+}
+
+// createChat is CreateChat with a daemon-minted id, answered as its two ids.
+func createChat(
+	ctx context.Context,
+	uc tree.Usecase,
+	workspaceID, providerID, parentID string,
+	worktree tree.WorktreeSpec,
+	surface string,
+) (string, string, error) {
+	created, err := uc.CreateChat(ctx, tree.CreateChatInput{
+		WorkspaceID: workspaceID, ProviderID: providerID, ParentID: parentID, Worktree: worktree, Surface: surface,
+	})
+	return created.ChatID, created.RunnerID, err
 }

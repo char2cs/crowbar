@@ -11,18 +11,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginemcp "github.com/char2cs/crowbar/api/internal/engine/mcp"
 )
 
-// ─── from providers_test.go ───────────────────────────────────────────
-
-// geminiDescriptor is a minimal-valid on-disk descriptor override, written into a
-// fixture home so ResolveProviders sees a THIRD provider (beyond the embedded
-// claude/codex) with no stored preference — the "appended by id, enabled by
-// default" case.
+// geminiDescriptor is a minimal valid custom descriptor: a third provider with
+// no stored preference, the "appended by id, enabled by default" case.
 const geminiDescriptor = `id: gemini
 display_name: Gemini
 icon: '<svg/>'
@@ -34,6 +30,7 @@ events:
     in: session_start
     map:
       session_id: session_id
+  user_prompt: { in: user_prompt, map: { message: prompt } }
   turn_stop:
     in: turn_stop
     map:
@@ -42,6 +39,7 @@ runtime:
   transport: hooks
   hooks:
     format: json
+hooks_injection: [{ pass_arg: { arg: "--hook", value: "{hook_curl} {hook_url}/session_start" } }]
 `
 
 func writeGeminiDescriptor(
@@ -113,27 +111,27 @@ func TestResolveProviders_NoPreferences_OrdersByDescriptorID(t *testing.T) {
 // persisted and reported, but a POST .../chats naming it — from a stale
 // tab, a second window, or the CLI — reaches spawnRunner directly and never
 // passes through the list the Enabled flag decorates.
-func TestSpawnChat_RefusesDisabledProvider(t *testing.T) {
+func TestStartRunner_RefusesDisabledProvider(t *testing.T) {
 	f := newFixture(t)
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", Disabled: true})
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "codex")
+	_, _, err := f.spawnChat(f.ctx, "codex")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument,
+	require.ErrorIs(t, err, problem.ErrInvalidArgument,
 		"a disabled provider must be refused with a 4xx-mapping sentinel")
 	assert.Zero(t, f.term.callCount(), "no vendor CLI may be launched for a disabled provider")
 }
 
 // The guard is scoped to the provider that is actually off: disabling one must
 // not take the others down with it.
-func TestSpawnChat_AllowsEnabledProviderAlongsideADisabledOne(t *testing.T) {
+func TestStartRunner_AllowsEnabledProviderAlongsideADisabledOne(t *testing.T) {
 	f := newFixture(t)
 	f.setPrefs(t,
 		domain.AgentProviderPreference{ProviderID: "codex", Disabled: true},
 		domain.AgentProviderPreference{ProviderID: "claude", Disabled: false},
 	)
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
+	_, _, err := f.spawnChat(f.ctx, "claude")
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.term.callCount())
@@ -148,15 +146,13 @@ func TestSwitchProvider_RefusesDisabledTarget(t *testing.T) {
 	chatID, _ := f.spawn(t, "claude")
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", Disabled: true})
 
-	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Equal(t, 1, f.term.callCount(), "the disabled target must never be spawned")
 	assert.Empty(t, f.term.terminateRequestIDs(),
 		"a refused switch must not quit the CLI the chat still has")
 }
-
-// ─── from mcp_test.go ─────────────────────────────────────────────────
 
 // mcpResult decodes a JSON-RPC response's result member, failing the test on a
 // JSON-RPC error (which is a TRANSPORT fault here — a tool that merely failed
@@ -247,6 +243,7 @@ func TestDispatchMCP_ListsTheChatTools(
 	}
 	assert.ElementsMatch(t, []string{
 		"set_chat_title",
+		"branch_out",
 		"list_review_threads",
 		"wait_for_review_comments",
 		"get_review_scope",
@@ -326,7 +323,7 @@ func TestDispatchMCP_NotificationIsSilent(
 func TestDispatchMCP_UnconfiguredSurfaceIsAnError(
 	t *testing.T,
 ) {
-	u := agentusecase.New(agentusecase.Deps{})
+	u := agentusecase.New(agentusecase.Deps{Ledger: newLedger(t)})
 
 	_, send, err := u.DispatchMCP(t.Context(), "seg-1", "tok",
 		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
@@ -334,12 +331,10 @@ func TestDispatchMCP_UnconfiguredSurfaceIsAnError(
 	assert.False(t, send)
 }
 
-// TestSpawnChat_MintsARunnerTokenTheDispatchSeamAccepts closes the loop the
-// descriptor tests can only render half of: the token baked into the CLI's argv at
-// spawn must be one THIS daemon's minter verifies. A spawn path that minted from a
-// different secret — or shipped the segment id twice — would render argv that looks
-// perfectly right and authenticate nothing.
-func TestSpawnChat_MintsARunnerTokenTheDispatchSeamAccepts(
+// TestStartRunner_MintsARunnerTokenTheDispatchSeamAccepts closes the loop the
+// descriptor tests can only render half of: the token written for the relay at
+// spawn must be one THIS daemon's minter verifies, or it authenticates nothing.
+func TestStartRunner_MintsARunnerTokenTheDispatchSeamAccepts(
 	t *testing.T,
 ) {
 	f := newFixture(t)
@@ -354,8 +349,10 @@ func TestSpawnChat_MintsARunnerTokenTheDispatchSeamAccepts(
 	require.NoError(t, json.Unmarshal([]byte(raw), &config), "rendered --mcp-config is not valid JSON: %s", raw)
 
 	args := config.MCPServers["crowbar"].Args
-	require.Equal(t, runnerID, args[indexOf(args, "--segment")+1])
-	token := args[indexOf(args, "--token")+1]
+	require.Equal(t, runnerID, args[slices.Index(args, "--segment")+1])
+	written, err := os.ReadFile(args[slices.Index(args, "--token-file")+1])
+	require.NoError(t, err)
+	token := strings.TrimSpace(string(written))
 	require.NotEmpty(t, token)
 	require.NotEqual(t, runnerID, token, "the token must not be the segment id the agent can already read")
 
@@ -371,12 +368,12 @@ func TestSpawnChat_MintsARunnerTokenTheDispatchSeamAccepts(
 	assert.Equal(t, "Minted At Spawn", f.chat(t, chatID).Title)
 }
 
-// TestSpawnChat_InjectsTheCapabilityPreamble: registering the MCP server is only
+// TestStartRunner_InjectsTheCapabilityPreamble: registering the MCP server is only
 // half the job. A model asked to "review this branch" reaches for gh or writes
 // prose unless it is TOLD which surface to prefer — tool descriptions alone do not
 // override that prior — so the preamble travels in the same {context} document
 // every other injected instruction uses.
-func TestSpawnChat_InjectsTheCapabilityPreamble(
+func TestStartRunner_InjectsTheCapabilityPreamble(
 	t *testing.T,
 ) {
 	f := newFixture(t)
@@ -394,7 +391,7 @@ func TestSpawnChat_InjectsTheCapabilityPreamble(
 	assert.Contains(t, doc, "set_chat_title")
 }
 
-// TestSpawnChat_Codex_InjectsTheCapabilityPreamble is codex's counterpart: it ships
+// TestStartRunner_Codex_InjectsTheCapabilityPreamble is codex's counterpart: it ships
 // no --append-system-prompt, so the preamble rides the same silent
 // developer_instructions channel a handoff uses. It must never arrive as a
 // positional, which IS codex's opening user message.
@@ -402,7 +399,7 @@ func TestSpawnChat_InjectsTheCapabilityPreamble(
 // Together with TestResumeChat_GaplessRevive_SendsNoUserMessage below this pins the
 // whole delivery rule: a FRESH spawn is injected even when it has no handoff to
 // carry (the preamble is the point), a gapless RESUME is not injected at all.
-func TestSpawnChat_Codex_InjectsTheCapabilityPreamble(
+func TestStartRunner_Codex_InjectsTheCapabilityPreamble(
 	t *testing.T,
 ) {
 	f := newFixture(t)
@@ -419,48 +416,6 @@ func TestSpawnChat_Codex_InjectsTheCapabilityPreamble(
 		}
 		assert.NotContains(t, a, "Crowbar workspace",
 			"the preamble must not be injected as a codex positional arg")
-	}
-}
-
-// TestComposeContext_PreambleLeadsAndAbsentHalvesLeaveNoGap pins the {context}
-// document's shape at the one place it can be stated exactly.
-//
-// The preamble LEADS: it says which tools this CLI has and when to prefer them, and a
-// model should read that before a handoff it is explicitly told not to act on. Either
-// half can be missing — a user may blank capabilities_instruction in their own
-// config.yaml, and a brand-new chat has no conversation — and a missing half must
-// leave no stray blank line, which a model reads as a section that was meant to be
-// there.
-func TestComposeContext_PreambleLeadsAndAbsentHalvesLeaveNoGap(
-	t *testing.T,
-) {
-	cases := []struct {
-		name         string
-		preamble     string
-		conversation string
-		wantDocument string
-	}{{
-		name:         "a fresh chat has only the preamble",
-		preamble:     "PREAMBLE",
-		wantDocument: "PREAMBLE",
-	}, {
-		name:         "a chat taking a handoff, with the preamble leading",
-		preamble:     "PREAMBLE",
-		conversation: "HANDOFF",
-		wantDocument: "PREAMBLE\n\nHANDOFF",
-	}, {
-		name:         "capabilities_instruction blanked in the user's own config.yaml",
-		conversation: "HANDOFF",
-		wantDocument: "HANDOFF",
-	}, {
-		name: "nothing to say",
-	}}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.wantDocument,
-				agentusecase.ComposeContext(tc.preamble, tc.conversation))
-		})
 	}
 }
 
@@ -498,8 +453,6 @@ func TestResumeChat_GaplessRevive_SendsNoUserMessage(
 			"a revive with no gap must hand the CLI no user message at all")
 	}
 }
-
-// ─── from mcp_toggle_test.go ──────────────────────────────────────────
 
 // configKeys returns the KEY of every `-c key=value` override in a codex argv.
 //
@@ -564,17 +517,12 @@ func spawnArgvShape(
 	if pref != nil {
 		f.setPrefs(t, *pref)
 	}
-	_, runnerID := f.spawn(t, provider)
-	oldRepl := []string{
-		f.ws.home, "<HOME>",
-		runnerID, "<RUNNER>",
-		f.minter.Mint(runnerID), "<TOKEN>",
+	chatID, runnerID := f.spawn(t, provider)
+	pairs := []string{f.ws.home, "<HOME>", runnerID, "<RUNNER>", chatID, "<CHAT>", f.minter.Mint(runnerID), "<TOKEN>"}
+	if session := f.conversation(t, chatID, provider).SessionID; session != "" {
+		pairs = append(pairs, session, "<SESSION>")
 	}
-	// A session id Crowbar assigned at launch is minted per spawn.
-	if i := slices.Index(f.term.calls[0].argv, "--session-id"); i >= 0 {
-		oldRepl = append(oldRepl, f.term.calls[0].argv[i+1], "<SESSION>")
-	}
-	repl := strings.NewReplacer(oldRepl...)
+	repl := strings.NewReplacer(pairs...)
 	out := make([]string, 0, len(f.term.calls[0].argv))
 	for _, a := range f.term.calls[0].argv {
 		out = append(out, repl.Replace(a))
@@ -598,7 +546,7 @@ var codexMCPKeys = []string{
 // that filtered templated steps would leave .command, .env_vars and
 // .default_tools_approval_mode behind and register a server with no arguments —
 // a broken tool surface rather than an absent one.
-func TestSpawnChat_MCPDisabled_RendersNoRegistrationAtAll(t *testing.T) {
+func TestStartRunner_MCPDisabled_RendersNoRegistrationAtAll(t *testing.T) {
 	t.Run("claude", func(t *testing.T) {
 		f := newFixture(t)
 		f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "claude", MCPDisabled: true})
@@ -606,7 +554,7 @@ func TestSpawnChat_MCPDisabled_RendersNoRegistrationAtAll(t *testing.T) {
 		f.spawn(t, "claude")
 		argv := f.term.calls[0].argv
 
-		assert.Equal(t, -1, indexOf(argv, "--mcp-config"))
+		assert.Equal(t, -1, slices.Index(argv, "--mcp-config"))
 		assert.False(t, hasMCPServers(argv), "an mcpServers document reached claude: %q", argv)
 		// The registration must not have relocated into the hook settings file
 		// either — that file is written on every spawn, MCP or not.
@@ -638,7 +586,7 @@ func TestSpawnChat_MCPDisabled_RendersNoRegistrationAtAll(t *testing.T) {
 // disabling its tool surface must not — the CLI comes up, the chat works, and the
 // hooks Crowbar depends on for every turn keep firing. A toggle that quietly
 // broke the chat would be worse than no toggle.
-func TestSpawnChat_MCPDisabled_TheCLIStillSpawnsAndItsHooksStillFire(t *testing.T) {
+func TestStartRunner_MCPDisabled_TheCLIStillSpawnsAndItsHooksStillFire(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
 			f := newFixture(t)
@@ -661,10 +609,10 @@ func TestSpawnChat_MCPDisabled_TheCLIStillSpawnsAndItsHooksStillFire(t *testing.
 			// And they FIRE: a session binds and a turn lands in the ledger, driven
 			// through IngestHook exactly as the real CLI drives it.
 			f.announce(t, runnerID, "sid-"+provider)
-			assert.Equal(t, "sid-"+provider, f.runner(t, runnerID).CurrentSession)
+			assert.Equal(t, "sid-"+provider, f.conversation(t, chatID, provider).SessionID)
 
 			turn(t, f, runnerID, provider, "still talking")
-			assert.Equal(t, chatID, f.chatForSession(t, "sid-"+provider))
+			assert.Equal(t, chatID, f.chatForSession(t, provider, "sid-"+provider))
 		})
 	}
 }
@@ -673,7 +621,7 @@ func TestSpawnChat_MCPDisabled_TheCLIStillSpawnsAndItsHooksStillFire(t *testing.
 // negative precisely so AutoMigrate's backfill of false reads as "enabled" — a
 // positive flag would have switched MCP off for every provider the user had ever
 // reordered or disabled, the first time the daemon came up on the new schema.
-func TestSpawnChat_APreferenceRowWithNoExplicitValueKeepsMCPEnabled(t *testing.T) {
+func TestStartRunner_APreferenceRowWithNoExplicitValueKeepsMCPEnabled(t *testing.T) {
 	f := newFixture(t)
 	// Exactly the row the old PUT body wrote: a priority and an enabled flag, and
 	// nothing about MCP.
@@ -681,7 +629,7 @@ func TestSpawnChat_APreferenceRowWithNoExplicitValueKeepsMCPEnabled(t *testing.T
 
 	f.spawn(t, "claude")
 
-	assert.GreaterOrEqual(t, indexOf(f.term.calls[0].argv, "--mcp-config"), 0,
+	assert.GreaterOrEqual(t, slices.Index(f.term.calls[0].argv, "--mcp-config"), 0,
 		"a preference row written before the column existed must not lose the tool surface")
 
 	got, err := f.usecase.ResolveProviders(f.ctx)
@@ -695,7 +643,7 @@ func TestSpawnChat_APreferenceRowWithNoExplicitValueKeepsMCPEnabled(t *testing.T
 // The comparison is against a spawn with NO preference row at all — the state
 // every provider was in before this task — so "identical" is a fact the test can
 // actually establish rather than a claim about a previous commit.
-func TestSpawnChat_MCPEnabled_IsIdenticalToNoPreferenceAtAll(t *testing.T) {
+func TestStartRunner_MCPEnabled_IsIdenticalToNoPreferenceAtAll(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
 			assert.Equal(t,
@@ -708,7 +656,7 @@ func TestSpawnChat_MCPEnabled_IsIdenticalToNoPreferenceAtAll(t *testing.T) {
 
 // The switch is PER PROVIDER: turning codex's tools off must leave claude's alone.
 // A global flag would satisfy every assertion above and still be the wrong feature.
-func TestSpawnChat_MCPDisabled_IsScopedToTheProviderItNames(t *testing.T) {
+func TestStartRunner_MCPDisabled_IsScopedToTheProviderItNames(t *testing.T) {
 	f := newFixture(t)
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", MCPDisabled: true})
 
@@ -716,7 +664,7 @@ func TestSpawnChat_MCPDisabled_IsScopedToTheProviderItNames(t *testing.T) {
 	f.spawn(t, "claude")
 
 	assert.NotContains(t, configKeys(f.term.calls[0].argv), "mcp_servers.crowbar.command")
-	assert.GreaterOrEqual(t, indexOf(f.term.calls[1].argv, "--mcp-config"), 0,
+	assert.GreaterOrEqual(t, slices.Index(f.term.calls[1].argv, "--mcp-config"), 0,
 		"claude's tool surface must survive codex's switch")
 
 	got, err := f.usecase.ResolveProviders(f.ctx)
@@ -732,11 +680,11 @@ func TestSpawnChat_MCPDisabled_IsScopedToTheProviderItNames(t *testing.T) {
 // Switching the tool surface off must not switch the PROVIDER off. They are
 // stored in adjacent columns and read a few lines apart, which is exactly the
 // shape of mistake that spawns nothing and reports a disabled provider.
-func TestSpawnChat_MCPDisabledDoesNotDisableTheProvider(t *testing.T) {
+func TestStartRunner_MCPDisabledDoesNotDisableTheProvider(t *testing.T) {
 	f := newFixture(t)
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "codex", MCPDisabled: true})
 
-	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "codex")
+	_, _, err := f.spawnChat(f.ctx, "codex")
 	require.NoError(t, err)
 
 	got, err := f.usecase.ResolveProviders(f.ctx)
@@ -767,7 +715,7 @@ func TestDispatchMCP_ToolCallIsRefusedOnceToolsAreSwitchedOff(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "claude")
 
 	// The chat was spawned with tools ON — the registration reached the CLI.
-	require.GreaterOrEqual(t, indexOf(f.term.calls[0].argv, "--mcp-config"), 0)
+	require.GreaterOrEqual(t, slices.Index(f.term.calls[0].argv, "--mcp-config"), 0)
 
 	f.setPrefs(t, domain.AgentProviderPreference{ProviderID: "claude", MCPDisabled: true})
 

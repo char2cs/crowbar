@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
@@ -45,7 +45,7 @@ func TestUploadDescriptor_RejectsOversizedBodyBeforeInstall(t *testing.T) {
 // envelope unchanged.
 func TestProviders_Success(t *testing.T) {
 	uc := &fakeAgentUsecase{resolveProviders: []domain.AgentProvider{
-		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>", Connected: true, Enabled: true, Hotswap: true, HasTerminal: true, TerminalStartHere: false},
+		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>", Connected: true, Enabled: true, Hotswap: true, HasTerminal: true, TerminalStartHere: false, SignIn: "codex login"},
 		{ID: "claude", DisplayName: "Claude", Icon: "<svg/>", Connected: false, Enabled: false, TerminalStartHere: true},
 	}}
 	h := newChatHandlers(uc)
@@ -69,6 +69,8 @@ func TestProviders_Success(t *testing.T) {
 	assert.True(t, env.Data[0].Hotswap)
 	assert.True(t, env.Data[0].HasTerminal)
 	assert.False(t, env.Data[0].TerminalStartHere)
+	assert.Equal(t, "codex login", env.Data[0].SignIn)
+	assert.Contains(t, rec.Body.String(), `"signIn":"codex login"`)
 	assert.False(t, env.Data[1].Connected)
 	assert.False(t, env.Data[1].Enabled)
 	assert.False(t, env.Data[1].Hotswap)
@@ -185,10 +187,10 @@ func TestUpdateProviderPreferences_BadJSON(t *testing.T) {
 }
 
 // TestUpdateProviderPreferences_UnknownProvider_MapsTo400 proves an
-// apperr.ErrInvalidArgument from the usecase (an unknown provider id) surfaces as
+// problem.ErrInvalidArgument from the usecase (an unknown provider id) surfaces as
 // a 400.
 func TestUpdateProviderPreferences_UnknownProvider_MapsTo400(t *testing.T) {
-	uc := &fakeAgentUsecase{replaceErr: apperr.ErrInvalidArgument}
+	uc := &fakeAgentUsecase{replaceErr: problem.ErrInvalidArgument}
 	h := newChatHandlers(uc)
 
 	body := []byte(`{"providers":[{"id":"nope","disabled":false}]}`)

@@ -26,8 +26,7 @@ function kindOf(buffer: PaneContent): Pick<NativeTab, 'kind' | 'path'> {
       return { kind: 'newTab', path: null }
     case 'markdownPreview':
     case 'htmlPreview':
-    case 'csvPreview':
-      return { kind: 'preview', path: buffer.sourceFilePath }
+      return { kind: 'preview', path: buffer.source.path }
     default:
       return { kind: 'file', path: buffer.path ?? null }
   }
@@ -40,16 +39,14 @@ function closeTab(paneId: string, bufferId: string) {
   bufferActions.closeBuffer(bufferId)
 }
 
-/**
- * Feeds the IDE's native tab strip with `paneId`'s editor tabs and carries out what it asks:
- * show a tab, close one, or open what its + menu picked.
- */
+/** Feeds the native tab strip `paneId`'s editor tabs and carries out its asks: show a tab, close
+ *  one, or open what its + menu picked. */
 export function useNativeTabs(paneId: string, wsId: string) {
   const tabIds = useStore(windowPaneStore, (s) => s.panes[paneId]?.editorTabIds)
   const activeId = useStore(windowPaneStore, (s) => s.panes[paneId]?.activeEditorTabId ?? null)
   const buffers = useBuffersByIds(tabIds ?? [])
   const { onNewTerminal, onReviewBranch } = usePaneNewTabActions(wsId, paneId)
-  const canReview = usePaneCanReviewBranch(paneId)
+  const canReview = usePaneCanReviewBranch(paneId, wsId)
 
   const snapshot = useMemo<NativeTabs>(
     () => ({

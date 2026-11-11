@@ -19,11 +19,8 @@ export const blockSelectionVariants = cva(
   },
 )
 
-// The overlay `BlockSelectionKit` (`components/editor/plugins/block-selection-kit.tsx`)
-// renders below every selectable block, painted on top of it while the block
-// is part of the drag/menu multi-selection. Added here alongside the
-// pre-existing `blockSelectionVariants` (already consumed by table-node.tsx
-// for cell selection) — this component itself was never wired up before now.
+// The overlay BlockSelectionKit renders below every selectable block, painted over it while the
+// block is in the drag/menu multi-selection (table cells use `blockSelectionVariants` instead).
 export function BlockSelection(props: PlateElementProps) {
   const isBlockSelected = useBlockSelected()
 

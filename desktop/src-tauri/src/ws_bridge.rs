@@ -1,25 +1,6 @@
-//! Generic WebSocket-over-unix-socket bridge for the desktop app.
-//!
-//! The webview cannot open a `WebSocket` to the daemon: its only reachable
-//! endpoint is the `crowbar://` unix-socket proxy (see `api_proxy`), and the
-//! browser `WebSocket` constructor rejects every scheme but `ws`/`wss`. So Rust
-//! is the WebSocket client here — it dials the daemon's existing unix socket
-//! (where a WS upgrade is perfectly legal) and bridges an arbitrary `/v0/...`
-//! WebSocket route both ways to the webview.
-//!
-//!   * daemon → webview: each text frame is pushed verbatim down the Tauri
-//!     `Channel` the frontend supplies at open time (it arrives as a string), each
-//!     binary frame as raw bytes (it arrives as an `ArrayBuffer`) — the terminal's
-//!     PTY output is binary, everything else is JSON text.
-//!   * webview → daemon: `ws_send` enqueues the supplied text frame for the
-//!     connection's writer task.
-//!
-//! Connections are keyed by a client-supplied id (`crypto.randomUUID` on the JS
-//! side) so multiple scoped streams — and several windows attached to one PTY —
-//! coexist without ever colliding.
-//!
-//! This is the ONE bridge: every WebSocket route, the terminal's PTY stream
-//! included, goes through it. How a connection lives and dies is in `connection`.
+//! Bridges `/v0/...` WebSocket routes between the webview and the daemon. The webview
+//! cannot dial the daemon's unix socket itself (`WebSocket` only takes `ws`/`wss`), so Rust
+//! is the client; text frames reach JS as strings, binary (PTY output) as ArrayBuffers.
 
 #[cfg(desktop)]
 use std::path::Path;
@@ -47,10 +28,8 @@ mod test_support;
 use connection::attach;
 pub use connection::WsBridgeManager;
 
-/// Sentinel pushed down the message Channel when the daemon closes the stream
-/// (close frame, error, or EOF). The JS shim recognises it and fires `onclose`
-/// so `wsManager` reconnects and the §6 cache re-seeds. A NUL prefix makes it
-/// impossible to collide with a real JSON DTO frame (which always starts `{`).
+/// Pushed down the Channel when the daemon closes the stream, so the JS shim fires
+/// `onclose` and reconnects. The NUL prefix cannot collide with a JSON frame.
 pub const WS_CLOSE_SENTINEL: &str = "\u{0}crowbar-ws-close";
 
 /// One daemon → webview frame.
@@ -88,17 +67,9 @@ impl FrameSink for Channel<InvokeResponseBody> {
     }
 }
 
-/// Open a WebSocket to the daemon for `path` (a full `/v0/...` route) and start
-/// streaming its frames to `on_message`. Each frame is forwarded RAW — the whole
-/// DTO text, or the binary payload — because the frontend parses it itself.
-///
-/// `host_id` names a paired remote daemon, routed by the same rule as `crowbar://`
-/// requests; absent, empty or `localhost` is the local one.
-///
-/// `idle_timeout_ms` arms a read-idle timeout for a stream whose daemon side pings
-/// (the terminal's, every 45s): a socket that delivers nothing at all — not a frame,
-/// not a ping — for that long is half-open, and is closed and announced like any
-/// other daemon-side close rather than parked on forever.
+/// Opens a WebSocket to the daemon (local, or the paired `host_id`) for `path` and streams
+/// its frames raw to `on_message`. `idle_timeout_ms` is for streams whose daemon pings: a
+/// socket silent that long is half-open, so it is closed and announced like a daemon close.
 #[tauri::command]
 pub async fn ws_open(
     conn_id: String,
@@ -114,7 +85,8 @@ pub async fn ws_open(
     let opened = match remote_host(host_id) {
         #[cfg(desktop)]
         None => {
-            let socket = crate::sidecar::socket_path();
+            let socket =
+                crate::sidecar::socket_path().ok_or_else(|| "daemon not started".to_string())?;
             open_bridge(
                 &socket,
                 conn_id,
@@ -153,13 +125,9 @@ fn remote_host(host_id: Option<String>) -> Option<String> {
     host_id.filter(|host| crate::api_proxy::is_remote_host(host))
 }
 
-/// The transport half of [`ws_open`], free of Tauri's `State` so it can be driven
-/// directly against a real unix-socket server.
-///
-/// Returns the reader task's handle. The app ignores it — the connection outlives the
-/// call — but it is the only honest signal that a retired connection has finished
-/// letting go of its socket, so tests block on it rather than on a peer that may never
-/// react (which is exactly the case cancellation exists for).
+/// The transport half of [`ws_open`], free of Tauri's `State`. Returns the reader task,
+/// whose completion is the only honest signal that a retired connection released its
+/// socket; tests wait on it rather than on a peer that may never react.
 #[cfg(desktop)]
 pub async fn open_bridge<S: FrameSink>(
     socket: &Path,

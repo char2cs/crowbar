@@ -3,8 +3,8 @@ import { render, act, cleanup } from '@testing-library/react'
 
 // Hoisted spies so the vi.mock factories (hoisted above imports) can capture them.
 // `events` records unmount/destroy interleaving: components living over the store
-// (Monaco panes, terminal slots) must be UNMOUNTED before the store is destroyed.
-const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMounts, ambientSeen } =
+// (terminal slots) must be UNMOUNTED before the store is destroyed.
+const { hydrateSpy, destroySpy, events, registry, rendering, layoutMounts, ambientSeen } =
   vi.hoisted(() => {
     const events = [] as string[]
     const registry = new Map<string, { wsId: string }>()
@@ -15,8 +15,6 @@ const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMount
       layoutMounts: { current: 0 },
       /** The ambient store (by workspace id) each pane-tree render saw. */
       ambientSeen: [] as Array<string | undefined>,
-      /** Workspaces whose editor is still mounted into a pane (canEvict false). */
-      pinned: new Set<string>(),
       /** Set while a WorkspaceView renders, to catch a mint in the render path. */
       rendering: { current: false, mintedWhileRendering: 0 },
       hydrateSpy: vi.fn<(wsId: string) => void>(),
@@ -29,7 +27,7 @@ const { hydrateSpy, destroySpy, events, registry, pinned, rendering, layoutMount
 
 // Light WorkspaceView stub: mirrors the real hydrate-once-per-mount contract
 // (one hydrate per mount, never on a warm re-activation) without pulling the
-// Monaco/terminal subtree into the test.
+// terminal subtree into the test.
 vi.mock('@/features/workspace/components/workspace-view', async () => {
   const React = await import('react')
   return {
@@ -61,7 +59,6 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
     return registry.get(wsId)
   },
   getWorkspaceStore: (wsId: string) => registry.get(wsId),
-  canEvictWorkspace: (wsId: string) => !pinned.has(wsId),
   setActiveWorkspaceId: () => {},
 }))
 
@@ -83,8 +80,9 @@ vi.mock('@/features/workspace/components/workspace-layout-root', async () => {
 
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
-import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import * as perf from '@/lib/perf/instrumentation'
 
 function seedSidebar(ids: string[], opts: { defaultWorkspaceId?: string } = {}) {
   const repo: Repo = {
@@ -96,7 +94,7 @@ function seedSidebar(ids: string[], opts: { defaultWorkspaceId?: string } = {}) 
     ...(opts.defaultWorkspaceId ? { defaultWorkspaceId: opts.defaultWorkspaceId } : {}),
   }
   act(() => {
-    useSidebarStore.setState({ repos: [repo] })
+    seedRepos([repo])
   })
 }
 
@@ -113,11 +111,10 @@ beforeEach(() => {
   destroySpy.mockClear()
   events.length = 0
   registry.clear()
-  pinned.clear()
   rendering.mintedWhileRendering = 0
   layoutMounts.current = 0
   ambientSeen.length = 0
-  useSidebarStore.setState(getInitialState())
+  resetEntities()
 })
 
 afterEach(() => {
@@ -143,7 +140,33 @@ describe('WorkspaceHost — the pane tree across a switch', () => {
   })
 })
 
-describe('WorkspaceHost — sole owner of the registry (C5, C6)', () => {
+describe('WorkspaceHost — warm-switch span', () => {
+  // WorkspaceView spans a cold mount itself; the host must only span a switch it mounted nothing for.
+  function hostSwitchSpans(spy: { mock: { calls: unknown[][] } }): number {
+    return spy.mock.calls.filter((c) => c[0] === 'workspace.switch').length
+  }
+
+  it('does not span a cold switch to a workspace that was not retained', () => {
+    const spy = vi.spyOn(perf, 'markStart')
+    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
+    spy.mockClear()
+    rerender(<WorkspaceHost activeWsId="b" />)
+    expect(hostSwitchSpans(spy)).toBe(0)
+    spy.mockRestore()
+  })
+
+  it('spans a warm switch back to a retained workspace', () => {
+    const spy = vi.spyOn(perf, 'markStart')
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a', 'b']} />)
+    spy.mockClear()
+    rerender(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
+    expect(hostSwitchSpans(spy)).toBe(1)
+    spy.mockRestore()
+  })
+})
+
+describe('WorkspaceHost — sole owner of the registry', () => {
   it('registry keys are exactly the mounted slots, through switches and evictions', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
     expect([...registry.keys()].sort()).toEqual(mountedSlots())
@@ -165,22 +188,6 @@ describe('WorkspaceHost — sole owner of the registry (C5, C6)', () => {
     render(<WorkspaceHost activeWsId="a" paneWsIds={many} />)
     expect(mountedSlots()).toEqual(['a', ...many].sort())
     expect(registry.size).toBe(mountedSlots().length)
-  })
-
-  it('keeps a workspace whose editor is still mounted instead of destroying it — no zombie store', () => {
-    pinned.add('a')
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
-    // Not evictable: still mounted, still registered, never destroyed.
-    expect(destroySpy).not.toHaveBeenCalledWith('a')
-    expect(mountedSlots()).toEqual(['a', 'b'])
-    expect([...registry.keys()].sort()).toEqual(['a', 'b'])
-
-    // Once its editor lets go, the next reconcile evicts it for real.
-    pinned.delete('a')
-    rerender(<WorkspaceHost activeWsId="b" viewWsIds={[]} paneWsIds={['b']} />)
-    expect(destroySpy).toHaveBeenCalledWith('a')
-    expect([...registry.keys()]).toEqual(['b'])
   })
 })
 
@@ -306,11 +313,8 @@ describe('WorkspaceHost', () => {
   })
 
   it('protects a homeWsIds entry from the existence-prune — home is a project-level concept, absent from the sidebar entirely', () => {
-    // Sidebar only knows about repo workspace "b" — the home id is never a
-    // tree row, so without homeWsIds it would look "closed" (same shape as
-    // the "destroys a retained workspace once it no longer exists" case
-    // above) the instant it goes hidden. Give it a view chat too, or the new
-    // retention rule (not the existence-prune) would evict it anyway.
+    // The home id is never a tree row, so without homeWsIds it would be pruned as "closed" once
+    // hidden. It also gets a view chat, or retention (not the prune) would evict it.
     seedSidebar(['b'])
     const { rerender } = render(
       <WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} viewWsIds={['home-ws']} />,
@@ -335,12 +339,8 @@ describe('WorkspaceHost', () => {
     expect(slot('home-ws')).toBeNull()
   })
 
-  // Regression: a split can hold panes from workspaces this host never
-  // otherwise mounts (never routed to, never clicked into) — without a real
-  // store, PaneContainer/ChatHead fell back to whichever workspace happened
-  // to be AMBIENT, rendering wrong/blank until the OTHER pane's own click
-  // happened to flip which workspace was active. `paneWsIds` force-mounts
-  // every one of them, the same blank-frame guard `activeWsId` already gets.
+  // A split can hold panes from workspaces never routed to; each needs a real store, or its pane
+  // reads the ambient fallback and renders wrong or blank.
   it("force-mounts every paneWsIds entry, even one that's neither active nor previously retained", () => {
     render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} />)
 
@@ -392,7 +392,7 @@ describe('WorkspaceHost', () => {
     events.length = 0
     rerender(<WorkspaceHost activeWsId="b" />)
 
-    // Monaco panes / terminal slots in A's subtree must be torn down before the
+    // Terminal slots in A's subtree must be torn down before the
     // store they read from is destroyed.
     expect(events).toContain('unmount:a')
     expect(events).toContain('destroy:a')

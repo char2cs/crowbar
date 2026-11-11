@@ -232,7 +232,7 @@ func TestChatVerbs_404WhenNoAncestorOwnsAWorktree(
 			reader := &fakeReader{}
 			hierarchy := &fakeHierarchy{}
 			worktrees := &fakeWorktrees{err: worktree.ErrNoWorktreeInAncestry}
-			r, h := newChatRouter(reader, hierarchy, worktrees)
+			r, ops := newChatRouter(reader, hierarchy, worktrees)
 
 			// Bodies that would otherwise pass their own validation, so the 404 is
 			// provably the resolve and not a body guard firing first.
@@ -240,7 +240,7 @@ func TestChatVerbs_404WhenNoAncestorOwnsAWorktree(
 				`{"locked":true,"strategy":"squash","newParentId":"w9"}`)
 
 			require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
-			h.WaitAsync()
+			assert.Empty(t, ops.frames, "no operation starts for a chat holding nothing")
 			assert.Zero(t, reader.lockCalls)
 			assert.Empty(t, reader.gotSync)
 			assert.Empty(t, hierarchy.gotMergeID)

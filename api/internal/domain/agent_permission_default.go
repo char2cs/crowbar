@@ -11,3 +11,7 @@ type AgentPermissionDefault struct {
 // DefaultPermissionLevelKey is the fixed primary key AgentPermissionDefault is
 // always saved and loaded under.
 const DefaultPermissionLevelKey = "default"
+
+// PermissionLevels is Crowbar's own closed set of level names, least to most
+// permissive; what each means to a provider is its descriptor's business.
+func PermissionLevels() []string { return []string{"guarded", "trusted", "full-auto"} }

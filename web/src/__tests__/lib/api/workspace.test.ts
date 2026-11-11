@@ -34,15 +34,15 @@ function calledWith(): [string, RequestInit] {
   return fetchMock.mock.calls[0] as [string, RequestInit]
 }
 
-// §3: reparent is a hierarchical 202 mutation. The new parentId arrives on the
-// WorkspaceDTO over the scoped WS stream, so this function no longer mutates
-// local state — it just dials the reparent verb on the holding chat.
+// §3: reparent answers 202 with its operation; the new parentId arrives on the
+// WorkspaceDTO over the scoped WS stream. The client-minted id is its key.
 describe('reparentWorkspace', () => {
   it("POSTs to the reparent verb on the workspace's owning chat", async () => {
-    await reparentWorkspace(WS, 'ws-develop')
+    await reparentWorkspace(WS, 'ws-develop', 'op-1')
     const [url, init] = calledWith()
     expect(url).toBe(`${VERB_BASE}/reparent`)
     expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op-1')
     expect(JSON.parse(init.body as string)).toEqual({ newParentId: 'ws-develop' })
   })
 
@@ -50,7 +50,7 @@ describe('reparentWorkspace', () => {
   // field from the chat tree's own ParentID. Only the addressed row moved onto a
   // chat id; sending a chat id as the new parent would rebase onto nothing.
   it('still sends a WORKSPACE id as the new parent, not a chat id', async () => {
-    await reparentWorkspace(WS, 'ws-develop')
+    await reparentWorkspace(WS, 'ws-develop', 'op-1')
     const [, init] = calledWith()
     expect(JSON.parse(init.body as string).newParentId).toBe('ws-develop')
   })
@@ -62,16 +62,15 @@ describe('reparentWorkspace', () => {
         headers: { 'Content-Type': 'application/json' },
       }),
     )
-    await expect(reparentWorkspace(WS, 'ws-other')).rejects.toThrow('has children')
+    await expect(reparentWorkspace(WS, 'ws-other', 'op-1')).rejects.toThrow('has children')
   })
 })
 
-// §3.3: retryProvision re-provisions a held placeholder branch in place. It's a
-// 202 mutation whose outcome rides the WS broadcast, so the FE call just fires a
-// POST to the verb route.
+// §3.3: retryProvision re-provisions a held placeholder branch in place; its
+// outcome rides the operations stream.
 describe('retryProvision', () => {
   it('POSTs to the retry-provision verb on the owning chat', async () => {
-    await retryProvision(WS)
+    await retryProvision(WS, 'op-1')
     const [url, init] = calledWith()
     expect(url).toBe(`${VERB_BASE}/retry-provision`)
     expect(init.method).toBe('POST')
@@ -79,10 +78,10 @@ describe('retryProvision', () => {
 })
 
 // §3.5/§3.7: detachHolder evicts the branch's holder (with the user's consent)
-// then re-provisions in place. Same 202-over-WS shape.
+// then re-provisions in place. Same 202-with-operation shape.
 describe('detachHolder', () => {
   it('POSTs to the detach-holder verb on the owning chat', async () => {
-    await detachHolder(WS)
+    await detachHolder(WS, 'op-1')
     const [url, init] = calledWith()
     expect(url).toBe(`${VERB_BASE}/detach-holder`)
     expect(init.method).toBe('POST')
@@ -97,7 +96,7 @@ describe('a workspace with no recorded owning chat', () => {
   it('throws rather than dialling a chat-less URL', async () => {
     __resetWorkspaceScopesForTest()
     recordWorkspaceScope({ projectId: 'p1', repoId: 'crowbar', wsId: 'orphan' })
-    await expect(retryProvision('orphan')).rejects.toThrow(/no owning chat/)
+    await expect(retryProvision('orphan', 'op-1')).rejects.toThrow(/no owning chat/)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

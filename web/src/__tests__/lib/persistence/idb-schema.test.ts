@@ -67,8 +67,8 @@ describe('idb schema v10', () => {
     expect(await db.get('sidebar-ui', 'global')).toMatchObject({ collapsedChatRows: ['c1'] })
   })
   // The v9 database exactly as the base build (70ec430) left it, one record in
-  // every store: the v10 upgrade may drop the two retired stores and nothing else.
-  it('upgrades a base-build v9 database with data in every store, losing only the retired and the host-less transcripts', async () => {
+  // every store: the upgrades may drop the retired stores and nothing else.
+  it('upgrades a base-build v9 database with data in every store, losing only the retired', async () => {
     const byKey = (key: string) => ({ keyPath: key })
     const stores: Array<[string, IDBObjectStoreParameters | undefined, unknown, IDBValidKey?]> = [
       ['workspace-layout', byKey('workspaceId'), { workspaceId: 'window', panes: {} }],
@@ -113,42 +113,40 @@ describe('idb schema v10', () => {
     const raw = db as unknown as IDBPDatabase
     const names = Array.from(db.objectStoreNames)
     for (const [name, params, value, key] of stores) {
-      if (RETIRED.includes(name)) {
+      if ([...RETIRED, 'editor-state'].includes(name)) {
         expect(names).not.toContain(name)
         continue
       }
-      // Transcripts cached before they named a host are dropped at v13.
-      if (name === 'chat-history') {
-        expect(await raw.getAll(name)).toEqual([])
-        continue
-      }
-      const id = key ?? (name === 'editor-state' ? ['w1', 'b1'] : keyOf(value, params))
-      expect(await raw.get(name, id), name).toEqual(name === 'editor-state' ? editorState : value)
+      expect(await raw.get(name, key ?? keyOf(value, params)), name).toEqual(value)
     }
-    expect(await db.getAllFromIndex('editor-state', 'workspaceId', 'w1')).toEqual([editorState])
   })
 })
 
-describe('idb schema v11', () => {
-  it('indexes chat-history by fetchedAt in a fresh database', async () => {
+describe('idb schema v14', () => {
+  it('keeps unsaved editor text as drafts keyed by document uri', async () => {
     const db = await getDB()
-    expect(Array.from(db.transaction('chat-history').store.indexNames)).toEqual([
-      'fetchedAt',
-      'hostId',
-    ])
+    const draft = { uri: 'crowbar://w/ws1/a.ts', text: 'mine', savedText: 'disk', updatedAt: 1 }
+    await db.put('editor-drafts', draft)
+
+    expect(await db.get('editor-drafts', draft.uri)).toEqual(draft)
+    expect(Array.from(db.objectStoreNames)).not.toContain('editor-state')
   })
 
-  it('adds the index to an existing v10 database', async () => {
-    const v10 = await openDB('crowbar', 10, {
+  // v11-v13 meant other things on another line of builds: a database one left has no drafts store.
+  it('gives a database a v13 build left the drafts store, and drops its editor-state', async () => {
+    const v13 = await openDB('crowbar', 13, {
       upgrade(db) {
-        db.createObjectStore('chat-history', { keyPath: 'key' })
+        db.createObjectStore('editor-state', { keyPath: ['workspaceId', 'bufferId'] })
+        db.createObjectStore('projects-data', { keyPath: 'key' })
       },
     })
-    v10.close()
-
+    await v13.put('projects-data', { key: 'k', data: 2, fetchedAt: 1 })
+    v13.close()
     const db = await getDB()
-
-    expect(Array.from(db.transaction('chat-history').store.indexNames)).toContain('fetchedAt')
+    expect(db.version).toBe(14)
+    expect(Array.from(db.objectStoreNames)).not.toContain('editor-state')
+    await db.put('editor-drafts', { uri: 'u', text: 't', savedText: 's', updatedAt: 1 })
+    expect((await db.get('projects-data', 'k'))?.data).toBe(2)
   })
 })
 
@@ -243,23 +241,5 @@ describe('idb schema v7 entity stores', () => {
     const db = await getDB()
     const names = Array.from(db.objectStoreNames)
     expect(names).toContain('projects-data')
-  })
-})
-
-describe('idb schema v13', () => {
-  it('drops transcripts cached before they named a host, which no removal could find', async () => {
-    const v12 = await openDB('crowbar', 12, {
-      upgrade(db) {
-        const store = db.createObjectStore('chat-history', { keyPath: 'key' })
-        store.createIndex('fetchedAt', 'fetchedAt')
-      },
-    })
-    await v12.put('chat-history', { key: 'c1', data: { messages: [] }, fetchedAt: 5 })
-    v12.close()
-
-    const db = await getDB()
-
-    expect(await db.get('chat-history', 'c1')).toBeUndefined()
-    expect(Array.from(db.transaction('chat-history').store.indexNames)).toContain('hostId')
   })
 })

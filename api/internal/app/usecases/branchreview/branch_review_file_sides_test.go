@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -47,7 +47,7 @@ func TestBranchReview_GetFileSides_EmptyPathNeverReachesGit(t *testing.T) {
 
 	_, err := uc.GetFileSides(context.Background(), "ws1", "", "", "")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.False(t, called)
 }
 
@@ -61,5 +61,5 @@ func TestBranchReview_GetFileSides_OversizedFileIsUnprocessable(t *testing.T) {
 
 	_, err := uc.GetFileSides(context.Background(), "ws1", "", "big.go", "")
 
-	assert.ErrorIs(t, err, apperr.ErrUnprocessable)
+	assert.ErrorIs(t, err, problem.ErrUnprocessable)
 }

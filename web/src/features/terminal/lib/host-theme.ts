@@ -1,104 +1,60 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { readTerminalThemePayload } from '../hooks/use-terminal-theme'
 
-/**
- * Tell the daemon what the host terminal's default colours are, so every PTY it spawns
- * AFTERWARDS is born answering an OSC 10/11 query with them.
- *
- * This is the half of theme propagation `terminalSetTheme` structurally cannot do. That one
- * travels down a session's own socket, so it can only ever reach a session that already
- * exists — and a vendor CLI is exec'd by the daemon at session-creation time, before any
- * client can attach. A CLI that reads the background once at startup has therefore already
- * asked, and been told x/vt's hardcoded black, by the time the first `terminalSetTheme`
- * lands. Claude Code hid that for a long time because it also subscribes to DEC 2031 and
- * re-queries when the late push notifies it; codex 0.146.0 has no 2031 support at all, so
- * the answer it got at birth was the only one it would ever get, and a light-mode Crowbar
- * came up with a dark Codex.
- *
- * Best-effort by design — a failed push leaves the daemon on its previous value, which is
- * exactly today's behaviour, never a wrong one.
- */
-export function pushHostTerminalTheme(): Promise<boolean> {
-  const { background, foreground } = readTerminalThemePayload()
-  const body = JSON.stringify({ bg: background, fg: foreground })
-  // The same pair already sent (or on its way) is not sent again: boot pushes
-  // once and the initial theme application fires a change for the same value.
-  if (lastPush && lastPush.body === body) return lastPush.result
-  const push = {
-    body,
-    result: apiFetch('/v0/settings/terminal/theme', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    }).then(
-      () => true,
-      () => {
-        // A failed push is forgotten so the retry really re-sends.
-        if (lastPush === push) lastPush = null
-        return false
-      },
-    ),
-  }
-  lastPush = push
-  return push.result
+const PATH = '/v0/settings/terminal/theme'
+
+interface HostTheme {
+  bg: string
+  fg: string
 }
 
-let lastPush: { body: string; result: Promise<boolean> } | null = null
+const keyOf = (theme: HostTheme) => `${theme.bg.toLowerCase()} ${theme.fg.toLowerCase()}`
 
-/** Test-only: forget what was last pushed. */
-export function resetHostThemePushForTests(): void {
-  lastPush = null
-}
-
-/**
- * Boot retry schedule, in ms. The push is the one daemon call that must land BEFORE the
- * user does anything, and it is a PUT — so `apiFetch`'s built-in retry (idempotent reads
- * only) does not cover it, and a daemon still coming up at boot would otherwise leave the
- * host theme unknown until the user happened to switch themes or open a terminal.
- *
- * Bounded and abandoned on the first success: this is a startup handshake, not a poll.
- */
-const BOOT_RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000]
-
-/**
- * Push the host theme now, and again on every theme change, for the lifetime of the app.
- * Returns a teardown for HMR disposal.
- */
+// The default colours every PTY spawned afterwards answers OSC 10/11 with. `terminalSetTheme`
+// reaches only attached sessions, too late for a CLI that queries once at exec (without DEC 2031).
+// Boot reads what the daemon holds (a read apiFetch retries while it starts) and pushes only a
+// pair it does not hold; the teardown is for HMR.
 export function startHostThemeSync(): () => void {
   let disposed = false
-  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  // What the daemon holds; null when unknown (never read, or a push failed).
+  let held: string | null = null
+  let read = false
 
-  const clearRetry = () => {
-    if (retryTimer !== null) {
-      clearTimeout(retryTimer)
-      retryTimer = null
-    }
-  }
-
-  // A theme change supersedes any in-flight boot retry: it pushes the newer value itself,
-  // so letting the old schedule run on would only re-send a stale colour pair.
-  const pushNow = () => {
-    clearRetry()
-    void pushHostTerminalTheme()
-  }
-
-  const pushWithBootRetry = (attempt: number) => {
-    void pushHostTerminalTheme().then((ok) => {
-      if (ok || disposed || attempt >= BOOT_RETRY_DELAYS_MS.length) return
-      retryTimer = setTimeout(() => {
-        retryTimer = null
-        pushWithBootRetry(attempt + 1)
-      }, BOOT_RETRY_DELAYS_MS[attempt])
+  const push = () => {
+    if (disposed || !read) return
+    const { background, foreground } = readTerminalThemePayload()
+    const theme = { bg: background, fg: foreground }
+    const key = keyOf(theme)
+    if (key === held) return
+    held = key
+    apiFetch(PATH, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(theme),
+    }).catch(() => {
+      // Best-effort: the daemon keeps its previous pair, and the next change sends again.
+      if (held === key) held = null
     })
   }
 
-  pushWithBootRetry(0)
-  const unlisten = themeRegistry.onThemeChange(pushNow)
+  apiFetch<HostTheme>(PATH)
+    .then(
+      (theme) => {
+        held = keyOf(theme)
+      },
+      () => {
+        held = null
+      },
+    )
+    .finally(() => {
+      read = true
+      push()
+    })
+  const unlisten = themeRegistry.onThemeChange(push)
 
   return () => {
     disposed = true
-    clearRetry()
     unlisten()
   }
 }

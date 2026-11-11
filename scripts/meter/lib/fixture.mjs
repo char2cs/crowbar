@@ -11,11 +11,8 @@ export function git(cwd, ...args) {
   return execFileSync('git', args, { cwd, env, encoding: 'utf8' })
 }
 
-/**
- * A realistically sized workspace repo: a clone of THIS checkout's HEAD, with
- * a bare `origin` beside it so fetch paths have a remote, and a sibling
- * worktree (not imported) the fetch scenario runs `git fetch` in.
- */
+/** A realistically sized workspace repo: a clone of this checkout's HEAD with a bare `origin`
+ *  beside it so fetch paths have a remote, and a sibling worktree (not imported) to fetch in. */
 export function createCloneFixture(runDir) {
   // "github.com" in the remote's path makes the daemon detect a GitHub repo
   // and run its gh pollers; the fetches themselves stay local.

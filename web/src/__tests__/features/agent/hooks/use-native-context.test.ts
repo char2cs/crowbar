@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NativeChromeIntent, NativeContext } from '@/lib/native-chrome'
-import type { AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 
 const chrome = vi.hoisted(() => ({
   pushed: [] as NativeContext[],

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -153,7 +154,10 @@ func detail(
 		return detailResult{warning: warn(r.source, "could not be inspected")}
 	}
 
-	pattern, _ := regexp.Compile(p.DetailPattern)
+	pattern, err := regexp.Compile(p.DetailPattern)
+	if err != nil {
+		return detailResult{err: fmt.Errorf("catalog: detail_pattern: %w", err)}
+	}
 	match := pattern.FindSubmatch(raw)
 	if match == nil {
 		if emptyInventory(p.DetailEmptyPattern, raw) {

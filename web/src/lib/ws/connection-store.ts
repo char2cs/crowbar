@@ -1,16 +1,24 @@
 import { create } from 'zustand'
-import type { ApiError } from '@/lib/api/errors'
+import type { ApiError } from '@/lib/errors/api-error'
+import type { Problem } from '@/lib/errors/problem'
 import { LOCAL_HOST } from '@/features/hosts/types'
+import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
-// Backend connection state derived from the wsManager's channels:
-// - 'idle': no channels have reported yet (nothing to say about the backend)
-// - 'connected': at least one channel has an open socket
-// - 'disconnected': channels exist but every socket is closed / retrying
-export type ConnectionStatus = 'idle' | 'connected' | 'disconnected'
+// Backend connection state from the wsManager's channels: 'idle' (none reported), 'connected'
+// (a socket is open), 'migrating' (none open; the daemon is preparing its home), 'disconnected'
+// (all closed/retrying). A halted daemon is the daemon-halt store's, not a status.
+export type ConnectionStatus = 'idle' | 'connected' | 'disconnected' | 'migrating'
+
+/** What a daemon that is not serving yet says it is doing. */
+export interface Migrating {
+  message: string
+  step?: { index: number; total: number; name: string }
+}
 
 interface ConnectionState {
   /** The local daemon's channels only. */
   status: ConnectionStatus
+  migrating: Migrating | null
   /** Connected, but some local channel is closed and retrying. */
   degraded: boolean
   /** Times every local channel was lost and the daemon came back; the first connect is not one. */
@@ -47,15 +55,19 @@ function deriveDegraded(status: ConnectionStatus): boolean {
 
 export const useConnectionStore = create<ConnectionState>(() => ({
   status: 'idle',
+  migrating: null,
   degraded: false,
   reconnects: 0,
   hostStreams: {},
   failures: {},
 }))
 
-function publish(): void {
+function publish(migrating: Migrating | null): void {
   const prev = useConnectionStore.getState()
-  const status = deriveStatus(LOCAL_HOST.id)
+  const local = deriveStatus(LOCAL_HOST.id)
+  // A migrating report stands only while no local socket is open.
+  const nextMigrating = local === 'connected' ? null : migrating
+  const status: ConnectionStatus = nextMigrating ? 'migrating' : local
   const degraded = deriveDegraded(status)
   const hostStreams: Record<string, ConnectionStatus> = {}
   for (const { hostId } of channelStates.values()) {
@@ -64,10 +76,18 @@ function publish(): void {
   const sameHosts =
     Object.keys(hostStreams).length === Object.keys(prev.hostStreams).length &&
     Object.entries(hostStreams).every(([hostId, next]) => prev.hostStreams[hostId] === next)
-  if (prev.status === status && prev.degraded === degraded && sameHosts) return
+  if (
+    prev.status === status &&
+    prev.migrating === nextMigrating &&
+    prev.degraded === degraded &&
+    sameHosts
+  ) {
+    return
+  }
   const recovered = prev.status === 'disconnected' && status === 'connected'
   useConnectionStore.setState({
     status,
+    migrating: nextMigrating,
     degraded,
     reconnects: recovered ? prev.reconnects + 1 : prev.reconnects,
     hostStreams,
@@ -89,7 +109,7 @@ function setFailure(endpoint: string, failure: ApiError | undefined): void {
 export function reportChannelState(endpoint: string, open: boolean, hostId: string): void {
   if (open) setFailure(endpoint, undefined)
   channelStates.set(endpoint, { hostId, open })
-  publish()
+  publish(useConnectionStore.getState().migrating)
 }
 
 /** Called by the wsManager when a remote host refused a channel's open. */
@@ -101,7 +121,21 @@ export function reportChannelFailure(endpoint: string, failure: ApiError): void 
 export function reportChannelGone(endpoint: string): void {
   setFailure(endpoint, undefined)
   channelStates.delete(endpoint)
-  publish()
+  publish(useConnectionStore.getState().migrating)
+}
+
+/** The daemon is preparing its home. An open socket outranks it: that report is stale. */
+export function reportMigrating(migrating: Migrating): void {
+  publish(migrating)
+}
+
+/** Routes a refusal that names the daemon's own state to that state's owner;
+ *  true when it did, so the caller shows nothing of its own. */
+export function reportDaemonRefusal(problem: Problem): boolean {
+  if (problem.code === 'daemon_migrating') reportMigrating({ message: problem.message })
+  else if (problem.code === 'daemon_halted') useDaemonHaltStore.getState().halt(problem.message)
+  else return false
+  return true
 }
 
 /** Test helper: clear all tracked channels. */
@@ -109,6 +143,7 @@ export function resetConnectionState(): void {
   channelStates.clear()
   useConnectionStore.setState({
     status: 'idle',
+    migrating: null,
     degraded: false,
     reconnects: 0,
     hostStreams: {},

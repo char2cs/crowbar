@@ -12,7 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -34,7 +34,7 @@ func TestImport_EveryCreatedWorkspaceHasItsOwnNodeRow(t *testing.T) {
 	git := mocks.NewGitEngine()
 	prov := mocks.NewProviderEngine()
 	nodes := mocks.NewNodePlacements()
-	uc := newImportUsecase(project.ImportDeps{
+	uc := newImportUsecase(t, project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
 		Workspaces: ws,
@@ -72,7 +72,7 @@ func TestImport_EveryCreatedWorkspaceHasItsOwnNodeRow(t *testing.T) {
 	for _, w := range ws.Created {
 		n, err := nodes.GetNode(context.Background(), w.ID)
 		require.NoErrorf(t, err, "workspace %s (kind=%v) must have a Node row the instant it is created", w.ID, w.Kind)
-		assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+		assert.Equal(t, tree.KindWorkspace, n.Kind)
 		assert.Equal(t, w.ID, n.ID)
 	}
 }
@@ -90,16 +90,17 @@ func TestImport_WorkspaceNodeMintFails_RollsBackTheWorkspaceAndChat(t *testing.T
 	nodes := mocks.NewNodePlacements()
 	nodes.CreateErr = errors.New("node create boom")
 	uc := project.NewImport(project.ImportDeps{
-		Projects:   projects,
-		Repos:      mocks.NewRepositoryStore(),
-		Workspaces: ws,
-		Git:        mocks.NewGitEngine(),
-		Provider:   mocks.NewProviderEngine(),
-		Discover:   func(string, int) ([]string, error) { return nil, nil },
-		RefRunner:  noRefRunner,
-		Nodes:      nodes,
-		Now:        func() time.Time { return time.Unix(1000, 0).UTC() },
-		Stat:       statExists,
+		CrowbarHome: tempCrowbarHome(t),
+		Projects:    projects,
+		Repos:       mocks.NewRepositoryStore(),
+		Workspaces:  ws,
+		Git:         mocks.NewGitEngine(),
+		Provider:    mocks.NewProviderEngine(),
+		Discover:    func(string, int) ([]string, error) { return nil, nil },
+		RefRunner:   noRefRunner,
+		Nodes:       nodes,
+		Now:         func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat:        statExists,
 	})
 	uc.SetOwningChats(chats)
 

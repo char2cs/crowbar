@@ -29,14 +29,9 @@ export function SplitViewRoot() {
   const fullscreenPaneId = useFullscreenPaneId()
   const { exitPaneFullscreen } = usePaneActions()
 
-  /**
-   * Every record plus the stage, in ONE list keyed by id and sorted by
-   * something unrelated to which is showing: rendering the showing view in a
-   * different place than the others would REMOUNT it on every switch, which
-   * destroys a parked terminal's xterm for good. The stage is keyed by its
-   * first pane id — the id a promoted stage's record takes — so a chat landing
-   * in it keeps its DOM.
-   */
+  // Records and stage in one list sorted by id, not by which shows: moving the showing view would
+  // remount it on every switch, destroying a parked xterm. The stage is keyed by its first pane id
+  // (the id its promoted record takes), so a chat landing there keeps its DOM.
   const views = useMemo(() => {
     const all = Object.values(records).map((view) => ({
       id: view.id,
@@ -49,10 +44,8 @@ export function SplitViewRoot() {
 
   const mountedViews = useMountedViews(views)
 
-  // Subscribe to ONLY the fullscreen pane (or nothing) — never the whole
-  // `panes` record. Reading the whole record re-rendered SplitViewRoot, and
-  // therefore the entire layout tree beneath it, on every pane mutation. This
-  // id-scoped selector is referentially stable across unrelated pane changes.
+  // Only the fullscreen pane, never all of `panes`, which would re-render the whole layout tree
+  // on every pane mutation.
   const fullscreenPane = usePaneById(fullscreenPaneId ?? '')
 
   useEffect(() => {
@@ -60,7 +53,7 @@ export function SplitViewRoot() {
   }, [exitPaneFullscreen, fullscreenPane, fullscreenPaneId])
 
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible)
-  // With the view-tab strip above, the panes are no longer at the window's top.
+  // With the view-tab strip above, the panes are not at the window's top.
   const hasViewStrip = useHasViewStrip()
   const rootPosition = useMemo(
     () => ({ ...ROOT_PANE_POSITION, atTop: !hasViewStrip, atBottom: !isBottomPaneVisible }),
@@ -72,25 +65,9 @@ export function SplitViewRoot() {
 
   return (
     <>
-      {/* ONLY THE SHOWING VIEW OCCUPIES THE CONTENT AREA. The others take no
-          space and paint nothing, so "the active view fills the screen and
-          whatever was there goes away from view" is a property of the layout
-          itself, not of a visibility check inside each pane.
-
-          A parked view is KEPT MOUNTED and hidden with `display: none` — the
-          same dormancy `WorkspaceHost` already runs every retained workspace
-          under (workspace-slot-style.ts, where `content-visibility` is
-          recorded as tried and reverted for melting the CPU). Unmounting
-          would be cheaper on paper and is wrong in practice: a pane's shell
-          terminal disposes its xterm on unmount and remounts onto a live
-          transport that never re-attaches — blank, scrollback gone — and its
-          Monaco models are refcount-released with their undo history.
-          Switching views is a glance, not a close; it may not cost the state
-          of what you glanced away from. `closePane` / `closeView` remain the
-          only things that end a view, and they still run the full teardown.
-
-          `inert` so nothing off screen is focusable, clickable or reachable by
-          keyboard. */}
+      {/* Only the showing view takes space. Parked views stay mounted under `display: none`
+          (unmounting loses a terminal's scrollback and Monaco's undo history) and `inert` so
+          nothing off screen is reachable; closePane/closeView are the only teardown. */}
       {mountedViews.map((view) => (
         <div
           key={view.id}

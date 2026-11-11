@@ -1,0 +1,16 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "agentMessage",
+      "id": "msg_0978412001346529016a8b5f21302887d28732c74fd837ca5e",
+      "text": "OK",
+      "phase": "final_answer",
+      "memoryCitation": null
+    },
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turnId": "01a0306b-8633-71d1-a176-a421b13cf2da",
+    "completedAtMs": 1787518754298
+  },
+  "emittedAtMs": 1787518754298
+}

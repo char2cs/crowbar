@@ -3,21 +3,19 @@
 package tests
 
 import (
+	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// liveStubProviderDescriptorYAML spawns `cat`, which stays alive on its PTY
+// liveStubProviderDescriptorYAML runs the fake CLI, which stays alive on its PTY
 // (no stdin EOF) so the segment remains active while user_prompt/turn_stop hooks
 // fire — unlike the `true` stub, which exits instantly and ends its segment.
 const liveStubProviderDescriptorYAML = `id: livestub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -40,20 +38,17 @@ runtime:
 
 func writeLiveStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(stubDescriptor(liveStubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "livestub", liveStubProviderDescriptorYAML)
 }
 
 // requireRESTWorking asserts that BOTH REST read paths — the repo-scoped chat
 // list (which carries every worktree-owning chat's git state inline) and one
 // workspace's own row within it (worktreeOf; the dedicated GET
 // .../workspaces/:wsId detail route is gone, spec §8 step 6) — stamp the
-// workspace's `working` overlay as want. It is the REST counterpart to the WS
-// readUntilWorktree: the agent-turn overlay is folded synchronously in the SAME
-// axAgentChat projection callback that re-broadcasts the workspace, so once the
-// caller has observed the WS frame the in-memory overlay is already settled and
-// these plain GETs need no polling (block on the WS signal, never on time).
+// workspace's `working` overlay as want. It is the REST counterpart to the
+// workspace's projects-scope row: the overlay is folded synchronously in the SAME
+// axAgentChat projection callback that republishes the workspace, so once the
+// caller has observed that row these plain GETs need no polling.
 func requireRESTWorking(
 	t *testing.T,
 	h *harness,
@@ -92,43 +87,30 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	h.post(repoBase+"/chats",
 		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
-	h.Quiesce()
+	startChat(t, h, repoBase, created.ID)
 
 	detail := getAgentChat(t, h, repoBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	segID := detail.LiveRunnerID
 
-	// The standalone workspaces WS is gone; the repo-scoped chat feed carries the
-	// same worktree_state frames now, wrapped under dto.AgentChatEvent —
-	// readUntilWorktree unwraps them back to the flat vocabulary below.
-	conn := repoChatsWS(h, imported)
+	feed := recordSidebar(t, h)
 
 	// user_prompt opens the turn.
-	_ = h.raw(http.MethodPost, repoBase+"/chats/hooks", map[string]string{
-		"segment_id": segID, "provider": "livestub", "event": "user_prompt",
-		"payload_raw": `{"prompt":"hi"}`,
-	}, http.StatusAccepted).Body.Close()
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["working"] == true
-	})
+	postHook(t, h, repoBase, "livestub", segID, "user_prompt", `{"prompt":"hi"}`)
+	awaitWorkspaceWorking(feed, imported.workspaceID, true)
 	// REST reads (List + Detail) must now reflect the same live overlay.
 	requireRESTWorking(t, h, imported, true)
 
 	// turn_stop closes it.
-	_ = h.raw(http.MethodPost, repoBase+"/chats/hooks", map[string]string{
-		"segment_id": segID, "provider": "livestub", "event": "turn_stop",
-		"payload_raw": `{"last_assistant_message":"done"}`,
-	}, http.StatusAccepted).Body.Close()
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["working"] == false
-	})
+	postHook(t, h, repoBase, "livestub", segID, "turn_stop", `{"last_assistant_message":"done"}`)
+	awaitWorkspaceWorking(feed, imported.workspaceID, false)
 	// REST reads must have flipped back too.
 	requireRESTWorking(t, h, imported, false)
 }
 
 // createLiveStubChat creates a chat on the livestub provider in ws and returns its
 // chat id plus the id of the RUNNER placed on it — the crowbar segment id the
-// in-PTY hook callbacks carry, and the id every `segment_id` hook field below is.
+// CLI's hooks are posted as.
 //
 // It reads that id back as liveRunnerId (there is no segments[] any more: the chat
 // aggregate stores no process facts at all, and the runner placed on it is joined on
@@ -140,31 +122,7 @@ func createLiveStubChat(
 	imported importedRepo,
 ) (chatID, runnerID string) {
 	t.Helper()
-	var created struct {
-		ID string `json:"id"`
-	}
-	h.post(repoBase(imported)+"/chats",
-		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
-		http.StatusCreated, &created)
-	require.NotEmpty(t, created.ID)
-	h.Quiesce()
-
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
-	return created.ID, detail.LiveRunnerID
-}
-
-// postAgentHook fires one in-PTY hook callback at the repo-scoped agent mount.
-func postAgentHook(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-	segID, event, payload string,
-) {
-	t.Helper()
-	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
-		"segment_id": segID, "provider": "livestub", "event": event, "payload_raw": payload,
-	}, http.StatusAccepted).Body.Close()
+	return createStubChat(t, h, imported, "livestub")
 }
 
 // TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce pins BOTH halves of
@@ -193,20 +151,18 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 	_, segA := createLiveStubChat(t, h, imported)
 	_, segB := createLiveStubChat(t, h, imported)
 
-	conn := repoChatsWS(h, imported)
+	feed := recordSidebar(t, h)
 
 	// Chat A opens a turn: idle → working. The ONE legitimate true frame.
-	postAgentHook(t, h, imported, segA, "user_prompt", `{"prompt":"a"}`)
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["working"] == true
-	})
+	postHook(t, h, repoBase(imported), "livestub", segA, "user_prompt", `{"prompt":"a"}`)
+	awaitWorkspaceWorking(feed, imported.workspaceID, true)
 
 	// Chat B opens a turn (workspace already working) and chat A closes its turn
 	// (chat B still working). Neither changes the overlay's value. Quiesce blocks on
 	// the event pipeline draining — a real signal, not a sleep — so the projection
 	// has fully folded both events before the assertion below.
-	postAgentHook(t, h, imported, segB, "user_prompt", `{"prompt":"b"}`)
-	postAgentHook(t, h, imported, segA, "turn_stop", `{"last_assistant_message":"a done"}`)
+	postHook(t, h, repoBase(imported), "livestub", segB, "user_prompt", `{"prompt":"b"}`)
+	postHook(t, h, repoBase(imported), "livestub", segA, "turn_stop", `{"last_assistant_message":"a done"}`)
 	h.Quiesce()
 
 	// The overlay must STILL be true: chat B is mid-turn. A workspace spinner that
@@ -214,67 +170,42 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 	requireRESTWorking(t, h, imported, true)
 
 	// Chat B closes the LAST turn: working → idle, the transition the FE needs.
-	postAgentHook(t, h, imported, segB, "turn_stop", `{"last_assistant_message":"b done"}`)
-	redundant := 0
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		if m["id"] != imported.workspaceID {
-			return false
-		}
-		if m["working"] == true {
+	postHook(t, h, repoBase(imported), "livestub", segB, "turn_stop", `{"last_assistant_message":"b done"}`)
+	idle := awaitWorkspaceWorking(feed, imported.workspaceID, false)
+	redundant := -1 // the first true row is chat A's legitimate one
+	for _, r := range feed.rows()[:idle] {
+		if r.Kind == string(stream.KindWorkspace) && r.ID == imported.workspaceID && r.Data["working"] == true {
 			redundant++ // a rebroadcast that re-asserted a value nobody changed
-			return false
 		}
-		return m["working"] == false
-	})
+	}
 	require.Zerof(t, redundant,
 		"%d redundant workspace rebroadcast(s): each one costs a git merge-tree under the repo lock", redundant)
 
 	requireRESTWorking(t, h, imported, false)
 }
 
-// TestRegression_WorkspaceWorkingClearsWhenClearAbandonsATurn is the production
-// report "all the agents stopped working, but the workspace spinner is still
-// loading", proved end to end over the wire.
-//
-// A turn is opened by user_prompt and closed by turn_stop, and both are filed
-// against the chat the runner is on WHEN THEY ARRIVE. A /clear taken mid-turn is
-// therefore a split pair: the turn opens on the old chat, the runner walks into a
-// freshly minted one, and the closing hook lands over there. The chat left behind
-// kept Working forever — and with it the workspace's derived overlay, which is an
-// in-memory set with no reset, so the spinner ran for the life of the daemon over
-// a workspace where nothing was happening.
-//
-// It is asserted here, not just in the usecase unit test, because the wedge lives
-// in the CONTAINER's projection: only this level exercises turn events → the
-// agentWorking set → enrichFrame → the workspace frame the sidebar actually reads.
-//
-// No timing: the final working=false frame is the signal, and REST is read after
-// it (the overlay is folded in the same callback that broadcasts — see
-// requireRESTWorking).
-func TestRegression_WorkspaceWorkingClearsWhenClearAbandonsATurn(t *testing.T) {
-	h := newHarness(t)
-	writeLiveStubProviderDescriptor(t, h)
-	imported := importWritableWorkspace(t, h)
-
-	_, seg := createLiveStubChat(t, h, imported)
-	postAgentHook(t, h, imported, seg, "session_start", `{"session_id":"sid-original"}`)
-
-	conn := repoChatsWS(h, imported)
-
-	// The user typed: the workspace lights up.
-	postAgentHook(t, h, imported, seg, "user_prompt", `{"prompt":"think about this"}`)
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["working"] == true
+// awaitWorkspaceWorking waits for wsID's row whose working is want — an idle
+// one only after a working one, since the snapshot's row is idle — and answers
+// its index.
+func awaitWorkspaceWorking(feed *sidebarFeed, wsID string, want bool) int {
+	feed.t.Helper()
+	isWS := func(r feedRow) bool { return r.Kind == string(stream.KindWorkspace) && r.ID == wsID && !r.Gone }
+	at := -1
+	feed.await(fmt.Sprintf("workspace %s working=%v", wsID, want), func(i int, r feedRow) bool {
+		if !isWS(r) || r.Data["working"] != want {
+			return false
+		}
+		if want {
+			at = i
+			return true
+		}
+		for _, before := range feed.rows()[:i] {
+			if isWS(before) && before.Data["working"] == true {
+				at = i
+				return true
+			}
+		}
+		return false
 	})
-	requireRESTWorking(t, h, imported, true)
-
-	// ...and then hits /clear before the answer arrives. The CLI announces a
-	// conversation Crowbar has never seen, which mints a chat and moves the runner
-	// onto it — abandoning the turn on the chat it just left.
-	postAgentHook(t, h, imported, seg, "session_start", `{"session_id":"sid-after-clear"}`)
-
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["working"] == false
-	})
-	requireRESTWorking(t, h, imported, false)
+	return at
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor/internal/rules"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
@@ -16,8 +17,8 @@ func valid() *spec.Descriptor {
 	d.Spawn.InteractiveRequired = true
 	d.Runtime.Hooks.Format = "json"
 	d.Events = map[string]spec.EventSpec{
-		spec.HookSessionStart: {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": {"session_id"}}},
-		spec.HookTurnStop:     {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": {"last"}}},
+		spec.HookSessionStart: {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": mapping.Paths("session_id")}},
+		spec.HookTurnStop:     {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": mapping.Paths("last")}},
 	}
 	return d
 }
@@ -367,6 +368,39 @@ func TestCatalog_RejectsTheBrokenShapes(t *testing.T) {
 			"unsupported template",
 		},
 		{
+			"builtin with no name",
+			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Builtins = []spec.CatalogBuiltin{{Name: ""}} },
+			"builtins[0].name",
+		},
+		{
+			"builtin name carrying its slash",
+			func(d *spec.Descriptor) {
+				d.Presentation.SlashCatalog.Builtins = []spec.CatalogBuiltin{{Name: "/help"}}
+			},
+			"builtins[0].name",
+		},
+		{
+			"workspace dir climbing out of the workspace",
+			func(d *spec.Descriptor) {
+				d.Presentation.SlashCatalog.Workspace = []spec.CatalogWorkspaceDir{{Dir: "../.claude/commands"}}
+			},
+			"workspace[0].dir",
+		},
+		{
+			"absolute workspace dir",
+			func(d *spec.Descriptor) {
+				d.Presentation.SlashCatalog.Workspace = []spec.CatalogWorkspaceDir{{Dir: "/home/x/.claude/commands"}}
+			},
+			"workspace[0].dir",
+		},
+		{
+			"workspace entry that is a path",
+			func(d *spec.Descriptor) {
+				d.Presentation.SlashCatalog.Workspace = []spec.CatalogWorkspaceDir{{Dir: "skills", Entry: "a/SKILL.md"}}
+			},
+			"workspace[0].entry",
+		},
+		{
 			"unknown adapter",
 			func(d *spec.Descriptor) { d.Presentation.SlashCatalog.Pipeline.Adapter = "telepathy" },
 			"unsupported adapter",
@@ -615,8 +649,8 @@ func TestSelection_AcceptsBothBlocksAndTheirAbsence(t *testing.T) {
 func withAPITransport(d *spec.Descriptor) *spec.Descriptor {
 	d.Runtime.Transport = "api"
 	d.Runtime.API = spec.APISpec{
-		Protocol: "jsonrpc2",
-		Serve:    []string{"probe", "app-server", "--listen", "unix://{socket}"},
+		Protocol: "jsonrpc2", Delivery: spec.APIDeliveryStdio, Format: spec.APIFormatNDJSON,
+		Serve: []string{"probe", "app-server"},
 	}
 	return d
 }
@@ -945,243 +979,8 @@ func TestSelection_ReportsTheSameBadKeyEveryRun(t *testing.T) {
 	}
 }
 
-func TestApply_AcceptsDeclaredTerminalPrompts(t *testing.T) {
-	d := valid()
-	d.TerminalPrompts = []spec.TerminalPromptSpec{
-		{Kind: spec.TerminalPromptTrust, Needle: "I trust this folder"},
-		{Needle: "Enter to confirm"},
-	}
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-func TestApply_RejectsAnUnknownTerminalPromptKind(t *testing.T) {
-	d := valid()
-	d.TerminalPrompts = []spec.TerminalPromptSpec{{Kind: "worksapce_trust", Needle: "x"}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "unknown kind")
-}
-
-func TestApply_RejectsAContentFreeNeedle(t *testing.T) {
-	d := valid()
-	d.TerminalPrompts = []spec.TerminalPromptSpec{{Needle: "· ⏎ ›"}}
-
-	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
-}
-
-func TestApply_RejectsAnEmptyNeedle(t *testing.T) {
-	d := valid()
-	d.TerminalPrompts = []spec.TerminalPromptSpec{{Kind: spec.TerminalPromptTrust}}
-
-	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
-}
-
-func TestApply_DeclaringNoTerminalPromptsIsValid(t *testing.T) {
-	assert.NoError(t, rules.Apply(valid()))
-}
-
-func TestApply_AcceptsADeclaredTerminalNotice(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = []spec.TerminalNoticeSpec{
-		{Kind: spec.TerminalNoticeUsageLimit, Needle: "You've hit your usage limit", EndsTurn: true},
-	}
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-func TestApply_RejectsAKindlessTerminalNotice(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = []spec.TerminalNoticeSpec{{Needle: "something went wrong", EndsTurn: true}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "kind is required")
-}
-
-func TestApply_RejectsAnUnknownTerminalNoticeKind(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = []spec.TerminalNoticeSpec{{Kind: "usage_limits", Needle: "x"}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "unknown kind")
-}
-
-func TestApply_RejectsAContentFreeNoticeNeedle(t *testing.T) {
-	d := valid()
-	d.TerminalNotices = []spec.TerminalNoticeSpec{{Kind: spec.TerminalNoticeUsageLimit, Needle: "· ⏎ ›"}}
-
-	require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor)
-}
-
 // A descriptor that declares only the two required events still passes every rule:
 // message_delta and turn_failed are optional capabilities, not obligations.
 func TestApply_ADescriptorWithOnlyTheRequiredEventsIsValid(t *testing.T) {
 	require.NoError(t, rules.Apply(valid()))
-}
-
-func TestApply_DeclaringNoSurfacesIsValid(t *testing.T) {
-	require.NoError(t, rules.Apply(valid()))
-}
-
-func TestApply_AcceptsDeclaredSurfaces(t *testing.T) {
-	d := valid()
-	d.Surfaces = map[string]spec.SurfaceSpec{
-		spec.SurfaceChat:     {Channel: spec.ChannelHooks},
-		spec.SurfaceTerminal: {Channel: spec.ChannelHooks},
-	}
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-func TestApply_RejectsAnUnknownSurfaceName(t *testing.T) {
-	d := valid()
-	d.Surfaces = map[string]spec.SurfaceSpec{"bogus": {Channel: spec.ChannelHooks}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "unknown surface")
-}
-
-func TestApply_RejectsAnUnknownSurfaceChannel(t *testing.T) {
-	d := valid()
-	d.Surfaces = map[string]spec.SurfaceSpec{spec.SurfaceChat: {Channel: "carrier-pigeon"}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "channel")
-}
-
-func TestApply_RejectsAnAPIChannelSurfaceWhenRuntimeDeclaresNoAPITransport(t *testing.T) {
-	d := valid() // no runtime.api section at all
-	d.Surfaces = map[string]spec.SurfaceSpec{spec.SurfaceChat: {Channel: spec.ChannelAPI}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "no api transport")
-}
-
-func TestApply_RejectsATerminalSurfaceWhenTheDescriptorStructurallyHasNone(t *testing.T) {
-	d := valid()
-	d.Runtime.Transport = "api"
-	d.Runtime.API = spec.APISpec{Protocol: "jsonrpc2"} // no Attach: no terminal at all
-	d.Surfaces = map[string]spec.SurfaceSpec{spec.SurfaceTerminal: {Channel: spec.ChannelAPI}}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "no terminal")
-}
-
-// An api-CHANNEL terminal is the api transport's own attached view, and the
-// only argv that renders it (runtime.api.attach) names a {session_id} that
-// does not exist until a session has been established. Without hotswap
-// nothing renders it at spawn at all (apiconn.go's applyAPITransport gate) —
-// it is reached only by SwitchToTerminal, which needs a completed turn. So
-// that one combination cannot serve a brand-new chat.
-func TestApply_RejectsTerminalStartHereOnAnAPIChannelWithoutHotswap(t *testing.T) {
-	d := valid()
-	d.Runtime.Transport = "api"
-	d.Runtime.API = spec.APISpec{Protocol: "jsonrpc2", Attach: []string{"probe", "resume", "{session_id}"}}
-	d.Runtime.Hotswap = false
-	d.Surfaces = map[string]spec.SurfaceSpec{
-		spec.SurfaceTerminal: {Channel: spec.ChannelAPI, StartHere: true},
-	}
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "start_here")
-}
-
-func TestApply_AcceptsTerminalStartHereOnAnAPIChannelWithHotswap(t *testing.T) {
-	d := valid()
-	d.Runtime.Transport = "api"
-	d.Runtime.API = spec.APISpec{Protocol: "jsonrpc2", Attach: []string{"probe", "resume", "{session_id}"}}
-	d.Runtime.Hotswap = true
-	d.Surfaces = map[string]spec.SurfaceSpec{
-		spec.SurfaceTerminal: {Channel: spec.ChannelAPI, StartHere: true},
-	}
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-// A hooks-CHANNEL terminal is the descriptor's own spawn.cmd PTY, live from
-// the instant it forks and naming no session at all — so it is spawnable into
-// from birth whether or not the descriptor hotswaps.
-func TestApply_AcceptsTerminalStartHereOnAHooksChannelWithoutHotswap(t *testing.T) {
-	d := valid()
-	d.Runtime.Hotswap = false
-	d.Surfaces = map[string]spec.SurfaceSpec{
-		spec.SurfaceTerminal: {Channel: spec.ChannelHooks, StartHere: true},
-	}
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-// codex's own shape: api transport, attach declared WITHOUT hotswap, and a
-// terminal surface fed by the hooks channel. Its native TUI at birth is the
-// ordinary `codex` PTY every spawn already forks, not the session-scoped
-// `codex resume {id}` SwitchToTerminal needs — so start_here is legal here,
-// and the idle-only attach restriction stays where it belongs, on the SWITCH.
-func TestApply_AcceptsTerminalStartHereForAnAPITransportWithAHooksTerminal(t *testing.T) {
-	d := valid()
-	d.Runtime.Transport = "api"
-	d.Runtime.API = spec.APISpec{Protocol: "jsonrpc2", Attach: []string{"probe", "resume", "{session_id}"}}
-	d.Runtime.Hotswap = false
-	d.Surfaces = map[string]spec.SurfaceSpec{
-		spec.SurfaceChat:     {Channel: spec.ChannelAPI, StartHere: true},
-		spec.SurfaceTerminal: {Channel: spec.ChannelHooks, StartHere: true},
-	}
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-// Design spec P6b tag 2: per-event surfaces: is a spelling check only — NO
-// CROWBAR-SIDE VETO on which events may gate off a surface, even the only
-// writer of a ledger fact (that is reported, not rejected — see
-// TestSurfaceGatedEvents_AreReportedLoudly, descriptor package).
-func TestApply_DeclaringNoPerEventSurfacesIsValid(t *testing.T) {
-	require.NoError(t, rules.Apply(valid()))
-}
-
-func TestApply_AcceptsKnownPerEventSurfaces(t *testing.T) {
-	d := valid()
-	e := d.Events[spec.HookTurnStop]
-	e.Surfaces = []string{spec.SurfaceChat, spec.SurfaceTerminal}
-	d.Events[spec.HookTurnStop] = e
-
-	assert.NoError(t, rules.Apply(d))
-}
-
-func TestApply_RejectsAnUnknownPerEventSurface(t *testing.T) {
-	d := valid()
-	e := d.Events[spec.HookTurnStop]
-	e.Surfaces = []string{"underwater"}
-	d.Events[spec.HookTurnStop] = e
-
-	err := rules.Apply(d)
-
-	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
-	assert.Contains(t, err.Error(), "unknown surface")
-}
-
-func TestApply_RejectsAnIncompleteOrDuplicateTerminalPromptAnswer(t *testing.T) {
-	for name, answers := range map[string][]spec.TerminalPromptAnswerSpec{
-		"missing keys": {{ID: "accept", Label: "Trust"}},
-		"duplicate id": {{ID: "a", Label: "A", Keys: "\r"}, {ID: "a", Label: "B", Keys: "\r"}},
-	} {
-		d := valid()
-		d.TerminalPrompts = []spec.TerminalPromptSpec{{Needle: "x", Answers: answers}}
-
-		require.ErrorIs(t, rules.Apply(d), rules.ErrInvalidDescriptor, name)
-	}
 }

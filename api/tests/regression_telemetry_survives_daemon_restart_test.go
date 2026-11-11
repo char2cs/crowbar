@@ -9,16 +9,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // telemetryStubProviderDescriptorYAML declares a v2-style top-level
 // `telemetry.callback` block (the shape claude.yaml itself uses) so a
-// `POST .../chats/hooks` with event "telemetry" actually maps to a usage
+// a "telemetry" hook posted to the hook route actually maps to a usage
 // report instead of ErrUnsupported.
 const telemetryStubProviderDescriptorYAML = `id: telemetrystub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -68,7 +67,7 @@ func getTelemetry(t *testing.T, h *harness, imported importedRepo, chatID string
 //
 // Root cause: telemetry.Store (internal/app/usecases/chat/internal/shared/
 // telemetry) held every chat's last usage report in a plain, process-local Go
-// map with no durable backing at all — telemetry.New() built an empty one on
+// map with no durable backing at all — the store was built empty on
 // every daemon boot, restart or not, so a chat that had reported before the
 // restart came back with NO report until its provider happened to report
 // again: GET .../chats/:id/telemetry went from 200 to 204 across a restart
@@ -88,7 +87,7 @@ func TestRegression_TelemetrySurvivesAGracefulDaemonRestart(t *testing.T) {
 	imported := importWritableWorkspace(t, h1)
 	chatID, runnerID := createStubChat(t, h1, imported, "telemetrystub")
 
-	postProviderHook(t, h1, imported, "telemetrystub", runnerID, "telemetry",
+	postHook(t, h1, repoBase(imported), "telemetrystub", runnerID, "telemetry",
 		`{"context":{"usedPercent":42.5,"usedTokens":1000,"capacityTokens":10000}}`)
 
 	before := getTelemetry(t, h1, imported, chatID)
@@ -129,17 +128,17 @@ func TestRegression_TelemetryForgetPurgesTheDurableRowAcrossARestart(t *testing.
 	writeProviderDescriptor(t, h1, "telemetrystub", telemetryStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h1)
 
-	frames := dialAgentWS(t, h1, repoBase(imported)+"/chats/ws")
+	feed := recordSidebar(t, h1)
 	chatID, runnerID := createStubChat(t, h1, imported, "telemetrystub")
-	waitForChatFrame(t, frames, chatID, "created")
+	feed.awaitListed(chatID)
 
-	postProviderHook(t, h1, imported, "telemetrystub", runnerID, "telemetry",
+	postHook(t, h1, repoBase(imported), "telemetrystub", runnerID, "telemetry",
 		`{"context":{"usedPercent":10,"usedTokens":100,"capacityTokens":10000}}`)
 	before := getTelemetry(t, h1, imported, chatID)
 	require.NotNil(t, before.Context, "precondition: the chat has a usage report")
 
-	h1.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusAccepted).Body.Close()
-	waitForChatFrame(t, frames, chatID, "deleted")
+	require.NoError(t, h1.raw(http.MethodDelete, repoBase(imported)+"/chats/"+chatID, nil, http.StatusOK).Body.Close())
+	feed.awaitGone(stream.KindChatEntity, chatID)
 	h1.Quiesce()
 
 	h1.shutdown()

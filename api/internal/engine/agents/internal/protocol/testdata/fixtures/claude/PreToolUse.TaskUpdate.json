@@ -1,0 +1,17 @@
+{
+  "session_id": "6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "transcript_path": "/h/.claude/projects/-ws/6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d.jsonl",
+  "cwd": "/ws",
+  "prompt_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "TaskUpdate",
+  "tool_input": {
+    "taskId": "1",
+    "status": "in_progress"
+  },
+  "tool_use_id": "toolu_01CWejvvLSqYjdbVzbvsctRM"
+}

@@ -28,14 +28,12 @@ function makeTab(id: string): EditorContent {
   return {
     id,
     type: 'editor',
+    authority: 'workspace',
     path: `src/${id}.ts`,
     name: `${id}.ts`,
     workspaceId: 'w1',
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
-    tokens: [],
   }
 }
 
@@ -68,7 +66,6 @@ function setup() {
       onTabSelect: () => {},
       onTabClick: () => {},
       onReorderBuffers: (oldIndex, newIndex) => reorderCalls.push([oldIndex, newIndex]),
-      onSplitPane: () => undefined,
     }),
   )
 
@@ -138,7 +135,6 @@ describe('useTabDrag — reordering within a pane’s own tab bar still works', 
         onTabSelect: () => {},
         onTabClick: () => {},
         onReorderBuffers: (oldIndex, newIndex) => reorderCalls.push([oldIndex, newIndex]),
-        onSplitPane: () => undefined,
       }),
     )
 

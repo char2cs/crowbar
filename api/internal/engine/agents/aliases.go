@@ -9,21 +9,13 @@ import (
 
 type (
 	// Runner is one live vendor-CLI process and ChatConversation is a conversation it
-	// hosted. The engine owns both: they describe the PROCESS, not Crowbar's model of
-	// the chat (design spec 3.1).
+	// hosted. Both describe the PROCESS, not Crowbar's model of the chat.
 	Runner           = models.Runner
 	ChatConversation = models.ChatConversation
 
-	// ChatPlacement is one provider a runner has been pointed at a chat on, and
-	// when it last arrived — the placement twin of ChatConversation, and the only
-	// history a provider that announces no conversation leaves behind.
-	ChatPlacement = models.ChatPlacement
-
-	// Channel is which wire a delivery actually arrived on — the api
-	// connection or a hook relay POST — decided by the caller at receive
-	// time and threaded down to ParseHook so it can select the SAME
-	// canonical event's own channel-scoped field map, never infer it from
-	// the payload's shape. See spec.Channel's own doc comment.
+	// Channel is the wire a delivery arrived on (api connection or hook relay POST).
+	// The caller decides it at receive time so ParseHook picks the channel-scoped
+	// field map instead of guessing from the payload's shape.
 	Channel = spec.Channel
 
 	TemplateCtx    = models.TemplateCtx
@@ -37,6 +29,8 @@ type (
 	ToolLocation   = models.ToolLocation
 	PatchHunk      = models.PatchHunk
 	SubagentEvent  = models.SubagentEvent
+	SubagentUsage  = models.SubagentUsage
+	PlanStepEvent  = models.PlanStepEvent
 	InterruptEvent = models.InterruptEvent
 	ChoicePrompt   = models.ChoicePrompt
 	PromptQuestion = models.PromptQuestion
@@ -46,11 +40,10 @@ type (
 
 	AnswerCapability = models.AnswerCapability
 	AnswerDecision   = models.AnswerDecision
-	Decision         = models.Decision
 	Selection        = models.Selection
-	MoveKind         = models.MoveKind
 
 	MessageDelta     = models.MessageDelta
+	MessageComplete  = models.MessageComplete
 	PlanStep         = models.PlanStep
 	TurnFailure      = models.TurnFailure
 	SlashCatalog     = models.SlashCatalog
@@ -70,9 +63,11 @@ type (
 	// layer of indirection rather than re-exporting apidriver's types directly).
 	APIEvent = protocol.APIEvent
 	APIConn  = protocol.APIConn
-	// APISessionOrigin is how the runner layer learns which sessions a
-	// connection minted or re-entered ITSELF — see protocol's own alias.
+	// APISessionOrigin is how the runner layer learns every session a
+	// connection opens or enters — see protocol's own alias.
 	APISessionOrigin = protocol.APISessionOrigin
+	// APIStdio is serve's stdin and stdout, as StartServe opens them.
+	APIStdio = protocol.APIStdio
 )
 
 const (
@@ -80,18 +75,10 @@ const (
 	ChannelHooks = spec.ChannelHooks
 )
 
-// Surface is which VIEW an event is worth ingesting on — design spec P6b
-// tag 2.
+// Surface is which VIEW an event is worth ingesting on.
 const (
 	SurfaceChat     = spec.SurfaceChat
 	SurfaceTerminal = spec.SurfaceTerminal
-)
-
-const (
-	MoveNoop    = models.MoveNoop
-	MoveBind    = models.MoveBind
-	MoveToNew   = models.MoveToNew
-	MoveToKnown = models.MoveToKnown
 )
 
 const (
@@ -103,6 +90,7 @@ const (
 	HookSubagentPre     = spec.HookSubagentPre
 	HookSubagentPost    = spec.HookSubagentPost
 	HookNotification    = spec.HookNotification
+	HookWarning         = spec.HookWarning
 	HookPermission      = spec.HookPermission
 	HookCompactPre      = spec.HookCompactPre
 	HookCompactPost     = spec.HookCompactPost
@@ -116,19 +104,10 @@ const (
 	HookIdle            = spec.HookIdle
 	HookToolOutputDelta = spec.HookToolOutputDelta
 	HookPlanUpdate      = spec.HookPlanUpdate
+	HookPlanStep        = spec.HookPlanStep
+	HookSubagentResult  = spec.HookSubagentResult
 	HookDiffUpdate      = spec.HookDiffUpdate
-)
-
-const (
-	InterruptPermission       = models.InterruptPermission
-	InterruptNotification     = models.InterruptNotification
-	InterruptElicitation      = models.InterruptElicitation
-	InterruptCompaction       = models.InterruptCompaction
-	InterruptStopped          = models.InterruptStopped
-	InterruptProviderSwitched = models.InterruptProviderSwitched
-	InterruptModelChanged     = models.InterruptModelChanged
-	InterruptEffortChanged    = models.InterruptEffortChanged
-	InterruptInferred         = models.InterruptInferred
+	HookMessageComplete = spec.HookMessageComplete
 )
 
 const (

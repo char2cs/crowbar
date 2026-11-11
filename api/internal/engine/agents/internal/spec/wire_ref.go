@@ -12,22 +12,9 @@ import (
 // is decoding, so it names the mechanism rather than guessing a tag.
 const wireRefField = "in/ask/out"
 
-// WireRef is the provider's own name for one canonical event — or, where a provider
-// splits a single conversational fact across several wire methods, every name that
-// fact answers to, in declared order. A descriptor spells more than one name as a
-// YAML list (`ask: [a, b]`); Names/Name/Has/Empty read either shape identically.
-//
-// Multiple names exist because the canonical vocabulary is CLOSED: a provider cannot
-// answer a namespaced wire method by inventing a Crowbar event per namespace. Codex
-// asks for tool approval under item/commandExecution/requestApproval for a command
-// and item/fileChange/requestApproval for a patch — one canonical `permission` fact,
-// two wire names. A descriptor naming only one of them leaves the other matching
-// nothing at all: no prompt is raised, no reply is ever sent, and the CLI blocks on
-// an answer that cannot arrive until its approval budget expires (measured live
-// against codex-cli 0.149.1 — a turn sat waitingOnApproval indefinitely).
-//
-// Every event that has exactly one wire name still declares it as the plain string
-// it always was; WireRef carries it as a one-element list.
+// WireRef is the provider's wire name(s) for one canonical event: a plain string, or a
+// YAML list when one fact spans several wire methods (the vocabulary is closed, so
+// there is no event per namespace). An unlisted name would leave the CLI blocked.
 type WireRef []string
 
 // UnmarshalYAML accepts a plain scalar (one wire name) or a YAML list (several wire

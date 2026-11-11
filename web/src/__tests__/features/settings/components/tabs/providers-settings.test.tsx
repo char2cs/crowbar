@@ -6,11 +6,8 @@
  *
  * The list comes from the GLOBAL provider store, not the active workspace: the
  * Settings dialog is global, and reading a per-workspace copy made this tab claim
- * the daemon had no providers whenever no workspace was in view. The workspace
- * store is still REAL here, because a write must also land in it (the chat
- * surfaces read it). Only the network seam is mocked. A full @dnd-kit pointer
- * drag is NOT driven here (brittle in jsdom) — the reorder→payload mapping is
- * unit-tested in provider-preferences.test.ts.
+ * the daemon had no providers whenever no workspace was in view. Only the network
+ * seam is mocked; the reorder→payload mapping is provider-preferences.test.ts's.
  */
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -36,8 +33,7 @@ const {
   updateDefaultPermissionLevelFn: vi.fn(),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
+vi.mock('@/features/agent/api/agent-providers-api', () => ({
   updateProviderPreferences: (...a: unknown[]) => updateProviderPreferencesFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
   listGlobalProviders: (...a: unknown[]) => listGlobalProvidersFn(...a),
@@ -77,7 +73,7 @@ import {
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
@@ -113,17 +109,18 @@ function store() {
 
 /**
  * The ordinary situation: a workspace is in view and the providers are already
- * known. Seeds BOTH copies — the global one the tab reads and the workspace one
- * the chat surfaces read — and points the mount refresh at the same answer the
- * server would give, so re-fetching is a no-op rather than a surprise.
+ * known; the mount refresh gets the same answer the server would give.
  */
 function seedProviders(providers: AgentProvider[]) {
   listGlobalProvidersFn.mockResolvedValue(providers)
+  inWorkspace()
+  act(() => useAgentProvidersStore.setState({ providers, status: 'ready' }))
+}
+
+function inWorkspace() {
   act(() => {
-    store().getState().setAgentProviders(providers)
     setActiveWorkspaceStoreForTests(store())
     setActiveWorkspaceId('w1')
-    useAgentProvidersStore.setState({ providers, status: 'ready' })
   })
 }
 
@@ -151,14 +148,6 @@ function deferred<T>() {
 /** What the tab itself is showing, read off the store it renders from. */
 const enabledById = () =>
   Object.fromEntries(useAgentProvidersStore.getState().providers.map((p) => [p.id, p.enabled]))
-
-/** The workspace copy the chat surfaces read — a write must reach it too. */
-const workspaceEnabledById = () =>
-  Object.fromEntries(
-    store()
-      .getState()
-      .agentChats.providers.map((p) => [p.id, p.enabled]),
-  )
 
 beforeEach(() => {
   updateProviderPreferencesFn.mockReset()
@@ -222,11 +211,8 @@ describe('ProvidersSettings', () => {
     seedProviders([provider('codex', 'Codex', true, true)])
     render(<ProvidersSettings />)
 
-    // A Section's own header is hidden when it is the first one in a tab
-    // (settings-section.tsx), so this tab renders its heading + intro in the
-    // BODY. Without them the group is a bare list of names that never says what
-    // an agent actually is. The name is Agents (spec §11) — user-facing only;
-    // the tab id, the store and the wire all still say provider.
+    // The first Section hides its own header, so the tab carries heading and intro in
+    // its body; the name is user-facing only (the wire still says provider).
     expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument()
     expect(screen.getByText(/coding CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
   })
@@ -242,10 +228,7 @@ describe('ProvidersSettings', () => {
   })
 
   // ── The column header ───────────────────────────────────────────────
-  // The row ends in a dot and two switches. Two unlabelled switches side by side
-  // is a guessing game, and the row could only ever afford one inline word
-  // ("Tools") — repeated on every row, with the other switch still anonymous.
-  // The columns are titled once, above the list, like a table header.
+  // Two unlabelled switches per row are a guessing game: the columns are titled once.
   describe('the column header', () => {
     /** The three trailing control cells of a row, in render order. */
     const rowColumns = (id: string) => [
@@ -271,9 +254,7 @@ describe('ProvidersSettings', () => {
       expect(within(header).getByText('Enabled')).toBeInTheDocument()
     })
 
-    // THE POINT OF THE HEADER: the word "Tools" used to be printed on every row
-    // because that was the only legend the row could carry. With a titled column
-    // it is noise — and two rows meant two copies of it.
+    // The titled column is the legend, so a per-row "Tools" caption would only repeat it.
     it('retires the per-row Tools caption now the column is titled', () => {
       seedProviders([
         provider('codex', 'Codex', true, true),
@@ -288,13 +269,8 @@ describe('ProvidersSettings', () => {
       )
     })
 
-    // ALIGNMENT, STRUCTURALLY. `Switch` is `w-[calc(var(--thumb-size)*2-2px)]`
-    // and `--thumb-size` drops from `--spacing(5)` to `--spacing(4)` at `sm:`, so
-    // the switch is ~38px on a narrow settings pane and ~30px on a wide one. A
-    // header label with its own hardcoded width would sit off-centre at one of
-    // those. Header and row must therefore render the SAME column box — asserted
-    // here against each other, not against a copy of the expected value, so
-    // hardcoding a width into either side fails this test.
+    // `Switch` changes width at `sm:`, so header and row must render the SAME column
+    // box: asserted against each other, so a hardcoded width on either side fails.
     it('lays the header labels out in the same column box as the row controls', () => {
       seedProviders([provider('codex', 'Codex', true, true)])
       render(<ProvidersSettings />)
@@ -329,9 +305,7 @@ describe('ProvidersSettings', () => {
       )
     })
 
-    // A header titles columns that exist. None of these three states has a
-    // single row under it, and a legend floating over a spinner or an error is
-    // just furniture.
+    // A header titles columns that exist: none over the empty, loading or failed list.
     it('does not appear over the empty state', () => {
       seedProviders([])
       render(<ProvidersSettings />)
@@ -339,40 +313,10 @@ describe('ProvidersSettings', () => {
       expect(screen.getByText('No agents available.')).toBeInTheDocument()
       expect(screen.queryByTestId('provider-columns-header')).toBeNull()
     })
-
-    it('does not appear while the first fetch is in flight', () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
-      listGlobalProvidersFn.mockReturnValue(deferred<AgentProvider[]>().promise)
-
-      render(<ProvidersSettings />)
-
-      expect(screen.getByTestId('providers-loading')).toBeInTheDocument()
-      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
-    })
-
-    it('does not appear when the list could not be loaded', async () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
-      listGlobalProvidersFn.mockRejectedValue(new Error('daemon is down'))
-
-      render(<ProvidersSettings />)
-
-      await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
-      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
-    })
   })
 
   // ── The tab is GLOBAL; the workspace store is not ───────────────────
-  // Reported live: "No providers available." with both CLIs installed, both rows
-  // enabled in the daemon's own sqlite, and the workspace-scoped GET returning
-  // them. The list was being read out of the ACTIVE WORKSPACE store, so any
-  // moment without one — Project Home, the projects screen, mid-switch — made
-  // this tab assert something false about the machine.
+  // Read from the active workspace, any moment without one claimed no providers.
   describe('with no workspace in view', () => {
     it('still renders the providers it knows about', () => {
       seedProviders([provider('codex', 'Codex', true, true)])
@@ -406,14 +350,10 @@ describe('ProvidersSettings', () => {
   })
 
   describe('loading the list', () => {
-    // Opening the tab GETs /v0/settings/chat/providers (agent-api.test.ts pins the route)
-    // — not the in-view workspace's chat-providers route, which is the wrong daemon
-    // whenever that workspace is remote.
-    it('reads the local daemon on open and mirrors it into the local workspace stores', async () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
+    // Opening the tab GETs /v0/settings/chat/providers — not the in-view workspace's
+    // chat-providers route, which is the wrong daemon whenever that workspace is remote.
+    it('reads the local daemon on open through the global route', async () => {
+      inWorkspace()
       listGlobalProvidersFn.mockResolvedValue([provider('codex', 'Codex', true, true)])
 
       render(<ProvidersSettings />)
@@ -421,16 +361,10 @@ describe('ProvidersSettings', () => {
       await waitFor(() => expect(screen.getByText('Codex')).toBeInTheDocument())
       expect(listGlobalProvidersFn).toHaveBeenCalledWith()
       expect(listProvidersFn).not.toHaveBeenCalled()
-      // The chat surfaces read the workspace copy — opening Settings must repair
-      // it too, not just the dialog in front of the user.
-      await waitFor(() => expect(workspaceEnabledById()).toEqual({ codex: true }))
     })
 
     it('shows a loading state while the first fetch is in flight', () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
+      inWorkspace()
       const inflight = deferred<AgentProvider[]>()
       listGlobalProvidersFn.mockReturnValue(inflight.promise)
 
@@ -438,19 +372,31 @@ describe('ProvidersSettings', () => {
 
       expect(screen.getByTestId('providers-loading')).toBeInTheDocument()
       expect(screen.queryByText('No agents available.')).toBeNull()
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
     })
 
     it('shows the unavailable state — not the empty one — when the fetch fails', async () => {
-      act(() => {
-        setActiveWorkspaceStoreForTests(store())
-        setActiveWorkspaceId('w1')
-      })
+      inWorkspace()
       listGlobalProvidersFn.mockRejectedValue(new Error('daemon is down'))
 
       render(<ProvidersSettings />)
 
       await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
       expect(screen.queryByText('No agents available.')).toBeNull()
+      expect(screen.queryByTestId('provider-columns-header')).toBeNull()
+    })
+
+    it('loads the list again from the unavailable state when asked to retry', async () => {
+      inWorkspace()
+      listGlobalProvidersFn.mockRejectedValueOnce(new Error('daemon is down'))
+      listGlobalProvidersFn.mockResolvedValueOnce([provider('codex', 'Codex', true, true)])
+      render(<ProvidersSettings />)
+      await waitFor(() => expect(screen.getByTestId('providers-unavailable')).toBeInTheDocument())
+
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+      await waitFor(() => expect(screen.getByText('Codex')).toBeInTheDocument())
+      expect(listGlobalProvidersFn).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -474,14 +420,13 @@ describe('ProvidersSettings', () => {
 
     // Store reconciled from the mocked response, not from local optimism.
     await waitFor(() => {
-      expect(store().getState().agentChats.providers[0].enabled).toBe(false)
+      expect(useAgentProvidersStore.getState().providers[0].enabled).toBe(false)
     })
   })
 
   // ── Crowbar's tools, per provider ───────────────────────────────────
-  // A SECOND, INDEPENDENT axis: a provider with its tools off still spawns and
-  // still holds a normal chat — the agent just cannot reach into Crowbar. The row
-  // never says "MCP"; the transport is not what the user is deciding.
+  // Independent of enabled: with tools off a provider still chats, it just cannot
+  // reach Crowbar.
   describe('the tools switch', () => {
     it('renders one per row, reflecting mcpEnabled', () => {
       seedProviders([
@@ -528,7 +473,7 @@ describe('ProvidersSettings', () => {
 
       // Round trip: the reconciled store, and the switch, both say off.
       await waitFor(() => {
-        expect(store().getState().agentChats.providers[0].mcpEnabled).toBe(false)
+        expect(useAgentProvidersStore.getState().providers[0].mcpEnabled).toBe(false)
       })
       expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
         'aria-checked',
@@ -538,17 +483,8 @@ describe('ProvidersSettings', () => {
       expect(screen.getByTestId('provider-toggle-codex')).toHaveAttribute('aria-checked', 'true')
     })
 
-    // THE LANDMINE. The PUT replaces whole rows, so any later write that forgot
-    // this flag would write its zero value back over the user's choice. Every
-    // write carries both flags — here, an enable toggle taken after a tools
-    // toggle still says mcpDisabled.
-    //
-    // BOTH CLICKS ARE ON THE SAME PROVIDER, deliberately. The pair that has to
-    // survive is "turn this provider's tools off, then turn this provider off":
-    // handleToggle carries mcpDisabled through from the row it is flipping, so
-    // aiming the second click at a DIFFERENT provider tested nothing — claude's
-    // mcpDisabled was already false, and dropping the flag from handleToggle's
-    // payload left the assertion passing.
+    // The PUT replaces whole rows, so every write carries both flags. Both clicks hit
+    // the same provider: handleToggle carries mcpDisabled from the row it flips.
     it("survives a later toggle of the same provider's enable switch", async () => {
       seedProviders([
         provider('codex', 'Codex', true, true),
@@ -590,20 +526,14 @@ describe('ProvidersSettings', () => {
   })
 
   // ── A READ THAT OVERTAKES A WRITE ───────────────────────────────────
-  // The rows are interactive from the workspace seed, so the user can toggle
-  // while the mount GET is still in flight. That GET is a snapshot of the server
-  // BEFORE the PUT, and publishing it re-installs the pre-write list: the switch
-  // visibly flips back, and — because every write PUTs the complete set built
-  // from whatever the store now says — the next drag or toggle writes the stale
-  // flag back to the daemon. Sequencing writes against writes cannot see this;
-  // the fence has to cover reads.
+  // The mount GET is a snapshot from before a toggle's PUT; publishing it flips the
+  // switch back and the next full-set write sends the stale flag. Reads are fenced too.
   describe('a stale read landing after a write', () => {
-    /** Both copies seeded, with the mount GET deliberately left in flight. */
+    /** Seeded, with the mount GET deliberately left in flight. */
     function seedWithGetInFlight(providers: AgentProvider[]) {
       const inflight = deferred<AgentProvider[]>()
       listGlobalProvidersFn.mockReturnValue(inflight.promise)
       act(() => {
-        store().getState().setAgentProviders(providers)
         setActiveWorkspaceStoreForTests(store())
         setActiveWorkspaceId('w1')
         useAgentProvidersStore.setState({ providers, status: 'ready' })
@@ -641,9 +571,6 @@ describe('ProvidersSettings', () => {
         'false',
       )
       expect(useAgentProvidersStore.getState().providers[0].mcpEnabled).toBe(false)
-      // The workspace copy — what the chat surfaces read — must not be reinstated
-      // either, or the next write is built from a list that still says tools-on.
-      expect(store().getState().agentChats.providers[0].mcpEnabled).toBe(false)
     })
 
     it('still settles the status, so the tab never strands a spinner', async () => {
@@ -685,10 +612,7 @@ describe('ProvidersSettings', () => {
   })
 
   // ── Overlapping writes ─────────────────────────────────────────────
-  // Every write PUTs the COMPLETE preference set, so a payload built from a
-  // stale snapshot doesn't just miss an update — it actively UNDOES one. And
-  // because `Switch checked={provider.enabled}` is fully controlled off the
-  // store, the user never even saw their first toggle move.
+  // Every write PUTs the complete set, so one built from a stale snapshot undoes an update.
   describe('overlapping writes', () => {
     it('builds the second payload from the first toggle, not the pre-response snapshot', async () => {
       seedProviders([
@@ -769,23 +693,9 @@ describe('ProvidersSettings', () => {
     })
   })
 
-  // ── Default permission level ────────────────────────────────────────
-  // A backend-synced setting (not the localStorage `updateSetting` path the
-  // rest of this tab's siblings use for chat presentation): the daemon reads
-  // it the moment a chat starts, so this row talks straight to
-  // GET/PUT /v0/settings/chat/permission-level.
-  //
-  // The trigger shows the raw value ('guarded', not 'Guarded') until the
-  // popup has been opened at least once — same base-ui quirk documented in
-  // appearance-settings.test.tsx's Color Theme picker — so assertions on the
-  // closed trigger check the raw PermissionLevel string.
-  //
-  // base-ui's Select popup keeps every item mounted (for measurement) but
-  // marks the whole popup `inert` — `pointer-events: none` — until `open`
-  // has actually propagated, one tick behind the trigger's own click. A
-  // click landing inside that window is a real no-op in the browser too, so
-  // the test waits for the popup to become interactive rather than papering
-  // over it with a raw DOM event that would pass even against a dead menu.
+  // ── Default permission level (GET/PUT /v0/settings/chat/permission-level) ──
+  // The closed trigger shows the raw value until first opened, and base-ui marks
+  // the popup `inert` for a tick, so tests wait for it to become interactive.
   async function selectPermissionLevelOption(
     user: ReturnType<typeof userEvent.setup>,
     value: string,
@@ -859,10 +769,8 @@ describe('ProvidersSettings', () => {
       expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Guarded')
     })
 
-    // THE RACE: a user who changes their mind before the first PUT settles.
-    // The first write's eventual rejection must not roll back a SECOND,
-    // already-successful selection — and must not toast for a write that is
-    // no longer current.
+    // A first write's late rejection must not roll back or toast over a second,
+    // already-successful selection.
     it('keeps the later selection when an earlier, now-stale write rejects after a later one resolves', async () => {
       seedProviders([provider('codex', 'Codex', true, true)])
       getDefaultPermissionLevelFn.mockResolvedValue('guarded')
@@ -901,12 +809,9 @@ describe('ProvidersSettings', () => {
 // active one must neither supply the list nor receive the write: the PUT goes to
 // the local daemon, so a body built from remote rows is a silent wrong-host write.
 describe('ProvidersSettings with a remote workspace in view', () => {
-  const remoteStore = () => getOrCreateWorkspaceStore('w-remote')
   const remoteEnabled = () =>
     Object.fromEntries(
-      remoteStore()
-        .getState()
-        .agentChats.providers.map((p) => [p.id, p.enabled]),
+      (useAgentProvidersStore.getState().remote['host-1'] ?? []).map((p) => [p.id, p.enabled]),
     )
 
   beforeEach(() => {
@@ -914,33 +819,33 @@ describe('ProvidersSettings with a remote workspace in view', () => {
     pairRemoteHost('host-1')
     __resetWorkspaceScopesForTest()
     recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
-    recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'w1' })
     loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
     act(() => {
-      remoteStore()
+      useAgentProvidersStore
         .getState()
-        .setAgentProviders([provider('codex', 'Codex', true, true)])
-      setActiveWorkspaceStoreForTests(remoteStore())
+        .setHostProviders('host-1', [provider('codex', 'Codex', true, true)])
+      setActiveWorkspaceStoreForTests(getOrCreateWorkspaceStore('w-remote'))
       setActiveWorkspaceId('w-remote')
     })
     listGlobalProvidersFn.mockResolvedValue([provider('claude', 'Claude', true, true)])
   })
   afterEach(() => {
     resetHostWorld()
+    useAgentProvidersStore.setState({ remote: {} })
     destroyWorkspaceStore('w-remote')
   })
 
-  it('shows the local daemon’s list, not the remote workspace’s, and leaves that store alone', async () => {
+  it('shows the local daemon’s list, not the remote host’s, and leaves that list alone', async () => {
     render(<ProvidersSettings />)
 
     await waitFor(() => expect(screen.getByText('Claude')).toBeInTheDocument())
     expect(screen.queryByText('Codex')).toBeNull()
     expect(listProvidersFn).not.toHaveBeenCalled()
+    expect(listGlobalProvidersFn).toHaveBeenCalledWith()
     expect(remoteEnabled()).toEqual({ codex: true })
   })
 
-  it('builds the preference write from the local rows and keeps it out of the remote store', async () => {
-    store()
+  it('builds the preference write from the local rows and keeps it off the remote list', async () => {
     updateProviderPreferencesFn.mockResolvedValueOnce([provider('claude', 'Claude', true, false)])
     render(<ProvidersSettings />)
     await waitFor(() => expect(screen.getByText('Claude')).toBeInTheDocument())
@@ -952,7 +857,5 @@ describe('ProvidersSettings with a remote workspace in view', () => {
     ])
     await waitFor(() => expect(enabledById()).toEqual({ claude: false }))
     expect(remoteEnabled()).toEqual({ codex: true })
-    // ...while a LOCAL workspace's copy follows, as it always did.
-    expect(workspaceEnabledById()).toEqual({ claude: false })
   })
 })

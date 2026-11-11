@@ -3,8 +3,10 @@ package session
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
+	"log/slog"
 	"math"
 	"os"
 	"os/exec"
@@ -17,24 +19,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
 )
 
-// newModel is the model-construction seam. It is a package-level var only so a unit test can
-// substitute a model whose Resize/Serialize panics, driving the §8.5 session recover
-// backstops (mutateModelLocked/serializeLocked) through Session.Resize/Attach — the real
-// vtModel recovers Write panics internally, so those session backstops are otherwise
-// unreachable from a test. Production never reassigns it. A session captures it once at
-// construction (Session.newModel), so its own goroutines never read the package var — a
-// test restoring the seam can't race a session that is still rebuilding its model.
+// newModel is a seam so a test can inject a panicking model to reach the session's recover
+// backstops (vtModel recovers its own panics). Production never reassigns it; sessions capture it
+// at construction so a test restoring it cannot race a live session.
 var newModel = model.New
 
 // defaultScrollbackLines is the scrollback depth a create/restore with no explicit
-// value resolves to — mirroring the frontend's terminalScrollback default (§9.1).
+// value resolves to — mirroring the frontend's terminalScrollback default.
 const defaultScrollbackLines = 10000
 
-// responseReplyBufDepth bounds the device-query reply queue that decouples the
-// model's response sink from the blocking ptmx.Write (spec §3.8, C1). A hostile
-// or broken foreground app can emit queries faster than it drains its own stdin;
-// once the queue and the PTY input buffer are both full, further replies are
-// dropped (a lost query answer times out, it never wedges the session lock).
+// responseReplyBufDepth bounds the device-query reply queue between the model's sink and the
+// blocking ptmx.Write: when it and the PTY input fill, replies drop rather than wedge the lock.
 const responseReplyBufDepth = 64
 
 // newBareSession allocates a Session shell with no PTY and no model. New/NewRestored/
@@ -65,12 +60,8 @@ func newBareSession(
 	return s
 }
 
-// spawnParams carries exactly one of the two birth modes (§9.1): create (Blob == nil,
-// size+scrollback from Cols/Rows/ScrollbackLines) or restore (Blob != nil, size+scrollback
-// parsed from the blob's CRWB1 header, the rest ignored).
-//
-// ThemeBg/ThemeFg are orthogonal to that choice and apply to both: they are the host
-// terminal's default colours, seeded via WithTheme.
+// spawnParams carries one birth mode: create (Blob == nil, size from Cols/Rows/ScrollbackLines) or
+// restore (size from the blob's CRWB1 header). ThemeBg/ThemeFg apply to both.
 type spawnParams struct {
 	Cols            int
 	Rows            int
@@ -85,19 +76,9 @@ type spawnParams struct {
 // and any future backend) having to pass a pair of nils.
 type Option func(*spawnParams)
 
-// WithTheme seeds the host terminal's default background/foreground — the colours an
-// OSC 10/11 QUERY answers with — into the session's model AT BIRTH, before the io pump
-// goroutine exists to feed it a single byte.
-//
-// That ordering is the whole point, and it is why this is a constructor option rather than
-// a post-construction call. A vendor CLI that detects light/dark by querying the background
-// (codex 0.146.0, Claude Code's `auto`) asks within milliseconds of exec, and Session.SetTheme
-// cannot beat it: the process is already running by the time any caller holds the *Session.
-// Seeding here closes the window by construction instead of narrowing it — the model is
-// already answering with the truth before it can be asked.
-//
-// A nil channel is a no-op for that channel, matching model.SetDefaultColors: an unknown
-// host theme must leave the emulator's own default in place, never reset it.
+// WithTheme seeds the host's default colours (the OSC 10/11 query answers) at birth, before the pump
+// runs: a CLI queries its background within milliseconds of exec, before any SetTheme call could land.
+// A nil channel leaves the emulator's own default, matching model.SetDefaultColors.
 func WithTheme(
 	bg color.Color,
 	fg color.Color,
@@ -107,11 +88,8 @@ func WithTheme(
 	}
 }
 
-// applyBirthTheme installs the host's default colours on a freshly built model. Called from
-// spawn between newModel and `go s.pump()`, so no PTY byte — and therefore no query
-// — can have reached the model yet. Guarded like every other optional-interface access
-// (ModelHealth, ThemeAware in Session.SetTheme): a backend or test model that implements
-// neither simply keeps its own defaults.
+// applyBirthTheme installs the host colours between newModel and `go s.pump()`, before any query can
+// arrive. A model without ThemeAware keeps its own defaults.
 func applyBirthTheme(
 	m model.TerminalModel,
 	p spawnParams,
@@ -124,10 +102,8 @@ func applyBirthTheme(
 	}
 }
 
-// New spawns a PTY subprocess at cols×rows, builds the screen model at that size and the
-// resolved scrollback depth, and starts the io pump. Every session spawned this way is
-// model-driven (spec 2026-07-03): clients receive model-derived frames, and raw streaming
-// survives only as the degraded fallback.
+// New spawns a PTY at cols×rows, builds the model at that size and scrollback, and starts the pump.
+// Clients get model-derived frames; raw streaming is only the degraded fallback.
 func New(
 	ctx context.Context,
 	id string,
@@ -151,10 +127,8 @@ func New(
 	return s, nil
 }
 
-// NewRestored spawns a PTY subprocess and rebuilds the screen model from a persisted blob:
-// spawn parses the blob's CRWB1 header for the authoritative size+scrollback (§12), sizes
-// the PTY to it BEFORE the first read, and feeds the redraw bytes into the fresh model
-// before the pump starts so the restored screen is reproduced exactly.
+// NewRestored spawns a PTY sized from the blob's CRWB1 header before the first read, and replays the
+// redraw into the fresh model before the pump starts, reproducing the screen exactly.
 func NewRestored(
 	ctx context.Context,
 	id string,
@@ -176,15 +150,9 @@ func NewRestored(
 	return s, nil
 }
 
-// spawn is the single PTY-birth helper shared by the create, restore and command paths. It
-// starts name+args under a PTY, sizes it to the resolved dimensions BEFORE the first read
-// (preserving the model==PTY size invariant, §4.2), builds the model+serializer at that
-// size, replays the restore redraw (if any) into the model, and launches the pump goroutine.
-//
-// The child is bound to the SESSION's lifetime — it ends when Kill takes its process group
-// or it exits on its own — never to ctx's: a PTY outlives the request that created it by
-// design, so ctx contributes its values but context.WithoutCancel drops its cancellation.
-// (With no Done channel, exec also starts no watcher goroutine for it.)
+// spawn is the one PTY-birth helper: it sizes the PTY before the first read (model==PTY invariant),
+// builds the model, replays any restore, and starts the pump. The child lives as long as the
+// session, not ctx: context.WithoutCancel keeps ctx's values but drops its cancellation.
 func (s *Session) spawn(
 	ctx context.Context,
 	name string,
@@ -205,9 +173,17 @@ func (s *Session) spawn(
 		return fmt.Errorf("session: pty start: %w", err)
 	}
 
-	// Size the PTY to the persisted/requested dimensions before any Read so the shell's
-	// first output is generated at the correct width.
-	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)})
+	// Size the PTY before any Read so the shell's first output has the right width. A PTY
+	// that cannot be sized is abandoned here (killed, reaped): no session owns the child yet.
+	if err := pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)}); err != nil {
+		closePTY(ptmx)
+		killErr := killSignal(cmd.Process)
+		// A child that could not be killed is not waited on: reap would block.
+		if killErr == nil {
+			reap(cmd)
+		}
+		return errors.Join(fmt.Errorf("session: size pty: %w", err), killErr)
+	}
 
 	m, ser := s.newModel(cols, rows, sbLines)
 	if len(redraw) > 0 {
@@ -227,7 +203,7 @@ func (s *Session) spawn(
 }
 
 // NewCommand spawns an explicit argv (not a login shell) under a PTY. Used by the
-// agentic engine to launch vendor CLIs (claude/codex) with descriptor-built args
+// agentic engine to launch vendor CLIs with descriptor-built args
 // and env. The joined argv is stored as the display "shell".
 func NewCommand(
 	ctx context.Context,
@@ -255,23 +231,9 @@ func NewCommand(
 	return s, nil
 }
 
-// startResponseSink wires the model's device-query response path (spec §3.8) so
-// the blocking ptmx.Write NEVER runs on the model's drain goroutine while s.mu is
-// held. That decoupling is load-bearing (C1): x/vt answers CPR/DA/colour queries
-// by writing into an UNBUFFERED reply pipe drained by vtEmu.drainResponses, which
-// then invokes this sink SYNCHRONOUSLY. If the sink did ptmx.Write directly, a
-// hostile app that emits queries (e.g. a loop printing ESC[6n) without reading its
-// own stdin would fill the PTY input queue, block ptmx.Write inside the drain,
-// stall the drain's next pipe read, block emu.Write inside pumpStep's model write
-// (which holds s.mu), and permanently wedge Kill/Snapshot/Shutdown — engine-wide.
-//
-// Instead: a bounded queue + one writer goroutine own the blocking write OFF the
-// lock, and the sink only does a NON-BLOCKING send. When both the queue and the
-// PTY input buffer saturate, replies are dropped rather than blocking — a dropped
-// answer merely times that one query out. The writer exits when s.done closes
-// (Kill closes ptmx first, unblocking any in-flight ptmx.Write with an error, then
-// shutdown closes s.done). replyCh is never closed, so the sink's post-teardown
-// non-blocking sends harmlessly fill/drop instead of panicking on a closed channel.
+// startResponseSink keeps the blocking ptmx.Write off the model's drain goroutine: an app spamming
+// queries without reading stdin would otherwise stall the drain under s.mu and wedge the engine.
+// The sink only sends non-blocking to a bounded queue; replyCh is never closed so late sends drop.
 func (s *Session) startResponseSink(
 	ptmx *os.File,
 ) {
@@ -281,10 +243,11 @@ func (s *Session) startResponseSink(
 		for {
 			select {
 			case reply := <-replyCh:
-				// Ignore write errors: a failing write means the PTY is going
-				// away, so keep draining replyCh (the sink must never block)
-				// until s.done releases the goroutine.
-				_, _ = ptmx.Write(reply)
+				// A failing write means the PTY is going away: log it and keep
+				// draining replyCh until s.done releases the goroutine.
+				if _, err := ptmx.Write(reply); err != nil {
+					slog.Warn("terminal: device-query reply not delivered", "session", s.id, "err", err)
+				}
 			case <-done:
 				return
 			}
@@ -305,7 +268,7 @@ func (s *Session) startResponseSink(
 }
 
 // resolveBirth returns the size, scrollback depth, and restore redraw bytes for a spawn,
-// applying the §9.1 defaults (80×24, scrollback 10000) and, for the restore path, parsing
+// applying the defaults (80×24, scrollback 10000) and, for the restore path, parsing
 // the CRWB1 header.
 func (s *Session) resolveBirth(
 	p spawnParams,
@@ -317,11 +280,8 @@ func (s *Session) resolveBirth(
 	return resolveCols(p.Cols), resolveRows(p.Rows), resolveScrollback(p.ScrollbackLines), nil
 }
 
-// winDim narrows a resolved dimension to the uint16 a pty.Winsize field is.
-//
-// The resolvers already clamp, so the ceiling here is belt-and-braces — but it is
-// the conversion that has to be provably in range, not the value that reached it,
-// and a client is free to ask for 70000 columns.
+// winDim narrows a resolved dimension to pty.Winsize's uint16. The resolvers already clamp, but the
+// conversion itself must be provably in range: a client may ask for 70000 columns.
 func winDim(n int) uint16 {
 	if n < 1 {
 		return 1
@@ -361,7 +321,7 @@ func resolveScrollback(
 
 // parseBlob splits a persisted blob into its CRWB1 header fields and the redraw body. A
 // malformed/absent header (including a stale raw .buf) returns zero size and a nil body,
-// which resolveBirth treats as an empty session at the default size (§12, no migration).
+// which resolveBirth treats as an empty session at the default size (no migration).
 func parseBlob(
 	blob []byte,
 ) (cols, rows, scrollbackLines int, body []byte) {

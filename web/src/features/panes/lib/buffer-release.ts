@@ -2,17 +2,20 @@ import { current, isDraft } from 'immer'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import {
   isEditorContent,
-  shouldStartLsp,
+  isPersistableContent,
   type ClosedBuffer,
   type PaneContent,
   type TerminalContent,
 } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { clearDraft } from '@/features/editor/documents/draft-store'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 // Leaf module (zustand only, no Plate) — a static import keeps the rich
 // editor's chunk out of the base bundle while still releasing the buffer's
 // rich/source preference synchronously.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 import { browserApi } from '@/lib/browser-bridge'
 import { unregisterWebview } from '@/features/browser/lib/webview-registry'
 
@@ -23,12 +26,9 @@ export interface BufferOwnershipState {
   closedBuffersHistory: ClosedBuffer[]
 }
 
-/**
- * Invariant C2: a buffer exists only while some pane lists it. Drops every
- * buffer no pane references — recording file buffers in the reopen history —
- * and returns them for `disposeBuffers`. Called inside the same `set` as the
- * pane write that unreferenced them, so no observer ever sees an orphan.
- */
+/** C2: a buffer exists only while some pane lists it. Drops the rest (file ones into the reopen
+ *  history) and returns them for disposeBuffers. Runs in the same `set` as the pane write that
+ *  unlisted them, so no observer sees an orphan. */
 export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneContent[] {
   if (!Array.isArray(state.buffers) || state.buffers.length === 0) return []
   const referenced = new Set<string>()
@@ -44,8 +44,9 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
   const detached = released.map((buf) => (isDraft(buf) ? current(buf) : buf))
   if (!Array.isArray(state.closedBuffersHistory)) return detached
   for (const buf of released) {
-    if (!shouldStartLsp(buf)) continue
+    if (!isPersistableContent(buf)) continue
     state.closedBuffersHistory.unshift({
+      authority: buf.authority,
       path: buf.path ?? '',
       name: buf.name,
       isPinned: buf.isPinned ?? false,
@@ -58,50 +59,48 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
   return detached
 }
 
-/**
- * Free everything a released buffer held outside the store: a terminal's PTY
- * (terminals never enter the reopen history, so the shell dies here or it
- * leaks), a browser tab's native webview, git-blame data and the markdown
- * view preference. Undo history
- * belongs to the buffer's Monaco model and goes with it.
- */
+/** An editor buffer's document closes with it: its model and undo history go. */
+export function releaseDocumentOf(buf: PaneContent): void {
+  if (!isEditorContent(buf) || !buf.path) return
+  getEditorHost()?.documents.release(documentUri(documentRefOf(buf)))
+}
+
+/** Frees what a released buffer held outside the store: a terminal's PTY (never in the reopen
+ *  history, so it dies here or leaks), a webview, an editor's document (model, undo, draft),
+ *  blame data and the markdown view preference. */
 export function disposeBuffers(released: readonly PaneContent[]): void {
   for (const buf of released) {
     if (buf.type === 'terminal') {
       const { sessionId, workspaceId } = buf as TerminalContent
-      bestEffort(
-        import('@/features/terminal/lib/kill-terminal-session').then(
-          async ({ killTerminalSession }) => {
-            await killTerminalSession(sessionId).catch(() => {})
-            // A stale connectionId must not be picked up if the same tab
-            // sessionId is reused in a later session.
-            const { clearReconnect } =
-              await import('@/features/terminal/lib/terminal-reconnect-map')
-            clearReconnect(workspaceId, sessionId)
-          },
-        ),
-        'kill terminal session',
+      void stopTerminal(sessionId, workspaceId).catch((err: unknown) =>
+        report(err, { action: 'Stop the closed terminal' }),
       )
     }
-    if (buf.type === 'browser') {
-      // A tab that was never shown has no webview to close.
-      const created = unregisterWebview(buf.id)
-      if (created) {
-        bestEffort(
-          created.then(() => browserApi.close(buf.id)),
-          'close browser webview',
-        )
-      }
+    releaseDocumentOf(buf)
+    // A tab that was never shown has no webview to close.
+    const webview = buf.type === 'browser' ? unregisterWebview(buf.id) : undefined
+    if (webview) {
+      void webview
+        .then(() => browserApi.close(buf.id))
+        .catch((err: unknown) => report(err, { action: 'Close the browser tab' }))
     }
     if (isEditorContent(buf) && buf.path) {
+      clearDraft(documentUri(documentRefOf(buf)))
       const { path: filePath, workspaceId } = buf
-      bestEffort(
-        import('@/features/git/stores/git-blame-store').then(({ clearBlame }) => {
-          clearBlame(workspaceId, filePath)
-        }),
-        'clear blame for closed buffer',
-      )
+      void import('@/features/git/stores/git-blame-store')
+        .then(({ clearBlame }) => clearBlame(workspaceId, filePath))
+        .catch((err: unknown) => report(err, { action: 'Clear blame for the closed file' }))
     }
     useMarkdownViewStore.getState().clearView(buf.id)
   }
+}
+
+async function stopTerminal(sessionId: string, workspaceId: string): Promise<void> {
+  const [{ killTerminalSession }, { clearReconnect }] = await Promise.all([
+    import('@/features/terminal/lib/kill-terminal-session'),
+    import('@/features/terminal/lib/terminal-reconnect-map'),
+  ])
+  // A later tab reusing this sessionId must not pick up the dead connection.
+  clearReconnect(workspaceId, sessionId)
+  await killTerminalSession(sessionId)
 }

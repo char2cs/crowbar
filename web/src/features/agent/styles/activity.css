@@ -7,10 +7,8 @@
   padding: 4px 0;
   font-size: 14px;
   color: var(--muted-foreground);
-  /* Glued to the tail of whatever line came before it — the sent user text, or
-     the agent's own streamed reply — rather than reading as a new block a full
-     `.stream` gap (18px) below it. Leaves ~4px before this element's own
-     padding, not flush against it. */
+  /* Glued to the line before it (sent text or streamed reply) instead of a full 18px `.stream`
+     gap below; leaves ~4px before this element's own padding. */
   margin-top: -14px;
 }
 .agent-chat .activity .hd {
@@ -79,10 +77,9 @@
   overflow-wrap: anywhere;
 }
 
-/* The agent's own to-do list for the turn. A checklist, not prose: one line per
-   step, the active one carried at full strength and the finished ones struck
-   through, so a glance says where in its own plan the agent is. */
-.agent-chat .activity .plan {
+/* The agent's own to-do list: one line per step, the active one at full
+   strength, the finished ones struck through. */
+.agent-chat .plan {
   margin: 2px 0 0;
   padding: 0 0 0 24px;
   list-style: none;
@@ -92,26 +89,25 @@
   font-size: var(--ui-text-xs);
   contain: layout;
 }
-.agent-chat .activity .plan li {
+.agent-chat .plan li {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.55;
+  color: var(--muted-foreground);
 }
-.agent-chat .activity .plan li::before {
+.agent-chat .plan li::before {
   content: '○ ';
 }
-.agent-chat .activity .plan li[data-status='active'] {
-  opacity: 1;
+.agent-chat .plan li[data-status='active'] {
   color: var(--foreground);
 }
-.agent-chat .activity .plan li[data-status='active']::before {
+.agent-chat .plan li[data-status='active']::before {
   content: '◍ ';
 }
-.agent-chat .activity .plan li[data-status='done'] {
+.agent-chat .plan li[data-status='done'] {
   text-decoration: line-through;
 }
-.agent-chat .activity .plan li[data-status='done']::before {
+.agent-chat .plan li[data-status='done']::before {
   content: '● ';
 }
 
@@ -261,17 +257,9 @@
   content: '●';
 }
 
-/* The running tools' own list used to live here. It is a transcript row now
-   (`.tools`, transcript.css) — the same rows the finished turn keeps — so a
-   call no longer disappears off screen the moment it stops running. */
-
-/* The subagent shelf, sitting on the top edge of the input box.
- *
- * It has to survive a wide fan-out, so it sheds detail in a fixed order rather
- * than wrapping or scrolling: names go first (over four in flight), then whole
- * tokens fall into a +N counter once the row is full. The count and the clocks
- * are the two things that NEVER drop, because they are the two things Crowbar
- * actually knows about a running subagent. */
+/* The subagent shelf on the input box's top edge. A wide fan-out sheds detail instead of wrapping:
+   names first (over four in flight), then whole tokens into +N. Count and clocks never drop: they
+   are all Crowbar knows about a running subagent. */
 .agent-chat .subbar {
   display: flex;
   align-items: center;
@@ -364,4 +352,50 @@
     animation: none;
     opacity: 0.7;
   }
+}
+
+/* The plan docked above the composer: the active step and the progress. */
+.agent-chat .todo-strip {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .todo-strip-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.agent-chat .todo-strip-active {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .todo-strip-count {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .todo-strip-head[aria-expanded='true'] svg,
+.agent-chat .reasoning-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.agent-chat .todo-strip .plan {
+  padding: 4px 0 0 2px;
+}
+.agent-chat .subbar .tok .act {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

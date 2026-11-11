@@ -17,18 +17,9 @@ interface ZoomState {
   actions: ZoomActions
 }
 
-// Steps are 0.1, so rounding to 1 decimal after every step is what keeps
-// zoom on the exact grid a repeated zoomIn/zoomOut walks — without it,
-// IEEE-754 accumulates real error onto a value written straight into
-// `style={{ zoom: chatZoom }}`: 1.2000000000000002, 1.3000000000000003, and
-// so on the more it's pressed.
+// Rounded after every step, or IEEE-754 error accumulates into `style.zoom` (1.2000000000000002).
 const ZOOM_STEP = 0.1
-// `Math.round(z * 10) / 10`, not `Math.round(z / STEP) * STEP` — the latter
-// still lands on a different double than the `1.2` literal for some inputs
-// (multiplying an integer BACK by 0.1 can reintroduce the same
-// representation error this exists to remove). Scaling to a whole number,
-// rounding, then dividing by the SAME power of ten is the standard,
-// round-trip-safe way to snap a float to one decimal place in IEEE-754.
+// Divide by 10 rather than multiply by STEP: multiplying back by 0.1 can reintroduce the error.
 const roundToStep = (z: number) => Math.round(z * 10) / 10
 
 const useZoomStoreBase = create<ZoomState>((set) => ({

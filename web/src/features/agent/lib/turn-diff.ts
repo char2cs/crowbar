@@ -1,20 +1,23 @@
 import { parsePatchFiles } from '@pierre/diffs'
-import type { CodeViewItem } from '@pierre/diffs'
+import type { CodeViewItem, FileDiffMetadata } from '@pierre/diffs'
 
 /** Keep parser and syntax-highlighting work bounded for a live preview. */
 export const MAX_TURN_DIFF_PREVIEW_CHARS = 250_000
 
-/**
- * Parse the newest complete diff snapshot into provider-neutral file items.
- * The cache fingerprint changes with the content, while item IDs remain stable
- * within a turn so CodeView can update the same file as the snapshot advances.
- */
-export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefined>[] {
+/** The fingerprint changes with content while item IDs stay stable within a turn,
+ *  so CodeView updates the same file as the snapshot advances. `target` is the
+ *  tool call's own name for its file, absolute when it lies outside the workspace. */
+export function parseTurnDiff(
+  diff: string,
+  turnId: string,
+  target = '',
+): CodeViewItem<undefined>[] {
   if (!diff || diff.length > MAX_TURN_DIFF_PREVIEW_CHARS) return []
 
   try {
     const version = fingerprint(diff)
     const patches = parsePatchFiles(diff, `${turnId}:${version}`, true)
+    const bare = !/^diff --git /m.test(diff)
     let fileIndex = 0
     return patches.flatMap((patch, patchIndex) =>
       patch.files.map((fileDiff) => {
@@ -22,16 +25,26 @@ export function parseTurnDiff(diff: string, turnId: string): CodeViewItem<undefi
         return {
           id: `${turnId}:${patchIndex}:${index}`,
           type: 'diff' as const,
-          fileDiff,
+          fileDiff: bare ? unprefixed(fileDiff, target) : fileDiff,
           version,
         }
       }),
     )
   } catch {
-    // A provider's partial or unfamiliar patch remains readable via the raw
-    // fallback in the component; a parser failure must not hide the activity.
+    // The component falls back to the raw diff; a parse failure must not hide it.
     return []
   }
+}
+
+/** A tool's edit arrives as a bare unified diff, whose `a/`/`b/` names the parser
+ *  keeps, so every edit would read as a rename from a/ to b/. Git names a file
+ *  outside the workspace from the root, without the slash its call keeps. */
+function unprefixed(file: FileDiffMetadata, target: string): FileDiffMetadata {
+  const bare = file.name.replace(/^b\//, '')
+  const name = target === `/${bare}` ? target : bare
+  const prev = file.prevName?.replace(/^a\//, '')
+  if (bare === file.name || (prev !== undefined && prev !== bare)) return file
+  return { ...file, name, prevName: undefined, type: prev === undefined ? file.type : 'change' }
 }
 
 function fingerprint(text: string): number {

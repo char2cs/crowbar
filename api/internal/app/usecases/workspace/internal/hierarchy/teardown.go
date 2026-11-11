@@ -3,6 +3,7 @@ package hierarchy
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
@@ -124,7 +125,7 @@ func (u *hierarchyUsecase) refuseLoss(
 		return err
 	}
 	if len(risks) > 0 {
-		return &domain.WorkAtRiskError{Workspaces: risks}
+		return domain.WorkAtRisked(risks)
 	}
 	return nil
 }
@@ -147,4 +148,123 @@ func (u *hierarchyUsecase) assess(
 		}
 	}
 	return risks, nil
+}
+
+// repoRef is what a workspace teardown needs of its repository: the main
+// checkout git runs against, and the default branch that must never be
+// deleted. A zero path means the repo could not be resolved.
+type repoRef struct {
+	path          string
+	defaultBranch string
+}
+
+// repoRefFor resolves a workspace's repository for its teardown. A missing
+// or unreadable row resolves to a zero repoRef — the teardown then drops the
+// row without touching git, so a cascade never strands a ghost workspace.
+func (u *hierarchyUsecase) repoRefFor(
+	ctx context.Context,
+	repoID string,
+) repoRef {
+	repo, err := u.repos.FindByKey(ctx, repoID)
+	if err != nil || repo == nil {
+		slog.WarnContext(ctx, "cascade: repo unresolved; dropping rows without git teardown",
+			"repo", repoID, "err", err)
+		return repoRef{}
+	}
+	return repoRef{path: repo.Path, defaultBranch: repo.DefaultBranch}
+}
+
+// removeOne tears one workspace down and tombstones its row. Git failures are logged and the row is
+// still dropped, so the cascade never leaves a ghost pointing at a gone worktree.
+func (u *hierarchyUsecase) removeOne(
+	ctx context.Context,
+	ws domain.Workspace,
+	repo repoRef,
+	all []domain.Workspace,
+) error {
+	// Before the worktree goes: a live shell would otherwise outlive its CWD.
+	u.reapTerminals(ctx, ws.ID)
+	td := u.teardownOf(ws, repo, all)
+	if td.worktree == "" && ws.WorktreePath != "" && repo.path != "" {
+		slog.InfoContext(ctx, "cascade: not a worktree Crowbar created; leaving it in place",
+			"ws", ws.ID, "worktree", ws.WorktreePath)
+	}
+	if td.worktree != "" {
+		if removeErr := u.git.WorktreeRemove(ctx, repo.path, td.worktree, td.force); removeErr != nil {
+			slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
+				"ws", ws.ID, "worktree", td.worktree, "force", td.force, "err", removeErr)
+		}
+	}
+	if td.reattach {
+		u.reattachMainIfDetachedAt(ctx, repo.path, ws.Branch)
+	}
+	if td.dropBranch != "" {
+		if delErr := u.git.ForceDeleteBranch(ctx, repo.path, td.dropBranch); delErr != nil {
+			slog.WarnContext(ctx, "cascade: branch delete failed (continuing)",
+				"ws", ws.ID, "branch", td.dropBranch, "err", delErr)
+		}
+	}
+	return u.workspaces.Delete(ctx, ws.ID)
+}
+
+// otherPaths lists the worktree paths of every row but id, tombstones
+// included: a tombstone's files may still be on disk.
+func otherPaths(
+	id string,
+	all []domain.Workspace,
+) []string {
+	paths := make([]string, 0, len(all))
+	for _, ws := range all {
+		if ws.ID != id {
+			paths = append(paths, ws.WorktreePath)
+		}
+	}
+	return paths
+}
+
+// reattachMainIfDetachedAt puts the main folder back on branch only when it is still a detached HEAD at
+// the branch's tip, as a create's detach left it; any other state is the user's. Best-effort.
+func (u *hierarchyUsecase) reattachMainIfDetachedAt(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) {
+	entries, err := u.git.WorktreeList(ctx, repoPath)
+	if err != nil || len(entries) == 0 || entries[0].Branch != "" {
+		return // unreadable, or the main folder is on a branch of its own
+	}
+	tip, err := u.git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	if err != nil || tip != entries[0].Head {
+		return
+	}
+	if reErr := u.git.CheckoutBranch(ctx, repoPath, branch); reErr != nil {
+		slog.WarnContext(ctx, "cascade: re-attach main folder to default branch (continuing)",
+			"branch", branch, "err", reErr)
+	}
+}
+
+// reapTerminals kills every live PTY session in wsID's worktree by fanning out over its chats, since
+// sessions are keyed by owning chat. A missing reaper or chat observer skips the reap rather than reap
+// under a wrong key.
+func (u *hierarchyUsecase) reapTerminals(
+	ctx context.Context,
+	wsID string,
+) {
+	if u.terminals == nil || u.chatObserver == nil {
+		return
+	}
+	chats, err := u.chatObserver.ListChatsByWorkspace(ctx, wsID)
+	if err != nil {
+		slog.WarnContext(ctx, "cascade: terminal reap could not list chats (continuing)",
+			"ws", wsID, "err", err)
+		return
+	}
+	for _, chat := range chats {
+		for _, sid := range u.terminals.ListSessionsForChat(chat.ID) {
+			if killErr := u.terminals.Kill(ctx, sid); killErr != nil {
+				slog.WarnContext(ctx, "cascade: terminal kill failed (continuing)",
+					"ws", wsID, "chat", chat.ID, "session", sid, "err", killErr)
+			}
+		}
+	}
 }

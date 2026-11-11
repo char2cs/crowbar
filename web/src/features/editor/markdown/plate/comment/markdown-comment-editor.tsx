@@ -27,17 +27,9 @@ interface MarkdownCommentEditorProps {
   onCancel: () => void
 }
 
-/**
- * The rich markdown editable behind the review comment composer.
- *
- * It replaces a CodeMirror textarea sitting behind a Write/Preview tab pair.
- * That toggle was never a feature — it existed because the input could not
- * render what you typed, so you had to leave the input to find out. Editing
- * the formatted text directly removes the mode rather than improving it, which
- * is why nothing here has a preview: it IS the preview. `MARKDOWN_PROSE_CLASS`
- * is the same class `MarkdownPreview` styles a posted comment with, so the two
- * agree by construction.
- */
+/** The rich markdown editable behind the review comment composer. It has no preview mode because
+ *  it is the preview: `MARKDOWN_PROSE_CLASS` is the class `MarkdownPreview` styles a posted
+ *  comment with, so the two agree by construction. */
 export function MarkdownCommentEditor({
   initialValue = '',
   placeholder,
@@ -60,10 +52,8 @@ export function MarkdownCommentEditor({
   const editor = usePlateEditor({ plugins: commentPlugins, value: initial, autoSelect: 'end' })
 
   const handleChange = useCallback(() => {
-    // Selection-only events (a click, an arrow key) cannot change the
-    // serialized document, so serializing for them is pure waste.
-    // Guarded on a NON-EMPTY operation list: an empty list means we cannot
-    // tell what happened, and skipping a real edit would drop the user's text.
+    // A selection-only change (click, arrow key) cannot change the serialization, so it is not
+    // re-serialized. An empty op list says nothing about what happened, so it still serializes.
     const ops = editor.operations
     if (ops.length > 0 && ops.every((op) => op.type === 'set_selection')) return
     onChange(commentValueToMarkdown(editor.children as Value))
@@ -90,22 +80,15 @@ export function MarkdownCommentEditor({
 
   return (
     <Plate editor={editor} onChange={handleChange}>
-      {/* `relative` is load-bearing, not layout garnish. The selection toolbar
-          renders as a SIBLING of the editable (Plate's `afterEditable`) and
-          positions itself `absolute`, so without a positioned ancestor here its
-          containing block is whatever distant element happens to be positioned
-          — measured live, that put the toolbar ~670px right and ~230px below
-          the words it belongs to. The file editor gets this for free from the
-          `relative h-full` wrapper it uses for its view toggle. */}
+      {/* `relative` anchors the selection toolbar, an absolute sibling of the editable;
+          without it the toolbar lands hundreds of pixels from its words. */}
       <div className="relative">
         <PlateContent
           autoFocus={autoFocus}
           placeholder={placeholder}
           onKeyDown={handleKeyDown}
-          // A style prop, not a `min-h-*` class: Slate's Editable writes
-          // `min-height: 20px` INLINE, which beats any class and collapsed the
-          // box to a single line. Slate spreads the caller's style after its
-          // own defaults, so this is the one place the value can be set.
+          // A style prop, not a `min-h-*` class: Slate writes `min-height: 20px` inline,
+          // beating any class, and spreads the caller's style after its own defaults.
           style={{ minHeight: COMPOSER_MIN_HEIGHT_PX }}
           className={cn(MARKDOWN_PROSE_CLASS, 'outline-none')}
         />

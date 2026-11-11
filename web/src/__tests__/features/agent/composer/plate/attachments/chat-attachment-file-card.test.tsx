@@ -5,15 +5,16 @@ import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-mess
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { formatAttachmentSize } from '@/features/agent/composer/plate/attachments/chat-attachment-file-card'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn as remoteProject,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
-import type { Project } from '@/lib/types'
 
 beforeEach(() => {
-  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  resetHostWorld()
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
 })
@@ -100,35 +101,6 @@ describe('chat attachment file card', () => {
     )
     expect(() => fireEvent.click(anchor!)).not.toThrow()
     expect(() => fireEvent.mouseOver(anchor!)).not.toThrow()
-
-    vi.unstubAllGlobals()
-  })
-
-  // REGRESSION, reported live: "Attachments that are text, or files should
-  // be a square... like Claude's attachments" — this was a thin, single-line
-  // row before. Shares `ATTACHMENT_BOX_CLASS` (attachment-box.ts) with the
-  // text-attachment pill so both kinds look identical.
-  it('renders as the shared boxed-card footprint, not the old thin row', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(null, { status: 200, headers: { 'content-length': '2048' } }),
-        ),
-    )
-
-    render(
-      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
-        <MarkdownMessageStatic>
-          {'[report.pdf](chats/c1/attachments/report.pdf)'}
-        </MarkdownMessageStatic>
-      </ChatMarkdownAssetProvider>,
-    )
-
-    const anchor = screen.getByText('report.pdf').closest('a')!
-    expect(anchor.className).toContain('chat-attachment-box')
-    expect(anchor.className).toMatch(/(?:^|\s)size-28(?:\s|$)/)
 
     vi.unstubAllGlobals()
   })
@@ -240,10 +212,7 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
-  // REGRESSION, reported live: a caret could be placed and moved inside the
-  // filename text, like any other link's own editable content — but this
-  // text is a reference to an uploaded file, not prose the person is meant
-  // to edit.
+  // The filename references an uploaded file, not prose to edit, so no caret may enter it.
   it('marks the filename non-editable, so a caret cannot enter it', () => {
     render(
       <DndScope>
@@ -256,9 +225,7 @@ describe('chat attachment file card', () => {
     expect(label.closest('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
   })
 
-  // REGRESSION, reported live: there was no way to select and remove an
-  // attachment at all — dragging could reorder one but nothing could delete
-  // one.
+  // Each attachment has a delete button beside its file card.
   it('renders a delete button alongside the file card, which removes the attachment on click', async () => {
     vi.stubGlobal(
       'fetch',
@@ -286,20 +253,9 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
-  // REGRESSION, reported live: dragging an attachment did nothing at all —
-  // root-caused via live DOM inspection to the handle sitting directly
-  // inside the Slate editor's own `contenteditable="true"` region with no
-  // non-editable island around it. WebKit (Tauri's WKWebView) arbitrates a
-  // real mousedown+move inside editable content as a text-selection gesture
-  // BEFORE the drag can start, regardless of the
-  // button's `draggable="true"`.
-  //
-  // `MarkdownMessage` (this file's harness) renders `readOnly`, so its own
-  // Slate root already carries `contenteditable="false"` regardless of this
-  // fix — asserting merely "some ancestor is non-editable" would pass
-  // trivially either way. The real contract is a wrapper CLOSER than the
-  // editor root, since the actual composer (which this stands in for) is
-  // genuinely editable and has no such root-level escape hatch.
+  // WKWebView treats mousedown+move inside editable content as text selection before a drag can
+  // start, so the handle needs its own contenteditable="false" island. The harness's Slate root is
+  // already read-only, hence asserting a wrapper CLOSER than the editor root.
   it('wraps the drag handle in its own non-editable island, not just relying on an ancestor', async () => {
     vi.stubGlobal(
       'fetch',
@@ -369,21 +325,8 @@ describe('chat attachment file card', () => {
 // The card builds its href while rendering, through the host-aware chat base,
 // which throws until the workspace's host is known.
 describe('chat attachment file card on a remote host', () => {
-  const pairHost = () =>
-    useHostConfigStore.getState().addHost({
-      id: 'host-1',
-      name: 'host-1',
-      endpoint: 'host-1.example:3737',
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: 'client-1',
-    })
-  const projectOn = (hostId: string): Project => ({
-    id: 'p1',
-    name: 'p1',
-    path: '/work/p1',
-    lastActivity: new Date(0),
-    hostId,
-  })
+  const pairHost = () => pairRemoteHost('host-1')
+  const projectOn = (hostId: string) => remoteProject('p1', hostId)
   const REF = '[report.pdf](chats/c1/attachments/report.pdf)'
   const renderCard = () =>
     render(
@@ -405,7 +348,7 @@ describe('chat attachment file card on a remote host', () => {
     expect(anchor()).not.toHaveAttribute('href')
     expect(fetchSpy).not.toHaveBeenCalled()
 
-    act(() => useProjectDataStore.setState({ data: success([projectOn('host-1')]) }))
+    act(() => loadProjects(projectOn('host-1')))
 
     const remote = 'crowbar://host-1/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf'
     expect(anchor()).toHaveAttribute('href', remote)
@@ -419,7 +362,7 @@ describe('chat attachment file card on a remote host', () => {
   it('never falls back to the local daemon when the project turns out to be on another host', () => {
     pairHost()
     renderCard()
-    act(() => useProjectDataStore.setState({ data: success([projectOn('host-gone')]) }))
+    act(() => loadProjects(projectOn('host-gone')))
     expect(screen.getByText('report.pdf').closest('a')).not.toHaveAttribute('href')
   })
 
@@ -427,7 +370,7 @@ describe('chat attachment file card on a remote host', () => {
     pairHost()
     renderCard()
     expect(screen.getByText('report.pdf').closest('a')).not.toHaveAttribute('href')
-    act(() => useProjectDataStore.setState({ data: success([projectOn('local')]) }))
+    act(() => loadProjects(projectOn('local')))
     expect(screen.getByText('report.pdf').closest('a')).toHaveAttribute(
       'href',
       '/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf',

@@ -1,11 +1,9 @@
 import type { RepoIconSource } from '@/components/layout/repo-icon-mark'
 import { useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { dataOf } from '@/lib/loadable'
-import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useChatWorking } from '@/features/agent/hooks/use-chat-entity'
+import { selectHomeTrees, selectProjects, selectRepos, useSelect } from '@/core/entities/select'
+import type { HomeTree } from '@/core/entities/views-from-entities'
 
 /** Where a chat runs, as its header names it. */
 export type ChatHeaderRoute =
@@ -19,11 +17,8 @@ export type ChatHeaderRoute =
       deleted: number
     }
 
-/**
- * Everything the chat header draws, as plain data: the pane header reads it from the stores, the
- * phone's file drawer (a page with no stores) receives it as a snapshot. `title` null is the
- * store's gap, not an untitled chat.
- */
+/** Everything the chat header draws, as plain data: the pane header reads it from the stores, the
+ *  phone's store-less file drawer receives it as a snapshot. `title` null is a store gap. */
 export interface ChatHeaderModel {
   title: string | null
   working: boolean
@@ -56,17 +51,17 @@ export function routePath(route: ChatHeaderRoute): string {
 
 type ChatPlace = Pick<ChatHeaderModel, 'lead' | 'route'>
 
-/** Where a chat runs, resolved from the sidebar and home trees; `route` null when no visible project holds it. */
+/** Where a chat runs, resolved from the repo and home trees; `route` null when no visible project holds it. */
 export function useChatPlace(chatId: string, wsId: string | null): ChatPlace {
-  const repo = useSidebarStore((s) =>
-    wsId ? (s.repos.find((r) => r.workspaces.some((w) => w.id === wsId)) ?? null) : null,
+  const repo = useSelect((s) =>
+    wsId ? (selectRepos(s).find((r) => r.workspaces.some((w) => w.id === wsId)) ?? null) : null,
   )
   const workspace = repo?.workspaces.find((w) => w.id === wsId) ?? null
-  // A project-home chat rides no repo (home-tree.ts), so the chat's own
-  // project id comes from the home tree that lists it, never from `wsId`.
-  const homeProjectId = useHomeTreeStore((s) => homeProjectIdOf(s.trees, chatId))
-  const project = useProjectDataStore((s) =>
-    homeProjectId ? (dataOf(s.data)?.find((p) => p.id === homeProjectId) ?? null) : null,
+  // A project-home chat rides no repo, so the chat's own project id comes
+  // from the home tree that lists it, never from `wsId`.
+  const homeProjectId = useSelect((s) => homeProjectIdOf(selectHomeTrees(s), chatId))
+  const project = useSelect((s) =>
+    homeProjectId ? (selectProjects(s).find((p) => p.id === homeProjectId) ?? null) : null,
   )
 
   if (workspace?.branch && repo) {
@@ -106,10 +101,10 @@ export function useChatPlace(chatId: string, wsId: string | null): ChatPlace {
   }
 }
 
-/** The chat header's content, resolved from the workspace store in context and the sidebar. */
+/** The chat header's content, resolved from the chat and its place in the trees. */
 export function useChatBranchHeaderModel(chatId: string, wsId: string | null): ChatHeaderModel {
   const title = useChatTitle(chatId)
-  const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
+  const working = useChatWorking(chatId)
   // A thread owns no branch (it runs on its parent's), and inherits its parent's `wsId`.
   const isThread = useChatIsThread(chatId)
   return { title, working, isThread, ...useChatPlace(chatId, wsId) }

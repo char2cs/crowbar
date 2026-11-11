@@ -2,6 +2,7 @@ package inbound
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
@@ -32,6 +33,18 @@ func declaresChoice(fields spec.FieldMap) bool {
 	return false
 }
 
+// markReasons flags the options whose declared reply carries the person's reason, so a
+// card offers a reason only where the agent will receive it.
+func markReasons(options []models.ChoiceOption, d *spec.Descriptor, canonical string) {
+	answer, ok := d.AnswerFor(canonical)
+	if !ok {
+		return
+	}
+	for i := range options {
+		options[i].Reason = strings.Contains(answer.Responses[options[i].ID], "{reason_json}")
+	}
+}
+
 func permissionChoice(
 	fields spec.FieldMap,
 	decoded map[string]any,
@@ -39,6 +52,14 @@ func permissionChoice(
 	if !declaresChoice(fields) {
 		return nil
 	}
+	prompt := toolChoice(fields, decoded)
+	prompt.ToolTarget = mapping.String(decoded, fields["tool_target"])
+	prompt.ToolInput = mapping.JSON(decoded, fields["tool_input"])
+	prompt.MCPServer = mapping.String(decoded, fields["mcp_server"])
+	return prompt
+}
+
+func toolChoice(fields spec.FieldMap, decoded map[string]any) *models.ChoicePrompt {
 	promptID := mapping.String(decoded, fields["prompt_id"])
 	toolName := mapping.String(decoded, fields["tool_name"])
 
@@ -57,7 +78,6 @@ func permissionChoice(
 			{ID: models.ChoiceOptionDeny, Kind: models.ChoiceOptionDeny, Label: "Deny"},
 		},
 	}
-	prompt.Options = append(prompt.Options, suggestionOptions(fields, decoded)...)
 	return prompt
 }
 
@@ -111,48 +131,58 @@ func choiceQuestion(
 	return out
 }
 
-func suggestionOptions(fields spec.FieldMap, decoded map[string]any) []models.ChoiceOption {
-	suggestions := mapping.Objects(decoded, fields["suggestions"])
+func suggestionOptions(fields spec.FieldMap, suggestions []any) []models.ChoiceOption {
 	out := make([]models.ChoiceOption, 0, len(suggestions))
 	for i, suggestion := range suggestions {
 		if len(out) >= maxChoiceOptions {
 			break
 		}
-		label := suggestionLabel(fields, suggestion)
+		object, _ := suggestion.(map[string]any)
+		description := mapping.String(object, fields["suggestion_description"])
+		label, exact := suggestionLabel(fields, suggestion, description)
 		if label == "" {
 			continue
 		}
+		if exact {
+			description = ""
+		}
 		out = append(out, models.ChoiceOption{
-			ID:          "suggestion-" + strconv.Itoa(i),
+			ID:          models.SuggestionOptionID(i),
 			Kind:        models.ChoiceOptionSuggestion,
 			Label:       label,
-			Description: mapping.String(suggestion, fields["suggestion_description"]),
+			Description: description,
 		})
 	}
 	return out
 }
 
 // suggestionLabel reads a LITERAL display string out of the descriptor, not a
-// payload path: suggestion_label.* maps a provider's own machine name for a
-// broader grant straight to English text the field map carries verbatim (see
-// claude.yaml's own suggestion_label.* entries).
-func suggestionLabel(fields spec.FieldMap, suggestion map[string]any) string {
-	kind := mapping.String(suggestion, fields["suggestion_type"])
-	if kind != "" {
-		if label := literal(fields, suggestionLabelPrefix+kind); label != "" {
-			return label
-		}
+// payload path: suggestion_label.* maps a provider's machine name for a broader
+// grant to the English text the field map carries verbatim. exact when a label
+// names the grant's description too (suggestion_label.<type>.<description>). An event
+// that declares no suggestion_type names each offer by itself (spec.OfferName).
+func suggestionLabel(fields spec.FieldMap, suggestion any, description string) (string, bool) {
+	kind := spec.OfferName(suggestion)
+	if typed := fields["suggestion_type"]; len(typed) > 0 {
+		object, _ := suggestion.(map[string]any)
+		kind = mapping.String(object, typed)
 	}
-	return literal(fields, suggestionLabelDefault)
+	if kind == "" {
+		return literal(fields, suggestionLabelDefault), false
+	}
+	if label := literal(fields, suggestionLabelPrefix+kind+"."+description); description != "" && label != "" {
+		return label, true
+	}
+	if label := literal(fields, suggestionLabelPrefix+kind); label != "" {
+		return label, false
+	}
+	return literal(fields, suggestionLabelDefault), false
 }
 
 // literal reads a FieldMap entry as the single literal value it declares,
 // never as a payload path — see suggestionLabel's own doc.
 func literal(fields spec.FieldMap, key string) string {
-	if v := fields[key]; len(v) > 0 {
-		return v[0]
-	}
-	return ""
+	return fields[key].Literal()
 }
 
 func elicitationChoice(
@@ -161,15 +191,16 @@ func elicitationChoice(
 	message string,
 ) *models.ChoicePrompt {
 	return &models.ChoicePrompt{
-		Kind:     models.ChoiceElicitation,
-		Title:    mapping.String(decoded, fields["mcp_server"]),
-		Question: message,
-		Mode:     mapping.String(decoded, fields["mode"]),
-		Schema:   boundedSchema(decoded, fields["schema"]),
+		Kind:      models.ChoiceElicitation,
+		Title:     mapping.String(decoded, fields["mcp_server"]),
+		MCPServer: mapping.String(decoded, fields["mcp_server"]),
+		Question:  message,
+		Mode:      mapping.String(decoded, fields["mode"]),
+		Schema:    boundedSchema(decoded, fields["schema"]),
 	}
 }
 
-func boundedSchema(decoded map[string]any, paths []string) []byte {
+func boundedSchema(decoded map[string]any, paths mapping.Expr) []byte {
 	data := mapping.JSON(decoded, paths)
 	if len(data) > maxChoiceSchemaBytes {
 		return nil

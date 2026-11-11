@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => false) }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
 
-import { apiBaseFor } from '@/lib/api'
+import { apiBaseFor } from '@/lib/api/fetch'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 describe('apiBaseFor', () => {

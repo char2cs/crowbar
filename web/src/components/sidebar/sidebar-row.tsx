@@ -1,6 +1,4 @@
-import { RepoAvatar } from '@/components/layout/repo-avatar'
 import { cn } from '@/lib/utils'
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import {
   ROW_BASE,
   ROW_GLYPH_BOX,
@@ -17,11 +15,14 @@ import {
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
-import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
-import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
+import { BranchOutInput } from '@/components/sidebar/branch-out-input'
+import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
-import { RowGlyph } from './row-glyph'
+import { SidebarRowGlyph } from '@/components/sidebar/sidebar-row-glyph'
+import { OperationSidebarRow } from '@/components/sidebar/operation-sidebar-row'
+import { RemovingSidebarRow } from '@/components/sidebar/sidebar-row-removing'
+import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import {
   rowBoxStyle,
   rowGlyphStyle,
@@ -30,112 +31,52 @@ import {
   rowTitleStyle,
   useRowMetrics,
   type RowMetrics,
-} from './lib/row-metrics'
-import { PendingSidebarRow, RemovingSidebarRow } from './sidebar-row-transient'
+} from '@/components/sidebar/lib/row-metrics'
 
 interface SidebarRowProps {
   row: SidebarRowType
   /** Tree depth for the indent step. 0 for a Recents entry — no indent there (spec §5.1). */
   depth: number
   onOpen: (id: string) => void
-  /** Explicit product request: an X close button (Recents' own — same
-   *  `ROW_SUB_ACTION_HOVER` token and `X` glyph, see the trailing cluster's
-   *  own comment) instead of the drag-to-trash gesture being the ONLY way
-   *  to remove a row. Calls the exact same `handleTrash` the drag gesture
-   *  already did (`sidebar-tree-surface.tsx`'s `onTrash`) — a refusal (a
-   *  locked branch, a repo home) surfaces the same toast either way. */
+  /** An explicit close (X) beside drag-to-trash; calls the same trash handler, so a refusal
+   *  (locked branch, repo home) shows the same toast. */
   onTrash?: (id: string) => void
-  /** Recents' own "end this view" control (view-row.tsx) — the opposite
-   *  of `onTrash`'s destroy-the-chat verb, so never wired alongside it on the
-   *  same row (view-row.tsx never sets `onTrash`). Same trailing-action
-   *  token as every other control in this cluster (`ROW_SUB_ACTION_HOVER`):
-   *  hidden and out of flow until hovered, so it costs the row a reflow on
-   *  hover like Thread/Fork/Remove/Fold already do, never a permanently
-   *  reserved margin the way an externally-overlaid button would (the "text
-   *  still accounts for a button that isn't even shown" bug this replaced —
-   *  reported four times against view-row.tsx's own bespoke absolute+
-   *  padding-reserve close button before it was unified with this cluster). */
+  /** Recents' "end this view" control — the opposite of `onTrash`, so never set on the same
+   *  row. Hidden and out of flow until hover, like the other trailing actions, so it reserves
+   *  no margin when unseen. */
   onClose?: (id: string) => void
   onCreate?: (id: string, kind: 'workspace' | 'thread') => void
   onToggleFold?: (id: string) => void
   folded?: boolean
-  /** Spread from drop-dom's createDropRowDom (Task 21's useSidebarDrag) — its
-   *  own `props()` omits an unset optional field rather than writing it as
-   *  '', so the value side of this is `string | undefined`. */
+  /** Spread from useSidebarDrag's row DOM props; an unset optional field is omitted, not ''. */
   dragProps?: Record<string, string | undefined>
-  /** This row is one of the rows currently in the air (Task 21). */
+  /** This row is one of the rows currently in the air. */
   isDragging?: boolean
-  /** A drop here would land INSIDE this row (Task 21) — fills instead of the
-   *  hairline drawn between rows, spec's "two signals, never both". */
+  /** A drop here would land INSIDE this row — fills instead of the hairline between rows
+   *  ("two signals, never both"). */
   isNestTarget?: boolean
-  /** Arms a press-and-hold-to-drag on this row (Task 21's `useSidebarDrag`). */
+  /** Arms a press-and-hold-to-drag on this row. */
   onPointerDownDrag?: (e: React.PointerEvent) => void
-  /** Marks this instance as Recents' mirror of a row that may ALSO render in
-   *  the tree (a live-pane chat, `RecentsMemberRow`'s own copy of it — §5:
-   *  "what is up" — or a branch row Recents shows while its repo happens to
-   *  be expanded too). Both instances share one row id, and
-   *  `sidebar-inline-rename.ts`'s store resolves the collision itself now:
-   *  `startRenaming` checks the DOM once, when the edit starts, for a
-   *  tree-rendered instance of that id, and only that one instance's
-   *  `renamingRole` matches — the tree wins when it's mounted (develop's own
-   *  rule: the tree is where a name is actually edited), and this Recents
-   *  copy only draws the editor when NO tree copy is mounted at all (its row
-   *  folded away under a collapsed repo/project, not merely off-screen —
-   *  live-reproduced, and the actual reason a modal used to stand in here
-   *  instead of the real inline editor). Without this flag at all, both
-   *  instances would answer to the same id with no way to tell them apart;
-   *  the store's role check is what actually decides which one draws. */
+  /** Marks Recents' mirror of a row the tree may also render under the same id. The rename
+   *  store picks one instance when the edit starts: the tree copy if mounted, else this one —
+   *  the store's `renamingRole`, not this flag alone, decides which draws the editor. */
   inlineRenameDisabled?: boolean
-  /** True only for the tree's own render path (sidebar-tree.tsx). A row with
-   *  `row.hasView` gets the idle ground (`ROW_HAS_VIEW_IDLE`) instead of a
-   *  muted label — the row IS active/open, so it should read as present, not
-   *  disabled. Recents (view-row.tsx) leaves this unset on purpose: its
-   *  OWN doc explains why a solo "open but off screen" entry there keeps
-   *  relying on the muted label instead of a ground of its own (giving it one
-   *  would outrank the true ROW_ACTIVE entry sitting beside it in the same
-   *  list) — a distinction that doesn't exist in the tree, which never draws
-   *  ROW_ACTIVE at all. */
+  /** Tree render path only: a row with `hasView` gets the idle ground instead of a muted label,
+   *  since an open row should read as present. Recents leaves it unset — a ground there would
+   *  outrank the TAB_ACTIVE entry beside it; the tree never draws TAB_ACTIVE. */
   hasViewIdle?: boolean
-  /** True when this row's body is painted directly on an inverted `ROW_ACTIVE`
-   *  ground (Recents' own solo-showing row, or every member of a showing SET
-   *  — `view-row.tsx`'s `isShowing`, unconditional on solo vs. set: a
-   *  showing SET's shell is ROW_ACTIVE for ALL its members alike, not just
-   *  one). `ROW_INACTIVE`'s own `text-foreground` (and `ROW_SUBLABEL`'s own
-   *  `text-muted-foreground`, via `BranchSecondLine` below) both track the
-   *  AMBIENT theme regardless of caller — correct for every row that sits on
-   *  the ordinary sidebar background, but on an inverted surface they land
-   *  the wrong theme's text color on top of the wrong theme's background
-   *  (live-verified: light-theme dark text on the dark inverted ground read
-   *  as barely legible, "still using the foreground values instead of the
-   *  background"). This swaps both to `text-foreground-inverse` instead —
-   *  the token that actually pairs with `ROW_ACTIVE`'s own
-   *  `bg-background-inverse` (workspace-row-base.ts). Never set by the tree,
-   *  which never draws ROW_ACTIVE at all. */
+  /** The row sits on an inverted TAB_ACTIVE ground (a showing Recents row or set member). The
+   *  default text tokens track the ambient theme and would be illegible there, so label and
+   *  sublabel swap to `text-foreground-inverse`. Never set by the tree. */
   activeGround?: boolean
-  /** A row drawn inside a view-tab shell that owns the margin and padding:
-   *  `tab` drops `ROW_BASE`'s own margin and takes `h-8`; `tab-member` also
-   *  drops the resting glyph (a split's members share one tab and carry no
-   *  icon; the working spinner still shows). */
+  /** Drawn inside a view-tab shell that owns margin and padding: `tab` drops ROW_BASE's margin
+   *  and takes `h-8`; `tab-member` also drops the resting glyph (the spinner still shows). */
   tab?: 'tab' | 'tab-member'
 }
 
-/**
- * The one row every tree and every Recents entry renders through — spec §3.1
- * as revised by the addendum §1: `[glyph][label] [Fork][Thread][chevron]`.
- * Replaces the markup that used to be hand-rolled per row-kind across two
- * separate tree implementations.
- *
- * Deliberately dumb: no selected/active state (§3.2 retires the tree's raised
- * ROW_ACTIVE surface — that concept moved to Recents' own "is-active" shell),
- * and each trailing control renders only when its handler prop is supplied,
- * so a caller opts into exactly the affordances a given row needs.
- *
- * §3.3 used to read "no second line ever" — retired by the product rule that
- * unified workspaces and chats into one row model: a `branch` row that owns a
- * real (unlocked) workspace now draws a second line under its label with that
- * workspace's branch name and change counts (rule 6), the way the retired
- * workspace tree's own `WorkspaceRowLabel` did.
- */
+// The one row every tree and Recents entry renders: `[glyph][label] [Fork][Thread][chevron]`.
+// Dumb: no active state; each trailing control renders only when its handler is supplied. An
+// unlocked branch row owning a workspace adds a second line: branch name and change counts.
 export function SidebarRow({
   row,
   depth,
@@ -154,72 +95,42 @@ export function SidebarRow({
   activeGround,
   tab,
 }: SidebarRowProps) {
-  // Read UNCONDITIONALLY, before either early return below — rules of hooks:
-  // a row's `pending`/`removal` state can flip between renders of the SAME
-  // component instance (a real row enters the removal tray and later leaves
-  // it, without remounting — its id, and so its key, never changes), so a
-  // hook called only on the branch that falls through past both checks would
-  // vary the hook count render to render for that one instance. Harmless to
-  // run early: the two returns below render an entirely different component,
-  // which never reads this value at all.
-  // Includes `renamingRole` in the selector itself (not just `renamingRowId`)
-  // so this instance only answers true when the STORE — not a static
-  // per-caller flag — decided this is the one that draws the editor; see
-  // `inlineRenameDisabled`'s own doc below for why a shared id can resolve to
-  // either this instance or its tree/Recents counterpart.
+  // Hooks run before the early returns: a row's operation/removal state flips between renders of
+  // the same instance, which would change the hook count. The selector includes `renamingRole`
+  // so only the instance the store chose answers true (see `inlineRenameDisabled`).
   const metrics = useRowMetrics()
-  const isThisRowRenaming = useSidebarInlineRenameStore(
+  const isThisRowRenaming = useTreeUi(
     (s) =>
-      s.renamingRowId === row.id &&
+      s.renaming === row.id &&
       (inlineRenameDisabled ? s.renamingRole === 'recents' : s.renamingRole !== 'recents'),
   )
-  // A create still in flight (pending-creates.ts) draws through this SAME row
-  // shape rather than a separate placeholder component, at the exact slot
-  // the finished create lands in — none of the interactive state below (open,
-  // drag, rename, promote, fork/thread affordances) applies to a row with no
-  // real chat/workspace behind it yet, so this returns before touching any
-  // of it.
-  if (row.pending) {
-    return <PendingSidebarRow row={row} depth={depth} pending={row.pending} />
+  const branching = useTreeUi((s) => !inlineRenameDisabled && s.branching === row.id)
+  // A chat dropped into another workspace mid-turn stays put until its turn ends; null: no move.
+  const pendingMove = useChatField(row.id, (c) =>
+    c?.pendingMove ? (c.pendingMove.label ?? '') : null,
+  )
+  // A create whose entity has not arrived (or is still being named) has no
+  // chat/workspace behind it, so none of the interactive state below applies.
+  if (row.operation || row.draft) {
+    return <OperationSidebarRow row={row} depth={depth} />
   }
-  // A REAL row currently held in the removal tray (`removal-plan.ts`'s
-  // `attachRemovalState`) draws its countdown/undo IN PLACE instead of the
-  // row hiding while a separate tray shows the same thing elsewhere —
-  // explicit product request. Same early-return shape as `row.pending`
-  // above; the two never coexist (a pending row's id is a synthetic tempId
-  // no removal entry could ever name).
+  // A real row held in the removal tray draws its countdown/undo in place rather than hiding;
+  // it never coexists with `row.operation`.
   if (row.removal) {
     return <RemovingSidebarRow row={row} depth={depth} removal={row.removal} />
   }
-  // The project-home (repo header) row is the `branch` row that carries the
-  // repo's own icon — the sidebar's one 20px glyph exception outside the
-  // project header itself (spec §3.1), and also the one row spec §9 calls a
-  // protected branch. Keyed on `repoIcon`, not on `parentId === null`: a
-  // header filed into a home folder keeps its parent, and must keep its
-  // identity (icon picker, overflow menu, no Lock/Remove). `rows-from-repo.ts`
-  // stamps `repoIcon` on exactly that one row per repo. `!inlineRenameDisabled`
-  // stays as a second guard: it is the one signal that means "this SidebarRow
-  // instance is Recents' mirror, not the tree's own row" (see that prop's own
-  // doc), and Recents' `chatIcons` rows never carry `repoIcon` either.
+  // The repo header is the `branch` row carrying `repoIcon` (deriveRows stamps exactly one per
+  // repo) — not `parentId === null`, since a header filed into a home folder keeps a parent.
+  // Recents' mirror never counts: it is not where the header's icon and menu are edited.
   const isProjectHome = row.kind === 'branch' && row.repoIcon !== undefined && !inlineRenameDisabled
   const expanded = !folded
-  // Double-click-to-rename (sidebar-tree-chrome.tsx's delegated `dblclick`
-  // listener) and the right-click menu's Rename item (row-context-menu.tsx)
-  // both start this row's turn in `sidebar-inline-rename.ts`'s store — real
-  // inline editing in place, matching `develop`, never a modal. The role
-  // check already happened inside `isThisRowRenaming`'s own selector (read
-  // unconditionally at the top of this function — see that hook call's own
-  // doc), so this is just that value.
+  // Double-click and the context menu's Rename both start this row's turn in the rename store;
+  // the role check already ran in `isThisRowRenaming`'s selector.
   const renaming = isThisRowRenaming
-  // Rule 6: a `branch` row that owns a real, unlocked workspace draws its
-  // OWNING CHAT's title on the label line now (`rows-from-repo.ts`'s own
-  // `label`/`branchName` split), with the branch name and change counts moved
-  // to a second line beneath it. A locked branch, the project-home row, and a
-  // genuinely chat-less workspace (no owner resolved yet) all keep the single
-  // branch/repo-name line instead (addendum rules 1-4: "Folder mechanism" for
-  // the first two — unchanged) — every one of those is exactly the case where
-  // `label` IS `branchName`, which is what the last check below catches
-  // without a field of its own: a second line would just repeat the label.
+  const editing = renaming || branching
+  // An unlocked branch row owning a workspace shows its owning chat's title, with branch name and
+  // counts on a second line. A locked branch, the repo header and an unowned workspace keep one
+  // line: their label IS the branch name, which the last check catches.
   const showBranchSecondLine =
     !tab &&
     row.kind === 'branch' &&
@@ -227,10 +138,7 @@ export function SidebarRow({
     !row.locked &&
     !!row.branchName &&
     row.label !== row.branchName
-  // Every trailing-cluster button below shares this — see
-  // `ROW_SUB_ACTION_INVERTED`'s own doc for why a row painted on an inverted
-  // `ROW_ACTIVE` ground needs its buttons re-keyed the same way its label/icon
-  // already are.
+  // An inverted TAB_ACTIVE ground re-keys the trailing buttons too (see ROW_SUB_ACTION_INVERTED).
   const subActionClass = cn(ROW_SUB_ACTION_HOVER, activeGround && ROW_SUB_ACTION_INVERTED)
   // A header drawn where its icon can't be edited (the phone's list).
   const isReadOnlyHeader = !isProjectHome && row.kind === 'branch' && !!row.repoIcon
@@ -238,7 +146,11 @@ export function SidebarRow({
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: rowIndent(depth, metrics) }}>
       <div
-        role="treeitem"
+        // A view tab is one of the strip's tabs; `hasView` marks a view that is open but not showing.
+        role={tab ? 'tab' : 'treeitem'}
+        aria-level={tab ? undefined : depth + 1}
+        aria-selected={tab ? !row.hasView : undefined}
+        aria-label={row.label}
         tabIndex={0}
         data-sidebar-row-id={row.id}
         {...dragProps}
@@ -246,10 +158,7 @@ export function SidebarRow({
         className={cn(
           ROW_BASE,
           isNestTarget ? ROW_NEST_TARGET : ROW_INACTIVE,
-          // Swap ONLY the text-color half of ROW_INACTIVE — border-transparent
-          // and hover:bg-accent are still correct (this row draws no fill of
-          // its own either way; the fill comes from the ROW_ACTIVE ground
-          // painted on an ancestor). See `activeGround`'s own doc.
+          // Only ROW_INACTIVE's text color: the fill is the ancestor's TAB_ACTIVE ground.
           !isNestTarget && activeGround && 'text-foreground-inverse',
           !isNestTarget && hasViewIdle && row.hasView && ROW_HAS_VIEW_IDLE,
           isDragging && 'opacity-40',
@@ -262,19 +171,13 @@ export function SidebarRow({
         onClick={(e) => {
           // A click inside the inline editor (or on the space it just
           // vacated before React re-renders) must not open the row.
-          if (renaming) return
-          // This row is `tabIndex={0}`, so a pointer click leaves it
-          // genuinely `:focus`ed with no visible ring (`:focus-visible`
-          // suppresses the ring for a pointer click, but `:focus-within`
-          // still matches plain `:focus` — see the trailing "thread" button's
-          // own identical fix, above) — without this, `group-focus-within:`
-          // consumers (ROW_SUB_ACTION_HOVER's trailing action, chiefly) stay
-          // lit on this row indefinitely, long after the pointer moved on,
-          // until some OTHER element happens to take focus.
+          if (editing) return
+          // A pointer click leaves this tabIndex=0 row `:focus`ed with no ring, which keeps
+          // `group-focus-within:` actions lit until something else takes focus; blur it.
           e.currentTarget.blur()
           onOpen(row.id)
         }}
-        onPointerDown={renaming ? undefined : onPointerDownDrag}
+        onPointerDown={editing ? undefined : onPointerDownDrag}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {
@@ -283,17 +186,9 @@ export function SidebarRow({
           }
         }}
       >
-        {/* The only signal of ownership (spec §3.1): a git mark for a row that
-            owns a worktree, a chat bubble for one that borrows its parent's,
-            a folder mark for pure organisation. `working` swaps it for the
-            flip-dot spinner IN PLACE — never beside it (§3.2).
-            The project-home row's glyph is a THIRD thing the static
-            RowGlyph can't be: the repo's own personalizable icon — clicking
-            it (and only it; the click is stopped from reaching the row)
-            reopens the icon picker the tree retirement severed. `repoIcon`
-            is absent until the repo's owning project has seeded, in which
-            case this falls back to the plain glyph rather than guessing at
-            a REST base it can't build. */}
+        {/* The only signal of ownership (spec §3.1); work in flight swaps it
+            for the spinner in place, never beside it (§3.2). A split's tab
+            members carry no resting glyph. */}
         {(tab !== 'tab-member' || row.working) && (
           <span
             className={cn(
@@ -304,66 +199,37 @@ export function SidebarRow({
             )}
             style={rowGlyphStyle(metrics)}
           >
-            {row.working ? (
-              <FlickerSpinner className="size-3.5" />
-            ) : isProjectHome && row.repoIcon ? (
-              <EditableRepoIcon
-                repo={row.repoIcon}
-                projectId={row.repoIcon.projectId}
-                repoId={row.repoIcon.repoId}
-                size="lg"
-              />
-            ) : isReadOnlyHeader && row.repoIcon ? (
-              <RepoAvatar
-                avatar={{
-                  url: row.repoIcon.avatarURL,
-                  label: row.repoIcon.avatarLabel,
-                  color: row.repoIcon.avatarColor,
-                }}
-                name={row.repoIcon.name}
-                size="lg"
-              />
-            ) : (
-              <RowGlyph
-                row={row}
-                large={isProjectHome}
-                expanded={expanded}
-                activeGround={activeGround}
-              />
-            )}
+            <SidebarRowGlyph
+              row={row}
+              isProjectHome={isProjectHome}
+              readOnlyHeader={isReadOnlyHeader}
+              expanded={expanded}
+              activeGround={activeGround}
+            />
           </span>
         )}
 
-        {renaming ? (
+        {branching ? (
+          <BranchOutInput row={row} />
+        ) : renaming ? (
           <InlineRenameInput
             defaultValue={row.label}
             mono={row.kind === 'branch' && !showBranchSecondLine && !tab}
             onConfirm={(name) => {
-              useSidebarInlineRenameStore.getState().stopRenaming()
+              treeUiStore.getState().stopRenaming()
               if (name !== row.label) void performRenameRow(row.id, name)
             }}
-            onCancel={() => useSidebarInlineRenameStore.getState().stopRenaming()}
+            onCancel={() => treeUiStore.getState().stopRenaming()}
           />
         ) : showBranchSecondLine ? (
-          // A flex COLUMN, not a row (matches the retired workspace tree's own
-          // `WorkspaceRowLabel`) — the counts sit UNDER the title, not beside
-          // it, so the title keeps the row's full width. ROW_BASE's `h-9` is a
-          // fixed 36px and the two leadings below (16px + 13px) are sized to
-          // fit inside it without growing the row.
+          // A column, so counts sit under the title and it keeps the row's full width; the two
+          // leadings (16px + 13px) fit inside ROW_BASE's fixed 36px height.
           <span
             data-sidebar-row-label=""
             className={cn(
               'flex min-w-0 flex-1 flex-col justify-center',
-              // Grey only where the row's own ground (ROW_HAS_VIEW_IDLE,
-              // above) isn't already saying "open" — the tree opts in via
-              // hasViewIdle, so it never greys; Recents (unset) still does,
-              // per that file's own note on why a solo entry there relies on
-              // the label alone. See ROW_HAS_VIEW_IDLE's own doc. Never on an
-              // inverted ground either (`activeGround`) — `row.hasView` is
-              // already false for the one member actually painted on that
-              // ground (view-row.tsx sets `hasView={isLive && !isShowing}`),
-              // but this guard keeps the two signals from ever fighting if
-              // that invariant changes.
+              // Grey only where nothing else says "open": not with the idle ground (hasViewIdle)
+              // and never on an inverted ground (activeGround).
               row.hasView && !hasViewIdle && !activeGround && 'text-muted-foreground',
             )}
           >
@@ -375,22 +241,29 @@ export function SidebarRow({
             </span>
             <BranchSecondLine row={row} activeGround={activeGround} metrics={metrics} />
           </span>
+        ) : pendingMove !== null && !tab ? (
+          <span data-sidebar-row-label="" className="flex min-w-0 flex-1 flex-col justify-center">
+            <span className="truncate" style={rowTitleStyle(metrics)}>
+              {row.label}
+            </span>
+            <span
+              className={cn(ROW_SUBLABEL, activeGround && 'text-foreground-inverse')}
+              style={rowSubStyle(metrics)}
+            >
+              {pendingMove ? `Moving to ${pendingMove} after this turn` : 'Moving after this turn'}
+            </span>
+          </span>
         ) : (
           <span
-            // Double-click-to-rename's delegation marker (sidebar-tree-chrome.tsx):
-            // that listener sits on an ancestor of every project's rows, so it
-            // needs to tell a double-click on the label apart from one on the
-            // trailing trash/create/fold controls, which don't stop a bubbling
-            // `dblclick` the way they already stop `click`/`pointerdown`.
+            // Delegation marker for double-click-to-rename: the listener sits on an ancestor and
+            // must tell the label from trailing controls, which don't stop a bubbling `dblclick`.
             data-sidebar-row-label=""
             className={cn(
               'min-w-0 flex-1 truncate',
               row.kind === 'branch' && !tab && 'font-mono',
               row.labelProvisional && 'italic',
-              // A row with a view is grey — focused or not (§3.2) — UNLESS
-              // the row's own ground already carries that signal (see the
-              // sibling branch above and ROW_HAS_VIEW_IDLE's own doc), or is
-              // an inverted ROW_ACTIVE ground (see `activeGround`'s own doc).
+              // A row with a view is grey (§3.2) unless the idle ground or an inverted ground
+              // already carries that signal.
               row.hasView && !hasViewIdle && !activeGround && 'text-muted-foreground',
             )}
           >
@@ -398,27 +271,26 @@ export function SidebarRow({
           </span>
         )}
 
-        <SidebarRowActions
-          row={row}
-          isProjectHome={isProjectHome}
-          expanded={expanded}
-          subActionClass={subActionClass}
-          onCreate={onCreate}
-          onTrash={onTrash}
-          onClose={onClose}
-          onToggleFold={onToggleFold}
-        />
+        {/* Naming a branch takes the row's width, so the reason a name is refused can be read. */}
+        {!branching && (
+          <SidebarRowActions
+            row={row}
+            isProjectHome={isProjectHome}
+            expanded={expanded}
+            movePending={pendingMove !== null}
+            subActionClass={subActionClass}
+            onCreate={onCreate}
+            onTrash={onTrash}
+            onClose={onClose}
+            onToggleFold={onToggleFold}
+          />
+        )}
       </div>
     </div>
   )
 }
 
-/**
- * A `branch` row's second line: `branchName -- +added -deleted` (rule 6).
- * Muted TOKEN throughout except the counts themselves, which keep the
- * green/red they've always had — see `ROW_SUBLABEL`'s own doc on why the line
- * is muted but the counts are not.
- */
+// A branch row's second line: `branchName -- +added -deleted`, muted except the green/red counts.
 function BranchSecondLine({
   row,
   activeGround,
@@ -426,9 +298,7 @@ function BranchSecondLine({
 }: {
   row: SidebarRowType
   metrics: RowMetrics | null
-  /** See `SidebarRowProps.activeGround` — `ROW_SUBLABEL`'s own hardcoded
-   *  `text-muted-foreground` tracks the ambient theme same as `ROW_INACTIVE`
-   *  does, and needs the identical swap on an inverted ground. */
+  /** Swaps ROW_SUBLABEL's ambient muted text on an inverted ground, as the label does. */
   activeGround?: boolean
 }) {
   const added = row.added ?? 0

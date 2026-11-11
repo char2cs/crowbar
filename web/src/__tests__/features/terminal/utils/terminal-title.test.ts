@@ -9,8 +9,7 @@ describe('sanitizeTerminalTitle', () => {
   })
 
   it('rejects the exact garbled prompt-in-OSC title seen on restore (regression)', () => {
-    // The shell encoded its full ANSI-colored prompt inside the OSC title; on a
-    // restore replay the last such sequence won and corrupted the tab name.
+    // A shell that encodes its ANSI-coloured prompt in the OSC title, replayed on restore.
     const raw =
       'crowbar [\x1b[01;32m0\x1b[00m] % \x1b[K\x1b[?1h\x1b=\x1b[?2004h ls -larph' +
       '\x1b[?1l\x1b>\x1b[?2004l \x1b]2;ls -G -larph'

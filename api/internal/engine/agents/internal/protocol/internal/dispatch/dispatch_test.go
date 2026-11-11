@@ -49,7 +49,7 @@ func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	t.Helper()
 	raw, err := os.ReadFile("../descriptor/descriptors-v3/codex.yaml")
 	require.NoError(t, err)
-	d, err := descriptor.ParseV3(raw)
+	d, err := descriptor.ParseV0(raw)
 	require.NoError(t, err)
 	return d
 }
@@ -81,6 +81,18 @@ func TestResolve_SumTypeDisambiguatesByItemType(t *testing.T) {
 	canonical, ok := dispatch.Resolve(d, "item/started", params)
 	require.True(t, ok)
 	assert.Equal(t, "user_prompt", canonical)
+}
+
+// On multi-agent v2 a spawn is no spawnAgent call: codex reports the agent it
+// started, or ran again on a follow-up, as a subAgentActivity item naming its thread.
+func TestResolve_ACodexV2SpawnIsASubagentStart(t *testing.T) {
+	d := loadCodexAPIDescriptor(t)
+	for _, fixture := range []string{"item_started.subAgentActivity", "item_started.subAgentActivity.interacted"} {
+		canonical, ok := dispatch.Resolve(d, "item/started", loadParams(t, fixture))
+
+		require.True(t, ok, fixture)
+		assert.Equal(t, "subagent_pre", canonical, fixture)
+	}
 }
 
 func TestResolve_UnknownWireMethodIsNotOK(t *testing.T) {
@@ -151,9 +163,9 @@ func TestResolve_ChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 			API: &spec.ChannelBlock{
 				In:   spec.WireRef{"item/started"},
 				When: spec.WhenMap{"item.type": {"commandExecution", "fileChange"}},
-				Map:  spec.FieldMap{"tool_id": {"item.id"}},
+				Map:  spec.FieldMap{"tool_id": mapping.Paths("item.id")},
 			},
-			Hooks: &spec.ChannelBlock{In: spec.WireRef{"PreToolUse"}, Map: spec.FieldMap{"tool_id": {"tool_use_id"}}},
+			Hooks: &spec.ChannelBlock{In: spec.WireRef{"PreToolUse"}, Map: spec.FieldMap{"tool_id": mapping.Paths("tool_use_id")}},
 		},
 	}}
 
@@ -184,8 +196,8 @@ func TestResolve_ChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 func TestResolve_AskChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 	d := &spec.Descriptor{Events: map[string]spec.EventSpec{
 		"permission": {
-			API:   &spec.ChannelBlock{Ask: spec.WireRef{"approval/request"}, Map: spec.FieldMap{"tool_name": {"tool"}}},
-			Hooks: &spec.ChannelBlock{Ask: spec.WireRef{"PermissionRequest"}, Map: spec.FieldMap{"tool_name": {"tool_name"}}},
+			API:   &spec.ChannelBlock{Ask: spec.WireRef{"approval/request"}, Map: spec.FieldMap{"tool_name": mapping.Paths("tool")}},
+			Hooks: &spec.ChannelBlock{Ask: spec.WireRef{"PermissionRequest"}, Map: spec.FieldMap{"tool_name": mapping.Paths("tool_name")}},
 		},
 	}}
 
@@ -372,22 +384,15 @@ func TestRegression_AStatuslessToolItemStillClosesViaToolPost(t *testing.T) {
 	assert.Equal(t, "tool_post", canonical)
 }
 
-// thread/status/changed is a sum type on status.type. Only `idle` means the work
-// is finished — `active` is a turn opening, and `systemError`/`notLoaded` mean
-// broken or not-yet-loaded, neither of which may close a turn.
-func TestResolve_OnlyTheIdleThreadStatusIsMapped(t *testing.T) {
+// thread/status/changed maps to nothing: its idle lands just before the turn's
+// own turn/completed, and an idle ends the running turn.
+func TestResolve_NoThreadStatusIsMapped(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 
-	canonical, ok := dispatch.Resolve(d, "thread/status/changed",
-		loadParams(t, "thread_status_changed.idle"))
-	require.True(t, ok)
-	assert.Equal(t, "idle", canonical)
-
-	// The live capture of the ACTIVE variant, which must map to nothing.
-	_, ok = dispatch.Resolve(d, "thread/status/changed",
-		loadParams(t, "thread_status_changed"))
-	assert.False(t, ok, "an opening turn must never be read as a finished one")
-
+	for _, fixture := range []string{"thread_status_changed.idle", "thread_status_changed"} {
+		_, ok := dispatch.Resolve(d, "thread/status/changed", loadParams(t, fixture))
+		assert.False(t, ok, "%s must not end a turn", fixture)
+	}
 	for _, status := range []string{"systemError", "notLoaded"} {
 		_, ok := dispatch.Resolve(d, "thread/status/changed", map[string]any{
 			"threadId": "t1", "status": map[string]any{"type": status},

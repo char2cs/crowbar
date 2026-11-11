@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -33,10 +34,6 @@ func (stubGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, 
 }
 
 func (stubGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, error) {
-	return nil, nil
-}
-
-func (stubGit) Blame(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
 	return nil, nil
 }
 
@@ -107,26 +104,10 @@ func (stubGit) ResolveHunk(_ context.Context, _, _, _ string, _ gitdomain.Confli
 func (stubGit) OperationContinue(_ context.Context, _ string, _ time.Time) error { return nil }
 func (stubGit) OperationAbort(_ context.Context, _ string, _ time.Time) error    { return nil }
 
-type stubLastErrors struct{}
+type stubOps struct{}
 
-func (stubLastErrors) SetLastError(
-	_ context.Context,
-	id string,
-	message string,
-) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, LastError: message}, nil
-}
-
-type stubWork struct{}
-
-func (stubWork) BeginWork(_ context.Context, _ string) {}
-func (stubWork) EndWork(_ context.Context, _ string)   {}
-
-func passthrough(
-	rest gin.HandlerFunc,
-	_ gin.HandlerFunc,
-) gin.HandlerFunc {
-	return rest
+func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Operation, error) {
+	return domain.Operation{}, nil
 }
 
 // gitSurface is the method+relative-path set git.Register mounts, written once
@@ -144,7 +125,6 @@ func gitSurface() []struct {
 		{http.MethodGet, "/status"},
 		{http.MethodGet, "/diff"},
 		{http.MethodGet, "/log"},
-		{http.MethodGet, "/blame"},
 		{http.MethodGet, "/branches"},
 		{http.MethodGet, "/stashes"},
 		{http.MethodGet, "/conflicts"},
@@ -188,10 +168,7 @@ func registerChatScoped(
 	git.Register(
 		v0.Group("/chats/:chatId"),
 		stubGit{},
-		stubLastErrors{},
-		stubWork{},
-		func(_ *gin.Context) {},
-		passthrough,
+		stubOps{},
 	)
 	return r
 }
@@ -228,4 +205,17 @@ func TestRegisterDropsWorkspaceScopedRoutes(
 		r.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
+}
+
+// Blame is served once, by the editor endpoint's GET /v0/chats/:chatId/blame;
+// git mounts no second copy that could drift from it.
+func TestRegisterLeavesBlameToEditor(
+	t *testing.T,
+) {
+	r := registerChatScoped(t)
+
+	rec := httptest.NewRecorder()
+	path := "/v0/chats/chat1/git/blame?path=a.go"
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

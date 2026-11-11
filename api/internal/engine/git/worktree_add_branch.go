@@ -8,10 +8,8 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
-// created branch, starting at startPoint (07 §1). It resolves startPoint to a
-// SHA before taking the repo lock, since lockRepo uses a non-reentrant
-// sync.Mutex. Returns the start SHA so callers can record it as forkPointSha.
+// WorktreeAddBranch adds a worktree on a new branch at startPoint, resolving it to a SHA before
+// the non-reentrant repo lock; returns that SHA for forkPointSha.
 func (e *engine) WorktreeAddBranch(
 	ctx context.Context,
 	repoPath string,
@@ -22,6 +20,9 @@ func (e *engine) WorktreeAddBranch(
 	startSha, err := e.revParse(ctx, repoPath, startPoint)
 	if err != nil {
 		return "", fmt.Errorf("worktree add branch: resolve start: %w", err)
+	}
+	if err := makeWorktreeParent(worktreePath); err != nil {
+		return "", err
 	}
 	unlock := e.lockRepo(ctx, repoPath)
 	defer unlock()
@@ -37,29 +38,20 @@ func (e *engine) revParse(
 	repoPath string,
 	rev string,
 ) (string, error) {
-	r := e.exec(ctx, repoPath, "rev-parse", rev)
+	r := e.exec(ctx, repoPath, "rev-parse", "--verify", "--quiet", rev)
+	// Under --verify --quiet absence alone exits 1 (fatal errors exit 128).
+	if r.ExitCode == 1 && strings.TrimSpace(r.Stdout) == "" {
+		return "", fmt.Errorf("rev-parse %s: %w", rev, ErrBranchNotFound)
+	}
 	if err := gitexec.RequireSuccess("rev-parse", r); err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(r.Stdout), nil
 }
 
-// WorktreeAddAtRef checks branch out into a fresh worktree at worktreePath with
-// the branch ref RESET to startRef (`git worktree add -B`), and returns the
-// resolved start SHA.
-//
-// `-B` (not `-b`) is what makes an import authoritative about the remote: the
-// local branch is created when absent and repointed at startRef when it already
-// exists. Plain `git worktree add <path> <branch>` checks out whatever the local
-// ref happens to be, which is how a diverged local copy of a branch — a leftover
-// from before the repo folder was adopted, or the aftermath of a force-push —
-// got imported INSTEAD of origin's commits, under a row claiming to be origin's
-// branch and a fork point the checked-out history did not contain.
-//
-// The reset is a ref move, not a history rewrite: commits only reachable from
-// the old local tip stay in the reflog, and the caller logs that tip. A branch
-// checked out in another worktree still makes git refuse, which is the outcome
-// the holder/placeholder path already handles.
+// WorktreeAddAtRef checks branch out with its ref RESET to startRef (`-B`): plain add would check out
+// a diverged local copy instead of origin's commits. It is a ref move (old tip stays in the reflog);
+// a branch checked out elsewhere still makes git refuse, which the holder path handles.
 func (e *engine) WorktreeAddAtRef(
 	ctx context.Context,
 	repoPath string,
@@ -72,6 +64,9 @@ func (e *engine) WorktreeAddAtRef(
 	if err != nil {
 		return "", fmt.Errorf("worktree add at ref: resolve start: %w", err)
 	}
+	if err := makeWorktreeParent(worktreePath); err != nil {
+		return "", err
+	}
 	unlock := e.lockRepo(ctx, repoPath)
 	defer unlock()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, "-B", branch, startSha)
@@ -79,8 +74,7 @@ func (e *engine) WorktreeAddAtRef(
 		// Same dead-registration recovery WorktreeAdd performs: a worktree whose
 		// directory vanished still holds its branch "checked out" and blocks the
 		// add forever until the stale registration is pruned.
-		_ = gitexec.RequireSuccess("worktree prune",
-			e.exec(ctx, repoPath, "worktree", "prune"))
+		e.pruneBeforeRetry(ctx, repoPath)
 		r = e.exec(ctx, repoPath, "worktree", "add", worktreePath, "-B", branch, startSha)
 	}
 	if err := classifyGitError("worktree add at ref", r); err != nil {

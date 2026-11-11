@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 )
 
 // GitEnv is the minimal git identity environment to avoid identity prompts.
@@ -204,12 +206,9 @@ func TrimNewline(
 	)
 }
 
-// InitRepoWithRemoteBranch creates a working repo (default branch main, one
-// commit) wired to a fresh bare origin remote, and pushes an extra branch to the
-// remote that does NOT exist as a local head. It returns the working repo path
-// and the name of the remote-only branch. This is the fixture for the §3
-// remote-branch-exists decision: CreateChild on the remote-only branch must
-// fetch + checkout it; CreateChild on any absent branch must fork from parent.
+// InitRepoWithRemoteBranch creates a repo (main, one commit) with a bare origin and
+// pushes a branch that has no local head; it returns the repo path and that branch, so
+// CreateChild can be tested fetching a remote-only branch.
 func InitRepoWithRemoteBranch(
 	t *testing.T,
 	remoteBranch string,
@@ -302,4 +301,24 @@ func FileExists(
 		err,
 	)
 	return info.Mode().IsRegular()
+}
+
+// RepoImport is the usecase input that imports repoPath under projectID.
+func RepoImport(projectID, repoPath string) project.RepoImport {
+	return project.RepoImport{ProjectID: projectID, Path: repoPath}
+}
+
+// RequireBranches is an import's progress that fails t for every protected
+// branch whose workspace could not be set up.
+func RequireBranches(tb testing.TB) project.RepoProgress {
+	tb.Helper()
+	return requireBranches{tb}
+}
+
+type requireBranches struct{ t testing.TB }
+
+func (r requireBranches) Workspace(id, branch string, err error) {
+	if err != nil {
+		r.t.Errorf("import: protected branch %s (workspace %s): %v", branch, id, err)
+	}
 }

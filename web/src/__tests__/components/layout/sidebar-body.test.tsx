@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SidebarBody } from '@/components/layout/sidebar-body'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import {
   EMPTY_FOCUSED_WORKSPACE_CONTEXT,
   publishFocusedWorkspaceContext,
@@ -55,7 +55,7 @@ function renderBody() {
 
 describe('SidebarBody', () => {
   beforeEach(() => {
-    useSidebarStore.setState(getInitialState())
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
     publishFocusedWorkspaceContext(REPO_CTX)
     treeProps.mockClear()
   })
@@ -91,7 +91,7 @@ describe('SidebarBody', () => {
   })
 
   it('restores a persisted mode on mount', () => {
-    useSidebarStore.setState({ activeTab: 'files' })
+    treeUiStore.setState({ activeTab: 'files' })
     renderBody()
     expect(screen.getByTestId('panel-files')).toBeVisible()
     expect(screen.getByTestId('panel-chats')).not.toBeVisible()
@@ -99,7 +99,7 @@ describe('SidebarBody', () => {
 
   it('falls back to Chats when focus moves to a workspace without a repo while Git shows', () => {
     publishFocusedWorkspaceContext(BRANCH_CTX)
-    useSidebarStore.setState({ activeTab: 'git' })
+    treeUiStore.setState({ activeTab: 'git' })
     renderBody()
     expect(screen.getByTestId('panel-git')).toBeVisible()
 
@@ -111,7 +111,7 @@ describe('SidebarBody', () => {
 
   it('a persisted Git mode with no repo focused shows Chats', () => {
     publishFocusedWorkspaceContext(HOME_CTX)
-    useSidebarStore.setState({ activeTab: 'git' })
+    treeUiStore.setState({ activeTab: 'git' })
     renderBody()
     expect(screen.getByTestId('panel-chats')).toBeVisible()
   })
@@ -133,7 +133,7 @@ describe('SidebarBody', () => {
 
   it('renders the mode bar on an empty stage, with Chats showing', () => {
     publishFocusedWorkspaceContext(EMPTY_FOCUSED_WORKSPACE_CONTEXT)
-    useSidebarStore.setState({ activeTab: 'files' })
+    treeUiStore.setState({ activeTab: 'files' })
     renderBody()
     expect(screen.getByRole('tablist', { name: 'Sidebar mode' })).toBeInTheDocument()
     expect(screen.getByTestId('panel-chats')).toBeVisible()

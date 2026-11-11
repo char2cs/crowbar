@@ -7,6 +7,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
 
 vi.mock('@/features/editor/stores/state-store', () => ({
   useEditorStateStore: {
@@ -21,18 +22,15 @@ vi.mock('@/features/editor/stores/state-store', () => ({
 function openFile(workspaceId: string, path: string) {
   return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',
-    path,
+    doc: workspaceRef(workspaceId, path),
     name: path.split('/').pop()!,
-    content: path,
-    workspaceId,
   })
 }
 
 beforeEach(() => {
   useJumpListStore.getState().actions.clear()
-  // Task 26: panes/buffers are window-level and never destroyed, so the
-  // singleton persists across tests — reset it to a pristine, empty store
-  // (mirroring createWindowPaneStore's own defaults) before each test.
+  // The window-level pane store is a singleton that outlives each test; start every test from
+  // createWindowPaneStore's empty defaults.
   resetWindowPaneStoreForTests()
   setActiveWorkspaceId('w1')
 })
@@ -50,10 +48,10 @@ describe('useNavigationHistory', () => {
     const entries = useJumpListStore.getState().entries
     expect(entries).toHaveLength(1)
     expect(entries[0].bufferId).toBe(first)
-    expect(entries[0].filePath).toBe('/src/a.ts')
+    expect(entries[0].doc.path).toBe('/src/a.ts')
   })
 
-  it('stamps the recording workspace onto every entry', () => {
+  it('stamps the whole document onto every entry', () => {
     openFile('w1', '/src/a.ts')
     renderHook(() => useNavigationHistory())
 
@@ -63,7 +61,7 @@ describe('useNavigationHistory', () => {
 
     // Without this the (process-global) jump list cannot tell which checkout a
     // workspace-relative path belongs to.
-    expect(useJumpListStore.getState().entries[0].workspaceId).toBe('w1')
+    expect(useJumpListStore.getState().entries[0].doc).toEqual(workspaceRef('w1', '/src/a.ts'))
   })
 
   /**
@@ -114,6 +112,6 @@ describe('useNavigationHistory', () => {
     const entries = useJumpListStore.getState().entries
     expect(entries).toHaveLength(1)
     expect(entries[0].bufferId).toBe(bFirst)
-    expect(entries[0].workspaceId).toBe('w2')
+    expect(entries[0].doc).toEqual(workspaceRef('w2', '/src/app.ts'))
   })
 })

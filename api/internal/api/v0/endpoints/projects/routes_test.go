@@ -9,9 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects"
-	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -64,8 +63,19 @@ func (stubImporter) Import(
 	return domain.Project{}, nil
 }
 
+type stubOps struct{}
+
+func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Operation, error) {
+	return domain.Operation{}, nil
+}
+
+func (stubOps) Replay(context.Context, string, domain.OperationKind, domain.EntityRef) (domain.Operation, bool, error) {
+	return domain.Operation{}, false, nil
+}
+
 func (stubImporter) Create(
 	_ context.Context,
+	_ string,
 	_ string,
 	_ string,
 ) (domain.Project, error) {
@@ -94,15 +104,13 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	noopWS := func(_ *gin.Context) {}
 	projects.Register(
 		r.Group("/v0"),
 		stubReader{},
 		stubImporter{},
 		stubDeleter{},
-		func(dto.ProjectDTO) {},
-		noopWS,
-		ws.DualServe,
+		stubOps{},
+		func() (string, error) { return t.TempDir(), nil },
 	)
 
 	cases := []struct {

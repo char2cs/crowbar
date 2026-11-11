@@ -1,13 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
-import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import {
-  getInitialInlineRenameState,
-  useSidebarInlineRenameStore,
-} from '@/lib/store/sidebar-inline-rename'
+import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import type { Repo } from '@/core/entities/repo-types'
+import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
@@ -16,35 +14,24 @@ import * as trashActions from '@/components/layout/trash-actions'
 import * as createActions from '@/components/layout/create-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import * as chatCommands from '@/features/agent/api/agent-chat-commands'
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
-}))
-
-vi.mock('@/components/layout/trash-actions', async (importOriginal) => ({
-  ...(await importOriginal<typeof trashActions>()),
-  handleTrashRepo: vi.fn(),
-}))
-vi.mock('@/components/layout/create-actions', async (importOriginal) => ({
-  ...(await importOriginal<typeof createActions>()),
-  handleCreate: vi.fn(),
-}))
-
-// row-context-menu.tsx needs a router `navigate` for handleCreate's fallback
-// (a row whose workspace isn't currently active) — same stub
-// space-scroller.test.tsx already uses for the identical need.
+// handleCreate's fallback needs a router `navigate`.
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }))
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof api>()),
-  setWorkspaceLock: vi.fn().mockResolvedValue(undefined),
-}))
-
-vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
-  ...(await importOriginal<typeof sidebarPlacement>()),
-  createFolder: vi.fn().mockResolvedValue({
+// The menu's verbs are asserted at their API boundary; `resolveHomeRowScope` gets a resolved home
+// workspace id rather than exercising its async fetch.
+function stubMenuVerbs() {
+  vi.spyOn(toast, 'error').mockImplementation(() => '')
+  vi.spyOn(toast, 'success').mockImplementation(() => '')
+  vi.spyOn(trashActions, 'handleTrashRepo').mockImplementation(() => false)
+  vi.spyOn(createActions, 'handleCreate').mockResolvedValue(undefined)
+  vi.spyOn(api, 'setWorkspaceLock').mockResolvedValue(undefined)
+  vi.spyOn(sidebarPlacement, 'createFolder').mockResolvedValue({
     folder: {
       id: 'folder-new',
       repoId: 'repo-1',
@@ -53,8 +40,9 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
       order: 0,
     },
     shifted: [],
-  }),
-  createHomeFolder: vi.fn().mockResolvedValue({
+    shiftedRows: [],
+  })
+  vi.spyOn(sidebarPlacement, 'createHomeFolder').mockResolvedValue({
     folder: {
       id: 'home-folder-new',
       repoId: '',
@@ -63,32 +51,13 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
       order: 0,
     },
     shifted: [],
-  }),
-}))
+    shiftedRows: [],
+  })
+  vi.spyOn(homeWorkspaceResolver, 'getHomeWorkspaceId').mockReturnValue('home-ws-1')
+}
 
-// `resolveHomeRowScope` needs a resolved home workspace id to recognise any
-// row as home-scoped at all (`getHomeWorkspaceId`) — real elsewhere in this
-// file's fixtures, but real resolution is an async fetch this file has no
-// business exercising.
-vi.mock('@/features/workspace/lib/home-workspace-resolver', async (importOriginal) => ({
-  ...(await importOriginal<typeof homeWorkspaceResolver>()),
-  getHomeWorkspaceId: () => 'home-ws-1',
-}))
-
-/**
- * THE FIXTURE IS THE STORE, AND THE ROWS ARE DERIVED FROM IT.
- *
- * The previous version of this file hand-wrote its rows with `id: 'ws-2'` under
- * a comment claiming it "matches what rowsFromRepo.ts actually produces" — which
- * stopped being true the moment a locked branch row started carrying the id of
- * the CHAT that owns its workspace. Every id-space bug on this seam therefore
- * passed CI: the menu compared a row id against `w.id` and the fixture handed it
- * a row id that WAS `w.id`.
- *
- * So this file no longer writes rows at all. It writes the repo the store holds
- * and runs `rowsFromRepo` over it, exactly as `SidebarTreeSurface` does — the
- * rows below are whatever that function really produces, id space included.
- */
+// The fixture is the store and the rows are derived from it, id space included: hand-written
+// row ids hid every id-space bug on this seam (a row id that was `w.id` matched a check on `w.id`).
 const REPO: Repo = {
   id: 'repo-1',
   projectId: 'proj-1',
@@ -121,17 +90,10 @@ const REPO: Repo = {
     },
     // A plain thread — no `ownsWorktree`, no parent, no workspace ground —
     // exactly what a chat row with no folder yet to right-click looks like.
-    {
-      id: 'thread-1',
-      repoId: 'repo-1',
-      ownsWorktree: false,
-      title: 'A thread',
-      order: 2,
-    },
+    { id: 'thread-1', repoId: 'repo-1', ownsWorktree: false, title: 'A thread', order: 2 },
   ],
 }
-/** A plain (repo-scoped) thread's row id, addendum's own reported gap: no
- *  right-click path to create the first folder from a bare chat row. */
+/** A plain (repo-scoped) thread's row id. */
 const THREAD_ROW_ID = 'thread-1'
 
 /** The repo-home row's id: the owning chat, never `defaultWorkspaceId`. */
@@ -144,11 +106,24 @@ const FORK_ROW_ID = 'ws-1'
 
 let rows: SidebarRow[] = []
 
-function renderMenu() {
+/** The tree's inline editor for whichever row the store is renaming. */
+function RenamingRow() {
+  const stop = () => treeUiStore.getState().stopRenaming()
+  const renaming = useTreeUi((s) => s.renaming)
+  return renaming && <InlineRenameInput defaultValue="" onConfirm={stop} onCancel={stop} />
+}
+
+/** `tree` renders in the menu's own React tree, as the sidebar's rows do. */
+function renderMenu(tree?: React.ReactNode) {
   const treeRef = { current: document.createElement('div') }
   document.body.appendChild(treeRef.current)
   const onImport = vi.fn()
-  render(<SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={onImport} />)
+  render(
+    <>
+      {tree}
+      <SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={onImport} />
+    </>,
+  )
   return { treeRef, onImport }
 }
 
@@ -156,14 +131,15 @@ function rightClick(tree: HTMLElement, rowId: string) {
   const target = document.createElement('div')
   target.setAttribute('role', 'treeitem')
   target.setAttribute('data-sidebar-row-id', rowId)
+  target.tabIndex = 0
   tree.appendChild(target)
+  // The row holds focus when the menu opens, so that is where the menu returns it.
+  target.focus()
   fireEvent.contextMenu(target)
   return target
 }
 
-/** sidebar-row.tsx's own "..." button, nested inside the row exactly as it
- *  really renders — the row-level `[role="treeitem"]` ancestor carries the
- *  id, not the button itself. */
+/** sidebar-row.tsx's own "..." button, nested in the row that carries the id. */
 function clickRepoMenuButton(tree: HTMLElement, rowId: string) {
   const row = document.createElement('div')
   row.setAttribute('role', 'treeitem')
@@ -176,73 +152,55 @@ function clickRepoMenuButton(tree: HTMLElement, rowId: string) {
   return button
 }
 
-/** A project-home folder, exactly as `rowsFromHome` would draw it — home
- *  rides no repo, so it is never part of `rowsFromRepo(REPO)`'s output. */
+/** A project-home folder as `deriveRows` draws it; home rides no repo, so not in `repoRows`. */
 const HOME_FOLDER_ROW_ID = 'home-folder-1'
-const homeFolderRow: SidebarRow = {
-  id: HOME_FOLDER_ROW_ID,
-  kind: 'folder',
-  parentId: null,
-  order: 0,
-  label: 'Home Folder',
-  ownsWorktree: false,
-  workspaceId: null,
-  working: false,
-  hasView: false,
-}
+const homeRow = (
+  id: string,
+  kind: SidebarRow['kind'],
+  order: number,
+  label: string,
+): SidebarRow => ({
+  ...{ id, kind, order, label, parentId: null, workspaceId: null },
+  ...{ ownsWorktree: false, working: false, hasView: false },
+})
+const homeFolderRow = homeRow(HOME_FOLDER_ROW_ID, 'folder', 0, 'Home Folder')
 
-/** A plain (home-scoped) thread, same gap as `THREAD_ROW_ID` above but for a
- *  project's home rather than a repo — likewise synthetic, since home rows
- *  never come out of `rowsFromRepo`. */
+/** A plain home-scoped thread, the home side of `THREAD_ROW_ID`. */
 const HOME_THREAD_ROW_ID = 'home-thread-1'
-const homeThreadRow: SidebarRow = {
-  id: HOME_THREAD_ROW_ID,
-  kind: 'chat',
-  parentId: null,
-  order: 1,
-  label: 'A home thread',
-  ownsWorktree: false,
-  workspaceId: null,
-  working: false,
-  hasView: false,
-}
+const homeThreadRow = homeRow(HOME_THREAD_ROW_ID, 'chat', 1, 'A home thread')
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState({ ...getInitialState(), repos: [REPO] })
-  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
-  useHomeTreeStore.setState({
-    trees: {
-      'proj-1': {
-        chats: [
-          {
-            id: 'home-branch-chat',
-            repoId: '',
-            ownsWorktree: true,
-            workspaceId: 'home-ws-1',
-            title: '',
-            order: 0,
-          },
-          {
-            id: HOME_THREAD_ROW_ID,
-            repoId: '',
-            ownsWorktree: false,
-            title: 'A home thread',
-            order: 1,
-          },
-        ],
-        folders: [{ id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }],
+  stubMenuVerbs()
+  seedRepos([REPO])
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  seedHomeTree('proj-1', {
+    chats: [
+      {
+        id: 'home-branch-chat',
+        repoId: '',
+        ownsWorktree: true,
+        workspaceId: 'home-ws-1',
+        title: '',
+        order: 0,
       },
-    },
+      {
+        id: HOME_THREAD_ROW_ID,
+        repoId: '',
+        ownsWorktree: false,
+        title: 'A home thread',
+        order: 1,
+      },
+    ],
+    folders: [{ id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }],
   })
-  rows = [...rowsFromRepo(REPO), homeFolderRow, homeThreadRow]
+  rows = [...repoRows(REPO), homeFolderRow, homeThreadRow]
 })
 
 describe('SidebarRowContextMenu', () => {
-  // The rows this menu is driven by really do carry the ids this file asserts —
-  // if `rowsFromRepo` ever stops giving a locked branch its owning chat's id,
-  // the fixture must follow it rather than the other way round.
-  it('is driven by rowsFromRepo’s real output, where a locked branch is id’d by its owning chat', () => {
+  // The rows really carry the ids this file asserts: if `deriveRows` stops giving a locked
+  // branch its owning chat's id, the fixture follows it, not the other way round.
+  it('is driven by deriveRows’s real output, where a locked branch is id’d by its owning chat', () => {
     expect(rows.map((r) => r.id).sort()).toEqual(
       [
         HOME_ROW_ID,
@@ -257,12 +215,8 @@ describe('SidebarRowContextMenu', () => {
     expect(rows.find((r) => r.id === LOCKED_ROW_ID)?.workspaceId).toBe('ws-2')
   })
 
-  // Amended in fix round 1: Lock/Unlock must NOT appear on the project-home
-  // row — it IS the repo's own checkout, the one branch that must stay put
-  // (the deleted row-menu-model.ts's own documented rule). The original Task
-  // 29 submission gated Lock on `row.ownsWorktree`, which the project-home
-  // row also carries true, so it wrongly offered a Lock that silently did
-  // nothing when clicked (the row's id is never in `repo.workspaces`).
+  // The project-home row IS the repo's own checkout, the one branch that must stay put,
+  // even though it carries `ownsWorktree` like any fork.
   it('right-clicking the project-home row offers Rename and Import, but not Lock/Unlock', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_ROW_ID)
@@ -287,10 +241,8 @@ describe('SidebarRowContextMenu', () => {
     expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', true)
   })
 
-  // Amended in fix round 1: a folder row with `ownsWorktree: true` (matching
-  // rowsFromRepo.ts's real output) must still not offer Lock/Unlock — the gate
-  // has to be kind-based, not `ownsWorktree`-based.
-  it('right-clicking a folder row (ownsWorktree: true, matching real rowsFromRepo output) offers only Rename', () => {
+  // A folder row carries `ownsWorktree` too, so the Lock gate is kind-based.
+  it('right-clicking a folder row (ownsWorktree: true, matching real deriveRows output) offers only Rename', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, 'folder-1')
     expect(screen.getByText('Rename')).toBeInTheDocument()
@@ -299,17 +251,8 @@ describe('SidebarRowContextMenu', () => {
     expect(screen.queryByText('Import branches')).not.toBeInTheDocument()
   })
 
-  /**
-   * Finding 1 of the final whole-plan review, and the reason this file's rows
-   * are now derived rather than written.
-   *
-   * `locked` was read by matching the ROW id against `w.id`. A locked branch
-   * row's id is its owning chat's, which matches no workspace — so the menu
-   * offered "Lock" on an already-locked branch forever, and the click behind it
-   * resolved no repo and sent nothing. With `DeleteCascade` refusing to delete a
-   * locked workspace, that made locking a one-way door: never unlockable,
-   * never deletable, from any surface the UI offers.
-   */
+  // A locked branch row's id is its owning chat's, which matches no workspace:
+  // `locked` must be read in the workspace id space or the lock is a one-way door.
   describe('a LOCKED branch row, addressed by its owning chat id', () => {
     it('offers Unlock rather than Lock', () => {
       const { treeRef } = renderMenu()
@@ -318,9 +261,8 @@ describe('SidebarRowContextMenu', () => {
       expect(screen.queryByText('Lock')).not.toBeInTheDocument()
     })
 
-    // performRenameWorkspaceBranch (row-actions.ts) already refuses a locked
-    // workspace's rename write silently — the menu offering Rename here just
-    // meant the dialog opened, took a new name, and did nothing with it.
+    // performRenameWorkspaceBranch refuses a locked workspace's rename silently, so offering
+    // Rename here would take a new name and do nothing with it.
     it('does not offer Rename', () => {
       const { treeRef } = renderMenu()
       rightClick(treeRef.current, LOCKED_ROW_ID)
@@ -334,14 +276,8 @@ describe('SidebarRowContextMenu', () => {
       expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-2', false)
     })
 
-    // Finding 2 of the same review: `performCreateFolder` matched `parentId`
-    // against the same three id spaces and was never translated, so "New folder"
-    // on a locked branch (or the repo home) fired nothing at all.
-    //
-    // The value actually sent stays the row's own (chat) id, never the
-    // workspace it translates to along the way — `POST .../chats/folders`
-    // resolves `parentId` as a chat/folder, and sending the workspace id
-    // 404s on the daemon ("agentchat: get chat: not found"), caught live.
+    // `POST .../chats/folders` resolves `parentId` as a chat/folder: the row's own
+    // (chat) id is sent, never the workspace it translates to (that 404s).
     it('clicking New folder actually creates one under the CHAT it owns, not its workspace', () => {
       const { treeRef } = renderMenu()
       rightClick(treeRef.current, LOCKED_ROW_ID)
@@ -355,6 +291,19 @@ describe('SidebarRowContextMenu', () => {
     })
   })
 
+  // A placeholder (the locked `main` the repo's own checkout holds) has no worktree to lock.
+  it('right-clicking a LOCKED placeholder branch offers neither Lock nor Unlock', () => {
+    const placeholder = (w: Repo['workspaces'][number]) =>
+      w.id === 'ws-2' ? { ...w, provisioning: 'placeholder' as const } : w
+    const repo: Repo = { ...REPO, workspaces: REPO.workspaces.map(placeholder) }
+    seedRepos([repo])
+    rows = repoRows(repo)
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, LOCKED_ROW_ID)
+    expect(screen.getByText('New folder')).toBeInTheDocument()
+    expect(screen.queryByText(/^(Un)?lock$/i)).not.toBeInTheDocument()
+  })
+
   it('clicking New folder on the repo-home row roots it at the repo', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_ROW_ID)
@@ -362,10 +311,7 @@ describe('SidebarRowContextMenu', () => {
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
   })
 
-  // Reported live: right-clicking a plain (repo-scoped) chat row offered no
-  // "New folder" at all — the one item that used to require a branch/folder
-  // row to already exist, so a fresh tree with none yet had no row-level
-  // path to create the first one.
+  // A fresh tree with no branch/folder yet still needs a row-level path to its first folder.
   it('a plain repo-scoped chat row offers New folder, root-normalised (a bubble has no folder-anchor of its own)', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, THREAD_ROW_ID)
@@ -374,9 +320,45 @@ describe('SidebarRowContextMenu', () => {
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
   })
 
-  // Same gap, project-home side: a plain home chat rides no repo at all, so
-  // it goes through `performCreateHomeFolder` instead, same root-normalised
-  // parentId a home-scoped folder click already uses.
+  // Dragging was the only way to file a row; the menu offers the same drops by name, by keyboard.
+  it('Move to… opens from the keyboard on the folders a drag could file the row into', async () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    fireEvent.keyDown(screen.getByText('Move to…'), { key: 'ArrowRight' })
+    const submenu = (await screen.findByText('Bugs')).closest<HTMLElement>('[role="menu"]')!
+    const offered = within(submenu)
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent)
+    expect(offered).toEqual(expect.arrayContaining(['Bugs', 'feature-x', 'develop']))
+    expect(offered).not.toContain('A thread')
+  })
+
+  // A chat dropped into another workspace mid-turn waits; until then the move can be withdrawn.
+  it('offers Cancel move on a chat waiting to move, and withdraws it', () => {
+    writeChat({ id: THREAD_ROW_ID, workspaceId: 'ws-home', pendingMove: { requestId: 'm1' } })
+    const cancel = vi.spyOn(chatCommands, 'cancelChatMove').mockResolvedValue(undefined)
+    rows = rows.map((r) => (r.id === THREAD_ROW_ID ? { ...r, workspaceId: 'ws-home' } : r))
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    fireEvent.click(screen.getByText('Cancel move'))
+    expect(cancel).toHaveBeenCalledWith('ws-home', THREAD_ROW_ID)
+  })
+
+  // A home chat rides no repo: its folder is home-scoped and root-normalised.
+  // A thread in a repo can become a branch of its own, named in place first, as its row's button
+  // does; a home thread has no repository to branch.
+  it('Make a branch opens the name input on a repo thread, and is absent at home', () => {
+    const branchOut = vi.spyOn(chatCommands, 'branchOutChat').mockResolvedValue(undefined)
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    fireEvent.click(screen.getByText('Make a branch'))
+    expect(treeUiStore.getState().branching).toBe(THREAD_ROW_ID)
+    expect(branchOut).not.toHaveBeenCalled()
+
+    rightClick(treeRef.current, HOME_THREAD_ROW_ID)
+    expect(screen.queryByText('Make a branch')).not.toBeInTheDocument()
+  })
+
   it('a plain home-scoped chat row offers New folder, HOME-scoped and root-normalised', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_THREAD_ROW_ID)
@@ -389,8 +371,16 @@ describe('SidebarRowContextMenu', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, 'folder-1')
     fireEvent.click(screen.getByText('Rename'))
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('folder-1')
+    expect(treeUiStore.getState().renaming).toBe('folder-1')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('a rename started from the menu keeps its focused input once the menu has closed', async () => {
+    const { treeRef } = renderMenu(<RenamingRow />)
+    rightClick(treeRef.current, 'folder-1')
+    fireEvent.click(screen.getByText('Rename'))
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    expect(screen.getByRole('textbox')).toHaveFocus()
   })
 
   it('clicking Import branches calls onImport with the project-home row id', () => {
@@ -400,9 +390,7 @@ describe('SidebarRowContextMenu', () => {
     expect(onImport).toHaveBeenCalledWith(HOME_ROW_ID)
   })
 
-  // Explicit user correction: the repo-home row's own "..." button used to
-  // open a second, separate one-item menu (just "Delete Repo") that drifted
-  // out of sync with this one. Now it opens this exact menu.
+  // The repo-home row's "..." button opens this same menu, never a separate one.
   it('right-clicking the repo-home row also offers Delete Repo', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_ROW_ID)
@@ -415,13 +403,12 @@ describe('SidebarRowContextMenu', () => {
     expect(screen.queryByText('Delete Repo')).not.toBeInTheDocument()
   })
 
-  // A repo's entry can be filed into a project-home folder (`repo.folderId`,
-  // rows-from-repo.ts's header push) — it is still the repo, so its menu is
-  // the repo header's, not a plain branch row's. Identity was keyed on
-  // `parentId === null`, so the filed header lost Import/Delete Repo and
-  // gained a Lock that `performSetWorkspaceLock` silently no-ops for.
+  // A repo filed into a project-home folder (`repo.folderId`) is still the repo, so its
+  // menu is the repo header's, not a plain branch row's.
   it('a repo header filed into a home folder keeps the repo menu: Import and Delete Repo, never Lock', () => {
-    rows = [...rowsFromRepo({ ...REPO, folderId: HOME_FOLDER_ROW_ID }), homeFolderRow]
+    const folder = { id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }
+    const home = { workspaceId: 'home-ws-1', chats: [], folders: [folder] }
+    rows = deriveRows(inputOf({ repos: [{ ...REPO, folderId: HOME_FOLDER_ROW_ID }], home }))
     expect(rows.find((r) => r.id === HOME_ROW_ID)?.parentId).toBe(HOME_FOLDER_ROW_ID)
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_ROW_ID)
@@ -458,11 +445,8 @@ describe('SidebarRowContextMenu', () => {
       expect(toast.error).toHaveBeenCalledExactlyOnceWith("Can't delete repo yet")
     })
 
-    // The button sits inside the row's own click-to-open div, and every
-    // other trailing-cluster button relies on stopping that propagation on
-    // the way up. This listens in the capture phase specifically so it
-    // cannot lose that race — proven here by asserting the row's own click
-    // handler (onOpen) never fires alongside it.
+    // The button sits inside the row's click-to-open div; listening in the capture
+    // phase is what keeps the row's own onOpen from firing too.
     it("does not also trigger the row's own click-to-open", () => {
       const { treeRef } = renderMenu()
       const onOpen = vi.fn()
@@ -479,9 +463,7 @@ describe('SidebarRowContextMenu', () => {
     })
   })
 
-  // Caught live: a project-home folder is never in any repo's `folders`
-  // (home rides no repo), so `performCreateFolder`'s repo lookup found
-  // nothing and silently no-op'd — no request, no error, no new folder.
+  // A project-home folder is in no repo's `folders`, so a repo lookup would find nothing.
   it('right-clicking a project-home folder offers only Rename and New folder', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, HOME_FOLDER_ROW_ID)
@@ -510,12 +492,7 @@ describe('SidebarRowContextMenu', () => {
   })
 })
 
-// THE BUG: "can't start chats directly on a CLI, it always obligates me to
-// use the native chat" — this menu had a Thread-shaped verb (New folder)
-// but nothing that landed a new chat on Terminal, and neither does the
-// row's own plain "+" button. This is the discoverable, visible affordance:
-// same handleCreate the "+" button calls, with the optional 4th
-// (presentation) argument the fix added.
+// A new chat can start on its CLI: the handleCreate the "+" button calls, on Terminal.
 describe('SidebarRowContextMenu — "New thread in Terminal"', () => {
   beforeEach(() => {
     useAgentProvidersStore.setState({
@@ -571,11 +548,8 @@ describe('SidebarRowContextMenu — "New thread in Terminal"', () => {
     expect(screen.getByText('New folder')).toBeInTheDocument()
   })
 
-  // THE surfaces: fix (design spec 2.5): hasTerminal alone used to gate this.
-  // codex HAS a terminal (attach) that is only reachable by switching to it
-  // after a turn — never a launch target for a chat that does not exist yet.
-  // terminalStartHere is the fact that distinguishes "has one" from "may
-  // launch straight onto it".
+  // A terminal reachable only by switching to it after a turn (codex's attach) is no launch
+  // target for a chat that does not exist yet (design spec 2.5).
   it('is ABSENT when the enabled provider has a terminal that is not a start_here surface', () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -587,9 +561,8 @@ describe('SidebarRowContextMenu — "New thread in Terminal"', () => {
     expect(screen.getByText('New folder')).toBeInTheDocument()
   })
 
-  // No enabled provider resolved yet is not evidence of "no terminal" — the
-  // plain Thread button offers itself unconditionally too and lets the
-  // click-time `enabledProvider()` toast the refusal; this item matches it.
+  // No enabled provider yet is not "no terminal": like the plain Thread button, the click-time
+  // `enabledProvider()` toasts the refusal.
   it('is still offered when no provider is enabled — the refusal happens at click time, same as the plain Thread button', () => {
     useAgentProvidersStore.setState({ status: 'ready', providers: [] })
     const { treeRef } = renderMenu()

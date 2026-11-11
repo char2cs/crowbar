@@ -1,7 +1,6 @@
 import type React from 'react'
 import { ChatsCircle, FolderOpen, GitBranch } from '@phosphor-icons/react'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { SidebarTab } from '@/lib/store/sidebar-ui'
+import { useTreeUi, type SidebarTab } from '@/features/workspace/tree/tree-ui-store'
 import {
   hasRepoWorkspace,
   useFocusedWorkspaceContextStore,
@@ -45,11 +44,9 @@ function resolveShownTab(chosen: SidebarTab, ctx: FocusedWorkspaceContext): Side
   return descriptor?.available(ctx) ? chosen : FALLBACK_SIDEBAR_PANEL_TAB
 }
 
-/**
- * The mode on screen: the chosen one while the focused workspace offers it,
- * else Chats. Derived, not written back, so the store stays the one owner.
- */
+/** The mode on screen: the chosen one while the focused workspace offers it,
+ *  else Chats. Derived, not written back, so the store stays the one owner. */
 export function useShownSidebarTab(): SidebarTab {
-  const chosen = useSidebarStore((s) => s.activeTab)
+  const chosen = useTreeUi((s) => s.activeTab)
   return useFocusedWorkspaceContextStore((ctx) => resolveShownTab(chosen, ctx))
 }

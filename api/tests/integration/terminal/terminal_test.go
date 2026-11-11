@@ -107,8 +107,7 @@ func TestMain(
 }
 
 // TerminalSuite exercises chat-scoped terminal session and (top-level) profile
-// REST endpoints, the TerminalSessionDTO lifecycle broadcaster, and the PTY
-// WebSocket route at /v0/chats/:chatId/terminals/:sessionId/ws.
+// REST endpoints and the PTY WebSocket route at /v0/chats/:chatId/terminals/:sessionId/ws.
 type TerminalSuite struct {
 	kit.IntegrationSuite
 	imported kit.ImportedRepo
@@ -138,19 +137,13 @@ func (s *TerminalSuite) base() string {
 func TestTerminalSuite(
 	t *testing.T,
 ) {
-	suite.Run(
-		t,
-		new(TerminalSuite),
-	)
+	suite.Run(t, new(TerminalSuite))
 }
 
-// TestTerminal_Create201ThenSessionDTOOverWS verifies a terminal session creates
-// (201 {sessionId}) and the TerminalSessionDTO{status:"active"} lifecycle frame
-// arrives on the chat-scoped terminals WS (spec §10, D2).
-func (s *TerminalSuite) TestTerminal_Create201ThenSessionDTOOverWS() {
+// TestTerminal_Create201ThenKill verifies a terminal session creates
+// (201 {sessionId}) and kills (200) on the chat-scoped routes (spec §10, D2).
+func (s *TerminalSuite) TestTerminal_Create201ThenKill() {
 	t := s.T()
-
-	watcher := s.Env.DialTerminals(t, s.chatID)
 
 	resp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, resp, http.StatusCreated)
@@ -161,55 +154,11 @@ func (s *TerminalSuite) TestTerminal_Create201ThenSessionDTOOverWS() {
 	s.Require().True(ok, "sessionId must be a string")
 	s.Require().NotEmpty(sessionID)
 
-	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "active"
-	})
-	s.Assert().Equal(s.chatID, msg["chatId"])
-
-	// Kill the session and block on its "ended" frame so the spawned PTY (whose
-	// CWD is the worktree) is reaped before the test's TempDir is removed —
-	// otherwise the live shell holds the per-workspace dir busy and RemoveAll
-	// flakes with "directory not empty".
-	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	kill.Body.Close()
-	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
-}
-
-// TestRegression_TerminalSession_LifecycleBroadcast proves the §10 terminal
-// lifecycle topic: creating a session broadcasts an "active" TerminalSessionDTO
-// and killing it broadcasts an "ended" one, both on the chat-scoped terminals
-// WS, carrying the owning chat id.
-func (s *TerminalSuite) TestRegression_TerminalSession_LifecycleBroadcast() {
-	t := s.T()
-
-	watcher := s.Env.DialTerminals(t, s.chatID)
-
-	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
-	kit.RequireStatus(t, createResp, http.StatusCreated)
-	var created map[string]any
-	kit.DecodeEnvData(t, createResp, &created)
-	sessionID, _ := created["sessionId"].(string)
-	s.Require().NotEmpty(sessionID)
-
-	active := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "active"
-	})
-	s.Assert().Equal(s.chatID, active["chatId"])
-
-	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	defer killResp.Body.Close()
-	kit.RequireStatus(t, killResp, http.StatusAccepted)
-
-	ended := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
-	s.Assert().Equal(sessionID, ended["id"])
+	s.kill(t, sessionID)
 }
 
 // TestTerminal_DeleteScopedRoute verifies a session is killed via the
-// chat-scoped DELETE route (202) and an "ended" lifecycle frame broadcasts.
+// chat-scoped DELETE route (200) and leaves the chat's session list.
 func (s *TerminalSuite) TestTerminal_DeleteScopedRoute() {
 	t := s.T()
 
@@ -220,16 +169,14 @@ func (s *TerminalSuite) TestTerminal_DeleteScopedRoute() {
 	sessionID, _ := created["sessionId"].(string)
 	s.Require().NotEmpty(sessionID)
 
-	watcher := s.Env.DialTerminals(t, s.chatID)
-
-	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	defer killResp.Body.Close()
-	kit.RequireStatus(t, killResp, http.StatusAccepted)
-
-	msg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
-	s.Assert().Equal(sessionID, msg["id"])
+	s.kill(t, sessionID)
+	listResp := s.Env.GET(t, s.base()+"/terminals") //nolint:bodyclose // DecodeEnvData closes the body
+	kit.RequireStatus(t, listResp, http.StatusOK)
+	var sessions []map[string]any
+	kit.DecodeEnvData(t, listResp, &sessions)
+	for _, sess := range sessions {
+		s.NotEqual(sessionID, sess["id"], "a killed session is no longer listed")
+	}
 }
 
 // TestTerminal_KillUnknownSessionReturns404 verifies kill of unknown session is 404.
@@ -297,31 +244,19 @@ func (s *TerminalSuite) TestTerminal_ProfileCRUD() {
 	s.Assert().Equal(http.StatusNotFound, getAfterDelete.StatusCode)
 }
 
-// TestRegression_TerminalSession_RealStateInListAndEndedBroadcast verifies the
-// lifecycle wire-protocol Phase 2 on the REST + broadcast surface:
-//
-//   - GET /terminals (ListSessions) reports the engine's real state for each
-//     session; a newly created session with no attached clients is "detached"
-//     (live but no clients), NOT the hardcoded "active" of the previous impl.
-//   - The "ended" lifecycle frame carries an exitCode field (may be nil when
-//     the kill is via SIGKILL and the exit code is unknown).
-func (s *TerminalSuite) TestRegression_TerminalSession_RealStateInListAndEndedBroadcast() {
+// TestRegression_TerminalSession_RealStateInList verifies GET /terminals
+// (ListSessions) reports the engine's real state for each session: a newly
+// created session with no attached clients is "detached", not "active".
+func (s *TerminalSuite) TestRegression_TerminalSession_RealStateInList() {
 	t := s.T()
 
-	watcher := s.Env.DialTerminals(t, s.chatID)
-
-	// Create a session — the POST broadcasts "active" and returns 201.
+	// Create a session — the POST returns 201.
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var created map[string]any
 	kit.DecodeEnvData(t, createResp, &created)
 	sessionID, _ := created["sessionId"].(string)
 	s.Require().NotEmpty(sessionID)
-
-	// Wait for the "active" broadcast from the POST handler.
-	watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "active"
-	})
 
 	// GET /terminals should now return the real engine state. With no attached
 	// clients, StateOf returns "detached" (live PTY, no clients) — NOT "active".
@@ -340,17 +275,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_RealStateInListAndEndedBr
 	s.Assert().Equal("detached", found["status"],
 		"ListSessions must report real engine state ('detached' for no-client live session)")
 
-	// Kill → "ended" broadcast. The exitCode field may or may not be present
-	// (SIGKILL → -1 → omitted); we assert the status and presence of the frame.
-	killResp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	defer killResp.Body.Close()
-	kit.RequireStatus(t, killResp, http.StatusAccepted)
-
-	endedMsg := watcher.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
-	s.Assert().Equal(sessionID, endedMsg["id"])
-	s.Assert().Equal(s.chatID, endedMsg["chatId"])
+	s.kill(t, sessionID)
 }
 
 // TestTerminal_PTYWSAtScopedPath verifies the raw PTY WebSocket connects at the
@@ -358,8 +283,6 @@ func (s *TerminalSuite) TestRegression_TerminalSession_RealStateInListAndEndedBr
 // {sessionId, data, isInput}.
 func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 	t := s.T()
-
-	lifecycle := s.Env.DialTerminals(t, s.chatID)
 
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
@@ -371,15 +294,9 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 	ws := s.Env.DialTerminalPTY(t, s.chatID, sessionID)
 	frame := ws.ReadMsg(t, 10*time.Second)
 	s.Require().Contains(frame, "data", "the first PTY frame must be output")
-	s.Assert().Equal(true, frame["snapshot"], "the first frame after attach is the snapshot")
+	s.Equal(true, frame["snapshot"], "the first frame after attach is the snapshot")
 
-	// Kill and block on the "ended" frame so the PTY shell (CWD = worktree) is
-	// reaped before TempDir teardown.
-	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	kill.Body.Close()
-	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
+	s.kill(t, sessionID)
 }
 
 // TestRegression_TerminalSession_HighThroughputOutputIntact proves that the
@@ -393,8 +310,6 @@ func (s *TerminalSuite) TestTerminal_PTYWSAtScopedPath() {
 // terminalEngine.writePump.
 func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntact() {
 	t := s.T()
-
-	lifecycle := s.Env.DialTerminals(t, s.chatID)
 
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
@@ -464,12 +379,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntac
 	s.Assert().True(emuHasLine(emu, cols, rows, "1500"), "middle of burst (line 1500) must be reconstructed intact")
 	s.Assert().True(emuHasLine(emu, cols, rows, "3000"), "end of burst (line 3000) must be reconstructed intact")
 
-	// Cleanup: kill and block on "ended" so the PTY is reaped before TempDir teardown.
-	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	kill.Body.Close()
-	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
+	s.kill(t, sessionID)
 }
 
 // TestRegression_TerminalSession_MultibyteOutputNotCorrupted proves the writePump
@@ -480,8 +390,6 @@ func (s *TerminalSuite) TestRegression_TerminalSession_HighThroughputOutputIntac
 // corrupts any rune split across a message into U+FFFD (the on-screen "???"/box).
 func (s *TerminalSuite) TestRegression_TerminalSession_MultibyteOutputNotCorrupted() {
 	t := s.T()
-
-	lifecycle := s.Env.DialTerminals(t, s.chatID)
 
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
@@ -516,11 +424,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_MultibyteOutputNotCorrupt
 	// And the run actually arrived: at least the 40000 emitted box-drawing runes.
 	s.Assert().GreaterOrEqual(strings.Count(out, "─"), 40000, "all box-drawing runes must arrive intact")
 
-	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	kill.Body.Close()
-	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
+	s.kill(t, sessionID)
 }
 
 // TestRegression_TerminalSession_ReAttachReassertsLiveModes proves the serialize-on-attach
@@ -532,7 +436,6 @@ func (s *TerminalSuite) TestRegression_TerminalSession_MultibyteOutputNotCorrupt
 func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachReassertsLiveModes() {
 	t := s.T()
 
-	lifecycle := s.Env.DialTerminals(t, s.chatID)
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var created map[string]any
@@ -576,11 +479,7 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachReassertsLiveMode
 	s.Assert().True(reasserted,
 		"re-attach must re-assert mouse tracking ?1000h via the serialized redraw")
 
-	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	kill.Body.Close()
-	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
+	s.kill(t, sessionID)
 }
 
 // TestRegression_TerminalSession_ReAttachPayloadIsCleanRedraw proves the headline
@@ -593,7 +492,6 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachReassertsLiveMode
 func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachPayloadIsCleanRedraw() {
 	t := s.T()
 
-	lifecycle := s.Env.DialTerminals(t, s.chatID)
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var created map[string]any
@@ -677,20 +575,15 @@ func (s *TerminalSuite) TestRegression_TerminalSession_ReAttachPayloadIsCleanRed
 	s.Assert().Equal("CleanTitle", title,
 		"round-trip must restore the current window title")
 
-	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	kill.Body.Close()
-	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
+	s.kill(t, sessionID)
 }
 
 // newSessionWithLiveClient creates a terminal session, dials a first live PTY client,
 // and blocks until the shell's initial output confirms the PTY is live. It returns the
-// session id, the live client, and the lifecycle watcher (for the kill→"ended" teardown).
+// session id and the live client.
 func (s *TerminalSuite) newSessionWithLiveClient(
 	t *testing.T,
-) (string, *kit.WSWatcher, *kit.WSWatcher) {
-	lifecycle := s.Env.DialTerminals(t, s.chatID)
+) (string, *kit.WSWatcher) {
 	createResp := s.Env.POST(t, s.base()+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var created map[string]any
@@ -703,21 +596,19 @@ func (s *TerminalSuite) newSessionWithLiveClient(
 		d, _ := m["data"].(string)
 		return len(d) > 0
 	})
-	return sessionID, ws1, lifecycle
+	return sessionID, ws1
 }
 
-// killAndAwaitEnded kills a session and blocks on its "ended" lifecycle frame so the PTY
-// (CWD = worktree) is reaped before the test's TempDir teardown.
-func (s *TerminalSuite) killAndAwaitEnded(
+// kill ends a session; DELETE answers once its PTY (CWD = worktree) is reaped,
+// so the worktree is free before the test's TempDir teardown.
+func (s *TerminalSuite) kill(
 	t *testing.T,
-	lifecycle *kit.WSWatcher,
 	sessionID string,
 ) {
-	kill := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
-	kill.Body.Close()
-	lifecycle.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
+	t.Helper()
+	resp := s.Env.DELETE(t, s.base()+"/terminals/"+sessionID)
+	kit.RequireStatus(t, resp, http.StatusOK)
+	require.NoError(t, resp.Body.Close())
 }
 
 // TestRegression_ReattachNoQueryReplies is the §13.3 DISCRIMINATOR for device queries under
@@ -732,7 +623,7 @@ func (s *TerminalSuite) killAndAwaitEnded(
 func (s *TerminalSuite) TestRegression_ReattachNoQueryReplies() {
 	t := s.T()
 
-	sessionID, ws1, lifecycle := s.newSessionWithLiveClient(t)
+	sessionID, ws1 := s.newSessionWithLiveClient(t)
 
 	// Drive real DA + DSR + OSC-10 color queries to the app's STDOUT (so they reach the
 	// pump + model), followed by an OSC-2 sentinel title, then hold the foreground with sleep
@@ -769,7 +660,7 @@ func (s *TerminalSuite) TestRegression_ReattachNoQueryReplies() {
 	// The redraw is still a well-formed, ground-terminated frame.
 	s.Assert().Contains(p, ansi.ResetStyle, "serialized redraw must reset the pen to ground state")
 
-	s.killAndAwaitEnded(t, lifecycle, sessionID)
+	s.kill(t, sessionID)
 }
 
 // TestRegression_ReattachNoRawOSCTitleReplay is the §13.3 raw-replay DISCRIMINATOR for OSC
@@ -781,7 +672,7 @@ func (s *TerminalSuite) TestRegression_ReattachNoQueryReplies() {
 func (s *TerminalSuite) TestRegression_ReattachNoRawOSCTitleReplay() {
 	t := s.T()
 
-	sessionID, ws1, lifecycle := s.newSessionWithLiveClient(t)
+	sessionID, ws1 := s.newSessionWithLiveClient(t)
 
 	// Set three distinct titles in one command (BEL-terminated OSC 2), then hold the
 	// foreground with sleep so the shell emits no further prompt/title. Wait for the REAL
@@ -826,7 +717,7 @@ func (s *TerminalSuite) TestRegression_ReattachNoRawOSCTitleReplay() {
 	s.Require().NoError(werr)
 	s.Assert().Equal("TitleZeta_88", title, "round-trip must restore exactly the current window title")
 
-	s.killAndAwaitEnded(t, lifecycle, sessionID)
+	s.kill(t, sessionID)
 }
 
 // TestRegression_ReattachNoDanglingSequence guards the §13.3 no-swallow invariant (the old
@@ -840,7 +731,7 @@ func (s *TerminalSuite) TestRegression_ReattachNoRawOSCTitleReplay() {
 func (s *TerminalSuite) TestRegression_ReattachNoDanglingSequence() {
 	t := s.T()
 
-	sessionID, ws1, lifecycle := s.newSessionWithLiveClient(t)
+	sessionID, ws1 := s.newSessionWithLiveClient(t)
 
 	// Print a plain-text marker IMMEDIATELY followed by an OSC-2 with NO terminator, then hold
 	// the foreground (sleep) so the model's last parsed bytes are the dangling OSC. The dangling
@@ -878,7 +769,7 @@ func (s *TerminalSuite) TestRegression_ReattachNoDanglingSequence() {
 	s.Assert().NotContains(p, "DANGLE_NOTERM_44\x07",
 		"the dangling OSC must not be emitted as a (falsely) BEL-terminated title")
 
-	s.killAndAwaitEnded(t, lifecycle, sessionID)
+	s.kill(t, sessionID)
 }
 
 // ---------------------------------------------------------------------------
@@ -923,21 +814,12 @@ func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
 	chatID := env1.OwningChatID(t, wsID)
 	base := "/v0/chats/" + chatID
 
-	// Dial the lifecycle WS before creating the session so we never miss the
-	// "active" broadcast.
-	lifecycle1 := env1.DialTerminals(t, chatID)
-
 	createResp := env1.POST(t, base+"/terminals", map[string]any{})
 	kit.RequireStatus(t, createResp, http.StatusCreated)
 	var createBody map[string]any
 	kit.DecodeEnvData(t, createResp, &createBody)
 	sessionID, _ := createBody["sessionId"].(string)
 	require.NotEmpty(t, sessionID, "POST /terminals must return a sessionId")
-
-	// Wait for the "active" lifecycle broadcast so the session is confirmed live.
-	lifecycle1.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "active"
-	})
 
 	// Dial the raw PTY WS and wait for the shell's initial output (prompt).
 	// This confirms the PTY subprocess is running and the ring buffer has content.
@@ -1006,10 +888,8 @@ func TestRegression_TerminalSession_RestartRoundTrip(t *testing.T) {
 
 	// Cleanup: kill the restored session so the PTY subprocess is reaped before
 	// TempDir teardown (avoids "directory not empty" flakes on some platforms).
-	lifecycle2 := env2.DialTerminals(t, chatID)
+	// The kill answers once the PTY is reaped.
 	killResp := env2.DELETE(t, base+"/terminals/"+sessionID)
-	killResp.Body.Close()
-	lifecycle2.ReadUntil(t, 5*time.Second, func(m map[string]any) bool {
-		return m["id"] == sessionID && m["status"] == "ended"
-	})
+	kit.RequireStatus(t, killResp, http.StatusOK)
+	require.NoError(t, killResp.Body.Close())
 }

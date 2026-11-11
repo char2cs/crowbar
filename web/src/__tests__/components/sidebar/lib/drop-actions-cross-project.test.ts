@@ -18,7 +18,7 @@ vi.mock('@/features/panes/lib/chat-project', () => ({
 }))
 
 import { toast } from '@/features/window/stores/toast-store'
-import { openChatIntoPane } from '@/components/sidebar/lib/drop-actions'
+import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -54,12 +54,12 @@ beforeEach(() => {
   resolveChatProjectId.mockReset()
 })
 
-describe('openChatIntoPane — law 4', () => {
+describe('performSidebarPaneDrop — law 4', () => {
   it("refuses a chat whose project is not the target view's", () => {
     const paneId = showChatUnderProject('project-a', 'chat-a')
     resolveChatProjectId.mockReturnValue('project-b')
 
-    openChatIntoPane(chatRow('chat-b', 'ws-b'), paneId, 'right')
+    performSidebarPaneDrop([chatRow('chat-b', 'ws-b')], paneId, 'right')
 
     expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toEqual([paneId])
     expect(toast.error).toHaveBeenCalledWith('That chat belongs to a different space')
@@ -69,7 +69,7 @@ describe('openChatIntoPane — law 4', () => {
     const paneId = showChatUnderProject('project-a', 'chat-a')
     resolveChatProjectId.mockReturnValue('project-a')
 
-    openChatIntoPane(chatRow('chat-b', 'ws-b'), paneId, 'right')
+    performSidebarPaneDrop([chatRow('chat-b', 'ws-b')], paneId, 'right')
 
     const leaves = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(leaves).toHaveLength(2)
@@ -83,7 +83,7 @@ describe('openChatIntoPane — law 4', () => {
     const paneId = showChatUnderProject('project-a', 'chat-a')
     resolveChatProjectId.mockReturnValue(null)
 
-    openChatIntoPane(chatRow('chat-b', 'ws-b'), paneId, 'right')
+    performSidebarPaneDrop([chatRow('chat-b', 'ws-b')], paneId, 'right')
 
     expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toHaveLength(2)
     expect(toast.error).not.toHaveBeenCalled()

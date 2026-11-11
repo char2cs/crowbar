@@ -204,8 +204,7 @@ func pointerSummary(p pointer) string {
 func itemLabels(p pointer) string {
 	labels := make([]string, 0, len(p.Items))
 	for _, raw := range p.Items {
-		var it pointerItem
-		_ = json.Unmarshal(raw, &it) // a malformed item only loses its label
+		it := decodeItem(raw)
 		labels = append(labels, it.label())
 	}
 	return strings.Join(labels, "; ")
@@ -230,8 +229,7 @@ func currentTabURL(tabs json.RawMessage, id string) (string, bool) {
 func renderResolved(p pointer, got []resolvedItem, detail string) string {
 	lines := make([]string, 0, len(p.Items)+1)
 	for i, raw := range p.Items {
-		var it pointerItem
-		_ = json.Unmarshal(raw, &it) // a malformed item only loses its label
+		it := decodeItem(raw)
 		line := fmt.Sprintf("%d %s: ", i+1, it.label())
 		switch {
 		case i >= len(got):
@@ -266,4 +264,13 @@ func foundText(r resolvedItem, detail string) string {
 		}
 	}
 	return s
+}
+
+// decodeItem reads one pointed-at item; a malformed one only loses its label.
+func decodeItem(raw json.RawMessage) pointerItem {
+	var it pointerItem
+	if json.Unmarshal(raw, &it) != nil {
+		return pointerItem{}
+	}
+	return it
 }

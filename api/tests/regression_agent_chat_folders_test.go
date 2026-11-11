@@ -3,11 +3,14 @@
 package tests
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // This file pins the Chats panel's tree end to end: the folders a user files
@@ -16,10 +19,6 @@ import (
 // that are deliberately opposite — a folder promotes what it held, a chat takes
 // its whole subtree. Each test drives the real HTTP surface, so a rule that only
 // ever existed in the frontend would fail here.
-//
-// The tests below were unblocked by Task 5, which made WorkspaceID optional
-// in the Create command. A folder is created with no workspace by design, and
-// the Create command now supports this.
 
 // agentChatFolderDTO mirrors the WIRE SHAPE a folder route answers with today:
 // dto.AgentChatDTO (api/internal/api/v0/dto/agent.go), not the deleted
@@ -183,7 +182,7 @@ func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 	// left for it to order.
 	inside := createChatFolder(t, h, base, "spikes", root)
 
-	resp := h.raw(http.MethodDelete, base+"/chats/"+root, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+root, nil, http.StatusOK)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -300,14 +299,7 @@ func TestRegression_FolderRenameSucceedsWithAWorkingChatFiledUnderIt(t *testing.
 	sprint := createChatFolder(t, h, base, "sprint", "")
 	chat := createAgentChat(t, h, imported)
 	placeChat(t, h, base, chat, map[string]any{"parentId": sprint.ID})
-	h.Quiesce()
-
-	detail := getAgentChat(t, h, base, chat)
-	require.NotEmpty(t, detail.LiveRunnerID, "precondition: the chat must be live to go working")
-	_ = h.raw(http.MethodPost, base+"/chats/hooks", map[string]string{
-		"segment_id": detail.LiveRunnerID, "provider": "livestub", "event": "user_prompt",
-		"payload_raw": `{"prompt":"still going"}`,
-	}, http.StatusAccepted).Body.Close()
+	postHook(t, h, base, "livestub", startChat(t, h, base, chat), "user_prompt", `{"prompt":"still going"}`)
 	h.Quiesce()
 
 	deleteMsg := h.mutationError(http.MethodDelete, base+"/chats/folders/"+sprint.ID, nil, http.StatusConflict)
@@ -503,56 +495,30 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	assert.True(t, found, "the home chat outlived the folder it was filed in")
 }
 
-// A folder mutation has no aggregate projection to ride, so the handler
-// broadcasts it — on the SAME repo-scoped socket the chats use (Task 17), because
-// one gesture writes both kinds and two feeds would have to be kept in order.
-//
-// The frame's workspaceId is empty here, not ws.workspaceID: a folder carries no
-// workspace of its own (2026-08-23 unified-sidebar-design §3.1), and the
-// repo-scoped mount has no :wsId path segment to source one from either — only
-// the home mount's injected :wsId (RequireHomeWorkspace) ever stamps one on a
-// folder frame, which is a scoping convenience for that one mount, not a fact
-// about the folder.
-func TestRegression_ChatFolderMutationsRideTheChatsStream(t *testing.T) {
+// A folder mutation reaches a live holder of the projects scope as the folder's
+// row: created, renamed, then gone.
+func TestRegression_ChatFolderMutationsReachTheProjectsScope(t *testing.T) {
 	h := newHarness(t)
 	ws := importWritableWorkspace(t, h)
 	base := repoBase(ws)
-
-	frames := dialAgentWS(t, h, base+"/chats/ws")
+	feed := recordSidebar(t, h)
 
 	folder := createChatFolder(t, h, base, "spikes", "")
-	created := waitForFolderFrame(t, frames, folder.ID, "folder_created")
-	assert.Empty(t, created["workspaceId"],
-		"a folder carries no workspace of its own, and the repo-scoped mount has no :wsId to stamp one from")
+	awaitFolder(feed, folder.ID, "spikes")
 
 	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
-	waitForFolderFrame(t, frames, folder.ID, "folder_updated")
+	awaitFolder(feed, folder.ID, "experiments")
 
 	h.del(base+"/chats/folders/"+folder.ID, nil, http.StatusOK, nil)
-	waitForFolderFrame(t, frames, folder.ID, "folder_deleted")
+	feed.awaitGone(stream.KindFolder, folder.ID)
 }
 
-// waitForFolderFrame drains frames until one matching (folderID, kind) arrives,
-// tolerating any other frame in between — a real signal wait, never a
-// sleep/poll, backstopped only by the test context's Done().
-func waitForFolderFrame(
-	t *testing.T,
-	frames <-chan map[string]any,
-	folderID string,
-	kind string,
-) map[string]any {
-	t.Helper()
-	for {
-		select {
-		case f := <-frames:
-			if f["folderId"] == folderID && f["kind"] == kind {
-				return f
-			}
-		case <-t.Context().Done():
-			t.Fatalf("timed out waiting for folder %s's %q frame", folderID, kind)
-			return nil
-		}
-	}
+// awaitFolder waits for folderID's row named name.
+func awaitFolder(feed *sidebarFeed, folderID, name string) {
+	feed.t.Helper()
+	feed.await(fmt.Sprintf("folder %s named %q", folderID, name), func(_ int, r feedRow) bool {
+		return r.Kind == string(stream.KindFolder) && r.ID == folderID && !r.Gone && r.Data["name"] == name
+	})
 }
 
 func folderIDs(

@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // Both git seams the rename drives honour their context, because the real ones
@@ -99,7 +99,7 @@ func newRenameFixture(t *testing.T, branch string, all []domain.Workspace) *rena
 					return w, nil
 				}
 			}
-			return domain.Workspace{}, apperr.ErrNotFound
+			return domain.Workspace{}, problem.ErrNotFound
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 		RenameBranchFn: func(id, b string) (domain.Workspace, error) {
@@ -232,7 +232,7 @@ func TestRenameBranch_RejectsEmptyBranch(t *testing.T) {
 
 	_, err := f.uc.RenameBranch(context.Background(), "w1", "   ")
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Empty(t, f.git.lastRenameTo())
 }
 
@@ -257,7 +257,7 @@ func TestRenameBranch_GetWorkspaceErrorPropagates(t *testing.T) {
 
 	_, err := f.uc.RenameBranch(context.Background(), "does-not-exist", "renamed")
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.Empty(t, f.git.lastRenameTo(), "git must not be touched")
 }
 
@@ -430,7 +430,7 @@ func TestRenameBranch_BranchWorkspaceExistsListError(t *testing.T) {
 			if id == "w1" {
 				return self, nil
 			}
-			return domain.Workspace{}, apperr.ErrNotFound
+			return domain.Workspace{}, problem.ErrNotFound
 		},
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom },
 	}

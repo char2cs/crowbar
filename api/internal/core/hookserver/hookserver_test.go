@@ -49,7 +49,7 @@ func TestGate_RefusesEverythingElse(t *testing.T) {
 		{http.MethodGet, hookPath},
 		{http.MethodDelete, hookPath},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/chats"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/hooks"},
+		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/prompts"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/runners/seg-1/mcp"},
 		{http.MethodGet, "/v0/projects"},
 		{http.MethodGet, "/v0/console/logs"},
@@ -115,6 +115,32 @@ func TestShutdown_StopsServing(t *testing.T) {
 	require.NoError(t, s.Shutdown(context.Background()))
 
 	assert.ErrorIs(t, <-served, http.ErrServerClosed)
+}
+
+// A server closed before it ever served lets go of its port: a boot that fails
+// after Listen closes it without serving.
+func TestClose_BeforeServe_ReleasesThePort(t *testing.T) {
+	s, err := hookserver.Listen(t.Context(), http.NotFoundHandler())
+	require.NoError(t, err)
+	addr := strings.TrimPrefix(s.URL(), "http://")
+
+	require.NoError(t, s.Close())
+
+	var lc net.ListenConfig
+	again, err := lc.Listen(t.Context(), "tcp", addr)
+	require.NoError(t, err, "the port is still bound")
+	require.NoError(t, again.Close())
+}
+
+func TestClose_AfterShutdown_Succeeds(t *testing.T) {
+	s, err := hookserver.Listen(t.Context(), http.NotFoundHandler())
+	require.NoError(t, err)
+	served := make(chan error, 1)
+	go func() { served <- s.Serve() }()
+	require.NoError(t, s.Shutdown(t.Context()))
+	require.ErrorIs(t, <-served, http.ErrServerClosed)
+
+	assert.NoError(t, s.Close())
 }
 
 func TestPublish_ThenRead_RoundTripsThePrivateEndpoint(t *testing.T) {

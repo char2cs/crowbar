@@ -19,18 +19,12 @@ func (h *Handlers) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
-	// Stamp the derived working overlay from the same seam the workspaces
-	// handlers use, so this REST read agrees with the home workspace's live
-	// broadcast frames (which the container enriches via the same WorkingFor):
-	// a project-home read taken mid-agent-turn reports working=true and the
-	// home workspace's icon keeps its spinner across a refetch.
+	// The same WorkingFor seam enriches the live broadcast frames, so a read
+	// taken mid-turn agrees with the stream and reports working=true.
 	ws.Working = h.working.WorkingFor(ws.ID)
 	owningChatID := h.resolveOwningChatID(c.Request.Context(), ws)
-	// Home workspaces carry no git-merge-eligibility context, and no sidebar
-	// FolderID/Order either: PlaceWorkspace itself refuses this row (RepoOf
-	// answers "" for it — see PlaceWorkspace's own doc), so there is nothing
-	// for a Node reader to answer here beyond the "" / 0 default nil already
-	// gives.
+	// A home workspace has no merge eligibility and no sidebar placement
+	// (PlaceWorkspace refuses it), so both stay at their zero values.
 	libs.WriteQueryWithStatus(c, http.StatusOK,
 		dto.WorkspaceDTOFrom(c.Request.Context(), ws, wsrepo.MergeEligibility{}, owningChatID, nil))
 }

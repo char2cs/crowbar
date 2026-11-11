@@ -16,12 +16,9 @@ import { useFileExplorerGitignore } from './use-file-explorer-gitignore'
 
 const elapsedMs = (startedAt: number) => Math.round((performance.now() - startedAt) * 100) / 100
 
-/**
- * The explorer's view of the workspace: the loaded tree with always-hidden,
- * user-hidden, dot and gitignored entries removed (per settings), plus the
- * git-status decoration for any entry. `isVisible` applies the same rules to a
- * path read straight from disk ("Open All" walks the directory itself).
- */
+/** The explorer's view of the workspace: the loaded tree minus always-hidden, user-hidden, dot
+ *  and gitignored entries (per settings), plus each entry's git decoration. `isVisible` applies
+ *  the same rules to a path read from disk ("Open All" walks the directory itself). */
 export function useFilteredFileTree({
   workspaceId,
   files,

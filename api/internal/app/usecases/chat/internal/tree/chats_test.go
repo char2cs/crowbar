@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // TestDeleteChat_RefusesAFolderID pins the asymmetry this package's own doc
@@ -29,7 +29,7 @@ func TestDeleteChat_RefusesAFolderID(t *testing.T) {
 
 	_, err := uc.DeleteChat(context.Background(), "spikes", domain.KeepWorkAtRisk)
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.Empty(t, chats.Purged, "a folder id must never reach the chat cascade")
 }
 
@@ -43,7 +43,7 @@ func TestPlaceChat_RefusesAFolderID(t *testing.T) {
 
 	_, _, err := uc.PlaceChat(context.Background(), "", "spikes", tree.PlaceInput{ParentID: name("ideas")})
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 	assert.Equal(t, "", folderRow(t, uc, "spikes").ParentID, "nothing may have moved")
 }
 
@@ -79,14 +79,13 @@ func TestCreateChat_AtTheRootIsPlacedAtTheNextSlot(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	chatID, runnerID, err := createChat(context.Background(), uc, workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
 	assert.Equal(t, []string{workspaceID}, chats.Minted, "minted in its workspace, then placed")
 	require.Len(t, chats.Started, 1)
 	assert.Equal(t, "", nodeRowFor(t, nodes, "c-new").ParentID)
-	assert.Empty(t, chats.Spawned, "the unplaced spawn is no longer a create path")
 }
 
 // The landing surface reaches the MINT, not the start: it has to be on the
@@ -96,8 +95,7 @@ func TestCreateChat_MintsWithTheRequestedLandingSurface(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(
-		context.Background(), workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "terminal")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "terminal")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"terminal"}, chats.MintedSurfaces)
@@ -107,8 +105,7 @@ func TestCreateChat_NoSurfaceAskedForMintsTheProvidersDefault(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(
-		context.Background(), workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{""}, chats.MintedSurfaces)
@@ -124,25 +121,23 @@ func TestRegression_CreateChat_MintsTheChatWithItsProvider(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(
-		context.Background(), workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"codex"}, chats.MintedProviders,
 		"the row records its vendor from the instant it exists, not from a later spawn")
 }
 
-// The ownWorktree create takes the same path and must carry the same fact: it
-// mints the row first too, and its CLI comes up later still (a worktree has to be
-// forked in between), so it has even more window in which the spawn can fail.
+// The ownWorktree create mints first too and its CLI comes up later still, so it
+// carries the same fact; with no provider to start it mints nothing at all.
 func TestRegression_CreateChat_OwnWorktreeMintsTheChatWithItsProvider(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
-
-	_, _, err := uc.CreateChat(
-		context.Background(), workspaceID, "codex", "",
-		tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
-
+	fork := tree.WorktreeSpec{Mode: tree.WorktreeFork}
+	_, _, err := createChat(context.Background(), uc, workspaceID, "", "", fork, "")
+	require.ErrorIs(t, err, tree.ErrForkNeedsProvider)
+	assert.Empty(t, chats.Minted)
+	_, _, err = createChat(context.Background(), uc, workspaceID, "codex", "", fork, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"codex"}, chats.MintedProviders)
 }
@@ -160,7 +155,7 @@ func TestCreateChat_PlacesTheChatBeforeStartingItsCLI(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	chatID, runnerID, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
@@ -173,16 +168,14 @@ func TestCreateChat_PlacesTheChatBeforeStartingItsCLI(t *testing.T) {
 }
 
 // A folder parent is "new chat in this folder" and takes the identical path.
-// The new chat's placement is Node-backed now (2026-09-08
-// sidebar-placement-unification Task 8 — repo-scoped chat placement, same
-// as home-scoped since Task 5), so this reads the Node row, not the frozen
-// Chat field.
+// The new chat's placement is Node-backed, so this reads the Node row, not the
+// frozen Chat field.
 func TestCreateChat_InAFolderPlacesItThereToo(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedFolder(t, uc, "spikes", "")
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "spikes", nodeRowFor(t, nodes, "c-new").ParentID)
 }
@@ -195,7 +188,7 @@ func TestCreateChat_LandsAtTheEndOfItsParentsSiblingSpace(t *testing.T) {
 	seedThread(chats, "c2", "c1", 2)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, 1, nodeRowFor(t, nodes, "c-new").Order)
 }
@@ -221,12 +214,12 @@ func TestCreateChat_DoesNotReorderUnrelatedRootSiblings(t *testing.T) {
 	// (bystander's 5 gets "corrected" to 1 as a side effect of c1's own
 	// create, even though nothing was ever actually removed from "").
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
-		domain.Node{ID: "bystander", Kind: domain.NodeKindChat, ParentID: "", Order: 5},
+		dtree.Node{ID: "c1", Kind: dtree.KindChat, ParentID: "", Order: 0},
+		dtree.Node{ID: "bystander", Kind: dtree.KindChat, ParentID: "", Order: 5},
 	)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 5, nodeRowFor(t, nodes, "bystander").Order,
@@ -251,7 +244,7 @@ func TestCreateChat_StillGoesThroughThePlacementPath(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, nodes.Rows, "the placement is written through Node, like any other repo-scoped row")
 }
@@ -263,11 +256,10 @@ func TestCreateChat_RefusesAnUnknownParentWithoutMintingAnything(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.Error(t, err)
 	assert.Empty(t, chats.Minted)
 	assert.Empty(t, chats.Started)
-	assert.Empty(t, chats.Spawned)
 }
 
 // A folder carries no workspace of its own, so it is always an acceptable
@@ -278,7 +270,7 @@ func TestCreateChat_AcceptsAFolderParentRegardlessOfProvenance(t *testing.T) {
 	seedFolder(t, uc, "f-other", "")
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "f-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "f-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.NoError(t, err)
 }
 
@@ -287,7 +279,7 @@ func TestCreateChat_RefusesAChatParentInAnotherWorkspace(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
 	assert.Empty(t, chats.Minted)
 }
@@ -296,7 +288,7 @@ func TestCreateChat_SurfacesASnapshotFailure(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.ListErr = errors.New("folders down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "folders down")
 	assert.Empty(t, chats.Minted)
 }
@@ -306,7 +298,7 @@ func TestCreateChat_SurfacesAMintFailure(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.MintErr = errors.New("mint down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "mint down")
 	assert.Empty(t, chats.Purged, "nothing was minted, so there is nothing to take back")
 }
@@ -323,7 +315,7 @@ func TestCreateChat_TakesTheChatBackOutWhenThePlacementFails(t *testing.T) {
 	chats.NextID = "c-new"
 	nodes.CreateErr = errors.New("placement down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "placement down")
 	assert.Equal(t, []string{"c-new"}, chats.Purged)
 	assert.Empty(t, chats.Started, "and no CLI is started on a chat that is about to be erased")
@@ -335,7 +327,7 @@ func TestCreateChat_TakesTheChatBackOutWhenTheCLIFailsToStart(t *testing.T) {
 	chats.NextID = "c-new"
 	chats.StartErr = errors.New("claude is not installed")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "claude is not installed")
 	assert.Equal(t, []string{"c-new"}, chats.Purged)
 }
@@ -350,9 +342,9 @@ func TestCreateChat_AFailedCleanupStillReportsTheOriginalFailure(t *testing.T) {
 	chats.StartErr = errors.New("claude is not installed")
 	chats.PurgeErr = errors.New("purge down")
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	assert.ErrorContains(t, err, "claude is not installed")
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+	assert.NotErrorIs(t, err, problem.ErrNotFound)
 }
 
 // CreateChat's ownWorktree branch (model spec §4.1/§5.1): mint and place the
@@ -380,13 +372,12 @@ func TestCreateChat_OwnWorktree_AtTheRootSkipsPlacementBeforeFillingTheSlot(t *t
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), "some-other-ws", "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	chatID, runnerID, err := createChat(context.Background(), uc, "some-other-ws", "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
 	assert.Equal(t, []string{""}, chats.Minted, "the row is minted as a plain bubble, not into the caller's workspaceID")
 	assert.Empty(t, chats.Placed, "there is nowhere to place a root-level chat")
-	assert.Empty(t, chats.Spawned, "the ordinary unplaced SpawnChat is not the path ownWorktree takes")
 	require.Len(t, chats.SpawnedOwnWorktree, 1)
 	assert.Equal(t, "c-new", chats.SpawnedOwnWorktree[0].ChatID)
 	assert.Equal(t, "claude", chats.SpawnedOwnWorktree[0].ProviderID)
@@ -401,7 +392,7 @@ func TestCreateChat_OwnWorktree_PlacesTheChatBeforeFillingItsSlot(t *testing.T) 
 	seedFolder(t, uc, "spikes", "")
 	chats.NextID = "c-new"
 
-	chatID, runnerID, err := uc.CreateChat(context.Background(), "some-other-ws", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	chatID, runnerID, err := createChat(context.Background(), uc, "some-other-ws", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
@@ -418,7 +409,7 @@ func TestCreateChat_OwnWorktree_InAFolderPlacesItThereToo(t *testing.T) {
 	seedFolder(t, uc, "spikes", "")
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "spikes", chatRow(t, chats, "c-new").ParentID)
 }
@@ -429,10 +420,9 @@ func TestCreateChat_OwnWorktree_RefusesAnUnknownParentWithoutMintingAnything(t *
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "nowhere", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.Error(t, err)
 	assert.Empty(t, chats.Minted)
-	assert.Empty(t, chats.SpawnedOwnWorktree)
 }
 
 // A chat parent that already OWNS a worktree in a different workspace is an
@@ -449,7 +439,7 @@ func TestCreateChat_OwnWorktree_AcceptsAWorktreeOwningChatParentInAnotherWorkspa
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	assert.NoError(t, err)
 	assert.Equal(t, "c-other", chatRow(t, chats, "c-new").ParentID)
 }
@@ -458,18 +448,18 @@ func TestCreateChat_OwnWorktree_AcceptsAWorktreeOwningChatParentInAnotherWorkspa
 // new chat's workspaceID happening to be "". An ordinary (non-ownWorktree)
 // thread can ALSO be created with workspaceID=="" (a workspace-less bubble
 // thread — see handlers.Create's own doc comment), and for THAT caller the
-// cross-workspace refusal must still fire: a thread inherits its parent's cwd,
-// and a thread claiming no workspace of its own placed under a chat that owns
-// a DIFFERENT one is exactly the meaningless case ErrCrossWorkspace exists to
-// catch. A fix that bypassed the check whenever workspaceID == "" — rather
-// than whenever the caller is actually creating an own-worktree chat — would
-// wrongly let this one through too.
+// refusal must still fire: a thread inherits its parent's cwd, so one naming
+// no workspace under a chat that owns one has left out the parent's workspace,
+// which the caller is told it must name. A fix that bypassed the check whenever
+// workspaceID == "" — rather than whenever the caller is actually creating an
+// own-worktree chat — would wrongly let this one through too.
 func TestCreateChat_RefusesAChatParentInAnotherWorkspaceEvenWithNoWorkspaceOfItsOwn(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
-	assert.ErrorIs(t, err, tree.ErrCrossWorkspace)
+	_, _, err := createChat(context.Background(), uc, "", "claude", "c-other", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	require.ErrorIs(t, err, tree.ErrThreadNeedsWorkspace)
+	assert.Equal(t, problem.InvalidArgument, problem.Of(err).Code, "a missing field, not a conflict")
 	assert.Empty(t, chats.Minted)
 }
 
@@ -485,7 +475,7 @@ func TestCreateChat_OwnWorktree_AcceptsABranchParentInAnotherWorkspace(t *testin
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "b-other", Type: domain.ChatTypeBranch, WorkspaceID: "ws-2"})
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "b-other", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "b-other", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	assert.NoError(t, err)
 }
 
@@ -498,7 +488,7 @@ func TestCreateChat_OwnWorktree_TakesTheChatBackOutWhenFillingTheSlotFails(t *te
 	chats.NextID = "c-new"
 	chats.SpawnOwnWorktreeErr = errors.New("no fork parent")
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+	_, _, err := createChat(context.Background(), uc, "", "claude", "spikes", tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	assert.ErrorContains(t, err, "no fork parent")
 	assert.Equal(t, []string{"c-new"}, chats.Purged)
 }
@@ -698,7 +688,7 @@ func TestCreateChat_TheNewChatIsWrittenAsAPlacement(t *testing.T) {
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "c1", nodeRowFor(t, nodes, "c-new").ParentID)
@@ -826,14 +816,14 @@ func TestPlaceChat_RefusesAChatFromAnotherWorkspace(t *testing.T) {
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", WorkspaceID: "ws-2"})
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c-other", tree.PlaceInput{})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestPlaceChat_RefusesAnUnknownChat(t *testing.T) {
 	_, uc := newUsecase(t)
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "nowhere", tree.PlaceInput{})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestPlaceChat_SurfacesASnapshotFailure(t *testing.T) {
@@ -897,10 +887,19 @@ func newUsecaseOverRoster(
 	roster.Rows = append(roster.Rows, workspaces...)
 	reaper := mocks.NewAgentWorkspaceReaperOver(roster)
 	holders := mocks.NewAgentWorkspaceHolders(chats)
-	uc := tree.New(chats, chats, inflight.NewWork(),
-		mocks.NewAgentWorkspaceGitStatus(), reaper, holders,
+	gitStatus := mocks.NewAgentWorkspaceGitStatus()
+	for _, ws := range workspaces {
+		gitStatus.SetRepo(ws.ID, ws.RepoID)
+	}
+	uc := tree.New(chats, chats, newBusyChats(),
+		gitStatus, reaper, holders,
 		mocks.NewFolderStore(), mocks.NewNodePlacements())
 	return chats, uc, roster, reaper, holders
+}
+
+// worktreeIn is a child worktree of the test repo.
+func worktreeIn(id string) domain.Workspace {
+	return domain.Workspace{ID: id, RepoID: repoID}
 }
 
 // seedWorktreeChat appends a chat that OWNS wsID — the row a branch or a fork
@@ -919,21 +918,11 @@ func seedWorktreeChat(
 	})
 }
 
-// TestRegression_DeletingAWorkspaceOwningChatAlsoDeletesTheWorkspace is the
-// test for the bug spec §0 diagnosed, reached from the other direction.
-//
-// A workspace is reachable ONLY through the chat that owns it. DeleteChat used
-// to purge the chat and its threads and stop there — chat, runner, ledger — so
-// deleting the row that owned a worktree left a real git worktree on disk with
-// nothing anywhere able to name it again: an orphan identical in shape to the
-// one the import path produced, and produced by the ordinary panel delete every
-// user makes.
-//
-// The assertion is deliberately about the CENSUS and not about the reap call:
-// "the workspace is gone" is the invariant, and a test that only proved a
-// method ran would still pass if that method stopped tearing anything down.
+// A workspace is reachable only through the chat that owns it, so deleting
+// that chat must delete the workspace too, or it is orphaned on disk. The
+// assertion is on the census, not the reap call.
 func TestRegression_DeletingAWorkspaceOwningChatAlsoDeletesTheWorkspace(t *testing.T) {
-	chats, uc, roster, _, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-fork"})
+	chats, uc, roster, _, _ := newUsecaseOverRoster(t, worktreeIn("ws-fork"))
 	seedWorktreeChat(chats, "owner", "ws-fork", "")
 
 	removed, err := uc.DeleteChat(context.Background(), "owner", domain.KeepWorkAtRisk)
@@ -944,15 +933,10 @@ func TestRegression_DeletingAWorkspaceOwningChatAlsoDeletesTheWorkspace(t *testi
 		"and so does the worktree it owned — a workspace must never outlive its chat")
 }
 
-// TestRegression_DeletingAWorkspaceOwningChatReapsItsWorktreeOnce pins the
-// cascade over the whole SUBTREE, and the deduplication that keeps it honest.
-//
-// A thread carries its parent's workspace id, so a chat and the threads under
-// it routinely name ONE worktree between them. Every row in the subtree is
-// therefore considered, but the teardown runs once per distinct workspace: the
-// worktree must go, and it must not be asked to go twice.
+// A thread carries its parent's workspace id, so the subtree names one
+// worktree twice: it is reaped once.
 func TestRegression_DeletingAWorkspaceOwningChatReapsItsWorktreeOnce(t *testing.T) {
-	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-root"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-root"))
 	seedWorktreeChat(chats, "root", "ws-root", "")
 	seedWorktreeChat(chats, "thread", "ws-root", "root")
 
@@ -966,17 +950,10 @@ func TestRegression_DeletingAWorkspaceOwningChatReapsItsWorktreeOnce(t *testing.
 		"torn down once, however many rows named it")
 }
 
-// TestRegression_AFailedWorktreeReapLeavesTheChatAndItsWorkspaceIntact pins the
-// failure contract the reap ORDER exists to give.
-//
-// The two orderings fail in opposite directions, and only one of them is safe.
-// Reaping first means a failure leaves a chat that still exists and still owns
-// its worktree — nothing lost, and the user can retry. Purging first would mean
-// a failure leaves the worktree behind with its only route to it deleted, which
-// is precisely the orphan this cascade was added to prevent. So a reap that
-// fails FAILS THE DELETE, and nothing is purged.
+// The reap runs before the purge, so a failed reap fails the delete and
+// leaves the chat still owning its worktree, rather than orphaning it.
 func TestRegression_AFailedWorktreeReapLeavesTheChatAndItsWorkspaceIntact(t *testing.T) {
-	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-locked"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-locked"))
 	seedWorktreeChat(chats, "owner", "ws-locked", "")
 	wedged := errors.New("worktree is locked")
 	reaper.ErrFor["ws-locked"] = wedged
@@ -989,12 +966,26 @@ func TestRegression_AFailedWorktreeReapLeavesTheChatAndItsWorkspaceIntact(t *tes
 	assert.Len(t, roster.Rows, 1, "and the worktree itself is untouched")
 }
 
+// A project's home has no repo; its last chat going leaves the project with
+// nowhere to open the next one.
+func TestRegression_DeletingAHomesOnlyChatKeepsTheHome(t *testing.T) {
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-home", Kind: domain.WorkspaceKindHome})
+	seedWorktreeChat(chats, "only", "ws-home", "")
+
+	removed, err := uc.DeleteChat(context.Background(), "only", domain.KeepWorkAtRisk)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"only"}, removed.Chats)
+	assert.Empty(t, reaper.Reaped, "a project's home is never reaped by a chat delete")
+	assert.Len(t, roster.Rows, 1)
+}
+
 // TestDeleteChat_ABubbleReapsNothing keeps the cascade off the ground a bubble
 // merely BORROWS. A chat with no workspace of its own reads its ancestor's
 // worktree; reaping on its delete would destroy the directory its parent is
 // still working in.
 func TestDeleteChat_ABubbleReapsNothing(t *testing.T) {
-	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-parent"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-parent"))
 	seedWorktreeChat(chats, "bubble", "", "")
 
 	_, err := uc.DeleteChat(context.Background(), "bubble", domain.KeepWorkAtRisk)
@@ -1004,22 +995,10 @@ func TestDeleteChat_ABubbleReapsNothing(t *testing.T) {
 	assert.Len(t, roster.Rows, 1, "its ancestor's worktree is untouched")
 }
 
-// TestRegression_DeletingOneOfTwoChatsSharingAWorktreeSparesIt is the other
-// half of the reap contract, and the data-loss bug the first half introduced.
-//
-// The cascade above reads Chat.WorkspaceID to find what a doomed subtree owns.
-// But that field says which worktree a chat is ANCHORED to, never that it is
-// anchored there alone: a worktree is many-chats-to-one by design, which is the
-// entire premise of the shared reads (git, review, files, search, identity)
-// that fan out over exactly this set. Deleting one conversation therefore
-// cascade-deleted the worktree its unrelated SIBLINGS were working in and left
-// every one of them anchored to a workspace that no longer existed.
-//
-// The two rows here are siblings, neither inside the other's subtree, so
-// nothing about the delete reaches "kept" — and the worktree must survive
-// because "kept" is still holding it.
+// Chat.WorkspaceID says where a chat is anchored, never that it is anchored
+// there alone: a sibling outside the doomed subtree still holds the worktree.
 func TestRegression_DeletingOneOfTwoChatsSharingAWorktreeSparesIt(t *testing.T) {
-	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-shared"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-shared"))
 	seedWorktreeChat(chats, "doomed", "ws-shared", "")
 	seedWorktreeChat(chats, "kept", "ws-shared", "")
 
@@ -1034,17 +1013,10 @@ func TestRegression_DeletingOneOfTwoChatsSharingAWorktreeSparesIt(t *testing.T) 
 		"and the sibling is still anchored to ground that exists")
 }
 
-// TestRegression_DeletingTheLastChatHoldingAWorktreeStillReapsIt is the gate
-// read in the opposite direction, and it is the test that keeps the fix above
-// from quietly undoing the orphan fix it was built on top of.
-//
-// Skipping the reap while a holder remains is only correct if the reap still
-// runs the moment the LAST one goes. Both deletes are made in sequence over one
-// census precisely so the gate is observed opening: the same workspace, the
-// same reaper, spared once and torn down once, decided entirely by whether
-// anything outside the doomed subtree was still pointing at it.
+// The holder gate opens when the last holder goes: one worktree, spared on
+// the first delete and reaped on the second.
 func TestRegression_DeletingTheLastChatHoldingAWorktreeStillReapsIt(t *testing.T) {
-	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-shared"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-shared"))
 	seedWorktreeChat(chats, "first", "ws-shared", "")
 	seedWorktreeChat(chats, "last", "ws-shared", "")
 	ctx := context.Background()
@@ -1061,16 +1033,10 @@ func TestRegression_DeletingTheLastChatHoldingAWorktreeStillReapsIt(t *testing.T
 	assert.Empty(t, roster.Rows, "a workspace no chat can name again must not survive")
 }
 
-// TestRegression_AThreadInTheDoomedSubtreeDoesNotCountAsAHolder pins the
-// SUBTRACTION the gate is built on.
-//
-// A thread carries its parent's workspace id, so the doomed subtree's own rows
-// appear in the workspace's holder census — and a gate that merely asked "does
-// anyone hold this?" would see them, decline every reap, and reintroduce the
-// orphan from the other direction. The rows about to be purged are subtracted
-// first; only what OUTLIVES the delete can spare a worktree.
+// The doomed subtree's own rows appear in the holder census; only what
+// outlives the delete can spare a worktree.
 func TestRegression_AThreadInTheDoomedSubtreeDoesNotCountAsAHolder(t *testing.T) {
-	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-root"})
+	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-root"))
 	seedWorktreeChat(chats, "root", "ws-root", "")
 	seedWorktreeChat(chats, "thread", "ws-root", "root")
 
@@ -1082,16 +1048,10 @@ func TestRegression_AThreadInTheDoomedSubtreeDoesNotCountAsAHolder(t *testing.T)
 	assert.Empty(t, roster.Rows)
 }
 
-// TestRegression_AFailedHolderCensusRefusesTheDelete pins the gate's failure
-// direction, which is the same one the reap itself already has.
-//
-// The whole reason the census is asked is that "is anything else holding this
-// worktree?" cannot be answered from the doomed rows alone. A delete that
-// swallowed the error and cascaded anyway would be back to assuming sole
-// ownership — the exact assumption that destroyed a shared worktree — so an
-// unanswerable question fails the delete, and nothing is purged or torn down.
+// An unanswerable holder census fails the delete: cascading anyway would
+// assume sole ownership of a possibly shared worktree.
 func TestRegression_AFailedHolderCensusRefusesTheDelete(t *testing.T) {
-	chats, uc, roster, reaper, holders := newUsecaseOverRoster(t, domain.Workspace{ID: "ws-fork"})
+	chats, uc, roster, reaper, holders := newUsecaseOverRoster(t, worktreeIn("ws-fork"))
 	seedWorktreeChat(chats, "owner", "ws-fork", "")
 	unreadable := errors.New("chat forest unavailable")
 	holders.Err = unreadable
@@ -1109,7 +1069,7 @@ func TestRegression_AFailedHolderCensusRefusesTheDelete(t *testing.T) {
 // and is handed down to every reap.
 func TestDeleteChat_WithoutConsentRefusesOverWorkAtRiskBeforeReapingAnything(t *testing.T) {
 	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t,
-		domain.Workspace{ID: "ws-root"}, domain.Workspace{ID: "ws-child"})
+		worktreeIn("ws-root"), worktreeIn("ws-child"))
 	seedWorktreeChat(chats, "root", "ws-root", "")
 	seedWorktreeChat(chats, "child", "ws-child", "root")
 	risk := domain.WorkAtRisk{WorkspaceID: "ws-root", Branch: "feature/root", UncommittedFiles: 2}
@@ -1117,9 +1077,8 @@ func TestDeleteChat_WithoutConsentRefusesOverWorkAtRiskBeforeReapingAnything(t *
 
 	_, err := uc.DeleteChat(context.Background(), "root", domain.KeepWorkAtRisk)
 
-	var refused *domain.WorkAtRiskError
-	require.ErrorAs(t, err, &refused)
-	assert.Equal(t, []domain.WorkAtRisk{risk}, refused.Workspaces)
+	require.ErrorIs(t, err, domain.ErrWorkAtRisk)
+	assert.Equal(t, map[string]any{"workAtRisk": []domain.WorkAtRisk{risk}}, problem.DataOf(err))
 	assert.Empty(t, reaper.Reaped, "not even the clean child is reaped")
 	assert.Empty(t, chats.Purged)
 	assert.Len(t, roster.Rows, 2)

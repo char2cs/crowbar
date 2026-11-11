@@ -2,67 +2,62 @@ package chat
 
 import (
 	"context"
-	"time"
+	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// WaitingForPromptDeliveryLog is the log record a provider switch emits at the
-// INSTANT it parks on a committed-but-unconfirmed prompt delivery, exposed to
-// this package's external tests. Same role as WaitingForTurnLog, for the
-// window just before the turn exists.
-const WaitingForPromptDeliveryLog = runner.WaitingForPromptDeliveryLog
+// WaitingForPendingPromptLog is logged the instant a provider switch parks on a
+// prompt the provider has not acknowledged, so a test can block on it.
+const WaitingForPendingPromptLog = runner.WaitingForPendingPromptLog
 
-// SetPromptJournalDirSync installs a deterministic durability fault for external
-// package tests. It is test-only surface; production always uses fsync+close on
-// the journal parent directory after the atomic rename.
-//
-// It REPLACES the journal, so it must be called before the chat under test has
-// submitted anything. The prompt journal holds no state between calls, so a
-// replacement loses nothing.
-func SetPromptJournalDirSync(u RunnerUsecase, syncDir func(string) error) {
-	u.(*Usecase).runners.SetPromptJournal(agentjournal.NewPromptRequests(agentjournal.WithDirSync(syncDir)))
+// HasPendingPrompt reports whether chatID holds a prompt the provider has not
+// acknowledged yet, read straight off the ledger.
+func HasPendingPrompt(u RunnerUsecase, ctx context.Context, chatID string) bool {
+	st, err := concrete(u).ledger.State(ctx, chatID)
+	return err == nil && len(st.PendingPrompts()) > 0
 }
 
-// HasPendingDelivery reports whether chatID has an unsettled prompt delivery
-// in flight right now. Test-only surface: it exists to prove a delivery WAS
-// (or was not) settled by some signal without ever needing to wait out
-// termwait's real quiet timeout for it to settle on its own.
-func HasPendingDelivery(u RunnerUsecase, ctx context.Context, chatID string) bool {
-	_, ok := u.(*Usecase).runners.PendingDelivery(ctx, chatID)
-	return ok
+// ChatTurns is every message chatID said, as get_chat_log and the handoff read it.
+func ChatTurns(u RunnerUsecase, ctx context.Context, chatID string) ([]domain.LedgerTurn, error) {
+	return concrete(u).conversations.ChatTurns(ctx, chatID)
+}
+
+// ChatExitReason is how chatID's last runner ended, as its snapshot reports it.
+func ChatExitReason(u RunnerUsecase, chatID string) string {
+	snap, err := concrete(u).ChatSnapshot(context.Background(), chatID)
+	if err != nil {
+		panic(err)
+	}
+	if snap.Ledger.LastExit == nil {
+		return ""
+	}
+	return snap.Ledger.LastExit.Reason
+}
+
+// concrete is u at the type every test builds; any other is a test bug.
+func concrete(u RunnerUsecase) *Usecase {
+	uc, ok := u.(*Usecase)
+	if !ok {
+		panic(fmt.Sprintf("chat: %T is not the chat usecase", u))
+	}
+	return uc
+}
+
+// AllLiveRunners is every started runner the supervisor holds.
+func AllLiveRunners(u *Usecase) []engineagents.Runner {
+	all, err := u.runners.AllLive(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	return all
 }
 
 // RequirePromptRestart exposes the delivery guard SubmitPrompt runs before it
-// touches anything. It is test-only surface: this file is compiled only under
-// `go test`.
-//
-// It is exposed because the guard's refusal branch has no descriptor that can
-// reach it. A strategy this daemon cannot drive is refused at LOAD by the
-// descriptor rules, so the only way to ask the guard about one is to hand it a
-// descriptor built in Go — which is the point: the day a strategy is made
-// declarable before it is made deliverable, this is the lock that still holds,
-// and a lock nothing exercises is a lock nobody notices going missing.
-// ChatSession is the session supervisor's record for chatID: the rung its
-// runner launched on and how its last runner ended.
-func ChatSession(u RunnerUsecase, chatID string) domain.AgentSession {
-	uc, ok := u.(*Usecase)
-	if !ok {
-		return domain.AgentSession{}
-	}
-	return uc.runners.Session(chatID)
-}
-
-// SetSwitchAwaitTimeout overrides how long a provider switch waits for the
-// outgoing turn to finish naturally before forcing it (see forceSwitchAfter).
-// Test-only surface: production always uses termwait.DefaultStallQuiet.
-func SetSwitchAwaitTimeout(u RunnerUsecase, d time.Duration) {
-	u.(*Usecase).runners.SetSwitchAwaitTimeout(d)
-}
-
+// touches anything: no loadable descriptor reaches its refusal branch, so only a
+// descriptor built in Go can exercise it.
 func RequirePromptRestart(
 	ctx context.Context,
 	u RunnerUsecase,

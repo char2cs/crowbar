@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -65,7 +64,7 @@ func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 			secondTap := kit.AttachPTY(t, h.eng.Terminal, second.TerminalSessionID)
 			t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), second.TerminalSessionID) })
 			secondUser, secondAssistant := awaitPositionalPromptTurn(
-				t, h, chatID, provider, firstAssistant.Sequence, secondText,
+				t, h, chatID, provider, firstAssistant.Seq, secondText,
 			)
 			require.Equal(t, secondText, secondUser.Text)
 			require.Equal(t, secondWant, strings.TrimSpace(secondAssistant.Text))
@@ -85,25 +84,21 @@ func awaitPositionalPromptTurn(
 	t *testing.T,
 	h *harness,
 	chatID, provider string,
-	after int,
+	after int64,
 	text string,
-) (domain.LedgerMessage, domain.LedgerMessage) {
+) (kit.Message, kit.Message) {
 	t.Helper()
 	type result struct {
-		user      domain.LedgerMessage
-		assistant domain.LedgerMessage
+		user      kit.Message
+		assistant kit.Message
 	}
 	found := awaitHook(t, h, provider+" positional prompt turn", func() (result, bool) {
-		page, err := h.app.Usecases.AgentChat.ReadMessages(context.Background(), chatID, after, 0, 200)
-		if err != nil {
-			return result{}, false
-		}
-		var user domain.LedgerMessage
-		for _, message := range page.Items {
-			if message.Sequence <= after || message.Provider != provider {
+		var user kit.Message
+		for _, message := range kit.Said(chatRows(t, h, chatID)) {
+			if message.Seq <= after || message.Provider != provider {
 				continue
 			}
-			if user.Sequence == 0 {
+			if user.Seq == 0 {
 				if message.Role == "user" && message.Text == text {
 					user = message
 				}
@@ -115,7 +110,7 @@ func awaitPositionalPromptTurn(
 			// goes on to submit the next prompt, which the runner correctly refuses
 			// with ErrPromptBusy because the turn really is still open. Wait for the
 			// chat to stop working too: that is the turn CLOSING.
-			if message.Role == "assistant" && message.Sequence > user.Sequence && message.Text != "" {
+			if message.Role == "assistant" && message.Seq > user.Seq && message.Text != "" {
 				if chatWorking(t, h, chatID) {
 					return result{}, false
 				}
@@ -155,14 +150,10 @@ func TestAgent_ReactPromptMidTurnSteersTheRunningCLI(t *testing.T) {
 	require.Equal(t, first.RunnerID, second.RunnerID, "the monitored CLI must not be replaced")
 	require.Equal(t, first.TerminalSessionID, second.TerminalSessionID)
 
-	type turns struct{ firstDone, user, answer domain.LedgerMessage }
+	type turns struct{ firstDone, user, answer kit.Message }
 	got := awaitHook(t, h, "the steered message and its answer", func() (turns, bool) {
-		page, readErr := h.app.Usecases.AgentChat.ReadMessages(ctx, chatID, 0, 0, 200)
-		if readErr != nil {
-			return turns{}, false
-		}
 		var out turns
-		for _, m := range page.Items {
+		for _, m := range kit.Said(chatRows(t, h, chatID)) {
 			switch {
 			case m.Role == "assistant" && strings.Contains(m.Text, "CROWBAR-FIRST"):
 				out.firstDone = m
@@ -172,11 +163,11 @@ func TestAgent_ReactPromptMidTurnSteersTheRunningCLI(t *testing.T) {
 				out.answer = m
 			}
 		}
-		done := out.firstDone.Sequence > 0 && out.user.Sequence > out.firstDone.Sequence &&
-			out.answer.Sequence > out.user.Sequence && !chatWorking(t, h, chatID)
+		done := out.firstDone.Seq > 0 && out.user.Seq > out.firstDone.Seq &&
+			out.answer.Seq > out.user.Seq && !chatWorking(t, h, chatID)
 		return out, done
 	})
-	require.NotZero(t, got.answer.Sequence)
+	require.NotZero(t, got.answer.Seq)
 	require.True(t, h.eng.Terminal.SessionLive(ctx, first.TerminalSessionID),
 		"the CLI must still be the process that took the first prompt")
 	requireCLIAlive(t, h, firstTap, first.TerminalSessionID, "claude", "after taking a steered prompt")

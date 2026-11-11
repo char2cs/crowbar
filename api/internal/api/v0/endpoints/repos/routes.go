@@ -2,8 +2,6 @@
 package repos
 
 import (
-	"context"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
@@ -11,13 +9,7 @@ import (
 )
 
 // Register mounts the repo list and detail routes on the supplied router group,
-// backed by the repository GORM store. The list and detail GET routes are
-// dual-served: a plain GET answers REST while a WebSocket upgrade is routed to
-// reposWS (the Broadcaster[RepoDTO] handle) for the live stream — a list-scope
-// subscriber at /projects/:p/repos receives that project's repos, a
-// :repoId-scope subscriber receives only that repo (W7-2).
-//
-// It returns the handlers' Shutdown, which waits for the work they detach.
+// backed by the repository GORM store, which publishes every row it writes.
 func Register(
 	rg *gin.RouterGroup,
 	store repohandlers.Store,
@@ -25,22 +17,20 @@ func Register(
 	wsReader repohandlers.WorkspaceReader,
 	importer repohandlers.RepoImporter,
 	updater repohandlers.RepoUpdater,
-	nodes repohandlers.NodeReader,
+	placements *dto.Placements,
 	remote repohandlers.RemoteRefresher,
 	deleter repohandlers.RepoDeleter,
-	broadcast func(dto.RepoDTO),
-	reposWS gin.HandlerFunc,
-	dispatch func(rest, ws gin.HandlerFunc) gin.HandlerFunc,
-) func(context.Context) error {
-	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).
+	ops repohandlers.Operations,
+	crowbarHome func() (string, error),
+) {
+	h := repohandlers.NewWithDeps(store, prov, wsReader, ops, crowbarHome, placements).
 		WithImporter(importer).
 		WithUpdater(updater).
-		WithNodes(nodes).
 		WithRemoteRefresher(remote).
 		WithRepoDeleter(deleter)
 	rg.POST("/repos", h.Create)
-	rg.GET("/repos", dispatch(h.List, reposWS))
-	rg.GET("/repos/:repoId", dispatch(h.Detail, reposWS))
+	rg.GET("/repos", h.List)
+	rg.GET("/repos/:repoId", h.Detail)
 	rg.PATCH("/repos/:repoId", h.Patch)
 	rg.DELETE("/repos/:repoId", h.DeleteRepo)
 	rg.GET("/repos/:repoId/icon", h.Icon)
@@ -50,5 +40,4 @@ func Register(
 	rg.PUT("/repos/:repoId/icon/github", h.PutIconGithub)
 	rg.GET("/repos/:repoId/branches", h.Branches)
 	rg.GET("/repos/:repoId/pull-requests", h.PullRequests)
-	return h.Shutdown
 }

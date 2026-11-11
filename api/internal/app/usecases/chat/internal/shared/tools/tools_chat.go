@@ -38,12 +38,8 @@ func chatTools(deps Deps) []toolDef {
 			if title == "" {
 				return "", fmt.Errorf("agenttools: set_chat_title: title must not be empty")
 			}
-			// Renaming by RUNNER, not by chat id: the runner resolves to whatever
-			// chat it is on right now, so an agent that cleared its conversation
-			// titles the chat it is actually in.
-			//
-			// source="agent" gives agent precedence: it upgrades a derived title
-			// and never clobbers one the user locked.
+			// By runner, not chat id, so a cleared conversation titles the chat it is in now.
+			// source="agent" upgrades a derived title but never clobbers one the user locked.
 			if err := deps.Chats.RenameByRunner(ctx, c.RunnerID, title, "agent"); err != nil {
 				return "", fmt.Errorf("agenttools: set_chat_title: %w", err)
 			}

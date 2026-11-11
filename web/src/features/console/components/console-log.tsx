@@ -20,17 +20,9 @@ interface ConsoleLogProps {
   open: boolean
 }
 
-/**
- * The scrolling log. Virtualized, because the buffer holds thousands of lines
- * and a line's height depends on how its fields wrap.
- *
- * It sticks to the newest line until the user scrolls up, and resumes when they
- * come back down. Only a scroll that follows the user's own input (wheel, touch,
- * the scrollbar, keys) can stop it: rows are measured after layout, the buffer
- * trims its oldest lines, and the browser clamps the position, so scroll events
- * also arrive from layout nobody asked for, at distances from the bottom that
- * mean nothing.
- */
+// Virtualized: thousands of lines, each as tall as its fields wrap. Follows the newest line until
+// the user scrolls up. Only a scroll after user input (wheel, touch, scrollbar, keys) stops it:
+// row measuring, buffer trims and position clamps also fire scrolls that mean nothing.
 export function ConsoleLog({ entries, expandedId, onToggle, open }: ConsoleLogProps) {
   const scroller = useRef<HTMLDivElement>(null)
   const following = useRef(true)

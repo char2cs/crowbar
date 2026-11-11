@@ -5,7 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 
 /**
  * Live-observed in the running app, on the chat composer's selection
- * formatting toolbar (`ChatFloatingToolbarKit` -> `MarkToolbarButton` ->
+ * formatting toolbar (`MarkFloatingToolbarKit` -> `MarkToolbarButton` ->
  * `ToolbarButton`), the moment Bold rendered:
  *
  *   In HTML, <button> cannot be a descendant of <button>.

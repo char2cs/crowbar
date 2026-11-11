@@ -7,8 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -17,13 +15,14 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/gorilla/websocket"
 	"gopkg.in/yaml.v3"
+
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // The scripted fake CLI. The test binary re-executes itself as a provider CLI
 // when FAKECLI_SCRIPT names a transcript, so a conformance run drives a real
-// process over a real PTY, socket and hook relay, with every behaviour —
+// process over a real PTY, stdio and hook relay, with every behaviour —
 // healthy or faulty — declared in testdata.
 func TestMain(m *testing.M) {
 	if script := os.Getenv("FAKECLI_SCRIPT"); script != "" {
@@ -46,7 +45,7 @@ type transcript struct {
 		Hooks        []string `yaml:"hooks"`
 		WriteSession bool     `yaml:"write_session"`
 	} `yaml:"turn"`
-	// UnknownResume is "exit" (the default) or "hang".
+	// UnknownResume is "exit" (the default), "hang" or "silent" (exits 1 saying nothing).
 	UnknownResume string `yaml:"unknown_resume"`
 	// Serve is "answer" (the default), "hang", "refuse" or "exit".
 	Serve    string            `yaml:"serve"`
@@ -78,7 +77,7 @@ func runFake(script string, args []string) int {
 		say(tr.Help + "\n")
 		return 0
 	case len(args) > 0 && args[0] == "app-server":
-		return fakeServe(tr, args)
+		return fakeServe(tr)
 	}
 	return fakeTUI(tr, args)
 }
@@ -129,6 +128,9 @@ func resumable(tr transcript, id string) bool {
 	if tr.UnknownResume == "hang" {
 		waitForKill()
 	}
+	if tr.UnknownResume == "silent" {
+		return false
+	}
 	say("No conversation found with session ID: " + id + "\n")
 	return false
 }
@@ -150,33 +152,17 @@ func fireHook(tr transcript, hooks map[string]string, event, session, prompt str
 	_ = c.Run()
 }
 
-func fakeServe(tr transcript, args []string) int {
+// fakeServe is the app-server on its own stdio: one JSON message per line,
+// until its stdin closes.
+func fakeServe(tr transcript) int {
 	if tr.Serve == "exit" {
 		return 1
 	}
-	path := strings.TrimPrefix(argAfter(args, "--listen"), "unix://")
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", path)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	upgrader := websocket.Upgrader{}
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		serveRPC(tr, conn)
-	})
-	_ = http.Serve(ln, handler)
-	return 0
-}
-
-func serveRPC(tr transcript, conn *websocket.Conn) {
+	serve := testutil.NewLinePeer(os.Stdin, os.Stdout)
 	for {
-		_, raw, err := conn.ReadMessage()
+		raw, err := serve.Read()
 		if err != nil {
-			return
+			return 0
 		}
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -190,7 +176,9 @@ func serveRPC(tr transcript, conn *websocket.Conn) {
 			delete(reply, "result")
 			reply["error"] = map[string]any{"code": -32600, "message": "refused"}
 		}
-		_ = conn.WriteJSON(reply)
+		if serve.WriteJSON(reply) != nil {
+			return 0
+		}
 	}
 }
 

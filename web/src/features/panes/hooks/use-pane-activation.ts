@@ -1,12 +1,8 @@
 import { useEffect, type RefObject } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
-/**
- * Focus `paneId` on any mousedown inside it — a native capture listener, not a
- * React prop: the editor is portaled in from EditorHostRegistry (a React
- * sibling of the pane tree), and React's synthetic events walk the fiber tree,
- * so only a DOM listener sees a click on it.
- */
+/** Focus `paneId` on any mousedown inside it. A native listener, not a React prop: the editor is
+ *  portaled from a React sibling, so synthetic events (which walk the fiber tree) miss it. */
 export function usePaneActivation(paneId: string, containerRef: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const node = containerRef.current

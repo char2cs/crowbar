@@ -1,16 +1,12 @@
-import type { DragEvent, KeyboardEvent } from 'react'
-import { useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { DragEvent, KeyboardEvent, ReactNode, Ref, RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type {
-  AgentActivity,
-  AgentTerminalWait,
-  PermissionLevel,
-} from '@/features/agent/api/agent-api'
+import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ComposerField } from '@/features/agent/composer/composer-field'
-import { ComposerHalted } from '@/features/agent/composer/composer-halted'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
@@ -22,22 +18,34 @@ import {
 import type {
   CaretEdges,
   ChatMarkdownEditorHandle,
+  ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
+import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
 import {
+  acceptsTyping,
   resolveComposerState,
-  type ComposerRevival,
+  type ComposerState,
 } from '@/features/agent/composer/lib/composer-state'
+import {
+  AgentEmptyDocument,
+  type AgentEmptyDocumentHandle,
+} from '@/features/agent/chat/agent-empty-document'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { IS_MOBILE } from '@/utils/platform'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import type { AskItem } from '@/features/agent/stores/lib/transcript-items'
+import {
+  clearExcalidrawEditRequest,
+  useExcalidrawEditRequests,
+} from '@/features/agent/composer/lib/excalidraw-edit-requests'
 import { cn } from '@/lib/utils'
 
 interface AgentComposerProps {
   wsId: string
   chatId: string
-  activity: AgentActivity
+  /** The asks still pending, oldest first. */
+  asks: AskItem[]
   providerLabel: string
   /** This chat's current provider's own declared levels, for the permission
    *  switcher a permission choice offers. Undefined/empty hides the switcher. */
@@ -52,104 +60,84 @@ interface AgentComposerProps {
   sending: boolean
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
-  /** The daemon placing a CLI this pane did not ask for. */
-  revival?: ComposerRevival
-  haltedMessage?: string
-  haltedResetsAt?: string
-  onRetryHalted?: () => void
+  /** Why the chat's feed failed, while it has. */
+  feedError?: string
   canStop: boolean
 
-  draft: string
-  fieldHeight: number
+  /** The blank chat's document, or the dock under a conversation: one editor either way. */
+  placement: 'document' | 'dock'
+  /** The box itself, for the caller to read on send and load text into. */
+  editorRef: RefObject<ChatMarkdownEditorHandle | null>
   slashOpen: boolean
-  onDraftChange: (value: string) => void
-  onHeightChange: (height: number) => void
+  onShapeChange: (shape: ComposerShape, edited: boolean) => void
   onKeyDown: (
     event: KeyboardEvent<HTMLDivElement>,
     readMarkdown: () => string,
     caret: CaretEdges,
+    shape: ComposerShape,
   ) => void
   onSend: () => void
   onStop: () => void
   onOpenTerminal: () => void
-  /** Bumped when the draft is set from OUTSIDE the box, to remount it. */
-  draftSeed: number
-  /** The text that seed carries — see the note on `seed` in the view. */
-  seedText: string
-  /**
-   * Where the excalidraw takeover portals to, instead of rendering inline.
-   *
-   * The composer lives inside `.dock`, a small bottom-pinned bar —
-   * `position: absolute` itself, which makes it the CSS containing block for
-   * any `position: absolute` descendant regardless of `.dock`'s own size.
-   * Rendering the takeover inline there sized it to the dock, not the chat
-   * pane (reported live: "not just where the input box is at"). The caller
-   * (agent-chat-view.tsx) passes the `.agent-chat.chat` section itself, so
-   * `inset-0` covers the whole pane. Undefined (tests that render this
-   * component standalone) falls back to inline — harmless there since
-   * nothing constrains its size in a bare test host.
-   */
+  /** The document's selection chips, left of its send button. */
+  controls?: ReactNode
+  /** The document's reason it cannot be typed into yet, in place of its controls. */
+  banner?: ReactNode
+  headerClearancePx?: number
+  documentRef?: Ref<AgentEmptyDocumentHandle>
+  /** Where the Excalidraw takeover portals to, so `inset-0` covers the chat pane: inline, the
+   *  absolutely positioned `.dock` would be its containing block. Undefined renders inline. */
   takeoverContainer?: HTMLElement | null
 }
 
-/**
- * THE BAR.
- *
- * One 38px slot with exactly one occupant, resolved by `resolveComposerState`.
- * It is an input when you can talk, and it is the question, the permission, or
- * the reason you cannot, when you cannot — never an input rendered dead beneath
- * something else.
- */
+// The bar: one 38px slot with one occupant from `resolveComposerState`. An input when you can
+// talk; otherwise the question, the permission, or the reason you cannot, never a dead input.
 export function AgentComposer(props: AgentComposerProps) {
   const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
   const [excalidrawInitialScene, setExcalidrawInitialScene] = useState<
     ParsedExcalidrawScene | undefined
   >(undefined)
-  // Owned here, not by ComposerField — Tasks 29/34's modals sit as SIBLINGS
-  // of the field below, outside `<Plate>`'s tree, and this is their only way
-  // to reach the box's `insertAttachmentMarkdown`.
-  const editorRef = useRef<ChatMarkdownEditorHandle>(null)
+  const { editorRef } = props
   const pillRef = useRef<HTMLDivElement>(null)
+  const docRef = useRef<HTMLDivElement>(null)
   const [dropTarget, setDropTarget] = useState(false)
-  // Sending clears the box by remounting it; the new box inherits the keyboard.
-  const [typing, setTyping] = useState(false)
-  const answerTerminalWait = useAnswerTerminalWait(props.wsId, props.chatId)
-
-  const insertAttachmentMarkdown = useCallback((md: string) => {
-    editorRef.current?.insertAttachmentMarkdown(md)
-  }, [])
-  const insertPendingImage = useCallback((objectUrl: string, alt: string) => {
-    editorRef.current?.insertPendingImage(objectUrl, alt)
-  }, [])
-  const settlePendingImage = useCallback((objectUrl: string, finalMarkdown: string | null) => {
-    editorRef.current?.settlePendingImage(objectUrl, finalMarkdown)
-  }, [])
-
-  // Nullable, not the throwing `useWorkspaceStore()`: this component's own
-  // tests render it bare (no provider) and must keep working — absent
-  // context just means no cross-tab edit requests can reach it, same as
-  // ExcalidrawPreview's own guard.
-  const workspaceStore = useContext(WorkspaceStoreContext)
-  const pendingExcalidrawEdit = useSyncExternalStore(
-    useCallback(
-      (onChange) => (workspaceStore ? workspaceStore.subscribe(onChange) : () => {}),
-      [workspaceStore],
-    ),
-    () => workspaceStore?.getState().agentChats.excalidrawEditRequests[props.chatId],
+  const [fieldHeight, setFieldHeight] = useState(20)
+  // Only the box's emptiness re-renders the bar; the text itself stays in the editor.
+  const [empty, setEmpty] = useState(true)
+  const { onShapeChange } = props
+  const handleShape = useCallback(
+    (shape: ComposerShape, edited: boolean) => {
+      setEmpty(shape.empty)
+      onShapeChange(shape, edited)
+    },
+    [onShapeChange],
   )
+
+  const insertAttachmentMarkdown = useCallback(
+    (md: string) => editorRef.current?.insertAttachmentMarkdown(md),
+    [editorRef],
+  )
+  const insertPendingImage = useCallback(
+    (objectUrl: string, alt: string) => editorRef.current?.insertPendingImage(objectUrl, alt),
+    [editorRef],
+  )
+  const settlePendingImage = useCallback(
+    (objectUrl: string, finalMarkdown: string | null) =>
+      editorRef.current?.settlePendingImage(objectUrl, finalMarkdown),
+    [editorRef],
+  )
+
+  const pendingExcalidrawEdit = useExcalidrawEditRequests((s) => s.requests[props.chatId])
   useEffect(() => {
     if (!pendingExcalidrawEdit) return
     setExcalidrawInitialScene(pendingExcalidrawEdit)
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: not a derived copy of pendingExcalidrawEdit, an external-store event handler. Both setState calls run in the same batched effect invocation, so the modal never paints with a stale/absent scene; clearExcalidrawEditRequest is itself a side effect that can't happen during render.
     setModal('excalidraw')
-    workspaceStore?.getState().clearExcalidrawEditRequest(props.chatId)
-  }, [pendingExcalidrawEdit, props.chatId, workspaceStore])
+    clearExcalidrawEditRequest(props.chatId)
+  }, [pendingExcalidrawEdit, props.chatId])
 
-  // Upload, CSV-inline resolution, and the failure toast all live in this one
-  // shared hook now (also used by attach-file-modal.tsx and
-  // agent-empty-document.tsx) — `void uploadAndInsert(...)` at every call
-  // site below means nobody else is in a position to `.catch` this promise,
-  // and the hook is what makes that safe.
+  // Upload, CSV inlining and the failure toast live in this one shared hook;
+  // `void uploadAndInsert(...)` below is safe because the hook catches.
   const { uploadAndInsert } = useAttachmentUpload(
     props.wsId,
     props.chatId,
@@ -158,11 +146,7 @@ export function AgentComposer(props: AgentComposerProps) {
     settlePendingImage,
   )
 
-  // Memoized: `useTauriFileDrop`'s own effect re-subscribes to Tauri's
-  // `onDragDropEvent` (a dynamic import + async webview IPC registration)
-  // whenever `onDrop`'s identity changes, and an inline arrow here would get
-  // a fresh identity on every render — including every keystroke, since
-  // `props.draft`/`onDraftChange` drive this component's re-renders.
+  // Memoized: the Tauri drop hook re-subscribes over IPC whenever its handler changes.
   const handleTauriDrop = useCallback(
     (paths: string[]) => {
       setDropTarget(false)
@@ -185,8 +169,7 @@ export function AgentComposer(props: AgentComposerProps) {
   }, [])
 
   // Plain-browser (non-Tauri dev) fallback: a real DataTransfer.files DOES
-  // carry usable File bytes here — this is a completely different problem
-  // from extractDroppedFilePaths's (which is about a host PATH, not bytes).
+  // carry usable File bytes here, though never a host path.
   const handlePillDrop = useCallback(
     (e: DragEvent) => {
       setDropTarget(false)
@@ -197,18 +180,164 @@ export function AgentComposer(props: AgentComposerProps) {
     [uploadAndInsert],
   )
 
+  const openExcalidraw = () => {
+    const saved = loadExcalidrawDesign(props.wsId, props.chatId)
+    setExcalidrawInitialScene((saved ? parseExcalidrawScene(saved) : null) ?? undefined)
+    setModal('excalidraw')
+  }
+
   const state = resolveComposerState({
     live: props.live,
     offline: props.offline,
-    revival: props.revival,
     submitUnavailable: props.submitUnavailable,
     terminalWait: props.terminalWait,
     compacting: props.compacting,
-    activity: props.activity,
-    haltedMessage: props.haltedMessage,
-    haltedResetsAt: props.haltedResetsAt,
+    asks: props.asks,
+    feedError: props.feedError,
   })
+  const document = props.placement === 'document'
+  // The document always takes the first prompt; its banner says why it waits.
+  const input = document || acceptsTyping(state)
 
+  // A card that held the bar takes focus with it when it goes; hand it back to the
+  // box, but never take it from wherever the person has since moved it.
+  const wasInput = useRef(input)
+  useEffect(() => {
+    const returned = input && !wasInput.current
+    wasInput.current = input
+    const active = window.document.activeElement
+    if (returned && (!active || active === window.document.body)) editorRef.current?.focus()
+  }, [input, editorRef])
+
+  // Compaction does not take the box away: it queues what is typed, as a busy
+  // turn does, so only the placeholder differs.
+  const placeholder = document
+    ? 'Describe the change…'
+    : state.kind === 'compacting'
+      ? 'Compacting… your message will be queued'
+      : props.working
+        ? 'Queue a message…'
+        : 'Message the agent…'
+
+  const takeover = modal === 'excalidraw' && (
+    <ExcalidrawTakeover
+      wsId={props.wsId}
+      chatId={props.chatId}
+      open
+      onClose={() => setModal(null)}
+      onInsertMarkdown={insertAttachmentMarkdown}
+      initialScene={excalidrawInitialScene}
+    />
+  )
+
+  // One tree for every placement and state, so the editor never remounts: an
+  // occupant hides the box instead of replacing it, and keeps what was typed.
+  return (
+    <>
+      {!input && (
+        <ComposerOccupant
+          state={state}
+          wsId={props.wsId}
+          chatId={props.chatId}
+          providerLabel={props.providerLabel}
+          permissionLevels={props.permissionLevels}
+          terminalWait={props.terminalWait}
+          onOpenTerminal={props.onOpenTerminal}
+          onStop={(props.working || props.sending) && props.canStop ? props.onStop : undefined}
+        />
+      )}
+      <div
+        ref={pillRef}
+        hidden={!input}
+        data-testid={document ? 'agent-empty-document' : undefined}
+        className={cn(
+          document ? 'docwrap' : 'pill',
+          !document && isMultiline(fieldHeight) && 'multi',
+          dropTarget && 'drop-target',
+        )}
+        data-touch={IS_MOBILE || undefined}
+        onDragOver={handlePillDragOver}
+        onDragLeave={handlePillDragLeave}
+        onDrop={handlePillDrop}
+      >
+        <div ref={docRef} className={document ? 'doc' : undefined}>
+          <ComposerField
+            ref={editorRef}
+            wsId={props.wsId}
+            chatId={props.chatId}
+            placement={props.placement}
+            placeholder={placeholder}
+            expanded={props.slashOpen}
+            controls={props.slashOpen ? 'agent-skill-picker' : undefined}
+            onShapeChange={handleShape}
+            onKeyDown={props.onKeyDown}
+            onHeightChange={setFieldHeight}
+          />
+        </div>
+        {document ? (
+          <AgentEmptyDocument
+            ref={props.documentRef}
+            docRef={docRef}
+            hasText={!empty}
+            controls={props.controls}
+            attach={
+              <ComposerPlusButton
+                onOpenExcalidraw={openExcalidraw}
+                onOpenAttachFile={() => setModal('attach-file')}
+              />
+            }
+            working={props.working}
+            canStop={props.canStop}
+            sending={props.sending}
+            onSubmit={props.onSend}
+            onStop={props.onStop}
+            headerClearancePx={props.headerClearancePx}
+            banner={props.banner}
+          />
+        ) : (
+          <ComposerHandle
+            fieldHeight={fieldHeight}
+            hasText={!empty}
+            working={props.working}
+            canStop={props.canStop}
+            sending={props.sending}
+            onSend={props.onSend}
+            onStop={props.onStop}
+            onOpenExcalidraw={openExcalidraw}
+            onOpenAttachFile={() => setModal('attach-file')}
+          />
+        )}
+      </div>
+      {modal === 'attach-file' && (
+        <AttachFileModal
+          wsId={props.wsId}
+          chatId={props.chatId}
+          open
+          onClose={() => setModal(null)}
+          onInsertMarkdown={insertAttachmentMarkdown}
+        />
+      )}
+      {takeover && props.takeoverContainer
+        ? createPortal(takeover, props.takeoverContainer)
+        : takeover}
+    </>
+  )
+}
+
+interface ComposerOccupantProps {
+  state: ComposerState
+  wsId: string
+  chatId: string
+  providerLabel: string
+  permissionLevels?: PermissionLevel[]
+  terminalWait?: AgentTerminalWait
+  onOpenTerminal: () => void
+  onStop?: () => void
+}
+
+/** What holds the bar when it is not an input: the question, or why not. */
+function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
+  const answerTerminalWait = useAnswerTerminalWait(props.wsId, props.chatId)
   switch (state.kind) {
     case 'signpost':
       return (
@@ -218,119 +347,38 @@ export function AgentComposer(props: AgentComposerProps) {
           onOpenTerminal={props.onOpenTerminal}
           answers={props.terminalWait?.answers}
           onAnswer={answerTerminalWait}
+          onStop={props.onStop}
         />
       )
     case 'choices':
       return (
         <div className="choice-stack" data-testid="agent-choice-stack">
-          {state.choices.map((choice) => (
+          {state.asks.map((ask, i) => (
             <ComposerChoice
-              key={choice.id}
+              key={ask.id}
               wsId={props.wsId}
               chatId={props.chatId}
-              activity={props.activity}
-              choice={choice}
+              pending={state.asks.length}
+              choice={ask.choice}
+              toolTarget={ask.toolTarget}
               providerLabel={props.providerLabel}
               permissionLevels={props.permissionLevels}
               onOpenTerminal={props.onOpenTerminal}
-              showQueueDepth={false}
+              position={i + 1}
+              family={ask.family}
+              request={{
+                toolName: ask.choice.toolName,
+                toolTarget: ask.toolTarget,
+                toolInput: ask.toolInput,
+                truncated: ask.toolInputTruncated,
+                mcpServer: ask.mcpServer,
+                why: ask.detail,
+              }}
             />
           ))}
         </div>
       )
-    case 'halted':
-      return (
-        <ComposerHalted
-          message={state.message}
-          resetsAt={state.resetsAt}
-          onRetry={props.onRetryHalted}
-        />
-      )
-    case 'compacting':
-    case 'input': {
-      // Compaction does not take the box away — it queues what is typed into it,
-      // which is exactly what a busy turn does. The placeholder is the whole
-      // difference, because a disabled field here would lose a thought somebody
-      // is already halfway through writing.
-      const placeholder =
-        state.kind === 'compacting'
-          ? 'Compacting… your message will be queued'
-          : props.working
-            ? 'Queue a message…'
-            : 'Message the agent…'
-      return (
-        <>
-          <div
-            ref={pillRef}
-            className={cn(
-              'pill',
-              isMultiline(props.fieldHeight) && 'multi',
-              dropTarget && 'drop-target',
-            )}
-            data-touch={IS_MOBILE || undefined}
-            onFocus={() => setTyping(true)}
-            onBlur={(e) => setTyping(e.currentTarget.contains(e.relatedTarget))}
-            onDragOver={handlePillDragOver}
-            onDragLeave={handlePillDragLeave}
-            onDrop={handlePillDrop}
-          >
-            <ComposerField
-              key={props.draftSeed}
-              focusOnMount={typing && props.draftSeed > 0}
-              ref={editorRef}
-              wsId={props.wsId}
-              chatId={props.chatId}
-              initialValue={props.seedText}
-              placeholder={placeholder}
-              expanded={props.slashOpen}
-              controls={props.slashOpen ? 'agent-skill-picker' : undefined}
-              onChange={props.onDraftChange}
-              onKeyDown={props.onKeyDown}
-              onHeightChange={props.onHeightChange}
-            />
-            <ComposerHandle
-              fieldHeight={props.fieldHeight}
-              hasText={props.draft.trim().length > 0}
-              working={props.working}
-              canStop={props.canStop}
-              sending={props.sending}
-              onSend={props.onSend}
-              onStop={props.onStop}
-              onOpenExcalidraw={() => {
-                const saved = loadExcalidrawDesign(props.wsId, props.chatId)
-                setExcalidrawInitialScene((saved ? parseExcalidrawScene(saved) : null) ?? undefined)
-                setModal('excalidraw')
-              }}
-              onOpenAttachFile={() => setModal('attach-file')}
-            />
-          </div>
-          {modal === 'attach-file' && (
-            <AttachFileModal
-              wsId={props.wsId}
-              chatId={props.chatId}
-              open
-              onClose={() => setModal(null)}
-              onInsertMarkdown={(md) => editorRef.current?.insertAttachmentMarkdown(md)}
-            />
-          )}
-          {modal === 'excalidraw' &&
-            (() => {
-              const takeover = (
-                <ExcalidrawTakeover
-                  wsId={props.wsId}
-                  chatId={props.chatId}
-                  open
-                  onClose={() => setModal(null)}
-                  onInsertMarkdown={(md) => editorRef.current?.insertAttachmentMarkdown(md)}
-                  initialScene={excalidrawInitialScene}
-                />
-              )
-              return props.takeoverContainer
-                ? createPortal(takeover, props.takeoverContainer)
-                : takeover
-            })()}
-        </>
-      )
-    }
+    default:
+      return null
   }
 }

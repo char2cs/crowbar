@@ -1,25 +1,25 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from 'zustand'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import {
-  fetchFileTree,
-  filesWsEndpoint,
-  findNode,
-  mergeChildren,
-} from '@/features/files/lib/file-tree-api'
+import { fetchFileTree, findNode, mergeChildren } from '@/features/files/lib/file-tree-api'
 import { refreshDirectory } from '@/features/files/lib/file-tree-handlers'
-import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
-import { useHostResolved } from '@/lib/host-resolve'
-import { reconcileWorkspaceBuffersWithDisk } from '@/lib/persistence/hydrate'
-import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
+import {
+  reconcileWorkspaceDocuments,
+  syncBufferWithDisk,
+} from '@/features/workspace/lib/external-buffer-sync'
+import { workspaceRef } from '@/lib/api/documents'
+import { holdScope, onSignal, watchScope } from '@/core/stream/stream'
+import { report } from '@/lib/errors/report'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { useWorkspaceStore } from '../workspace-context'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
+import { isNotFoundError } from '@/lib/errors/api-error'
 
 // Stable reference for a workspace with nothing expanded yet — a fresh
 // `new Set()` on every selector call would re-run the lazy-load effect each render.
 const EMPTY_EXPANDED_PATHS: ReadonlySet<string> = new Set()
 
 interface FileChangeEvent {
-  reconnected?: boolean
   type?: string
   path?: string
   newPath?: string
@@ -36,56 +36,91 @@ function isStructuralChange(type: string | undefined): boolean {
   return type === 'created' || type === 'deleted' || type === 'renamed'
 }
 
-/**
- * Keeps `wsId`'s own file tree (its workspace store's slice) loaded and live.
- *
- * The tree is fetched the first time the workspace is shown and then stays
- * subscribed to the files stream for as long as the workspace is retained, so
- * switching back is a selection, never a reset or a refetch. Waits on
- * `chatScopeReady` (non-home file routes are chat-scoped and throw without an
- * owning chat id) and on the workspace's host being known.
- */
+function reconcileDocuments(wsId: string): void {
+  void reconcileWorkspaceDocuments(wsId).catch((err: unknown) =>
+    report(err, { action: 'Check open files against disk' }),
+  )
+}
+
+/** Keeps `wsId`'s file tree loaded and live: its files: scope is held from the first read (a
+ *  snapshot landing mid-read re-lists after) for as long as the workspace is retained. Waits on
+ *  `chatScopeReady` (non-home file routes are chat-scoped) and a known host. */
 export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeReady: boolean) {
   const store = useWorkspaceStore()
-  const addressable = useHostResolved({ wsId }) && chatScopeReady
+  const hostId = useResolvedHost({ wsId })
+  const addressable = hostId !== null && chatScopeReady
   const status = useStore(store, (s) => s.fileTreeStatus)
   const files = useStore(store, (s) => s.files)
   const expandedPaths = useFileTreeStore(
     (state) => state.expandedPathsByWorkspace[wsId] ?? EMPTY_EXPANDED_PATHS,
   )
   const loadingDirs = useRef<Set<string>>(new Set())
+  // How many snapshots of files: have landed: a read that saw one land meanwhile re-lists after.
+  const syncs = useRef(0)
+  const wanted = addressable && (active || status !== 'idle')
 
-  // The files stream sends no snapshot, so a tree held across a gap in which its host
-  // stopped resolving may have missed changes: mark it unloaded, and the load below
-  // reads it again when the host is back.
+  // Holds the scope and applies its file changes. Every synced after the tree
+  // is loaded may follow missed writes, so it re-reads the tree and open buffers.
   useEffect(() => {
-    if (addressable) return
-    const { fileTreeStatus, fileTreeActions } = store.getState()
-    if (fileTreeStatus === 'ready') fileTreeActions.setFileTreeStatus('idle')
-  }, [store, addressable])
+    if (!wanted || !hostId) return
+    const scope = `files:${wsId}`
+    const stopWatch = watchScope(hostId, scope, {
+      synced: () => {
+        syncs.current++
+        if (store.getState().fileTreeStatus !== 'ready') return
+        void refreshDirectory(wsId, store)
+        reconcileDocuments(wsId)
+      },
+      refused: (problem) => {
+        store.getState().fileTreeActions.setFileTreeStatus('failed')
+        report(new UserFacingError(problem?.message ?? `${scope} was refused`), {
+          action: 'Follow the file tree',
+        })
+      },
+    })
+    const stopSignals = onSignal<FileChangeEvent>(hostId, scope, 'file_change', (evt) => {
+      if (!evt?.path) return
+      // An external write to an open buffer must reconcile it (silent reload
+      // when clean, conflict flag when dirty); own-save echoes are filtered inside.
+      if (evt.type === 'modified' || evt.type === 'created') {
+        void syncBufferWithDisk(workspaceRef(wsId, evt.path))
+      }
+      if (!isStructuralChange(evt.type)) return
+      void refreshDirectory(wsId, store, parentDir(evt.path))
+      if (evt.newPath) void refreshDirectory(wsId, store, parentDir(evt.newPath))
+    })
+    const release = holdScope(hostId, scope)
+    return () => {
+      release()
+      stopSignals()
+      stopWatch()
+    }
+  }, [store, wsId, wanted, hostId])
 
+  // The first read never waits on the stream, which may be down.
   useEffect(() => {
     if (!active || !addressable) return
     const { fileTreeStatus, fileTreeActions } = store.getState()
     if (fileTreeStatus === 'loading' || fileTreeStatus === 'ready') return
     fileTreeActions.setFileTreeStatus('loading')
-    void fetchFileTree(wsId)
-      .catch(() => null)
-      .then((root) => {
-        if (!Array.isArray(root)) {
-          fileTreeActions.setFileTreeStatus('failed')
-          return
-        }
+    const seen = syncs.current
+    void fetchFileTree(wsId).then(
+      (root) => {
+        if (store.getState().fileTreeStatus !== 'loading') return // refused meanwhile
         store.setState({ files: root, fileTreeStatus: 'ready' })
-        // Buffers restored while this workspace was never shown may predate disk.
-        void reconcileWorkspaceBuffersWithDisk(wsId).catch(() => {})
-      })
+        if (syncs.current !== seen) void refreshDirectory(wsId, store)
+        // Documents restored while this workspace was never shown may predate disk.
+        reconcileDocuments(wsId)
+      },
+      (err: unknown) => {
+        fileTreeActions.setFileTreeStatus('failed')
+        report(err, { action: 'Load the file tree' })
+      },
+    )
   }, [store, wsId, active, addressable])
 
-  // Lazily fetch a directory's children the first time it is expanded, and
-  // re-check on every `files` change: an expanded folder whose children were
-  // dropped by a root re-list must refetch even though `expandedPaths` is the
-  // same reference.
+  // Re-checked on every `files` change too: a root re-list drops an expanded folder's children,
+  // which must refetch though `expandedPaths` is the same reference.
   useEffect(() => {
     if (!addressable) return
     for (const path of expandedPaths) {
@@ -98,35 +133,12 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
           const { files: current, fileTreeActions } = store.getState()
           fileTreeActions.setFiles(mergeChildren(current, path, children))
         })
-        .catch(() => {})
+        .catch((err: unknown) => {
+          // Deleted on disk before the re-list caught up (a removed branch's ref dir, say).
+          if (isNotFoundError(err)) useFileTreeStore.getState().collapsePath(wsId, path)
+          else report(err, { action: 'Load the folder' })
+        })
         .finally(() => loadingDirs.current.delete(path))
     }
   }, [store, wsId, expandedPaths, files, addressable])
-
-  // Apply live file-change events in place, preserving expanded subtrees that
-  // still exist. The stream carries no snapshot on subscribe, which is why it
-  // stays attached once the tree has loaded rather than reattaching per switch.
-  const seeded = status !== 'idle'
-  useEffect(() => {
-    if (!addressable || !seeded) return
-    const onEvent = (raw: unknown) => {
-      const evt = raw as FileChangeEvent
-      // Writes may have been missed while the socket was down.
-      if (evt?.reconnected) {
-        void refreshDirectory(wsId, store)
-        void reconcileWorkspaceBuffersWithDisk(wsId).catch(() => {})
-        return
-      }
-      if (!evt?.path) return
-      // An external write to an open buffer must reconcile it (silent reload
-      // when clean, conflict flag when dirty); own-save echoes are filtered inside.
-      if (evt.type === 'modified' || evt.type === 'created') {
-        void syncBufferWithDisk(wsId, evt.path)
-      }
-      if (!isStructuralChange(evt.type)) return
-      void refreshDirectory(wsId, store, parentDir(evt.path))
-      if (evt.newPath) void refreshDirectory(wsId, store, parentDir(evt.newPath))
-    }
-    return subscribeGuarded(() => filesWsEndpoint(wsId), onEvent)
-  }, [store, wsId, addressable, seeded])
 }

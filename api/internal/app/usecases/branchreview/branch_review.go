@@ -12,84 +12,53 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// ErrWorkspaceUnprovisioned is returned when a review read targets a workspace
-// with no worktree on disk — a placeholder whose branch another checkout still
-// holds, or one whose materialisation failed. There is nothing to diff, and the
-// empty path is not a directory git may be pointed at. Handlers map it to 409:
-// the row is not in a state where this can be done, not a bad request.
-var ErrWorkspaceUnprovisioned = errors.New("usecases: this branch has no worktree yet")
+// ErrWorkspaceUnprovisioned is returned when a review targets a workspace with no worktree on disk, so
+// there is nothing to diff. Handlers map it to 409: the row's state, not the request, is wrong.
+var ErrWorkspaceUnprovisioned = problem.New(problem.Conflict, "usecases: this branch has no worktree yet")
 
-// asNotFound maps an engine-level not-found signal (asynx Get on a missing
-// aggregate, or a command rejected because the target aggregate does not exist)
-// to the shared apperr.ErrNotFound sentinel, leaving genuine internal failures
-// untouched so handlers map them to 500 rather than 404.
+// asNotFound maps an engine not-found signal to problem.ErrNotFound, leaving genuine internal failures
+// untouched so they stay 500s.
 func asNotFound(
 	err error,
 ) error {
 	if errors.Is(err, asynxModels.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation) {
-		return fmt.Errorf("%w: %w", apperr.ErrNotFound, err)
+		return fmt.Errorf("%w: %w", problem.ErrNotFound, err)
 	}
 	return err
 }
 
 // Usecase assembles and mutates the branch-review surface (09).
 type Usecase interface {
-	// Get assembles the composite branch-review read model for a workspace (09 §2).
+	// Get assembles the composite branch-review read model for a workspace.
 	Get(
 		ctx context.Context,
 		wsID string,
 	) (domain.BranchReview, error)
-	// GetFiles returns the files-only branch-review summary for a workspace: the
-	// full changed-files picture (committed + working-tree, +N/-N counts) with no
-	// line-level content, so the sidebar never fetches the diff body (Task 27).
-	//
-	// commit scopes every windowed read below to ONE commit against its parent
-	// instead of the branch; empty means the branch diff. It is a parameter
-	// rather than a separate set of methods because the two answer the same
-	// question about a different pair of trees — the resolution differs, the
-	// payload, the caching and the client do not. See resolveScopeRef.
+	// GetFiles returns the files-only review summary (no line content), so the sidebar never fetches the
+	// diff body. A non-empty commit scopes the windowed reads to that commit against its parent: the same
+	// question about a different pair of trees (see resolveScopeRef).
 	GetFiles(
 		ctx context.Context,
 		wsID string,
 		commit string,
 	) ([]gitdomain.ReviewFileSummary, error)
-	// GetScope returns the ref this workspace's review diffs against, the
-	// changed-file summary of that same diff, and its hunk geometry, from ONE ref
-	// resolution.
-	//
-	// It exists because GetBase followed by GetFiles resolves the ref twice to
-	// answer one question — what does this review cover — and each resolution is
-	// up to three git subprocesses. See gitdomain.ReviewScope for why the parts
-	// belong together on correctness grounds as well as cost.
-	//
-	// The geometry is the same outline GetOutline serves, through the same cache
-	// and the same key, so an anchor checked against one is checked against the
-	// other: a scope that reported ranges its own validator would then refuse
-	// would be worse than reporting none.
-	//
-	// It takes the ALREADY-RESOLVED workspace rather than its id, unlike every
-	// other method here, because its only caller is the agent tool surface and
-	// that caller has just folded the same aggregate to authenticate: workspace
-	// Get replays the whole event log and fires a background reconcile, so a
-	// second read of a workspace resolved microseconds earlier pays both again to
-	// learn nothing. Callers holding only an id want GetFiles, which resolves for
-	// itself and shares this one's flight.
+	// GetScope returns the review's ref, its changed-file summary and its hunk geometry from ONE resolution
+	// (each costs up to three git subprocesses), through GetOutline's cache key so anchors agree. It takes
+	// the already-resolved workspace because its agent-tool caller has just folded it; id callers use GetFiles.
 	GetScope(
 		ctx context.Context,
 		ws domain.Workspace,
 	) (gitdomain.ReviewScope, error)
-	// GetOutline returns the hunk geometry of the workspace's branch diff: per
-	// file the `@@` shapes of its diff and no content at all. O(hunks) where Get
-	// is O(lines), so the client can lay out a million-line diff before fetching
-	// a single patch.
+	// GetOutline returns the branch diff's hunk geometry with no content: O(hunks), so the client can lay
+	// out a huge diff before fetching any patch.
 	GetOutline(
 		ctx context.Context,
 		wsID string,
@@ -116,10 +85,8 @@ type Usecase interface {
 		path string,
 		oldPath string,
 	) (gitdomain.ReviewFileSides, error)
-	// SearchDiff finds query in the content of the workspace's branch diff,
-	// returning one hit per matching line plus whether opts.Limit cut the results
-	// short. It is the server-side find-in-diff the client can no longer do
-	// locally once it holds only a window of the patch.
+	// SearchDiff finds query in the branch diff, one hit per matching line plus whether opts.Limit cut the
+	// results; the client holds only a window of the patch, so find runs here.
 	SearchDiff(
 		ctx context.Context,
 		wsID string,
@@ -127,24 +94,24 @@ type Usecase interface {
 		query string,
 		opts gitdomain.SearchOpts,
 	) ([]gitdomain.SearchHit, bool, error)
-	// SetMergeStrategy updates the merge strategy for a workspace (09 §4).
+	// SetMergeStrategy updates the merge strategy for a workspace.
 	SetMergeStrategy(
 		ctx context.Context,
 		wsID string,
 		strategy gitdomain.MergeStrategy,
 	) error
-	// OpenThread opens a new review thread anchored to a file location (09 §3).
+	// OpenThread opens a new review thread anchored to a file location.
 	OpenThread(
 		ctx context.Context,
 		in OpenThreadInput,
 	) (domain.ReviewThread, error)
-	// Reply appends a reply message to an existing review thread (09 §3).
+	// Reply appends a reply message to an existing review thread.
 	Reply(
 		ctx context.Context,
 		threadID string,
 		body string,
 	) (domain.ReviewThread, error)
-	// SetThreadResolved marks a review thread resolved or reopens it (09 §3).
+	// SetThreadResolved marks a review thread resolved or reopens it.
 	SetThreadResolved(
 		ctx context.Context,
 		threadID string,
@@ -190,14 +157,8 @@ func (u *branchReviewUsecase) Get(
 	return u.assemble(ctx, ws)
 }
 
-// resolveDiffRef returns the ref the review diffs against: the merge-base of the
-// parent/default branch's CURRENT tip and HEAD, so the diff shows exactly this
-// workspace's changes (committed + uncommitted) since it diverged — and stays
-// correct as the branch is rebased onto newer base commits. It falls back to the
-// recorded fork point only when the base branch cannot be resolved (no parent
-// row, no merge-base), because a frozen fork point counts every commit the base
-// branch gained after the branch was created, inflating the diff once the base
-// advances past it.
+// resolveDiffRef returns the merge-base of the base branch's CURRENT tip and HEAD, so the diff stays
+// correct across rebases. The recorded fork point is only a fallback: it inflates once the base advances.
 func (u *branchReviewUsecase) resolveDiffRef(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -217,13 +178,8 @@ func (u *branchReviewUsecase) resolveDiffRef(
 	return u.git.MergeBase(ctx, ws.WorktreePath, base, "HEAD")
 }
 
-// mergeBaseWithBase resolves the merge-base of a base branch and HEAD, probing
-// BOTH origin/<base> and the local <base> and returning whichever merge-base is
-// CLOSEST to HEAD (the descendant one). That is correct whichever ref the branch
-// was built on: origin's merge-base when the local base lags origin, the local
-// one when the local base is ahead of origin. Blindly preferring origin would
-// re-inflate the diff by the local base branch's un-pushed commits. It returns ""
-// when neither ref yields a merge-base, so the caller falls back to the fork point.
+// mergeBaseWithBase probes both origin/<base> and <base> and returns the merge-base closest to HEAD,
+// right whichever ref the branch was built on; "" when neither yields one.
 func (u *branchReviewUsecase) mergeBaseWithBase(
 	ctx context.Context,
 	worktreePath string,
@@ -238,18 +194,8 @@ func (u *branchReviewUsecase) mergeBaseWithBase(
 	return u.closestToHead(ctx, worktreePath, bases)
 }
 
-// closestToHead returns the candidate merge-base nearest HEAD — the descendant
-// among them — resolved with MergeBase alone: if merge-base(best, mb) == best then
-// best is an ancestor of mb, so mb sits closer to HEAD and wins. Divergent
-// candidates (neither an ancestor of the other, a broken local/origin base) keep
-// the first, origin-derived candidate.
-//
-// Identical candidates are answered without asking git. merge-base(X, X) is X by
-// definition, so the comparison can only re-elect the candidate already held —
-// and origin/<base> and <base> point at the same commit whenever the base branch
-// is in sync with its remote, which is the ordinary state of a branch nobody has
-// pushed to since the last fetch. That common case was spending a whole
-// subprocess to compare a sha with itself.
+// closestToHead returns the candidate merge-base nearest HEAD (if merge-base(best, mb) == best, mb wins);
+// divergent candidates keep the first. Identical candidates skip git, the common in-sync case.
 func (u *branchReviewUsecase) closestToHead(
 	ctx context.Context,
 	worktreePath string,
@@ -287,7 +233,7 @@ func (u *branchReviewUsecase) resolveBase(
 		return "", err
 	}
 	if repo == nil {
-		return "", fmt.Errorf("branch review: repo %s not found: %w", ws.RepoID, apperr.ErrNotFound)
+		return "", fmt.Errorf("branch review: repo %s not found: %w", ws.RepoID, problem.ErrNotFound)
 	}
 	return repo.DefaultBranch, nil
 }

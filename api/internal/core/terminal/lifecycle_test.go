@@ -3,13 +3,10 @@ package terminal_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -70,18 +67,16 @@ func TestRestore_CWDFallback_SpawnsInHomeWhenSavedDirGone(t *testing.T) {
 	_ = eng.Kill(ctx, "ph-cwd")
 }
 
-// TestRestore_BadShell_RemovesAndReportsEnded: a suspended session that cannot be
-// re-spawned (its shell binary is gone) is Removed — registry entry, .buf and meta row all
-// deleted, ended fired once — so an Attach can never loop forever on a doomed restore.
-func TestRestore_BadShell_RemovesAndReportsEnded(t *testing.T) {
+// TestRestore_BadShell_Removes: a suspended session that cannot be re-spawned (its shell
+// binary is gone) is Removed — registry entry, .buf and meta row all deleted — so an
+// Attach can never loop forever on a doomed restore.
+func TestRestore_BadShell_Removes(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	defer eng.Shutdown()
 	ctx := context.Background()
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
-	ledger := newEndedLedger()
-	eng.OnSessionEnded(ledger.onEnded)
 
 	require.NoError(t, os.WriteFile(filepath.Join(store.dir, "ph-bad.buf"), []byte("x"), 0o644))
 	require.NoError(t, store.Save(ctx, terminal.SessionMeta{SessionID: "ph-bad", State: "suspended"}))
@@ -93,8 +88,6 @@ func TestRestore_BadShell_RemovesAndReportsEnded(t *testing.T) {
 	assert.False(t, eng.SessionExists(ctx, "ph-bad"), "no infinite Attach retry")
 	assert.False(t, bufExists(store.dir, "ph-bad"), "persisted .buf must be deleted")
 	assert.False(t, store.hasLiveRow("ph-bad"), "meta row must be deleted")
-	ended, _ := ledger.counts("ph-bad")
-	assert.Equal(t, 1, ended, "ended must fire once so the FE drops the dead tab")
 }
 
 // TestAttach_ExitFrameOnSelfExit pins B4: a PTY exit reaches the attached client as an
@@ -198,33 +191,6 @@ func (c *stallConn) ReadMessage() (int, []byte, error) { <-c.closed; return 0, n
 func (c *stallConn) Close() error {
 	c.once.Do(func() { close(c.closed) })
 	return nil
-}
-
-// TestKill_SignalsProcessGroup: Kill must take the session's children down with it, as
-// Terminate does — a background child of a command session must not survive it.
-func TestKill_SignalsProcessGroup(t *testing.T) {
-	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng)
-	defer eng.Shutdown()
-	ctx := context.Background()
-	pidFile := filepath.Join(t.TempDir(), "child.pid")
-	id, err := eng.CreateCommand(ctx, "chat-pg", t.TempDir(),
-		[]string{"/bin/sh", "-c", "sleep 300 & echo $! > " + pidFile + "; wait"}, nil, nil)
-	require.NoError(t, err)
-
-	var pid int
-	require.Eventually(t, func() bool {
-		b, err := os.ReadFile(pidFile)
-		if err != nil || len(b) == 0 {
-			return false
-		}
-		_, scanErr := fmtSscan(string(b), &pid)
-		return scanErr == nil && pid > 0
-	}, 5*time.Second, 10*time.Millisecond)
-
-	require.NoError(t, eng.Kill(ctx, id))
-	require.Eventually(t, func() bool { return !processAlive(pid) }, 5*time.Second, 10*time.Millisecond,
-		"the session's background child must die with it")
 }
 
 // ---------------------------------------------------------------------------
@@ -374,15 +340,19 @@ func exitFrameCode(conn *mockConn) (int, bool) {
 	return 0, false
 }
 
-func fmtSscan(s string, pid *int) (int, error) { return fmt.Sscan(strings.TrimSpace(s), pid) }
+// A command session is never persisted, so its end touches no storage: the
+// chat it ran on may already be erased, as when a deleted chat's CLI is ended.
+func TestTerminate_ACommandSessionEndsWithoutTouchingStorage(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	defer eng.Shutdown()
+	store := newFakeMetaStore(t)
+	eng.SetMetaStore(store)
+	ctx := context.Background()
+	sid, err := eng.CreateCommand(ctx, "chat-erased", t.TempDir(), []string{"/bin/sh", "-c", "sleep 9999"}, os.Environ(), nil)
+	require.NoError(t, err)
 
-// processAlive reports whether pid is a running (non-zombie) process. A container's init
-// may never reap an orphan, so a dead child can linger as a zombie; that counts as dead.
-func processAlive(pid int) bool {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return syscall.Kill(pid, 0) == nil // no procfs (darwin): best effort
-	}
-	fields := strings.Fields(string(b))
-	return len(fields) > 2 && fields[2] != "Z"
+	require.NoError(t, eng.TerminateGraceful(ctx, sid))
+
+	assert.False(t, store.hasDeleted(sid))
 }

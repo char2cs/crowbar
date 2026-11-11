@@ -45,12 +45,9 @@ function script(path, body) {
   return path
 }
 
-/**
- * The variables the meter adds to the instance. DYLD_INSERT_LIBRARIES itself
- * would be dropped on the way (`bunx` starts the Tauri CLI through
- * /usr/bin/env, which SIP strips of DYLD_*), so cargo's runner sets it on the
- * app it runs; the sidecar and its children inherit it from there.
- */
+/** The variables the meter adds to the instance. SIP strips DYLD_* from `bunx`'s /usr/bin/env
+ *  hop, so cargo's runner sets DYLD_INSERT_LIBRARIES on the app it runs; the sidecar and its
+ *  children inherit it from there. */
 export function meterEnv(natives, { shims }) {
   const triple = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`
   const runner = script(
@@ -119,11 +116,8 @@ export function readShimLog(file) {
     })
 }
 
-/**
- * Observes the traced processes for a fixed `ms` (a measured duration, so
- * windows compare across runs) and returns when they first went quiet for
- * `quietMs`, as ms after the start, or null if they never did.
- */
+/** Observes the traced processes for a fixed `ms` (so windows compare across runs) and returns
+ *  when they first went quiet for `quietMs`, as ms after the start, or null if they never did. */
 export async function observe(trace, ms, quietMs = 3000) {
   const started = Date.now()
   let size = statSync(trace).size

@@ -41,19 +41,9 @@ type providerDTO struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// pickBaseChat finds the locked, Crowbar-managed branch chat sitting on the
-// repo's default branch — the branch-tree root a feature chat forks from.
-//
-// It is deliberately NOT the isDefault "home" row. Import adopts the repo
-// folder itself as home and detaches it so the base branch is free for its
-// own managed worktree; home is the unmanaged checkout Crowbar never runs git
-// on, and a child forked off it is parented to a row that owns no branch.
-//
-// GET .../repos/:repoId/chats is already scoped to this repo server-side
-// (ListChatsInRepo's cwd walk resolves each row's owning workspace and
-// compares its repo against the URL), so — unlike the deleted workspace list,
-// which answered with every repo's rows — there is no repo id left for this
-// picker to filter by.
+// pickBaseChat finds the locked, Crowbar-managed chat on the repo's default branch,
+// the branch-tree root a feature chat forks from. It is not the isDefault home row:
+// home is an unmanaged checkout that owns no branch, so a child of it has no base.
 func pickBaseChat(
 	defaultBranch string,
 ) func([]chatDTO) (chatDTO, bool) {
@@ -83,10 +73,8 @@ func pickFeatureChat(
 	return chatDTO{}, false
 }
 
-// waitForBaseChat blocks until repo import has provisioned the locked base
-// worktree's owning chat. It is provisioned after the repo row is broadcast,
-// so a fork issued the instant the repo appears would have no chat to parent
-// itself under.
+// waitForBaseChat blocks until repo import has provisioned the base worktree's
+// owning chat, which happens after the repo row is broadcast.
 func waitForBaseChat(
 	ctx context.Context,
 	d *daemon,
@@ -100,11 +88,8 @@ func waitForBaseChat(
 	)
 }
 
-// resolveProvider picks a connected provider to spawn the forked feature
-// chat's runner with. A fork always starts one — own_worktree.go's
-// SpawnChatWithOwnWorktree has no empty-providerID skip the import path
-// gives itself — so unlike the rest of this tool, forking cannot run with
-// nothing configured.
+// resolveProvider picks a connected provider for the forked feature chat's runner:
+// a fork always starts one, so unlike the rest of this tool it needs a provider.
 func resolveProvider(
 	ctx context.Context,
 	d *daemon,
@@ -124,14 +109,9 @@ func resolveProvider(
 	)
 }
 
-// ensureFeatureChat creates the seed's feature chat forked from the base
-// chat, or reuses the one already there.
-//
-// A fork always lands with a server-generated branch name (model spec §4.1)
-// rather than the one asked for, and always starts the forking provider's
-// CLI — so this stops the runner again immediately (the seed wants the
-// workspace, not a live conversation left running after it exits) and
-// renames the branch back to the seed's own fixed name.
+// ensureFeatureChat forks the seed's feature chat from the base chat, or reuses
+// the existing one. A fork gets a server-generated branch and starts a runner, so
+// this stops the runner and renames the branch back to the seed's fixed name.
 func ensureFeatureChat(
 	ctx context.Context,
 	d *daemon,

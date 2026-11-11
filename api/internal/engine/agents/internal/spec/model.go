@@ -19,25 +19,16 @@ type ModelSpec struct {
 	Discover  *ModelDiscoverSpec `yaml:"discover"`
 	Manifest  *ModelManifestSpec `yaml:"manifest"`
 	Strategy  string             `yaml:"strategy"`
-	// Apply renders onto the argv of a process the spawn FORKS. APIApply
-	// renders onto the api channel's own serve process instead — an
-	// api-transport spawn whose connection comes up forks nothing at all, so
-	// Apply reaches no process and the choice is silently dropped. Both are
-	// required of an api-transport descriptor (rules.selectionAPICarrier).
-	Apply    []InjectStep `yaml:"apply"`
-	APIApply []InjectStep `yaml:"api_apply"`
+	// Apply renders onto the argv of a process the spawn FORKS; APIApply onto the api
+	// serve process, since an api spawn forks nothing for Apply to reach. An api
+	// descriptor needs both (rules.selectionAPICarrier).
+	Apply    InjectSteps `yaml:"apply"`
+	APIApply InjectSteps `yaml:"api_apply"`
 }
 
-// ModelManifestSpec resolves a model catalogue from a JSON document instead
-// of a live probe — for a provider with no enumerable model surface to run
-// a command against at all. The document is fetched over the network,
-// cached on disk, and bundled into the binary as a last resort;
-// resolution picks whichever candidate's own "updatedAt" is freshest — see
-// modeldiscovery.ProbeManifest. ItemsPath/KeepWhen/Item share
-// ModelDiscoverSpec's exact vocabulary (Item.Efforts included: a manifest
-// row states its OWN model's effort levels, exactly like a discover: row
-// does); rules.modelCatalog rejects a descriptor declaring more than one of
-// available:/discover:/manifest:.
+// ModelManifestSpec resolves a model catalogue from a JSON document (fetched, cached,
+// bundled; freshest "updatedAt" wins) for a provider with no command to probe. It
+// shares ModelDiscoverSpec's row vocabulary; only one catalogue source is allowed.
 type ModelManifestSpec struct {
 	URL       string           `yaml:"url"`
 	ItemsPath string           `yaml:"items_path"`
@@ -61,33 +52,25 @@ func (s *ModelManifestSpec) EffectiveTTLMS() int {
 	return s.TTLMS
 }
 
-// ModelDiscoverSpec asks a live provider what models it currently offers
-// instead of a hand-maintained available: list this Go side would drift from
-// the moment the provider adds or retires one. Every field name below is
-// DATA — a template placeholder or a field path into whatever JSON the
-// command prints — read generically; rules.modelCatalog rejects a
-// descriptor declaring both available: and discover:.
+// ModelDiscoverSpec asks a live provider which models it offers, so no
+// hand-maintained list drifts. Every field name is DATA (a template or a path into
+// the command's JSON); rules.modelCatalog allows only one catalogue source.
 type ModelDiscoverSpec struct {
 	Command   []string         `yaml:"command"`
 	Adapter   string           `yaml:"adapter"`
 	ItemsPath string           `yaml:"items_path"`
 	KeepWhen  *ModelFieldMatch `yaml:"keep_when"`
 	OrderBy   string           `yaml:"order_by"`
-	// DefaultWhen flags the row that IS this provider's own default model —
-	// nil when the source states no such thing (a per-model effort default
-	// is NOT a model default; the two must never be conflated). Absent
-	// DefaultWhen, or no row matching it, means the default is UNKNOWN —
-	// never inferred from list position or order_by.
+	// DefaultWhen flags the row that IS the provider's default model (not an effort
+	// default). Absent, or matching no row, the default is UNKNOWN, never positional.
 	DefaultWhen    *ModelFieldMatch `yaml:"default_when"`
 	Item           ModelItemMapping `yaml:"item"`
 	TimeoutMS      int              `yaml:"timeout_ms"`
 	MaxStdoutBytes int              `yaml:"max_stdout_bytes"`
 }
 
-// ModelFieldMatch is one field/value equality test against a discovered row —
-// keep_when's filter and default_when's flag share the same shape. Equals is
-// `any` because a source's own value can be a string or a bool depending on
-// the field it names.
+// ModelFieldMatch is one field/value equality test on a discovered row (keep_when,
+// default_when). Equals is `any` because the value may be a string or a bool.
 type ModelFieldMatch struct {
 	Field  string `yaml:"field"`
 	Equals any    `yaml:"equals"`

@@ -4,7 +4,9 @@ import { Eye, MagnifyingGlass as Search } from '@phosphor-icons/react'
 import { useShallow } from 'zustand/react/shallow'
 import { EditorStatusActions } from '@/features/editor/components/toolbar/editor-status-actions'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { hasTextContent } from '@/features/panes/types/pane-content'
+import { isEditorContent } from '@/features/panes/types/pane-content'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
+import { documentText } from '@/features/editor/documents/document-text'
 import { useExtensionActions } from '@/extensions/ui/hooks/use-extension-actions'
 import { ExtensionToolbarAction } from '@/extensions/ui/components/extension-toolbar-action'
 import { useSettingsStore } from '@/features/settings/store'
@@ -12,10 +14,8 @@ import { Button } from '@/components/ui/button'
 import { FilePathBreadcrumb } from './file-path-breadcrumb'
 
 export interface BreadcrumbProps {
-  /**
-   * Resolve the active buffer for THIS pane (self-subscribing). When omitted the
-   * breadcrumb falls back to `bufferId`, then to the globally active pane.
-   */
+  /** Resolve the active buffer for this pane (self-subscribing); omitted, the breadcrumb falls back
+   *  to `bufferId`, then to the globally active pane. */
   paneId?: string
   bufferId?: string
   editorViewKey?: string | null
@@ -59,7 +59,9 @@ export default function Breadcrumb({
             path: buffer.path,
             name: buffer.name,
             type: buffer.type,
-            workspaceId: buffer.workspaceId,
+            // A host document has no workspace to list or open its segments in.
+            workspaceId:
+              isEditorContent(buffer) && buffer.authority === 'host' ? null : buffer.workspaceId,
           }
         : null
     }),
@@ -79,62 +81,22 @@ export default function Breadcrumb({
     return extension === 'html' || extension === 'htm'
   }
 
-  const isCsvFile = () => {
-    if (!activeBuffer || !activeBuffer.path) return false
-    const extension = activeBuffer.path.split('.').pop()?.toLowerCase()
-    return extension === 'csv'
-  }
-
   const handlePreviewClick = () => {
     const fullActiveBuffer = resolvedBufferId
       ? windowPaneStore.getState().buffers.find((buffer) => buffer.id === resolvedBufferId)
       : null
-    if (
-      !fullActiveBuffer ||
-      !fullActiveBuffer.path ||
-      fullActiveBuffer.type === 'markdownPreview' ||
-      fullActiveBuffer.type === 'htmlPreview' ||
-      fullActiveBuffer.type === 'csvPreview'
-    )
-      return
+    if (!fullActiveBuffer || !isEditorContent(fullActiveBuffer) || !fullActiveBuffer.path) return
 
-    const previewPath = `${fullActiveBuffer.path}:preview`
-    const previewName = `${fullActiveBuffer.name} (Preview)`
-
-    const isMarkdown = isMarkdownFile()
-    const isHtml = isHtmlFile()
-    const isCsv = isCsvFile()
-
-    const bufferContent = hasTextContent(fullActiveBuffer) ? fullActiveBuffer.content : ''
-
-    if (isMarkdown) {
-      windowPaneStore.getState().bufferActions.openContent({
-        type: 'markdownPreview',
-        path: previewPath,
-        name: previewName,
-        content: bufferContent,
-        sourceFilePath: fullActiveBuffer.path,
-        workspaceId: fullActiveBuffer.workspaceId,
-      })
-    } else if (isHtml) {
-      windowPaneStore.getState().bufferActions.openContent({
-        type: 'htmlPreview',
-        path: previewPath,
-        name: previewName,
-        content: bufferContent,
-        sourceFilePath: fullActiveBuffer.path,
-        workspaceId: fullActiveBuffer.workspaceId,
-      })
-    } else if (isCsv) {
-      windowPaneStore.getState().bufferActions.openContent({
-        type: 'csvPreview',
-        path: previewPath,
-        name: previewName,
-        content: bufferContent,
-        sourceFilePath: fullActiveBuffer.path,
-        workspaceId: fullActiveBuffer.workspaceId,
-      })
+    // The preview belongs to the source document, whichever workspace is active.
+    const source = documentRefOf(fullActiveBuffer)
+    const preview = {
+      name: `${fullActiveBuffer.name} (Preview)`,
+      content: documentText(source) ?? '',
+      source,
     }
+    const { openContent } = windowPaneStore.getState().bufferActions
+    if (isMarkdownFile()) openContent({ type: 'markdownPreview', ...preview }, { paneId })
+    else if (isHtmlFile()) openContent({ type: 'htmlPreview', ...preview }, { paneId })
   }
 
   const filePath = filePathOverride ?? activeBuffer?.path ?? ''
@@ -143,13 +105,12 @@ export default function Breadcrumb({
   const defaultActions =
     showDefaultActions && activeBuffer ? (
       <>
-        {((isMarkdownFile() && activeBuffer.type !== 'markdownPreview') ||
-          (isHtmlFile() && activeBuffer.type !== 'htmlPreview') ||
-          (isCsvFile() && activeBuffer.type !== 'csvPreview')) && (
+        {activeBuffer.type === 'editor' && (isMarkdownFile() || isHtmlFile()) && (
           <Button
             onClick={handlePreviewClick}
             variant="ghost"
             className="rounded text-muted-foreground"
+            aria-label="Preview"
             tooltip="Preview"
             tooltipSide="bottom"
             compact
@@ -183,8 +144,8 @@ export default function Breadcrumb({
         <div className="ui-font flex min-w-0 items-center gap-2 text-muted-foreground ui-text-xs">
           {showPath && showBreadcrumbPath && activeBuffer ? (
             <FilePathBreadcrumb
-              workspaceId={activeBuffer.workspaceId}
               filePath={filePath}
+              workspaceId={activeBuffer.workspaceId}
               interactive={interactive}
             />
           ) : null}

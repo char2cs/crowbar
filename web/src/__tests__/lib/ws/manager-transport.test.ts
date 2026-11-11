@@ -57,8 +57,7 @@ beforeEach(() => {
   isTauri.mockReturnValue(false)
 })
 
-const { createWSManager, wsManager } = await import('@/lib/ws/manager')
-const { awaitEntity } = await import('@/lib/ws/await-entity')
+const { createWSManager } = await import('@/lib/ws/manager')
 const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
 const { destroyHostRuntime, getOrCreateHostRuntime } =
   await import('@/features/hosts/stores/host-runtime-registry')
@@ -216,7 +215,7 @@ describe('WSManager remote stream failures', () => {
     tauriInstances[0].onclose?.()
 
     expect(failureOn('crowbar://h1/v0/projects')).toMatchObject({
-      code: 'host_identity_changed',
+      problem: { code: 'host_identity_changed' },
       hostId: 'h1',
     })
   })
@@ -228,7 +227,7 @@ describe('WSManager remote stream failures', () => {
     tauriInstances[0].onclose?.()
 
     expect(failureOn('crowbar://h1/v0/projects')).toMatchObject({
-      code: 'host_unreachable',
+      problem: { code: 'host_unreachable' },
       hostId: 'h1',
     })
   })
@@ -249,7 +248,7 @@ describe('WSManager remote stream failures', () => {
 
     vi.advanceTimersByTime(1000)
     expect(tauriInstances).toHaveLength(2)
-    expect(failureOn('crowbar://h1/v0/projects')?.code).toBe('host_unreachable')
+    expect(failureOn('crowbar://h1/v0/projects')?.problem.code).toBe('host_unreachable')
 
     tauriInstances[1].onopen?.()
     expect(useConnectionStore.getState().failures).toEqual({})
@@ -409,35 +408,5 @@ describe('WSManager remote stream failures', () => {
 
     tauriInstances[0].onclose?.()
     expect(useConnectionStore.getState().status).toBe('disconnected')
-  })
-})
-
-describe('awaitEntity on a qualified endpoint', () => {
-  beforeEach(() => isTauri.mockReturnValue(true))
-
-  // Creating a project on a remote host used to wait on the LOCAL stream and hang
-  // until the timeout: its frame arrives on the remote host's own.
-  it('resolves from the remote host’s stream, never the local one', async () => {
-    const stopLocal = wsManager.subscribe('/v0/projects', vi.fn())
-    const created = vi.fn()
-    const pending = awaitEntity<{ id: string; path: string }>({
-      endpoint: 'crowbar://h1/v0/projects',
-      match: (frame) => frame.path === '/srv/app',
-      action: async () => {},
-    }).then(created)
-    await Promise.resolve()
-    await Promise.resolve()
-    const [local, remote] = tauriInstances
-    expect(remote.options).toEqual({ hostId: 'h1', idleTimeoutMs: 60_000 })
-
-    local.onmessage?.({ data: '{"id":"local-twin","path":"/srv/app"}' })
-    await Promise.resolve()
-    expect(created).not.toHaveBeenCalled()
-
-    remote.onmessage?.({ data: '{"id":"remote-one","path":"/srv/app"}' })
-    await pending
-    expect(created).toHaveBeenCalledExactlyOnceWith({ id: 'remote-one', path: '/srv/app' })
-
-    stopLocal()
   })
 })

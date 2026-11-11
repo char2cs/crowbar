@@ -2,11 +2,8 @@ package main
 
 import "fmt"
 
-// scope is the project/repo/workspace triple review threads are still nested
-// under. Every other workspace-scoped route this tool once called was deleted
-// when the API moved to a chat-scoped surface (spec §8 step 6) — threads
-// alone never moved (repo-level review commentary, spec §4.4) — so this is
-// the one shape that survives unchanged.
+// scope is the project/repo/workspace triple review threads are nested under,
+// the one workspace-scoped route shape this tool still calls.
 type scope struct {
 	projectID   string
 	repoID      string
@@ -30,10 +27,8 @@ func repoScopePath(
 	return fmt.Sprintf("/v0/projects/%s/repos/%s%s", projectID, repoID, suffix)
 }
 
-// chatsPath is the repo-scoped chat list/create route. GET lists every chat
-// the repo owns — already scoped server-side (ListChatsInRepo's cwd walk), so
-// unlike the deleted workspace list there is no repo id left for a caller to
-// filter by — and POST mints one.
+// chatsPath is the repo-scoped chat list/create route. GET is already scoped
+// to the repo server-side, so there is no repo id for a caller to filter by.
 func chatsPath(
 	projectID string,
 	repoID string,
@@ -51,8 +46,8 @@ func chatDetailPath(
 	return repoScopePath(projectID, repoID, "/chats/"+chatID)
 }
 
-// flatChatPath addresses the shared-bucket surface spec §4.2 moved off the
-// workspace group entirely (git, files, review, search, identity, editor/LSP):
+// flatChatPath addresses the shared-bucket surface that lives off the
+// workspace group (git, files, review, search, identity, editor/LSP):
 // no project/repo prefix, just the chat that owns the worktree.
 func flatChatPath(
 	chatID string,

@@ -14,6 +14,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	wscmds "github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -26,19 +27,20 @@ func TestNew_RegistersStoreProjection(t *testing.T) {
 
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	pst, err := projections.NewStore(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	projections.Subscriber(pst)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(ctx) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax)
-	require.NoError(t, err)
+	st := store.New(pst, es, ax)
 
 	// Empty before any event — no reconcile ran.
 	all, err := st.List(ctx)

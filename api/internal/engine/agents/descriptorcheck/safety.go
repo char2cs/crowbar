@@ -14,11 +14,15 @@ import (
 // hookCommandVars are the only placeholders a hook command may carry. The
 // vendor CLI runs a hook command through its shell, so anything a user or
 // provider controls ({message}, {cwd}, {context}, …) would be interpreted there.
-var hookCommandVars = []string{"crowbar_hook", "segid", "provider", "scope_flags", "hook_curl", "hook_url"}
+var hookCommandVars = []string{"segid", "provider", "scope_flags", "hook_curl", "hook_url"}
 
-// hookCommandStarts open a hook command inside a templated string: the relay
-// process, or curl posting to the daemon's hook server.
-var hookCommandStarts = []string{"{crowbar_hook} hook ", "{hook_curl} "}
+// hookCommandStarts open a hook command inside a templated string: curl posting
+// to the daemon's hook server.
+var hookCommandStarts = []string{"{hook_curl} "}
+
+// relayHookCommand is the retired relay's hook command. It is refused rather
+// than ignored so an old override names its replacement instead of going deaf.
+const relayHookCommand = "{crowbar_hook} hook "
 
 var shells = []string{"sh", "bash", "zsh", "dash", "ksh", "fish", "cmd", "cmd.exe", "powershell", "pwsh"}
 
@@ -28,17 +32,21 @@ var (
 	shellSyntaxRE = regexp.MustCompile("\\$\\(|`|\\$\\{")
 )
 
-// safetyRules refuse what would let a descriptor — possibly one a user
-// uploaded — run something other than its CLI: a shell as the command, shell
-// syntax in an argv, a user-controlled value inside a hook command, an env
-// name that is not one, or a version range nothing can compare against.
+// safetyRules refuse what would let a (possibly user-uploaded) descriptor run
+// something other than its CLI: a shell command, shell syntax in argv, user values
+// in a hook command, invalid env names, or an uncomparable version range.
 func safetyRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	out = append(out, iconRules(doc, d)...)
 	out = append(out, shellCommandRules(doc, d)...)
 	for _, f := range argvFields(d) {
 		out = append(out, hookPlaceholderRules(doc, f)...)
-		if !strings.Contains(f.value, "{crowbar_hook} hook ") && shellSyntaxRE.MatchString(f.value) {
+		if strings.Contains(f.value, relayHookCommand) {
+			out = append(out, doc.finding("hooks.relay_retired", SeverityError, f.path,
+				"the `{crowbar_hook} hook` relay is retired: these hooks would reach nothing",
+				"post hooks to {hook_url}/<event> (HTTP) or through {hook_curl}"))
+		}
+		if shellSyntaxRE.MatchString(f.value) {
 			out = append(out, doc.finding("argv.shell_syntax", SeverityWarning, f.path,
 				"shell syntax in an argv is passed to the CLI literally, never expanded",
 				"use a template variable instead of shell expansion"))

@@ -1,15 +1,5 @@
-/**
- * Command registry.
- *
- * A finite, knowable set of commands extracted from the keyboard hooks that
- * already exist in the codebase. Each command records its default chord and
- * whether the live binding is resolved from the registry (`liveEditable`) or
- * still hardcoded in a hook (display-only, shown read-only in settings).
- *
- * Source hooks:
- *  - features/panes/hooks/use-pane-keyboard.ts   (Panes — live-editable)
- *  - features/keymaps/hooks/use-save-keyboard.ts (Editor — display-only)
- */
+// Every bindable command with its default chord. `liveEditable` commands resolve their binding
+// from the registry; the rest are still hardcoded in a hook and shown read-only in settings.
 import type { Command, CommandCategory } from './types'
 
 /** Pane commands — these are resolved from the registry by use-pane-keyboard. */
@@ -17,11 +7,10 @@ export const PANE_NAVIGATE_LEFT = 'panes.navigateLeft'
 export const PANE_NAVIGATE_RIGHT = 'panes.navigateRight'
 export const PANE_NAVIGATE_UP = 'panes.navigateUp'
 export const PANE_NAVIGATE_DOWN = 'panes.navigateDown'
-export const PANE_SPLIT_RIGHT = 'panes.splitRight'
-export const PANE_SPLIT_DOWN = 'panes.splitDown'
 export const TAB_NEW = 'tabs.new'
 export const TAB_NEW_TERMINAL = 'tabs.newTerminal'
 export const TAB_NEW_FILE = 'tabs.newFile'
+export const TAB_OPEN_FILE = 'tabs.openFile'
 export const AGENT_NEW_CHAT = 'agent.newChat'
 export const AGENT_NEW_CHAT_TERMINAL = 'agent.newChatTerminal'
 export const AGENT_CYCLE_PROVIDER = 'agent.cycleProvider'
@@ -37,39 +26,18 @@ export const AGENT_ZOOM_RESET = 'agent.zoomReset'
 export const EDITOR_SAVE = 'editor.save'
 export const EDITOR_SAVE_ALL = 'editor.saveAll'
 
-export const OPEN_WORKSPACE_SWITCHER = 'navigation.openWorkspaceSwitcher'
-
 export const TOGGLE_CONSOLE = 'navigation.toggleConsole'
 
 export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
 export const SIDEBAR_TAB_GIT = 'navigation.sidebarGit'
 export const SIDEBAR_TAB_CHATS = 'navigation.sidebarChats'
 
-/**
- * The order the Keybindings settings tab renders categories in — and, because it
- * renders ONLY what is listed here, the set of categories that are visible at all.
- * It lives beside COMMANDS rather than in the settings component so that adding a
- * category to a command and forgetting to render it cannot silently hide the
- * command: a registry test asserts every category in use appears here.
- */
+// Render order of the Keybindings tab, which shows ONLY these categories. Kept beside COMMANDS
+// so a registry test can assert every category in use is listed (none silently hidden).
 export const CATEGORY_ORDER: CommandCategory[] = ['Navigation', 'Panes', 'Tabs', 'Chats', 'Editor']
 
 export const COMMANDS: Command[] = [
   // --- Panes (live-editable, resolved from registry) ---
-  {
-    id: PANE_SPLIT_RIGHT,
-    label: 'Split editor right',
-    category: 'Panes',
-    defaultChord: 'mod+\\',
-    liveEditable: true,
-  },
-  {
-    id: PANE_SPLIT_DOWN,
-    label: 'Split editor down',
-    category: 'Panes',
-    defaultChord: 'mod+shift+\\',
-    liveEditable: true,
-  },
   {
     id: PANE_NAVIGATE_LEFT,
     label: 'Focus pane left',
@@ -125,11 +93,8 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // The chat's own switcher can already MOVE an open chat onto Terminal —
-    // this is the one thing it could not do: land a chat there from the
-    // start. `chatIsDefaultPresentation` (Settings → Chat) covers "every new
-    // chat from now on"; this covers "just this one", without touching that
-    // sticky default for the chats that follow it.
+    // Opens one new chat on Terminal without changing the sticky default
+    // (`chatIsDefaultPresentation`, Settings → Chat) for the chats after it.
     id: AGENT_NEW_CHAT_TERMINAL,
     label: 'New chat (Terminal)',
     category: 'Tabs',
@@ -144,19 +109,16 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // Toggles the OPEN chat between its Chat and Terminal surfaces — the same
-    // pair ViewSwitcher's own tabs flip between. It only does anything while a
-    // chat pane is the focused, visible one (agent-chat-pane gates it) —
-    // elsewhere the chord is free for other uses.
-    //
-    // Deliberately NOT mod+`, the obvious chord for this. macOS reserves it for
-    // "move focus to next window in application" and consumes it in AppKit before
-    // WKWebView is reached, so it never arrives as a keydown at all — invisible to
-    // this command AND to the settings rebind capture, which is how it presented:
-    // a shortcut that did nothing and could not even be reassigned.
-    //
-    // mod+/ collides with "toggle comment" in editors, which is fine: this fires
-    // only while a CHAT pane is focused, never over the editor.
+    id: TAB_OPEN_FILE,
+    label: 'Open file…',
+    category: 'Tabs',
+    defaultChord: 'mod+o',
+    liveEditable: true,
+  },
+  {
+    // Flips the focused chat between Chat and Terminal (agent-chat-pane gates it to chat panes,
+    // so mod+/ never shadows an editor's toggle-comment). Not mod+`: macOS consumes that in
+    // AppKit before WKWebView, so neither this command nor rebind capture would ever see it.
     id: AGENT_TOGGLE_VIEW_MODE,
     label: 'Toggle chat / terminal view',
     category: 'Chats',
@@ -164,11 +126,8 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // Used to own mod+/ (cycles the open chat to the next enabled provider, the
-    // way ⌘-tab cycles apps) — that chord now toggles the chat/terminal view
-    // instead (AGENT_TOGGLE_VIEW_MODE above). The action itself is untouched and
-    // still fully wired in agent-chat-pane; it just ships with no default chord
-    // until a user assigns one in Settings → Keybindings.
+    // Cycles the open chat to the next enabled provider. Wired in agent-chat-pane but ships
+    // unbound: mod+/ belongs to AGENT_TOGGLE_VIEW_MODE.
     id: AGENT_CYCLE_PROVIDER,
     label: 'Cycle chat provider',
     category: 'Chats',
@@ -233,13 +192,6 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   // --- Navigation (live-editable) ---
-  {
-    id: OPEN_WORKSPACE_SWITCHER,
-    label: 'Open workspace switcher',
-    category: 'Navigation',
-    defaultChord: 'mod+k',
-    liveEditable: true,
-  },
   {
     id: TOGGLE_CONSOLE,
     label: 'Toggle console',

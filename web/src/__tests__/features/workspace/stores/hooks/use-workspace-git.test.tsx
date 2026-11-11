@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceGit } from '@/features/workspace/stores/hooks/use-workspace-git'
 import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
@@ -17,17 +17,20 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
+import { toastManager } from '@/lib/toast-manager'
+import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { holding } from '@/core/stream/stream'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { ApiError } from '@/lib/errors/api-error'
 
-const { fetchGitData, getReviewFiles, subscribe } = vi.hoisted(() => ({
+const { fetchGitData, getReviewFiles } = vi.hoisted(() => ({
   fetchGitData: vi.fn(),
   getReviewFiles: vi.fn(),
-  subscribe: vi.fn(() => () => {}),
 }))
 
 vi.mock('@/features/git/api/git-data-api', async (importOriginal) => {
@@ -35,7 +38,6 @@ vi.mock('@/features/git/api/git-data-api', async (importOriginal) => {
   return { ...actual, fetchGitData }
 })
 vi.mock('@/features/git/api/review-api', () => ({ getReviewFiles }))
-vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe, send: vi.fn() } }))
 
 const status = { branch: 'main', ahead: 0, behind: 0, files: [] }
 
@@ -59,10 +61,9 @@ function setup(opts: { owningChatId?: string | null; home?: boolean } = {}) {
   return { store, reloadStatusAndLog, ...hook }
 }
 
-const onGitFrame = () => {
-  const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-  return calls.find(([ep]) => ep === '/v0/chats/chat-test/git/status')![1]
-}
+const held = () => heldScopes('git:')
+const onGitFrame = () => (data: unknown) =>
+  streamDaemon.deliver({ t: 'signal', scope: 'git:ws-test', kind: 'git_status', data })
 
 // The slice loads its API modules on first use; transform them once, outside the waitFor budget.
 beforeAll(async () => {
@@ -81,16 +82,16 @@ beforeEach(() => {
 })
 
 describe('useWorkspaceGit', () => {
-  it('loads once the workspace is shown, then subscribes to the git status topic', async () => {
-    const { store } = setup()
+  it('holds git:<ws> while mounted and applies git_status signals', async () => {
+    const { store, reloadStatusAndLog, unmount } = setup()
     await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
     expect(fetchGitData).toHaveBeenCalledWith('ws-test')
-    await waitFor(() =>
-      expect(subscribe).toHaveBeenCalledWith(
-        '/v0/chats/chat-test/git/status',
-        expect.any(Function),
-      ),
-    )
+    await waitFor(() => expect(held()).toEqual(['git:ws-test']))
+
+    onGitFrame()({ ...status, ahead: 3 })
+    await waitFor(() => expect(reloadStatusAndLog).toHaveBeenCalledTimes(1))
+    unmount()
+    expect(held()).toEqual([])
   })
 
   it('does nothing while the workspace has never been shown', () => {
@@ -101,23 +102,23 @@ describe('useWorkspaceGit', () => {
       ),
     })
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
   })
 
   it('has no git surface for the home workspace', () => {
     setup({ home: true, owningChatId: null })
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
   })
 
   it('waits for the owning chat id, then loads and subscribes', async () => {
     const { store, rerender } = setup({ owningChatId: null })
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
 
     rerender({ active: true, chat: 'chat-test' })
     await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalled())
+    await waitFor(() => expect(held()).toEqual(['git:ws-test']))
   })
 
   describe('status stream', () => {
@@ -127,7 +128,7 @@ describe('useWorkspaceGit', () => {
     async function ready() {
       const ctx = setup()
       await vi.waitFor(() => expect(ctx.store.getState().gitLoad).toBe('ready'))
-      await vi.waitFor(() => expect(subscribe).toHaveBeenCalled())
+      await vi.waitFor(() => expect(held()).toEqual(['git:ws-test']))
       return ctx
     }
 
@@ -160,6 +161,34 @@ describe('useWorkspaceGit', () => {
       expect(reloadStatusAndLog).toHaveBeenCalledTimes(2)
     })
 
+    // The daemon says git can no longer read the worktree (its repo moved), then that it can again,
+    // with the very status it had: each is news, so the panel shows and then clears the error.
+    it('reloads on an unreadable frame and again on the recovery that repeats the old status', async () => {
+      const { reloadStatusAndLog } = await ready()
+
+      onGitFrame()({ error: 'not a git repository' })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
+
+      onGitFrame()({ ...status })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadStatusAndLog).toHaveBeenCalledTimes(2)
+    })
+
+    it('a failed push-driven reload reports why', async () => {
+      const { reloadStatusAndLog } = await ready()
+      const toastAdd = vi.spyOn(toastManager, 'add')
+      onTestFinished(() => toastAdd.mockRestore())
+      reloadStatusAndLog.mockRejectedValueOnce(new ApiError('git status failed', 500))
+
+      onGitFrame()({ ...status, ahead: 1 })
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Refresh git status', description: 'git status failed' }),
+      )
+    })
+
     it('tells open diff views to refetch after the push-driven reload', async () => {
       const { reloadStatusAndLog } = await ready()
       const before = useGitRefreshStore.getState().changed['ws-test'] ?? 0
@@ -169,6 +198,20 @@ describe('useWorkspaceGit', () => {
 
       expect(reloadStatusAndLog).toHaveBeenCalled()
       expect(useGitRefreshStore.getState().changed['ws-test']).toBe(before + 1)
+    })
+
+    // An edit to a file already modified leaves the status frame as it was; the edit is the news.
+    it('reloads when a worktree file changes, though the status frame does not', async () => {
+      const { reloadStatusAndLog } = await ready()
+      await vi.waitFor(() => expect(heldScopes('files:')).toEqual(['files:ws-test']))
+      streamDaemon.deliver({
+        t: 'signal',
+        scope: 'files:ws-test',
+        kind: 'file_change',
+        data: { type: 'modified', path: 'calc.py' },
+      })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
     })
 
     it('reloads on an editor-save refresh request for this workspace only', async () => {
@@ -186,20 +229,20 @@ describe('useWorkspaceGit', () => {
 })
 
 describe('on an install that has paired a remote host', () => {
-  const REMOTE_STATUS = 'crowbar://host-1/v0/chats/chat-remote/git/status'
-  const LOCAL_STATUS = '/v0/chats/chat-local/git/status'
-  const endpoints = () =>
-    (subscribe.mock.calls as unknown as [string][]).map(([endpoint]) => endpoint)
+  const signal = (wsId: string, data: unknown) =>
+    streamDaemon.deliver({ t: 'signal', scope: `git:${wsId}`, kind: 'git_status', data })
 
   function mount(wsId: 'ws-remote' | 'ws-local') {
     const store = createWorkspaceStore(wsId)
+    const reloadStatusAndLog = vi.fn(() => Promise.resolve())
+    store.setState({ gitActions: { ...store.getState().gitActions, reloadStatusAndLog } })
     const chat = wsId === 'ws-remote' ? 'chat-remote' : 'chat-local'
     const hook = renderHook(() => useWorkspaceGit(wsId, true, chat, false), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <WorkspaceStoreContext.Provider value={store}>{children}</WorkspaceStoreContext.Provider>
       ),
     })
-    return { store, ...hook }
+    return { store, reloadStatusAndLog, ...hook }
   }
 
   beforeEach(() => {
@@ -222,11 +265,11 @@ describe('on an install that has paired a remote host', () => {
 
   afterEach(() => resetHostWorld())
 
-  it('loads nothing and opens no channel until the project list says whose workspace it is', async () => {
+  it('loads nothing and holds no scope until the project list says whose workspace it is', async () => {
     const remote = mount('ws-remote')
     const local = mount('ws-local')
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(subscribe).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
     expect(remote.store.getState().gitLoad).not.toBe('ready')
 
     // Each workspace waits for its OWN project's row, not merely for a list.
@@ -237,71 +280,41 @@ describe('on an install that has paired a remote host', () => {
 
     act(() => loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local')))
     await waitFor(() => expect(local.store.getState().gitLoad).toBe('ready'))
-    await waitFor(() => expect(endpoints().sort()).toEqual([LOCAL_STATUS, REMOTE_STATUS].sort()))
+    await waitFor(() => expect(held()).toEqual(['git:ws-local']))
+    expect(heldScopes('git:', 'host-1')).toEqual(['git:ws-remote'])
   })
 
-  it('switching local to remote closes the old channel and a late frame from it reloads nothing', async () => {
+  it('switching local to remote releases the old scope and a late signal on it reloads nothing', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
       loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
-      const unsubLocal = vi.fn()
-      subscribe.mockReturnValueOnce(unsubLocal)
       const local = mount('ws-local')
-      await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
-      const fromLocalChannel = (
-        subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      )[0][1]
+      await vi.waitFor(() => expect(held()).toEqual(['git:ws-local']))
 
       local.unmount()
       const remote = mount('ws-remote')
-      const reloadRemote = vi.fn(() => Promise.resolve())
-      remote.store.setState({
-        gitActions: { ...remote.store.getState().gitActions, reloadStatusAndLog: reloadRemote },
-      })
-      await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(heldScopes('git:', 'host-1')).toEqual(['git:ws-remote']))
+      expect(held()).toEqual([])
 
-      expect(unsubLocal).toHaveBeenCalledTimes(1)
-      expect(endpoints()).toEqual([LOCAL_STATUS, REMOTE_STATUS])
-      fromLocalChannel({ ...status, ahead: 9 })
+      signal('ws-local', { ...status, ahead: 9 })
       await vi.advanceTimersByTimeAsync(500)
-      expect(reloadRemote).not.toHaveBeenCalled()
+      expect(remote.reloadStatusAndLog).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('revoking the host closes its channel and never reopens it against the local daemon', async () => {
+  it('revoking the host releases its scope and loads nothing more', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
-    const unsubscribe = vi.fn()
-    subscribe.mockReturnValueOnce(unsubscribe)
     const { store } = mount('ws-remote')
     await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(heldScopes('git:', 'host-1')).toEqual(['git:ws-remote']))
     fetchGitData.mockClear()
 
     act(() => useHostConfigStore.getState().removeHost('host-1'))
 
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
-    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(holding('host-1', 'git:ws-remote')).toBe(false)
     expect(fetchGitData).not.toHaveBeenCalled()
-  })
-
-  it('does not let a refused channel escape the effect', async () => {
-    loadProjects(projectOn('p-remote', 'host-1'))
-    subscribe.mockImplementationOnce(() => {
-      throw new Error('remote hosts need the desktop app')
-    })
-
-    // The effect runs after an async load, so a throw surfaces as an uncaught error.
-    const uncaught = vi.fn()
-    window.addEventListener('error', uncaught)
-
-    const { store } = mount('ws-remote')
-    await waitFor(() => expect(store.getState().gitLoad).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalled())
-
-    window.removeEventListener('error', uncaught)
-    expect(uncaught).not.toHaveBeenCalled()
   })
 })
 
@@ -326,7 +339,7 @@ describe('files summary ownership', () => {
       { wrapper },
     )
     await waitFor(() => expect(result.current.tab.loaded).toBe(true))
-    await waitFor(() => expect(subscribe).toHaveBeenCalled())
+    await waitFor(() => expect(held()).toEqual(['git:ws-test']))
     getReviewFiles.mockClear()
 
     act(() => markGitStatusChanged('ws-test'))

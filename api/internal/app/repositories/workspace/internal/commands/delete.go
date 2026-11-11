@@ -8,15 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Delete tombstones a workspace by folding its Status to the terminal "deleted"
-// value (spec §3.8 delete lifecycle). It is a PURE command: it emits
-// "workspace.deleted.<id>" and does NO fs/git IO and does NOT Forget the
-// aggregate. The store projection persists the "deleted" row and the async
-// reactor subscribed on topic "workspace.deleted.*" (spec §3.6) performs the
-// physical teardown (cascade thread Forgets + rm -rf worktree +
-// axWorkspace.Forget) off the synchronous write path. Every other field is
-// preserved so the boot orphan-sweep can still read project_id/repo_id/worktree
-// off the tombstone row.
+// Delete tombstones a workspace (Status "deleted") with no IO and no Forget: the
+// "workspace.deleted.*" reactor does the teardown off the write path. Other fields
+// are kept so the boot orphan sweep can still read them off the tombstone.
 type Delete struct {
 	ID string
 }

@@ -470,3 +470,18 @@ func TestSearch_UnreadableDirSkipped(t *testing.T) {
 	require.Len(t, resp.Results, 1)
 	assert.Contains(t, resp.Results[0].FilePath, "readable")
 }
+
+// A malformed include or exclude glob is the caller's mistake to see, not a
+// filter that silently matches nothing.
+func TestSearch_ABadGlobIsAnError(t *testing.T) {
+	dir := buildRepo(t, map[string]string{"a.go": "hello\n"})
+
+	eng := newEngine()
+	for _, req := range []search.SearchRequest{
+		{Query: "hello", Include: []string{"[a-"}},
+		{Query: "hello", Exclude: []string{"[a-"}},
+	} {
+		_, err := eng.Search(context.Background(), dir, req)
+		require.ErrorIs(t, err, search.ErrBadPattern)
+	}
+}

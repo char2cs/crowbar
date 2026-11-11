@@ -44,7 +44,7 @@ import (
 //
 // The chat is already titled by the time the tool could be called: the
 // UserPromptSubmit hook derives a title from the prompt's first line the instant it
-// is submitted (deriveTitle in internal/app/usecases/chat/internal/runner), and this string
+// is submitted (deriveTitle in internal/app/usecases/chat/internal/ingress), and this string
 // appears verbatim inside that prompt. What makes the two distinguishable is not the
 // string but the SHAPE — deriveTitle takes the whole first line, truncated at 60
 // runes, so the derived title is the sentence that asks for the rename, never the two
@@ -420,8 +420,7 @@ func assistantTurnCount(
 }
 
 // chatWorking reports whether the chat still has a turn in flight, read off the
-// aggregate the turn hooks maintain. It is the only signal here that means turn_stop
-// has landed — a recorded assistant message does not, because the streaming path
+// chat's ledger. It is the only signal here that means turn_stop has landed — a recorded assistant message does not, because the streaming path
 // records one per message rather than one per turn.
 func chatWorking(
 	t *testing.T,
@@ -429,9 +428,9 @@ func chatWorking(
 	chatID string,
 ) bool {
 	t.Helper()
-	chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
+	snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
 	require.NoError(t, err, "read chat %s back", chatID)
-	return chat.Working
+	return snap.Ledger.Busy
 }
 
 func chatTitle(

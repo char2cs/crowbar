@@ -11,7 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // A native turn whose close never comes — codex reports idle and sends no
@@ -36,12 +37,12 @@ func TestScripted_SwitchProviderRoundTrip(t *testing.T) {
 	r.firstTurn(chatID)
 	claudeSession := r.logged("prompt")[0]["session"]
 
-	_, err := r.runners().SwitchProvider(ctx, chatID, "codex")
+	_, err := r.runners().SwitchProvider(ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	r.continues(chatID, "codex, what was the word?")
 	assert.True(t, r.transcriptReached("PELICAN"), "codex was handed the conversation")
 
-	_, err = r.runners().SwitchProvider(ctx, chatID, "claude")
+	_, err = r.runners().SwitchProvider(ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	require.NoError(t, r.send(chatID, "claude again"))
 	r.eventually(func() bool {
@@ -66,11 +67,8 @@ func TestScripted_DeleteMidTurn(t *testing.T) {
 			require.NoError(t, r.d.app.Usecases.AgentChat.PurgeChat(context.Background(), chatID))
 			assert.Less(t, time.Since(started), 15*time.Second, "a delete is bounded")
 
-			all, err := r.d.app.Repositories.AgentRunner.AllLive(context.Background())
-			require.NoError(t, err)
-			for _, runner := range all {
-				assert.NotEqual(t, chatID, runner.CurrentChatID, "a runner outlived its chat")
-			}
+			_, err := r.runners().LiveRunnerForChat(context.Background(), chatID)
+			require.ErrorIs(t, err, agentusecase.ErrNoLiveRunner, "a runner outlived its chat")
 			_, err = r.d.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
 			assert.Error(t, err, "the chat is gone")
 		})
@@ -89,11 +87,7 @@ func TestScripted_CompactIntent(t *testing.T) {
 			require.NoError(t, r.runners().Compact(context.Background(), chatID))
 
 			r.eventually(func() bool {
-				activity, err := r.d.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-				require.NoError(t, err)
-				return slices.ContainsFunc(activity.Interruptions, func(in domain.ActivityInterruption) bool {
-					return in.Kind == "compacted" || in.Kind == "compaction"
-				})
+				return slices.Contains(r.markers(chatID), ledger.MarkerCompactionStarted)
 			}, "the compaction was never recorded")
 			r.eventually(func() bool { return !r.working(chatID) }, "a compaction left the chat busy")
 			r.continues(chatID, "after compacting")
@@ -115,7 +109,8 @@ func TestScripted_TwoChatsInOneWorktreeKeepTheirOwnSessions(t *testing.T) {
 			r.eventually(func() bool { return len(r.said(b)) == 2 && !r.working(b) }, "chat B's turn")
 			sessionOf := map[string]any{}
 			for _, e := range r.logged("prompt") {
-				sessionOf[e["text"].(string)] = e["session"]
+				text, _ := e["text"].(string)
+				sessionOf[text] = e["session"]
 			}
 			require.NotEqual(t, sessionOf["remember the word PELICAN"], sessionOf["I am chat B"])
 			for _, chat := range []string{a, b} {
@@ -128,7 +123,8 @@ func TestScripted_TwoChatsInOneWorktreeKeepTheirOwnSessions(t *testing.T) {
 			r.eventually(func() bool { return len(r.said(b)) == 4 && !r.working(b) }, "chat B's revive")
 
 			for _, e := range r.logged("prompt") {
-				sessionOf[e["text"].(string)] = e["session"]
+				text, _ := e["text"].(string)
+				sessionOf[text] = e["session"]
 			}
 			assert.Equal(t, sessionOf["remember the word PELICAN"], sessionOf["A again"], "A resumed A's session")
 			assert.Equal(t, sessionOf["I am chat B"], sessionOf["B again"], "B resumed B's session")

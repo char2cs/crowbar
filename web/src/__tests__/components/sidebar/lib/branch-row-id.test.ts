@@ -3,7 +3,7 @@ import {
   owningChatIdOfWorkspace,
   workspaceIdOfBranchRow,
 } from '@/components/sidebar/lib/branch-row-id'
-import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 
 function makeTestWorkspace(over: Partial<Workspace> & { id: string; branch: string }): Workspace {
   return { age: '', ...over }
@@ -24,13 +24,8 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
   }
 }
 
-/**
- * 2026-09-08 sidebar-placement-unification Task 9 stops minting/retyping a
- * `'branch'`-typed chat to mark a repo/project home's owning row — these pin
- * that neither direction of the id-space translation depends on `Chat.type`
- * any more, reading `Repo.defaultOwningChatId` (or, absent that, the
- * type-agnostic `ownsWorktree` fallback) instead.
- */
+// Neither direction of the translation depends on `Chat.type`: both read
+// `Repo.defaultOwningChatId`, else the type-agnostic `ownsWorktree` fallback.
 describe('owningChatIdOfWorkspace', () => {
   it('resolves a locked branch directly off Workspace.owningChatId', () => {
     const repo = makeTestRepo({
@@ -70,6 +65,15 @@ describe('owningChatIdOfWorkspace', () => {
 })
 
 describe('workspaceIdOfBranchRow', () => {
+  it('resolves the root id to no workspace, even beside one no chat owns yet', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      defaultOwningChatId: '',
+      workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'develop', owningChatId: '' })],
+    })
+    expect(workspaceIdOfBranchRow([repo], '')).toBeNull()
+  })
+
   it('resolves a locked branch row id back to its workspace id', () => {
     const repo = makeTestRepo({
       workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'develop', owningChatId: 'chat-1' })],

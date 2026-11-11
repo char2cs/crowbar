@@ -4,8 +4,7 @@ import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { SIDEBAR_TAB_FILES, SIDEBAR_TAB_GIT, SIDEBAR_TAB_CHATS } from '@/features/keymaps/registry'
 import { getFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
 import { SIDEBAR_PANEL_TABS } from '@/components/layout/sidebar-panel-tabs'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { SidebarTab } from '@/lib/store/sidebar-ui'
+import { treeUiStore, type SidebarTab } from '@/features/workspace/tree/tree-ui-store'
 
 const SIDEBAR_TAB_COMMANDS: Array<[string, SidebarTab]> = [
   [SIDEBAR_TAB_CHATS, 'chats'],
@@ -28,7 +27,7 @@ export function useSidebarTabKeyboard(): void {
           )
           if (!offered) return
           e.preventDefault()
-          useSidebarStore.getState().setActiveTab(tab)
+          treeUiStore.getState().setActiveTab(tab)
           return
         }
       }

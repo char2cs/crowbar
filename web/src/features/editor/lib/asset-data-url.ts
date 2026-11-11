@@ -1,9 +1,6 @@
-/**
- * Local workspace files as `data:` URLs, for previews that render outside the
- * workspace's origin (markdown images, the sandboxed HTML preview). The files
- * API returns binary content as a latin1 byte string, which re-encodes to
- * base64 as-is; text types pass through as UTF-8.
- */
+// Local workspace files as `data:` URLs, for previews rendered outside the workspace's origin
+// (markdown images, the sandboxed HTML preview). Binary content arrives as a latin1 byte string,
+// which re-encodes to base64 as-is; text types pass through as UTF-8.
 const MIME_BY_EXT: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -42,7 +39,7 @@ export function isImagePath(path: string): boolean {
   return mimeForPath(path)?.startsWith('image/') ?? false
 }
 
-/** `bytes` as returned by readWorkspaceFile (latin1 for binary files). */
+/** `bytes` as a document read returns them (latin1 for binary files). */
 export function toDataUrl(mime: string, bytes: string): string {
   return TEXT_MIME.test(mime)
     ? `data:${mime};charset=utf-8,${encodeURIComponent(bytes)}`
@@ -61,11 +58,8 @@ export function textFromDataUrl(url: string): string | null {
   }
 }
 
-/**
- * Resolve a possibly-relative reference against a file's directory into a
- * workspace-relative path. `/foo` is workspace-root-relative; `foo`, `./foo`
- * and `../foo` are relative to `fileDir`. Strips `.`/`..` segments.
- */
+/** Resolve a reference against a file's directory into a workspace-relative path: `/foo` is
+ *  root-relative; `foo`, `./foo` and `../foo` are relative to `fileDir`. Strips `.`/`..`. */
 export function resolveAssetPath(fileDir: string, src: string): string {
   const cleanSrc = src.split(/[?#]/)[0] ?? ''
   const segments = cleanSrc.startsWith('/')

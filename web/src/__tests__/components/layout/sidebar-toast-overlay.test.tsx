@@ -10,6 +10,8 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SidebarToastOverlay } from '@/components/layout/sidebar-toast-overlay'
 import { toastManager } from '@/lib/toast-manager'
+import { ApiError } from '@/lib/errors/api-error'
+import { report } from '@/lib/errors/report'
 
 const OUTAGE = 'Backend unavailable'
 
@@ -92,5 +94,38 @@ describe('SidebarToastOverlay with the sidebar open', () => {
     track(addTransient('three'))
 
     expect(document.querySelectorAll('[data-slot="toast-title"]')).toHaveLength(3)
+  })
+})
+
+describe('SidebarToastOverlay mounting after a report', () => {
+  it('shows a failure reported before any viewport was mounted', () => {
+    report(new ApiError('state file is unreadable', 500), { action: 'Restore the last session' })
+    opened.push('Restore the last session')
+
+    render(<SidebarToastOverlay sidebarOpen sidebarSide="left" />)
+
+    expect(screen.getByText('Restore the last session')).toBeInTheDocument()
+    expect(screen.getByText('state file is unreadable')).toBeInTheDocument()
+  })
+
+  it('shows a promise toast started before any viewport was mounted, and its outcome', async () => {
+    let finish!: () => void
+    const saving = new Promise<void>((resolve) => (finish = resolve))
+    void toastManager.promise(saving, { loading: 'Saving', success: 'Saved', error: 'Not saved' })
+
+    render(<SidebarToastOverlay sidebarOpen sidebarSide="left" />)
+    expect(screen.getByText('Saving')).toBeInTheDocument()
+    await act(async () => finish())
+
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+    act(() => toastManager.close())
+  })
+
+  it('does not show a held toast that was closed before the mount', () => {
+    act(() => toastManager.close(toastManager.add({ title: 'superseded', type: 'info' })))
+
+    render(<SidebarToastOverlay sidebarOpen sidebarSide="left" />)
+
+    expect(screen.queryByText('superseded')).toBeNull()
   })
 })

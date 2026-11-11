@@ -77,20 +77,13 @@ export function getAncestorDirectoryPaths(targetPath: string, stopAtPath?: strin
   return ancestors
 }
 
+/** The workspace path the explorer reveals for `activeBuffer`; none for a host document. */
 export function getExplorerTargetPath(activeBuffer: PaneContent | null): string | undefined {
-  if (!activeBuffer) return undefined
-
-  if (
-    activeBuffer.type === 'markdownPreview' ||
-    activeBuffer.type === 'htmlPreview' ||
-    activeBuffer.type === 'csvPreview'
-  ) {
-    return activeBuffer.sourceFilePath
+  if (activeBuffer?.type === 'markdownPreview' || activeBuffer?.type === 'htmlPreview') {
+    return activeBuffer.source.authority === 'workspace' ? activeBuffer.source.path : undefined
   }
-
-  if (activeBuffer.type === 'editor') {
+  if (activeBuffer?.type === 'editor' && activeBuffer.authority === 'workspace') {
     return activeBuffer.path
   }
-
   return undefined
 }

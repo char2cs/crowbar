@@ -2,51 +2,41 @@ package chat
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/manifestfetch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// Deps is everything the chat usecase is built over: the three stores it reads
-// and writes, the engine it resolves providers through, the seams onto the rest
-// of the daemon, and the agent-facing tool surface.
-//
-// What is NOT here is any of the shared in-flight state — the gates, the turn
-// registry, the work mirror, the journals. New builds those, and a caller must
-// not be able to supply them: a second instance of any one does not fail to
-// compile and does not fail a test that exercises a single path, it wedges a
-// switch or doubles a CLI in production.
+// Deps is everything the chat usecase is built over. The shared in-flight state (chat
+// locks, answer desk) is deliberately absent: New builds it, because a second instance
+// of either doubles a CLI in production.
 type Deps struct {
 	Chats    agentchat.EventStore
-	Runners  agentrunner.EventStore
-	Activity agentactivity.EventStore
 	Agents   engineagents.Agents
 	Terminal TerminalCommander
 	// Workspace resolves the on-disk locations one workspace's agent work happens
 	// in. It is the only seam this feature has onto the workspace layer.
 	Workspace WorkspaceReader
-	Worktree  WorktreeCreator // Promote's seam onto the worktree hierarchy usecase
+	Worktree  WorktreeCreator // the seam onto the worktree hierarchy usecase
 	// Lineage answers "what does this chat read" at spawn time.
 	Lineage ChatLineage
-	// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
-	// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
-	// (2026-09-08 sidebar-placement-unification Task 8's own review fix
-	// round) — see Usecase's own doc for why. May be left nil.
+	// Folders/Nodes let the placement-tree ancestor walks see past a folder, which
+	// is not a Chat row. May be left nil.
 	Folders TreeFolders
 	Nodes   TreeNodes
 	// RepoRoots finishes those same walks for a row filed in a repo-root
@@ -57,20 +47,27 @@ type Deps struct {
 	// PermissionPrefs is the global default permission level a new chat is
 	// seeded with.
 	PermissionPrefs store.Store[domain.AgentPermissionDefault, string]
-	// ModelManifestFetchPrefs is the global toggle for whether a
-	// model.manifest: source's background refresh may hit the network —
-	// wired straight into Agents.SetManifestFetchEnabled below, since that
-	// engine-side getter is pulled fresh on every refresh rather than pushed
-	// on change.
+	// ModelManifestFetchPrefs is the global toggle for whether a model.manifest:
+	// source's background refresh may hit the network.
 	ModelManifestFetchPrefs store.Store[domain.AgentModelManifestFetch, string]
-	// ChatTelemetry backs the durable half of the telemetry cache — the last
-	// usage report per chat, surviving a daemon restart. Nil is a valid,
-	// supported value (every test that builds Deps by hand): New falls back to
-	// a process-local-only store, same as before this field existed.
+	// ChatTelemetry backs the durable half of the telemetry cache: the last usage
+	// report per chat, surviving a restart. Nil falls back to a process-local store.
 	ChatTelemetry store.Store[domain.AgentChatTelemetry, string]
 	// Home is the app-config crowbar-home resolver, NOT a wsId lookup: it resolves
 	// the descriptor catalog, and providers are global.
 	Home func() (string, error)
+	// Ledger is every chat's ledger; a prompt is a row there before any CLI sees it.
+	Ledger *ledgerstore.Store
+	// Blobs holds the tool payloads the ledger's rows name.
+	Blobs *ledgerstore.Blobs
+	// DaemonAddress is the address the daemon bound, handed to every callback a
+	// spawned CLI runs.
+	DaemonAddress string
+	// CrowbarBin is the crowbar binary a spawned CLI runs for its tool bridge:
+	// the daemon's own executable.
+	CrowbarBin string
+	// NoAPITransport runs every provider over hooks alone.
+	NoAPITransport bool
 	// Installed is the install probe. Nil defaults to Agent.Installed, the real
 	// one; only a test injects a stub, to isolate from the host PATH.
 	Installed func(a engineagents.Agent) bool
@@ -78,88 +75,70 @@ type Deps struct {
 	// exactly ONE per daemon: a runner's token must be minted by the same secret
 	// that verifies it.
 	Minter *agenttools.TokenMinter
-	// ChoiceWatch carries "this chat's pending prompts changed" from the activity
-	// ledger, which is built first, to the usecase's publisher. Nil is a daemon
-	// that announces none (tests).
-	ChoiceWatch *ChoiceWatch
-	// Snapshots is the chat snapshot owner the composition root built and fed
-	// to the fanout. Nil builds a private one (tests), fed by nothing until a
-	// test wires the fanout over Snapshots().
+	// Snapshots is the chat snapshot owner the composition root built and fed to the
+	// fanout. Nil builds a private one, fed by nothing until a fanout is wired over it.
 	Snapshots *snapshot.Snapshots
-	// Tools is the agent-facing capability surface. Its Chats, ChatLogs, Lineage
-	// and ToolAccess ports are filled in by New, because they are this usecase's
-	// own methods and it does not exist when the caller builds the Deps.
+	// AgentWorking is told when a chat's busy answer flips, for its
+	// workspace's working overlay.
+	AgentWorking func(ctx context.Context, wsID, chatID string, working bool)
+	// AnswerClock is the clock a held ask's answer budget runs out on.
+	AnswerClock func(time.Duration) <-chan time.Time
+	// Tools is the agent-facing capability surface. Its Chats, ChatLogs, Lineage,
+	// ToolAccess and Resolver are filled in by New: they are this usecase's own
+	// methods, and it does not exist when the caller builds the Deps.
 	Tools agenttools.Deps
 }
 
-// shared is the in-flight state the components are built over.
-//
-// It exists as a value so that "built exactly once" is something you can see
-// rather than a rule you have to trust: New makes one, and every component that
-// needs a piece of it is handed the SAME one. None of it is durable and none of
-// it may be — each value describes a live process, and a daemon restart kills
-// every process it could have been describing.
+// shared is the in-flight state the components are built over, a value so "built
+// exactly once" is visible: New makes one and hands every component the SAME one.
+// None of it may be durable — each value describes a live process.
 type shared struct {
 	telemetry *telemetry.Store
-	// work mirrors the authoritative Working flag the turn commands return. Unlike
-	// the projection, it cannot briefly report idle after a hook has durably
-	// announced background work.
-	work *inflight.Work
-	// spawns serialises the USER-INITIATED spawn paths per chat. It is the only
-	// thing that can stop two concurrent switches putting two CLIs on one chat, and
-	// it is NEVER taken on the hook path.
-	spawns *inflight.Gate
-	// turns is the in-flight-turn registry a provider switch BLOCKS on, so it never
-	// quits a CLI mid-answer.
-	turns *inflight.Turns
-	// turnStarts makes a hook's durable turn start atomic with the final
-	// idle-check-and-displace section of destructive TUI replacement.
-	turnStarts *inflight.Gate
-	// pendingHooks is the fork-before-runner-persistence barrier: the spawn path
-	// installs it before the fork and finishes it once the runner row exists, and
-	// the ingest path buffers into it meanwhile.
-	pendingHooks *inflight.Hooks
+	// locks is one lock per chat: every hook of the chat records under it, and
+	// every user-initiated path decides under it. It is the only thing that can
+	// stop two concurrent switches putting two CLIs on one chat.
+	locks *ingress.Locks
+	// writes is the ledger as every path that is not a hook writes it.
+	writes ingress.Writer
 	// answers is the desk of relays parked on a human decision.
 	answers *answerdesk.Desk
 }
 
 // New builds the chat usecase and every component behind it.
 func New(d Deps) *Usecase {
-	// context.Background(): this hydration read happens exactly once, at
-	// daemon boot, before there is a request context to carry — same
-	// justification as the other startup-only Background() reads in this
-	// codebase (e.g. container.go's sweepTargets).
-	sh := shared{
-		telemetry:    telemetry.NewDurable(context.Background(), d.ChatTelemetry),
-		work:         inflight.NewWork(),
-		spawns:       inflight.NewGate(),
-		turns:        inflight.NewTurns(),
-		turnStarts:   inflight.NewGate(),
-		pendingHooks: inflight.NewHooks(),
-		answers: answerdesk.New(
-			answerdesk.DefaultRetention, d.Activity, answerdesk.WithChange(d.ChoiceWatch.Notify),
-		),
-	}
+	// context.Background(): the telemetry hydration read runs once at boot, before
+	// any request context exists.
 	u := &Usecase{
-		chats:       d.Chats,
-		runnerStore: d.Runners,
-		activity:    d.Activity,
-		agents:      d.Agents,
-		ws:          d.Workspace,
-		worktree:    d.Worktree,
-		answers:     sh.answers,
-		tools:       d.Tools,
-		work:        sh.work,
-		folders:     d.Folders,
-		nodes:       d.Nodes,
-		repoRoots:   d.RepoRoots,
+		chats:     d.Chats,
+		ledger:    d.Ledger,
+		blobs:     d.Blobs,
+		agents:    d.Agents,
+		ws:        d.Workspace,
+		home:      d.Home,
+		worktree:  d.Worktree,
+		tools:     d.Tools,
+		folders:   d.Folders,
+		nodes:     d.Nodes,
+		repoRoots: d.RepoRoots,
+		feeds:     newFeeds(feedCapacity),
 	}
-	// The tool surface's four self-ports, filled in here because the usecase does
+	locks := ingress.NewLocks()
+	sh := shared{
+		telemetry: telemetry.NewDurable(context.Background(), d.ChatTelemetry),
+		locks:     locks,
+		writes:    ingress.NewWriter(d.Ledger, locks),
+	}
+	u.asks = askResolver{writes: sh.writes}
+	sh.answers = answerdesk.New(answerdesk.DefaultRetention, u.asks, answerdesk.WithBudgetClock(d.AnswerClock))
+	u.answers = sh.answers
+	// The tool surface's self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
 	u.tools.Chats = u
 	u.tools.ChatLogs = u
+	u.tools.Branches = u
 	u.tools.Lineage = u
 	u.tools.ToolAccess = u.providerMCPEnabled
+	u.tools.Resolver = agenttools.NewResolver(d.Minter, u, u.tools.Scope)
 
 	u.snapshots = d.Snapshots
 	if u.snapshots == nil {
@@ -171,33 +150,31 @@ func New(d Deps) *Usecase {
 			return correctHomeChats(ctx, d.Nodes, chats)
 		})
 	}
-	u.snapshots.Bind(snapshotReader{chats: d.Chats, runners: d.Runners}, u.runners)
+	u.snapshots.Bind(snapshotReader{chats: d.Chats, ledger: d.Ledger}, u.runners)
 	return u
 }
 
 // snapshotReader is the read model the snapshot owner falls back to for a
-// chat no event has touched since boot, and seeds live placement from.
+// chat no event has touched since boot.
 type snapshotReader struct {
-	chats   agentchat.EventStore
-	runners agentrunner.EventStore
+	chats  agentchat.EventStore
+	ledger *ledgerstore.Store
+}
+
+func (r snapshotReader) ViewLedger(ctx context.Context, chatID string, fn func(ledger.State) error) error {
+	return r.ledger.View(ctx, chatID, fn)
 }
 
 func (r snapshotReader) GetChat(ctx context.Context, chatID string) (domain.Chat, error) {
 	return r.chats.GetChat(ctx, chatID)
 }
 
-func (r snapshotReader) AllLive(ctx context.Context) ([]engineagents.Runner, error) {
-	if r.runners == nil {
-		return nil, nil
-	}
-	return r.runners.AllLive(ctx)
+func (r snapshotReader) GetChats(ctx context.Context, chatIDs []string) ([]domain.Chat, error) {
+	return r.chats.GetChats(ctx, chatIDs)
 }
 
-// buildComponents assembles the four halves of the surface and closes the edges
-// between them.
-//
-// It is split out of New only to keep each within its length budget; the two are
-// one operation, and nothing may call this twice.
+// buildComponents assembles the components and closes the edges between them. It is
+// split out of New only for length; the two are one operation, never called twice.
 func (u *Usecase) buildComponents(d Deps, sh shared) {
 	u.providers = provider.New(provider.Deps{
 		Agents:    d.Agents,
@@ -223,61 +200,86 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 	}
 	u.conversations = conversation.New(conversation.Deps{
 		Chats:     d.Chats,
-		Runners:   d.Runners,
-		Activity:  d.Activity,
+		Blobs:     d.Blobs,
 		Telemetry: sh.telemetry,
 		Agents:    d.Agents,
 		Workspace: d.Workspace,
 		Lineage:   d.Lineage,
 		Home:      d.Home,
-		Work:      sh.work,
-		Spawns:    sh.spawns,
+		Ledger:    d.Ledger,
+		Writes:    sh.writes,
 
 		DefaultPermissionLevel: u.DefaultPermissionLevel,
 	})
-	u.turns = turn.New(turn.Deps{
-		Chats:         d.Chats,
-		Runners:       d.Runners,
-		Activity:      d.Activity,
-		Telemetry:     sh.telemetry,
-		Agents:        d.Agents,
-		Workspace:     d.Workspace,
-		Home:          d.Home,
-		Work:          sh.work,
-		InflightTurns: sh.turns,
-		TurnStarts:    sh.turnStarts,
-		PendingHooks:  sh.pendingHooks,
-		Answers:       sh.answers,
-
-		Conversations: u.conversations,
+	u.recorder = ingress.NewRecorder(ingress.RecorderDeps{
+		Chats: d.Chats, Agents: d.Agents, Workspace: d.Workspace, Home: d.Home, Ledger: d.Ledger,
+		Blobs: d.Blobs, Telemetry: sh.telemetry, Answers: sh.answers, Titles: u.conversations,
+		Frames: hubFrames{feed: &u.feed, feeds: u.feeds},
 	})
-	d.ChoiceWatch.bind(u.turns.PublishChoices)
 	u.runners = runner.New(runner.Deps{
-		Chats:         d.Chats,
-		Runners:       d.Runners,
-		Activity:      d.Activity,
-		Agents:        d.Agents,
-		Terminal:      d.Terminal,
-		Workspace:     d.Workspace,
-		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
-		Home:          d.Home,
-		Spawns:        sh.spawns,
-		InflightTurns: sh.turns,
-		TurnStarts:    sh.turnStarts,
-		Work:          sh.work,
-		PendingHooks:  sh.pendingHooks,
-		Minter:        d.Minter,
-		Answers:       sh.answers,
-		Conversations: u.conversations,
-		Providers:     u.providers,
-		Snapshots:     u.snapshots,
+		Chats:          d.Chats,
+		Choices:        openAsks{ledger: d.Ledger},
+		Agents:         d.Agents,
+		Terminal:       d.Terminal,
+		Workspace:      d.Workspace,
+		Home:           d.Home,
+		AncestorCwd:    cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
+		Ledger:         d.Ledger,
+		DaemonHost:     d.DaemonAddress,
+		CrowbarBin:     d.CrowbarBin,
+		NoAPITransport: d.NoAPITransport,
+		ChatLock:       sh.locks,
+		Minter:         d.Minter,
+		Answers:        sh.answers,
+		Conversations:  u.conversations,
+		Providers:      u.providers,
+		Snapshots:      u.snapshots,
 	})
-	// The three edges that can only close once both sides exist: a purge retires
-	// the CLIs on the chat (and a failed spawn discards the chat it minted), a hook
-	// applies a placement the CLI already performed, and the terminal-wait detector
-	// reads screens through the hook ingress's own classifiers.
+	u.ingress = ingress.New(ingress.Deps{
+		Runners: u.runners, Descriptors: u.recorder, Turns: u.recorder, Ledger: d.Ledger, Locks: sh.locks,
+	})
+	// The edges that can only close once both sides exist: purge retires the chat's
+	// CLI, a hook resolves its runner through the live table, and the terminal-wait
+	// detector reads screens through the hook ingress's classifiers.
 	u.conversations.SetRunners(u.runners)
-	u.turns.SetRunners(u.runners)
-	sh.turns.OnDrop(u.runners.RefuseSteered)
-	u.runners.SetTurns(u.turns)
+	u.recorder.SetRunners(u.runners)
+	u.runners.SetTurns(runnerTurns{Recorder: u.recorder, ingress: u.ingress})
+	// Subscribers run under the chat's ledger writer: they read snapshots only
+	// through Held, which never reads the ledger.
+	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, st ledger.State) {
+		ctx := context.Background()
+		flipped, wsID := u.snapshots.ApplyLedger(ctx, chatID, snapshot.FactsOf(st), movedTurn(rows, st))
+		if flipped && d.AgentWorking != nil {
+			d.AgentWorking(ctx, wsID, chatID, st.Busy())
+		}
+	})
+	d.Ledger.Subscribe(func(chatID string, rows []ledger.Row, _ ledger.State) { u.feeds.rows(chatID, rows) })
+}
+
+// runnerTurns is the hook side as the runner lifecycle sees it: the recorder,
+// and the ingress its api connections place their events through.
+type runnerTurns struct {
+	*ingress.Recorder
+	ingress *ingress.Ingress
+}
+
+// Hook places one event an api connection resolved, and returns the reply the
+// ingress gave it at once, else the ask its answer is held on.
+func (t runnerTurns) Hook(ctx context.Context, runnerID, provider, event string, raw []byte) ([]byte, string, error) {
+	reply, err := t.ingress.Hook(ctx, runnerID, provider, event, raw, engineagents.ChannelAPI)
+	return reply.Body, reply.Ask, err
+}
+
+// movedTurn is whether a row of the batch started or stopped the chat's newest
+// turn. A late row moved nothing and announces nothing.
+func movedTurn(rows []ledger.Row, st ledger.State) bool {
+	for _, r := range rows {
+		if !st.MovedTurn(r) {
+			continue
+		}
+		if r.Kind == ledger.KindTurnStarted || r.Kind == ledger.KindTurnEnded || r.Kind == ledger.KindTurnFailed {
+			return true
+		}
+	}
+	return false
 }

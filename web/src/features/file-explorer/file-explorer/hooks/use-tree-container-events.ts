@@ -7,7 +7,7 @@ import { useFileClipboardStore } from '@/features/file-explorer/stores/file-expl
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { toast } from '@/features/window/stores/toast-store'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
+import { report } from '@/lib/errors/report'
 
 const DRAG_THRESHOLD_PX = 5
 
@@ -49,15 +49,12 @@ function pasteInto(targetDir: string, workspaceId: string | null, onRefresh?: (p
       }
     })
     .catch((error: unknown) => {
-      toast.error('Paste failed', actionErrorMessage(error, String(error)))
+      report(error, { action: 'Paste failed' })
     })
 }
 
-/**
- * Delegated pointer and keyboard handlers for the tree container: rows carry
- * `data-file-path`/`data-is-dir`, so one set of handlers serves every
- * virtualized row.
- */
+/** Delegated pointer and keyboard handlers for the tree container: rows carry
+ *  `data-file-path`/`data-is-dir`, so one set of handlers serves every virtualized row. */
 export function useTreeContainerEvents(o: TreeContainerEventsOptions) {
   const {
     workspaceId,

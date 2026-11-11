@@ -6,30 +6,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ChatSync handles POST .../repos/:repoId/chats/:id/sync. It validates the chat
-// resolves synchronously (4xx if not), then returns 202 and recomputes the
-// working-tree summary in the background. The synced workspace is delivered on
-// the workspace WebSocket stream via the repository's broadcast callback; a
-// failure surfaces as LastError on the entity (00 §4).
+// ChatSync handles POST .../chats/:id/sync, answering 202 with the operation that recomputes the
+// working-tree summary; the synced workspace arrives on the workspace stream.
 func (h *Handlers) ChatSync(
 	c *gin.Context,
 ) {
-	id, ok := h.chatWorkspace(c)
+	ws, ok := h.chatWorkspace(c)
 	if !ok {
 		return
 	}
-	libs.WriteAccepted(c)
-	h.runAsync(
-		c.Request.Context(),
-		h.working,
-		h.broadcastLastError,
-		id,
-		func(ctx context.Context) error {
-			_, syncErr := h.reader.SyncWorkingTreeState(ctx, id, time.Now())
-			return syncErr
-		},
-	)
+	h.startOn(c, ws, domain.OpWorkspaceSync, "Sync "+ws.Branch, func(ctx context.Context) error {
+		_, err := h.reader.SyncWorkingTreeState(ctx, ws.ID, time.Now())
+		return err
+	})
 }

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	apptree "github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // stubListChats answers tree.Chats.ListChats and LoadChat from a fixed row
@@ -49,55 +49,29 @@ func (s stubListChats) LoadChat(_ context.Context, id string) (domain.Chat, erro
 			return row, nil
 		}
 	}
-	return domain.Chat{}, apperr.ErrNotFound
+	return domain.Chat{}, problem.ErrNotFound
 }
 
-func treeFrom(
-	chats map[string]domain.Chat,
-) apptree.Tree {
-	nodes := make([]apptree.Node, 0, len(chats))
-	for _, c := range chats {
-		nodes = append(nodes, apptree.Node{
-			ID:        c.ID,
-			ParentID:  c.ParentID,
-			Order:     c.Order,
-			CreatedAt: c.CreatedAt,
-		})
-	}
-	return apptree.New(nodes)
-}
-
-func TestCwdWorkspaceID_SkipsUnprovisionedAncestor(t *testing.T) {
+func TestResolveCwdWorkspaceID_SkipsUnprovisionedAncestor(t *testing.T) {
 	chats := map[string]domain.Chat{
 		"root":    {ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
 		"folder":  {ID: "folder", Type: domain.ChatTypeFolder, ParentID: "root"},
 		"blocked": {ID: "blocked", Type: domain.ChatTypeBranch, ParentID: "folder", WorkspaceID: ""},
 		"leaf":    {ID: "leaf", Type: domain.ChatTypeChat, ParentID: "blocked"},
 	}
-	tr := treeFrom(chats)
+	rows := make([]domain.Chat, 0, len(chats))
+	for _, c := range chats {
+		rows = append(rows, c)
+	}
 
-	got, ok := tree.CwdWorkspaceID(tr, chats, "leaf")
+	got, ok, err := tree.ResolveCwdWorkspaceID(context.Background(), stubListChats{rows: rows}, nil, nil, nil, "leaf")
 
-	if !ok || got != "ws-root" {
+	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("want ws-root (walk past the unprovisioned blocked row), got %q ok=%v", got, ok)
 	}
 }
 
-func TestForkParentID_ExcludesSelf(t *testing.T) {
-	chats := map[string]domain.Chat{
-		"root": {ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
-		"self": {ID: "self", Type: domain.ChatTypeBranch, ParentID: "root", WorkspaceID: "ws-self"},
-	}
-	tr := treeFrom(chats)
-
-	got, ok := tree.ForkParentID(tr, chats, "self")
-
-	if !ok || got != "ws-root" {
-		t.Fatalf("fork parent must exclude self's own workspace, want ws-root, got %q ok=%v", got, ok)
-	}
-}
-
-func TestResolveForkParent_ReadsEveryRowAndWalksLikeForkParentID(t *testing.T) {
+func TestResolveForkParent_ExcludesSelf(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
 		{ID: "self", Type: domain.ChatTypeBranch, ParentID: "root", WorkspaceID: "ws-self"},
@@ -200,10 +174,10 @@ func TestResolveForkParent_WalksThroughAFolderAncestor(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	folders.Saved = []dtree.Folder{{ID: "folder", Name: "notes"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "folder", Kind: dtree.KindFolder, ParentID: "root", Order: 0},
 	}
 
 	got, ok, err := tree.ResolveForkParent(context.Background(), chats, folders, nodes, nil, "self")
@@ -225,10 +199,10 @@ func TestResolveCwdWorkspaceID_WalksThroughAFolderAncestor(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	folders.Saved = []dtree.Folder{{ID: "folder", Name: "notes"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "folder", Kind: dtree.KindFolder, ParentID: "root", Order: 0},
 	}
 
 	got, ok, err := tree.ResolveCwdWorkspaceID(context.Background(), chats, folders, nodes, nil, "self")
@@ -246,10 +220,10 @@ func TestCwdWorkspaceIDs_WalksThroughAFolderAncestor(t *testing.T) {
 		{ID: "self", Type: domain.ChatTypeChat, ParentID: "folder"},
 	}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	folders.Saved = []dtree.Folder{{ID: "folder", Name: "notes"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "folder", Kind: dtree.KindFolder, ParentID: "root", Order: 0},
 	}
 
 	got := tree.CwdWorkspaceIDs(context.Background(), folders, nodes, nil, rows)
@@ -277,38 +251,23 @@ func TestResolveForkParent_NilFoldersAndNodesDegradesGracefully(t *testing.T) {
 	}
 }
 
-func TestChatLineage_StopsAtNonChatRow(t *testing.T) {
-	chats := map[string]domain.Chat{
-		"folder": {ID: "folder", Type: domain.ChatTypeFolder},
-		"parent": {ID: "parent", Type: domain.ChatTypeChat, ParentID: "folder"},
-		"child":  {ID: "child", Type: domain.ChatTypeChat, ParentID: "parent"},
-	}
-	tr := treeFrom(chats)
-
-	got := tree.ChatLineage(tr, chats, "child")
-
-	if len(got) != 1 || got[0] != "parent" {
-		t.Fatalf("lineage must only include Type==chat ancestors, got %v", got)
-	}
-}
-
 // countingNodes counts how the walk reads the Node table.
 type countingNodes struct {
 	*mocks.NodePlacements
 	byParent, gets, all int
 }
 
-func (c *countingNodes) ListByParent(ctx context.Context, id string) ([]domain.Node, error) {
+func (c *countingNodes) ListByParent(ctx context.Context, id string) ([]dtree.Node, error) {
 	c.byParent++
 	return c.NodePlacements.ListByParent(ctx, id)
 }
 
-func (c *countingNodes) GetNode(ctx context.Context, id string) (domain.Node, error) {
+func (c *countingNodes) GetNode(ctx context.Context, id string) (dtree.Node, error) {
 	c.gets++
 	return c.NodePlacements.GetNode(ctx, id)
 }
 
-func (c *countingNodes) ListAll(ctx context.Context) ([]domain.Node, error) {
+func (c *countingNodes) ListAll(ctx context.Context) ([]dtree.Node, error) {
 	c.all++
 	return c.NodePlacements.ListAll(ctx)
 }
@@ -317,14 +276,14 @@ func (c *countingNodes) ListAll(ctx context.Context) ([]domain.Node, error) {
 // workspace anchors it crosses: each read of it decodes every row.
 func TestCwdWorkspaceIDs_ReadsTheNodeTableOnce(t *testing.T) {
 	inner := mocks.NewNodePlacements()
-	inner.Rows = []domain.Node{
-		{ID: "folder-a", Kind: domain.NodeKindFolder, ParentID: "ws-anchor"},
-		{ID: "folder-b", Kind: domain.NodeKindFolder, ParentID: "folder-a"},
-		{ID: "ws-anchor", Kind: domain.NodeKindWorkspace, ParentID: ""},
+	inner.Rows = []dtree.Node{
+		{ID: "folder-a", Kind: dtree.KindFolder, ParentID: "ws-anchor"},
+		{ID: "folder-b", Kind: dtree.KindFolder, ParentID: "folder-a"},
+		{ID: "ws-anchor", Kind: dtree.KindWorkspace, ParentID: ""},
 	}
 	nodes := &countingNodes{NodePlacements: inner}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder-a", Name: "a"}, {ID: "folder-b", Name: "b"}}
+	folders.Saved = []dtree.Folder{{ID: "folder-a", Name: "a"}, {ID: "folder-b", Name: "b"}}
 	rows := []domain.Chat{
 		{ID: "c1", WorkspaceID: "w1", ParentID: "folder-b"},
 		{ID: "c2", WorkspaceID: "w1", ParentID: "c1"},

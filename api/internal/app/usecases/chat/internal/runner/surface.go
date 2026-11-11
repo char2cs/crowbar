@@ -1,53 +1,18 @@
-// Package runner (file surface.go) decides which VIEW a spawn lands on, and
-// what that costs the process it is about to fork.
-//
-// A surface is WHERE the user is looking — Crowbar's own chat, or the
-// provider's own CLI (design spec 2.5). The descriptor declares, per surface,
-// which delivery CHANNEL carries that surface's facts, and that one
-// declaration is the whole of what this file reads: no provider is named
-// here, and none may be.
+// Package runner (file surface.go) decides which VIEW (Crowbar's chat or the
+// provider's CLI) a spawn lands on. It reads only the descriptor's per-surface
+// channel declaration; no provider is named here, and none may be.
 package runner
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// storedSurface is the chat's own durable landing VIEW (domain.Chat.Surface).
-//
-// A create has no chat row to read yet and answers "" — the provider's
-// default. That is not a gap: the placed create path (tree.CreateChat) mints
-// the chat WITH its surface and then reaches spawnRunner with create=false,
-// which is the only way a non-default surface is ever established. Reading it
-// here rather than at the create means every later spawn — a restart_tui
-// prompt, a model change, a provider switch, a resume after the daemon
-// restarted — rebuilds the process on the surface the chat actually lives on.
-func (rs *Runners) storedSurface(
-	ctx context.Context,
-	chatID string,
-	create bool,
-) (string, error) {
-	if create {
-		return "", nil
-	}
-	chat, err := rs.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: spawn runner: chat surface: %w", err)
-	}
-	return chat.Surface, nil
-}
-
-// surfaceForSpawn is the surface this spawn actually lands on: the chat's own
-// stored choice when the descriptor declares it launchable, otherwise the
-// provider's default ("").
-//
-// The stored value outlives a provider switch, so this DEGRADES rather than
-// refuses: a chat born on one provider's terminal and switched to a provider
-// that declares no such landing surface must still come up, on that
-// provider's default face, instead of being stuck unspawnable.
+// surfaceForSpawn is the stored surface when the descriptor can launch it, else the
+// default (""). It DEGRADES rather than refuses: the stored value outlives a switch to
+// a provider without that surface.
 func surfaceForSpawn(descriptor engineagents.Agent, stored string) string {
 	if stored == "" || !descriptor.SurfaceStartHere(stored) {
 		return ""
@@ -55,15 +20,9 @@ func surfaceForSpawn(descriptor engineagents.Agent, stored string) string {
 	return stored
 }
 
-// apiTransportDrivesSurface reports whether a chat living on `surface` needs
-// this descriptor's api connection opened at all.
-//
-// One fed by hooks is fed by the CLI's own PTY: an api connection beside it
-// would be a second process on the session (one channel per runner).
-//
-// Absence is not a decision: "" (the provider's default landing) and a
-// descriptor with no surfaces: block at all both answer true, so every spawn
-// that predates this keeps the connection it always had.
+// apiTransportDrivesSurface reports whether a chat on `surface` needs the api
+// connection; a hooks-fed surface is fed by the PTY (one channel per runner). "" or
+// no surfaces: block answers true.
 func apiTransportDrivesSurface(descriptor engineagents.Agent, surface string) bool {
 	if surface == "" {
 		return true
@@ -81,26 +40,16 @@ func (rs *Runners) apiTransportForSurface(
 	tctx engineagents.TemplateCtx,
 	resumeContext string,
 	storedSurface string,
-) []string {
+) ([]string, error) {
 	if !apiTransportDrivesSurface(descriptor, surfaceForSpawn(descriptor, storedSurface)) {
-		return nil
+		return nil, nil
 	}
 	return rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, resumeContext)
 }
 
-// surfaceRegistry is the in-process mirror of domain.Chat.Surface, keyed by
-// RUNNER — the CURRENT surface, which is what everything downstream of a
-// spawn actually asks about.
-//
-// The durable field is the truth and this is a copy of it, written in the
-// same breath by every path that writes it: seeded at spawn from the chat's
-// own stored surface, and moved by SwitchToTerminal/SwitchToNative.
-//
-// It exists because the read is PER EVENT: surfaceGated (turn/ingest.go) asks
-// it for every streamed delta codex declares surfaces: on, and the read-model
-// hit that would otherwise cost is the same one the descriptor cache exists
-// to avoid — measured at over a millisecond a call, enough to make live
-// streaming visibly stall.
+// surfaceRegistry mirrors domain.Chat.Surface per runner, written with it at
+// spawn and on a switch: surfaceGated reads it on every streamed delta, where
+// the read model's millisecond a call would stall live streaming.
 type surfaceRegistry struct {
 	mu    sync.Mutex
 	byRun map[string]string
@@ -121,11 +70,8 @@ func (r *surfaceRegistry) set(runnerID, surface string) {
 	r.byRun[runnerID] = surface
 }
 
-// get is runnerID's current surface, and answers SurfaceChat for a runner it
-// has never been told about. That default is load-bearing: every spawn that
-// predates surfaces lands on the provider's own face, which IS Crowbar's
-// chat, and reading those as the terminal would gate every chat-only event
-// off for all of them.
+// get is runnerID's current surface, SurfaceChat for an unknown runner: the default
+// landing is Crowbar's chat, and reading it as terminal would gate off chat-only events.
 func (r *surfaceRegistry) get(runnerID string) string {
 	if r == nil {
 		return engineagents.SurfaceChat

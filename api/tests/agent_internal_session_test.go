@@ -3,13 +3,12 @@
 package tests
 
 import (
-	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // memStubProviderDescriptorYAML is livestub plus the one line this file exists to
@@ -20,9 +19,6 @@ import (
 // which is also the fixture that proves this guard is opt-in and cannot have
 // changed claude.
 const memStubProviderDescriptorYAML = `id: memstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -46,43 +42,17 @@ runtime:
 
 func writeMemStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "memstub.yaml"), []byte(stubDescriptor(memStubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "memstub", memStubProviderDescriptorYAML)
 }
 
 // createMemStubChat is createLiveStubChat against the memstub provider.
 func createMemStubChat(t *testing.T, h *harness, imported importedRepo) (chatID, runnerID string) {
 	t.Helper()
-	var created struct {
-		ID string `json:"id"`
-	}
-	h.post(repoBase(imported)+"/chats",
-		map[string]string{"provider": "memstub", "workspaceId": imported.workspaceID},
-		http.StatusCreated, &created)
-	require.NotEmpty(t, created.ID)
-	h.Quiesce()
-
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
-	return created.ID, detail.LiveRunnerID
-}
-
-// postMemStubHook fires one in-PTY hook callback for the memstub provider.
-func postMemStubHook(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-	runnerID, event, payload string,
-) {
-	t.Helper()
-	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
-		"segment_id": runnerID, "provider": "memstub", "event": event, "payload_raw": payload,
-	}, http.StatusAccepted).Body.Close()
+	return createStubChat(t, h, imported, "memstub")
 }
 
 // The payloads below are VERBATIM captures from codex 0.146.0 with
-// `[features] memories = true`, recorded by standing in for `crowbar hook` on the
+// `[features] memories = true`, recorded by standing in for the hook relay on the
 // real `-c hooks.*` commands the codex descriptor injects. Only the paths are
 // shortened. All five came out of ONE codex process, six seconds apart.
 const (
@@ -127,8 +97,8 @@ const (
 // rather than against the drop itself — so a regression that finds a NEW way to let
 // an internal session through fails here too.
 //
-// NO TIMING. POST /chats/hooks runs IngestHook synchronously, so a dropped hook has
-// finished being dropped by the time its 202 returns; h.Quiesce is the
+// NO TIMING. The hook route places the hook synchronously, so a dropped hook has
+// finished being dropped by the time its 200 returns; h.Quiesce is the
 // read-your-writes barrier (asynx WaitPublish) before the plain REST reads. The
 // negative assertions are then made STRICT by a real signal: a genuine turn is
 // taken afterwards and its turn_started frame awaited, and WS frames are ordered,
@@ -140,15 +110,15 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	ws := importWritableWorkspace(t, h)
 	base := repoBase(ws)
 
-	frames := recordAgentWS(t, h, base+"/chats/ws")
+	frames := recordSidebar(t, h)
 
 	chat, runner := createMemStubChat(t, h, ws)
 
 	// The user's own conversation announces itself and takes a turn.
-	postMemStubHook(t, h, ws, runner, "session_start", realStart)
-	frames.awaitRunner(runner, "session_bound")
-	postMemStubHook(t, h, ws, runner, "user_prompt", realPrompt)
-	frames.awaitChat(chat, "turn_started")
+	postHook(t, h, repoBase(ws), "memstub", runner, "session_start", realStart)
+	frames.awaitConversation(chat, realSessionID)
+	postHook(t, h, repoBase(ws), "memstub", runner, "user_prompt", realPrompt)
+	frames.awaitTurnStart(chat)
 	h.Quiesce()
 
 	require.Equal(t, runner, getAgentChat(t, h, base, chat).LiveRunnerID,
@@ -157,9 +127,9 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 		"precondition: the chat hosts the user's conversation and only that")
 
 	// --- the bug: the provider's INTERNAL session runs the full lifecycle at us ---
-	postMemStubHook(t, h, ws, runner, "session_start", memoryStart)
-	postMemStubHook(t, h, ws, runner, "user_prompt", memoryPrompt)
-	postMemStubHook(t, h, ws, runner, "turn_stop", memoryStop)
+	postHook(t, h, repoBase(ws), "memstub", runner, "session_start", memoryStart)
+	postHook(t, h, repoBase(ws), "memstub", runner, "user_prompt", memoryPrompt)
+	postHook(t, h, repoBase(ws), "memstub", runner, "turn_stop", memoryStop)
 	h.Quiesce()
 
 	// (1) No phantom chat was minted.
@@ -196,31 +166,19 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	// (4) And the conversation on screen still works: the next real turn lands here,
 	// in this chat, on this runner. This is the ordered signal that makes every
 	// negative above strict rather than merely un-awaited.
-	postMemStubHook(t, h, ws, runner, "turn_stop",
+	postHook(t, h, repoBase(ws), "memstub", runner, "turn_stop",
 		`{"session_id":"`+realSessionID+`","transcript_path":"/h/rollout-019fafae.jsonl","last_assistant_message":"THE-USERS-OWN-ANSWER"}`)
-	frames.awaitChat(chat, "turn_stopped")
+	frames.awaitTurnEnd(chat)
 	h.Quiesce()
 	assert.Contains(t, chatHandoff(t, h, base, chat), "THE-USERS-OWN-ANSWER",
 		"the user's conversation must carry on in the chat it was always in")
 
-	// No CHAT-LIFECYCLE frame for any chat other than the user's was EVER emitted —
-	// the live-signal counterpart of the chat-list assertion, over the whole
-	// recorded stream rather than a point read.
-	//
-	// worktree_state frames are excluded, and the exclusion is the point rather
-	// than a loophole: that kind is not about a conversation at all. It is the
-	// git state of a WORKSPACE, fanned out under whichever chat happens to own
-	// that worktree (v0.Container.pushChatWorktree), so the fixture's own
-	// feature/write row broadcasts one whenever its diff counts or working flag
-	// move. Counting those as "another chat appeared" would fail this test for
-	// the workspace it runs on, not for anything an internal session did.
-	for _, frame := range frames.snapshot() {
-		if frame["kind"] == "worktree_state" {
-			continue
-		}
-		if id, ok := frame["chatId"].(string); ok && id != "" {
-			assert.Equal(t, chat, id,
-				"no chat other than the user's may appear on the wire at all; frame: %v", frame)
+	// No live chat row other than the user's was EVER published — the
+	// live-signal counterpart of the chat-list assertion, over the whole recorded
+	// stream rather than a point read.
+	for _, row := range frames.liveRows() {
+		if row.Kind == string(stream.KindChatEntity) {
+			assert.Equal(t, chat, row.ID, "no chat other than the user's may appear on the wire at all; row: %v", row)
 		}
 	}
 }
@@ -232,7 +190,8 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 // The hook command runs INSIDE the CLI's own process tree, on its turn. A non-2xx
 // (or a hang, or a stderr splat) is something the CLI has to deal with mid-turn, and
 // a listener that breaks the thing it is listening to is worse than no listener —
-// which is why every drop in IngestHook returns nil rather than an error (spec §4.7).
+// which is why the ingress acknowledges another conversation's hook and keeps it as
+// a dead letter, rather than refusing it (spec §4.7).
 func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 	h := newHarness(t)
 	writeMemStubProviderDescriptor(t, h)
@@ -245,12 +204,8 @@ func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 		{"user_prompt", memoryPrompt},
 		{"turn_stop", memoryStop},
 	} {
-		resp := h.raw(http.MethodPost, repoBase(ws)+"/chats/hooks", map[string]string{
-			"segment_id": runner, "provider": "memstub", "event": ev.event, "payload_raw": ev.payload,
-		}, http.StatusAccepted)
-		_ = resp.Body.Close()
-		require.Equal(t, http.StatusAccepted, resp.StatusCode,
-			"a dropped %s must be answered 202: the hook runs inside the vendor CLI's turn and an "+
-				"error there is the listener breaking the thing it listens to", ev.event)
+		// postHook requires a 200: the hook runs inside the vendor CLI's turn, and an
+		// error there is the listener breaking the thing it listens to.
+		postHook(t, h, repoBase(ws), "memstub", runner, ev.event, ev.payload)
 	}
 }

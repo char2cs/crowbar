@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // Deleting the owning chat of a worktree other chats still work in (the
@@ -35,10 +37,10 @@ func TestRegression_DeleteSharedWorktreeOwnerRemintsAnOwner(t *testing.T) {
 	require.NotEmpty(t, ownerID)
 	require.NotEqual(t, threadID, ownerID)
 
-	frames := dialAgentWS(t, h, base+"/chats/ws")
-	resp := h.raw(http.MethodDelete, base+"/chats/"+ownerID, nil, http.StatusAccepted)
+	feed := recordSidebar(t, h)
+	resp := h.raw(http.MethodDelete, base+"/chats/"+ownerID, nil, http.StatusOK)
 	_ = resp.Body.Close()
-	waitForChatFrame(t, frames, ownerID, "deleted")
+	feed.awaitGone(stream.KindChatEntity, ownerID)
 	h.Quiesce()
 
 	row := workspaceRow(t, h, imported, defaultWS)

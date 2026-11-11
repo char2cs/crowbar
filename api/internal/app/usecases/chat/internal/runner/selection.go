@@ -1,25 +1,15 @@
 package runner
 
-import engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+import (
+	"context"
+	"fmt"
 
-// resolveSelectionForSpawn clamps a chat's stored model/effort to what THIS
-// provider actually declares — the same reasoning as resolvePermissionLevel
-// (permission.go), and for the same reason ChatSelection never validates
-// them itself: its own doc comment says minting reads Model/Effort as "the
-// provider's own default", but a provider SWITCH is not a mint — it reads
-// the chat's raw stored fields, which still carry the OUTGOING provider's
-// choice. Left unclamped, that model string reaches this provider's spawn
-// argv verbatim: confirmed live, switching a chat from codex (model
-// gpt-5.4-mini) to claude spawned claude with --model gpt-5.4-mini, which
-// claude rejects outright as model_not_found — while the switch's OWN
-// divider claims the new selection is the target provider's default,
-// because that marker is recorded from a separate, later call that never
-// reaches the CLI already spawned (and already dead) by then.
-//
-// Clearing to "" reads as "this provider's own default", exactly like a
-// fresh mint — and, like PermissionLevel, is never written back: the
-// chat's own stored intent is untouched, so switching providers again
-// resolves fresh each time.
+	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+)
+
+// resolveSelectionForSpawn clears a stored model/effort THIS provider does not declare
+// to "" (its default): a discovered catalogue can drop a model the chat still holds.
 func resolveSelectionForSpawn(
 	descriptor engineagents.Agent,
 	sel engineagents.Selection,
@@ -33,4 +23,20 @@ func resolveSelectionForSpawn(
 		sel.Effort = ""
 	}
 	return sel
+}
+
+// movedPick is an unstaged launch's pick: one moving the chat onto another provider
+// takes what it last ran as here, else its default, never the outgoing one's model.
+func (rs *Runners) movedPick(
+	ctx context.Context, chat domain.Chat, providerID string, staged *domain.ChatSelection,
+) (*domain.ChatSelection, error) {
+	if staged != nil || chat.ProviderID == "" || chat.ProviderID == providerID {
+		return staged, nil
+	}
+	st, err := rs.ledger.State(ctx, chat.ID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: spawn runner: last launch: %w", err)
+	}
+	last := st.LastLaunch(providerID)
+	return &domain.ChatSelection{Model: last.LaunchModel, Effort: last.LaunchEffort}, nil
 }

@@ -6,29 +6,22 @@ import {
   onGitRefreshRequested,
   onGitStatusChanged,
 } from '@/features/git/stores/git-refresh'
-import { useHostResolved } from '@/lib/host-resolve'
-import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
-import { subscribeGuarded } from '@/lib/ws/subscribe-guarded'
+import { holdScope, onSignal } from '@/core/stream/stream'
+import { report } from '@/lib/errors/report'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { useWorkspaceStore } from '../workspace-context'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
 
-// The push stream repeats identical git/status frames far faster than the
-// reload debounce, so only a frame that actually differs from the previous
-// one should retrigger a reload. `prev` is `null` before the first frame of
-// a session arrives — null must never compare equal to an incoming frame, or
-// that first frame would silently fail to trigger a reload.
+// The stream repeats identical git_status frames faster than the debounce, so only a changed
+// frame reloads. `prev` is null before a session's first frame and never equal, so that one does.
 function framesEqual(prev: unknown, next: unknown): boolean {
   return prev !== null && deepEqual(prev, next)
 }
 
-/**
- * Keeps `wsId`'s own git slice loaded and live. Loaded the first time the
- * workspace is shown, then kept current by the git/status stream while the
- * workspace is retained — so a switch never reloads it. Not for the home
- * workspace (no git surface). `owningChatId` is null until the sidebar records
- * it; the git routes are chat-scoped and throw without one, or without a known host.
- */
+/** Keeps `wsId`'s git slice live: loaded when first shown, then kept current by its git: scope
+ *  while retained. Not for home. Git routes are chat-scoped, so it waits on `owningChatId` (null
+ *  until the sidebar records it) and a known host. */
 export function useWorkspaceGit(
   wsId: string,
   active: boolean,
@@ -37,8 +30,8 @@ export function useWorkspaceGit(
 ) {
   const store = useWorkspaceStore()
   const loaded = useStore(store, (s) => s.gitLoad === 'ready')
-  const hostResolved = useHostResolved({ wsId })
-  const canAddress = !homeWorkspace && owningChatId !== null && hostResolved
+  const hostId = useResolvedHost({ wsId })
+  const canAddress = !homeWorkspace && owningChatId !== null && hostId !== null
 
   useEffect(() => {
     if (!active || !canAddress) return
@@ -46,7 +39,7 @@ export function useWorkspaceGit(
   }, [store, active, canAddress])
 
   useEffect(() => {
-    if (!canAddress || !loaded) return
+    if (!canAddress || !hostId || !loaded) return
 
     // Coalescing (non-resetting) timer. The backend can stream git frames more
     // often than the debounce window; a resetting debounce would starve forever
@@ -66,20 +59,24 @@ export function useWorkspaceGit(
           .then(() => {
             if (!cancelled) markGitStatusChanged(wsId)
           })
-          .catch(() => {})
+          .catch((err: unknown) => report(err, { action: 'Refresh git status' }))
       }, GIT_REFRESH_DEBOUNCE_MS)
     }
     // The first push repeats the status the load returned; seeding from it
     // keeps that frame (and any identical repeat) from reloading.
     let lastFrame: unknown = store.getState().gitStatus
-    const unsubscribe = subscribeGuarded(
-      () => `${gitBaseForWorkspace(wsId)}/status`,
-      (frame) => {
-        if (framesEqual(lastFrame, frame)) return
-        lastFrame = frame
-        scheduleStatusReload()
-      },
-    )
+    const scope = `git:${wsId}`
+    const stopSignals = onSignal(hostId, scope, 'git_status', (frame) => {
+      if (framesEqual(lastFrame, frame)) return
+      lastFrame = frame
+      scheduleStatusReload()
+    })
+    const release = holdScope(hostId, scope)
+    // The daemon re-sends a status only when it differs, so an edit to a file already modified
+    // sends none: the worktree's file change (gitignored paths never arrive) is what says so.
+    const files = `files:${wsId}`
+    const stopFileChanges = onSignal(hostId, files, 'file_change', scheduleStatusReload)
+    const releaseFiles = holdScope(hostId, files)
     // Local actions that know THIS workspace's status is stale (an editor save,
     // push/pull) request a refresh without waiting for the backend watcher.
     const stopRefreshRequests = onGitRefreshRequested(wsId, scheduleStatusReload)
@@ -94,7 +91,10 @@ export function useWorkspaceGit(
       if (timer) clearTimeout(timer)
       stopRefreshRequests()
       stopChanged()
-      unsubscribe()
+      releaseFiles()
+      stopFileChanges()
+      release()
+      stopSignals()
     }
-  }, [store, wsId, canAddress, loaded])
+  }, [store, wsId, canAddress, hostId, loaded])
 }

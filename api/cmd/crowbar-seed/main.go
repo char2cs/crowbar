@@ -1,26 +1,18 @@
-// Command crowbar-seed fills a running Crowbar DEV daemon with usable state:
-// a generated throwaway git repo, a project and repo importing it, a feature
-// workspace with a real diff on it, and two review threads on that diff. It
-// exists so starting work on a new workspace does not begin with ten minutes of
-// clicking through import dialogs.
-//
-// It is deliberately its own binary and not a `crowbar` subcommand: this is dev
-// tooling and must not ship. Run it through `make seed`, which exports the same
-// CROWBAR_HOME the dev targets use.
-//
-// Everything it does is idempotent. A second run reuses the project, repo,
-// workspace, commit and threads the first one created, and says so.
+// Command crowbar-seed fills a running DEV daemon with a throwaway git repo, a project, a feature
+// workspace with a real diff and two review threads on it. It is its own binary so dev tooling
+// never ships; run it via `make seed` (dev CROWBAR_HOME). Every step is idempotent.
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 func main() {
@@ -120,25 +112,20 @@ func finish(
 	return rep.write()
 }
 
-// seedRoot puts the throwaway repo under the crowbar home CROWBAR_HOME names.
-// It is disposable state that already lives outside the source tree, and
-// under a dev CROWBAR_HOME it is thrown away with the rest of the dev
-// instance.
-//
-// CROWBAR_HOME is REQUIRED, not defaulted: this is dev/test tooling that
-// mints throwaway projects and repos, and a silent fallback to the user's
-// real ~/.crowbar (formerly via os.UserHomeDir()) is exactly how a stray
-// "Crowbar Seed" project ends up seeded into production the one time someone
-// runs this binary directly instead of through `make seed`, which is the
-// only thing that reliably exports CROWBAR_HOME (Makefile:11).
+// seedRoot puts the throwaway repo under CROWBAR_HOME. A dev home is required,
+// not defaulted: falling back to the user's real home would seed production when
+// the binary runs outside `make seed`.
 func seedRoot() (string, error) {
-	home := os.Getenv(metadata.HomeEnvVar)
-	if home == "" {
-		return "", fmt.Errorf(
-			"seed: CROWBAR_HOME is not set — run this through `make seed` " +
+	h, err := home.Resolve()
+	if err != nil {
+		return "", fmt.Errorf("seed: resolve home: %w", err)
+	}
+	if h.IsDefault() {
+		return "", errors.New(
+			"seed: CROWBAR_HOME does not name a dev home — run this through `make seed` " +
 				"(or export CROWBAR_HOME yourself); crowbar-seed refuses to guess " +
-				"and never writes to a real ~/.crowbar",
+				"and never writes to the user's own Crowbar home",
 		)
 	}
-	return filepath.Join(home, "seed"), nil
+	return filepath.Join(h.Root(), "seed"), nil
 }

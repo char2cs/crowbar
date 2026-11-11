@@ -41,11 +41,8 @@ func Create(
 	switchTo bool,
 ) error {
 	if switchTo {
-		// `git checkout -b` does not accept a `--` end-of-options separator
-		// before the new branch name (it reinterprets the operand as a commit:
-		// "a branch '--' cannot be created from it"), so the leading-dash
-		// operand rejection at the usecase boundary (git_write.go) is the guard
-		// for name/source here.
+		// `git checkout -b` takes no `--` before the new branch name, so the usecase boundary's
+		// leading-dash rejection is the guard for name and source.
 		args := []string{"checkout", "-b", name}
 		if source != "" {
 			args = append(args, source)
@@ -95,12 +92,8 @@ func ForceDelete(
 	return exec.RequireSuccess("branches: force-delete", r)
 }
 
-// Switch checks out an existing branch by name.
-//
-// `git checkout` does not accept a `--` end-of-options separator before a
-// branch name (it reinterprets the operand as a pathspec), so the leading-dash
-// operand rejection at the usecase boundary (git_write.go) is the guard for the
-// name here.
+// Switch checks out an existing branch by name. `git checkout` takes no `--` before a
+// branch, so the usecase boundary's leading-dash rejection guards name.
 func Switch(
 	ctx context.Context,
 	repoPath string,

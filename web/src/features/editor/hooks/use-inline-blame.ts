@@ -1,15 +1,13 @@
-/**
- * Current-line blame: after the cursor's line, a muted "author, when · summary"
- * from the daemon's /blame. Loaded once per file (cached in the blame store,
- * invalidated on save); hidden while the buffer has unsaved edits, since
- * blame's line numbers describe the file on disk.
- */
+// Current-line blame from the daemon's /blame, loaded once per file (cached, invalidated on save).
+// Hidden while the buffer is dirty, since blame's line numbers describe the file on disk; host
+// documents (no repository) and untitled buffers (no file) have none.
 import { useEffect } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { blameKey, loadBlame, useGitBlameStore } from '@/features/git/stores/git-blame-store'
 import type { BlameEntry } from '@/features/git/api/git-blame-api'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { isEditorContent } from '@/features/panes/types/pane-content'
+import { workspaceRef } from '@/lib/api/documents'
+import { findDocumentBuffer } from '../documents/open-document'
+import { isUntitledRef } from '../documents/document-ref'
 import { useSettingsStore } from '@/features/settings/store'
 import { useHostResolved } from '@/lib/host-resolve'
 import { dataOf } from '@/lib/loadable'
@@ -24,33 +22,32 @@ function blameLabel(entry: BlameEntry): string {
 }
 
 function isDirty(workspaceId: string, path: string): boolean {
-  const buffer = windowPaneStore
-    .getState()
-    .buffers.find((b) => isEditorContent(b) && b.path === path && b.workspaceId === workspaceId)
-  return !!buffer && isEditorContent(buffer) && buffer.isDirty
+  const buffer = findDocumentBuffer(workspaceRef(workspaceId, path))
+  return !!buffer?.isDirty
 }
 
 export function useInlineBlame(
   editor: Monaco.editor.IStandaloneCodeEditor | null,
   model: Monaco.editor.ITextModel | null,
-  workspaceId: string,
+  workspaceId: string | null,
   filePath: string,
 ): void {
-  const enabled = useSettingsStore((s) => s.settings.inlineBlame)
-  const key = blameKey(workspaceId, filePath)
+  const enabled =
+    useSettingsStore((s) => s.settings.inlineBlame) && !isUntitledRef({ path: filePath })
+  const key = workspaceId === null ? '' : blameKey(workspaceId, filePath)
   const blame = useGitBlameStore((s) => s.blame[key])
   // A load before the workspace's host is known is recorded as a failure and not retried.
-  const hostResolved = useHostResolved({ wsId: workspaceId })
+  const hostResolved = useHostResolved({ wsId: workspaceId ?? '' })
 
   useEffect(() => {
-    if (enabled && editor && model && filePath && !blame && hostResolved) {
-      void loadBlame(workspaceId, filePath)
-    }
+    if (!enabled || workspaceId === null || !hostResolved) return
+    if (!editor || !model || !filePath || blame) return
+    void loadBlame(workspaceId, filePath)
   }, [enabled, editor, model, filePath, workspaceId, blame, hostResolved])
 
   useEffect(() => {
     const entries = dataOf(blame)
-    if (!enabled || !editor || !model || !entries || entries.length === 0) return
+    if (!enabled || workspaceId === null || !editor || !model || !entries?.length) return
     const byLine = new Map(entries.map((e) => [e.lineNumber, e]))
     const decorations = editor.createDecorationsCollection()
     const render = () => {

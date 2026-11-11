@@ -2,16 +2,11 @@
 
 import * as React from 'react'
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react'
-import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Sheet, SheetDescription, SheetHeader, SheetPopup, SheetTitle } from '@/components/ui/sheet'
 
-const SIDEBAR_COOKIE_NAME: string = 'sidebar_state'
-const SIDEBAR_COOKIE_MAX_AGE: number = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH: string = '16rem'
-const SIDEBAR_WIDTH_MOBILE: string = '18rem'
 const SIDEBAR_WIDTH_ICON: string = '3rem'
 const SIDEBAR_KEYBOARD_SHORTCUT: string = 'b'
 
@@ -19,9 +14,6 @@ export type SidebarContextProps = {
   state: 'expanded' | 'collapsed'
   open: boolean
   setOpen: (open: boolean) => void
-  openMobile: boolean
-  setOpenMobile: (open: boolean) => void
-  isMobile: boolean
   toggleSidebar: () => void
 }
 
@@ -37,13 +29,8 @@ export function useSidebar(): SidebarContextProps {
   return context
 }
 
-/**
- * The sidebar context, or null outside a provider.
- *
- * For consumers that merely ADJUST themselves to the sidebar rather than drive
- * it — a pane squaring off the window edge the sidebar stopped covering, say —
- * and so must stay renderable on their own.
- */
+/** The sidebar context, or null outside a provider: for consumers that only ADJUST to the
+ *  sidebar and must render on their own. */
 export function useSidebarOptional(): SidebarContextProps | null {
   return React.useContext(SidebarContext)
 }
@@ -61,37 +48,24 @@ export function SidebarProvider({
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }): React.ReactElement {
-  const isMobile = useMediaQuery('max-md')
-  const [openMobile, setOpenMobile] = React.useState(false)
-
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen)
   const open = openProp ?? _open
   const setOpen = React.useCallback(
-    async (value: boolean | ((value: boolean) => boolean)) => {
+    (value: boolean | ((value: boolean) => boolean)) => {
       const openState = typeof value === 'function' ? value(open) : value
       if (setOpenProp) {
         setOpenProp(openState)
       } else {
         _setOpen(openState)
       }
-
-      // This sets the cookie to keep the sidebar state.
-      await cookieStore.set({
-        expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
-        name: SIDEBAR_COOKIE_NAME,
-        path: '/',
-        value: String(openState),
-      })
     },
     [setOpenProp, open],
   )
 
-  // Helper to toggle the sidebar.
-  const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
-  }, [isMobile, setOpen])
+  // One state at every width: the shell lays a narrow window's sidebar over the content itself.
+  const toggleSidebar = React.useCallback(() => setOpen((open) => !open), [setOpen])
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
@@ -112,15 +86,12 @@ export function SidebarProvider({
 
   const contextValue = React.useMemo<SidebarContextProps>(
     () => ({
-      isMobile,
       open,
-      openMobile,
       setOpen,
-      setOpenMobile,
       state,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar],
+    [state, open, setOpen, toggleSidebar],
   )
 
   return (
@@ -158,7 +129,7 @@ export function Sidebar({
   variant?: 'sidebar' | 'floating' | 'inset'
   collapsible?: 'offcanvas' | 'icon' | 'none'
 }): React.ReactElement {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { state } = useSidebar()
 
   if (collapsible === 'none') {
     return (
@@ -172,31 +143,6 @@ export function Sidebar({
       >
         {children}
       </div>
-    )
-  }
-
-  if (isMobile) {
-    return (
-      <Sheet onOpenChange={setOpenMobile} open={openMobile} {...props}>
-        <SheetPopup
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
-          data-mobile="true"
-          data-sidebar="sidebar"
-          data-slot="sidebar"
-          side={side}
-          style={
-            {
-              '--sidebar-width': SIDEBAR_WIDTH_MOBILE,
-            } as React.CSSProperties
-          }
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
-          </SheetHeader>
-          <div className="flex h-full w-full flex-col">{children}</div>
-        </SheetPopup>
-      </Sheet>
     )
   }
 
@@ -253,12 +199,8 @@ export function SidebarHeader({
 }: React.ComponentProps<'div'>): React.ReactElement {
   return (
     <div
-      // No vertical padding — this header sits flush against its neighbours,
-      // same as any other row. `pl-3 pr-3` (12px each) matches a depth-0 tree
-      // row's own total inset: the container's own `px-1.5` (6px, the
-      // sidebar row's `mx-1.5` gutter) plus the row's own `px-1.5`/
-      // FILE_TREE_BASE_INDENT (6px, the sidebar row's own `px-1.5` content
-      // padding) — file-explorer-tree.tsx and file-explorer-tree-item.tsx.
+      // Flush, no vertical padding. `pl-3 pr-3` matches a depth-0 tree row's inset: the container's
+      // `px-1.5` plus the row's own `px-1.5` (FILE_TREE_BASE_INDENT).
       className={cn('flex flex-col gap-2 pl-3 pr-3 backdrop-blur-sm', className)}
       data-sidebar="header"
       data-slot="sidebar-header"

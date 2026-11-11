@@ -14,14 +14,12 @@ import (
 // next person adds a broadcast back into a projection and nothing complains.
 //
 // Scope is deliberately repositories/chat (which now contains activity too). The
-// runner aggregate moved into engine/agents/runner and is covered by the engine's own
-// guards; the workspace aggregate still broadcasts from this layer
+// workspace aggregate still broadcasts from this layer
 // (container.go:177, :504), and widening this test would fail on day one for a reason
 // that has nothing to do with chats.
 func TestChatRepository_DoesNotReachTheFrontend(t *testing.T) {
 	forbidden := []string{
-		"github.com/char2cs/crowbar/api/internal/app/hub",
-		"github.com/char2cs/crowbar/api/internal/app/realtime",
+		"github.com/char2cs/crowbar/api/internal/app/stream",
 		"github.com/char2cs/crowbar/api/internal/api",
 	}
 

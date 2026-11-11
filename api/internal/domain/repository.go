@@ -1,26 +1,15 @@
 package domain
 
-// Repository carries a repo's own identity and its git-adjacent facts. Its
-// SIDEBAR POSITION (what used to be Order/FolderID here, the interim Phase-A
-// fields) now lives on its own Node{Kind: NodeKindRepo, ID: repo.ID} row
-// (api/internal/app/repositories/node) — the ONE aggregate that owns every
-// sidebar row's position at every tree level, replacing this struct's own copy.
+// Repository carries a repo's own identity and its git-adjacent facts. Its sidebar
+// position is not here: it lives in the project's tree.Tree.
 type Repository struct {
 	ID        string `gorm:"primaryKey" json:"id"`
 	ProjectID string `json:"projectId"`
 	Name      string `json:"name"`
 	Path      string `json:"path"`
-	// PathSlug is the repository's IMMUTABLE on-disk identity, seeded once at
-	// import from the repo's PATH (or its remote) and never from the display
-	// Name. Every managed worktree is derived under
-	// <home>/projects/<project>/<slug>/<branch>, so a slug that tracked the
-	// renameable Name would fork the repo's tree in two the moment a user
-	// renamed it: new workspaces would land under the new slug while the
-	// existing ones stayed under the old, and the sibling scan that rejects a
-	// case-only path clash would read an empty directory and pass every time.
-	//
-	// Rows written before this field existed carry "", which the slug chain
-	// (remote → PathSlug → Name) degrades to the previous name-based behaviour.
+	// PathSlug is the repository's immutable on-disk identity, seeded at import from its
+	// path or remote, never the renameable Name, so renaming cannot split its worktree tree.
+	// Older rows carry "", and the slug chain (remote, PathSlug, Name) falls back to Name.
 	PathSlug      string `json:"pathSlug,omitempty"`
 	DefaultBranch string `json:"defaultBranch"`
 	AvatarLabel   string `json:"avatarLabel"`
@@ -35,8 +24,6 @@ type Repository struct {
 	// Deleting is the durable intent of a delete, written before any of the
 	// teardown runs; it is one-way, and boot re-drives every row carrying it.
 	Deleting bool `json:"deleting,omitempty"`
-	// LastError is why the last delete attempt stopped; cleared on a re-drive.
-	LastError string `json:"lastError,omitempty"`
 }
 
 func (Repository) TableName() string {

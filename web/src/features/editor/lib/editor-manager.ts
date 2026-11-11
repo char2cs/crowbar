@@ -1,4 +1,4 @@
-import type { IModelLike, ModelRegistry } from '@/features/editor/lib/model-registry'
+import type { DocumentRegistry, IModelLike } from '@/features/editor/documents/document-registry'
 
 export interface IEditorLike {
   setModel(model: IModelLike | null): void
@@ -7,35 +7,27 @@ export interface IEditorLike {
   restoreViewState(state: unknown): void
   layout(): void
   dispose(): void
-  /** The underlying standalone editor (monaco `IStandaloneCodeEditor`), exposed
-   *  as `unknown` so this module stays monaco-free. The React controller casts it
-   *  to wire `updateOptions`/listeners. `null` when no raw editor backs the adapter
-   *  (e.g. test fakes that don't model one). */
+  /** The Monaco standalone editor as `unknown`, keeping this module Monaco-free; the React
+   *  controller casts it. `null` when no raw editor backs the adapter (some test fakes). */
   raw(): unknown
 }
 export interface MonacoEditorApi {
   create(container: HTMLElement): IEditorLike
 }
-export interface BufferMeta {
-  lang(uri: string): string
-  text(uri: string): string
-}
 
 interface PaneState {
   editor: IEditorLike
   currentUri: string | null
-  held: Set<string>
 }
 
 /** Owns one retained Monaco widget per pane. Tab switch = model swap (not remount);
- *  a model stays alive while its file is OPEN in the pane (held), not just visible. */
+ *  the models belong to the open documents, never to a pane. */
 export class EditorManager {
   private panes = new Map<string, PaneState>()
   private viewState = new Map<string, unknown>() // key: `${paneId} ${uri}`
   constructor(
     private editorApi: MonacoEditorApi,
-    private registry: ModelRegistry,
-    private meta: BufferMeta,
+    private documents: Pick<DocumentRegistry, 'get'>,
   ) {}
 
   private vsKey(paneId: string, uri: string) {
@@ -44,83 +36,47 @@ export class EditorManager {
 
   mountPane(paneId: string, container: HTMLElement): void {
     if (this.panes.has(paneId)) return
-    this.panes.set(paneId, {
-      editor: this.editorApi.create(container),
-      currentUri: null,
-      held: new Set(),
-    })
+    this.panes.set(paneId, { editor: this.editorApi.create(container), currentUri: null })
   }
 
-  showBuffer(paneId: string, uri: string): void {
+  /** Shows `uri`'s model in the pane; false, and an empty editor, while it is not open. */
+  showBuffer(paneId: string, uri: string): boolean {
     const pane = this.panes.get(paneId)
-    if (!pane) return
-    if (pane.currentUri === uri) return
-    if (pane.currentUri) {
+    if (!pane) return false
+    // A disposed model leaves the editor empty, so a reopened document is shown afresh.
+    if (pane.currentUri === uri && pane.editor.getModel()) return true
+    if (pane.currentUri && pane.editor.getModel()) {
       this.viewState.set(this.vsKey(paneId, pane.currentUri), pane.editor.saveViewState())
     }
-    let model: IModelLike
-    if (pane.held.has(uri)) {
-      model =
-        this.registry.get(uri) ??
-        this.registry.acquire(uri, this.meta.lang(uri), this.meta.text(uri))
-    } else {
-      model = this.registry.acquire(uri, this.meta.lang(uri), this.meta.text(uri))
-      pane.held.add(uri)
-    }
+    const model: IModelLike | null = this.documents.get(uri)
     pane.editor.setModel(model)
+    pane.currentUri = model ? uri : null
+    if (!model) return false
     const saved = this.viewState.get(this.vsKey(paneId, uri))
     if (saved) pane.editor.restoreViewState(saved)
-    pane.currentUri = uri
+    return true
   }
 
+  /** The pane closed its tab on `uri`: forget where it was scrolled to. */
   closeBuffer(paneId: string, uri: string): void {
-    const pane = this.panes.get(paneId)
-    if (!pane || !pane.held.has(uri)) return
-    this.registry.release(uri)
-    pane.held.delete(uri)
     this.viewState.delete(this.vsKey(paneId, uri))
-    if (pane.currentUri === uri) pane.currentUri = null
+    const pane = this.panes.get(paneId)
+    if (pane?.currentUri === uri) pane.currentUri = null
   }
 
   unmountPane(paneId: string): void {
     const pane = this.panes.get(paneId)
     if (!pane) return
-    for (const uri of pane.held) this.registry.release(uri)
-    pane.held.clear()
+    // A remounted widget (same pane) picks up where this one was, cursor included.
+    if (pane.currentUri && pane.editor.getModel()) {
+      this.viewState.set(this.vsKey(paneId, pane.currentUri), pane.editor.saveViewState())
+    }
     pane.editor.dispose()
     this.panes.delete(paneId)
   }
 
-  /** Apply a genuine EXTERNAL full-text replacement (disk reload, format-on-save)
-   *  to the model for `uri`, preserving undo history far better than recreating
-   *  the model. Targets the live model shown by the pane when it is displaying
-   *  `uri`; otherwise edits the held registry model directly. No-op when the text
-   *  is unchanged or the model is not held/known. */
-  applyExternalEdit(paneId: string, uri: string, text: string): void {
-    const pane = this.panes.get(paneId)
-    if (pane && pane.currentUri === uri) {
-      const model = pane.editor.getModel()
-      if (model) {
-        model.setValueIfChanged(text)
-        return
-      }
-    }
-    const model = this.registry.get(uri)
-    model?.setValueIfChanged(text)
-  }
-
   getEditor(paneId: string): IEditorLike | undefined {
     return this.panes.get(paneId)?.editor
-  }
-  /**
-   * Does ANY pane currently have a retained widget mounted onto this
-   * workspace's manager? Used by `destroyWorkspaceStore` to veto evicting
-   * this workspace's store while that's true — see its own doc for the
-   * blank-editor bug this guards against (the store going unreachable via
-   * `getWorkspaceStore` out from under a still-mounted widget).
-   */
-  hasMountedPanes(): boolean {
-    return this.panes.size > 0
   }
   /** The underlying monaco standalone editor for a pane, for the React controller
    *  to apply `updateOptions` and attach listeners. Cast at the call site. */
@@ -129,18 +85,5 @@ export class EditorManager {
   }
   layoutPane(paneId: string): void {
     this.panes.get(paneId)?.editor.layout()
-  }
-  /**
-   * Lay out every mounted pane's editor. Used by staged reactivation (Task 39):
-   * on a compositor-preserved reveal the ResizeObserver may not fire (the DOM
-   * stayed laid out while hidden), so the host runs one deferred, post-first-frame
-   * layout to correct any drift accrued while off-screen.
-   */
-  layoutAll(): void {
-    for (const id of this.panes.keys()) this.layoutPane(id)
-  }
-  disposeAll(): void {
-    for (const id of [...this.panes.keys()]) this.unmountPane(id)
-    this.registry.disposeAll()
   }
 }

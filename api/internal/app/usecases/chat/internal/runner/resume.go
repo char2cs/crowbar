@@ -2,12 +2,10 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
-
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // ResumeChat revives a dormant chat's last provider. Split out of lifecycle.go
@@ -16,33 +14,47 @@ func (rs *Runners) ResumeChat(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
-	park, release, err := rs.spawns.Acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("agent: resume chat: %w", err)
 	}
-	defer release()
+	defer h.release()
 
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if err == nil {
-		return live.ID, nil
+	live, ok, err := rs.settledRunner(h)
+	if err != nil {
+		return "", fmt.Errorf("agent: resume chat: %w", err)
 	}
-	if !errors.Is(err, agentrunner.ErrNotFound) {
-		return "", fmt.Errorf("agent: resume chat: live runner: %w", err)
+	if ok {
+		return live.ID, nil
 	}
 	providerID, err := rs.lastActiveProviderID(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: resume chat: %w", err)
 	}
-	// The gate is already held: call the inner body, never SwitchProvider itself.
+	// The chat is already held: call the inner body, never SwitchProvider itself.
 	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
-	return rs.switchProviderLocked(ctx, park, chatID, providerID)
+	return rs.switchProviderLocked(ctx, h, chatID, providerID)
 }
 
-// lastActiveProviderID answers "who comes back" for a dormant chat: the chat's
-// own durable vendor (domain.Chat.ProviderID), restated on every placement and
-// backfilled at boot for rows that predate it. A chat with none has genuinely
-// never had a CLI placed on it, reported as ErrChatProviderUnknown — never as a
-// missing RUNNER, which is both expected here and not what failed.
+// settledRunner is the runner on h's chat once any end under way has finished,
+// waited out with the chat's lock released.
+func (rs *Runners) settledRunner(h *hold) (engineagents.Runner, bool, error) {
+	for {
+		v, ok := rs.live.view(h.chatID)
+		if !ok || !v.exiting {
+			return v.runner, ok, nil
+		}
+		if err := h.outside(func(park context.Context) error {
+			_, _, err := rs.awaitDormant(park, h.chatID)
+			return err
+		}); err != nil {
+			return engineagents.Runner{}, false, err
+		}
+	}
+}
+
+// lastActiveProviderID answers "who comes back" for a dormant chat: its durable
+// domain.Chat.ProviderID. None is ErrChatProviderUnknown, never a missing RUNNER.
 func (rs *Runners) lastActiveProviderID(ctx context.Context, chatID string) (string, error) {
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {

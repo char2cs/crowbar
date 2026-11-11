@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/answer"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -22,7 +23,7 @@ func answering() *spec.Descriptor {
 				Ask:            spec.WireRef{"PermissionRequest"},
 				TimeoutSeconds: 270,
 				AnswersInto:    "answers",
-				Map:            spec.FieldMap{"tool_name": {"tool_name"}, "tool_input": {"tool_input"}},
+				Map:            spec.FieldMap{"tool_name": mapping.Paths("tool_name"), "tool_input": mapping.Paths("tool_input")},
 				Reply: map[string]string{
 					"allow": `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
 						`"decision":{"behavior":"allow"}}}`,
@@ -243,7 +244,7 @@ func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 
 func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.T) {
 	d := answering()
-	setEventMap(d, "permission", spec.FieldMap{"tool_name": {"tool_name"}})
+	setEventMap(d, "permission", spec.FieldMap{"tool_name": mapping.Paths("tool_name")})
 	out, err := answer.Render(d, "permission", askUserQuestionPayload(),
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
 	require.NoError(t, err)
@@ -258,4 +259,25 @@ func TestRender_AnUnencodableAnswerFallsBackToAnEmptyObject(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"picks":{},"input":{}}`, string(out))
+}
+
+// Picking a suggestion grants it: the reply hands the provider back exactly the
+// grants picked, as it offered them.
+func TestRender_ASuggestionHandsBackTheGrantsPicked(t *testing.T) {
+	d := answering()
+	e := d.Events["permission"]
+	e.Map["suggestions"] = mapping.Paths("permission_suggestions")
+	e.Reply["suggestion"] = `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
+		`"decision":{"behavior":"allow","updatedPermissions":{suggestions_json}}}}`
+	d.Events["permission"] = e
+	raw := []byte(`{"tool_name":"Write","permission_suggestions":[
+	  {"type":"addDirectories","directories":["/p"],"destination":"session"},
+	  {"type":"setMode","mode":"acceptEdits","destination":"session"}]}`)
+
+	out, err := answer.Render(d, "permission", raw,
+		models.AnswerDecision{Key: "suggestion", Picked: []string{models.SuggestionOptionID(1)}})
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow",`+
+		`"updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, string(out))
 }

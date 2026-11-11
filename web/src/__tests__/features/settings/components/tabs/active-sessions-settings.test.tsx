@@ -6,19 +6,17 @@ vi.mock('@/features/agent/lib/kill-agent', () => ({ confirmAndKillAgent: vi.fn()
 
 import { ActiveSessionsSettings } from '@/features/settings/components/tabs/active-sessions-settings'
 import { confirmAndKillAgent } from '@/features/agent/lib/kill-agent'
-import { useActiveSessionsStore } from '@/lib/store/active-sessions'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-
-const running = (id: string, title: string) => ({
-  chatId: id,
-  kind: 'started',
-  chat: { id, workspaceId: 'ws-1', title, liveRunnerId: 'run' },
-})
+import { runChat } from '@/__tests__/__fixtures__/running-chats'
+import {
+  projectDTO,
+  resetEntities,
+  seedProjects,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useActiveSessionsStore.setState({ sessions: {}, attached: {} })
-  useSidebarStore.setState({ repos: [] })
+  resetEntities()
 })
 
 describe('ActiveSessionsSettings', () => {
@@ -29,10 +27,8 @@ describe('ActiveSessionsSettings', () => {
   })
 
   it('lists each running agent with its viewers, and flags an orphan', () => {
-    const { applyFrame } = useActiveSessionsStore.getState()
-    applyFrame('repo:r1', running('c1', 'Fix login'))
-    applyFrame('repo:r1', running('c2', 'Write docs'))
-    applyFrame('repo:r1', { chatId: 'c1', kind: 'attached', attached: 2 })
+    runChat('c1', { title: 'Fix login', viewers: 2 })
+    runChat('c2', { title: 'Write docs' })
 
     render(<ActiveSessionsSettings />)
 
@@ -44,29 +40,36 @@ describe('ActiveSessionsSettings', () => {
   })
 
   it('kills the agent of the row whose Kill was pressed', async () => {
-    useActiveSessionsStore.getState().applyFrame('repo:r1', running('c1', 'Fix login'))
+    runChat('c1', { title: 'Fix login' })
     render(<ActiveSessionsSettings />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Kill the agent on Fix login' }))
 
     expect(confirmAndKillAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ chatId: 'c1', workspaceId: 'ws-1', attached: 0 }),
+      expect.objectContaining({ hostId: 'local', chatId: 'c1', workspaceId: 'ws-1', viewers: 0 }),
     )
   })
 
   it('names where each agent runs, as the chat header does', () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'repo-1',
-          name: 'crowbar',
-          workspaces: [
-            { id: 'ws-1', branch: 'enhancement/new-additions', parentBranch: 'feature/mobile-app' },
-          ],
-        } as Repo,
-      ],
-    })
-    useActiveSessionsStore.getState().applyFrame('repo:r1', running('c1', 'Fix login'))
+    seedProjects([projectDTO({ id: 'p1' })])
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'p1',
+        name: 'crowbar',
+        avatarLabel: 'C',
+        avatarColor: '',
+        workspaces: [
+          {
+            id: 'ws-1',
+            branch: 'enhancement/new-additions',
+            parentBranch: 'feature/mobile-app',
+            age: '',
+          },
+        ],
+      },
+    ])
+    runChat('c1', { title: 'Fix login' })
 
     render(<ActiveSessionsSettings />)
 
@@ -78,7 +81,7 @@ describe('ActiveSessionsSettings', () => {
   })
 
   it('shows an untitled chat as untitled, never as an empty row', () => {
-    useActiveSessionsStore.getState().applyFrame('repo:r1', running('c1', ''))
+    runChat('c1', { title: '' })
 
     render(<ActiveSessionsSettings />)
 
@@ -86,7 +89,7 @@ describe('ActiveSessionsSettings', () => {
   })
 
   it('falls back to a short id when the chat is in no visible project', () => {
-    useActiveSessionsStore.getState().applyFrame('repo:r1', running('abcdef123456', 'Fix login'))
+    runChat('abcdef123456', { title: 'Fix login' })
 
     render(<ActiveSessionsSettings />)
 

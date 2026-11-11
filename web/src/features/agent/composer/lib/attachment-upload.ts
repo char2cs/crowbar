@@ -9,18 +9,8 @@ import {
   rowsToMarkdownTable,
 } from '@/features/agent/composer/plate/attachments/resolve-csv'
 
-/**
- * One upload+markdown resolution, shared by every entry point that hands in
- * a `{file}` or a Tauri `{path}` — drop, browse, the Attach File modal, and
- * the paste plugin's oversized-text-to-file fallback.
- *
- * CSV gets first refusal: a small, cleanly-shaped `.csv`/`text/csv` FILE
- * never touches the network at all — `resolveCsv` reads its bytes directly
- * and this returns a markdown table. Everything else — an oversized or
- * malformed CSV, any other kind, or a host PATH (there are no client-side
- * bytes to inspect before the daemon reads a path itself) — uploads, and
- * becomes an image or file link chosen by the response's own `contentType`.
- */
+/** A small, clean CSV file inlines as a table without touching the network.
+ *  Everything else uploads — including a host path, which has no client-side bytes. */
 export async function uploadAttachmentMarkdown(
   wsId: string,
   chatId: string,

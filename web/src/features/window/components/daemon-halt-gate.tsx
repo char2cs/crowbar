@@ -1,0 +1,26 @@
+import type { ReactNode } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
+
+// A halt replaces `children` and is told only here: the toast viewport lives inside the routes it
+// replaces, so a toast would never be seen.
+export function DaemonHaltGate({ children }: { children: ReactNode }) {
+  const message = useDaemonHaltStore((state) => state.message)
+  if (message === null) return <>{children}</>
+  return (
+    <div role="alert" className="relative flex min-h-screen items-center justify-center p-8">
+      <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-20 h-8" />
+      <Card className="w-full max-w-md border-destructive/20 bg-destructive/10">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm text-destructive">Crowbar could not start</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="font-mono text-[11px] wrap-anywhere text-muted-foreground">{message}</p>
+          <p className="text-xs text-muted-foreground">
+            Quit Crowbar, fix the cause above, and open it again.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

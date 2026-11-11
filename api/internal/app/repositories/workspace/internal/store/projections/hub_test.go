@@ -31,7 +31,7 @@ type stubFrame struct {
 
 // TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast asserts the two
 // triggers that must emit an identical WS frame — the event-driven hub
-// projection and the request-bracketed BeginWork/EndWork rebroadcast — converge
+// projection and the agent-turn rebroadcast — converge
 // on the SAME enrich+broadcast, so the FE spinner and merge badges are
 // consistent regardless of which path fired (spec §3.5 hub-frame enrichment).
 func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
@@ -44,7 +44,7 @@ func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
 	)
 	// enrich attaches the derived overlays (Working, CanMergeLocally) that are NOT
 	// part of evt.Aggregate — the same callback both the hub projection and the
-	// BeginWork/EndWork rebroadcast share in production.
+	// agent-turn rebroadcast share in production.
 	enrich := func(_ context.Context, ws domain.Workspace) stubFrame {
 		mu.Lock()
 		lastAgg = ws
@@ -92,8 +92,8 @@ func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
 	assert.True(t, projFrame.Working, "enrich must attach the Working overlay")
 	assert.True(t, projFrame.CanMergeLocally, "enrich must attach the merge-eligibility overlay")
 
-	// The BeginWork-style rebroadcast runs the SAME enrich+broadcast directly on
-	// the SAME aggregate (it fires on the 202 ack, not on an event). The emitted
+	// The agent-turn rebroadcast runs the SAME enrich+broadcast directly on the
+	// SAME aggregate (it fires on a turn flip, not on an event). The emitted
 	// frame must be byte-identical to the hub projection's.
 	broadcast(enrich(ctx, agg))
 	mu.Lock()
@@ -106,7 +106,7 @@ func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
 	require.NoError(t, err)
 	dj, err := json.Marshal(directFrame)
 	require.NoError(t, err)
-	assert.Equal(t, string(pj), string(dj), "hub-projection frame and BeginWork rebroadcast frame must be byte-identical")
+	assert.Equal(t, string(pj), string(dj), "hub-projection frame and direct rebroadcast frame must be byte-identical")
 }
 
 // A frame is only ever sent for state the read model already holds: a client

@@ -62,8 +62,11 @@ describe('AddHostDialog', () => {
   it('stops the name at 64 characters instead of letting a longer one fail at the host', async () => {
     const user = userEvent.setup()
     render(<AddHostDialog open onOpenChange={() => {}} />)
+    // Filled to the cap first: each keystroke re-renders the dialog, so 70 typed would
+    // cost seconds of CPU under load, and only the ones past 64 test the cap.
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'n'.repeat(64) } })
 
-    await user.type(screen.getByLabelText(/name/i), 'n'.repeat(70))
+    await user.type(screen.getByLabelText(/name/i), 'n'.repeat(6))
 
     expect(screen.getByLabelText(/name/i)).toHaveValue('n'.repeat(64))
   })
@@ -112,11 +115,9 @@ describe('AddHostDialog', () => {
     )
   })
 
-  // The TOFU gate this task exists to enforce: an "innocent" refactor that pipes
-  // the probe result straight into pairing (skipping the human confirm click)
-  // is the single most plausible regression here. Retrying after a rejected code
-  // must reuse the SAME confirmed fingerprint rather than re-probing — proving
-  // pairRemoteHost/redeemPairingCode can never fire on a value the user never saw.
+  // The TOFU gate: pairing must never take the probe result without the user's confirm. Retrying
+  // after a rejected code reuses the same confirmed fingerprint rather than re-probing, so
+  // pairRemoteHost/redeemPairingCode never fire on a value the user never saw.
   it('retrying a rejected code reuses the confirmed fingerprint without re-probing', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     vi.mocked(redeemPairingCode)
@@ -257,6 +258,16 @@ describe('AddHostDialog', () => {
       'Enter a host name or IP address, optionally with a port, like homelab.example.com:3737.',
     )
     expect(probeRemoteFingerprint).not.toHaveBeenCalled()
+  })
+
+  it('drops an address error once the address is corrected', async () => {
+    render(<AddHostDialog open onOpenChange={() => {}} />)
+    fillAddressStage('me@homelab.example.com/v0')
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/address/i), { target: { value: 'homelab:3737' } })
+
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   // Two rows for one daemon would make every one of its projects ambiguous.

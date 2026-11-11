@@ -1,11 +1,9 @@
 import { IS_MAC } from '@/utils/platform'
 import { nanoid } from 'nanoid'
+import { readLocal, removeLocal, writeLocal } from '@/lib/local-storage'
 
-/**
- * Durable, client-owned prompt stashes. The payload is the composer's own
- * markdown serialization, so rich document structure and settled attachment
- * references follow the same round trip as an ordinary send.
- */
+/** A durable, client-owned prompt stash. Its payload is the composer's own markdown, so structure
+ *  and settled attachments round-trip exactly as a send would. */
 export interface PromptStash {
   id: string
   markdown: string
@@ -60,28 +58,33 @@ function isValidCollection(items: PromptStash[]): boolean {
 }
 
 function fitsStorageBudget(key: string, value: string): boolean {
-  if (storageBytes(key) + storageBytes(value) > MAX_PROMPT_STASH_VALUE_BYTES) return false
   let total = storageBytes(key) + storageBytes(value)
-  for (let index = 0; index < localStorage.length; index++) {
-    const storedKey = localStorage.key(index)
-    if (!storedKey?.startsWith(KEY_PREFIX) || storedKey === key) continue
-    const storedValue = localStorage.getItem(storedKey)
-    if (storedValue === null) continue
+  if (total > MAX_PROMPT_STASH_VALUE_BYTES) return false
+  for (const [storedKey, storedValue] of otherStashes(key)) {
     total += storageBytes(storedKey) + storageBytes(storedValue)
     if (total > MAX_PROMPT_STASHES_TOTAL_BYTES) return false
   }
-  return total <= MAX_PROMPT_STASHES_TOTAL_BYTES
+  return true
 }
 
-/**
- * A local blob URL is only an optimistic upload preview. It cannot survive a
- * reload and must never be made to look like a completed chat attachment.
- * Preserve its place in the document as an explicit note instead.
- *
- * Likewise, an attachment-looking `chats/...` reference that does not match
- * Crowbar's durable reference grammar is retained as an explicit invalid
- * reference, not upgraded into a working attachment.
- */
+/** Every other chat's stash; none when storage is unavailable. */
+function otherStashes(key: string): [string, string][] {
+  const found: [string, string][] = []
+  try {
+    for (let index = 0; index < localStorage.length; index++) {
+      const stored = localStorage.key(index)
+      if (!stored?.startsWith(KEY_PREFIX) || stored === key) continue
+      const stash = localStorage.getItem(stored)
+      if (stash !== null) found.push([stored, stash])
+    }
+  } catch {
+    return []
+  }
+  return found
+}
+
+// A blob URL is an upload preview that cannot survive a reload, and a `chats/...` ref outside the
+// durable grammar is not a real attachment: both are kept as explicit notes, never working links.
 function makePromptStashMarkdown(markdown: string): string {
   return markdown.replace(
     /(!?)\[([^\]]*)\]\(([^)]+)\)/g,
@@ -127,45 +130,63 @@ export function addPromptStash(items: PromptStash[], item: PromptStash): PromptS
 
 export function loadPromptStashes(wsId: string, chatId: string): PromptStash[] {
   const key = promptStashStorageKey(wsId, chatId)
+  const raw = readLocal(key)
+  if (!raw) return []
+  const items =
+    storageBytes(key) + storageBytes(raw) > MAX_PROMPT_STASH_VALUE_BYTES ? null : parsedItems(raw)
+  if (items) return items
+  removeLocal(key)
+  return []
+}
+
+function parsedItems(raw: string): PromptStash[] | null {
   try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return []
-    if (storageBytes(key) + storageBytes(raw) > MAX_PROMPT_STASH_VALUE_BYTES) {
-      localStorage.removeItem(key)
-      return []
-    }
     const parsed = JSON.parse(raw) as Partial<StoredPromptStashesV1>
-    if (parsed.version !== 1 || !Array.isArray(parsed.items) || !isValidCollection(parsed.items)) {
-      localStorage.removeItem(key)
-      return []
-    }
-    return parsed.items
+    if (parsed.version !== 1 || !Array.isArray(parsed.items)) return null
+    return isValidCollection(parsed.items) ? parsed.items : null
   } catch {
-    try {
-      localStorage.removeItem(key)
-    } catch {
-      // Storage itself is unavailable.
-    }
-    return []
+    return null
   }
+}
+
+// Storage is the one owner; an open composer renders it through these, never a copy of its own.
+const listeners = new Set<() => void>()
+const snapshots = new Map<string, { raw: string | null; items: PromptStash[] }>()
+
+export function subscribePromptStashes(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+/** The stored list, the same array until it is written again (a render's snapshot). */
+export function promptStashesSnapshot(wsId: string, chatId: string): PromptStash[] {
+  const key = promptStashStorageKey(wsId, chatId)
+  const raw = readLocal(key)
+  const cached = snapshots.get(key)
+  if (cached?.raw === raw) return cached.items
+  const items = loadPromptStashes(wsId, chatId)
+  snapshots.set(key, { raw, items })
+  return items
 }
 
 /** False means the caller must keep the current draft untouched. */
 export function savePromptStashes(wsId: string, chatId: string, items: PromptStash[]): boolean {
   if (!isValidCollection(items)) return false
   const key = promptStashStorageKey(wsId, chatId)
-  try {
-    if (items.length === 0) {
-      localStorage.removeItem(key)
-      return true
-    }
+  if (items.length === 0) removeLocal(key)
+  else {
     const value = serialized(items)
-    if (!fitsStorageBudget(key, value)) return false
-    localStorage.setItem(key, value)
-    return true
-  } catch {
-    return false
+    if (!fitsStorageBudget(key, value) || !writeLocal(key, value)) return false
   }
+  for (const listener of listeners) listener()
+  return true
+}
+
+/** Keeps text whose composer is gone as the chat's newest stash; false when it cannot. */
+export function stashPrompt(wsId: string, chatId: string, markdown: string): boolean {
+  const item = createPromptStash(markdown)
+  if (!item) return false
+  return savePromptStashes(wsId, chatId, addPromptStash(loadPromptStashes(wsId, chatId), item))
 }
 
 interface StashShortcutEvent {

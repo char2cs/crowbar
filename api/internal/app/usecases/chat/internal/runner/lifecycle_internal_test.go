@@ -2,114 +2,162 @@ package runner
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// stubRunnerStoreWithSuccessor answers LiveRunnerForChat with a DIFFERENT,
-// already-live runner — simulating a successor (a provider switch, a retry)
-// having already taken the chat by the time an outgoing runner's belated
-// exit is reconciled. The embedded nil interface panics on anything else.
-type stubRunnerStoreWithSuccessor struct {
-	agentrunner.EventStore
-	successor agents.Runner
-}
-
-func (s stubRunnerStoreWithSuccessor) LiveRunnerForChat(
-	context.Context, string,
-) (agents.Runner, error) {
-	return s.successor, nil
-}
-
-// spyAbandonMessageForRunner records every call, so a test can assert the
-// salvage ran (or didn't) without caring what the turn package does with it
-// — that behaviour has its own tests one package over (turn/message_internal_test.go).
-type spyAbandonMessageForRunner struct {
+// spyExitTurns streams text for every runner whose end it is asked about, and
+// notes each runner retired.
+type spyExitTurns struct {
 	noopTurns
-	calls []abandonCall
+	asked, retired []string
 }
 
-type abandonCall struct {
-	chatID string
-	runner agents.Runner
+func (s *spyExitTurns) ExitRows(_ ledger.State, chatID, runnerID string) ([]ledger.Row, error) {
+	s.asked = append(s.asked, chatID+"/"+runnerID)
+	row, err := ledger.NewRow(ledger.KindAssistantText, "T-"+chatID, "", ledger.AssistantText{
+		MessageID: "m-" + runnerID, Index: ledger.IndexComplete, Text: "streamed by " + runnerID,
+	})
+	return []ledger.Row{row}, err
 }
 
-func (s *spyAbandonMessageForRunner) AbandonMessageForRunner(
-	_ context.Context, chatID string, runner agents.Runner,
-) (bool, error) {
-	s.calls = append(s.calls, abandonCall{chatID, runner})
-	return true, nil
+func (s *spyExitTurns) Retire(chatID, runnerID string) {
+	s.retired = append(s.retired, chatID+"/"+runnerID)
 }
 
-// TestRegression_CloseAbandonedTurn_SalvagesEvenWhenASuccessorAlreadyOwnsTheChat
-// pins the exact gap live-reproduced 2026-08-31: an outgoing runner's own
-// already-streamed text must be salvaged into the ledger EVEN when a
-// successor has already taken the chat by the time this runner's belated
-// exit is reconciled (SIGTERM is not synchronous — see closeAbandonedTurn's
-// own doc comment). `rs.activity` and `rs.chats` are left nil on purpose: the
-// "someone else owns this chat" guard must still stop THOSE — a panic on
-// either proves this fix did not also un-gate the turn-state abandon it must
-// not touch once a successor is live.
-func TestRegression_CloseAbandonedTurn_SalvagesEvenWhenASuccessorAlreadyOwnsTheChat(t *testing.T) {
-	successor := agents.Runner{ID: "runner-new"}
-	outgoing := agents.Runner{ID: "runner-old"}
-	spy := &spyAbandonMessageForRunner{}
-
+// A dead runner's own streamed text commits with its exit, never another
+// runner's, and its buffer is dropped once that commit holds it.
+func TestReconcileRunnerExit_RecordsWhatTheRunnerStreamedWithItsExit(t *testing.T) {
+	spy := &spyExitTurns{}
 	rs := &Runners{
-		runnerStore: stubRunnerStoreWithSuccessor{successor: successor},
-		turns:       spy,
+		live:   liveWith(t, agents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
+		ledger: newTestLedger(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
+		turns: spy, agents: stubAgentsForInterrupt{}, surfaces: newSurfaceRegistry(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
 	}
+	appendStarted(t, rs.ledger, "chat-1", "runner-1")
+	appendTurn(t, rs.ledger, "chat-1", "runner-1")
 
-	rs.closeAbandonedTurn(context.Background(), "chat-1", outgoing)
+	rs.reconcileRunnerExit(t.Context(), "runner-1")
 
-	require.Len(t, spy.calls, 1, "the outgoing runner's own stream must still be salvaged")
-	assert.Equal(t, "chat-1", spy.calls[0].chatID)
-	assert.Equal(t, outgoing, spy.calls[0].runner,
-		"salvage must be scoped to the OUTGOING runner, never the successor")
+	assert.Equal(t, []string{"chat-1/runner-1"}, spy.asked, "only the dead runner's own stream is salvaged")
+	assert.Equal(t, []string{"chat-1/runner-1"}, spy.retired)
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	kinds := make([]ledger.Kind, 0, len(rows))
+	for _, r := range rows {
+		kinds = append(kinds, r.Kind)
+	}
+	salvaged := slices.Index(kinds, ledger.KindAssistantText)
+	require.GreaterOrEqual(t, salvaged, 0, "the streamed text is a row")
+	assert.Less(t, salvaged, slices.Index(kinds, ledger.KindRunnerExited), "it is recorded before the exit that ends it")
+	assert.Equal(t, 2, salvaged, "it opens the exit's commit, after the runner and its turn")
+	body, err := ledger.DecodeBody[ledger.AssistantText](rows[salvaged])
+	require.NoError(t, err)
+	assert.Equal(t, "streamed by runner-1", body.Text)
 }
 
-// TestCloseAbandonedTurn_EmptyChatID_SalvagesNothing pins the existing no-op
-// guard this fix left untouched: a runner that was never on a chat at all
-// (vacated == "") has nothing to salvage.
-func TestCloseAbandonedTurn_EmptyChatID_SalvagesNothing(t *testing.T) {
-	spy := &spyAbandonMessageForRunner{}
-	rs := &Runners{turns: spy}
-
-	rs.closeAbandonedTurn(context.Background(), "", agents.Runner{ID: "runner-old"})
-
-	assert.Empty(t, spy.calls, "an empty chatID names nothing to salvage")
+// askedLock is the ingress's chat locks, telling asked of every chat an exit
+// asks it for.
+type askedLock struct {
+	*ingress.Locks
+	asked chan<- string
 }
 
-// TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY
-// guards the bug reported live 2026-09-08 ("chats losing its provider when
-// closing"): SwitchToTerminal forks a NEW native-view PTY for the session the
-// user actually looks at, tracked only in rs.attached — it never touches
-// runner.TerminalSession, which still names the ORIGINAL companion PTY every
-// api-transport spawn forks alongside its connection. retire() used to
-// terminate only that stale field, leaving the real, visible attached process
-// running forever with rs.attached still answering AttachedTerminalSession
-// for a runner id nothing will ever revisit.
+func (l askedLock) Lock(ctx context.Context, chatID string) (func(), error) {
+	l.asked <- chatID
+	return l.Locks.Lock(ctx, chatID)
+}
+
+// A runner's exit never cuts into a hook recording on its chat: the exit's
+// commit waits for the chat's lock, so it lands after what the hook records.
+func TestRunnerExit_RecordsAfterTheHookHoldingItsChat(t *testing.T) {
+	for name, exit := range map[string]func(t *testing.T, rs *Runners){
+		"its PTY exits": func(t *testing.T, rs *Runners) {
+			t.Helper()
+			home := t.TempDir()
+			rs.onRunnerExit(home, "runner-1", filepath.Join(home, "runner-1"), resumeWatch{})(engineterminal.Exit{})
+		},
+		"it is ended with no PTY": func(t *testing.T, rs *Runners) {
+			t.Helper()
+			assert.NoError(t, rs.endMarked(context.Background(), interruptRunner))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			locks, asked := ingress.NewLocks(), make(chan string, 1)
+			rs := retiring(t, &Runners{
+				chatLock: askedLock{Locks: locks, asked: asked},
+				agents:   stubAgentsForInterrupt{}, turns: noopTurns{},
+				apiConns: newAPIConnRegistry(), attached: newAttachRegistry(),
+			})
+			runnerStarted(t, rs, true)
+			unlock, err := locks.Lock(t.Context(), "chat-1")
+			require.NoError(t, err)
+
+			exited := make(chan struct{})
+			go func() {
+				defer close(exited)
+				exit(t, rs)
+			}()
+			// The exit asks for the chat, or, recording without it, has already ended.
+			select {
+			case <-asked:
+			case <-exited:
+			}
+			said, err := ledger.NewRow(ledger.KindAssistantText, "T-1", "", ledger.AssistantText{
+				MessageID: "m-1", Index: ledger.IndexComplete, Text: "said before the exit",
+			})
+			require.NoError(t, err)
+			_, _, err = rs.ledger.Append(t.Context(), "chat-1", said)
+			require.NoError(t, err)
+			unlock()
+			<-exited
+
+			rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+			require.NoError(t, err)
+			kinds := make([]ledger.Kind, 0, len(rows))
+			for _, r := range rows {
+				kinds = append(kinds, r.Kind)
+			}
+			assert.Less(t, slices.Index(kinds, ledger.KindAssistantText), slices.Index(kinds, ledger.KindRunnerExited),
+				"the exit waits for the hook holding the chat: %v", kinds)
+		})
+	}
+}
+
+// TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY:
+// the native view SwitchToTerminal forks is tracked only in rs.attached, so a
+// retire must end it too, or the visible process runs forever.
 func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY(t *testing.T) {
 	term := &fakeTermForAttach{}
-	store := &stopRetireRunnerStore{
-		runner: agents.Runner{ID: "runner-1", TerminalSession: "companion-pty-term"},
-	}
-	rs := &Runners{
-		runnerStore:   store,
-		attached:      newAttachRegistry(),
-		apiConns:      newAPIConnRegistry(),
-		term:          term,
-		inflightTurns: inflight.NewTurns(),
-	}
+	rs := retiring(t, &Runners{
+		attached: newAttachRegistry(),
+		apiConns: newAPIConnRegistry(),
+		term:     term,
+		agents:   stubAgentsForInterrupt{},
+		turns:    noopTurns{},
+	})
+	rs.live.update("runner-1", func(r *agents.Runner) { r.TerminalSession = "companion-pty-term" })
 	rs.attached.set("runner-1", attachedView{termSessID: "native-view-term"})
 
-	rs.retire(context.Background(), store.runner)
+	rs.RetireChatRunners(context.Background(), "chat-1")()
 
 	assert.Contains(t, term.terminated, "companion-pty-term",
 		"the original companion PTY is still a real process and must still be torn down")
@@ -117,4 +165,175 @@ func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanio
 		"the actually-attached native view PTY — the one the user was looking at — must be torn down too")
 	_, stillAttached := rs.attached.get("runner-1")
 	assert.False(t, stillAttached, "the attach registry entry must be forgotten, or it answers for a runner nothing will revisit")
+	assert.Equal(t, domain.AgentExitDisplaced, retiredAs(t, rs))
 }
+
+// An exiting runner can acknowledge nothing more, so what it carried is
+// settled with its exit, and only that.
+func TestReconcileRunnerExit_SettlesOnlyThePromptsTheExitingRunnerCarried(t *testing.T) {
+	rs := retiring(t, &Runners{
+		agents: stubAgentsForInterrupt{},
+		turns:  noopTurns{},
+	})
+	appendPrompt(t, rs.ledger, "req-old", "runner-1")
+	appendPrompt(t, rs.ledger, "req-new", "runner-new")
+
+	rs.reconcileRunnerExit(t.Context(), "runner-1")
+
+	old := promptReceipt(t, rs.ledger, "req-old")
+	assert.Equal(t, ledger.PromptStatusSettled, old.Status)
+	assert.Equal(t, ledger.ReasonRunnerExited, old.Reason)
+	assert.Equal(t, ledger.PromptStatusPending, promptReceipt(t, rs.ledger, "req-new").Status)
+	assert.Equal(t, domain.AgentExitExited, retiredAs(t, rs), "a runner that ends on its own exited")
+	_, live := rs.RunnerByID("runner-1")
+	assert.False(t, live)
+}
+
+// No CLI outlives the daemon that started it: a runner the ledger still holds
+// live at boot is ended as daemon_restart, what it carried is settled, and the
+// directory its spawn made is reaped.
+func TestRegression_BootEndsTheLedgersLiveRunnerAsADaemonRestart(t *testing.T) {
+	home := t.TempDir()
+	chatsDir := filepath.Join(home, "chats")
+	rs := retiring(t, &Runners{
+		ws:    stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: chatsDir},
+		turns: noopTurns{},
+	})
+	rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}
+	runnerDir := worktreepath.RunnerDir(chatsDir, "runner-1", "claude")
+	require.NoError(t, os.MkdirAll(runnerDir, 0o700))
+	started, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "runner-1", Provider: "claude"})
+	require.NoError(t, err)
+	_, _, err = rs.ledger.Append(t.Context(), "chat-1", started)
+	require.NoError(t, err)
+	appendPrompt(t, rs.ledger, "req-1", "runner-1")
+
+	require.NoError(t, rs.ReconcileRunnersOnBoot(t.Context()))
+
+	st := chatState(t, rs.ledger)
+	_, live := st.LiveRunner()
+	assert.False(t, live)
+	assert.Equal(t, domain.AgentExitDaemonRestart, retiredAs(t, rs))
+	assert.Equal(t, ledger.ReasonDaemonRestart, promptReceipt(t, rs.ledger, "req-1").Reason)
+	assert.NoDirExists(t, runnerDir)
+	assert.NoDirExists(t, chatsDir, "the runners and chats directories it emptied go with it")
+	assert.DirExists(t, home)
+
+	require.NoError(t, rs.ReconcileRunnersOnBoot(t.Context()))
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, countKind(rows, ledger.KindRunnerExited), "a second boot finds nothing live to end")
+}
+
+func appendStarted(t *testing.T, l *ledgerstore.Store, chatID, runnerID string) {
+	t.Helper()
+	row, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: runnerID, Provider: "claude"})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), chatID, row)
+	require.NoError(t, err)
+}
+
+// appendTurn starts a turn on runnerID.
+func appendTurn(t *testing.T, l *ledgerstore.Store, chatID, runnerID string) {
+	t.Helper()
+	row, err := ledger.NewRow(ledger.KindTurnStarted, "T-"+chatID, "", ledger.TurnStarted{RunnerID: runnerID})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), chatID, row)
+	require.NoError(t, err)
+}
+
+// The boot pass closes a chat's turn in the commit that ends its runner, and
+// one chat it cannot reconcile stops no other.
+func TestReconcileRunnersOnBoot_OneChatsFailureLeavesTheOthersReconciled(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	l, err := ledgerstore.Open(t.Context(), db, time.Now)
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(`CREATE TRIGGER refuse_exit BEFORE INSERT ON chat_ledger
+		WHEN NEW.kind = 'runner_exited' AND NEW.chat_id = 'chat-a' BEGIN SELECT RAISE(ABORT, 'boom'); END`).Error)
+	home := t.TempDir()
+	rs := &Runners{
+		ledger: l, chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}, turns: noopTurns{},
+		ws: stubWorkspaceForSpawn{home: home, worktree: home, chatsDir: home},
+	}
+	for _, chatID := range []string{"chat-a", "chat-b", "chat-c"} {
+		appendStarted(t, l, chatID, "runner-"+chatID)
+		appendTurn(t, l, chatID, "runner-"+chatID)
+	}
+
+	require.ErrorContains(t, rs.ReconcileRunnersOnBoot(t.Context()), "chat-a")
+
+	for chatID, ended := range map[string]bool{"chat-a": false, "chat-b": true, "chat-c": true} {
+		st, err := l.State(t.Context(), chatID)
+		require.NoError(t, err)
+		_, live := st.LiveRunner()
+		assert.Equal(t, !ended, live, chatID)
+		assert.Equal(t, !ended, st.Busy(), "%s's turn closes with its runner", chatID)
+	}
+}
+
+// purgedChats is a chat store in which gone no longer exists.
+type purgedChats struct {
+	stubChatsForSpawn
+	gone string
+}
+
+func (c purgedChats) GetChat(ctx context.Context, chatID string) (domain.Chat, error) {
+	if chatID == c.gone {
+		return domain.Chat{}, agentchat.ErrNotFound
+	}
+	return c.stubChatsForSpawn.GetChat(ctx, chatID)
+}
+
+// A daemon shutting down ends every runner as daemon_restart: the exit each
+// PTY's death fires records that cause once, closes its turn and frees its chat.
+func TestShutdown_EveryRunnerEndsAsADaemonRestart(t *testing.T) {
+	home := t.TempDir()
+	rs := &Runners{
+		live: liveWith(t, agents.Runner{ID: "runner-a", CurrentChatID: "chat-a"},
+			agents.Runner{ID: "runner-b", CurrentChatID: "chat-b"}),
+		ledger: newTestLedger(t), chats: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}},
+		turns: noopTurns{}, agents: stubAgentsForInterrupt{}, surfaces: newSurfaceRegistry(),
+		answers:  answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
+		apiConns: newAPIConnRegistry(), chatLock: newTestLock(), parks: newParks(), background: newBackgroundWork(),
+	}
+	chatIDs := []string{"chat-a", "chat-b"}
+	for _, chatID := range chatIDs {
+		appendStarted(t, rs.ledger, chatID, "runner-"+chatID[len("chat-"):])
+		appendTurn(t, rs.ledger, chatID, "runner-"+chatID[len("chat-"):])
+	}
+
+	rs.Shutdown()
+	for _, id := range []string{"runner-a", "runner-b"} {
+		rs.onRunnerExit(home, id, filepath.Join(home, id), resumeWatch{})(engineterminal.Exit{Code: 143})
+	}
+
+	all, err := rs.AllLive(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, all)
+	for _, chatID := range chatIDs {
+		rows, err := rs.ledger.Read(t.Context(), chatID, 0, 0)
+		require.NoError(t, err)
+		st := ledger.Fold(chatID, rows)
+		exit, ok := st.LastExit()
+		require.True(t, ok, chatID)
+		assert.Equal(t, domain.AgentExitDaemonRestart, exit.Reason, chatID)
+		assert.Equal(t, 1, countKind(rows, ledger.KindRunnerExited), chatID)
+		assert.False(t, st.Busy(), "%s's turn is closed", chatID)
+	}
+}
+
+func countKind(rows []ledger.Row, kind ledger.Kind) int {
+	n := 0
+	for _, r := range rows {
+		if r.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
+// noLedger takes every outcome the desk writes back and keeps none.
+type noLedger struct{}
+
+func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }

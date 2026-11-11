@@ -24,32 +24,14 @@ pub(crate) mod remote;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-/// Upper bound on one proxied request.
-///
-/// Each request costs this process a unix socket, and a daemon that accepts a
-/// connection but never answers — the wedge the health watchdog exists for — would
-/// otherwise pin that descriptor, and the two tasks driving it, for the life of the
-/// app. Nothing else would ever release them: there is no cap on requests in
-/// flight, and the frontend's `fetch` has no AbortController, so it never gives up
-/// either.
-///
-/// Comfortably above anything the daemon can legitimately take: it bounds its own
-/// slowest work — a network git transfer — at 3 minutes (`netTransferTimeout`), and
-/// it never clones, so no honest request outlives that.
+/// Upper bound on one proxied request: a daemon that accepts but never answers would
+/// otherwise pin a socket and two tasks for the app's life (`fetch` never aborts). Well
+/// above the daemon's own slowest bound, a 3-minute network git transfer.
 const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Connect attempts for an idempotent read that cannot reach the daemon, with
-/// the schedule of `connect_retry_delay` between them (~4.5s in total). This is
-/// the desktop's cold-start analogue of the retry in web/src/lib/api.ts, which only
-/// fires when `fetch` REJECTS: over the vite transport a connect refused does
-/// exactly that, but through this proxy it used to become a real HTTP 502, which
-/// the frontend rightly treats as a terminal daemon answer. The window is real —
-/// `socket_path` is published before the daemon has bound, and a watchdog respawn
-/// leaves it published while nothing listens — so the transport retries here,
-/// where the transport is.
-///
-/// The first second polls every 25ms so a daemon that binds within a few
-/// hundred ms is reached promptly; the exponential tail covers a slow start.
+/// Connect attempts (~4.5s in all) for an idempotent read that cannot reach the daemon:
+/// `socket_path` is published before the daemon binds, and the web only retries rejected
+/// fetches, not a 502. Dense 25ms polls first, then an exponential tail for a slow start.
 #[cfg(desktop)]
 const CONNECT_ATTEMPTS: u32 = CONNECT_FAST_STEPS + 7;
 #[cfg(desktop)]
@@ -150,13 +132,8 @@ fn remote_host_id(uri: &http::Uri) -> Option<&str> {
     uri.host().filter(|host| is_remote_host(host))
 }
 
-/// Async URI-scheme handler for the `crowbar://` scheme. Incoming requests look
-/// like `crowbar://localhost/v0/...`; we forward the method, path+query,
-/// headers and body to the daemon over its unix socket and relay the response.
-/// `crowbar://<hostId>/v0/...` goes to that paired remote host instead.
-///
-/// Registered on the Tauri builder with
-/// `.register_asynchronous_uri_scheme_protocol("crowbar", handle_request)`.
+/// The `crowbar://` scheme handler: `crowbar://localhost/v0/...` is forwarded to the local
+/// daemon's unix socket, `crowbar://<hostId>/v0/...` to that paired remote host.
 pub fn handle_request<R: Runtime>(
     ctx: UriSchemeContext<'_, R>,
     request: http::Request<Vec<u8>>,
@@ -191,11 +168,8 @@ pub fn handle_request<R: Runtime>(
             Err(_) => error_response(504, "crowbar daemon did not answer in time"),
         };
         let resp = readable_by(origin, resp);
-        // Respond on the main thread: WKURLSchemeTask cancellation
-        // (webView:stopURLSchemeTask:) is delivered on the main thread, so
-        // responding there serializes with it. Responding from a tokio worker
-        // races with cancellation and a stopped task makes WebKit throw an
-        // NSException that cannot unwind through the ObjC bridge -> abort().
+        // Respond on the main thread, where WebKit delivers task cancellation: answering a
+        // stopped task from a worker races it, and WebKit's NSException there aborts the app.
         let _ = app.run_on_main_thread(move || responder.respond(resp));
     });
 }
@@ -281,6 +255,30 @@ async fn proxy<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let mut channel = open_channel(stream).await?;
+    send(&mut channel, request, body_limit).await
+}
+
+/// One HTTP/1.1 connection, kept alive between requests while the peer allows.
+type Channel = hyper::client::conn::http1::SendRequest<Full<bytes::Bytes>>;
+
+async fn open_channel<S>(stream: S) -> Result<Channel, BoxError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let io = TokioIo::new(stream);
+    let (sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    Ok(sender)
+}
+
+async fn send(
+    channel: &mut Channel,
+    request: http::Request<Vec<u8>>,
+    body_limit: usize,
+) -> Result<http::Response<Vec<u8>>, BoxError> {
     // The custom-scheme URI is `crowbar://<authority>/v0/...`. hyper only needs
     // the path-and-query portion for the request line.
     let path_and_query = request
@@ -289,12 +287,7 @@ where
         .map(|pq| pq.as_str().to_string())
         .unwrap_or_else(|| request.uri().path().to_string());
 
-    let io = TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-    tokio::spawn(async move {
-        let _ = conn.await;
-    });
-
+    channel.ready().await?;
     let (parts, body) = request.into_parts();
 
     let mut builder = HyperRequest::builder()
@@ -316,7 +309,7 @@ where
 
     let upstream_req = builder.body(Full::<bytes::Bytes>::new(body.into()))?;
 
-    let upstream_resp = sender.send_request(upstream_req).await?;
+    let upstream_resp = channel.send_request(upstream_req).await?;
     let (resp_parts, resp_body) = upstream_resp.into_parts();
     let collected = collect_capped(resp_body, body_limit).await?;
 

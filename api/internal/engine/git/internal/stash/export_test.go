@@ -7,14 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// ExportedParseLine wraps parseLine for use in external test packages.
-func ExportedParseLine(
-	line string,
-) (interface{}, bool) {
-	s, ok := parseLine(line)
-	return s, ok
-}
-
 func errRunner(
 	_ context.Context,
 	_ string,

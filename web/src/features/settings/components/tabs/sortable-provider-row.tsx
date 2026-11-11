@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'
 import { IS_MOBILE } from '@/utils/platform'
 import { PROVIDER_COLUMN_CELL } from './provider-columns'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 interface SortableProviderRowProps {
   provider: AgentProvider
@@ -16,19 +16,9 @@ interface SortableProviderRowProps {
   onToggleTools: (id: string, enabled: boolean) => void
 }
 
-/**
- * One provider row in the Providers settings tab: a drag handle for priority,
- * the provider glyph + name, a connected (installed) indicator, a Crowbar-tools
- * toggle, and an enable toggle. Extracted from the tab so the tab stays within
- * react-doctor's `no-giant-component`; the `useSortable` wiring mirrors
- * `sortable-editor-tab.tsx` but puts the drag listeners on the handle alone so
- * the switches stay clickable.
- *
- * The two switches are independent axes, and the order they sit in says so: tools
- * first (a narrower thing you can take away), then the provider itself. Neither
- * says "MCP" anywhere a user can read — the transport is not what is being
- * decided here; whether the agent can reach into Crowbar is.
- */
+// Drag listeners sit on the handle alone so the switches stay clickable. Tools comes before the
+// provider switch (the narrower thing to take away), and neither says "MCP": the user decides
+// whether the agent can reach into Crowbar, not a transport.
 export function SortableProviderRow({
   provider,
   onToggle,
@@ -82,11 +72,8 @@ export function SortableProviderRow({
         />
       </span>
 
-      {/* Crowbar's own tools, not the provider. A row with this off still opens
-          chats and still runs the CLI — the agent just cannot read the workspace
-          or leave review comments through Crowbar. The row no longer spells that
-          out inline: the header names the column once, and the intro paragraph
-          above the list carries what the one word cannot. */}
+      {/* Crowbar's own tools, not the provider: off, the agent still runs but cannot read the
+          workspace or comment through Crowbar. The column header and intro explain it. */}
       <span className={PROVIDER_COLUMN_CELL}>
         <Switch
           data-testid={`provider-tools-toggle-${provider.id}`}

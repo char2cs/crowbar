@@ -1,11 +1,15 @@
-import { useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { promoteDraftThread } from '@/components/layout/draft-promote'
+import { draftOfPane } from '@/components/layout/draft-thread'
 import { AgentEmptyDocument } from '@/features/agent/chat/agent-empty-document'
 import { isSendKey } from '@/features/agent/chat/lib/send-key'
+import {
+  ChatMarkdownEditor,
+  type ChatMarkdownEditorHandle,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
-import { isPromptTextWithinLimit } from '@/features/agent/lib/prompt-queue-persistence'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { refusal } from '@/features/agent/stores/lib/outbox'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 interface DraftChatPaneProps {
@@ -15,15 +19,16 @@ interface DraftChatPaneProps {
   belowOverlayHeader: boolean
 }
 
-/**
- * A thread nobody has written to yet: the blank chat, with no chat behind it.
- * Sending creates the chat and hands it this prompt; closing the pane leaves
- * nothing on the daemon or in the sidebar.
- */
+/** A thread nobody has written to yet: the blank chat, with no chat behind it.
+ *  Sending creates the chat and hands it this prompt; closing the pane leaves
+ *  nothing on the daemon or in the sidebar. */
 export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: DraftChatPaneProps) {
-  const store = useWorkspaceStore()
-  const providers = usePaneProviders(store, wsId, hostId)
-  const [text, setText] = useState('')
+  const providers = usePaneProviders(wsId, hostId)
+  const editorRef = useRef<ChatMarkdownEditorHandle>(null)
+  const docRef = useRef<HTMLDivElement>(null)
+  const [hasText, setHasText] = useState(false)
+  // Re-renders the document so its handle rides the last line as the box grows.
+  const [, setFieldHeight] = useState(0)
   const [pick, setPick] = useState({ provider: '', model: '', effort: '' })
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
@@ -33,13 +38,25 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
   const send = (raw: string) => {
     const prompt = raw.trim()
     if (!prompt || sending) return
-    if (!isPromptTextWithinLimit(prompt)) {
-      setError('This prompt is too large to submit.')
+    const refused = refusal(prompt)
+    if (refused) {
+      setError(refused)
       return
     }
     setError('')
     setSending(true)
-    void promoteDraftThread(paneId, { ...pick, text: prompt }).finally(() => setSending(false))
+    // The box empties as the prompt leaves; what is typed while the chat is created is
+    // the chat's next draft. A refused create gives the prompt back, ahead of that text.
+    const editor = editorRef.current
+    const draftId = draftOfPane(paneId)?.draftId
+    editor?.clear()
+    const typedSince = () => editor?.getMarkdown() ?? ''
+    void promoteDraftThread(paneId, { ...pick, text: prompt }, typedSince).finally(() => {
+      setSending(false)
+      if (draftOfPane(paneId)?.draftId !== draftId) return
+      const rest = typedSince().trim()
+      editor?.setMarkdown(rest ? `${prompt}\n\n${rest}` : prompt)
+    })
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => {
@@ -55,31 +72,44 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
       aria-label="Agent chat"
       style={{ '--agent-header-clearance': `${headerClearancePx}px` } as CSSProperties}
     >
-      <AgentEmptyDocument
-        draft={text}
-        draftSeed={0}
-        hasText={text.trim().length > 0}
-        onDraftChange={setText}
-        onSubmit={() => send(text)}
-        onKeyDown={handleKeyDown}
-        controls={
-          <span className="selpos">
-            <AgentSelectionPicker
-              provider={provider}
-              providers={providers}
-              model={pick.model}
-              effort={pick.effort}
-              disabled={sending}
-              onSelectionChange={(next, model, effort) =>
-                setPick({ provider: next, model, effort })
-              }
-              unsetLabel="Default"
-            />
-          </span>
-        }
-        sending={sending}
-        headerClearancePx={headerClearancePx}
-      />
+      {/* No chat exists yet, so the box takes no attachments: it has no chat to upload to. */}
+      <div className="docwrap" data-testid="agent-empty-document">
+        <div ref={docRef} className="doc">
+          <ChatMarkdownEditor
+            ref={editorRef}
+            placeholder="Describe the change…"
+            ariaLabel="Describe the change"
+            autoFocus
+            onShapeChange={(shape) => setHasText(!shape.empty)}
+            onKeyDown={handleKeyDown}
+            onHeightChange={setFieldHeight}
+            className="blk"
+          />
+        </div>
+        <AgentEmptyDocument
+          docRef={docRef}
+          hasText={hasText}
+          onSubmit={() => send(editorRef.current?.getMarkdown() ?? '')}
+          attach={null}
+          controls={
+            <span className="selpos">
+              <AgentSelectionPicker
+                provider={provider}
+                providers={providers}
+                model={pick.model}
+                effort={pick.effort}
+                disabled={sending}
+                onSelectionChange={(next, model, effort) =>
+                  setPick({ provider: next, model, effort })
+                }
+                unsetLabel="Default"
+              />
+            </span>
+          }
+          sending={sending}
+          headerClearancePx={headerClearancePx}
+        />
+      </div>
       {error && (
         <p className="meta composer-note" role="alert">
           {error}

@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -71,30 +70,10 @@ func (stubEngine) ListSessionsForChat(
 // tests) and at the endpoint, by the recording engine in hosttheme_test.go.
 func (stubEngine) SetHostTheme(_, _ color.Color) {}
 
+func (stubEngine) HostTheme() (bg, fg color.Color) { return nil, nil }
+
 func (stubEngine) StateOf(_ string) (string, bool) {
 	return "active", true
-}
-
-type stubBroadcaster struct{}
-
-func (stubBroadcaster) Push(
-	_ dto.TerminalSessionDTO,
-) {
-}
-
-// passthroughDispatch mirrors ws.DualServe's signature for the route-mount test:
-// it returns the REST handler so a plain GET is served (the WS branch is
-// exercised by the container integration tests).
-func passthroughDispatch(
-	rest gin.HandlerFunc,
-	_ gin.HandlerFunc,
-) gin.HandlerFunc {
-	return rest
-}
-
-func noopWSHandle(
-	_ *gin.Context,
-) {
 }
 
 type stubProfiles struct{}
@@ -151,9 +130,6 @@ func TestRegisterMountsRoutes(
 		rg,
 		stubEngine{},
 		stubProfiles{},
-		stubBroadcaster{},
-		noopWSHandle,
-		passthroughDispatch,
 	)
 
 	cases := []struct {

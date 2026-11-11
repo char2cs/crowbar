@@ -4,7 +4,7 @@ import {
   splitFrontmatter,
 } from '@/features/editor/markdown/plate/markdown-frontmatter'
 import {
-  markdownToPlateValue,
+  parseMarkdown,
   plateValueToMarkdown,
 } from '@/features/editor/markdown/plate/markdown-serialization'
 
@@ -85,11 +85,8 @@ describe('splitFrontmatter / joinFrontmatter', () => {
     expect(body).toBe('# Body\r\n')
   })
 
-  // I3 (data safety): a file with MIXED line endings — a `\n` first line and
-  // `\r\n` after it — is common when a tool appends to a CRLF file (or vice
-  // versa). Sniffing a single EOL from the first line ending and using it as
-  // the ONLY separator misses the closing delimiter, so the whole `---` block
-  // is fed to Plate, which rewrites it into `***` + a setext heading on save.
+  // Mixed line endings (an LF first line, CRLF after) are common when a tool appends to a CRLF
+  // file; a single sniffed EOL would miss the closing delimiter and hand the block to Plate.
   it('detects frontmatter when the document mixes LF and CRLF line endings', () => {
     const md = '---\ntitle: x\r\n---\r\n\r\n# Body\r\n'
     expectRoundTrip(md)
@@ -106,9 +103,8 @@ describe('splitFrontmatter / joinFrontmatter', () => {
     expect(body).toBe('# Body\n')
   })
 
-  // I3 (data safety): a UTF-8 BOM ahead of the opening `---` defeats the
-  // "first line is exactly ---" predicate. The BOM must stay in the output so
-  // the bytes round-trip; it rides along in `frontmatter`.
+  // A UTF-8 BOM ahead of the opening `---` must not defeat detection, and stays in
+  // `frontmatter` so the bytes round-trip.
   it('detects frontmatter behind a UTF-8 BOM and keeps the BOM in the output', () => {
     const md = '﻿---\ntitle: BOM Doc\n---\n\n# Body\n'
     expectRoundTrip(md)
@@ -123,10 +119,8 @@ describe('splitFrontmatter / joinFrontmatter', () => {
     expect(splitFrontmatter(md)).toEqual({ frontmatter: '', body: md })
   })
 
-  // M2: only fully-empty lines were absorbed after the closing delimiter, so a
-  // whitespace-only separator line stayed in `body` — and the Plate round trip
-  // drops a body's leading blank line, silently deleting the separator on the
-  // first real save.
+  // A whitespace-only separator after the close is absorbed too: left in `body`, the Plate round
+  // trip would drop it on the first save.
   it('absorbs a whitespace-only separator line after the closing delimiter', () => {
     const md = '---\ntitle: Doc\n---\n   \n# Body\n'
     expectRoundTrip(md)
@@ -152,22 +146,15 @@ describe('splitFrontmatter / joinFrontmatter', () => {
     expect(joinFrontmatter('', 'body only\n')).toBe('body only\n')
   })
 
-  // The regression this fix targets: the Plate round trip drops a body's
-  // leading blank line (markdownToPlateValue -> plateValueToMarkdown does not
-  // preserve leading blank lines), so if that separator line were left in
-  // `body` instead of absorbed into `frontmatter`, a real editor flush would
-  // silently rewrite the file with the frontmatter/body separator missing.
-  // The body here is already in the serializer's canonical form (no GFM
-  // table, which would legitimately re-canonicalize and mask the assertion),
-  // so `plateValueToMarkdown(markdownToPlateValue(body))` is expected to
-  // return `body` unchanged — meaning the join is byte-exact only if the
-  // blank separator line was never part of `body` to begin with.
+  // The Plate round trip drops a body's leading blank line, so the separator must live in
+  // `frontmatter`. This body is already canonical (no GFM table), so the join is byte-exact only
+  // if the blank separator was never part of `body`.
   it('preserves the frontmatter/body blank separator across a full Plate editor round trip', () => {
     const md =
       '---\ntitle: Plate Live Check\ntags: [verification, markdown]\n---\n\n' +
       '# Heading\n\nSome **bold** text.\n'
     const { frontmatter, body } = splitFrontmatter(md)
-    const roundTrippedBody = plateValueToMarkdown(markdownToPlateValue(body))
+    const roundTrippedBody = plateValueToMarkdown(parseMarkdown(body).value)
     expect(roundTrippedBody).toBe(body)
     expect(joinFrontmatter(frontmatter, roundTrippedBody)).toBe(md)
   })

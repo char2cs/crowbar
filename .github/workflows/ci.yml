@@ -35,8 +35,12 @@ jobs:
               - '.github/workflows/ci.yml'
             web:
               - 'web/**'
+              # The Go-owned wire fixture the web link tests replay through xterm.
+              - 'api/internal/core/terminal/internal/model/testdata/**'
             tauri:
               - 'desktop/**'
+              # The Go-owned health fixtures the Rust health tests parse.
+              - 'api/internal/core/bootgate/testdata/**'
               - '.github/workflows/ci.yml'
             website:
               - 'website/**'
@@ -66,6 +70,23 @@ jobs:
             fi
           fi
           echo "✅ Branch name valid"
+
+  ratchet-gates:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ratchet script tests
+        run: node --test scripts/ratchet/*.test.mjs
+      - name: File size (500-line cap; baseline may only shrink)
+        if: ${{ !cancelled() }}
+        run: node scripts/ratchet/file-size.mjs
+      - name: Counters (timers, discarded errors, empty catch; baselines may only shrink)
+        if: ${{ !cancelled() }}
+        run: node scripts/ratchet/counters.mjs
+      - name: LOC budgets (per module; budgets may only shrink)
+        if: ${{ !cancelled() }}
+        run: node scripts/ratchet/loc-budgets.mjs
 
   go-checks:
     needs: changes
@@ -164,8 +185,8 @@ jobs:
       - name: Vet + watcher tests (darwin backend)
         run: |
           cd api
-          go vet -tags noEmbed ./internal/engine/fs/... ./internal/app/realtime/...
-          go test -tags noEmbed -race -count=1 ./internal/engine/fs/... ./internal/app/realtime/...
+          go vet -tags noEmbed ./internal/engine/fs/... ./internal/app/stream/...
+          go test -tags noEmbed -race -count=1 ./internal/engine/fs/... ./internal/app/stream/...
 
   go-lint:
     needs: changes
@@ -272,7 +293,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb
       - name: Build Go sidecar (${{ matrix.triple }})
         run: |
           mkdir -p desktop/src-tauri/binaries
@@ -283,7 +304,8 @@ jobs:
       - name: Cargo clippy
         run: cd desktop/src-tauri && cargo clippy -- -D warnings
       - name: Cargo test
-        run: cd desktop/src-tauri && cargo test
+        # The GTK tests (browser tab placement) need a display.
+        run: cd desktop/src-tauri && xvfb-run -a cargo test
       - name: Cargo build --release (Linux)
         run: cd desktop/src-tauri && cargo build --release
 

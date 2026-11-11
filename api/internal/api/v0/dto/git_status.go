@@ -5,7 +5,7 @@ import (
 )
 
 // GitFileDTO is the wire shape of a single changed file in a workspace's
-// working-tree status (04 §3): its workspace-relative path, its per-file status,
+// working-tree status: its workspace-relative path, its per-file status,
 // and whether the change is staged.
 type GitFileDTO struct {
 	Path   string `json:"path"`
@@ -13,8 +13,8 @@ type GitFileDTO struct {
 	Staged bool   `json:"staged"`
 }
 
-// GitStatusDTO is the wire shape of a workspace's full working-tree status
-// (04 §3): the current branch, its ahead/behind counts against the upstream,
+// GitStatusDTO is the wire shape of a workspace's full working-tree status:
+// the current branch, its ahead/behind counts against the upstream,
 // and the list of changed files.
 type GitStatusDTO struct {
 	Branch string       `json:"branch"`

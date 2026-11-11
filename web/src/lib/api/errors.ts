@@ -1,22 +1,5 @@
-/** Error thrown by apiFetch carrying the HTTP status, so callers can make
- *  status-specific decisions (e.g. a 404 is terminal — never retried). */
-export class ApiError extends Error {
-  readonly status: number
-  /** Stable server recovery category. Most endpoints omit it. */
-  readonly code?: string
-  /** The error envelope's `data`, for the few refusals that carry detail. */
-  readonly data?: unknown
-  /** The host the failed request or stream targeted, 'local' for the local daemon. */
-  readonly hostId?: string
-  constructor(message: string, status: number, code?: string, data?: unknown, hostId?: string) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.code = code
-    this.data = data
-    this.hostId = hostId
-  }
-}
+import { ApiError } from '@/lib/errors/api-error'
+import type { ProblemCode } from '@/lib/errors/problem'
 
 /** A request named a remote host this window holds no pairing for: removed, or never paired. */
 export class HostNotConfiguredError extends Error {
@@ -30,16 +13,16 @@ export class HostNotConfiguredError extends Error {
 // retried: the proxy already spent its connect budget, and an identity change is
 // a hard reject that must never read as plain unreachable (spec §3).
 export const PROXY_HEADER = 'x-crowbar-proxy'
-export const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable'
-const HOST_UNREACHABLE_CODE = 'host_unreachable'
-const HOST_IDENTITY_CHANGED_CODE = 'host_identity_changed'
+const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable' satisfies ProblemCode
+const HOST_UNREACHABLE_CODE = 'host_unreachable' satisfies ProblemCode
+const HOST_IDENTITY_CHANGED_CODE = 'host_identity_changed' satisfies ProblemCode
 
 export function isHostUnreachableError(err: unknown): boolean {
-  return err instanceof ApiError && err.code === HOST_UNREACHABLE_CODE
+  return err instanceof ApiError && err.problem.code === HOST_UNREACHABLE_CODE
 }
 
 export function isHostIdentityChangedError(err: unknown): boolean {
-  return err instanceof ApiError && err.code === HOST_IDENTITY_CHANGED_CODE
+  return err instanceof ApiError && err.problem.code === HOST_IDENTITY_CHANGED_CODE
 }
 
 // `status` is what the proxy answers with for that marker; an HTTP response

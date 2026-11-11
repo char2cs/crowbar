@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -62,7 +63,7 @@ func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
 	// other test sharing permissionMap() does not care, so it stays out of the
 	// shared single-path map.
 	fields := fieldMap(permissionMap())
-	fields["suggestion_description"] = []string{"mode", "destination"}
+	fields["suggestion_description"] = mapping.Paths("mode", "destination")
 	d := descriptorWithFields(spec.HookPermission, fields)
 
 	ev, err := parse(d, spec.HookPermission, []byte(permissionPayload))
@@ -87,6 +88,25 @@ func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
 	assert.Equal(t, "Switch to a more permissive mode", ev.Choice.Options[3].Label)
 	assert.Equal(t, "acceptEdits", ev.Choice.Options[3].Description)
 	assert.Empty(t, ev.Choice.Questions, "a permission asks nothing beyond may-I")
+}
+
+func TestParse_PermissionNamesTheCallItIsAskedAbout(t *testing.T) {
+	fields := fieldMap(permissionMap())
+	fields["tool_target"] = mapping.Paths("tool_input.file_path", "tool_input.command")
+	fields["mcp_server"] = mapping.Paths("mcp_server.name")
+	d := descriptorWithFields(spec.HookPermission, fields)
+
+	bash, err := parse(d, spec.HookPermission, []byte(permissionPayload))
+	require.NoError(t, err)
+	assert.Equal(t, "touch PROOF", bash.Choice.ToolTarget)
+	assert.JSONEq(t, `{"command":"touch PROOF","description":"Create proof control file"}`, string(bash.Choice.ToolInput))
+	assert.Empty(t, bash.Choice.MCPServer)
+
+	mcp, err := parse(d, spec.HookPermission, []byte(
+		`{"tool_name":"mcp__echo__shout","tool_input":{"text":"hi"},"mcp_server":{"name":"echo","source":"dynamic"}}`))
+	require.NoError(t, err)
+	assert.Equal(t, "echo", mcp.Choice.MCPServer)
+	assert.JSONEq(t, `{"text":"hi"}`, string(mcp.Choice.ToolInput))
 }
 
 func TestRegression_ASuggestionIsNeverLabelledWithARawProviderTypeName(t *testing.T) {
@@ -297,9 +317,9 @@ func TestParse_AnOversizedSchemaIsDroppedNotTruncated(t *testing.T) {
 
 func TestParse_ToolFailCarriesTheErrorAndDuration(t *testing.T) {
 	d := descriptorWithFields(spec.HookToolFail, spec.FieldMap{
-		"tool_id": {"tool_use_id"}, "tool_name": {"tool_name"},
-		"tool_result": {"tool_response", "error"}, "tool_error": {"error"},
-		"duration_ms": {"duration_ms"},
+		"tool_id": mapping.Paths("tool_use_id"), "tool_name": mapping.Paths("tool_name"),
+		"tool_result": mapping.Paths("tool_response", "error"), "tool_error": mapping.Paths("error"),
+		"duration_ms": mapping.Paths("duration_ms"),
 	})
 	raw := []byte(`{"tool_use_id":"t1","tool_name":"Bash","error":"exit status 1",
 	  "is_interrupt":false,"duration_ms":42}`)
@@ -315,9 +335,32 @@ func TestParse_ToolFailCarriesTheErrorAndDuration(t *testing.T) {
 		"the result alternation falls through to error when there is no response")
 }
 
+func TestParse_ToolCarriesTitleServerToolAndExit(t *testing.T) {
+	d := descriptorWithFields(spec.HookToolPost, spec.FieldMap{
+		"tool_title": mapping.Paths("description"), "mcp_server": mapping.Paths("server"), "mcp_tool": mapping.Paths("tool"),
+		"exit_code": mapping.Paths("exit"), "interrupted": mapping.Paths("cut"),
+	})
+
+	ev, err := parse(d, spec.HookToolPost,
+		[]byte(`{"description":"List files","server":"echo","tool":"shout","exit":0,"cut":true}`))
+
+	require.NoError(t, err)
+	assert.Equal(t, "List files", ev.Tool.Title)
+	assert.Equal(t, "echo", ev.Tool.MCPServer)
+	assert.Equal(t, "shout", ev.Tool.MCPTool)
+	require.NotNil(t, ev.Tool.ExitCode, "an exit code of 0 is reported, not absent")
+	assert.Zero(t, *ev.Tool.ExitCode)
+	assert.True(t, ev.Tool.Interrupted)
+
+	bare, err := parse(d, spec.HookToolPost, []byte(`{"server":"echo"}`))
+	require.NoError(t, err)
+	assert.Nil(t, bare.Tool.ExitCode, "a payload with no exit code leaves it absent")
+	assert.False(t, bare.Tool.Interrupted)
+}
+
 func TestParse_ToolResultAlternationPrefersTheResponse(t *testing.T) {
 	d := descriptorWithFields(spec.HookToolFail, spec.FieldMap{
-		"tool_result": {"tool_response", "error"}, "tool_error": {"error"},
+		"tool_result": mapping.Paths("tool_response", "error"), "tool_error": mapping.Paths("error"),
 	})
 
 	ev, err := parse(d, spec.HookToolFail,
@@ -409,4 +452,20 @@ func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, permission.Choice)
 	assert.Len(t, permission.Choice.Options, 34, "allow and deny, then the capped suggestions")
+}
+
+// A label the descriptor gives a suggestion's exact grant reads alone: the provider's
+// machine word for it (acceptEdits) is never shown as the description.
+func TestParse_ASuggestionsExactGrantReadsInWords(t *testing.T) {
+	m := permissionMap()
+	m["suggestion_description"] = "mode"
+	m["suggestion_label.setMode.acceptEdits"] = "Accept every edit for the rest of this session"
+	fields := fieldMap(m)
+
+	ev, err := parse(descriptorWithFields(spec.HookPermission, fields), spec.HookPermission, []byte(permissionPayload))
+	require.NoError(t, err)
+
+	require.Len(t, ev.Choice.Options, 4)
+	assert.Equal(t, "Accept every edit for the rest of this session", ev.Choice.Options[3].Label)
+	assert.Empty(t, ev.Choice.Options[3].Description)
 }

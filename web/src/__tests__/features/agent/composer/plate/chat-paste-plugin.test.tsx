@@ -6,12 +6,24 @@ import { CodeBlockPlugin } from '@platejs/code-block/react'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
-import { ChatMarkdownEditor } from '@/features/agent/composer/plate/chat-markdown-editor'
+import { createRef } from 'react'
+import {
+  ChatMarkdownEditor,
+  type ChatMarkdownEditorHandle,
+} from '@/features/agent/composer/plate/chat-markdown-editor'
 import {
   chatMarkdownToValue,
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { INLINE_ATTACHMENT_MAX_BYTES } from '@/features/agent/composer/lib/inline-attachment-cap'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  UNWORDED,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 const uploadChatAttachmentMock = vi.hoisted(() => vi.fn())
 vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
@@ -23,8 +35,7 @@ vi.mock('@/features/agent/composer/lib/attachment-upload', () => ({
   uploadAttachmentMarkdown: uploadAttachmentMarkdownMock,
 }))
 
-const toastError = vi.hoisted(() => vi.fn())
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
+let toastError: ReturnType<typeof watchToasts>
 
 // Same pattern chat-markdown-editor.test.tsx uses for its own key-handling
 // plugin, for the same reason: jsdom does not implement `isContentEditable`
@@ -52,7 +63,8 @@ beforeEach(() => {
   createPlatePluginSpy.mockClear()
   uploadChatAttachmentMock.mockReset()
   uploadAttachmentMarkdownMock.mockReset()
-  toastError.mockClear()
+  toastError?.mockRestore()
+  toastError = watchToasts()
 })
 
 afterEach(cleanup)
@@ -121,7 +133,7 @@ describe('createChatPastePlugin', () => {
     expect(handled).toBe(true)
   })
 
-  // Finding I4: an over-threshold paste that ALSO exceeds the shared inline
+  // An over-threshold paste that ALSO exceeds the shared inline
   // size cap must not become an unsendable inline fence — it uploads as a
   // `.txt` file instead.
   it('uploads an over-cap pasted text as a file instead of wrapping it inline', async () => {
@@ -155,7 +167,7 @@ describe('createChatPastePlugin', () => {
   })
 
   it('surfaces a failed over-cap text upload as a toast instead of silently doing nothing', async () => {
-    uploadAttachmentMarkdownMock.mockRejectedValueOnce(new Error('413 Payload Too Large'))
+    uploadAttachmentMarkdownMock.mockRejectedValueOnce(refusal('413 Payload Too Large'))
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
     const hugeText = 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1)
@@ -164,15 +176,12 @@ describe('createChatPastePlugin', () => {
     onPaste({ editor, event })
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that text',
-        '413 Payload Too Large',
-      ),
+      expectReported(toastError, 'Could not attach that text', '413 Payload Too Large'),
     )
   })
 
-  it('falls back to a generic description for a non-Error over-cap upload rejection', async () => {
-    uploadAttachmentMarkdownMock.mockRejectedValueOnce('boom')
+  it('an over-cap text upload refused while migrating shows the migrating state', async () => {
+    uploadAttachmentMarkdownMock.mockRejectedValueOnce(migratingRefusal())
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
     const hugeText = 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1)
@@ -180,12 +189,7 @@ describe('createChatPastePlugin', () => {
 
     onPaste({ editor, event })
 
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that text',
-        'Crowbar could not reach the daemon — try again.',
-      ),
-    )
+    await waitFor(() => expectMigratingShown(toastError))
   })
 
   // Defensive-only fallback (`clipboard?.items ?? []`, `clipboard?.getData
@@ -286,10 +290,7 @@ describe('createChatPastePlugin', () => {
     })
   })
 
-  // REGRESSION, reported live: "photos attachments are not loaded
-  // instantly... let's not wait for them." The preview must appear
-  // synchronously, before the upload promise ever resolves — not just
-  // eventually, which the test above already covers.
+  // The preview must appear synchronously, before the upload resolves.
   it('inserts a local preview immediately, before the upload resolves', () => {
     let resolveUpload!: (value: {
       ref: string
@@ -309,8 +310,7 @@ describe('createChatPastePlugin', () => {
 
     onPaste({ editor, event })
 
-    // Synchronous — no `await`/`waitFor` — the upload promise above is still
-    // pending at this point.
+    // No await: the upload above is still pending.
     const markdown = chatValueToMarkdown(editor.children as never)
     expect(markdown).toMatch(/!\[pasted-image\.png\]\(blob:/)
 
@@ -337,11 +337,8 @@ describe('createChatPastePlugin', () => {
     expect(editor.children).toBe(before)
   })
 
-  // Risk class 1 (this task's brief): an unhandled upload rejection used to
-  // be a silent no-op mid-typing. Caught and toasted instead, the same
-  // precedent agent-composer.tsx's own `uploadAndInsert` already set.
   it('surfaces a failed image upload as a toast instead of silently doing nothing', async () => {
-    uploadChatAttachmentMock.mockRejectedValueOnce(new Error('413 Payload Too Large'))
+    uploadChatAttachmentMock.mockRejectedValueOnce(refusal('413 Payload Too Large'))
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
     const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
@@ -350,15 +347,12 @@ describe('createChatPastePlugin', () => {
     onPaste({ editor, event })
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that image',
-        '413 Payload Too Large',
-      ),
+      expectReported(toastError, 'Could not attach that image', '413 Payload Too Large'),
     )
   })
 
-  it('falls back to a generic description for a non-Error rejection', async () => {
-    uploadChatAttachmentMock.mockRejectedValueOnce('boom')
+  it('an image upload refused while migrating shows the migrating state', async () => {
+    uploadChatAttachmentMock.mockRejectedValueOnce(migratingRefusal())
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
     const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
@@ -366,18 +360,10 @@ describe('createChatPastePlugin', () => {
 
     onPaste({ editor, event })
 
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that image',
-        'Crowbar could not reach the daemon — try again.',
-      ),
-    )
+    await waitFor(() => expectMigratingShown(toastError))
   })
 
-  // REGRESSION: pasting a non-image file (a PDF copied in Finder, say) had no
-  // `image/*` clipboard item and no `text/plain` payload either, so
-  // Cmd/Ctrl+V silently did nothing at all — this is the branch that fixes
-  // that by reading `clipboardData.files` directly.
+  // A non-image file (a PDF copied in Finder) has no image item and no text payload.
   it('uploads a pasted non-image file through the shared upload/markdown resolver', async () => {
     uploadAttachmentMarkdownMock.mockResolvedValue(
       '[report.pdf](chats/c1/attachments/x-report.pdf)',
@@ -400,7 +386,7 @@ describe('createChatPastePlugin', () => {
   })
 
   it('surfaces a failed non-image file upload as a toast instead of silently doing nothing', async () => {
-    uploadAttachmentMarkdownMock.mockRejectedValueOnce(new Error('413 Payload Too Large'))
+    uploadAttachmentMarkdownMock.mockRejectedValueOnce(refusal('413 Payload Too Large'))
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
     const file = new File(['bytes'], 'huge.pdf', { type: 'application/pdf' })
@@ -409,15 +395,12 @@ describe('createChatPastePlugin', () => {
     onPaste({ editor, event })
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that file',
-        '413 Payload Too Large',
-      ),
+      expectReported(toastError, 'Could not attach that file', '413 Payload Too Large'),
     )
   })
 
-  it('falls back to a generic description for a non-Error non-image file rejection', async () => {
-    uploadAttachmentMarkdownMock.mockRejectedValueOnce('boom')
+  it('a non-image file upload refused while migrating shows the migrating state', async () => {
+    uploadAttachmentMarkdownMock.mockRejectedValueOnce(migratingRefusal())
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
     const file = new File(['bytes'], 'huge.pdf', { type: 'application/pdf' })
@@ -425,12 +408,28 @@ describe('createChatPastePlugin', () => {
 
     onPaste({ editor, event })
 
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Could not attach that file',
-        'Crowbar could not reach the daemon — try again.',
-      ),
-    )
+    await waitFor(() => expectMigratingShown(toastError))
+  })
+
+  it('words a paste whose upload threw no Error as an unreachable daemon', async () => {
+    uploadChatAttachmentMock.mockRejectedValue(UNWORDED)
+    uploadAttachmentMarkdownMock.mockRejectedValue(UNWORDED)
+    const { onPaste } = pastePluginHandlers()
+    const image = new File(['bytes'], 'a.png', { type: 'image/png' })
+    const pdf = new File(['bytes'], 'a.pdf', { type: 'application/pdf' })
+    onPaste({ editor: editorWith(''), event: pasteEvent('', [imageItem(image)]).event })
+    onPaste({ editor: editorWith(''), event: pasteEvent('', [], [pdf]).event })
+    const huge = 'x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1)
+    onPaste({ editor: editorWith(''), event: pasteEvent(huge).event })
+
+    await waitFor(() => {
+      for (const what of ['image', 'file', 'text'])
+        expectReported(
+          toastError,
+          `Could not attach that ${what}`,
+          'Crowbar could not reach the daemon — try again.',
+        )
+    })
   })
 
   it('prefers an image clipboard item over a files entry when both are present', () => {
@@ -471,22 +470,8 @@ describe('createChatPastePlugin', () => {
     expect(uploadAttachmentMarkdownMock).not.toHaveBeenCalled()
   })
 
-  // Wave 6, Bug 2 (live-reproduced): two over-threshold pastes back to back,
-  // with no intervening keystroke, merged into a SINGLE text-attachment
-  // fence instead of producing two. Root cause: `insertAttachmentMarkdownInto`
-  // leaves the selection sitting inside the fence's own `code_line` right
-  // after inserting it, so this plugin's OWN "caret inside a code block"
-  // bypass (previously a bare `{ type: CodeBlockPlugin.key }` match) treated
-  // the second paste as "the user is editing real code, leave it alone" and
-  // let it fall through to Slate's default handling, which appended the
-  // second paste's text into the SAME fence. Fixed by `isRealCodeBlock`
-  // narrowing that match to exclude the plugin's own attachment fences
-  // (identified by their `lang` prefix) — a caret left inside one of THOSE
-  // now falls through to this plugin's normal threshold logic instead, whose
-  // existing `insertAttachmentMarkdownInto` redirect (proven by
-  // `TestRegression_insertsTwoFencedAttachmentsAsSeparateSiblingBlocks` in
-  // chat-markdown-editor.test.tsx) correctly appends the new fence as a
-  // sibling of the first rather than corrupting it.
+  // The caret left inside the first attachment fence must not read as real code,
+  // or the second paste is appended into the same fence.
   it('TestRegression_twoConsecutivePastesWithNoInterveningKeystrokeProduceTwoSeparateFences', () => {
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
@@ -596,12 +581,7 @@ describe('createChatPastePlugin', () => {
  * event (paste included) passes through before Slate/Plate's own handler
  * pipeline ever sees it — reads exactly that property
  * (`node_modules/slate-dom/dist/index.es.js`'s `hasDOMNode`). Unpatched, a
- * `dispatchEvent` here reaches nothing (confirmed directly: zero calls to
- * the upload mock without the override below) — which is why every OTHER
- * test file that needs a real Slate/Plate DOM event in this codebase
- * (chat-markdown-editor.test.tsx, agent-empty-document.test.tsx,
- * agent-chat-view.test.tsx) documents the same gap and falls back to calling
- * an extracted handler directly instead. Overriding `isContentEditable` on
+ * `dispatchEvent` here reaches nothing. Overriding `isContentEditable` on
  * just the mounted node is enough to get a REAL DOM event all the way
  * through — nothing else on this path is jsdom-unimplemented.
  */
@@ -621,12 +601,8 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
   }
 
   it('uploads and inserts a real pasted image through the actually-mounted composer', async () => {
-    // A manually-resolved promise, not `mockResolvedValue` — pins the ordering
-    // so the "optimistic preview" assertion below is checked while the upload
-    // is provably still in flight, the same reasoning
-    // `chat-paste-plugin.test.tsx`'s own isolated-handler regression test
-    // ("inserts a local preview immediately, before the upload resolves")
-    // uses.
+    // A manually-resolved promise pins the ordering, so the preview assertion runs while the upload
+    // is provably still in flight.
     let resolveUpload!: (value: {
       ref: string
       filename: string
@@ -638,15 +614,15 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
         resolveUpload = resolve
       }),
     )
-    const onChange = vi.fn()
+    const ref = createRef<ChatMarkdownEditorHandle>()
     const { container } = renderWithDnd(
       <ChatMarkdownEditor
+        ref={ref}
         wsId="w1"
         chatId="c1"
-        initialValue=""
         placeholder="Message the agent…"
         ariaLabel="Message the agent"
-        onChange={onChange}
+        onShapeChange={vi.fn()}
         onKeyDown={() => {}}
       />,
     )
@@ -685,7 +661,7 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
       const settled = container.querySelector('img[alt="pasted-image.png"]') as HTMLImageElement
       expect(settled.src).toContain('chats/c1/attachments/x-pasted-image.png')
     })
-    expect(onChange).toHaveBeenLastCalledWith(
+    expect(ref.current?.getMarkdown()).toBe(
       '![pasted-image.png](chats/c1/attachments/x-pasted-image.png)',
     )
   })
@@ -695,13 +671,11 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
   // a real paste then falls through to Slate's default handling rather than
   // this plugin silently swallowing it.
   it('does not intercept when wsId/chatId are missing, per the conditional in chat-markdown-editor.tsx', async () => {
-    const onChange = vi.fn()
     const { container } = renderWithDnd(
       <ChatMarkdownEditor
-        initialValue=""
         placeholder="Message the agent…"
         ariaLabel="Message the agent"
-        onChange={onChange}
+        onShapeChange={vi.fn()}
         onKeyDown={() => {}}
       />,
     )

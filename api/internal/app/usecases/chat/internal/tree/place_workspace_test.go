@@ -15,11 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // An ORDINARY, unlocked fork moves through this call exactly like a locked
@@ -36,7 +36,7 @@ func TestPlaceWorkspace_MovesAnOrdinaryUnlockedForkJustLikeALockedBranch(t *test
 	require.NoError(t, err)
 
 	n := nodeRowFor(t, nodes, "fork-1")
-	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+	assert.Equal(t, dtree.KindWorkspace, n.Kind)
 }
 
 // TestRegression_PlaceWorkspace_AnOrdinaryForkWritesThroughItsOwningChat
@@ -61,8 +61,8 @@ func TestRegression_PlaceWorkspace_AnOrdinaryForkWritesThroughItsOwningChat(t *t
 		domain.Chat{ID: "sibling-chat", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-sibling", ParentID: "branch-1"},
 	)
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0},
-		domain.Node{ID: "sibling-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 1},
+		dtree.Node{ID: "fork-chat", Kind: dtree.KindChat, ParentID: "branch-1", Order: 0},
+		dtree.Node{ID: "sibling-chat", Kind: dtree.KindChat, ParentID: "branch-1", Order: 1},
 	)
 	gitStatus.SetRepo("ws-branch-1", repoID)
 	gitStatus.SetRepo("ws-fork", repoID)
@@ -129,7 +129,7 @@ func TestPlaceWorkspace_RefusesTheProjectHomeWorkspace(t *testing.T) {
 
 	_, _, err := uc.PlaceWorkspace(context.Background(), "home-ws", tree.PlaceInput{Order: index(0)})
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // A workspaceID RepoOf cannot resolve at all (never Set on the fake, the
@@ -140,7 +140,7 @@ func TestPlaceWorkspace_RefusesAnUnknownWorkspaceID(t *testing.T) {
 
 	_, _, err := uc.PlaceWorkspace(context.Background(), "no-such-workspace", tree.PlaceInput{Order: index(0)})
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // THE adversarial case this fix exists for (mirrors
@@ -164,7 +164,7 @@ func TestPlaceWorkspace_MintsNodeOnFirstTouch(t *testing.T) {
 	require.NoError(t, err, "a locked branch with no Node row must mint one, not silently do nothing")
 
 	n := nodeRowFor(t, nodes, "branch-1")
-	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
+	assert.Equal(t, dtree.KindWorkspace, n.Kind)
 	assert.Equal(t, "", n.ParentID)
 	assert.Equal(t, 0, n.Order)
 }
@@ -199,7 +199,7 @@ func TestPlaceWorkspace_RefusesACrossRepoContainer(t *testing.T) {
 	_, _, err := uc.PlaceWorkspace(
 		context.Background(), "branch-1", tree.PlaceInput{ParentID: name("f-other-repo")})
 
-	require.ErrorIs(t, err, tree.ErrCrossRepo)
+	require.ErrorIs(t, err, tree.ErrCrossContext)
 }
 
 // Pins the exact design hazard checkWorkspaceMove's own doc calls out:
@@ -218,8 +218,8 @@ func TestPlaceWorkspace_MovingToTheBareRepoRootNeverCrossesContext(t *testing.T)
 	// instead of updating this one, a fixture bug rather than a real
 	// production state: every real Node.ParentID names a container that was
 	// itself validated by an earlier placement's own checkFolderContainer).
-	nodes.Rows = append(nodes.Rows, domain.Node{
-		ID: "branch-1", Kind: domain.NodeKindWorkspace, ParentID: "docs", Order: 0,
+	nodes.Rows = append(nodes.Rows, dtree.Node{
+		ID: "branch-1", Kind: dtree.KindWorkspace, ParentID: "docs", Order: 0,
 	})
 	gitStatus.SetRepo("branch-1", repoID)
 	gitStatus.SetBranch("branch-1", true)
@@ -282,7 +282,7 @@ func TestPlaceWorkspace_RefusesWorkingSubtree(t *testing.T) {
 //
 // Restored from the deleted api/tests/regression_folders_test.go's
 // TestRegression_WorkspaceMoveRefusedWhenItWouldSplitAForkChain: 11b72c720
-// retired usecases/folder and flagged ErrForkChainSplit as having no
+// retired usecases/folder and flagged ErrForkChain as having no
 // unified-tree equivalent, and nothing refused this until now.
 func TestRegression_PlaceWorkspace_RefusedWhenItWouldSplitAForkChain(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
@@ -292,7 +292,7 @@ func TestRegression_PlaceWorkspace_RefusedWhenItWouldSplitAForkChain(t *testing.
 	_, _, err := uc.PlaceWorkspace(
 		context.Background(), "ws-fork", tree.PlaceInput{ParentID: name("spikes")})
 
-	require.ErrorIs(t, err, tree.ErrForkChainSplit)
+	require.ErrorIs(t, err, tree.ErrForkChain)
 	assert.Contains(t, err.Error(), "fork parent",
 		"the refusal has to say what is wrong, not just refuse")
 	assert.Equal(t, "branch-1", nodeRowFor(t, nodes, "fork-chat").ParentID,
@@ -348,8 +348,8 @@ func TestPlaceWorkspace_AnAlreadySplitForkCanStillBeReordered(t *testing.T) {
 		domain.Chat{ID: "sibling", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, ParentID: "spikes"},
 	)
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "spikes", Order: 0},
-		domain.Node{ID: "sibling", Kind: domain.NodeKindChat, ParentID: "spikes", Order: 1},
+		dtree.Node{ID: "fork-chat", Kind: dtree.KindChat, ParentID: "spikes", Order: 0},
+		dtree.Node{ID: "sibling", Kind: dtree.KindChat, ParentID: "spikes", Order: 1},
 	)
 	gitStatus.SetRepo("ws-fork", repoID)
 	gitStatus.SetBranch("ws-fork", false)
@@ -378,7 +378,7 @@ func seedForkUnderLockedBranch(
 		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, OwnsWorkspace: true, WorkspaceID: "ws-fork", ParentID: "branch-1"},
 	)
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0})
+		dtree.Node{ID: "fork-chat", Kind: dtree.KindChat, ParentID: "branch-1", Order: 0})
 	gitStatus.SetRepo("ws-branch-1", repoID)
 	gitStatus.SetBranch("ws-branch-1", true)
 	gitStatus.SetRepo("ws-fork", repoID)
@@ -404,7 +404,7 @@ func newWorkspacePlacementUsecase(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus,
+	uc := tree.New(chats, chats, newBusyChats(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, folders, nodes, gitStatus, uc
 }
@@ -415,7 +415,7 @@ func newWorkspacePlacementUsecaseWithWork(
 	t *testing.T,
 ) (
 	*mocks.AgentChatPlacements,
-	*inflight.Work,
+	*busyChats,
 	*mocks.NodePlacements,
 	*mocks.AgentWorkspaceGitStatus,
 	tree.Usecase,
@@ -425,7 +425,7 @@ func newWorkspacePlacementUsecaseWithWork(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	work := inflight.NewWork()
+	work := newBusyChats()
 	uc := tree.New(chats, chats, work, gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, work, nodes, gitStatus, uc

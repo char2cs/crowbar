@@ -4,31 +4,27 @@ import (
 	"context"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The home-scoped (RepoID == "") placement surface (2026-09-08
-// sidebar-placement-unification Task 5): Folders is identity, Nodes is
-// position — split apart the same way domain.Folder/domain.Node are.
+// The placement surface: Folders is identity, Nodes is position, split the same way dtree.Folder and
+// dtree.Node are.
 
-// Folders is the plain-GORM identity surface a home-scoped folder's name now
-// lives on: RepoID == "" only, forever — repo-scoped folders (RepoID != "")
-// stay ChatTypeFolder Chat rows until Task 8. A folder's POSITION is never
-// read or written here — see Nodes below.
+// Folders is the identity store for folders of every scope (home and repo); a folder's position lives
+// on Nodes, never here.
 type Folders interface {
 	FindByKey(
 		ctx context.Context,
 		id string,
-	) (*domain.Folder, error)
-	// FindAll answers every home folder the daemon knows, filtered in memory
-	// to RepoID == "" by the caller: "" is FindWhere's own zero value, which
-	// per store.ScopedStore's doc can never be expressed as a query filter.
+	) (*dtree.Folder, error)
+	// FindAll answers every folder, filtered by scope in memory: RepoID == "" is the store's zero value
+	// and cannot be expressed as a query filter.
 	FindAll(
 		ctx context.Context,
-	) ([]domain.Folder, error)
+	) ([]dtree.Folder, error)
 	Save(
 		ctx context.Context,
-		f domain.Folder,
+		f dtree.Folder,
 	) error
 	Delete(
 		ctx context.Context,
@@ -36,34 +32,29 @@ type Folders interface {
 	) error
 }
 
-// Nodes is the position surface a home-scoped chat or folder's placement now
-// goes through instead of Chat.SetOrder/.SetPlacement, mirroring project.go's
-// own NodePlacements port for repos — the SAME Node rows a repo's own
-// placement already writes, which is the whole point: every home-scope
-// sibling (chat, folder, repo) now shares one Node.ListByParent read, no
-// cross-aggregate merge required (see plan.go/home_forest.go's
-// mergeHomeForest).
+// Nodes is the position store every chat, folder, repo and workspace anchor shares, so each level's
+// siblings come from one Node read.
 type Nodes interface {
 	Create(
 		ctx context.Context,
 		id string,
-		kind domain.NodeKind,
+		kind dtree.Kind,
 		parentID string,
 		order int,
-	) (domain.Node, error)
+	) (dtree.Node, error)
 	GetNode(
 		ctx context.Context,
 		id string,
-	) (domain.Node, error)
+	) (dtree.Node, error)
 	ListByParent(
 		ctx context.Context,
 		parentID string,
-	) ([]domain.Node, error)
+	) ([]dtree.Node, error)
 	// ListAll is every node in one read, for the walks that would otherwise
 	// read the table once per parent.
 	ListAll(
 		ctx context.Context,
-	) ([]domain.Node, error)
+	) ([]dtree.Node, error)
 	SetOrder(
 		ctx context.Context,
 		id string,
@@ -75,35 +66,28 @@ type Nodes interface {
 		parentID string,
 		order int,
 	) error
-	// Forget purges a Node row outright. Used ONLY to unwind a Create that a
-	// just-failed home-folder create is taking back out — never to delete a
-	// live, in-use row.
+	// Forget purges a Node row outright: a folder's, when the folder is erased or its create unwound.
 	Forget(
 		ctx context.Context,
 		id string,
 	) error
 }
 
-// WorkspaceGitStatus is the narrow read port the tree needs off the
-// workspace usecase: the facts about a workspace (its repo, its default
-// checkout, whether it draws a branch row) that decide where its rows sit.
-// It lives in this file only because RepoIDsForHome (below) is, and moving
-// the whole interface here keeps types.go under this package's own 500-line
-// layering ceiling.
+// WorkspaceGitStatus is the tree's read port onto the workspace layer: the facts about a workspace
+// (its repo, its default checkout, whether it draws a branch row) that decide where its rows sit.
 type WorkspaceGitStatus interface {
-	// RepoOf answers the repo a workspace belongs to — "" for the project-home
-	// workspace, a real repo id otherwise (domain.Workspace.RepoID).
-	// checkFolderContainer's golden rule uses it to resolve
-	// the scope on the OTHER side of a folder-under-workspace-owning-row
-	// containment check: a folder's own scope is its stored RepoID (or, for a
-	// folder-under-folder check, the parent folder's own RepoID — no lookup
-	// needed there at all), but a folder filed under a BRANCH or forked CHAT
-	// row has to resolve that row's WorkspaceID back to a repo id to compare
-	// against.
+	// RepoOf answers the repo a workspace belongs to: "" for the project-home workspace, a repo id
+	// otherwise (domain.Workspace.RepoID).
 	RepoOf(
 		ctx context.Context,
 		workspaceID string,
 	) (repoID string, err error)
+	// OutlivesItsChats reports whether workspaceID is never reaped with the
+	// chats in it: a project's home, or its repo's default checkout.
+	OutlivesItsChats(
+		ctx context.Context,
+		workspaceID string,
+	) (bool, error)
 	// DefaultWorkspaceOf answers repoID's default checkout — whose root chats
 	// sit at the repo's root level beside its folders and locked branches.
 	DefaultWorkspaceOf(
@@ -116,71 +100,45 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (bool, error)
-	// Provisioned reports whether workspaceID has a worktree on disk at all
-	// (domain.Workspace.WorktreePath != ""). A placeholder has none, and a
-	// chat created in it has nowhere to run — see ErrWorkspaceUnprovisioned.
-	// An unresolvable id answers true: this is a refusal probe, and a read
-	// that failed is not evidence the row is a placeholder.
+	// Provisioned reports whether workspaceID has a worktree on disk; a placeholder has none, so a chat
+	// created in it has nowhere to run. An unresolvable id answers true: a failed read is not evidence.
 	Provisioned(
 		ctx context.Context,
 		workspaceID string,
 	) (bool, error)
-	// RepoIDsForHome answers every repo id belonging to the SAME project as
-	// home workspace homeWorkspaceID — this package's own counterpart to
-	// project.go's repoIDSet. See mergeHomeForest's own doc (home_forest.go)
-	// for the cross-project leak this closes and the folder-CRUD half it
-	// deliberately does not.
+	// RepoIDsForHome answers every repo id of homeWorkspaceID's project, so a home-root densify never
+	// renumbers another project's repo Node rows.
 	RepoIDsForHome(
 		ctx context.Context,
 		homeWorkspaceID string,
 	) (map[string]bool, error)
-	// HomeOfRepo answers the home workspace of the project repoID belongs
-	// to, "" for an unknown repo — which home a legacy folder holding that
-	// repo's header row belongs to, whoever is asking.
+	// HomeOfRepo answers the home workspace of repoID's project, "" for an unknown repo; it tells which
+	// home a legacy folder holding that repo's header belongs to.
 	HomeOfRepo(
 		ctx context.Context,
 		repoID string,
 	) (string, error)
-	// RendersAsBranch answers domain.Workspace.RendersAsBranch for
-	// workspaceID — the one fact mergeForest needs to decide whether a
-	// NodeKindWorkspace row it discovers is a genuine sidebar row (a locked
-	// branch) or an ordinary, unlocked fork's own Node row, which every
-	// workspace gets unconditionally at creation but which must NOT merge in
-	// as a second row beside the chat that already represents it 1:1. See
-	// mergeHomeNode's own doc.
+	// RendersAsBranch answers domain.Workspace.RendersAsBranch: a locked branch is a sidebar row of its
+	// own, while an unlocked fork's anchor must not merge in beside the chat that already draws it.
 	RendersAsBranch(
 		ctx context.Context,
 		workspaceID string,
 	) (bool, error)
-	// CreatedAtOf answers when workspaceID was created — the timestamp the
-	// sidebar ties a branch row on (rows-from-repo.ts stamps the row with the
-	// WORKSPACE's createdAt), so a tied level sorts the same on both sides.
+	// CreatedAtOf answers when workspaceID was created, the timestamp the sidebar breaks a branch row's
+	// order ties on, so a tied level sorts the same on both sides.
 	CreatedAtOf(
 		ctx context.Context,
 		workspaceID string,
 	) (time.Time, error)
-	// BranchRowsOf answers the workspaces of repoID the sidebar draws as
-	// branch rows of their own (RendersAsBranch), the default checkout
-	// excluded: the members a repo-root densify must count whether or not
-	// each has a Node row yet.
+	// BranchRowsOf answers repoID's workspaces drawn as branch rows, default checkout excluded: members a
+	// repo-root densify must count whether or not each has a Node row yet.
 	BranchRowsOf(
 		ctx context.Context,
 		repoID string,
 	) ([]string, error)
-	// VisibleForkParent answers the workspace whose space a fork's own row must
-	// stay inside — domain.Workspace.ParentID, reduced to "" (the repo tree's
-	// own root) when that parent draws no row of its own in that tree.
-	//
-	// The repo's DEFAULT checkout is exactly such a parent: it IS the tree's
-	// root rather than a member of it (rows-from-repo.ts says so in as many
-	// words — "the repo's default (main-worktree) workspace is not a row in
-	// repo.workspaces — it becomes this tree's one root"), so a branch cut
-	// straight off it belongs at that root and nowhere else. Answering its id
-	// here instead would refuse every top-level branch's most ordinary move.
-	//
-	// "" is equally the answer for a workspace that was never forked, and for a
-	// fork parent that no longer resolves at all: neither leaves a space behind
-	// for checkForkChainSplit to hold a row to.
+	// VisibleForkParent answers the workspace whose space a fork's row must stay inside: its ParentID,
+	// or "" (the repo root) when that parent draws no row there (the default checkout is the root itself),
+	// was never set, or no longer resolves.
 	VisibleForkParent(
 		ctx context.Context,
 		workspaceID string,

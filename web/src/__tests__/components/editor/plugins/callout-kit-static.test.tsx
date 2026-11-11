@@ -10,13 +10,8 @@ import { CalloutKitStatic } from '@/components/editor/plugins/callout-kit-static
 import { LinkKit, LinkKitStatic } from '@/components/editor/plugins/link-kit'
 import { ParagraphElement } from '@/components/ui/paragraph-node'
 
-/**
- * Parity between the interactive editor (mounted the same way
- * MarkdownMessage mounts it — see markdown-message.test.tsx) and the
- * PlateStatic read path this plan is introducing. Both plugin sets share
- * the same node component, so any divergence here is a real bug, not a
- * fixture mismatch to special-case away.
- */
+/** Parity between the interactive editor (mounted as MarkdownMessage mounts it) and the PlateStatic
+ *  read path. Both share one node component, so a divergence is a real bug, not a fixture issue. */
 
 function InteractiveHarness({ plugins, value }: { plugins: AnyPlatePlugin[]; value: Value }) {
   // Same construction MarkdownMessage uses: usePlateEditor(..., []) then a

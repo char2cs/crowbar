@@ -89,28 +89,34 @@ func writeContent(
 	cols int,
 	rows int,
 ) {
+	emu := vm.emu
+	var line []byte // reused: one row's bytes at a time
 	if !alt {
-		n := vm.emu.ScrollbackLen()
-		for y := 0; y < n; y++ {
-			line := vm.emu.ScrollbackLine(y)
-			b.WriteString(encodeLine(line, len(line), true))
-			b.WriteString("\r\n")
+		n := emu.ScrollbackLen()
+		for i := 0; i < n; i++ {
+			next := chainNextOf(emu.ScrollbackRowWrapped(i+1), emu.ScrollbackLine(i+1).At(0))
+			if i == n-1 {
+				next = chainNextOf(emu.RowWrapped(0), emu.CellAt(0, 0))
+			}
+			line = appendChainRow(line[:0], emu.ScrollbackLine(i), cols, emu.ScrollbackRowWrapped(i), next, "\r\n")
+			b.Write(line)
 		}
 	}
 	var scratch []uv.Cell
 	for y := 0; y < rows; y++ {
-		if y > 0 {
-			b.WriteString("\r\n")
+		brk := "\r\n"
+		if y == rows-1 {
+			brk = ""
 		}
-		scratch = snapshotRowInto(vm.emu, scratch, cols, y)
-		b.WriteString(encodeLine(scratch, cols, true))
+		scratch = snapshotRowInto(emu, scratch, cols, y)
+		next := chainNextOf(emu.RowWrapped(y+1), emu.CellAt(0, y+1))
+		line = appendChainRow(line[:0], scratch, cols, emu.RowWrapped(y), next, brk)
+		b.Write(line)
 	}
 }
 
-// writeModes emits steps 8-11: the default-OFF private modes, application-keypad mode
-// (re-emitted as ESC =, never a DECSET), the autowrap reset (only when the app disabled
-// it), the charset designation + active locking shift, and the scroll region (only when
-// set and not full-screen).
+// writeModes emits steps 8-11: default-OFF private modes, application keypad (as ESC =),
+// the autowrap reset if disabled, the charset designation and shift, and a non-full scroll region.
 func writeModes(
 	b *strings.Builder,
 	sh *shadowState,
@@ -179,10 +185,8 @@ func writeChrome(
 	}
 }
 
-// oscTitleSeq wraps already-sanitized OSC string text in its ST-terminated
-// envelope: code 1 is the icon name, code 2 the window title. The serializer's
-// keyframe and the diff emitter's chrome delta share it so both paths emit
-// byte-identical icon/title sequences.
+// oscTitleSeq wraps sanitized OSC text in its ST-terminated envelope (code 1 icon name,
+// code 2 window title), shared by keyframe and diff so both emit identical bytes.
 func oscTitleSeq(
 	code int,
 	sanitized string,
@@ -190,12 +194,9 @@ func oscTitleSeq(
 	return fmt.Sprintf("\x1b]%d;%s\x1b\\", code, sanitized)
 }
 
-// writeCharset emits step 10: the G0/G1 charset designation and the active locking shift.
-// Re-emitting these makes FUTURE live output after attach render correctly. It does NOT — and
-// cannot — reproduce grid cells x/vt already painted via an unresolved SO-invoked G1
-// line-drawing charset: the pinned commit leaves those as raw 'q'/'x' cell bytes which
-// writeContent has already emitted above this step, so such already-painted box-drawing
-// self-heals on the app's next repaint rather than being exact on attach.
+// writeCharset emits step 10: the G0/G1 designation and active locking shift, so live
+// output after attach renders right. Cells x/vt already painted via an SO-invoked G1
+// stay raw 'q'/'x' bytes until the app repaints.
 func writeCharset(
 	b *strings.Builder,
 	sh *shadowState,
@@ -215,22 +216,25 @@ func writeCharset(
 	}
 }
 
-func encodeGridRow(
-	emu emulator,
-	cols int,
-	y int,
-) string {
-	return encodeLine(snapshotRowInto(emu, nil, cols, y), cols, true)
-}
-
-// encodeLine renders cells (up to width columns) into SGR-run-length ANSI, trimming
-// trailing blank cells when trim is set and resetting the pen at the row's end so style
-// never bleeds across the following line break.
+// encodeLine renders cells (up to width columns) into SGR-run-length ANSI; see appendLine.
 func encodeLine(
 	cells []uv.Cell,
 	width int,
 	trim bool,
 ) string {
+	line, _ := appendLine(nil, cells, width, trim)
+	return string(line)
+}
+
+// appendLine appends cells (up to width columns) as SGR-run-length ANSI, trimming trailing
+// blank cells when trim is set and resetting the pen at the row's end so style never bleeds
+// across the following line break. It also returns the column after the last cell written.
+func appendLine(
+	dst []byte,
+	cells []uv.Cell,
+	width int,
+	trim bool,
+) ([]byte, int) {
 	if width > len(cells) {
 		width = len(cells)
 	}
@@ -243,25 +247,25 @@ func encodeLine(
 			}
 		}
 	}
-	var b strings.Builder
 	var cur uv.Style
-	for i := 0; i < last; i++ {
-		c := cells[i]
-		b.WriteString(uv.StyleDiff(&cur, &c.Style))
+	i := 0
+	for ; i < last; i++ {
+		c := &cells[i]
+		dst = append(dst, uv.StyleDiff(&cur, &c.Style)...)
 		cur = c.Style
-		content := c.Content
-		if content == "" {
-			content = " "
+		if c.Content == "" {
+			dst = append(dst, ' ')
+		} else {
+			dst = append(dst, c.Content...)
 		}
-		b.WriteString(content)
 		if c.Width > 1 {
 			i += c.Width - 1
 		}
 	}
 	if !cur.IsZero() {
-		b.WriteString(ansi.ResetStyle)
+		dst = append(dst, ansi.ResetStyle...)
 	}
-	return b.String()
+	return dst, i
 }
 
 func cellBlank(
@@ -311,16 +315,9 @@ func decscusr(
 	return base
 }
 
-// sanitizeOSCText makes app-controlled OSC string text safe to re-emit inside our own
-// OSC 1/2 ... ST envelope: a byte that is not valid UTF-8 is DROPPED (never emitted as a
-// U+FFFD replacement char, which is itself how a truncated multi-byte title byte would leak
-// out as garbage), every C0 control (including ESC and BEL), DEL, and every C1 control
-// (including the 8-bit ST) is dropped, and the result is capped at maxOSCTextRunes runes on a
-// rune boundary. This is the belt-and-suspenders guarantee that the serializer can NEVER emit
-// an invalid-UTF-8 OSC title, independent of what the scanner stored.
-//
-// A raw invalid byte decodes as (utf8.RuneError, size 1) and is dropped; a genuine, correctly
-// encoded U+FFFD in the source (size 3) is legitimate content and is kept.
+// sanitizeOSCText makes app-controlled OSC text safe inside our OSC 1/2 ... ST envelope:
+// invalid UTF-8 bytes and every C0/C1 control and DEL are dropped (a real U+FFFD is kept),
+// and the result is capped at maxOSCTextRunes, so a title can never be invalid UTF-8.
 func sanitizeOSCText(
 	s string,
 ) string {

@@ -3,12 +3,12 @@ import {
   getSlashCatalog,
   type SlashCatalog,
   type SlashCatalogItem,
-} from '@/features/agent/api/agent-api'
-import { ApiError } from '@/lib/api'
+} from '@/features/agent/api/agent-chat-reads'
+import { ApiError } from '@/lib/errors/api-error'
 
 const SLASH_DEBOUNCE_MS = 150
 
-export type SlashCatalogState =
+type SlashCatalogState =
   | { state: 'closed' }
   | { state: 'ready'; catalog: SlashCatalog }
   | { state: 'error'; error: Error; unavailable: boolean }
@@ -22,42 +22,35 @@ export interface SlashCatalogOptions {
   chatId: string
   providerId: string
   active: boolean
-  /** The composer's current text. Only its leading `/` and query tail matter. */
-  draft: string
 }
 
-/**
- * The slash picker's catalogue.
- *
- * PRESAVED, not lazy: the probe can shell out to the CLI and take seconds, so
- * it fetches once as soon as the chat is active — before anybody has typed a
- * `/` — and caches whatever comes back. Opening the picker (the one moment the
- * user actually goes into it) asks again in the background, in case skills
- * changed since, but the refresh is silent: it never blanks what is already
- * cached, so the picker has no loading state to show and never shows a
- * spinner. The catalogue is incomplete by declaration on every provider
- * Crowbar ships (see `SlashCatalog.completeness`), which is why nothing here
- * treats an empty result as an error either.
- */
-export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: SlashCatalogOptions) {
+// The slash picker's catalogue, fetched as soon as the chat is active since the probe can take
+// seconds. Opening the picker refreshes it silently, never blanking the cache, so there is no
+// loading state; catalogues are partial by declaration, so an empty one is not an error.
+export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatalogOptions) {
   const [state, setState] = useState<SlashCatalogState>({ state: 'closed' })
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState(0)
+  const [query, setQuery] = useState('')
   const leadingRef = useRef(false)
   const providerRef = useRef(providerId)
   providerRef.current = providerId
 
-  /** Told about every draft change, so a leading `/` can open the picker exactly
-   *  once — retyping the slash is what reopens it after an explicit dismissal. */
-  const noteDraft = useCallback((value: string) => {
-    const leading = value.startsWith('/')
-    if (leading && !leadingRef.current) {
+  /** Told the box's slash query on every edit, so a leading `/` opens the picker
+   *  exactly once (retyping it reopens after a dismissal). Text with no slash on
+   *  either side of the edit sets nothing, so plain typing renders nothing here. */
+  const noteQuery = useCallback((slashQuery: string | null) => {
+    const leading = slashQuery !== null
+    const was = leadingRef.current
+    leadingRef.current = leading
+    if (!leading && !was) return
+    setQuery((slashQuery ?? '').trim().toLowerCase())
+    if (leading && !was) {
       setOpen(true)
       setSelected(0)
     } else if (!leading) {
       setOpen(false)
     }
-    leadingRef.current = leading
   }, [])
 
   const close = useCallback(() => setOpen(false), [])
@@ -67,16 +60,12 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
     setOpen(false)
   }, [])
 
-  // A chat/provider switch invalidates whatever is cached — those are a
-  // different CLI's skills, never shown stale under a menu that looks like
-  // it belongs to the one now running.
-  // This hook is called from AgentChatView, which already remounts on chatId
-  // (key={wsId:chatId}) — but not on providerId alone, which this also depends
-  // on, so a key cannot fully replace this reset.
+  // Another chat or provider means another CLI's skills. AgentChatView's key remounts on chatId
+  // but not on providerId alone, so a key cannot replace this reset.
   useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- a provider switch keeps the key (see above), so only this reset closes the old CLI's menu.
     setOpen(false)
-    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- same reset: the old CLI's catalog must not answer the new one's query.
     setState({ state: 'closed' })
   }, [wsId, chatId, providerId])
 
@@ -116,9 +105,8 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
     return () => controller.abort()
   }, [active, cached, probe])
 
-  // Reopening asks again, still silently — whatever is cached rides until the
-  // refresh lands, debounced so a `/` typed and immediately deleted never
-  // fires a probe at all.
+  // Reopening asks again, still silently — whatever is cached rides until the refresh lands,
+  // debounced so a `/` typed and immediately deleted never fires a probe at all.
   useEffect(() => {
     if (!open || !active) return
     const controller = new AbortController()
@@ -129,15 +117,19 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
     }
   }, [open, active, probe])
 
-  const query = draft.slice(1).trim().toLowerCase()
+  // A command named by what was typed leads, as in the CLI's own menu; a match in
+  // its description or source still shows, below.
   const items = useMemo(() => {
     if (state.state !== 'ready') return []
     if (!query) return state.catalog.items
-    return state.catalog.items.filter((item) =>
+    const named = (item: SlashCatalogItem) =>
+      item.insertText.replace(/^[/$]/, '').toLowerCase().startsWith(query)
+    const mentions = (item: SlashCatalogItem) =>
       `${item.label}\n${item.description}\n${item.source}\n${item.insertText}`
         .toLowerCase()
-        .includes(query),
-    )
+        .includes(query)
+    const all = state.catalog.items
+    return [...all.filter(named), ...all.filter((item) => !named(item) && mentions(item))]
   }, [state, query])
 
   useEffect(() => {
@@ -151,7 +143,7 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
   )
 
   /** Accept an item: the caller writes `insertText` into the composer. */
-  const accept = useCallback((item: SlashCatalogItem) => {
+  const accept = useCallback((item: Pick<SlashCatalogItem, 'insertText'>) => {
     leadingRef.current = item.insertText.startsWith('/')
     setOpen(false)
     return item.insertText
@@ -162,5 +154,5 @@ export function useSlashCatalog({ wsId, chatId, providerId, active, draft }: Sla
   // open over an empty result for every command the probe cannot see.
   const highlighted = open ? items[selected] : undefined
 
-  return { state, open, items, selected, highlighted, noteDraft, close, reset, move, accept }
+  return { state, open, items, selected, highlighted, noteQuery, close, reset, move, accept }
 }

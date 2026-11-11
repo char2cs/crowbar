@@ -4,7 +4,7 @@ import { loadReconnect, saveReconnect } from '@/features/terminal/lib/terminal-r
 
 // Which daemon PTY a terminal view attaches to. The invariants:
 //   - a bound session the daemon still has is attached, never replaced;
-//   - B7: a bound session the daemon no longer has ENDED — it is reported gone,
+//   - a bound session the daemon no longer has ENDED — it is reported gone,
 //     for a shell tab as much as an agent view, and never replaced by a spawn;
 //   - an agent view is bound to the PTY it names, and never spawns;
 //   - only a tab that was never bound gets a fresh PTY;
@@ -51,7 +51,7 @@ describe('resolveTerminalSession', () => {
   })
 
   it.each([false, true])(
-    'B7: a bound session the daemon no longer has is gone, never replaced (attachOnly=%s)',
+    'a bound session the daemon no longer has is gone, never replaced (attachOnly=%s)',
     async (attachOnly) => {
       saveReconnect('ws-1', 'tab-1', 'pty-dead')
       listLive.mockResolvedValue(['someone-elses-pty'])

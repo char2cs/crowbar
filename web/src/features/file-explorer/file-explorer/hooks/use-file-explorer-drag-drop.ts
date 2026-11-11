@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { moveWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { moveFile } from '@/features/file-system/controllers/platform'
 import type { FileEntry } from '@/features/file-system/types/app'
 import {
   endFileDrag,
@@ -9,8 +9,9 @@ import {
   setDropHoverAt,
   startFileDrag,
 } from '@/features/panes/stores/drag-store'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { openDocument } from '@/features/editor/documents/open-document'
 import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
+import { workspaceRef } from '@/lib/api/documents'
 import { getDirName, getPathSeparator, joinPath } from '@/utils/path-helpers'
 
 interface DragState {
@@ -30,7 +31,7 @@ const initialDragState: DragState = {
 }
 
 export function useFileExplorerDragDrop(
-  /** The workspace the tree shows: a drop opens or moves files in it, whichever is in view. */
+  /** The workspace whose tree this is: drops open and move its files, never the active one's. */
   workspaceId: string | null,
   rootFolderPath: string | undefined,
   onFileMove?: (oldPath: string, newPath: string) => void,
@@ -38,10 +39,8 @@ export function useFileExplorerDragDrop(
   onMoveError?: (message: string) => void,
 ) {
   const [dragState, setDragState] = useState<DragState>(initialDragState)
-  // Mirror of the latest dragState so the document mouse handlers can read
-  // fresh drag data (draggedItem/dragOverPath/dragOverIsDir) without the
-  // listener effect re-subscribing every frame. Assigned inline on each render
-  // so it is up to date before any effect or event handler runs.
+  // Latest dragState for the document mouse handlers, so the listener effect need not resubscribe
+  // every frame. Assigned during render so it is current before any effect or handler runs.
   const dragStateRef = useRef<DragState>(dragState)
   dragStateRef.current = dragState
   const dragPreviewRef = useRef<HTMLDivElement | null>(null)
@@ -213,13 +212,13 @@ export function useFileExplorerDragDrop(
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY)
       const isOverPane = elementUnder?.closest('[data-pane-container]') !== null
       const isOverFileTree = elementUnder?.closest('.file-tree-container') !== null
-      // Dropped on a pane (not in the file tree): the file opens as a tab of
-      // THAT pane — named explicitly, whatever has focus. A file never gets a
-      // pane of its own, so the zone is not consulted.
+      // Dropped on a pane (not in the file tree): the file opens in THAT pane,
+      // whatever has focus, unless a pane of its view already shows it. A file
+      // never gets a pane of its own, so the zone is not consulted.
       if (isOverPane && !isOverFileTree && draggedItem && !draggedItem.isDir) {
         const { paneId } = resolveDropTarget({ x: e.clientX, y: e.clientY })
         if (paneId && workspaceId) {
-          void openWorkspaceFile(workspaceId, draggedItem.path, { paneId })
+          void openDocument(workspaceRef(workspaceId, draggedItem.path), { paneId })
         }
         setDragState(initialDragState)
         clearAutoExpand()
@@ -247,7 +246,7 @@ export function useFileExplorerDragDrop(
         const newPath = joinPath(targetPath, sourceName)
 
         try {
-          await moveWorkspaceFile(workspaceId, sourcePath, newPath)
+          await moveFile(workspaceId, sourcePath, newPath)
           onFileMove?.(sourcePath, newPath)
         } catch (error) {
           console.error('Failed to move file:', error)
@@ -272,10 +271,8 @@ export function useFileExplorerDragDrop(
       clearAutoExpand()
       clearEditorDropHover()
     }
-    // Subscribe ONCE per drag: depend only on the isDragging boolean so the
-    // listeners stay mounted for the whole drag. The handlers read live drag
-    // data from dragStateRef, so no per-frame re-subscription is needed (which
-    // previously left a window where mouseup was unbound and could be missed).
+    // Of the drag state only isDragging is a dep, so the listeners stay bound for the whole drag
+    // (no gap where a mouseup is missed); handlers read live drag data from dragStateRef.
   }, [
     clearAutoExpand,
     clearEditorDropHover,

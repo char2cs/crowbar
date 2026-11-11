@@ -1,19 +1,18 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createElement } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Chat, Repo } from '@/core/entities/repo-types'
 import { useSettingsStore } from '@/features/settings/store'
-import type { Chat, Repo } from '@/lib/store/sidebar'
 
 // useSidebar() only feeds the reopen toggle; stubbed so no SidebarProvider is needed.
 const sidebar = vi.hoisted(() => ({ open: true }))
@@ -40,6 +39,11 @@ vi.mock('@/features/tabs/components/tab-context-menu', () => ({
 }))
 
 import TabBar from '@/features/tabs/components/tab-bar'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+
+beforeEach(resetChatStore)
+afterEach(() => vi.clearAllMocks())
 import * as fileTreeHandlers from '@/features/files/lib/file-tree-handlers'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
@@ -54,15 +58,12 @@ function makeEditorBuffer(i: number): EditorContent {
   return {
     id: `buf-${i}`,
     type: 'editor',
+    authority: 'workspace',
     path: `/project/file-${i}.ts`,
     name: `file-${i}.ts`,
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
-    isPinned: false,
     isPreview: false,
-    tokens: [],
     workspaceId: 'w1',
   }
 }
@@ -81,8 +82,8 @@ function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
   } as AgentChat
 }
 
-/** Seeds ROOT_PANE_ID on the window pane store with the given tabs and, when `chatId`
- *  is set, a matching chat on the returned workspace store. */
+/** Seeds a single pane (ROOT_PANE_ID) with the given editor tabs and, when
+ *  `chatId` is set, that chat in the ChatStore. */
 function setupPaneStore({
   buffers = [],
   chatId = null,
@@ -93,13 +94,7 @@ function setupPaneStore({
   activeEditorTabId?: string | null
 }) {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: {
-      ...s.agentChats,
-      chats: chatId ? [makeChat({ id: chatId })] : s.agentChats.chats,
-    },
-  }))
+  if (chatId) writeChat({ repoId: 'repo-1', ...makeChat({ id: chatId }) })
   resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
     s.buffers = buffers
@@ -112,10 +107,6 @@ function setupPaneStore({
   })
   if (chatId) windowPaneStore.getState().paneActions.openChat(chatId)
   return store
-}
-
-function setupStore(buffers: EditorContent[]) {
-  return setupPaneStore({ buffers })
 }
 
 function renderTabBar(
@@ -132,17 +123,11 @@ function renderTabBar(
 }
 
 describe('TabBar "+" placement', () => {
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
   it('renders the + as the last child INSIDE the scrolling tab container, not as a sibling after it', () => {
     const buffers = [makeEditorBuffer(0), makeEditorBuffer(1), makeEditorBuffer(2)]
-    const store = setupStore(buffers)
+    const store = setupPaneStore({ buffers })
 
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
 
     const addButton = screen.getByRole('button', { name: 'New tab' })
     const scrollContainer = screen.getByTestId('editor-tab-scroller')
@@ -161,11 +146,9 @@ describe('TabBar "+" placement', () => {
 
   it('flows to stay the last child as tabs are added', () => {
     const buffers = [makeEditorBuffer(0)]
-    const store = setupStore(buffers)
+    const store = setupPaneStore({ buffers })
 
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
 
     act(() => {
       windowPaneStore.setState((s) => {
@@ -186,18 +169,13 @@ describe('TabBar "+" click behaviour', () => {
   beforeEach(() => {
     setActiveWorkspaceId('w-in-view')
   })
-  afterEach(() => {
-    vi.clearAllMocks()
-    setActiveWorkspaceId(null)
-  })
+  afterEach(() => setActiveWorkspaceId(null))
 
   it('focuses this pane and opens a New Tab page in it, with no menu', async () => {
     const user = userEvent.setup()
     const buffers = [makeEditorBuffer(0)]
     const store = setupPaneStore({ buffers, chatId: 'chat-1' })
-    act(() => {
-      renderTabBar(store, { wsId: 'w-pane' })
-    })
+    renderTabBar(store, { wsId: 'w-pane' })
     act(() => {
       windowPaneStore.getState().paneActions.setActivePane('some-other-pane-first')
     })
@@ -218,9 +196,7 @@ describe('TabBar "+" click behaviour', () => {
   it('a second + focuses the open New Tab instead of stacking another', async () => {
     const user = userEvent.setup()
     const store = setupPaneStore({ buffers: [makeEditorBuffer(0)], chatId: 'chat-1' })
-    act(() => {
-      renderTabBar(store, { wsId: 'w-pane' })
-    })
+    renderTabBar(store, { wsId: 'w-pane' })
 
     await user.click(screen.getByRole('button', { name: 'New tab' }))
     await user.click(screen.getByRole('tab', { name: 'file-0.ts' }))
@@ -236,18 +212,12 @@ describe('TabBar "+" click behaviour', () => {
 // The IDE sector's own row: split toggle, the tab scroller, the branch-review shortcut.
 // The chat draws its own header in the chat view.
 describe('TabBar pane-top-row anatomy', () => {
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
   it('the split toggle leads the row, outside the tab scroller', () => {
     const store = setupPaneStore({
       chatId: 'chat-1',
       buffers: [makeEditorBuffer(0)],
     })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
 
     const row = screen.getByTestId('pane-top-row')
     const children = Array.from(row.children).map((c) => c.getAttribute('data-role'))
@@ -257,18 +227,14 @@ describe('TabBar pane-top-row anatomy', () => {
   // The shared pane box paints none (it would block the chat view's vibrancy).
   it('paints its own opaque pane-background — the shared box no longer does', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
 
     expect(screen.getByTestId('pane-top-row')).toHaveClass('bg-pane-background')
   })
 
   it('draws no chat head of its own for a pane with only its chat', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
     expect(screen.queryByTestId('editor-tab-scroller')).not.toBeInTheDocument()
     expect(screen.queryByTestId('chat-head')).not.toBeInTheDocument()
     // The row itself — split toggle — still draws.
@@ -278,13 +244,9 @@ describe('TabBar pane-top-row anatomy', () => {
 
   it('the split toggle flips PaneGroup.editorOpen', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(false)
-    act(() => {
-      fireEvent.click(screen.getByTestId('split-toggle'))
-    })
+    fireEvent.click(screen.getByTestId('split-toggle'))
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(true)
   })
 })
@@ -292,10 +254,7 @@ describe('TabBar pane-top-row anatomy', () => {
 // A thread runs on its parent's worktree (`Chat.workspaceId` is inherited, so it can't
 // gate this): only the worktree's owning chat gets branch chrome.
 describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', () => {
-  afterEach(() => {
-    useSidebarStore.setState({ repos: [] })
-    vi.clearAllMocks()
-  })
+  afterEach(() => seedRepos([]))
 
   function seedRepoChats(chatOwnsWorktree: boolean) {
     const owner: Chat = {
@@ -306,42 +265,38 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
       workspaceId: 'w1',
       ownsWorktree: true,
     }
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'crowbar',
-          avatarLabel: 'C',
-          avatarColor: '#000',
-          workspaces: [],
-          defaultWorkspaceId: 'w1',
-          defaultOwningChatId: owner.id,
-          chats: chatOwnsWorktree
-            ? [owner]
-            : [
-                owner,
-                {
-                  id: 'chat-1',
-                  repoId: 'repo-1',
-                  title: 'My Chat',
-                  order: 1,
-                  workspaceId: 'w1',
-                  ownsWorktree: false,
-                  parentId: 'chat-main',
-                },
-              ],
-        } as Repo,
-      ],
-    })
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'crowbar',
+        avatarLabel: 'C',
+        avatarColor: '#000',
+        workspaces: [],
+        defaultWorkspaceId: 'w1',
+        defaultOwningChatId: owner.id,
+        chats: chatOwnsWorktree
+          ? [owner]
+          : [
+              owner,
+              {
+                id: 'chat-1',
+                repoId: 'repo-1',
+                title: 'My Chat',
+                order: 1,
+                workspaceId: 'w1',
+                ownsWorktree: false,
+                parentId: 'chat-main',
+              },
+            ],
+      } as Repo,
+    ])
   }
 
   it('hides it for a pane whose chat is a thread', () => {
     seedRepoChats(false)
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
-    act(() => {
-      renderTabBar(store, { wsId: 'w1' })
-    })
+    renderTabBar(store, { wsId: 'w1' })
     expect(screen.queryByTestId('branch-review-shortcut')).not.toBeInTheDocument()
     // The rest of the IDE sector's row is untouched.
     expect(screen.getByTestId('editor-tab-scroller')).toBeInTheDocument()
@@ -350,35 +305,24 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
   it('keeps it for a pane whose chat owns its worktree', () => {
     seedRepoChats(true)
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
-    act(() => {
-      renderTabBar(store, { wsId: 'w1' })
-    })
+    renderTabBar(store, { wsId: 'w1' })
     expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
   })
 
-  // An editor-only split names no chat, so there is no thread to suppress.
-  it('keeps it for an editor-only pane that holds no chat', () => {
-    seedRepoChats(false)
+  // An editor-only pane is handed no workspace (pane-container passes its chat's): nothing to open.
+  it('hides it for an editor-only pane that holds no chat', () => {
     const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
-    act(() => {
-      renderTabBar(store, { wsId: 'w1' })
-    })
-    expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
+    renderTabBar(store, { wsId: null })
+    expect(screen.queryByTestId('branch-review-shortcut')).not.toBeInTheDocument()
   })
 })
 
 // An emptied split pane leaves the layout, so an empty pane here is the window's last:
 // the "nothing is open" fallback, with no name, nothing to close and nothing to toggle.
 describe('TabBar — a pane holding nothing draws no chrome for it', () => {
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
   it('draws no split toggle and no tab strip', () => {
     const store = setupPaneStore({ chatId: null, buffers: [] })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
 
     expect(screen.queryByTestId('split-toggle')).not.toBeInTheDocument()
     expect(screen.queryByTestId('editor-tab-scroller')).not.toBeInTheDocument()
@@ -386,9 +330,7 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
 
   it('keeps the row itself — it carries the window drag region and the traffic-light inset', () => {
     const store = setupPaneStore({ chatId: null, buffers: [] })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
 
     const row = screen.getByTestId('pane-top-row')
     expect(row).toBeInTheDocument()
@@ -398,9 +340,7 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
 
   it('the same pane with a chat in it draws the full row again', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
 
     expect(screen.getByTestId('split-toggle')).toBeInTheDocument()
   })
@@ -409,19 +349,13 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
 // Collapsed, the chat is just another tab in the strip; pane-container decides when
 // (`showChatTab`), TabBar only draws it.
 describe('TabBar — chat as a tab (showChatTab)', () => {
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
   it('renders the chat as the FIRST entry in the scroller, before real tabs, when showChatTab is set', () => {
     const store = setupPaneStore({
       chatId: 'chat-1',
       buffers: [makeEditorBuffer(0)],
       activeEditorTabId: null,
     })
-    act(() => {
-      renderTabBar(store, { showChatTab: true })
-    })
+    renderTabBar(store, { showChatTab: true })
 
     const scroller = screen.getByTestId('editor-tab-scroller')
     const chatTab = screen.getByTestId('chat-tab-item')
@@ -431,9 +365,7 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
 
   it('never renders the chat tab when showChatTab is not set (default)', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
 
     expect(screen.queryByTestId('chat-tab-item')).not.toBeInTheDocument()
   })
@@ -443,9 +375,7 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
       chatId: 'chat-1',
       buffers: [makeEditorBuffer(0)],
     })
-    act(() => {
-      renderTabBar(store, { showChatTab: true })
-    })
+    renderTabBar(store, { showChatTab: true })
 
     expect(screen.getByTestId('chat-tab-item')).toHaveAttribute('aria-selected', 'true')
     const fileTab = screen.getByRole('tab', { name: /file-0\.ts/ })
@@ -458,17 +388,13 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
       buffers: [makeEditorBuffer(0)],
       activeEditorTabId: 'buf-0',
     })
-    act(() => {
-      renderTabBar(store, { showChatTab: true })
-    })
+    renderTabBar(store, { showChatTab: true })
 
     act(() => {
       windowPaneStore.getState().paneActions.setActivePane('some-other-pane-first')
     })
 
-    act(() => {
-      fireEvent.click(screen.getByTestId('chat-tab-item'))
-    })
+    fireEvent.click(screen.getByTestId('chat-tab-item'))
 
     // activeEditorTabId keeps naming buf-0, so the editor view doesn't unmount it.
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatSelected).toBe(true)
@@ -482,13 +408,9 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
       buffers: [makeEditorBuffer(0)],
       activeEditorTabId: null,
     })
-    act(() => {
-      renderTabBar(store, { showChatTab: true })
-    })
+    renderTabBar(store, { showChatTab: true })
 
-    act(() => {
-      fireEvent.click(screen.getByRole('tab', { name: /file-0\.ts/ }))
-    })
+    fireEvent.click(screen.getByRole('tab', { name: /file-0\.ts/ }))
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
   })
@@ -504,24 +426,18 @@ describe('TabBar context menu', () => {
 
   it('reveals a tab’s file in the workspace the tab belongs to, not the pane’s', () => {
     const reveal = vi.spyOn(fileTreeHandlers, 'revealInFolder').mockImplementation(() => {})
-    const store = setupStore([{ ...makeEditorBuffer(0), workspaceId: 'w-tab' }])
-    act(() => {
-      renderTabBar(store, { wsId: 'w-pane' })
-    })
+    const store = setupPaneStore({ buffers: [{ ...makeEditorBuffer(0), workspaceId: 'w-tab' }] })
+    renderTabBar(store, { wsId: 'w-pane' })
 
-    act(() => {
-      fireEvent.contextMenu(screen.getByRole('tab', { name: /file-0\.ts/ }))
-    })
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /file-0\.ts/ }))
     menu.onRevealInFinder?.('src/a.ts')
 
     expect(reveal).toHaveBeenCalledExactlyOnceWith('w-tab', 'src/a.ts')
   })
 
   it('offers no Reveal while no tab’s menu is open, rather than guessing a workspace', () => {
-    const store = setupStore([makeEditorBuffer(0)])
-    act(() => {
-      renderTabBar(store, { wsId: 'w-pane' })
-    })
+    const store = setupPaneStore({ buffers: [makeEditorBuffer(0)] })
+    renderTabBar(store, { wsId: 'w-pane' })
 
     expect(menu.onRevealInFinder).toBeUndefined()
   })
@@ -532,14 +448,10 @@ describe('TabBar context menu', () => {
     pairRemoteHost('host-1')
     loadProjects(projectOn('p-remote', 'host-1'))
     recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
-    const store = setupStore([{ ...makeEditorBuffer(0), workspaceId: 'w-remote' }])
-    act(() => {
-      renderTabBar(store, { wsId: 'w-remote' })
-    })
+    const store = setupPaneStore({ buffers: [{ ...makeEditorBuffer(0), workspaceId: 'w-remote' }] })
+    renderTabBar(store, { wsId: 'w-remote' })
 
-    act(() => {
-      fireEvent.contextMenu(screen.getByRole('tab', { name: /file-0\.ts/ }))
-    })
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /file-0\.ts/ }))
 
     expect(menu.onRevealInFinder).toBeUndefined()
     resetHostWorld()
@@ -564,9 +476,7 @@ describe('TabBar — build readout beside the reopen toggle', () => {
     const rect = { left: 0, top: 0, width: window.innerWidth, height: 32, right: window.innerWidth }
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(rect as DOMRect)
     const store = setupPaneStore({ buffers: [makeEditorBuffer(0)] })
-    act(() => {
-      renderTabBar(store)
-    })
+    renderTabBar(store)
   }
 
   it.each(['left', 'right'] as const)(

@@ -1,7 +1,7 @@
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { TerminalIcon } from '@/features/agent/shared/agent-icons'
+import { StopIcon, TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
-import type { AgentTerminalAnswer } from '@/features/agent/api/agent-api'
+import type { AgentTerminalAnswer } from '@/features/agent/api/agent-chat-reads'
 import type { SignpostReason } from '@/features/agent/composer/lib/composer-state'
 
 interface ComposerSignpostProps {
@@ -11,22 +11,19 @@ interface ComposerSignpostProps {
   /** The prompt's declared one-tap replies, when it has any. */
   answers?: AgentTerminalAnswer[]
   onAnswer?: (answerId: string) => void
+  /** Present when a turn runs or a prompt is held: the bar's Stop, which it hides. */
+  onStop?: () => void
 }
 
-/**
- * The bar as a REASON YOU CANNOT TYPE.
- *
- * It occupies the composer's slot instead of sitting above it: the fact it
- * reports IS that there is nothing to type into. Where there is a way out
- * elsewhere (the terminal), it carries it. `reviving` is the daemon placing a
- * CLI — a spinner, nothing to click.
- */
+/** Takes the composer's slot rather than sitting above it: what it reports is
+ *  that there is nothing to type into. */
 export function ComposerSignpost({
   reason,
   message,
   onOpenTerminal,
   answers,
   onAnswer,
+  onStop,
 }: ComposerSignpostProps) {
   return (
     <div className="pill halted" role="status">
@@ -41,6 +38,11 @@ export function ComposerSignpost({
       {(reason === 'unsupported' || reason === 'terminal_wait') && (
         <Button size="xs" variant="secondary" onClick={onOpenTerminal}>
           <TerminalIcon /> Terminal
+        </Button>
+      )}
+      {onStop && (
+        <Button size="xs" variant="secondary" aria-label="Stop this turn" onClick={onStop}>
+          <StopIcon size={12} /> Stop
         </Button>
       )}
     </div>

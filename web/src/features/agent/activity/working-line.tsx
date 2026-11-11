@@ -1,187 +1,90 @@
 import { useEffect, useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import type { AgentActivity } from '@/features/agent/api/agent-api'
-import {
-  blockedOn,
-  blocksOnAPerson,
-  describeInterruption,
-  pendingChoices,
-} from '@/features/agent/lib/agent-activity'
-import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { reasoningHeadline } from '@/features/agent/activity/lib/reasoning-headline'
+import { useTextClock } from '@/features/agent/activity/lib/text-clock'
+import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
 
-interface WorkingLineProps {
-  activity: AgentActivity
+export interface WorkingLineProps {
   working: boolean
-  /** When the current turn started, for the elapsed clock. */
+  /** When the turn started, or when Enter was pressed before it did. */
   since?: string
-  /**
-   * Is this chat LIVE mid-compaction right now — from the direct WS push
-   * (use-workspace-agent-chats-stream.ts), never from `activity`.
-   *
-   * The ledger's own interruption record for a compaction is born already
-   * resolved (a bare /compact prompt never opens a tracked turn, so
-   * commands.Interrupt's idle-chat handling resolves it in the SAME event
-   * that creates it), so `blockedOn(activity)` can never observe an open
-   * compaction window — reading it for this would be permanently dead code.
-   * This prop is the only authoritative "is it happening right now" answer.
-   */
-  compactingLive?: boolean
-  /**
-   * What the agent is THINKING right now, if it is telling us.
-   *
-   * This is the only thing on screen during the long stretch a reasoning model
-   * spends before it says anything at all — codex emits nothing but reasoning
-   * deltas for most of a hard turn — so without it the whole of that reads as a
-   * frozen chat with a spinner on it.
-   *
-   * Live-only and never recorded (see the backend's turn/reasoning.go and the
-   * store's streamingReasoning), which is why it renders HERE, in the
-   * what-is-happening-now strip, and not as a transcript row.
-   */
+  /** A compaction opens no turn, so it shows here whether or not one is running. */
+  compacting?: boolean
+  /** An ask is waiting on the person. */
+  asking?: boolean
+  /** Stop was pressed and the turn has not ended yet. */
+  stopping?: boolean
+  activeTodo?: string
+  /** The live label of the running main-agent tool. */
+  toolLabel?: string
+  /** Subagents still running. */
+  agents?: number
+  /** What the agent is thinking right now. */
   reasoning?: string
-  /**
-   * The agent's own to-do list for this turn, newest state wholesale.
-   *
-   * Statuses are CROWBAR'S words — pending / active / done — already translated
-   * from the provider's own vocabulary by its descriptor, so nothing here knows
-   * how any CLI spells "in progress". An unrecognised status still renders, just
-   * unstyled: silently dropping a step would shorten the plan.
-   */
-  plan?: { text: string; status: string }[]
+  /** Answer text is streaming: the reply is being written. */
+  streaming?: boolean
+  /** The CLI the chat is moving onto is still connecting. */
+  connecting?: string
 }
 
-/**
- * What the agent is doing, while it is doing it.
- *
- * The heading is the agent's own live words when it is telling us what it is
- * doing; only when it says nothing does it fall back to CROWBAR'S rotating verb,
- * which is flavour and must never wear a provider's name. What is real beside it is the elapsed clock,
- * straight off the turn's own start.
- *
- * The tool calls are NOT here. They used to be, and being here was the whole of
- * their life on screen: a call showed for as long as it ran and then vanished,
- * with nothing left behind until the turn ended. They are chronological
- * transcript rows now; status and output update in place while this strip stays
- * at the tail to indicate current work.
- *
- * It goes quiet the moment the chat is blocked on a person: a chat waiting for
- * an answer is not working, and saying otherwise is how a blocked agent came to
- * look busy.
- */
-export function WorkingLine({
-  activity,
-  working,
-  since,
-  compactingLive,
-  reasoning,
-  plan,
-}: WorkingLineProps) {
-  const [tick, setTick] = useState(0)
-  const [elapsed, setElapsed] = useState(0)
+const clockText = (seconds: number) => (seconds > 0 ? ` · ${formatElapsed(seconds)}` : '')
 
-  // Compaction is the CLI's own housekeeping, not a wait on a PERSON, and a
-  // specific, known operation rather than the vague busywork the rotating
-  // verb list exists for. Fixed at "Compacting" instead.
-  //
-  // Sourced from the live push, NEVER from `activity`: a compaction's ledger
-  // record is born already resolved (see this prop's own doc comment), so
-  // `blockedOn(activity)?.kind === 'compaction'` can never be true — it would
-  // be permanently dead code, not a fallback.
-  const interruption = blockedOn(activity)
-  const thought = reasoning ? reasoningHeadline(reasoning) : null
-  const compacting = compactingLive === true
+/** The most specific true thing the turn is doing, never a guess, beside its clock. */
+function headingOf(p: WorkingLineProps, thought: string | undefined): string {
+  if (p.stopping) return 'Stopping…'
+  if (p.asking) return 'Waiting for your answer'
+  if (p.compacting) return 'Compacting…'
+  if (p.connecting && !p.working) return p.connecting
+  if (p.activeTodo) return p.activeTodo
+  if (p.toolLabel) return p.toolLabel
+  if (p.agents) return `Waiting for ${p.agents} ${p.agents === 1 ? 'agent' : 'agents'}`
+  if (thought) return thought
+  if (p.streaming) return 'Writing…'
+  return ''
+}
+
+export function WorkingLine(props: WorkingLineProps) {
+  const { working, compacting = false, asking = false, connecting } = props
+  const [tick, setTick] = useState(0)
+  const thought = props.reasoning ? reasoningHeadline(props.reasoning) : null
+  const heading = headingOf(props, thought?.headline || undefined)
+  const rotating = working && heading === ''
+  const clockRef = useTextClock(props.since, clockText)
 
   useEffect(() => {
-    if (!working || compacting) {
+    if (!rotating) {
       setTick(0)
       return
     }
     const timer = window.setInterval(() => setTick((n) => n + 1), VERB_ROTATION_MS)
     return () => window.clearInterval(timer)
-  }, [working, compacting])
+  }, [rotating])
 
-  useEffect(() => {
-    if (!working || !since) {
-      setElapsed(0)
-      return
-    }
-    const startedAt = Date.parse(since)
-    if (Number.isNaN(startedAt)) return
-    const read = () => setElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000)))
-    read()
-    const timer = window.setInterval(read, 1000)
-    return () => window.clearInterval(timer)
-  }, [working, since])
-
-  // A CHAT WAITING ON A PERSON IS NOT WORKING, so it must never wear the spinner
-  // and the rotating verb — that is exactly how a blocked agent came to look busy.
-  //
-  // But going SILENT for it was the opposite failure, and a worse one. The
-  // composer only ever renders pendingChoices[0], and toDividerTag draws nothing
-  // at all for the permission, notification and elicitation kinds, so a block with
-  // no pending choice behind it — a prompt that never opened durably, a second
-  // simultaneous prompt, an interruption the backend never resolved — erased the
-  // spinner and put nothing in its place. The chat simply looked dead, with no
-  // explanation anywhere on screen. That is the "we lose track of whether it is
-  // working" report.
-  //
-  // So: quiet only when something ELSE is already speaking for the block, which is
-  // what a pending choice in the composer means. Otherwise say what is being
-  // waited on, without claiming to be working.
-  const blockedByPerson = !compacting && blocksOnAPerson(interruption)
-  const answeringInTheBar = pendingChoices(activity).length > 0
-  // `working` is turn-dispatch state and stays FALSE for a /compact — it never
-  // opens a tracked turn (see compactingLive's own doc comment) — so gating
-  // on `working` alone would hide this branch for the exact case it exists
-  // to cover. Compacting is its own "there is something to show" condition,
-  // independent of whether a turn happens to be open too.
-  if ((!working && !compacting) || answeringInTheBar) return null
-
-  // Not a turn in flight: no spinner, no verb, no elapsed clock. Just the reason.
-  if (blockedByPerson && interruption) {
-    return (
-      <div className="activity" data-testid="agent-activity-strip" data-blocked="true">
-        <div className="hd">
-          <span className="dim">{describeInterruption(interruption)}</span>
-        </div>
-      </div>
-    )
-  }
+  if (!working && !compacting && !asking && !connecting) return null
 
   return (
     <div className="activity" data-testid="agent-activity-strip">
       <div className="hd">
-        <FlickerSpinner className="size-4" />
+        {!asking && <FlickerSpinner className="size-4" />}
         <span>
-          <b className="verb" data-testid="agent-working-heading">
-            {compacting ? 'Compacting…' : thought?.headline ? thought.headline : `${verbAt(tick)}…`}
+          {/* Announced on change; the clock beside it stays out of the live region,
+              and the rotating verb is announced once as "Working". */}
+          <b className="verb" data-testid="agent-working-heading" aria-live="polite">
+            {heading || (
+              <>
+                <span className="sr-only">Working</span>
+                <span aria-hidden="true">{`${verbAt(tick)}…`}</span>
+              </>
+            )}
           </b>
-          {elapsed > 0 && <span className="dim"> · {formatElapsed(elapsed)}</span>}
+          {!asking && <span className="dim" ref={clockRef} />}
         </span>
       </div>
-      {thought?.body && !compacting && (
+      {thought?.body && heading === thought.headline && (
         <p className="reasoning-subtitle" data-testid="agent-reasoning">
           {thought.body}
         </p>
-      )}
-      {plan && plan.length > 0 && !compacting && (
-        <ol className="plan" data-testid="agent-plan">
-          {/* PlanStep (Go's domain.PlanStep) has no id, only text/status, so
-              there is no natural stable identity to key on. The index is
-              combined WITH text, not used alone: a genuinely reordered/
-              changed step still gets a fresh key (forcing the correct
-              re-render), and two steps sharing identical text — the only
-              case this degrades to a plain index key — is not a real shape
-              for a task list. */}
-          {plan.map((step, i) => (
-            // react-doctor-disable-next-line no-array-index-as-key -- see comment above, index is combined with text
-            <li key={`${i}-${step.text}`} data-status={step.status}>
-              {step.text}
-            </li>
-          ))}
-        </ol>
       )}
     </div>
   )

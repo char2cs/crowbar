@@ -1,6 +1,5 @@
 // Package handlers holds the gin handlers backing the review endpoint: the
-// composite branch-review read model and merge-strategy mutation (02 §2.9, 09).
-// Review-thread CRUD was promoted to the first-class /threads endpoint (W9).
+// branch-review read model, the windowed diff reads and the merge-strategy mutation.
 package handlers
 
 import (
@@ -14,19 +13,16 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// ReviewUsecase is the branch-review surface the review handlers consume. It is
-// satisfied by branchreview.Usecase, whose thread methods are now consumed by
-// the dedicated threads endpoint rather than here.
+// ReviewUsecase is the branch-review surface the review handlers consume,
+// satisfied by branchreview.Usecase.
 type ReviewUsecase interface {
 	// Get assembles the composite branch-review read model for a workspace.
 	Get(
 		ctx context.Context,
 		wsID string,
 	) (domain.BranchReview, error)
-	// GetFiles returns the files-only branch-review summary for a workspace.
-	//
-	// commit scopes every windowed read below to one commit against its parent
-	// instead of the branch; empty means the branch diff.
+	// GetFiles returns the files-only branch-review summary for a workspace. commit scopes this
+	// and every windowed read below to one commit against its parent; empty means the branch diff.
 	GetFiles(
 		ctx context.Context,
 		wsID string,
@@ -86,12 +82,8 @@ func New(
 	}
 }
 
-// workspaceID answers which worktree this request acts on: the chat group's
-// resolveChatWorktree middleware has already resolved the chat's worktree and
-// stashed the workspace on the context, so the answer is read back from
-// reqscope — never resolved a second time per request, and never taken from a
-// URL, because no chat-scoped URL carries a workspace id to take it from
-// (spec law 1).
+// workspaceID is the worktree this request acts on, read back from reqscope where the chat
+// group's resolveChatWorktree middleware stashed it; no chat-scoped URL carries a workspace id.
 func (h *Handlers) workspaceID(
 	ctx *gin.Context,
 ) string {

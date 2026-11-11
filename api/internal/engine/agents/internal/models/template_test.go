@@ -14,6 +14,31 @@ func TestScopeFlags_IncludesHome(t *testing.T) {
 	}
 }
 
+// A callback dials the address the daemon bound, not one it derives from --home.
+func TestScopeFlags_HandsCallbacksTheDaemonAddress(t *testing.T) {
+	for host, want := range map[string]string{
+		"unix:///tmp/crowbar-abc.sock": "--project=p1 --workspace=w1 --home=/Users/x/.crowbar --host=unix:///tmp/crowbar-abc.sock",
+		"tcp://127.0.0.1:3737":         "--project=p1 --workspace=w1 --home=/Users/x/.crowbar --host=tcp://127.0.0.1:3737",
+	} {
+		c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1", CrowbarHome: "/Users/x/.crowbar", DaemonHost: host}
+		if got := c.ScopeFlags(); got != want {
+			t.Fatalf("ScopeFlags() = %q, want %q", got, want)
+		}
+		if got := c.Replacer().Replace("{daemon_host}"); got != host {
+			t.Fatalf("{daemon_host} = %q, want %q", got, host)
+		}
+	}
+}
+
+func TestScopeFlags_QuotesADaemonSocketWithASpace(t *testing.T) {
+	c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1", DaemonHost: "unix:///tmp/a b.sock"}
+	got := c.ScopeFlags()
+	want := "--project=p1 --workspace=w1 --host='unix:///tmp/a b.sock'"
+	if got != want {
+		t.Fatalf("ScopeFlags() = %q, want %q", got, want)
+	}
+}
+
 func TestScopeFlags_OmitsHomeWhenEmpty(t *testing.T) {
 	c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1"}
 	got := c.ScopeFlags()
@@ -31,19 +56,19 @@ func TestReplacer_ExpandsCrowbarHome(t *testing.T) {
 	}
 }
 
-// Hook commands run through the vendor CLI's shell: a home under a directory
-// with a space must still reach the relay as one word, or no hook ever fires.
+// Scope flags run through a shell: a home under a directory with a space must
+// still arrive as one word.
 func TestHookCommandValues_SurviveAShell(t *testing.T) {
 	c := TemplateCtx{
 		ProjectID: "p1", WorkspaceID: "w1",
-		CrowbarHome: "/Users/Jo Smith/.crowbar", CrowbarHook: "/Users/Jo Smith/.crowbar/bin/crowbar",
+		CrowbarHome: "/Users/Jo Smith/.crowbar", CrowbarBin: "/Users/Jo Smith/.crowbar/bin/crowbar",
 	}
-	got := c.Replacer().Replace("{crowbar_hook} hook turn_stop {scope_flags}")
-	want := "'/Users/Jo Smith/.crowbar/bin/crowbar' hook turn_stop --project=p1 --workspace=w1 --home='/Users/Jo Smith/.crowbar'"
+	got := c.Replacer().Replace("{scope_flags}")
+	want := "--project=p1 --workspace=w1 --home='/Users/Jo Smith/.crowbar'"
 	if got != want {
-		t.Fatalf("hook command = %q, want %q", got, want)
+		t.Fatalf("scope flags = %q, want %q", got, want)
 	}
-	if raw := c.Replacer().Replace("{crowbar}"); raw != c.CrowbarHook {
+	if raw := c.Replacer().Replace("{crowbar}"); raw != c.CrowbarBin {
 		t.Fatalf("{crowbar} is an argv/config value, not shell: got %q", raw)
 	}
 }
@@ -82,7 +107,7 @@ func TestReplacer_ExpandsTheHookURL(t *testing.T) {
 func TestHookCurl_ReadsItsCredentialFromAFileNotArgv(t *testing.T) {
 	c := TemplateCtx{Tmp: "/var/folders/Jo Smith/T/run-1", RunnerToken: "secret-token"}
 	got := c.Replacer().Replace("{hook_curl}")
-	want := "curl --silent --show-error --config '/var/folders/Jo Smith/T/run-1/hook.curl'"
+	want := "curl --fail --silent --show-error --config '/var/folders/Jo Smith/T/run-1/hook.curl'"
 	if got != want {
 		t.Fatalf("{hook_curl} expanded to %q, want %q", got, want)
 	}

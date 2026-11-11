@@ -3,16 +3,15 @@
 // Package agent_test is the acceptance test for the agentic engine (Task 19):
 // it drives the REAL claude/codex CLIs through Crowbar's Go stack end to end.
 //
-// The one thing kit.BuildEnv cannot exercise is the hook round trip: claude's
-// SessionStart hook shells out to `crowbar hook session_start`, which POSTs to
-// the daemon over a UNIX SOCKET at transports.SocketPath("unix://") — but
-// kit.BuildEnv serves the daemon over an httptest/TCP server, which that
-// subprocess can never reach. So this package builds its own from-scratch
-// daemon (engine -> adapter -> app -> v0 router) and serves it on the real
-// unix socket, wires a real built `crowbar` binary as the hook seam
-// (CROWBAR_HOOK_BIN), and drives the agent usecase directly (SpawnChat /
-// SwitchProvider) rather than through HTTP — the point of the test is proving
-// the hook comes BACK over the socket, not re-testing the REST surface.
+// The one thing kit.BuildEnv cannot exercise is the hook round trip: a spawned
+// CLI POSTs each hook to the daemon's loopback hook server (claude natively over
+// HTTP, codex through curl), at the URL the daemon published under its home. So
+// this package builds its own from-scratch daemon (engine -> adapter -> app ->
+// v0 router), serves it on the real unix socket and on a published hook server,
+// wires a real built `crowbar` binary for the CLIs' `crowbar mcp` (engine.Container.CrowbarBin),
+// and drives the agent usecase directly (spawnChat / SwitchProvider) rather than
+// through HTTP — the point of the test is proving the hook comes BACK, not
+// re-testing the REST surface.
 package agent_test
 
 import (
@@ -31,23 +30,20 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/engine"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // TestMain silences logs and enables gin test mode like every other integration
-// package, and additionally polices the user's REAL provider homes across the run.
-//
-// This is the only package that spawns real vendor CLIs, and a vendor CLI records
-// trust by PLACE in a home Crowbar does not own. Every test here builds a throwaway
-// repo, so an un-isolated run appends one permanent, already-dead stanza per test to
-// the user's own ~/.codex/config.toml and ~/.claude.json. newHarness isolates both
-// homes; this fails the run if anything slipped past that.
+// package. A vendor CLI records trust by place in its own home, so newHarness
+// points both provider homes at temp dirs before anything can spawn one.
 func TestMain(m *testing.M) {
-	kit.MainGuardingProviderHomes(m)
+	kit.Main(m)
 }
 
 // harness is a from-scratch daemon wired the same way cmd/crowbar's `serve`
@@ -57,7 +53,7 @@ type harness struct {
 	home string
 	app  *app.Container
 	eng  *engine.Container
-	// hooks fires after every COMPLETED `crowbar hook` POST. It is this suite's
+	// hooks fires after every COMPLETED hook POST. It is this suite's
 	// synchronisation primitive: a vendor CLI announcing itself is an event, and
 	// awaitHook blocks on it instead of re-sampling the read model on a timer.
 	hooks *hookBarrier
@@ -72,10 +68,10 @@ type harness struct {
 	trusted map[string]bool
 }
 
-// newHarness builds a real crowbar binary, points CROWBAR_HOME + the
-// CROWBAR_HOOK_BIN test seam at a fresh temp home, and serves the real v0
-// router on the same unix socket a spawned claude/codex's `crowbar hook`
-// subprocess will dial (it inherits CROWBAR_HOME via os.Environ()).
+// newHarness builds a real crowbar binary, hands it to the engine over a fresh
+// temp CROWBAR_HOME, and serves the real v0
+// router on the home's unix socket and on the hook server whose URL it
+// publishes there, the one a spawned CLI's hooks are rendered to POST to.
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	ctx := context.Background()
@@ -83,9 +79,9 @@ func newHarness(t *testing.T) *harness {
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
 
-	// PIN THIS SUITE TO THE HOOKS TRANSPORT. Every test here drives a vendor CLI by
-	// TYPING INTO ITS PTY and asserts on what that CLI's own `crowbar hook` POSTs put
-	// in the ledger — the hook round trip over the unix socket is the entire reason
+	// PIN THIS SUITE TO THE HOOKS TRANSPORT (engine.Container.NoAPITransport). Every test here drives a vendor CLI by
+	// TYPING INTO ITS PTY and asserts on what that CLI's own hook POSTs put
+	// in the ledger — the hook round trip to the hook server is the entire reason
 	// this package exists (see the package doc).
 	//
 	// Codex's descriptor is api-transport (descriptors-v3/codex.yaml, runtime.
@@ -93,18 +89,16 @@ func newHarness(t *testing.T) *harness {
 	// `codex app-server` that owns the chat's conversation, and the disconnected
 	// companion PTY spawnRunner still manages alongside it (runner/attach.go calls
 	// that a known gap; HasLiveAPIConnection's own doc is where production tells the
-	// two apart). Left on, the app-server binds the runner to ITS OWN thread within
+	// two apart). Left on, the app-server binds the chat to ITS OWN thread within
 	// a second of the spawn — so a turn typed into the companion PTY announces a
-	// DIFFERENT session id, move.Decide files that as MoveToNew, and the turn lands
-	// in a brand-new chat while the chat under test stays empty forever. Waiting for
-	// it is waiting for something that is being recorded somewhere else.
+	// DIFFERENT session id, and the two CLIs fight over the chat's binding instead of
+	// recording the conversation under test.
 	//
 	// Off, codex runs exactly as design spec §2.2b requires a provider whose api
 	// transport is unavailable to run — over hooks alone — the PTY is the ONLY codex
 	// and therefore the conversation, and the assertions mean what they say again.
 	// This is the same pin internal/app/usecases/chat/harness_test.go applies, for
-	// an adjacent reason (see apiconn.go's own comment on the variable).
-	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
+	// an adjacent reason.
 
 	// Before anything can spawn a CLI: point codex's and claude's OWN homes at
 	// throwaway directories, so the trust each one records for this test's temp repo
@@ -113,22 +107,28 @@ func newHarness(t *testing.T) *harness {
 	kit.IsolateProviderHomes(t)
 
 	bin := buildCrowbarBinary(t)
-	t.Setenv("CROWBAR_HOOK_BIN", bin)
+
+	// Released after the adapter's cleanup below (LIFO): the home is held until
+	// its stores are closed.
+	session, err := kit.BootHome(ctx, home)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, session.Close()) })
 
 	eng, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
+	eng.CrowbarBin, eng.NoAPITransport = bin, true
 
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
-	appContainer, err := app.New(ctx, eng, adapters)
+	appContainer, err := app.New(ctx, eng, adapters, session, v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 
 	router := gin.New()
 	// Installed BEFORE Register so it wraps the hook route: it fires once the hook
-	// handler chain has fully returned, which is the moment IngestHook's effects
-	// (the reducer's committed outcome, the ledger turn on disk) are all readable.
+	// handler chain has fully returned, which is the moment what the hook ingress
+	// recorded is committed and readable.
 	hooks := newHookBarrier()
 	router.Use(hooks.middleware())
 	// Installed BEFORE Register for the same reason, and it additionally has to see
@@ -140,8 +140,14 @@ func newHarness(t *testing.T) *harness {
 	apiContainer.Register(router.Group("/v0"))
 
 	ln, err := transports.NewSocket("unix://")
-	require.NoError(t, err, "bind daemon unix socket (must be the same path `crowbar hook` resolves via CROWBAR_HOME)")
+	require.NoError(t, err, "bind daemon unix socket (must be the same path `crowbar mcp` resolves via CROWBAR_HOME)")
 	go func() { _ = http.Serve(ln, router) }()
+	// Published before anything can spawn a CLI, as the daemon does: the spawner
+	// reads it to render the CLI's hook URLs.
+	hookServer, err := hookserver.Listen(ctx, router)
+	require.NoError(t, err)
+	require.NoError(t, hookserver.Publish(home, hookServer.URL()))
+	go func() { _ = hookServer.Serve() }()
 
 	// Registered LAST so it runs FIRST (t.Cleanup is LIFO): stop accepting hook
 	// traffic and tear down live realtime goroutines before the adapter's
@@ -152,6 +158,7 @@ func newHarness(t *testing.T) *harness {
 	// even this one and the CLI process is dead before its cwd's temp tree is
 	// removed (the terminal suite's documented worktree-busy flake).
 	t.Cleanup(func() {
+		_ = hookServer.Close()
 		_ = ln.Close()
 		appContainer.Close()
 	})
@@ -160,9 +167,8 @@ func newHarness(t *testing.T) *harness {
 }
 
 // buildCrowbarBinary compiles a real ./cmd/crowbar binary so the daemon's
-// spawned claude/codex CLI has something to shell out to on SessionStart/Stop.
-// kit.BuildEnv's httptest server never needed this binary because it never
-// exercises the hook path; this is the one integration surface that does.
+// spawned claude/codex CLI has a `crowbar mcp` to launch. kit.BuildEnv's
+// httptest server never needed this binary because it never spawns a CLI.
 func buildCrowbarBinary(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "crowbar")
@@ -191,7 +197,7 @@ func apiRootDir(t *testing.T) string {
 //
 // The child-workspace requirement is load-bearing, not stylistic:
 // agent.WorkspaceReader (internal/app/usecases/container.go's
-// agentWorkspaceReader) derives SpawnChat's cwd from the workspace row's stored
+// agentWorkspaceReader) derives spawnChat's cwd from the workspace row's stored
 // WorktreePath (WorktreeDir returns it verbatim). A managed child worktree's
 // stored WorktreePath is a real on-disk directory under crowbar home (worktree.
 // CreateChild creates it there), so both the cwd and the sibling chats dir
@@ -208,10 +214,10 @@ func (h *harness) importRepoAndWorkspace(
 	t.Helper()
 	ctx := context.Background()
 
-	project, err := h.app.Usecases.ProjectImport.Create(ctx, name, repoPath)
+	project, err := h.app.Usecases.ProjectImport.Create(ctx, "", name, repoPath)
 	require.NoError(t, err, "create project")
 
-	repo, err := h.app.Usecases.ProjectImport.ImportRepo(ctx, project.ID, "", repoPath)
+	repo, err := h.app.Usecases.ProjectImport.ImportRepo(ctx, kit.RepoImport(project.ID, repoPath), kit.RequireBranches(t))
 	require.NoError(t, err, "import repo")
 
 	ws, err := h.app.Usecases.Workspace.CreateChild(ctx, workspace.CreateChildInput{
@@ -245,6 +251,17 @@ func requireCLI(t *testing.T, name string) {
 	t.Skipf("%s not installed", name)
 }
 
+// spawnChat mints a chat in wsID and starts provider on it, as a create then a
+// Start session do.
+func spawnChat(ctx context.Context, h *harness, wsID, provider string) (string, string, error) {
+	chatID, err := h.app.Usecases.AgentChat.MintChat(ctx, "", wsID, provider, "")
+	if err != nil {
+		return "", "", err
+	}
+	runnerID, err := h.app.Usecases.AgentRunner.StartRunner(ctx, chatID, provider)
+	return chatID, runnerID, err
+}
+
 // liveRunnerTerminalSession returns the PTY of the runner currently placed on
 // chatID, failing the test if the chat is dormant (no live runner — which, for a
 // chat whose CLI was just spawned, means the CLI died on startup).
@@ -260,18 +277,18 @@ func liveRunnerTerminalSession(t *testing.T, h *harness, chatID string) string {
 	return runner.TerminalSession
 }
 
-// runnerTerminalSession returns runnerID's PTY.
-//
-// It needs NO polling, and that is a real consequence of the refactor rather than a
-// stylistic choice. The old waitForSegmentTerminalSessionID had to poll the chat's
-// segment list after a switch, because the segment rows were written with an async
-// ax.Send and the read model could trail the id SwitchProvider had already returned.
-// Runner commands are SendWait: when SwitchProvider returns a runner id, that runner
-// is durable and visible. So this is a plain read.
+// runnerByID is runnerID's runner while the supervisor holds it, also while it
+// is exiting.
+func runnerByID(h *harness, runnerID string) (agents.Runner, bool) {
+	return h.app.Usecases.AgentRunner.(*agentusecase.Usecase).RunnerByID(runnerID) //nolint:forcetypeassert // the harness wires the concrete usecase
+}
+
+// runnerTerminalSession returns runnerID's PTY. A plain read: a runner id
+// SwitchProvider returned is already in the supervisor's live table.
 func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
 	t.Helper()
-	runner, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID)
-	require.NoError(t, err, "runner %s is not live", runnerID)
+	runner, ok := runnerByID(h, runnerID)
+	require.True(t, ok, "runner %s is not live", runnerID)
 	require.NotEmpty(t, runner.TerminalSession)
 	return runner.TerminalSession
 }
@@ -283,7 +300,7 @@ func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
 func liveRunnerID(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
 	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	if errors.Is(err, agentusecase.ErrNoLiveRunner) {
 		return ""
 	}
 	require.NoError(t, err)
@@ -305,9 +322,9 @@ func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 
 // TestAgent_ClaudeSpawnAndDetect is the must-have acceptance test: it proves
 // the daemon's core/terminal spawns a real `claude` with the descriptor-built
-// argv/env, claude's SessionStart hook runs `crowbar hook session_start`, which
-// POSTs over the daemon's unix socket to /v0/chats/hooks, which runs
-// IngestHook -> the reducer, and the active segment gets bound with a
+// argv/env, claude's SessionStart hook POSTs to the daemon's hook server, whose
+// hook route runs
+// the hook ingress, and the chat's conversation gets bound with a
 // non-empty ProviderSessionID — the full Go integration path, end to end.
 func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	requireCLI(t, "claude")
@@ -329,15 +346,15 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	// this blocks on that hook ARRIVING rather than on a stopwatch.
 	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID,
-		"claude's SessionStart hook never reached /v0/chats/hooks to bind a provider conversation; this means "+
-			"either claude never started in the PTY, its SessionStart hook never fired, `crowbar hook` could not "+
-			"reach the unix socket, or IngestHook/the reducer did not persist the outcome — runner observed: %+v",
+		"claude's SessionStart hook never reached the daemon's hook route to bind a provider conversation; this means "+
+			"either claude never started in the PTY, its SessionStart hook never fired, its hook POST could not "+
+			"reach the hook server, or the hook ingress did not record the outcome — runner observed: %+v",
 		runner)
 
-	// The runner SpawnChat created is still the one placed on the chat: a bind stays
+	// The runner spawnChat started is still the one placed on the chat: a bind stays
 	// put (it is not a move), and the chat is live because a live-runner row exists.
 	require.Equal(t, runnerID, liveRunnerID(t, h, chatID),
-		"the chat's live runner must still be the one SpawnChat started")
+		"the chat's live runner must still be the one spawnChat started")
 	require.Equal(t, []string{providerSessionID}, chatSessionIDs(t, h, chatID),
 		"the chat must have hosted exactly the one conversation claude announced")
 }
@@ -384,7 +401,7 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
 
-	newRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex")
+	newRunnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, newRunnerID)
 
@@ -396,8 +413,8 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 
 	// This is the novel dual-provider-parity claim: not just that the switch
 	// mechanically spawned a new PTY and recorded a codex runner, but that codex's OWN
-	// SessionStart hook shells out to `crowbar hook session_start`, reaches the daemon
-	// over the same unix socket, and the reducer binds a conversation to the NEW runner
+	// SessionStart hook reaches the daemon's hook server through curl, and the
+	// reducer binds a conversation to the NEW runner
 	// — exactly as Test A proves for claude.
 	//
 	// It has to DRIVE A TURN to get there, and cannot simply wait. codex creates its
@@ -413,9 +430,9 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 
 	codexProviderSessionID, codexRunner := awaitSessionBound(t, h, newRunnerID, newTermSessID, codexTap)
 	require.NotEmpty(t, codexProviderSessionID,
-		"codex's SessionStart hook never reached /v0/chats/hooks to bind a conversation to the switched-to "+
+		"codex's SessionStart hook never reached the daemon's hook route to bind a conversation to the switched-to "+
 			"runner; this means either codex never started in the new PTY, its SessionStart hook never fired, "+
-			"`crowbar hook` could not reach the unix socket, or IngestHook/the reducer did not persist the "+
+			"its hook POST could not reach the hook server, or the hook ingress did not record the "+
 			"outcome — runner observed: %+v", codexRunner)
 
 	require.Equal(t, "codex", codexRunner.ProviderID, "the switched-to runner must be codex")

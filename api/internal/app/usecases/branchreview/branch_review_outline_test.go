@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func outlineWorkspace() domain.Workspace {
@@ -226,7 +226,7 @@ func TestBranchReview_GetOutline_MissingWorkspace_IsNotFound(t *testing.T) {
 
 	_, err := uc.GetOutline(ctx, "missing", "")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestBranchReview_GetOutline_EngineFailurePropagates(t *testing.T) {
@@ -241,7 +241,7 @@ func TestBranchReview_GetOutline_EngineFailurePropagates(t *testing.T) {
 
 	_, err := uc.GetOutline(ctx, "ws1", "")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound, "a git failure is a 500, not a 404")
+	assert.NotErrorIs(t, err, problem.ErrNotFound, "a git failure is a 500, not a 404")
 }
 
 // A failed load must leave nothing behind: the next call has to try again

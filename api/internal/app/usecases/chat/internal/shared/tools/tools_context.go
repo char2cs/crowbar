@@ -11,37 +11,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ChatLogReader is the narrow read port get_chat_log needs from the agent
-// usecase: one chat's conversation, as turns. It is consulted only AFTER the
-// tool has confirmed the chat's workspace is in the caller's visible set — a
-// chat id is not itself an authorization, so nothing here does its own scope
-// check.
-//
-// It hands back TURNS rather than the finished text because get_chat_log caps
-// what it returns, and turns can only be counted where they are still countable.
-// The rendering joins turns with a blank line, and a turn's body is free-form
-// model prose that contains blank lines routinely, so a tool splitting the
-// finished text back apart would miscount — and then report a turn count that is
-// not true. Telling a model "20 of 63 turns" when neither number is real is the
-// exact failure a visible truncation notice exists to prevent.
+// ChatLogReader is get_chat_log's read port: one chat's conversation as turns, consulted only after the
+// tool's scope checks. Turns, not rendered text, because bodies contain blank lines and the cap must
+// count real turns.
 type ChatLogReader interface {
 	ReadChatLog(ctx context.Context, chatID string) ([]ChatTurn, error)
 }
 
-// ChatLineageReader resolves a chat's CHAT ancestors, nearest first, with the
-// folders it may be filed in filtered out.
-//
-// get_chat_log needs it for the one thing workspace scope cannot answer: whether
-// the chat being asked for hangs BELOW the caller's own. Both chats are in the
-// same workspace when they are related at all, so CanSee admits a descendant as
-// readily as a sibling — the tree edge is the only thing that tells them apart,
-// and it is not visible from the workspace model at any point.
-//
-// It is asked about the TARGET rather than the caller, which is the same
-// question read from the cheaper end: a caller is a descendant's ancestor
-// exactly when the descendant's lineage names it. Walking down from the caller
-// instead would have to enumerate a subtree to answer what one upward walk
-// answers directly.
+// ChatLineageReader resolves a chat's chat ancestors, nearest first, folders filtered out. get_chat_log
+// asks it about the target, one upward walk, to tell a descendant from a sibling, which workspace scope
+// cannot.
 type ChatLineageReader interface {
 	Ancestors(
 		ctx context.Context,
@@ -49,31 +28,13 @@ type ChatLineageReader interface {
 	) ([]string, error)
 }
 
-// NoChatTurnsText is what get_chat_log renders for a chat that has not spoken
-// yet — a NORMAL state, not an error and not empty text. A model handed an
-// error would try to work around a failure that is not one; handed an empty
-// result, it would likely retry or report a broken tool. Exported so
-// the agent chat concern's ReadChatLog (the production ChatLogReader) renders the exact
-// same wording rather than the two ever drifting apart.
+// NoChatTurnsText is what get_chat_log renders for a chat that has not spoken yet: a normal state, so
+// neither an error nor empty text a model would retry.
 const NoChatTurnsText = "This chat has no turns yet."
 
-// contextTools registers the tools that give an agent situational awareness of
-// the workspaces and sibling chats around it, each independently fail-closed on
-// its own dependency: a nil port means the tool that needs it is simply not
-// advertised.
-//
-// list_workspaces needs only ChatReads: it folds each visible workspace's chats
-// in via ListByWorkspace rather than getting its own tool, to stay under the
-// tool ceiling. get_chat_log needs THREE — ChatReads (to resolve a chat id to
-// the workspace it belongs to, before anything is read from disk), Lineage (to
-// refuse a chat below the caller's own; see ErrOwnThread) and ChatLogs (the
-// actual ledger read) — with any of them missing, reading another chat's log is
-// not a capability that safely exists.
-//
-// Lineage counts among them rather than merely degrading the refusal, because a
-// tool that cannot tell a thread from a sibling would serve a parent its own
-// threads and call it a sibling read. An authority port that cannot answer must
-// take its tool with it.
+// contextTools registers the workspace and sibling-chat tools, each fail-closed on its own ports.
+// get_chat_log needs ChatReads, ChatLogs and Lineage: without Lineage it could not refuse a parent
+// reading its own threads, and an authority port that cannot answer takes its tool with it.
 func contextTools(deps Deps) []toolDef {
 	var out []toolDef
 	if deps.ChatReads != nil {
@@ -104,16 +65,9 @@ func listWorkspacesTool(deps Deps) toolDef {
 	}
 }
 
-// listWorkspaces folds every visible workspace's chats in here rather than
-// giving chats their own tool, to stay under the ceiling. c.Visible is the
-// resolver's own downward-only computation — there is no argument here a model
-// could widen it with.
-//
-// The chats arrive in ONE read and are bucketed in Go. Asking the store per
-// visible workspace looked cheap and was not: ListByWorkspace is itself a full
-// scan of agent_chats_read plus a json.Unmarshal of every row, filtered in Go
-// afterwards, so a caller seeing V workspaces read and decoded the entire chat
-// table V times to render it once.
+// listWorkspaces folds each visible workspace's chats in rather than giving chats their own tool, to
+// stay under the tool ceiling. It takes no argument a model could widen c.Visible with; chats arrive in
+// one read, bucketed in Go.
 func listWorkspaces(
 	ctx context.Context,
 	deps Deps,
@@ -130,16 +84,8 @@ func listWorkspaces(
 	return render.RenderWorkspaces(c.Workspace, visible, chatsByWorkspace(all, visible)), nil
 }
 
-// chatsByWorkspace buckets one whole-table chat read by owning workspace,
-// keeping ONLY the workspaces in visible.
-//
-// The visible ids are seeded first and the membership test is what filters:
-// every workspace the caller can see gets an entry (so one with no chats still
-// renders as itself rather than vanishing), and a chat whose workspace is not
-// among them is dropped rather than bucketed. That filter is the same authority
-// boundary the per-workspace query used to enforce implicitly by never asking
-// about anything else — moving the read out of the loop must not move the
-// boundary with it.
+// chatsByWorkspace buckets a whole-table chat read by workspace, keeping only visible ones: the filter
+// is an authority boundary. Every visible workspace gets an entry, so one with no chats still renders.
 func chatsByWorkspace(
 	all []domain.Chat,
 	visible []domain.Workspace,
@@ -184,26 +130,9 @@ type getChatLogArgs struct {
 	Limit  int    `json:"limit"`
 }
 
-// getChatLog is the whole point of the scope model made concrete: a chat id
-// names a chat in SOME workspace, and that is not itself a reason to let the
-// caller read it. The chat is resolved to its owning workspace FIRST, that
-// workspace is checked against c.Visible, and only once it passes does
-// ChatLogs.ReadChatLog — the thing that actually touches disk — get called.
-// A rejection here must never reach ChatLogs at all.
-//
-// TWO refusals stand between the id and the disk, and they are different
-// questions. Workspace scope asks what this caller may reach at all, and is
-// deliberately WIDE: a chat may read any chat in a workspace it can see,
-// including one in a sibling workspace, which is the cross-chat comparison this
-// tool exists for. The lineage check asks the one thing workspace scope cannot,
-// and is narrow to a single case: a chat may not read its own DESCENDANTS. Both
-// run before ChatLogs, in that order, because the cheap membership test should
-// not be preceded by two table reads to answer a caller that was never in scope.
-//
-// offset and limit page the RENDERING only. They cannot reach a chat the CanSee
-// check above did not already admit, which is what keeps pagination from
-// becoming a scope argument: the id is authorized first, the window is applied
-// second, and no ordering of those two lets a page escape the visible set.
+// getChatLog reads another chat only after two checks, both before ChatLogs touches disk: the chat's
+// workspace must pass CanSee (deliberately wide: siblings are the point), then it must not be the
+// caller's own descendant. offset and limit page the rendering only, never the scope.
 func getChatLog(
 	ctx context.Context,
 	deps Deps,
@@ -228,11 +157,7 @@ func getChatLog(
 	if err != nil {
 		return "", fmt.Errorf("agenttools: get_chat_log: %w", err)
 	}
-	// Rendering the empty case is THIS function's job, and only this one's. A
-	// chat with nothing recorded yet comes back with no turns — the production
-	// reader (agent.ChatUsecase.ReadChatLog) deliberately returns them rather than
-	// wording of its own, so the phrasing lives in exactly one place instead of
-	// drifting between two. Any other ChatLogReader gets the same treatment.
+	// The empty case is worded here only, whatever the ChatLogReader.
 	if len(turns) == 0 {
 		return NoChatTurnsText, nil
 	}
@@ -244,19 +169,8 @@ func getChatLog(
 	return note + render.RenderChatLog(turns[w.start:w.end]), nil
 }
 
-// refuseOwnThread rejects a chat that hangs below the caller's own in the Chats
-// tree, and is the ONLY direction this tool closes.
-//
-// It reads the target's lineage and looks for the caller in it, so folders cost
-// nothing: they are transparent to that walk, and a thread filed two folders
-// deep under this chat is refused exactly as one sitting directly under it. A
-// check written against the parent id alone would have missed every filed
-// thread, which is the same as not having the check.
-//
-// A lineage that cannot be READ refuses, for the reason CanSee denies on a
-// failed load: an unreadable tree is not an empty one, and treating it as no
-// restriction would open the one direction that is closed at the exact moment
-// the daemon lost the ability to tell a thread from a sibling.
+// refuseOwnThread rejects a chat below the caller's own, however many folders deep, by finding the
+// caller in the target's lineage. An unreadable lineage refuses, as CanSee does: unreadable is not empty.
 func refuseOwnThread(
 	ctx context.Context,
 	deps Deps,

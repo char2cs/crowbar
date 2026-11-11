@@ -24,15 +24,15 @@ import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleTrash, handleTrashRepo } from '@/components/layout/trash-actions'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
+import { readSelect, selectRepos } from '@/core/entities/select'
+import { resolveHomeRowScope } from '@/core/entities/home-rows'
+import { runOperation } from '@/core/entities/run-operation'
 import { useDetachModalStore } from '@/features/window/stores/detach-modal-store'
 import { retryProvision } from '@/lib/api/workspace'
-import { resolveHomeRowScope } from '@/lib/store/home-tree'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from '@/features/window/stores/toast-store'
 
 /** The verbs the desktop puts on a row's hover buttons rather than in its menu. */
-export type RowButtonVerb = 'detach' | 'retry' | 'remove' | 'new-thread' | 'fork'
+export type RowButtonVerb = 'detach' | 'retry' | 'remove' | 'new-thread' | 'fork' | 'branch-out'
 
 export type RowMenuActionId =
   | 'rename'
@@ -61,10 +61,10 @@ export interface RowMenuHandlers {
   importBranches: (row: SidebarRow) => void
   /** Starts a fork of `row`; the desktop names it inline, the phone asks first. */
   fork: (row: SidebarRow) => void
+  /** Makes the thread `row` a branch; the desktop names it in place, the phone asks first. */
+  branchOut: (row: SidebarRow) => void
   /** The phone confirms natively first, so a removal there commits at once instead of draining. */
   removeAtOnce?: boolean
-  /** The phone opens a new thread as a draft, created on its first send. */
-  draftThreads?: boolean
 }
 
 const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
@@ -114,16 +114,29 @@ const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
     destructive: false,
   },
   fork: { label: 'Fork branch', icon: GitBranch, nativeIcon: 'GitBranch', destructive: false },
+  'branch-out': {
+    label: 'Make a branch',
+    icon: GitBranch,
+    nativeIcon: 'GitBranch',
+    destructive: false,
+  },
   remove: { label: 'Remove', icon: X, nativeIcon: 'Trash', destructive: true },
 }
 
-/**
- * The hover buttons a row earns, in the desktop's left-to-right order (SidebarRowActions draws
- * them from this). A holder leaves Detach as the only remedy, a failed provision Retry; a row
- * with no worktree offers nothing that needs one; a chat never forks; the project home's
- * removal is its menu's Delete Repo, and a locked branch is not removable.
- */
-export function rowButtonVerbs(row: SidebarRow, isProjectHome: boolean): RowButtonVerb[] {
+/** A repo thread owning no worktree, not already moving, can be made a branch of its own. */
+export function canBranchOut(row: SidebarRow, movePending: boolean): boolean {
+  return row.kind === 'chat' && row.canBranchOut === true && !movePending
+}
+
+// The hover buttons a row earns, in the desktop's left-to-right order. A holder leaves Detach as
+// the only remedy, a failed provision Retry; no worktree, nothing that needs one; a chat never
+// forks but a repo thread can become a branch; the project home is removed via Delete Repo, and
+// a locked branch not at all.
+export function rowButtonVerbs(
+  row: SidebarRow,
+  isProjectHome: boolean,
+  movePending = false,
+): RowButtonVerb[] {
   const verbs: RowButtonVerb[] = []
   const isBranch = row.kind === 'branch'
   if (isBranch && row.workspaceId && row.heldByPath) verbs.push('detach')
@@ -134,6 +147,7 @@ export function rowButtonVerbs(row: SidebarRow, isProjectHome: boolean): RowButt
   if (!row.isPlaceholder) {
     verbs.push('new-thread')
     if (row.kind === 'folder' ? row.ownsWorktree : isBranch) verbs.push('fork')
+    if (canBranchOut(row, movePending)) verbs.push('branch-out')
   }
   return verbs
 }
@@ -141,16 +155,14 @@ export function rowButtonVerbs(row: SidebarRow, isProjectHome: boolean): RowButt
 /** Whether the branch row `rowId` names a locked workspace. A locked branch is id'd by the chat
  *  that owns its workspace, so the id is translated into the workspace id space first. */
 export function rowIsLocked(rowId: string): boolean {
-  const repos = useSidebarStore.getState().repos
+  const repos = readSelect(selectRepos)
   const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
   return repos.some((repo) => repo.workspaces.some((w) => w.id === wsId && w.status === 'locked'))
 }
 
-/**
- * A row's menu, in order. A locked branch keeps its name (no Rename); Lock/Unlock is for a real
- * workspace branch, never the project-home row (the checkout that must stay put); "New thread in
- * Terminal" is left out when the provider a new chat would start under has no terminal.
- */
+// A row's menu, in order. A locked branch keeps its name (no Rename); Lock/Unlock only for a real
+// workspace branch with a worktree (the daemon refuses a placeholder's), never the project-home
+// checkout; "New thread in Terminal" is left out when the provider a new chat would start under has no terminal.
 export function rowMenuActions(
   row: SidebarRow,
   { locked, canStartOnTerminal }: { locked: boolean; canStartOnTerminal: boolean },
@@ -158,7 +170,8 @@ export function rowMenuActions(
   const isProjectHome = row.repoIcon !== undefined
   const ids: RowMenuActionId[] = []
   if (!(row.kind === 'branch' && locked)) ids.push('rename')
-  if (row.kind === 'branch' && !isProjectHome) ids.push(locked ? 'unlock' : 'lock')
+  const lockable = row.kind === 'branch' && !isProjectHome && !row.isPlaceholder
+  if (lockable) ids.push(locked ? 'unlock' : 'lock')
   if (isProjectHome) ids.push('import')
   if (row.kind === 'branch' || row.kind === 'folder' || row.kind === 'chat') {
     ids.push('new-folder')
@@ -168,17 +181,15 @@ export function rowMenuActions(
   return ids.map((id) => ({ id, ...ACTIONS[id] }))
 }
 
-/**
- * Every verb a row has on the desktop, menu and hover buttons together: what the phone's one
- * long-press menu offers. The destructive verb goes last, as iOS menus put it.
- */
+// Every desktop verb, menu and hover buttons together: the phone's one long-press menu. The
+// destructive verb goes last, as iOS menus put it.
 export function rowVerbs(
   row: SidebarRow,
-  ctx: { locked: boolean; canStartOnTerminal: boolean },
+  ctx: { locked: boolean; canStartOnTerminal: boolean; movePending: boolean },
 ): RowMenuAction[] {
   const ids = [
     ...rowMenuActions(row, ctx).map((a) => a.id),
-    ...rowButtonVerbs(row, row.repoIcon !== undefined),
+    ...rowButtonVerbs(row, row.repoIcon !== undefined, ctx.movePending),
   ]
   const ordered = [
     ...ids.filter((id) => !ACTIONS[id].destructive),
@@ -190,14 +201,16 @@ export function rowVerbs(
 function retry(row: SidebarRow) {
   const wsId = row.workspaceId
   if (!wsId) return
-  void retryProvision(wsId).catch((err: unknown) => {
-    toast.show({
-      message: `Couldn't set up ${row.branchName || row.label}`,
-      description: actionErrorMessage(err, String(err)),
-      type: 'error',
-      key: `retry-provision-${wsId}`,
-    })
-  })
+  // A failure is the operations watcher's to toast and the row's to explain.
+  runOperation(
+    {
+      kind: 'workspace.retry_provision',
+      subject: { kind: 'workspace', id: wsId },
+      projectId: '',
+      label: `Retry ${row.branchName || row.label}`,
+    },
+    (opId) => retryProvision(wsId, opId),
+  )
 }
 
 // A home row rides no repo, so it needs the home-scoped create; a chat carries no folder anchor
@@ -246,17 +259,12 @@ export function runRowMenuAction(
     case 'retry':
       return retry(row)
     case 'new-thread':
-      void handleCreate(
-        row.id,
-        'thread',
-        handlers.navigate,
-        undefined,
-        undefined,
-        handlers.draftThreads,
-      )
+      void handleCreate(row.id, 'thread', handlers.navigate)
       return
     case 'fork':
       return handlers.fork(row)
+    case 'branch-out':
+      return handlers.branchOut(row)
     case 'remove':
       if (!handleTrash(row.id, handlers.removeAtOnce ? 0 : undefined))
         toast.error(`Can't remove ${row.label}`)

@@ -1,9 +1,6 @@
-/* @font-face declarations moved to theme-fonts.css and the `@theme inline`
-   token map to theme-vars.css — both imported right before this file — to
-   keep this one under the repo's file-size cap. The tests in
-   __tests__/styles/{theme,crowbar}-theme-tokens.test.ts read the `:root`/`.dark`
-   blocks below directly off disk, so those two stay put. This file is the
-   Frosted theme (the unthemed base); crowbar.css overrides it. */
+/* Fonts live in theme-fonts.css and the `@theme inline` map in theme-vars.css (file-size cap).
+   __tests__/styles/{theme,crowbar}-theme-tokens.test.ts read the `:root`/`.dark` blocks off disk.
+   This file is the Frosted theme (the unthemed base); crowbar.css overrides it. */
 
 /* A lifted drag surface is white in every mode, so it always takes the light palette. */
 [data-drag-ghost],
@@ -13,13 +10,8 @@
   --background: #fcfcfa;
   --pane-background: #fcfcfa;
   --foreground: #1b1b19;
-  /* The other theme's own --background/--foreground, literally — never derived
-     from this theme's tokens. A deliberate "break the theme" surface (an
-     active sidebar row, see ROW_ACTIVE in workspace-row-base.ts): the row
-     that's selected reads as selected precisely because it does NOT sit in
-     the ambient palette the rest of the sidebar does. Kept in sync by hand
-     with .dark's own --background/--foreground below, the same way every
-     other per-theme pair on this page is. */
+  /* The other theme's --background/--foreground, literally: an inverted row ground (activeGround)
+     reads as selected because it leaves the ambient palette. Kept in sync with .dark by hand. */
   --background-inverse: #1c1c1a;
   --foreground-inverse: #f2f0ea;
   --card: var(--color-white);
@@ -105,10 +97,8 @@
   --sidebar-drop-nest-edge: color-mix(in oklch, var(--secondary) 65%, transparent);
 
   --chrome-bg: color-mix(in oklch, #fcfcfa 60%, transparent);
-  /* The chat/editor pane box's own fill — distinct from `--chrome-bg` above
-     (body's wash, which the sidebar shows through with no fill of its own):
-     the pane surface wants far less of the desktop showing through it than
-     the sidebar does. */
+  /* The pane box's own fill, apart from `--chrome-bg` (the body wash the sidebar shows through):
+     panes let far less of the desktop through. */
   --pane-chrome-bg: color-mix(in oklch, #fcfcfa 90%, transparent);
 
   --app-ui-scale: 1;
@@ -250,9 +240,8 @@
   --sidebar-count-added: #b9cf98;
   --sidebar-count-deleted: #f1a493;
 
-  /* Same L/C, mix % and structure the handbook's Surface board documented —
-     only the hue moved, off the old blue-accent system's 264.5° and onto the
-     ink family's ~107°, same as every other retinted near-black in this file. */
+  /* The handbook Surface board's L/C and mix, on the ink family's ~107° hue like every
+     near-black in this file. */
   --chrome-bg: color-mix(in oklch, oklch(0.173 0.004 106.7) 65%, transparent);
   /* Same value as --chrome-bg above — dark's pane/sidebar split is untouched;
      only light gets distinct opacities for the two surfaces (see :root). */
@@ -315,10 +304,8 @@
   }
 }
 
-/* Linux and iOS have no native window vibrancy (tauri.linux.conf.json turns
-   window transparency off). --chrome-bg/--pane-chrome-bg are the Frosted wash
-   over the vibrancy blur; these are that wash flattened onto :root/.dark's own
-   --background. A theme overriding either token must gate its own override on
+/* No window vibrancy on Linux/iOS: the translucent washes, flattened over --background (not set to
+   100%, which shifts the tone). A theme overriding either token gates its own override on
    [data-platform] with at least this specificity (crowbar.css does). */
 :root[data-platform='linux'],
 :root[data-platform='ios'] {
@@ -328,9 +315,7 @@
 
 .dark[data-platform='linux'],
 .dark[data-platform='ios'] {
-  /* Same L/C as before (the flattened-opaque equivalent), hue only —
-     264.5deg/266.8deg (old blue system) to ~107deg (ink), matching the
-     macOS values above. */
+  /* The flattened-opaque equivalent of the values above, on the ink hue (~107deg). */
   --chrome-bg: oklch(0.182 0.005 106.7);
   --pane-chrome-bg: oklch(0.182 0.005 106.7);
 }

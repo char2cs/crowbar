@@ -3,30 +3,31 @@
 package tests
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // steerStubDescriptorYAML is a hooks-only CLI that appends a line to a launch
-// log every time it starts, so a respawn is countable, and declares steering.
+// log every time it starts, so a respawn is countable, then runs the fake CLI,
+// and declares steering.
 const steerStubDescriptorYAML = `id: %s
 spawn:
   cmd: "sh"
-  args: ["-c", "echo launched >> %s; exec cat"]
+  args: ["-c", "echo launched >> %s; exec '%s'"]
   interactive_required: true
-session:
-  resume: { arg: "--resume {id}" }
+session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 events:
   session_start:
     in: session_start
@@ -84,35 +85,44 @@ func newSteerFixture(t *testing.T) steerFixture {
 	t.Helper()
 	h := newHarness(t)
 	f := steerFixture{h: h, provider: "steerstub", launches: filepath.Join(t.TempDir(), "launches")}
-	writeProviderDescriptor(t, h, f.provider, fmt.Sprintf(steerStubDescriptorYAML, f.provider, f.launches))
+	writeProviderDescriptor(t, h, f.provider, fmt.Sprintf(steerStubDescriptorYAML, f.provider, f.launches, kit.FakeCLIPath(t)))
 	f.imported = importWritableWorkspace(t, h)
 	f.chatID, f.runnerID = createStubChat(t, h, f.imported, f.provider)
+	// The CLI logs its launch on its own schedule; one quit before then never logs.
+	require.Eventually(t, f.launchedTimes(1), 10*time.Second, 5*time.Millisecond)
 	return f
 }
 
 func (f steerFixture) launchCount(t *testing.T) int {
 	t.Helper()
-	raw, err := os.ReadFile(f.launches)
+	n, err := f.launched()
 	require.NoError(t, err)
-	return strings.Count(string(raw), "launched")
+	return n
 }
 
-// hook relays one provider hook with a delivery id and returns the daemon's
-// reply directive, the stdout the relay prints for it.
+// launched is how many times the CLI logged its launch; it never fails the
+// test itself, so an Eventually condition can call it off the test goroutine.
+func (f steerFixture) launched() (int, error) {
+	raw, err := os.ReadFile(f.launches)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	return strings.Count(string(raw), "launched"), err
+}
+
+// launchedTimes is an Eventually condition: the CLI has launched n times.
+func (f steerFixture) launchedTimes(n int) func() bool {
+	return func() bool {
+		got, err := f.launched()
+		return err == nil && got == n
+	}
+}
+
+// hook posts one provider hook and returns the daemon's reply, what the CLI
+// is handed for it.
 func (f steerFixture) hook(t *testing.T, event, payload string) string {
 	t.Helper()
-	resp := f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/hooks", map[string]string{
-		"segment_id": f.runnerID, "provider": f.provider, "event": event,
-		"payload_raw": payload, "delivery_id": uuid.NewString(),
-	}, http.StatusAccepted)
-	defer func() { _ = resp.Body.Close() }()
-	var ack struct {
-		Data struct {
-			Reply string `json:"reply"`
-		} `json:"data"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&ack)
-	return ack.Data.Reply
+	return string(postHook(t, f.h, repoBase(f.imported), f.provider, f.runnerID, event, payload))
 }
 
 func (f steerFixture) submit(t *testing.T, text, requestID string, want int) {
@@ -125,22 +135,14 @@ func (f steerFixture) submitBody(t *testing.T, body map[string]string, want int)
 	_ = f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/"+f.chatID+"/prompts", body, want).Body.Close()
 }
 
+// pendingState is the status of the chat's oldest unacknowledged prompt.
 func (f steerFixture) pendingState(t *testing.T) string {
 	t.Helper()
-	resp, err := f.h.server.Client().Get(f.h.url + repoBase(f.imported) + "/chats/" + f.chatID + "/pending-prompt")
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusNoContent {
+	pending := chatState(t, f.h, f.chatID).PendingPrompts()
+	if len(pending) == 0 {
 		return ""
 	}
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var got struct {
-		Data struct {
-			State string `json:"state"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-	return got.Data.State
+	return string(pending[0].Status)
 }
 
 func (f steerFixture) liveRunner(t *testing.T) string {
@@ -162,7 +164,7 @@ func TestRegression_PromptSentMidTurnReachesTheRunningCLI(t *testing.T) {
 
 	f.submit(t, "also check the tests", requestID, http.StatusOK)
 
-	assert.Equal(t, agentjournal.PromptStateSpawned, f.pendingState(t))
+	assert.Equal(t, "pending", f.pendingState(t))
 	assert.Equal(t, f.runnerID, f.liveRunner(t), "the monitored CLI must not be replaced")
 	assert.Equal(t, 1, f.launchCount(t), "the CLI must be launched exactly once")
 
@@ -177,7 +179,7 @@ func TestRegression_PromptSentMidTurnReachesTheRunningCLI(t *testing.T) {
 	f.hook(t, "turn_stop", `{"session_id":"sid-1","last_assistant_message":"tests checked"}`)
 	f.h.Quiesce()
 	var order []string
-	for _, m := range readOrderedMessages(t, f.h, f.imported, f.chatID) {
+	for _, m := range readRecordedMessages(t, f.h, f.imported, f.chatID) {
 		order = append(order, m.Role+":"+m.Text)
 	}
 	assert.Equal(t, []string{
@@ -219,7 +221,8 @@ func TestRegression_PromptSentWhileIdleStillRestartsTheCLI(t *testing.T) {
 
 	f.submit(t, "hello", uuid.NewString(), http.StatusOK)
 
-	assert.Equal(t, 2, f.launchCount(t))
+	// The respawned CLI logs its launch on its own schedule, after the 200.
+	require.Eventually(t, f.launchedTimes(2), 10*time.Second, 5*time.Millisecond)
 }
 
 // Stop retires the runner; the message parked on its turn was never delivered
@@ -230,7 +233,7 @@ func TestRegression_StopRefusesAParkedPromptInsteadOfWedgingTheChat(t *testing.T
 	f.hook(t, "user_prompt", `{"prompt":"first"}`)
 	f.submit(t, "also check the tests", uuid.NewString(), http.StatusOK)
 
-	_ = f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/"+f.chatID+"/stop", nil, http.StatusAccepted).Body.Close()
+	_ = f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/"+f.chatID+"/stop", nil, http.StatusNoContent).Body.Close()
 
 	assert.Empty(t, f.pendingState(t), "a refused delivery is over, not pending")
 }
@@ -280,13 +283,13 @@ func TestRegression_SelectionChangedMidTurnThroughPatchIsNotSteered(t *testing.T
 	f.hook(t, "user_prompt", `{"prompt":"idle send"}`)
 
 	_ = f.h.raw(http.MethodPatch, repoBase(f.imported)+"/chats/"+f.chatID+"/selection",
-		map[string]string{"model": "opus", "effort": "low"}, http.StatusAccepted).Body.Close()
+		map[string]string{"model": "opus", "effort": "low"}, http.StatusNoContent).Body.Close()
 	f.submit(t, "also check the tests", uuid.NewString(), http.StatusConflict)
 
 	assert.Equal(t, f.runnerID, f.liveRunner(t), "a refused send must leave the running CLI alone")
 
 	_ = f.h.raw(http.MethodPatch, repoBase(f.imported)+"/chats/"+f.chatID+"/selection",
-		map[string]string{"model": "sonnet", "effort": "low"}, http.StatusAccepted).Body.Close()
+		map[string]string{"model": "sonnet", "effort": "low"}, http.StatusNoContent).Body.Close()
 	f.submit(t, "also check the tests", uuid.NewString(), http.StatusOK)
 	assert.Equal(t, f.runnerID, f.liveRunner(t), "back on the launched selection, the send rides the turn")
 }

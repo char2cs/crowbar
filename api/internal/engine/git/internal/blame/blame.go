@@ -33,11 +33,26 @@ func File(
 	// be read as a git option (e.g. `--output=<path>` writing an arbitrary file);
 	// `git blame --porcelain -- <path>` treats everything after `--` as a path.
 	r := gitRunner(ctx, repoPath, "blame", "--porcelain", "--", filePath)
-	if r.ExitCode != 0 {
-		return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
+	if r.ExitCode == 0 {
+		return parsePorcelain(r.Stdout)
 	}
+	if missingFromHead(ctx, repoPath, filePath) {
+		return nil, fmt.Errorf("blame: file: %s: %w", filePath, gitdomain.ErrNoHistory)
+	}
+	return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
+}
 
-	return parsePorcelain(r.Stdout)
+// missingFromHead reports whether HEAD lacks filePath (or there is no HEAD).
+// batch-check answers "<name> missing" on stdout with exit 0, so neither a
+// failed git nor one that never started, nor localised stderr, can pass.
+func missingFromHead(
+	ctx context.Context,
+	repoPath string,
+	filePath string,
+) bool {
+	name := "HEAD:./" + filePath
+	r := exec.GitWithStdin(ctx, repoPath, name+"\n", "cat-file", "--batch-check")
+	return r.ExitCode == 0 && strings.TrimRight(r.Stdout, "\n") == name+" missing"
 }
 
 // parseCommitHeader extracts the SHA and result line number from a porcelain

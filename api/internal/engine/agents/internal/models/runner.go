@@ -1,143 +1,44 @@
 package models
 
-// Runner and ChatConversation are the engine's own model of a live vendor CLI and the
-// conversations it has hosted.
-//
-// They live here rather than in domain/ because the engine owns the runner lifecycle
-// (design spec 3.1): 11 of Runner's 13 fields describe the PROCESS — its PTY, its
-// native conversation, what it was launched with — and only WorkspaceID and
-// CurrentChatID are Crowbar's. They are in models rather than in the agents package
-// itself so the runner store, which is a child of agents, can name them without an
-// import cycle.
-
 import "time"
 
-// AgentRunner is ONE live vendor-CLI process in ONE PTY — the thing that
-// actually moves between chats when the user types /clear or /resume inside the
-// CLI. Its ID is the crowbarSegmentID Crowbar mints at spawn and passes to every
-// hook, so a hook can always name its runner.
-//
-// It deliberately has NO status field. The PTY is the SOLE authority on whether
-// this process is alive (spec §2): two authorities on liveness always drift, and
-// that drift is exactly what let a segment read "ended" while its CLI was still
-// running. ExitedAt is an audit tombstone, never a liveness check — ask the
-// chat_liveness projection (which drops the row on exit), or the terminal engine.
-//
-// What IS durable here is PLACEMENT — which chat, which conversation. Crowbar is
-// its only writer, so it cannot drift. Persisting it is what makes a conversation
-// switch a single atomic write instead of a torn cross-aggregate one.
+// Runner is ONE live vendor-CLI process; its ID is the crowbarSegmentID passed to
+// every hook. It has NO status field: the process is the sole authority on whether
+// it is alive, and a runner is held only while it is.
 type Runner struct {
 	ID          string `json:"id"` // == crowbarSegmentID
 	WorkspaceID string `json:"workspaceId"`
 	ProviderID  string `json:"providerId"`
-	// TerminalSession is its PTY — identity AND heartbeat — and is EMPTY for a
-	// runner whose process is an api connection instead (runner/apirunner.go).
-	// Every reader treats "" as "no terminal", never as missing data.
+	// TerminalSession is its PTY (identity AND heartbeat), EMPTY for an api-connection
+	// runner. Readers treat "" as "no terminal", never as missing data.
 	TerminalSession string `json:"terminalSessionId"`
 
-	// CurrentChatID is set while the runner is PLACED — which is its whole life, bar
-	// one case: Crowbar has taken it off a chat it is being removed from (an eviction,
-	// the outgoing side of a switch, a chat deleted under it) and it is still dying.
-	// A displaced runner is pointed at nothing, so nothing can be written on its behalf
-	// and no chat can be handed to it — while its process, which we do not command,
-	// finishes falling over. CurrentSession is additionally empty between spawn and the
-	// provider's first conversation announcement.
-	CurrentChatID  string `json:"currentChatId,omitempty"`
-	CurrentSession string `json:"currentSessionId,omitempty"`
-	// LaunchSessionID is the native conversation Crowbar explicitly asked this
-	// process to resume at launch. It persists the launch intent across the gap
-	// before (and after) session_start, so a React prompt can restart the TUI as a
-	// resume even when the resumed conversation's ledger turns predate this
-	// runner's CurrentSessionSince timestamp.
-	LaunchSessionID string `json:"launchSessionId,omitempty"`
-	// LaunchModel and LaunchEffort are the model and reasoning effort Crowbar
-	// LAUNCHED this process with — the same persisted-launch-intent pattern
-	// LaunchSessionID above serves, for the same reason: the answer cannot be
-	// recovered later from anything else.
-	//
-	// They are the ONLY authority on what this CLI is running. Neither provider
-	// exposes a readable "current model", and a user may have changed it inside
-	// the TUI where Crowbar cannot see, so asking the process is not an option
-	// that exists. Comparing these against the chat's own AgentChat.Model/Effort
-	// is what decides whether the next prompt must replace the process.
-	//
-	// Empty is meaningful: this runner was launched under the provider's default
-	// (or before a selection was ever made), which DIFFERS from every declared
-	// value — so setting a first choice, and clearing one back to the default,
-	// both register as a change.
+	// CurrentChatID is the chat the runner was started on; it never moves.
+	CurrentChatID string `json:"currentChatId,omitempty"`
+	// LaunchModel and LaunchEffort are what Crowbar LAUNCHED this process with, the
+	// only authority on what it runs (CLIs expose no readable current model); the
+	// chat's selection is compared to them. Empty means the provider default.
 	LaunchModel  string `json:"launchModel,omitempty"`
 	LaunchEffort string `json:"launchEffort,omitempty"`
-	// ReportedModel and ReportedEffort are what the process itself said it
-	// resolved to (a session-start payload). They are display only: an alias
-	// picked at launch never equals them, so comparing them with a selection
-	// would call every unchanged pick a change.
+	// ReportedModel and ReportedEffort are what the process said it resolved to.
+	// Display only: a launch alias never equals them, so they must not be compared.
 	ReportedModel  string `json:"reportedModel,omitempty"`
 	ReportedEffort string `json:"reportedEffort,omitempty"`
-	// LaunchPermissionLevel is the same persisted-launch-intent fact as
-	// LaunchModel/LaunchEffort above, for Crowbar's own permission level —
-	// never empty for a chat that has ever been seeded, unlike Model/Effort.
+	// LaunchPermissionLevel is the launch-time permission level; unlike
+	// LaunchModel it is never empty once the chat has been seeded.
 	LaunchPermissionLevel string `json:"launchPermissionLevel,omitempty"`
-	// CurrentSessionResumable is Crowbar's provider-neutral knowledge that the
-	// current binding names an existing native conversation. handleSessionStart
-	// derives it solely from append-only session history, including a user-issued
-	// TUI /resume; it never depends on provider-specific source labels.
-	CurrentSessionResumable bool `json:"currentSessionResumable,omitempty"`
 
-	// CurrentSessionSince is when CurrentSession was bound to this runner — the
-	// moment the CONVERSATION opened, which is NOT the moment the runner spawned:
-	// a long-lived CLI opens conversations hours after StartedAt. It is zero
-	// exactly while CurrentSession is empty (spawned, nothing announced yet). The
-	// conversation projection stamps FirstSeenAt from it, so history orders by
-	// when each conversation actually opened rather than by whose runner started
-	// first — two runners writing into one chat would otherwise invert it.
-	CurrentSessionSince time.Time `json:"currentSessionSince,omitzero"`
-
-	StartedAt time.Time  `json:"startedAt"`
-	ExitedAt  *time.Time `json:"exitedAt,omitempty"` // audit only — NOT a liveness flag
+	// StartedAt is when the runner was recorded started on its chat.
+	StartedAt time.Time `json:"startedAt"`
 }
 
-// ChatConversation is one conversation a chat has hosted. Append-only history,
-// projected from runner events — NOT chat state. It is what AgentSegment really
-// was, minus everything that described a process (no status, no PTY, no runner
-// id). History cannot drift from reality; only live state can. That is why this
-// is safe to persist while the runner's liveness is not.
+// ChatConversation is one provider session a chat's ledger has bound, in the
+// shape the chat detail serves.
 type ChatConversation struct {
 	ChatID      string    `json:"chatId"`
 	ProviderID  string    `json:"providerId"`
 	SessionID   string    `json:"sessionId"`
 	FirstSeenAt time.Time `json:"firstSeenAt"`
-	// LastActiveAt is when a runner most recently bound or moved into this exact
-	// conversation — unlike FirstSeenAt, it moves forward on a REVISIT (a switch
-	// back to a provider this chat already ran, resuming its own prior session).
-	// It is what "which provider is current" must order by; FirstSeenAt alone
-	// answers a different question (when a conversation first opened) and goes
-	// stale the moment its provider is switched away from and back.
+	// LastActiveAt is when the session was most recently bound to the chat.
 	LastActiveAt time.Time `json:"lastActiveAt"`
-}
-
-// ChatPlacement is one provider that has been PLACED on a chat, and when a
-// runner of it last arrived there. Append-only history, projected from the SAME
-// runner event stream ChatConversation is — but recorded at PLACEMENT rather
-// than at conversation bind, which is the whole reason it exists.
-//
-// A provider that binds via its own connection identity never announces a
-// conversation, so it writes no ChatConversation row EVER. A chat that only ever
-// ran one of those, and was never switched, therefore had nothing left in either
-// runner projection that could name it: every resolver answered "no provider has
-// ever run here" for a chat whose CLI had demonstrably run there for days. A
-// placement is recorded the moment a runner is pointed at a chat, before any
-// provider has announced anything, so it answers for every chat any CLI has ever
-// been started on.
-//
-// It is history, not state: the live-runner row is deleted when its process
-// dies, and this is not. That is what lets a dormant chat still say what it ran.
-type ChatPlacement struct {
-	ChatID     string `json:"chatId"`
-	ProviderID string `json:"providerId"`
-	// LastPlacedAt is when a runner of this provider most recently ARRIVED on the
-	// chat — the later of when it spawned and when it moved into the chat's
-	// conversation, the same "arrival" the live model orders candidates by. It is
-	// directly comparable with ChatConversation.LastActiveAt: both are stamped
-	// from the same runner events, so one scan can order all of them.
-	LastPlacedAt time.Time `json:"lastPlacedAt"`
 }

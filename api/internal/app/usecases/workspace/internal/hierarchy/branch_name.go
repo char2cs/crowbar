@@ -8,20 +8,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// maxBranchNameAttempts bounds how many candidates generateBranchName tries
-// before giving up. A collision needs two independently-drawn UUID prefixes to
-// match, so this is generous headroom against an adversarial ref list, not an
-// expected retry count.
+// maxBranchNameAttempts bounds generateBranchName's tries: generous headroom against an
+// adversarial ref list, since a collision needs two random UUID prefixes to match.
 const maxBranchNameAttempts = 20
 
-// generateBranchName mints a provisional branch name for a spontaneous
-// worktree create (model spec §4.1: "generated server-side... the row is
-// marked provisional until renamed"), collision-checked against every REAL ref
-// the repo already has — local and remote alike, which is exactly what a
-// client cannot see and the reason this has to happen here.
-//
-// CreateChild calls it only when the caller left Branch blank; every existing
-// explicit-create caller keeps supplying its own name and never reaches this.
+// generateBranchName mints a provisional branch name when CreateChild gets a blank
+// Branch, checked against every local and remote ref: refs a client cannot see, which
+// is why it happens server-side.
 func (u *hierarchyUsecase) generateBranchName(
 	ctx context.Context,
 	repoPath string,
@@ -43,23 +36,17 @@ func (u *hierarchyUsecase) generateBranchName(
 	return "", fmt.Errorf("generate branch name: no free name after %d attempts", maxBranchNameAttempts)
 }
 
-// branchNameCandidate draws one candidate: a fixed prefix plus a short random
-// suffix, filesystem-safe as a single path segment since a branch name becomes
-// the leaf directory of its workspace root (deriveWorktreePath).
-//
-// A package-level var, not a plain call, so a test can pin what
-// generateBranchName tries — see export_test.go, mirroring the same pattern
-// the git engine's own branches.go uses for its gitRunner seam.
+// branchNameCandidate draws a fixed prefix plus a short random suffix, safe as one path
+// segment since the branch names its workspace root's leaf directory. It is a var so
+// export_test.go can pin the candidates.
 var branchNameCandidate = provisionalBranchName
 
 func provisionalBranchName() string {
 	return "chat-" + strings.SplitN(uuid.NewString(), "-", 2)[0]
 }
 
-// collides reports whether candidate matches a real ref name, local or
-// remote. `git branch -a` lists a remote ref as "<remote>/<name>" — comparing
-// only the exact string would miss "origin/chat-XXXXXXXX" colliding with the
-// local name "chat-XXXXXXXX" it tracks.
+// collides reports whether candidate matches a local or remote ref. Remote refs list
+// as "<remote>/<name>", so an exact match alone would miss "origin/<candidate>".
 func collides(
 	taken map[string]bool,
 	candidate string,

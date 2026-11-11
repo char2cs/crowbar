@@ -14,9 +14,11 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	"github.com/char2cs/crowbar/api/internal/perf"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 // newRealAPI builds the production HTTP surface — the same middleware stack and
@@ -35,7 +37,7 @@ func newRealAPI(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 	t.Cleanup(eng.Close)
-	a, err := app.New(ctx, eng, adapters)
+	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
 

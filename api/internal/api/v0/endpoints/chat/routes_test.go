@@ -13,9 +13,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func TestMain(
@@ -41,35 +41,18 @@ type stubChatTree struct{}
 
 func (stubChatTree) CreateChat(
 	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ agentusecase.WorktreeSpec,
-	_ string,
-) (string, string, error) {
-	return "c1", "run-1", nil
+	_ agentusecase.CreateChatInput,
+) (agentusecase.CreatedChat, error) {
+	return agentusecase.CreatedChat{ChatID: "c1", RunnerID: "run-1"}, nil
 }
 
-func (stubChatTree) ListInRepo(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
-	return nil, nil
-}
+func (stubChatTree) ListInRepo(context.Context, string) ([]domain.Chat, error) { return nil, nil }
 
-func (stubChatTree) ListInHome(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
-	return nil, nil
-}
+func (stubChatTree) ListInHome(context.Context, string) ([]domain.Chat, error) { return nil, nil }
 
 // FolderScope answers a folder in the repo these routes are mounted under.
-func (stubChatTree) FolderScope(
-	_ context.Context,
-	id string,
-) (domain.Folder, error) {
-	return domain.Folder{ID: id, RepoID: "r1"}, nil
+func (stubChatTree) FolderScope(_ context.Context, id string) (tree.Folder, error) {
+	return tree.Folder{ID: id, RepoID: "r1"}, nil
 }
 
 func (stubChatTree) Create(
@@ -79,11 +62,7 @@ func (stubChatTree) Create(
 	return domain.Chat{}, nil, nil
 }
 
-func (stubChatTree) Rename(
-	_ context.Context,
-	_ string,
-	_ string,
-) (domain.Chat, error) {
+func (stubChatTree) Rename(context.Context, string, string) (domain.Chat, error) {
 	return domain.Chat{}, nil
 }
 
@@ -95,12 +74,11 @@ func (stubChatTree) Move(
 	return domain.Chat{}, nil, nil
 }
 
-func (stubChatTree) Delete(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
-	return nil, nil
-}
+func (stubChatTree) Delete(context.Context, string) ([]domain.Chat, error) { return nil, nil }
+
+func (stubChatTree) CancelMove(context.Context, string) error { return nil }
+
+func (stubChatTree) BranchOut(context.Context, string, string) error { return nil }
 
 func (stubChatTree) PlaceChat(
 	_ context.Context,
@@ -119,27 +97,13 @@ func (stubChatTree) DeleteChat(
 	return agentusecase.ChatDeletion{}, nil
 }
 
-func (stubChatTree) MintOwningChat(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	return "", nil
-}
+func (stubChatTree) MintOwningChat(context.Context, string) (string, error) { return "", nil }
 
-func (stubChatTree) AttachOwningWorkspace(
-	_ context.Context,
-	_ string,
-	_ domain.Workspace,
-) error {
+func (stubChatTree) AttachOwningWorkspace(context.Context, string, domain.Workspace) error {
 	return nil
 }
 
-func (stubChatTree) DiscardOwningChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (stubChatTree) DiscardOwningChat(context.Context, string) error { return nil }
 
 // stubUsecase is a VALUE receiver stub throughout, so recording goes through a
 // pointer field rather than through the receiver.
@@ -147,49 +111,19 @@ type stubUsecase struct {
 	dispatch *dispatchRecord
 }
 
-func (stubUsecase) SpawnChat(
-	_ context.Context,
-	_ string,
-	_ string,
-) (string, string, error) {
-	return "chat-1", "seg-1", nil
+func (stubUsecase) Hook(
+	context.Context, string, string, string, []byte, engineagents.Channel,
+) (agentusecase.HookReply, error) {
+	return agentusecase.HookReply{}, nil
 }
 
-func (stubUsecase) IngestHook(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ []byte,
-) error {
-	return nil
-}
-
-func (stubUsecase) IngestHookDelivery(
-	_ context.Context, _, _, _, _ string,
-	_ []byte,
-) error {
-	return nil
-}
-
-func (stubUsecase) ListChatsByWorkspace(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
+func (stubUsecase) ListChatsByWorkspace(context.Context, string) ([]domain.Chat, error) {
 	return nil, nil
 }
 
-func (stubUsecase) ListChatsInRepo(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
-	return nil, nil
-}
+func (stubUsecase) ListChatsInRepo(context.Context, string) ([]domain.Chat, error) { return nil, nil }
 
-func (stubUsecase) CwdWorkspaceID(
-	_ context.Context,
-	_ string,
-) (string, bool, error) {
+func (stubUsecase) CwdWorkspaceID(context.Context, string) (string, bool, error) {
 	return "", false, nil
 }
 
@@ -226,12 +160,6 @@ func (s stubUsecase) ChatSnapshotsOf(
 	return out, nil
 }
 
-func (stubUsecase) ReadMessages(
-	context.Context, string, int, int, int,
-) (domain.LedgerPage, error) {
-	return domain.LedgerPage{Items: []domain.LedgerMessage{}}, nil
-}
-
 func (stubUsecase) SubmitPrompt(
 	context.Context, string, string, string, string, *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
@@ -244,92 +172,35 @@ func (stubUsecase) SlashCatalog(
 	return engineagents.SlashCatalog{Items: []engineagents.SlashCatalogItem{}}, nil
 }
 
-func (stubUsecase) PendingPrompt(
-	ctx context.Context,
-	chatID string,
-) (domain.PendingPrompt, bool, error) {
-	return domain.PendingPrompt{}, false, nil
-}
-
-// LiveRunnerForChat answers agentrunner.ErrNotFound — "this chat is DORMANT", the
-// honest answer for a stub that starts no process, and not a failure: a live-runner row
-// exists exactly while a PTY does, so its absence IS the liveness verdict. The read
-// routes therefore still serve 200 with empty liveRunnerId/terminalSessionId, which is
-// what the mount test asserts on.
-func (stubUsecase) LiveRunnerForChat(
-	_ context.Context,
-	_ string,
-) (engineagents.Runner, error) {
-	return engineagents.Runner{}, agentrunner.ErrNotFound
-}
-
-func (stubUsecase) ConversationsForChat(
-	_ context.Context,
-	_ string,
-) ([]engineagents.ChatConversation, error) {
+func (stubUsecase) ConversationsForChat(context.Context, string) ([]engineagents.ChatConversation, error) {
 	return nil, nil
 }
 
-func (stubUsecase) SwitchProvider(
-	_ context.Context,
-	_ string,
-	_ string,
-) (string, error) {
+func (stubUsecase) SwitchProvider(context.Context, string, string, string) (string, error) {
 	return "seg-2", nil
 }
 
-func (stubUsecase) ResumeChat(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	return "seg-2", nil
+func (stubUsecase) ResumeChat(context.Context, string) (string, error) { return "seg-2", nil }
+
+func (stubUsecase) Compact(context.Context, string) error { return nil }
+
+func (stubUsecase) Retract(context.Context, string, string) (agentusecase.RetractResult, error) {
+	return agentusecase.RetractResult{}, nil
 }
 
-func (stubUsecase) Compact(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (stubUsecase) StopChat(context.Context, string) error { return nil }
 
-func (stubUsecase) StopChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (stubUsecase) KillChat(context.Context, string) error { return nil }
 
-func (stubUsecase) KillChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (stubUsecase) SwitchToTerminal(context.Context, string) (string, error) { return "", nil }
 
-func (stubUsecase) SwitchToTerminal(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	return "", nil
-}
-
-func (stubUsecase) SwitchToNative(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (stubUsecase) SwitchToNative(context.Context, string) error { return nil }
 
 func (stubUsecase) AttachedTerminalSession(_ string) (string, bool) {
 	return "", false
 }
 
-func (stubUsecase) AssembleHandoff(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	return "", nil
-}
+func (stubUsecase) AssembleHandoff(context.Context, string) (string, error) { return "", nil }
 
 func (stubUsecase) RenameChat(
 	_ context.Context,
@@ -358,19 +229,7 @@ func (s stubUsecase) DispatchMCP(
 	return []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`), true, nil
 }
 
-func (stubUsecase) PurgeChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
-
-func (stubUsecase) Promote(
-	_ context.Context,
-	chatID string,
-) (domain.Chat, error) {
-	return domain.Chat{ID: chatID, WorkspaceID: "ws-promoted"}, nil
-}
+func (stubUsecase) PurgeChat(context.Context, string) error { return nil }
 
 func (stubUsecase) DescriptorReports(
 	context.Context,
@@ -382,11 +241,7 @@ func (stubUsecase) InstallDescriptor(context.Context, []byte) (descriptorcheck.R
 	return descriptorcheck.Report{}, nil
 }
 
-func (stubUsecase) ResolveProviders(
-	_ context.Context,
-) ([]domain.AgentProvider, error) {
-	return nil, nil
-}
+func (stubUsecase) ResolveProviders(context.Context) ([]domain.AgentProvider, error) { return nil, nil }
 
 func (stubUsecase) ReplaceProviderPreferences(
 	_ context.Context,
@@ -395,31 +250,15 @@ func (stubUsecase) ReplaceProviderPreferences(
 	return nil, nil
 }
 
-func (stubUsecase) DefaultPermissionLevel(
-	_ context.Context,
-) (string, error) {
+func (stubUsecase) DefaultPermissionLevel(context.Context) (string, error) {
 	return agentusecase.PermissionFullAuto, nil
 }
 
-func (stubUsecase) SetDefaultPermissionLevel(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (stubUsecase) SetDefaultPermissionLevel(context.Context, string) error { return nil }
 
-func (stubUsecase) ModelManifestFetchEnabled(
-	_ context.Context,
-) (bool, error) {
-	return true, nil
-}
+func (stubUsecase) ModelManifestFetchEnabled(context.Context) (bool, error) { return true, nil }
 
-func (stubUsecase) SetModelManifestFetchEnabled(
-	_ context.Context,
-	_ bool,
-) error {
-	return nil
-}
+func (stubUsecase) SetModelManifestFetchEnabled(context.Context, bool) error { return nil }
 
 // TestRegisterMountsRoutes proves Register mounts every agent route nested
 // under the repo-scoped group (Task 17: .../repos/:repoId/chats/...), including
@@ -430,13 +269,8 @@ func TestRegisterMountsRoutes(
 	r := gin.New()
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
-	wsHit := false
 	uc := stubUsecase{}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil, nil,
-		func(c *gin.Context) {
-			wsHit = true
-			c.Status(http.StatusOK)
-		})
+	chat.Register(repoScoped, r.Group("/v0/chats/:chatId"), settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	const base = "/v0/projects/p1/repos/r1"
 	cases := []struct {
@@ -446,16 +280,18 @@ func TestRegisterMountsRoutes(
 		{http.MethodPost, base + "/chats"},
 		{http.MethodGet, base + "/chats"},
 		{http.MethodGet, base + "/chats/c1"},
-		{http.MethodGet, base + "/chats/c1/messages"},
 		{http.MethodPost, base + "/chats/c1/prompts"},
+		{http.MethodPost, base + "/chats/c1/prompts/r1/retract"},
 		{http.MethodGet, base + "/chats/c1/slash-catalog"},
-		{http.MethodGet, base + "/chats/c1/pending-prompt"},
 		{http.MethodPost, base + "/chats/c1/attachments"},
 		{http.MethodGet, base + "/chats/c1/attachments/f1.png"},
 		{http.MethodPost, base + "/chats/c1/switch"},
+		{http.MethodPost, "/v0/chats/c1/kill"},
 		{http.MethodPost, base + "/chats/c1/rename"},
 		{http.MethodGet, base + "/chats/c1/handoff"},
 		{http.MethodPatch, base + "/chats/c1/placement"},
+		{http.MethodPost, base + "/chats/c1/move/cancel"},
+		{http.MethodPost, base + "/chats/c1/branch-out"},
 		{http.MethodDelete, base + "/chats/c1"},
 		{http.MethodPut, base + "/chats/c1/permission-level"},
 		{http.MethodGet, base + "/chats/folders"},
@@ -463,9 +299,8 @@ func TestRegisterMountsRoutes(
 		{http.MethodPatch, base + "/chats/folders/f1"},
 		{http.MethodDelete, base + "/chats/folders/f1"},
 		{http.MethodPost, base + "/chats/runners/seg-1/mcp"},
-		{http.MethodPost, base + "/chats/hooks"},
+		{http.MethodPost, base + "/chats/runners/seg-1/hooks/claude/tool_pre"},
 		{http.MethodGet, base + "/chats/providers"},
-		{http.MethodGet, base + "/chats/ws"},
 		{http.MethodPut, "/v0/settings/chat/providers"},
 		{http.MethodGet, "/v0/settings/chat/permission-level"},
 		{http.MethodPut, "/v0/settings/chat/permission-level"},
@@ -481,7 +316,6 @@ func TestRegisterMountsRoutes(
 		r.ServeHTTP(rec, req)
 		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
 	}
-	assert.True(t, wsHit, "GET .../chats/ws must delegate to the supplied handler")
 }
 
 // TestChatRoutes_OldWorkspaceScopedPathGone proves the pre-Task-17 shape is
@@ -495,8 +329,7 @@ func TestChatRoutes_OldWorkspaceScopedPathGone(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil, nil,
-		func(c *gin.Context) { c.Status(http.StatusOK) })
+	chat.Register(repoScoped, r.Group("/v0/chats/:chatId"), settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/v0/projects/p1/repos/r1/workspaces/w1/chats", http.NoBody)
@@ -522,10 +355,7 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	settingsRG := r.Group("/v0")
 	uc := stubUsecase{dispatch: got}
-	chat.Register(repoScoped, settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil, nil,
-		func(c *gin.Context) {
-			c.Status(http.StatusOK)
-		})
+	chat.Register(repoScoped, r.Group("/v0/chats/:chatId"), settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
 
 	const path = "/v0/projects/p1/repos/r1/chats/runners/seg-42/mcp"
 	req := httptest.NewRequest(http.MethodPost, path,
@@ -540,39 +370,13 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, string(got.message))
 }
 
-func (stubUsecase) ReadActivity(
-	context.Context, string, int64, int,
-) (agentusecase.ChatActivity, error) {
-	return agentusecase.ChatActivity{}, nil
-}
-
-func (stubUsecase) TakeHookReply(string) (string, bool) { return "", false }
-
-func (stubUsecase) ReadToolPayload(context.Context, string, string, string) ([]byte, error) {
-	return nil, nil
-}
-
 // TerminalWait: this stub is never blocked on anything, which is what every
 // route-mounting assertion here needs it to be.
 func (stubUsecase) TerminalWait(string) domain.AgentTerminalWait {
 	return domain.AgentTerminalWait{}
 }
 
-func (stubUsecase) ReadPendingChoices(
-	context.Context, string,
-) ([]domain.ActivityChoice, error) {
-	return nil, nil
-}
-
-func (stubUsecase) Interruptions(
-	context.Context, string,
-) ([]domain.ActivityInterruption, error) {
-	return nil, nil
-}
-
 func (stubUsecase) AnswerTerminalWait(context.Context, string, string) error { return nil }
-
-func (stubUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string { return nil }
 
 func (stubUsecase) AnswerChoice(
 	context.Context, string, string, []string, string, []byte,
@@ -580,15 +384,13 @@ func (stubUsecase) AnswerChoice(
 	return nil
 }
 
-func (stubUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
-	return agentusecase.PendingAnswer{}, false
+func (stubUsecase) HoldsAnswer(string) bool {
+	return false
 }
 
 func (stubUsecase) AwaitAnswer(context.Context, string) (agentusecase.HookAnswer, error) {
 	return agentusecase.HookAnswer{}, nil
 }
-
-func (stubUsecase) AbandonAnswer(context.Context, string) error { return nil }
 
 func (stubUsecase) SetChatPermissionLevel(
 	context.Context, string, string,

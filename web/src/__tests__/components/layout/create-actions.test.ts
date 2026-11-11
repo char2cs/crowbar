@@ -1,56 +1,64 @@
 /** The sidebar "+": forks (named, then minted) and threads off repo rows. */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
-const {
-  postWorkspace,
-  createChat,
-  createChatWithOwnWorktree,
-  deleteChat,
-  listGlobalProviders,
-  toastError,
-} = vi.hoisted(() => ({
-  postWorkspace: vi.fn(() => Promise.resolve()),
-  createChat: vi.fn(() => Promise.resolve('chat-1')),
-  createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
-  deleteChat: vi.fn(() => Promise.resolve()),
-  listGlobalProviders: vi.fn((): Promise<unknown[]> => new Promise(() => {})),
-  toastError: vi.fn(),
-}))
+const { postWorkspace, createChat, createChatWithOwnWorktree, deleteChat, toastError } = vi.hoisted(
+  () => ({
+    postWorkspace: vi.fn(() => Promise.resolve()),
+    createChat: vi.fn((id: string) => Promise.resolve(id)),
+    createChatWithOwnWorktree: vi.fn((id: string) =>
+      Promise.resolve({ id, workspaceId: 'ws-new' }),
+    ),
+    deleteChat: vi.fn(() => Promise.resolve<string[]>([])),
+    toastError: vi.fn(),
+  }),
+)
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   postWorkspace,
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
   createChatWithOwnWorktree,
-  deleteChat,
-  listGlobalProviders,
 }))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: toastError, success: vi.fn(), info: vi.fn() },
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'deleteChat').mockImplementation(deleteChat)
+import * as providersApi from '@/features/agent/api/agent-providers-api'
+const listGlobalProviders = vi
+  .spyOn(providersApi, 'listGlobalProviders')
+  .mockImplementation(() => new Promise(() => {}))
+import { toast } from '@/features/window/stores/toast-store'
+vi.spyOn(toast, 'error').mockImplementation(toastError)
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
 }))
 
 import {
   handleCreate,
-  confirmPendingCreateName,
-  cancelPendingCreate,
+  confirmCreateDraft,
+  cancelCreateDraft,
 } from '@/components/layout/create-actions'
-import { createThread } from '@/__tests__/__fixtures__/draft-thread'
+import { createThread, draftPaneId } from '@/__tests__/__fixtures__/draft-thread'
 import { handleTrash } from '@/components/layout/trash-actions'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import type { Repo } from '@/core/entities/repo-types'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/core/entities/operations'
+import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
+import { ApiError } from '@/lib/errors/api-error'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import {
   loadProjects,
   pairRemoteHost,
@@ -81,49 +89,54 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
-  useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
-  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
-  // CLI, unlike the old chat-less postWorkspace) — the global provider store
-  // (agent-providers-store.ts), not a per-workspace one, since there is no
-  // workspace yet to scope a per-workspace read through.
-  useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+  resetEntities()
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  resetOperations()
+  // A create needs a provider, read from the global store: there is no workspace yet to scope by.
+  useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
-/** A 'workspace' create now asks for a name before it fires (the pending
- *  row's inline input) — this drives that confirm for tests written against
- *  the old immediate-fire behavior, finding the single 'naming' entry
- *  `handleCreate` just armed exactly the way the real input would. */
-function confirmArmedBranchName(name = 'typed-branch'): void {
-  const armed = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')
-  if (!armed) throw new Error('confirmArmedBranchName: no naming entry is armed')
-  confirmPendingCreateName(armed.tempId, name)
+const ANY = expect.any(String)
+
+const offerProviders = (...providers: { id: string; enabled: boolean; [k: string]: unknown }[]) =>
+  useAgentProvidersStore.setState({ status: 'ready', providers: providers as never })
+
+/** Confirms the naming input `handleCreate` opened, as the row's input does. */
+function confirmArmedBranchName(name = 'typed-branch', navigate = vi.fn()): void {
+  if (!treeUiStore.getState().draft) throw new Error('no draft is open')
+  confirmCreateDraft(name, navigate)
 }
 
-/**
- * The two verbs a chat row must NOT answer wrongly.
- *
- * `handleCreate` used to fall through to a path built for a different row
- * kind and explain itself in that kind's words — worse than doing nothing,
- * because the explanation was false. `handleTrash` used to be the same
- * shape of bug fixed the other direction — a direct `deleteChat` call with
- * no removal-tray draft at all. Addendum §2 closes THAT gap instead: a chat
- * now goes through the exact same tray every other kind already did, so its
- * delete is no longer a special case.
- */
+/** The one own-worktree create, typed-branch off `parent` in r1 of p1. */
+const expectForked = (provider: string, parent: string, surface?: 'terminal') =>
+  expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+    ...[ANY, ANY, 'p1', 'r1', provider, parent, 'typed-branch', surface],
+  )
+
+/** The user prefers Terminal, and codex can start there. */
+function preferTerminalOnCodex() {
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: false },
+  }))
+  offerProviders({ id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true })
+}
+
+/** The chat id the client minted for the last own-worktree create. */
+function mintedForkId(): string {
+  return (createChatWithOwnWorktree.mock.calls.at(-1) as unknown as [string])[0]
+}
+
 describe('a chat row does not borrow another row kind’s refusal', () => {
   const repoWithChat = () =>
     repo({ chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }] })
 
   it('handleTrash holds a chat in the removal tray — no direct deleteChat call', () => {
-    useSidebarStore.setState({ repos: [repoWithChat()] })
+    seedRepos([repoWithChat()])
 
     expect(handleTrash('c1')).toBe(true)
 
     expect(deleteChat).not.toHaveBeenCalled()
-    const entries = useRemovalTrayStore.getState().entries
+    const entries = treeUiStore.getState().removals
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', label: 'a chat' })
     // repo()'s default `defaultWorkspaceId` ('home-1') is the scoped
@@ -136,7 +149,7 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
   })
 
   it('handleCreate is SILENT — never the folder’s "has none to run it in" — for a bubble with no ground at all', () => {
-    useSidebarStore.setState({ repos: [repoWithChat()] })
+    seedRepos([repoWithChat()])
     handleCreate('c1', 'thread', vi.fn())
     expect(toastError).not.toHaveBeenCalled()
     expect(createChat).not.toHaveBeenCalled()
@@ -144,94 +157,77 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
   })
 })
 
-// Task 8: "create workspace" now mints the workspace AND its first chat
-// atomically (POST .../chats {ownWorktree: true}) instead of the old
-// chat-less postWorkspace — a bare branch row today, with a separate child
-// chat row only once something ELSE later starts a conversation in it. One
-// call now produces both at once (model spec §4.1, "one command replaces
-// every create path").
-//
-// The parentId these send is a WORKSPACE id ('home-1', the repo's default
-// checkout) when the fixture records no owning chat for it. The daemon
-// accepts that shape as-is: it resolves the id through the workspace's own
-// anchor row (validate.go resolveRow / walk.go's fork-parent walk), answers
-// 201, and the new fork's git parent IS that workspace, its branch the one
-// typed here (api/tests TestRegression_SidebarForkWithWorkspaceIdAsParent).
-// No wire change on this side.
+// "Create workspace" mints the workspace AND its first chat in one call. The
+// parentId may be a WORKSPACE id with no owning chat: the daemon resolves it
+// (api/tests TestRegression_SidebarForkWithWorkspaceIdAsParent).
 describe('creating a workspace off the repo-home row', () => {
   it('calls the atomic own-worktree endpoint, not postWorkspace', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [repo()] })
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      'p1',
-      'r1',
-      'claude',
-      'home-1',
-      'typed-branch',
-    )
+    expectForked('claude', 'home-1')
     expect(postWorkspace).not.toHaveBeenCalled()
   })
 
-  // The clicked row's own id is the fallback, not the rule — see the regular-fork
-  // block below, where the workspace names a real owning chat to place by. The
-  // fallback is a workspace id the daemon accepts as a fork parent (201, fork
-  // cut off 'ws-a' with the typed branch) — see the describe's own note.
   it('falls back to the clicked row id for a workspace that names no owning chat', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
 
     handleCreate('ws-a', 'workspace', vi.fn())
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      'p1',
-      'r1',
-      'claude',
-      'ws-a',
-      'typed-branch',
-    )
+    expectForked('claude', 'ws-a')
   })
 
   it('picks the first ENABLED provider from the global provider store', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [
-        { id: 'disabled-one', enabled: false },
-        { id: 'codex', enabled: true },
-      ] as never,
-    })
-    useSidebarStore.setState({ repos: [repo()] })
+    offerProviders({ id: 'disabled-one', enabled: false }, { id: 'codex', enabled: true })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      'p1',
-      'r1',
+    expectForked('codex', 'home-1')
+  })
+
+  // A workspace's first chat lands on the user's default surface like any other create: born on
+  // codex's default (no PTY), a terminal-preferring pane would relaunch it on the terminal.
+  it("creates the workspace's chat on the user's default terminal surface", async () => {
+    preferTerminalOnCodex()
+    seedRepos([repo()])
+
+    handleCreate('home-1', 'workspace', vi.fn())
+    confirmArmedBranchName()
+    await Promise.resolve()
+
+    expectForked('codex', 'home-1', 'terminal')
+  })
+
+  // One default: with Terminal preferred, a New thread starts on the terminal as a fork's
+  // chat does, instead of a Chat draft whose first prompt the terminal would hold unsent.
+  it("starts a new thread on the user's default terminal surface, like a fork", async () => {
+    preferTerminalOnCodex()
+    seedRepos([repo()])
+
+    await handleCreate('home-1', 'thread', vi.fn())
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'home-1',
       'codex',
       'home-1',
-      'typed-branch',
+      'terminal',
     )
   })
 
   it('is a silent no-op with no enabled provider loaded yet', async () => {
-    useAgentProvidersStore.setState({ status: 'ready', providers: [] })
-    useSidebarStore.setState({ repos: [repo()] })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     await Promise.resolve()
@@ -240,18 +236,9 @@ describe('creating a workspace off the repo-home row', () => {
     expect(postWorkspace).not.toHaveBeenCalled()
   })
 
-  // Regression: a burst of clicks on one row's "+" (the exact shape of "the fork
-  // button does nothing" — no visible feedback between click and the row appearing
-  // made a user click again) used to mint one chat AND one runner per click. Most of
-  // those runners lost the concurrent-worktree-fork startup race and left a chat
-  // with a real id and zero conversation, ever — permanently unresumable. One
-  // request in flight per row closes this at its source.
   it('a second click while the first create is still in flight mints nothing extra', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [repo()] })
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     handleCreate('home-1', 'workspace', vi.fn())
@@ -266,11 +253,8 @@ describe('creating a workspace off the repo-home row', () => {
   })
 
   it('releases the guard once the request settles, so the NEXT click is honored', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [repo()] })
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([repo()])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName('first')
@@ -284,18 +268,9 @@ describe('creating a workspace off the repo-home row', () => {
     expect(createChatWithOwnWorktree).toHaveBeenCalledTimes(2)
   })
 
-  // Only one naming INPUT is ever open at once (the global "+"'s own single
-  // slot, matching the old tree's `creatingChildOf`) — so this proves the
-  // NETWORK half instead: once row 1's create is actually in flight (past
-  // naming), opening and confirming row 2's is never blocked by it.
   it('a different row is never blocked by another row’s in-flight create', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({
-      repos: [repo(), repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' })],
-    })
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([repo(), repo({ id: 'r2', projectId: 'p2', defaultWorkspaceId: 'home-2' })])
 
     handleCreate('home-1', 'workspace', vi.fn())
     confirmArmedBranchName('first')
@@ -307,14 +282,6 @@ describe('creating a workspace off the repo-home row', () => {
   })
 })
 
-/**
- * A REGULAR fork is the one row whose id is NOT the id the daemon places by.
- * Its owning chat is `type: 'chat'` (`tree/backfill.go`'s `owningChatType`) and
- * is already drawn as its own conversation beside it, so the row cannot take
- * that id the way a locked branch's does — one id would land on two rows, one
- * of them its own parent. The workspace names it instead
- * (`WorkspaceDTO.owningChatId`), and the create reads it from there.
- */
 describe('creating a workspace off a REGULAR fork row', () => {
   const forkRepo = () =>
     repo({
@@ -325,158 +292,137 @@ describe('creating a workspace off a REGULAR fork row', () => {
     })
 
   it('names the workspace’s OWNING CHAT, never the clicked row id', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'workspace', vi.fn())
     confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
-      'p1',
-      'r1',
-      'claude',
-      'c-owner',
-      'typed-branch',
-    )
+    expectForked('claude', 'c-owner')
   })
 
-  // Live-reported, the fork half of the same "should be focused... it's just
-  // adding the row" gap the thread tests pin below: a fork only knows its OWN
-  // workspace id once BOTH halves of its two-aggregate placement have landed
-  // (forkHasLanded's own doc) — the create response carries only the chat id
-  // — so opening has to wait for that reseed rather than firing off the
-  // response the way a thread's (single-aggregate) open can.
-  it('opens the newly forked branch’s own chat into a pane once both halves of its placement land', async () => {
+  // The daemon sends the branch's entities before the operation's succeeded.
+  it('a branch create draws its row from the operation and opens the chat once it succeeded', async () => {
     resetWindowPaneStoreForTests()
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([forkRepo()])
     const navigate = vi.fn(() => Promise.resolve())
 
     handleCreate('ws-a', 'workspace', navigate)
-    confirmArmedBranchName()
-    await Promise.resolve()
+    confirmArmedBranchName('feature/x', navigate)
+    const chatId = mintedForkId()
+    await vi.waitFor(() => expect(Object.values(operationsState().ops)[0]?.state).toBe('succeeded'))
 
-    // Not opened yet — the create's own promise resolved, but neither the
-    // new chat nor its owning workspace has been OBSERVED in the store.
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).not.toBe('chat-1')
+    const rows = operationRows('p1')
+    expect(rows).toMatchObject([
+      { id: chatId, kind: 'branch', label: 'feature/x', parentId: 'c-owner', working: true },
+    ])
 
-    // Both halves land: the new workspace (owned by the fresh chat) and the
-    // chat itself, correctly placed under the owning chat it was forked from.
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          workspaces: [
-            { id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' },
-            { id: 'ws-new', branch: 'feature/x', age: '', order: 1, owningChatId: 'chat-1' },
-          ],
-          chats: [
-            { id: 'c-owner', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 },
-            {
-              id: 'chat-1',
-              repoId: 'r1',
-              workspaceId: 'ws-new',
-              parentId: 'c-owner',
-              title: '',
-              order: 0,
-            },
-          ],
-        }),
-      ],
-    })
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
+    seedRepos([
+      repo({
+        workspaces: [
+          { id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' },
+          { id: 'ws-new', branch: 'feature/x', age: '', order: 1, owningChatId: chatId },
+        ],
+        chats: [
+          { id: 'c-owner', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 },
+          {
+            id: chatId,
+            repoId: 'r1',
+            workspaceId: 'ws-new',
+            parentId: 'c-owner',
+            title: '',
+            order: 0,
+          },
+        ],
+      }),
+    ])
 
-    // `ws-new` (the fresh fork's own workspace) is not the active one in this
-    // test, so opening goes through the navigate-then-open path — same as a
-    // thread created against a not-yet-active workspace.
+    await vi.waitFor(() =>
+      expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(chatId),
+    )
     expect(navigate).toHaveBeenCalledWith({
       to: '/ide/$projectId/$repoId/$wsId',
       params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-new' },
     })
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
+    expect(operationRows('p1')).toEqual([])
   })
 
-  // Regression, caught LIVE (not by any fixture here — every one above
-  // happens to give `subject.id` and the owning chat the same value once you
-  // trace through resolveRow, so this dimension went untested): the pending
-  // row's OWN `parentId` must be the OWNING CHAT too, for the identical
-  // reason the network call above already gets it right — a real sibling
-  // row's `parentId` is always the parent's RENDERED (owning-chat-folded)
-  // id, never the raw workspace id `resolveRow` translates the click into.
-  // Using the wrong one drew the naming input as a top-level row, after
-  // every other project's, instead of nested under the forked row at all.
-  it('arms the naming row at the OWNING CHAT parent too, not the raw workspace id', () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+  it('a branch create the daemon refuses keeps its row with the reason', async () => {
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([forkRepo()])
+    createChatWithOwnWorktree.mockImplementationOnce(() =>
+      Promise.reject(new ApiError('feature/x already exists', 409, 'conflict')),
+    )
 
     handleCreate('ws-a', 'workspace', vi.fn())
+    confirmArmedBranchName('feature/x')
 
-    expect(usePendingCreatesStore.getState().entries).toMatchObject([{ parentId: 'c-owner' }])
-
-    // Never confirmed — cancel it so this test leaves no armed
-    // `createInFlight`/`armedBranchCreates` entry (module-level state
-    // `beforeEach` cannot see) for a LATER test's `handleCreate('ws-a', ...)`
-    // to find still locked.
-    cancelPendingCreate(usePendingCreatesStore.getState().entries[0]!.tempId)
+    await vi.waitFor(() =>
+      expect(operationRows('p1')).toMatchObject([
+        {
+          label: 'feature/x',
+          working: false,
+          operation: { state: 'failed', problem: { message: 'feature/x already exists' } },
+        },
+      ]),
+    )
   })
 
-  // The thread half is a different question with a different answer: it posts
-  // to that workspace's chats mount, so it wants the WORKSPACE and never a
-  // chat id.
-  //
-  // Providers come from the GLOBAL store now, not the per-workspace one this
-  // used to seed — see `enabledProvider` in thread-create.ts. Seeding
-  // the workspace store was itself the shape of the bug: only a MOUNTED
-  // workspace ever fills that copy, so on a row the user has never opened the
-  // real click found `providers: []` and returned with no request at all.
+  // The naming row sits at the OWNING CHAT parent: a real sibling's parentId is
+  // the parent's rendered id, never the raw workspace id.
+  it('confirming a name starts the create; cancelling clears the draft', async () => {
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([forkRepo()])
+
+    handleCreate('ws-a', 'workspace', vi.fn())
+    expect(treeUiStore.getState().draft).toMatchObject({
+      kind: 'branch',
+      parentId: 'c-owner',
+      repoId: 'r1',
+    })
+    cancelCreateDraft()
+    expect(treeUiStore.getState().draft).toBeNull()
+    expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
+
+    handleCreate('ws-a', 'workspace', vi.fn())
+    confirmArmedBranchName('feature/y')
+    expect(treeUiStore.getState().draft).toBeNull()
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      ANY,
+      ANY,
+      'p1',
+      'r1',
+      'claude',
+      'c-owner',
+      'feature/y',
+      undefined,
+    )
+  })
+
   it('its thread "+" still runs in the workspace, not in the owning chat', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    offerProviders({ id: 'claude', enabled: true })
+    seedRepos([forkRepo()])
 
     await createThread('ws-a', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'ws-a', 'chat')
   })
 
-  // The regression that made "Thread does nothing" reproducible: a workspace
-  // with NO store of its own (never mounted — exactly what a sidebar row for an
-  // unopened workspace is) must still start a thread, because the provider list
-  // is machine-level and has nothing to do with which workspace is on screen.
-  it('starts a thread on a workspace that has never been mounted', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
-
-    await createThread('ws-a', vi.fn())
-
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
+  // The phone lands a new thread on the chat, so it opens the draft whatever the default.
+  it('opens its thread "+" as a draft on the phone, even with Terminal preferred', async () => {
+    preferTerminalOnCodex()
+    seedRepos([forkRepo()])
+    platform.mobile = true
+    await handleCreate('ws-a', 'thread', vi.fn()).finally(() => (platform.mobile = false))
+    expect(createChat).not.toHaveBeenCalled()
+    expect(draftPaneId()).toBeDefined()
   })
 
-  // A precondition that stops the click has to SAY so. Silence here is
-  // indistinguishable from a dead button, which is how both create affordances
-  // came to be reported as doing nothing.
   it('says why instead of silently doing nothing when no provider is enabled', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: false }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    offerProviders({ id: 'claude', enabled: false })
+    seedRepos([forkRepo()])
 
     await createThread('ws-a', vi.fn())
 
@@ -485,56 +431,12 @@ describe('creating a workspace off a REGULAR fork row', () => {
   })
 
   it('says why instead of silently doing nothing when a fork finds no provider', () => {
-    useAgentProvidersStore.setState({ status: 'ready', providers: [] as never })
-    useSidebarStore.setState({ repos: [forkRepo()] })
+    seedRepos([forkRepo()])
 
     handleCreate('ws-a', 'workspace', vi.fn())
 
     expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
     expect(toastError).toHaveBeenCalledOnce()
-  })
-
-  /**
-   * THE OTHER HALF OF "THE FORK BUTTON DOES NOTHING": measured live, the POST
-   * went out and the daemon really did mint the chat and its worktree — the
-   * repo's chat count moved — and the sidebar never drew a row for it.
-   *
-   * `app-sync-provider.tsx`'s `openRepoTreeSubscription` reseeds `crowbar_chats`
-   * on exactly one trigger, this repo's generation moving, and the only thing
-   * that normally moves it is a chat frame arriving for a MOUNTED workspace of
-   * the repo. Its own comment records the assumption that made that safe — "a
-   * chat can only be created, renamed or moved from a surface that has that
-   * workspace mounted" — which the sidebar's own Fork/Thread buttons broke.
-   */
-  it('bumps the repo’s tree signal after a fork so the new row is drawn', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
-    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
-
-    handleCreate('ws-a', 'workspace', vi.fn())
-    confirmArmedBranchName()
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
-  })
-
-  it('bumps it after a thread too', async () => {
-    useAgentProvidersStore.setState({
-      status: 'ready',
-      providers: [{ id: 'claude', enabled: true }] as never,
-    })
-    useSidebarStore.setState({ repos: [forkRepo()] })
-    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
-
-    await createThread('ws-a', vi.fn())
-    await Promise.resolve()
-    await Promise.resolve()
-
-    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBeGreaterThan(before)
   })
 })
 
@@ -549,14 +451,13 @@ describe('forking a workspace of a project on a remote host', () => {
         { id: 'c-owner', repoId: 'r1', type: 'chat', workspaceId: 'ws-a', title: '', order: 0 },
       ],
     })
-  const offered = [{ id: 'codex-remote', enabled: true }]
+  const offered = [{ id: 'codex-remote', enabled: true }] as never
 
   beforeEach(() => {
     resetHostWorld()
     pairRemoteHost('host-1')
     loadProjects(projectOn('p-remote', 'host-1'))
-    useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
-    useSidebarStore.setState({ repos: [remoteRepo()] })
+    seedRepos([remoteRepo()])
   })
   afterEach(() => resetHostWorld())
 
@@ -565,10 +466,9 @@ describe('forking a workspace of a project on a remote host', () => {
 
     await handleCreate('ws-a', 'workspace', vi.fn())
     confirmArmedBranchName()
-    await Promise.resolve()
 
     expect(listGlobalProviders).toHaveBeenCalledExactlyOnceWith('host-1')
-    expect(createChatWithOwnWorktree.mock.calls[0]?.slice(0, 3)).toEqual([
+    expect(createChatWithOwnWorktree.mock.calls[0]?.slice(2, 5)).toEqual([
       'p-remote',
       'r1',
       'codex-remote',
@@ -585,10 +485,10 @@ describe('forking a workspace of a project on a remote host', () => {
     ])
 
     expect(toastError).toHaveBeenCalledExactlyOnceWith('Couldn’t reach host-1', expect.any(String))
-    expect(usePendingCreatesStore.getState().entries).toEqual([])
+    expect(treeUiStore.getState().draft).toBeNull()
 
     listGlobalProviders.mockResolvedValueOnce(offered)
     await handleCreate('ws-a', 'workspace', vi.fn())
-    expect(usePendingCreatesStore.getState().entries).toMatchObject([{ status: 'naming' }])
+    expect(treeUiStore.getState().draft).toMatchObject({ kind: 'branch', parentId: 'c-owner' })
   })
 })

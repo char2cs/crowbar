@@ -28,7 +28,7 @@ type ProviderEngine interface {
 
 // WorkspaceReader is the workspace read surface the handlers need: list every
 // workspace, to resolve a repo-scoped worktree path for the protected-branch
-// lookup until the repo aggregate carries a path of its own (W11/W12).
+// lookup until the repo aggregate carries a path of its own.
 type WorkspaceReader interface {
 	List(
 		ctx context.Context,

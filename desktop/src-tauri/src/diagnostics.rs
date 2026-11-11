@@ -1,10 +1,6 @@
-//! Diagnostics-bundle export: everything a bug report needs, in one zip.
-//!
-//! Offline-first means there is no telemetry backend — the user is the
-//! transport. This command gathers the daemon log (where panics and watchdog
-//! goroutine dumps land), the app log, fresh goroutine/heap dumps from the
-//! live daemon, and version metadata into a single zip in the user's
-//! Downloads folder, and returns its path for the UI to show.
+//! Diagnostics-bundle export. There is no telemetry backend, so the user is the transport:
+//! daemon and app logs, fresh goroutine/heap dumps and version metadata go into one zip
+//! in Downloads, whose path is returned for the UI to show.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -51,16 +47,20 @@ pub async fn diagnostics_export<R: Runtime>(app: AppHandle<R>) -> Result<String,
 
     // Daemon log generations — where panic traces, exit codes, and watchdog
     // goroutine dumps live.
-    let daemon_log = sidecar::daemon_log_path();
-    add_file(&mut entries, &mut meta, &daemon_log, "daemon.log");
-    let mut rotated = daemon_log.as_os_str().to_owned();
-    rotated.push(".1");
-    add_file(
-        &mut entries,
-        &mut meta,
-        &PathBuf::from(rotated),
-        "daemon.log.1",
-    );
+    match sidecar::daemon_log_path() {
+        Some(daemon_log) => {
+            add_file(&mut entries, &mut meta, &daemon_log, "daemon.log");
+            let mut rotated = daemon_log.as_os_str().to_owned();
+            rotated.push(".1");
+            add_file(
+                &mut entries,
+                &mut meta,
+                &PathBuf::from(rotated),
+                "daemon.log.1",
+            );
+        }
+        None => meta.push_str("daemon log: daemon not started, its paths are unresolved\n"),
+    }
 
     // The Rust host's own log(s).
     match app.path().app_log_dir() {

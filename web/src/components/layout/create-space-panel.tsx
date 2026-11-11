@@ -7,18 +7,15 @@ import { ProjectIconMark } from './project-icon-mark'
 import { IconPopover, type StagedIcon } from './icon-popover'
 import { putIconFile } from './icon-upload'
 import { getFilenameFromPath } from '@/features/file-system/controllers/file-utils'
-import { toast } from '@/features/window/stores/toast-store'
-import { toastActionFailure, toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
-import { apiFetch, postProject } from '@/lib/api'
-import { awaitEntity } from '@/lib/ws/await-entity'
-import { qualify } from '@/lib/host-path'
+import { apiFetch } from '@/lib/api/fetch'
+import { createProject } from '@/lib/store/create-project'
+import { report } from '@/lib/errors/report'
 import { projectBaseOnHost } from '@/lib/project-url'
-import { projectFromDTO } from '@/lib/store/project-from-dto'
 import { hostIsUnreachable } from '@/features/hosts/lib/host-tone'
 import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import { LOCAL_HOST, type HostDotState } from '@/features/hosts/types'
-import type { Project, ProjectDTO } from '@/lib/types'
+import type { Project } from '@/lib/types'
 
 /** Why Create waits on a remote host, or null when it doesn't: the host first, then the folder. */
 function remoteCreateHint(
@@ -69,18 +66,9 @@ async function applyStagedIcon(
   }
 }
 
-// Local keeps its one line; for a remote host the reason (too large, outside what this app may
-// read) is the user's only clue.
-function toastIconFailure(hostId: string, err: unknown): void {
-  if (toastHostFailure(err)) return
-  if (hostId === LOCAL_HOST.id) toast.error('Failed to set icon')
-  else toast.error('Failed to set icon', err instanceof Error ? err.message : String(err))
-}
-
 /** The "Create a Space" sheet, reached from the switcher's `+`, replacing SpaceScroller so a
- *  swipe never lands on it. Its icon
- *  pick is staged (no project id yet) and applied right after the create answers, before
- *  `onCreate`: the new space arrives with its icon already set. */
+ *  swipe never lands on it. Its icon pick is staged (no project id yet) and applied once the
+ *  create settles, before `onCreate`: the new space arrives with its icon already set. */
 export function CreateSpacePanel({
   defaultHostId = LOCAL_HOST.id,
   onCreate,
@@ -110,27 +98,21 @@ export function CreateSpacePanel({
     if (!selectedPath || loading || hostRefusesCreate) return
     setLoading(true)
     try {
-      // postProject answers 202 with no body: the project is read back off the stream of the
-      // host it is created on, matched by path, so the DTO stamped with that host came from it.
       const trimmedName = name.trim() || getFilenameFromPath(selectedPath)
-      const dto = await awaitEntity<ProjectDTO>({
-        endpoint: qualify(hostId, '/v0/projects'),
-        match: (p) => p.path === selectedPath && p.status !== 'deleted',
-        action: () => postProject(trimmedName, selectedPath, hostId),
-      })
+      const project = await createProject(trimmedName, selectedPath, hostId)
       if (stagedIcon) {
         // Best-effort: the space itself was created successfully, so a
         // failed icon mutation surfaces its own toast rather than blocking
         // entry to the new space.
         try {
-          await applyStagedIcon(hostId, dto.id, stagedIcon)
+          await applyStagedIcon(hostId, project.id, stagedIcon)
         } catch (err) {
-          toastIconFailure(hostId, err)
+          report(err, { action: 'Failed to set icon' })
         }
       }
-      onCreate(projectFromDTO(dto, hostId))
+      onCreate(project)
     } catch (err) {
-      toastActionFailure(err, 'Failed to create space')
+      report(err, { action: 'Failed to create space' })
     } finally {
       setLoading(false)
     }

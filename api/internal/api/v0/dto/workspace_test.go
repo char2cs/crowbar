@@ -95,7 +95,6 @@ func TestWorkspaceDTOFrom(
 		PRTitle:        "title",
 		PRTargetBranch: "main",
 		Working:        true,
-		LastError:      "boom",
 		Provisioning:   domain.WorkspaceProvisioned,
 	}, workspace.MergeEligibility{}, "chat-1",
 		fakePlacement{"w1": {folderID: "f1", order: 4}})
@@ -113,7 +112,6 @@ func TestWorkspaceDTOFrom(
 	assert.Equal(t, "title", got.PRTitle)
 	assert.Equal(t, "main", got.PRTargetBranch)
 	assert.True(t, got.Working)
-	assert.Equal(t, "boom", got.LastError)
 	assert.Equal(t, "/wt", got.LocalPath)
 	// Eligibility is supplied by the caller; an empty overlay maps to zero
 	// values.
@@ -138,16 +136,15 @@ func TestWorkspaceDTOFrom_MapsEligibility(
 }
 
 // TestWorkspaceDTO_WireFields pins the final wire contract: the field set and
-// json tags. The eligibility/error overlay fields (working, lastError,
-// canMergeLocally, parentBranch) are present; the retired legacy fields
-// (locked, hasConflicts, agentRunning, pendingMerge, worktreePath) are absent.
+// json tags. The overlay fields (working, canMergeLocally,
+// parentBranch) are present; the retired fields (locked, hasConflicts,
+// agentRunning, pendingMerge, worktreePath, lastError) are absent.
 func TestWorkspaceDTO_WireFields(
 	t *testing.T,
 ) {
 	raw, err := json.Marshal(dto.WorkspaceDTOFrom(ctx, domain.Workspace{
 		ID:           "w1",
 		Working:      true,
-		LastError:    "oops",
 		WorktreePath: "/wt",
 		Provisioning: domain.WorkspaceProvisioned,
 	}, workspace.MergeEligibility{}, "chat-1", fakePlacement{"w1": {folderID: "f1", order: 2}}))
@@ -157,13 +154,12 @@ func TestWorkspaceDTO_WireFields(
 	require.NoError(t, json.Unmarshal(raw, &decoded))
 
 	for _, key := range []string{
-		"working", "lastError", "canMergeLocally", "localPath", "owningChatId", "folderId", "order",
+		"working", "canMergeLocally", "localPath", "owningChatId", "folderId", "order",
 	} {
 		_, present := decoded[key]
 		assert.Truef(t, present, "expected wire key %q to be present", key)
 	}
 	assert.Equal(t, true, decoded["working"])
-	assert.Equal(t, "oops", decoded["lastError"])
 	assert.Equal(t, false, decoded["canMergeLocally"])
 	assert.Equal(t, "chat-1", decoded["owningChatId"])
 	assert.Equal(t, "f1", decoded["folderId"])
@@ -175,6 +171,7 @@ func TestWorkspaceDTO_WireFields(
 		"agentRunning",
 		"pendingMerge",
 		"worktreePath",
+		"lastError",
 		"parentBranch", // omitempty: absent when empty
 	} {
 		_, present := decoded[key]

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,23 +19,26 @@ import (
 
 type errProfiles struct{}
 
+// errDBDown is a store failure under the context a store wraps it in.
+var errDBDown = fmt.Errorf("terminal profiles: query: %w", errors.New("db down"))
+
 func (errProfiles) FindAll(_ context.Context) ([]domain.TerminalProfile, error) {
-	return nil, errors.New("db down")
+	return nil, errDBDown
 }
 
 func (errProfiles) FindByKey(_ context.Context, _ string) (*domain.TerminalProfile, error) {
-	return nil, errors.New("db down")
+	return nil, errDBDown
 }
 
 func (errProfiles) Save(_ context.Context, _ domain.TerminalProfile) error {
-	return errors.New("db down")
+	return errDBDown
 }
 
-func (errProfiles) Delete(_ context.Context, _ string) error { return errors.New("db down") }
+func (errProfiles) Delete(_ context.Context, _ string) error { return errDBDown }
 
 func newErrRouter() *gin.Engine {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, errProfiles{}, &spyBroadcaster{})
+	h := handlers.New(stubEngine{}, errProfiles{})
 	mountSessions(r, h)
 	rg := r.Group("/v0")
 	rg.GET("/settings/terminal/profiles", h.ListProfiles)
@@ -47,7 +51,7 @@ func newErrRouter() *gin.Engine {
 
 func newNilEngineRouter() *gin.Engine {
 	r := gin.New()
-	h := handlers.New(nil, stubProfiles{}, &spyBroadcaster{})
+	h := handlers.New(nil, stubProfiles{})
 	mountSessions(r, h)
 	return r
 }
@@ -85,20 +89,15 @@ func TestTerminalHandlers_ProfileErrors(
 ) {
 	r := newErrRouter()
 
-	rec := doTerminal(r, http.MethodGet, "/v0/settings/terminal/profiles", nil)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-
-	rec = doTerminal(r, http.MethodGet, "/v0/settings/terminal/profiles/p1", nil)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-
-	rec = doTerminal(r, http.MethodPost, "/v0/settings/terminal/profiles",
-		map[string]any{"name": "default"})
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-
-	rec = doTerminal(r, http.MethodPut, "/v0/settings/terminal/profiles/p1",
-		map[string]any{"name": "x"})
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-
-	rec = doTerminal(r, http.MethodDelete, "/v0/settings/terminal/profiles/p1", nil)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	for _, rec := range []*httptest.ResponseRecorder{
+		doTerminal(r, http.MethodGet, "/v0/settings/terminal/profiles", nil),
+		doTerminal(r, http.MethodGet, "/v0/settings/terminal/profiles/p1", nil),
+		doTerminal(r, http.MethodPost, "/v0/settings/terminal/profiles", map[string]any{"name": "default"}),
+		doTerminal(r, http.MethodPut, "/v0/settings/terminal/profiles/p1", map[string]any{"name": "x"}),
+		doTerminal(r, http.MethodDelete, "/v0/settings/terminal/profiles/p1", nil),
+	} {
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+		assert.JSONEq(t, `{"success":false,"code":"internal","error":"terminal profiles: query: db down"}`, rec.Body.String(),
+			"an uncoded failure keeps every word")
+	}
 }

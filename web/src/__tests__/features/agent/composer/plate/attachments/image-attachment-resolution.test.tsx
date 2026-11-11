@@ -88,24 +88,9 @@ const TWO_ATTACHMENTS = [
   },
 ]
 
-/**
- * REGRESSION, investigated live: React error #185 ("Maximum update depth
- * exceeded"), reported on submitting a message with an attachment, turned
- * out to have (at least) two independent mechanisms. The first — an
- * Excalidraw scene re-parsed into a fresh object every render, torn down and
- * restarted by `ExcalidrawPreview`'s own effect — is fixed and covered by
- * `excalidrawSceneFromCodeBlock identity stability` (chat-code-block-node.
- * test.tsx). The user then confirmed live that the SAME crash also happens
- * with a PLAIN photo/file attachment and no Excalidraw involved at all — a
- * second, independent mechanism.
- *
- * One lead investigated for that second mechanism was
- * `useAttachmentDraggable` (attachment-drag-handle.tsx) building fresh drag
- * options on every render. Exercised below through the real drag stack under
- * `DndScope`: a regression test so a future change to this hook (or to how
- * the composer swaps into the transcript on submit) can't silently
- * reintroduce a render loop without a test noticing.
- */
+/** React error #185 (maximum update depth) on submit also has a non-Excalidraw path. This drives
+ *  a plain attachment through the real drag stack under `DndScope`, so a change to
+ *  useAttachmentDraggable or the submit swap can't reintroduce a render loop unnoticed. */
 describe('REGRESSION investigation: React error #185 with a plain (non-Excalidraw) attachment', () => {
   function ComposerLike({ n }: { n: number }) {
     const editor = usePlateEditor({

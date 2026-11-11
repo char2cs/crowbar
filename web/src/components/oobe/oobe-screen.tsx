@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Navigate } from '@tanstack/react-router'
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'framer-motion'
 import {
   ArrowClockwise,
@@ -12,8 +12,11 @@ import {
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { Button } from '@/components/ui/button'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
-import { importProjectAndSync, useProjectStore } from '@/lib/store/projects'
-import { fetchPrerequisites } from '@/lib/api'
+import { SidebarToastOverlay } from '@/components/layout/sidebar-toast-overlay'
+import { useProjectStore } from '@/core/entities/active-project'
+import { selectProjects, useSelect } from '@/core/entities/select'
+import { landingFor } from '@/components/layout/shell-landing'
+import { fetchPrerequisite } from '@/lib/api'
 import type { Project, Prerequisites } from '@/lib/types'
 import { OOBE_TAGLINE, OobeGradient } from './oobe-frame'
 
@@ -27,18 +30,19 @@ function CheckRow({
   label,
   description,
   status,
-  visible,
+  order,
 }: {
   label: string
   description: string
   status: CheckStatus
-  visible: boolean
+  /** The row's place in the list: rows come in one after another. */
+  order: number
 }) {
   return (
     <m.div
       initial={{ opacity: 0, x: -8 }}
-      animate={visible ? { opacity: 1, x: 0 } : { opacity: 0, x: -8 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3, ease: 'easeOut', delay: order * 0.35 }}
       className="flex items-center justify-between gap-4 py-3"
     >
       <div>
@@ -57,52 +61,37 @@ function CheckRow({
 
 // ─── Prerequisites step ──────────────────────────────────────────────────────
 
+// git is required; a forge CLI only adds GitHub/GitLab features, so missing one is a warning.
 function prereqStatus(
   check: { installed: boolean; authed?: boolean } | undefined,
-  visible: boolean,
-  isProvider: boolean,
-  otherProviderOk: boolean,
+  isForge: boolean,
 ): CheckStatus {
-  if (!visible || check === undefined) return 'loading'
-  if (isProvider) {
-    if (check.authed) return 'ok'
-    return otherProviderOk ? 'warn' : 'error'
-  }
+  if (check === undefined) return 'loading'
+  if (isForge) return check.authed ? 'ok' : 'warn'
   return check.installed ? 'ok' : 'error'
 }
 
 function PrerequisitesStep({
   prereqs,
-  visible,
   onContinue,
   onRetry,
 }: {
-  prereqs: Prerequisites | null
-  visible: { git: boolean; gh: boolean; glab: boolean }
+  prereqs: Partial<Prerequisites>
   onContinue: () => void
   onRetry: () => void
 }) {
-  const allVisible = visible.git && visible.gh && visible.glab
-  const ghOk = !!prereqs?.gh.authed
-  const glabOk = !!prereqs?.glab.authed
+  // Each row stands on its own probe: one still running holds only its own row.
+  const { git, gh, glab } = prereqs
+  const checked = git !== undefined && gh !== undefined && glab !== undefined
 
-  const gitStatus = prereqStatus(prereqs?.git, visible.git, false, false)
-  const ghStatus = prereqStatus(prereqs?.gh, visible.gh, true, glabOk)
-  const glabStatus = prereqStatus(prereqs?.glab, visible.glab, true, ghOk)
+  const gitStatus = prereqStatus(git, false)
+  const ghStatus = prereqStatus(gh, true)
+  const glabStatus = prereqStatus(glab, true)
 
-  const canContinue =
-    allVisible &&
-    prereqs !== null &&
-    prereqs.git.installed &&
-    (prereqs.gh.authed || prereqs.glab.authed)
+  const canContinue = git?.installed === true
 
-  const blockedReason = !allVisible
-    ? null
-    : !prereqs?.git.installed
-      ? 'Git is required. Install it from git-scm.com.'
-      : !prereqs?.gh.authed && !prereqs?.glab.authed
-        ? 'Authenticate with at least one provider: run gh auth login or glab auth login.'
-        : null
+  const blockedReason =
+    git && !git.installed ? 'Git is required. Install it from git-scm.com.' : null
 
   return (
     <div className="flex flex-col gap-2">
@@ -117,42 +106,42 @@ function PrerequisitesStep({
         <CheckRow
           label="Git"
           description={
-            !visible.git
+            !git
               ? 'Checking…'
-              : prereqs?.git.installed
-                ? (prereqs.git.version ?? 'Installed')
+              : git.installed
+                ? (git.version ?? 'Installed')
                 : 'Not found — install from git-scm.com'
           }
           status={gitStatus}
-          visible={visible.git}
+          order={0}
         />
         <CheckRow
           label="GitHub CLI (gh)"
           description={
-            !visible.gh
+            !gh
               ? 'Checking…'
-              : prereqs?.gh.authed
+              : gh.authed
                 ? 'Authenticated'
-                : prereqs?.gh.installed
+                : gh.installed
                   ? 'Not signed in — run: gh auth login'
                   : 'Not installed — optional, enables GitHub features'
           }
           status={ghStatus}
-          visible={visible.gh}
+          order={1}
         />
         <CheckRow
           label="GitLab CLI (glab)"
           description={
-            !visible.glab
+            !glab
               ? 'Checking…'
-              : prereqs?.glab.authed
+              : glab.authed
                 ? 'Authenticated'
-                : prereqs?.glab.installed
+                : glab.installed
                   ? 'Not signed in — run: glab auth login'
                   : 'Not installed — optional, enables GitLab features'
           }
           status={glabStatus}
-          visible={visible.glab}
+          order={2}
         />
       </div>
 
@@ -173,7 +162,7 @@ function PrerequisitesStep({
       </AnimatePresence>
 
       <div className="mt-4 flex gap-2">
-        {allVisible && !canContinue && (
+        {checked && !canContinue && (
           <Button
             variant="ghost"
             size="sm"
@@ -229,54 +218,43 @@ function AddProjectStep({ onChooseFolder }: { onChooseFolder: () => void }) {
 
 export function OobeScreen() {
   const [step, setStep] = useState<OobeStep>('presentation')
-  const [prereqs, setPrereqs] = useState<Prerequisites | null>(null)
-  const [visible, setVisible] = useState({ git: false, gh: false, glab: false })
+  const [prereqs, setPrereqs] = useState<Partial<Prerequisites>>({})
   const [retryCount, setRetryCount] = useState(0)
   const [importOpen, setImportOpen] = useState(false)
-  const navigate = useNavigate()
+  const projects = useSelect(selectProjects)
+  const activeId = useProjectStore((s) => s.activeProjectId)
 
-  // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.302-305: `cancelled` flag + timers.forEach(clearTimeout)); tracer can't follow it.
   useEffect(() => {
     if (step !== 'prerequisites') return
     let cancelled = false
-    setPrereqs(null)
-    setVisible({ git: false, gh: false, glab: false })
-
-    const timers: ReturnType<typeof setTimeout>[] = []
-
-    fetchPrerequisites()
-      .then((data) => {
-        if (cancelled) return
-        setPrereqs(data)
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, git: true })), 300))
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, gh: true })), 650))
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, glab: true })), 1000))
-      })
-      .catch(() => {
-        if (cancelled) return
-        // Surface failures as "not installed" so the UI can still guide the user
-        setPrereqs({
-          git: { installed: false },
-          gh: { installed: false, authed: false },
-          glab: { installed: false, authed: false },
+    setPrereqs({})
+    const absent: Prerequisites = {
+      git: { installed: false },
+      gh: { installed: false, authed: false },
+      glab: { installed: false, authed: false },
+    }
+    for (const tool of ['git', 'gh', 'glab'] as const) {
+      // A failed check reads as "not installed", so the screen can still guide the user.
+      void fetchPrerequisite(tool)
+        .catch(() => absent[tool])
+        .then((result) => {
+          if (!cancelled) setPrereqs((held) => ({ ...held, [tool]: result }))
         })
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, git: true })), 300))
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, gh: true })), 650))
-        timers.push(setTimeout(() => setVisible((v) => ({ ...v, glab: true })), 1000))
-      })
-
+    }
     return () => {
       cancelled = true
-      timers.forEach(clearTimeout)
     }
   }, [step, retryCount])
 
+  // The import lands when its project is listed; the list leaves this screen, as it does the app's.
   function handleImport(project: Project) {
-    importProjectAndSync(project)
     useProjectStore.getState().setActiveProject(project.id)
     setImportOpen(false)
-    void navigate({ to: '/' })
   }
+
+  // Whoever added it (this dialog, the CLI, another client): a listed space ends the first run.
+  const landing = landingFor(projects, activeId)
+  if (landing && landing.to !== '/oobe') return <Navigate {...landing} replace />
 
   return (
     // Single LazyMotion boundary for the whole screen: it covers OobeGradient,
@@ -299,11 +277,13 @@ export function OobeScreen() {
                 className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-8 text-center"
               >
                 <CrowbarWordmark className="w-[min(360px,44vw)] text-white" />
+                {/* The gradient is pastel in both themes, so white body text cannot reach 4.5:1 on
+                    it; the button's ink can (about 6:1 on its lightest blob). */}
                 <m.p
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.15 }}
-                  className="max-w-xs text-base text-white/70"
+                  className="max-w-xs text-base text-black/80"
                 >
                   {OOBE_TAGLINE}
                 </m.p>
@@ -353,7 +333,6 @@ export function OobeScreen() {
                       >
                         <PrerequisitesStep
                           prereqs={prereqs}
-                          visible={visible}
                           onContinue={() => setStep('add-project')}
                           onRetry={() => setRetryCount((c) => c + 1)}
                         />
@@ -383,6 +362,8 @@ export function OobeScreen() {
           onOpenChange={setImportOpen}
           onImport={handleImport}
         />
+        {/* No sidebar here: toasts float in the corner, as with the sidebar closed. */}
+        <SidebarToastOverlay sidebarOpen={false} sidebarSide="left" />
       </div>
     </LazyMotion>
   )

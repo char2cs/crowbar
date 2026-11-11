@@ -10,6 +10,7 @@ import (
 // Register mounts GET /health on the supplied router group.
 func Register(
 	rg *gin.RouterGroup,
+	deadLetters healthhandlers.DeadLetters,
 ) {
-	rg.GET("/health", healthhandlers.Check)
+	rg.GET("/health", healthhandlers.New(deadLetters).Check)
 }

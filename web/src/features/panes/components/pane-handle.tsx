@@ -6,27 +6,27 @@ import { DragGhost } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { FALLBACK_TAB_PX } from '@/components/sidebar/lib/tab-strip-drag'
-import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
+import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import { recentsRowOf } from '@/components/sidebar/lib/recents-row-registry'
 import { useMemberRow, ViewTabPreview } from '@/components/sidebar/view-row'
 import { viewMembers } from '../lib/view-state'
+import { usePaneChatWorkspaceId } from '../hooks/use-pane-workspace'
 import { windowPaneStore } from '../stores/window-pane-store'
 import type { PaneGroup } from '../types/pane'
 
-/**
- * The tab that hangs from a split pane's top edge: drag the chat out or give it
- * a tab of its own. Shown by CSS alone, only while the pointer is
- * over the pane (the pane carries `group/pane`) — never because it is active.
- * Absent when the pane is the only chat in its view.
- */
+// The tab hanging from a split pane's top edge: drag the chat out or give it its own tab. Shown
+// by CSS only while hovering the pane (`group/pane`), never for being active; absent when the
+// pane is its view's only chat.
 export function PaneHandle({ pane }: { pane: PaneGroup }) {
   const inSplit = useStore(
     windowPaneStore,
     (s) => !!pane.viewId && viewMembers(s, pane.viewId).length > 1,
   )
+  const workspaceId = usePaneChatWorkspaceId(pane)
   if (!inSplit || !pane.chatId) return null
-  return <PaneHandleBody paneId={pane.id} chatId={pane.chatId} workspaceId={pane.workspaceId} />
+  return <PaneHandleBody paneId={pane.id} chatId={pane.chatId} workspaceId={workspaceId} />
 }
 
 function PaneHandleBody({

@@ -10,15 +10,9 @@ interface PaneNodeRendererProps {
   node: LayoutNode
   hiddenPaneId?: string | null
   position?: PanePosition
-  /**
-   * Whether this tree is the one on screen. False for a PARKED view — mounted
-   * so its terminals, editors and chats keep their state, `display: none` so
-   * it costs no layout or paint, and told so here so the surfaces inside can
-   * actually STOP: a hidden xterm must not run its render loop, and a chat
-   * pane must not treat itself as visible (its dormant-chat revive fires on
-   * `isVisible`, and would otherwise spawn a vendor CLI for a view nobody is
-   * looking at). Hiding without saying so is the cosmetic half of dormancy.
-   */
+  /** False for a parked view: mounted to keep state, `display: none`, and told so the surfaces
+   *  stop — a hidden xterm must not render, and a chat thinking itself visible revives and
+   *  spawns a vendor CLI nobody is looking at. */
   showing?: boolean
 }
 
@@ -49,13 +43,9 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
   position = ROOT_PANE_POSITION,
   showing = true,
 }: PaneNodeRendererProps) {
-  // Subscribe to ONLY this node's own pane — never the whole `panes` record.
-  // immer's structural sharing keeps every sibling pane's reference identical
-  // across a mutation, so a change to pane A (tab switch, focus, open/close)
-  // leaves pane B's selector output === its previous value and B's leaf
-  // renderer is skipped. This is what stops a pane-local change from
-  // re-rendering the entire layout tree at every recursion level. Split nodes
-  // pass their own (non-pane) id, which resolves to null here and is unused.
+  // Only this node's pane, never all of `panes`: immer keeps siblings' references, so a change
+  // to pane A skips B's renderer instead of re-rendering the whole tree. A split's id resolves
+  // to null here, unused.
   const pane = usePaneById(node.id)
   const { resizePaneSplit } = usePaneActions()
 

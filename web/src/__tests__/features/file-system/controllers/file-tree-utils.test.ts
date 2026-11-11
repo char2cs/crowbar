@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { findFileInTree } from '@/features/file-system/controllers/file-tree-utils'
 import type { AppFile } from '@/features/file-system/types/app'
 
-// findFileInTree returned null unconditionally. Two live callers depend on it:
-// the "Open All Files" fallback walk (which then reported an empty directory)
-// and the inline create-file/folder duplicate-name guard (which therefore never
-// warned before overwriting an existing name).
+// Two callers trust findFileInTree's null as "not in the tree": the "Open All Files" fallback
+// walk and the inline create-file/folder duplicate-name guard.
 const tree: AppFile[] = [
   {
     name: 'src',

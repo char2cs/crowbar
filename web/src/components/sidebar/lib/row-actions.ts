@@ -1,37 +1,26 @@
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { usePendingCreatesStore } from '@/lib/store/pending-creates'
+import { readSelect, selectRepos } from '@/core/entities/select'
+import type { Repo } from '@/core/entities/repo-types'
 import { applyFolderPlacements } from '@/lib/store/applied-placement'
-import { applyHomeFolders, getHomeTree, resolveHomeRowScope } from '@/lib/store/home-tree'
-import { toSidebarFolder } from '@/lib/store/build-repo-tree'
-import { rowsFromRepo, resolveHomeOwnerId } from '@/components/sidebar/lib/rows-from-repo'
-import {
-  renameWorkspaceBranch,
-  renameRepo,
-  renameProject,
-  setWorkspaceLock,
-  importBranches,
-} from '@/lib/api'
+import { getHomeTree, resolveHomeRowScope } from '@/core/entities/home-rows'
+import { renameWorkspaceBranch, renameRepo, renameProject, setWorkspaceLock } from '@/lib/api'
 import {
   createFolder,
   createHomeFolder,
   placeFolder,
   placeHomeFolder,
 } from '@/lib/api/sidebar-placement'
-import { renameChat } from '@/features/agent/api/agent-api'
+import { renameChat } from '@/features/agent/api/agent-chat-commands'
 import { toast } from '@/features/window/stores/toast-store'
-import { actionErrorMessage, toastActionFailure } from '@/features/hosts/lib/host-failure-notice'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
+import { report } from '@/lib/errors/report'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { hostIdForProject } from '@/lib/host-resolve'
 
-/**
- * Every worktree verb is addressed through the chat that owns the workspace
- * (workspace-scope-url.ts), and the daemon mints that chat on the first read
- * of a workspace that has none — so a row without one is a row whose list
- * has not landed yet, never a dead end. Said so, instead of the raw scope
- * error the throw below carries.
- */
+// Every worktree verb is addressed through the workspace's owning chat, which the daemon mints
+// on first read — so a row without one is still loading, never a dead end. Says so instead of
+// surfacing the raw scope error.
 export function chatNotLoadedYet(verb: string, branch: string | undefined): string {
   return `Can't ${verb} ${branch ?? 'this branch'} yet — its chat is still loading`
 }
@@ -39,28 +28,22 @@ export function chatNotLoadedYet(verb: string, branch: string | undefined): stri
 /** What a folder is called until the user says otherwise. */
 const NEW_FOLDER_NAME = 'New folder'
 
-/**
- * Resolve the owning project id for a repo from the sidebar tree. Hierarchical
- * mutations need both ids; the tree always carries `projectId` from the §5
- * RepoDTO once the repo has seeded.
- */
-export function projectIdForRepo(repoId: string): string | undefined {
-  return useSidebarStore.getState().repos.find((r) => r.id === repoId)?.projectId
+// A new folder opens on its name, so what the user types next names it rather than landing in
+// the composer; Esc keeps the default. It is not drawn yet, so its tree instance is named.
+function nameNewFolder(folderId: string): void {
+  treeUiStore.getState().startRenaming(folderId, 'tree')
 }
 
-/**
- * Fire the branch rename. The daemon renames the git branch AND relocates the
- * workspace's directory, then broadcasts the updated WorkspaceDTO — so, like
- * create and delete, there is NO optimistic write here. An optimistic relabel is
- * exactly what made rename look like it worked while changing nothing: the row
- * showed the new name until the next reseed put the old one back.
- *
- * A refusal (the branch is taken, the workspace is locked or is an adopted
- * checkout) comes back as a 409 whose message is written for the user, so it is
- * surfaced rather than logged — they just typed the name that was rejected.
- */
+/** A repo's project id off the sidebar tree; hierarchical mutations need both ids. */
+export function projectIdForRepo(repoId: string): string | undefined {
+  return readSelect(selectRepos).find((r) => r.id === repoId)?.projectId
+}
+
+// The daemon renames the git branch and broadcasts the updated workspace, so there is no
+// optimistic write: a relabel would show a name that never landed. A 409 refusal (name taken,
+// locked, adopted checkout) carries a user-facing message, so it is surfaced.
 export async function performRenameWorkspaceBranch(wsId: string, branch: string): Promise<void> {
-  const repo = useSidebarStore.getState().repos.find((r) => r.workspaces.some((w) => w.id === wsId))
+  const repo = readSelect(selectRepos).find((r) => r.workspaces.some((w) => w.id === wsId))
   const ws = repo?.workspaces.find((w) => w.id === wsId)
   if (!repo || !ws || ws.status === 'locked') return
   if (ws.branch === branch) return
@@ -73,29 +56,14 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
       toast.error(chatNotLoadedYet('rename', ws.branch))
       return
     }
-    toastActionFailure(err, 'Failed to rename branch')
+    report(err, { action: 'Failed to rename branch' })
   }
 }
 
-/**
- * Fire a folder rename.
- *
- * A folder holds no branch and no worktree, so renaming one moves nothing on
- * disk: it is the same PATCH that files a folder somewhere else, carrying the
- * one field that changed.
- *
- * Unlike the branch rename, this DOES apply its own response: folders lost
- * their dedicated push channel (Task 34 — the backend plan that carried it is
- * closed), so the PATCH's `{folder, shifted}` answer is the only confirmation
- * this edit ever gets. Applying it is not optimistic — it is the daemon's own
- * already-committed state, arriving over the request instead of a stream.
- * `applyFolderPlacements` writes the entity cache every rebuild reads BEFORE
- * the store, so no rebuild can revert it.
- */
+// A folder holds no worktree, so its rename is the same placement PATCH that refiles it, with only
+// the name changed. It applies the daemon's committed `{folder, shifted}` at once.
 export async function performRenameFolder(folderId: string, name: string): Promise<void> {
-  const repo = useSidebarStore
-    .getState()
-    .repos.find((r) => r.folders?.some((f) => f.id === folderId))
+  const repo = readSelect(selectRepos).find((r) => r.folders?.some((f) => f.id === folderId))
   const folder = repo?.folders?.find((f) => f.id === folderId)
   if (!repo?.projectId || !folder) return
   if (folder.name === name) return
@@ -105,18 +73,17 @@ export async function performRenameFolder(folderId: string, name: string): Promi
       shifted,
       shiftedRows,
     } = await placeFolder(repo.projectId, repo.id, folderId, { name })
-    await applyFolderPlacements(repo.id, [updated, ...shifted], shiftedRows)
+    await applyFolderPlacements(
+      hostIdForProject(repo.projectId),
+      [updated, ...shifted],
+      shiftedRows,
+    )
   } catch (err) {
-    toastActionFailure(err, 'Failed to rename folder')
+    report(err, { action: 'Failed to rename folder' })
   }
 }
 
-/**
- * {@link performRenameFolder}'s sibling for a project-home folder — a home
- * folder is never in any repo's `folders` (home rides no repo), so the repo
- * lookup above finds nothing for one and silently no-ops, caught live as
- * "can't rename folders" for exactly the home-scoped ones.
- */
+// performRenameFolder for a project-home folder, which lives in no repo's `folders`.
 export async function performRenameHomeFolder(
   projectId: string,
   folderId: string,
@@ -126,72 +93,40 @@ export async function performRenameHomeFolder(
   if (!folder || folder.name === name) return
   try {
     const { folder: updated, shifted } = await placeHomeFolder(projectId, folderId, { name })
-    applyHomeFolders(projectId, [updated, ...shifted].map(toSidebarFolder))
+    await applyFolderPlacements(hostIdForProject(projectId), [updated, ...shifted])
   } catch (err) {
-    toastActionFailure(err, 'Failed to rename folder')
+    report(err, { action: 'Failed to rename folder' })
   }
 }
 
-/**
- * Any workspace of `repo` whose scope is recorded — all `chatBase` needs.
- *
- * `.../chats` is REPO-scoped (Task 17), so which of a repo's workspaces the
- * URL is built from cannot change the endpoint reached; `chatBase` only needs
- * one whose project/repo scope was recorded, and `recordRepoScopes` records
- * every one of these on each seed.
- *
- * The repo's OWN ids, never the chat's `workspaceId`: a chat may legitimately
- * name a workspace in another repo (spec §9.2's open set), and building this
- * repo's URL from that id would either 404 or address the wrong repo.
- */
+// Any workspace of `repo` whose scope is recorded — `.../chats` is repo-scoped, so which one
+// builds the URL doesn't matter. The repo's own ids, never a chat's `workspaceId`: a chat may
+// name a workspace in another repo (spec §9.2), which would address the wrong repo.
 export function scopedWorkspaceIdOf(repo: Repo): string | undefined {
   return repo.defaultWorkspaceId ?? repo.workspaces[0]?.id
 }
 
-/**
- * Fire a chat rename.
- *
- * A chat's title is a field on its own aggregate — no branch, no directory, no
- * git — so this is the plain `POST .../chats/:id/rename`, not the branch
- * rename's move-the-worktree-on-disk operation.
- *
- * Bumping the tree signal afterwards is the same reasoning
- * `performRenameFolder` above records: the sidebar's copy of a chat row is
- * rebuilt from the `crowbar_chats` cache, and only a reseed writes that. The
- * daemon does broadcast `title_set`, which bumps the same signal — but only
- * onto clients with a workspace of this repo mounted, and the acting user
- * should not wait on a frame to see the name they just typed. A reseed that
- * lands before the projection catches up is harmless: the frame bumps again.
- */
+// A chat title lives on its own aggregate (no branch, no worktree), so this is the plain
+// `POST .../chats/:id/rename`; the new title arrives on the chat's frame.
 export async function performRenameChat(chatId: string, title: string): Promise<void> {
-  const repo = useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chatId))
+  const repo = readSelect(selectRepos).find((r) => r.chats?.some((c) => c.id === chatId))
   const chat = repo?.chats?.find((c) => c.id === chatId)
   if (!repo || !chat) return
-  // The rename dialog seeds from the row's LABEL (rows-from-repo.ts's
-  // `chat.title || UNTITLED_CHAT_LABEL`), never the raw title — so an
-  // untitled chat's placeholder is what a no-op Enter would send. Compare
-  // against the same fallback the dialog was actually seeded with, or a
-  // blank chat gets its title permanently locked to "Untitled chat" and
-  // the agent's real auto-title is rejected forever after.
+  // The rename dialog seeds from the row's label (`title || UNTITLED_CHAT_LABEL`), so compare
+  // against the same fallback; otherwise a no-op Enter pins an untitled chat's title to
+  // "Untitled chat" and the agent's auto-title can never replace it.
   if ((chat.title || UNTITLED_CHAT_LABEL) === title) return
   const wsId = scopedWorkspaceIdOf(repo)
   if (!wsId) return
   try {
     await renameChat(wsId, chatId, title)
-    useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
-    toastActionFailure(err, 'Failed to rename chat')
+    report(err, { action: 'Failed to rename chat' })
   }
 }
 
-/**
- * {@link performRenameChat}'s sibling for a project-home chat — no repo, so
- * no `scopedWorkspaceIdOf`/`bump` (home has neither): the home workspace's
- * scope is recorded the moment its id resolves (home-workspace-resolver.ts),
- * which is all `renameChat`'s `chatBase(wsId)` needs to
- * build the `/home/chats/...` URL, and home's own `/home/chats/ws` reseed —
- * the same feed folder creates already ride — is what settles the title.
- */
+// performRenameChat for a project-home chat: no repo, so the home workspace names the route,
+// and the chat's projects-scope frame settles the title.
 export async function performRenameHomeChat(
   projectId: string,
   homeWorkspaceId: string,
@@ -204,76 +139,35 @@ export async function performRenameHomeChat(
   try {
     await renameChat(homeWorkspaceId, chatId, title)
   } catch (err) {
-    toastActionFailure(err, 'Failed to rename chat')
+    report(err, { action: 'Failed to rename chat' })
   }
 }
 
-/**
- * Fire a repo rename — the repo's own display name, not its checked-out
- * branch. The project-home row IS the repo's default workspace (its own
- * checkout); renaming that row names the repo, exactly as the deleted
- * `repo-section.tsx`'s header row did ("Repo rename stays on the [repo
- * name], not the branch") — it never called the branch-rename endpoint.
- */
+// Renames the repo's display name, never its branch: the project-home header row is the repo's
+// default workspace, and renaming that row names the repo.
 export async function performRenameRepo(repoId: string, name: string): Promise<void> {
-  const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
+  const repo = readSelect(selectRepos).find((r) => r.id === repoId)
   if (!repo?.projectId) return
   if (repo.name === name) return
   try {
     await renameRepo(repo.projectId, repoId, name)
   } catch (err) {
-    toastActionFailure(err, 'Failed to rename repository')
+    report(err, { action: 'Failed to rename repository' })
   }
 }
 
-/**
- * Fire a project rename — the project switcher's double-click on the active
- * name. A project is not a `SidebarRow` (it has no id in `useSidebarStore`'s
- * repos-derived rows), so this can't route through `performRenameRow` below.
- */
+// A project is not a SidebarRow (the project switcher renames it), so it bypasses performRenameRow.
 export async function performRenameProject(projectId: string, name: string): Promise<void> {
   try {
     await renameProject(projectId, name)
   } catch (err) {
-    toastActionFailure(err, 'Failed to rename project')
+    report(err, { action: 'Failed to rename project' })
   }
 }
 
-/**
- * Rename whatever row `rowId` names.
- *
- * The sidebar has ONE rename gesture and one inline editor, so it needs one
- * place that knows a folder is not a branch. The id answers that on its own —
- * the two id spaces never overlap — which keeps the row itself from having to
- * carry a second, parallel rename path just to reach a different endpoint.
- *
- * A third id space joins those two here: the project-home row's id is a
- * repo's `defaultWorkspaceId`, never a member of that repo's `workspaces`
- * array (it's the header, not a tree row) — so it has to be checked before
- * falling through to the branch-rename path, which would otherwise silently
- * find no matching workspace and do nothing.
- *
- * A FOURTH id space is a chat, and it has to be checked for exactly the reason
- * the third does — with a sharper failure. Renaming a chat row fell through to
- * `performRenameWorkspaceBranch`, which found no workspace by that id and
- * returned: no request, no error, and the name the user had just typed into
- * the inline editor simply gone. A rename that silently discards what was
- * typed is indistinguishable from one that worked and was then reverted.
- *
- * A FIFTH wrinkle joins the first: a branch row's id is no longer only a
- * locked branch or a repo home — `rows-from-repo.ts` folds an ordinary fork's
- * (and a forked thread's) owning chat into its row the same way now, and rule
- * 6 makes that row's LABEL the chat's title, not its branch. Renaming it has
- * to retitle the chat, same as a bubble does — only a LOCKED branch keeps its
- * branch-name label (addendum rules 1-4's "Folder mechanism") and so is the
- * one workspace-owning row still renamed as a branch.
- *
- * A SIXTH id space is a project-home row — a chat or folder living outside
- * every repo entirely (home rides no repo), so none of the five spaces above
- * ever match one: it has to be checked first, or the rename silently no-ops
- * for exactly the rows drag/reorder just made reachable this same pass —
- * caught live as "can't rename folders."
- */
+// One rename gesture for every row; the id says which endpoint. Order matters: project-home rows
+// (in no repo) first, then the repo header (its defaultWorkspaceId), then workspace rows — a
+// locked branch renames its branch, any other carries its chat's title — then chats, folders.
 export function performRenameRow(rowId: string, name: string): Promise<void> {
   const homeScope = resolveHomeRowScope(rowId)
   if (homeScope) {
@@ -281,19 +175,15 @@ export function performRenameRow(rowId: string, name: string): Promise<void> {
       ? performRenameHomeChat(homeScope.projectId, homeScope.homeWorkspaceId, rowId, name)
       : performRenameHomeFolder(homeScope.projectId, rowId, name)
   }
-  const state = useSidebarStore.getState()
-  // A branch row's id is the chat that OWNS its workspace, so it sits in the
-  // chat id space while being no chat at all. Translating first is what keeps
-  // the cases below meaning what they say: without it the repo-home row stops
-  // matching `defaultWorkspaceId`, falls into the chat branch, and renaming
-  // the repo silently retitles a conversation instead.
+  const state = { repos: readSelect(selectRepos) }
+  // A branch row's id is its owning chat's, so translate before matching: otherwise the repo
+  // header misses `defaultWorkspaceId`, falls into the chat case and retitles a conversation.
   const wsId = workspaceIdOfBranchRow(state.repos, rowId) ?? rowId
   const homeRepo = state.repos.find((r) => r.defaultWorkspaceId === wsId)
   if (homeRepo) return performRenameRepo(homeRepo.id, name)
   if (wsId !== rowId) {
-    // `rowId` translated to a real workspace, so it names a folded row (see
-    // the fifth wrinkle above) — locked stays a branch rename, everything
-    // else is now a chat rename.
+    // A workspace-owning row: a locked branch keeps its branch-name label, so it renames the
+    // branch; every other such row is labelled by its chat's title.
     const repo = state.repos.find((r) => r.workspaces.some((w) => w.id === wsId))
     const ws = repo?.workspaces.find((w) => w.id === wsId)
     if (ws?.status === 'locked') return performRenameWorkspaceBranch(wsId, name)
@@ -306,287 +196,35 @@ export function performRenameRow(rowId: string, name: string): Promise<void> {
   return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(wsId, name)
 }
 
-/**
- * Set (or clear) a workspace's lock from the row context menu. `locked: null`
- * drops the user's override rather than forcing false — see `setWorkspaceLock`'s
- * own doc for why that third state exists.
- *
- * `rowId`, not a workspace id, and the translation below is what makes unlock
- * reachable at all: a LOCKED branch row is id'd by the chat that owns its
- * workspace (`rows-from-repo.ts`), so the raw id matched no `w.id`, no repo was
- * found and the request was never sent. With `hierarchy.DeleteCascade` refusing
- * to delete a locked workspace, that made locking a one-way door — the row could
- * neither be unlocked nor deleted from any surface the UI offers.
- *
- * The bump closes the other half of the same seam. A lock CHANGES WHAT THE ROW
- * IS: the daemon mints the workspace's `branch` row inside this very call
- * (`workspace.go`'s reconcileOwningChat, synchronously, "so the row exists
- * before the caller is told the lock succeeded"), and from then on
- * `rows-from-repo.ts` identifies the row by that chat and THROWS without it. The
- * client otherwise learns of the lock only through `applyWorkspaceDTO`, which
- * writes `status` alone and triggers no chats reseed — leaving a store that says
- * `locked` for a workspace whose `repo.chats` has never seen its branch row, and
- * a throw in render that nothing catches (`SidebarTreeSurface` has no
- * ErrorBoundary). Bumping here is the reseed that would otherwise only arrive
- * for a MOUNTED workspace, via `use-workspace-agent-chats-stream.ts`.
- */
+// Set or clear a workspace's lock; `locked: null` drops the user's override (see
+// setWorkspaceLock). Takes a row id and translates it: a locked branch row is id'd by its owning
+// chat, and without the translation a locked workspace could be neither unlocked nor deleted.
 export async function performSetWorkspaceLock(
   rowId: string,
   locked: boolean | null,
 ): Promise<void> {
-  const repos = useSidebarStore.getState().repos
+  const repos = readSelect(selectRepos)
   const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
   const repo = repos.find((r) => r.workspaces.some((w) => w.id === wsId))
   const projectId = repo?.projectId
   if (!repo || !projectId) return
   try {
     await setWorkspaceLock(wsId, locked)
-    useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
     if (err instanceof OwningChatNotRecordedError) {
       const branch = repo.workspaces.find((w) => w.id === wsId)?.branch
       toast.error(chatNotLoadedYet(locked === false ? 'unlock' : 'lock', branch))
       return
     }
-    toastActionFailure(err, 'Failed to update lock')
+    report(err, { action: 'Failed to update lock' })
   }
 }
 
-/**
- * Fire the batch branch import (202 Accepted), dropping one pending
- * `branch`-shaped row per branch in immediately — the same row-in-flight
- * mechanism `handleCreate`'s fork path uses (pending-creates.ts), carrying
- * the real branch name from the picker instead of leaving the tree with no
- * stand-in at all, which let it draw whatever raw frame the daemon's
- * two-aggregate mint (the owning chat, then its workspace) happened to
- * reseed first — live-reported as a chat/thread-shaped row that later
- * flipped into an unlabeled branch row. Each entry clears itself the moment
- * ITS OWN branch's workspace AND owning chat have both landed
- * (`importedBranchHasLanded`), never merely once the batch POST resolves.
- *
- * `lockedBranches` is the import dialog's per-row lock choice (Task 6). The
- * import POST only 202s — no workspace id exists yet to hand `setWorkspaceLock`
- * — so each locked branch is watched for and locked the instant ITS workspace
- * lands, rather than requiring a separate post-import Lock action.
- *
- * `armImportLockWatch` is called (and its baseline snapshot taken) BEFORE
- * `importBranches` goes out — exactly like `watchReparent`'s own call shape in
- * `drop-actions.ts` (`reparent-settle.ts`'s module doc explains why: a
- * workspace that lands while the request is still in flight has to be caught
- * too, or it is silently misread as having "already existed before the
- * import" and never locked).
- */
-export async function performImportBranches(
-  repoId: string,
-  branches: string[],
-  lockedBranches: string[] = [],
-): Promise<void> {
-  if (branches.length === 0) return
-  const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
-  const projectId = repo?.projectId
-  if (!repo || !projectId) return
-  const branchSet = new Set(branches)
-  const toLock = lockedBranches.filter((b) => branchSet.has(b))
-  const startLocking = armImportLockWatch(repoId, toLock)
-  const pendingIds = startImportPendingRows(repo, projectId, branches)
-  try {
-    await importBranches(projectId, repoId, branches)
-    startLocking()
-    for (const [branch, tempId] of pendingIds) {
-      void waitForImportedBranch(importedBranchHasLanded(repoId, branch)).then(() =>
-        usePendingCreatesStore.getState().clear(tempId),
-      )
-    }
-  } catch (err) {
-    const reason = actionErrorMessage(err, 'Failed to import branches')
-    for (const tempId of pendingIds.values()) {
-      usePendingCreatesStore.getState().setError(tempId, reason)
-    }
-    toastActionFailure(err, reason)
-  }
-}
-
-/**
- * Drops one pending `branch` row per branch being imported, at the repo-root
- * slot an unfoldered import lands at (`rows-from-repo.ts`'s own home-row
- * parenting) — keyed by branch name so the caller can later clear each one
- * independently as its own real row lands.
- *
- * `repoId` + `rowIdsAtClick` together are what makes
- * `hideRowsForInFlightCreates` (rows-from-pending.ts) suppress the ghost row
- * this import can otherwise draw: the daemon mints an imported branch's
- * owning CHAT first, atomically, before its WORKSPACE half (and the
- * `owningChatId` that folds the two into one branch row) lands, so a
- * structural reseed can land that bare chat in the tree — with no workspace
- * to fold onto yet — as an ordinary top-level thread row, which then
- * "converts" into the branch the instant the workspace half catches up.
- * Live-reported. `rowIdsAtClick` is `repo`'s own rows only (the same list
- * `siblingCount` already reads) — sufficient because `repoId` scopes the
- * suppression to THIS repo alone, so a row anywhere else in the project
- * (another repo, or project home) is never a candidate to hide regardless of
- * whether it was known at click time.
- */
-function startImportPendingRows(
-  repo: Repo,
-  projectId: string,
-  branches: string[],
-): Map<string, string> {
-  const homeId = repo.defaultWorkspaceId ?? null
-  const parentId =
-    homeId === null ? '' : resolveHomeOwnerId(homeId, repo.defaultOwningChatId, repo.chats ?? [])
-  const rowsAtClick = rowsFromRepo(repo)
-  const siblingCount = rowsAtClick.filter((r) => r.parentId === parentId).length
-  const rowIdsAtClick = rowsAtClick.map((r) => r.id)
-  const pendingIds = new Map<string, string>()
-  branches.forEach((branch, i) => {
-    const tempId = `pending-${crypto.randomUUID()}`
-    pendingIds.set(branch, tempId)
-    usePendingCreatesStore.getState().addCreating({
-      tempId,
-      kind: 'branch',
-      projectId,
-      repoId: repo.id,
-      parentId,
-      order: siblingCount + i,
-      label: branch,
-      workspaceId: null,
-      ownsWorktree: true,
-      rowIdsAtClick,
-    })
-  })
-  return pendingIds
-}
-
-/** Mirrors `create-actions.ts`'s `forkHasLanded` for an imported
- *  branch, keyed by branch NAME rather than a chat id the import's 202 never
- *  hands back: true only once the branch's new workspace exists AND its
- *  owning chat has landed too — the same two-aggregate mint race that
- *  otherwise reveals a branch-shaped row still missing its title fold before
- *  the pending stand-in clears. */
-function importedBranchHasLanded(
-  repoId: string,
-  branch: string,
-): (repos: readonly Repo[]) => boolean {
-  return (repos) => {
-    const repo = repos.find((r) => r.id === repoId)
-    const ws = repo?.workspaces.find((w) => w.branch === branch && w.status !== 'deleted')
-    return !!ws?.owningChatId && !!repo?.chats?.some((c) => c.id === ws.owningChatId)
-  }
-}
-
-/** `create-actions.ts`'s own `waitForRow`, duplicated rather than
- *  imported — that module already imports FROM this one (`chatNotLoadedYet`),
- *  and a second edge back would cycle the two files for one four-line
- *  helper. */
-function waitForImportedBranch(predicate: (repos: readonly Repo[]) => boolean): Promise<void> {
-  return new Promise((resolve) => {
-    if (predicate(useSidebarStore.getState().repos)) {
-      resolve()
-      return
-    }
-    const unsubscribe = useSidebarStore.subscribe((state) => {
-      if (!predicate(state.repos)) return
-      unsubscribe()
-      resolve()
-    })
-  })
-}
-
-/** How long a per-branch lock-after-import waits for the branch's new
- *  workspace to arrive (via the sidebar store's WS-driven reseed) before
- *  giving up silently. Mirrors reparent-settle.ts's own bounded wait — a
- *  branch that never lands (a stranded import) must not leave a live store
- *  subscription open for the rest of the session. */
-const IMPORT_LOCK_SETTLE_TIMEOUT_MS = 30_000
-
-/**
- * Arms a watch for each of `branches` to arrive in `repoId`'s workspaces as a
- * NEW workspace (one absent from the snapshot taken RIGHT NOW) and returns a
- * `start` function that locks each as it does. Call this before firing the
- * import request — the snapshot has to predate the request, or a frame that
- * lands while the request is in flight is indistinguishable from one that was
- * already there — and call the returned function once the request resolves.
- *
- * `start` itself checks for an already-landed arrival first (the race the
- * early snapshot exists to catch) before subscribing for the rest. Both the
- * snapshot and the watch are fire-and-forget: the caller has already 202'd the
- * import and moved on, exactly like every other WS-driven create in this file.
- */
-function armImportLockWatch(repoId: string, branches: string[]): () => void {
-  if (branches.length === 0) return () => {}
-  const pending = new Set(branches)
-  const before = new Set(
-    useSidebarStore
-      .getState()
-      .repos.find((r) => r.id === repoId)
-      ?.workspaces.map((w) => w.id) ?? [],
-  )
-
-  return () => {
-    let unsubscribe: (() => void) | null = null
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const settle = () => {
-      if (timer !== null) clearTimeout(timer)
-      timer = null
-      unsubscribe?.()
-      unsubscribe = null
-    }
-
-    const checkArrivals = () => {
-      const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
-      if (!repo) return
-      for (const ws of repo.workspaces) {
-        if (before.has(ws.id) || !pending.has(ws.branch)) continue
-        pending.delete(ws.branch)
-        void performSetWorkspaceLock(ws.id, true)
-      }
-      if (pending.size === 0) settle()
-    }
-
-    checkArrivals()
-    if (pending.size === 0) return
-    unsubscribe = useSidebarStore.subscribe(checkArrivals)
-    timer = setTimeout(settle, IMPORT_LOCK_SETTLE_TIMEOUT_MS)
-  }
-}
-
-/**
- * Create a folder named 'New folder' under `parentId` — how `createFolder`
- * (`@/lib/api/sidebar-placement`) gets a live caller again now that the
- * deleted drag-driven "group into folder" gesture is Part G's to rebuild.
- *
- * The parent is root-normalised exactly as the deleted confirmCreate's folder
- * branch did (`folderParentFor`): a repo's default (home) workspace is the
- * header row, not a real placement target for the daemon, so starting a
- * folder there lands it at the repo root instead of naming a parent that
- * doesn't exist in that space.
- *
- * `rowId` is translated into the WORKSPACE id space to find the owning repo
- * and to test for the repo's own home workspace, the same reason
- * `sidebar-drop-policy.ts`'s `resolveRowRepo` and `planTreeRowDrop` translate
- * it: a branch row's id is not in that space at all — it carries the id of
- * the chat that owns its workspace. Untranslated, that lookup on the repo
- * home or any branch found no repo and fired nothing at all.
- *
- * The value actually SENT as `parentId`, though, is the untranslated `rowId`
- * (or `''` for the root-normalised case) — `POST .../chats/folders` resolves
- * its `parentId` as a CHAT (or folder), not a raw workspace id, unlike the
- * placement PATCH `planTreeRowDrop` feeds. Sending the translated workspace
- * id there 404s with "agentchat: get chat: not found": caught live on a
- * locked branch, but the id space is what was wrong, not the lock — an
- * ordinary unlocked branch failed the identical way.
- */
+// Creates "New folder" under `rowId`; the repo header normalises to the repo root. The row is
+// translated to a workspace only to find its repo — the `parentId` sent stays `rowId`, since
+// `POST .../chats/folders` resolves it as a chat or folder and 404s on a workspace id.
 export async function performCreateFolder(rowId: string): Promise<void> {
-  const repos = useSidebarStore.getState().repos
-  // Workspace-id space ONLY to find the owning repo and to detect the repo's
-  // own home/default workspace (the root-normalisation case right below) —
-  // NOT the id actually sent to the backend. `POST .../chats/folders` looks
-  // its `parentId` up as a CHAT (or folder), the same sibling space
-  // `rowId` already is: sending the translated WORKSPACE id instead (as this
-  // used to) reads as a chat that has never existed and the daemon 404s with
-  // "agentchat: get chat: not found" — caught live on a locked branch, but
-  // the wrong id space, not the lock, is what actually broke it, since it
-  // failed the identical way on an ordinary unlocked one.
+  const repos = readSelect(selectRepos)
   const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
   const repo = repos.find(
     (r) =>
@@ -598,38 +236,25 @@ export async function performCreateFolder(rowId: string): Promise<void> {
   if (!repo || !projectId) return
   const folderParentId = wsId === repo.defaultWorkspaceId ? '' : rowId
   try {
-    // Applied directly for the same reason performRenameFolder does: no
-    // dedicated push channel exists for folders any more, so the response IS
-    // the confirmation.
+    // Applied directly: no push channel exists for folders, so the response IS the confirmation.
     const { folder, shifted, shiftedRows } = await createFolder(
       projectId,
       repo.id,
       NEW_FOLDER_NAME,
       folderParentId,
     )
-    await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
+    await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted], shiftedRows)
+    nameNewFolder(folder.id)
   } catch (err) {
-    toastActionFailure(err, 'Failed to create folder')
+    report(err, { action: 'Failed to create folder' })
   }
 }
 
-/**
- * {@link performCreateFolder}'s sibling for a plain CHAT row (a bubble/
- * thread) — reported live: right-clicking one offered no "New folder" at
- * all, and a fresh project (or repo) with zero folders yet has no OTHER row
- * to right-click for one, leaving only the project header's hover-revealed
- * "+" as a path nobody found.
- *
- * `performCreateFolder`'s own `rowId` -> workspace-id translation
- * (`workspaceIdOfBranchRow`) only recognises a BRANCH row's id; handing it a
- * bubble's id returns `null` and falls through to the raw id unchanged,
- * which then matches no repo's workspaces/folders at all and silently
- * no-ops. A bubble carries no folder-anchor of its own either way — its
- * "New folder" always root-normalises, the same as clicking the repo's own
- * home row already does for `performCreateFolder`.
- */
+// performCreateFolder for a plain chat row, so a project with no folders yet still offers one on
+// right-click. A chat id never translates to a workspace, and a chat has no folder anchor of its
+// own, so its folder always lands at the repo root.
 export async function performCreateFolderFromChat(chatId: string): Promise<void> {
-  const repo = useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chatId))
+  const repo = readSelect(selectRepos).find((r) => r.chats?.some((c) => c.id === chatId))
   const projectId = repo?.projectId
   if (!repo || !projectId) return
   try {
@@ -639,31 +264,21 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
       NEW_FOLDER_NAME,
       '',
     )
-    await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
+    await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted], shiftedRows)
+    nameNewFolder(folder.id)
   } catch (err) {
-    toastActionFailure(err, 'Failed to create folder')
+    report(err, { action: 'Failed to create folder' })
   }
 }
 
-/**
- * {@link performCreateFolder}'s sibling for the project-home workspace.
- *
- * No `rowId` translation to do — the caller (the project header's add-menu,
- * `space-scroller.tsx`) always means the home workspace's own root, never a
- * clicked row, so this takes `projectId` directly rather than resolving one
- * out of a repo-scoped tree that project home isn't part of.
- *
- * Applied directly, same reasoning as `performCreateFolder`: the response IS
- * the confirmation, so the row appears immediately rather than waiting on
- * `home-tree.ts`'s own reseed-on-signal (which still runs as a backstop —
- * the daemon's `folder_created` frame is a structural kind on the SAME
- * `/home/chats/ws` feed that subscription already listens on).
- */
+// performCreateFolder for the project-home workspace, which no repo tree contains: `parentId` is
+// '' (the home root) or a home folder. The response IS the confirmation, so it is applied directly.
 export async function performCreateHomeFolder(projectId: string, parentId = ''): Promise<void> {
   try {
     const { folder, shifted } = await createHomeFolder(projectId, NEW_FOLDER_NAME, parentId)
-    applyHomeFolders(projectId, [folder, ...shifted].map(toSidebarFolder))
+    await applyFolderPlacements(hostIdForProject(projectId), [folder, ...shifted])
+    nameNewFolder(folder.id)
   } catch (err) {
-    toastActionFailure(err, 'Failed to create folder')
+    report(err, { action: 'Failed to create folder' })
   }
 }

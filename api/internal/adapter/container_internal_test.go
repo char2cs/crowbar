@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// This file white-box tests newLocked's error/cleanup paths and the small
+// This file white-box tests openContainer's error/cleanup paths and the small
 // close* helpers directly; the black-box container_test.go only exercises the
 // happy paths reachable through the exported New/Close surface.
 
@@ -26,50 +26,52 @@ func blockPath(t *testing.T, path string) {
 	require.NoError(t, os.MkdirAll(path, 0o750))
 }
 
-func TestNewLocked_ReviewThreadEventStoreOpenError(t *testing.T) {
-	home := t.TempDir()
-	stateDir := metadata.GetStateDirPathAt(home)
-	require.NoError(t, os.MkdirAll(stateDir, 0o750))
-	// The reviewthread event log now lives at state/events/review_thread.db;
-	// plant a directory there so its sqlite open fails.
-	eventsDir := metadata.GetEventsPathAt(home)
-	require.NoError(t, os.MkdirAll(eventsDir, 0o750))
-	blockPath(t, filepath.Join(eventsDir, reviewThreadDBName))
+// homeWithDirs is a temp home whose state, events and store directories exist,
+// as adapter.New leaves them for openContainer.
+func homeWithDirs(t *testing.T) home.Home {
+	t.Helper()
+	h, err := home.At(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(h.Events(), 0o750))
+	require.NoError(t, os.MkdirAll(h.Store(), 0o750))
+	return h
+}
 
-	c, err := newLocked(home, stateDir, nil)
+func TestOpenContainer_ReviewThreadEventStoreOpenError(t *testing.T) {
+	h := homeWithDirs(t)
+	// The reviewthread event log lives at state/events/review_thread.db;
+	// plant a directory there so its sqlite open fails.
+	blockPath(t, filepath.Join(h.Events(), reviewThreadDBName))
+
+	c, err := openContainer(h)
 	assert.Error(t, err)
 	assert.Nil(t, c)
 	assert.Contains(t, err.Error(), "review thread event store")
 }
 
-func TestNewLocked_GlobalViewOpenError(t *testing.T) {
-	home := t.TempDir()
-	stateDir := metadata.GetStateDirPathAt(home)
-	require.NoError(t, os.MkdirAll(stateDir, 0o750))
-	blockPath(t, filepath.Join(stateDir, viewDBName))
+func TestOpenContainer_GlobalViewOpenError(t *testing.T) {
+	h := homeWithDirs(t)
+	blockPath(t, filepath.Join(h.State(), viewDBName))
 
-	c, err := newLocked(home, stateDir, nil)
+	c, err := openContainer(h)
 	assert.Error(t, err)
 	assert.Nil(t, c)
 	assert.Contains(t, err.Error(), "global view")
 }
 
-func TestNewLocked_Success(t *testing.T) {
-	home := t.TempDir()
-	stateDir := metadata.GetStateDirPathAt(home)
-	require.NoError(t, os.MkdirAll(stateDir, 0o750))
+func TestOpenContainer_Success(t *testing.T) {
+	h := homeWithDirs(t)
 
-	c, err := newLocked(home, stateDir, nil)
+	c, err := openContainer(h)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 	t.Cleanup(func() { _ = c.Close() })
 
-	assert.Equal(t, home, c.crowbarHome)
+	assert.Equal(t, h, c.home)
 	assert.NotNil(t, c.reviewThreadES)
 	assert.NotNil(t, c.reviewThreadSS)
 	assert.NotNil(t, c.workspaceSnapshotStore)
 	assert.NotNil(t, c.agentChatSnapshotStore)
-	assert.NotNil(t, c.agentRunnerSnapshotStore)
 	assert.NotNil(t, c.globalView)
 	// reviewThreadES + reviewThreadSS are the two globalClosers (the other three
 	// snapshot stores close via their dedicated fields in Close, like their
@@ -129,8 +131,7 @@ func TestCloseViewDB_ErrorOnInvalidConnPool(t *testing.T) {
 }
 
 func TestClose_PropagatesGlobalViewCloseError(t *testing.T) {
-	home := t.TempDir()
-	c, err := New(WithHomeDir(home))
+	c, err := New(WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 
 	// Swap in a globalView whose DB() fails, forcing Close's closeViewDB branch

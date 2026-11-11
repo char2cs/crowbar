@@ -1,40 +1,38 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-const { createChat, createChatWithOwnWorktree, toastError, getHomeWorkspaceId, apiFetch } =
-  vi.hoisted(() => ({
-    createChat: vi.fn(() => Promise.resolve('chat-1')),
-    createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
-    toastError: vi.fn(),
-    getHomeWorkspaceId: vi.fn(),
-    apiFetch: vi.fn(() => Promise.resolve(undefined)),
-  }))
+const { createChat, createChatWithOwnWorktree, getHomeWorkspaceId, apiFetch } = vi.hoisted(() => ({
+  createChat: vi.fn((id: string) => Promise.resolve(id)),
+  createChatWithOwnWorktree: vi.fn((id: string) => Promise.resolve({ id, workspaceId: 'ws-new' })),
+  getHomeWorkspaceId: vi.fn(),
+  apiFetch: vi.fn(() => Promise.resolve(undefined)),
+}))
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch,
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
   createChatWithOwnWorktree,
 }))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: toastError, success: vi.fn(), info: vi.fn() },
-}))
+import { toast } from '@/features/window/stores/toast-store'
+const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
 }))
 
-import { handleCreate, confirmPendingCreateName } from '@/components/layout/create-actions'
+import { handleCreate, confirmCreateDraft } from '@/components/layout/create-actions'
 import { createThread } from '@/__tests__/__fixtures__/draft-thread'
 import { performSetWorkspaceLock, performRenameRow } from '@/components/sidebar/lib/row-actions'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
+const ANY = expect.any(String)
 const navigate = vi.fn(() => Promise.resolve()) as unknown as Parameters<typeof handleCreate>[2]
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
@@ -58,10 +56,10 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   __resetWorkspaceScopesForTest()
-  useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
-  useSidebarStore.setState(getInitialState())
-  useSidebarStore.getState().setRepos([repo()])
+  resetEntities()
+  treeUiStore.setState({ draft: null })
+  resetEntities()
+  seedRepos([repo()])
   useAgentProvidersStore.setState({
     status: 'ready',
     providers: [{ id: 'claude', name: 'Claude', enabled: true } as never],
@@ -71,38 +69,42 @@ beforeEach(() => {
 describe('chatless workspace rows — create verbs send the WORKSPACE id as the chat parent', () => {
   it('thread on a chatless repo header posts parentId = the default workspace id', async () => {
     await createThread('ws-main', navigate)
-    expect(createChat).toHaveBeenCalledWith('ws-main', 'claude', 'ws-main', undefined)
+    expect(createChat).toHaveBeenCalledWith(ANY, ANY, 'ws-main', 'claude', 'ws-main', 'chat')
   })
 
   it('thread on a chatless locked branch posts parentId = that workspace id', async () => {
     await createThread('ws-locked', navigate)
-    expect(createChat).toHaveBeenCalledWith('ws-locked', 'claude', 'ws-locked', undefined)
+    expect(createChat).toHaveBeenCalledWith(ANY, ANY, 'ws-locked', 'claude', 'ws-locked', 'chat')
   })
 
   it('new branch off a chatless repo header posts parentId = the default workspace id', () => {
     handleCreate('ws-main', 'workspace', navigate)
-    const armed = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')!
-    expect(armed.parentId).toBe('ws-main')
-    confirmPendingCreateName(armed.tempId, 'test/test')
+    expect(treeUiStore.getState().draft?.parentId).toBe('ws-main')
+    confirmCreateDraft('test/test', navigate)
     expect(createChatWithOwnWorktree).toHaveBeenCalledWith(
+      ANY,
+      ANY,
       'p1',
       'r1',
       'claude',
       'ws-main',
       'test/test',
+      undefined,
     )
   })
 
   it('new branch off a chatless locked branch posts parentId = that workspace id', () => {
     handleCreate('ws-locked', 'workspace', navigate)
-    const armed = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')!
-    confirmPendingCreateName(armed.tempId, 'test/test')
+    confirmCreateDraft('test/test', navigate)
     expect(createChatWithOwnWorktree).toHaveBeenCalledWith(
+      ANY,
+      ANY,
       'p1',
       'r1',
       'claude',
       'ws-locked',
       'test/test',
+      undefined,
     )
   })
 })

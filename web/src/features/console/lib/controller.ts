@@ -30,12 +30,9 @@ export interface ConsoleController {
   dispose(): void
 }
 
-/**
- * Keeps the log stream open while the console is, and folds what arrives into
- * the store. The replay of each connection is held back until its `ready`: a
- * `reset` there means the replay replaces what is shown, which cannot be decided
- * before the whole replay is in hand. It holds no state beyond handles.
- */
+/** Keeps the log stream open while the console is, folding frames into the store. Each replay
+ *  is held until its `ready`, because a `reset` there means it replaces what is shown. Holds
+ *  no state beyond handles. */
 export function createConsoleController(deps: ControllerDeps): ConsoleController {
   const { store, timers } = deps
   let queue: LogFrame[] = []

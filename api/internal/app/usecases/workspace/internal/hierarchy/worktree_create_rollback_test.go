@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -57,7 +57,7 @@ func TestCreateChild_BranchExistsCheckListError(t *testing.T) {
 }
 
 // TestCreateChild_MainWorktreeAdoptedCheckListError proves a listing failure
-// during the SECOND List call (mainWorktreeAdopted, reached only once the
+// during the SECOND List call (the repo-home lookup, reached only once the
 // duplicate-branch check has already passed) is surfaced distinctly from the
 // first.
 func TestCreateChild_MainWorktreeAdoptedCheckListError(t *testing.T) {
@@ -68,7 +68,7 @@ func TestCreateChild_MainWorktreeAdoptedCheckListError(t *testing.T) {
 			if calls == 1 {
 				return nil, nil // branchWorkspaceExists: no existing branch
 			}
-			return nil, errBoom // mainWorktreeAdopted: fails
+			return nil, errBoom // repoHomeWorkspaceID: fails
 		},
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
@@ -95,7 +95,7 @@ func TestCreateChild_ResolveSlugRepoNotFound(t *testing.T) {
 	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", Branch: "feature/x", ParentBranch: "develop",
 	})
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // TestCreateChild_SiblingWorktreePaths_NotADirectory proves that when the
@@ -121,7 +121,7 @@ func TestCreateChild_SiblingWorktreePaths_NotADirectory(t *testing.T) {
 }
 
 // TestCreateChild_EmptyProjectID_RejectsWithInvalidArgument proves an empty
-// ProjectID is rejected as apperr.ErrInvalidArgument via worktreepath.Derive's
+// ProjectID is rejected as problem.ErrInvalidArgument via worktreepath.Derive's
 // own validation, rather than deriving a malformed/escaping path.
 func TestCreateChild_EmptyProjectID_RejectsWithInvalidArgument(t *testing.T) {
 	g := &fakeGit{}
@@ -129,7 +129,7 @@ func TestCreateChild_EmptyProjectID_RejectsWithInvalidArgument(t *testing.T) {
 	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID: "r1", ProjectID: "", RepoPath: "/repo", Branch: "feature/x", ParentBranch: "develop",
 	})
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // TestCreateChild_ParentOriginTipUnresolved_FallsBackToLocalTip proves that

@@ -6,14 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// descriptor builds a probe descriptor from a single-path field map per event —
-// every test in this file but one needs no more than one source path per
-// canonical field. fieldMap does the []string lift.
+// descriptor builds a probe descriptor from a single-path field map per event; fieldMap
+// lifts each path into an Expr.
 func descriptor(events map[string]map[string]string, require_ ...string) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{}}
 	d.Runtime.Hooks.Format = "json"
@@ -27,7 +27,7 @@ func descriptor(events map[string]map[string]string, require_ ...string) *spec.D
 func fieldMap(fields map[string]string) spec.FieldMap {
 	out := make(spec.FieldMap, len(fields))
 	for k, v := range fields {
-		out[k] = []string{v}
+		out[k] = mapping.Paths(v)
 	}
 	return out
 }
@@ -35,20 +35,16 @@ func fieldMap(fields map[string]string) spec.FieldMap {
 // descriptorWithFields is descriptor()'s counterpart for a test that needs a
 // REAL multi-path (first_present:-shaped) field, which a plain
 // map[string]string cannot express.
-func descriptorWithFields(canonical string, fields spec.FieldMap, require_ ...string) *spec.Descriptor {
+func descriptorWithFields(canonical string, fields spec.FieldMap) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		canonical: {In: spec.WireRef{canonical}, Map: fields},
 	}}
 	d.Runtime.Hooks.Format = "json"
-	d.Runtime.Hooks.RequirePayloadFields = require_
 	return d
 }
 
-// parse is inbound.Parse pinned to the hooks channel. Every descriptor this
-// file builds is LEGACY form (no channel blocks — see descriptor() above),
-// so which channel is named does not change the result; the part of Parse
-// that actually depends on channel is covered on its own below by
-// TestParse_ChannelSelectsItsOwnBlock and its neighbours.
+// parse is inbound.Parse pinned to the hooks channel; the descriptors here have no channel
+// blocks, so the channel changes nothing (TestParse_ChannelSelectsItsOwnBlock covers it).
 func parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEvent, error) {
 	return inbound.Parse(d, canonical, raw, spec.ChannelHooks)
 }
@@ -71,8 +67,8 @@ func TestParse_MapsDescriptorDeclaredTurnStatus(t *testing.T) {
 		spec.HookTurnStop: {
 			In: spec.WireRef{"turn/completed"},
 			Map: spec.FieldMap{
-				"turn_id":     {"turn.id"},
-				"turn_status": {"turn.status"},
+				"turn_id":     mapping.Paths("turn.id"),
+				"turn_status": mapping.Paths("turn.status"),
 			},
 			StatusMap: map[string]string{"completed": "completed", "cancelled": "interrupted"},
 		},
@@ -93,7 +89,7 @@ func TestParse_RequiredFieldMissingIsAHardError(t *testing.T) {
 		spec.HookUserPrompt: {
 			Required: []string{"session_id", "message"},
 			In:       spec.WireRef{spec.HookUserPrompt},
-			Map:      spec.FieldMap{"session_id": {"session_id"}, "message": {"prompt"}},
+			Map:      spec.FieldMap{"session_id": mapping.Paths("session_id"), "message": mapping.Paths("prompt")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -115,7 +111,7 @@ func TestParse_RequiredFieldPresentButEmptyIsStillAHardError(t *testing.T) {
 		spec.HookUserPrompt: {
 			Required: []string{"session_id"},
 			In:       spec.WireRef{spec.HookUserPrompt},
-			Map:      spec.FieldMap{"session_id": {"session_id"}},
+			Map:      spec.FieldMap{"session_id": mapping.Paths("session_id")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -133,7 +129,7 @@ func TestParse_EveryRequiredFieldPresentSucceeds(t *testing.T) {
 		spec.HookUserPrompt: {
 			Required: []string{"session_id", "message"},
 			In:       spec.WireRef{spec.HookUserPrompt},
-			Map:      spec.FieldMap{"session_id": {"session_id"}, "message": {"prompt"}},
+			Map:      spec.FieldMap{"session_id": mapping.Paths("session_id"), "message": mapping.Paths("prompt")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -280,51 +276,6 @@ func TestParse_ADualShapeEventStillAcceptsAGenuineAPIPayload(t *testing.T) {
 	assert.NoError(t, err, "an api-transport payload never carries transcript_path; its absence is not foreign")
 }
 
-func TestParse_AsyncWorkIsTheLengthOfTheDeclaredArray(t *testing.T) {
-	testCases := []struct {
-		name    string
-		mapping map[string]string
-		payload string
-		want    int
-	}{
-		{
-			"three outstanding",
-			map[string]string{"async_work": "background_tasks"},
-			`{"background_tasks":[1,2,3]}`, 3,
-		},
-		{
-			"converged to empty",
-			map[string]string{"async_work": "background_tasks"},
-			`{"background_tasks":[]}`, 0,
-		},
-		{
-			"field absent on an older CLI",
-			map[string]string{"async_work": "background_tasks"},
-			`{}`, 0,
-		},
-		{"provider maps nothing", map[string]string{}, `{"background_tasks":[1,2]}`, 0},
-		{
-			"not an array",
-			map[string]string{"async_work": "background_tasks"},
-			`{"background_tasks":"running"}`, 0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			mapping := map[string]string{"message": "last"}
-			for k, v := range tc.mapping {
-				mapping[k] = v
-			}
-			d := descriptor(map[string]map[string]string{spec.HookTurnStop: mapping})
-
-			ev, err := parse(d, spec.HookTurnStop, []byte(tc.payload))
-
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, ev.AsyncWork)
-		})
-	}
-}
-
 func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPre: {
@@ -354,14 +305,12 @@ func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	assert.Equal(t, 42, post.Tool.DurationMS)
 }
 
-// A tool call may name a whole SECOND conversation, not just its own
-// request/result — codex's collabAgentToolCall reports the thread id of the
-// agent it spawned or is addressing. NestedSessionID is generic: the
-// descriptor supplies the path, Go never learns why the field is there.
-func TestParse_ToolPostCarriesANestedSessionIDWhenTheDescriptorMapsOne(t *testing.T) {
+// A tool call may name the subagent it spawned or addresses; the descriptor
+// supplies the path, Go never learns why the field is there.
+func TestParse_ToolPostCarriesTheScopesItNames(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPost: {
-			"tool_id": "tool_use_id", "nested_session_id": "receiver_thread",
+			"tool_id": "tool_use_id", "spawns_scope": "receiver_thread", "addresses_scope": "receiver_thread",
 		},
 	})
 
@@ -370,10 +319,11 @@ func TestParse_ToolPostCarriesANestedSessionIDWhenTheDescriptorMapsOne(t *testin
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
-	assert.Equal(t, "child-1", ev.Tool.NestedSessionID)
+	assert.Equal(t, "child-1", ev.Tool.SpawnsScope)
+	assert.Equal(t, "child-1", ev.Tool.AddressesScope)
 }
 
-func TestParse_ToolPostWithNoNestedSessionMappingLeavesItEmpty(t *testing.T) {
+func TestParse_ToolPostWithNoScopeMappingLeavesItEmpty(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPost: {"tool_id": "tool_use_id"},
 	})
@@ -382,20 +332,19 @@ func TestParse_ToolPostWithNoNestedSessionMappingLeavesItEmpty(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
-	assert.Empty(t, ev.Tool.NestedSessionID)
+	assert.Empty(t, ev.Tool.SpawnsScope)
 }
 
 func TestParse_ToolEventCarriesTheMappedEditBeforeAndAfterText(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
-		spec.HookToolPre: {"tool_id": "id", "edit_before": "old", "edit_after": "new"},
+		spec.HookToolPre: {"tool_id": "id", "edit_before": "old", "edit_after": "new", "cwd": "cwd"},
 	})
 
-	ev, err := parse(d, spec.HookToolPre, []byte(`{"id":"t1","old":"a","new":"b"}`))
+	ev, err := parse(d, spec.HookToolPre, []byte(`{"id":"t1","old":"a","new":"b","cwd":"/ws"}`))
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
-	assert.Equal(t, "a", ev.Tool.EditBefore)
-	assert.Equal(t, "b", ev.Tool.EditAfter)
+	assert.Equal(t, []string{"a", "b", "/ws"}, []string{ev.Tool.EditBefore, ev.Tool.EditAfter, ev.Tool.Cwd})
 }
 
 func TestParse_ToolEventCarriesTheMappedPatchHunks(t *testing.T) {
@@ -420,7 +369,7 @@ func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {
 		spec.HookToolPre: {
 			In: spec.WireRef{spec.HookToolPre},
 			Map: spec.FieldMap{
-				"tool_target": {"tool_input.file_path", "tool_input.command", "tool_input.url"},
+				"tool_target": mapping.Paths("tool_input.file_path", "tool_input.command", "tool_input.url"),
 			},
 		},
 	}}
@@ -449,8 +398,8 @@ func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {
 
 func TestParse_BuildsSubagentAndInterruptEvents(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
-		spec.HookSubagentPre:  {"subagent_id": "agent_id", "agent_type": "agent_type"},
-		spec.HookSubagentPost: {"subagent_id": "agent_id"},
+		spec.HookSubagentPre:  {"scope_id": "agent_id", "agent_type": "agent_type"},
+		spec.HookSubagentPost: {"scope_id": "agent_id", "result": "last", "status": "state", "usage.tokens": "used.tokens"},
 		spec.HookNotification: {"message": "message"},
 		spec.HookPermission:   {"message": "tool_name"},
 		spec.HookCompactPre:   {"trigger": "trigger"},
@@ -462,6 +411,12 @@ func TestParse_BuildsSubagentAndInterruptEvents(t *testing.T) {
 	require.NotNil(t, sub.Subagent)
 	assert.Equal(t, "a1", sub.Subagent.ID)
 	assert.Equal(t, "explore", sub.Subagent.AgentType)
+	assert.Nil(t, sub.Subagent.Usage, "nothing spent is reported")
+
+	stop, err := parse(d, spec.HookSubagentPost, []byte(`{"agent_id":"a1","last":"done it","state":"x","used":{"tokens":12}}`))
+	require.NoError(t, err)
+	assert.Equal(t, models.SubagentEvent{ID: "a1", Result: "done it", Status: "x", Usage: &models.SubagentUsage{Tokens: 12}},
+		*stop.Subagent)
 
 	note, err := parse(d, spec.HookNotification, []byte(`{"message":"waiting on you"}`))
 	require.NoError(t, err)
@@ -522,13 +477,13 @@ func channelSplitDescriptor() *spec.Descriptor {
 				In:   spec.WireRef{"item/started"},
 				When: spec.WhenMap{"item.type": {"commandExecution", "fileChange"}},
 				Map: spec.FieldMap{
-					"session_id": {"threadId"}, "tool_id": {"item.id"}, "tool_name": {"item.type"},
+					"session_id": mapping.Paths("threadId"), "tool_id": mapping.Paths("item.id"), "tool_name": mapping.Paths("item.type"),
 				},
 			},
 			Hooks: &spec.ChannelBlock{
 				In: spec.WireRef{"PreToolUse"},
 				Map: spec.FieldMap{
-					"session_id": {"session_id"}, "tool_id": {"tool_use_id"}, "tool_name": {"tool_name"},
+					"session_id": mapping.Paths("session_id"), "tool_id": mapping.Paths("tool_use_id"), "tool_name": mapping.Paths("tool_name"),
 				},
 			},
 		},
@@ -628,13 +583,13 @@ func permissionChannelSplitDescriptor() *spec.Descriptor {
 			API: &spec.ChannelBlock{
 				Ask: spec.WireRef{"approval/request"},
 				Map: spec.FieldMap{
-					"session_id": {"threadId"}, "message": {"reason"}, "tool_name": {"tool"},
+					"session_id": mapping.Paths("threadId"), "message": mapping.Paths("reason"), "tool_name": mapping.Paths("tool"),
 				},
 			},
 			Hooks: &spec.ChannelBlock{
 				Ask: spec.WireRef{"PermissionRequest"},
 				Map: spec.FieldMap{
-					"session_id": {"session_id"}, "message": {"message"}, "tool_name": {"tool_name"},
+					"session_id": mapping.Paths("session_id"), "message": mapping.Paths("message"), "tool_name": mapping.Paths("tool_name"),
 				},
 			},
 			Reply: map[string]string{"allow": `{"decision":"accept"}`},
@@ -715,8 +670,8 @@ func TestParse_AskChannelSelectsItsOwnBlock(t *testing.T) {
 // is waiting for the human, and nothing at all when the same hook carries a
 // permission prompt. Two relay commands deliver it twice under two canonical
 // names, and the `when:` below is the only thing that can tell the two deliveries
-// apart. Without it the permission copy would arm the idle latch and
-// AbandonMessage would kill a live turn five seconds later.
+// apart. Without it the permission copy would read as an idle report and end
+// a live turn.
 
 // idleVariantDescriptor is the two-events-one-wire-hook shape: `idle` is gated
 // on a discriminator, `notification` takes every delivery of the same hook.
@@ -725,11 +680,11 @@ func idleVariantDescriptor() *spec.Descriptor {
 		spec.HookIdle: {
 			In:   spec.WireRef{"Notification"},
 			When: spec.WhenMap{"message": {"waiting for input"}},
-			Map:  spec.FieldMap{"session_id": {"session_id"}},
+			Map:  spec.FieldMap{"session_id": mapping.Paths("session_id")},
 		},
 		spec.HookNotification: {
 			In:  spec.WireRef{"Notification"},
-			Map: spec.FieldMap{"session_id": {"session_id"}, "message": {"message"}},
+			Map: spec.FieldMap{"session_id": mapping.Paths("session_id"), "message": mapping.Paths("message")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -795,7 +750,7 @@ func TestParse_TheDiscriminatorIsCheckedBeforeRequiredFields(t *testing.T) {
 			Required: []string{"session_id"},
 			In:       spec.WireRef{"Notification"},
 			When:     spec.WhenMap{"message": {"waiting for input"}},
-			Map:      spec.FieldMap{"session_id": {"session_id"}},
+			Map:      spec.FieldMap{"session_id": mapping.Paths("session_id")},
 		},
 	}}
 	d.Runtime.Hooks.Format = "json"
@@ -816,12 +771,12 @@ func TestParse_AChannelScopedEventReadsItsOwnBlocksWhen(t *testing.T) {
 			Hooks: &spec.ChannelBlock{
 				In:   spec.WireRef{"Notification"},
 				When: spec.WhenMap{"message": {"hooks-idle"}},
-				Map:  spec.FieldMap{"session_id": {"session_id"}},
+				Map:  spec.FieldMap{"session_id": mapping.Paths("session_id")},
 			},
 			API: &spec.ChannelBlock{
 				In:   spec.WireRef{"status/changed"},
 				When: spec.WhenMap{"status": {"idle"}},
-				Map:  spec.FieldMap{"session_id": {"threadId"}},
+				Map:  spec.FieldMap{"session_id": mapping.Paths("threadId")},
 			},
 		},
 	}}

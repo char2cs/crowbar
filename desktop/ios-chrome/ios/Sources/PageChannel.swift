@@ -1,11 +1,9 @@
 import Tauri
 import WebKit
 
-/// Snapshot channels to pages of the app in the chrome's own webviews (the chat list, the
-/// settings page), which have no IPC. The main webview pushes each feed's snapshot raw: its
-/// shape is the web's alone. A page installs the feed's global and posts the feed's ready
-/// message, and is handed the latest snapshot then. Anything else it posts to `handler` goes
-/// to `intercept`, then, unless taken there, to the main webview as an intent.
+/// Snapshot feeds for app pages in the chrome's own webviews, which have no IPC. A page
+/// installs the feed's global and posts its ready message to get the latest raw snapshot;
+/// anything else it posts goes to `intercept`, then to the main webview as an intent.
 @available(iOS 26.0, *)
 final class PageChannel: NSObject, WKScriptMessageHandler {
   private let handler: String

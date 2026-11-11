@@ -6,20 +6,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 )
 
-// AgentWorkspaceHolders fakes the chat tree usecase's WorkspaceHolders seam:
-// every chat currently resolving to a workspace, the census a cascading delete
-// checks before it may tear that worktree down.
-//
-// It is a fake only in WHERE the rows come from — the same AgentChatPlacements
-// the tree itself plans over — and not in how the answer is derived: it calls
-// the REAL worktree.ChatsForWorkspace, exactly as the container's own resolver
-// does. A hand-rolled "chats whose WorkspaceID equals this" would have re-stated
-// the very assumption the gate exists to correct, and would have passed while a
-// bubble inheriting its ancestor's worktree went uncounted.
-//
-// Err fails the census, which is what a test needs to prove the failure
-// contract: a delete that cannot establish whether a worktree is shared must
-// refuse rather than assume it is not.
+// AgentWorkspaceHolders fakes the chat tree's WorkspaceHolders seam over AgentChatPlacements, deriving the
+// answer with the real worktree.ChatsForWorkspace so inherited worktrees are counted as in production.
+// Err fails the census, to prove a delete refuses when it cannot tell whether a worktree is shared.
 type AgentWorkspaceHolders struct {
 	Chats *AgentChatPlacements
 	Err   error
@@ -39,9 +28,6 @@ func (s *AgentWorkspaceHolders) ChatsForWorkspace(
 	if s.Err != nil {
 		return nil, s.Err
 	}
-	// nil, nil: this fake's own fixtures are chat-only (no Folder/Node
-	// awareness needed) — see worktree.ChatsForWorkspace's own nil-safety
-	// doc, 2026-09-08 sidebar-placement-unification Task 8's review fix
-	// round.
+	// nil, nil: this fake's fixtures are chat-only and need no Folder/Node awareness.
 	return worktree.ChatsForWorkspace(ctx, workspaceID, s.Chats, nil, nil)
 }

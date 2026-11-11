@@ -5,8 +5,10 @@ package descriptorcheck
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -17,11 +19,9 @@ import (
 	"time"
 )
 
-// recorder stands in for the daemon's hook intake. A CLI that runs a command is
-// given a script standing in for `crowbar hook <event>`; one that posts its hooks
-// itself (or through curl) is given a loopback server. Either writes the event
-// name and its payload to a file of its own (hooks run concurrently, so one shared
-// log would interleave).
+// recorder stands in for the daemon's hook intake: a loopback server the CLI posts
+// its hooks to, itself or through curl. Each hook's event name and payload go to a
+// file of their own (hooks run concurrently, so one shared log would interleave).
 type recorder struct {
 	path   string
 	dir    string
@@ -40,11 +40,9 @@ func newRecorder(ctx context.Context, dir string) (recorder, error) {
 	if err := os.MkdirAll(r.dir, 0o750); err != nil {
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
 	}
-	// Only `hook` is recorded: the MCP server the descriptor also points at
-	// this path must exit at once rather than read a stdin that never closes.
-	script := fmt.Sprintf("#!/bin/sh\n[ \"$1\" = hook ] || exit 1\nf=$(mktemp '%s/h.XXXXXXXX') || exit 1\n{ printf '%%s\\n' \"$2\"; cat; } > \"$f.tmp\" && mv \"$f.tmp\" \"$f.rec\"\n",
-		strings.ReplaceAll(r.dir, "'", `'\''`))
-	if err := os.WriteFile(r.path, []byte(script), 0o700); err != nil { //nolint:gosec // the recorder must be executable
+	// path stands in for the crowbar binary: the MCP server a descriptor points
+	// at it must exit at once rather than read a stdin that never closes.
+	if err := os.WriteFile(r.path, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil { //nolint:gosec // the stand-in must be executable
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
 	}
 	var lc net.ListenConfig
@@ -54,7 +52,11 @@ func newRecorder(ctx context.Context, dir string) (recorder, error) {
 	}
 	r.url = "http://" + ln.Addr().String()
 	r.server = &http.Server{Handler: http.HandlerFunc(r.record), ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = r.server.Serve(ln) }()
+	go func() {
+		if err := r.server.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+			slog.Warn("descriptorcheck: the hook recorder stopped", "err", err)
+		}
+	}()
 	return r, nil
 }
 
@@ -94,18 +96,28 @@ func (r recorder) close(ctx context.Context) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	_ = r.server.Shutdown(ctx)
+	if err := r.server.Shutdown(ctx); err != nil {
+		slog.WarnContext(ctx, "descriptorcheck: stop the hook recorder", "err", err)
+	}
 }
 
 // records is every completed hook, oldest first.
 func (r recorder) records() []hookRecord {
-	files, _ := filepath.Glob(filepath.Join(r.dir, "*.rec"))
+	entries, err := os.ReadDir(r.dir)
+	if err != nil {
+		slog.Warn("descriptorcheck: read the hook records", "dir", r.dir, "err", err)
+		return nil
+	}
 	type stamped struct {
 		rec hookRecord
 		at  int64
 	}
 	var all []stamped
-	for _, f := range files {
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".rec") {
+			continue
+		}
+		f := filepath.Join(r.dir, e.Name())
 		raw, err := os.ReadFile(f) //nolint:gosec // a file this run's recorder wrote
 		info, statErr := os.Stat(f)
 		if err != nil || statErr != nil {

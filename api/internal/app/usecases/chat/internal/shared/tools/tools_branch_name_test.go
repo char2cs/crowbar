@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
@@ -78,5 +79,44 @@ func TestSetBranchName_TrimWhitespace(t *testing.T) {
 	}
 	if fakeRenamer.calledWithBranch != "fix-the-thing" {
 		t.Fatalf("renamer not called with trimmed branch name: got %q, want %q", fakeRenamer.calledWithBranch, "fix-the-thing")
+	}
+}
+
+type fakeBranchOuter struct{ chatID, workspaceID, branch, by string }
+
+func (f *fakeBranchOuter) RequestBranchOut(_ context.Context, chatID, workspaceID, branch, by string) (bool, error) {
+	f.chatID, f.workspaceID, f.branch, f.by = chatID, workspaceID, branch, by
+	return false, nil
+}
+
+func TestBranchOut_SchedulesTheCallersThreadAsABranchForItsTurnsEnd(t *testing.T) {
+	res, minter := resolverOn(t, "ws-a")
+	outer := &fakeBranchOuter{}
+	ts := tools.NewToolSet(tools.Deps{Resolver: res, Branches: outer}, "RUN", minter.Mint("RUN"))
+
+	got, err := ts.Call(context.Background(), "branch_out", []byte(`{"name":" fix-it "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outer.workspaceID != "ws-a" || outer.branch != "fix-it" || outer.by != "agent" {
+		t.Fatalf("requested %+v", outer)
+	}
+	if !strings.Contains(got, `"fix-it"`) {
+		t.Fatalf("the agent is told which branch it will be on: %q", got)
+	}
+}
+
+// Left unnamed, the branch gets a generated name, and the agent is told how to give it a real one.
+func TestBranchOut_AnUnnamedBranchIsGeneratedAndTheAgentToldToRenameIt(t *testing.T) {
+	res, minter := resolverOn(t, "ws-a")
+	outer := &fakeBranchOuter{}
+	ts := tools.NewToolSet(tools.Deps{Resolver: res, Branches: outer}, "RUN", minter.Mint("RUN"))
+
+	got, err := ts.Call(context.Background(), "branch_out", []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outer.branch != "" || !strings.Contains(got, "set_branch_name") {
+		t.Fatalf("requested %+v, replied %q", outer, got)
 	}
 }

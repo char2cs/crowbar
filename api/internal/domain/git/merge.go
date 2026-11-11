@@ -1,6 +1,6 @@
 package git
 
-// MergeStrategy is the branch-review merge selector (09 §4).
+// MergeStrategy is the branch-review merge selector.
 type MergeStrategy string
 
 const (

@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { planRemoval } from '@/components/layout/removal-plan'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 
 const PROJECTS = [
   { id: 'p1', name: 'harbour' },
@@ -86,8 +86,7 @@ describe('planning a project removal', () => {
   })
 
   it('plans nothing when no project list is supplied at all', () => {
-    // The old signature. Callers that never pass one keep the behaviour they
-    // had rather than silently planning a removal with no label.
+    // Without the projects argument, a project removal plans nothing rather than one with no label.
     expect(planRemoval([{ kind: 'project', id: 'p1' }], repos)).toEqual([])
   })
 })

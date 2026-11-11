@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestRegression_GracefulShutdown_MidTurn_ClosesAbandonedTurn is the guard for a
@@ -57,15 +56,13 @@ func TestRegression_GracefulShutdown_MidTurn_ClosesAbandonedTurn(t *testing.T) {
 	// The drain has returned, so every writer it is responsible for has finished
 	// writing. The DBs are still open: what we read now is exactly what the adapter
 	// is about to checkpoint and close.
-	chat, err := h1.app.Usecases.AgentChat.GetChat(ctx, chatID)
-	require.NoError(t, err)
-	assert.False(t, chat.Working,
+	assert.False(t, chatBusy(t, h1, chatID),
 		"a graceful stop must close the turn its own kill abandoned, BEFORE the DBs that hold it close: "+
 			"the CLI it SIGTERMed will never send the turn_stop hook, and once the runner's Exit has "+
 			"committed there is no live-runner row left for the next boot's reconcile to find — so a turn "+
 			"left open here is a chat that spins forever, across every restart")
 
-	_, err = h1.app.Usecases.AgentRunner.LiveRunnerForChat(ctx, chatID)
+	_, err := h1.app.Usecases.AgentRunner.LiveRunnerForChat(ctx, chatID)
 	assert.Error(t, err,
 		"runner %s's PTY was killed by the shutdown, so its live row must be gone: the PTY is the sole "+
 			"authority on whether a CLI is alive, and the exit callback that records its death must have "+
@@ -83,8 +80,6 @@ func TestRegression_GracefulShutdown_MidTurn_ClosesAbandonedTurn(t *testing.T) {
 	assert.Equal(t, []string{"sess-before-restart"}, post.sessionIDs(),
 		"the chat's conversation history is append-only and describes no process: a graceful stop may not erase it")
 
-	rebooted, err := h2.app.Usecases.AgentChat.GetChat(ctx, chatID)
-	require.NoError(t, err)
-	assert.False(t, rebooted.Working,
+	assert.False(t, chatBusy(t, h2, chatID),
 		"the closed turn is durable: the chat must not come back spinning")
 }

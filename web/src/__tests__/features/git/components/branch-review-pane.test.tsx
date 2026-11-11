@@ -21,7 +21,9 @@ import {
   setWorkspaceScope,
 } from '@/lib/workspace-scope'
 import type { ReviewState } from '@/features/git/api/review-api'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { putReviewThread } from '@/__tests__/__fixtures__/review-threads'
 import {
   loadProjects,
   pairRemoteHost,
@@ -32,7 +34,8 @@ import {
 const mocks = vi.hoisted(() => ({
   getReview: vi.fn<() => Promise<ReviewState>>(),
 }))
-vi.mock('@/features/git/api/review-api', () => ({
+vi.mock('@/features/git/api/review-api', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   getReview: mocks.getReview,
 }))
 
@@ -72,7 +75,6 @@ function review(overrides: Partial<ReviewState> = {}): ReviewState {
     description: '',
     mergeStrategy: 'merge',
     diff: { files: [] } as unknown as ReviewState['diff'],
-    threads: [],
     conversations: [],
     ...overrides,
   }
@@ -92,11 +94,8 @@ beforeEach(() => {
   mocks.getReview.mockResolvedValue(review())
 })
 
-// Regression: the route records a workspace's scope with NO chat id; only the
-// sidebar's own async chat-list fetch later attaches owningChatId. getReview
-// resolves through reviewBaseForWorkspace, which throws without one — load()
-// caught that throw and set a PERMANENT 'error' diffStatus, with nothing to
-// ever retry it even once the id arrived. The pane must wait instead.
+// The route records a scope with no chat id (the sidebar attaches it later), and getReview
+// throws without one: the pane must wait for the id rather than settle into 'error'.
 describe('BranchReviewPane — owning-chat-id race', () => {
   it('does not fetch the review before an owning chat id is recorded', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
@@ -282,38 +281,38 @@ describe('BranchReviewPane — Conversation / Files changed shell', () => {
   })
 
   it('shows the owning chat title as the heading, and the thread count on Conversation', async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'r1',
-          name: 'repo',
-          avatarLabel: 'R',
-          avatarColor: '#000',
-          workspaces: [
-            {
-              id: 'ws-title',
-              branch: 'feat/x',
-              age: '1h',
-              owningChatId: 'chat-1',
-              parentBranch: 'develop',
-            },
-          ],
-          chats: [{ id: 'chat-1', repoId: 'r1', title: 'Stop UI leaking', order: 0 }],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        id: 'r1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: '#000',
+        workspaces: [
+          {
+            id: 'ws-title',
+            branch: 'feat/x',
+            age: '1h',
+            owningChatId: 'chat-1',
+            parentBranch: 'develop',
+          },
+        ],
+        chats: [{ id: 'chat-1', repoId: 'r1', title: 'Stop UI leaking', order: 0 }],
+      },
+    ] as unknown as Repo[])
     const id = openReviewBuffer('ws-title')
-    const { store } = await renderPersisted('ws-title', id)
-    store.getState().upsertReviewThread({
-      id: 't1',
-      filePath: 'a.ts',
-      lineNumber: 1,
-      startLine: 1,
-      endLine: 1,
-      side: 'new',
-      isResolved: false,
-      messages: [],
-    })
+    await renderPersisted('ws-title', id)
+    act(() =>
+      putReviewThread('ws-title', {
+        id: 't1',
+        filePath: 'a.ts',
+        lineNumber: 1,
+        startLine: 1,
+        endLine: 1,
+        side: 'new',
+        isResolved: false,
+        messages: [{ id: 't1-root', author: 'me', isAgent: false, body: 'b', createdAt: '' }],
+      }),
+    )
 
     expect(screen.getByRole('heading', { name: 'Stop UI leaking' })).toBeDefined()
     expect(screen.getByText('feat/x')).toBeDefined()

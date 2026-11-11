@@ -15,10 +15,8 @@ type repoDTO struct {
 	DefaultBranch string `json:"defaultBranch"`
 }
 
-// pickRepo filters on the project id as well as the name because
-// GET /v0/projects/:projectId/repos answers with EVERY repo the daemon knows,
-// not just the path project's. Matching on name alone would make the seed adopt
-// an unrelated project's repo that happens to share the name.
+// pickRepo filters on the project id as well as the name because the repos
+// route answers with every repo the daemon knows, not just this project's.
 func pickRepo(
 	projectID string,
 ) func([]repoDTO) (repoDTO, bool) {

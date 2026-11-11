@@ -85,6 +85,19 @@ func TestGitStream_CloseBeforeEOFDoesNotBlock(t *testing.T) {
 	_ = wait() // may report a signal kill; must return rather than hang
 }
 
+// Closing a stream before EOF ends git with the SIGTERM a cancelled Git gets:
+// one cancel policy, so no streamed command can strand a lock either.
+func TestGitStream_CloseBeforeEOFTerminatesGit(t *testing.T) {
+	// Writes nothing and ignores its stdout, so only a signal can end it.
+	stub := writeStubGit(t, "exec tail -f /dev/null >/dev/null")
+	defer exec.SetGitResolverForTest(func() string { return stub }, func() bool { return false })()
+
+	r, wait, err := exec.GitStream(context.Background(), t.TempDir(), "log")
+	require.NoError(t, err)
+	require.NoError(t, r.Close())
+	require.ErrorContains(t, wait(), "signal: terminated")
+}
+
 func TestGitStream_ContextCancelStopsProcess(t *testing.T) {
 	dir := initRepo(t)
 	ctx, cancel := context.WithCancel(context.Background())

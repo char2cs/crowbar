@@ -3,7 +3,12 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { confirmAndKillAgent } from '@/features/agent/lib/kill-agent'
 import { routePath, useChatPlace } from '@/features/tabs/hooks/use-chat-branch-header-model'
-import { useActiveSessionList, viewersLabel, type ActiveSession } from '@/lib/store/active-sessions'
+import {
+  useActiveSessionList,
+  viewersLabel,
+  type ActiveSession,
+} from '@/core/entities/active-sessions'
+import { entityKey } from '@/core/stream/host-scope'
 
 const SECONDARY = 'ui-font ui-text-sm truncate text-muted-foreground'
 
@@ -18,7 +23,7 @@ function SessionRow({ session }: { session: ActiveSession }) {
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{session.title}</div>
         <div className={cn(SECONDARY, 'font-mono')}>{where}</div>
-        <div className={SECONDARY}>{viewersLabel(session.attached)}</div>
+        <div className={SECONDARY}>{viewersLabel(session.viewers)}</div>
       </div>
       <Button
         type="button"
@@ -53,7 +58,7 @@ export function ActiveSessionsSettings() {
       ) : (
         <div className="space-y-1">
           {sessions.map((session) => (
-            <SessionRow key={session.chatId} session={session} />
+            <SessionRow key={entityKey(session.hostId, session.chatId)} session={session} />
           ))}
         </div>
       )}

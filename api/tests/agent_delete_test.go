@@ -7,56 +7,29 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// waitForChatFrame drains frames until one matching (chatID, kind) arrives,
-// tolerating any other frame in between (a delete displaces and kills the chat's
-// live CLI, so runner frames race the chat's own) — a real signal wait, never a
-// sleep/poll, backstopped only by the test context's Done().
-func waitForChatFrame(
-	t *testing.T,
-	frames <-chan map[string]any,
-	chatID string,
-	kind string,
-) map[string]any {
-	t.Helper()
-	for {
-		select {
-		case f := <-frames:
-			if f["chatId"] == chatID && f["kind"] == kind {
-				return f
-			}
-		case <-t.Context().Done():
-			t.Fatalf("timed out waiting for chat %s's %q frame", chatID, kind)
-			return nil
-		}
-	}
-}
-
-// TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted proves the Task 5
-// hard-delete route end-to-end: DELETE .../chats/:id responds 202,
-// the chat is genuinely gone (not merely tombstoned) from both List and a
-// direct GET-by-id, and a subscriber of the chat's own workspace WS feed
-// receives a scoped "deleted" frame for it — the live signal every workspace
-// client relies on to drop the chat without a refetch.
-func TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted(t *testing.T) {
+// TestAgentDelete_HardDeletesAndPublishesGone proves the hard-delete route
+// end-to-end: the chat is genuinely gone (not merely tombstoned) from both List
+// and a direct GET-by-id, and the projects scope carries its gone row — the
+// live signal every client relies on to drop the chat without a refetch.
+func TestAgentDelete_HardDeletesAndPublishesGone(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 
 	ws := importWritableWorkspace(t, h)
 
-	// Dial BEFORE creating the chat so the "created" frame (drained below to
-	// make the later "deleted" read unambiguous) is never missed.
-	frames := dialAgentWS(t, h, repoBase(ws)+"/chats/ws")
+	feed := recordSidebar(t, h)
 
 	chatID := createAgentChat(t, h, ws)
-	waitForChatFrame(t, frames, chatID, "created")
+	require.Equal(t, ws.workspaceID, feed.awaitListed(chatID)["workspaceId"])
 
-	resp := h.raw(http.MethodDelete, repoBase(ws)+"/chats/"+chatID, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, repoBase(ws)+"/chats/"+chatID, nil, http.StatusOK)
 	_ = resp.Body.Close()
 
-	deleted := waitForChatFrame(t, frames, chatID, "deleted")
-	require.Equal(t, ws.workspaceID, deleted["workspaceId"])
+	feed.awaitGone(stream.KindChatEntity, chatID)
 
 	h.Quiesce()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,45 +15,37 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// discoverCacheSubdir holds model.discover:'s own on-disk seed, one JSON file
-// per descriptor id — the same "survive a restart" role model-manifest-cache
-// already plays for model.manifest:, but read SYNCHRONOUSLY on a cold cache
-// (seedDiscoverFromDisk) rather than only in the background: a live probe has
-// no embedded bundle to fall back on meanwhile, so without this a fresh
-// daemon serves an empty catalogue until the first probe lands.
+// discoverCacheSubdir holds model.discover:'s on-disk seed, one JSON file per
+// descriptor id. It is read synchronously on a cold cache because a live probe has
+// no embedded bundle to fall back on, so a fresh daemon would otherwise list nothing.
 const discoverCacheSubdir = "model-discover-cache"
 
-// ttl bounds how long a resolved catalogue is trusted before a fresh probe is
-// worth its fork; maxConcurrentProbes bounds how many of those forks may run
-// at once — this package's own budget, since model discovery is
-// provider-level (one entry per descriptor, refreshed rarely) rather than
-// the per-chat, never-cached probes the daemon's chat-scoped budget bounds.
+// ttl bounds how long a resolved catalogue is trusted; maxConcurrentProbes is this
+// package's own fork budget, separate from the daemon's per-chat probe budget because
+// discovery is provider-level and rarely refreshed.
 const (
 	ttl                 = 5 * time.Minute
 	maxConcurrentProbes = 4
 )
 
-// probeFunc is Probe's own signature, held as a field so a test can swap in a
-// fake without a real provider binary to discover against.
+// probeFunc is Probe's signature, held as a field so a test can swap in a fake.
 type probeFunc func(context.Context, *spec.Descriptor, models.ProbeOptions, exec.Acquire) ([]Model, error)
 
-// manifestProbeFunc is ProbeManifest's own signature, held as a field for the
-// same reason probeFunc is — a test swaps in a fake rather than hitting a
-// real URL.
+// manifestProbeFunc is ProbeManifest's signature, a field so a test avoids a real URL.
 type manifestProbeFunc func(ctx context.Context, man *spec.ModelManifestSpec, embedded []byte, homeDir string, fetchEnabled bool) ([]Model, error)
 
 type entry struct {
 	models       []string
 	efforts      map[string][]string
 	defaultModel string
-	fingerprint  string
-	fetchedAt    time.Time
-	refreshing   bool
-	// resolved is true once store() has run for this id at least once — the
-	// seed check a manifest source's cold-start needs, since len(models)>0
-	// alone can't tell "never resolved" from "resolved to legitimately zero
-	// rows" (e.g. every row keep_when-filtered out), which would otherwise
-	// re-seed and clobber a landing async refresh on every single call.
+	// defaultEfforts holds only the models whose source stated a default effort.
+	defaultEfforts map[string]string
+	fingerprint    string
+	fetchedAt      time.Time
+	refreshing     bool
+	// resolved is true once store() has run for this id. len(models) cannot tell
+	// "never resolved" from "resolved to zero rows", and re-seeding on the latter
+	// would clobber a landing async refresh.
 	resolved bool
 }
 
@@ -65,38 +58,19 @@ type Cache struct {
 	slots    chan struct{}
 	probe    probeFunc
 	manifest manifestProbeFunc
-	// afterRefresh, set only by a test, runs at the end of attemptRefresh
-	// (success or failure) once every side effect — store, disk write — has
-	// landed. It exists so a test can block on the ACTUAL completion of a
-	// forked refresh (e.g. before a t.TempDir() cleanup would otherwise race
-	// its still-running disk write) rather than guessing with a sleep.
-	afterRefresh func(id string)
-	// lifecycle bounds every background probe/fetch this Cache ever forks —
-	// deliberately NOT whatever ctx the List/Get call that triggered a given
-	// Refresh happened to carry, which is request-scoped and must not cut a
-	// refresh short just because the request that triggered it already
-	// returned. attemptRefresh/attemptManifestRefresh derive their own
-	// per-call timeout from this one, so cancelling it (a daemon's own
-	// shutdown, or a test's teardown) is what actually stops them — never a
-	// detached context.Background() that outlives whoever asked for it.
+	// lifecycle bounds every background probe/fetch. It is deliberately not the
+	// triggering request's ctx, which must not cut a refresh short when it returns.
 	lifecycle context.Context
-	// stop cancels lifecycle (which is NewCache's argument re-derived, not the
-	// caller's own context) and inflight joins every goroutine this Cache has
-	// forked. Cancellation ALONE is not a shutdown: a refresh whose fetch
-	// already returned is past every ctx check and still has its disk write to
-	// do, so only the join can promise that nothing writes under home after
-	// Close returns. See Close.
+	// stop cancels lifecycle and inflight joins every forked goroutine; only the
+	// join guarantees no disk write lands under home after Close returns.
 	stop     context.CancelFunc
 	inflight sync.WaitGroup
 	closed   bool
 }
 
 // NewCache constructs a Cache whose background work is bounded by lifecycle:
-// cancelling it stops every in-flight and future probe/fetch this Cache
-// forks, and refuses to store or write a result that raced past the
-// cancellation (see attemptRefresh). Pass the caller's own long-lived
-// context — never context.Background() dressed up as one — or nothing here
-// can ever be told to stop.
+// cancelling it stops every probe/fetch and discards results that raced past it.
+// Pass a long-lived owner context, not context.Background().
 func NewCache(lifecycle context.Context) *Cache {
 	ctx, cancel := context.WithCancel(lifecycle)
 	return &Cache{
@@ -109,20 +83,9 @@ func NewCache(lifecycle context.Context) *Cache {
 	}
 }
 
-// Close stops every background refresh this Cache forked and BLOCKS until each
-// has returned, its disk write included.
-//
-// The join is the point. A refresh writes two files under home
-// (model-manifest-cache, model-discover-cache), and by the time its fetch or
-// probe has returned it is past every ctx check it will ever make — so
-// cancelling lifecycle can shorten that window but never close it. Without
-// this, a daemon that has released its home (shutdown, hot-restart) can still
-// have a write land in it afterwards, and a test that hands this Cache a temp
-// dir as home can have one land after the dir was removed, recreating it.
-//
-// Idempotent, and safe to call while refreshes are in flight: fork refuses to
-// start new work once closed, so the WaitGroup can never be Added to after the
-// Wait below begins.
+// Close cancels every background refresh and BLOCKS until each has returned, disk
+// write included: a refresh past its fetch makes no more ctx checks, so only the join
+// keeps writes out of a released home. Idempotent; fork refuses new work once closed.
 func (c *Cache) Close() {
 	c.mu.Lock()
 	if c.closed {
@@ -136,10 +99,8 @@ func (c *Cache) Close() {
 	c.inflight.Wait()
 }
 
-// fork runs one background refresh under the Close join, or not at all once
-// Close has begun. Both halves of the closed check and the Add happen under mu
-// — the same lock Close takes to latch closed — so there is no window where a
-// fork observes "open" and Adds after Wait has started.
+// fork runs one background refresh under the Close join, or not at all once closed.
+// The closed check and Add share mu with Close, so no Add can follow Wait.
 func (c *Cache) fork(run func()) {
 	c.mu.Lock()
 	if c.closed {
@@ -170,48 +131,42 @@ func (c *Cache) Efforts(id, model string) []string {
 	return append([]string(nil), c.entries[id].efforts[model]...)
 }
 
-// DefaultModel is the id the source itself flagged as its default
-// (model.discover.default_when) — empty when the source states nothing at
-// all, or nothing has resolved yet. Empty NEVER means "fall back to the
-// first model in Models()".
+// DefaultModel is the id the source flagged as default (default_when), or "" when
+// it flagged none or nothing resolved yet. "" never means "use the first model".
 func (c *Cache) DefaultModel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.entries[id].defaultModel
 }
 
-// Store seeds id's cached catalogue directly, bypassing a probe — used by
-// this package's own wiring tests, and available to any future caller that
-// already has a resolved list from elsewhere.
+// DefaultEffort is the effort the source states model runs at by default, "" when it states none.
+func (c *Cache) DefaultEffort(id, model string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.entries[id].defaultEfforts[model]
+}
+
+// Store seeds id's cached catalogue directly, bypassing a probe.
 func (c *Cache) Store(id string, found []Model) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[id] = entry{
-		models: idsOf(found), efforts: effortsOf(found),
+		models: idsOf(found), efforts: effortsOf(found), defaultEfforts: defaultEffortsOf(found),
 		defaultModel: defaultOf(found), fetchedAt: time.Now(), resolved: true,
 	}
 }
 
-// Refresh seeds id's cache SYNCHRONOUSLY from its on-disk file when nothing
-// has resolved yet (seedDiscoverFromDisk — cheap, local, bounded), then probes
-// the live catalogue in the background when due, returning immediately either
-// way — Models/Efforts callers (Agent.Models, three selection-validation
-// gates) must never block on a fork. A probe failure keeps whatever was
-// cached before it and still records the attempt, so a CLI that is simply
-// not installed is retried at most once per ttl, not once per call.
+// Refresh seeds an unresolved id from disk synchronously, then probes in the
+// background when due; readers never block on a fork. A failed probe keeps the old
+// catalogue but records the attempt, so a missing CLI is retried once per ttl.
 func (c *Cache) Refresh(d *spec.Descriptor, home string) {
 	c.seedDiscoverFromDisk(d, home)
 	c.fork(func() { c.attemptRefresh(d, home) })
 }
 
-// seedDiscoverFromDisk is model.discover:'s counterpart of
-// seedManifestFromEmbedded: it seeds id's cache from the last catalogue a
-// successful probe wrote to disk, on the CALLING goroutine, so a cold daemon
-// serves last-known models immediately rather than waiting out the first
-// live probe. A no-op once something has already resolved (never clobbers a
-// landed or in-flight refresh), for a homeDir-less caller, or when no cache
-// file exists yet — the first-ever run on a machine has nothing to seed from,
-// which is what the boot warm-up is for.
+// seedDiscoverFromDisk seeds id from the last probe's on-disk catalogue on the
+// calling goroutine, so a cold daemon serves last-known models at once. A no-op once
+// anything resolved (never clobbers a refresh), without home, or with no file yet.
 func (c *Cache) seedDiscoverFromDisk(d *spec.Descriptor, home string) {
 	if d == nil || d.Model == nil || d.Model.Discover == nil || home == "" {
 		return
@@ -241,9 +196,6 @@ func (c *Cache) attemptRefresh(d *spec.Descriptor, home string) {
 	if !c.beginRefresh(d.ID, fp, ttl) {
 		return
 	}
-	if c.afterRefresh != nil {
-		defer c.afterRefresh(d.ID)
-	}
 
 	ctx, cancel := context.WithTimeout(
 		c.lifecycle, time.Duration(d.Model.Discover.EffectiveTimeoutMS())*time.Millisecond,
@@ -259,27 +211,21 @@ func (c *Cache) attemptRefresh(d *spec.Descriptor, home string) {
 	}
 
 	found, err := c.probe(ctx, d, models.ProbeOptions{Cwd: home, Env: os.Environ()}, nil)
-	// ctx.Err() is checked even on a nil err: a probe that raced past its own
-	// cancellation and returned a result anyway (or simply never looked) must
-	// still not land — a cancelled lifecycle NEVER writes, no matter what the
-	// probe itself did.
+	// ctx.Err() is checked even on a nil err: a cancelled lifecycle never writes,
+	// even if the probe raced past cancellation and returned a result.
 	if err != nil || ctx.Err() != nil {
 		c.markAttempted(d.ID, fp)
 		return
 	}
 	c.store(d.ID, found, fp)
-	writeDiscoverCache(home, d.ID, found)
+	if err := writeDiscoverCache(home, d.ID, found); err != nil {
+		slog.Warn("modeldiscovery: discover cache not saved", "provider", d.ID, "err", err)
+	}
 }
 
-// RefreshManifest resolves id's model.manifest: catalogue — the manifest
-// counterpart of Refresh, over a fetch instead of a live probe. It first
-// seeds the cache SYNCHRONOUSLY from the embedded bundle alone when nothing
-// has resolved yet (cheap, local, no I/O), so Models()/Efforts() never read
-// empty just because the background half (disk cache + network) has not
-// finished — then kicks off that background half exactly like Refresh does.
-// fetchEnabled gates the network half only; disk cache and embedded always
-// apply, so turning it off can only ever fall further back, never empty the
-// catalogue.
+// RefreshManifest is Refresh for model.manifest: it seeds an unresolved id from the
+// embedded bundle synchronously, then refreshes from disk cache and network in the
+// background. fetchEnabled gates only the network, so disabling it never empties the list.
 func (c *Cache) RefreshManifest(d *spec.Descriptor, home string, embedded []byte, fetchEnabled bool) {
 	c.seedManifestFromEmbedded(d, embedded)
 	c.fork(func() { c.attemptManifestRefresh(d, home, embedded, fetchEnabled) })
@@ -338,12 +284,9 @@ func manifestFingerprint(url string, fetchEnabled bool) string {
 	return fmt.Sprintf("manifest:%s:%v", url, fetchEnabled)
 }
 
-// beginRefresh reports whether id is actually due for a refresh, marking it
-// in-flight under the same lock so a second concurrent call sees the flag
-// and skips rather than racing a duplicate fork. freshFor is the caller's own
-// TTL — model.discover's fixed ttl, or model.manifest's own configured
-// ttl_ms — so the two sources can be refreshed on different schedules while
-// sharing one due-check.
+// beginRefresh reports whether id is due, marking it in-flight under the same lock
+// so a concurrent call skips instead of forking a duplicate. freshFor is the source's
+// own TTL (discover's fixed ttl or the manifest's ttl_ms).
 func (c *Cache) beginRefresh(id, fp string, freshFor time.Duration) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -371,7 +314,7 @@ func (c *Cache) store(id string, found []Model, fp string) {
 	defer c.mu.Unlock()
 	c.entries[id] = entry{
 		models: idsOf(found), efforts: effortsOf(found), defaultModel: defaultOf(found),
-		fingerprint: fp, fetchedAt: time.Now(), resolved: true,
+		defaultEfforts: defaultEffortsOf(found), fingerprint: fp, fetchedAt: time.Now(), resolved: true,
 	}
 }
 
@@ -386,6 +329,16 @@ func defaultOf(found []Model) string {
 	return ""
 }
 
+func defaultEffortsOf(found []Model) map[string]string {
+	out := make(map[string]string, len(found))
+	for _, m := range found {
+		if m.DefaultEffort != "" {
+			out[m.ID] = m.DefaultEffort
+		}
+	}
+	return out
+}
+
 func idsOf(found []Model) []string {
 	out := make([]string, len(found))
 	for i, m := range found {
@@ -394,13 +347,9 @@ func idsOf(found []Model) []string {
 	return out
 }
 
-// effortsOf keys each row's own effort levels by its model id, PLUS "" —
-// never a real model id (renderModel drops any row with an empty one) — set
-// to the union of every row's levels. "" is what a caller with no model
-// chosen yet reads (provider.resolveEfforts's own "" entry): the union is
-// the most defensible answer when the source states no default model to
-// read a list from directly, so a picker shown before a model is confirmed
-// still offers something sane.
+// effortsOf keys each row's effort levels by model id, plus "" (never a real id)
+// mapped to the union of all levels, which is what a picker reads before a model
+// is chosen.
 func effortsOf(found []Model) map[string][]string {
 	out := make(map[string][]string, len(found)+1)
 	seen := make(map[string]bool, 8)
@@ -418,30 +367,31 @@ func effortsOf(found []Model) map[string][]string {
 	return out
 }
 
-// discoverCachePath is keyed by the descriptor id — this package's own cache
-// key everywhere else (Cache.entries), unlike manifestCachePath's URL hash,
-// since model.discover: has no second URL a provider id could collide with.
+// discoverCachePath is keyed by descriptor id, unlike manifestCachePath's URL hash,
+// since a discover source has no URL to key by.
 func discoverCachePath(home, id string) string {
 	return filepath.Join(home, discoverCacheSubdir, id+".json")
 }
 
-// writeDiscoverCache persists a successful probe's catalogue to disk so the
-// next cold start has something to seed from. Best-effort: a write failure
-// (missing home, read-only fs) only costs the NEXT cold start its synchronous
-// seed, never this one's already-cached result.
-func writeDiscoverCache(home, id string, found []Model) {
+// writeDiscoverCache persists a successful probe's catalogue so the next cold
+// start has something to seed from. A failure only costs that seed, never this
+// run's cached result, so the caller logs it.
+func writeDiscoverCache(home, id string, found []Model) error {
 	if home == "" {
-		return
+		return nil
 	}
 	raw, err := json.Marshal(found)
 	if err != nil {
-		return
+		return fmt.Errorf("modeldiscovery: encode discover cache: %w", err)
 	}
 	path := discoverCachePath(home, id)
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("modeldiscovery: discover cache dir: %w", err)
 	}
-	_ = os.WriteFile(path, raw, 0o644) //nolint:gosec // cache file, not a secret
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		return fmt.Errorf("modeldiscovery: write discover cache: %w", err)
+	}
+	return nil
 }
 
 // fingerprint identifies the CLI binary a discover: command would run —

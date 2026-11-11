@@ -169,13 +169,13 @@ func TestResolveImportParent(t *testing.T) {
 		wantBranch: dev,
 	}, {
 		// The repo home is the ONLY remaining home for a branch, and only when the
-		// default branch has no workspace of its own (a provider failure at repo
-		// import left it unprovisioned).
-		name:       "no default-branch workspace is the one case that parents at the repo root",
+		// default branch has no workspace of its own (it is unprotected, or a
+		// provider failure at repo import left it unprovisioned).
+		name:       "no default-branch workspace is the one case that parents under the repo home",
 		branch:     "feat/x",
 		base:       map[string]string{"feat/x": dev},
 		existing:   map[string]string{},
-		wantID:     "",
+		wantID:     "ws-home",
 		wantBranch: dev,
 	}}
 
@@ -185,7 +185,7 @@ func TestResolveImportParent(t *testing.T) {
 			if created == nil {
 				created = map[string]string{}
 			}
-			gotID, gotBranch := resolveImportParent(tc.branch, dev, tc.base, tc.existing, created)
+			gotID, gotBranch := resolveImportParent(tc.branch, dev, "ws-home", tc.base, tc.existing, created)
 			if gotID != tc.wantID {
 				t.Errorf("parentID = %q, want %q", gotID, tc.wantID)
 			}

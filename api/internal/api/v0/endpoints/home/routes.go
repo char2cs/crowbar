@@ -1,7 +1,6 @@
 // Package home mounts the project-level home workspace routes under
-// /v0/projects/:projectId/home. The home workspace has files, a live
-// file-change stream, review threads, terminals, and agentic chats — but no git
-// operations.
+// /v0/projects/:projectId/home. The home workspace has files, review threads,
+// terminals and agentic chats, but no git: it is the project root, not a worktree.
 package home
 
 import (
@@ -13,57 +12,34 @@ import (
 	threadhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
 )
 
-// Register mounts all home routes under projectScoped
-// (/v0/projects/:projectId).
-//
-// Files and review threads are reused from the workspace-scoped surface: the
-// home group has no :wsId path segment, so RequireHomeWorkspace resolves the
-// project's home workspace and injects :wsId before each reused handler runs.
-// That lets the file-change WS handler (filesWS), the dual-served thread list
-// WS (threadsWS), the thread REST handlers, and the agent chat REST + WS
-// (the agent concerns/agentWS) resolve the home workspace by id. Git is intentionally
-// absent — the home workspace is the project root, not a per-workspace git
-// worktree.
-//
-// working is the daemon's working-overlay read seam (the same one the workspaces
-// handlers stamp their list/detail from): GET /home is the ONLY read path for the
-// home workspace's DTO, so without it a home read taken while an agent chat is
-// mid-turn would report working=false and contradict the home workspace's own WS
-// frames.
+// Register mounts all home routes under projectScoped (/v0/projects/:projectId).
+// Thread and chat handlers are reused from the workspace-scoped surface, with
+// RequireHomeWorkspace injecting the :wsId the home URLs lack.
 func Register(
 	projectScoped *gin.RouterGroup,
 	workspaces homehandlers.HomeWorkspaces,
 	files homehandlers.Files,
 	termEng termhandlers.TerminalEngine,
 	working homehandlers.WorkSignal,
-	filesWS gin.HandlerFunc,
 	threadStore threadhandlers.ThreadStore,
 	threadBroadcast threadhandlers.ThreadBroadcaster,
-	threadsWS gin.HandlerFunc,
 	agentChats chathandlers.ChatUsecase,
 	agentTurns chathandlers.TurnUsecase,
 	agentRunners chathandlers.RunnerUsecase,
 	agentAnswers chathandlers.AnswerUsecase,
 	agentProviders chathandlers.ProviderUsecase,
 	agentFolders chathandlers.ChatTreeUsecase,
-	agentBroadcastFolder func(folderID, workspaceID, kind string),
-	// agentWorktrees/agentNodes give the home chat list the same worktree
-	// enrichment a repo's has: the home workspace rides no repo and has no
-	// git surface, but its OWNER row still has to say it owns the home
-	// worktree, or the client cannot tell it from an ordinary home chat.
+	// agentWorktrees/agentNodes let the home chat list mark its owner row, or the
+	// client could not tell it from an ordinary home chat.
 	agentWorktrees chathandlers.Worktrees,
 	agentNodes chathandlers.Nodes,
-	agentWS gin.HandlerFunc,
-	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	// agentChats already satisfies homehandlers.ChatResolver (ListChatsByWorkspace) —
-	// no new dependency to thread through Register, only to wire in here.
 	ah := chathandlers.New(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
-		agentFolders, agentBroadcastFolder,
+		agentFolders,
 	).WithWorktrees(agentWorktrees).WithNodes(agentNodes)
-	// GET /home resolves its owner through the SAME OwnerOf the home chat list
-	// does.
+	// agentChats doubles as the ChatResolver; GET /home resolves its owner through
+	// the same OwnerOf the home chat list uses.
 	h := homehandlers.New(workspaces, files, working).
 		WithChats(agentChats).WithOwners(ah)
 	th := threadhandlers.New(threadStore, threadBroadcast)
@@ -72,23 +48,13 @@ func Register(
 	home.GET("", h.Get)
 
 	home.GET("/files/tree", h.FileTree)
-	home.GET("/files/content", h.FileContent)
-	home.PUT("/files/content", h.SaveFileContent)
 	home.POST("/files", h.CreateFile)
 	home.POST("/files/copy", h.CopyFile)
 	home.PATCH("/files", h.RenameFile)
 	home.DELETE("/files", h.DeleteFile)
-	// Live file-change stream for the home workspace, mirroring the workspace-
-	// scoped .../files/ws leaf. RequireHomeWorkspace injects :wsId so the files
-	// broadcaster's wsId filter and the watcher lifecycle scope to the home
-	// workspace (rooted at the project path).
-	home.GET("/files/ws", h.RequireHomeWorkspace, filesWS)
 
-	// Review threads are a home capability. The list route is dual-served (a
-	// plain GET lists threads; a WebSocket upgrade subscribes the thread topic);
-	// the rest are REST mutations. Every route resolves the home workspace via
-	// RequireHomeWorkspace.
-	home.GET("/threads", h.RequireHomeWorkspace, dispatch(th.List, threadsWS))
+	// Review threads' live changes ride the home workspace's ws: scope.
+	home.GET("/threads", h.RequireHomeWorkspace, th.List)
 	home.POST("/threads", h.RequireHomeWorkspace, th.OpenThread)
 	home.GET("/threads/:threadId", h.RequireHomeWorkspace, th.Detail)
 	home.PATCH("/threads/:threadId", h.RequireHomeWorkspace, th.SetResolved)
@@ -97,89 +63,58 @@ func Register(
 	home.PATCH("/threads/:threadId/messages/:messageId", h.RequireHomeWorkspace, th.EditMessage)
 	home.DELETE("/threads/:threadId/messages/:messageId", h.RequireHomeWorkspace, th.DeleteMessage)
 
-	// Terminals are served by the ONE terminal handler set the chat-scoped group uses
-	// (same list DTO, same PTY WebSocket). RequireHomeTerminalScope makes the home
-	// workspace the sessions' owner and their starting directory.
-	terms := termhandlers.New(termEng, nil, nil)
+	// Terminals reuse the chat-scoped terminal handlers; RequireHomeTerminalScope
+	// makes the home workspace the sessions' owner and starting directory.
+	terms := termhandlers.New(termEng, nil)
 	home.GET("/terminals", h.RequireHomeTerminalScope, terms.ListSessions)
 	home.POST("/terminals", h.RequireHomeTerminalScope, terms.CreateSession)
 	home.DELETE("/terminals/:sessionId", h.RequireHomeTerminalScope, terms.KillSession)
 	home.GET("/terminals/:sessionId/ws", terms.WS)
 
-	registerAgent(home, h, ah, agentWS)
+	registerAgent(home, h, ah)
 }
 
-// registerAgent mounts the agent surface under /home.
-//
-// It is a function of its own for the reason its comment gives: it is a SECOND
-// copy of the workspace group's table, kept in step by
-// TestHomeMountsEveryAgentRoute, and a table long enough to need scrolling past
-// is one people stop reading. Register stays a list of capabilities; this is one
-// of them.
+// registerAgent mounts the agent surface under /home. It duplicates the
+// workspace group's chat table; TestHomeMountsEveryAgentRoute keeps them in step.
 func registerAgent(
 	home *gin.RouterGroup,
 	h *homehandlers.Handlers,
 	ah *chathandlers.Handlers,
-	agentWS gin.HandlerFunc,
 ) {
-	// Agentic chats are a home capability too (00 agentic-engine spec: chats must
-	// work for EVERY workspace kind, project-home included). The workspace-scoped
-	// surface (agent.Register) mounts the SAME agent handler set under
-	// .../workspaces/:wsId; here it is re-mounted under the home group with no
-	// :wsId path segment, so RequireHomeWorkspace resolves the project's home
-	// workspace and injects :wsId before each handler — and before the lifecycle
-	// WS (agentWS), whose agentChatDef filter keys on that injected :wsId so a
-	// home client sees exactly the home workspace's chats. This also makes the
-	// in-PTY CLI callbacks (crowbar hook/handoff) and the agent's own MCP relay
-	// reachable for a project-home workspace, whose repo-less scope resolves to
-	// this /home/agent mount (see cmd/crowbar/scope.go's home branch).
+	// Chats must work for every workspace kind. Mounting them here also makes the
+	// CLI's hooks, handoff callback and MCP relay reachable for a repo-less home scope.
 	home.POST("/chats", h.RequireHomeWorkspace, ah.Create)
 	home.GET("/chats", h.RequireHomeWorkspace, ah.List)
 	home.GET("/chats/:id", h.RequireHomeWorkspace, ah.Get)
-	home.GET("/chats/:id/messages", h.RequireHomeWorkspace, ah.Messages)
 	home.POST("/chats/:id/prompts", h.RequireHomeWorkspace, ah.SubmitPrompt)
-	home.GET("/chats/:id/activity", h.RequireHomeWorkspace, ah.Activity)
-	home.GET("/chats/:id/activity/:toolId/payload", h.RequireHomeWorkspace, ah.ToolPayload)
 	home.POST("/chats/:id/attachments", h.RequireHomeWorkspace, ah.UploadAttachment)
 	home.GET("/chats/:id/attachments/:file", h.RequireHomeWorkspace, ah.Attachment)
 	home.HEAD("/chats/:id/attachments/:file", h.RequireHomeWorkspace, ah.Attachment)
-	home.GET("/chats/:id/choices", h.RequireHomeWorkspace, ah.Choices)
 	home.POST("/chats/:id/choices/:choiceId/answer", h.RequireHomeWorkspace, ah.AnswerChoice)
 	home.POST("/chats/:id/terminal-wait/answer", h.RequireHomeWorkspace, ah.AnswerTerminalWait)
 	home.PUT("/chats/:id/permission-level", h.RequireHomeWorkspace, ah.SetChatPermissionLevel)
 	home.GET("/chats/:id/telemetry", h.RequireHomeWorkspace, ah.Telemetry)
 	home.GET("/chats/:id/slash-catalog", h.RequireHomeWorkspace, ah.SlashCatalog)
-	home.GET("/chats/:id/pending-prompt", h.RequireHomeWorkspace, ah.PendingPrompt)
 	home.POST("/chats/:id/switch", h.RequireHomeWorkspace, ah.Switch)
 	home.POST("/chats/:id/resume", h.RequireHomeWorkspace, ah.Resume)
 	home.POST("/chats/:id/compact", h.RequireHomeWorkspace, ah.Compact)
 	home.POST("/chats/:id/stop", h.RequireHomeWorkspace, ah.Stop)
-	home.POST("/chats/:id/kill", h.RequireHomeWorkspace, ah.Kill)
+	home.POST("/chats/:id/prompts/:requestId/retract", h.RequireHomeWorkspace, ah.Retract)
 	home.POST("/chats/:id/switch-to-terminal", h.RequireHomeWorkspace, ah.SwitchToTerminal)
 	home.POST("/chats/:id/switch-to-native", h.RequireHomeWorkspace, ah.SwitchToNative)
 	home.POST("/chats/:id/rename", h.RequireHomeWorkspace, ah.Rename)
 	home.PATCH("/chats/:id/selection", h.RequireHomeWorkspace, ah.SetSelection)
 	home.GET("/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
 	home.PATCH("/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
-	home.POST("/chats/:id/promote", h.RequireHomeWorkspace, ah.Promote)
+	home.POST("/chats/:id/move/cancel", h.RequireHomeWorkspace, ah.CancelMove)
+	home.POST("/chats/:id/branch-out", h.RequireHomeWorkspace, ah.BranchOut)
 	home.DELETE("/chats/:id", h.RequireHomeWorkspace, ah.Delete)
-	// Chat FOLDERS, mounted here for the reason the chats above are: the project
-	// home is the surface that accumulates the most chats, so it is the one that
-	// most needs somewhere to put them. Mounting them only on the workspace group
-	// would have left the home with a Chats panel that cannot be organised at all.
+	// Chat folders: the project home accumulates the most chats, so it most needs them.
 	home.GET("/chats/folders", h.RequireHomeWorkspace, ah.ListFolders)
 	home.POST("/chats/folders", h.RequireHomeWorkspace, ah.CreateFolder)
 	home.PATCH("/chats/folders/:folderId", h.RequireHomeWorkspace, ah.PatchFolder)
 	home.DELETE("/chats/folders/:folderId", h.RequireHomeWorkspace, ah.DeleteFolder)
 	home.POST("/chats/runners/:segid/mcp", h.RequireHomeWorkspace, ah.MCP)
 	home.POST("/chats/runners/:segid/hooks/:provider/:event", h.RequireHomeWorkspace, ah.HTTPHook)
-	home.POST("/chats/hooks", h.RequireHomeWorkspace, ah.Hooks)
-	// The answer channel's relay half. It mounts here for exactly the reason the
-	// hook ingress above does: a project-home workspace's repo-less scope resolves
-	// to this /home/agent mount, so a CLI running there reaches these leaves and no
-	// others (see cmd/crowbar/scope.go).
-	home.POST("/chats/hooks/await", h.RequireHomeWorkspace, ah.AwaitHookAnswer)
-	home.POST("/chats/hooks/abandon", h.RequireHomeWorkspace, ah.AbandonHookAnswer)
 	home.GET("/chats/providers", h.RequireHomeWorkspace, ah.Providers)
-	home.GET("/chats/ws", h.RequireHomeWorkspace, agentWS)
 }

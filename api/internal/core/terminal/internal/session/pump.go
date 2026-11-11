@@ -15,18 +15,20 @@ import (
 
 // foregroundSampleInterval debounces the per-chunk foreground-process-group sample so
 // the TIOCGPGRP ioctl (and the app-death-edge model teardown) stays off the hot path
-// while still converging within ~¼ s of an app exiting (§11.1 sampling site #1).
+// while still converging within ~¼ s of an app exiting.
 const foregroundSampleInterval = 250 * time.Millisecond
 
-// minEmitInterval is the model-driven frame clock (spec §3.3): interactive
+// minEmitInterval is the model-driven frame clock: interactive
 // deltas emit immediately; bursts coalesce to at most one frame per interval.
 const minEmitInterval = 8 * time.Millisecond
 
-// pumpStep is the production critical section for one PTY output chunk. Under s.mu it
-// writes the chunk into the model, lets the frame clock emit the model-derived frame, and
-// then — last, debounced — samples the foreground process group so neither the ioctl nor
-// the app-death teardown can ever precede or delay the emit. OSC 7 is scanned outside the
-// lock on the freshly-owned chunk.
+// resizeSettle is how long a resize waits for the next one before its keyframe goes out.
+// It spans three dropped frames of a 60 Hz window drag, while a reloaded client that
+// re-attached at the old width is stale for only this long.
+const resizeSettle = 50 * time.Millisecond
+
+// pumpStep is the critical section for one PTY chunk: model write, frame emit, then (last, debounced)
+// the foreground sample, so neither can delay the emit. OSC 7 is scanned outside the lock.
 func (s *Session) pumpStep(chunk []byte) {
 	path, ok := parseLastOSC7(chunk)
 	s.mu.Lock()
@@ -34,7 +36,7 @@ func (s *Session) pumpStep(chunk []byte) {
 	if ok {
 		s.cwd = path
 	}
-	// Model-driven (spec §3.1): the model is written FIRST and clients receive the
+	// Model-driven: the model is written FIRST and clients receive the
 	// model-derived frame the frame clock schedules for it.
 	s.writeModelLocked(chunk)
 	s.scheduleEmitLocked()
@@ -46,16 +48,9 @@ func (s *Session) pumpStep(chunk []byte) {
 	s.notifyPumpLocked()
 }
 
-// notifyPumpLocked publishes "the pump has fully processed another chunk" on the
-// pumpNotify seam. It runs LAST in pumpStep's critical section, so a woken waiter is
-// guaranteed to observe every effect of that chunk — the model write, the emit, and
-// s.dirty — as soon as it can re-acquire s.mu.
-//
-// The send is non-blocking onto a 1-buffered channel, making the signal a coalescing
-// edge ("something happened since you last looked") rather than a queue: the pump can
-// never block on, or be paced by, whether anyone is listening, so production behaviour
-// with no listener is byte-for-byte what it was before the seam existed. Caller holds
-// s.mu.
+// notifyPumpLocked signals pumpNotify last in pumpStep, so a waiter sees every effect of the chunk. The
+// send is non-blocking onto a 1-buffered channel: a coalescing edge the pump is never paced by.
+// Caller holds s.mu.
 func (s *Session) notifyPumpLocked() {
 	select {
 	case s.pumpNotify <- struct{}{}:
@@ -63,12 +58,8 @@ func (s *Session) notifyPumpLocked() {
 	}
 }
 
-// resetModelLocked is the §8.5 backstops' recovery. A model method escaped a panic, so
-// the model's state can no longer be trusted: rebuild a fresh model at the PTY's current
-// size (answering device queries through the same sink) and invalidate the diff base, so
-// the next frame every client gets is a keyframe of the new ground state rather than a
-// diff off a corrupt one. The screen restarts blank; the session keeps running. Caller
-// holds s.mu.
+// resetModelLocked rebuilds the model after a method escaped a panic and invalidates the diff base, so
+// clients get a keyframe of the new blank state rather than a diff off a corrupt one. Caller holds s.mu.
 func (s *Session) resetModelLocked() {
 	s.modelPanics++
 	old := s.model
@@ -82,37 +73,45 @@ func (s *Session) resetModelLocked() {
 	s.screenGen++
 	if old != nil {
 		func() {
-			defer func() { _ = recover() }()
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Warn("terminal: closing the corrupt screen model panicked", "component", "terminal", "session", s.id, "panic", r)
+				}
+			}()
 			old.Close()
 		}()
 	}
 	slog.Error("terminal: model panic recovered; screen model rebuilt", "component", "terminal", "session", s.id)
 }
 
-// scheduleEmitLocked implements the adaptive frame clock (spec §3.3, Task 7):
-// when at least minEmitInterval has elapsed since the last emit, it emits
-// immediately (so interactive echo is never batched); otherwise it arms — or
-// leaves armed — a single trailing timer that fires exactly at the interval
-// boundary, coalescing an arbitrarily long burst of chunks into one frame per
-// interval. Caller holds s.mu. Returns whether it emitted synchronously
-// (false means a trailing timer now owns the pending delta).
-func (s *Session) scheduleEmitLocked() bool {
+// scheduleEmitLocked is the adaptive frame clock: emit at once when minEmitInterval has passed (echo is
+// never batched), else arm one trailing timer at the boundary so a burst coalesces. Caller holds s.mu.
+func (s *Session) scheduleEmitLocked() {
+	if s.emitTimer != nil {
+		return // trailing emit already armed
+	}
 	if s.now().Sub(s.lastEmitAt) >= minEmitInterval {
 		s.lastEmitAt = s.now()
 		s.emitFrameLocked()
-		return true
+		return
 	}
-	if s.emitTimer != nil {
-		return false // trailing emit already armed
-	}
-	delay := minEmitInterval - s.now().Sub(s.lastEmitAt)
-	// Capture the timer's own identity so a stale, lock-blocked callback can
-	// only clear ITS OWN handle: if an explicit stop (stopEmitTimerLocked) had
-	// already nil'd s.emitTimer and a NEWER timer t2 was armed before this
-	// callback got the lock, comparing against the captured local t (rather
-	// than unconditionally nil-ing s.emitTimer) leaves t2's handle intact —
-	// t2 still fires safely either way, but this keeps stopEmitTimerLocked
-	// able to cancel it during the gap instead of losing track of it.
+	s.armEmitTimerLocked(minEmitInterval - s.now().Sub(s.lastEmitAt))
+}
+
+// settleEmitLocked (re)arms the trailing emit resizeSettle from now, so a burst of resizes
+// sends one keyframe after the last of them. Caller holds s.mu.
+func (s *Session) settleEmitLocked() {
+	s.stopEmitTimerLocked()
+	s.armEmitTimerLocked(resizeSettle)
+}
+
+// armEmitTimerLocked arms the single trailing emit timer to fire after delay. Caller holds s.mu
+// and has checked that no timer is armed.
+func (s *Session) armEmitTimerLocked(
+	delay time.Duration,
+) {
+	// Capture the timer's identity so a stale, lock-blocked callback clears only ITS OWN handle, never a
+	// newer timer that stopEmitTimerLocked must still be able to cancel.
 	var t *time.Timer
 	t = time.AfterFunc(delay, func() {
 		s.mu.Lock()
@@ -126,26 +125,15 @@ func (s *Session) scheduleEmitLocked() bool {
 		default:
 		}
 		s.lastEmitAt = s.now()
-		// emitFrameLocked → emitLocked → DiffEmitter.Emit is safe to invoke
-		// even if a newer immediate emit already flushed this same delta: Emit
-		// is idempotent against its own primed base (an empty diff yields no
-		// frame), so a harmless double-emit race here never double-delivers
-		// visible output to clients.
+		// Safe even if an immediate emit already flushed this delta: Emit is idempotent against its primed base.
 		s.emitFrameLocked()
 	})
-	// Assign under the already-held s.mu (not inside the callback closure)
-	// so the field update happens-before any concurrent read of s.emitTimer
-	// under the lock; the callback only ever fires after AfterFunc returns
-	// with delay > 0, but this ordering removes any reliance on that timing.
+	// Assigned under s.mu, not in the callback, so the write happens-before any locked read of emitTimer.
 	s.emitTimer = t
-	return false
 }
 
-// stopEmitTimerLocked cancels an armed trailing emit timer, if any, without
-// running the emit it would otherwise have performed. Used at lifecycle
-// boundaries (teardown) that either perform their own equivalent
-// emit or no longer need one, so a stale timer can never fire a redundant or
-// out-of-order frame afterward. Caller holds s.mu.
+// stopEmitTimerLocked cancels an armed trailing emit without running it, at teardown, so a stale timer
+// never fires an out-of-order frame. Caller holds s.mu.
 func (s *Session) stopEmitTimerLocked() {
 	if s.emitTimer != nil {
 		s.emitTimer.Stop()
@@ -153,14 +141,8 @@ func (s *Session) stopEmitTimerLocked() {
 	}
 }
 
-// flushPendingEmitLocked cancels an armed trailing emit timer and, only if
-// one was armed (i.e. a delta is genuinely waiting), runs the emit
-// immediately in its place. Used at boundaries — Attach's flush-then-serialize
-// is the current caller — where client-visible state is about to be read or
-// rebased and a delta accumulated under the trailing timer must reach
-// existing clients first, rather than being silently superseded. A no-op
-// when no timer is armed (the last emit was already synchronous). Caller
-// holds s.mu.
+// flushPendingEmitLocked runs an armed trailing emit immediately, so a pending delta reaches clients
+// before Attach rebases their state; a no-op when none is armed. Caller holds s.mu.
 func (s *Session) flushPendingEmitLocked() {
 	if s.emitTimer == nil {
 		return
@@ -170,13 +152,8 @@ func (s *Session) flushPendingEmitLocked() {
 	s.emitFrameLocked()
 }
 
-// emitFrameLocked derives one frame from the model and fans it out: a diff
-// frame normally, a snapshot keyframe when the emitter demands one (see
-// model.DiffEmitter.Emit for the canonical, exhaustive keyframe-trigger list).
-// Caller holds s.mu. Reached either synchronously from
-// scheduleEmitLocked/flushPendingEmitLocked or directly by Attach's own
-// forced keyframes, which always reflect the full current model state regardless
-// of the frame clock.
+// emitFrameLocked derives one frame from the model and fans it out: a diff, or a keyframe when the
+// emitter demands one (see model.DiffEmitter.Emit). Caller holds s.mu.
 func (s *Session) emitFrameLocked() {
 	data, needKeyframe := s.emitLocked()
 	if needKeyframe {
@@ -193,7 +170,7 @@ func (s *Session) emitFrameLocked() {
 	}
 }
 
-// emitLocked / primeLocked wrap the emitter in the same §8.5 recover backstop as every
+// emitLocked / primeLocked wrap the emitter in the same recover backstop as every
 // other model access. A panic rebuilds the model; emitLocked then asks for a keyframe of it.
 func (s *Session) emitLocked() (data []byte, needKeyframe bool) {
 	defer func() {
@@ -214,10 +191,8 @@ func (s *Session) primeLocked() {
 	s.emitter.Prime(s.model)
 }
 
-// writeModelLocked feeds a chunk into the model under a recover backstop. In production
-// this is defence-in-depth: vtModel.Write recovers its own parse panics internally
-// (recreateEmu). Should a Write ever escape one, the model is rebuilt rather than
-// stranding s.mu or killing the session (§8.2). Caller holds s.mu.
+// writeModelLocked feeds a chunk to the model under a recover backstop: should a panic escape
+// vtModel.Write's own recovery, the model is rebuilt rather than stranding s.mu. Caller holds s.mu.
 func (s *Session) writeModelLocked(chunk []byte) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -232,7 +207,7 @@ func (s *Session) writeModelLocked(chunk []byte) {
 
 // serializeLocked renders the model's ground-state redraw. A Serialize that panics gets
 // the model rebuilt and the (blank) fresh model serialized instead, so a caller always
-// has a truthful keyframe to send (§8.5). Caller holds s.mu.
+// has a truthful keyframe to send. Caller holds s.mu.
 func (s *Session) serializeLocked() []byte {
 	if redraw, ok := s.trySerializeLocked(); ok {
 		return redraw
@@ -253,7 +228,7 @@ func (s *Session) trySerializeLocked() (redraw []byte, ok bool) {
 
 // mutateModelLocked runs a void model mutation under the same recover backstop as the
 // Write/Serialize paths, so a Resize-drain or teardown panic rebuilds the model instead of
-// escaping (§8.5). Caller holds s.mu.
+// escaping. Caller holds s.mu.
 func (s *Session) mutateModelLocked(fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -261,10 +236,8 @@ func (s *Session) mutateModelLocked(fn func()) {
 		}
 	}()
 	fn()
-	// Every caller here reshapes or clears the visible grid (Resize, the
-	// foreground-app teardown), so the screen an observer last read is stale even
-	// though no byte arrived from the PTY. Bumped AFTER fn so a panicking mutation
-	// — which the recover above swallows — does not claim a change it never made.
+	// Every caller reshapes or clears the grid, so the screen changed with no PTY byte; bumped after fn so a
+	// swallowed panic claims no change.
 	s.screenGen++
 }
 
@@ -332,12 +305,8 @@ func (s *Session) fanOutFrameLocked(
 	}
 }
 
-// parseLastOSC7 scans b for OSC 7 sequences of the form
-//
-//	ESC ] 7 ; file://[host]/path BEL
-//
-// and returns the decoded path from the last match found. Best-effort: partial sequences
-// that span chunk boundaries are silently ignored.
+// parseLastOSC7 returns the decoded path of the last `ESC ] 7 ; file://[host]/path BEL` in b.
+// Best-effort: sequences split across chunks are ignored.
 func parseLastOSC7(b []byte) (string, bool) {
 	prefix := []byte("\x1b]7;")
 	last := ""

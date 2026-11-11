@@ -1,4 +1,4 @@
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 import { browserApi, type BrowserRect } from '@/lib/browser-bridge'
 import { useSettingsStore } from '@/features/settings/store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -21,6 +21,6 @@ export function ensureWebview(
   const zoom = useSettingsStore.getState().settings.browserZoom / 100
   const created = browserApi.open(bufferId, buffer.url, rect, zoom, parked)
   registerWebview(bufferId, created)
-  bestEffort(created, 'open browser webview')
+  void created.catch((err: unknown) => report(err, { action: 'Open the page' }))
   return created
 }

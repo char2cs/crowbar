@@ -1,6 +1,3 @@
-// This file holds the asynx-backed AgentChat repository (EventStore) — the sole
-// AgentChat repository since the Task 10 cutover retired the bespoke gorm-backed
-// Store/gormStore/New. The agent usecase sends every mutation through it.
 package chat
 
 import (
@@ -11,44 +8,15 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	gormdb "gorm.io/gorm"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/store"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// maxOCCAttempts bounds optimistic-concurrency retries on ErrPipelineFailed:
-// with no per-aggregate writeMu, concurrent Sends to one chat aggregate can
-// version-collide, so the losers retry — Send re-reads the current version
-// each attempt, so a retry converges. ErrValidation is NEVER retried;
-// ErrQueueFull is surfaced as apperr.ErrUnavailable. Mirrors reviewthread's OCC
-// contract (spec decision 10).
-const maxOCCAttempts = 8
-
-// WatchFunc and ChatEvent are aliases for the store-layer watch seam, exposed so
-// callers wire it without importing the internal store package directly.
-//
-// The repository ANNOUNCES what happened; it does not decide what the frontend is
-// told. That decision lives in usecases/chat/internal/fanout.
-type (
-	WatchFunc = store.WatchFunc
-	ChatEvent = store.ChatEvent
-	Option    = store.Option
-)
-
-// WithPlacementWatch is told, once the read model holds it, of every chat whose
-// parent, workspace or type changed, or that was deleted.
-func WithPlacementWatch(watch func(chatID string)) Option {
-	return store.WithPlacementWatch(watch)
-}
-
-// CreateInput seeds a new AgentChat: identity, kind, workspace, clock, and the
-// two durable CHOICES a chat is born with — its landing view and its vendor. It
-// still carries no segment and no terminal, because the chat does not own the
-// CLI talking to it — that is the runner (runner.Start), a separate aggregate,
-// and ProviderID no more starts one than Surface does.
+// CreateInput seeds a new AgentChat: identity, kind, workspace, clock, landing
+// view and vendor. It carries no process state: the CLI talking to the chat is
+// the runner aggregate's, and ProviderID does not start one.
 type CreateInput struct {
 	ID          string
 	WorkspaceID string
@@ -63,81 +31,15 @@ type CreateInput struct {
 	Now        time.Time
 }
 
-// EventStore is the asynx-backed AgentChat aggregate repository: mutations
-// dispatch the command layer with optimistic-concurrency retry (sendWithOCC),
-// reads delegate to the store package's read-model projection. It is the sole
-// AgentChat repository — the agent usecase sends every mutation through it.
-//
-// There is no OpenSegment/EndSegment/BindSession any more, and their absence is
-// the point: a process moving between chats used to be an EndSegment on the chat
-// it left plus an OpenSegment on the chat it entered — two writes across two
-// aggregates with no transaction, which tore in half and bricked a chat. The
-// runner aggregate now owns that move as ONE write, and the chat is never written
-// to when a CLI leaves it.
+// EventStore is the asynx-backed AgentChat repository: mutations dispatch the
+// command layer (asynx serializes each aggregate's commands) and reads use the
+// read-model projection. The chat holds no process fact; that is the runner's.
 type EventStore interface {
-	// Create mints a chat. It is the ONE agentchat command that blocks until its
-	// projections have folded (SendWait, not Send): the very next thing that
-	// happens after a chat is minted is a hook writing into it (a /clear mints a
-	// chat and the CLI's first prompt lands milliseconds later), and that hook path
-	// reads the chat's existence from the read model before it appends. A Send
-	// would let the read model lag behind the mint and the turn would be dropped
-	// as "no such chat". No other command needs this: every other write validates
-	// against the EVENT LOG (which is synchronous), not the read model.
+	// Create mints a chat and blocks until its projections fold (SendWait): the
+	// first hook of the CLI spawned onto it reads the chat from the read model.
 	Create(
 		ctx context.Context,
 		in CreateInput,
-	) (domain.Chat, error)
-	StartTurn(
-		ctx context.Context,
-		chatID string,
-		now time.Time,
-	) (domain.Chat, error)
-	// StopTurn closes the turn, recording the level of async work the CLI reported
-	// still OUTSTANDING as it went quiet (asyncWork — see domain.Chat.AsyncWork).
-	// It does NOT assert that work is over: a chat whose CLI ended its turn to wait on
-	// a background task keeps Working through the wait. Pass 0 for a provider that
-	// reports no such level, which folds Working back to the turn alone.
-	StopTurn(
-		ctx context.Context,
-		chatID string,
-		now time.Time,
-		asyncWork int,
-	) (domain.Chat, error)
-	// RestateAsyncWork records Crowbar's OWN recount of the open work it is tracking,
-	// for a provider that reports no such level itself. codex ends its top-level turn
-	// the moment it delegates, so when the last tool call or subagent in the activity
-	// ledger closes, this is the only thing that ever darkens the spinner.
-	//
-	// Like AbandonTurn it may be called UNCONDITIONALLY, and for the same reason: its
-	// two preconditions — that no turn is currently open, and that the level actually
-	// changed — are decided by the command against the authoritative fold, never out
-	// here against the read model the asynchronous projection lags. ErrValidation from
-	// this call is the ordinary no-op answer, not a failure.
-	RestateAsyncWork(
-		ctx context.Context,
-		chatID string,
-		now time.Time,
-		asyncWork int,
-	) (domain.Chat, error)
-	// AbandonTurn closes the turn AND zeroes the async-work level. It is the reconcile
-	// door — a dead CLI, a displaced runner — and nothing but a reconcile may call it:
-	// it is precisely what an ordinary StopTurn must not do.
-	//
-	// It is what keeps a killed CLI from stranding the spinner forever. The level is
-	// only ever restated by the CLI's own next turn_stop, so a CLI that dies with work
-	// outstanding leaves its last report standing with nobody left to correct it — and
-	// in an event-sourced aggregate that outlives the restart too.
-	//
-	// It may be called UNCONDITIONALLY, and that is the point: a chat with nothing to
-	// close is refused by the command with ErrValidation and no event is written, so
-	// callers must not pre-check Working themselves. Deciding it out here would mean
-	// deciding it on the read model, which lags the event log the command validates
-	// against — the exact race that left a switched-away chat spinning forever.
-	// ErrValidation from this call is ordinary: nothing to close, or no such chat.
-	AbandonTurn(
-		ctx context.Context,
-		chatID string,
-		now time.Time,
 	) (domain.Chat, error)
 	SetTitle(
 		ctx context.Context,
@@ -145,164 +47,95 @@ type EventStore interface {
 		title string,
 		source string,
 	) (domain.Chat, error)
-	// SetSelection writes the chat's sticky model and reasoning-effort choice —
-	// durable config beside the title, and the answer to "what should the next
-	// message run as", never a claim about what any live process is running.
-	//
-	// It is on the ordinary async Send path, and it can be: the prompt path that
-	// decides whether the selection changed reads it through LoadChat, which folds
-	// the EVENT LOG. A user who picks a model and immediately sends a message
-	// therefore cannot race the projection into delivering that message under the
-	// model they just changed away from — the read that decides never consults the
-	// read model at all.
+	// SetSelection writes the sticky model and effort the next message runs as,
+	// never a claim about a live process. Async Send is safe: the prompt path reads
+	// the selection via LoadChat (the event log), so it cannot race the projection.
 	SetSelection(
 		ctx context.Context,
 		chatID string,
 		model string,
 		effort string,
 	) (domain.Chat, error)
-	// SetPermissionLevel writes an EXPLICIT per-chat guarded/trusted/full-auto
-	// pick — the same durable, next-spawn-reads-it fact SetSelection writes
-	// for Model/Effort, on the same ordinary async Send path for the same
-	// reason: the prompt path's restart decision reads it through LoadChat,
-	// never the read model. Marks the chat PermissionLevelExplicit, so it
-	// keeps winning over the global default from here on — see
-	// SeedPermissionLevel for the non-explicit counterpart.
+	// SetPermissionLevel writes an explicit per-chat permission level and marks
+	// PermissionLevelExplicit, so the pick wins over the global default;
+	// SeedPermissionLevel is the inherited counterpart.
 	SetPermissionLevel(
 		ctx context.Context,
 		chatID string,
 		level string,
 	) (domain.Chat, error)
-	// SetSurface moves the chat to the VIEW the user is on now. Create seeds
-	// the same field, so this is what makes domain.Chat.Surface a CURRENT
-	// fact rather than a birth record — its only callers are the two moments
-	// Crowbar is actually told the user moved (SwitchToTerminal and
-	// SwitchToNative).
-	//
-	// On the SendWait path, like SetWorkspace: a move that relaunches the CLI
-	// spawns it next, reading the surface from the READ MODEL.
+	// SetSurface moves the chat to the view the user is on now, keeping
+	// domain.Chat.Surface current. It uses SendWait: a move that relaunches the CLI
+	// spawns it next, reading the surface from the read model.
 	SetSurface(
 		ctx context.Context,
 		chatID string,
 		surface string,
 	) (domain.Chat, error)
-	// SetProvider restates the VENDOR the chat runs as. Create seeds the same
-	// field, so this is what keeps domain.Chat.ProviderID a CURRENT fact
-	// rather than a birth record — its callers are the moments a CLI is
-	// actually placed on the chat (recordRunner, and the two hook-driven
-	// runner moves).
-	//
-	// It may be called UNCONDITIONALLY, like AbandonTurn above and for the
-	// same reason: "the provider did not change" is decided by the command
-	// against the authoritative fold, never out here against the read model
-	// the projection lags. ErrValidation from this call is therefore the
-	// ordinary no-op answer — every ordinary respawn produces one — not a
-	// failure.
+	// SetProvider restates the vendor the chat runs as, keeping ProviderID current.
+	// Call it unconditionally: the command decides "unchanged" against the event-log
+	// fold, so ErrValidation is the ordinary no-op answer, not a failure.
 	SetProvider(
 		ctx context.Context,
 		chatID string,
 		providerID string,
 	) (domain.Chat, error)
-	// SeedPermissionLevel writes the level a chat merely INHERITS from the
-	// global default — at mint, or re-seeding a legacy chat that predates
-	// this field entirely. It leaves PermissionLevelExplicit false, so
-	// ChatSelection keeps re-resolving the CURRENT global default for this
-	// chat on every future spawn rather than freezing at this value.
+	// SeedPermissionLevel writes the level a chat inherits from the global default.
+	// It leaves PermissionLevelExplicit false, so every spawn re-resolves the
+	// current default rather than freezing at this value.
 	SeedPermissionLevel(
 		ctx context.Context,
 		chatID string,
 		level string,
 	) (domain.Chat, error)
-	// SetPlacement writes where the chat sits in the Chats tree: the row it hangs
-	// off and its dense index within that sibling space.
-	//
-	// It is on the ordinary async Send path, and it has to be: a single drag
-	// renumbers a whole level, so one gesture is N of these, and blocking each on
-	// its projection would serialise the drag behind the read model. Nothing reads
-	// back through the read model to decide the next write — the caller planned the
-	// whole move from ONE snapshot before the first command went out — so there is
-	// no barrier to owe.
 	// LoadChat folds the chat directly from the EVENT LOG, so it is always
-	// current — the same source every command validates against.
-	//
-	// It exists beside GetChat because the two answer different questions and one
-	// of them is not safe for every caller. GetChat serves the read-model
-	// projection, which is asynchronous: SetPlacement is deliberately on the async
-	// Send path (see its doc), so a chat read back straight after a placement can
-	// still be serving the placement it had BEFORE. That is fine for rendering a
-	// list and fatal for a DECISION taken on it — a spawn resolving what a new
-	// thread inherits read ParentID as "" and injected nothing, so the thread's
-	// first session came up not knowing it was a thread. Anything deciding on a
-	// chat's placement must read it here.
-	//
-	// It mirrors workspace.Get and reviewthread.Get, which fold per-id reads from
-	// the log for exactly this reason (§3.7). Unlike those, this aggregate's list
-	// is hot enough (every hook resolves its chat) that the projected read is kept
-	// as the default rather than replaced.
+	// current, where GetChat serves the asynchronous read model: anything deciding
+	// on a chat (what a new thread inherits, a placement plan) reads it here.
 	LoadChat(
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
+	// SetPlacement writes where the chat sits in the Chats tree: the row it hangs
+	// off and its dense index there. Placement lives in the Tree aggregate; every
+	// chat this repository returns carries it.
 	SetPlacement(
 		ctx context.Context,
 		chatID string,
 		parentID string,
 		order int,
 	) (domain.Chat, error)
-	// SetOrder writes a chat's index within the sibling space it is already in
-	// and leaves its parent alone — the write a DENSIFY owes, as against a move.
-	//
-	// A drag renumbers a whole level and re-parents one row. Writing the rest of
-	// that level through SetPlacement made every renumber restate a parent the
-	// caller had read rather than decided, and the caller reads the asynchronous
-	// projection: a second drag landing inside the first one's projection window
-	// wrote a stale parent back and returned a just-filed thread to the panel
-	// root. The parent this preserves comes from the log fold the command
-	// validates against, so it is current rather than merely untouched.
+	// SetOrder writes a chat's index and keeps its parent as the Tree holds it: a
+	// densify renumbers a level and must never restate a parent it only read.
+	// A chat already gone is problem.ErrNotFound.
 	SetOrder(
 		ctx context.Context,
 		chatID string,
 		order int,
 	) (domain.Chat, error)
-	// SetWorkspace fills a chat's WorkspaceID slot — a bubble gaining worktree
-	// ownership, or a thread being promoted (Promote, usecases/chat).
-	//
-	// It is on the SAME SendWait path as Create, not the ordinary async Send
-	// path every other setter above uses: Promote's very next act after this
-	// write is a provider switch that resolves the respawn cwd from GetChat's
-	// READ MODEL, and a Send here would leave a live window where that read
-	// still serves the OLD (empty) WorkspaceID — spawning the incoming CLI into
-	// the wrong directory. See Create's own doc for the same reasoning.
+	// SetWorkspace fills a chat's WorkspaceID. It uses SendWait: the next launch
+	// resolves its cwd from the read model, and a lagging row would spawn the CLI
+	// in the wrong directory.
 	SetWorkspace(
 		ctx context.Context,
 		chatID string,
 		workspaceID string,
 	) (domain.Chat, error)
-	// SetType rewrites which KIND of row a chat is, leaving its id, placement,
-	// workspace and conversation untouched. It is how a row survives its
-	// workspace changing character — an ordinary worktree becoming a locked
-	// branch — without a second row being minted to claim the same workspace.
-	// See commands.SetType, which refuses a retype across the folder boundary.
-	//
-	// It is on the SendWait path, like Create above and for the same reason: a
-	// retype happens because the workspace JUST became locked, and the client
-	// that locked it re-reads the chat list off the READ MODEL as soon as the
-	// call returns — expecting the branch row the lock entitles it to. On the
-	// ordinary async Send path that read can still serve the pre-retype row, so
-	// the guarantee "a locked workspace has a branch row" would hold in the
-	// event log and not on the wire. Retypes are rare (a lock, not a keystroke),
-	// so the barrier costs nothing worth saving.
+	// RunIn points a chat at a workspace another row owns, SendWait for the same
+	// reason: the next launch resolves its folder from the read model.
+	RunIn(
+		ctx context.Context,
+		chatID string,
+		workspaceID string,
+	) (domain.Chat, error)
+	// SetType rewrites a chat's kind in place (chat or workflow), leaving its id,
+	// workspace and conversation untouched; it backfills rows minted untyped.
 	SetType(
 		ctx context.Context,
 		chatID string,
 		chatType domain.ChatType,
 	) (domain.Chat, error)
-	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
-	// OnForget drops the read-model row AND the underlying event log is
-	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
-	// found. Its one caller is the hard delete (agent.ChatUsecase.PurgeChat),
-	// reached both on user request and from the workspace-delete cascade.
-	// Mirrors reviewthread's DeleteThread.
+	// Forget purges the chat aggregate: OnForget drops the read-model row
+	// synchronously and the event log is erased, so later reads report not found.
 	Forget(
 		ctx context.Context,
 		id string,
@@ -311,6 +144,11 @@ type EventStore interface {
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
+	// GetChats is every chat of ids that exists, placed in one placement read.
+	GetChats(
+		ctx context.Context,
+		ids []string,
+	) ([]domain.Chat, error)
 	// Get is GetChat under the name the unified sidebar forest's tree usecase
 	// asks by: a row is a row, folder or chat, and that usecase reads by id
 	// alone.
@@ -328,100 +166,39 @@ type EventStore interface {
 }
 
 // eventSourced is the asynx-backed EventStore implementation. There is no
-// writeMu: per-aggregate safety comes from asynx shard routing plus
-// (id,version) optimistic concurrency and the sendWithOCC retry below.
+// writeMu: asynx serializes each aggregate's commands.
 type eventSourced struct {
-	ax    asynx.Asynx[domain.Chat]
-	store store.Store
+	ax         asynx.Asynx[domain.Chat]
+	store      store.Store
+	placements Placements
 }
 
-// NewEventSourced builds the asynx-backed AgentChat EventStore over ax (the
-// singleton axAgentChat), es (the same per-type event log ax wraps, retained
-// so the read model can self-heal via whole-model lazy Replay), and storeDB
-// (state/store/agent_chat.db). It delegates to store.New to register the
-// read-model and hub projections on ax, once, for the singleton.
+// NewEventSourced builds the repository over ax, which must have been built with
+// Subscriber(rm). es is the log ax wraps, kept for the lazy rebuild; placements
+// is where each chat's placement is kept; ctx's values reach the watch's reads.
 func NewEventSourced(
+	ctx context.Context,
 	ax asynx.Asynx[domain.Chat],
 	es asynxModels.Store,
-	storeDB *gormdb.DB,
+	rm *ReadModel,
 	watch WatchFunc,
-	opts ...Option,
+	placements Placements,
 ) (EventStore, error) {
-	st, err := store.New(storeDB, es, ax, watch, opts...)
+	r := &eventSourced{ax: ax, placements: placements}
+	st, err := store.New(rm, es, ax, r.placedWatch(ctx, watch))
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: store: %w", err)
 	}
-	return &eventSourced{ax: ax, store: st}, nil
+	r.store = st
+	return r, nil
 }
 
-// sendFunc issues one command attempt against the aggregate.
-type sendFunc func(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.Chat],
-) (asynxModels.Event[domain.Chat], error)
-
-// occSend runs send with OCC retry and the terminal error disposition
-// contract (mirrors reviewthread's occSend):
-//
-//   - success                → returned immediately.
-//   - ErrValidation          → surfaced immediately, NEVER retried (→ 422).
-//   - ErrQueueFull           → translated to apperr.ErrUnavailable (→ 503),
-//     NEVER retried: a full shard queue is backpressure, not a version race.
-//   - ErrPipelineFailed      → retried up to maxOCCAttempts; still failing
-//     after the retries is an unrecoverable optimistic-concurrency collision,
-//     surfaced as ErrPipelineFailed (→ 409).
-//   - any other error        → surfaced as-is.
-//
-// All classification is via errors.Is, never string compare.
-func occSend(
-	ctx context.Context,
-	send sendFunc,
-	cmd asynxModels.Command[domain.Chat],
-) (asynxModels.Event[domain.Chat], error) {
-	var lastErr error
-	for range maxOCCAttempts {
-		evt, err := send(ctx, cmd)
-		if err == nil {
-			return evt, nil
-		}
-		switch {
-		case errors.Is(err, asynxModels.ErrValidation):
-			return asynxModels.Event[domain.Chat]{}, err
-		case errors.Is(err, asynxModels.ErrQueueFull):
-			return asynxModels.Event[domain.Chat]{}, fmt.Errorf("agentchat: send: %w", apperr.ErrUnavailable)
-		case errors.Is(err, asynxModels.ErrPipelineFailed):
-			lastErr = err
-		default:
-			return asynxModels.Event[domain.Chat]{}, err
-		}
-	}
-	return asynxModels.Event[domain.Chat]{}, lastErr
-}
-
-// sendWithOCC dispatches cmd to the singleton axAgentChat with OCC retry.
-func (r *eventSourced) sendWithOCC(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.Chat],
-) (asynxModels.Event[domain.Chat], error) {
-	return occSend(ctx, r.ax.Send, cmd)
-}
-
-// Create is deliberately the ONLY command on the SendWait path: it returns once
-// the read model reflects the new chat, so the hook that lands microseconds later
-// (a /clear mints a chat and the CLI's next prompt arrives immediately) cannot see
-// "no such chat" and drop the turn. See the EventStore interface doc.
-//
-// The turn commands stay on the async Send path on purpose: StartTurn/StopTurn fire
-// on EVERY hook, and one of their projections (the workspace working overlay) can
-// run a `git merge-tree` subprocess under the per-clone git mutex on a transition —
-// blocking a hook on that is the exact contention shape behind this repo's history
-// of git-mutex hangs. They validate against the event log, which is synchronous, so
-// they need no read-model barrier anyway.
+// Create is on the SendWait path; see the EventStore interface doc.
 func (r *eventSourced) Create(
 	ctx context.Context,
 	in CreateInput,
 ) (domain.Chat, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.Create{
+	evt, err := r.ax.SendWait(ctx, commands.Create{
 		ID:          in.ID,
 		WorkspaceID: in.WorkspaceID,
 		RepoID:      in.RepoID,
@@ -433,59 +210,7 @@ func (r *eventSourced) Create(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: create: %w", err)
 	}
-	return evt.Aggregate, nil
-}
-
-func (r *eventSourced) StartTurn(
-	ctx context.Context,
-	chatID string,
-	now time.Time,
-) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.StartTurn{ChatID: chatID, Now: now})
-	if err != nil {
-		return domain.Chat{}, fmt.Errorf("agentchat: start turn: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (r *eventSourced) StopTurn(
-	ctx context.Context,
-	chatID string,
-	now time.Time,
-	asyncWork int,
-) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.StopTurn{ChatID: chatID, Now: now, AsyncWork: asyncWork})
-	if err != nil {
-		return domain.Chat{}, fmt.Errorf("agentchat: stop turn: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (r *eventSourced) RestateAsyncWork(
-	ctx context.Context,
-	chatID string,
-	now time.Time,
-	asyncWork int,
-) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.StopTurn{
-		ChatID: chatID, Now: now, AsyncWork: asyncWork, Restate: true,
-	})
-	if err != nil {
-		return domain.Chat{}, fmt.Errorf("agentchat: restate async work: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (r *eventSourced) AbandonTurn(
-	ctx context.Context,
-	chatID string,
-	now time.Time,
-) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.StopTurn{ChatID: chatID, Now: now, Abandoned: true})
-	if err != nil {
-		return domain.Chat{}, fmt.Errorf("agentchat: abandon turn: %w", err)
-	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetTitle(
@@ -494,11 +219,11 @@ func (r *eventSourced) SetTitle(
 	title string,
 	source string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetTitle{ChatID: chatID, Title: title, Source: source})
+	evt, err := r.ax.Send(ctx, commands.SetTitle{ChatID: chatID, Title: title, Source: source})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set title: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetSelection(
@@ -507,11 +232,11 @@ func (r *eventSourced) SetSelection(
 	model string,
 	effort string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetSelection{ChatID: chatID, Model: model, Effort: effort})
+	evt, err := r.ax.Send(ctx, commands.SetSelection{ChatID: chatID, Model: model, Effort: effort})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set selection: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetPermissionLevel(
@@ -519,11 +244,11 @@ func (r *eventSourced) SetPermissionLevel(
 	chatID string,
 	level string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: true})
+	evt, err := r.ax.SendWait(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: true})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set permission level: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetSurface(
@@ -531,11 +256,11 @@ func (r *eventSourced) SetSurface(
 	chatID string,
 	surface string,
 ) (domain.Chat, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.SetSurface{ChatID: chatID, Surface: surface})
+	evt, err := r.ax.SendWait(ctx, commands.SetSurface{ChatID: chatID, Surface: surface})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set surface: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SetProvider(
@@ -543,11 +268,11 @@ func (r *eventSourced) SetProvider(
 	chatID string,
 	providerID string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetProvider{ChatID: chatID, ProviderID: providerID})
+	evt, err := r.ax.SendWait(ctx, commands.SetProvider{ChatID: chatID, ProviderID: providerID})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set provider: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) SeedPermissionLevel(
@@ -555,11 +280,11 @@ func (r *eventSourced) SeedPermissionLevel(
 	chatID string,
 	level string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: false})
+	evt, err := r.ax.SendWait(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: false})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: seed permission level: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 func (r *eventSourced) LoadChat(
@@ -570,40 +295,7 @@ func (r *eventSourced) LoadChat(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: load chat: %w", mapNotFound(err))
 	}
-	return chat, nil
-}
-
-func (r *eventSourced) SetPlacement(
-	ctx context.Context,
-	chatID string,
-	parentID string,
-	order int,
-) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetPlacement{ID: chatID, ParentID: parentID, Order: order})
-	if err != nil {
-		return domain.Chat{}, fmt.Errorf("agentchat: set placement: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-// SetOrder reports a target that no longer exists as apperr.ErrNotFound rather
-// than the command's raw validation failure: a densify plans a whole level from
-// one snapshot, and a chat a concurrent delete purged out from under it needs
-// no order any more, which its caller can only tell apart from a genuine
-// validation bug (a negative order) via this sentinel.
-func (r *eventSourced) SetOrder(
-	ctx context.Context,
-	chatID string,
-	order int,
-) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetOrder{ID: chatID, Order: order})
-	if err != nil {
-		if errors.Is(err, commands.ErrNoSuchChat) {
-			return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", apperr.ErrNotFound)
-		}
-		return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", err)
-	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, chat)
 }
 
 // SetWorkspace is deliberately on the SendWait path — see the interface doc.
@@ -612,24 +304,39 @@ func (r *eventSourced) SetWorkspace(
 	chatID string,
 	workspaceID string,
 ) (domain.Chat, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID})
+	evt, err := r.ax.SendWait(ctx, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: %w", err)
 	}
-	return evt.Aggregate, nil
+	if err := r.placements.AdoptChat(ctx, chatID, workspaceID); err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: placement: %w", err)
+	}
+	return r.placed(ctx, evt.Aggregate)
 }
 
-// SetType is deliberately on the SendWait path — see the interface doc.
+// RunIn is SetWorkspace for a chat that shares the workspace it joins.
+func (r *eventSourced) RunIn(
+	ctx context.Context,
+	chatID string,
+	workspaceID string,
+) (domain.Chat, error) {
+	evt, err := r.ax.SendWait(ctx, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID, Shares: true})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: run in: %w", err)
+	}
+	return r.placed(ctx, evt.Aggregate)
+}
+
 func (r *eventSourced) SetType(
 	ctx context.Context,
 	chatID string,
 	chatType domain.ChatType,
 ) (domain.Chat, error) {
-	evt, err := occSend(ctx, r.ax.SendWait, commands.SetType{ID: chatID, Type: chatType})
+	evt, err := r.ax.SendWait(ctx, commands.SetType{ID: chatID, Type: chatType})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set type: %w", err)
 	}
-	return evt.Aggregate, nil
+	return r.placed(ctx, evt.Aggregate)
 }
 
 // Forget purges the chat aggregate via ax.Forget (hard delete), mirroring
@@ -640,6 +347,9 @@ func (r *eventSourced) Forget(
 ) error {
 	if err := r.ax.Forget(ctx, id); err != nil {
 		return fmt.Errorf("agentchat: forget: %w", err)
+	}
+	if err := r.placements.DropChat(ctx, id); err != nil {
+		return fmt.Errorf("agentchat: forget: placement: %w", err)
 	}
 	return nil
 }
@@ -652,7 +362,7 @@ func (r *eventSourced) GetChat(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: get chat: %w", mapNotFound(err))
 	}
-	return chat, nil
+	return r.placed(ctx, chat)
 }
 
 func (r *eventSourced) Get(
@@ -669,7 +379,7 @@ func (r *eventSourced) ListChats(
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: list chats: %w", err)
 	}
-	return rows, nil
+	return r.placedAll(ctx, rows)
 }
 
 func (r *eventSourced) ListByWorkspace(
@@ -680,14 +390,11 @@ func (r *eventSourced) ListByWorkspace(
 	if err != nil {
 		return nil, fmt.Errorf("agentchat: list by workspace: %w", err)
 	}
-	return rows, nil
+	return r.placedAll(ctx, rows)
 }
 
-// mapNotFound bridges the store package's local ErrNotFound sentinel (kept
-// local there to avoid an import cycle back into this package) AND the log-fold
-// sentinel asynx raises for an unknown aggregate to this package's own
-// ErrNotFound, so every EventStore caller sees one sentinel regardless of which
-// of the two read paths served the miss.
+// mapNotFound maps the read model's and the event-log fold's not-found sentinels
+// to ErrNotFound, so callers see one sentinel whichever path served the miss.
 func mapNotFound(
 	err error,
 ) error {

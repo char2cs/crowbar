@@ -36,7 +36,13 @@ func TestRegression_WaitForReviewCommentsReturnsAHumanComment(t *testing.T) {
 	}
 	done := make(chan reply, 1)
 	go func() {
-		resp, err := h.server.Client().Post(url, "application/json", bytes.NewReader(payload))
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, bytes.NewReader(payload))
+		if err != nil {
+			done <- reply{err: err}
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := h.server.Client().Do(req)
 		if err != nil {
 			done <- reply{err: err}
 			return

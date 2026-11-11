@@ -3,31 +3,98 @@ package internal_test
 import (
 	"context"
 	"io"
-	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
+	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
+	"github.com/char2cs/crowbar/api/internal/testutil"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
 func TestNew_BootsFullStack(t *testing.T) {
+	dir := t.TempDir()
 	c, err := internal.New(
 		context.Background(),
 		"tcp://127.0.0.1:0",
 		nil,
-		internal.WithHomeDir(t.TempDir()),
+		internal.WithHomeDir(dir),
 	)
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 	assert.NotNil(t, c)
+	assert.Equal(t, dir, c.Home())
+	assert.Nil(t, c.Halt())
+}
+
+// A callback is handed the address the daemon bound, so the daemon must say
+// which one that is: the socket of the home as given, even when it is not clean.
+func TestNew_ReportsTheSocketItBound(t *testing.T) {
+	t.Setenv(home.EnvVar, t.TempDir()+"/x/")
+	h, err := home.Resolve()
+	require.NoError(t, err)
+
+	c, err := internal.New(context.Background(), "unix://", nil)
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	assert.Equal(t, "unix://"+h.Socket(), c.Address())
+	assert.FileExists(t, h.Socket())
+	derived, err := transports.SocketPath("unix://")
+	require.NoError(t, err)
+	handed, err := transports.SocketPath(c.Address())
+	require.NoError(t, err)
+	assert.Equal(t, derived, handed, "a callback handed the address dials the socket it derived before")
+}
+
+// The daemon binds the socket of the home it holds: a home given in code wins
+// over CROWBAR_HOME for the socket, as it does for the data behind it.
+func TestNew_BindsTheSocketOfTheHomeItWasGiven(t *testing.T) {
+	t.Setenv(home.EnvVar, t.TempDir())
+	given := testutil.FixtureHome(t)
+
+	c, err := internal.New(context.Background(), "unix://", nil, internal.WithHomeDir(given.Root()))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	assert.Equal(t, "unix://"+given.Socket(), c.Address())
+	assert.FileExists(t, given.Socket())
+}
+
+func TestNew_ReportsItsBoundTCPAddress(t *testing.T) {
+	c, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	assert.Regexp(t, `^tcp://127\.0\.0\.1:[1-9][0-9]*$`, c.Address(), "the port it bound, not the one asked")
+}
+
+// An exposed bind, a wildcard included, serves TLS a callback cannot speak, so
+// the address a callback is handed is the home's socket bound beside it.
+func TestNew_AnExposedBindHandsCallbacksTheHomeSocket(t *testing.T) {
+	for _, host := range []string{"tcp://0.0.0.0:0", "tcp://[::]:0"} {
+		t.Run(host, func(t *testing.T) {
+			h := testutil.FixtureHome(t)
+			c, err := internal.New(context.Background(), host, nil, internal.WithHomeDir(h.Root()))
+			require.NoError(t, err)
+			t.Cleanup(c.Close)
+
+			assert.Equal(t, "unix://"+h.Socket(), c.Address())
+		})
+	}
 }
 
 func TestNew_InvalidHost_ReturnsError(t *testing.T) {
@@ -36,17 +103,302 @@ func TestNew_InvalidHost_ReturnsError(t *testing.T) {
 }
 
 func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))
+
 	_, err := internal.New(
 		context.Background(),
 		"tcp://127.0.0.1:0",
 		nil,
-		internal.WithHomeDir("/dev/null/no-such-subdir"),
+		internal.WithHomeDir(filepath.Join(file, "home")),
 	)
-	assert.Error(t, err)
+	assert.ErrorContains(t, err, "internal: migrate: migrate: create home")
+}
+
+// The daemon holds its home while it runs, so a second one is refused before
+// it opens a store, without keeping the socket it bound.
+func TestNew_RefusesASecondDaemonOnTheSameHome(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	_, err := boot(t.Context(), t, h)
+	require.NoError(t, err)
+	sock := testutil.ShortSocket(t)
+
+	_, err = internal.New(t.Context(), "unix://"+sock, nil, internal.WithHomeDir(h.Root()))
+
+	require.ErrorIs(t, err, migrate.ErrHomeLocked)
+	assert.NoFileExists(t, sock)
+}
+
+func TestNew_RunsTheLegacyStepsBeforeServing(t *testing.T) {
+	h := testutil.FixtureHome(t)
+
+	d, err := boot(t.Context(), t, h)
+	require.NoError(t, err)
+
+	applied := migratetest.Applied(t, h)
+	for step := 1; step <= 6; step++ {
+		assert.Len(t, applied[step], 1, "step %d", step)
+	}
+	records := readLedger(t, h)
+	assert.Equal(t, ledgerRecord{Kind: "run.end", Outcome: "completed"}, records[len(records)-1])
+	health := d.get(t, "/v0/health")
+	assert.Equal(t, http.StatusOK, health.status)
+	assert.Equal(t, "ok", health.Data.Status, health.raw)
+}
+
+// A home newer than this binary is refused without a write: the daemon stays
+// up, holding the home, and says why on the one route it serves.
+func TestNew_HaltsOnANewerLayout(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "LAYOUT", "9\n")
+	warnings := testutil.CaptureLog(t, testutil.AtLeast(slog.LevelWarn))
+
+	d, err := boot(t.Context(), t, h)
+	require.NoError(t, err)
+
+	assert.Empty(t, warnings, "a clean halt warns of nothing: serve announces it")
+
+	health := d.get(t, "/v0/health")
+	require.Equal(t, http.StatusOK, health.status)
+	assert.Equal(t, "halted", health.Data.Status)
+	halt := detail[migrate.Halt](t, health)
+	assert.Equal(t, migrate.HaltLayoutNewer, halt.Reason)
+	assert.Equal(t, *d.Halt(), halt)
+	projects := d.get(t, "/v0/projects")
+	assert.Equal(t, http.StatusServiceUnavailable, projects.status)
+	assert.Equal(t, "daemon_halted", projects.Code)
+	assert.Equal(t, halt.Message, projects.Error)
+	page := call(t, d.client, http.MethodGet, "/", http.Header{"Accept": {"text/html"}})
+	assert.Contains(t, page.raw, "Crowbar could not start.")
+	assert.Contains(t, page.raw, "Fix the cause above and restart Crowbar.", "a halt never ends by itself")
+	_, err = hookserver.Read(h.Root())
+	require.Error(t, err, "a halted daemon serves no hooks")
+	assert.NoDirExists(t, h.MigrateDir())
+	assert.Equal(t, []string{"LAYOUT 2", "state/.lock 0"}, testutil.TreeSnapshot(t, h))
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.NoError(t, d.Run(cancelled))
+}
+
+// The webview reads the gate's answers cross-origin, as it reads the API's.
+func TestNew_AHaltedDaemonAnswersTheWebview(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "LAYOUT", "9\n")
+	d, err := boot(t.Context(), t, h)
+	require.NoError(t, err)
+	webview := http.Header{"Origin": {"tauri://localhost"}}
+
+	health := call(t, d.client, http.MethodGet, "/v0/health", webview)
+	refused := call(t, d.client, http.MethodPost, "/v0/projects", webview)
+	preflight := call(t, d.client, http.MethodOptions, "/v0/projects",
+		http.Header{"Origin": {"tauri://localhost"}, "Access-Control-Request-Method": {"POST"}})
+
+	assert.Equal(t, http.StatusOK, health.status)
+	assert.Equal(t, "tauri://localhost", health.header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, http.StatusServiceUnavailable, refused.status)
+	assert.Equal(t, "tauri://localhost", refused.header.Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, http.StatusNoContent, preflight.status)
+	assert.Equal(t, "tauri://localhost", preflight.header.Get("Access-Control-Allow-Origin"))
+	assert.Contains(t, preflight.header.Get("Access-Control-Allow-Methods"), "POST")
+}
+
+// A browser opening the daemon mid-migration is shown a page that waits for it,
+// while API calls keep reading the refusal they act on.
+func TestNew_AMigratingDaemonShowsABrowserAPageThatReloads(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	sock := testutil.ShortSocket(t)
+	client := testutil.UnixClient(t, sock)
+	type ask struct{ method, path, accept string }
+	asks := map[string]ask{
+		"browser":        {http.MethodGet, "/", "text/html,application/xhtml+xml,*/*;q=0.8"},
+		"json":           {http.MethodGet, "/", "application/json"},
+		"json first":     {http.MethodGet, "/", "application/json, text/html;q=0.1"},
+		"anything":       {http.MethodGet, "/", "*/*"},
+		"no accept":      {http.MethodGet, "/", ""},
+		"head":           {http.MethodHead, "/", "text/html"},
+		"api path, html": {http.MethodGet, "/v0/projects", "text/html"},
+	}
+	got := map[string]answer{}
+	midway := slog.New(testutil.OnLog("migrate: step started", func(slog.Record) {
+		if len(got) > 0 {
+			return
+		}
+		for name, a := range asks {
+			got[name] = call(t, client, a.method, a.path, http.Header{"Accept": {a.accept}})
+		}
+	}))
+
+	c, err := internal.New(t.Context(), "unix://"+sock, nil, internal.WithHomeDir(h.Root()), internal.WithMigrateLog(midway))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	require.NotEmpty(t, got, "no step ran")
+	page := got["browser"]
+	assert.Equal(t, http.StatusServiceUnavailable, page.status)
+	assert.True(t, strings.HasPrefix(page.header.Get("Content-Type"), "text/html"), page.header)
+	assert.Contains(t, page.raw, "this page reloads by itself")
+	assert.Contains(t, page.raw, `fetch("/v0/health")`)
+	assert.Contains(t, page.raw, "location.reload()")
+	for _, name := range []string{"json", "json first", "anything", "no accept", "api path, html"} {
+		assert.Equal(t, "daemon_migrating", got[name].Code, "%s is never the page: %s", name, got[name].raw)
+	}
+	assert.Equal(t, "application/json", got["head"].header.Get("Content-Type"), "only a GET opens the page")
+}
+
+func TestNew_HaltsWhenAStepFails(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/view.db", "not a database")
+	warnings := testutil.CaptureLog(t, testutil.AtLeast(slog.LevelWarn))
+
+	d, err := boot(t.Context(), t, h)
+	require.NoError(t, err)
+
+	assert.Empty(t, warnings, "a clean halt warns of nothing: serve announces it")
+
+	health := d.get(t, "/v0/health")
+	assert.Equal(t, "halted", health.Data.Status)
+	halt := detail[migrate.Halt](t, health)
+	assert.Equal(t, migrate.HaltStepFailed, halt.Reason)
+	require.NotNil(t, halt.Step)
+	assert.Equal(t, "workspace-paths-table", halt.Step.Name)
+	sess, err := migrations.Begin(t.Context(), h, migrate.Options{})
+	if sess != nil {
+		require.NoError(t, sess.Close())
+	}
+	require.ErrorIs(t, err, migrate.ErrHomeLocked, "the halted daemon still holds the home")
+}
+
+// A home the boot cannot put in order before any step halts the daemon instead
+// of exiting it: a supervisor would respawn an exited one into the same failure.
+func TestNew_HaltsOnAHomeItCannotPutInOrder(t *testing.T) {
+	partial := filepath.Join("migrate", "backups", "20261017T010203.000000000Z.partial")
+	tests := map[string]struct{ file, content, locked string }{
+		"a half-written backup that cannot be removed": {
+			file: filepath.Join(partial, "state", "x"), content: "x", locked: filepath.Join(partial, "state"),
+		},
+		"a run left open in a ledger that cannot be written": {
+			file:    filepath.Join("migrate", "ledger.jsonl"),
+			content: `{"v":1,"kind":"run.start","run":"r-killed","pending":[1]}` + "\n",
+			locked:  filepath.Join("migrate", "ledger.jsonl"),
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			testutil.RequirePermissionEnforcement(t)
+			h := testutil.FixtureHome(t)
+			testutil.WriteFile(t, h, tc.file, tc.content)
+			locked := filepath.Join(h.Root(), tc.locked)
+			require.NoError(t, os.Chmod(locked, 0o500))
+			t.Cleanup(func() { require.NoError(t, os.Chmod(locked, 0o700)) })
+
+			d, err := boot(t.Context(), t, h)
+
+			require.NoError(t, err)
+			health := d.get(t, "/v0/health")
+			assert.Equal(t, "halted", health.Data.Status, health.raw)
+			assert.Equal(t, migrate.HaltIOFailed, detail[migrate.Halt](t, health).Reason)
+			sess, err := migrations.Begin(t.Context(), h, migrate.Options{})
+			if sess != nil {
+				require.NoError(t, sess.Close())
+			}
+			require.ErrorIs(t, err, migrate.ErrHomeLocked, "the halted daemon still holds the home")
+		})
+	}
+}
+
+// A home whose lock cannot be taken halts the daemon too, though it holds
+// nothing: a daemon that exits would be respawned into the same failure.
+func TestNew_HaltsOnAHomeItCannotLock(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state", "a file, not a directory")
+
+	d, err := boot(t.Context(), t, h)
+
+	require.NoError(t, err)
+	health := d.get(t, "/v0/health")
+	assert.Equal(t, "halted", health.Data.Status, health.raw)
+	halt := detail[migrate.Halt](t, health)
+	assert.Equal(t, migrate.HaltIOFailed, halt.Reason)
+	assert.Contains(t, halt.Message, "create state directory")
+	assert.Equal(t, http.StatusServiceUnavailable, d.get(t, "/v0/projects").status)
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.NoError(t, d.Run(cancelled))
+	require.NoError(t, os.Remove(filepath.Join(h.Root(), "state")))
+	sess, err := migrations.Begin(t.Context(), h, migrate.Options{})
+	require.NoError(t, err, "the halted daemon holds no lock")
+	require.NoError(t, sess.Close())
+}
+
+func TestClose_ReleasesTheHomeLock(t *testing.T) {
+	for name, layout := range map[string]string{"serving": "", "halted": "9\n"} {
+		t.Run(name, func(t *testing.T) {
+			h := testutil.FixtureHome(t)
+			if layout != "" {
+				testutil.WriteFile(t, h, "LAYOUT", layout)
+			}
+			c, err := internal.New(t.Context(), "unix://"+testutil.ShortSocket(t), nil, internal.WithHomeDir(h.Root()))
+			require.NoError(t, err)
+
+			c.Close()
+
+			again, err := internal.New(t.Context(), "unix://"+testutil.ShortSocket(t), nil, internal.WithHomeDir(h.Root()))
+			require.NoError(t, err)
+			again.Close()
+		})
+	}
+}
+
+// An interrupted boot is not a halt: the run ends interrupted, the home is let
+// go, and the next boot resumes.
+func TestNew_CancelledDuringMigrationReturnsTheContextError(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	sock := testutil.ShortSocket(t)
+
+	c, err := internal.New(ctx, "unix://"+sock, nil, internal.WithHomeDir(h.Root()))
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, c)
+	records := readLedger(t, h)
+	assert.Equal(t, ledgerRecord{Kind: "run.end", Outcome: "interrupted"}, records[len(records)-1])
+	assert.NoFileExists(t, sock)
+	requireHomeFree(t, h)
+}
+
+// A boot cancelled once the stores are open tears down everything it started,
+// all the way, though its context is done; every goroutine New starts inherits
+// its pprof label, so none may outlive it.
+func TestNew_CancelledDuringAPostOpenStepStopsWhatItStarted(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cancelPostOpen := slog.New(testutil.OnLog("migrate: step started", func(r slog.Record) {
+		if testutil.Attrs(r)["phase"].String() == "post-open" {
+			cancel()
+		}
+	}))
+	var err error
+
+	pprof.Do(ctx, pprof.Labels("internal_new", t.Name()), func(ctx context.Context) {
+		_, err = internal.New(ctx, "unix://"+testutil.ShortSocket(t), nil,
+			internal.WithHomeDir(h.Root()), internal.WithMigrateLog(cancelPostOpen))
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	// openStack joins any close failure on, and Join gives it a line of its own.
+	assert.NotContains(t, err.Error(), "\n", "the teardown failed nothing")
+	records := readLedger(t, h)
+	assert.Equal(t, ledgerRecord{Kind: "run.end", Outcome: "interrupted"}, records[len(records)-1])
+	requireHomeFree(t, h)
+	assert.Eventually(t, func() bool { return !labelled(t, "internal_new", t.Name()) },
+		5*time.Second, 10*time.Millisecond, "goroutines New started outlived it")
 }
 
 func TestNew_DefaultDirs_UsesHome(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv(home.EnvVar, "")
 	c, err := internal.New(
 		context.Background(),
 		"tcp://127.0.0.1:0",
@@ -55,90 +407,6 @@ func TestNew_DefaultDirs_UsesHome(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 	assert.NotNil(t, c)
-}
-
-// shortHome is a crowbar home under /tmp, so the unix socket fits macOS's
-// 104-byte sun_path, and CROWBAR_HOME points there so no default path is real.
-func shortHome(
-	t *testing.T,
-) string {
-	t.Helper()
-	home, err := os.MkdirTemp("/tmp", "cb")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(metadata.HomeEnvVar, home)
-	return home
-}
-
-// writeFileInPlaceOfDir leaves path unusable as a directory, whoever runs the
-// test: unlike a permission bit, root cannot write through it.
-func writeFileInPlaceOfDir(
-	t *testing.T,
-	path string,
-) {
-	t.Helper()
-	require.NoError(t, os.WriteFile(path, nil, 0o600))
-}
-
-func writeCorruptIdentity(
-	t *testing.T,
-	tlsDir string,
-) {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(tlsDir, 0o700))
-	for _, name := range []string{"cert.pem", "key.pem"} {
-		require.NoError(t, os.WriteFile(filepath.Join(tlsDir, name), []byte("not a pem"), 0o600))
-	}
-}
-
-// TestRegression_New_LocalDaemonNeverTouchesTheTLSDir proves a daemon serving
-// no TLS — the unix socket alone, or the loopback dev bind — boots whatever
-// state its TLS identity directory is in, and never creates one.
-func TestRegression_New_LocalDaemonNeverTouchesTheTLSDir(t *testing.T) {
-	spoilers := map[string]func(t *testing.T, tlsDir string){
-		"absent":    func(*testing.T, string) {},
-		"not a dir": writeFileInPlaceOfDir,
-		"corrupt":   writeCorruptIdentity,
-	}
-	for _, host := range []string{"unix", "tcp://127.0.0.1:0"} {
-		for name, spoil := range spoilers {
-			t.Run(host+" "+name, func(t *testing.T) {
-				home := shortHome(t)
-				tlsDir := filepath.Join(home, "tls")
-				spoil(t, tlsDir)
-				bind := host
-				if host == "unix" {
-					bind = "unix://" + filepath.Join(home, "d.sock")
-				}
-
-				c, err := internal.New(context.Background(), bind, nil, internal.WithHomeDir(home))
-				require.NoError(t, err)
-				t.Cleanup(c.Close)
-
-				if name == "absent" {
-					_, statErr := os.Stat(tlsDir)
-					assert.ErrorIs(t, statErr, fs.ErrNotExist, "a local daemon must not create a TLS identity")
-				}
-			})
-		}
-	}
-}
-
-// TestRegression_New_ExposedBindRefusesAnUnloadableIdentity proves a corrupt
-// identity is never silently replaced on a network-exposed daemon — every
-// paired client pins it — and that the refusal says what replacing it means.
-func TestRegression_New_ExposedBindRefusesAnUnloadableIdentity(t *testing.T) {
-	home := shortHome(t)
-	tlsDir := filepath.Join(home, "tls")
-	writeCorruptIdentity(t, tlsDir)
-
-	_, err := internal.New(context.Background(), "tcp://localhost.:0", nil, internal.WithHomeDir(home))
-
-	require.ErrorContains(t, err, "identity cannot be loaded")
-	require.ErrorContains(t, err, "identity change")
-	cert, readErr := os.ReadFile(filepath.Join(tlsDir, "cert.pem"))
-	require.NoError(t, readErr)
-	assert.Equal(t, "not a pem", string(cert), "the corrupt identity must be left for the operator, not regenerated")
 }
 
 func TestRun_CancelledContext_Returns(t *testing.T) {

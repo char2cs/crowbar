@@ -1,48 +1,29 @@
 'use client'
 
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import { PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { loadLocalImage, useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
 import { isDarkMode, useThemeVersion } from '@/features/editor/theme/use-theme-version'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { requestExcalidrawEdit } from '@/features/agent/composer/lib/excalidraw-edit-requests'
 import { ATTACHMENT_BUTTON_OPAQUE_BG } from '@/features/agent/composer/plate/attachment-drag-handle'
 import { useChatId } from './chat-id-context'
 import { computeSceneAspectRatio, type ParsedExcalidrawScene } from './excalidraw-scene'
 
-/** Matches `max-h-80` (Tailwind: 20rem, 320px) on both the placeholder's
- *  reserved footprint and the loaded content below — the same cap either
- *  side of the swap, so a very tall/thin scene never reserves more than the
- *  loaded render could ever actually use. */
+// `max-h-80` (320px), so a tall scene never reserves more than the loaded render can use.
 const MAX_PREVIEW_HEIGHT_PX = 320
 
 interface ExcalidrawPreviewProps {
   scene: ParsedExcalidrawScene
-  /** The persisted PNG's ref — the sibling `![diagram](ref)` node's `url`,
-   *  when there is one. Only ever present for a composer-drawn diagram
-   *  (excalidraw-modal.tsx uploads it at save time); an agent-authored fence
-   *  never has one, since there was no editor instance to export it from. */
+  /** The PNG uploaded when the composer's editor saved the diagram; an agent-authored fence
+   *  has none, since no editor ever exported it. */
   pngRef?: string
 }
 
-/** `@excalidraw/excalidraw`'s own `--theme-filter` (index.css): dark mode is
- *  a CSS filter applied to its live `<canvas>`, not a different set of
- *  exported colors — `exportToSvg`/`exportToBlob` always produce the
- *  scene's real (light) colors regardless of `appState.theme`, confirmed
- *  live. Applying the SAME filter here — to both the persisted PNG and a
- *  live SVG render — matches the editor's own look exactly, and unlike
- *  trying to get the export itself to respect a theme, it works for a PNG
- *  that was already saved under a different theme too. */
+// Excalidraw's own `--theme-filter`: its dark mode is a CSS filter, and exports are always light.
+// The same filter on the PNG and the SVG matches the editor, even for a PNG saved in another theme.
 const EXCALIDRAW_DARK_FILTER = 'invert(93%) hue-rotate(180deg)'
 
 /** Placeholder shown before a live render is ready, and if one fails. */
@@ -54,32 +35,16 @@ function ElementCountPlaceholder({ count }: { count: number }) {
   )
 }
 
-/**
- * A settled Excalidraw attachment's preview.
- *
- * Two sources, picked by which is available: a composer-drawn diagram has a
- * persisted PNG sibling and just shows that (cheap, no re-render needed). An
- * agent-authored fence has no such PNG — nothing ever ran the editor to
- * produce one — so its scene JSON is rendered live instead, via the same
- * `@excalidraw/excalidraw` engine the embedded drawing editor already
- * depends on (`exportToSvg`, dynamically imported so a chat with no
- * Excalidraw content never pays for that chunk). `restore()` runs first so a
- * scene missing internal bookkeeping fields (seed, versionNonce, and the
- * like — exactly what an LLM asked to write "valid Excalidraw JSON" tends to
- * omit) still renders instead of throwing.
- */
+// Shows the saved PNG when there is one, else renders the scene live with a lazily imported
+// `exportToSvg`. `restore()` first fills the bookkeeping fields (seed, versionNonce) that
+// agent-written scenes tend to omit, so they render instead of throwing.
 export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   const asset = useMarkdownAsset()
   const [src, setSrc] = useState<string | null>(null)
   const [svgMarkup, setSvgMarkup] = useState<string | null>(null)
   const loaded = pngRef ? src !== null : svgMarkup !== null
-  // Reserves the loaded render's real footprint before `@excalidraw/
-  // excalidraw` has even started loading, let alone exported anything — so
-  // nothing here changes height once it does. Read only while nothing has
-  // loaded yet (see the `loaded` guard below): once the real content is on
-  // screen it drives its own height, and holding this reservation past that
-  // point would just be a second, now-wrong guess fighting the real
-  // content's natural size.
+  // Reserves the render's footprint before it loads, so nothing changes height when it lands.
+  // Only until loaded: past that the content sizes itself and the guess would fight it.
   const aspectRatio = useMemo(() => computeSceneAspectRatio(scene.elements), [scene.elements])
   const containerRef = useRef<HTMLDivElement>(null)
   const [reservedHeight, setReservedHeight] = useState<number | null>(null)
@@ -87,17 +52,8 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
     if (aspectRatio === null || loaded) return
     const node = containerRef.current
     if (!node) return
-    // A ResizeObserver, not a one-shot read of clientWidth: a flat read at
-    // mount alone misses two real cases — the container resizing (a pane
-    // width change, a sidebar toggling) BEFORE the async render below ever
-    // resolves, which leaves the reservation computed from a stale width;
-    // and the chat surface mounting `display:none` (a background tab), whose
-    // clientWidth reads 0 and skipped the reservation entirely, forever,
-    // even once the surface actually became visible. Either path reproduces
-    // the exact height-jump this reservation exists to prevent. Stops
-    // observing the instant `loaded` flips true — the dependency array
-    // re-runs this effect, whose cleanup disconnects, and the new run bails
-    // immediately on the `loaded` check above.
+    // Observed, not read once: the width can change before the render resolves, and a surface
+    // mounted `display:none` reads 0 until it is shown.
     const measure = () => {
       const width = node.clientWidth
       if (width) setReservedHeight(Math.min(MAX_PREVIEW_HEIGHT_PX, width * aspectRatio))
@@ -112,15 +68,11 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   useThemeVersion()
   const darkFilter = isDarkMode() ? EXCALIDRAW_DARK_FILTER : undefined
 
-  // Nullable, not `useWorkspaceStore()`'s throwing form: a preview can render
-  // wherever a message can (a standalone unit-test host included), so absent
-  // context just means no Edit button rather than a crash.
-  const workspaceStore = useContext(WorkspaceStoreContext)
+  // Outside a chat (no chat id) there is no composer to edit in: no Edit button.
   const chatId = useChatId()
   const handleEdit = useCallback(() => {
-    if (!workspaceStore || !chatId) return
-    workspaceStore.getState().requestExcalidrawEdit(chatId, scene)
-  }, [workspaceStore, chatId, scene])
+    if (chatId) requestExcalidrawEdit(chatId, scene)
+  }, [chatId, scene])
 
   useEffect(() => {
     if (!asset || !pngRef) {
@@ -138,49 +90,31 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
     if (pngRef) return
     let cancelled = false
     setSvgMarkup(null)
-    void import('@excalidraw/excalidraw')
-      .then(({ restore, exportToSvg }) => {
+    const draw = async () => {
+      try {
+        const { restore, exportToSvg } = await import('@excalidraw/excalidraw')
         const restored = restore(
           { elements: scene.elements as never, appState: scene.appState, files: undefined },
           null,
           null,
         )
-        return exportToSvg({
+        const svg = await exportToSvg({
           elements: restored.elements,
           appState: restored.appState,
           files: restored.files,
         })
-      })
-      .then((svg) => {
         if (cancelled) return
-        // A string handed to React's own `dangerouslySetInnerHTML`, not
-        // `someRef.current.replaceChildren(svg)` (the previous approach):
-        // that mutated a DOM node's children OUTSIDE React's rendering
-        // entirely, which — for a node inside a Slate VOID element, as this
-        // one always is — desynced slate-react's own DOM<->node mapping.
-        // Confirmed live: the console logged "Cannot resolve a DOM node
-        // from Slate node" right after inserting a diagram, and the
-        // composer's own height-tracking (chat-markdown-editor.tsx's
-        // ResizeObserver) silently stopped reporting past that point —
-        // reported live as the input pill ballooning into a giant oval
-        // instead of squaring off for a multi-line box. Setting markup
-        // through state keeps this DOM subtree entirely inside React's own
-        // reconciliation, the same as everywhere else in this codebase.
-        // scene.elements/appState is attachment JSON an agent or another
-        // chat participant fully controls, so exportToSvg's output is
-        // untrusted — sanitize the same way as every other
-        // dangerouslySetInnerHTML sink in this codebase.
+        // Markup through React state, never a direct DOM mutation, which desyncs slate-react's
+        // DOM mapping inside a void element. The scene is agent-controlled JSON: sanitize it.
         setSvgMarkup(
           DOMPurify.sanitize(svg.outerHTML, { USE_PROFILES: { svg: true, svgFilters: true } }),
         )
-      })
-      .catch(() => {
-        // Malformed-enough scene JSON that even restore() can't repair it —
-        // parseExcalidrawScene's own structural check already ruled out
-        // "not a scene at all", so this is a genuinely broken one, not a
-        // false positive. Falls back to the placeholder rather than an
-        // empty box.
-      })
+      } catch {
+        // A scene restore() cannot repair draws the placeholder: a fallback, not an error.
+        if (!cancelled) setSvgMarkup(null)
+      }
+    }
+    void draw()
     return () => {
       cancelled = true
     }
@@ -192,12 +126,10 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
     <div
       ref={containerRef}
       className="excalidraw-preview relative"
-      // Only while the real content hasn't landed yet — see the effect
-      // above. A loaded render sizes this box itself; holding the
-      // reservation past that point would fight it instead of matching it.
+      // Only until the content lands; a loaded render sizes this box itself.
       style={!loaded && reservedHeight !== null ? { minHeight: reservedHeight } : undefined}
     >
-      {workspaceStore && chatId && (
+      {chatId && (
         <Button
           variant="outline"
           size="icon-xs"
@@ -223,7 +155,7 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
         <div
           className="max-h-80 [&>svg]:h-auto [&>svg]:max-h-80 [&>svg]:w-full"
           style={{ filter: darkFilter }}
-          // react-doctor-disable-next-line dangerous-html-sink -- `svgMarkup` is DOMPurify.sanitize() output (l.126 above, USE_PROFILES svg) of exportToSvg's own render; sanitized before setSvgMarkup ever stores it.
+          // react-doctor-disable-next-line dangerous-html-sink -- `svgMarkup` is DOMPurify.sanitize() output (USE_PROFILES svg) of exportToSvg's own render, sanitized before setSvgMarkup ever stores it.
           dangerouslySetInnerHTML={{ __html: svgMarkup }}
         />
       ) : (

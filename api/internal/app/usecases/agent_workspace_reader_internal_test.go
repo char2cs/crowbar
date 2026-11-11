@@ -44,7 +44,7 @@ func (f fakeRepoGetter) FindByKey(
 // TestAgentWorkspaceReader_WorktreeDir_Success proves WorktreeDir resolves the
 // owning project/repo from the workspace repo and returns the git worktree
 // directory stored on the workspace read model's WorktreePath, rooted at the
-// injected crowbarHome (not metadata.GetHomePath, so it never diverges from a
+// injected crowbarHome (not a home resolved here, so it never diverges from a
 // hermetic test's overridden home).
 func TestAgentWorkspaceReader_WorktreeDir_Success(t *testing.T) {
 	r := &agentWorkspaceReader{
@@ -214,9 +214,8 @@ func TestAgentWorkspaceReader_AgentChatsDir_CrowbarHomeError(t *testing.T) {
 // exactly why chat.WorkspaceID may never drive a chat's own ledger path (spec
 // §1.5): AgentChatsDir unconditionally resolves a workspace ROW, so a chat
 // with no workspace — WorkspaceID == "" — has no row to find at all, not merely
-// a "different" one. worktreepath.LedgerChatsDir (see the chat usecase's
-// promptJournalDirFor) exists precisely so a ledger's own path never runs
-// through this lookup.
+// a "different" one. worktreepath.LedgerChatsDir exists precisely so a
+// ledger's own path never runs through this lookup.
 func TestAgentWorkspaceReader_AgentChatsDir_EmptyWorkspaceID_Errors(t *testing.T) {
 	r := &agentWorkspaceReader{
 		workspaces:  fakeWorkspaceGetter{err: errors.New("workspace not found: \"\"")},

@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -41,12 +41,14 @@ type Hierarchy interface {
 	CreateFromImport(
 		ctx context.Context,
 		in workspace.ImportInput,
+		p workspace.ImportProgress,
 	) error
 	MergeIntoParent(
 		ctx context.Context,
 		childID string,
 		strategy gitdomain.MergeStrategy,
 	) (workspace.MergeResult, error)
+	GuardMergeFold(ctx context.Context, childID string) error
 	Reparent(
 		ctx context.Context,
 		childID string,
@@ -61,13 +63,13 @@ type Hierarchy interface {
 		rootID string,
 		consent domain.DeleteConsent,
 	) error
-	// RetryProvision re-provisions a placeholder workspace in place (spec §3.3).
+	// RetryProvision re-provisions a placeholder workspace in place.
 	RetryProvision(
 		ctx context.Context,
 		wsID string,
 	) (domain.Workspace, error)
 	// DetachHolder frees the placeholder's branch from its holder (with consent),
-	// then re-provisions in place (spec §3.5/§3.7).
+	// then re-provisions in place.
 	DetachHolder(
 		ctx context.Context,
 		wsID string,
@@ -81,14 +83,8 @@ type Hierarchy interface {
 	) (domain.Workspace, error)
 }
 
-// Worktrees resolves a CHAT to the workspace behind the worktree it reads and
-// writes through — itself if it owns one, else its nearest ancestor that does
-// (spec docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3).
-//
-// It is how every verb here finds its target, past law 1's refusal to let a
-// request name a :wsId, and it is declared HERE, as the narrow slice this
-// consumer actually needs (law 4); the container's own resolver satisfies it
-// (law 6).
+// Worktrees resolves a chat to the workspace behind its worktree (its own, else its nearest
+// ancestor's); every verb finds its target through it since no request names a workspace id.
 type Worktrees interface {
 	Resolve(
 		ctx context.Context,
@@ -105,42 +101,22 @@ type Repos interface {
 	) (*domain.Repository, error)
 }
 
-// LastErrorSetter records the message from a failed background mutation on the
-// workspace entity so the failure is delivered on the workspace WebSocket stream
-// (00 §4: errors live on the entity, never a separate WS frame).
-type LastErrorSetter interface {
-	SetLastError(
+// Chats reads a chat by id, so an import can refuse a chat id already taken.
+type Chats interface {
+	GetChat(
 		ctx context.Context,
 		id string,
-		message string,
-	) (domain.Workspace, error)
+	) (domain.Chat, error)
 }
 
-// WorkSignal brackets a workspace's background mutation window so the daemon
-// serves a real Working overlay: BeginWork re-broadcasts the row with
-// Working=true the moment an async op is accepted, EndWork resolves it, and
-// WorkingFor overlays the REST reads so a read fetched mid-work agrees with the
-// live stream. WorkingFor combines BOTH derived overlays — the inflight
-// background-mutation signal (IsWorking) AND the agent-turn signal; IsWorking is
-// retained for callers that need only the inflight half. Blank ids (an import
-// with no entity yet) are no-ops.
-type WorkSignal interface {
-	BeginWork(
+// Operations starts the slow worktree verbs as operations. It is satisfied by
+// the operation service.
+type Operations interface {
+	Start(
 		ctx context.Context,
-		wsID string,
-	)
-	EndWork(
-		ctx context.Context,
-		wsID string,
-	)
-	IsWorking(
-		wsID string,
-	) bool
-	// WorkingFor reports whether the workspace is working via EITHER overlay
-	// (inflight mutation OR agent chat mid-turn).
-	WorkingFor(
-		wsID string,
-	) bool
+		spec operation.Spec,
+		work operation.Work,
+	) (domain.Operation, error)
 }
 
 // RemoteRefs is the narrow git surface Import uses to refuse a branch that is
@@ -161,44 +137,39 @@ type RemoteRefs interface {
 }
 
 // Handlers serves the chat-keyed worktree routes from the workspace read
-// usecase, the worktree hierarchy usecase, the repository store, the workspace
-// error sink that surfaces async-mutation failures on the entity, and the work
-// signal that drives the entity's Working overlay around async mutations.
+// usecase, the worktree hierarchy usecase, the repository store, and the
+// operation service the slow verbs run on.
 type Handlers struct {
-	reader     Reader
-	hierarchy  Hierarchy
-	repos      Repos
-	lastErrors LastErrorSetter
-	working    WorkSignal
-	remote     RemoteRefs
-	worktrees  Worktrees
-	// async owns the detached runAsync ops (see runAsync / WaitAsync / Shutdown).
-	async detached.Ops
+	reader    Reader
+	hierarchy Hierarchy
+	repos     Repos
+	ops       Operations
+	chats     Chats
+	remote    RemoteRefs
+	worktrees Worktrees
 }
 
 // New builds the worktree Handlers from the workspace read usecase, the
-// worktree hierarchy usecase, the repository store, the workspace error sink,
-// and the working-overlay signal.
+// worktree hierarchy usecase, the repository store, the operation service and
+// the chat reads an import checks its chat ids against.
 func New(
 	reader Reader,
 	hierarchy Hierarchy,
 	repos Repos,
-	lastErrors LastErrorSetter,
-	working WorkSignal,
+	ops Operations,
+	chats Chats,
 ) *Handlers {
 	return &Handlers{
-		reader:     reader,
-		hierarchy:  hierarchy,
-		repos:      repos,
-		lastErrors: lastErrors,
-		working:    working,
+		reader:    reader,
+		hierarchy: hierarchy,
+		repos:     repos,
+		ops:       ops,
+		chats:     chats,
 	}
 }
 
-// WithWorktrees wires the chat→workspace resolver every verb runs on. A nil
-// resolver does NOT leave a half-working surface: Register simply does not mount
-// those routes without one, so the handler never has to answer a fiction about a
-// chat it cannot resolve.
+// WithWorktrees wires the chat→workspace resolver every verb runs on. Register does not mount
+// the verbs without one, so no route answers for a chat it cannot resolve.
 func (h *Handlers) WithWorktrees(
 	worktrees Worktrees,
 ) *Handlers {

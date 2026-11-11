@@ -10,7 +10,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 
-// I2: isUncloseable currently only hides the tab-bar-item's × button. Every
+// isUncloseable currently only hides the tab-bar-item's × button. Every
 // OTHER close affordance — middle-click, and the tab context menu's Close /
 // Close Others / Close All / Close to Right — must honour it too, or a pane's
 // sole editor tab (the one state the design calls unreachable: editorTabIds:
@@ -72,15 +72,13 @@ function makeEditorBuffer(i: number): EditorContent {
   return {
     id: `buf-${i}`,
     type: 'editor',
+    authority: 'workspace',
     path: `/project/file-${i}.ts`,
     name: `file-${i}.ts`,
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    tokens: [],
     workspaceId: 'w1',
   }
 }
@@ -93,15 +91,13 @@ function makeSoleTab(id: string, isUncloseable: boolean): EditorContent {
   return {
     id,
     type: 'editor',
+    authority: 'workspace',
     path: `/project/${id}.ts`,
     name: `${id}.ts`,
-    content: '',
-    savedContent: '',
     isDirty: false,
     isVirtual: false,
     isPinned: false,
     isPreview: false,
-    tokens: [],
     isUncloseable,
     workspaceId: 'w1',
   }
@@ -117,11 +113,9 @@ function renderTabBar(store: ReturnType<typeof createWorkspaceStore>, paneId: st
   )
 }
 
-/** A single sole-editor-tab pane, mirroring pane-slice's
- *  syncSoleEditorTabCloseability (isUncloseable is true exactly when it is
- *  the pane's only editor tab). Task 26: panes/buffers are window-level now —
- *  seed `windowPaneStore`, not the per-workspace store returned here (kept
- *  for WorkspaceStoreContext). */
+/** A sole-editor-tab pane (isUncloseable exactly when it is the pane's only editor tab, as in
+ *  syncSoleEditorTabCloseability). Panes live in `windowPaneStore`; the returned workspace store
+ *  only feeds WorkspaceStoreContext. */
 function setupSoleTabStore() {
   const store = createWorkspaceStore('w1')
   const nt = makeSoleTab('nt-1', true)
@@ -202,7 +196,7 @@ function setupTwoPaneStore(bufferOrder: 'root-first' | 'bottom-first' = 'root-fi
   return { store, rootBufs, bottomBufs }
 }
 
-describe('TabBar Close Others/All/to Right stay scoped to their own pane (I4)', () => {
+describe('TabBar Close Others/All/to Right stay scoped to their own pane', () => {
   afterEach(() => {
     vi.clearAllMocks()
   })
@@ -277,7 +271,7 @@ describe('TabBar Close Others/All/to Right stay scoped to their own pane (I4)', 
   })
 })
 
-describe('TabBar honours isUncloseable (I2)', () => {
+describe('TabBar honours isUncloseable', () => {
   afterEach(() => {
     vi.clearAllMocks()
   })

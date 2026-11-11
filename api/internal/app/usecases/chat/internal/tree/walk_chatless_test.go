@@ -7,6 +7,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // A fork created under a CHATLESS workspace row: the frontend's
@@ -25,12 +26,11 @@ func TestRegression_ResolveForkParent_ParentIsAChatlessWorkspaceAnchorNode(t *te
 	chats := stubListChats{rows: rows}
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "ws-main", Kind: domain.NodeKindWorkspace, ParentID: "", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "ws-main", Kind: dtree.KindWorkspace, ParentID: "", Order: 0},
 	}
 
 	got, ok, err := tree.ResolveForkParent(context.Background(), chats, folders, nodes, nil, "self")
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,11 +58,11 @@ func TestRegression_ForkUnderRepoRootFolderForksTheDefaultWorkspace(t *testing.T
 	}
 	chats := stubListChats{rows: rows}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "folder", Name: "F", RepoID: "repo-1"}}
+	folders.Saved = []dtree.Folder{{ID: "folder", Name: "F", RepoID: "repo-1"}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: ""},
-		{ID: "ws-main", Kind: domain.NodeKindWorkspace, ParentID: ""},
+	nodes.Rows = []dtree.Node{
+		{ID: "folder", Kind: dtree.KindFolder, ParentID: ""},
+		{ID: "ws-main", Kind: dtree.KindWorkspace, ParentID: ""},
 	}
 	roots := stubRepoRoots{"repo-1": "ws-main"}
 

@@ -1,14 +1,8 @@
 import { useEffect } from 'react'
 
-/**
- * Cmd/Ctrl+Shift+{1-9} project switching — the browser-tab convention: 1-8
- * jump to that position, 9 always jumps to the LAST space regardless of how
- * many there are. Fixed, not run through the configurable chord registry
- * (use-workspace-switcher-keyboard.ts's own OPEN_WORKSPACE_SWITCHER) — same
- * reasoning browsers apply to their own Cmd+1-9: a hardcoded position
- * convention, not a remappable command. Bare Cmd/Ctrl+digit belongs to the
- * sidebar modes (use-sidebar-tab-keyboard.ts).
- */
+/** Mod+Shift+{1-9} jumps to that space, 9 to the last (the browser-tab convention). Hardcoded,
+ *  not in the chord registry: a position convention, not a remappable command. Bare mod+digit
+ *  belongs to the sidebar tabs (use-sidebar-tab-keyboard.ts). */
 export function useSpaceSwitcherKeyboard(spaceCount: number, onSelect: (index: number) => void) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

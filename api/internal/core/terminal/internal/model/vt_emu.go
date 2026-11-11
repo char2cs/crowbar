@@ -1,20 +1,18 @@
 package model
 
 import (
+	"errors"
 	"image/color"
 	"io"
+	"log/slog"
 	"sync/atomic"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 )
 
-// emulator is the narrow, file-local seam over the concrete headless VT emulator
-// (*vt.Emulator today). vtModel holds this interface rather than the concrete type for
-// two reasons: it makes the parse-panic recover branch reachable from a unit test that
-// substitutes an emulator whose Write panics on a sentinel byte, and it keeps the
-// concrete emulator type quarantined. The seam adds no lock; the session's lock remains
-// the sole synchronisation.
+// emulator is the file-local seam over the concrete VT emulator, so a unit test can reach the
+// parse-panic recovery with a panicking fake. It adds no lock; the session's lock is the only one.
 type emulator interface {
 	Write(
 		p []byte,
@@ -35,17 +33,22 @@ type emulator interface {
 	ScrollbackLine(
 		y int,
 	) uv.Line
+	// RowWrapped / ScrollbackRowWrapped report xterm's isWrapped for a grid row or a
+	// scrollback line (0 = oldest): it continues the row above by autowrap.
+	RowWrapped(
+		y int,
+	) bool
+	ScrollbackRowWrapped(
+		i int,
+	) bool
 	// Close releases the emulator (and, for the production emulator, stops its
 	// response-pipe drain goroutine). Idempotent.
 	Close()
 	// SetResponseSink installs the receiver for device-query replies drained from
 	// the emulator's response pipe. nil discards them. See vtEmu.SetResponseSink.
 	SetResponseSink(f func(p []byte))
-	// SetDefaultBackgroundColor / SetDefaultForegroundColor set the terminal's
-	// default colours — the values an OSC 11 / OSC 10 QUERY answers with. They
-	// deliberately do NOT touch the per-cell rendering colour (e.bgColor/fgColor)
-	// and fire no callback, so setting them changes only what a querying app reads,
-	// never the serialized grid. Promoted from the embedded *vt.Emulator.
+	// SetDefault*Color set only what OSC 11 / OSC 10 queries answer with: no cell colour, no callback, so the
+	// serialized grid never changes.
 	SetDefaultBackgroundColor(c color.Color)
 	SetDefaultForegroundColor(c color.Color)
 }
@@ -53,37 +56,24 @@ type emulator interface {
 type vtEmu struct {
 	*vt.Emulator
 	drainDone chan struct{}
-	// sink receives each reply chunk drainResponses reads off the InputPipe, or is
-	// nil to discard (today's raw-mode behaviour: the live client xterm answers
-	// device queries instead). Set via SetResponseSink; read from the drain
-	// goroutine, so it is an atomic.Pointer rather than a plain field.
+	// sink receives each reply drained off the InputPipe, or nil to discard; an atomic.Pointer because the
+	// drain goroutine reads it.
 	sink atomic.Pointer[func(p []byte)]
 }
 
-// Write feeds bytes to the underlying emulator, discarding its (n, err) return. The
-// emulator performs no IO, so a write to its internal grid never fails meaningfully.
-//
-// The pinned x/vt is NOT fully headless: its handlers answer device queries — Device
-// Attributes (ESC[c / ESC[>c), Device-Status / Cursor-Position reports (ESC[6n), and
-// colour-OSC queries — by writing the reply into an UNBUFFERED io.Pipe (InputPipe). A real
-// app emits those queries to its stdout constantly (vim, tmux, etc.), so without a reader
-// that reply write would block INSIDE this Write — which the session runs under its lock —
-// deadlocking every later Attach/Serialize. The drainResponses goroutine (started in
-// newEmulator) is that reader: it discards the replies, because this passive shadow must
-// never answer queries (the live front-end xterm client answers them and feeds the reply
-// back over the PTY). The unbuffered pipe also gives a useful guarantee for tests: this
-// Write only RETURNS once the drain goroutine has consumed any reply.
+// Write feeds bytes to the emulator; a refusal (only once closed) is logged. x/vt answers device queries
+// into an UNBUFFERED pipe, so without the drainResponses reader that reply would block this Write under
+// the session lock; Write returns only once any reply has been drained.
 func (v *vtEmu) Write(
 	p []byte,
 ) {
-	_, _ = v.Emulator.Write(p)
+	if _, err := v.Emulator.Write(p); err != nil {
+		slog.Warn("terminal: emulator refused output", "err", err)
+	}
 }
 
-// drainResponses consumes the bytes x/vt auto-writes to its InputPipe in reply to device
-// queries (see Write) and hands each complete read to the installed sink, or discards it
-// when no sink is installed (raw mode: the live client xterm is the answerer, spec §3.8).
-// It exits when Close shuts the pipe (Read → io.EOF), signalling completion on drainDone
-// so Close can join it.
+// drainResponses hands each reply x/vt writes to its InputPipe to the sink, or discards it when none is
+// installed. It exits on io.EOF after Close and signals drainDone.
 func (v *vtEmu) drainResponses() {
 	defer close(v.drainDone)
 	buf := make([]byte, 512)
@@ -100,10 +90,8 @@ func (v *vtEmu) drainResponses() {
 	}
 }
 
-// SetResponseSink installs f as the receiver of device-query replies drained from the
-// emulator's response pipe (see drainResponses). Passing nil reverts to discarding them.
-// Safe to call concurrently with the drain goroutine (atomic.Pointer swap); the session
-// calls it once at spawn, under its own lock, well before any Write can race it.
+// SetResponseSink installs f as the device-query reply receiver; nil reverts to discarding. Safe against
+// the drain goroutine (atomic swap).
 func (v *vtEmu) SetResponseSink(f func(p []byte)) {
 	if f == nil {
 		v.sink.Store(nil)
@@ -112,17 +100,13 @@ func (v *vtEmu) SetResponseSink(f func(p []byte)) {
 	v.sink.Store(&f)
 }
 
-// Close ends drainResponses and waits for it, so a closed emulator leaves no lingering
-// reader. It deliberately does NOT call Emulator.Close: at the pinned commit that method
-// writes the emulator's unguarded `closed` bool, which races the drain goroutine's
-// concurrent Read of the same bool (an x/vt-internal data race we cannot fix). Instead it
-// closes the InputPipe's writer end, which makes the drain's Read return io.EOF — unblocking
-// and ending the goroutine — WITHOUT touching `closed`. The emulator is being discarded
-// (model.Close / recreateEmu), and Close is serialised with Write by the session lock, so no
-// further Write races this teardown.
+// Close ends drainResponses and joins it. It does NOT call Emulator.Close, whose unguarded `closed` write
+// races the drain's Read inside x/vt; closing the pipe's writer gives the drain io.EOF instead.
 func (v *vtEmu) Close() {
 	if pw, ok := v.Emulator.InputPipe().(io.Closer); ok { //nolint:staticcheck // QF1008: explicit Emulator qualifier mirrors the mandatory v.Emulator.Write above and documents that InputPipe is promoted from the embedded emulator.
-		_ = pw.Close()
+		if err := pw.Close(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+			slog.Warn("terminal: close emulator input pipe", "err", err)
+		}
 	}
 	<-v.drainDone
 }

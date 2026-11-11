@@ -103,3 +103,34 @@ func TestCORS_PreflightWithoutRequestHeadersFallsBack(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	assert.Equal(t, "Content-Type", w.Header().Get("Access-Control-Allow-Headers"))
 }
+
+// A handler outside the router gets the router's CORS: the boot gate answers
+// the webview before the API exists.
+func TestCORSHandler_GrantsWhatTheRouterGrants(t *testing.T) {
+	gate := CORSHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	serve := func(method, origin string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), method, "/v0/projects", http.NoBody)
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		gate.ServeHTTP(w, req)
+		return w
+	}
+
+	allowed := serve(http.MethodGet, "tauri://localhost")
+	preflight := serve(http.MethodOptions, "tauri://localhost")
+	foreign := serve(http.MethodOptions, "https://evil.example")
+	plain := serve(http.MethodGet, "")
+
+	assert.Equal(t, http.StatusServiceUnavailable, allowed.Code)
+	assert.Equal(t, "tauri://localhost", allowed.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, http.StatusNoContent, preflight.Code)
+	assert.Contains(t, preflight.Header().Get("Access-Control-Allow-Methods"), "POST")
+	assert.Equal(t, http.StatusForbidden, foreign.Code)
+	assert.Empty(t, foreign.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, http.StatusServiceUnavailable, plain.Code)
+	assert.Empty(t, plain.Header().Get("Access-Control-Allow-Origin"))
+}

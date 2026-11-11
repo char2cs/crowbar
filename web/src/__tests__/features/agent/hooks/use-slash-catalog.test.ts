@@ -1,11 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 
 const getSlashCatalog = vi.fn()
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
   getSlashCatalog: (...args: unknown[]) => getSlashCatalog(...args),
 }))
 
@@ -16,7 +16,7 @@ type Props = { active: boolean; providerId?: string }
 function mount(initialProps: Props) {
   return renderHook(
     ({ active, providerId = 'claude' }: Props) =>
-      useSlashCatalog({ wsId: 'ws1', chatId: 'c1', providerId, active, draft: '' }),
+      useSlashCatalog({ wsId: 'ws1', chatId: 'c1', providerId, active }),
     { initialProps },
   )
 }
@@ -81,5 +81,29 @@ describe('useSlashCatalog presaving', () => {
     await act(async () => {})
 
     expect(getSlashCatalog).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useSlashCatalog filtering', () => {
+  const item = (name: string, description = '') => ({
+    id: name,
+    kind: 'builtin',
+    label: `/${name}`,
+    description,
+    insertText: `/${name} `,
+    source: '',
+  })
+
+  it('ranks the commands whose name starts with the query above a description match', async () => {
+    getSlashCatalog.mockResolvedValue({
+      ...catalog,
+      items: [item('clear', 'Start over'), item('resume', 'Pick a conversation'), item('config')],
+    })
+    const { result } = mount({ active: true })
+    await waitFor(() => expect(result.current.state.state).toBe('ready'))
+
+    act(() => result.current.noteQuery('con'))
+
+    expect(result.current.items.map((i) => i.label)).toEqual(['/config', '/resume'])
   })
 })

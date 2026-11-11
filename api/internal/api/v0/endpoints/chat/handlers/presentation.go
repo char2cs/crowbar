@@ -2,61 +2,13 @@ package handlers
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
-
-func (h *Handlers) Messages(ctx *gin.Context) {
-	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
-	if !ok {
-		return
-	}
-	after, ok := intQuery(ctx, "after")
-	if !ok {
-		return
-	}
-	before, ok := intQuery(ctx, "before")
-	if !ok {
-		return
-	}
-	limit, ok := intQuery(ctx, "limit")
-	if !ok {
-		return
-	}
-
-	page, err := h.chats.ReadMessages(ctx.Request.Context(), chat.ID, after, before, limit)
-	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
-		return
-	}
-	items := make([]dto.AgentMessageDTO, 0, len(page.Items))
-	for _, item := range page.Items {
-		items = append(items, dto.AgentMessageDTO{
-			Sequence:     item.Sequence,
-			DisplayOrder: item.DisplayOrder,
-			ItemIndex:    item.ItemIndex,
-			TurnID:       item.ID,
-			Role:         item.Role,
-			ProviderID:   item.Provider,
-			Text:         item.Text,
-			Effort:       item.Effort,
-			At:           item.At,
-		})
-	}
-	libs.WriteQueryOK(ctx, dto.AgentMessagePageDTO{
-		Cursor:       page.Cursor,
-		OldestCursor: page.OldestCursor,
-		HasMore:      page.HasMore,
-		Items:        items,
-	})
-}
 
 func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
@@ -66,17 +18,14 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	var body struct {
 		Text            string `json:"text"`
 		ClientRequestID string `json:"clientRequestId"`
+		// RetryOf is the refused prompt this send retries; the ledger links the two.
+		RetryOf string `json:"retryOf"`
 		// Provider is the composer's staged provider — omitted or empty
 		// means "nothing staged, use the chat's current one as-is." It has no
 		// "clear it" reading at all: a chat always runs SOME provider.
 		Provider string `json:"provider"`
-		// Model/Effort are POINTERS because "" is a real pick here — "the
-		// provider's own default", the same distinct fact domain.Chat.Model's
-		// own doc records. Absent (nil) leaves the chat's sticky selection
-		// alone; present, INCLUDING "", is a pick committed with this prompt.
-		// Bound as one pair: sending only one half clears the other, exactly
-		// as PATCH .../selection already documents, because which effort
-		// levels are valid is a property of the model.
+		// Model/Effort are pointers because "" is a real pick (the provider default): nil leaves the sticky
+		// selection alone. They bind as one pair, since valid efforts depend on the model.
 		Model  *string `json:"model"`
 		Effort *string `json:"effort"`
 	}
@@ -92,11 +41,11 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 		}
 	}
 	result, err := h.runners.SubmitPrompt(
-		ctx.Request.Context(), chat.ID, body.Text, body.ClientRequestID,
+		domain.WithPromptRetryOf(ctx.Request.Context(), body.RetryOf), chat.ID, body.Text, body.ClientRequestID,
 		body.Provider, selection,
 	)
 	if err != nil {
-		writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, dto.PromptSubmissionDTO{
@@ -112,7 +61,7 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 	}
 	catalog, err := h.runners.SlashCatalog(ctx.Request.Context(), chat.ID)
 	if err != nil {
-		writeCodedErr(ctx, err, agentusecase.CatalogErrorCode(err))
+		libs.Fail(ctx, err)
 		return
 	}
 	items := make([]dto.SlashCatalogItemDTO, 0, len(catalog.Items))
@@ -124,6 +73,7 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 			Description: item.Description,
 			InsertText:  item.InsertText,
 			Source:      item.Source,
+			Terminal:    item.Terminal,
 		})
 	}
 	warnings := append([]string{}, catalog.Warnings...)
@@ -133,32 +83,6 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 		Items:        items,
 		Warnings:     warnings,
 	})
-}
-
-func intQuery(ctx *gin.Context, name string) (int, bool) {
-	raw := ctx.Query(name)
-	if raw == "" {
-		return 0, true
-	}
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, name+" must be an integer")
-		return 0, false
-	}
-	return value, true
-}
-
-func writeCodedErr(
-	ctx *gin.Context,
-	err error,
-	code string,
-) {
-	status, message := libs.StatusAndMessage(err)
-	if code == "" {
-		libs.WriteErr(ctx, status, message)
-		return
-	}
-	libs.WriteErrCode(ctx, status, code, message)
 }
 
 // derefOr reads an optional wire string, treating absence as "".

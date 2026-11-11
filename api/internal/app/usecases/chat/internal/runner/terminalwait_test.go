@@ -11,10 +11,9 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -28,7 +27,7 @@ var _ termwait.Screens = engineterminal.Engine(nil)
 type plainCommander struct{}
 
 func (plainCommander) CreateCommand(
-	context.Context, string, string, []string, []string, func(),
+	context.Context, string, string, []string, []string, func(engineterminal.Exit),
 ) (string, error) {
 	return "", nil
 }
@@ -51,24 +50,18 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 // Nothing here is exercised; SetTurns only has to be able to bind it.
 type stubTurns struct{}
 
-func (stubTurns) IngestHook(context.Context, string, string, string, []byte) error { return nil }
+func (stubTurns) Hook(context.Context, string, string, string, []byte) ([]byte, string, error) {
+	return nil, "", nil
+}
 
-func (stubTurns) ReplayStartupHook(string, inflight.Hook) {}
-func (stubTurns) ForgetChat(string)                       {}
+func (stubTurns) ForgetChat(string) {}
 
-func (stubTurns) AwaitTurnComplete(context.Context, string) error { return nil }
+func (stubTurns) ForgetTelemetry(context.Context, string) {}
 
-func (stubTurns) ChatWorking(context.Context, string) (bool, error) { return false, nil }
+func (stubTurns) ExitRows(ledger.State, string, string) ([]ledger.Row, error) { return nil, nil }
+func (stubTurns) LiveDiff(string, string) string                              { return "" }
 
-func (stubTurns) TurnOpen(context.Context, string, string) (bool, error) { return false, nil }
-
-func (stubTurns) QueueSteer(string, inflight.Steered) bool { return false }
-
-func (stubTurns) RecordStop(context.Context, string, string) error { return nil }
-
-func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
-
-func (stubTurns) SetFeed(seam.ChatFeed) {}
+func (stubTurns) Retire(string, string) {}
 
 func (stubTurns) MatchTerminalPrompt(
 	context.Context, string, string,
@@ -82,24 +75,8 @@ func (stubTurns) MatchTerminalNotice(
 	return engineagents.TerminalNotice{}, false
 }
 
-func (stubTurns) OpenWork(context.Context, string) (bool, error) { return false, nil }
-
-func (stubTurns) UnfinishedSince(string) (time.Time, bool)   { return time.Time{}, false }
-func (stubTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{}, false }
-
-func (stubTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
-
-func (stubTurns) AbandonMessageInferredInterrupt(context.Context, string) (bool, error) {
-	return false, nil
+func (stubTurns) FailTurnOnNotice(context.Context, engineagents.Runner, engineagents.TerminalNotice) {
 }
-
-func (stubTurns) AbandonMessageForRunner(
-	context.Context, string, engineagents.Runner,
-) (bool, error) {
-	return false, nil
-}
-
-func (stubTurns) CloseStalledTurn(context.Context, seam.Stall) {}
 
 // A terminal that cannot render a screen leaves the daemon with NO detector, and
 // every chat must then report the zero verdict rather than panicking on it.
@@ -112,7 +89,7 @@ func TestTerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 	assert.False(t, rs.TerminalWait("any-chat").Waiting)
 
 	// And the sweep is a no-op rather than a nil dereference.
-	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{})
+	rs.StartTerminalWaitSweep(t.Context())
 }
 
 // A terminal that CAN render a screen gets a detector, built by SetTurns because
@@ -125,57 +102,6 @@ func TestTerminalWait_ReadsThroughTheDetector(t *testing.T) {
 
 	assert.Equal(t, domain.AgentTerminalWait{}, rs.TerminalWait("chat-1"),
 		"a chat the sweep has never visited is not waiting")
-}
-
-// StartTerminalWaitSweep wires the publish callbacks BEFORE it checks for a
-// detector. A daemon with no detector still streams assistant messages to its
-// chat UI, and dropping messageDelta on that path is invisible until a user
-// watches a message that never grows.
-func TestStartTerminalWaitSweep_WiresMessageDeltaEvenWithNoDetector(t *testing.T) {
-	t.Parallel()
-
-	turns := &deltaRecordingTurns{}
-	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
-	rs.SetTurns(turns)
-
-	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{MessageDelta: func(_, _, _, _, _ string, _ time.Time) {}})
-
-	require.True(t, turns.wired, "a daemon with no detector still has messages to stream")
-}
-
-type deltaRecordingTurns struct {
-	stubTurns
-	wired bool
-}
-
-func (d *deltaRecordingTurns) SetFeed(feed seam.ChatFeed) {
-	d.wired = feed.MessageDelta != nil
-}
-
-// StartTerminalWaitSweep wires compactionStatus BEFORE it checks for a
-// detector too, for the same reason messageDelta is: a daemon with no
-// detector still needs to tell its chat UI a compaction is in progress, and
-// dropping the wiring on that path is invisible until a user watches a
-// compaction that never shows.
-func TestStartTerminalWaitSweep_WiresCompactionStatusEvenWithNoDetector(t *testing.T) {
-	t.Parallel()
-
-	turns := &compactionRecordingTurns{}
-	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
-	rs.SetTurns(turns)
-
-	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{Compaction: func(_, _ string, _ bool) {}})
-
-	require.True(t, turns.wired, "a daemon with no detector still has compaction status to publish")
-}
-
-type compactionRecordingTurns struct {
-	stubTurns
-	wired bool
-}
-
-func (c *compactionRecordingTurns) SetFeed(feed seam.ChatFeed) {
-	c.wired = feed.Compaction != nil
 }
 
 // ─── from termwait_live_test.go (real PTY) ────────────────────
@@ -193,14 +119,14 @@ const liveTrustScreen = `╭─────────────────�
 type liveRig struct {
 	detector termwait.Detector
 	engine   engineterminal.Engine
-	chat     domain.Chat
+	busy     bool
 	pending  []domain.ActivityChoice
 	runners  []engineagents.Runner
 }
 
 func (r *liveRig) AllLive(context.Context) ([]engineagents.Runner, error) { return r.runners, nil }
 
-func (r *liveRig) GetChat(context.Context, string) (domain.Chat, error) { return r.chat, nil }
+func (r *liveRig) ChatWork(context.Context, string) (bool, bool, error) { return r.busy, false, nil }
 
 func (r *liveRig) PendingChoices(context.Context, string) ([]domain.ActivityChoice, error) {
 	return r.pending, nil
@@ -229,13 +155,12 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 		t.TempDir(),
 		[]string{"/bin/sh", "-c", "printf '%s' \"$SCREEN\"; read -r _"},
 		append(os.Environ(), "SCREEN="+screen),
-		func() {},
+		func(engineterminal.Exit) {},
 	)
 	require.NoError(t, err)
 
 	rig := &liveRig{
 		engine: engine,
-		chat:   domain.Chat{ID: "chat-live", WorkspaceID: "ws-live"},
 		runners: []engineagents.Runner{{
 			ID:              "runner-live",
 			WorkspaceID:     "ws-live",
@@ -246,7 +171,7 @@ func newLiveRig(t *testing.T, screen string) *liveRig {
 	}
 	rig.detector = termwait.New(termwait.Deps{
 		Runners: rig,
-		Chats:   rig,
+		Work:    rig,
 		Choices: rig,
 		Screens: engine,
 		Prompts: rig,
@@ -270,16 +195,16 @@ func TestDetector_RealPTY_ReportsTheTrustDialog(t *testing.T) {
 	})
 }
 
-func TestDetector_RealPTY_WorkingChatIsNeverWaiting(t *testing.T) {
+func TestDetector_RealPTY_ADialogOverAWorkingChatStillWaits(t *testing.T) {
 	rig := newLiveRig(t, liveTrustScreen)
 	rig.awaitVerdict(t, "the dialog reaches the screen", func(w domain.AgentTerminalWait) bool {
 		return w.Waiting
 	})
 
-	rig.chat.Working = true
+	rig.busy = true
 	rig.detector.Sweep(context.Background(), nil)
 
-	assert.False(t, rig.detector.Wait("chat-live").Waiting)
+	assert.True(t, rig.detector.Wait("chat-live").Waiting, "a running turn behind a dialog is stuck on it")
 }
 
 func TestDetector_RealPTY_PendingChoiceIsNeverWaiting(t *testing.T) {

@@ -11,14 +11,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
 )
 
-// ── durable state: .buf files and meta rows ──────────────────────────────────
-//
-// Every write below runs under the entry's lifecycle lock and after checking the entry's
-// state, which is what keeps disk in step with the state machine (invariant B3): nothing
-// can persist a session after it ended, because ending happens under the same lock and
-// deletes what persisting wrote. A command session (agentic vendor CLI) is never
-// persisted: restore can only birth a login shell, so a row for one would come back as a
-// bare shell wearing the agent's frame.
+// Durable state: every write below runs under the entry's lifecycle lock after a state
+// check, so nothing persists a session after it ended. Command sessions are never
+// persisted: restore can only birth a login shell.
 
 func (e *terminalEngine) meta() SessionMetaStore {
 	e.cbMu.RLock()
@@ -109,7 +104,6 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, ent *sessionEntry,
 	}
 	e.saveMeta(ctx, ent, "detached")
 	ent.mu.Unlock()
-	e.fireState(ctx, ent.chatID, ent.id, "detached")
 }
 
 // flushOnce persists one live shell's screen if it changed since the last flush.
@@ -123,7 +117,7 @@ func (e *terminalEngine) flushOnce(ctx context.Context, ent *sessionEntry) {
 	if err != nil || dir == "" {
 		return
 	}
-	// Snapshot consumes the dirty bit; an unchanged session skips the disk write (§8.4).
+	// Snapshot consumes the dirty bit; an unchanged session skips the disk write.
 	blob, changed := ent.sess.Load().Snapshot()
 	if !changed {
 		return
@@ -184,14 +178,9 @@ func oldestFirst(cs []candidate) {
 	sort.Slice(cs, func(i, j int) bool { return cs[i].lastActive.Before(cs[j].lastActive) })
 }
 
-// runMaintenanceOnce performs the sweep in order:
-//
-//  1. Cadence flush — persist each live shell whose screen changed.
-//  2. Per-chat soft limit — idle-gated-suspend the oldest idle detached shells of a chat
-//     with more than softLimitPerChat detached shells.
-//  3. Global ceiling — while over maxTotalSessions or maxTotalModelBytes: drop cached
-//     blobs, then idle-gated-suspend, then force-suspend detached running shells, then
-//     evict the oldest suspended sessions (the only step that lowers the count).
+// runMaintenanceOnce sweeps in order: flush each changed live shell; suspend the oldest
+// idle detached shells of a chat over softLimitPerChat; then, while over the global caps,
+// drop cached blobs, suspend, force-suspend, and finally evict the oldest suspended.
 func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 	for _, ent := range e.snapshot() {
 		e.flushOnce(ctx, ent)
@@ -225,9 +214,8 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 
 func (e *terminalEngine) suspendEntry(ctx context.Context, ent *sessionEntry, force bool) {
 	ent.mu.Lock()
-	fx := e.suspendLocked(ctx, ent, force)
+	e.suspendLocked(ctx, ent, force)
 	ent.mu.Unlock()
-	fx.run()
 }
 
 // underCeiling counts EVERY registered session — live and suspended alike — and sums
@@ -258,7 +246,7 @@ func (e *terminalEngine) enforceCeiling(ctx context.Context) {
 	oldestFirst(cs)
 
 	// Reclaimable cache first: ModelBytes counts each live session's cached blob, so the
-	// ceiling can be tripped purely by cache (§9.4).
+	// ceiling can be tripped purely by cache.
 	for _, c := range cs {
 		if s := c.ent.live(); s != nil {
 			s.DropCachedBlob()
@@ -306,7 +294,7 @@ func (e *terminalEngine) evict(ctx context.Context, ent *sessionEntry) {
 }
 
 // Stats returns a point-in-time snapshot of session counts, estimated model memory, and
-// the parse-health surface (§9.4) across all registered sessions.
+// the parse-health surface across all registered sessions.
 func (e *terminalEngine) Stats() (active, detached, suspended int, modelBytes int64, degraded, parsePanics int) {
 	for _, ent := range e.snapshot() {
 		ent.mu.Lock()

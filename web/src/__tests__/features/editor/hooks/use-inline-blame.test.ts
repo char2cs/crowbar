@@ -3,10 +3,11 @@ import type * as Monaco from 'monaco-editor'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('@/lib/api', () => ({ apiFetch }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
 
 import { useInlineBlame } from '@/features/editor/hooks/use-inline-blame'
 import { blameKey, useGitBlameStore } from '@/features/git/stores/git-blame-store'
+import { useSettingsStore } from '@/features/settings/store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
@@ -15,6 +16,8 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 
+// The load effect only needs a bound editor and model; nothing is rendered
+// because every load here answers with no entries.
 const editor = {} as Monaco.editor.IStandaloneCodeEditor
 const model = {} as Monaco.editor.ITextModel
 
@@ -22,6 +25,7 @@ beforeEach(() => {
   apiFetch.mockReset()
   apiFetch.mockResolvedValue([])
   useGitBlameStore.setState({ blame: {} })
+  useSettingsStore.setState((s) => ({ settings: { ...s.settings, inlineBlame: true } }))
   resetHostWorld()
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'ws-local', owningChatId: 'c-l' })
@@ -34,6 +38,15 @@ describe('useInlineBlame', () => {
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
     expect(apiFetch.mock.calls[0][0]).toBe('/v0/chats/c-l/blame?path=a.ts')
+  })
+
+  it('never asks the daemon to blame an untitled buffer, which has no file', () => {
+    renderHook(() => useInlineBlame(editor, model, 'ws-local', 'untitled:Untitled-1'))
+
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(useGitBlameStore.getState().blame[blameKey('ws-local', 'untitled:Untitled-1')]).toBe(
+      undefined,
+    )
   })
 
   describe('on an install that has paired a remote host', () => {

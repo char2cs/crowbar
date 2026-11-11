@@ -11,38 +11,21 @@ export interface ExcalidrawSaveResult {
 }
 
 interface ExcalidrawCanvasProps {
-  /** Awaited by the caller (the takeover's header Attach button) before it
-   *  re-enables — an async upload still in flight must not let a fast
-   *  second click fire a second save. */
+  /** Awaited before Attach re-enables, so a second click can't fire a second save. */
   onSave: (result: ExcalidrawSaveResult) => void | Promise<void>
-  /** Resume an existing design instead of a blank canvas — the takeover's
-   *  own "+" entry point (the user's saved design) and its Edit button on a
-   *  rendered diagram (that diagram's scene) both preload through this. */
   initialScene?: ParsedExcalidrawScene
-  /** Fires once the live Excalidraw API is available. Before this, `save()`
-   *  silently no-ops — there is nothing to export yet, since the library's
-   *  own async init hasn't handed back its imperative API. The takeover's
-   *  Attach button stays disabled until this fires, so a click during that
-   *  window can no longer look like a hang with nothing actually saved. */
+  /** Until this fires `save()` no-ops: Excalidraw's async init has no API yet. */
   onReady?: () => void
 }
 
 export interface ExcalidrawCanvasHandle {
-  /** Exports the live scene and hands it to `onSave`. There is no button
-   *  inside this component — the takeover's header Attach button is the
-   *  only caller (see excalidraw-takeover.tsx: the bottom toolbar this used
-   *  to own was removed, reported live as chrome that didn't belong). */
   save: () => Promise<void>
 }
 
-/** The actual heavy mount — see excalidraw-takeover.tsx for why this lives
- *  in its own lazy chunk rather than the composer's own module scope. */
 export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, ExcalidrawCanvasProps>(
   function ExcalidrawCanvas({ onSave, initialScene, onReady }, ref) {
     const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null)
-    // Reactive, not just read-once-at-mount: opening the takeover in dark
-    // mode and then flipping the app's theme while it's still open must not
-    // leave it stuck on whichever theme was active at open time.
+    // Reactive so a theme flip while the takeover is open is picked up.
     useThemeVersion()
     const theme = isDarkMode() ? 'dark' : 'light'
 

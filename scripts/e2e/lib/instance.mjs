@@ -11,7 +11,7 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CdpDriver } from './cdp.mjs'
-import { daemonClient, socketPathFor } from './daemon.mjs'
+import { daemonClient } from './daemon.mjs'
 import { Driver, Fatal } from './driver.mjs'
 import { installStubProvider } from './stub-provider.mjs'
 import { until } from './wait.mjs'
@@ -63,17 +63,9 @@ function onceExited(child) {
   })
 }
 
-/**
- * One isolated dev instance of THIS checkout: its own CROWBAR_HOME (so its own
- * daemon, projects and logs), its own Vite origin (so its own localStorage and
- * IndexedDB) and a real UI to drive. It never reads or writes the production
- * ~/.crowbar.
- *
- * target 'tauri'   the real desktop app (debug build) with its daemon sidecar,
- *                  driven through the app's in-process bridge.
- * target 'browser' the same web bundle in a Chrome the suite launches, talking
- *                  to a daemon the suite launches on loopback TCP, driven over CDP.
- */
+/** One isolated dev instance of this checkout: its own CROWBAR_HOME and Vite origin, never the
+ *  production ~/.crowbar. target 'tauri' drives the debug desktop app and its daemon sidecar via the
+ *  in-process bridge; 'browser' drives the same bundle in a launched Chrome over CDP (loopback TCP). */
 export class Instance {
   constructor(target) {
     this.target = target
@@ -82,11 +74,7 @@ export class Instance {
     this.home = join(this.runDir, 'home')
     this.devPort = freePort()
     this.apiPort = target === 'browser' ? freePort() : 0
-    this.daemon = daemonClient(
-      target === 'browser'
-        ? `http://127.0.0.1:${this.apiPort}`
-        : socketPathFor(this.home, tmpdir()),
-    )
+    this.daemon = null
     this.driver = null
     this.app = null
     this.vite = null
@@ -130,18 +118,27 @@ export class Instance {
     if (done.status !== 0) throw new Error(`${command} ${args.join(' ')} failed:\n${done.stderr}`)
   }
 
+  /** Where the daemon for this home listens, as `crowbar paths` reports it: Go alone decides. */
+  socketPath() {
+    const done = spawnSync(this.daemonBin(), ['paths'], { env: this.env(), encoding: 'utf8' })
+    if (done.status !== 0) throw new Error(`crowbar paths failed:\n${done.stderr}`)
+    return JSON.parse(done.stdout).socket
+  }
+
   /** Brings up the daemon (browser target) and Vite; the app itself is launched by launchApp(). */
   async start() {
     installStubProvider(this.home, this.runDir)
+    this.sh(
+      'go',
+      ['build', '-tags', 'noEmbed', '-o', this.daemonBin(), './cmd/crowbar'],
+      join(REPO_ROOT, 'api'),
+    )
     if (this.target === 'browser') {
-      this.sh(
-        'go',
-        ['build', '-tags', 'noEmbed', '-o', this.daemonBin(), './cmd/crowbar'],
-        join(REPO_ROOT, 'api'),
-      )
+      this.daemon = daemonClient(`http://127.0.0.1:${this.apiPort}`)
       this.startDaemonProcess()
     } else {
       this.sh('make', ['-C', 'desktop', 'fetch-sidecar'], REPO_ROOT)
+      this.daemon = daemonClient(this.socketPath())
     }
     this.vite = this.spawnLogged(
       'vite',
@@ -301,7 +298,7 @@ export class Instance {
       timeout: 20_000,
     })
     if (this.target === 'browser') this.startDaemonProcess()
-    return until(
+    const pid = await until(
       'a new daemon to answer',
       async () => {
         const pid = await this.daemonPid()
@@ -309,6 +306,8 @@ export class Instance {
       },
       { timeout: 60_000 },
     )
+    await this.daemon.waitHealthy()
+    return pid
   }
 
   async teardown({ keep }) {

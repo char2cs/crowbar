@@ -16,9 +16,17 @@ fn write_text(text: &str) -> Result<(), String> {
         .ok_or_else(|| "the pasteboard rejected the text".to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
+/// A sync command runs on the main thread, where GTK lives; GTK serves the text to other
+/// apps for as long as Crowbar runs.
+#[cfg(target_os = "linux")]
+fn write_text(text: &str) -> Result<(), String> {
+    gtk::Clipboard::get(&gtk::gdk::Atom::intern("CLIPBOARD")).set_text(text);
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn write_text(_text: &str) -> Result<(), String> {
-    Err("copying from a browser tab is only supported on macOS".into())
+    Err("copying from a browser tab is only supported on macOS and Linux".into())
 }
 
 #[tauri::command]
@@ -48,7 +56,20 @@ mod tests {
         }
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn text_lands_on_the_clipboard() {
+        let text = "crowbar pointer \u{2316} test";
+        let read = crate::browser::gtk_test_thread::on_gtk_thread(move || {
+            browser_copy_text(text.into()).unwrap();
+            gtk::Clipboard::get(&gtk::gdk::Atom::intern("CLIPBOARD"))
+                .wait_for_text()
+                .map(|s| s.to_string())
+        });
+        assert_eq!(read.as_deref(), Some(text));
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     #[test]
     fn other_platforms_report_the_limit() {
         assert!(browser_copy_text("x".into()).unwrap_err().contains("macOS"));

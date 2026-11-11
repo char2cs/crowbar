@@ -3,17 +3,13 @@ import { openChatRoute } from '@/components/layout/open-actions'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import type { Repo } from '@/lib/store/sidebar'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
+import type { Repo } from '@/core/entities/repo-types'
 
 type NavigateFn = ReturnType<typeof useNavigate>
 
-/**
- * A Recents row's body: switch to the view, then route to the workspace of
- * the chat it focuses. The band is the view switcher — `setActivePane` brings
- * the owning view over — and `openChatRoute` is the tree click's own
- * home-or-repo resolve+open, so a project-home chat routes as well as a repo
- * one.
- */
+// A Recents row's body: switch to its view, then route to the focused chat's workspace through
+// the tree click's own home-or-repo resolve, so a project-home chat routes too.
 export function focusRecent(viewId: string, repos: readonly Repo[], navigate: NavigateFn): void {
   const { views, panes, mostRecentActivePaneIds, paneActions } = windowPaneStore.getState()
   const view = views[viewId]
@@ -24,7 +20,7 @@ export function focusRecent(viewId: string, repos: readonly Repo[], navigate: Na
   const pane = paneId ? panes[paneId] : undefined
   if (!paneId || !pane?.chatId) return
   paneActions.setActivePane(paneId)
-  openChatRoute(repos, pane.chatId, pane.workspaceId ?? '', navigate)
+  openChatRoute(repos, pane.chatId, paneChatWorkspaceId(pane) ?? '', navigate)
 }
 
 /** The row's × — ends the whole view. Its agents keep running; only Kill ends one. */

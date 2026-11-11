@@ -11,10 +11,7 @@ interface UseTabKeyboardNavOptions {
   onCloseTab: (bufferId: string) => void
 }
 
-/**
- * Returns a `handleKeyDown` callback for tab-bar keyboard navigation.
- * Supports ArrowLeft/ArrowRight, Home/End, Delete/Backspace, Enter/Space.
- */
+/** Tab-strip keys: ArrowLeft/Right, Home/End, Delete/Backspace, Enter/Space. */
 export function useTabKeyboardNav({
   sortedBuffers,
   tabRefs,

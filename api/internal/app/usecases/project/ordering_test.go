@@ -8,17 +8,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // withRepoNodes seeds the repo Node row every imported repo carries.
 func withRepoNodes(ids ...string) *mocks.NodePlacements {
 	nodes := mocks.NewNodePlacements()
 	for _, id := range ids {
-		nodes.Rows = append(nodes.Rows, domain.Node{ID: id, Kind: domain.NodeKindRepo})
+		nodes.Rows = append(nodes.Rows, tree.Node{ID: id, Kind: tree.KindRepo})
 	}
 	return nodes
 }
@@ -31,7 +32,7 @@ func nodeRow(
 	t *testing.T,
 	nodes *mocks.NodePlacements,
 	id string,
-) domain.Node {
+) tree.Node {
 	t.Helper()
 	for _, n := range nodes.Rows {
 		if n.ID == id {
@@ -39,7 +40,7 @@ func nodeRow(
 		}
 	}
 	t.Fatalf("nodeRow: no Node row for %s", id)
-	return domain.Node{}
+	return tree.Node{}
 }
 
 // nodeOrders reads back the persisted Order of each repo's own Node row, so a
@@ -64,22 +65,22 @@ func TestUpdateRepo_ReorderLeavesTheProjectDense(t *testing.T) {
 	ctx := context.Background()
 	for i, id := range []string{"a", "b", "c"} {
 		require.NoError(t, repos.Save(ctx, domain.Repository{ID: id, ProjectID: "p1", Name: id}))
-		nodes.Rows = append(nodes.Rows, domain.Node{ID: id, Kind: domain.NodeKindRepo, Order: i})
+		nodes.Rows = append(nodes.Rows, tree.Node{ID: id, Kind: tree.KindRepo, Order: i})
 	}
 
-	_, err := uc.UpdateRepo(ctx, "c", project.RepoUpdate{Order: index(0)})
+	err := uc.UpdateRepo(ctx, "c", project.RepoUpdate{Order: index(0)})
 	require.NoError(t, err)
 	assert.Equal(t, []int{1, 2, 0}, nodeOrders(t, nodes, "a", "b", "c"))
 
 	// Re-running the identical move must converge on the same sequence, not
 	// drift a slot each time.
-	_, err = uc.UpdateRepo(ctx, "c", project.RepoUpdate{Order: index(0)})
+	err = uc.UpdateRepo(ctx, "c", project.RepoUpdate{Order: index(0)})
 	require.NoError(t, err)
 	assert.Equal(t, []int{1, 2, 0}, nodeOrders(t, nodes, "a", "b", "c"))
 
 	// An out-of-range index clamps to the end rather than failing the request:
 	// the client's index was computed against a list that may have moved.
-	_, err = uc.UpdateRepo(ctx, "c", project.RepoUpdate{Order: index(99)})
+	err = uc.UpdateRepo(ctx, "c", project.RepoUpdate{Order: index(99)})
 	require.NoError(t, err)
 	assert.Equal(t, []int{0, 1, 2}, nodeOrders(t, nodes, "a", "b", "c"))
 }
@@ -104,17 +105,17 @@ func TestUpdateRepo_ReorderLeavesTheProjectDense(t *testing.T) {
 func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-1", ProjectID: "p1"}))
-	nodes.Rows = []domain.Node{
-		{ID: "repo-1", Kind: domain.NodeKindRepo},
-		{ID: "chat-1", Kind: domain.NodeKindChat, Order: 0},
-		{ID: "chat-2", Kind: domain.NodeKindChat, Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "repo-1", Kind: tree.KindRepo},
+		{ID: "chat-1", Kind: tree.KindChat, Order: 0},
+		{ID: "chat-2", Kind: tree.KindChat, Order: 1},
 	}
 
 	// Drag the SOLE repo to sit after both home chats: order 2, not 0.
-	_, err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(2)})
+	err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(2)})
 	require.NoError(t, err)
 
 	got := nodeRow(t, nodes, "repo-1").Order
@@ -123,7 +124,7 @@ func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 	assert.Equal(t, 2, got, "the repo must land exactly where the drag asked, among its real siblings")
 
 	// It must STAY there: an identical re-drag must not drift it.
-	_, err = uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(2)})
+	err = uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(2)})
 	require.NoError(t, err)
 	assert.Equal(t, 2, nodeRow(t, nodes, "repo-1").Order,
 		"the repo's position must be stable across an identical re-drag")
@@ -142,19 +143,19 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 		t.Helper()
 		repos := mocks.NewRepositoryStore()
 		nodes := mocks.NewNodePlacements()
-		uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil, nil)
+		uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil)
 		require.NoError(t, repos.Save(context.Background(),
 			domain.Repository{ID: "repo-1", ProjectID: "p1"}))
-		nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
+		nodes.Rows = append(nodes.Rows, tree.Node{ID: "repo-1", Kind: tree.KindRepo, Order: 0})
 		return nodes, uc
 	}
 
 	t.Run("sorts the repo AFTER a home chat when the target says so, not always before it", func(t *testing.T) {
 		nodes, uc := newFixture(t)
-		nodes.Rows = append(nodes.Rows, domain.Node{ID: "chat-1", Kind: domain.NodeKindChat, Order: 1})
+		nodes.Rows = append(nodes.Rows, tree.Node{ID: "chat-1", Kind: tree.KindChat, Order: 1})
 		ctx := context.Background()
 
-		_, err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(1)})
+		err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(1)})
 		require.NoError(t, err)
 
 		repoOrder := nodeRow(t, nodes, "repo-1").Order
@@ -164,10 +165,10 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 
 	t.Run("sorts the repo BEFORE a home chat when the target says so, not always after it", func(t *testing.T) {
 		nodes, uc := newFixture(t)
-		nodes.Rows = append(nodes.Rows, domain.Node{ID: "chat-1", Kind: domain.NodeKindChat, Order: 0})
+		nodes.Rows = append(nodes.Rows, tree.Node{ID: "chat-1", Kind: tree.KindChat, Order: 0})
 		ctx := context.Background()
 
-		_, err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(0)})
+		err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(0)})
 		require.NoError(t, err)
 
 		repoOrder := nodeRow(t, nodes, "repo-1").Order
@@ -179,17 +180,17 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 		repos := mocks.NewRepositoryStore()
 		nodes := mocks.NewNodePlacements()
 		folders := mocks.NewFolderStore()
-		folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder-1", RepoID: ""})
-		uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
+		folders.Saved = append(folders.Saved, tree.Folder{ID: "home-folder-1", RepoID: ""})
+		uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
 		ctx := context.Background()
 		require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-1", ProjectID: "p1"}))
-		nodes.Rows = []domain.Node{
-			{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0},
-			{ID: "home-folder-1", Kind: domain.NodeKindFolder, Order: 0},
-			{ID: "chat-in-folder", Kind: domain.NodeKindChat, ParentID: "home-folder-1", Order: 0},
+		nodes.Rows = []tree.Node{
+			{ID: "repo-1", Kind: tree.KindRepo, Order: 0},
+			{ID: "home-folder-1", Kind: tree.KindFolder, Order: 0},
+			{ID: "chat-in-folder", Kind: tree.KindChat, ParentID: "home-folder-1", Order: 0},
 		}
 
-		_, err := uc.UpdateRepo(ctx, "repo-1",
+		err := uc.UpdateRepo(ctx, "repo-1",
 			project.RepoUpdate{FolderID: name("home-folder-1"), Order: index(1)})
 		require.NoError(t, err)
 
@@ -201,7 +202,7 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 }
 
 // TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeChats
-// is the SDD review's Critical 2 fix: domain.Node carries no project id of
+// is the SDD review's Critical 2 fix: tree.Node carries no project id of
 // its own, so the bare project-home root (folderID == "") is one literal
 // container SHARED by every project's home Node rows. Before this fix,
 // placeRepoAmongHomeSiblings included every CHAT-kind Node row sharing that
@@ -223,15 +224,15 @@ func TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeC
 		{ID: "chat-A1", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat},
 		{ID: "chat-B1", WorkspaceID: "home-ws-B", Type: domain.ChatTypeChat},
 	}
-	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, homeChats, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, homeChats)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-A", ProjectID: "pA"}))
-	nodes.Rows = []domain.Node{
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "chat-A1", Kind: domain.NodeKindChat, Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "repo-A", Kind: tree.KindRepo, Order: 0},
+		{ID: "chat-A1", Kind: tree.KindChat, Order: 1},
 		// chat-B1 shares the literal "" root but belongs to a DIFFERENT
 		// project — the exact row the pre-fix code leaked into pA's densify.
-		{ID: "chat-B1", Kind: domain.NodeKindChat, Order: 2},
+		{ID: "chat-B1", Kind: tree.KindChat, Order: 2},
 	}
 
 	// Drag repo-A past BOTH chats sharing the root -- the reinsert this target
@@ -239,7 +240,7 @@ func TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeC
 	// (pre-fix) computation; a smaller target can coincidentally leave its
 	// index unchanged even when it was never excluded, which would pass by
 	// accident rather than by the fix actually working.
-	_, err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(2)})
+	err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(2)})
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, nodeRow(t, nodes, "chat-B1").Order,
@@ -252,48 +253,27 @@ func TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeC
 	}
 }
 
-// TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat pins the
-// exact live bug: dragging a repo past a home chat renumbers that chat's Node
-// row too (one dense sibling space, placeRepoAmongHomeSiblings' own doc), but
-// the chat's write goes through Nodes.SetOrder directly — no Chat aggregate
-// command, so no hub projection announces it, and no folder-style announce
-// call sees it either (this whole function lives outside the chat package).
-// Before broadcastChat was wired in, a repo dragged above a chat left that
-// chat's stale order tied against the repo's own new one, so the repo never
-// visibly passed it on a live client despite the write succeeding.
-func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.T) {
+// Dragging a repo past a home chat renumbers that chat's Node too: the home
+// level is one dense sibling space (placeRepoAmongHomeSiblings).
+func TestUpdateRepo_ShiftsACollateralHomeChat(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
 	workspaces := mocks.NewWorkspacePlacements()
 	workspaces.Rows = []domain.Workspace{
 		{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome},
 	}
-	type frame struct {
-		id, workspaceID string
-		kind            domain.NodeKind
-		event           string
-	}
-	var frames []frame
-	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil,
-		func(_ context.Context, id, workspaceID string, kind domain.NodeKind, event string) {
-			frames = append(frames, frame{id, workspaceID, kind, event})
-		},
-	)
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-A", ProjectID: "pA"}))
-	nodes.Rows = []domain.Node{
-		{ID: "chat-1", Kind: domain.NodeKindChat, Order: 0},
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "chat-1", Kind: tree.KindChat, Order: 0},
+		{ID: "repo-A", Kind: tree.KindRepo, Order: 1},
 	}
 
-	_, err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(0)})
-	require.NoError(t, err)
+	require.NoError(t, uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(0)}))
 
 	assert.Equal(t, 0, nodeRow(t, nodes, "repo-A").Order, "the repo itself moved to the top")
 	assert.Equal(t, 1, nodeRow(t, nodes, "chat-1").Order, "the chat was pushed down as collateral")
-	require.Len(t, frames, 1, "the collaterally-shifted chat must be announced")
-	assert.Equal(t, frame{id: "chat-1", workspaceID: "home-ws-A", kind: domain.NodeKindChat, event: "order_set"}, frames[0],
-		"announced as a CHAT, never as a folder frame carrying the chat id")
 }
 
 // TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour documents
@@ -306,15 +286,15 @@ func TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour(t *testin
 	nodes := mocks.NewNodePlacements()
 	workspaces := mocks.NewWorkspacePlacements()
 	workspaces.Rows = []domain.Workspace{{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome}}
-	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-A", ProjectID: "pA"}))
-	nodes.Rows = []domain.Node{
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "chat-elsewhere", Kind: domain.NodeKindChat, Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "repo-A", Kind: tree.KindRepo, Order: 0},
+		{ID: "chat-elsewhere", Kind: tree.KindChat, Order: 1},
 	}
 
-	_, err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(1)})
+	err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(1)})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, nodeRow(t, nodes, "chat-elsewhere").Order,
@@ -329,17 +309,17 @@ func TestUpdateRepo_FilesIntoAHomeFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
 	folders := mocks.NewFolderStore()
-	folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder", RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
+	folders.Saved = append(folders.Saved, tree.Folder{ID: "home-folder", RepoID: ""})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
-	nodes.Rows = []domain.Node{
-		{ID: "r1", Kind: domain.NodeKindRepo},
-		{ID: "r2", Kind: domain.NodeKindRepo},
+	nodes.Rows = []tree.Node{
+		{ID: "r1", Kind: tree.KindRepo},
+		{ID: "r2", Kind: tree.KindRepo},
 	}
 
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("home-folder")})
+	err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("home-folder")})
 	require.NoError(t, err)
 	got := nodeRow(t, nodes, "r1")
 	assert.Equal(t, "home-folder", got.ParentID)
@@ -357,41 +337,39 @@ func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := withRepoNodes("r1")
 	folders := mocks.NewFolderStore()
-	folders.Saved = append(folders.Saved, domain.Folder{ID: "repo-folder", RepoID: "other-repo"})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
+	folders.Saved = append(folders.Saved, tree.Folder{ID: "repo-folder", RepoID: "other-repo"})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("repo-folder")})
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("repo-folder")})
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 
 	assert.Empty(t, nodes.Placed, "a refused move leaves the repo where it was")
 	assert.Empty(t, nodes.Ordered, "a refused move leaves the repo where it was")
 }
 
-// A folder id naming a CHAT, not a folder, is refused the same way an
-// unknown id is — chats live on a different store entirely now (Folders is
-// domain.Folder-only, 2026-09-08 sidebar-placement-unification Task 5), so
-// FindByKey answers not-found for either, exactly the same "not a
-// project-home folder" refusal TestUpdateRepo_RefusesAnUnknownFolder pins.
+// A folder id naming a CHAT is refused the way an unknown id is: Folders
+// holds only tree.Folder rows, so FindByKey answers not-found for either, the
+// "not a project-home folder" refusal TestUpdateRepo_RefusesAnUnknownFolder pins.
 func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("some-chat")})
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("some-chat")})
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("missing")})
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("missing")})
+	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // A repo that LEAVES a folder closes the gap it left behind, exactly as
@@ -400,17 +378,17 @@ func TestUpdateRepo_LeavingAFolderDensifiesIt(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
 	folders := mocks.NewFolderStore()
-	folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder", RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
+	folders.Saved = append(folders.Saved, tree.Folder{ID: "home-folder", RepoID: ""})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "a", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "b", ProjectID: "p1"}))
-	nodes.Rows = []domain.Node{
-		{ID: "a", Kind: domain.NodeKindRepo, ParentID: "home-folder", Order: 0},
-		{ID: "b", Kind: domain.NodeKindRepo, ParentID: "home-folder", Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "a", Kind: tree.KindRepo, ParentID: "home-folder", Order: 0},
+		{ID: "b", Kind: tree.KindRepo, ParentID: "home-folder", Order: 1},
 	}
 
-	_, err := uc.UpdateRepo(ctx, "a", project.RepoUpdate{FolderID: name("")})
+	err := uc.UpdateRepo(ctx, "a", project.RepoUpdate{FolderID: name("")})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, nodeRow(t, nodes, "b").Order, "b closes the gap a left in the folder")
@@ -439,7 +417,7 @@ func TestReorder_UnknownProjectIs404(t *testing.T) {
 	_, _, uc := newProjectUsecase(t)
 
 	_, err := uc.Reorder(context.Background(), "missing", 0)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
@@ -450,7 +428,7 @@ func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
 		ctx := context.Background()
 		require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 		repos.FindErr = errors.New("boom")
-		_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Order: index(0)})
+		err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Order: index(0)})
 		assert.ErrorContains(t, err, "boom")
 	})
 
@@ -459,7 +437,7 @@ func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
 		ctx := context.Background()
 		require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 		repos.SaveErr = errors.New("disk full")
-		_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("new")})
+		err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("new")})
 		assert.ErrorContains(t, err, "disk full")
 	})
 }
@@ -472,13 +450,13 @@ func TestUpdateRepo_ProjectMoveIsRefusedAndWritesNothing(t *testing.T) {
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "old"}))
 
-	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2"), Name: name("new")})
-	require.ErrorIs(t, err, apperr.ErrConflict)
+	err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2"), Name: name("new")})
+	require.ErrorIs(t, err, problem.ErrConflict)
 	row, err := repos.FindByKey(ctx, "r1")
 	require.NoError(t, err)
 	assert.Equal(t, domain.Repository{ID: "r1", ProjectID: "p1", Name: "old"}, *row)
 
-	_, err = uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p1")})
+	err = uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p1")})
 	require.NoError(t, err)
 }
 
@@ -489,8 +467,8 @@ func TestUpdateRepo_EmptyUpdateIsANoOp(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}))
 
-	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{})
-	got := updated.Repo
+	require.NoError(t, uc.UpdateRepo(ctx, "r1", project.RepoUpdate{}))
+	got, err := repos.FindByKey(ctx, "r1")
 	require.NoError(t, err)
 	assert.Equal(t, "widget", got.Name)
 }
@@ -517,7 +495,7 @@ func TestReorder_MissingAfterTheWriteIs404(t *testing.T) {
 	projects.FindErr = errors.New("row read failed")
 
 	_, err := uc.Reorder(ctx, "b", 0)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // TestReorder_ListStoreError covers Reorder surfacing a failure reading the
@@ -537,9 +515,9 @@ func TestUpdateRepo_LookupStoreError(t *testing.T) {
 	_, repos, uc := newProjectUsecase(t)
 	repos.FindByKeyErr = errors.New("db down")
 
-	_, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("x")})
+	err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("x")})
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound)
+	assert.NotErrorIs(t, err, problem.ErrNotFound)
 }
 
 // TestUpdateRepo_DensifySaveError covers densifyRepos surfacing a failure
@@ -553,77 +531,14 @@ func TestUpdateRepo_DensifySaveError(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
-	nodes.Rows = []domain.Node{
-		{ID: "r1", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "r2", Kind: domain.NodeKindRepo, Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "r1", Kind: tree.KindRepo, Order: 0},
+		{ID: "r2", Kind: tree.KindRepo, Order: 1},
 	}
 	// r2 moves to the front, which pushes r1 back a slot — r1 is the sibling
 	// whose densify-write fails.
 	nodes.OrderErrForID = map[string]error{"r1": errors.New("disk full")}
 
-	_, err := uc.UpdateRepo(ctx, "r2", project.RepoUpdate{Order: index(0)})
+	err := uc.UpdateRepo(ctx, "r2", project.RepoUpdate{Order: index(0)})
 	assert.ErrorContains(t, err, "disk full")
-}
-
-// repositoryStoreMissingAfterSave is a one-off store.ScopedStore[domain.Repository, string]
-// fake: it answers the first FindByKey (UpdateRepo's initial lookup) and every
-// FindWhere (the densify passes) normally, but the SECOND FindByKey call (the
-// post-save re-fetch UpdateRepo uses to return what was actually persisted)
-// comes back not-found — modelling a row removed by something else between the
-// save and the re-read.
-type repositoryStoreMissingAfterSave struct {
-	row           domain.Repository
-	findByKeyCall int
-}
-
-func (s *repositoryStoreMissingAfterSave) Save(context.Context, domain.Repository) error {
-	return nil
-}
-
-func (s *repositoryStoreMissingAfterSave) Delete(context.Context, string) error { return nil }
-
-func (s *repositoryStoreMissingAfterSave) FindByKey(
-	_ context.Context,
-	id string,
-) (*domain.Repository, error) {
-	s.findByKeyCall++
-	if s.findByKeyCall > 1 {
-		return nil, nil
-	}
-	if id != s.row.ID {
-		return nil, nil
-	}
-	row := s.row
-	return &row, nil
-}
-
-func (s *repositoryStoreMissingAfterSave) FindAll(
-	context.Context,
-) ([]domain.Repository, error) {
-	return []domain.Repository{s.row}, nil
-}
-
-func (s *repositoryStoreMissingAfterSave) FindWhere(
-	_ context.Context,
-	match domain.Repository,
-) ([]domain.Repository, error) {
-	if match.ProjectID != "" && match.ProjectID != s.row.ProjectID {
-		return nil, nil
-	}
-	return []domain.Repository{s.row}, nil
-}
-
-// TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty
-// pins the fallback at the end of UpdateRepo: the row was just saved
-// successfully, so a nil/failed re-fetch is not treated as the update having
-// failed — the caller gets back what it just wrote instead of an error.
-func TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty(t *testing.T) {
-	repos := &repositoryStoreMissingAfterSave{row: domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}}
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil, nil)
-
-	updated, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
-	got := updated.Repo
-
-	require.NoError(t, err, "a vanished post-save re-fetch must not fail an update that already succeeded")
-	assert.Equal(t, "renamed", got.Name, "the caller gets back the row it just wrote")
 }

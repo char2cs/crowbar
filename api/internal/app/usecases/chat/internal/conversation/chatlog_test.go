@@ -3,11 +3,16 @@ package conversation
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // speaker is in-package, so this test is too. It is the one piece of the ledger
@@ -46,18 +51,59 @@ func TestSpeaker_NeverRendersANonUserTurnAsTheUser(t *testing.T) {
 	}
 }
 
-func TestToChatTurns_AttributesLegacyClaudeHandBackToHarness(t *testing.T) {
-	c := &Conversations{
-		agents: engineagents.New(),
-		home:   func() (string, error) { return t.TempDir(), nil },
+// askedLock is the chat locks, telling asked of every chat a write asks for.
+type askedLock struct {
+	*ingress.Locks
+	asked chan<- string
+}
+
+func (l askedLock) Lock(ctx context.Context, chatID string) (func(), error) {
+	l.asked <- chatID
+	return l.Locks.Lock(ctx, chatID)
+}
+
+// A note lands after the hook holding its chat: it waits for the chat's lock,
+// so it never lands between that hook's check and its rows.
+func TestAppendNote_LandsAfterTheHookHoldingTheChat(t *testing.T) {
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	l, err := ledgerstore.Open(t.Context(), db, time.Now)
+	require.NoError(t, err)
+	locks, asking := ingress.NewLocks(), make(chan string, 1)
+	c := &Conversations{writes: ingress.NewWriter(l, askedLock{Locks: locks, asked: asking})}
+	unlock, err := locks.Lock(t.Context(), "chat-1") // a hook mid-record
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- c.appendNote(context.Background(), "chat-1", "a note") }()
+	select {
+	case <-asking:
+	case err := <-done:
+		done <- err
 	}
-	rows := []domain.ActivityTurn{
-		{Role: domain.TurnRoleUser, ProviderID: "claude", Text: "[Subagent hand-back]The text below is the final report of a subagent this session delegated to."},
-		{Role: domain.TurnRoleUser, ProviderID: "claude", Text: "Tell me about [Subagent hand-back]"},
-		{Role: domain.TurnRoleUser, ProviderID: "claude", Text: "<agent-message from=\"a3c2\">\n[Subagent hand-back] The text below is the final report of a subagent.\n  done\n</agent-message>"},
-	}
-	turns := c.toChatTurns(context.Background(), rows)
-	assert.Equal(t, domain.TurnRoleHarness, turns[0].Role)
-	assert.Equal(t, domain.TurnRoleUser, turns[1].Role)
-	assert.Equal(t, domain.TurnRoleHarness, turns[2].Role, "a stored wrapped hand-back heals on read")
+	said, err := ledger.NewRow(ledger.KindAssistantText, "T-1", "", ledger.AssistantText{MessageID: "m-1", Text: "said"})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", said)
+	require.NoError(t, err)
+	unlock()
+	require.NoError(t, <-done)
+
+	rows, err := l.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, ledger.KindAssistantText, rows[0].Kind)
+	assert.Equal(t, ledger.KindUserMessage, rows[1].Kind, "the note follows the hook's row")
+}
+
+// The handoff and get_chat_log read what was said off the ledger's rows.
+func TestChatLog_ReadsTextFromLedgerRows(t *testing.T) {
+	b := newRowBook(t)
+	b.open("T1", "what is two and two")
+	b.say("T1", "", "m1", "four")
+	b.add(ledger.KindTurnEnded, "T1", "", ledger.TurnEnded{Status: "done", RunnerID: "run-1"})
+
+	got, err := b.c.renderConversation(t.Context(), "chat-1", time.Time{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "user: what is two and two\n\nassistant (p1): four\n\n", string(got))
 }

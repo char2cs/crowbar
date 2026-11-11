@@ -11,10 +11,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // The project icon endpoints, which mirror the repo ones a level up. What the
@@ -38,8 +39,7 @@ func iconRouter(t *testing.T) (*gin.Engine, *fakeReader, string) {
 	home := t.TempDir()
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour"}}
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push).
-		WithIconStorage(func() (string, error) { return home, nil })
+		New(reader, &fakeImporter{}, &fakeDeleter{}, nil, func() (string, error) { return home, nil })
 
 	r := gin.New()
 	rg := r.Group("/v0")
@@ -96,6 +96,26 @@ func TestPutIconStoresBytesAndClearsEmoji(t *testing.T) {
 	if !reader.updatedWith.BumpAvatarVersion {
 		t.Error("new bytes behind a stable URL must bump the cache-busting version")
 	}
+}
+
+// A write the disk refused answers with the refusal, not the wraps above it.
+func TestPutIconAWriteFailureNamesThePath(t *testing.T) {
+	r, _, home := iconRouter(t)
+	stored := filepath.Join(home, "projects", "p1", "icon")
+	if err := os.MkdirAll(stored, 0o750); err != nil {
+		t.Fatalf("block the icon path: %v", err)
+	}
+	src := filepath.Join(t.TempDir(), "logo.png")
+	if err := os.WriteFile(src, pngBytes(), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	rec := putIconFromPath(t, r, src)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("PUT icon = %d, want 500 (body %s)", rec.Code, rec.Body.String())
+	}
+	assert.JSONEq(t, `{"success":false,"code":"internal","error":"write error: open `+stored+`: is a directory"}`, rec.Body.String())
 }
 
 func TestPutIconRejectsANonImage(t *testing.T) {
@@ -222,8 +242,7 @@ func TestGetIconIs404WithoutOne(t *testing.T) {
 // fails, standing in for an install whose state root cannot be resolved.
 func brokenHomeRouter(reader *fakeReader) *gin.Engine {
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push).
-		WithIconStorage(func() (string, error) { return "", errNoHome })
+		New(reader, &fakeImporter{}, &fakeDeleter{}, nil, unusedHome)
 
 	r := gin.New()
 	rg := r.Group("/v0")
@@ -235,8 +254,12 @@ func brokenHomeRouter(reader *fakeReader) *gin.Engine {
 
 var errNoHome = errors.New("no crowbar home")
 
+// unusedHome is a resolver that always fails: handlers whose test never reaches
+// an icon route get it so reaching one is loud, and brokenHomeRouter relies on it.
+func unusedHome() (string, error) { return "", errNoHome }
+
 func TestIconRoutes404WhenTheProjectIsGone(t *testing.T) {
-	reader := &fakeReader{getErr: apperr.ErrNotFound}
+	reader := &fakeReader{getErr: problem.ErrNotFound}
 	broken := brokenHomeRouter(reader)
 
 	for _, tc := range []struct{ method, target string }{
@@ -294,7 +317,7 @@ func TestDeleteIconStillClearsTheRecordWithNoResolvableHome(t *testing.T) {
 
 func TestIconMutationsSurfaceAFailedWrite(t *testing.T) {
 	r, reader, _ := iconRouter(t)
-	reader.updateErr = apperr.ErrNotFound
+	reader.updateErr = problem.ErrNotFound
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/v0/projects/p1/icon/emoji", strings.NewReader(`{"emoji":"🦊"}`))
@@ -322,7 +345,7 @@ func TestGetIcon404sWhenTheHomeCannotBeResolved(t *testing.T) {
 func TestIconMutations404OnAnUnknownProject(t *testing.T) {
 	// Every mutation checks the project exists before touching bytes or store.
 	r, reader, _ := iconRouter(t)
-	reader.getErr = apperr.ErrNotFound
+	reader.getErr = problem.ErrNotFound
 
 	cases := []struct {
 		name, method, target, body, ctype string
@@ -386,8 +409,7 @@ func TestPutIconSurfacesAFailedWriteToDisk(t *testing.T) {
 	}
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour"}}
 	h := projecthandlers.
-		New(reader, &fakeImporter{}, &fakeDeleter{}, newRecordingBroadcaster().push).
-		WithIconStorage(func() (string, error) { return home, nil })
+		New(reader, &fakeImporter{}, &fakeDeleter{}, nil, func() (string, error) { return home, nil })
 	r := gin.New()
 	r.PUT("/v0/projects/:projectId/icon", h.PutIcon)
 

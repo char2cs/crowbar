@@ -9,21 +9,9 @@ import (
 // The check that stands between a cascading chat delete and a worktree somebody
 // else is still working in.
 
-// WorkspaceHolders is the narrow read port reapWorktrees needs: every chat id
-// currently resolving to a workspace, itself included when it owns the
-// worktree.
-//
-// It exists because Chat.WorkspaceID answers a NARROWER question than the reap
-// was reading it as. It says which workspace a chat is anchored to — not that
-// the chat is the only one anchored there. A worktree is many-chats-to-one by
-// design (spec §3): ordinary sibling conversations legitimately share one. So a
-// row naming a workspace is evidence the chat USES it, never evidence it owns
-// it alone.
-//
-// Declared here rather than imported from usecases/worktree (law 3, law 4):
-// worktree.ChatsForWorkspace already answers exactly this, and the container
-// hands the tree the same resolver the chat-scoped routes resolve through, so
-// "who holds this worktree" has one answer in the daemon.
+// WorkspaceHolders answers every chat resolving to a workspace. A worktree is shared by many chats by
+// design, so a chat naming a workspace proves it uses it, not that it owns it alone; declared here so
+// "who holds this worktree" has one answer, the same resolver the chat-scoped routes use.
 type WorkspaceHolders interface {
 	ChatsForWorkspace(
 		ctx context.Context,
@@ -31,21 +19,9 @@ type WorkspaceHolders interface {
 	) ([]string, error)
 }
 
-// heldElsewhere reports whether any chat OUTSIDE the doomed subtree still
-// resolves to workspaceID — the question that decides whether a delete may tear
-// that worktree down.
-//
-// The subtraction is what makes it correct in both directions. Every row inside
-// the subtree is about to be purged, so its hold on the workspace is expiring
-// with it and must not count; anything left over is a chat that will still
-// exist, still pointing at the worktree, when the delete finishes. Empty
-// remainder means nothing survives to name the directory — reap it, or produce
-// the §0 orphan. Non-empty means a sibling is still working there.
-//
-// A failed read is a failed DELETE, never a guess. The whole point of asking is
-// that the answer is not derivable from the doomed rows alone, so a caller that
-// swallowed the error would be back to assuming sole ownership — the exact
-// assumption that destroyed a shared worktree.
+// heldElsewhere reports whether any chat outside the doomed subtree still resolves to workspaceID, which
+// decides whether a delete may reap it. A failed read fails the delete: guessing would assume sole
+// ownership and could destroy a worktree a surviving chat still uses.
 func (u *chatFolderUsecase) heldElsewhere(
 	ctx context.Context,
 	workspaceID string,

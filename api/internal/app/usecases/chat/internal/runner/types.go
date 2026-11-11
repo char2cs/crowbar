@@ -5,17 +5,14 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Conversations is what starting, replacing and prompting a CLI needs from the
-// chat record: what the chat has chosen, what it has said, and — when a spawn
-// fails — the ability to erase the chat it was for.
-//
-// It is declared here, by the consumer, so the two never import each other.
+// Conversations is what starting, replacing and prompting a CLI needs from the chat
+// record, including erasing the chat a failed spawn was for. Declared by the consumer
+// so the two never import each other.
 type Conversations interface {
 	// ChatProviderID is the provider the chat's next CLI should be, resolved from
 	// its selection and the live provider order.
@@ -23,18 +20,13 @@ type Conversations interface {
 		ctx context.Context,
 		chatID string,
 	) (string, error)
-	// ChatSelection is the model and reasoning effort pinned to the chat. create
-	// says the chat is being minted right now, so there is nothing to read.
+	// ChatSelection is the model and reasoning effort pinned to the chat.
 	ChatSelection(
 		ctx context.Context,
 		chatID string,
-		create bool,
 	) (engineagents.Selection, error)
 	// SetChatSelection pins the model and effort the chat's next CLI launches
-	// with, refusing a value the resolved provider does not declare. Reached
-	// from SubmitPromptWithSwitch (promptswitch.go) so a staged model/effort
-	// commits under the SAME spawn-gate hold as the staged provider switch and
-	// the delivery that follows it — see that file's own doc for why.
+	// with; the runner checks them against the provider first.
 	SetChatSelection(
 		ctx context.Context,
 		chatID string,
@@ -56,34 +48,15 @@ type Conversations interface {
 		leftAt time.Time,
 	) (string, error)
 	// ThreadContext is the prompt fragment naming the chats this one reads.
-	// minting says the chat is being created now and can have no lineage yet.
 	ThreadContext(
 		ctx context.Context,
 		chatID string,
-		minting bool,
 	) (string, error)
-	// PurgeLocked erases a chat whose caller ALREADY holds its spawn gate. A spawn
-	// that fails discards the chat it minted, from inside that gate.
-	PurgeLocked(
-		ctx context.Context,
-		chatID string,
-	) error
-	// SeedPermissionLevel durably writes the current global default onto a
-	// freshly created chat — see Conversations.MintChat's own use of this,
-	// which SpawnChat and moveToNewChat mirror since neither can call
-	// MintChat itself (both pre-generate chatID before the row exists).
-	SeedPermissionLevel(
-		ctx context.Context,
-		chatID string,
-	)
 }
 
 // AncestorCwd answers where a workspace-less chat's CLI runs: the nearest
-// workspace-owning ancestor's id, or false when the row has none — the tree
-// usecase's own tree.CwdWorkspaceID ancestor walk (internal/tree, a peer this
-// package may not import; see aliases_test.go's layering rule).
-//
-// Declared here, by the consumer, so the two never import each other.
+// workspace-owning ancestor's id, or false. It is the tree's walk, declared by the
+// consumer because tree is a peer this package may not import.
 type AncestorCwd interface {
 	ResolveCwdWorkspaceID(
 		ctx context.Context,
@@ -91,91 +64,33 @@ type AncestorCwd interface {
 	) (string, bool, error)
 }
 
-// Turns is what the CLI lifecycle needs from the hook ingress: the turn a switch
-// must not decapitate, the startup hooks a fresh runner buffered, and the screen
-// classifiers the terminal-wait sweep runs on.
-//
-// NOTHING here may take the spawn gate, and nothing here does: this side holds it
-// while parked on a turn only the hook side can release.
+// Turns is what the CLI lifecycle needs from the hook side: an api connection's
+// door in, the record of a runner's streamed text at its exit, and the screen
+// classifiers. Only Hook takes the chat's lock, never called under it.
 type Turns interface {
-	// IngestHook applies one canonical hook or api-transport event, the same
-	// entrypoint the HTTP hook ingress uses — pumpAPIConn (apiconn.go) feeds an
-	// api-transport connection's resolved events through here too, so ownership,
-	// activity and the answer desk need no transport-specific branch.
-	IngestHook(
-		ctx context.Context,
-		runnerID string,
-		provider string,
-		canonicalEvent string,
-		rawPayload []byte,
-	) error
+	// Hook places one event an api connection resolved, as the hook ingress
+	// places every hook, and returns the reply the ingress gave an ask at once
+	// or else the ask its answer is held on.
+	Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (reply []byte, ask string, err error)
 	// ForgetChat drops every piece of in-memory turn state held for chatID.
 	ForgetChat(chatID string)
-	// ReplayStartupHook ingests one hook that arrived before the runner row
-	// existed, now that it does.
-	ReplayStartupHook(runnerID string, hook inflight.Hook)
-	// AwaitTurnComplete blocks until the chat has no turn in flight, so a
-	// destructive replacement never kills a CLI mid-answer.
-	AwaitTurnComplete(
-		ctx context.Context,
-		chatID string,
-	) error
-	// ChatWorking reports whether the chat is busy, from the authoritative
-	// process-local mirror rather than the asynchronous projection.
-	ChatWorking(
-		ctx context.Context,
-		chatID string,
-	) (bool, error)
-	// TurnOpen reports whether chatID has a turn or background work a Stop
-	// would cut short, read once runnerID's in-progress hook ingest is done.
-	TurnOpen(
-		ctx context.Context,
-		chatID, runnerID string,
-	) (bool, error)
-	// QueueSteer parks s on runnerID's running turn so the turn's end hook
-	// delivers it. False when no turn is in flight (or one is already parked).
-	QueueSteer(runnerID string, s inflight.Steered) bool
-	// RecordStop notes, durably, that a person cut chatID's in-flight turn
-	// short. It always records: the caller decides whether a turn was open,
-	// before tearing anything down. runnerID serialises this against
-	// that runner's own in-flight hook ingestion — see the implementation's
-	// doc for why.
-	RecordStop(
-		ctx context.Context,
-		chatID, runnerID string,
-	) error
-	// RecordChatSwitch notes, durably, that Crowbar itself changed chatID's
-	// provider, model or effort. kind is one of
-	// InterruptProviderSwitched/InterruptModelChanged/InterruptEffortChanged
-	// (engine/agents); detail is the new value. The caller is the one that
-	// knows whether the value actually changed — this always records.
-	RecordChatSwitch(
-		ctx context.Context,
-		chatID, kind, detail string,
-	) error
-	// SetFeed wires the live chat feed at sweep start.
-	SetFeed(feed seam.ChatFeed)
-	// AbandonMessageForRunner salvages runner's own already-streamed-but-not-
-	// yet-final message before closeAbandonedTurn tears its turn down — see
-	// its own doc comment for why the runner must be named explicitly rather
-	// than re-resolved.
-	AbandonMessageForRunner(
-		ctx context.Context,
-		chatID string,
-		runner engineagents.Runner,
-	) (bool, error)
+	// ForgetTelemetry drops chatID's usage report, its outgoing provider's.
+	ForgetTelemetry(ctx context.Context, chatID string)
+	// ExitRows are the rows a runner's end records of the answers it streamed
+	// that no row holds; they commit with the end, and Retire follows.
+	ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.Row, error)
+	// LiveDiff is the whole diff runnerID streamed on chatID that no row holds.
+	LiveDiff(chatID, runnerID string) string
+	// Retire drops runnerID's streamed text on chatID once its end is recorded.
+	Retire(chatID, runnerID string)
 
-	// The five seams the terminal-wait detector reads through. They are here
-	// rather than passed separately because they all belong to the hook side, and
-	// splitting them would only make the detector's construction lie about that.
+	// The seams the terminal-wait detector reads through: they belong to the
+	// hook side.
 	termwait.Prompts
 	termwait.Notices
-	termwait.Work
-	termwait.Messages
-	termwait.Idle
-	// CloseStalledTurn ends a turn the screen says will never finish — a usage
-	// limit, a service outage — because no hook will ever report it.
-	CloseStalledTurn(ctx context.Context, stall seam.Stall)
+	// FailTurnOnNotice records runner's running turn failed for a notice on
+	// its screen that ends a turn, which no hook reports.
+	FailTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice)
 }
 
 // Providers is the provider table as the spawn and switch paths consult it: may
@@ -193,7 +108,3 @@ type Providers interface {
 		providerID string,
 	) (bool, error)
 }
-
-// The detector reads an un-echoed React prompt through this type directly, so the
-// two halves of that seam are asserted here rather than discovered at wiring time.
-var _ termwait.Deliveries = (*Runners)(nil)

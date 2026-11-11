@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // fakeChatUsecase is a minimal agentusecase.ChatUsecase stand-in exposing
@@ -39,7 +39,9 @@ func (f *fakeChatUsecase) ListChatsByWorkspace(_ context.Context, workspaceID st
 	return out, nil
 }
 
-func (f *fakeChatUsecase) BackfillChatTypes(context.Context) bool { return true }
+func (f *fakeChatUsecase) BackfillChatTypes(context.Context) (int, error) { panic("unused") }
+
+func (f *fakeChatUsecase) UntypedChats(context.Context) ([]string, error) { panic("unused") }
 
 func (f *fakeChatUsecase) ListChatsInRepo(context.Context, string) ([]domain.Chat, error) {
 	return append([]domain.Chat{}, f.rows...), nil
@@ -54,7 +56,7 @@ func (f *fakeChatUsecase) GetChat(_ context.Context, id string) (domain.Chat, er
 	return domain.Chat{}, errors.New("not found")
 }
 
-func (f *fakeChatUsecase) MintChat(context.Context, string, string, string) (string, error) {
+func (f *fakeChatUsecase) MintChat(context.Context, string, string, string, string) (string, error) {
 	panic("unused")
 }
 
@@ -74,6 +76,15 @@ func (f *fakeChatUsecase) RenameByRunner(context.Context, string, string, string
 	panic("unused")
 }
 func (f *fakeChatUsecase) PurgeChat(context.Context, string) error { panic("unused") }
+
+func (f *fakeChatUsecase) OpenFeed(context.Context, string, int64) (<-chan agentusecase.FeedFrame, error) {
+	panic("unused")
+}
+
+func (f *fakeChatUsecase) ReadBlob(context.Context, string, string) ([]byte, error) {
+	panic("unused")
+}
+
 func (f *fakeChatUsecase) CwdWorkspaceID(context.Context, string) (string, bool, error) {
 	panic("unused")
 }
@@ -86,19 +97,11 @@ func (f *fakeChatUsecase) ReadChatLog(context.Context, string) ([]agenttools.Cha
 	panic("unused")
 }
 
-func (f *fakeChatUsecase) ReadMessages(context.Context, string, int, int, int) (domain.LedgerPage, error) {
-	panic("unused")
-}
-
 func (f *fakeChatUsecase) NoteThreadLineage(context.Context, string, []string) error {
 	panic("unused")
 }
 func (f *fakeChatUsecase) Ancestors(context.Context, string) ([]string, error) { panic("unused") }
 func (f *fakeChatUsecase) AssembleHandoff(context.Context, string) (string, error) {
-	panic("unused")
-}
-
-func (f *fakeChatUsecase) Promote(context.Context, string) (domain.Chat, error) {
 	panic("unused")
 }
 
@@ -117,8 +120,8 @@ func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForAHomeScopedChat(t *tes
 		{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
 	}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "folder-1", Order: 2},
+	nodes.Rows = []dtree.Node{
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "folder-1", Order: 2},
 	}
 
 	corrected := agentusecase.NewHomeCorrectedChats(inner, nodes)
@@ -155,8 +158,8 @@ func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForARepoScopedChatToo(t *
 		{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: "ws-repo-1", ParentID: "some-branch", Order: 5},
 	}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "a-repo-scoped-folder", Order: 1},
+	nodes.Rows = []dtree.Node{
+		{ID: "c2", Kind: dtree.KindChat, ParentID: "a-repo-scoped-folder", Order: 1},
 	}
 
 	corrected := agentusecase.NewHomeCorrectedChats(inner, nodes)
@@ -185,8 +188,7 @@ func TestNewHomeCorrectedChats_LeavesABubbleUntouched(t *testing.T) {
 }
 
 // A home-scoped chat with no Node row yet (its very first placement is still
-// in flight, or it was minted via the bare SpawnChat path this task's report
-// already discloses as unminting) degrades to its Chat-native placement
+// in flight) degrades to its Chat-native placement
 // rather than erroring the whole read.
 func TestNewHomeCorrectedChats_DegradesWhenNoNodeRowExistsYet(t *testing.T) {
 	inner := &fakeChatUsecase{rows: []domain.Chat{
@@ -205,7 +207,7 @@ func TestNewHomeCorrectedChats_DegradesWhenNoNodeRowExistsYet(t *testing.T) {
 // fakeTreeChats is a minimal tree.Chats stand-in exposing only the two reads
 // NewHomeCorrectedTreeChats overrides (LoadChat, ListByWorkspace) — every
 // other method panics if ever called, proving the decorator delegates the
-// rest (Create/SetTitle/SetPlacement/SetOrder/SetType/Forget/Get/ListChats)
+// rest (SetPlacement/SetOrder/Get/ListChats)
 // untouched.
 type fakeTreeChats struct {
 	rows []domain.Chat
@@ -232,14 +234,6 @@ func (f *fakeTreeChats) ListByWorkspace(_ context.Context, workspaceID string) (
 
 func (f *fakeTreeChats) ListChats(context.Context) ([]domain.Chat, error) { panic("unused") }
 func (f *fakeTreeChats) Get(context.Context, string) (domain.Chat, error) { panic("unused") }
-func (f *fakeTreeChats) Create(context.Context, agentchat.CreateInput) (domain.Chat, error) {
-	panic("unused")
-}
-
-func (f *fakeTreeChats) SetTitle(context.Context, string, string, string) (domain.Chat, error) {
-	panic("unused")
-}
-
 func (f *fakeTreeChats) SetPlacement(context.Context, string, string, int) (domain.Chat, error) {
 	panic("unused")
 }
@@ -247,11 +241,6 @@ func (f *fakeTreeChats) SetPlacement(context.Context, string, string, int) (doma
 func (f *fakeTreeChats) SetOrder(context.Context, string, int) (domain.Chat, error) {
 	panic("unused")
 }
-
-func (f *fakeTreeChats) SetType(context.Context, string, domain.ChatType) (domain.Chat, error) {
-	panic("unused")
-}
-func (f *fakeTreeChats) Forget(context.Context, string) error { panic("unused") }
 
 // TestNewHomeCorrectedTreeChats_LoadChatOverlaysLiveNodePosition is the
 // lineage-resolver half of this fix round: internal/lineage.Resolver.
@@ -264,8 +253,8 @@ func TestNewHomeCorrectedTreeChats_LoadChatOverlaysLiveNodePosition(t *testing.T
 		{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
 	}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "folder-1", Order: 3},
+	nodes.Rows = []dtree.Node{
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "folder-1", Order: 3},
 	}
 
 	corrected := agentusecase.NewHomeCorrectedTreeChats(inner, nodes, mocks.NewFolderStore())
@@ -292,9 +281,9 @@ func TestNewHomeCorrectedTreeChats_FeedsCorrectAncestryToTheRealLineageResolver(
 		{ID: "thread", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
 	}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "parent-chat", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
-		{ID: "thread", Kind: domain.NodeKindChat, ParentID: "parent-chat", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "parent-chat", Kind: dtree.KindChat, ParentID: "", Order: 0},
+		{ID: "thread", Kind: dtree.KindChat, ParentID: "parent-chat", Order: 0},
 	}
 
 	corrected := agentusecase.NewHomeCorrectedTreeChats(inner, nodes, mocks.NewFolderStore())
@@ -320,13 +309,13 @@ func TestNewHomeCorrectedTreeChats_FeedsAncestryThroughAFolder(t *testing.T) {
 		{ID: "thread", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
 	}}
 	nodes := mocks.NewNodePlacements()
-	nodes.Rows = []domain.Node{
-		{ID: "parent-chat", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
-		{ID: "a-folder", Kind: domain.NodeKindFolder, ParentID: "parent-chat", Order: 0},
-		{ID: "thread", Kind: domain.NodeKindChat, ParentID: "a-folder", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: "parent-chat", Kind: dtree.KindChat, ParentID: "", Order: 0},
+		{ID: "a-folder", Kind: dtree.KindFolder, ParentID: "parent-chat", Order: 0},
+		{ID: "thread", Kind: dtree.KindChat, ParentID: "a-folder", Order: 0},
 	}
 	folders := mocks.NewFolderStore()
-	folders.Saved = []domain.Folder{{ID: "a-folder", Name: "notes"}}
+	folders.Saved = []dtree.Folder{{ID: "a-folder", Name: "notes"}}
 
 	corrected := agentusecase.NewHomeCorrectedTreeChats(inner, nodes, folders)
 	lineage := agentusecase.NewChatLineage(corrected)
@@ -365,12 +354,12 @@ type countingNodeReads struct {
 	gets, all int
 }
 
-func (c *countingNodeReads) GetNode(ctx context.Context, id string) (domain.Node, error) {
+func (c *countingNodeReads) GetNode(ctx context.Context, id string) (dtree.Node, error) {
 	c.gets++
 	return c.NodePlacements.GetNode(ctx, id)
 }
 
-func (c *countingNodeReads) ListAll(ctx context.Context) ([]domain.Node, error) {
+func (c *countingNodeReads) ListAll(ctx context.Context) ([]dtree.Node, error) {
 	c.all++
 	return c.NodePlacements.ListAll(ctx)
 }
@@ -384,9 +373,9 @@ func TestNewHomeCorrectedChats_CorrectsAListFromOneNodeRead(t *testing.T) {
 		{ID: "unplaced", Type: domain.ChatTypeChat, WorkspaceID: "ws", ParentID: "kept", Order: 4},
 	}}
 	nodes := &countingNodeReads{NodePlacements: mocks.NewNodePlacements()}
-	nodes.Rows = []domain.Node{
-		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "folder-1", Order: 2},
-		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "folder-2", Order: 3},
+	nodes.Rows = []dtree.Node{
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "folder-1", Order: 2},
+		{ID: "c2", Kind: dtree.KindChat, ParentID: "folder-2", Order: 3},
 	}
 
 	rows, err := agentusecase.NewHomeCorrectedChats(inner, nodes).ListChatsInRepo(context.Background(), "r")

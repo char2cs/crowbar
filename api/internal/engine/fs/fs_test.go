@@ -4,10 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/tree"
@@ -86,6 +88,16 @@ func TestWriteContent_CreatesParentDirs(t *testing.T) {
 	assert.Equal(t, "hello\n", string(got))
 }
 
+func TestHostContent_RoundTripsAnAbsolutePath(t *testing.T) {
+	abs := filepath.Join(t.TempDir(), "host", "notes.md")
+
+	require.NoError(t, fs.New().WriteHostContent(abs, "host\n", ""))
+	fc, err := fs.New().ReadHostContent(abs)
+
+	require.NoError(t, err)
+	assert.Equal(t, "host\n", fc.Content)
+}
+
 func TestCreateFile_CreatesEmptyFile(t *testing.T) {
 	dir := initDir(t)
 
@@ -158,6 +170,23 @@ func TestNewWatcher_ReturnsNonNil(t *testing.T) {
 	dir := initDir(t)
 	w := fs.New().NewWatcher(t.Context(), "ws-1", dir, "", nil, nil)
 	require.NotNil(t, w)
+}
+
+func TestNewFileWatcher_ReportsAChangeToTheFile(t *testing.T) {
+	dir := initDir(t)
+	changes := make(chan domain.FileChangeType, 8)
+	w := fs.New().NewFileWatcher(filepath.Join(dir, "a.md"), func(c domain.FileChangeType) { changes <- c })
+	require.NoError(t, w.Start(t.Context()))
+	t.Cleanup(w.Stop)
+
+	writeFile(t, dir, "a.md", "x\n")
+
+	select {
+	case change := <-changes:
+		assert.Equal(t, domain.FileChangeCreated, change)
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "no change reported")
+	}
 }
 
 var _ tree.StatusProvider = nullProvider{}

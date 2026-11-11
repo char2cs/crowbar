@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-keyboard'
+import {
+  EMPTY_FOCUSED_WORKSPACE_CONTEXT,
+  publishFocusedWorkspaceContext,
+} from '@/features/window/stores/focused-workspace-context-store'
 
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
@@ -19,21 +23,15 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 }))
 
 const setActiveTab = vi.fn()
-vi.mock('@/lib/store/sidebar', () => ({
-  useSidebarStore: {
+vi.mock('@/features/workspace/tree/tree-ui-store', () => ({
+  treeUiStore: {
     getState: () => ({ setActiveTab }),
   },
 }))
 
-const focused = vi.hoisted(() => ({
-  ctx: { workspaceId: 'w1', repoId: 'r1' } as { workspaceId: string | null; repoId: string | null },
-}))
-vi.mock('@/features/window/stores/focused-workspace-context-store', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/features/window/stores/focused-workspace-context-store')
-  >()),
-  getFocusedWorkspaceContext: () => focused.ctx,
-}))
+const inRepoWorkspace = { workspaceId: 'w1', repoId: 'r1' }
+const focus = (ctx: { workspaceId: string | null; repoId: string | null }) =>
+  publishFocusedWorkspaceContext({ ...EMPTY_FOCUSED_WORKSPACE_CONTEXT, ...ctx })
 
 function dispatchKeydown(init: KeyboardEventInit): KeyboardEvent {
   const event = new KeyboardEvent('keydown', { cancelable: true, bubbles: true, ...init })
@@ -47,7 +45,7 @@ describe('useSidebarTabKeyboard', () => {
   })
 
   beforeEach(() => {
-    focused.ctx = { workspaceId: 'w1', repoId: 'r1' }
+    focus(inRepoWorkspace)
   })
 
   it.each([
@@ -68,7 +66,7 @@ describe('useSidebarTabKeyboard', () => {
   })
 
   it('ignores a mode the focused workspace does not offer', () => {
-    focused.ctx = { workspaceId: null, repoId: null }
+    focus({ workspaceId: null, repoId: null })
     renderHook(() => useSidebarTabKeyboard())
     const files = dispatchKeydown({ key: '2', ctrlKey: true })
     dispatchKeydown({ key: '3', ctrlKey: true })

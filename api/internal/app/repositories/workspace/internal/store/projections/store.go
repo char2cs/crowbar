@@ -1,17 +1,12 @@
-// Package projections holds the workspace read-side projections that the
-// singleton axWorkspace fans events into. store.go is the SAVE-ONLY durable
-// projection (spec §3.5 delivery, decision 5): it folds evt.Aggregate into the
-// durable read model at state/store/workspace.db and, on Forget, deletes the
-// row. Once a hub is registered (hub.go) it announces each event after saving
-// it, so no frame ever reaches a client before the read model holds it.
+// Package projections holds the workspace read-side projections. store.go saves each event into
+// state/store/workspace.db (Forget deletes the row) before announcing it to a registered hub, so
+// no frame reaches a client before the read model holds it.
 package projections
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -20,6 +15,7 @@ import (
 	gormdb "gorm.io/gorm"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -33,10 +29,8 @@ func (workspaceRow) TableName() string {
 	return "read_workspaces"
 }
 
-// Store is the durable workspace read model (spec §3.7): a projected, queryable
-// view of the aggregate persisted to state/store/workspace.db. Each row carries
-// project_id/repo_id off the folded aggregate, so the read model doubles as the
-// location index — no separate location table is needed.
+// Store is the durable workspace read model at state/store/workspace.db. Each row
+// carries project_id/repo_id, so it doubles as the location index.
 type Store struct {
 	inner interface {
 		Save(ctx context.Context, row workspaceRow) error
@@ -49,15 +43,14 @@ type Store struct {
 	// are expected, by the hub frame that announces it.
 	mu               sync.Mutex
 	tombstoneWaiters map[string][]chan struct{}
-	// expectAnnouncements is set once a hub projection is registered: from then
-	// on a tombstone is ready for its purge only once it is both persisted and
-	// ANNOUNCED — its frame broadcast. The frame is addressed through the
-	// workspace's owning chat, which the purge deletes; a purge that ran first
-	// left the client holding a ghost row it was never told had gone.
+	// expectAnnouncements is set once a hub is registered: a tombstone is then ready
+	// for purge only once persisted and announced, because the frame is addressed
+	// through the owning chat the purge deletes.
 	expectAnnouncements bool
 	announced           map[string]struct{}
 	// announce broadcasts a saved event's frame; nil until RegisterHub.
-	announce atomic.Pointer[func(ctx context.Context, ws domain.Workspace)]
+	announce   atomic.Pointer[func(ctx context.Context, ws domain.Workspace)]
+	unreadable serialize.Unreadable
 }
 
 // NewStore builds the durable read-model store over the read-model DB
@@ -114,11 +107,9 @@ func (s *Store) takeAnnouncement(
 	return true
 }
 
-// AwaitTombstone blocks until the read model holds id's persisted "deleted" row
-// — and, with a hub registered, until that tombstone's frame is broadcast — and
-// returns it, or until ctx ends. It is woken by the save and the broadcast —
-// no polling: the waiter registers BEFORE it reads, so a wake that lands
-// between the read and the wait is not lost.
+// AwaitTombstone blocks until id's "deleted" row is persisted (and, with a hub,
+// broadcast) and returns it, or until ctx ends. The waiter registers before it
+// reads, so a wake between the read and the wait is not lost.
 func (s *Store) AwaitTombstone(
 	ctx context.Context,
 	id string,
@@ -177,10 +168,9 @@ func (s *Store) wakeTombstoneWaiters(
 	}
 }
 
-// List returns every workspace currently in the read model.
-func (s *Store) List(
-	ctx context.Context,
-) ([]domain.Workspace, error) {
+// List returns every workspace in the read model; a row that will not decode
+// is answered by fromLog instead (nil leaves it out, an error fails the list).
+func (s *Store) List(ctx context.Context, fromLog func(context.Context, string) (*domain.Workspace, error)) ([]domain.Workspace, error) {
 	rows, err := s.inner.FindAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("workspace store projection: find all: %w", err)
@@ -189,9 +179,15 @@ func (s *Store) List(
 	for _, row := range rows {
 		ws, err := unmarshalWorkspace(row.Data)
 		if err != nil {
+			s.unreadable.Skip(ctx, "workspace", row.ID, err)
+			ws, err = fromLog(ctx, row.ID)
+		}
+		if err != nil {
 			return nil, err
 		}
-		result = append(result, *ws)
+		if ws != nil {
+			result = append(result, *ws)
+		}
 	}
 	return result, nil
 }
@@ -212,11 +208,8 @@ func (s *Store) Get(
 	return unmarshalWorkspace(row.Data)
 }
 
-// Fold persists ws into the durable read model — the write half of this
-// save-only projection, exported so the lazy Replay repair (store.ListOrRebuild,
-// spec §3.7) can fold each replayed aggregate back into state/store/workspace.db.
-// Live events reach the model through the registered onEvent subscription instead;
-// this seam exists only for the on-demand whole-model rebuild.
+// Fold persists ws into the durable read model. It exists for the lazy rebuild
+// (store.ListOrRebuild); live events arrive through the subscription instead.
 func (s *Store) Fold(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -270,68 +263,32 @@ func unmarshalWorkspace(
 	return &ws, nil
 }
 
-// RegisterStore subscribes the read-model projection to every workspace event on
-// the singleton axWorkspace: it folds evt.Aggregate into the durable read model,
-// then announces it on the hub when one is registered, and on Forget deletes
-// the aggregate's row (a cheap, synchronous OnForget row-delete — spec §3.6, no
-// fs/git/network io). It is designed to register ONCE on the singleton.
-func RegisterStore(
+// Subscriber registers st as a durable subscriber on the workspace builder: a
+// failed save is retried by asynx, and parks the aggregate, instead of being
+// logged and dropped. The Forget marker deletes the row; a missing row is no error.
+func Subscriber(
 	st *Store,
-	ax asynx.Asynx[domain.Workspace],
-) error {
-	p := &storeProjector{store: st}
-	if _, err := ax.Subscribe(asynx.Topic("workspace.*"), p.onEvent); err != nil {
-		return fmt.Errorf("workspace store projection: subscribe: %w", err)
+) func(*asynx.Builder[domain.Workspace]) {
+	return func(b *asynx.Builder[domain.Workspace]) {
+		b.WithSubscriber(asynx.Topic("workspace.*"), st.handle)
 	}
-	if _, err := ax.OnForget(p.onForget); err != nil {
-		return fmt.Errorf("workspace store projection: on forget: %w", err)
-	}
-	return nil
 }
 
-type storeProjector struct {
-	store *Store
-}
-
-func (p *storeProjector) onEvent(
+func (s *Store) handle(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Workspace],
-) {
-	if err := p.saveWithRetry(ctx, evt.Aggregate); err != nil {
-		slog.ErrorContext(ctx, "workspace store projection: save", "id", evt.Aggregate.ID, "err", err)
+) error {
+	if evt.EventName == asynxModels.ForgetEventName {
+		if err := s.delete(ctx, evt.AggregateID); err != nil {
+			return fmt.Errorf("workspace store projection: delete %q: %w", evt.AggregateID, err)
+		}
+		return nil
 	}
-	if announce := p.store.announce.Load(); announce != nil {
+	if err := s.save(ctx, evt.Aggregate); err != nil {
+		return fmt.Errorf("workspace store projection: save %q: %w", evt.Aggregate.ID, err)
+	}
+	if announce := s.announce.Load(); announce != nil {
 		(*announce)(ctx, evt.Aggregate)
 	}
-}
-
-func (p *storeProjector) saveWithRetry(
-	ctx context.Context,
-	ws domain.Workspace,
-) error {
-	var err error
-	for range 3 {
-		if err = p.store.save(ctx, ws); err == nil {
-			return nil
-		}
-		if !isTransientIOError(err) {
-			return err
-		}
-	}
-	return err
-}
-
-func isTransientIOError(
-	err error,
-) bool {
-	return strings.Contains(err.Error(), "disk I/O error")
-}
-
-func (p *storeProjector) onForget(
-	ctx context.Context,
-	evt asynxModels.Event[domain.Workspace],
-) {
-	if err := p.store.delete(ctx, evt.Aggregate.ID); err != nil {
-		slog.ErrorContext(ctx, "workspace store projection: delete", "id", evt.Aggregate.ID, "err", err)
-	}
+	return nil
 }

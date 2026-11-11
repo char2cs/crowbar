@@ -2,7 +2,7 @@ package store_test
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -17,7 +17,6 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	acCmds "github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/store"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -25,22 +24,32 @@ func newStoreWithDeps(
 	t *testing.T,
 ) (context.Context, store.Store, asynx.Asynx[domain.Chat], *gormdb.DB) {
 	t.Helper()
+	ctx, st, ax, db, _ := newStoreWithLog(t)
+	return ctx, st, ax, db
+}
+
+func newStoreWithLog(
+	t *testing.T,
+) (context.Context, store.Store, asynx.Asynx[domain.Chat], *gormdb.DB, asynxModels.Store) {
+	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
+	st, err := store.New(proj, es, ax, func(store.ChatEvent) {})
 	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax, func(store.ChatEvent) {})
-	require.NoError(t, err)
-	return context.Background(), st, ax, db
+	return context.Background(), st, ax, db, es
 }
 
 func newStore(
@@ -51,10 +60,8 @@ func newStore(
 	return ctx, st, ax
 }
 
-// openChat drives a chat through Create -> StartTurn -> SetTitle so the read model
-// holds a chat with real folded state to assert on. There is no segment lifecycle to
-// drive any more: a chat holds no process state at all (AgentSegment is deleted), so
-// the multi-event history a projection test needs is now turn state and a title.
+// openChat drives a chat through Create -> SetSelection -> SetTitle so the read
+// model holds a chat with real folded state to assert on.
 func openChat(
 	t *testing.T,
 	ctx context.Context,
@@ -67,7 +74,7 @@ func openChat(
 	})
 	require.NoError(t, err)
 
-	_, err = ax.SendWait(ctx, acCmds.StartTurn{ChatID: chatID, Now: time.Unix(2, 0).UTC()})
+	_, err = ax.SendWait(ctx, acCmds.SetSelection{ChatID: chatID, Model: "m1", Effort: "high"})
 	require.NoError(t, err)
 
 	_, err = ax.SendWait(ctx, acCmds.SetTitle{ChatID: chatID, Title: "title-" + chatID, Source: "user"})
@@ -83,8 +90,7 @@ func TestStore_GetChatReflectsFoldedState(t *testing.T) {
 	assert.Equal(t, "w1", got.WorkspaceID)
 	assert.Equal(t, "title-c1", got.Title)
 	assert.True(t, got.TitleLocked)
-	assert.True(t, got.Working, "the read model reflects every folded event, not just the last")
-	require.NotNil(t, got.CurrentTurnStarted)
+	assert.Equal(t, "m1", got.Model, "the read model reflects every folded event, not just the last")
 }
 
 func TestStore_GetChatMissingReturnsErrNotFound(t *testing.T) {
@@ -136,7 +142,7 @@ func TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	rebuilt, err := st.GetChat(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, "title-c1", rebuilt.Title, "GetChat must Replay the id back from the event log")
-	assert.True(t, rebuilt.Working)
+	assert.Equal(t, "m1", rebuilt.Model)
 }
 
 // TestStore_GetChat_SelfHealsOnPerIDMiss proves the keyed GetChat's
@@ -165,91 +171,14 @@ func TestStore_ListChats_EmptyLogReturnsEmpty(t *testing.T) {
 	require.Empty(t, rows)
 }
 
-// fakeReplayES is a serialize.AggregateLister whose AggregateIDs errors, so a
-// read over an empty read model surfaces the rebuild's enumeration failure.
-type fakeReplayES struct {
-	asynxModels.Store
-	err error
-}
-
-func (f *fakeReplayES) AggregateIDs(context.Context) ([]string, error) {
-	return nil, f.err
-}
-
-func TestStore_Read_RebuildEnumerationError(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(store.ChatEvent) {})
-	require.NoError(t, err)
-
-	_, err = st.ListChats(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "enumerate aggregate ids")
-}
-
-// TestStore_Rebuild_SkipsUnreplayableAggregate proves rebuild does not abort
-// the whole read model when ONE aggregate in the shared event log cannot be
-// replayed into domain.Chat (a pre-cutover AgentChat payload, or any other
-// corrupt/incompatible bytes) — c1 and c2 must still heal and be returned.
-// Before this fix, rebuild returned the first Replay error and the caller got
-// nothing back: every chat, not just the broken one.
-func TestStore_Rebuild_SkipsUnreplayableAggregate(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax, func(store.ChatEvent) {})
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	openChat(t, ctx, ax, "c1")
-	openChat(t, ctx, ax, "c2")
-
-	// A third aggregate whose stored bytes were never written by a domain.Chat
-	// command — stands in for any unreadable/corrupt entry in the shared event
-	// log (asynx's own InternalEvent envelope, not a raw domain.Chat blob, so
-	// this must fail json.Unmarshal on that envelope, not on domain.Chat itself).
-	require.NoError(t, es.Append(ctx, "events:poison", 1, []byte("{not valid json")))
-
-	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read").Error)
-
-	list, err := st.ListChats(ctx)
-	require.NoError(t, err, "one unreplayable aggregate must not fail the whole rebuild")
-	ids := make([]string, 0, len(list))
-	for _, chat := range list {
-		ids = append(ids, chat.ID)
-	}
-	assert.ElementsMatch(t, []string{"c1", "c2"}, ids)
-}
-
-func TestNew_StorageError(t *testing.T) {
+func TestOpen_StorageError(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = store.New(db, nil, nil, func(store.ChatEvent) {})
+	_, err = store.Open(db)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat store")
 }
@@ -277,22 +206,26 @@ func TestStore_GetChat_EmptyIDIsNotFound(t *testing.T) {
 func TestStore_GetChat_HealFailsOnCorruptEvent(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.Chat]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax, func(store.ChatEvent) {})
+	st, err := store.New(proj, es, ax, func(store.ChatEvent) {})
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, es.Append(ctx, "events:poison", 1, []byte("{not valid json")))
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error {
+		return tx.Append(ctx, "events:poison", 1, []byte("{not valid json"))
+	}))
 
 	_, err = st.GetChat(ctx, "poison")
 	require.Error(t, err)
@@ -316,97 +249,47 @@ func TestStore_ListByWorkspace_PropagatesReadFailure(t *testing.T) {
 	require.Error(t, err)
 }
 
-// minimalStore is an asynxModels.Store that implements none of the OPTIONAL
-// serialize.AggregateLister capability — standing in for any event-store
-// adapter that cannot enumerate its own aggregate ids.
-type minimalStore struct{}
-
-func (minimalStore) Append(context.Context, string, int64, []byte) error { return nil }
-func (minimalStore) ReadFrom(context.Context, string, int64) ([][]byte, error) {
-	return nil, nil
-}
-
-func (minimalStore) ReadRange(context.Context, string, int64, int64) ([][]byte, error) {
-	return nil, nil
-}
-func (minimalStore) Delete(context.Context, string) error { return nil }
-
-// TestStore_Rebuild_NoOpWhenEventStoreCannotEnumerate proves rebuild degrades
-// to a harmless no-op — an empty list, no error — rather than panicking on a
-// failed type assertion, when the underlying event store adapter offers no
-// serialize.AggregateLister capability at all.
-func TestStore_Rebuild_NoOpWhenEventStoreCannotEnumerate(t *testing.T) {
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(minimalStore{}).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, minimalStore{}, ax, func(store.ChatEvent) {})
-	require.NoError(t, err)
-
-	list, err := st.ListChats(context.Background())
-	require.NoError(t, err, "an event store that cannot enumerate aggregates must degrade to an empty list, not error")
-	assert.Empty(t, list)
-}
-
-// extraKeyLister wraps a real serialize.AggregateLister and injects one extra
-// key into its answer that does NOT carry the "events:" prefix — standing in
-// for a "snapshots:<id>" row the shared event log's raw key scan can return
-// alongside the real "events:<id>" rows (see event_store.go's eventKeyPrefix
-// doc).
-type extraKeyLister struct {
-	asynxModels.Store
-	extra string
-}
-
-func (e extraKeyLister) AggregateIDs(ctx context.Context) ([]string, error) {
-	lister, ok := e.Store.(serialize.AggregateLister)
-	if !ok {
-		return nil, errors.New("extraKeyLister: embedded store cannot enumerate")
-	}
-	keys, err := lister.AggregateIDs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return append(keys, e.extra), nil
-}
-
-// TestStore_Rebuild_SkipsNonEventKey proves rebuild's CutPrefix guard: a raw
-// key that is not an "events:<id>" row must be skipped rather than replayed
-// as if the whole key were an aggregate id, while every genuine "events:<id>"
-// key alongside it still heals normally.
-func TestStore_Rebuild_SkipsNonEventKey(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
+// appendTombstone writes the marker a Forget leaves when it fails before the erase.
+func appendTombstone(t *testing.T, es asynxModels.Store, id string) {
+	t.Helper()
 	ctx := context.Background()
-	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC()})
+	prior, err := es.ReadFrom(ctx, "events:"+id, 1)
 	require.NoError(t, err)
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	st, err := store.New(db, extraKeyLister{Store: es, extra: "snapshots:ghost"}, ax, func(store.ChatEvent) {})
-	require.NoError(t, err)
-
-	list, err := st.ListChats(ctx)
-	require.NoError(t, err, "the bogus non-events key must be skipped, not fail the whole rebuild")
-	ids := make([]string, 0, len(list))
-	for _, c := range list {
-		ids = append(ids, c.ID)
+	var last struct {
+		SchemaVersion int `json:"schema_version"`
 	}
-	assert.Equal(t, []string{"c1"}, ids, "the real aggregate must still heal despite the bogus key beside it")
+	require.NoError(t, json.Unmarshal(prior[len(prior)-1], &last))
+	v := int64(len(prior) + 1)
+	evt, err := json.Marshal(map[string]any{
+		"id": "tomb-" + id, "event_name": asynxModels.ForgetEventName, "version": v,
+		"schema_version": last.SchemaVersion, "occurred_at": time.Unix(2, 0).UTC(), "patches": json.RawMessage("[]"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error { return tx.Append(ctx, "events:"+id, v, evt) }))
+}
+
+func TestStore_AHealThatCannotSaveIsAnError(t *testing.T) {
+	ctx, st, ax, db := newStoreWithDeps(t)
+	openChat(t, ctx, ax, "c1")
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read").Error)
+	require.NoError(t, db.WithContext(ctx).Exec("PRAGMA query_only = ON").Error)
+
+	_, err := st.GetChat(ctx, "c1")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, store.ErrNotFound, "a row that could not be saved is not a missing chat")
+	_, err = st.ListChats(ctx)
+	require.Error(t, err)
+}
+
+func TestStore_AHealNeverResurrectsATombstonedChat(t *testing.T) {
+	ctx, st, ax, db, es := newStoreWithLog(t)
+	openChat(t, ctx, ax, "c1")
+	appendTombstone(t, es, "c1")
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read").Error)
+
+	_, err := st.GetChat(ctx, "c1")
+	require.ErrorIs(t, err, store.ErrNotFound)
+	all, err := st.ListChats(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, all)
 }

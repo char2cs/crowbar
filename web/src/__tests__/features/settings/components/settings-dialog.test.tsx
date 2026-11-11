@@ -8,7 +8,7 @@
  * domain word. Both halves of that are asserted below, because a rename that
  * reached the id would be a breaking change wearing a copy edit.
  *
- * Only the agent-api network seam is mocked; the dialog, vertical tabs and the
+ * Only the agent API network seam is mocked; the dialog, vertical tabs and the
  * tab itself are all real. The list reads the GLOBAL provider store (the dialog
  * is global — a per-workspace read is the defect this replaced), so that is what
  * gets seeded here.
@@ -16,8 +16,7 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/features/agent/api/agent-api', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
+vi.mock('@/features/agent/api/agent-providers-api', () => ({
   updateProviderPreferences: vi.fn(),
   listProviders: vi.fn().mockResolvedValue([]),
   getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
@@ -39,7 +38,7 @@ import {
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 const CLAUDE: AgentProvider = {
   id: 'claude',
@@ -59,7 +58,6 @@ const CLAUDE: AgentProvider = {
 beforeEach(() => {
   const st = getOrCreateWorkspaceStore('w1')
   act(() => {
-    st.getState().setAgentProviders([CLAUDE])
     setActiveWorkspaceStoreForTests(st)
     useAgentProvidersStore.setState({ providers: [CLAUDE], status: 'ready' })
     useUIState.getState().setSettingsInitialTab('providers')

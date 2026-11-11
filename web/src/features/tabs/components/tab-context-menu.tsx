@@ -25,7 +25,6 @@ interface TabContextMenuProps {
   isOpen: boolean
   position: { x: number; y: number }
   buffer: PaneContent | null
-  paneId?: string
   onClose: () => void
   onPin: (bufferId: string) => void
   onCloseTab: (bufferId: string) => void
@@ -36,8 +35,6 @@ interface TabContextMenuProps {
   onCopyRelativePath?: (path: string) => void
   onReload?: (bufferId: string) => void
   onRevealInFinder?: (path: string) => void
-  onSplitRight?: (paneId: string, bufferId: string) => void
-  onSplitDown?: (paneId: string, bufferId: string) => void
 }
 
 const TabContextMenu = ({
@@ -54,12 +51,10 @@ const TabContextMenu = ({
   onCopyRelativePath,
   onReload,
   onRevealInFinder,
-  // paneId/onSplitRight/onSplitDown are still accepted (tab-bar.tsx keeps
-  // wiring them from splitEditorGroup) but deliberately unused: spec §7.3 —
-  // "a pane group is a group of chats, never of tabs" (Law 3) — a tab's
-  // context menu no longer offers a way to split a pane.
 }: TabContextMenuProps) => {
-  if (!isOpen || !buffer) return null
+  // Stays mounted while closed (the tab bar keeps the buffer): unmounting at once
+  // makes base-ui return focus to the tab, stealing it from the Rename prompt.
+  if (!buffer) return null
 
   // openContent always sets a real path (file path, or a synthetic scheme for
   // terminal/commitDiff/branchReview) — narrow once rather than per item below.
@@ -85,10 +80,8 @@ const TabContextMenu = ({
                 placeholder: 'Terminal name',
                 confirmLabel: 'Rename',
               })
-              // Session `name` feeds the tab-label projection in
-              // useBufferDisplayName (fields joined with \x01), so a pasted
-              // control byte must be stripped before it reaches the store —
-              // same ingress policy as OSC7 cwd paths and OSC titles.
+              // The name feeds useBufferDisplayName's control-char-joined projection, so
+              // pasted control bytes are stripped (same ingress policy as OSC titles/cwds).
               const nextName = rawName ? stripControlChars(rawName).trim() : ''
 
               if (!nextName) return

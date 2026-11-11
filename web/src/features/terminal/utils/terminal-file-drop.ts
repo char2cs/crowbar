@@ -10,13 +10,10 @@ function isAbsolutePath(entry: string): boolean {
 function decodeFileUrl(entry: string): string | null {
   try {
     const url = new URL(entry)
-    if (url.protocol === 'file:') {
-      return decodeURIComponent(url.pathname)
-    }
+    return url.protocol === 'file:' ? decodeURIComponent(url.pathname) : null
   } catch {
-    // not a URL
+    return null // not a URL
   }
-  return null
 }
 
 export function formatDroppedPathsForTerminal(rawPaths: string[]): string {

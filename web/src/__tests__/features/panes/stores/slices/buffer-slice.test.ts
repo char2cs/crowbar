@@ -1,10 +1,17 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
 import {
   createWindowPaneStore,
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
   type WindowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+import { workspaceRef } from '@/lib/api/documents'
+import * as openDocumentModule from '@/features/editor/documents/open-document'
+import { toastManager } from '@/lib/toast-manager'
+import { ApiError } from '@/lib/errors/api-error'
 
 const { killTerminalSession } = vi.hoisted(() => ({
   killTerminalSession: vi.fn(async () => {}),
@@ -29,22 +36,19 @@ const { killChat, deleteChat } = vi.hoisted(() => ({
   deleteChat: vi.fn(async () => {}),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   killChat,
   deleteChat,
 }))
 
-vi.mock('@/lib/persistence/workspace-layout', () => ({
-  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-
-const editor = (path: string, extra: { isPreview?: boolean; workspaceId?: string } = {}) => ({
+const editor = (
+  path: string,
+  { isPreview, workspaceId = 'w1' }: { isPreview?: boolean; workspaceId?: string } = {},
+) => ({
   type: 'editor' as const,
-  workspaceId: 'ws-test',
-  path,
+  doc: workspaceRef(workspaceId, path),
   name: path.split('/').pop() ?? path,
-  content: '',
-  ...extra,
+  isPreview,
 })
 
 /** Close a tab the way every close affordance does: the pane lets go. */
@@ -64,10 +68,7 @@ describe('buffer-slice', () => {
   })
 
   it('openContent creates an editor buffer and returns its id', () => {
-    const id = store.getState().bufferActions.openContent({
-      ...editor('/src/index.ts'),
-      content: 'const x = 1',
-    })
+    const id = store.getState().bufferActions.openContent(editor('/src/index.ts'))
     expect(id).toBeTruthy()
     expect(store.getState().buffers).toHaveLength(1)
     const buf = store.getState().buffers[0]
@@ -83,13 +84,32 @@ describe('buffer-slice', () => {
     expect(store.getState().buffers).toHaveLength(1)
   })
 
+  it('openContent keeps one buffer per document: workspace, other workspace and host', () => {
+    const { openContent } = store.getState().bufferActions
+    const ids = [
+      openContent(editor('/src/index.ts')),
+      openContent(editor('/src/index.ts', { workspaceId: 'w2' })),
+      openContent({
+        type: 'editor',
+        doc: { authority: 'host', path: '/src/index.ts' },
+        name: 'index.ts',
+      }),
+    ]
+    expect(new Set(ids).size).toBe(3)
+    expect(store.getState().buffers.map((b) => b.type === 'editor' && b.authority)).toEqual([
+      'workspace',
+      'workspace',
+      'host',
+    ])
+  })
+
   it('openContent seats the new tab in the focused pane by default', () => {
     const id = store.getState().bufferActions.openContent(editor('/src/index.ts'))
     expect(store.getState().panes[ROOT_PANE_ID].editorTabIds).toEqual([id])
     expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe(id)
   })
 
-  it('openContent lands in the pane it names, whatever has focus (C8)', () => {
+  it('openContent lands in the pane it names, whatever has focus', () => {
     const id = store
       .getState()
       .bufferActions.openContent(editor('/src/index.ts'), { paneId: BOTTOM_PANE_ID })
@@ -108,15 +128,15 @@ describe('buffer-slice', () => {
   it('opening an already-open terminal reveals its pane instead of adding a copy', () => {
     const { bufferActions } = store.getState()
     const id = bufferActions.openContent(
-      { type: 'terminal', sessionId: 'sess-1', name: 'Terminal 1', workspaceId: 'ws-test' },
+      { type: 'terminal', sessionId: 'sess-1', name: 'Terminal 1', workspaceId: 'w1' },
       { paneId: BOTTOM_PANE_ID },
     )
 
     const again = bufferActions.openContent({
       type: 'terminal',
-      workspaceId: 'ws-test',
       sessionId: 'sess-1',
       name: 'Terminal 1',
+      workspaceId: 'w1',
     })
 
     expect(again).toBe(id)
@@ -259,9 +279,9 @@ describe('buffer-slice', () => {
     killTerminalSession.mockClear()
     const id = store.getState().bufferActions.openContent({
       type: 'terminal',
-      workspaceId: 'ws-test',
       sessionId: 'sess-9',
       name: 'Terminal 1',
+      workspaceId: 'w1',
     })
     closeTab(store, ROOT_PANE_ID, id)
     expect(store.getState().buffers).toHaveLength(0)
@@ -288,19 +308,78 @@ describe('buffer-slice', () => {
     expect(killTerminalSession).not.toHaveBeenCalled()
   })
 
-  // A chat is no longer a buffer (it is `PaneGroup.chatId`), so closing a
+  // A chat is not a buffer (it is `PaneGroup.chatId`), so closing a
   // terminal never reaches the agent API.
   it('closing a terminal tab does not stop an agent CLI', async () => {
     killChat.mockClear()
     const id = store.getState().bufferActions.openContent({
       type: 'terminal',
-      workspaceId: 'ws-test',
       sessionId: 'sess-term',
       name: 'Terminal 1',
+      workspaceId: 'w1',
     })
     closeTab(store, ROOT_PANE_ID, id)
     await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-term'))
     expect(killChat).not.toHaveBeenCalled()
+  })
+
+  it(
+    'reopening a closed host document brings it back as a host document',
+    async () => {
+      // The daemon answers a read with the ref it was asked for. The reopen opens
+      // the document's Monaco model, whose first load takes seconds.
+      const echo = vi.fn(async (url: string) => {
+        const q = new URL(url, 'http://daemon').searchParams
+        const ref = q.has('workspace')
+          ? { authority: 'workspace', workspaceId: q.get('workspace'), path: q.get('path') }
+          : { authority: 'host', path: q.get('path') }
+        return new Response(JSON.stringify({ success: true, data: { ...ref, content: 'hi' } }))
+      })
+      vi.stubGlobal('fetch', echo)
+      onTestFinished(() => void vi.unstubAllGlobals())
+      resetWindowPaneStoreForTests()
+      const doc = { authority: 'host' as const, path: '/tmp/s5/notes.md' }
+      const { bufferActions, activePaneId } = windowPaneStore.getState()
+      const id = bufferActions.openContent({ type: 'editor', doc, name: 'notes.md' })
+      closeTab(windowPaneStore, activePaneId, id)
+
+      windowPaneStore.getState().bufferActions.reopenLastClosedBuffer()
+
+      await vi.waitFor(
+        () =>
+          expect(windowPaneStore.getState().buffers).toEqual([
+            expect.objectContaining({ authority: 'host', path: doc.path, workspaceId: '' }),
+          ]),
+        { timeout: MONACO_LOAD_MS },
+      )
+    },
+    MONACO_LOAD_MS,
+  )
+
+  it('a failed reopen reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    const open = vi
+      .spyOn(openDocumentModule, 'openDocument')
+      .mockRejectedValue(new ApiError('daemon unreachable', 500))
+    onTestFinished(() => {
+      open.mockRestore()
+      toastAdd.mockRestore()
+    })
+    resetWindowPaneStoreForTests()
+    const { bufferActions, activePaneId } = windowPaneStore.getState()
+    const id = bufferActions.openContent(editor('/gone.ts'))
+    closeTab(windowPaneStore, activePaneId, id)
+
+    windowPaneStore.getState().bufferActions.reopenLastClosedBuffer()
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Reopen the closed tab',
+          description: 'daemon unreachable',
+        }),
+      ),
+    )
   })
 
   it('preview flag is set when isPreview is true', () => {

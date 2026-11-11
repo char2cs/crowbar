@@ -1,13 +1,8 @@
 import { getDB } from './idb'
 import type { SidebarUI } from './schemas'
 
-/**
- * Every collapse set the sidebar persists, written as ONE record.
- *
- * An object rather than four positional string[] parameters: the lists are
- * mutually interchangeable to the type checker, so a transposed pair would fold
- * away the wrong tree with a green build.
- */
+// Every collapse set the sidebar persists, as one record: four positional string[] parameters
+// would be interchangeable to the type checker, so a transposed pair would fold the wrong tree.
 export type SidebarCollapse = Omit<SidebarUI, 'updatedAt'>
 
 export async function saveSidebarUI(collapse: SidebarCollapse): Promise<void> {

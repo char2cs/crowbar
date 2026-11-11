@@ -100,7 +100,7 @@ func TestGitStream_FallsBackToPathWhenTheResolvedBinaryIsGone(t *testing.T) {
 
 	stream, wait, err := exec.GitStream(context.Background(), dir, "rev-parse", "HEAD")
 	require.NoError(t, err)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	out, err := io.ReadAll(stream)
 	require.NoError(t, err)

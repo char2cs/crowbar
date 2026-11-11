@@ -1,13 +1,5 @@
-/**
- * The tree-agnostic half of drag and drop.
- *
- * Every assertion here is written in a vocabulary the sidebar does not use —
- * 'note' and 'group' rows on a board that does not exist — because the one
- * property worth pinning is that this core needs no particular tree to work. A
- * test phrased in workspaces and repos would pass just as happily against a
- * core that had the sidebar's matrix quietly baked back into it, which is the
- * regression this file exists to catch.
- */
+// The tree-agnostic half of drag and drop, phrased in rows the sidebar doesn't have ('note',
+// 'group'): a test in workspaces and repos would still pass if the sidebar's matrix crept back in.
 import { describe, expect, it } from 'vitest'
 import {
   ALL_MODES,

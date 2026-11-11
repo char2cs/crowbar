@@ -59,3 +59,17 @@ func TestRemoteTrackingBranchExists_ErrorOnBrokenRepo(
 	require.Error(t, err)
 	assert.False(t, exists)
 }
+
+func TestLocalBranchExists(t *testing.T) {
+	ctx := context.Background()
+	repo := initRepoWithBareOrigin(t)
+	gitRun(t, repo, "branch", "feature")
+	e := git.New()
+
+	exists, err := e.LocalBranchExists(ctx, repo, "feature")
+	require.NoError(t, err)
+	assert.True(t, exists)
+	exists, err = e.LocalBranchExists(ctx, repo, "develop")
+	require.NoError(t, err)
+	assert.False(t, exists, "a missing branch is a clean absent")
+}

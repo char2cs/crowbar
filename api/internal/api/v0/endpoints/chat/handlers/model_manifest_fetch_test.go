@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestGetModelManifestFetchEnabled_ReturnsTheCurrentValue(t *testing.T) {
@@ -50,7 +50,7 @@ func TestPutModelManifestFetchEnabled_RejectsAMalformedBody(t *testing.T) {
 }
 
 func TestPutModelManifestFetchEnabled_SurfacesAUsecaseError(t *testing.T) {
-	uc := &fakeAgentUsecase{setManifestFetchErr: apperr.ErrInvalidArgument}
+	uc := &fakeAgentUsecase{setManifestFetchErr: problem.ErrInvalidArgument}
 	ctx, rec := newTestContext(t, http.MethodPut, "/v0/settings/chat/model-manifest-fetch",
 		[]byte(`{"enabled":true}`))
 

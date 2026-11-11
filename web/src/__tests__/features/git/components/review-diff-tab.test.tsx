@@ -4,14 +4,9 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { ReviewDiffTab } from '@/features/git/components/review-diff-tab'
 
-// Regression: ReviewDiffTab used to re-derive its own wsId from the ambient
-// WorkspaceStoreContext instead of receiving it as a prop. WorkspaceHost keeps
-// every retained WorkspaceView mounted for keep-alive, each rendering the same
-// window-level pane tree under a DIFFERENT ambient context — a hidden copy
-// whose ambient workspace differs from the tab's own buffer would fetch/show
-// the WRONG (or empty) diff. These hooks are asserted against directly (no
-// lazy ReviewCodeView render needed) since the reads happen unconditionally,
-// before the files-loaded gate.
+// ReviewDiffTab must read its wsId prop, never the ambient context (each retained WorkspaceView
+// renders the pane tree under its own). The data hooks are asserted directly: they run before
+// the files-loaded gate.
 const filesSummaryCalls: unknown[] = []
 const outlineCalls: unknown[] = []
 vi.mock('@/features/git/hooks/use-review-files-summary', () => ({

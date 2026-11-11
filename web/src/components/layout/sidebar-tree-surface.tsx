@@ -2,27 +2,23 @@ import { lazy, memo, Suspense, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
-import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
-import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
-import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
-import { usePendingCreatesStore } from '@/lib/store/pending-creates'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import {
-  getHomeOwningChatId,
-  getHomeWorkspaceId,
-} from '@/features/workspace/lib/home-workspace-resolver'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { useTreeInput } from '@/features/workspace/tree/input'
 import { handleOpen as openSidebarRow } from './open-actions'
 import { handleTrash, handleTrashProject as trashProject } from './trash-actions'
 import { handleCreate as createSidebarRow } from './create-actions'
-import { applyPendingRemovals, attachRemovalState, renderedHiddenIds } from './removal-plan'
-import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { applyPendingRemovals, renderedHiddenIds } from './removal-plan'
+import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
+import { useTreeUi } from '@/features/workspace/tree/tree-ui-store'
+import { selectProjectsSynced, selectRepos, useSelect } from '@/core/entities/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
 import type { Project } from '@/lib/types'
+import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+
+const NO_ROWS: SidebarRow[] = []
 
 // Shown only while the `+` mark is open: its host pairing and folder picker stay out of boot.
 const CreateSpacePanel = lazy(() =>
@@ -33,11 +29,8 @@ interface SidebarTreeSurfaceProps {
   projects: Project[]
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void
-  /** The `+` mark's own panel (create-space-panel.tsx) replaces SpaceScroller
-   *  entirely while true — not a panel inside its scroll-snap track — so the
-   *  touchpad swipe between real spaces can never land on it. Optional,
-   *  default false: only `ide-shell.tsx`'s real mount cares, every other
-   *  caller (tests) just wants the ordinary scroller. */
+  /** The create-space panel replaces SpaceScroller while true (not a panel in its snap track), so
+   *  a swipe between spaces can never land on it. */
   creatingSpace?: boolean
   /** The host the create form starts on: the one the switcher is showing. */
   newSpaceHostId?: string
@@ -45,27 +38,8 @@ interface SidebarTreeSurfaceProps {
   onCancelCreateSpace?: () => void
 }
 
-/**
- * SpaceScroller's real mount point, plus the chrome (RemovalTray,
- * RepoImportDialog, SidebarRowContextMenu) it needs mounted
- * once alongside it — split out of `ide-shell.tsx` itself
- * rather than inlined there, on purpose: `ide-shell.tsx`'s OWN comment on
- * `sidebarWorkspacePath` (a few lines up from where this used to be wired)
- * already establishes why — "subscribing to the whole repos array made
- * every live status/count frame rebuild the complete IDE shell." The tree
- * genuinely needs the full `repos` array (there is no narrower shape that
- * still builds every project's rows), so that subscription has to live
- * somewhere; isolating it here means a git-status/PR tick re-renders this
- * component alone, not `IDEShell` and everything under it.
- *
- * MEMOIZED too, for the reverse direction: `IDEShell` re-renders on plenty
- * (an active-pane switch within one workspace, a settings toggle) that
- * touches none of the props below — `ide-shell.tsx`'s own callers are
- * `useCallback`'d so those stay referentially stable across such a render.
- * The tree's own reactivity (repos, removals, folder signals, home trees) is
- * unaffected: those are internal subscriptions, read above, that trigger a
- * re-render on their own regardless of what any parent does.
- */
+// SpaceScroller plus its once-mounted chrome. Its own component so row subscriptions re-render it
+// alone, never `IDEShell`; memoized for the reverse.
 export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   projects,
   activeProjectId,
@@ -76,118 +50,26 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   onCancelCreateSpace = () => {},
 }: SidebarTreeSurfaceProps) {
   const navigate = useNavigate()
-  // Every project's rows come off the SAME removal-tray-filtered `repos` the
-  // old SidebarTreePanel derived once for its single flat tree: a row held
-  // for removal must disappear from whichever project's panel renders it,
-  // exactly as it disappeared from the one flat tree before.
-  const allRepos = useSidebarStore((s) => s.repos)
-  const removalEntries = useRemovalTrayStore((s) => s.entries)
-  // The tray's own `hiddenIds`, not an `entries`-derived set: `entries` loses
-  // a row the INSTANT its commit fires (`sidebar-removal.ts`'s `settle()`),
-  // well before the DELETE it just sent has resolved — deriving hiddenIds
-  // from `entries` alone let a settled-but-not-yet-confirmed row fall
-  // straight through to an ordinary, interactive row for the length of that
-  // round trip (the "ghost row" bug). `renderedHiddenIds` corrects for the
-  // one case that must stay visible regardless: a still-LIVE entry's own
-  // primary id, which stays on screen transformed in place
-  // (sidebar-row.tsx's `RemovingSidebarRow`) — only its cascade descendants
-  // vanish outright while the entry is held (removal-plan.ts's own doc).
-  const trayHiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
-  const hiddenIds = useMemo(
-    () => renderedHiddenIds(trayHiddenIds, removalEntries),
-    [trayHiddenIds, removalEntries],
+  // Opening, resolving and focusing a row ask about the repo the user sees: the
+  // tray's held rows taken out, its live primary rows kept (`renderedHiddenIds`).
+  const allRepos = useSelect(selectRepos)
+  const removalEntries = useTreeUi((s) => s.removals)
+  const trayHiddenIds = useTreeUi((s) => s.hiddenIds)
+  const repos = useMemo(
+    () => applyPendingRemovals(allRepos, renderedHiddenIds(trayHiddenIds, removalEntries)),
+    [allRepos, trayHiddenIds, removalEntries],
   )
-  const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
-  // ROWS come only from repos whose tree has actually been read back.
-  //
-  // A row's identity is the chat that owns its workspace, and a repo's chats
-  // arrive on their own reseed loop — independent of the repo and workspace
-  // streams that put `repos` above into the store. Drawing during that window
-  // would give every row an id that changes the moment the seed lands, and a
-  // row id is the React key, the `collapsedChatRows` key and the selection
-  // key: the tree would silently drop the user's folds and selection a beat
-  // after painting. So a repo's rows appear once, with final ids. Everything
-  // else here still reads the FULL `repos` — resolving, opening and dropping a
-  // row are questions about the repo, not about its rows.
-  const seededRepoIds = useFolderSignalStore((s) => s.seededRepoIds)
-  // A repo whose WORKSPACES have seeded (folder-signal.ts's
-  // seededWorkspaceRepoIds) is admitted too, even before its TREE has. Its own
-  // header/branch rows are safe to draw from workspace data alone: a
-  // WorkspaceDTO's `owningChatId` is already backend-resolved (dto.
-  // WorkspaceDTOFrom), so a row's id is the SAME one this tree would settle
-  // on once chats/folders also arrive — never the "id changes under you"
-  // case the comment above warns about, which is about a row whose identity
-  // can ONLY be resolved by scanning chats. Loose/extra chats and thread
-  // nesting (which genuinely do need the tree) simply wait, same as before.
-  const seededWorkspaceRepoIds = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
-  const treeRepos = useMemo(
-    () => repos.filter((r) => seededRepoIds.has(r.id) || seededWorkspaceRepoIds.has(r.id)),
-    [repos, seededRepoIds, seededWorkspaceRepoIds],
+  const inputFor = useTreeInput()
+  const rowsByProject = useMemo(
+    () => new Map(projects.map((p) => [p.id, deriveRows(inputFor(p.id))])),
+    [projects, inputFor],
   )
-  // Every row across every project — SidebarRowContextMenu looks
-  // up a row by id regardless of which project's panel drew it (a row's id
-  // is never ambiguous by project), so the chrome mounted once below needs
-  // the whole set, not any one project's slice.
-  //
-  // Repo rows are not the whole story: a project-home chat or folder is a row
-  // too (`space-scroller.tsx`'s own `SpacePanel` draws it via the identical
-  // `rowsFromHome`), and until it is ALSO in this set, `SidebarRowContextMenu`
-  // silently finds no row for one and returns before even opening — a home
-  // folder never gets a right-click menu at all, caught live (no "New
-  // folder", no "Rename", nothing — not a refusal, just no menu).
-  const homeTrees = useHomeTreeStore((s) => s.trees)
-  const homeRows = useMemo(
-    () =>
-      projects.flatMap((project) => {
-        const homeWorkspaceId = getHomeWorkspaceId(project.id)
-        const homeTree = homeTrees[project.id]
-        // Mirrors `space-scroller.tsx`'s own `homeSeeded` guard: `rowsFromHome`
-        // degrades gracefully (never throws) while its owning chat has not
-        // resolved yet, so this only needs the tree itself to have seeded.
-        if (!homeWorkspaceId || !homeTree) return []
-        // A held home chat/folder's cascade descendants disappear the same
-        // way a held repo row's do via `applyPendingRemovals` above —
-        // filtered here rather than there, since a home tree is never part
-        // of `repos` for that projection to reach at all. The PRIMARY id
-        // stays (same `descendantHiddenIds` rule); `attachRemovalState`
-        // below marks it for the in-place transform.
-        return attachRemovalState(
-          rowsFromHome(
-            homeWorkspaceId,
-            homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
-            homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
-            getHomeOwningChatId(project.id) ?? undefined,
-          ),
-          removalEntries,
-        )
-      }),
-    [projects, homeTrees, hiddenIds, removalEntries],
+  const rowsForProject = useCallback(
+    (projectId: string) => rowsByProject.get(projectId) ?? NO_ROWS,
+    [rowsByProject],
   )
-  // Every create in flight, drawn as a real row at the exact slot the
-  // finished create lands in (pending-creates.ts) — merged in here, the one
-  // place both `allRows` (chrome) and `rowsForProjectFn` (the actual render
-  // path) already converge, so neither needs its own copy of this logic.
-  const pendingEntries = usePendingCreatesStore((s) => s.entries)
-  const pendingRows = useMemo(() => rowsFromPending(pendingEntries), [pendingEntries])
-  // Marked for the SAME in-place transform as home rows above — computed
-  // once here and reused by both `allRows` (chrome) and `rowsForProjectFn`
-  // (the actual render path) rather than redone in each.
-  const repoRows = useMemo(
-    () => attachRemovalState(treeRepos.flatMap(rowsFromRepo), removalEntries),
-    [treeRepos, removalEntries],
-  )
-  const allRows = useMemo(
-    () => [...homeRows, ...repoRows, ...pendingRows],
-    [homeRows, repoRows, pendingRows],
-  )
-
-  const rowsForProjectFn = useCallback(
-    (projectId: string) => [
-      ...attachRemovalState(rowsForProject(treeRepos, projectId), removalEntries),
-      ...rowsFromPending(pendingEntries.filter((e) => e.projectId === projectId)),
-    ],
-    [treeRepos, removalEntries, pendingEntries],
-  )
+  // The chrome (context menu, trash label) looks a row up by id whichever panel drew it.
+  const allRows = useMemo(() => [...rowsByProject.values()].flat(), [rowsByProject])
   const openRow = useCallback(
     (id: string) => openSidebarRow(id, repos, navigate),
     [repos, navigate],
@@ -197,12 +79,8 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
       void createSidebarRow(parentId, kind, navigate),
     [navigate],
   )
-  // The row's own X control (sidebar-row.tsx) — the same `handleTrash` the
-  // drag-to-trash gesture already calls, just reachable without a drag now.
-  // Refuses (a locked branch, a repo home, a workspace the live store no
-  // longer recognises) get the identical toast the drag path already shows,
-  // read off `allRows` since `handleTrash` only answers true/false, never a
-  // reason.
+  // The row's X control: the same `handleTrash` as drag-to-trash, and the same toast when it
+  // refuses, since `handleTrash` answers only true/false.
   const onTrash = useCallback(
     (id: string) => {
       if (handleTrash(id)) return
@@ -211,10 +89,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     },
     [allRows],
   )
-  // Spec §9's project-level trash, reached from the tree foot's More… menu.
-  // Says so rather than doing nothing when the tray refuses to hold the
-  // project (a project id no loaded project claims) — the same posture the
-  // row trash's own confirm takes.
+  // §9's project trash, from the tree foot's More… menu; says so when the tray refuses the hold.
   const handleTrashProject = useCallback((projectId: string) => {
     if (trashProject(projectId)) return
     toast.error("Can't delete this space — it may already be gone")
@@ -222,6 +97,9 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   // The right-click menu and double-click rename listen on the document body,
   // not on this tree: the view-tab strip draws the same rows outside it.
   const chromeRef = useRef<HTMLElement | null>(document.body)
+  // Before the projects scope's snapshot no row is known yet, so none is drawn.
+  const synced = useSelect(selectProjectsSynced)
+  if (!synced) return <SidebarSkeleton />
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -239,7 +117,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
             projects={projects}
             activeProjectId={activeProjectId}
             onActiveProjectChange={onActiveProjectChange}
-            rowsForProject={rowsForProjectFn}
+            rowsForProject={rowsForProject}
             onOpen={openRow}
             onTrash={onTrash}
             onCreate={createRow}
@@ -253,3 +131,21 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     </div>
   )
 })
+
+const SKELETON_ROWS = [
+  { id: 'a', width: 'w-3/4' },
+  { id: 'b', width: 'w-1/2' },
+  { id: 'c', width: 'w-2/3' },
+  { id: 'd', width: 'w-1/2' },
+  { id: 'e', width: 'w-3/5' },
+]
+
+function SidebarSkeleton() {
+  return (
+    <div data-testid="sidebar-skeleton" className="flex flex-col gap-2 p-3" aria-busy="true">
+      {SKELETON_ROWS.map(({ id, width }) => (
+        <Skeleton key={id} className={`h-5 ${width}`} />
+      ))}
+    </div>
+  )
+}

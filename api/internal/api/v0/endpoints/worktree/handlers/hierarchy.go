@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // errBadRequest is the internal signal that a helper has already written the
@@ -47,19 +47,14 @@ func (h *Handlers) applyRename(
 		return errBadRequest
 	}
 	if _, err := h.hierarchy.RenameBranch(c.Request.Context(), id, *branch); err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return err
 	}
 	return nil
 }
 
-// ChatMergeIntoParent handles POST .../repos/:repoId/chats/:id/merge-into-parent.
-// It validates synchronously (body shape, strategy present, chat resolves)
-// returning 4xx on failure; then it returns 202 and runs the local child→parent
-// merge in the background. The merge outcome is delivered on the workspace
-// WebSocket stream via the repository's broadcast callback; a failure surfaces as
-// LastError on the entity (00 §4).
+// ChatMergeIntoParent handles POST .../chats/:id/merge-into-parent. Validation failures are 4xx;
+// then it answers 202 with the operation running the local child→parent merge and the leaf fold.
 func (h *Handlers) ChatMergeIntoParent(
 	c *gin.Context,
 ) {
@@ -72,58 +67,57 @@ func (h *Handlers) ChatMergeIntoParent(
 		libs.WriteErr(c, http.StatusBadRequest, "strategy is required")
 		return
 	}
-	id, ok := h.chatWorkspace(c)
+	ws, ok := h.chatWorkspace(c)
 	if !ok {
 		return
 	}
-	libs.WriteAccepted(c)
-	h.runAsync(
-		c.Request.Context(),
-		h.working,
-		h.broadcastLastError,
-		id,
-		func(ctx context.Context) error {
-			result, mergeErr := h.hierarchy.MergeIntoParent(ctx, id, body.Strategy)
-			if mergeErr != nil {
-				return mergeErr
+	// Refused before any merge, and again as the merge starts: nothing is left half-done.
+	if body.DeleteSource {
+		if err := h.hierarchy.GuardMergeFold(c.Request.Context(), ws.ID); err != nil {
+			libs.Fail(c, err)
+			return
+		}
+	}
+	label := h.relLabel(c.Request.Context(), "Merge "+ws.Branch, "into", ws.ParentID)
+	h.startOn(c, ws, domain.OpWorkspaceMergeIntoParent, label, func(ctx context.Context) error {
+		if body.DeleteSource {
+			if err := h.hierarchy.GuardMergeFold(ctx, ws.ID); err != nil {
+				return err
 			}
-			// Fold the now-merged child away only on a clean merge AND only when
-			// it is a leaf: a conflict keeps it for the user to resolve, and a
-			// non-leaf child is kept because cascade-deleting it would destroy
-			// its descendants' unmerged work (no silent data loss either way).
-			if !body.DeleteSource || result.ConflictsPending {
-				return nil
-			}
-			return h.foldMergedChildIfLeaf(ctx, id)
-		},
-	)
+		}
+		result, mergeErr := h.hierarchy.MergeIntoParent(ctx, ws.ID, body.Strategy)
+		if mergeErr != nil {
+			return mergeErr
+		}
+		// Fold only a clean merge: a conflict keeps the child for the user to resolve.
+		if !body.DeleteSource || result.ConflictsPending {
+			return nil
+		}
+		return h.foldMergedChildIfLeaf(ctx, ws.ID)
+	})
 }
 
-// foldMergedChildIfLeaf removes the just-merged workspace when it is a leaf,
-// leaving a non-leaf child in place because cascade-deleting it would destroy
-// its descendants' unmerged work. It returns nil (a no-op) when the child still
-// has children.
+// foldMergedChildIfLeaf removes the just-merged workspace only when it is a leaf: cascade-deleting
+// a non-leaf would destroy its descendants' unmerged work.
 func (h *Handlers) foldMergedChildIfLeaf(
 	ctx context.Context,
 	id string,
 ) error {
 	leaf, err := h.workspaceIsLeaf(ctx, id)
 	if err != nil {
-		return fmt.Errorf("merge succeeded but post-merge cleanup failed: %w", err)
+		return &problem.Error{Code: problem.Internal, Message: "merge succeeded but post-merge cleanup failed", Err: err}
 	}
 	if !leaf {
 		return nil
 	}
 	// Never with consent: a fold nobody reviewed must not destroy unmerged work.
 	if err := h.hierarchy.DeleteCascade(ctx, id, domain.KeepWorkAtRisk); err != nil {
-		return fmt.Errorf("merge succeeded but removing the workspace failed: %w", err)
+		return &problem.Error{Code: problem.Internal, Message: "merge succeeded but removing the workspace failed", Err: err}
 	}
 	return nil
 }
 
-// workspaceIsLeaf reports whether the workspace has no child workspaces, so it
-// can be safely removed after a merge without cascade-deleting the unmerged work
-// of any descendants.
+// workspaceIsLeaf reports whether the workspace has no child workspaces.
 func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error) {
 	all, err := h.reader.List(ctx)
 	if err != nil {
@@ -137,42 +131,25 @@ func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error)
 	return true, nil
 }
 
-// ChatRebaseOntoParent handles POST .../repos/:repoId/chats/:id/rebase-onto-parent.
-// It is the user-initiated "finish the move" for a moved-but-conflicting child:
-// 202 + async rebase of the child onto its current parent, keeping a conflicting
-// rebase live for the standard resolve flow. The outcome rides the workspace WS
-// stream; a failure surfaces as LastError on the entity.
+// ChatRebaseOntoParent handles POST .../chats/:id/rebase-onto-parent, the user's "finish the move"
+// for a moved-but-conflicting child; a conflicting rebase stays live for the resolve flow.
 func (h *Handlers) ChatRebaseOntoParent(
 	c *gin.Context,
 ) {
-	id, ok := h.chatWorkspace(c)
+	ws, ok := h.chatWorkspace(c)
 	if !ok {
 		return
 	}
-	libs.WriteAccepted(c)
-	h.runAsync(
-		c.Request.Context(),
-		h.working,
-		h.broadcastLastError,
-		id,
-		func(ctx context.Context) error {
-			_, rebaseErr := h.hierarchy.RebaseOntoParent(ctx, id)
-			return rebaseErr
-		},
-	)
+	label := h.relLabel(c.Request.Context(), "Rebase "+ws.Branch, "onto", ws.ParentID)
+	h.startOn(c, ws, domain.OpWorkspaceRebaseOntoParent, label, func(ctx context.Context) error {
+		_, err := h.hierarchy.RebaseOntoParent(ctx, ws.ID)
+		return err
+	})
 }
 
-// ChatReparent handles POST .../repos/:repoId/chats/:id/reparent. It validates
-// synchronously (body shape, newParentId present, chat resolves) returning 4xx
-// on failure; then it returns 202 and rebases the leaf child onto the new parent
-// in the background. The reparented workspace is delivered on the workspace
-// WebSocket stream via the repository's broadcast callback; a failure surfaces as
-// LastError on the entity (00 §4).
-//
-// newParentId still names a WORKSPACE and not a chat: it is the git lineage
-// parent this leaf is rebased onto, resolved by the caller from the tree it is
-// already drawing. Re-keying it belongs to the sidebar's own move gesture, not
-// to this verb.
+// ChatReparent handles POST .../chats/:id/reparent: 4xx on validation, then 202 with the operation
+// rebasing the leaf onto the new parent. newParentId names a workspace, not a chat: it is the git
+// lineage parent the caller reads from the tree it draws.
 func (h *Handlers) ChatReparent(
 	c *gin.Context,
 ) {
@@ -185,70 +162,44 @@ func (h *Handlers) ChatReparent(
 		libs.WriteErr(c, http.StatusBadRequest, "newParentId is required")
 		return
 	}
-	id, ok := h.chatWorkspace(c)
+	ws, ok := h.chatWorkspace(c)
 	if !ok {
 		return
 	}
-	libs.WriteAccepted(c)
-	h.runAsync(
-		c.Request.Context(),
-		h.working,
-		h.broadcastLastError,
-		id,
-		func(ctx context.Context) error {
-			_, reparentErr := h.hierarchy.Reparent(ctx, id, body.NewParentID)
-			return reparentErr
-		},
-	)
+	label := h.relLabel(c.Request.Context(), "Move "+ws.Branch, "under", body.NewParentID)
+	h.startOn(c, ws, domain.OpWorkspaceReparent, label, func(ctx context.Context) error {
+		_, err := h.hierarchy.Reparent(ctx, ws.ID, body.NewParentID)
+		return err
+	})
 }
 
-// ChatRetryProvision handles POST .../repos/:repoId/chats/:id/retry-provision.
-// It validates the chat resolves synchronously (4xx if not), then returns 202
-// and re-provisions the placeholder in place in the background. The provisioned
-// workspace is delivered on the workspace WebSocket stream; a failure (e.g. the
-// branch is still held) surfaces as LastError on the entity.
+// ChatRetryProvision handles POST .../chats/:id/retry-provision, answering 202 with the operation
+// re-provisioning the placeholder in place (it fails if the branch is still held).
 func (h *Handlers) ChatRetryProvision(
 	c *gin.Context,
 ) {
-	id, ok := h.chatWorkspace(c)
+	ws, ok := h.chatWorkspace(c)
 	if !ok {
 		return
 	}
-	libs.WriteAccepted(c)
-	h.runAsync(
-		c.Request.Context(),
-		h.working,
-		h.broadcastLastError,
-		id,
-		func(ctx context.Context) error {
-			_, retryErr := h.hierarchy.RetryProvision(ctx, id)
-			return retryErr
-		},
-	)
+	h.startOn(c, ws, domain.OpWorkspaceRetryProvision, "Retry "+ws.Branch, func(ctx context.Context) error {
+		_, err := h.hierarchy.RetryProvision(ctx, ws.ID)
+		return err
+	})
 }
 
-// ChatDetachHolder handles POST .../repos/:repoId/chats/:id/detach-holder. It
-// validates the chat resolves synchronously (4xx if not), then returns 202 and,
-// in the background, detaches the branch's holder (with the user's consent,
-// captured by the modal that fires this call), clears the home row's branch when
-// the holder is the repo home, and re-provisions the placeholder in place. A
-// failure (e.g. detach blocked mid-merge) surfaces as LastError on the entity.
+// ChatDetachHolder handles POST .../chats/:id/detach-holder (the user consented in the modal that
+// fires it), answering 202 with the operation that detaches the branch's holder and
+// re-provisions the placeholder in place.
 func (h *Handlers) ChatDetachHolder(
 	c *gin.Context,
 ) {
-	id, ok := h.chatWorkspace(c)
+	ws, ok := h.chatWorkspace(c)
 	if !ok {
 		return
 	}
-	libs.WriteAccepted(c)
-	h.runAsync(
-		c.Request.Context(),
-		h.working,
-		h.broadcastLastError,
-		id,
-		func(ctx context.Context) error {
-			_, detachErr := h.hierarchy.DetachHolder(ctx, id)
-			return detachErr
-		},
-	)
+	h.startOn(c, ws, domain.OpWorkspaceDetachHolder, "Detach "+ws.HeldByPath, func(ctx context.Context) error {
+		_, err := h.hierarchy.DetachHolder(ctx, ws.ID)
+		return err
+	})
 }

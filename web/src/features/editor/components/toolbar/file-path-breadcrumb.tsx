@@ -3,38 +3,40 @@ import { ArrowLeft } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { logger } from '@/features/editor/utils/logger'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { workspaceRef } from '@/lib/api/documents'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
-import { Dropdown, dropdownItemClassName } from '@/components/ui/dropdown'
-import { getRelativePath, normalizePath } from '@/utils/path-helpers'
+import { Dropdown } from '@/components/ui/dropdown'
+import { dropdownItemClassName } from '@/components/ui/dropdown-styles'
+import { normalizePath } from '@/utils/path-helpers'
 import { breadcrumbSegmentPath, loadDirectoryEntries } from './breadcrumb-directory'
 import { PathBreadcrumb } from './path-breadcrumb'
 
 interface FilePathBreadcrumbProps {
-  /** The workspace the buffer belongs to: every listing and navigation acts on it. */
-  workspaceId: string
   filePath: string
+  /** The shown file's own workspace: segments list and open there. Null for a
+   *  host document, whose segments are plain text. */
+  workspaceId: string | null
   interactive?: boolean
   className?: string
 }
 
-async function handleNavigate(wsId: string, path: string) {
+async function handleNavigate(workspaceId: string, path: string) {
   try {
-    await openWorkspaceFile(wsId, path, { preview: true })
+    await openDocument(workspaceRef(workspaceId, path), { preview: true })
   } catch (error) {
     logger.error('Editor', 'Failed to navigate to path:', path, error)
   }
 }
 
 export function FilePathBreadcrumb({
-  workspaceId,
   filePath,
-  interactive = true,
+  workspaceId,
+  interactive: interactiveProp = true,
   className,
 }: FilePathBreadcrumbProps) {
-  // The workspace id doubles as the root the displayed path is made relative to.
-  const rootFolderPath = workspaceId
+  const interactive = interactiveProp && workspaceId !== null
   const [dropdown, setDropdown] = useState<{
     segmentIndex: number
     x: number
@@ -52,20 +54,13 @@ export function FilePathBreadcrumb({
       return [filePath.split('://')[1] || filePath]
     }
 
-    if (rootFolderPath) {
-      const relativePath = getRelativePath(filePath, rootFolderPath)
-      if (relativePath !== filePath) {
-        return normalizePath(relativePath).split('/').filter(Boolean)
-      }
-    }
-
     return normalizePath(filePath).split('/').filter(Boolean)
   }
 
   const segments = getPathSegments()
 
   const handleGoBack = async () => {
-    if (!dropdown || dropdown.navigationStack.length === 0) return
+    if (!dropdown || dropdown.navigationStack.length === 0 || workspaceId === null) return
 
     const previousPath = dropdown.navigationStack[dropdown.navigationStack.length - 1]
 
@@ -92,6 +87,7 @@ export function FilePathBreadcrumb({
   ) => {
     event.preventDefault()
     event.stopPropagation()
+    if (workspaceId === null) return
 
     if (segmentIndex === segments.length - 1) {
       await handleNavigate(workspaceId, breadcrumbSegmentPath(segments, segmentIndex))
@@ -174,6 +170,7 @@ export function FilePathBreadcrumb({
             <Button
               key={item.path}
               onClick={async () => {
+                if (workspaceId === null) return
                 if (item.isDir) {
                   try {
                     const items = await loadDirectoryEntries(workspaceId, item.path)

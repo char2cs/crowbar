@@ -34,7 +34,6 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 			ForkPointSha:   "abc123",
 			Status:         domain.WorkspaceStatusNew,
 			Working:        true,
-			LastError:      "a push failed",
 			IsDefault:      true,
 			Added:          7,
 			Deleted:        3,
@@ -56,7 +55,6 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 	require.NotNil(t, got)
 	assert.Equal(t, source.Branch, got.Branch)
 	assert.Equal(t, source.Status, got.Status, "the conflict-overlaid status, never the raw one")
-	assert.Equal(t, source.LastError, got.LastError)
 	assert.Equal(t, source.Working, got.Working)
 	assert.Equal(t, source.IsDefault, got.IsDefault)
 	assert.Equal(t, source.Added, got.Added)
@@ -162,34 +160,4 @@ func TestAgentChatDTOList_ANilClosureLeavesEveryWorktreeAbsent(t *testing.T) {
 
 	require.Len(t, got, 1)
 	assert.Nil(t, got[0].Worktree)
-}
-
-// TestAgentChatEvent_WorktreeStateFrameCarriesTheGitState pins the live half of
-// §5. The chat feed has no snapshot, so a client that had to refetch on every
-// git change would repaint a round trip after the diff counts moved — the same
-// reasoning that puts Working and TerminalWait on the frame.
-func TestAgentChatEvent_WorktreeStateFrameCarriesTheGitState(t *testing.T) {
-	frame := dto.AgentChatEvent{
-		ChatID:      "c1",
-		WorkspaceID: "ws-1",
-		RepoID:      "r1",
-		Kind:        dto.AgentChatKindWorktreeState,
-		Worktree:    &dto.ChatWorktreeDTO{Branch: "feature/x", Added: 4, OwningChatID: "c1"},
-	}
-
-	raw, err := json.Marshal(frame)
-	require.NoError(t, err)
-	assert.Contains(t, string(raw), `"kind":"worktree_state"`)
-	assert.Contains(t, string(raw), `"branch":"feature/x"`)
-	assert.Contains(t, string(raw), `"owningChatId":"c1"`)
-}
-
-// A frame about anything BUT the worktree carries no worktree key at all, so a
-// client merging frames into its cache never blanks a branch row on a
-// turn_started it happened to receive first.
-func TestAgentChatEvent_ANonWorktreeFrameOmitsIt(t *testing.T) {
-	raw, err := json.Marshal(dto.AgentChatEvent{ChatID: "c1", Kind: "turn_started"})
-
-	require.NoError(t, err)
-	assert.NotContains(t, string(raw), "worktree")
 }

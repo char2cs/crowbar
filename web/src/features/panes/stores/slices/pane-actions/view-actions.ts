@@ -1,10 +1,12 @@
 import { nanoid } from 'nanoid'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { releaseClosedChat } from '@/features/panes/lib/release-closed-chat'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 import { settlePinnedOrder, setViewPinned } from '@/features/panes/lib/view-pins'
 import {
   fillPane,
   insertPane,
+  keepUnsavedTabs,
   movePane,
   removePane,
   removeView,
@@ -110,9 +112,10 @@ export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
     closePane(paneId) {
       const pane = get().panes[paneId]
       set((state) => {
+        keepUnsavedTabs(state, paneId)
         removePane(state, paneId)
       })
-      if (pane?.chatId) release([{ chatId: pane.chatId, workspaceId: pane.workspaceId ?? null }])
+      if (pane?.chatId) release([{ chatId: pane.chatId, workspaceId: paneChatWorkspaceId(pane) }])
     },
 
     closeView(viewId) {

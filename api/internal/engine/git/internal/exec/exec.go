@@ -1,13 +1,6 @@
-// Package exec runs git commands in a working directory and captures output.
-//
-// Every invocation runs with GIT_OPTIONAL_LOCKS=0 so read-only commands
-// (status, diff, log, ...) never take .git/index.lock opportunistically; the
-// fs watcher recomputes status on every shared-.git ref event, and an
-// opportunistic index refresh there races user mutations (git restore et al.)
-// for the same lock. Mutations that still hit a held index.lock — user
-// terminals and shell prompts legitimately take it for short windows — are
-// retried with a bounded backoff, and a lock left behind by a crashed git
-// process is removed once it is provably stale (see lock_retry.go).
+// Package exec runs git in a working directory. Every call sets GIT_OPTIONAL_LOCKS=0 so reads never
+// take .git/index.lock and race user mutations; a mutation hitting a held lock retries with bounded
+// backoff, and a provably stale lock is removed (lock_retry.go).
 package exec
 
 import (
@@ -18,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
@@ -26,39 +20,21 @@ import (
 
 const optionalLocksOffEnv = "GIT_OPTIONAL_LOCKS=0"
 
-// gitBin and recoverGit are the package's only view of which binary a git
-// invocation exec's. They are variables so the tests can drive the
-// vanished-binary recovery path without depending on what is installed on the
-// machine running them; production always holds the binpath pair.
-//
-// Nothing else about an invocation changes: same argv, same environment, same
-// working directory. Only the file that gets exec'd differs, and only to skip
-// the macOS shim in front of it.
+// gitBin and recoverGit pick the binary a git invocation exec's (skipping the
+// macOS shim); they are variables so tests can drive the vanished-binary path.
 var (
 	gitBin     = binpath.Git
 	recoverGit = binpath.RecoverGit
 )
 
-// GitOpTimeout bounds every non-network git subprocess whose caller did not
-// bound it already. Only the network commands were ever bounded (engine.go's
-// execNet), on the reasoning that a dead remote stalls git for the OS
-// retransmission timeout while the per-repo mutex is held — but the wedge that
-// argument describes is not specific to the network. Any git subprocess that
-// does not return holds the same mutex and stops every git operation on that
-// clone, and local git has its own ways of not returning: a filesystem that
-// stops answering, a repo large enough that a diff outlives the request that
-// asked for it, a hook or credential helper waiting on input nobody will send.
-//
-// A minute is far above any healthy local git command and well below the point
-// where a user has concluded the app is dead.
+// GitOpTimeout bounds every git subprocess whose caller did not bound it: one
+// that never returns holds the per-repo mutex and stops every git operation on
+// that clone. A minute is far above any healthy local git command.
 const GitOpTimeout = 60 * time.Second
 
-// waitDelay bounds how long Wait blocks after a context-driven kill. Wait
-// normally still waits until every process holding the stdout/stderr pipes
-// exits — and git's own children (ssh, git-remote-https, credential helpers)
-// can outlive the killed git and hold them open indefinitely. Forcibly closing
-// the pipes shortly after cancellation is what makes a cancelled command
-// actually return instead of trading one unbounded hang for another.
+// waitDelay bounds Wait after cancellation: a git that ignores SIGTERM is then
+// killed, and the pipes its children (ssh, credential helpers) still hold open
+// are closed, so a cancelled command always returns.
 const waitDelay = 3 * time.Second
 
 func gitEnv() []string {
@@ -74,6 +50,18 @@ type GitError struct {
 
 func (e *GitError) Error() string {
 	return fmt.Sprintf("%s: exit %d: %s", e.Op, e.ExitCode, e.Message)
+}
+
+// Detail is what git said, without its hints: the failure as a user reads it.
+func (e *GitError) Detail() string {
+	var lines []string
+	for _, line := range strings.Split(e.Message, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "hint:") {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Result holds the captured output of a git invocation.
@@ -107,10 +95,8 @@ func GitWithStdin(
 	})
 }
 
-// subcommandName returns the git subcommand to bucket a timing sample under,
-// skipping the leading global flags (`-c key=value`, `--git-dir=…`) some call
-// sites pass. Without the skip, one hot subcommand would split across as many
-// sample names as there are flag prefixes in front of it.
+// subcommandName returns the git subcommand to bucket a timing sample under, skipping
+// leading global flags so one subcommand does not split across sample names.
 func subcommandName(
 	args []string,
 ) string {
@@ -128,10 +114,8 @@ func subcommandName(
 	return "unknown"
 }
 
-// run wraps every git invocation in the package — Git and GitWithStdin
-// both funnel through it — so a single measurement point covers the
-// whole subprocess surface. While the perf ring is disarmed this costs one
-// atomic load and delegates untouched.
+// run is the single funnel for every git invocation, so one measurement point covers the
+// whole subprocess surface; while the perf ring is disarmed it costs one atomic load.
 func run(
 	ctx context.Context,
 	dir string,
@@ -148,11 +132,8 @@ func run(
 	return r
 }
 
-// runInner runs the invocation once and, only when the subprocess never
-// started, gives the resolver a chance to notice its cached binary has gone and
-// runs it again. The retry is safe precisely because the first attempt never
-// started: no bytes were produced, nothing was mutated, and the command cannot
-// have been half-applied.
+// runInner runs the invocation once and, only if the subprocess never started, lets the
+// resolver notice a vanished binary and runs it again: nothing can have been applied.
 func runInner(
 	ctx context.Context,
 	dir string,
@@ -170,18 +151,9 @@ func runInner(
 	return classifyTimeout(bctx.Err(), ctx.Err(), r)
 }
 
-// execGit reports whether the subprocess started alongside its result, which is
-// what gates the single retry in runInner.
-//
-// The predicate is cmd.Process, deliberately NOT cmd.ProcessState. ProcessState
-// reads like the natural choice and is wrong in the one way that matters here:
-// os/exec sets c.Process only on a successful StartProcess, but Wait assigns
-// c.ProcessState from c.Process.Wait(), which leaves it NIL whenever that wait
-// itself fails. A git command that had already run to completion — and
-// committed, or created a worktree — would then be reported as never-started
-// and retried, running the mutation a second time. c.Process is the fact the
-// retry actually needs: a process object exists if and only if the fork/exec
-// succeeded, whatever happened afterwards.
+// execGit also reports whether the subprocess started, which gates runInner's
+// retry. That is cmd.Process, not cmd.ProcessState: Wait leaves ProcessState nil
+// when its own wait fails, which would re-run a mutation that already ran.
 func execGit(
 	ctx context.Context,
 	bin string,
@@ -190,11 +162,7 @@ func execGit(
 	hasStdin bool,
 	args []string,
 ) (Result, bool) {
-	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-	cmd.Env = gitEnv()
-	cmd.WaitDelay = waitDelay
+	cmd := command(ctx, bin, dir, args)
 	if hasStdin {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -210,21 +178,46 @@ func execGit(
 		Stderr:   stderr.String(),
 		ExitCode: exitCode(cmd, runErr),
 	}
-	// A subprocess killed by a signal (ctx cancel, OOM) or a fork/exec failure
-	// exits with no git-produced stderr, leaving an opaque "exit -1: " error.
-	// Surface the run error so the actual cause (e.g. "signal: killed",
-	// "context canceled") reaches logs and the error envelope.
+	// A signalled or never-started git leaves no stderr of its own; surface the
+	// run error ("signal: terminated", "context canceled") in its place.
 	if r.ExitCode != 0 && r.Stderr == "" && runErr != nil {
 		r.Stderr = runErr.Error()
 	}
 	return r, cmd.Process != nil
 }
 
-// boundedContext applies GitOpTimeout to an invocation the caller left
-// unbounded. A caller that already set a deadline keeps it: execNet runs the
-// network commands through this same path under its own, far longer bounds
-// (three minutes for a transfer), and silently shortening those to the
-// non-network timeout would abort legitimate fetches of large repos.
+// command builds every git subprocess in the package, buffered or streamed, so
+// they share one environment and one cancel policy.
+func command(
+	ctx context.Context,
+	bin string,
+	dir string,
+	args []string,
+) *exec.Cmd {
+	//nolint:gosec // G204: running git with caller-supplied args is the purpose of this package.
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = dir
+	cmd.Env = gitEnv()
+	cmd.Cancel = func() error { return terminate(cmd.Process) }
+	cmd.WaitDelay = waitDelay
+	return cmd
+}
+
+// terminate ends a cancelled git with SIGTERM, on which git removes its own
+// lockfiles; a SIGKILL would strand them for every later command. Where SIGTERM
+// is unsupported (Windows) it kills.
+func terminate(
+	proc *os.Process,
+) error {
+	err := proc.Signal(syscall.SIGTERM)
+	if err == nil || errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	return proc.Kill()
+}
+
+// boundedContext applies GitOpTimeout to an unbounded invocation. A caller deadline is
+// kept, since execNet runs network commands here under far longer bounds.
 func boundedContext(
 	ctx context.Context,
 ) (context.Context, context.CancelFunc) {
@@ -234,14 +227,9 @@ func boundedContext(
 	return context.WithTimeout(ctx, GitOpTimeout)
 }
 
-// classifyTimeout replaces the opaque result of a deadline-killed subprocess
-// with an explicit timeout, the way execNet already does for network commands:
-// CommandContext kills the process, so what reaches the caller is "exit -1:
-// signal: killed", which says nothing about the deadline that caused it.
-//
-// Only a deadline is rewritten. A deliberate cancellation keeps "context
-// canceled", which is already the truth and is how the caller distinguishes a
-// git operation it abandoned from one that ran too long.
+// classifyTimeout rewrites a deadline-ended git's opaque "signal: terminated"
+// as an explicit timeout, as execNet does. A deliberate cancellation keeps
+// "context canceled", which is how a caller tells an abandoned git from a slow one.
 func classifyTimeout(
 	boundedErr error,
 	parentErr error,

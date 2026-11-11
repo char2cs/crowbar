@@ -17,7 +17,7 @@ import (
 func TestNewTCP_ValidAddress(t *testing.T) {
 	l, err := NewTCP("tcp://127.0.0.1:0", nil)
 	require.NoError(t, err)
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	_, ok := l.(*net.TCPListener)
 	assert.True(t, ok)
 }
@@ -105,11 +105,6 @@ func TestNewTCP_NonLoopback_ServerTLSOnly_NoClientCertRequired(t *testing.T) {
 	}
 }
 
-// exposedLoopbackHost is classified as network-exposed (a DNS name) yet
-// resolves to loopback, so NewTCP's real exposed path binds without a macOS
-// "accept incoming connections" prompt.
-const exposedLoopbackHost = "tcp://localhost.:0"
-
 // acceptOne accepts a single connection on ln and completes its TLS handshake,
 // reporting the accepted type alongside the handshake's outcome.
 func acceptOne(
@@ -135,15 +130,15 @@ func acceptOne(
 	return handshaked
 }
 
-// TestNewTCP_Exposed_TerminatesTLS13 proves the listener NewTCP hands back for
-// a network-exposed bind speaks TLS, and only TLS 1.3: a TLS 1.2 client is
-// refused at the handshake.
-func TestNewTCP_Exposed_TerminatesTLS13(t *testing.T) {
-	require.True(t, IsNetworkExposed(exposedLoopbackHost))
+// TestTLSListen_TerminatesOnlyTLS13 proves the listener an exposed bind gets
+// speaks TLS 1.3 only. It binds loopback: an exposed name would need DNS, and a
+// wildcard bind prompts the macOS firewall.
+func TestTLSListen_TerminatesOnlyTLS13(t *testing.T) {
 	id, err := tlsid.Load(t.TempDir())
 	require.NoError(t, err)
-	ln, err := NewTCP(exposedLoopbackHost, id)
+	raw, err := listenTCP("127.0.0.1:0")
 	require.NoError(t, err)
+	ln := tlsListen(raw, id)
 	t.Cleanup(func() { _ = ln.Close() })
 
 	handshaked := acceptOne(t, ln)

@@ -1,7 +1,5 @@
-//! Bearer tokens for remote hosts, in the OS keychain — never in the
-//! tauri-plugin-store config JSON alongside a host's name/endpoint/
-//! fingerprint (that store is client-visible app config; a bearer token is a
-//! secret).
+//! Bearer tokens for remote hosts, in the OS keychain — never in the client-visible
+//! store config beside a host's name, endpoint and fingerprint.
 
 use std::sync::Arc;
 
@@ -45,11 +43,8 @@ fn parse_digest(text: &str) -> Option<CertificateDigest> {
     Some(digest)
 }
 
-/// The seam host_tokens' Tauri commands (and api_proxy's remote path) go
-/// through: production talks to the OS keychain; tests use an
-/// in-memory fake, since exercising the real keychain in CI is unreliable
-/// (prompts, platform differences) and unnecessary to prove this module's
-/// own logic. Entries are [`Credential::encode`]d.
+/// The keychain seam for host_tokens' commands and api_proxy's remote path. Tests use
+/// an in-memory fake: the real keychain prompts in CI. Entries are [`Credential::encode`]d.
 pub trait TokenStore: Send + Sync {
     fn get(&self, host_id: &str) -> Result<Option<String>, String>;
     fn set(&self, host_id: &str, token: &str) -> Result<(), String>;
@@ -436,12 +431,9 @@ mod tests {
         }
     }
 
-    /// Exercises the REAL OS keychain, not the fake — `keyring = "3"` has no
-    /// default backend feature and silently falls back to an in-memory mock
-    /// if the platform-native feature is missing from Cargo.toml, so a
-    /// round-trip against `FakeStore` alone cannot catch that. `#[ignore]`d
-    /// because it prompts/differs across CI runners; run manually with
-    /// `cargo test host_tokens -- --ignored`.
+    /// Hits the real OS keychain: without its platform feature `keyring` silently falls back to an
+    /// in-memory mock, which a `FakeStore` round-trip cannot catch. Ignored because it prompts or
+    /// differs across CI runners; run with `cargo test host_tokens -- --ignored`.
     #[test]
     #[ignore]
     fn keyring_token_store_roundtrips_against_the_real_os_keychain() {

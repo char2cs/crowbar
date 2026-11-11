@@ -15,21 +15,20 @@ import { createRef } from 'react'
 import {
   useSidebarDrag,
   SIDEBAR_DRAG_THRESHOLD_PX,
-  PANE_DROP_ATTR,
-  type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
+import { PANE_DROP_ATTR, type SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
 import { useDragStore } from '@/features/panes/stores/drag-store'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }))
 
 const ROW_H = 36
-// What the pane painter writes; asserted as the DOM outcome, not imported.
+/** What a hovered pane's CSS ring reads. */
 const PANE_HIT_ATTR = 'data-pane-hit'
 
 function stubRect(el: Element, rect: Partial<DOMRect>) {
@@ -81,6 +80,11 @@ function makeRow(
   return el
 }
 
+/** A 200px-square pane at y 100..300, starting at `left`. */
+function paneBox(left: number): Partial<DOMRect> {
+  return { top: 100, bottom: 300, left, right: left + 200, width: 200, height: 200 }
+}
+
 function makePane(paneId: string, rect: Partial<DOMRect>) {
   const el = document.createElement('div')
   el.setAttribute(PANE_DROP_ATTR, paneId)
@@ -127,7 +131,6 @@ function renderDrag(
     onDrop?: DropMock
     onPaneDrop?: PaneDropMock
     scroller?: HTMLElement | null
-    reorderInStrip?: boolean
   } = {},
 ) {
   const onDrop: DropMock = overrides.onDrop ?? vi.fn()
@@ -145,7 +148,6 @@ function renderDrag(
         }),
       onDrop,
       onPaneDrop,
-      strip: overrides.reorderInStrip ? () => scrollRef.current : undefined,
     }),
   )
   return { ...view, onDrop, onPaneDrop }
@@ -198,25 +200,22 @@ beforeEach(() => {
   // a row's own fields), so every id this suite drags or targets needs a
   // real entry here — one repo, so every pairing below is same-repo/
   // same-project and the matrix's own refusals are never what is under test.
-  useSidebarStore.setState({
-    ...getInitialState(),
-    repos: [
-      {
-        id: 'repo-1',
-        projectId: 'proj-1',
-        name: 'repo-1',
-        avatarLabel: 'R',
-        avatarColor: 'bg-indigo-700',
-        defaultWorkspaceId: 'home-1',
-        workspaces: [
-          { id: 'a', branch: 'a', age: '' },
-          { id: 'b', branch: 'b', age: '' },
-          { id: 'grandchild', branch: 'grandchild', age: '' },
-          { id: 'ab', branch: 'ab', age: '' },
-        ],
-      },
-    ],
-  })
+  seedRepos([
+    {
+      id: 'repo-1',
+      projectId: 'proj-1',
+      name: 'repo-1',
+      avatarLabel: 'R',
+      avatarColor: 'bg-indigo-700',
+      defaultWorkspaceId: 'home-1',
+      workspaces: [
+        { id: 'a', branch: 'a', age: '' },
+        { id: 'b', branch: 'b', age: '' },
+        { id: 'grandchild', branch: 'grandchild', age: '' },
+        { id: 'ab', branch: 'ab', age: '' },
+      ],
+    },
+  ])
 })
 
 afterEach(() => {
@@ -249,10 +248,8 @@ describe('useSidebarDrag', () => {
     expect(onDrop).not.toHaveBeenCalled()
   })
 
-  // Observed live: the browser throws NotFoundError from `setPointerCapture`
-  // for a still-connected element when this pointerId is no longer the one
-  // it has down — a real, uncaught exception that used to abort the rest of
-  // `beginDrag` (the ghost/draggingRef/data-row-dragging setup never ran).
+  // The browser throws NotFoundError from setPointerCapture for a connected element whose
+  // pointerId is no longer down; beginDrag must still set up the ghost and drag state.
   it('a drag still starts even if setPointerCapture throws', () => {
     const rowA = makeRow(baseRow, 0)
     Element.prototype.setPointerCapture = () => {
@@ -280,13 +277,8 @@ describe('useSidebarDrag', () => {
   })
 
   it('drops onto a row: onDrop fires with the subjects, the REAL target row, and the resolved mode', () => {
-    // A real SidebarRow, not the partial shape the DOM hit test reconstructs
-    // ({kind, id, parentId, path, expanded, hasChildren} — the fields the
-    // matrix itself needs, nothing else): order/label/ownsWorktree/
-    // workspaceId/working/hasView all differ from baseRow's on purpose, so a
-    // regression that hands the caller the DOM-reconstructed stand-in
-    // (missing every one of them, and 'parentId: ""' instead of `null`)
-    // fails this on every extra field, not just `id`.
+    // A full SidebarRow whose fields all differ from baseRow, so handing the caller the
+    // DOM-reconstructed stand-in instead fails on every extra field, not just `id`.
     const target: SidebarRow = {
       id: 'b',
       kind: 'branch',
@@ -314,12 +306,8 @@ describe('useSidebarDrag', () => {
     expect(result.current.dragging).toBe(false)
   })
 
-  // Reported live: dragging a chat onto a folder never nests it — it lands
-  // as a sibling reorder instead, every time, no matter where on the row it
-  // is released. `sidebar-drop-policy.ts`'s own matrix says this IS allowed
-  // (ALL_MODES for a chat subject on any folder target — see
-  // sidebar-drop-policy.test.ts's own coverage), so if this fails, the
-  // defect is in THIS geometry/hit-test layer, not the policy.
+  // The policy allows a chat into any folder (ALL_MODES), so a release dead-centre on a folder must
+  // resolve "into" here; a failure is in this geometry/hit-test layer, not the policy.
   it('drops a chat dead-centre on a folder row: the resolved mode is "into", not a reorder', () => {
     const chatSubject: SidebarRow = {
       id: 'chat-a',
@@ -381,7 +369,7 @@ describe('useSidebarDrag', () => {
 
   it('dropping on the middle third of a pane calls onPaneDrop with zone center', () => {
     const rowA = makeRow(baseRow, 0)
-    makePane('pane-1', { top: 100, bottom: 300, left: 300, right: 500, width: 200, height: 200 })
+    makePane('pane-1', paneBox(300))
     const { result, onPaneDrop } = renderDrag()
 
     press(result, baseRow, rowA)
@@ -393,7 +381,7 @@ describe('useSidebarDrag', () => {
 
   it('dropping on the edge of a pane calls onPaneDrop with a side zone', () => {
     const rowA = makeRow(baseRow, 0)
-    makePane('pane-1', { top: 100, bottom: 300, left: 300, right: 500, width: 200, height: 200 })
+    makePane('pane-1', paneBox(300))
     const { result, onPaneDrop } = renderDrag()
 
     press(result, baseRow, rowA)
@@ -403,30 +391,13 @@ describe('useSidebarDrag', () => {
     expect(onPaneDrop).toHaveBeenCalledWith([baseRow], 'pane-1', 'left')
   })
 
-  // Fix round 1 (real, reviewer-verified gap): §8.2's "the entry about to
-  // take a drop wears the same ring a pane wears" needs a PANE half too — a
-  // neutral indicator marking which pane a release would land in. Painted
-  // straight onto the DOM (`paintPaneHit`), reading the exact same
-  // PANE_DROP_ATTR value the hit test itself resolves against.
+  // §8.2: the pane a release would land in wears the drop ring, painted onto the DOM off the same
+  // PANE_DROP_ATTR the hit test resolves.
   describe('the pane-hit indicator (spec §8.2)', () => {
     it('marks the hovered pane with PANE_HIT_ATTR, and only that pane', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
-      const pane2 = makePane('pane-2', {
-        top: 100,
-        bottom: 300,
-        left: 600,
-        right: 800,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
+      const pane2 = makePane('pane-2', paneBox(600))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -438,22 +409,8 @@ describe('useSidebarDrag', () => {
 
     it('moves the mark when the drag crosses from one pane to another', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
-      const pane2 = makePane('pane-2', {
-        top: 100,
-        bottom: 300,
-        left: 600,
-        right: 800,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
+      const pane2 = makePane('pane-2', paneBox(600))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -467,14 +424,7 @@ describe('useSidebarDrag', () => {
 
     it('does not repaint on a zone change within the SAME pane (center → edge)', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -487,14 +437,7 @@ describe('useSidebarDrag', () => {
 
     it('clears the mark once the pointer leaves every pane', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -507,14 +450,7 @@ describe('useSidebarDrag', () => {
 
     it('clears the mark on release', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -526,14 +462,7 @@ describe('useSidebarDrag', () => {
 
     it('clears the mark on pointercancel', () => {
       const rowA = makeRow(baseRow, 0)
-      const pane1 = makePane('pane-1', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const pane1 = makePane('pane-1', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -545,22 +474,9 @@ describe('useSidebarDrag', () => {
       expect(pane1.hasAttribute(PANE_HIT_ATTR)).toBe(false)
     })
 
-    // Fix round 2 (real, reviewer-verified regression in this same round's
-    // new code): `WorkspaceHost` keeps every retained workspace mounted at
-    // once — hidden via display:none, never unmounted — and each one's
-    // `WorkspaceView` renders its own full pane tree regardless of whether
-    // it's the active workspace. `ROOT_PANE_ID`/`BOTTOM_PANE_ID` are literal
-    // constants every workspace store shares, so TWO elements on the page can
-    // legitimately carry the identical `data-pane-drop="root-pane"` value —
-    // one hidden/off-screen, one the pointer is actually over. The original
-    // `paintPaneHit` re-resolved its target with
-    // `document.querySelector('[data-pane-drop="…"]')`, which answers with
-    // the FIRST document-order match regardless of visibility — exactly the
-    // shared-pane-id-across-hidden-workspaces hazard the cross-workspace
-    // commit fix (Fix round 1) already closed for `performSidebarPaneDrop`,
-    // reopened here in the ring's own lookup. The fix threads the REAL
-    // element `elementsFromPoint` resolved (`ResolvedPaneHit.el`) straight
-    // through instead of re-deriving one by attribute.
+    // Every retained workspace stays mounted (hidden), so two elements can share
+    // `data-pane-drop="root-pane"`. The ring must mark the element the hit test resolved
+    // (`ResolvedPaneHit.el`), not the first attribute match in document order.
     it('marks the element the pointer is actually over — not the first same-paneId node in the document', () => {
       const rowA = makeRow(baseRow, 0)
       // A hidden OTHER workspace's pane sharing the exact same paneId,
@@ -577,14 +493,7 @@ describe('useSidebarDrag', () => {
         height: 0,
       })
       // The VISIBLE, actually-hit pane — same paneId, mounted second.
-      const visiblePane = makePane('root-pane', {
-        top: 100,
-        bottom: 300,
-        left: 300,
-        right: 500,
-        width: 200,
-        height: 200,
-      })
+      const visiblePane = makePane('root-pane', paneBox(300))
       const { result } = renderDrag()
 
       press(result, baseRow, rowA)
@@ -729,13 +638,8 @@ describe('useSidebarDrag', () => {
     expect(onDrop).toHaveBeenCalledTimes(1)
   })
 
-  // Live-reported: "can't drag a chat that is working... there should be
-  // nothing stopping me from making a split." A working row used to be
-  // refused at PICKUP itself (`onPointerDownDrag`), before a drag was ever
-  // armed, which blocked the pane-split gesture along with reordering. A
-  // working row now arms a drag exactly like an idle one — see the pane-drop
-  // test below for the gesture this was blocking, and the reorder-refusal
-  // test after it for what stays refused.
+  // A working row arms a drag like an idle one: pickup must allow the pane-split gesture, and
+  // only reordering stays refused (see the next two tests).
   it('a working row arms a drag like any other — pickup is no longer refused', () => {
     const workingRow: SidebarRow = { ...baseRow, working: true }
     const rowA = makeRow(workingRow, 0)
@@ -758,7 +662,7 @@ describe('useSidebarDrag', () => {
   it('a working chat dropped onto a pane still opens a split', () => {
     const workingRow: SidebarRow = { ...baseRow, working: true }
     const rowA = makeRow(workingRow, 0)
-    makePane('pane-1', { top: 100, bottom: 300, left: 300, right: 500, width: 200, height: 200 })
+    makePane('pane-1', paneBox(300))
     const { result, onPaneDrop } = renderDrag({ subjectsFor: () => [workingRow] })
 
     press(result, workingRow, rowA)
@@ -857,16 +761,8 @@ describe('useSidebarDrag', () => {
     expect(result.current.paneHit).toBeNull()
   })
 
-  // Live-reported regression: a chat with a live view renders through TWO
-  // `SidebarRow` instances sharing one id (its own tree row, and Recents'
-  // mirror of it). The ghost used to resolve the pressed row back through
-  // `rowDom.elementFor` — an `[attr="id"]` `querySelector` with no way to
-  // prefer one instance over the other, so it always returned whichever
-  // comes first in DOM order (the tree's copy) regardless of which one was
-  // actually pressed. Dragging the SECOND (Recents) copy then cloned and
-  // measured the FIRST (tree) one instead — same id, different styling —
-  // reported live as "when dragging that active row, the background is not
-  // active" (the tree copy carries no ROW_ACTIVE ground at all).
+  // A live chat renders in the tree and in Recents under one id; the ghost must clone the
+  // pressed element, not the first DOM node with that id (the tree's copy).
   it('clones the ACTUAL pressed element, not the first DOM node sharing its id', () => {
     const treeCopy = makeRow(baseRow, 0)
     treeCopy.setAttribute('data-test-marker', 'tree')
@@ -901,15 +797,9 @@ describe('useSidebarDrag', () => {
     expect(onPaneDrop).not.toHaveBeenCalled()
   })
 
-  // Reported live: text selection stopped working on every Plate surface
-  // (chat composer, rendered messages, the markdown editor) and stayed
-  // broken until a full reload. Root cause: pressing a row arms a
-  // document-wide `selectstart` guard (see use-sidebar-drag.ts's own doc on
-  // it) that only comes off on a `pointerup`/`pointercancel` window sees —
-  // and a real release delivered outside the webview (past the window edge
-  // before SIDEBAR_DRAG_THRESHOLD_PX, or the window losing focus mid-press)
-  // never fires either, leaving selection blocked everywhere for the rest of
-  // the session.
+  // Pressing a row blocks `selectstart` document-wide until window sees a release. A release
+  // outside the webview, or the window losing focus mid-press, must still lift it, or text
+  // selection stays broken everywhere until reload.
   describe('selectstart guard recovery', () => {
     function selectstartBlocked(): boolean {
       const ev = new Event('selectstart', { cancelable: true })
@@ -1001,11 +891,8 @@ describe('useSidebarDrag', () => {
   // Addendum §2 removed the drag-to-trash gesture entirely — explicit
   // product correction: removal now happens ONLY through a row's own X
   // button (sidebar-row.tsx), never by dragging a row onto some target.
-  // Regression: a hit test that still recognised a trash-target element
-  // (the gesture's old `data-sidebar-trash-drop` attribute) would silently
-  // resurrect it even with no caller left to render one — this pins the hit
-  // test itself refusing to special-case that attribute at all, not just
-  // "no UI renders it."
+  // The hit test itself must not special-case `data-sidebar-trash-drop`, so a stray element
+  // carrying it can never become a drop target.
   it('a stray element carrying the old trash-drop attribute is not treated as a drop target', () => {
     const rowA = makeRow(baseRow, 0)
     const stray = document.createElement('div')
@@ -1022,147 +909,59 @@ describe('useSidebarDrag', () => {
     expect(onPaneDrop).not.toHaveBeenCalled()
   })
 
-  describe('a tab dragged within the view tabs strip', () => {
-    const chat = (id: string): SidebarRow => ({ ...baseRow, id, kind: 'chat', workspaceId: id })
-
-    /** Four 100px tabs in a 32px strip at the top, each holding one recents row. */
-    function buildStrip() {
-      const strip = document.createElement('div')
-      stubRect(strip, { left: 100, right: 500, top: 0, bottom: 32, width: 400, height: 32 })
-      document.body.appendChild(strip)
-      const rows = ['t0', 't1', 't2', 't3'].map((id, i) => {
-        rowRegistry.set(id, chat(id))
-        const tab = document.createElement('div')
-        stubRect(tab, { left: 100 + i * 100, right: 200 + i * 100, width: 100, top: 0, height: 32 })
-        const row = document.createElement('div')
-        row.setAttribute(ROW_KIND_ATTR.chat, id)
-        row.setAttribute('data-sidebar-drop-parent', '')
-        row.setAttribute('data-sidebar-recents-row', '')
-        stubRect(row, { left: 100 + i * 100, right: 200 + i * 100, width: 100, top: 0, height: 32 })
-        tab.appendChild(row)
-        strip.appendChild(tab)
-        return row
-      })
-      return { strip, rows }
-    }
-
-    it('reorders on release in the band, and never offers the panes below it', () => {
-      const { strip, rows } = buildStrip()
-      const pane = makePane('p1', {
-        left: 0,
-        right: 600,
-        top: 32,
-        bottom: 400,
-        width: 600,
-        height: 368,
-      })
-      const { result, onDrop, onPaneDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
-
-      press(result, chat('t0'), rows[0], 130, 16)
-      move(300, 16)
-      move(420, 40) // below the strip, over the pane, still in the band
-      expect(result.current.paneHit).toBeNull()
-      release(420, 40)
-
-      expect(onPaneDrop).not.toHaveBeenCalled()
-      expect(onDrop).toHaveBeenCalledTimes(1)
-      const [subjects, target, mode, inRecents] = onDrop.mock.calls[0] as unknown as [
-        SidebarRow[],
-        SidebarRow,
-        DropMode,
-        boolean,
-      ]
-      expect([subjects[0].id, target.id, mode, inRecents]).toEqual(['t0', 't3', 'after', true])
-      pane.remove()
+  it('carries every row the selection names, and hands them all to onDrop', () => {
+    const rowA = makeRow(baseRow, 0)
+    makeRow({ ...baseRow, id: 'b', label: 'b' }, 1)
+    const second: SidebarRow = { ...baseRow, id: 'ab', label: 'ab', order: 2 }
+    makeRow(second, 2)
+    const { result, onDrop } = renderDrag({
+      subjectsFor: (id) => (id === 'a' ? [baseRow, second] : [rowRegistry.get(id)!]),
     })
 
-    it('becomes the floating ghost out of the band, where a pane edge still takes the drop', () => {
-      const { strip, rows } = buildStrip()
-      makePane('p1', { left: 0, right: 600, top: 32, bottom: 400, width: 600, height: 368 })
-      const { result, onDrop, onPaneDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
+    press(result, baseRow, rowA)
+    move(10, ROW_H + 2)
+    expect([...result.current.draggingIds]).toEqual(['a', 'ab'])
+    expect(result.current.ghostRows?.count).toBe(2)
+    release(10, ROW_H + 2)
 
-      press(result, chat('t0'), rows[0], 130, 16)
-      move(420, 16)
-      move(590, 200) // far below the band, on the pane's right edge
-      expect(result.current.paneHit?.zone).toBe('right')
-      release(590, 200)
+    expect(onDrop.mock.calls[0][0].map((r) => r.id)).toEqual(['a', 'ab'])
+  })
 
-      expect(onDrop).not.toHaveBeenCalled()
-      expect(onPaneDrop).toHaveBeenCalledWith([chat('t0')], 'p1', 'right')
-      expect(strip.children[1]).toHaveProperty('style.transform', '')
+  it('a pointer held at the list edge scrolls it and drops on the row that slid under it', () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb))
+    const scroller = document.createElement('div')
+    let scrollTop = 0
+    Object.defineProperty(scroller, 'scrollTop', {
+      get: () => scrollTop,
+      set: (v: number) => void (scrollTop = Math.max(0, Math.min(v, ROW_H))),
     })
-
-    it('leaves no slide, transition or hidden tab behind when it unmounts mid-drag', () => {
-      const { strip, rows } = buildStrip()
-      const { result, unmount } = renderDrag({ scroller: strip, reorderInStrip: true })
-
-      press(result, chat('t0'), rows[0], 130, 16)
-      move(420, 16)
-      move(430, 16)
-      expect(strip.children[0]).toHaveProperty('style.visibility', 'hidden')
-      unmount()
-
-      for (const tab of Array.from(strip.children) as HTMLElement[]) {
-        expect([tab.style.transform, tab.style.transition, tab.style.visibility]).toEqual([
-          '',
-          '',
-          '',
-        ])
+    stubRect(scroller, { top: 0, bottom: 3 * ROW_H, height: 3 * ROW_H, right: 200, width: 200 })
+    document.body.appendChild(scroller)
+    const ids = ['a', 'b', 'ab', 'grandchild']
+    const els = ids.map((id, i) => makeRow({ ...baseRow, id, label: id, order: i }, i))
+    els.forEach((el, i) => {
+      el.getBoundingClientRect = () => {
+        const top = i * ROW_H - scrollTop
+        return {
+          top,
+          bottom: top + ROW_H,
+          left: 0,
+          right: 200,
+          width: 200,
+          height: ROW_H,
+        } as DOMRect
       }
     })
+    const { result, onDrop } = renderDrag({ scroller })
 
-    it('lets the strip be wheel-scrolled mid-drag, as it scrolls itself sideways', () => {
-      const { strip, rows } = buildStrip()
-      const { result } = renderDrag({ scroller: strip, reorderInStrip: true })
+    press(result, baseRow, els[0])
+    move(10, 3 * ROW_H - 8) // past the threshold: the drag begins
+    move(10, 3 * ROW_H - 8) // inside the bottom band: the list runs
+    for (let i = 0; i < 4; i++) act(() => frames.splice(0).forEach((cb) => cb(0)))
+    release(10, 3 * ROW_H - 8)
 
-      press(result, chat('t0'), rows[0], 130, 16)
-      move(300, 16)
-      const wheel = new WheelEvent('wheel', { cancelable: true })
-      strip.dispatchEvent(wheel)
-      expect(wheel.defaultPrevented).toBe(false)
-      release(300, 16)
-    })
-
-    it('does nothing when the tab is released where it started', () => {
-      const { strip, rows } = buildStrip()
-      const { result, onDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
-
-      press(result, chat('t1'), rows[1], 230, 16)
-      move(260, 16)
-      release(230, 16)
-
-      expect(onDrop).not.toHaveBeenCalled()
-      expect(toast.error).not.toHaveBeenCalled()
-    })
-
-    it('drops a subject pressed outside the strip (a pane handle) as a new tab at the insertion point', () => {
-      const { strip } = buildStrip()
-      const handle = document.createElement('button')
-      stubRect(handle, { left: 300, right: 312, top: 200, bottom: 212, width: 12, height: 12 })
-      document.body.appendChild(handle)
-      const pane = chat('pane-chat')
-      rowRegistry.set(pane.id, pane)
-      const { result, onDrop, onPaneDrop } = renderDrag({ scroller: strip, reorderInStrip: true })
-
-      press(result, pane, handle, 306, 206)
-      move(306, 120)
-      move(200, 20) // into the band, left of the second tab's midpoint
-      expect(result.current.paneHit).toBeNull()
-      release(200, 20)
-
-      expect(onPaneDrop).not.toHaveBeenCalled()
-      const [subjects, target, mode, inRecents] = onDrop.mock.calls[0] as unknown as [
-        SidebarRow[],
-        SidebarRow,
-        DropMode,
-        boolean,
-      ]
-      expect([subjects[0].id, target.id, mode, inRecents]).toEqual([
-        'pane-chat',
-        't1',
-        'before',
-        true,
-      ])
-    })
+    expect(scrollTop).toBe(ROW_H)
+    expect(onDrop.mock.calls[0][1].id).toBe('grandchild')
   })
 })

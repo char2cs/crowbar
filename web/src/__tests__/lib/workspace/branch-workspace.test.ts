@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { findWorkspaceForBranch } from '@/lib/workspace/branch-workspace'
-import type { Repo, Workspace } from '@/lib/store/sidebar'
+import type { Repo, Workspace } from '@/core/entities/repo-types'
 
 function w(id: string, branch: string): Workspace {
   return {
@@ -12,7 +12,6 @@ function w(id: string, branch: string): Workspace {
     working: false,
     canMergeLocally: false,
     mergeConflicts: false,
-    lastError: '',
     age: '',
   } as Workspace
 }

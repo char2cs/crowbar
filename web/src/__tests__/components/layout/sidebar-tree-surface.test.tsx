@@ -1,14 +1,8 @@
-/**
- * `SidebarTreeSurface` wires `SpaceScroller` + the hoisted chrome
- * (RemovalTray/dialogs/context menu) against the real removal-tray-filtered
- * `repos` — the thing `sidebar-tree-panel.tsx` used to do for one flat tree,
- * now scoped per project. Individual pieces (derivers, handlers, RecentsBand
- * wiring) have their own focused unit tests; this one checks the WIRING:
- * real multi-project repos genuinely produce one tree per project, each
- * excluding the other's rows.
- */
+// The WIRING of `SpaceScroller` and its hoisted chrome against the removal-filtered repos: real
+// multi-project repos give one tree per project, each excluding the others' rows (pieces have
+// their own unit tests).
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 
 const navigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
@@ -23,17 +17,10 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getOrCreateWorkspaceStore: () => ({
     getState: () => ({
       panes: {},
-      agentChats: { working: {}, chats: [] },
       dormantArrangements: [],
     }),
     subscribe: () => () => {},
   }),
-  // `SidebarTreeRow`'s live turn-state subscription (sidebar-tree.tsx). The
-  // watch-don't-create pair, deliberately NOT routed through
-  // `getOrCreateWorkspaceStore` above — see that component's own doc on why the
-  // tree must never mint a store for a row nobody has opened.
-  subscribeChatWorking: () => () => {},
-  readChatWorking: () => false,
 }))
 // Kept stubbed rather than removed: several rendered rows (the promote
 // dropdown, the tree foot's New thread) can reach a real `toast.error` call on
@@ -43,32 +30,30 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }))
 
-// The real resolver hits the network (fetchHomeWorkspace) — the one test
-// below that needs a project-home row seeds a resolved workspace id directly
-// instead of waiting on that fetch to land.
-const UNRESOLVED = vi.hoisted(() => ({ wsId: null, owningChatId: null, error: false }))
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  useHomeWorkspaceState: (projectId: string) =>
-    projectId === 'p1' ? { wsId: 'home-ws-1', owningChatId: null, error: false } : UNRESOLVED,
-  ensureHomeWorkspaceResolved: vi.fn(),
-  getHomeWorkspaceId: (projectId: string) => (projectId === 'p1' ? 'home-ws-1' : null),
-  getHomeOwningChatId: () => null,
-}))
-
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
-import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import type { Chat, Repo } from '@/core/entities/repo-types'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { useProjectStore } from '@/lib/store/projects'
-import { upsertEntity } from '@/lib/persistence/entity-cache'
-import { resetDB } from '@/lib/persistence/idb'
-import { dataOf } from '@/lib/loadable'
-import { IDBFactory } from 'fake-indexeddb'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { planRemoval } from '@/components/layout/removal-plan'
+import {
+  loadPinFixture,
+  outline,
+  PIN_OUTLINE,
+  SIDEBAR_TREE_ROWS,
+} from '@/__tests__/__fixtures__/hierarchy-pin'
 import type { Project } from '@/lib/types'
+import {
+  markProjectsSynced,
+  resetEntities,
+  seedHome,
+  seedHomeTree,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
+import * as sidebarPlacement from '@/lib/api/sidebar-placement'
+
+// Collection has no test timeout: transform the lazy CreateSpacePanel chunk here.
+await import('@/components/layout/create-space-panel')
 
 const projectA: Project = {
   id: 'p1',
@@ -117,23 +102,18 @@ const repo = (over: Partial<Repo> = {}): Repo => {
   }
 }
 
-/** Put repos in the store AND declare their trees read, which is the only state
- *  in which rows are drawn at all. */
-const seedRepos = (repos: Repo[]) => {
-  useSidebarStore.setState({ repos })
-  useFolderSignalStore.setState({ seededRepoIds: new Set(repos.map((r) => r.id)) })
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
   // jsdom does not implement scrollTo — SpaceScroller calls it on mount to
   // align its panel.
   HTMLElement.prototype.scrollTo = vi.fn()
-  useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
-  useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set() })
-  useHomeTreeStore.setState({ trees: {} })
+  resetEntities()
+  markProjectsSynced()
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
 })
+
+/** p1's home as the projects scope carries it; every other project's is not known yet. */
+const homeResolved = (projectId: string) => seedHome(projectId, 'home-ws-1')
 
 describe('SidebarTreeSurface', () => {
   it("shows each project's own repo, excluding the other project's", () => {
@@ -158,63 +138,7 @@ describe('SidebarTreeSurface', () => {
     expect(panels[1]).not.toHaveTextContent('repo-a')
   })
 
-  // RemovalTray no longer mounts here: it mounts once in the IDE shell
-  // (ide-shell.test.tsx covers that).
-
-  // Offline cold start: no seed ever answers, so the rows hydrated from the
-  // entity cache are all the sidebar has.
-  it('draws a repo hydrated from the entity cache without any network seed', async () => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-    useProjectStore.setState({ activeProjectId: 'p1' })
-    await upsertEntity('crowbar_repos', {
-      id: 'r1',
-      projectId: 'p1',
-      name: 'cached-repo',
-      path: '/r1',
-      defaultBranch: 'main',
-      avatarLabel: 'C',
-      avatarColor: 'bg-indigo-700',
-      avatarUrl: '',
-      avatarEmoji: '',
-    })
-    await upsertEntity('crowbar_workspaces', {
-      id: 'ws-cached',
-      repoId: 'r1',
-      projectId: 'p1',
-      branch: 'cached-branch',
-      status: 'new',
-      working: false,
-      provisioning: 'provisioned',
-      owningChatId: 'c-owner',
-    })
-    await upsertEntity('crowbar_chats', {
-      id: 'c-owner',
-      repoId: 'r1',
-      projectId: 'p1',
-      type: 'chat',
-      workspaceId: 'ws-cached',
-      ownsWorktree: true,
-      title: '',
-    })
-    await useWorkspaceListStore.getState().fetch()
-    // What boot does with the cached tree (lib/boot.ts).
-    const cached = dataOf(useWorkspaceListStore.getState().data) ?? []
-    act(() => {
-      useSidebarStore.getState().setRepos(cached)
-      useFolderSignalStore.getState().markSeededFromCache(cached)
-    })
-
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText('cached-branch')).toBeInTheDocument()
-  })
+  // RemovalTray mounts once in the IDE shell (ide-shell.test.tsx), not here.
 
   // Explicit product request: an X on a row transforms it IN PLACE (its
   // countdown + Keep/undo control) instead of hiding it while a separate
@@ -242,13 +166,10 @@ describe('SidebarTreeSurface', () => {
     )
 
     act(() => {
-      useRemovalTrayStore
+      treeUiStore
         .getState()
         .hold(
-          planRemoval(
-            [{ kind: 'workspace', id: 'ws-a', repoId: 'r1' }],
-            useSidebarStore.getState().repos,
-          ),
+          planRemoval([{ kind: 'workspace', id: 'ws-a', repoId: 'r1' }], readSelect(selectRepos)),
         )
     })
 
@@ -256,13 +177,8 @@ describe('SidebarTreeSurface', () => {
     expect(document.querySelector('[data-removal-secs]')).toBeInTheDocument()
   })
 
-  // Addendum §1/§2: the row no longer carries a trash button at all — a
-  // click-driven confirm-and-delete flow (Task 25's real-flow insertion
-  // point, replaced here) is superseded by a drag-to-trash gesture built
-  // elsewhere on the same removal-tray machinery. This is the wiring half of
-  // that removal: no row here — a workspace, a locked branch, or a chat —
-  // exposes a `Delete …` control any more, and `SidebarTreeSurface` no
-  // longer mounts a `DeleteConfirmDialog` of its own to drive one.
+  // Addendum §1/§2: deleting is a drag-to-trash gesture, so no row (workspace, locked branch or
+  // chat) exposes a `Delete …` control and no DeleteConfirmDialog is mounted here.
   it('no row exposes a delete control any more — deleting moved off the row', () => {
     seedRepos([
       repo({
@@ -305,6 +221,23 @@ describe('SidebarTreeSurface', () => {
 // inside its scroll-snap track — so the touchpad swipe between real spaces
 // can never land on it by accident.
 describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpacePanel', () => {
+  // The panel is a lazy chunk, transformed at collection above: settle its
+  // Suspense in act rather than polling for it on the real scheduler's throttle.
+  const renderCreating = async (onCancelCreateSpace = vi.fn(), newSpaceHostId?: string) => {
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+        creatingSpace
+        newSpaceHostId={newSpaceHostId}
+        onCreateSpace={vi.fn()}
+        onCancelCreateSpace={onCancelCreateSpace}
+      />,
+    )
+    await act(async () => {})
+  }
+
   it('renders SpaceScroller when not creating a space', () => {
     render(
       <SidebarTreeSurface
@@ -318,74 +251,31 @@ describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpa
   })
 
   it('renders CreateSpacePanel instead of SpaceScroller while creating a space', async () => {
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        creatingSpace
-        onCreateSpace={vi.fn()}
-        onCancelCreateSpace={vi.fn()}
-      />,
-    )
-    expect(await screen.findByTestId('create-space-panel')).toBeInTheDocument()
+    await renderCreating()
+    expect(screen.getByTestId('create-space-panel')).toBeInTheDocument()
     expect(screen.queryByTestId('space-scroll-region')).not.toBeInTheDocument()
-  })
-
-  it('opens the create form on the host it is told', async () => {
-    useHostConfigStore.setState({
-      hosts: [
-        { id: 'h1', name: 'homelab-prox', endpoint: '', pairedFingerprint: '', clientId: '' },
-      ],
-    })
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        creatingSpace
-        newSpaceHostId="h1"
-        onCreateSpace={vi.fn()}
-        onCancelCreateSpace={vi.fn()}
-      />,
-    )
-    expect(await screen.findByRole('combobox', { name: /daemon/i })).toHaveTextContent(
-      'homelab-prox',
-    )
   })
 
   it('Cancel calls onCancelCreateSpace', async () => {
     const onCancelCreateSpace = vi.fn()
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-        creatingSpace
-        onCreateSpace={vi.fn()}
-        onCancelCreateSpace={onCancelCreateSpace}
-      />,
-    )
-    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await renderCreating(onCancelCreateSpace)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onCancelCreateSpace).toHaveBeenCalledOnce()
   })
+
+  it('opens the create form on the host it is told', async () => {
+    const h1 = { id: 'h1', name: 'homelab-prox', endpoint: '', pairedFingerprint: '', clientId: '' }
+    useHostConfigStore.setState({ hosts: [h1] })
+    await renderCreating(vi.fn(), 'h1')
+    expect(screen.getByRole('combobox', { name: /daemon/i })).toHaveTextContent('homelab-prox')
+    useHostConfigStore.setState({ hosts: [] })
+  })
 })
 
-/**
- * `Repo.chats`'s own contract: an absent chat list means "not yet", never
- * "this repo has no chats" — the chats/folders reseed loop is independent of
- * the repo and workspace streams. A branch row's identity comes from the chat
- * that owns its workspace, so building rows during that window would hand out
- * ids that change the moment the seed lands. A row id is the React key, the
- * collapse key and the selection key: the tree would silently drop the user's
- * folds a beat after painting. So it draws nothing until the seed is in.
- */
-describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
-  it('draws no rows for a repo whose chat seed has not landed', () => {
-    useSidebarStore.setState({
-      repos: [repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' })],
-    })
-    // Deliberately NOT marked seeded.
+describe('SidebarTreeSurface — before the projects scope answers', () => {
+  it('draws a skeleton, not an empty tree, until the snapshot lands', () => {
+    seedRepos([repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' })])
+    resetEntities()
 
     render(
       <SidebarTreeSurface
@@ -395,59 +285,29 @@ describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
       />,
     )
 
+    expect(screen.getByTestId('sidebar-skeleton')).toBeInTheDocument()
     expect(screen.queryByText('repo-a')).not.toBeInTheDocument()
   })
-
-  it('draws them once the seed lands, and only for the repo that seeded', () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({ id: 'r1', projectId: 'p1', defaultWorkspaceId: 'home-a', name: 'repo-a' }),
-        repo({ id: 'r2', projectId: 'p1', defaultWorkspaceId: 'home-b', name: 'repo-b' }),
-      ],
-    })
-    useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set(['r1']) })
-
-    render(
-      <SidebarTreeSurface
-        projects={[projectA]}
-        activeProjectId="p1"
-        onActiveProjectChange={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText('repo-a')).toBeInTheDocument()
-    expect(screen.queryByText('repo-b')).not.toBeInTheDocument()
-  })
 })
 
-/**
- * `SidebarTreeChrome`'s `rows` prop (which `SidebarRowContextMenu` and the
- * double-click-to-rename listener both look a right-clicked/double-clicked
- * id up in) used to come ONLY from `treeRepos.flatMap(rowsFromRepo)` — a
- * project-home chat or folder was never a member of it, so right-clicking
- * (or double-clicking) one found no matching row and did nothing at all: no
- * menu, no inline editor. Caught live as "can't create folders with right
- * click" / "can't rename folders", for exactly the home-scoped ones.
- */
+// The rows the context menu and double-click rename look ids up in must include project-home
+// chats and folders, or right-clicking or double-clicking one does nothing.
 describe('SidebarTreeSurface — a project-home row is reachable by the context menu', () => {
-  it('right-clicking a project-home folder opens Rename/New folder, not a silent no-op', () => {
-    useHomeTreeStore.setState({
-      trees: {
-        p1: {
-          chats: [
-            {
-              id: 'home-branch-chat',
-              repoId: '',
-              ownsWorktree: true,
-              workspaceId: 'home-ws-1',
-              title: '',
-              order: 0,
-            },
-          ],
-          folders: [{ id: 'home-folder-1', repoId: '', name: 'Docs', order: 0 }],
+  it('right-clicking a project-home folder opens Rename/New folder, not a silent no-op', async () => {
+    seedHomeTree('p1', {
+      chats: [
+        {
+          id: 'home-branch-chat',
+          repoId: '',
+          ownsWorktree: true,
+          workspaceId: 'home-ws-1',
+          title: '',
+          order: 0,
         },
-      },
+      ],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'Docs', order: 0 }],
     })
+    homeResolved('p1')
 
     render(
       <SidebarTreeSurface
@@ -462,5 +322,88 @@ describe('SidebarTreeSurface — a project-home row is reachable by the context 
 
     expect(screen.getByText('Rename')).toBeInTheDocument()
     expect(screen.getByText('New folder')).toBeInTheDocument()
+  })
+
+  // Typed after New folder, a name used to land in the composer and send a prompt.
+  it('New folder opens the new row on its name, focused; Esc keeps the default', async () => {
+    seedHomeTree('p1', {
+      chats: [],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'Docs', order: 0 }],
+    })
+    homeResolved('p1')
+    vi.spyOn(sidebarPlacement, 'createHomeFolder').mockResolvedValueOnce({
+      folder: { id: 'home-folder-2', repoId: '', projectId: 'p1', name: 'New folder', order: 1 },
+      shifted: [],
+      shiftedRows: [],
+    })
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByText('Docs').closest('[role="treeitem"]')!)
+    fireEvent.click(screen.getByText('New folder'))
+
+    const input = await screen.findByDisplayValue('New folder')
+    await waitFor(() => expect(input).toHaveFocus())
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByDisplayValue('New folder')).not.toBeInTheDocument()
+    expect(screen.getByText('New folder').closest('[role="treeitem"]')).toBeInTheDocument()
+  })
+})
+
+/**
+ * The hierarchy invariant every later stage must keep: project-home rows flat at
+ * the top, interleaved with repo rows; branches, threads, forks and folders under
+ * their own parents; no ghost rows; no fork on a project-home row.
+ */
+describe('hierarchy pin', () => {
+  const renderPin = async () => {
+    loadPinFixture()
+    return render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+  }
+
+  it('renders the pinned hierarchy', async () => {
+    const { container } = await renderPin()
+    await waitFor(() => expect(outline(container)).toEqual(PIN_OUTLINE))
+  })
+
+  it('never draws a row twice or a row without a label', async () => {
+    const { container } = await renderPin()
+    await waitFor(() => expect(outline(container)).toHaveLength(PIN_OUTLINE.length))
+    const ids = outline(container).map((line) => /\[(.+)\]$/.exec(line)?.[1])
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const row of container.querySelectorAll(SIDEBAR_TREE_ROWS)) {
+      expect(row.getAttribute('aria-label')?.trim()).toBeTruthy()
+    }
+  })
+
+  it('offers no fork on a project-home row', async () => {
+    const { container } = await renderPin()
+    await waitFor(() => expect(outline(container)).toEqual(PIN_OUTLINE))
+    const rowOf = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-sidebar-row-id="${id}"]`)!
+    // A repo branch row does offer one, so the absence below is not vacuous.
+    expect(
+      within(rowOf('oc-feat')).getByRole('button', { name: 'Fork Feature A' }),
+    ).toBeInTheDocument()
+    for (const id of ['c-notes', 'f-ideas']) {
+      expect(rowOf(id).querySelector('[data-control="fork"]')).toBeNull()
+      fireEvent.contextMenu(rowOf(id))
+      const menu = await screen.findByRole('menu')
+      expect(within(menu).getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
+      expect(within(menu).queryByRole('menuitem', { name: /fork/i })).not.toBeInTheDocument()
+      fireEvent.keyDown(menu, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    }
   })
 })

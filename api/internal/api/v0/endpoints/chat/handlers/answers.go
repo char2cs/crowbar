@@ -2,13 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
 const maxAnswerReasonBytes = 4 << 10
@@ -50,13 +48,14 @@ func (h *Handlers) AnswerChoice(ctx *gin.Context) {
 		body.OptionIDs, body.Reason, body.Content,
 	)
 	if err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteMutationOK(ctx, http.StatusOK, ctx.Param("choiceId"))
 }
 
+// AnswerTerminalWait types one of the descriptor-declared replies into the
+// provider's own terminal prompt, so the human need not open the terminal.
 func (h *Handlers) AnswerTerminalWait(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -70,55 +69,8 @@ func (h *Handlers) AnswerTerminalWait(ctx *gin.Context) {
 		return
 	}
 	if err := h.answers.AnswerTerminalWait(ctx.Request.Context(), chat.ID, body.AnswerID); err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteMutationOK(ctx, http.StatusOK, chat.ID)
-}
-
-func (h *Handlers) AwaitHookAnswer(ctx *gin.Context) {
-	var body struct {
-		DeliveryID string `json:"delivery_id"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	if body.DeliveryID == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "delivery_id is required")
-		return
-	}
-
-	answer, err := h.answers.AwaitAnswer(ctx.Request.Context(), body.DeliveryID)
-	if err != nil {
-		if errors.Is(err, ctx.Request.Context().Err()) {
-			libs.WriteQueryOK(ctx, dto.AgentHookAnswerDTO{})
-			return
-		}
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
-		return
-	}
-	libs.WriteQueryOK(ctx, dto.AgentHookAnswerDTO{Stdout: string(answer.Stdout)})
-}
-
-func (h *Handlers) AbandonHookAnswer(ctx *gin.Context) {
-	var body struct {
-		DeliveryID string `json:"delivery_id"`
-	}
-	if err := ctx.ShouldBindJSON(&body); err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	if body.DeliveryID == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "delivery_id is required")
-		return
-	}
-	if err := h.answers.AbandonAnswer(ctx.Request.Context(), body.DeliveryID); err != nil {
-		status, message := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, message)
-		return
-	}
-	libs.WriteAccepted(ctx)
 }

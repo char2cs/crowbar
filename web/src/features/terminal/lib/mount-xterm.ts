@@ -1,7 +1,6 @@
 import { Terminal, type ITerminalOptions } from '@xterm/xterm'
 import { createTerminalAddons, type TerminalAddons } from '../hooks/use-terminal-addons'
 import { registerTerminalLinks, type TerminalLinksOptions } from './terminal-links'
-import { selectionTextPreservingWraps } from '../utils/selection-text'
 import { resolveKeyOverride } from '../utils/terminal-key-overrides'
 import { installInputTapeGlobal, observeInputEvents } from '../utils/input-tape'
 
@@ -18,11 +17,8 @@ interface MountXtermDeps {
   links: TerminalLinksOptions
 }
 
-/**
- * Open an xterm in `container` with everything a view hangs on it, and return
- * the ONE dispose that releases all of it. A throw part-way through releases
- * what was already built, so a failed mount leaks nothing.
- */
+/** Returns the one dispose for everything a view hangs on its xterm; a throw part-way releases
+ *  what was already built, so a failed mount leaks nothing. */
 export function mountXterm(
   container: HTMLElement,
   options: ITerminalOptions,
@@ -47,13 +43,15 @@ export function mountXterm(
         deps.write(override, 'modifier-enter-override')
         return false
       }
+      // Linux terminals copy and paste on Ctrl+Shift+C/V; the rest of Ctrl reaches the
+      // program. A paste is left to the browser, whose paste event xterm takes.
+      if (linuxClipboardKey(event, terminal)) return false
       // Ctrl combos (without Cmd) → xterm handles them (Ctrl+U, Ctrl+C, …).
       if (event.ctrlKey && !event.metaKey) return true
       // Cmd combos are app/OS shortcuts (copy, paste, select-all, search).
       return !event.metaKey
     })
     if (terminal.textarea) releases.push(watchTextarea(terminal.textarea, deps.write))
-    releases.push(ownCopy(container, terminal))
     const links = registerTerminalLinks(terminal, deps.links)
     releases.push(() => links.dispose())
     terminal.unicode.activeVersion = '11'
@@ -62,6 +60,15 @@ export function mountXterm(
     dispose()
     throw error
   }
+}
+
+function linuxClipboardKey(event: KeyboardEvent, terminal: Terminal): boolean {
+  if (!event.ctrlKey || !event.shiftKey || event.metaKey || event.altKey) return false
+  if (event.code === 'KeyV') return true
+  if (event.code !== 'KeyC') return false
+  event.preventDefault()
+  if (event.type === 'keydown' && terminal.hasSelection()) document.execCommand('copy')
+  return true
 }
 
 function watchTextarea(textarea: HTMLTextAreaElement, write: MountXtermDeps['write']): () => void {
@@ -81,37 +88,5 @@ function watchTextarea(textarea: HTMLTextAreaElement, write: MountXtermDeps['wri
   return () => {
     textarea.removeEventListener('beforeinput', onBeforeInput)
     stopObserving()
-  }
-}
-
-/**
- * PASTE IS xterm's JOB: its own handler brackets the payload when the program
- * asked for bracketed paste. Copy is ours: the daemon repaints row by row, so
- * xterm never records an auto-wrap (see selection-text.ts). Alt-drag is COLUMN
- * selection, where rows are slices, and is left to xterm.
- */
-function ownCopy(container: HTMLElement, terminal: Terminal): () => void {
-  let columnSelect = false
-  const onMouseDown = (event: MouseEvent) => {
-    columnSelect = event.altKey
-  }
-  const onCopy = (event: ClipboardEvent) => {
-    if (columnSelect) return
-    const range = terminal.getSelectionPosition()
-    if (!range) return
-    const text = selectionTextPreservingWraps(
-      { cols: terminal.cols, getLine: (y) => terminal.buffer.active.getLine(y) },
-      range,
-    )
-    if (!text) return
-    event.clipboardData?.setData('text/plain', text)
-    event.preventDefault()
-    event.stopPropagation()
-  }
-  container.addEventListener('mousedown', onMouseDown, true)
-  container.addEventListener('copy', onCopy, true)
-  return () => {
-    container.removeEventListener('mousedown', onMouseDown, true)
-    container.removeEventListener('copy', onCopy, true)
   }
 }

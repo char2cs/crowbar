@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch: vi.fn(),
 }))
 
-import { ApiError, apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { ApiError } from '@/lib/errors/api-error'
 import { isHostUnreachableError } from '@/lib/api/errors'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { browseDirectory } from '@/features/hosts/lib/browse'

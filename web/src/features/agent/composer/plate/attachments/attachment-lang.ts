@@ -7,11 +7,8 @@ export interface ParsedAttachmentLang {
 
 const ATTACHMENT_ID_PATTERN = /^[A-Za-z0-9_-]{6,}$/
 
-/** Parses a code-block's `lang` (the fence's info string) into its attachment
- *  kind + id. A bare `text-attachment`/`excalidraw` tag with no id — or an id
- *  that's too short or has disallowed characters — deliberately does NOT
- *  match, so ordinary discussion of this feature (a fence in this repo's own
- *  docs, say) renders as a plain code block instead of being hijacked. */
+/** A bare tag without a valid id deliberately does not match, so a fence that
+ *  merely discusses the feature renders as a plain code block. */
 export function parseAttachmentLang(lang: string | null | undefined): ParsedAttachmentLang | null {
   if (!lang) return null
   const colon = lang.indexOf(':')

@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // stubWorkspaceForInterrupt answers only WorktreeDir — the one call
@@ -44,6 +44,8 @@ func (s stubAgentsForInterrupt) Get(
 	return s.agent, nil
 }
 
+func (stubAgentsForInterrupt) ForgetRunner(string) {}
+
 // interruptTestDescriptor mirrors apiTransportTestDescriptor's shape plus an
 // interrupt: gesture — a separate constant, not an addition to the shared one,
 // so a test wanting NO interrupt declared can still reuse apiTransportTestAgent.
@@ -68,8 +70,10 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
     serve: [acme, serve]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 `
 
 func interruptTestAgent(t *testing.T) engineagents.Agent {
@@ -92,12 +96,12 @@ func TestInterruptTurn_ReturnsFalse_WhenNoLiveAPIConn(t *testing.T) {
 
 func TestInterruptTurn_ReturnsFalse_WhenDescriptorDeclaresNoInterrupt(t *testing.T) {
 	agent := apiTransportTestAgent(t) // the shared fixture: no interrupt: event
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage() // block; no call should ever arrive
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		_, _ = conn.Read() // block; no call should ever arrive
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
@@ -118,8 +122,8 @@ func TestInterruptTurn_ReturnsFalse_WhenDescriptorDeclaresNoInterrupt(t *testing
 // codex shape (threadId + turnId) confirmed live against codex-cli 0.149.1.
 func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	received := make(chan string, 1)
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, msg, err := conn.ReadMessage() // turn/interrupt
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		msg, err := conn.Read() // turn/interrupt
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -129,14 +133,52 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 		require.NoError(t, json.Unmarshal(msg, &req))
 		received <- req.Method + ":" + string(req.Params)
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
-		_, _, _ = conn.ReadMessage() // block until the client closes
+		require.NoError(t, conn.Write(resp))
+		_, _ = conn.Read() // block until the client closes
 	})
 
 	agent := interruptTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
+	require.NoError(t, err)
+	defer func() { _ = apiConn.Close() }()
+
+	rs := &Runners{
+		apiConns:   newAPIConnRegistry(),
+		ws:         stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:     stubAgentsForInterrupt{agent: agent},
+		background: newBackgroundWork(),
+	}
+	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
+	live := engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}
+
+	require.True(t, rs.interruptTurn(ctx, live))
+	// The send runs in the background; closing the connection under it would
+	// break the fake server's reply.
+	rs.background.wg.Wait()
+
+	select {
+	case got := <-received:
+		require.Contains(t, got, "turn/interrupt:")
+	default:
+		t.Fatal("serve never received turn/interrupt")
+	}
+}
+
+// A provider that never answers the interrupt (a wedged turn) never holds
+// Stop: the turn already ended in the ledger, so nothing waits for the reply.
+func TestInterruptTurn_NeverWaitsForTheProvidersAnswer(t *testing.T) {
+	received := make(chan struct{})
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		_, _ = conn.Read() // the interrupt, never answered
+		close(received)
+		_, _ = conn.Read()
+	})
+	agent := interruptTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
 	defer func() { _ = apiConn.Close() }()
 
@@ -149,39 +191,5 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	live := engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}
 
 	require.True(t, rs.interruptTurn(ctx, live))
-
-	select {
-	case got := <-received:
-		require.Contains(t, got, "turn/interrupt:")
-	case <-time.After(3 * time.Second):
-		t.Fatal("the socket never received turn/interrupt")
-	}
-}
-
-// A provider that never answers the interrupt (a wedged turn) must not hold
-// Stop: past the bound interruptTurn reports failure and Stop retires.
-func TestInterruptTurn_IsBoundedWhenTheProviderNeverAnswers(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage() // the interrupt, never answered
-		_, _, _ = conn.ReadMessage()
-	})
-	agent := interruptTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
-	require.NoError(t, err)
-	defer func() { _ = apiConn.Close() }()
-
-	rs := &Runners{
-		apiConns:         newAPIConnRegistry(),
-		ws:               stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
-		agents:           stubAgentsForInterrupt{agent: agent},
-		interruptTimeout: 50 * time.Millisecond,
-	}
-	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
-	live := engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}
-
-	start := time.Now()
-	require.False(t, rs.interruptTurn(ctx, live))
-	require.Less(t, time.Since(start), 2*time.Second, "Stop must be bounded (invariant S4)")
+	<-received
 }

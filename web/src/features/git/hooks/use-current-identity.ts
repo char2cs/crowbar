@@ -1,22 +1,16 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getIdentity, type IdentityDTO } from '@/features/git/api/identity-api'
+import { report } from '@/lib/errors/report'
 import { useHostResolved } from '@/lib/host-resolve'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 
-// Per-workspace in-memory cache so re-renders and sibling mounts do not
-// re-fetch. The cache lives for the lifetime of the page — a full navigation
-// (new project load) will naturally create a fresh hook instance.
+// Per-workspace cache for the page's lifetime, so re-renders and sibling mounts don't refetch.
 const cache = new Map<string, IdentityDTO>()
 // In-flight fetches so concurrent resolveIdentity() callers share one request.
 const inFlight = new Map<string, Promise<IdentityDTO | null>>()
 
-/**
- * Eagerly resolve the workspace identity, awaiting the network fetch if it is
- * not cached yet. Use this in event handlers (e.g. posting a comment) so the
- * author is ALWAYS the real GitHub login — the hook returns `null` while the
- * fetch is in flight, which previously caused comments posted before identity
- * loaded to be stored with an empty author.
- */
+/** Resolves the identity, awaiting the fetch if uncached. Event handlers (posting a comment) use
+ *  this, not the hook, which is null while loading and would post with an empty author. */
 export async function resolveIdentity(wsId: string): Promise<IdentityDTO | null> {
   const cached = cache.get(wsId)
   if (cached) return cached
@@ -28,28 +22,20 @@ export async function resolveIdentity(wsId: string): Promise<IdentityDTO | null>
       inFlight.delete(wsId)
       return result
     })
-    .catch(() => {
+    .catch((err: unknown) => {
       inFlight.delete(wsId)
+      report(err, { action: 'Load your Git identity' })
       return null
     })
   inFlight.set(wsId, promise)
   return promise
 }
 
-/**
- * Fetches the GitHub/GitLab identity for the given workspace once and caches
- * the result in memory. Returns `null` while loading or if the fetch failed.
- */
+/** The workspace's forge identity, fetched once and cached; null while loading or on failure. */
 export function useCurrentIdentity(wsId: string): IdentityDTO | null {
   const [identity, setIdentity] = useState<IdentityDTO | null>(() => cache.get(wsId) ?? null)
-  // identityBaseForWorkspace(wsId) throws without a recorded owning chat id —
-  // the sidebar's chat-list fetch that records one races WorkspaceView's own
-  // (often faster) hydration. resolveIdentity already swallows that throw
-  // (.catch(() => null)), so it never crashes, but a hook that only fires
-  // once per wsId would resolve to null forever once raced. Subscribing here
-  // makes the id a piece of React state so the effect below re-runs the
-  // moment the sidebar records one, same fix as useWorkspaceEffects'
-  // useOwningChatId.
+  // The identity route needs the owning chat id, which the sidebar may record
+  // after this mounts; subscribing re-runs the effect the moment it lands.
   const owningChatId = useSyncExternalStore(
     (onChange) => subscribeToWorkspaceScope(wsId, onChange),
     () => getOwningChatId(wsId),
@@ -62,9 +48,8 @@ export function useCurrentIdentity(wsId: string): IdentityDTO | null {
     // rather than firing a call that can only resolve to null.
     if (owningChatId === null || !hostResolved) return
     let cancelled = false
-    // Share the cache + in-flight request used by resolveIdentity, so the
-    // identity always lands here even when a sibling (e.g. a comment submit)
-    // populated it first.
+    // Share the cache + in-flight request used by resolveIdentity, so the identity always lands
+    // here even when a sibling (e.g. a comment submit) populated it first.
     void resolveIdentity(wsId).then((result) => {
       if (!cancelled && result) setIdentity(result)
     })

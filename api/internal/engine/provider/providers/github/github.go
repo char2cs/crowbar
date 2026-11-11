@@ -67,12 +67,8 @@ type prJSON struct {
 	HeadRefOid  string `json:"headRefOid"`
 }
 
-// PullRequestForBranch returns the most relevant PR for branch, or nil if none.
-//
-// The lookup deliberately does NOT check whether branch still exists on the
-// remote first: GitHub deletes the head ref when a PR merges, so that check goes
-// false at exactly the moment the answer changes, and the merge would never be
-// observed. gh reports a merged PR for a deleted head ref just fine.
+// PullRequestForBranch returns the most relevant PR for branch, or nil. It does not check
+// the remote branch first: GitHub deletes the head ref on merge, which would hide it.
 func (g *ghProvider) PullRequestForBranch(
 	ctx context.Context,
 	repoPath string,
@@ -149,16 +145,9 @@ func (g *ghProvider) OpenPullRequests(
 	return links, nil
 }
 
-// ownsPR reports whether pr is really this branch's PR.
-//
-// gh matches PRs by head branch NAME alone, and a merged PR outlives the ref it
-// was opened from. So reusing a merged branch's name for fresh work matches that
-// stale PR — the workspace would show pr-merged, linked to someone else's history,
-// and pr-merged is terminal: the sweep drops the workspace and never revisits it.
-//
-// An open PR still owns its head ref, so a name match is authoritative. A
-// merged/closed PR belongs to this branch only if the branch still contains the
-// commit the PR was built from.
+// ownsPR reports whether pr is really this branch's PR. gh matches by head name alone and
+// a merged PR outlives its ref, so a reused name would match a stale, terminal PR. An open
+// PR is authoritative; a merged/closed one counts only if branch contains its commit.
 func (g *ghProvider) ownsPR(
 	ctx context.Context,
 	repoPath string,
@@ -174,12 +163,9 @@ func (g *ghProvider) ownsPR(
 	return g.branchContains(ctx, repoPath, branch, pr.HeadRefOid)
 }
 
-// branchContains reports whether sha is an ancestor of (or equal to) branch.
-//
-// A non-zero exit means "not an ancestor" and an unknown object means git cannot
-// answer; both resolve to false. That direction is deliberate: a false negative
-// leaves the status stale, which is merely the old behaviour, while a false
-// positive brands the workspace with a foreign PR and retires it from the sweep.
+// branchContains reports whether sha is an ancestor of (or equal to) branch; a non-zero
+// exit or unknown object is false. A false negative only leaves the status stale, while a
+// false positive would brand the workspace with a foreign PR and retire it.
 func (g *ghProvider) branchContains(
 	ctx context.Context,
 	repoPath string,
@@ -273,7 +259,7 @@ func (g *ghProvider) runGH(
 	cmd.Stderr = &errBuf
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("gh %s: stderr=%q: %w", args[0], strings.TrimSpace(errBuf.String()), err)
+		return "", &providertypes.CLIError{Tool: "gh", Verb: args[0], Stderr: strings.TrimSpace(errBuf.String()), Err: err}
 	}
 	return out.String(), nil
 }

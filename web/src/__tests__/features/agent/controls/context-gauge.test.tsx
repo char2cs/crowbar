@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 
 function telemetry(overrides: Partial<AgentTelemetry> = {}): AgentTelemetry {
@@ -128,13 +128,8 @@ describe('AgentContextGauge', () => {
     })
   })
 
-  // REGRESSION: compaction is an unrelated provider capability
-  // (AgentChatView's own onCompact gate — provider.compaction && live &&
-  // !compacting — never looks at telemetry), so it must not go hostage to a
-  // usage report that has not arrived yet, or that a daemon restart wiped
-  // (see telemetry's own durability fix). Before this, ANY missing report —
-  // including "provider has never reported at all" — made the whole element
-  // return null, taking Compact down with it.
+  // Compact is gated on the provider's capability, not telemetry, so a missing usage report
+  // (never sent, or wiped by a daemon restart) must not take the Compact control down with it.
   describe('onCompact with no usage report', () => {
     it('still renders nothing when neither a report nor compaction is offered', () => {
       const { container } = render(<AgentContextGauge telemetry={null} />)

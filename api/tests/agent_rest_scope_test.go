@@ -8,11 +8,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
 // stubProviderDescriptorYAML is a minimal valid agent provider descriptor
@@ -50,6 +51,9 @@ runtime:
   transport: hooks
   hooks:
     format: json
+surfaces:
+  chat:     { channel: hooks, start_here: true }
+  terminal: { channel: hooks, start_here: true }
 `
 
 // writeStubProviderDescriptor overrides the "stub" provider id at
@@ -63,9 +67,7 @@ func writeStubProviderDescriptor(
 	h *harness,
 ) {
 	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "stub.yaml"), []byte(stubDescriptor(stubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "stub", stubProviderDescriptorYAML)
 }
 
 // agentChatDTO mirrors the wire shape of dto.AgentChatDTO.
@@ -84,8 +86,7 @@ type agentChatDTO struct {
 	WorkspaceID string `json:"workspaceId"`
 	Title       string `json:"title"`
 	// LiveRunnerID is the runner placed on this chat, or "" when it is dormant.
-	// It is the id every in-PTY hook callback carries (the crowbarSegmentID), so
-	// it is also what these tests post as `segment_id`.
+	// It is the runner every hook is posted as.
 	LiveRunnerID string `json:"liveRunnerId"`
 	// TerminalSessionID is that runner's PTY — the terminal session a chat pane
 	// attaches to. Empty exactly when LiveRunnerID is.
@@ -208,15 +209,7 @@ func (d agentChatDetail) sessionIDs() []string {
 // (harness.Quiesce, backed by app/repositories.Container.WaitQuiescent —
 // asynx's WaitPublish, never a sleep/poll) so a subsequent plain REST
 // List/Get against the store-backed projection is guaranteed to observe it.
-// It returns the new chat's id.
-//
-// livestub (`cat`) rather than stub (`true`) because a create only succeeds if
-// the CLI is still there when its runner row commits: a provider that exits
-// during startup is refused with 424, since the chat would otherwise open onto a
-// PTY that is already gone. Callers must therefore write the LIVESTUB descriptor
-// (writeLiveStubProviderDescriptor). None of them is testing the spawn — they
-// need a chat to exist so they can exercise CRUD, scoping, deletion and the
-// Chats tree over it — so the surviving fixture is the honest one.
+// It returns the new chat's id: dormant, its CLI launched by a start or a prompt.
 func createAgentChat(
 	t *testing.T,
 	h *harness,
@@ -230,12 +223,6 @@ func createAgentChat(
 		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "create must respond with the new chat's id")
-	// QuiesceReactors, not Quiesce: creating a chat also PLACES A RUNNER on it,
-	// and that placement detaches into its own goroutine. A plain projection
-	// drain sees the create handler "complete" the moment that goroutine is
-	// spawned — so it can return while the chat still has no runner, which is
-	// exactly when activeProviderId reads "". Joining the reactors is the real
-	// signal that the spawned runner has actually landed.
 	h.QuiesceReactors()
 	return created.ID
 }
@@ -353,7 +340,8 @@ func TestAgentREST_Scope(t *testing.T) {
 			"mount: there is no :wsId segment left for the URL to get wrong")
 }
 
-// spawnStubChat creates a chat with the `true` provider WITHOUT asserting a status,
+// spawnStubChat creates a chat with the `true` provider on the terminal, the one
+// surface a create launches on, WITHOUT asserting a status,
 // because there are two honest ones and which arrives is a race (see below). It
 // returns the status, the refusal message, and the created chat id — exactly one of
 // the last two is ever non-empty.
@@ -363,7 +351,7 @@ func spawnStubChat(
 	imported importedRepo,
 ) (int, string, string) {
 	t.Helper()
-	body, err := json.Marshal(map[string]string{"provider": "stub", "workspaceId": imported.workspaceID})
+	body, err := json.Marshal(map[string]string{"provider": "stub", "workspaceId": imported.workspaceID, "surface": "terminal"})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPost, h.url+repoBase(imported)+"/chats", bytes.NewReader(body))
 	require.NoError(t, err)
@@ -424,7 +412,7 @@ func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
 	h := newHarness(t)
 	writeStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	frames := recordAgentWS(t, h, repoBase(ws)+"/chats/ws")
+	frames := recordSidebar(t, h)
 
 	status, msg, chatID := spawnStubChat(t, h, ws)
 	h.QuiesceReactors()
@@ -439,10 +427,10 @@ func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
 		"a CLI that exits during startup is either refused as a dependency failure or "+
 			"accepted as a chat that is already dormant — never any other status")
 	// The 201 path's reconcile rides the PTY's own exit callback, which the
-	// response never waits on: the `exited` frame is the signal it has landed.
-	frames.await(func(m map[string]any) bool {
-		return m["chatId"] == chatID && m["kind"] == "exited"
-	}, "the dead CLI's exited frame")
+	// response never waits on: the chat's dormant row is the signal it has landed.
+	frames.awaitAfter(chatID, "dormant once its CLI died",
+		func(chat map[string]any) bool { return chat["liveRunnerId"] != "" },
+		func(chat map[string]any) bool { return chat["liveRunnerId"] == "" && chat["terminalSessionId"] == "" })
 	var chat agentChatDTO
 	h.get(repoBase(ws)+"/chats/"+chatID, &chat)
 	assert.Empty(t, chat.LiveRunnerID,
@@ -492,17 +480,15 @@ func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
 	require.Equal(t, wantIDs, chatIDs(t, h, repoBase(ws)),
 		"the chat list must agree with the answer the API gave: a refusal leaves nothing behind")
 
-	// Nor a directory of its own. Nothing under the workspace's chats dir may be
-	// keyed by a chat that does not exist — only the shared dir the RUNNER
-	// lifecycle owns, which is not a chat's.
+	// Nor a directory of its own, in the workspace's chats dir or the home's; either may not exist.
 	chatsDir, err := h.app.Usecases.AgentWorkspaceReader.AgentChatsDir(context.Background(), ws.workspaceID)
 	require.NoError(t, err)
-	entries, err := os.ReadDir(chatsDir)
-	require.NoError(t, err)
-	allowed := append([]string{"runners"}, wantIDs...)
-	for _, entry := range entries {
-		assert.Contains(t, allowed, entry.Name(),
-			"a refused spawn left a per-chat directory behind")
+	for _, dir := range []string{chatsDir, worktreepath.LedgerChatsDir(h.home)} {
+		entries, err := os.ReadDir(dir)
+		require.Truef(t, err == nil || os.IsNotExist(err), "read %s: %v", dir, err)
+		for _, entry := range entries {
+			assert.Contains(t, append([]string{"runners"}, wantIDs...), entry.Name(), "a refused spawn left a chat dir behind")
+		}
 	}
 
 	created := createAgentChat(t, h, ws)

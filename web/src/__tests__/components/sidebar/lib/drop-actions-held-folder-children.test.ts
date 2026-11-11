@@ -1,17 +1,15 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 
-import { visibleRepos } from '@/components/sidebar/lib/drop-actions'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import {
-  getInitialRemovalState,
-  useRemovalTrayStore,
-  type RemovalDraft,
-} from '@/lib/store/sidebar-removal'
+import { visibleRepos } from '@/components/sidebar/lib/rendered-rows'
+import type { Repo } from '@/core/entities/repo-types'
+import { treeUiStore, type RemovalDraft } from '@/features/workspace/tree/tree-ui-store'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 /**
  * A folder held for removal transforms IN PLACE (sidebar-row.tsx's
  * `RemovingSidebarRow`) and keeps its children nested under it for the whole
- * eight-second hold — `descendantHiddenIds` deliberately holds the entry's own
+ * eight-second hold — `renderedHiddenIds` deliberately holds the entry's own
  * primary row back so there is a row left to transform.
  *
  * `visibleRepos` read the tray store's RAW `hiddenIds` instead, which does
@@ -51,13 +49,13 @@ const heldFolder: RemovalDraft = {
 }
 
 beforeEach(() => {
-  useSidebarStore.setState({ ...getInitialState(), repos: [repo] })
-  useRemovalTrayStore.setState(getInitialRemovalState())
+  seedRepos([repo])
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
 })
 
 describe('the drop planner while a folder is held for removal', () => {
   it('keeps the held folder and leaves its children under it', () => {
-    useRemovalTrayStore.getState().hold([heldFolder])
+    treeUiStore.getState().hold([heldFolder])
     const [visible] = visibleRepos()
     expect(visible.folders?.map((f) => f.id)).toEqual(['folder-1', 'folder-child'])
     expect(visible.folders?.find((f) => f.id === 'folder-child')?.parentId).toBe('folder-1')
@@ -67,18 +65,16 @@ describe('the drop planner while a folder is held for removal', () => {
   // The cascade half is untouched: a held CHAT's own threads still disappear
   // outright, so this is not "stop filtering anything".
   it('still hides a held row’s cascade descendants', () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...repo,
-          chats: [
-            { id: 'chat-1', title: 'parent', repoId: 'r1', order: 0 },
-            { id: 'chat-2', title: 'thread', repoId: 'r1', order: 1, parentId: 'chat-1' },
-          ],
-        },
-      ],
-    })
-    useRemovalTrayStore.getState().hold([
+    seedRepos([
+      {
+        ...repo,
+        chats: [
+          { id: 'chat-1', title: 'parent', repoId: 'r1', order: 0 },
+          { id: 'chat-2', title: 'thread', repoId: 'r1', order: 1, parentId: 'chat-1' },
+        ],
+      },
+    ])
+    treeUiStore.getState().hold([
       {
         ...heldFolder,
         kind: 'chat',
@@ -93,6 +89,6 @@ describe('the drop planner while a folder is held for removal', () => {
   })
 
   it('hands back the untouched repos when nothing is held', () => {
-    expect(visibleRepos()[0]).toBe(repo)
+    expect(visibleRepos()[0]).toBe(readSelect(selectRepos)[0])
   })
 })

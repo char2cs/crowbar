@@ -39,11 +39,15 @@ const REFUSED = /^the host refused pairing \((\d{3})[^)]*\): (.*)$/s
 const UNRESOLVED = /^cannot resolve ([^\s:]+)/
 const UNREACHABLE = /^cannot reach |did not answer within|did not finish pairing|^pairing with /
 const NOT_CROWBAR = /^TLS handshake with |presented no certificate/
+// The desktop shell revokes a token the keychain would not keep; its error says whether that worked.
+const KEYCHAIN = /^the keychain could not keep the token/
+const STILL_LISTED = /revoking it on the host failed/
 
 /** What a failed probe or pairing of the host `name` at `address` means for the user, in plain
  *  words: the desktop shell's own text names transport and OS errors, which are never shown. */
 export function pairingFailureText(err: unknown, address: string, name: string): string {
   const text = err instanceof Error ? err.message : String(err)
+  if (KEYCHAIN.test(text)) return keychainFailureText(text, address)
   const refused = REFUSED.exec(text)
   // A wrong code and an expired one get the same 401: the host does not say which.
   if (refused?.[1] === '401') {
@@ -67,4 +71,13 @@ export function pairingFailureText(err: unknown, address: string, name: string):
     return `${address} answered, but not as a Crowbar host. Check the address and port.`
   }
   return `Couldn’t pair with ${name}. Try again, or run crowbar pair on the host for a new code.`
+}
+
+/** The code was spent and the key never saved: the keychain, not the code, is what to fix. */
+function keychainFailureText(text: string, address: string): string {
+  const remedy = 'Unlock your keychain or allow Crowbar to use it, then pair again with a new code.'
+  if (STILL_LISTED.test(text)) {
+    return `Your keychain couldn’t save the key for ${address}, and undoing the pairing on the host didn’t go through. No copy of the key was kept, so nothing can use it, but the host may still list this device. ${remedy}`
+  }
+  return `Your keychain couldn’t save the key for ${address}, so the pairing was undone and the host isn’t left paired with this device. ${remedy}`
 }

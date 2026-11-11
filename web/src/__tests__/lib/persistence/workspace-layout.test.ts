@@ -1,4 +1,8 @@
-import { saveWorkspaceLayout, WINDOW_SESSION_ID } from '@/lib/persistence/workspace-layout'
+import {
+  saveWorkspaceLayout,
+  WINDOW_LAYOUT_VERSION,
+  WINDOW_SESSION_ID,
+} from '@/lib/persistence/workspace-layout'
 import { loadWindowPaneLayout } from '@/lib/persistence/workspace-layout'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 import { IDBFactory } from 'fake-indexeddb'
@@ -7,9 +11,8 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { createLeaf } from '@/features/panes/utils/pane-layout'
 
 const mockLayout: WorkspaceLayout = {
-  // Task 26: pane/buffer layout is window-level now — the object store's
-  // keyPath is still literally `workspaceId`, but the value written there is
-  // always the fixed WINDOW_SESSION_ID (saveWorkspaceLayout stamps it).
+  // Layout is window-level: the keyPath is still `workspaceId`, but saveWorkspaceLayout always
+  // stamps the fixed WINDOW_SESSION_ID there.
   workspaceId: WINDOW_SESSION_ID,
   panes: {
     [ROOT_PANE_ID]: {
@@ -44,7 +47,7 @@ describe('window pane layout persistence', () => {
     await saveWorkspaceLayout(mockLayout)
     const loaded = await loadWindowPaneLayout()
     expect(loaded?.activePaneId).toBe(ROOT_PANE_ID)
-    expect(loaded?.version).toBe(2)
+    expect(loaded?.version).toBe(WINDOW_LAYOUT_VERSION)
   })
 
   it('returns null when nothing has been saved yet', async () => {

@@ -58,7 +58,7 @@ func TestRegression_AMessageSaidMidTurnIsVISIBLEBeforeTheTurnEnds(t *testing.T) 
 					break
 				}
 			}
-			chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
+			snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
 			if err != nil {
 				continue
 			}
@@ -67,7 +67,7 @@ func TestRegression_AMessageSaidMidTurnIsVISIBLEBeforeTheTurnEnds(t *testing.T) 
 			if visible && !seenAtAll {
 				seenAtAll = true
 				firstSeenAt = time.Since(startedAt)
-				seenWorking = chat.Working
+				seenWorking = snap.Ledger.Busy
 			}
 			mu.Unlock()
 		}

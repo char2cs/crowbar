@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -58,28 +59,9 @@ func resolveReviewThread(
 	return fmt.Sprintf("Resolved review thread %s.", in.ThreadID), nil
 }
 
-// broadcastThreadWrite fans a reply or resolution out the same way
-// post_review_comment fans out a new thread: the review-thread store does not
-// broadcast on its own, so without this an agent's write is durably stored and
-// invisible until the user remounts the review pane. canWriteReviewThread
-// requires ThreadBroadcast to be non-nil before either tool is even registered,
-// so — unlike a defensive nil check — calling it unconditionally here is the
-// correct behavior: a reply or resolve that could not fan out must not exist as
-// a tool at all, exactly like post_review_comment.
-//
-// The frame carries wsID's own project and repo, not the caller's: the thread
-// this call just wrote to can be on a descendant or ancestor workspace of the
-// caller's own (that is the whole point of the CanSee check above), and those
-// can belong to a different repo when the caller sits at "home" — the /threads
-// stream filters on projectId and repoId as well as wsId, so a frame carrying
-// the caller's own repo would reach nobody's stream for a cross-repo write.
-// wsID is already confirmed present in the visible set by the CanSee check that
-// ran before every call site, so the lookup below always finds it — and the set
-// is already loaded and memoised by that same check, which is why the load error
-// is discarded here rather than failing the broadcast: a caller that reached this
-// function loaded it successfully. The fallback to c.Workspace guards both a
-// future call site that skips the check and the impossible-today error case,
-// which broadcasts to the caller's own project/repo rather than not at all.
+// broadcastThreadWrite announces a reply or resolution, which the thread store does not broadcast. The
+// frame carries wsID's own project and repo (a visible descendant may be in another repo), falling back
+// to the caller's; the visible set is already memoised by CanSee, so a load error is only logged.
 func broadcastThreadWrite(
 	deps Deps,
 	c Caller,
@@ -87,7 +69,10 @@ func broadcastThreadWrite(
 	thread domain.ReviewThread,
 ) {
 	ws := c.Workspace
-	visible, _ := c.Visible()
+	visible, err := c.Visible()
+	if err != nil {
+		slog.Warn("agent tools: review thread broadcast: load the visible workspaces", "ws", wsID, "err", err)
+	}
 	for _, w := range visible {
 		if w.ID == wsID {
 			ws = w

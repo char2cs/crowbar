@@ -31,12 +31,6 @@ func (stubFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider)
 	return []domain.FileNode{{Path: "a.go"}}, nil
 }
 
-func (stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
-	return domain.FileContent{Content: "hello"}, nil
-}
-
-func (stubFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error { return nil }
-
 func (stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error { return nil }
 
 func (stubFiles) CreateDir(_ context.Context, _, _ string, _ time.Time) error { return nil }
@@ -54,8 +48,6 @@ func newRouter(
 	h := handlers.New(f)
 	rg := r.Group("/v0")
 	rg.GET("/workspaces/:wsId/files/tree", h.Tree)
-	rg.GET("/workspaces/:wsId/files/content", h.ReadContent)
-	rg.PUT("/workspaces/:wsId/files/content", h.SaveContent)
 	rg.POST("/workspaces/:wsId/files", h.Create)
 	rg.POST("/workspaces/:wsId/files/copy", h.Copy)
 	rg.PATCH("/workspaces/:wsId/files", h.Rename)
@@ -87,13 +79,6 @@ func TestFileHandlers_HappyPath(
 	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	rec = do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=a.go", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	rec = do(r, http.MethodPut, "/v0/workspaces/ws1/files/content",
-		map[string]any{"path": "a.go", "content": "hi"})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
 	rec = do(r, http.MethodPost, "/v0/workspaces/ws1/files",
 		map[string]any{"path": "new.go", "type": "file"})
 	assert.Equal(t, http.StatusCreated, rec.Code)
@@ -112,14 +97,6 @@ func TestFileHandlers_HappyPath(
 
 	rec = do(r, http.MethodDelete, "/v0/workspaces/ws1/files?path=b.go", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestFileHandlers_ReadContent_MissingPath(
-	t *testing.T,
-) {
-	r := newRouter(stubFiles{})
-	rec := do(r, http.MethodGet, "/v0/workspaces/ws1/files/content", nil)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestFileHandlers_Copy_MissingPaths(
@@ -200,18 +177,6 @@ func TestFileHandlers_Create_MissingPath(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestFileHandlers_SaveContent_MissingPath proves SaveContent's own guard
-// rejects an empty path with 400 before calling WriteContent.
-func TestFileHandlers_SaveContent_MissingPath(
-	t *testing.T,
-) {
-	r := newRouter(stubFiles{})
-
-	rec := do(r, http.MethodPut, "/v0/workspaces/ws1/files/content",
-		map[string]any{"content": "hi"})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
 // TestFileHandlers_Rename_MissingFields proves Rename's own guard rejects a
 // request missing either path or newPath with 400 before calling Rename.
 func TestFileHandlers_Rename_MissingFields(
@@ -277,14 +242,6 @@ func doRaw(
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rec, req)
 	return rec
-}
-
-func TestFileHandlers_SaveContent_BadJSON_Returns400(
-	t *testing.T,
-) {
-	r := newRouter(stubFiles{})
-	rec := doRaw(r, http.MethodPut, "/v0/workspaces/ws1/files/content", `{"path":`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestFileHandlers_Create_BadJSON_Returns400(

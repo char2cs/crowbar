@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // seedRepoHeaderLevel builds one repo's ROOT level as the sidebar draws it:
@@ -26,15 +27,15 @@ func seedRepoHeaderLevel(
 	gitStatus.SetDefault("repo-A", "ws-home")
 	gitStatus.SetRepo("locked-main", "repo-A")
 	gitStatus.SetBranch("locked-main", true)
-	folders.Saved = []domain.Folder{{ID: "repo-folder", RepoID: "repo-A"}}
+	folders.Saved = []dtree.Folder{{ID: "repo-folder", RepoID: "repo-A"}}
 	chats.Rows = append(chats.Rows, domain.Chat{
 		ID: "home-owner", Type: domain.ChatTypeChat, WorkspaceID: "ws-home",
 		OwnsWorkspace: true, CreatedAt: time.Unix(1, 0),
 	})
-	nodes.Rows = []domain.Node{
-		{ID: "ws-home", Kind: domain.NodeKindWorkspace, Order: 0},
-		{ID: "locked-main", Kind: domain.NodeKindWorkspace, Order: 0},
-		{ID: "repo-folder", Kind: domain.NodeKindFolder, Order: 1},
+	nodes.Rows = []dtree.Node{
+		{ID: "ws-home", Kind: dtree.KindWorkspace, Order: 0},
+		{ID: "locked-main", Kind: dtree.KindWorkspace, Order: 0},
+		{ID: "repo-folder", Kind: dtree.KindFolder, Order: 1},
 	}
 }
 
@@ -56,7 +57,7 @@ func TestRegression_MintOwningChat_UnderARepoHeaderTakesTheRepoRootsNextSlot(t *
 	seedRepoHeaderLevel(chats, folders, nodes, gitStatus)
 	chats.NextID = "c-fork"
 
-	chatID, err := uc.MintOwningChat(context.Background(), "ws-home")
+	chatID, err := uc.MintOwningChat(context.Background(), "", "ws-home")
 
 	require.NoError(t, err)
 	row := chatRow(t, chats, chatID)
@@ -74,13 +75,13 @@ func TestRegression_MintOwningChat_TwoForksOffARepoHeaderTakeDistinctSlots(t *te
 	ctx := context.Background()
 
 	chats.NextID = "c-first"
-	first, err := uc.MintOwningChat(ctx, "ws-home")
+	first, err := uc.MintOwningChat(ctx, "", "ws-home")
 	require.NoError(t, err)
 	require.NoError(t, uc.AttachOwningWorkspace(ctx, first, domain.Workspace{ID: "ws-first"}))
 	gitStatus.SetRepo("ws-first", "repo-A")
 
 	chats.NextID = "c-second"
-	second, err := uc.MintOwningChat(ctx, "ws-home")
+	second, err := uc.MintOwningChat(ctx, "", "ws-home")
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, chatRow(t, chats, first).Order)

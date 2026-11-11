@@ -1,7 +1,6 @@
 package home_test
 
 import (
-	"net/http"
 	"strings"
 	"testing"
 
@@ -32,20 +31,18 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 		// settingsRG carries only the GLOBAL /settings/chat/providers write route,
 		// which is deliberately NOT a home capability — agentSubRoutes filters it out
 		// (it is not a /chats path), so home parity is unaffected by it.
-		agentroutes.Register(scope, scope, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, noopWS)
+		// Kill mounts on the flat chat group alone, which home has no twin of.
+		agentroutes.Register(scope, r.Group("/v0/chats/:chatId"), scope, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}, "/scope")
 
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
 		home.Register(
 			r.Group("/scope"),
 			nil, nil, nil, nil, // home deps: unused, the routing table is what is under test
-			noopWS,
-			nil, nil, noopWS,
+			nil, nil, // thread store + publisher
 			nil, nil, nil, nil, nil, // the five agent concerns
-			nil, nil, // chat-folder usecase + broadcast
+			nil,      // chat-folder usecase
 			nil, nil, // worktrees + nodes
-			noopWS, // agent WS
-			func(rest, _ gin.HandlerFunc) gin.HandlerFunc { return rest },
 		)
 	}, "/scope/home")
 
@@ -55,6 +52,34 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 			"the /home group is missing agent route %q that the workspace group mounts — a chat on a "+
 				"project-home or repo-home workspace would 404 on it", route)
 	}
+	// The relay transport is retired on both mounts: hooks have one ingress.
+	for _, gone := range []string{"POST /chats/hooks", "POST /chats/hooks/await", "POST /chats/hooks/abandon"} {
+		assert.NotContains(t, wsRoutes, gone)
+		assert.NotContains(t, homeRoutes, gone)
+	}
+	assert.Contains(t, homeRoutes, "POST /chats/runners/:segid/hooks/:provider/:event")
+}
+
+// The transcript reads only the old client spoke are gone from both mounts:
+// the ledger is read through the chat's feed and its blobs.
+func TestRoutes_ServeNoTranscriptReads(t *testing.T) {
+	wsRoutes := agentSubRoutes(t, func(r *gin.Engine) {
+		scope := r.Group("/scope")
+		// Kill mounts on the flat chat group alone, which home has no twin of.
+		agentroutes.Register(scope, r.Group("/v0/chats/:chatId"), scope, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	}, "/scope")
+	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
+		home.Register(r.Group("/scope"), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	}, "/scope/home")
+
+	for _, gone := range []string{
+		"GET /chats/:id/messages", "GET /chats/:id/activity", "GET /chats/:id/activity/:toolId/payload",
+		"GET /chats/:id/choices", "GET /chats/:id/pending-prompt",
+	} {
+		assert.NotContains(t, wsRoutes, gone)
+		assert.NotContains(t, homeRoutes, gone)
+	}
+	assert.Contains(t, homeRoutes, "POST /chats/:id/choices/:choiceId/answer", "an answer is a command, not a read")
 }
 
 // agentSubRoutes registers routes via `mount` and returns every "/agent/..." route
@@ -69,8 +94,8 @@ func agentSubRoutes(t *testing.T, mount func(*gin.Engine), prefix string) []stri
 	var out []string
 	for _, ri := range r.Routes() {
 		path, ok := strings.CutPrefix(ri.Path, prefix)
-		// The whole chat surface lives under /chats — including folders, hooks,
-		// providers and the WS — so it stays identifiable by one prefix now that the
+		// The whole chat surface lives under /chats — including folders, hooks
+		// and providers — so it stays identifiable by one prefix now that the
 		// /agent segment is gone. That identifiability is what makes this parity
 		// guard possible at all.
 		if !ok || !strings.HasPrefix(path, "/chats") {
@@ -80,8 +105,6 @@ func agentSubRoutes(t *testing.T, mount func(*gin.Engine), prefix string) []stri
 	}
 	return out
 }
-
-func noopWS(c *gin.Context) { c.Status(http.StatusOK) }
 
 // TestHomeTerminalsAreServedByTheOneTerminalHandlerSet pins §7-B "one transport": the
 // home group's terminal routes are the chat-scoped terminal handlers themselves (same
@@ -93,13 +116,10 @@ func TestHomeTerminalsAreServedByTheOneTerminalHandlerSet(t *testing.T) {
 	home.Register(
 		r.Group("/scope"),
 		nil, nil, nil, nil,
-		noopWS,
-		nil, nil, noopWS,
+		nil, nil,
 		nil, nil, nil, nil, nil,
+		nil,
 		nil, nil,
-		nil, nil,
-		noopWS,
-		func(rest, _ gin.HandlerFunc) gin.HandlerFunc { return rest },
 	)
 	want := map[string]string{
 		"GET /scope/home/terminals":               "(*Handlers).ListSessions",

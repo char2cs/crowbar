@@ -1,0 +1,31 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "commandExecution",
+      "id": "exec-69c6bb01-6088-4171-80eb-87d5d87c41f7",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/bin/zsh -lc 'cat does-not-exist.txt'",
+      "cwd": "/ws",
+      "processId": "41666",
+      "source": "unifiedExecStartup",
+      "status": "failed",
+      "commandActions": [
+        {
+          "type": "read",
+          "command": "cat does-not-exist.txt",
+          "name": "does-not-exist.txt",
+          "path": "/ws/does-not-exist.txt"
+        }
+      ],
+      "aggregatedOutput": "cat: does-not-exist.txt: No such file or directory\n",
+      "exitCode": 1,
+      "durationMs": 0
+    },
+    "threadId": "019fb000-0000-7000-8000-000000000001",
+    "turnId": "019fb000-0000-7000-8000-000000000002",
+    "completedAtMs": 1792205307017
+  },
+  "emittedAtMs": 1792205307018
+}

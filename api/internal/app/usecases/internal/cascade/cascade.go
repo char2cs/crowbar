@@ -1,22 +1,16 @@
-// Package cascade computes the deletion order for a workspace subtree,
-// applying the skip-locked rule from 07 §5: locked nodes are omitted
-// from the result but their unlocked descendants are still included.
+// Package cascade computes the deletion order for a workspace subtree: locked nodes
+// are omitted but their unlocked descendants are still included.
 package cascade
 
-// Node is a workspace entry in the hierarchy tree.
-// Parent is the empty string for the root of the tree.
-// Locked nodes are excluded from the deletion plan but their descendants
-// are still visited and included when unlocked.
+// Node is a workspace entry in the hierarchy tree; Parent is "" for the root.
 type Node struct {
 	ID     string
 	Parent string
 	Locked bool
 }
 
-// Plan returns the deletion order (deepest-first, post-order DFS) of the
-// subtree rooted at rootID, skipping locked nodes but still descending
-// into their children. Returns an empty slice when rootID is not found
-// in all.
+// Plan returns the deepest-first deletion order of the subtree rooted at rootID,
+// skipping locked nodes but descending into them; empty when rootID is not in all.
 func Plan(
 	rootID string,
 	all []Node,

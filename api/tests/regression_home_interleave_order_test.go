@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // A project's top level is ONE interleaved list of repo header rows and home
@@ -76,7 +78,7 @@ func addSecondRepo(
 	projectID string,
 ) string {
 	t.Helper()
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	id := addRepo(t, h, reposWS, projectID, gitRepoWithCommit(t))
 	h.Quiesce()
 	return id
@@ -154,9 +156,9 @@ func TestRegression_HomeChatDragCountsInvisibleWorkspaceAnchors(t *testing.T) {
 	c2 := createHomeChat(t, h, projectID)
 	c3 := createHomeChat(t, h, projectID)
 
-	mainBefore, err := h.app.Repositories.Node.GetNode(ctx, imported.workspaceID)
+	mainBefore, err := h.app.Repositories.Placement.GetNode(ctx, imported.workspaceID)
 	require.NoError(t, err)
-	secondBefore, err := h.app.Repositories.Node.GetNode(ctx, second)
+	secondBefore, err := h.app.Repositories.Placement.GetNode(ctx, second)
 	require.NoError(t, err)
 
 	// Visible top level: [repo, c1, c2, c3]. Drag c3 to the END (index 3).
@@ -172,9 +174,9 @@ func TestRegression_HomeChatDragCountsInvisibleWorkspaceAnchors(t *testing.T) {
 	assert.Greater(t, chats[c3].Order, chats[c2].Order, "c3 dragged to the end must sort after c2")
 	assert.Greater(t, chats[c3].Order, repos[imported.repoID].Order, "c3 dragged to the end must sort after the repo header")
 
-	mainAfter, err := h.app.Repositories.Node.GetNode(ctx, imported.workspaceID)
+	mainAfter, err := h.app.Repositories.Placement.GetNode(ctx, imported.workspaceID)
 	require.NoError(t, err)
-	secondAfter, err := h.app.Repositories.Node.GetNode(ctx, second)
+	secondAfter, err := h.app.Repositories.Placement.GetNode(ctx, second)
 	require.NoError(t, err)
 	assert.Equal(t, mainBefore.Order, mainAfter.Order, "a home-level chat drag must not renumber a repo's locked branch")
 	assert.Equal(t, secondBefore.Order, secondAfter.Order, "a home-level chat drag must not renumber a repo's locked branch")

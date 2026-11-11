@@ -1,7 +1,6 @@
-import { useStore } from 'zustand'
 import { SidebarTreeRow } from '@/components/sidebar/sidebar-tree'
 import { useIsTouchDevice } from '@/hooks/use-is-touch-device'
-import { useActiveSessionsStore, viewersLabel } from '@/lib/store/active-sessions'
+import { useActiveSessionList, viewersLabel } from '@/core/entities/active-sessions'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 interface ActiveSessionsSectionProps {
@@ -12,11 +11,8 @@ interface ActiveSessionsSectionProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
 }
 
-/**
- * The agents running right now, pinned above the tree on a touch device so a
- * phone can find a session it left running. Each entry is the ordinary row of a
- * chat already in the tree — same component, same menu — plus who is attached.
- */
+// Agents running now, pinned above the tree on touch so a phone finds a session it left running.
+// Each entry is the chat's ordinary tree row (same component and menu), plus who is attached.
 export function ActiveSessionsSection({
   rows,
   onOpen,
@@ -24,9 +20,9 @@ export function ActiveSessionsSection({
   onCreate,
 }: ActiveSessionsSectionProps) {
   const isTouch = useIsTouchDevice()
-  const sessions = useStore(useActiveSessionsStore, (s) => s.sessions)
-  const attached = useStore(useActiveSessionsStore, (s) => s.attached)
-  const running = rows.filter((row) => row.kind !== 'folder' && sessions[row.id])
+  const sessions = useActiveSessionList()
+  const viewers = new Map(sessions.map((s) => [s.chatId, s.viewers]))
+  const running = rows.filter((row) => row.kind !== 'folder' && viewers.has(row.id))
   if (!isTouch || running.length === 0) return null
 
   return (
@@ -42,7 +38,7 @@ export function ActiveSessionsSection({
             onCreate={onCreate}
           />
           <p className="ui-font ui-text-sm truncate pr-3 pl-9 text-muted-foreground">
-            {viewersLabel(attached[row.id]?.count ?? 0)}
+            {viewersLabel(viewers.get(row.id) ?? 0)}
           </p>
         </div>
       ))}

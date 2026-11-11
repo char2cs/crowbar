@@ -1,11 +1,5 @@
-// Package workspace mounts the workspace-addressed placement route: a LOCKED
-// branch's own sidebar position, moved by the workspace's own id (2026-09-09
-// sidebar-placement-unification, workspace-placement fix). See
-// handlers.Handlers' own doc for why this is the SECOND genuinely
-// workspace-native route in the daemon, not the first — threads
-// (endpoints/threads) already reuses the identical repoScoped
-// "/workspaces/:wsId" mount for the same reason: a fact about the workspace
-// itself, not about any conversation inside it.
+// Package workspace mounts the workspace-addressed placement route: a locked branch's own sidebar
+// position, moved by workspace id because it is a fact about the workspace, not any chat in it.
 package workspace
 
 import (
@@ -14,17 +8,13 @@ import (
 	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspace/handlers"
 )
 
-// Register mounts PATCH .../workspaces/:wsId/placement on the repo-scoped
-// group. scopeWorkspaceToPath (router.go) already guards :wsId ⊂
-// :projectId/:repoId for every route mounted here, installed on repoScoped
-// itself before this group is derived — the same guard threads.Register's
-// identical mount relies on.
+// Register mounts PATCH .../workspaces/:wsId/placement on the repo-scoped group, whose
+// scopeWorkspaceToPath middleware already guards that :wsId belongs to :projectId/:repoId.
 func Register(
 	repoScoped *gin.RouterGroup,
 	placer workspacehandlers.Placer,
-	broadcastFolder func(folderID, workspaceID, kind string),
 ) {
-	h := workspacehandlers.New(placer, broadcastFolder)
+	h := workspacehandlers.New(placer)
 	rg := repoScoped.Group("/workspaces/:wsId")
 	rg.PATCH("/placement", h.PlaceWorkspace)
 }

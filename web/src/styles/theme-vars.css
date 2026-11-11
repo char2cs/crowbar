@@ -1,7 +1,4 @@
-/* Split out of theme.css to keep it under the repo's file-size cap; loaded
-   right after theme-fonts.css and before it. Tailwind's `@theme` is collected
-   wherever it appears in the import graph, so splitting this out changes
-   nothing about how the tokens resolve. */
+/* Split from theme.css (file-size cap); Tailwind collects `@theme` anywhere in the import graph. */
 @theme inline {
   --font-sans: var(--app-font-family, 'CalSansUI', sans-serif);
 

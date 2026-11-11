@@ -11,10 +11,8 @@ const sizeClasses = {
   xl: { box: 'h-6 w-6', text: 'text-[13px]', emoji: 'text-lg' },
 }
 
-// Icon <img> with graceful degradation: when the icon URL 404s (icon reset
-// racing the WS frame, stale URL after a daemon wipe) render the caller's
-// letter/color fallback instead of the browser's broken-image glyph. The
-// error state resets whenever the src changes (e.g. a new ?v= version).
+// An icon <img> that renders the caller's fallback instead of a broken-image glyph when the URL
+// fails (a reset racing the WS frame, a stale URL); resets whenever the src changes.
 interface RepoAvatarImgProps {
   src: string
   alt: string
@@ -30,11 +28,7 @@ function RepoAvatarImgAttempt({ src, alt, className, fallback }: RepoAvatarImgPr
       src={src}
       alt={alt}
       draggable={false}
-      // `block`, not the default inline: an inline <img> keeps its own
-      // vertical-align (baseline by default), which sits it against the
-      // sibling text's baseline instead of centering it in the flex row
-      // that wraps it — every other icon variant here (emoji, letter
-      // fallback) is already an inline-flex span for the same reason.
+      // `block`: an inline <img> aligns to the text baseline instead of centring in the flex row.
       className={cn('block', className)}
       onError={() => setErrored(true)}
     />
@@ -42,11 +36,8 @@ function RepoAvatarImgAttempt({ src, alt, className, fallback }: RepoAvatarImgPr
 }
 
 export function RepoAvatarImg(props: RepoAvatarImgProps) {
-  // Reset-by-key, the canonical form: a new src remounts the attempt and its
-  // `errored` flag starts false again. This used to be an effect that reset the
-  // flag on [src], which showed the fallback for one render after the src
-  // changed. Keyed HERE rather than at the call sites so the self-reset stays
-  // this component's own contract — both callers just rerender with a new src.
+  // Reset by key: a new src remounts the attempt with `errored` false (an effect would show the
+  // fallback for a render). Keyed here so the self-reset is this component's contract.
   return <RepoAvatarImgAttempt key={props.src} {...props} />
 }
 

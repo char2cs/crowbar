@@ -4,12 +4,8 @@
 
 use std::time::{Duration, Instant};
 
-/// What a readiness probe learned.
-///
-/// A probe dials the daemon over a unix socket from *this* process, so it can come
-/// back unhappy for two entirely different reasons, and the watchdog must never
-/// confuse them: the daemon is not serving, or this process has no descriptors left
-/// to dial it with.
+/// What a readiness probe learned. A failure has two causes the watchdog must never
+/// confuse: the daemon is not serving, or this process has no descriptors left to dial.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Probe {
     /// The daemon answered.
@@ -19,15 +15,13 @@ pub enum Probe {
     /// This process hit its own open-file limit (`EMFILE`/`ENFILE`) while dialling.
     /// Says nothing whatsoever about the daemon's health.
     LocalDescriptorExhaustion,
+    /// The daemon answered that it is alive but deliberately not serving: it is
+    /// preparing its home, or it halted. No restart fixes either.
+    Held,
 }
 
-/// Whether a probe outcome is evidence *about the daemon*.
-///
-/// Running this process out of descriptors is evidence about this process. The
-/// daemon may be serving perfectly and merely be unreachable, so such a failure
-/// must never count toward the kill threshold: restarting the daemon cannot hand a
-/// descriptor back, the next probe fails identically, and the only thing achieved
-/// is destroying a healthy backend — and the user's session with it.
+/// Whether a probe outcome is evidence about the daemon. Descriptor exhaustion is ours:
+/// restarting the daemon cannot hand one back, so it must never count toward a kill.
 pub fn probe_indicts_daemon(outcome: Probe) -> bool {
     matches!(outcome, Probe::Unserved)
 }
@@ -64,46 +58,111 @@ impl FailureTracker {
     pub fn reset(&mut self) {
         self.consecutive = 0;
     }
+
+    /// Feeds one readiness outcome. Only an unserved daemon counts toward a wedge:
+    /// a held one is alive on purpose and a local descriptor failure says nothing
+    /// about the daemon, so both clear the streak.
+    pub fn observe_probe(&mut self, outcome: Probe) -> bool {
+        if outcome == Probe::Unserved {
+            return self.observe(false);
+        }
+        self.reset();
+        false
+    }
 }
 
-/// Extra wall-clock time beyond a nominal probe cycle still attributable to a
-/// merely-busy machine rather than an OS suspension. A watchdog cycle is
-/// nominally `WATCHDOG_INTERVAL + PROBE_TIMEOUT`; load can stretch it a little,
-/// but App Nap or a system sleep overshoots it by far more.
+/// Slack beyond a nominal cycle (`WATCHDOG_INTERVAL + PROBE_TIMEOUT`) still blamed on a
+/// busy machine; App Nap or sleep overshoots it by far more.
 const SUSPENSION_MARGIN: Duration = Duration::from_secs(15);
 
-/// Reports whether a watchdog cycle that spanned `elapsed` wall-clock time was
-/// interrupted by an OS suspension (App Nap / system sleep) rather than merely
-/// running slowly. A suspended daemon is frozen, not wedged: its probe failed
-/// only because it was not executing, and it answers again the instant it
-/// resumes — so a failure observed across such a gap is not evidence of a wedge
-/// and must not count toward the kill threshold. The caller measures `elapsed`
-/// with the wall clock (SystemTime), which — unlike a monotonic Instant —
-/// keeps advancing through a system sleep, so the overshoot is visible on resume.
+/// Whether a cycle spanning wall-clock `elapsed` was interrupted by App Nap or sleep. A
+/// suspended daemon is frozen, not wedged, so its failure must not count; `elapsed` is
+/// SystemTime because, unlike Instant, it advances through a system sleep.
 pub fn cycle_was_suspended(elapsed: Duration, interval: Duration, probe_timeout: Duration) -> bool {
     elapsed > interval + probe_timeout + SUSPENSION_MARGIN
 }
 
-/// Final gate before the watchdog's irreversible SIGQUIT+SIGKILL restart, given
-/// whether the daemon process is currently OS-suspended and whether it answered
-/// a longer grace probe. macOS task-suspends an idle, backgrounded helper: while
-/// suspended it fails every probe because it is not executing, yet answers the
-/// instant it resumes — so a suspended daemon must never be killed (that is the
-/// "backend closed itself while idle" false positive). A daemon that answers the
-/// grace probe merely resumed or was transiently slow. Only a daemon that is
-/// running (not suspended) AND still unresponsive is genuinely wedged.
-pub fn should_kill_wedged(daemon_suspended: bool, grace_probe_healthy: bool) -> bool {
-    !daemon_suspended && !grace_probe_healthy
+/// Final gate before the irreversible SIGQUIT+SIGKILL. A suspended daemon fails every
+/// probe yet answers on resume, one that answers the grace probe merely resumed, and one
+/// that kept burning CPU is busy: only a running, unresponsive, idle daemon is wedged.
+pub fn should_kill_wedged(
+    daemon_suspended: bool,
+    grace_probe_healthy: bool,
+    made_progress: bool,
+) -> bool {
+    !daemon_suspended && !grace_probe_healthy && !made_progress
 }
 
-/// Allows at most `max` restarts inside a sliding `window`. A daemon that
-/// dies instantly on every boot (bad build, corrupt state) must not be
-/// respawned in a tight loop forever; once the budget is exhausted the
-/// supervisor gives up until the next app launch.
+/// Whether the daemon worked through an unresponsive `stretch`: it used at least 1% of a
+/// core. A deadlocked daemon idles; a loaded one computes. An unreadable sample is no
+/// evidence of work, so a genuine wedge is still caught where CPU time cannot be read.
+pub fn made_progress(before: Option<Duration>, after: Option<Duration>, stretch: Duration) -> bool {
+    match (before, after) {
+        (Some(before), Some(after)) => after.saturating_sub(before) * 100 >= stretch,
+        _ => false,
+    }
+}
+
+/// CPU time (user + system) from a Linux `/proc/<pid>/stat` line. Fields are counted after
+/// the last `)`, since the command name in parentheses may itself hold spaces.
+#[cfg(any(target_os = "linux", test))]
+pub fn parse_proc_stat_cpu(stat: &str, ticks_per_sec: u64) -> Option<Duration> {
+    let fields: Vec<&str> = stat
+        .get(stat.rfind(')')? + 1..)?
+        .split_whitespace()
+        .collect();
+    // utime and stime are fields 14 and 15 of the line; the state (field 3) comes first here.
+    let utime: u64 = fields.get(11)?.parse().ok()?;
+    let stime: u64 = fields.get(12)?.parse().ok()?;
+    if ticks_per_sec == 0 {
+        return None;
+    }
+    Some(Duration::from_millis(
+        (utime + stime) * 1000 / ticks_per_sec,
+    ))
+}
+
+/// CPU time from `ps -o time=`: `[DD-]HH:MM:SS` on Linux, `M:SS.cc` on macOS.
+#[cfg(any(not(target_os = "linux"), test))]
+pub fn parse_ps_cpu_time(text: &str) -> Option<Duration> {
+    let text = text.trim();
+    let (days, clock) = match text.split_once('-') {
+        Some((days, clock)) => (days.parse::<f64>().ok()?, clock),
+        None => (0.0, text),
+    };
+    let mut secs = days * 86_400.0;
+    let mut unit = 1.0;
+    for part in clock.rsplit(':') {
+        secs += part.parse::<f64>().ok()? * unit;
+        unit *= 60.0;
+    }
+    Duration::try_from_secs_f64(secs).ok()
+}
+
+/// The daemon log's last run, from its final spawn marker, cut to the last `max_lines`:
+/// what the daemon said before it died.
+pub fn last_run_tail(log: &str, max_lines: usize) -> String {
+    let run = log.rfind("=== daemon spawned").map_or(log, |at| &log[at..]);
+    let lines: Vec<&str> = run.lines().collect();
+    lines[lines.len().saturating_sub(max_lines)..].join("\n")
+}
+
+/// At most `max` restarts per sliding `window`, so a daemon that dies on every boot is
+/// not respawned forever; once spent, the supervisor gives up until the user restarts it.
 pub struct RestartBudget {
     window: Duration,
     max: usize,
     restarts: Vec<Instant>,
+}
+
+/// What one daemon death leads to.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Verdict {
+    Respawn,
+    /// The budget is spent: `deaths` exits inside the window, this one included.
+    GiveUp {
+        deaths: usize,
+    },
 }
 
 impl RestartBudget {
@@ -115,16 +174,24 @@ impl RestartBudget {
         }
     }
 
-    /// Returns whether a restart may happen at `now`, recording it if allowed.
-    pub fn allow(&mut self, now: Instant) -> bool {
+    /// Records a death at `now`: a respawn while the window holds fewer than `max`, else giving
+    /// up. Every respawn in the window followed a death, so the deaths are those plus this one.
+    pub fn on_death(&mut self, now: Instant) -> Verdict {
         let window = self.window;
         self.restarts
             .retain(|t| now.saturating_duration_since(*t) < window);
         if self.restarts.len() >= self.max {
-            return false;
+            return Verdict::GiveUp {
+                deaths: self.restarts.len() + 1,
+            };
         }
         self.restarts.push(now);
-        true
+        Verdict::Respawn
+    }
+
+    /// Forgets every recorded restart: one the user asked for starts a fresh budget.
+    pub fn reset(&mut self) {
+        self.restarts.clear();
     }
 }
 
@@ -161,6 +228,29 @@ mod tests {
             "the app ran out of descriptors; the daemon may be perfectly healthy \
              and killing it cannot hand one back"
         );
+    }
+
+    #[test]
+    fn a_held_daemon_is_never_indicted() {
+        assert!(
+            !probe_indicts_daemon(Probe::Held),
+            "a daemon preparing its home, or halted, is alive on purpose"
+        );
+    }
+
+    #[test]
+    fn only_an_unserved_probe_counts_toward_a_wedge() {
+        let mut t = FailureTracker::new(2);
+        assert!(!t.observe_probe(Probe::Unserved));
+        assert!(
+            !t.observe_probe(Probe::Held),
+            "a held probe clears the streak"
+        );
+        assert!(!t.observe_probe(Probe::Unserved));
+        assert!(!t.observe_probe(Probe::LocalDescriptorExhaustion));
+        assert!(!t.observe_probe(Probe::Unserved));
+        assert!(t.observe_probe(Probe::Unserved), "two in a row trip it");
+        assert!(!t.observe_probe(Probe::Healthy));
     }
 
     #[test]
@@ -230,42 +320,142 @@ mod tests {
     #[test]
     fn should_kill_only_a_running_and_still_unresponsive_daemon() {
         assert!(
-            should_kill_wedged(false, false),
-            "running yet unresponsive after the grace probe = genuine wedge, kill"
+            should_kill_wedged(false, false, false),
+            "running, idle and unresponsive after the grace probe = genuine wedge, kill"
         );
         assert!(
-            !should_kill_wedged(true, false),
+            !should_kill_wedged(true, false, false),
             "an OS-suspended daemon is frozen, not wedged — never kill it"
         );
         assert!(
-            !should_kill_wedged(false, true),
+            !should_kill_wedged(false, true, false),
             "answered the grace probe — it recovered, do not kill"
         );
         assert!(
-            !should_kill_wedged(true, true),
+            !should_kill_wedged(true, true, false),
             "suspended (and/or recovered) — do not kill"
         );
     }
 
     #[test]
-    fn restart_budget_allows_up_to_max_within_window() {
+    fn a_slow_daemon_that_keeps_working_is_never_killed() {
+        assert!(
+            !should_kill_wedged(false, false, true),
+            "it failed every probe under load but burned CPU throughout: busy, not wedged"
+        );
+    }
+
+    #[test]
+    fn progress_is_cpu_spent_across_the_unresponsive_stretch() {
+        let minute = Duration::from_secs(60);
+        let at = Duration::from_secs;
+        assert!(made_progress(Some(at(10)), Some(at(20)), minute));
+        assert!(
+            made_progress(
+                Some(at(10)),
+                Some(at(10) + Duration::from_millis(600)),
+                minute
+            ),
+            "1% of a core over a minute is work"
+        );
+        assert!(
+            !made_progress(
+                Some(at(10)),
+                Some(at(10) + Duration::from_millis(50)),
+                minute
+            ),
+            "a deadlocked Go runtime still ticks a little; that is not progress"
+        );
+        assert!(
+            !made_progress(None, Some(at(20)), minute),
+            "an unreadable sample is no evidence of work"
+        );
+        assert!(!made_progress(Some(at(10)), None, minute));
+    }
+
+    #[test]
+    fn proc_stat_cpu_reads_utime_plus_stime() {
+        let stat = "4242 (crowbar api) S 1 4242 4242 0 -1 4194560 100 0 0 0 250 50 0 0 20 0 9 0";
+        assert_eq!(
+            parse_proc_stat_cpu(stat, 100),
+            Some(Duration::from_secs(3)),
+            "300 ticks at 100 Hz, despite the space in the command name"
+        );
+        assert_eq!(parse_proc_stat_cpu("4242 (x) S 1", 100), None);
+        assert_eq!(parse_proc_stat_cpu(stat, 0), None);
+    }
+
+    #[test]
+    fn ps_cpu_time_reads_both_clock_formats() {
+        assert_eq!(
+            parse_ps_cpu_time("00:01:05\n"),
+            Some(Duration::from_secs(65))
+        );
+        assert_eq!(
+            parse_ps_cpu_time("2-01:00:00"),
+            Some(Duration::from_secs(2 * 86_400 + 3_600))
+        );
+        assert_eq!(
+            parse_ps_cpu_time(" 1:02.50"),
+            Some(Duration::from_millis(62_500)),
+            "macOS reports minutes and centiseconds"
+        );
+        assert_eq!(parse_ps_cpu_time(""), None);
+        assert_eq!(parse_ps_cpu_time("garbage"), None);
+    }
+
+    #[test]
+    fn the_crash_report_is_the_last_run_of_the_log() {
+        let log =
+            "=== daemon spawned (epoch 1)\n[err] old run\n=== daemon terminated (code=Some(2))\n\
+                   === daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n\
+                   === daemon terminated (code=Some(2))\n";
+        assert_eq!(
+            last_run_tail(log, 10),
+            "=== daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n\
+             === daemon terminated (code=Some(2))"
+        );
+        assert_eq!(
+            last_run_tail(log, 2),
+            "[err] goroutine 1\n=== daemon terminated (code=Some(2))"
+        );
+        assert_eq!(last_run_tail("no marker\nat all", 5), "no marker\nat all");
+    }
+
+    #[test]
+    fn a_manual_restart_gets_a_fresh_budget() {
+        let mut b = RestartBudget::new(2, Duration::from_secs(600));
+        let now = Instant::now();
+        assert_eq!(b.on_death(now), Verdict::Respawn);
+        assert_eq!(b.on_death(now), Verdict::Respawn);
+        assert_eq!(b.on_death(now), Verdict::GiveUp { deaths: 3 }); // the crash loop spent it
+        b.reset();
+        assert_eq!(b.on_death(now), Verdict::Respawn); // the user asked for this restart
+    }
+
+    #[test]
+    fn three_respawns_then_the_fourth_death_gives_up_and_counts_four() {
         let mut b = RestartBudget::new(3, Duration::from_secs(600));
         let now = Instant::now();
-        assert!(b.allow(now));
-        assert!(b.allow(now));
-        assert!(b.allow(now));
-        assert!(!b.allow(now), "fourth restart inside the window is denied");
+        for _ in 0..3 {
+            assert_eq!(b.on_death(now), Verdict::Respawn);
+        }
+        assert_eq!(b.on_death(now), Verdict::GiveUp { deaths: 4 });
     }
 
     #[test]
     fn restart_budget_frees_slots_as_the_window_slides() {
         let mut b = RestartBudget::new(2, Duration::from_secs(600));
         let start = Instant::now();
-        assert!(b.allow(start));
-        assert!(b.allow(start));
-        assert!(!b.allow(start + Duration::from_secs(1)));
-        assert!(
-            b.allow(start + Duration::from_secs(601)),
+        assert_eq!(b.on_death(start), Verdict::Respawn);
+        assert_eq!(b.on_death(start), Verdict::Respawn);
+        assert_eq!(
+            b.on_death(start + Duration::from_secs(1)),
+            Verdict::GiveUp { deaths: 3 }
+        );
+        assert_eq!(
+            b.on_death(start + Duration::from_secs(601)),
+            Verdict::Respawn,
             "restarts older than the window must not count"
         );
     }

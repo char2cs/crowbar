@@ -1,10 +1,5 @@
-/**
- * The user's own Excalidraw design for a chat, kept client-side only (no
- * backend attachment): a scene the user saved persists here so the next
- * time they open the editor for this chat — the "+" entry point, or Edit on
- * a rendered diagram — they resume it instead of starting blank. Mirrors
- * prompt-queue-persistence.ts's boundary: tiny, versioned, best-effort.
- */
+// The person's last saved Excalidraw scene per chat, client-side and best-effort, so reopening
+// the editor (the "+" entry or Edit on a diagram) resumes it instead of starting blank.
 
 const KEY_PREFIX = 'crowbar:agent-excalidraw-design:v1:'
 

@@ -26,6 +26,27 @@ func (s *InjectStep) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+// InjectSteps is a descriptor's step list. yaml finds UnmarshalYAML by
+// reflection, which deadcode cannot follow; a static call keeps it reachable.
+type InjectSteps []InjectStep
+
+func (s *InjectSteps) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.SequenceNode {
+		if err := node.Decode((*[]InjectStep)(s)); err != nil {
+			return fmt.Errorf("spec: inject steps decode: %w", err)
+		}
+		return nil
+	}
+	steps := make(InjectSteps, len(node.Content))
+	for i, item := range node.Content {
+		if err := steps[i].UnmarshalYAML(item); err != nil {
+			return fmt.Errorf("spec: inject step %d: %w", i, err)
+		}
+	}
+	*s = steps
+	return nil
+}
+
 func CloneSteps(steps []InjectStep) []InjectStep {
 	out := make([]InjectStep, len(steps))
 	for i, step := range steps {

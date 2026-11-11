@@ -1,13 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ComponentProps } from 'react'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
-import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-api'
+import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
-import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
-import { ApiError } from '@/lib/api'
+import { ApiError } from '@/lib/errors/api-error'
 import { proxyMarkerError } from '@/lib/api/errors'
-import { toast } from '@/features/window/stores/toast-store'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
@@ -16,20 +14,16 @@ const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
   setChatPermissionLevelFn: vi.fn(),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   answerChoice: (...args: unknown[]) => answerChoiceFn(...args),
   setChatPermissionLevel: (...args: unknown[]) => setChatPermissionLevelFn(...args),
-  PERMISSION_LEVEL_OPTIONS: [
-    { value: 'guarded', label: 'Guarded' },
-    { value: 'trusted', label: 'Trusted' },
-    { value: 'full-auto', label: 'Full Auto' },
-  ],
+}))
+vi.mock('@/features/agent/api/agent-providers-api', async (real) => ({
+  ...(await real<object>()),
+  getDefaultPermissionLevel: () => Promise.resolve('guarded'),
 }))
 
-// jsdom has no PointerEvent constructor; base-ui's Select opens/commits via
-// PointerEvent, same quirk documented in providers-settings.test.tsx's own
-// permission-level picker.
+// jsdom has no PointerEvent, which base-ui's Select opens and commits with.
 if (typeof window.PointerEvent !== 'function') {
   class PointerEventShim extends MouseEvent {}
   // @ts-expect-error install the shim onto the jsdom window
@@ -52,7 +46,7 @@ function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
     toolName: 'Bash',
     options: [
       { id: 'allow', kind: 'allow', label: 'Allow' },
-      { id: 'deny', kind: 'deny', label: 'Deny' },
+      { id: 'deny', kind: 'deny', label: 'Deny', reason: true },
     ],
     pending: true,
     answerable: true,
@@ -61,37 +55,31 @@ function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
   }
 }
 
-function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
-  return { ...NO_ACTIVITY, ...overrides }
-}
+type ChoiceProps = Partial<ComponentProps<typeof ComposerChoice>>
 
-/** The second line is DERIVED now: a permission's target is read off the tool
- *  call it gates, not handed in, so a test that wants one supplies the call. */
-function draw(overrides: Partial<AgentChoice> = {}, detail = '') {
-  const subject = choice(overrides)
-  const gating: AgentActivity = detail
-    ? activity({
-        toolCalls: [
-          {
-            id: 'gated',
-            turnId: subject.turnId,
-            seq: 1,
-            name: subject.toolName ?? 'Bash',
-            target: detail,
-            status: 'running',
-            hasRequest: false,
-            hasResult: false,
-            startedAt: '2026-08-18T12:00:00Z',
-          },
-        ],
-      })
-    : NO_ACTIVITY
+function show(overrides: Partial<AgentChoice> = {}, props: ChoiceProps = {}) {
   return render(
     <ComposerChoice
       wsId="w1"
       chatId="c1"
-      activity={gating}
+      pending={1}
+      choice={choice(overrides)}
+      providerLabel="Claude"
+      {...props}
+    />,
+  )
+}
+
+/** A permission's target comes from the fold: the ask's own, else its tool call's. */
+function draw(overrides: Partial<AgentChoice> = {}, detail = '') {
+  const subject = choice(overrides)
+  return render(
+    <ComposerChoice
+      wsId="w1"
+      chatId="c1"
+      pending={1}
       choice={subject}
+      toolTarget={detail}
       providerLabel="Claude"
       permissionLevels={['guarded', 'trusted', 'full-auto']}
     />,
@@ -103,7 +91,6 @@ describe('ComposerChoice that can be answered', () => {
     draw()
 
     expect(screen.getByTestId('agent-choice-prompt').dataset.answerable).toBe('true')
-    // A plain permission has nothing the terminal covers and this card doesn't.
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
@@ -112,15 +99,30 @@ describe('ComposerChoice that can be answered', () => {
     )
   })
 
-  // Sent is NOT resolved. The terminal can decide the same prompt in the same
-  // instant, so the card stays until the server says how it actually ended.
-  it('says the answer is sent and waits for the server to confirm it', async () => {
+  // Sent is not resolved: the card stays until the server says how the prompt ended.
+  it('sends a Deny with its reason and waits for the server to confirm it', async () => {
     draw()
-
+    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
+    fireEvent.change(reason, { target: { value: 'name it b.txt' } })
     fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
 
     await waitFor(() => expect(screen.getByTestId('agent-choice-sent')).toBeInTheDocument())
+    const sent = { optionIds: ['deny'], reason: 'name it b.txt' }
+    expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', sent)
     expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
+  })
+
+  // codex's approval reply has no field for a reason: a box there would drop what is typed.
+  it('offers no reason box when the Deny cannot carry one', () => {
+    draw({
+      options: [
+        { id: 'allow', kind: 'allow', label: 'Allow' },
+        { id: 'deny', kind: 'deny', label: 'Deny' },
+      ],
+    })
+
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Reason, sent with Deny' })).toBeNull()
   })
 
   it('sends EVERY ticked option of a multi-select question in one answer', async () => {
@@ -172,10 +174,7 @@ describe('ComposerChoice that can be answered', () => {
 })
 
 describe('ComposerChoice that cannot be answered from here', () => {
-  // pending && !answerable is a REAL question — the CLI is asking it at its own
-  // terminal — so it is drawn in full, with nothing on it that would reach nobody.
-  // Why it can't be answered here isn't said — the bar just offers the one thing
-  // that still works, and only when there's a handler to make that button real.
+  // Asked at the CLI's own terminal: drawn in full, with nothing pressable.
   it('draws the whole question read-only, with no action when there is nowhere to send it', () => {
     draw({ answerable: false })
 
@@ -190,24 +189,13 @@ describe('ComposerChoice that cannot be answered from here', () => {
 
   it('offers the terminal when the chat can open one', () => {
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice({ answerable: false })}
-        activity={NO_ACTIVITY}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show({ answerable: false }, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
     expect(onOpenTerminal).toHaveBeenCalled()
   })
 
-  // options/questions can both be empty for an unanswerable prompt (a form
-  // nobody can fill and nothing else asked) — there is nothing to list, and the
-  // read-only view draws nothing rather than an empty box.
+  // An unanswerable prompt with nothing to list draws nothing, not an empty box.
   it('renders nothing above the bar when there is nothing to list', () => {
     draw({ kind: 'elicitation', options: [], answerable: false })
 
@@ -216,23 +204,11 @@ describe('ComposerChoice that cannot be answered from here', () => {
 })
 
 describe('ComposerChoice failures', () => {
-  // The backend declares no answer template for claude's permission_suggestions,
-  // so a 400 means retrying the same controls would only repeat it. The controls
-  // come down and the one thing left is the place an answer can still land —
-  // not a paragraph explaining why this one couldn't.
+  // A 400 would only repeat, so the controls come down for the place an answer can land.
   it('takes the controls down on an unsupported shape, offering the terminal instead', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        activity={NO_ACTIVITY}
-        choice={choice()}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show({}, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
@@ -256,21 +232,11 @@ describe('ComposerChoice failures', () => {
     expect(screen.queryByTestId('agent-choice-error')).toBeNull()
   })
 
-  // 409 means the relay let go between the poll and the click. The controls come
-  // down at once rather than lying until the next read.
+  // 409: the relay let go between poll and click, so the controls come down at once.
   it('takes the controls down when the gate has already closed', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('no longer answerable', 409))
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        activity={NO_ACTIVITY}
-        choice={choice()}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show({}, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
@@ -282,9 +248,7 @@ describe('ComposerChoice failures', () => {
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
   })
 
-  // A failure that is neither a closed gate nor an unsupported shape is not one
-  // the bar has a structural answer for — it stays on screen, in the server's
-  // own words, and the controls stay up because retrying might just work.
+  // Any other failure stays on screen in the server's words; retrying might work.
   it('still surfaces a failure that isn’t a closed gate or an unsupported shape', async () => {
     answerChoiceFn.mockRejectedValue(new Error('network blip'))
     draw()
@@ -315,87 +279,42 @@ describe('ComposerChoice failures', () => {
 })
 
 describe('ComposerChoice suggestions', () => {
-  // DEFECT 5. These used to be a row of DISABLED BUTTONS, which still reads as a
-  // control — something greyed out now that will work in a moment — and there is no
-  // declared answer template for a suggestion, so pressing one could only ever
-  // produce a 400. A note cannot be pressed, which is how that failure stops being
-  // reachable from the UI at all.
-  it('writes suggestions down as a plain list, with nothing on them to press', () => {
+  // A broader grant is an answer of its own: it allows this call and applies the grant.
+  it('offers each suggestion as a button that grants it', async () => {
     draw({
       options: [
         { id: 'allow', kind: 'allow', label: 'Allow' },
         { id: 'deny', kind: 'deny', label: 'Deny' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Allow edits this session' },
       ],
     })
 
-    const suggestions = screen.getByTestId('agent-choice-suggestions')
-    expect(suggestions).toHaveTextContent('Add a permanent rule for this')
-    // Nothing inside the list is interactive — not enabled, not disabled, absent.
-    expect(suggestions.querySelectorAll('button, input, [role="button"]')).toHaveLength(0)
-    expect(screen.queryByRole('button', { name: 'Add a permanent rule for this' })).toBeNull()
-    // The two real answers are untouched by it.
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: /Allow edits this session/ }))
+
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', expect.any(String), {
+        optionIds: ['suggestion-0'],
+      }),
+    )
   })
 
-  // The reason Crowbar can't send a suggestion isn't written down any more — the
-  // Terminal button beside Allow/Deny is the answer to that, when there's a
-  // handler to make it real.
-  it('offers a terminal button in the bar alongside the real controls', () => {
-    const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        activity={NO_ACTIVITY}
-        choice={choice({
-          options: [
-            { id: 'allow', kind: 'allow', label: 'Allow' },
-            { id: 'deny', kind: 'deny', label: 'Deny' },
-            { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-          ],
-        })}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
+  it('needs no terminal for a permission it can answer whole', () => {
+    show(
+      {
+        options: [
+          { id: 'allow', kind: 'allow', label: 'Allow' },
+          { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
+        ],
+      },
+      { onOpenTerminal: vi.fn() },
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
-    expect(onOpenTerminal).toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
-  })
-
-  it('does not offer a terminal button without a handler to open one', () => {
-    draw({
-      options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-      ],
-    })
-
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
-  })
-
-  // The backend never sends a raw provider type name any more, but a stale poll
-  // could still be holding one — so nothing here reconstructs a control from a
-  // label whatever it says.
-  it('never turns a suggestion into a control, whatever it is labelled', () => {
-    draw({
-      options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
-        { id: 'suggestion-0', kind: 'suggestion', label: 'addRules' },
-      ],
-    })
-
-    expect(screen.queryByRole('button', { name: 'addRules' })).toBeNull()
-    expect(screen.queryByRole('checkbox', { name: 'addRules' })).toBeNull()
+    expect(screen.getByRole('button', { name: /Add a permanent rule for this/ })).toBeEnabled()
   })
 })
 
-// DEFECT 4. A user asked claude to "ask me 3 questions at the same time". Claude
-// issued ONE AskUserQuestion carrying three, Crowbar drew the first, and answering
-// it left claude saying "still waiting on: your answers to questions 2 & 3" — a
-// state this surface could never leave.
+// One ask can carry several questions; drawing only the first left answers unsendable.
 describe('ComposerChoice with several questions', () => {
   const threeQuestions = {
     kind: 'question',
@@ -438,8 +357,7 @@ describe('ComposerChoice with several questions', () => {
 
     expect(screen.getAllByTestId('agent-choice-question')).toHaveLength(3)
     expect(screen.getByText('The agent has 3 questions')).toBeInTheDocument()
-    // Question 1 takes one answer, question 2 takes several: the flag is per
-    // question, so one card legitimately holds both control shapes.
+    // Single- vs multi-answer is per question, so one card holds both control shapes.
     expect(screen.getByRole('radio', { name: 'Go' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'SQLite' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Cloud' })).toBeInTheDocument()
@@ -477,9 +395,7 @@ describe('ComposerChoice with several questions', () => {
     expect(answerChoiceFn).toHaveBeenCalledTimes(1)
   })
 
-  // A single-answer question replaces its pick rather than accumulating one: two
-  // answers to it are refused by the backend, so the control must not be able to
-  // produce them.
+  // The backend refuses two answers to a single-answer question, so a pick replaces.
   it('replaces the pick on a single-answer question', async () => {
     draw(threeQuestions)
 
@@ -496,10 +412,7 @@ describe('ComposerChoice with several questions', () => {
     )
   })
 
-  // The pane this card lives in is RETAINED across chat selection, so a re-render
-  // can hand it a different prompt without unmounting it. Picks carried into that
-  // prompt would be submitted against option ids it never offered — the partial
-  // answer this whole card exists to prevent, arrived at from the other side.
+  // A retained pane can get another prompt; old picks would name options it never offered.
   it('starts empty when a different prompt is rendered into the same card', () => {
     const { rerender } = draw(threeQuestions)
     fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
@@ -510,7 +423,7 @@ describe('ComposerChoice with several questions', () => {
         wsId="w1"
         chatId="c1"
         choice={choice({ ...threeQuestions, id: 'k2' })}
-        activity={NO_ACTIVITY}
+        pending={1}
         providerLabel="Claude"
       />,
     )
@@ -519,8 +432,7 @@ describe('ComposerChoice with several questions', () => {
     expect(screen.getByRole('button', { name: 'Send answers' })).toBeDisabled()
   })
 
-  // pending && !answerable: the CLI is asking at its own terminal. Every option of
-  // every question is still worth reading, and none of it is pressable.
+  // Asked at the CLI's own terminal: every option is readable and none is pressable.
   it('reads out every question’s options when it cannot be answered here', () => {
     draw({ ...threeQuestions, answerable: false })
 
@@ -533,9 +445,7 @@ describe('ComposerChoice with several questions', () => {
   })
 })
 
-// The graceful fallback, and NOT a migration: a prompt recorded before questions
-// were modelled has no `questions` at all, and it is still a single question
-// described by the prompt's own text and options.
+// A prompt recorded before questions were modelled is one question: its text and options.
 describe('ComposerChoice for a prompt recorded before questions existed', () => {
   it('draws the prompt-level question as a question of one', async () => {
     draw({
@@ -568,9 +478,7 @@ describe('ComposerChoice elicitation', () => {
     schema: '{"type":"object","properties":{"target":{"type":"string"}}}',
   } satisfies Partial<AgentChoice>
 
-  // An accept means handing back a filled-in form built from the provider's own
-  // schema. Crowbar cannot compose that, so it does not offer a button that would
-  // send an empty one — it ships the two verbs it CAN mean and says so.
+  // Accept needs a form Crowbar cannot fill, so only the verbs it can mean are offered.
   it('offers decline and cancel only, with no accept button for a form Crowbar cannot fill', () => {
     draw(elicitation)
 
@@ -582,28 +490,16 @@ describe('ComposerChoice elicitation', () => {
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
   })
 
-  // Why a form needs the terminal isn't written down any more — the Terminal
-  // button sits right beside Decline/Cancel in the same row.
   it('offers a terminal button alongside decline and cancel when the chat can open one', () => {
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        activity={NO_ACTIVITY}
-        choice={choice(elicitation)}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show(elicitation, { onOpenTerminal })
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
     expect(onOpenTerminal).toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Decline' })).toBeEnabled()
   })
 
-  // A prompt with no options is answered with the PROVIDER's own verb: the id is
-  // the decision key, because there is no option kind to read.
+  // With no options the provider's own verb answers: its id is the decision key.
   it('sends the provider’s verb as the option id', async () => {
     draw(elicitation)
 
@@ -621,215 +517,159 @@ describe('ComposerChoice elicitation', () => {
   })
 })
 
-// The per-chat permission-level dial (Task 8): a quick way to raise or lower
-// how much of THIS chat's tool-call approval is answered automatically, sitting
-// beside whatever answer controls are already showing.
+// The per-chat permission-level dial sits beside whatever answer controls show.
 describe('ComposerChoice permission-level switcher', () => {
-  async function pickLevel(user: ReturnType<typeof userEvent.setup>, value: string) {
-    await user.click(screen.getByTestId('chat-permission-level-trigger'))
-    const option = await screen.findByTestId(`chat-permission-level-option-${value}`)
-    await waitFor(() => expect(getComputedStyle(option).pointerEvents).not.toBe('none'))
-    await user.click(option)
-  }
-
   it('sits beside the answer controls on a real, answerable prompt', () => {
     draw()
 
     expect(screen.getByTestId('chat-permission-level-trigger')).toBeInTheDocument()
   })
 
-  // terminalOnly: nothing here can answer it, so a dial for THIS chat's future
-  // approvals has no controls to sit beside and does not appear either. A real
-  // `onOpenTerminal` is required to even reach the terminalOnly branch — with
-  // none given, `.acts` renders nothing at all (see the pre-existing "offers
-  // the terminal when the chat can open one" test above), which would make
-  // this assertion pass for the wrong reason.
+  // terminalOnly needs a real `onOpenTerminal`, or this passes for the wrong reason.
   it('does not appear when the prompt cannot be answered from here', () => {
     const onOpenTerminal = vi.fn()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice({ answerable: false })}
-        activity={NO_ACTIVITY}
-        providerLabel="Claude"
-        onOpenTerminal={onOpenTerminal}
-      />,
-    )
+    show({ answerable: false }, { onOpenTerminal })
 
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
     expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
   })
 
-  // Absent capability, absent UI — the same rule AgentModelPicker follows for
-  // a provider declaring no model/effort catalogue. A level the CURRENT
-  // provider does not declare is not offered at all, so offering none of the
-  // three unconditionally would put up a control the write would 400 on.
+  // Absent capability, absent UI: a level the provider does not declare would 400.
   it('does not appear for a provider whose descriptor declares no levels', () => {
     render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice()}
-        activity={NO_ACTIVITY}
-        providerLabel="Claude"
-      />,
+      <ComposerChoice wsId="w1" chatId="c1" choice={choice()} pending={1} providerLabel="Claude" />,
     )
 
     expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
   })
-
-  it('offers only the levels this provider actually declares', async () => {
-    const user = userEvent.setup()
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice()}
-        activity={NO_ACTIVITY}
-        providerLabel="Codex"
-        permissionLevels={['trusted', 'full-auto']}
-      />,
-    )
-
-    await user.click(screen.getByTestId('chat-permission-level-trigger'))
-    expect(await screen.findByTestId('chat-permission-level-option-trusted')).toBeInTheDocument()
-    expect(screen.getByTestId('chat-permission-level-option-full-auto')).toBeInTheDocument()
-    expect(screen.queryByTestId('chat-permission-level-option-guarded')).toBeNull()
-  })
-
-  // There is no per-chat GET, only the per-chat PUT — so the dial never claims
-  // to know what level the chat is already running under (the same rule
-  // AgentModelPicker's own "Provider default" row follows). It starts unset.
-  it('starts on no level, never guessing at one the backend cannot report', () => {
-    draw()
-
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
-      'Permission level',
-    )
-  })
-
-  it('picking a level PUTs it for this chat', async () => {
-    const user = userEvent.setup()
-    draw()
-
-    await pickLevel(user, 'trusted')
-
-    expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'c1', 'trusted')
-  })
-
-  it('names the remote host a pick could not reach, instead of blaming the daemon', async () => {
-    pairRemoteHost('h1', 'Studio Mac')
-    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
-    setChatPermissionLevelFn.mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
-    const user = userEvent.setup()
-    draw()
-
-    await pickLevel(user, 'trusted')
-
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledExactlyOnceWith(
-        'Couldn’t reach Studio Mac',
-        'Check that it is online in Settings → Hosts.',
-      ),
-    )
-    toastError.mockRestore()
-    destroyHostRuntime('h1')
-    resetHostWorld()
-  })
-
-  // `ComposerChoice` is unkeyed in the composer's own switch, and
-  // `resolveComposerState` cycles it out of and back into 'choice' between
-  // distinct prompts within the same chat — remounting this control (and
-  // resetting a plain useState) moments after a real pick. It has to survive
-  // that remount without pretending to read backend truth: it remembers only
-  // what IT last confirmed, per chat.
-  it('remembers its own last confirmed pick across a remount of the same chat, keyed per chat', async () => {
-    const user = userEvent.setup()
-    const first = render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="persist-1"
-        choice={choice()}
-        activity={NO_ACTIVITY}
-        providerLabel="Claude"
-        permissionLevels={['guarded', 'trusted', 'full-auto']}
-      />,
-    )
-
-    await pickLevel(user, 'full-auto')
-    await waitFor(() =>
-      expect(setChatPermissionLevelFn).toHaveBeenCalledWith('w1', 'persist-1', 'full-auto'),
-    )
-    first.unmount()
-
-    // A fresh mount for the SAME chat — exactly the remount the unkeyed
-    // switch produces mid-chat — shows the last CONFIRMED pick, not the
-    // placeholder.
-    const second = render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="persist-1"
-        choice={choice()}
-        activity={NO_ACTIVITY}
-        providerLabel="Claude"
-        permissionLevels={['guarded', 'trusted', 'full-auto']}
-      />,
-    )
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent('full-auto')
-    second.unmount()
-
-    // A DIFFERENT chat's entry is keyed separately and still starts unset —
-    // the cache is per chat, not a single global last-pick.
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="persist-2"
-        choice={choice({ id: 'k2' })}
-        activity={NO_ACTIVITY}
-        providerLabel="Claude"
-        permissionLevels={['guarded', 'trusted', 'full-auto']}
-      />,
-    )
-    expect(screen.getByTestId('chat-permission-level-trigger')).toHaveTextContent(
-      'Permission level',
-    )
-  })
 })
 
-// resolveComposerState always shows the OLDEST pending choice; a second one
-// (a parallel subagent's own ask, most measured) used to vanish with no sign
-// it existed at all.
-describe('ComposerChoice with more than one choice pending', () => {
-  it('says a second one is waiting, without drawing a second card', () => {
-    const shown = choice({ id: 'k1', seq: 1 })
-    const other = choice({ id: 'k2', seq: 2, toolName: 'Write' })
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        activity={activity({ choices: [shown, other] })}
-        choice={shown}
-        providerLabel="Claude"
-      />,
-    )
-
-    expect(screen.getByTestId('agent-choice-queue-depth')).toHaveTextContent('+1 more waiting')
-    // Still exactly one prompt card — the composer stays one occupant.
-    expect(screen.getAllByTestId('agent-choice-prompt')).toHaveLength(1)
+// The oldest pending choice is shown; a second (a parallel subagent's) is signalled.
+describe('ComposerChoice in a stack of pending asks', () => {
+  it('counts pending asks as i of n', () => {
+    show({}, { pending: 3, position: 2 })
+    expect(screen.getByTestId('agent-choice-position')).toHaveTextContent('2/3')
   })
 
   it('says nothing when it is the only one', () => {
-    render(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        activity={activity({ choices: [choice()] })}
-        choice={choice()}
-        providerLabel="Claude"
-      />,
-    )
+    show()
+    expect(screen.queryByTestId('agent-choice-position')).toBeNull()
+  })
+})
 
-    expect(screen.queryByTestId('agent-choice-queue-depth')).not.toBeInTheDocument()
+describe('ComposerChoice with a long request', () => {
+  it('says how many lines are not shown, beside the answer, until shown', () => {
+    const command = Array.from({ length: 20 }, (_, i) => `step ${i}`).join('\n')
+    show({}, { request: { toolName: 'Bash', toolInput: { command } } })
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body).toHaveTextContent('step 11')
+    expect(body).not.toHaveTextContent('step 12')
+    expect(screen.getByTestId('agent-choice-hidden-lines')).toHaveTextContent(
+      '8 more lines not shown',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 20 lines' }))
+    expect(body).toHaveTextContent('step 19')
+    expect(screen.queryByTestId('agent-choice-hidden-lines')).toBeNull()
+    // The unfolded request scrolls by keyboard: its keys are not answers.
+    fireEvent.keyDown(body.querySelector('pre')!, { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+})
+
+describe('ComposerChoice keys', () => {
+  it('picks an option with its number key', async () => {
+    show()
+    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: '2' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['deny'] }),
+    )
+  })
+
+  it('allows once on Enter only while the card has focus', async () => {
+    show()
+    fireEvent.keyDown(screen.getByRole('button', { name: /Deny/ }), { key: 'Enter' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: 'Enter' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['allow'] }),
+    )
+  })
+
+  it('answers nothing for a key pressed on a control inside the card', () => {
+    draw()
+    fireEvent.keyDown(screen.getByTestId('chat-permission-level-trigger'), { key: '1' })
+    fireEvent.keyDown(screen.getByRole('button', { name: /Deny/ }), { key: '2' })
+    const hint = screen.getByRole('button', { name: /Allow/ }).querySelector('kbd')!
+    fireEvent.keyDown(hint, { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+
+  it('answers nothing for a held key or an Enter that ends an IME composition', () => {
+    show()
+    const card = screen.getByTestId('agent-choice-prompt')
+    fireEvent.keyDown(card, { key: '1', repeat: true })
+    fireEvent.keyDown(card, { key: 'Enter', isComposing: true })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+
+  // With focus on the page a digit is for the card; an Enter may end a message.
+  it('takes a digit pressed while nothing has focus, never an Enter', async () => {
+    show()
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    fireEvent.keyDown(document.body, { key: '2' })
+    await waitFor(() =>
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['deny'] }),
+    )
+  })
+
+  it('answers nothing for a digit typed into a field elsewhere', () => {
+    show()
+    const field = document.createElement('input')
+    document.body.append(field)
+    field.focus()
+    fireEvent.keyDown(field, { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    field.remove()
+  })
+
+  it('shows which digit answers with which option', () => {
+    show()
+    expect(screen.getByRole('button', { name: /Allow/ })).toHaveTextContent('1')
+    expect(screen.getByRole('button', { name: /Deny/ })).toHaveTextContent('2')
+  })
+
+  // It replaces the composer just sent from; on the page, number keys answer nothing.
+  it('takes focus when it appears and nothing else holds it', () => {
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    show()
+    expect(screen.getByTestId('agent-choice-prompt')).toHaveFocus()
+  })
+
+  it('lets a digit typed into its reason field be text, not an answer', () => {
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    show()
+    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
+    reason.focus()
+    fireEvent.keyDown(reason, { key: '1' })
+    fireEvent.change(reason, { target: { value: '1' } })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+    expect(reason).toHaveValue('1')
+  })
+
+  it('leaves focus where it is when something else holds it', () => {
+    const elsewhere = document.createElement('input')
+    document.body.append(elsewhere)
+    onTestFinished(() => elsewhere.remove())
+    elsewhere.focus()
+    show()
+    expect(elsewhere).toHaveFocus()
+  })
+
+  it('answers nothing by key while it cannot be answered here', () => {
+    show({ answerable: false })
+    fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 })

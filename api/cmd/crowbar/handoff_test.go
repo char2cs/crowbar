@@ -20,15 +20,15 @@ func newHandoffTestSocket(t *testing.T, handler http.HandlerFunc) string {
 	t.Helper()
 	tmpDir, err := os.MkdirTemp("/tmp", "handoff")
 	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
 	sock := filepath.Join(tmpDir, "h.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 
 	srv := &http.Server{Handler: handler}
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
 	return sock
 }
 

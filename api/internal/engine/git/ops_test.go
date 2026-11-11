@@ -591,7 +591,7 @@ func TestOperationAbort_RebaseInProgress(
 
 // TestOperationAbort_SquashConflictInProgress is the H6 regression guard. A
 // conflicting `git merge --squash` writes AUTO_MERGE but NEITHER MERGE_HEAD nor
-// SQUASH_HEAD, so detectInProgressOp must recognize AUTO_MERGE as a squash op —
+// SQUASH_HEAD, so detectInProgressOp must recognize its SQUASH_MSG as a squash op —
 // otherwise abort returns "no in-progress operation" and the conflicted index
 // permanently bricks the worktree. This proves abort (via `git reset --merge`)
 // cleanly recovers it.

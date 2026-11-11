@@ -6,68 +6,67 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/google/uuid"
 
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (rs *Runners) SpawnChat(
-	ctx context.Context,
-	workspaceID string,
-	providerID string,
-) (chatID, runnerID string, err error) {
-	chatID = uuid.NewString()
-	_, release, err := rs.spawns.Acquire(ctx, chatID)
-	if err != nil {
-		return "", "", err
-	}
-	defer release()
-
-	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, "", nil, nil, "", 0, false, "", true, "")
-	if err != nil {
-		return "", "", rs.discardSpawnedChat(ctx, chatID, err)
-	}
-	return chatID, runnerID, nil
+func (rs *Runners) StartRunner(ctx context.Context, chatID, providerID string) (string, error) {
+	return rs.underChat(ctx, chatID, "start runner", func(chat domain.Chat) (string, error) {
+		return rs.startLocked(ctx, chat, providerID)
+	})
 }
 
-func (rs *Runners) StartRunner(
-	ctx context.Context,
-	chatID string,
-	providerID string,
+// OpenChat is a just-created chat's launch. Only a chat landing on its terminal
+// gets its CLI now, that view being nothing without one; any other stays dormant
+// ("") until its first prompt, whose launch carries it: one CLI, not two.
+func (rs *Runners) OpenChat(ctx context.Context, chatID, providerID string) (string, error) {
+	return rs.underChat(ctx, chatID, "open chat", func(chat domain.Chat) (string, error) {
+		return rs.openLocked(ctx, chat, providerID)
+	})
+}
+
+// underChat runs launch on chatID's current row with its lock held.
+func (rs *Runners) underChat(
+	ctx context.Context, chatID, op string, launch func(domain.Chat) (string, error),
 ) (string, error) {
-	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	h, err := rs.acquire(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: %s: %w", op, err)
+	}
+	defer h.release()
+	chat, err := rs.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: %s: chat: %w", op, err)
+	}
+	return launch(chat)
+}
+
+// openLocked refuses what a launch would refuse, so no chat is made that no
+// prompt could start, then launches only a chat that lands on its terminal.
+func (rs *Runners) openLocked(ctx context.Context, chat domain.Chat, providerID string) (string, error) {
+	if err := rs.providers.RequireProviderEnabled(ctx, providerID); err != nil {
+		return "", err
+	}
+	descriptor, _, err := rs.promptAgent(ctx, chat, providerID)
 	if err != nil {
 		return "", err
 	}
-	defer release()
-
-	chat, err := rs.chats.GetChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: start runner: chat: %w", err)
+	if surfaceForSpawn(descriptor, chat.Surface) != engineagents.SurfaceTerminal {
+		return "", nil
 	}
-	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
-	return rs.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, "", nil, nil, "", 0, false, "", false, "")
+	return rs.startLocked(ctx, chat, providerID)
 }
 
-func (rs *Runners) discardSpawnedChat(
-	ctx context.Context,
-	chatID string,
-	cause error,
-) error {
-	if err := rs.conversations.PurgeLocked(ctx, chatID); err != nil && !errors.Is(err, agentchat.ErrNotFound) {
-		slog.WarnContext(ctx, "agent: discard chat of a refused spawn (best-effort, reporting the spawn failure)",
-			"chat_id", chatID, "err", err)
-	}
-	return cause
+func (rs *Runners) startLocked(ctx context.Context, chat domain.Chat, providerID string) (string, error) {
+	defer rs.enterPhase(ctx, chat.ID, snapshot.PhaseStarting)()
+	return rs.spawnRunner(ctx, chat.ID, chat.WorkspaceID, providerID, spawnInput{})
 }
 
 //nolint:funlen // orchestrates preflight, path resolution, attachment materialization, descriptor render, spawn-plan build and fork in one strict sequence; splitting would scatter the abort-on-failure cleanup this function is responsible for at each step
@@ -76,26 +75,18 @@ func (rs *Runners) spawnRunner(
 	chatID string,
 	workspaceID string,
 	providerID string,
-	preallocatedRunnerID string,
-	// The native resume argv the PTY carries if this spawn forks one.
-	resumeSteps []engineagents.InjectStep,
-	finalSteps []engineagents.InjectStep,
-	conversation string,
-	gapTurns int,
-	resuming bool,
-	launchSessionID string,
-	create bool,
-	promptMessage string,
+	in spawnInput,
 ) (_ string, err error) {
-	if !create {
-		defer rs.noteSpawnFailure(ctx, chatID, &err)
-	}
-	pre, err := rs.spawnPreflight(ctx, chatID, providerID, create)
+	// A spawn is the chat's, not the request's: a reload must not strand a half-
+	// started CLI. Each provider call stays bounded by the connection's own timeout.
+	ctx = context.WithoutCancel(ctx)
+	runnerID := newRunnerID(in.runnerID)
+	defer rs.recordSpawnFailure(ctx, chatID, runnerID, &err)
+	pre, err := rs.spawnPreflight(ctx, chatID, providerID, in.selection)
 	if err != nil {
 		return "", err
 	}
 	threads, sel := pre.threads, pre.selection
-	runnerID := newRunnerID(preallocatedRunnerID)
 
 	paths, err := rs.spawnPaths(ctx, chatID, workspaceID, runnerID, providerID)
 	if err != nil {
@@ -106,38 +97,34 @@ func (rs *Runners) spawnRunner(
 
 	descriptor, err := rs.agents.Get(ctx, crowbarHome, providerID)
 	if err != nil {
+		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
-	assignedSessionID, assignSteps := assignSession(descriptor, launchSessionID)
-	resumeSteps = append(resumeSteps[:len(resumeSteps):len(resumeSteps)], assignSteps...)
+	launch, sessionSteps, err := rs.spawnLaunch(ctx, chatID, descriptor, in.launch)
+	if err != nil {
+		rs.abandonUnforked(ctx, runnerID, paths)
+		return "", err
+	}
 
-	// Copies of promptMessage and conversation for dispatch — the durable ledger
-	// text is never mutated. conversation (AssembleConversation's rendering of
-	// the prior exchange, handed to a freshly spawned CLI on a restart or a
-	// provider switch) carries whatever attachment references the ORIGINAL
-	// turns held, exactly like promptMessage does for the live one — without
-	// this, only the CURRENT prompt's attachments resolved to real paths, and
-	// every earlier attachment a resumed/switched-to CLI was handed the
-	// literal logical reference for a file it therefore could not read.
-	//
-	// The sigil guard runs BEFORE materialization, while the attachment is still
-	// the logical `chats/<id>/attachments/<file>` reference its pattern is
-	// written against; the escape it may prepend does not disturb the rewrite.
+	// Dispatch copies of the prompt and the prior conversation, both with attachment
+	// refs materialized (the ledger text is never mutated). The sigil guard runs first,
+	// while refs are still the logical form its pattern is written against.
 	sigils, escape := descriptor.PromptLeadingSigils()
-	guardedMessage := promptsigil.Guard(sigils, escape, chatID, promptMessage)
-	dispatchMessage := materializeAttachmentsForDispatch(paths.chatsDir, chatID, guardedMessage)
-	dispatchConversation := materializeAttachmentsForDispatch(paths.chatsDir, chatID, conversation)
+	guardedMessage := promptsigil.Guard(sigils, escape, chatID, in.promptMessage)
+	dispatchMessage := in.moveNote + materializeAttachmentsForDispatch(paths.crowbarHome, chatID, guardedMessage)
+	dispatchConversation := materializeAttachmentsForDispatch(paths.crowbarHome, chatID, in.conversation)
 
-	// The tool surface is switched off by rendering a descriptor that does not
-	// declare one, rather than by filtering steps at the injection site: WHERE those
-	// steps land is the descriptor's business (claude's --mcp-config is variadic and
-	// needs the --settings pair immediately behind it), and this function has no
-	// business knowing that.
+	// Tools are switched off by rendering a descriptor without them, not by filtering
+	// steps here: where those steps land (flag pairing) is the descriptor's business.
 	descriptor = descriptor.WithTools(pre.mcpOn)
 
 	// Never the chat's own raw stored intent directly — see
 	// resolveSelectionForSpawn (selection.go) for why.
 	sel = resolveSelectionForSpawn(descriptor, sel)
+	staged := pre.staged
+	if staged != nil {
+		staged = &domain.ChatSelection{Model: sel.Model, Effort: sel.Effort}
+	}
 
 	tctx, inject := rs.renderSpawnContext(spawnContext{
 		chatID:          chatID,
@@ -149,47 +136,35 @@ func (rs *Runners) spawnRunner(
 		tmpDir:          tmpDir,
 		worktree:        worktree,
 		crowbarHome:     crowbarHome,
-		launchSessionID: launchSessionID,
+		launchSessionID: launch.resumeID,
 		threads:         threads,
 		conversation:    dispatchConversation,
 		promptMessage:   dispatchMessage,
-		gapTurns:        gapTurns,
-		resuming:        resuming,
+		gapTurns:        in.gapTurns,
+		resuming:        in.resuming,
 		selection:       sel,
-		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel),
+		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel, pre.left),
 	})
 
-	// Register the injected document BEFORE the CLI can run: a provider whose only
-	// resume channel is a user message (codex) fires its user-prompt hook with this
-	// exact text the moment it starts, and that echo must never be recorded as a
-	// ledger turn — that is what made handoffs nest inside themselves.
-	//
-	// Only when something was ACTUALLY injected. contextInject is the sole channel for
-	// both the document and the pointer, so an un-injected spawn has nothing that can
-	// echo — and since the capability preamble makes tctx.Context non-empty on every
-	// spawn, registering unconditionally would leave a guard behind for text no CLI
-	// was ever given.
-	//
-	// Unconditional otherwise — including when promptMessage is also set: a real
-	// prompt can ride the SAME positional as the injected document
-	// (mergeLeadingPositional), and the hook side (ConsumeInjectedPrefix,
-	// turn.go) is what tells "bare echo" and "echo with a real prompt merged
-	// ahead of it" apart, returning the remainder in the second case rather
-	// than swallowing the whole turn. Registering only for the bare case (a
-	// prior version of this gate) left the merged case with nothing
-	// registered at all — the injected preamble was then recorded verbatim as
-	// what the user typed, corrupting the ledger, the derived title, and
-	// every hash-based "was this accepted" check downstream.
+	// Register an ACTUALLY injected document before the CLI runs, so its echo through
+	// the user-prompt hook is never recorded as a turn — also when a real prompt is merged
+	// into the same positional: ConsumeInjectedPrefix strips the echo, keeps the rest.
 	if inject {
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
+	if in.moveNote != "" {
+		rs.agents.RecordInjection(runnerID, strings.TrimSpace(in.moveNote))
+		rs.noteLevelNarrowed(ctx, chatID, descriptor, sel.PermissionLevel, tctx.PermissionVars)
+	}
 
-	// The startup barrier opens before anything can report: an api connection
-	// announces its session the moment it is established, long before the
-	// runner row exists, and that announcement is what makes it resumable.
-	if err := rs.pendingHooks.Register(runnerID); err != nil {
-		rs.agents.ForgetRunner(runnerID)
-		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
+	// The chat's one entry, claimed before any process exists: a second
+	// spawn is refused here, never after it has forked. Whatever the process
+	// reports before runner_started commits waits on the chat's lock, held here.
+	if err := rs.live.add(engineagents.Runner{
+		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, CurrentChatID: chatID,
+	}); err != nil {
+		rs.abandonUnforked(ctx, runnerID, paths)
+		return "", err
 	}
 	// The surface this process lands on, recorded before anything can ask
 	// (ShowingNativeView reads it).
@@ -197,35 +172,33 @@ func (rs *Runners) spawnRunner(
 	// The api connection comes up (or not) BEFORE the PTY plan is rendered:
 	// when it does, the runner is that connection and the plan never runs;
 	// when it does not, the session runs over the PTY's hooks alone.
-	attachArgv := rs.apiTransportForSurface(
-		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(resuming, inject, tctx), pre.surface,
+	attachArgv, refused := rs.apiTransportForSurface(
+		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(in.resuming, inject, tctx), pre.surface,
 	)
+	if refused != nil {
+		// The plan resumes the session the provider just refused.
+		rs.abandonUnforked(ctx, runnerID, paths)
+		return "", fmt.Errorf("%w: %w", ErrSpawnSessionRefused, refused)
+	}
 	steps := buildSpawnSteps(
-		descriptor, resuming, inject, sel, resumeSteps, finalSteps,
+		descriptor, in.resuming, inject, sel, sessionSteps, in.finalSteps,
 	)
 
 	plan, err := descriptor.SpawnPlan(tctx, os.Environ(), steps)
 	if err != nil {
-		// The injected-context entry above was registered before the CLI could exist, and
-		// only reconcileRunnerExit (via the onExit callback) ever forgets it — a callback
-		// that never fires when the CLI never goes live. Forget it here, or every failed
-		// spawn leaks one handoff-sized string until the daemon restarts.
-		//
-		// Same for the connection just established: onRunnerExit's own drop fires
-		// from a PTY dying, and this spawn never gets one.
-		rs.apiConns.drop(runnerID)
-		rs.pendingHooks.Discard(runnerID)
-		rs.agents.ForgetRunner(runnerID)
+		rs.abandonUnforked(ctx, runnerID, paths)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
+	plan.Env = withPWD(plan.Env, tctx.Cwd)
 	pointPlanAtAttach(plan, attachArgv)
+	if err := rs.bindLaunch(ctx, chatID, launch, in.conversation != ""); err != nil {
+		rs.abandonUnforked(ctx, runnerID, paths)
+		return "", err
+	}
 
-	// binpath.Resolve, never the bare descriptor cmd: the PTY exec's argv[0] through
-	// exec.Command, which resolves a bare name against the DAEMON's PATH — plan.Env is
-	// ignored for the lookup. A launchd-started .app daemon has a minimal PATH that
-	// misses ~/.local/bin, where claude and codex install, so a bare name made every
-	// spawn die with "executable file not found in $PATH". An unresolvable cmd passes
-	// through unchanged, preserving that error for a CLI that genuinely is not installed.
+	// binpath.Resolve, never the bare cmd: exec resolves argv[0] against the DAEMON's
+	// PATH, which under launchd misses ~/.local/bin. An unresolvable cmd passes through,
+	// keeping the not-found error for a CLI that is genuinely missing.
 	termSessID, carried, err := rs.forkOrAdopt(ctx, forkRequest{
 		runnerID:    runnerID,
 		providerID:  providerID,
@@ -235,111 +208,59 @@ func (rs *Runners) spawnRunner(
 		tmpDir:      tmpDir,
 		argv:        append([]string{plan.Executable}, plan.Argv...),
 		env:         plan.Env,
-		// The SAME text the descriptor's prompt_submit steps just rendered into
-		// plan.Argv — never the raw ledger text: attachments are materialized
-		// and the leading-sigil escape applied above, and the carrier that ends
-		// up delivering it must send exactly what the argv would have.
+		// The SAME text prompt_submit rendered into plan.Argv, never the raw ledger
+		// text, so whichever carrier delivers sends exactly what the argv would have.
 		promptMessage: dispatchMessage,
 		// What each carrier would take, computed before either runs;
 		// forkOrAdopt returns whichever one actually did.
 		argvSelection: carriedSelection(sel, descriptor.SelectionSteps),
 		apiSelection:  carriedSelection(sel, descriptor.SelectionAPISteps),
+		resume:        resumeWatch{chatID: chatID, providerID: providerID, sessionID: launch.resumeID, agent: descriptor},
 	}, attachArgv)
 	if err != nil {
 		return "", err
 	}
 
-	if err := rs.recordRunner(
-		ctx, chatID, workspaceID, providerID, runnerID, termSessID, launchSessionID, carried, create,
-	); err != nil {
-		rs.pendingHooks.Discard(runnerID)
-		rs.agents.ForgetRunner(runnerID)
+	if err := rs.recordRunner(ctx, engineagents.Runner{
+		ID: runnerID, WorkspaceID: workspaceID, ProviderID: providerID, TerminalSession: termSessID,
+		CurrentChatID: chatID, LaunchModel: carried.Model, LaunchEffort: carried.Effort,
+		LaunchPermissionLevel: carried.PermissionLevel,
+	}, launch.resumeID, staged); err != nil {
+		if !errors.Is(err, ErrProviderExitedDuringStartup) {
+			rs.agents.ForgetRunner(runnerID)
+		}
 		return "", err
 	}
-	rs.bindAssignedSession(ctx, runnerID, assignedSessionID)
-	rs.noteLaunch(ctx, chatID, rs.spawnRung(runnerID, launchSessionID != "", conversation))
-	if termSessID != "" {
-		rs.watchResume(runnerID, chatID, launchSessionID, promptMessage)
-	}
-	// Keep the barrier installed throughout replay. A hook arriving while an
-	// earlier buffered hook is being applied joins the next batch, so it cannot
-	// overtake session_start or user_prompt on the normal persisted-runner path.
-	//
-	// exitedDuringStartup means exactly one thing, and it is narrower than its name:
-	// the PTY died BEFORE the runner row committed, so the exit callback had no row
-	// to reconcile against and left the fact here instead. It is a RACE the CLI has
-	// to lose to be caught — one that dies 50ms later wins it, gets a 201, and
-	// reconciles through onRunnerExit into an ordinary DORMANT chat.
-	//
-	// So 424 is not a guarantee that a chat handed back has a living CLI behind it,
-	// and nothing may be built on reading it that way. Both outcomes are honest and
-	// both are visible — a refusal that names the dependency, or a chat the panel
-	// already draws as dormant with no runner on it — and the only way to collapse
-	// them into one deterministic answer would be to wait or probe after EVERY
-	// spawn, paying latency on the common path to close a corner. That is the trade,
-	// deliberately made in this direction; it is not an oversight to be tightened.
-	exitedDuringStartup := rs.pendingHooks.Finish(runnerID, func(hook inflight.Hook) {
-		rs.turns.ReplayStartupHook(runnerID, hook)
-	})
-	if exitedDuringStartup {
-		// onExit could not reconcile before the row existed. Now it does, after
-		// every hook the provider emitted before dying has had its ordered chance
-		// to update the ledger and prompt journal.
-		rs.reconcileRunnerExit(context.Background(), runnerID)
-		return "", ErrProviderExitedDuringStartup
-	}
 	return runnerID, nil
+}
+
+// abandonUnforked forgets what a spawn set up before it forked anything: no
+// exit callback exists yet to reap the runner's directory or surface entry.
+func (rs *Runners) abandonUnforked(ctx context.Context, runnerID string, paths spawnPaths) {
+	rs.apiConns.drop(runnerID)
+	rs.agents.ForgetRunner(runnerID)
+	rs.surfaces.drop(runnerID)
+	rs.reapRunnerDir(ctx, paths.crowbarHome, paths.tmpDir)
 }
 
 func (rs *Runners) forkCLI(
 	ctx context.Context,
 	req forkRequest,
 ) (string, error) {
+	//nolint:contextcheck // the exit outlives the request; its values must not reach it.
 	termSessID, err := rs.term.CreateCommand(ctx, req.chatID, req.worktree, req.argv, req.env,
-		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir))
+		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir, req.resume))
 	if err == nil {
 		return termSessID, nil
 	}
-	rs.pendingHooks.Discard(req.runnerID)
-	rs.agents.ForgetRunner(req.runnerID)
-	worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
+	rs.abandonUnforked(ctx, req.runnerID, req.paths())
 
-	// A CLI that is not installed is the ONE spawn failure the user can act on, so
-	// it travels as its own sentinel (→ 424, a named message in the UI) rather than
-	// being buried in a wrap chain that maps to an opaque 500. The provider id, not
-	// the resolved argv[0], is what the UI can name.
+	// A missing CLI is the ONE spawn failure the user can act on, so it keeps its own
+	// sentinel (424) naming the provider id rather than an opaque wrapped 500.
 	if errors.Is(err, engineterminal.ErrCommandNotFound) {
 		return "", fmt.Errorf("%w: %s", engineterminal.ErrCommandNotFound, req.providerID)
 	}
 	return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
-}
-
-// assignSession picks the conversation id a fresh CLI is launched on, when its
-// descriptor lets Crowbar choose one. A resume already names its session.
-func assignSession(d engineagents.Agent, launchSessionID string) (string, []engineagents.InjectStep) {
-	if launchSessionID != "" {
-		return "", nil
-	}
-	id := uuid.NewString()
-	steps := assignInjectionSteps(d, id)
-	if steps == nil {
-		return "", nil
-	}
-	return id, steps
-}
-
-// bindAssignedSession records the conversation Crowbar chose for runnerID. The
-// CLI's own session hook is not reliably delivered, and a chat whose
-// conversation is never recorded cannot be resumed once its CLI is gone.
-func (rs *Runners) bindAssignedSession(ctx context.Context, runnerID, sessionID string) {
-	if sessionID == "" {
-		return
-	}
-	rs.sessions.assign(runnerID, sessionID)
-	if _, err := rs.runnerStore.BindSession(ctx, runnerID, sessionID, false, time.Now(), "", ""); err != nil {
-		slog.WarnContext(ctx, "agent: bind the assigned session (the CLI's own hook may still announce it)",
-			"runner_id", runnerID, "session_id", sessionID, "err", err)
-	}
 }
 
 func newRunnerID(
@@ -372,11 +293,9 @@ type spawnContext struct {
 	// that declares none.
 	permissionVars map[string]string
 
-	// launchSessionID is the prior session/thread id to resume, if any — the
-	// SAME value hooks-transport's own resume argv already carries, and what
-	// an api-transport connection's EstablishSession needs to know whether to
-	// run Fresh (nothing known yet) or Resume (known, but not yet loaded on
-	// THIS connection).
+	// launchSessionID is the bound session to resume, if any — the SAME id the
+	// resume argv carries, and what tells an api connection's EstablishSession
+	// to run Resume rather than Fresh.
 	launchSessionID string
 }
 
@@ -384,14 +303,17 @@ type spawnPreflight struct {
 	mcpOn     bool
 	threads   string
 	selection engineagents.Selection
-	// surface is the chat's own stored landing VIEW — see storedSurface.
+	staged    *domain.ChatSelection // committed as resolved, so the chat names what runs; nil: none
+	// surface is the chat's own stored landing VIEW.
 	surface string
+	// left: the chat has left a folder its sandbox may still reach.
+	left bool
 }
 
 func (rs *Runners) spawnPreflight(
 	ctx context.Context,
 	chatID, providerID string,
-	create bool,
+	staged *domain.ChatSelection,
 ) (spawnPreflight, error) {
 	// This is the ONE seam every vendor CLI is launched through, which makes it the
 	// only place a disabled provider can actually be stopped.
@@ -405,89 +327,78 @@ func (rs *Runners) spawnPreflight(
 	if err != nil {
 		return spawnPreflight{}, err
 	}
-	threads, err := rs.conversations.ThreadContext(ctx, chatID, create)
+	threads, err := rs.conversations.ThreadContext(ctx, chatID)
 	if err != nil {
 		return spawnPreflight{}, err
 	}
 	// The selection is also what gets RECORDED on the runner, so the record and the
 	// argv are rendered from ONE read: two reads could disagree across a concurrent
 	// change and leave a process whose recorded selection is not the one it runs.
-	sel, err := rs.conversations.ChatSelection(ctx, chatID, create)
+	sel, err := rs.conversations.ChatSelection(ctx, chatID)
 	if err != nil {
 		return spawnPreflight{}, err
 	}
-	surface, err := rs.storedSurface(ctx, chatID, create)
+	// Read at every spawn, so each one rebuilds on the chat's durable landing VIEW.
+	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
+		return spawnPreflight{}, fmt.Errorf("agent: spawn runner: chat surface: %w", err)
+	}
+	if staged, err = rs.movedPick(ctx, chat, providerID, staged); err != nil {
 		return spawnPreflight{}, err
 	}
-	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel, surface: surface}, nil
+	if staged != nil {
+		sel.Model, sel.Effort = staged.Model, staged.Effort
+	}
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return spawnPreflight{}, fmt.Errorf("agent: spawn runner: chat state: %w", err)
+	}
+	return spawnPreflight{
+		mcpOn: mcpOn, threads: threads, selection: sel, staged: staged, surface: chat.Surface,
+		left: len(st.LeftDirs()) > 0,
+	}, nil
 }
 
 type forkRequest struct {
 	runnerID   string
 	providerID string
-	// chatID is the terminal engine's session-scoping key — NOT the workspace id
-	// this used to carry: a chat with no worktree of its own has an empty one, so
-	// every such runner registered under the key "". worktree below is the CWD.
+	// chatID is the terminal engine's session-scoping key, not the workspace id (empty
+	// for a chat with no worktree of its own). worktree below is the CWD.
 	chatID      string
 	worktree    string
 	crowbarHome string
 	tmpDir      string
 	argv        []string
 	env         []string
-	// promptMessage is the user text this spawn exists to deliver, "" when it
-	// carries none. It is here, and not only inside argv, because argv is not
-	// always a carrier: forkOrAdopt's adopt branch forks no process at all, so
-	// whichever branch runs has to be able to SEE that it owes a delivery.
-	// See carryPromptOverAPIConn (apirunner.go) for the invariant.
+	// promptMessage is the user text this spawn must deliver ("" for none). It is not
+	// only in argv because the adopt branch forks nothing, and must still see it owes one.
 	promptMessage string
-	// argvSelection/apiSelection are the SAME invariant for the model/effort
-	// choice: the part of it each carrier renders. The branch that runs
-	// returns its own (forkOrAdopt), so recordRunner cannot stamp a selection
-	// the process never received — see carriedSelection (apirunner.go).
+	// argvSelection/apiSelection are what each carrier renders of the selection; the
+	// branch that runs returns its own, so recordRunner never stamps one not received.
 	argvSelection engineagents.Selection
 	apiSelection  engineagents.Selection
+	// resume is how this process's exit tells a refusal of its session.
+	resume resumeWatch
 }
 
-func (rs *Runners) teardownAfterPersistFailure(
+// paths are the runner's own paths a failed spawn reaps.
+func (req forkRequest) paths() spawnPaths {
+	return spawnPaths{crowbarHome: req.crowbarHome, tmpDir: req.tmpDir}
+}
+
+// teardownForked ends the CLI a spawn forked before it failed, and returns cause.
+func (rs *Runners) teardownForked(
 	ctx context.Context,
 	chatID, runnerID, termSessID string,
 	cause error,
 ) error {
 	if err := rs.term.TerminateGraceful(ctx, termSessID); err != nil &&
 		!errors.Is(err, engineterminal.ErrSessionNotFound) {
-		slog.WarnContext(ctx, "agent: spawn runner: teardown after persist failure",
+		slog.WarnContext(ctx, "agent: spawn runner: teardown of a failed spawn",
 			"chat_id", chatID, "runner_id", runnerID, "terminal_session_id", termSessID, "err", err)
 	}
-	// applyAPITransport runs before this point in spawnRunner and can have
-	// already established a live serve process by the time persistence fails —
-	// that process has no PTY of its own to fall with the one just terminated
-	// above (see quitOutgoingCLI's comment), so it leaks unless dropped here too.
+	// The serve process applyAPITransport started has no PTY of its own to
+	// fall with the one just terminated, so it leaks unless dropped here too.
 	rs.apiConns.drop(runnerID)
 	return cause
-}
-
-func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string) func() {
-	return func() {
-		worktreepath.RemoveUnderHome(context.Background(), home, tmpDir)
-		// A dead PTY takes its api-transport connection (serve process + driver)
-		// with it — never leaked, and safe to call for a hooks-only runner that
-		// never had one.
-		rs.apiConns.drop(runnerID)
-		// CreateCommand can observe process exit before recordRunner has a
-		// terminal-session id to persist. The startup barrier remembers that fact;
-		// spawnRunner reconciles it immediately after persistence and ordered hook
-		// replay, instead of this callback missing the not-yet-existing row forever.
-		if rs.pendingHooks.MarkExited(runnerID) {
-			return
-		}
-		rs.reconcileRunnerExit(context.Background(), runnerID)
-	}
-}
-
-func (rs *Runners) crowbarHookPath(home string) string {
-	if v := os.Getenv("CROWBAR_HOOK_BIN"); v != "" {
-		return v
-	}
-	return filepath.Join(home, "bin", "crowbar")
 }

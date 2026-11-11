@@ -1,18 +1,8 @@
-// ── Token entry for syntax highlighting cache ───────────────────────
-
-export interface TokenEntry {
-  start: number
-  end: number
-  token_type: string
-  class_name: string
-}
+import type { DocumentRef } from '@/lib/api/documents'
 
 // ── Content type discriminant ───────────────────────────────────────
-//
-// A pane's chat is PaneGroup.chatId, never a member of this union: 'agentChat'
-// and 'newTab' left it entirely when the pane gained a dedicated chat slot —
-// see pane.ts. 'newTabPage' is a different, real tab; old layouts still carry
-// the retired 'newTab' placeholder, which must keep being dropped.
+// A pane's chat is PaneGroup.chatId, never a tab type. Saved layouts may still carry a
+// 'newTab' placeholder (not 'newTabPage'); the restore path must keep dropping it.
 
 export type EditorTabContentType =
   | 'editor'
@@ -20,24 +10,18 @@ export type EditorTabContentType =
   | 'commitDiff'
   | 'markdownPreview'
   | 'htmlPreview'
-  | 'csvPreview'
   | 'branchReview'
   | 'browser'
   | 'newTabPage'
 
-/** Every content type this build can render.
- *
- *  A saved layout outlives the code that wrote it, so the restore path checks
- *  a persisted buffer's type against this set and drops what it no longer
- *  knows — see validateLoadedBuffers in persisted-layout.ts.
- */
+/** Every content type this build can render. A saved layout outlives the code that wrote it, so
+ *  validateLoadedBuffers (persisted-layout.ts) drops any persisted type not in this set. */
 export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>([
   'editor',
   'terminal',
   'commitDiff',
   'markdownPreview',
   'htmlPreview',
-  'csvPreview',
   'branchReview',
   'browser',
   'newTabPage',
@@ -53,43 +37,35 @@ export interface EditorTabBase {
   isPinned?: boolean
   isPreview?: boolean
   isUncloseable?: boolean
-  /**
-   * The workspace this tab's content belongs to. Load-bearing since Task 26
-   * hoisted `buffers`/`panes` out of the per-workspace store registry into
-   * one window-level store: `path` is workspace-RELATIVE (a sibling worktree
-   * can hold a different file at the same path), so once every workspace's
-   * buffers share one flat list, this field is the only thing that keeps
-   * "src/foo.ts in workspace A" from being confused with "src/foo.ts in
-   * workspace B" — in dedup (`openContent`), disk reconciliation
-   * (`external-buffer-sync.ts`, `hydrate.ts`), and per-workspace teardown
-   * (`destroyWorkspaceStore`'s terminal-detach/blame-clear/history-cleanup).
-   */
+  /** The workspace this content belongs to. `path` is workspace-relative and every workspace's
+   *  buffers share one window-wide list, so dedup, disk reconciliation and per-workspace
+   *  teardown tell `src/foo.ts` in A from B only by this. */
   workspaceId: string
 }
 
 // ── Per-type content definitions ────────────────────────────────────
 
+export interface DocumentUnavailable {
+  title: string
+  message: string
+}
+
+/** A tab on a document; its text lives in the document's Monaco model. */
 export interface EditorContent extends EditorTabBase {
   type: 'editor'
-  content: string
-  savedContent: string
+  /** Whose file `path` names: a workspace's (relative), or the host's (absolute, `workspaceId` ''). */
+  authority: DocumentRef['authority']
+  /** Mirrors the document's dirty flag, written only when it flips. */
   isDirty: boolean
-  /**
-   * The file changed on disk (externally) while the buffer had unsaved edits.
-   * The user's edits are kept; saving will overwrite the on-disk version.
-   * Cleared on the next successful save or external reload.
-   */
+  /** The file changed on disk while the buffer had unsaved edits; the edits are kept and a save
+   *  overwrites disk. Cleared by the next save or external reload. */
   hasExternalChange?: boolean
-  /**
-   * The file backing this buffer no longer exists on disk (the content load
-   * 404'd at session restore). Terminal until the file reappears — the pane
-   * renders a "file not found" placeholder and no further loads are retried.
-   */
-  fileMissing?: boolean
+  /** Why the document could not be loaded: the pane says so instead of showing an editor, and a
+   *  reconcile or reopen reads it again. */
+  unavailable?: DocumentUnavailable
   isVirtual: boolean
   language?: string
   languageOverride?: string
-  tokens: TokenEntry[]
 }
 
 export interface TerminalContent extends EditorTabBase {
@@ -99,10 +75,8 @@ export interface TerminalContent extends EditorTabBase {
   workingDirectory?: string
 }
 
-/** One commit's diff, rendered on the same windowed surface as the branch
- *  review. It carries the SHA, not the diff: the payload is fetched per file as
- *  the viewport reaches it, so a tab costs the same whether the commit changed
- *  three lines or a million. */
+/** One commit's diff on the branch review's windowed surface. It carries the SHA, not the diff:
+ *  files are fetched as the viewport reaches them, so a tab costs the same at any commit size. */
 export interface CommitDiffContent extends EditorTabBase {
   type: 'commitDiff'
   wsId: string
@@ -112,19 +86,13 @@ export interface CommitDiffContent extends EditorTabBase {
 export interface MarkdownPreviewContent extends EditorTabBase {
   type: 'markdownPreview'
   content: string
-  sourceFilePath: string
+  source: DocumentRef
 }
 
 export interface HtmlPreviewContent extends EditorTabBase {
   type: 'htmlPreview'
   content: string
-  sourceFilePath: string
-}
-
-export interface CsvPreviewContent extends EditorTabBase {
-  type: 'csvPreview'
-  content: string
-  sourceFilePath: string
+  source: DocumentRef
 }
 
 export type BranchReviewView = 'conversation' | 'files'
@@ -160,7 +128,6 @@ export type PaneContent =
   | CommitDiffContent
   | MarkdownPreviewContent
   | HtmlPreviewContent
-  | CsvPreviewContent
   | BranchReviewContent
   | BrowserContent
   | NewTabPageContent
@@ -171,14 +138,6 @@ export function isEditorContent(c: PaneContent): c is EditorContent {
   return c.type === 'editor'
 }
 
-export function isBranchReviewContent(c: PaneContent): c is BranchReviewContent {
-  return c.type === 'branchReview'
-}
-
-export function isCommitDiffContent(c: PaneContent): c is CommitDiffContent {
-  return c.type === 'commitDiff'
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Content types that represent real files on disk and should be persisted to session. */
@@ -186,9 +145,9 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
   return c.type === 'editor' && !c.isVirtual
 }
 
-/** An editor buffer holding edits disk does not have — the only copy of them. */
+/** An editor buffer holding edits disk does not have. */
 export function hasUnsavedEdits(c: PaneContent): boolean {
-  return c.type === 'editor' && (c.isDirty || c.content !== c.savedContent)
+  return c.type === 'editor' && c.isDirty
 }
 
 /** Content types that are virtual (not backed by a real file on disk). */
@@ -206,36 +165,17 @@ export function isVirtualContent(c: PaneContent): boolean {
   return false
 }
 
-/** Whether this content has text content (for search, etc.) */
-export function hasTextContent(
-  c: PaneContent,
-): c is EditorContent | MarkdownPreviewContent | HtmlPreviewContent | CsvPreviewContent {
-  return (
-    c.type === 'editor' ||
-    c.type === 'markdownPreview' ||
-    c.type === 'htmlPreview' ||
-    c.type === 'csvPreview'
-  )
-}
-
-/** Whether the content type should trigger LSP operations. */
-export function shouldStartLsp(c: PaneContent): c is EditorContent {
-  return c.type === 'editor' && !c.isVirtual
-}
-
 // ── Open spec (input to openContent) ────────────────────────────────
 
+// Every spec names its own workspace: an open never falls back to the active one.
 export type OpenEditorTabSpec =
   | {
       type: 'editor'
-      path: string
+      doc: DocumentRef
       name: string
-      content: string
       isVirtual?: boolean
       isPreview?: boolean
       language?: string
-      /** The workspace the tab belongs to — named by the caller, never the active one. */
-      workspaceId: string
     }
   | {
       type: 'terminal'
@@ -246,64 +186,29 @@ export type OpenEditorTabSpec =
       path?: string
       workspaceId: string
     }
-  | {
-      type: 'commitDiff'
-      wsId: string
-      sha: string
-      name: string
-    }
-  | {
-      type: 'markdownPreview'
-      path: string
-      name: string
-      content: string
-      sourceFilePath: string
-      workspaceId: string
-    }
-  | {
-      type: 'htmlPreview'
-      path: string
-      name: string
-      content: string
-      sourceFilePath: string
-      workspaceId: string
-    }
-  | {
-      type: 'csvPreview'
-      path: string
-      name: string
-      content: string
-      sourceFilePath: string
-      workspaceId: string
-    }
-  | {
-      type: 'branchReview'
-      wsId: string
-      name: string
-    }
+  | { type: 'commitDiff'; wsId: string; sha: string; name: string }
+  | { type: 'markdownPreview' | 'htmlPreview'; source: DocumentRef; name: string; content: string }
+  | { type: 'branchReview'; wsId: string; name: string }
   | {
       type: 'browser'
       /** Opens on this page; omitted for the blank address bar. */
       url?: string
       workspaceId: string
     }
-  | {
-      type: 'newTabPage'
-      workspaceId: string
-    }
+  | { type: 'newTabPage'; workspaceId: string }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────
 
 export interface ClosedBuffer {
+  authority: DocumentRef['authority']
   path: string
   name: string
   isPinned: boolean
   workspaceId: string
 }
 
+/** A dirty tab's close, awaiting the user's answer; the pane it closes from answers it. */
 export interface PendingClose {
   bufferId: string
-  type: 'single' | 'others' | 'all' | 'to-left' | 'to-right'
-  anchorBufferId?: string
-  keepBufferId?: string
+  paneId: string
 }

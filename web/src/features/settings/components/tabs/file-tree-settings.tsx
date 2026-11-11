@@ -5,14 +5,8 @@ import {
 } from '@/features/file-explorer/lib/file-tree-density'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import NumberInput from '@/components/ui/number-input'
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select'
 import Section, { SettingRow } from '../settings-section'
+import { SettingSelect } from '@/features/settings/components/setting-select'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/utils/cn'
@@ -77,21 +71,11 @@ export const FileTreeSettings = () => {
           onReset={() => updateSetting('fileTreeDensity', getDefaultSetting('fileTreeDensity'))}
           canReset={settings.fileTreeDensity !== getDefaultSetting('fileTreeDensity')}
         >
-          <Select
+          <SettingSelect
+            options={FILE_TREE_DENSITY_OPTIONS}
             value={settings.fileTreeDensity}
             onValueChange={(value) => updateSetting('fileTreeDensity', value as FileTreeDensity)}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.default}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FILE_TREE_DENSITY_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
 
         <SettingRow

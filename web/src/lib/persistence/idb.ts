@@ -3,16 +3,13 @@ import type { IDBPDatabase } from 'idb'
 import type { CrowbarDB } from './schemas'
 
 let _db: IDBPDatabase<CrowbarDB> | null = null
-// The IN-FLIGHT open, not just the settled one. Callers arrive together at
-// startup, and memoizing only the resolved handle lets every one of them start
-// its own `openDB` — which deadlocks the moment an open has to change the
-// version, because a second connection at the old version blocks the upgrade
-// and the upgrade holds the second open. One open, awaited by everyone.
+// Memoize the in-flight open, not the settled handle: startup callers arrive together, and a
+// second `openDB` at the old version blocks a version upgrade that holds it — a deadlock.
 let _opening: Promise<IDBPDatabase<CrowbarDB>> | null = null
 
 export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   if (_db) return _db
-  _opening ??= healEntityStores(openDatabase())
+  _opening ??= openDatabase()
   try {
     _db = await _opening
     return _db
@@ -21,57 +18,9 @@ export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
   }
 }
 
-/**
- * Create any entity store the database is missing, by reopening one version up.
- *
- * An object store can only be created inside an `upgrade`, so a database that
- * reached the current version without running the branch that adds a store
- * never gets it — and it cannot get it later, because the version no longer
- * changes. Every entity-cache call is best-effort, so the result is not an
- * error but an empty list forever: the feature backed by that store silently
- * does nothing, with a green typecheck and a green test suite.
- *
- * That skew is reachable whenever more than one build runs against this origin
- * — several checkouts and an installed app share one bundle id, so an older
- * build holding the database open is enough to strand a newer one's upgrade.
- *
- * Healing beats wiping here: the entity stores are re-seedable from GET, but
- * the rest of the database (editor state, layout, chat history) is not, so
- * `deleteDatabase` would cost the user real work to repair a cache. Creating
- * just what is missing costs nothing and leaves everything else untouched.
- */
-async function healEntityStores(
-  opening: Promise<IDBPDatabase<CrowbarDB>>,
-): Promise<IDBPDatabase<CrowbarDB>> {
-  const db = await opening
-  const missing = ENTITY_STORES.filter((name) => !db.objectStoreNames.contains(name))
-  if (missing.length === 0) return db
-  const next = db.version + 1
-  db.close()
-  return openDB<CrowbarDB>('crowbar', next, {
-    upgrade(upgraded) {
-      // Only the absentees, each guarded: this runs with the real oldVersion, so
-      // replaying the version chain above would collide with what already exists.
-      for (const name of missing) {
-        if (!upgraded.objectStoreNames.contains(name)) {
-          upgraded.createObjectStore(name, { keyPath: 'id' })
-        }
-      }
-    },
-  })
-}
-
-/**
- * Open at the declared version, or as-is when the database is already NEWER.
- *
- * Asking for a version below the one on disk is not a no-op — it throws
- * `VersionError`, and since every cache call is best-effort the app does not
- * crash, it just quietly loses its whole local cache. A newer database is
- * ordinary here: this origin is shared by every build carrying the same bundle
- * id, so running an older checkout after a newer one is a normal Tuesday, and
- * so is a user rolling a release back. The stores are additive, so an older
- * build reading a newer database finds everything it knows about.
- */
+// Open at the declared version, or as-is when the database is newer: asking below the on-disk
+// version throws VersionError and silently loses the cache. Every build with this bundle id shares
+// the origin (older checkouts, rollbacks), and stores are additive, so older builds read fine.
 async function openDatabase(): Promise<IDBPDatabase<CrowbarDB>> {
   try {
     return await openDeclared()
@@ -90,19 +39,18 @@ const RETIRED_V12 = [
 ]
 
 async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
-  return openDB<CrowbarDB>('crowbar', 13, {
-    upgrade(db, oldVersion, _newVersion, transaction) {
+  return openDB<CrowbarDB>('crowbar', 14, {
+    upgrade(db, oldVersion) {
       // Retired stores are no longer in CrowbarDB; the upgrade chain still
       // creates and then drops them, so it goes through the untyped handle.
       const raw = db as unknown as IDBDatabase
       if (oldVersion < 1) {
         db.createObjectStore('workspace-layout', { keyPath: 'workspaceId' })
-        const editorStore = db.createObjectStore('editor-state', {
-          keyPath: ['workspaceId', 'bufferId'],
-        })
-        editorStore.createIndex('workspaceId', 'workspaceId')
-        // ui-preferences (dropped in v10) and query-cache (dropped in v5) are
-        // created only to keep the upgrade chain whole.
+        // editor-state (dropped in v14), ui-preferences (dropped in v10) and
+        // query-cache (dropped in v5) are created only to keep the chain whole.
+        raw
+          .createObjectStore('editor-state', { keyPath: ['workspaceId', 'bufferId'] })
+          .createIndex('workspaceId', 'workspaceId')
         raw.createObjectStore('ui-preferences')
         raw.createObjectStore('query-cache')
       }
@@ -145,17 +93,13 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
         }
       }
       if (oldVersion < 8) {
-        // Sidebar grouping folders. This needs its own version: an object store
-        // is only created inside an upgrade, so an existing install opened at
-        // v7 would simply not have it — and every entity-cache write is
-        // best-effort, so the miss would be silent at runtime rather than loud
-        // at compile time (an empty folder list forever).
+        // Sidebar grouping folders get their own version: a store is only created in an upgrade,
+        // and best-effort cache writes would otherwise fail silently (empty folder list forever).
         db.createObjectStore('crowbar_folders', { keyPath: 'id' })
       }
       if (oldVersion < 9) {
-        // Sidebar chat rows, for exactly the reason above: an object store is
-        // only created inside an upgrade, so this needs its own version rather
-        // than riding v8's branch (an install already at v8 would never run it).
+        // Sidebar chat rows: their own version for the same reason (an install already at v8
+        // would never run a branch riding on v8's).
         db.createObjectStore('crowbar_chats', { keyPath: 'id' })
       }
       if (oldVersion < 10) {
@@ -165,25 +109,18 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
           if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
         }
       }
-      if (oldVersion < 11) {
-        // Lets the transcript cache evict its oldest chats without reading values.
-        // Guarded: a hand-built database that skipped v5 has no such store.
-        if (db.objectStoreNames.contains('chat-history')) {
-          transaction.objectStore('chat-history').createIndex('fetchedAt', 'fetchedAt')
-        }
-      }
       if (oldVersion < 12) {
         // Retired: declared but never read or written by anything.
         for (const name of RETIRED_V12) {
           if (raw.objectStoreNames.contains(name)) raw.deleteObjectStore(name)
         }
       }
-      if (oldVersion < 13) {
-        // Earlier rows name no host, so no host removal could find them: a cache, refetched.
-        if (db.objectStoreNames.contains('chat-history')) {
-          const store = transaction.objectStore('chat-history')
-          void store.clear()
-          store.createIndex('hostId', 'hostId')
+      if (oldVersion < 14) {
+        // Documents keep their unsaved text as drafts. A database a v11-v13 build upgraded may
+        // lack the store (those versions meant other things there), so it is created if missing.
+        if (raw.objectStoreNames.contains('editor-state')) raw.deleteObjectStore('editor-state')
+        if (!raw.objectStoreNames.contains('editor-drafts')) {
+          db.createObjectStore('editor-drafts', { keyPath: 'uri' })
         }
       }
     },
@@ -194,60 +131,4 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
 export function resetDB(): void {
   _db = null
   _opening = null
-}
-
-// ---------------------------------------------------------------------------
-// §6 version-gated wipe. Pre-production there are no users and no migrations:
-// on a daemon/cache version change we drop the entity cache wholesale and let
-// the app re-seed from GET. Bump CROWBAR_CACHE_VERSION whenever the DTO shape
-// or the daemon's persisted model changes incompatibly.
-// ---------------------------------------------------------------------------
-
-// '2': chat/workspace/repo DTOs gained ownsWorktree/type/owningChatId/folderId.
-export const CROWBAR_CACHE_VERSION = '2'
-
-const CACHE_VERSION_KEY = 'crowbar:cache-version'
-
-const ENTITY_STORES = [
-  'crowbar_projects',
-  'crowbar_repos',
-  'crowbar_workspaces',
-  'crowbar_folders',
-  'crowbar_chats',
-] as const
-
-// Cached transcripts hold message DTOs, so they go with the entity rows.
-const WIPED_STORES = [...ENTITY_STORES, 'chat-history'] as const
-
-/** Clears every crowbar_* entity store and the cached transcripts. Best-effort: IDB failures no-op. */
-export async function wipeEntityCache(): Promise<void> {
-  try {
-    const db = await getDB()
-    const tx = db.transaction(WIPED_STORES, 'readwrite')
-    await Promise.all(WIPED_STORES.map((name) => tx.objectStore(name).clear()))
-    await tx.done
-  } catch {
-    /* best-effort wipe — ignore IDB failures */
-  }
-}
-
-/**
- * Compares the persisted cache version (localStorage) to CROWBAR_CACHE_VERSION.
- * On a mismatch (including first run) wipe the entity cache and record the new
- * version; on a match this is a no-op. Call once at startup before seeding.
- */
-export async function maybeWipeOnVersionChange(): Promise<void> {
-  let stored: string | null
-  try {
-    stored = localStorage.getItem(CACHE_VERSION_KEY)
-  } catch {
-    stored = null
-  }
-  if (stored === CROWBAR_CACHE_VERSION) return
-  await wipeEntityCache()
-  try {
-    localStorage.setItem(CACHE_VERSION_KEY, CROWBAR_CACHE_VERSION)
-  } catch {
-    /* localStorage unavailable (private mode) — wipe still ran */
-  }
 }

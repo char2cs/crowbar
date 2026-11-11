@@ -18,6 +18,7 @@ import {
   getOrCreateWorkspaceStore,
   destroyWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
 
 /** Flush the microtask queue a few times — enough for one dynamic `import()`
  *  plus its `.then()` chain (destroyWorkspaceStore's window-pane-store
@@ -87,14 +88,8 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
     expect(a.windowPaneStore).toBe(windowPaneStore)
   })
 
-  // Task 26 fix round 1 (I5): the ACTUAL trap the model spec names is
-  // destroyWorkspaceStore — the old per-workspace registry destroyed the
-  // whole store panes/buffers lived on, the moment a workspace aged out of
-  // keep-alive. The previous version of this test never called
-  // destroyWorkspaceStore at all (only setActiveWorkspaceId, which was never
-  // what destroyed anything) and would have passed identically against the
-  // OLD, broken code. This exercises the REAL singleton and the REAL
-  // destroy call.
+  // A workspace leaving keep-alive is destroyed via destroyWorkspaceStore; the pane layout
+  // must outlive it, so this drives the real singleton and the real destroy call.
   it("pane layout survives destroyWorkspaceStore for the chat's own (evicted) workspace", async () => {
     resetWindowPaneStoreForTests()
     getOrCreateWorkspaceStore('ws-evicted')
@@ -113,10 +108,8 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
 
     const bufferId = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
-      path: '/src/a.ts',
+      doc: workspaceRef('ws-evicted-2', '/src/a.ts'),
       name: 'a.ts',
-      content: 'hello',
-      workspaceId: 'ws-evicted-2',
     })
 
     destroyWorkspaceStore('ws-evicted-2')
@@ -160,5 +153,23 @@ describe('windowPaneStore — persistence subscription', () => {
     vi.advanceTimersByTime(300)
 
     expect(mockSave).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves a tab without the reason its document failed to load: the boot reads it again', () => {
+    const { bufferActions } = windowPaneStore.getState()
+    const id = bufferActions.openContent({
+      type: 'editor',
+      doc: workspaceRef('ws-1', 'a.ts'),
+      name: 'a.ts',
+    })
+    const unavailable = { title: 'Failed to open file', message: 'a.ts' }
+    windowPaneStore.setState((s) => ({
+      buffers: s.buffers.map((b) => (b.id === id ? { ...b, unavailable } : b)),
+    }))
+    vi.advanceTimersByTime(300)
+
+    const saved = mockSave.mock.lastCall![0] as { buffers: { id: string }[] }
+    expect(saved.buffers.find((b) => b.id === id)).not.toHaveProperty('unavailable')
+    expect(windowPaneStore.getState().buffers[0]).toMatchObject({ unavailable })
   })
 })

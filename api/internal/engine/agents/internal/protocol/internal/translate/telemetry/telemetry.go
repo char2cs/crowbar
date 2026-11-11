@@ -41,19 +41,9 @@ func ParseCallback(d *spec.Descriptor, raw []byte, now time.Time) (models.Teleme
 	return out, nil
 }
 
-// callbackMapping finds the field map a pushed telemetry report is read with,
-// from either place a descriptor may declare one.
-//
-// v2 spelled it as a top-level `telemetry.callback:` block. v3 spells it as an
-// ordinary inbound EVENT — `events.telemetry`, with the same canonical fact names
-// in its `map:` and its windows in the event's `rate_limits:` extra. Only the v2
-// block was ever read, so a v3-only provider's telemetry was parsed with no
-// mapping at all and reported ErrUnsupported on every report: codex has mapped
-// thread/tokenUsage/updated correctly since the mixed-transport work and none of
-// it ever reached the context gauge.
-//
-// The v2 block wins where both exist, so a descriptor mid-migration keeps the
-// behaviour it already had.
+// callbackMapping finds the field map for a pushed telemetry report: the
+// `telemetry.callback:` block, else the `events.telemetry` event's map: and
+// rate_limits:. The callback block wins where both exist.
 func callbackMapping(d *spec.Descriptor) (
 	format string,
 	fields spec.FieldMap,
@@ -150,15 +140,12 @@ func ParseProbe(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry
 	return out, nil
 }
 
-// wrapFields lifts a plain single-path field table (TelemetryCallbackSpec/
-// TelemetryProbeSpec.Fields — carried over from v2 unchanged, never
-// alternation-capable) into a FieldMap, so mapFacts has one shape to read
-// regardless of which of the two places a descriptor declared its telemetry
-// mapping in.
+// wrapFields lifts a single-path field table (callback/probe Fields, which take no
+// alternation) into a FieldMap, so mapFacts reads one shape.
 func wrapFields(m map[string]string) spec.FieldMap {
 	out := make(spec.FieldMap, len(m))
 	for k, v := range m {
-		out[k] = []string{v}
+		out[k] = mapping.Paths(v)
 	}
 	return out
 }
@@ -223,10 +210,10 @@ func mapRateLimits(windows []spec.TelemetryRateLimitMap, decoded map[string]any)
 	out := make([]models.RateLimitWindow, 0, len(windows))
 	for _, w := range windows {
 		window := models.RateLimitWindow{ID: w.ID, Label: w.Label}
-		if pct, ok := mapping.Float(decoded, []string{w.UsedPercent}); ok {
+		if pct, ok := mapping.Float(decoded, mapping.Paths(w.UsedPercent)); ok {
 			window.UsedPercent = &pct
 		}
-		if at, ok := mapping.Time(decoded, []string{w.ResetsAt}); ok {
+		if at, ok := mapping.Time(decoded, mapping.Paths(w.ResetsAt)); ok {
 			window.ResetsAt = &at
 		}
 

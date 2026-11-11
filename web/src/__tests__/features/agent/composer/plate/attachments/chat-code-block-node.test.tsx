@@ -6,6 +6,9 @@ import type { TCodeBlockElement } from 'platejs'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
+import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 import {
   excalidrawSceneFromCodeBlock,
   findFollowingImageRef,
@@ -33,6 +36,16 @@ vi.mock(
     return { ...actual, ExcalidrawPreview: vi.fn(actual.ExcalidrawPreview) }
   },
 )
+
+/** The composer's own interactive editor: the transcript renders diagrams instead. */
+function ComposerDraft({ md }: { md: string }) {
+  const editor = usePlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(md) })
+  return (
+    <Plate editor={editor} readOnly>
+      <PlateContent readOnly />
+    </Plate>
+  )
+}
 
 describe('chat attachment code blocks', () => {
   it('renders a plain code block for a bare ```text-attachment fence with no id', () => {
@@ -80,11 +93,8 @@ describe('chat attachment code blocks', () => {
     expect(screen.getByText(scene).closest('.hidden')).not.toBeNull()
   })
 
-  // REGRESSION: an agent has no way to know the composer's own `:{id}`
-  // suffix convention — it never goes through excalidrawMarkdown, it just
-  // writes an ```excalidraw fence in its reply text like any other code
-  // block. A bare tag used to always fall through to plain code, so a
-  // diagram the AGENT produced never rendered as one.
+  // An agent writes a bare ```excalidraw fence (no composer `:{id}` suffix), and that must still
+  // render as a diagram, not plain code.
   it('renders a diagram preview for a BARE excalidraw fence (no id) with valid scene JSON — agent-authored output', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     render(<MarkdownMessageStatic>{`\`\`\`excalidraw\n${scene}\n\`\`\``}</MarkdownMessageStatic>)
@@ -113,9 +123,7 @@ describe('chat attachment code blocks', () => {
     expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
   })
 
-  // REGRESSION, reported live: there was no way to select and remove an
-  // attachment at all — dragging could reorder one but nothing could delete
-  // one.
+  // Each attachment has a delete button beside its drag handle.
   it('renders a delete button alongside the drag handle, which removes the attachment on click', async () => {
     renderWithDnd(
       <MarkdownMessage>
@@ -134,19 +142,14 @@ describe('chat attachment code blocks', () => {
     expect(screen.queryByRole('button', { name: /remove this attachment/i })).toBeNull()
   })
 
-  // REGRESSION, reported live: deleting an excalidraw attachment removed the
-  // fence but left its own persisted-PNG sibling behind — invisible (still
-  // hidden, since `isExcalidrawPngSibling` never re-evaluates once its
-  // scene's preceding fence is gone) but very much still in the document, so
-  // the "deleted" diagram silently reappeared in the message once sent. The
-  // two nodes are one logical attachment (`excalidraw-takeover.tsx` inserts
-  // them as an adjacent pair); deleting either must remove both.
+  // The fence and its persisted-PNG sibling are one logical attachment (inserted as an adjacent
+  // pair); deleting the fence must take the sibling too, or the hidden PNG ships with the message.
   it('removing an excalidraw attachment also removes its own persisted-PNG sibling, not just the fence', async () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     renderWithDnd(
-      <MarkdownMessage>
-        {`\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/x-diagram.png)`}
-      </MarkdownMessage>,
+      <ComposerDraft
+        md={`\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/x-diagram.png)`}
+      />,
     )
     // Two mounted-but-hidden raw nodes going in: the fence's own raw source,
     // and the PNG sibling's void placeholder (`ChatMarkdownImageElement`'s
@@ -160,22 +163,9 @@ describe('chat attachment code blocks', () => {
     expect(document.querySelectorAll('.hidden')).toHaveLength(0)
   })
 
-  // REGRESSION, reported live: dragging an attachment did nothing at all —
-  // root-caused via live DOM inspection to the handle sitting directly
-  // inside the Slate editor's own `contenteditable="true"` region with no
-  // non-editable island around it. WebKit (Tauri's WKWebView) arbitrates a
-  // real mousedown+move inside editable content as a text-selection gesture
-  // BEFORE the drag can start, regardless of the
-  // button's `draggable="true"` — confirmed live (`-webkit-user-drag:
-  // element` and `draggable="true"` were both already correct; the only gap
-  // was the missing `contenteditable="false"` boundary).
-  //
-  // `MarkdownMessage` (this file's harness) renders `readOnly`, so its own
-  // Slate root already carries `contenteditable="false"` regardless of this
-  // fix — asserting merely "some ancestor is non-editable" would pass
-  // trivially either way. The real contract is a wrapper CLOSER than the
-  // editor root, since the actual composer (which this stands in for) is
-  // genuinely editable and has no such root-level escape hatch.
+  // WKWebView treats mousedown+move inside editable content as text selection before a drag can
+  // start, so the handle needs its own contenteditable="false" island. The harness's Slate root is
+  // already read-only, hence asserting a wrapper CLOSER than the editor root.
   it('wraps the drag handle in its own non-editable island, not just relying on an ancestor', () => {
     renderWithDnd(
       <MarkdownMessage>
@@ -198,9 +188,7 @@ describe('chat attachment code blocks', () => {
     expect(lastCallProps).toMatchObject({ pngRef: 'chats/c1/attachments/diagram.png' })
   })
 
-  // REGRESSION, reported live: the excalidraw PNG sibling — consumed by
-  // ExcalidrawPreview as `pngRef` — was ALSO rendering as an ordinary markdown
-  // image right underneath it, showing the same diagram twice in one message.
+  // The PNG sibling feeds ExcalidrawPreview's `pngRef`; it must not also render as a plain image.
   it('does not also render the excalidraw PNG sibling as a plain markdown image', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
@@ -278,17 +266,9 @@ function codeBlockElement(lang: string, lines: string[]): TCodeBlockElement {
   } as unknown as TCodeBlockElement
 }
 
-// REGRESSION: React error #185 ("Maximum update depth exceeded"), reported
-// live as a pane crash on submitting a message with an attachment.
-// `excalidrawSceneFromCodeBlock` used to re-parse the fence's own JSON on
-// every call, handing back a BRAND NEW scene object each time — including
-// when the ONLY thing that changed was the `TCodeBlockElement` object
-// identity itself (exactly what happens when Slate recreates a node for a
-// reason that has nothing to do with its own text: `NodeIdPlugin`
-// reassigning ids, an unrelated edit elsewhere in the document). That fresh
-// object flowed straight into `ExcalidrawPreview`'s own `useEffect` deps
-// array (`scene`, excalidraw-preview.tsx), tearing down and restarting its
-// async export-to-svg pipeline on every one of those unrelated re-renders.
+// The scene must keep its identity when only the TCodeBlockElement object changes (NodeIdPlugin,
+// unrelated edits): a fresh scene re-runs ExcalidrawPreview's export effect on every render, which
+// loops into React error #185 (maximum update depth).
 describe('excalidrawSceneFromCodeBlock identity stability', () => {
   it('returns the SAME scene reference for two different node objects with identical source text', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
@@ -299,34 +279,9 @@ describe('excalidrawSceneFromCodeBlock identity stability', () => {
   })
 })
 
-/**
- * `findFollowingImageRef`'s own unit coverage for `editor.api.findPath`
- * returning `undefined` — the guard exists for `findPath`'s own `Path |
- * undefined` return contract (an element no longer in the tree), not
- * anything a mounted document can trigger, so it's tested directly rather
- * than through a full render.
- *
- * This function deliberately calls `editor.api.findPath(props.element)`
- * fresh rather than trusting `props.path`: in the interactive renderer,
- * `props.path` is sourced from Plate's `useNodePath`, memoized on
- * `[editor.api, node]` — its own JSDoc says it will NOT recompute when a
- * change elsewhere shifts this node's path without replacing the node
- * object. A black-box regression test for that exact scenario was attempted
- * (mount a real interactive editor via `chatComposerPlugins`, insert a
- * sibling before this block, assert the sibling-image lookup still finds the
- * right node) and dropped: it passed identically whether `findFollowingImageRef`
- * used `props.path` or `findPath`, because slate-react's own `MemoizedElement`
- * wrapper (`prev.element === next.element`, confirmed by reading
- * `node_modules/slate-react/dist/index.js`) skips re-rendering this node at
- * all unless its OWN `element` reference changes — which invalidates
- * `useNodePath`'s memo too, so by the time this component's render body ever
- * runs again, the path is never actually stale in practice. That is an
- * internal implementation detail of a dependency two layers down, not a
- * documented contract, so `findPath` is used anyway — it costs one extra
- * (rare-path) tree-walk and matches Plate's own stated `useNodePath` caveat
- * rather than depending on slate-react's current memoization strategy never
- * changing.
- */
+/** Covers findPath returning `undefined` (its `Path | undefined` contract), which no mounted
+ *  document triggers. findPath is used over `props.path` because Plate's useNodePath memo may not
+ *  recompute when a sibling shifts this node, per its own JSDoc. */
 describe('findFollowingImageRef', () => {
   it('returns undefined, without looking up a sibling, when the element has no path', () => {
     const nodeSpy = vi.fn()

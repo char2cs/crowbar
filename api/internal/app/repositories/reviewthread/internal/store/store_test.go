@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -24,22 +25,32 @@ func newStoreWithDeps(
 	t *testing.T,
 ) (context.Context, store.Store, asynx.Asynx[domain.ReviewThread], *gormdb.DB) {
 	t.Helper()
+	ctx, st, ax, db, _ := newStoreWithLog(t)
+	return ctx, st, ax, db
+}
+
+func newStoreWithLog(
+	t *testing.T,
+) (context.Context, store.Store, asynx.Asynx[domain.ReviewThread], *gormdb.DB, asynxModels.Store) {
+	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.ReviewThread]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.ReviewThread]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
+	st, err := store.New(proj, es, ax, func(domain.ReviewThread) {})
 	require.NoError(t, err)
-
-	st, err := store.New(db, es, ax, func(domain.ReviewThread) {})
-	require.NoError(t, err)
-	return context.Background(), st, ax, db
+	return context.Background(), st, ax, db, es
 }
 
 func newStore(
@@ -174,23 +185,71 @@ func (f *fakeReplayES) AggregateIDs(context.Context) ([]string, error) {
 func TestStore_List_RebuildEnumerationError(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.ReviewThread]().
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	proj, err := store.Open(db)
+	require.NoError(t, err)
+	b := asynx.New[domain.ReviewThread]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	store.Subscriber(proj)(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
 	// Inject an event log whose AggregateIDs enumeration fails; an empty read model
 	// then routes List into rebuild, which surfaces the enumeration error.
-	st, err := store.New(db, &fakeReplayES{err: errors.New("boom")}, ax, func(domain.ReviewThread) {})
+	st, err := store.New(proj, &fakeReplayES{err: errors.New("boom")}, ax, func(domain.ReviewThread) {})
 	require.NoError(t, err)
 
 	_, err = st.List(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "enumerate aggregate ids")
+}
+
+// appendTombstone writes the marker a Forget leaves when it fails before the erase.
+func appendTombstone(t *testing.T, es asynxModels.Store, id string) {
+	t.Helper()
+	ctx := context.Background()
+	prior, err := es.ReadFrom(ctx, "events:"+id, 1)
+	require.NoError(t, err)
+	var last struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	require.NoError(t, json.Unmarshal(prior[len(prior)-1], &last))
+	v := int64(len(prior) + 1)
+	evt, err := json.Marshal(map[string]any{
+		"id": "tomb-" + id, "event_name": asynxModels.ForgetEventName, "version": v,
+		"schema_version": last.SchemaVersion, "occurred_at": time.Unix(2, 0).UTC(), "patches": json.RawMessage("[]"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error { return tx.Append(ctx, "events:"+id, v, evt) }))
+}
+
+func openThread(t *testing.T, ctx context.Context, ax asynx.Asynx[domain.ReviewThread], id string) {
+	t.Helper()
+	_, err := ax.SendWait(ctx, rtcmds.OpenReviewThread{ID: id, WsID: "w1", MessageID: "m1", Now: time.Unix(1, 0).UTC()})
+	require.NoError(t, err)
+}
+
+func TestStore_AHealThatCannotSaveIsAnError(t *testing.T) {
+	ctx, st, ax, db := newStoreWithDeps(t)
+	openThread(t, ctx, ax, "t1")
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_review_threads").Error)
+	require.NoError(t, db.WithContext(ctx).Exec("PRAGMA query_only = ON").Error)
+
+	_, err := st.List(ctx)
+	require.Error(t, err)
+}
+
+func TestStore_AHealNeverResurrectsATombstonedThread(t *testing.T) {
+	ctx, st, ax, db, es := newStoreWithLog(t)
+	openThread(t, ctx, ax, "t1")
+	appendTombstone(t, es, "t1")
+	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_review_threads").Error)
+
+	all, err := st.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, all)
 }

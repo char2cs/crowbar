@@ -5,7 +5,8 @@ import {
   getHostRuntime,
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
-import { ApiError, proxyMarkerError } from '@/lib/api/errors'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { ApiError } from '@/lib/errors/api-error'
 import {
   reportChannelFailure,
   reportChannelState,

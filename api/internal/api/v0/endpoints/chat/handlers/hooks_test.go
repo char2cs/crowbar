@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func newTestContext(
@@ -34,74 +33,16 @@ func newTestContext(
 	return ctx, rec
 }
 
-// TestHooks_DecodesAndDispatches proves Hooks decodes the
-// {segment_id, provider, event, payload_raw} body and forwards the decoded
-// values verbatim to IngestHook, writing a bare 202 on success
-// (fail-fast/good-path-async, 00 §4).
-func TestHooks_DecodesAndDispatches(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"session_start","payload_raw":"{\"sessionId\":\"sess-1\"}"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", body)
-
-	h.Hooks(ctx)
-
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Empty(t, rec.Body.Bytes())
-
-	require.Len(t, uc.ingestCalls, 1)
-	assert.Equal(t, "seg-1", uc.ingestCalls[0].segID)
-	assert.Equal(t, "claude", uc.ingestCalls[0].provider)
-	assert.Equal(t, "session_start", uc.ingestCalls[0].event)
-	assert.Contains(t, string(uc.ingestCalls[0].raw), `"sessionId":"sess-1"`)
-}
-
-// TestHooks_BadJSON proves a malformed body is rejected 400 without reaching
-// the usecase.
-func TestHooks_BadJSON(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", []byte("{not json"))
-
-	h.Hooks(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, uc.ingestCalls)
-}
-
-// TestHooks_UsecaseError proves an IngestHook failure surfaces as a mapped
-// error response rather than a 202.
-func TestHooks_UsecaseError(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{ingestErr: errors.New("boom")}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"segment_id":"seg-1","provider":"claude","event":"turn_stop","payload_raw":"{}"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/hooks", body)
-
-	h.Hooks(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
 // fakeAgentUsecase is a configurable double for all five agent ports: each method records
 // its call so tests can assert forwarding, and each returns a canned
 // error/value so tests can exercise the handlers' error branches.
 type fakeAgentUsecase struct {
-	// hookReply is the stdout the daemon wants a hook to print; validToken is the
-	// one runner token VerifyRunnerToken accepts; awaitStarted, when set, makes
-	// AwaitAnswer block until its request is cancelled.
-	hookReply    string
-	validToken   string
-	verifyCalls  [][2]string
-	awaitStarted chan struct{}
+	// hookReply is the stdout the daemon wants a hook to print and hookAsk the
+	// ask it held; validToken is the one runner token VerifyRunnerToken accepts.
+	hookReply   string
+	hookAsk     string
+	validToken  string
+	verifyCalls [][2]string
 
 	ingestCalls []ingestCall
 	ingestErr   error
@@ -155,10 +96,6 @@ type fakeAgentUsecase struct {
 	purgeCalls []string
 	purgeErr   error
 
-	promoteCalls        []string
-	promoteErr          error
-	promotedWorkspaceID string
-
 	resolveProviders []domain.AgentProvider
 	resolveErr       error
 
@@ -183,19 +120,6 @@ type fakeAgentUsecase struct {
 	getChat    domain.Chat
 	getChatErr error
 
-	activity      agentusecase.ChatActivity
-	activityErr   error
-	activityCalls []activityCall
-	payload       []byte
-	payloadErr    error
-	payloadCalls  []payloadCall
-	pending       []domain.ActivityChoice
-	pendingErr    error
-	pendingCalls  []string
-
-	interruptions    []domain.ActivityInterruption
-	interruptionsErr error
-
 	uploadAttachmentCalls []uploadAttachmentCall
 	uploadAttachmentOut   agentusecase.StoredAttachment
 	uploadAttachmentErr   error
@@ -205,49 +129,33 @@ type fakeAgentUsecase struct {
 	readAttachmentType  string
 	readAttachmentErr   error
 
-	answerable  []string
 	answerCalls []answerCall
 	answerErr   error
 
 	setChatPermissionLevelCalls []setChatPermissionLevelCall
 	setChatPermissionLevelErr   error
 
-	pendingAnswer agentusecase.PendingAnswer
-	pendingAwait  bool
-	awaitAnswer   agentusecase.HookAnswer
-	awaitErr      error
-	awaitCalls    []string
-	abandonCalls  []string
-	abandonErr    error
-	telemetry     engineagents.Telemetry
-	telemetryOK   bool
+	pendingAwait bool
+	awaitAnswer  agentusecase.HookAnswer
+	awaitErr     error
+	awaitCalls   []string
+	telemetry    engineagents.Telemetry
+	telemetryOK  bool
 	// telemetryOffSurface makes TelemetryOnChatSurface answer false — the
 	// chat is on a surface whose channel carries no usage report.
 	telemetryOffSurface bool
 
-	messagePage  domain.LedgerPage
-	messageErr   error
-	messageCalls []messageCall
 	promptResult domain.AgentPromptSubmission
 	promptErr    error
 	promptCalls  []promptCall
 	catalog      engineagents.SlashCatalog
 	catalogErr   error
 	catalogCalls []string
-
-	pendingPrompt      domain.PendingPrompt
-	pendingPromptFound bool
-	pendingPromptErr   error
 }
 
 type promptCall struct {
-	chatID, text, requestID, provider string
-	selection                         *domain.ChatSelection
-}
-
-type messageCall struct {
-	chatID               string
-	after, before, limit int
+	chatID, text, requestID, provider, retryOf string
+	selection                                  *domain.ChatSelection
 }
 
 type ingestCall struct {
@@ -260,6 +168,7 @@ type ingestCall struct {
 type switchCall struct {
 	chatID   string
 	provider string
+	surface  string
 }
 
 type selectionCall struct {
@@ -280,47 +189,22 @@ type dispatchMCPCall struct {
 	message  []byte
 }
 
-func (f *fakeAgentUsecase) IngestHook(
-	_ context.Context,
-	segID string,
-	provider string,
-	event string,
-	raw []byte,
-) error {
+func (f *fakeAgentUsecase) Hook(
+	_ context.Context, segID, provider, event string, raw []byte, _ engineagents.Channel,
+) (agentusecase.HookReply, error) {
 	f.ingestCalls = append(f.ingestCalls, ingestCall{segID: segID, provider: provider, event: event, raw: raw})
-	return f.ingestErr
+	return agentusecase.HookReply{Body: []byte(f.hookReply), Ask: f.hookAsk}, f.ingestErr
 }
 
-// IngestHookDelivery is the journalled ingress. The handler picks it by whether
-// the hook carries a delivery id, so this double records into the SAME log as
-// IngestHook: a test asserts what was forwarded, never which of the two ran.
-func (f *fakeAgentUsecase) IngestHookDelivery(
-	_ context.Context, _ string,
-	segID, provider, event string,
-	raw []byte,
-) error {
-	f.ingestCalls = append(f.ingestCalls, ingestCall{segID: segID, provider: provider, event: event, raw: raw})
-	return f.ingestErr
-}
-
-func (f *fakeAgentUsecase) ListChatsByWorkspace(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
+func (f *fakeAgentUsecase) ListChatsByWorkspace(context.Context, string) ([]domain.Chat, error) {
 	return nil, nil
 }
 
-func (f *fakeAgentUsecase) ListChatsInRepo(
-	_ context.Context,
-	_ string,
-) ([]domain.Chat, error) {
+func (f *fakeAgentUsecase) ListChatsInRepo(context.Context, string) ([]domain.Chat, error) {
 	return nil, nil
 }
 
-func (f *fakeAgentUsecase) CwdWorkspaceID(
-	_ context.Context,
-	_ string,
-) (string, bool, error) {
+func (f *fakeAgentUsecase) CwdWorkspaceID(context.Context, string) (string, bool, error) {
 	return "", false, nil
 }
 
@@ -360,22 +244,14 @@ func (f *fakeAgentUsecase) ChatSnapshotsOf(
 	return out, nil
 }
 
-func (f *fakeAgentUsecase) ReadMessages(
-	_ context.Context,
-	chatID string,
-	after, before, limit int,
-) (domain.LedgerPage, error) {
-	f.messageCalls = append(f.messageCalls, messageCall{chatID: chatID, after: after, before: before, limit: limit})
-	return f.messagePage, f.messageErr
-}
-
 func (f *fakeAgentUsecase) SubmitPrompt(
-	_ context.Context,
+	ctx context.Context,
 	chatID, text, requestID, provider string,
 	selection *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
 	f.promptCalls = append(f.promptCalls, promptCall{
 		chatID: chatID, text: text, requestID: requestID, provider: provider, selection: selection,
+		retryOf: domain.PromptRetryOf(ctx),
 	})
 	return f.promptResult, f.promptErr
 }
@@ -388,38 +264,17 @@ func (f *fakeAgentUsecase) SlashCatalog(
 	return f.catalog, f.catalogErr
 }
 
-func (f *fakeAgentUsecase) PendingPrompt(
-	_ context.Context,
-	_ string,
-) (domain.PendingPrompt, bool, error) {
-	return f.pendingPrompt, f.pendingPromptFound, f.pendingPromptErr
-}
-
-// LiveRunnerForChat/ConversationsForChat back the derived runner facts on the chat
-// DTOs, which only the List/Get read handlers compose (see
-// configurableListGetUsecase in chats_test.go, the double those tests dial in). This
-// double answers "dormant, no history" — the honest shape of a chat no runner has
-// ever been placed on — so the mutation handlers it does serve never trip over them.
-func (f *fakeAgentUsecase) LiveRunnerForChat(
-	_ context.Context,
-	_ string,
-) (engineagents.Runner, error) {
-	return engineagents.Runner{}, agentrunner.ErrNotFound
-}
-
-func (f *fakeAgentUsecase) ConversationsForChat(
-	_ context.Context,
-	_ string,
-) ([]engineagents.ChatConversation, error) {
+// ConversationsForChat backs the chat DTOs' derived facts, which only the List/Get
+// read handlers compose; this double answers "no history" for the mutation
+// handlers it serves.
+func (f *fakeAgentUsecase) ConversationsForChat(context.Context, string) ([]engineagents.ChatConversation, error) {
 	return nil, nil
 }
 
 func (f *fakeAgentUsecase) SwitchProvider(
-	_ context.Context,
-	chatID string,
-	provider string,
+	_ context.Context, chatID, provider, surface string,
 ) (string, error) {
-	f.switchCalls = append(f.switchCalls, switchCall{chatID: chatID, provider: provider})
+	f.switchCalls = append(f.switchCalls, switchCall{chatID: chatID, provider: provider, surface: surface})
 	if f.switchErr != nil {
 		return "", f.switchErr
 	}
@@ -531,17 +386,6 @@ func (f *fakeAgentUsecase) PurgeChat(
 	return f.purgeErr
 }
 
-func (f *fakeAgentUsecase) Promote(
-	_ context.Context,
-	chatID string,
-) (domain.Chat, error) {
-	f.promoteCalls = append(f.promoteCalls, chatID)
-	if f.promoteErr != nil {
-		return domain.Chat{}, f.promoteErr
-	}
-	return domain.Chat{ID: chatID, WorkspaceID: f.promotedWorkspaceID}, nil
-}
-
 func (f *fakeAgentUsecase) DescriptorReports(
 	context.Context,
 ) ([]descriptorcheck.Report, error) {
@@ -553,9 +397,7 @@ func (f *fakeAgentUsecase) InstallDescriptor(_ context.Context, raw []byte) (des
 	return f.installReport, f.installErr
 }
 
-func (f *fakeAgentUsecase) ResolveProviders(
-	_ context.Context,
-) ([]domain.AgentProvider, error) {
+func (f *fakeAgentUsecase) ResolveProviders(context.Context) ([]domain.AgentProvider, error) {
 	return f.resolveProviders, f.resolveErr
 }
 
@@ -570,9 +412,7 @@ func (f *fakeAgentUsecase) ReplaceProviderPreferences(
 	return f.replaceResult, nil
 }
 
-func (f *fakeAgentUsecase) DefaultPermissionLevel(
-	_ context.Context,
-) (string, error) {
+func (f *fakeAgentUsecase) DefaultPermissionLevel(context.Context) (string, error) {
 	return f.defaultLevel, f.defaultLevelErr
 }
 
@@ -604,50 +444,15 @@ func (f *fakeAgentUsecase) SetModelManifestFetchEnabled(
 	return nil
 }
 
-func (f *fakeAgentUsecase) ReadActivity(
-	_ context.Context, chatID string, after int64, limit int,
-) (agentusecase.ChatActivity, error) {
-	f.activityCalls = append(f.activityCalls, activityCall{chatID: chatID, after: after, limit: limit})
-	return f.activity, f.activityErr
-}
-
-func (f *fakeAgentUsecase) Interruptions(
-	_ context.Context, _ string,
-) ([]domain.ActivityInterruption, error) {
-	return f.interruptions, f.interruptionsErr
-}
-
-func (f *fakeAgentUsecase) TakeHookReply(string) (string, bool) {
-	return f.hookReply, f.hookReply != ""
-}
-
 func (f *fakeAgentUsecase) VerifyRunnerToken(runnerID, token string) bool {
 	f.verifyCalls = append(f.verifyCalls, [2]string{runnerID, token})
 	return token == f.validToken && token != ""
-}
-
-func (f *fakeAgentUsecase) ReadToolPayload(
-	_ context.Context, chatID, toolID, side string,
-) ([]byte, error) {
-	f.payloadCalls = append(f.payloadCalls, payloadCall{chatID: chatID, toolID: toolID, side: side})
-	return f.payload, f.payloadErr
-}
-
-func (f *fakeAgentUsecase) ReadPendingChoices(
-	_ context.Context, chatID string,
-) ([]domain.ActivityChoice, error) {
-	f.pendingCalls = append(f.pendingCalls, chatID)
-	return f.pending, f.pendingErr
 }
 
 func (f *fakeAgentUsecase) AnswerTerminalWait(context.Context, string, string) error { return nil }
 
 func (f *fakeAgentUsecase) TerminalWait(string) domain.AgentTerminalWait {
 	return f.terminalWait
-}
-
-func (f *fakeAgentUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string {
-	return f.answerable
 }
 
 func (f *fakeAgentUsecase) AnswerChoice(
@@ -660,25 +465,15 @@ func (f *fakeAgentUsecase) AnswerChoice(
 	return f.answerErr
 }
 
-func (f *fakeAgentUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
-	return f.pendingAnswer, f.pendingAwait
+func (f *fakeAgentUsecase) HoldsAnswer(string) bool {
+	return f.pendingAwait
 }
 
 func (f *fakeAgentUsecase) AwaitAnswer(
-	ctx context.Context, deliveryID string,
+	_ context.Context, askID string,
 ) (agentusecase.HookAnswer, error) {
-	f.awaitCalls = append(f.awaitCalls, deliveryID)
-	if f.awaitStarted != nil {
-		close(f.awaitStarted)
-		<-ctx.Done()
-		return agentusecase.HookAnswer{}, ctx.Err()
-	}
+	f.awaitCalls = append(f.awaitCalls, askID)
 	return f.awaitAnswer, f.awaitErr
-}
-
-func (f *fakeAgentUsecase) AbandonAnswer(_ context.Context, deliveryID string) error {
-	f.abandonCalls = append(f.abandonCalls, deliveryID)
-	return f.abandonErr
 }
 
 func (f *fakeAgentUsecase) SetChatPermissionLevel(
@@ -718,18 +513,8 @@ func (f *fakeAgentUsecase) TelemetryOnChatSurface(context.Context, string) bool 
 	return !f.telemetryOffSurface
 }
 
-type activityCall struct {
-	chatID string
-	after  int64
-	limit  int
-}
-
-type payloadCall struct {
-	chatID, toolID, side string
-}
-
 // ---------------------------------------------------------------------------
-// HTTPHook — a vendor CLI's own HTTP hook, no relay process
+// HTTPHook — the hook ingress
 // ---------------------------------------------------------------------------
 
 func newHTTPHookContext(
@@ -775,7 +560,7 @@ func TestHTTPHook_RejectsAnUnauthenticatedCaller(t *testing.T) {
 
 		assert.Equal(t, http.StatusUnauthorized, rec.Code, "token %q", token)
 	}
-	assert.Empty(t, uc.ingestCalls, "an unauthenticated hook must never reach the journal")
+	assert.Empty(t, uc.ingestCalls, "an unauthenticated hook must never reach the ingress")
 }
 
 func TestHTTPHook_IngestErrorIsMapped(t *testing.T) {
@@ -803,6 +588,7 @@ func TestHTTPHook_ReturnsTheDaemonsReplyAsTheBody(t *testing.T) {
 func TestHTTPHook_HoldsTheRequestOpenUntilAHumanDecides(t *testing.T) {
 	uc := &fakeAgentUsecase{
 		validToken:   "tok",
+		hookAsk:      "ask-1",
 		pendingAwait: true,
 		awaitAnswer:  agentusecase.HookAnswer{Stdout: []byte(`{"behavior":"allow"}`)},
 	}
@@ -813,28 +599,5 @@ func TestHTTPHook_HoldsTheRequestOpenUntilAHumanDecides(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"behavior":"allow"}`, rec.Body.String())
-	assert.Len(t, uc.awaitCalls, 1, "the daemon waits itself; the CLI never polls")
-	assert.Empty(t, uc.abandonCalls)
-}
-
-// The CLI closing its request is how an HTTP hook learns the human decided in
-// the terminal instead: the prompt must stop being shown in the chat.
-func TestHTTPHook_AbandonsThePromptWhenTheCLIHangsUp(t *testing.T) {
-	uc := &fakeAgentUsecase{validToken: "tok", pendingAwait: true, awaitStarted: make(chan struct{})}
-	h := newChatHandlers(uc)
-	ctx, _ := newHTTPHookContext(t, "tok", []byte(`{}`))
-	cancelled, cancel := context.WithCancel(ctx.Request.Context())
-	ctx.Request = ctx.Request.WithContext(cancelled)
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-		h.HTTPHook(ctx)
-	}()
-	<-uc.awaitStarted
-	cancel()
-	<-done
-
-	require.Len(t, uc.abandonCalls, 1)
-	assert.Equal(t, uc.awaitCalls[0], uc.abandonCalls[0], "the abandoned delivery is the one being awaited")
+	assert.Equal(t, []string{"ask-1"}, uc.awaitCalls, "the daemon waits on the ask itself; the CLI never polls")
 }

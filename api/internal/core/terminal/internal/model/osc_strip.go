@@ -2,33 +2,9 @@ package model
 
 import "strconv"
 
-// OSC 0/1/2 (icon name / window title) strip state machine.
-//
-// Motivation: the pinned x/vt commit parses its input as a byte stream and honours the 8-bit
-// C1 String Terminator (0x9C) as an OSC terminator. 0x9C is ALSO a valid UTF-8 continuation
-// byte (the sparkle "✳" U+2733 = E2 9C B3), so when a UTF-8 title carrying that byte reaches
-// x/vt's OSC-string parser it EXITS the OSC after "\xe2", drops to ground, and PRINTS the
-// leftover title bytes (" Claude Code") into the grid as visible cells at the cursor. A
-// Claude spinner re-sets its title constantly, so "Claude Code" gets stamped across the grid;
-// our serialize then faithfully reproduces that corruption on re-attach.
-//
-// We already capture the title ourselves, UTF-8-transparently, via the escan scanner
-// (escan.go) — so x/vt does not need to see OSC 0/1/2 at all. This machine removes exactly
-// the OSC 0/1/2 sequences from the byte stream BEFORE it reaches the emulator, using the
-// SAME UTF-8-aware framing escan uses to capture them (terminate only on BEL 0x07 or the
-// 7-bit ST ESC \, NEVER on a lone 0x9C or any byte >= 0x80). It is stateful across Write
-// calls so an OSC split across PTY chunks is still recognised and never leaks a dangling
-// partial OSC title into x/vt.
-//
-// It strips ONLY OSC 0/1/2, deciding by the SAME numeric parse escan uses to capture them:
-// the collected code digits are read with strconv.Atoi and the OSC is stripped iff the value
-// is 0, 1 or 2. So the leading-zero forms "00"/"01"/"02" strip (Atoi -> 0/1/2, exactly what
-// escan captures), while OSC 10/11/12 (default colours), OSC 4, OSC 8 and every other OSC pass
-// straight through to x/vt unchanged. The live-client fan-out is not involved here — the
-// session fans out the RAW stream to clients; only what the EMULATOR sees is stripped.
-//
-// Because a conforming terminal moves no cursor on an OSC, removing the sequence also removes
-// the spurious cursor movement the mis-print caused.
+// OSC 0/1/2 strip: x/vt ends an OSC on the 8-bit ST 0x9C, a UTF-8 continuation byte, and prints a
+// title's leftover bytes into the grid. escan already captures titles, so these OSCs are removed before
+// the emulator with escan's framing (BEL or ESC \ only) and its Atoi code parse; other OSCs pass.
 
 const (
 	stripGround = iota
@@ -40,12 +16,8 @@ const (
 	stripOSCPassEsc
 )
 
-// stripOSCTitles returns the bytes of p that should reach the emulator with every OSC 0/1/2
-// sequence removed. It advances the persistent strip state (m.stripState / m.stripWithheld /
-// m.stripCode) so a sequence split across Write chunks is handled correctly: the bytes before
-// an OSC start feed the emulator immediately, the ambiguous OSC-introducer bytes are WITHHELD
-// until the code disambiguates strip-vs-keep, and only then are they discarded (OSC 0/1/2) or
-// flushed through (any other OSC).
+// stripOSCTitles returns p minus every OSC 0/1/2, keeping state across Writes: the possible
+// introducer is WITHHELD until the code decides strip (discard) or keep (flush).
 func (m *vtModel) stripOSCTitles(
 	p []byte,
 ) []byte {
@@ -87,10 +59,8 @@ func (m *vtModel) stripStep(
 	}
 }
 
-// stripFromGround emits ordinary bytes straight through. Only the 7-bit ESC is withheld,
-// because it MIGHT introduce an OSC (ESC ]) we have to strip; every other introducer form
-// (including the 8-bit C1 OSC 0x9D, a UTF-8 continuation byte we never treat as a control)
-// is content and passes through, matching escan's 7-bit-only framing.
+// stripFromGround withholds only the 7-bit ESC, which may start an OSC; every other byte,
+// including the 8-bit C1 OSC (a UTF-8 continuation byte), is content, matching escan.
 func (m *vtModel) stripFromGround(
 	out []byte,
 	c byte,
@@ -103,10 +73,8 @@ func (m *vtModel) stripFromGround(
 	return append(out, c)
 }
 
-// stripFromEsc resolves the byte after a withheld ESC. ESC ] begins an OSC (keep withholding,
-// start reading the code). Anything else means this was not an OSC: flush the withheld ESC and
-// reprocess the byte from ground, so ESC ESC re-arms the withhold and ESC [ ... CSI (and every
-// other escape) reaches the emulator intact.
+// stripFromEsc: ESC ] starts an OSC; anything else flushes the withheld ESC and reprocesses
+// the byte from ground, so CSI and other escapes reach the emulator intact.
 func (m *vtModel) stripFromEsc(
 	out []byte,
 	c byte,
@@ -122,13 +90,8 @@ func (m *vtModel) stripFromEsc(
 	return m.stripStep(out, c)
 }
 
-// stripFromOSCCode reads the numeric OSC code that follows ESC ]. It accumulates EVERY leading
-// digit (matching escan, which parses the whole code field with Atoi) so a leading-zero code
-// like "00"/"01"/"02" is read as its numeric value, not misjudged by digit count. The withheld
-// introducer stays withheld across the digits, because until a non-digit arrives the code is
-// still ambiguous. On the first non-digit byte the accumulated code decides: a title/icon code
-// (oscCodeIsTitle: value 0/1/2) switches to discard, any other (including an empty code) flushes
-// the withheld introducer and passes the rest through.
+// stripFromOSCCode accumulates every leading digit (escan parses the whole field with Atoi, so
+// "00" is 0) while still withholding; the first non-digit decides discard (title) or flush.
 func (m *vtModel) stripFromOSCCode(
 	out []byte,
 	c byte,
@@ -148,12 +111,8 @@ func (m *vtModel) stripFromOSCCode(
 	return m.stripFromPass(out, c)
 }
 
-// oscCodeIsTitle reports whether the accumulated code is an icon/title OSC (numeric value 0, 1
-// or 2). It parses the collected digits with strconv.Atoi — the IDENTICAL parse escan.finishOSC
-// uses to capture the title — so the two agree on the exact same set: "0"/"1"/"2" AND their
-// leading-zero forms "00"/"01"/"02" are titles, while OSC 10/11/12 (code "10"…), an empty code,
-// and any non-numeric or out-of-range code are NOT. Strip and capture therefore never disagree
-// on which OSCs are captured-and-stripped versus passed through.
+// oscCodeIsTitle uses the IDENTICAL Atoi parse as escan.finishOSC (0/1/2 and "00"/"01"/"02"), so
+// strip and capture never disagree on which OSCs are titles.
 func (m *vtModel) oscCodeIsTitle() bool {
 	code, err := strconv.Atoi(string(m.stripCode))
 	if err != nil {
@@ -162,10 +121,8 @@ func (m *vtModel) oscCodeIsTitle() bool {
 	return code == 0 || code == 1 || code == 2
 }
 
-// stripFromDiscard drops the body of an OSC 0/1/2 until a UTF-8-safe terminator: BEL commits,
-// ESC may begin a 7-bit ST (deferred to stripFromDiscardEsc), CAN/SUB abort. Every other byte
-// — crucially INCLUDING the 8-bit ST 0x9C and all bytes >= 0x80 — is title content that is
-// dropped, never a terminator. Nothing is emitted.
+// stripFromDiscard drops an OSC 0/1/2 body until BEL, a 7-bit ST, or CAN/SUB; 0x9C and every
+// byte >= 0x80 is title content, never a terminator.
 func (m *vtModel) stripFromDiscard(
 	out []byte,
 	c byte,

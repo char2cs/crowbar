@@ -2,7 +2,7 @@ import {
   cacheFontsForBootstrap,
   cacheThemeForBootstrap,
 } from '@/features/settings/lib/appearance-bootstrap'
-import { setWindowTransparency, setMacOSWindowAppearance } from '@/lib/crowbar-bridge'
+import { setMacOSWindowAppearance } from '@/lib/crowbar-bridge'
 import type { Settings, Theme } from '@/features/settings/types/settings'
 
 const ALL_THEME_CLASSES = [
@@ -21,11 +21,6 @@ function applyFallbackTheme(theme: Theme) {
 
 type SystemThemePreference = 'light' | 'dark'
 
-interface LegacyMediaQueryList extends MediaQueryList {
-  addListener(listener: (event: MediaQueryListEvent) => void): void
-  removeListener(listener: (event: MediaQueryListEvent) => void): void
-}
-
 let removeThemeSyncListener: (() => void) | null = null
 
 function applyWindowTransparency(enabled: boolean) {
@@ -35,10 +30,6 @@ function applyWindowTransparency(enabled: boolean) {
     'data-window-transparency',
     enabled ? 'enabled' : 'disabled',
   )
-
-  void setWindowTransparency(enabled).catch((error) => {
-    console.warn('Failed to sync window transparency', error)
-  })
 }
 
 function getSystemThemePreference(): SystemThemePreference {
@@ -83,14 +74,8 @@ function syncThemeWithSystem(themeMode: 'light' | 'dark' | 'system', onModeChang
     onModeChanged?.()
   }
 
-  if ('addEventListener' in mediaQuery) {
-    mediaQuery.addEventListener('change', handleChange)
-    removeThemeSyncListener = () => mediaQuery.removeEventListener('change', handleChange)
-  } else {
-    const legacyMediaQuery = mediaQuery as LegacyMediaQueryList
-    legacyMediaQuery.addListener(handleChange)
-    removeThemeSyncListener = () => legacyMediaQuery.removeListener(handleChange)
-  }
+  mediaQuery.addEventListener('change', handleChange)
+  removeThemeSyncListener = () => mediaQuery.removeEventListener('change', handleChange)
 }
 
 export async function applyTheme(theme: Theme) {
@@ -101,13 +86,9 @@ export async function applyTheme(theme: Theme) {
 
     const syncAppliedTheme = () => {
       themeRegistry.applyTheme(theme)
-      // Consume the theme the registry RESOLVED to, never a fresh lookup of the
-      // raw id. applyTheme() degrades an id it doesn't know (a persisted 'terra'
-      // from before the theme was removed, say) to the default theme —
-      // but getTheme('terra') still returns undefined, which dropped us into the
-      // guess-from-the-name fallback below. That fallback force-added .dark and
-      // pinned the native window dark on every launch AND every Theme Mode
-      // change, so Theme Mode = Light could never take effect.
+      // The theme the registry resolved to, not a lookup of the raw id: applyTheme() degrades an
+      // unknown id to the default, while getTheme(id) would be undefined and hit the name-guess
+      // fallback below, pinning the window dark whatever Theme Mode says.
       const appliedTheme = themeRegistry.getActiveTheme()
       if (appliedTheme) {
         cacheThemeForBootstrap(appliedTheme)
@@ -135,12 +116,7 @@ export async function applyTheme(theme: Theme) {
 }
 
 function syncMacOSWindowAppearance(themeType: 'light' | 'dark') {
-  const transparencyEnabled =
-    typeof document === 'undefined'
-      ? true
-      : document.documentElement.getAttribute('data-window-transparency') !== 'disabled'
-
-  void setMacOSWindowAppearance(themeType, transparencyEnabled).catch((error) => {
+  void setMacOSWindowAppearance(themeType).catch((error) => {
     console.warn('Failed to sync macOS window appearance', error)
   })
 }

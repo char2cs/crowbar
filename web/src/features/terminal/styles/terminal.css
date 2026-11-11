@@ -86,7 +86,7 @@
   z-index: 100;
 }
 
-/* xterm.js WebLinksAddon creates a canvas layer for links */
+/* Keep xterm's link layer above the text it underlines */
 .xterm .xterm-link-layer {
   z-index: 10;
 }

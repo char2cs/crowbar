@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,9 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // ── HomeReader mock ────────────────────────────────────────────────────────────
@@ -34,14 +37,6 @@ type stubFiles struct{}
 
 func (s *stubFiles) Tree(_ context.Context, _, _ string, _ fileusecase.FileStatusProvider) ([]domain.FileNode, error) {
 	return []domain.FileNode{}, nil
-}
-
-func (s *stubFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
-	return domain.FileContent{}, nil
-}
-
-func (s *stubFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error {
-	return nil
 }
 
 func (s *stubFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error {
@@ -64,27 +59,11 @@ func (s *stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
-// ── WorkSignal stub — the derived working overlay the home read stamps from ──
+// ── WorkSignal stub — the working read the home read stamps from ──────────
 
 type stubWork struct{ working bool }
 
 func (s stubWork) WorkingFor(_ string) bool { return s.working }
-
-// ── NodeCreator mock — the lazy-provisioning path's own position row ────────
-
-type mockNodeCreator struct{ mock.Mock }
-
-func (m *mockNodeCreator) CreateIdempotent(
-	ctx context.Context,
-	id string,
-	kind domain.NodeKind,
-	parentID string,
-	order int,
-) (domain.Node, error) {
-	args := m.Called(ctx, id, kind, parentID, order)
-	node, _ := args.Get(0).(domain.Node)
-	return node, args.Error(1)
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -158,7 +137,7 @@ func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-missing").
-		Return(domain.Workspace{}, apperr.ErrNotFound)
+		Return(domain.Workspace{}, problem.ErrNotFound)
 
 	h := handlers.New(reader, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
@@ -276,4 +255,13 @@ func TestRequireHomeWorkspace_AbortsChainOnFailure(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	require.False(t, called)
 	reader.AssertExpectations(t)
+}
+
+// missingFile is the error the fs engine hands up for a path that is not there:
+// the os error itself, whose errno alone makes it a 404.
+func missingFile(t *testing.T) error {
+	t.Helper()
+	_, err := os.Lstat(filepath.Join(t.TempDir(), "ghost.txt"))
+	require.Error(t, err)
+	return fmt.Errorf("file: copy: %w", err)
 }

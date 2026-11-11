@@ -1,25 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-const { createChat, createChatWithOwnWorktree, toastError, getHomeWorkspaceId, apiFetch } =
-  vi.hoisted(() => ({
-    createChat: vi.fn(() => Promise.resolve('chat-1')),
-    createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
-    toastError: vi.fn(),
-    getHomeWorkspaceId: vi.fn(),
-    apiFetch: vi.fn(() => Promise.resolve(undefined)),
-  }))
-
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
-  apiFetch,
+const { createChat, createChatWithOwnWorktree, getHomeWorkspaceId } = vi.hoisted(() => ({
+  createChat: vi.fn((id: string) => Promise.resolve(id)),
+  createChatWithOwnWorktree: vi.fn((id: string) => Promise.resolve({ id, workspaceId: 'ws-new' })),
+  getHomeWorkspaceId: vi.fn(),
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+
+vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-creates')>()),
   createChat,
   createChatWithOwnWorktree,
-}))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
@@ -27,13 +17,13 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 }))
 
 import { handleCreate } from '@/components/layout/create-actions'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
-import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
+import type { Repo } from '@/core/entities/repo-types'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const navigate = vi.fn(() => Promise.resolve()) as unknown as Parameters<typeof handleCreate>[2]
 
@@ -66,10 +56,10 @@ const repo = (): Repo => ({
 beforeEach(() => {
   vi.clearAllMocks()
   __resetWorkspaceScopesForTest()
-  useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
-  useSidebarStore.setState(getInitialState())
-  useSidebarStore.getState().setRepos([repo()])
+  resetEntities()
+  treeUiStore.setState({ draft: null })
+  resetEntities()
+  seedRepos([repo()])
   useAgentProvidersStore.setState({
     status: 'ready',
     providers: [{ id: 'claude', name: 'Claude', enabled: true } as never],
@@ -78,7 +68,7 @@ beforeEach(() => {
 
 describe('owner known to the workspace DTO but absent from the chat list', () => {
   it('renders the locked branch by its owner id, labelled by its branch', () => {
-    const rows = rowsFromRepo(repo())
+    const rows = repoRows(repo())
     const row = rows.find((r) => r.id === 'owner-locked')
     expect(row).toMatchObject({ kind: 'branch', workspaceId: 'ws-locked', label: 'release' })
     expect(rows.map((r) => r.id)).not.toContain('ws-locked')
@@ -86,10 +76,10 @@ describe('owner known to the workspace DTO but absent from the chat list', () =>
 
   it('fork off that row parents the naming input at the rendered row, not at an unlisted chat', () => {
     handleCreate('owner-locked', 'workspace', navigate)
-    const armed = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')!
-    const rendered = [...rowsFromRepo(repo()), ...rowsFromPending([armed])]
+    const draft = treeUiStore.getState().draft!
+    const rendered = deriveRows(inputOf({ repos: [repo()], draft }))
     const ids = new Set(rendered.map((r) => r.id))
     // sidebar-tree.tsx roots any row whose parentId names no rendered row.
-    expect(ids.has(armed.parentId ?? '')).toBe(true)
+    expect(ids.has(draft.parentId)).toBe(true)
   })
 })

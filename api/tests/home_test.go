@@ -3,11 +3,14 @@
 package tests
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // createProjectForHome creates a project via POST /v0/projects and returns its
@@ -20,17 +23,29 @@ func createProjectForHome(t *testing.T, h *harness) string {
 	t.Helper()
 	dir := gitRepoWithCommit(t)
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "home-demo", "path": dir}, http.StatusAccepted)
 	_ = resp.Body.Close()
 
-	project := readUntil(t, projectsWS, func(m map[string]any) bool {
+	project := projectsWS.read(t, func(m map[string]any) bool {
 		return m["path"] == dir
 	})
 	id, _ := project["id"].(string)
 	require.NotEmpty(t, id, "project create must broadcast a ProjectDTO with an id")
 	return id
+}
+
+// homeWorkspaceID reads the id of the project's home workspace, the id its
+// documents are addressed by.
+func homeWorkspaceID(t *testing.T, h *harness, projectID string) string {
+	t.Helper()
+	var home struct {
+		ID string `json:"id"`
+	}
+	h.get("/v0/projects/"+projectID+"/home", &home)
+	require.NotEmpty(t, home.ID, "the home endpoint must name its workspace")
+	return home.ID
 }
 
 // TestRegression_HomeEndpointReachable proves that GET /v0/projects/:id/home
@@ -71,36 +86,37 @@ func TestHome_ThreadsRoundTrip(t *testing.T) {
 	assert.Equal(t, opened.ID, listed[0].ID)
 }
 
-// TestHome_ThreadBroadcastsOverWebSocket proves the dual-served home thread list
-// works as a WebSocket: a subscriber on /home/threads receives the DTO broadcast
-// when a thread is opened. This validates WS scoping for the repoId-less home
-// workspace (namespace "p//w" prefix-matches the event "p//w/<id>").
-func TestHome_ThreadBroadcastsOverWebSocket(t *testing.T) {
+// TestHome_AThreadReachesTheHomeWorkspaceScope: a client holding the home
+// workspace's ws: scope hears a thread opened there, carrying the project it
+// names though the home rides no repo.
+func TestHome_AThreadReachesTheHomeWorkspaceScope(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
 	homeBase := "/v0/projects/" + projectID + "/home"
+	scope := "ws:" + homeWorkspaceID(t, h, projectID)
 
-	conn := h.dial(homeBase + "/threads")
+	c := dialStream(t, h)
+	c.Hold(t, scope)
 	h.post(homeBase+"/threads", map[string]any{
 		"filePath": "README.md", "line": 1, "side": "right", "body": "ws home thread",
 	}, http.StatusCreated, nil)
 
-	frame := readUntil(t, conn, func(m map[string]any) bool {
-		return m["body"] == "ws home thread"
+	f := c.Next(t, func(f stream.Frame) bool {
+		return f.T == stream.FrameEntity && f.Scope == scope && f.Kind == string(stream.KindReviewThread)
 	})
-	assert.Equal(t, projectID, frame["projectId"],
-		"home thread frame must carry the project scope")
+	var th threadDTO
+	require.NoError(t, json.Unmarshal(f.Data, &th))
+	assert.Equal(t, "ws home thread", th.Body)
+	assert.Equal(t, projectID, th.ProjectID, "home thread frame must carry the project scope")
 }
 
-// TestHome_FilesWatchWebSocketUpgrades proves the home file-change stream route
-// exists and upgrades. This is the exact route the project-home view hit a 404
-// on (/v0/projects/:p/home/files/ws); the dial helper fails on a non-101 upgrade,
-// so a successful dial is the regression guard.
-func TestHome_FilesWatchWebSocketUpgrades(t *testing.T) {
+// TestHome_FilesScopeHoldsTheHomeWorkspace: the project-home view watches its
+// files through the home workspace's files: scope.
+func TestHome_FilesScopeHoldsTheHomeWorkspace(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
 
-	_ = h.dial("/v0/projects/" + projectID + "/home/files/ws")
+	dialStream(t, h).Hold(t, "files:"+homeWorkspaceID(t, h, projectID))
 }
 
 // TestRegression_HomeHasNoGitSurface locks the design decision that git is NOT a
@@ -122,7 +138,9 @@ func TestRegression_HomeHasNoGitSurface(t *testing.T) {
 // not, so Duplicate in the home explorer 404'd every time (Task 34).
 func TestRegression_HomeFilesCopy(t *testing.T) {
 	h := newHarness(t)
-	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
+	projectID := createProjectForHome(t, h)
+	homeBase := "/v0/projects/" + projectID + "/home"
+	homeID := homeWorkspaceID(t, h, projectID)
 
 	var copied struct {
 		ID string `json:"id"`
@@ -135,8 +153,8 @@ func TestRegression_HomeFilesCopy(t *testing.T) {
 	var original, dup struct {
 		Content string `json:"content"`
 	}
-	h.get(homeBase+"/files/content?path=README.md", &original)
-	h.get(homeBase+"/files/content?path=README+copy.md", &dup)
+	h.get(docURL(homeID, "README.md"), &original)
+	h.get(docURL(homeID, "README copy.md"), &dup)
 	assert.Equal(t, original.Content, dup.Content,
 		"home copy must reproduce the source content byte-for-byte")
 }
@@ -171,12 +189,14 @@ func TestRegression_HomeFilesCopyConflictAndMissingSource(t *testing.T) {
 // {oldPath, newPath} shape now 400s.
 func TestRegression_HomeFilesRenameContract(t *testing.T) {
 	h := newHarness(t)
-	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
+	projectID := createProjectForHome(t, h)
+	homeBase := "/v0/projects/" + projectID + "/home"
+	homeID := homeWorkspaceID(t, h, projectID)
 
 	var before struct {
 		Content string `json:"content"`
 	}
-	h.get(homeBase+"/files/content?path=README.md", &before)
+	h.get(docURL(homeID, "README.md"), &before)
 
 	var renamed struct {
 		ID string `json:"id"`
@@ -189,9 +209,9 @@ func TestRegression_HomeFilesRenameContract(t *testing.T) {
 	var after struct {
 		Content string `json:"content"`
 	}
-	h.get(homeBase+"/files/content?path=RENAMED.md", &after)
+	h.get(docURL(homeID, "RENAMED.md"), &after)
 	assert.Equal(t, before.Content, after.Content, "rename must preserve content at the new path")
-	h.raw(http.MethodGet, homeBase+"/files/content?path=README.md", nil, http.StatusNotFound).Body.Close()
+	require.NoError(t, h.raw(http.MethodGet, docURL(homeID, "README.md"), nil, http.StatusNotFound).Body.Close())
 
 	// The retired {oldPath, newPath} shape leaves `path` unbound → 400.
 	h.raw(http.MethodPatch, homeBase+"/files",

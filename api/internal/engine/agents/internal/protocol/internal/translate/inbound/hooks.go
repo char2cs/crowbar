@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/promptorigin"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -18,25 +19,18 @@ var (
 
 	ErrForeignConversation = errors.New("agents: hook does not describe this CLI's own conversation")
 
-	// ErrRequiredFieldMissing is design spec 2.3's own rule: a field an event
-	// declares required: resolved to nothing against the delivered payload.
-	// This is the highest-value rule the descriptor channel-split migration
-	// adds — a mapping that silently resolves to empty used to be
-	// indistinguishable from one that never had anything to resolve.
+	// ErrRequiredFieldMissing is a required: field that resolved to nothing against
+	// the delivered payload, so a broken mapping fails loudly instead of reading empty.
 	ErrRequiredFieldMissing = errors.New("agents: required field resolved to nothing")
 
-	// ErrVariantMismatch is a delivery that named a canonical event whose own
-	// when: discriminator its payload does not satisfy: the same wire event,
-	// a different variant. Not a failure of anything — the sibling event that
-	// DOES match is delivered separately and handles it — so every caller
-	// drops it quietly.
+	// ErrVariantMismatch is a payload that fails the event's when: discriminator: a
+	// different variant of the same wire event, which the matching sibling handles,
+	// so callers drop it quietly.
 	ErrVariantMismatch = errors.New("agents: payload is a different variant of this wire event")
 )
 
-// VariantMismatchError names which descriptor, event and channel rejected the
-// delivery, and the discriminator it was judged against — the same four facts
-// RequiredFieldError carries, for the same reason: a silent drop is
-// indistinguishable from a mapping that never ran.
+// VariantMismatchError names the descriptor, event, channel and discriminator that
+// rejected the delivery, so a quiet drop is still diagnosable.
 type VariantMismatchError struct {
 	Descriptor string
 	Event      string
@@ -61,9 +55,8 @@ func (e *ForeignConversationError) Error() string {
 
 func (e *ForeignConversationError) Unwrap() error { return ErrForeignConversation }
 
-// RequiredFieldError names exactly which descriptor, event, channel and
-// field failed to resolve — the four facts design spec 2.3 asks the error to
-// carry.
+// RequiredFieldError names the descriptor, event, channel and field that failed
+// to resolve.
 type RequiredFieldError struct {
 	Descriptor string
 	Event      string
@@ -78,81 +71,40 @@ func (e *RequiredFieldError) Error() string {
 
 func (e *RequiredFieldError) Unwrap() error { return ErrRequiredFieldMissing }
 
-// Parse turns one raw provider payload into a canonical event, reading the
-// field map channel selects — the block the delivery ACTUALLY arrived on,
-// never the event's static declared transport. See spec.EventSpec.
-// WireEventFor's own doc comment for why: a dual-shape event's shape arrives
-// per message, not per event declaration.
+// Parse turns one raw provider payload into a canonical event, reading the field
+// map of the channel the delivery ACTUALLY arrived on: a dual-shape event's shape
+// is per message, not per declaration.
 func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel) (models.CanonicalEvent, error) {
 	decoded, err := decode(d, raw)
 	if err != nil {
 		return models.CanonicalEvent{}, err
 	}
-	// The ownership guard (RequiredPayloadFields, e.g. codex's transcript_path)
-	// exists for HTTP-delivered hook payloads: any process on the machine can
-	// POST one, so Crowbar must confirm it actually names THIS CLI's own
-	// conversation before trusting it.
-	//
-	// THE TRAP (pre-channel-split): the guard used to be skipped whenever
-	// TransportFor(canonical) == "api", on the reasoning that an api-transport
-	// event structurally never carries a hooks-only field. That reasoning
-	// breaks for a DUAL-SHAPE event (codex's session_start/user_prompt/
-	// turn_stop, which inherit the api default but are still ALSO fired
-	// hooks-shaped by codex's own internal memory-consolidation session) — the
-	// skip was keyed on the event's STATIC declared transport, not on whether
-	// THIS delivery is actually hooks-shaped, so it let the memory session's
-	// payload through unchecked and reintroduced the chat-theft bug this guard
-	// exists for.
-	//
-	// channel is now the fix, directly: it is the ACTUAL delivery channel
-	// (caller-supplied, derived from where the bytes physically arrived — see
-	// turn/ingest.go's channelFor — never inferred from the payload or the
-	// event's declared transport). The guard is skipped ONLY for ChannelAPI —
-	// the one channel that structurally cannot be forged (a private jsonrpc2
-	// connection Crowbar itself dialed to the child process, not an HTTP
-	// surface anything on the machine can POST to) — and runs for hooks and
-	// for any channel this switch does not yet know about, fail-closed.
+	// The ownership guard confirms an HTTP-delivered payload names THIS CLI's own
+	// conversation, since any local process can POST one. Only the api channel, a
+	// private connection Crowbar dialled itself, is exempt; every other channel is checked.
 	if channel != spec.ChannelAPI {
 		if field, ok := ownsConversation(d, decoded); !ok {
 			return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
 		}
 	}
-	// EventFieldsFor, not EventFields: a channel-scoped event's field map
-	// lives in its api:/hooks: block, selected by the channel THIS delivery
-	// actually arrived on — never inferred from the payload's own shape, and
-	// never from the event's static Transport (see the design spec's chat-
-	// theft account). A legacy event answers the same regardless of channel.
+	// The field map is the block of the channel THIS delivery arrived on, never
+	// inferred from the payload's shape or the event's static transport.
 	fields, declared := d.EventFieldsFor(canonical, channel)
 	if !declared {
 		return models.CanonicalEvent{}, fmt.Errorf(
 			"%w: %q on %q (channel %q)", ErrUndeclaredEvent, canonical, d.ID, channel)
 	}
-	// when: — the sum-type discriminator, applied on EVERY channel.
-	//
-	// BEFORE required:, deliberately: a delivery that is a different variant of
-	// the same wire event has no obligation to carry the fields THIS variant
-	// declares required, so checking required: first would report a missing
-	// field where the real answer is "not this event".
-	//
-	// This is what lets one wire hook mean two canonical events. claude's
-	// Notification carries both "I am waiting for your input" (its only
-	// authoritative idle report) and a permission prompt; settings.json fires
-	// one relay command per canonical name, so BOTH arrive, and only the
-	// descriptor's own when: can tell them apart. Arming idle off an unfiltered
-	// Notification would abandon a genuinely live turn seconds later — the
-	// discriminator is the safety mechanism, not an optimisation. See
-	// spec.Descriptor.EventWhenFor.
+	// when: selects which deliveries of one wire hook this event accepts, so it runs
+	// before required: (a different variant owes this one no fields). It is what keeps
+	// a hook carrying both an idle report and a prompt from ending a live turn.
 	if when := d.EventWhenFor(canonical, channel); len(when) > 0 &&
 		!mapping.Match(decoded, when) {
 		return models.CanonicalEvent{}, &VariantMismatchError{
 			Descriptor: d.ID, Event: canonical, Channel: string(channel), When: when,
 		}
 	}
-	// required: (design spec 2.3) — a field the event declares required that
-	// resolves to nothing against THIS payload is a hard, named error, not a
-	// CanonicalEvent silently missing it. Checked against the same fields/
-	// decoded pair build() is about to read, so this can never disagree with
-	// what actually gets constructed.
+	// A required: field resolving to nothing is a named error. It reads the same
+	// fields/decoded pair build() uses, so the check cannot disagree with it.
 	for _, req := range d.EventRequired(canonical) {
 		if mapping.String(decoded, fields[req]) == "" {
 			return models.CanonicalEvent{}, &RequiredFieldError{
@@ -160,7 +112,37 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 			}
 		}
 	}
-	return build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventDiffFiles(canonical), d.EventPatch(canonical), decoded), nil
+	ev := build(canonical, fields, d.EventSteps(canonical), d.EventStatusMap(canonical), d.EventKindMap(canonical), d.EventLocations(canonical), d.EventDiffFiles(canonical), d.EventPatch(canonical), decoded)
+	if ev.Choice != nil && ev.Choice.Kind == models.ChoiceToolPermission {
+		ev.Choice.Options = append(ev.Choice.Options, suggestionOptions(fields, d.EventSuggestions(canonical, decoded))...)
+		markReasons(ev.Choice.Options, d, canonical)
+	}
+	if canonical == spec.HookUserPrompt {
+		ev = handedBack(d, ev)
+	}
+	return ev, nil
+}
+
+// handedBack is a prompt its descriptor declares a subagent's handed-back
+// result as that result: a subagent_result of the scope it names, opening the
+// parent's turn the prompt's own turn id names.
+func handedBack(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEvent {
+	p, ok := promptorigin.Match(d, ev.Message)
+	if !ok || p.Kind != spec.InjectedPromptSubagentResult {
+		return ev
+	}
+	scope := p.ScopeID.Find(ev.Message)
+	if scope == "" {
+		return ev
+	}
+	status := p.Status.Find(ev.Message)
+	if mapped, ok := d.EventStatusMap(spec.HookSubagentResult)[status]; ok {
+		status = mapped
+	}
+	return models.CanonicalEvent{
+		Kind: spec.HookSubagentResult, SessionID: ev.SessionID, TurnID: ev.TurnID, Raw: ev.Raw,
+		Subagent: &models.SubagentEvent{ID: scope, Status: status, Result: strings.TrimSpace(p.Result.Find(ev.Message))},
+	}
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
@@ -179,14 +161,12 @@ func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
 
 func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool) {
 	for _, field := range d.RequiredPayloadFields() {
-		// Absent, not merely empty: a payload whose shape never carries this
-		// field at all (a genuine api-transport delivery of a dual-shape
-		// event) is not evidence of anything and must not be rejected — see
-		// Parse's own doc on why this replaced a transport-wide skip.
-		if !mapping.Present(decoded, []string{field}) {
+		// Only a present-but-empty field is foreign: a payload shape that never
+		// carries it (an api delivery of a dual-shape event) proves nothing.
+		if !mapping.Present(decoded, mapping.Paths(field)) {
 			continue
 		}
-		if mapping.String(decoded, []string{field}) == "" {
+		if mapping.String(decoded, mapping.Paths(field)) == "" {
 			return field, false
 		}
 	}
@@ -211,31 +191,26 @@ func build(
 		SessionID:  get("session_id"),
 		Message:    get("message"),
 		TurnID:     get("turn_id"),
-		TurnStatus: get("turn_status"),
-		AsyncWork:  mapping.Count(decoded, fields["async_work"]),
+		TurnStatus: mapped(statusMap, get("turn_status")),
 		Model:      get("model"),
 		Effort:     get("effort"),
 		Reason:     get("reason"),
 		Raw:        decoded,
 	}
-	if mapped, ok := statusMap[ev.TurnStatus]; ok {
-		ev.TurnStatus = mapped
-	}
 	switch canonical {
+	case spec.HookSessionStart:
+		// Why it started, in Crowbar's words: a clear starts the conversation over.
+		ev.Reason = mapped(statusMap, ev.Reason)
 	case spec.HookUserPrompt:
-		if id := get("subagent_id"); id != "" {
-			ev.Subagent = &models.SubagentEvent{ID: id}
-		}
+		ev.Subagent = scope(get("scope_id"))
 	case spec.HookToolPre, spec.HookToolPost, spec.HookToolFail:
 		ev.Tool = buildTool(fields, statusMap, kindMap, locations, diffFiles, patch, decoded)
-		if id := get("subagent_id"); id != "" {
-			ev.Subagent = &models.SubagentEvent{ID: id}
-		}
-	case spec.HookSubagentPre, spec.HookSubagentPost:
-		ev.Subagent = &models.SubagentEvent{
-			ID:        get("subagent_id"),
-			AgentType: get("agent_type"),
-		}
+		ev.Subagent = scope(get("scope_id"))
+	case spec.HookSubagentPre, spec.HookSubagentPost, spec.HookSubagentResult:
+		ev.Subagent = buildSubagent(fields, statusMap, decoded)
+	case spec.HookPlanStep:
+		ev.Step = buildStep(fields, statusMap, decoded)
+		ev.Subagent = scope(ev.Step.ScopeID)
 	case spec.HookNotification:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptNotification, Detail: ev.Message}
 	case spec.HookPermission:
@@ -250,18 +225,59 @@ func build(
 		// streamed text belonging to one item. Only ev.Kind tells them apart, and
 		// only the consumer acts on that difference.
 		ev.Delta = buildDelta(fields, decoded)
+	case spec.HookMessageComplete:
+		ev.Complete = &models.MessageComplete{
+			TurnID: ev.TurnID, MessageID: get("message_id"), Text: get("text"), Phase: get("phase"),
+		}
 	case spec.HookPlanUpdate:
 		ev.Plan = buildPlan(steps, decoded)
 	case spec.HookTurnFailed:
 		ev.Failure = &models.TurnFailure{Reason: get("reason"), Detail: get("detail")}
-	case spec.HookCompactPre:
-		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptCompaction, Detail: get("trigger")}
-	case spec.HookCompactPost:
+	case spec.HookCompactPre, spec.HookCompactPost:
 		ev.Interrupt = &models.InterruptEvent{
-			Kind: models.InterruptCompaction, Detail: get("trigger"), Resolved: true,
+			Kind: models.InterruptCompaction, Detail: get("trigger"), Resolved: canonical == spec.HookCompactPost,
 		}
 	}
 	return ev
+}
+
+// mapped is v in Crowbar's words where m names it, else v unchanged.
+func mapped(m map[string]string, v string) string {
+	if out, ok := m[v]; ok {
+		return out
+	}
+	return v
+}
+
+// scope is the subagent an event ran under; nil is the main conversation.
+func scope(id string) *models.SubagentEvent {
+	if id == "" {
+		return nil
+	}
+	return &models.SubagentEvent{ID: id}
+}
+
+func buildSubagent(fields spec.FieldMap, statusMap map[string]string, decoded map[string]any) *models.SubagentEvent {
+	get := func(name string) string { return mapping.String(decoded, fields[name]) }
+	a := &models.SubagentEvent{
+		ID: get("scope_id"), AgentType: get("agent_type"), Title: get("title"),
+		Status: mapped(statusMap, get("status")), Result: get("result"),
+	}
+	tokens, hasTokens := mapping.Int(decoded, fields["usage.tokens"])
+	uses, hasUses := mapping.Int(decoded, fields["usage.tool_uses"])
+	duration, hasDuration := mapping.Int(decoded, fields["usage.duration"])
+	if hasTokens || hasUses || hasDuration {
+		a.Usage = &models.SubagentUsage{Tokens: int64(tokens), ToolUses: int64(uses), DurationMs: int64(duration)}
+	}
+	return a
+}
+
+func buildStep(fields spec.FieldMap, statusMap map[string]string, decoded map[string]any) *models.PlanStepEvent {
+	get := func(name string) string { return mapping.String(decoded, fields[name]) }
+	return &models.PlanStepEvent{
+		ScopeID: get("scope_id"), StepID: get("step_id"), Text: get("text"), Detail: get("detail"),
+		Status: mapped(statusMap, get("status")),
+	}
 }
 
 func buildDelta(fields spec.FieldMap, decoded map[string]any) *models.MessageDelta {
@@ -277,29 +293,21 @@ func buildDelta(fields spec.FieldMap, decoded map[string]any) *models.MessageDel
 	}
 }
 
-// buildPlan reads the whole plan array, WHOLESALE: the newest list is the entire
-// truth, so there is nothing to merge and nothing that can drift — the same
-// anti-drift rule turn_stop's async-work LEVEL follows.
-//
-// A step with no text is skipped (a plan entry with nothing to say is not a step),
-// but an unknown status passes through UNCHANGED rather than being dropped: a
-// status the descriptor's map does not name is still a step worth showing, and
-// silently shortening the plan would be worse than an unstyled row.
+// buildPlan reads the whole plan array: the newest list is the entire truth, so
+// nothing merges or drifts. Text-less steps are skipped; an unmapped status passes
+// through unchanged, since an unstyled row beats silently shortening the plan.
 func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep {
 	if steps == nil || steps.Items == "" {
 		return nil
 	}
-	rows := mapping.Objects(decoded, []string{steps.Items})
+	rows := mapping.Objects(decoded, mapping.Paths(steps.Items))
 	out := make([]models.PlanStep, 0, len(rows))
 	for _, row := range rows {
-		text := mapping.String(row, []string{steps.Text})
+		text := mapping.String(row, mapping.Paths(steps.Text))
 		if text == "" {
 			continue
 		}
-		status := mapping.String(row, []string{steps.Status})
-		if mapped, ok := steps.StatusMap[status]; ok {
-			status = mapped
-		}
+		status := mapped(steps.StatusMap, mapping.String(row, mapping.Paths(steps.Status)))
 		out = append(out, models.PlanStep{Text: text, Status: status})
 	}
 	if len(out) == 0 {
@@ -310,14 +318,16 @@ func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep 
 
 func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locations *spec.LocationsSpec, diffFiles *spec.DiffFilesSpec, patch *spec.PatchSpec, decoded map[string]any) *models.ToolEvent {
 	duration, _ := mapping.Int(decoded, fields["duration_ms"])
-	status := mapping.String(decoded, fields["tool_status"])
-	if mapped, ok := statusMap[status]; ok {
-		status = mapped
-	}
+	status := mapped(statusMap, mapping.String(decoded, fields["tool_status"]))
 	kind := mapping.String(decoded, fields["tool_kind"])
-	if mapped, ok := kindMap[kind]; ok {
+	if mapped, ok := mapping.LookupKind(kindMap, kind); ok {
 		kind = mapped
 	}
+	var exitCode *int
+	if code, ok := mapping.Int(decoded, fields["exit_code"]); ok {
+		exitCode = &code
+	}
+	interrupted, _ := mapping.Bool(decoded, fields["interrupted"])
 	return &models.ToolEvent{
 		ID:        mapping.String(decoded, fields["tool_id"]),
 		Name:      mapping.String(decoded, fields["tool_name"]),
@@ -326,16 +336,25 @@ func buildTool(fields spec.FieldMap, statusMap, kindMap map[string]string, locat
 		Target:    mapping.String(decoded, fields["tool_target"]),
 		Input:     mapping.JSON(decoded, fields["tool_input"]),
 
+		Title:       mapping.String(decoded, fields["tool_title"]),
+		MCPServer:   mapping.String(decoded, fields["mcp_server"]),
+		MCPTool:     mapping.String(decoded, fields["mcp_tool"]),
+		ExitCode:    exitCode,
+		Interrupted: interrupted,
+
 		EditBefore: mapping.String(decoded, fields["edit_before"]),
 		EditAfter:  mapping.String(decoded, fields["edit_after"]),
+		Cwd:        mapping.String(decoded, fields["cwd"]),
 		Diff:       buildDiffFiles(diffFiles, decoded),
 		Patch:      buildPatch(patch, decoded),
 
-		Result:          mapping.JSON(decoded, fields["tool_result"]),
-		Error:           mapping.String(decoded, fields["tool_error"]),
-		Status:          status,
-		DurationMS:      duration,
-		NestedSessionID: mapping.String(decoded, fields["nested_session_id"]),
+		Result:         mapping.JSON(decoded, fields["tool_result"]),
+		Output:         mapping.String(decoded, fields["tool_output"]),
+		Error:          mapping.String(decoded, fields["tool_error"]),
+		Status:         status,
+		DurationMS:     duration,
+		SpawnsScope:    mapping.String(decoded, fields["spawns_scope"]),
+		AddressesScope: mapping.String(decoded, fields["addresses_scope"]),
 	}
 }
 
@@ -344,16 +363,24 @@ func buildDiffFiles(files *spec.DiffFilesSpec, decoded map[string]any) string {
 		return ""
 	}
 	var out strings.Builder
-	for _, row := range mapping.Objects(decoded, []string{files.Items}) {
-		path := strings.TrimLeft(mapping.String(row, []string{files.Path}), "/")
-		diff := mapping.String(row, []string{files.Diff})
+	for _, row := range mapping.Objects(decoded, mapping.Paths(files.Items)) {
+		path := strings.TrimLeft(mapping.String(row, mapping.Paths(files.Path)), "/")
+		diff := mapping.String(row, mapping.Paths(files.Diff))
 		if path == "" || diff == "" {
 			continue
 		}
 		if out.Len() > 0 {
 			out.WriteByte('\n')
 		}
-		if !strings.HasPrefix(diff, "diff --git ") && !strings.HasPrefix(diff, "--- ") {
+		whole := ""
+		if files.Kind != "" {
+			whole = files.Whole[mapping.String(row, mapping.Paths(files.Kind))]
+		}
+		switch {
+		case whole != "":
+			writeWholeFile(&out, path, diff, whole == spec.DiffAdded)
+			continue
+		case !strings.HasPrefix(diff, "diff --git ") && !strings.HasPrefix(diff, "--- "):
 			fmt.Fprintf(&out, "--- a/%s\n+++ b/%s\n", path, path)
 		}
 		out.WriteString(diff)
@@ -364,15 +391,37 @@ func buildDiffFiles(files *spec.DiffFilesSpec, decoded map[string]any) string {
 	return out.String()
 }
 
+// writeWholeFile writes content as the one hunk that creates (added) or removes path.
+func writeWholeFile(out *strings.Builder, path, content string, added bool) {
+	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	if added {
+		fmt.Fprintf(out, "--- /dev/null\n+++ b/%s\n@@ -0,0 +1%s @@\n", path, hunkCount(len(lines)))
+	} else {
+		fmt.Fprintf(out, "--- a/%s\n+++ /dev/null\n@@ -1%s +0,0 @@\n", path, hunkCount(len(lines)))
+	}
+	sign := map[bool]string{true: "+", false: "-"}[added]
+	for _, line := range lines {
+		out.WriteString(sign + line + "\n")
+	}
+}
+
+// hunkCount is a hunk range's ",count" suffix, which unified diff omits for one line.
+func hunkCount(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return fmt.Sprintf(",%d", n)
+}
+
 func buildPatch(patch *spec.PatchSpec, decoded map[string]any) []models.PatchHunk {
 	if patch == nil {
 		return nil
 	}
 	var out []models.PatchHunk
-	for _, row := range mapping.Objects(decoded, []string{patch.Items}) {
-		oldStart, _ := mapping.Int(row, []string{patch.OldStart})
-		newStart, _ := mapping.Int(row, []string{patch.NewStart})
-		lines := mapping.Strings(row, []string{patch.Lines})
+	for _, row := range mapping.Objects(decoded, mapping.Paths(patch.Items)) {
+		oldStart, _ := mapping.Int(row, mapping.Paths(patch.OldStart))
+		newStart, _ := mapping.Int(row, mapping.Paths(patch.NewStart))
+		lines := mapping.Strings(row, mapping.Paths(patch.Lines))
 		if len(lines) == 0 {
 			continue
 		}
@@ -385,14 +434,14 @@ func buildLocations(specification *spec.LocationsSpec, decoded map[string]any) [
 	if specification == nil || specification.Items == "" || specification.Path == "" {
 		return nil
 	}
-	rows := mapping.Objects(decoded, []string{specification.Items})
+	rows := mapping.Objects(decoded, mapping.Paths(specification.Items))
 	out := make([]models.ToolLocation, 0, len(rows))
 	for _, row := range rows {
-		path := mapping.String(row, []string{specification.Path})
+		path := mapping.String(row, mapping.Paths(specification.Path))
 		if path == "" {
 			continue
 		}
-		line, _ := mapping.Int(row, []string{specification.Line})
+		line, _ := mapping.Int(row, mapping.Paths(specification.Line))
 		out = append(out, models.ToolLocation{Path: path, Line: line})
 	}
 	return out

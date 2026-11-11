@@ -4,14 +4,17 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/core/home"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
 func TestGlobalView_HoldsProfilesAndSettings(t *testing.T) {
@@ -86,7 +89,7 @@ func TestAgentChatES_Global(t *testing.T) {
 	assert.NoError(t, statErr, "agent chat read-model db must exist under state/store/")
 }
 
-func TestClose_ClosesAllAndLock(t *testing.T) {
+func TestClose_ClosesAll(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
@@ -101,15 +104,12 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 	require.NotNil(t, c.AgentChatES())
 	require.NotNil(t, c.AgentChatSS())
 	require.NotNil(t, c.AgentChatReadDB())
-	require.NotNil(t, c.AgentRunnerES())
-	require.NotNil(t, c.AgentRunnerSS())
-	require.NotNil(t, c.AgentRunnerReadDB())
 	require.NotNil(t, c.GlobalView())
 
 	require.NoError(t, c.Close())
 
-	// The lock is released, so a fresh container can open the same home and its
-	// per-type event store re-opens cleanly after the prior Close.
+	// A fresh container opens the same home, and its per-type event store
+	// re-opens cleanly after the prior Close.
 	again, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = again.Close() })
@@ -120,31 +120,88 @@ func TestClose_ClosesAllAndLock(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestRegression_StateDirSingleInstanceLock(t *testing.T) {
-	home := t.TempDir()
-
-	first, err := adapter.New(adapter.WithHomeDir(home))
+// The home is held by the boot's migration session, which opens the stores
+// after it; the stores must not try to take the same lock a second time.
+func TestNew_OpensAHomeItsMigrationSessionHolds(t *testing.T) {
+	h, err := home.At(t.TempDir())
 	require.NoError(t, err)
-
-	second, err := adapter.New(adapter.WithHomeDir(home))
-	require.Error(t, err)
-	assert.Nil(t, second)
-	assert.Contains(t, strings.ToLower(err.Error()), "lock")
-
-	require.NoError(t, first.Close())
-
-	third, err := adapter.New(adapter.WithHomeDir(home))
+	sess, err := migrations.Begin(context.Background(), h, migrate.Options{Version: "v-test"})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = third.Close() })
-	assert.NotNil(t, third.GlobalView())
+	t.Cleanup(func() { require.NoError(t, sess.Close()) })
+
+	c, err := adapter.New(adapter.WithHomeDir(h.Root()))
+	require.NoError(t, err)
+	require.NoError(t, c.Close())
 }
 
 func TestNew_DefaultDirs_UsesHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv(home.EnvVar, "")
 	c, err := adapter.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	assert.NotNil(t, c.GlobalView())
+	assert.Equal(t, filepath.Join(userHome, ".crowbar"), c.Home().Root())
+}
+
+func TestNew_CreatesAnOwnerOnlyHomeRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits not enforced on Windows")
+	}
+	root := filepath.Join(t.TempDir(), "home")
+	c, err := adapter.New(adapter.WithHomeDir(root))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	for _, dir := range []string{root, c.Home().State(), c.Home().Events(), c.Home().Store()} {
+		info, err := os.Stat(dir)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
+	}
+}
+
+// TestNew_NarrowsTheStateDirsAnOlderBuildLeftOpen: an older build made state/
+// and its two database dirs 0750; opening the home makes them owner-only.
+func TestNew_NarrowsTheStateDirsAnOlderBuildLeftOpen(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "home")
+	h, err := home.ResolveDir(root)
+	require.NoError(t, err)
+	for _, dir := range []string{h.Events(), h.Store()} {
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		require.NoError(t, os.Chmod(dir, 0o750))
+	}
+	require.NoError(t, os.Chmod(h.State(), 0o750))
+	c, err := adapter.New(adapter.WithHomeDir(root))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	for _, dir := range []string{h.State(), h.Events(), h.Store()} {
+		info, err := os.Stat(dir)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
+	}
+}
+
+// The home root is on the way to every checkout, which another uid may need to
+// traverse, so opening the home leaves its existing mode alone.
+func TestNew_LeavesTheModeOfAnExistingHomeRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "home")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	require.NoError(t, os.Chmod(root, 0o711))
+
+	c, err := adapter.New(adapter.WithHomeDir(root))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	info, err := os.Stat(root)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o711), info.Mode().Perm())
+}
+
+func TestNew_RejectsARelativeHome(t *testing.T) {
+	_, err := adapter.New(adapter.WithHomeDir("relative/home"))
+	require.ErrorContains(t, err, "must be an absolute path")
 }
 
 func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
@@ -177,7 +234,7 @@ func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
 
 // TestContainer_WithHomeDir_DoesNotUseEnvHome guards the decision-14 isolation
 // requirement: WithHomeDir must root every state subtree at the resolved
-// crowbarHome, never CROWBAR_HOME; otherwise the per-type DBs would leak into
+// home, never CROWBAR_HOME; otherwise the per-type DBs would leak into
 // the CROWBAR_HOME root instead of the temp home.
 func TestContainer_WithHomeDir_DoesNotUseEnvHome(t *testing.T) {
 	envHome := t.TempDir()

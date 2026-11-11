@@ -1,21 +1,6 @@
-// Package perf holds a bounded, race-free ring of timing samples used to
-// attribute daemon-side latency during performance work.
-//
-// Crowbar's freezes are cross-boundary. A stalled interaction may be main-thread
-// React work, HTTP round-trip time, a git subprocess, or contention on a repo
-// lock — and a profiler attached to any one of those layers cannot say which of
-// them owns the wall clock. Funnelling every layer's durations into one ordered
-// ring, read back through a single endpoint, makes that split answerable without
-// correlating four separate tools against four separate clocks.
-//
-// Recording is OFF by default, and costs one atomic load per Record call while
-// disabled. That is precisely what lets the instrumented call sites — the git
-// exec path, the repo mutex, every HTTP handler — stay in the tree permanently
-// instead of being patched in for each investigation. They are the hot paths
-// whose cost is under measurement, so an always-on ring would tax the very
-// operations it exists to observe, and its mutex would serialise callers that
-// today run concurrently. A capture run arms the ring, drives a scenario, reads
-// it back, and disarms.
+// Package perf holds a bounded, race-free ring of timing samples from every layer, so latency can be
+// attributed across boundaries on one clock. Off by default (one atomic load per Record) so the hot
+// call sites can stay instrumented permanently without taxing what they measure.
 package perf
 
 import (
@@ -24,19 +9,12 @@ import (
 	"time"
 )
 
-// Cap bounds the ring. It is sized for a whole measurement scenario — minutes of
-// interaction across hundreds of requests — rather than a few seconds, because a
-// ring that wraps mid-run silently evicts the samples the capture is trying to
-// read and reports a truncated window as if it were the whole story.
+// Cap bounds the ring, sized for a whole scenario: a ring that wraps mid-run silently reports a
+// truncated window as the whole story.
 const Cap = 4096
 
-// Sample is one timed operation. Name is the call site's bucket ("git.diff",
-// "lock.read.hold", "http.GET /v0/workspaces/:wsId/review/files"), DurationMS
-// its wall time, and At the instant it completed — ordering by At is what lets a
-// reader nest subprocess samples underneath the request that spawned them.
-//
-// The duration is milliseconds rather than a time.Duration because the ring is
-// read over JSON by tooling with no notion of Go's nanosecond encoding.
+// Sample is one timed operation: Name is the bucket, At its completion, so readers can nest
+// subprocess samples under their request. Milliseconds, as JSON readers know no Go Duration.
 type Sample struct {
 	Name       string    `json:"name"`
 	DurationMS float64   `json:"durationMs"`

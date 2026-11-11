@@ -14,16 +14,18 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const paneActions = () => windowPaneStore.getState().paneActions
 
 beforeEach(() => {
   resetWindowPaneStoreForTests()
+  resetChatStore()
 })
 
 /**
  * `resolveChatWorkspaceId` — "which workspace does this chat belong to". A
- * chat on screen answers from its view member's record (C3); anything else
+ * chat on screen answers from its view member's record; anything else
  * from the caller's own row. No workspace store is consulted.
  */
 describe('resolveChatWorkspaceId', () => {
@@ -35,6 +37,13 @@ describe('resolveChatWorkspaceId', () => {
   it('prefers the record over the caller’s hint when the two disagree', () => {
     paneActions().openChat('c1', { workspaceId: 'ws-a' })
     expect(resolveChatWorkspaceId('c1', 'ws-other')).toBe('ws-a')
+  })
+
+  // Branch-out and move re-point the chat; the pane keeps where it opened.
+  it('answers with the workspace the chat moved to, not the pane record', () => {
+    paneActions().openChat('c1', { workspaceId: 'ws-a' })
+    writeChat({ id: 'c1', workspaceId: 'ws-b' })
+    expect(resolveChatWorkspaceId('c1', 'ws-a')).toBe('ws-b')
   })
 
   it('falls back to the hint for a chat not on screen', () => {
@@ -79,5 +88,16 @@ describe('resolveOnscreenPaneForWorkspace', () => {
     paneActions().openChat('c1', { workspaceId: 'ws-a' })
 
     expect(resolveOnscreenPaneForWorkspace('ws-b')).toBeNull()
+  })
+
+  it('targets the pane of a chat that moved INTO the workspace, not out of it', () => {
+    paneActions().openChat('c1', { workspaceId: 'ws-a' })
+    paneActions().setActivePane(ROOT_PANE_ID)
+    writeChat({ id: 'c1', workspaceId: 'ws-b' })
+
+    expect(resolveOnscreenPaneForWorkspace('ws-b')).toBeNull()
+    paneActions().dropChatOnPane('c2', ROOT_PANE_ID, 'right', 'ws-c')
+    expect(resolveOnscreenPaneForWorkspace('ws-a')).toBeNull()
+    expect(resolveOnscreenPaneForWorkspace('ws-b')).toBe(ROOT_PANE_ID)
   })
 })

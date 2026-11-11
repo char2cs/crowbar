@@ -6,27 +6,24 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// TestSync_Returns202 asserts the fail-fast/good-path-async contract: a sync of
-// a chat holding a worktree validates synchronously, returns 202 with an empty
-// body, and runs SyncWorkingTreeState in the background. The synced workspace is
-// delivered on the WebSocket stream (blackbox in W13), not in the HTTP response.
-func TestSync_Returns202(
+// TestSync_AnswersItsOperation: a sync of a chat holding a worktree validates
+// synchronously, then answers 202 with the operation running
+// SyncWorkingTreeState; the synced workspace arrives on the WebSocket stream.
+func TestSync_AnswersItsOperation(
 	t *testing.T,
 ) {
-	reader := &fakeReader{
-		synced:   domain.Workspace{ID: "ws1"},
-		syncDone: make(chan struct{}),
-	}
-	r, _ := newChatRouter(reader, &fakeHierarchy{}, &fakeWorktrees{ws: domain.Workspace{ID: "ws1"}})
+	reader := &fakeReader{synced: domain.Workspace{ID: "ws1"}}
+	r, ops := newChatRouter(reader, &fakeHierarchy{}, &fakeWorktrees{ws: domain.Workspace{ID: "ws1", Branch: "feature/a"}})
 
 	rec := do(r, http.MethodPost, chatBase+"/sync", "")
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Empty(t, rec.Body.Bytes())
-	waitClosed(t, reader.syncDone)
+	op := accepted(t, rec)
+	assert.Equal(t, domain.OpWorkspaceSync, op.Kind)
+	assert.Equal(t, "Sync feature/a", op.Label)
+	assert.Equal(t, domain.OpSucceeded, ops.settled(t, rec).State)
 	assert.Equal(t, "ws1", reader.gotSync)
 }
 
@@ -37,7 +34,7 @@ func TestSyncMissingWorkspace_4xx(
 	t *testing.T,
 ) {
 	reader := &fakeReader{}
-	r, _ := newChatRouter(reader, &fakeHierarchy{}, &fakeWorktrees{err: apperr.ErrNotFound})
+	r, _ := newChatRouter(reader, &fakeHierarchy{}, &fakeWorktrees{err: problem.ErrNotFound})
 
 	rec := do(r, http.MethodPost, chatBase+"/sync", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)

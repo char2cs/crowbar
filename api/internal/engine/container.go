@@ -27,9 +27,18 @@ type Container struct {
 	Terminal engineterminal.Engine
 	// LSP is the LSP host facade. It is always non-nil; graceful absence (no
 	// server installed for a language) is signalled by empty results rather than
-	// errors (10 §5).
+	// errors.
 	LSP      enginelsp.Engine
 	Identity *enginegit.IdentityEngine
+	// DaemonAddress is the address the daemon bound (unix:// or tcp://). Callbacks
+	// are handed it, never one derived from the home (see WithDaemonAddress).
+	DaemonAddress string
+	// CrowbarBin is the crowbar binary a spawned CLI runs for `crowbar mcp`: the
+	// daemon's own executable, resolved once at New.
+	CrowbarBin string
+	// NoAPITransport runs every provider over hooks alone: no spawn forks a
+	// provider's serve process.
+	NoAPITransport bool
 
 	// termDown latches the terminal engine's quiesce so it is entered exactly once.
 	// See QuiesceTerminal: a second entrant must never BLOCK, because the first one
@@ -38,7 +47,8 @@ type Container struct {
 }
 
 type engineOpts struct {
-	homeDir string
+	homeDir       string
+	daemonAddress string
 }
 
 // Option configures engine.New.
@@ -53,10 +63,18 @@ func WithHomeDir(
 	}
 }
 
-// New constructs the engine container. ctx is the daemon's own lifecycle
-// context (serve-until-cancelled, per internal.Container.Run) — threaded
-// into Agents so its model-discovery cache's background refreshes stop on
-// shutdown instead of outliving it (engineagents.WithLifecycle).
+// WithDaemonAddress records the address the daemon bound, for the engines that
+// hand callbacks back into it.
+func WithDaemonAddress(
+	address string,
+) Option {
+	return func(o *engineOpts) {
+		o.daemonAddress = address
+	}
+}
+
+// New constructs the engine container. ctx is the daemon's lifecycle context, passed to
+// Agents so model-discovery refreshes stop on shutdown.
 func New(
 	ctx context.Context,
 	opts ...Option,
@@ -65,8 +83,13 @@ func New(
 	for _, o := range opts {
 		o(&cfg)
 	}
-	_ = cfg
+	self, err := selfExecutable()
+	if err != nil {
+		return nil, err
+	}
 	return &Container{
+		DaemonAddress: cfg.daemonAddress,
+		CrowbarBin:    self,
 		Agents: engineagents.New(engineagents.WithLifecycle(ctx),
 			engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
 		Git:      enginegit.New(),
@@ -79,20 +102,9 @@ func New(
 	}, nil
 }
 
-// Close releases engine resources that own OS-level handles on daemon shutdown.
-// Most engines are stateless facades, but the terminal engine holds live PTY
-// child processes plus their master FDs; without this they are orphaned to init
-// on shutdown/restart (dev hot-restart, crash-restart, OS quit) — the shell and
-// any dev servers/builds it launched keep running and holding ports with no UI
-// to manage them, and the PTY master FDs leak. The LSP host likewise holds live
-// language-server subprocesses (gopls/tsserver/rust-analyzer) plus their stdio
-// pipe FDs; without Shutdown every spawned server survives the daemon, leaking
-// RAM, CPU, and FDs across restarts (R8). The agents engine owns a third kind:
-// background model-discovery refreshes, each of which still owes a write under
-// the crowbar home once its probe or fetch returns. WithLifecycle can cancel
-// those, but cancellation is not a join — Agents.Close is, and without it a
-// write can land in a home this process has already released (hot-restart) or
-// that the caller has already removed.
+// Close releases engine resources that own OS handles: the terminal's PTY children and
+// FDs, the LSP host's server subprocesses, and the agents engine's discovery refreshes,
+// which it joins so no write lands in a home this process has released.
 func (c *Container) Close() {
 	c.QuiesceTerminal()
 	if c.LSP != nil {
@@ -103,24 +115,9 @@ func (c *Container) Close() {
 	}
 }
 
-// QuiesceTerminal kills every live PTY and BLOCKS until every exit callback those
-// deaths fire has run to completion (engineterminal.Engine.Shutdown's contract).
-//
-// It is a step of the ORDERED graceful shutdown, not merely a resource release, and
-// that is why it is exported: the app layer runs it FIRST — before it drains the
-// aggregates and long before the adapter closes the databases — because those exit
-// callbacks are WRITERS. A dying vendor CLI's callback is the only thing that records
-// its death: it Exits the runner and closes the turn the CLI was mid-way through. Run
-// it after the drain (which is where the mere resource-release reading of it lands, in
-// Close) and those writes are rejected by a shut-down asynx or a closed DB — leaving a
-// chat that spins forever, on every restart, with no live runner left for the next
-// boot's reconcile to find. See app.Container.Shutdown.
-//
-// Entered exactly once. A second caller — the Close below, on the ordinary path where
-// the app layer already quiesced — returns IMMEDIATELY rather than re-entering the
-// join. That matters: the first caller may have bounded its wait with the shutdown
-// deadline and moved on, and a re-entrant join would silently re-wedge the teardown on
-// the very reaper the deadline was there to escape.
+// QuiesceTerminal kills every live PTY and blocks until their exit callbacks finish.
+// It is exported because Shutdown must run it before draining aggregates and closing
+// DBs, which those callbacks write into; a second call returns immediately, never re-joining.
 func (c *Container) QuiesceTerminal() {
 	if c.Terminal == nil || !c.termDown.CompareAndSwap(false, true) {
 		return

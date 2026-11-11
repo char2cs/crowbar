@@ -19,7 +19,7 @@ func openFDs(
 	t.Helper()
 	dir, err := os.Open("/dev/fd")
 	require.NoError(t, err)
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	names, err := dir.Readdirnames(-1)
 	require.NoError(t, err)
 	return len(names)

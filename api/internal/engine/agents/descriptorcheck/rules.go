@@ -2,7 +2,6 @@ package descriptorcheck
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -17,52 +16,63 @@ func (d document) finding(rule string, sev Severity, path, msg, hint string) Fin
 	return Finding{Rule: rule, Severity: sev, Path: path, Line: d.line(path), Message: msg, Hint: hint}
 }
 
-// assignRules check that an assign argv hands the CLI the id Crowbar chose.
-func assignRules(doc document, d *spec.Descriptor) []Finding {
-	if d.Session.Assign == nil || strings.Contains(d.Session.Assign.Arg, "{id}") {
-		return nil
-	}
-	return []Finding{doc.finding("session.assign_id", SeverityError, "session.assign.arg",
-		"session.assign.arg never names the session ({id})",
-		`write the assign argv with {id}, e.g. "--session-id {id}"`)}
-}
-
-// sessionRules check what the resume ladder needs: a resume argv that names
-// the session, and a way to find the session on disk before trusting it.
+// sessionRules check what a chat's session needs: resume and assign argv that
+// name the session, and a refusal Crowbar can recognise.
 func sessionRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	s := d.Session
 	if s.Resume != nil && !strings.Contains(s.Resume.Arg, "{id}") {
 		out = append(out, doc.finding("session.resume_id", SeverityError, "session.resume.arg",
 			"session.resume.arg never names the session ({id})",
-			`write the resume argv with {id}, e.g. "--resume {id}"`))
+			`write the resume argv with {id} where the CLI takes the session, e.g. "<flag> {id}"`))
 	}
-	out = append(out, assignRules(doc, d)...)
-	if s.Resume != nil && s.Locate == nil {
-		out = append(out, doc.finding("session.resume_unverified", SeverityWarning, "session.resume",
-			"resume ids are never verified: a lost session is found only when the CLI exits",
-			"declare session.locate (root, root_env, glob with {id}) so a missing session continues from the transcript at once"))
+	if s.Assign != nil && !strings.Contains(s.Assign.Arg, "{id}") {
+		out = append(out, doc.finding("session.assign_id", SeverityError, "session.assign.arg",
+			"session.assign.arg never names the session ({id})",
+			`write the assign argv with {id} where the CLI takes the session, e.g. "<flag> {id}"`))
 	}
-	if s.Locate == nil {
-		return out
-	}
-	if s.Locate.Root == "" && s.Locate.RootEnv == "" {
-		out = append(out, doc.finding("session.locate_root", SeverityError, "session.locate",
-			"session.locate declares neither root nor root_env", `set root (e.g. "~/.codex") and, if the CLI honours one, root_env`))
-	}
-	if r := s.Locate.Root; r != "" && !filepath.IsAbs(r) && !strings.HasPrefix(r, "~/") {
-		out = append(out, doc.finding("session.locate_root", SeverityError, "session.locate.root",
-			fmt.Sprintf("session.locate.root %q is relative", r), `use an absolute path or one under "~/"`))
-	}
-	if len(s.Locate.Glob) == 0 {
-		out = append(out, doc.finding("session.locate_glob", SeverityError, "session.locate",
-			"session.locate declares no glob", `add a glob naming the session file, e.g. "projects/*/{id}.jsonl"`))
-	}
-	for i, g := range s.Locate.Glob {
-		if strings.Count(g, "{id}") != 1 {
-			out = append(out, doc.finding("session.locate_glob", SeverityError, fmt.Sprintf("session.locate.glob[%d]", i),
-				fmt.Sprintf("glob %q must name the session id exactly once ({id})", g), "put {id} where the session id appears in the file name"))
+	if s.Resume != nil && s.Refused == nil {
+		// Over an api connection the refusal is an error reply on the asked-for turn.
+		sev := SeverityWarning
+		if d.Runtime.Transport == string(spec.ChannelAPI) {
+			sev = SeverityError
 		}
+		out = append(out, doc.finding("session.refusal_unrecognised", sev, "session.resume",
+			"a refused resume is never recognised: a chat keeps a session the CLI cannot load",
+			"declare session.refused (exit_code, needles) with the line the CLI prints when it cannot resume"))
+	}
+	if s.Resume != nil && s.Persists == "" {
+		out = append(out, doc.finding("session.persists_missing", SeverityError, "session.resume",
+			"a resumable session never says when the CLI has written it: a chat may resume one that is not there",
+			`set session.persists to "turn_start" or "turn_end"`))
+	}
+	if s.Persists != "" && s.Persists != "turn_start" && s.Persists != "turn_end" {
+		out = append(out, doc.finding("session.persists", SeverityError, "session.persists",
+			"session.persists is "+s.Persists, `write "turn_start" or "turn_end": when the CLI has written a session it can resume`))
+	}
+	return append(out, refusalRules(doc, d)...)
+}
+
+// refusalRules check that a refused resume is recognised on the channel the
+// provider speaks.
+func refusalRules(doc document, d *spec.Descriptor) []Finding {
+	s := d.Session
+	if s.Refused == nil {
+		return nil
+	}
+	var out []Finding
+	if d.Runtime.Transport == string(spec.ChannelAPI) && s.Refused.RPCCode == 0 {
+		out = append(out, doc.finding("session.refused_rpc", SeverityError, "session.refused",
+			"an api provider's refused resume names no rpc_code: a refusal over the connection is never recognised",
+			"set session.refused.rpc_code to the JSON-RPC error code the server answers a lost session with"))
+	}
+	if s.Refused.ExitCode == 0 {
+		out = append(out, doc.finding("session.refused_exit", SeverityError, "session.refused",
+			"session.refused.exit_code is 0, the code of a CLI that succeeded", "set the code the CLI exits with when it refuses"))
+	}
+	if len(s.Refused.Needles) == 0 || slices.Contains(s.Refused.Needles, "") {
+		out = append(out, doc.finding("session.refused_needles", SeverityError, "session.refused",
+			"session.refused needs non-empty needles", "add the text of the line the CLI prints when it refuses a resume"))
 	}
 	return out
 }
@@ -85,6 +95,9 @@ func templateRules(doc document, d *spec.Descriptor) []Finding {
 			name := m[1]
 			if slices.Contains(known, name) || strings.HasPrefix(name, "permission.") {
 				continue
+			}
+			if name == "crowbar_hook" && strings.Contains(f.value, relayHookCommand) {
+				continue // hooks.relay_retired names this one and its replacement
 			}
 			out = append(out, doc.finding("template.unknown_var", SeverityError, f.path,
 				fmt.Sprintf("{%s} is not a template variable Crowbar fills", name),
@@ -154,18 +167,23 @@ func channelRules(doc document, d *spec.Descriptor) []Finding {
 	if usesHooks(d) && len(d.HooksInjection) == 0 && !wiresHooks(d.ConfigInjection) {
 		out = append(out, doc.finding("hooks.not_wired", SeverityError, "hooks_injection",
 			"events arrive over hooks but no process is told where to send them",
-			"declare hooks_injection steps that point the CLI's hooks at {crowbar_hook} or {hook_url}"))
+			"declare hooks_injection steps that point the CLI's hooks at {hook_url}"))
 	}
 	for i, step := range d.ConfigInjection {
 		if wiresHooks([]spec.InjectStep{step}) {
 			out = append(out, doc.finding("hooks.in_config_injection", SeverityError, fmt.Sprintf("config_injection[%d]", i),
-				"hook wiring in config_injection also reaches the app-server, so events arrive twice",
+				"hook wiring in config_injection also reaches the api serve process, so events arrive twice",
 				"move hook wiring to hooks_injection, which is applied to a PTY only"))
 		}
 	}
 	if d.Runtime.Transport == string(spec.ChannelAPI) && len(d.Runtime.API.Serve) == 0 {
 		out = append(out, doc.finding("runtime.api_serve", SeverityError, "runtime.api",
-			"runtime.transport is api but runtime.api.serve is empty", "declare the argv that starts the provider's app-server"))
+			"runtime.transport is api but runtime.api.serve is empty", "declare the argv that starts the provider's api serve process"))
+	}
+	if d.Runtime.Transport == string(spec.ChannelAPI) && d.Runtime.API.Handshake.Call == "" {
+		out = append(out, doc.finding("runtime.api_handshake", SeverityError, "runtime.api",
+			"runtime.transport is api but runtime.api.handshake names no call: no connection is ever opened",
+			"declare runtime.api.handshake: the call that opens the connection, its params, and the notification that follows its answer"))
 	}
 	return out
 }

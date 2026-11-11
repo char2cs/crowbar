@@ -240,9 +240,8 @@ describe('usePreservedScroll', () => {
         </StrictMode>,
       )
 
-    // Regression: restoring once, before images and embedded HTML have sized
-    // themselves, lands partway down and stays there — the offset is silently
-    // truncated to whatever fitted at that instant.
+    // Restoring once, before images and embedded HTML have sized themselves, would land partway
+    // down and stay there.
     it('re-applies the offset as the content grows tall enough to hold it', () => {
       maxScroll = 900
       const first = renderClamping('buffer-a')

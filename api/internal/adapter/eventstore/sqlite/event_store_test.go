@@ -2,26 +2,62 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/char2cs/asynx"
 	"github.com/char2cs/asynx/models"
+	asynxstore "github.com/char2cs/asynx/store"
+	"github.com/char2cs/asynx/store/storetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	_ "github.com/glebarez/go-sqlite" // registers the "sqlite" driver for the pre-v1 fixture
 )
 
-func newTestEventStore(t *testing.T) models.Store {
+func openTemp(t *testing.T) *eventStore {
 	t.Helper()
-	s, err := NewEventStore(":memory:")
+	return openAt(t, filepath.Join(t.TempDir(), "events.db"))
+}
+
+func openAt(t *testing.T, path string) *eventStore {
+	t.Helper()
+	s, err := NewEventStore(path)
 	require.NoError(t, err)
-	return s
+	es, ok := s.(*eventStore)
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, es.Close()) })
+	return es
 }
 
 func cancelledCtx() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	return ctx
+}
+
+func appendAll(t *testing.T, s models.Store, streamID string, blobs ...string) {
+	t.Helper()
+	require.NoError(t, s.Atomically(context.Background(), func(tx models.Tx) error {
+		for i, b := range blobs {
+			if err := tx.Append(context.Background(), streamID, int64(i+1), []byte(b)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+}
+
+func TestEventStore_Conformance(t *testing.T) {
+	storetest.Run(t, func(t *testing.T) models.Store {
+		t.Helper()
+		return openTemp(t)
+	})
 }
 
 func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
@@ -40,14 +76,15 @@ func TestNewEventStore_ReadonlyDB_FailsToOpen(t *testing.T) {
 
 	s, err := NewEventStore(path)
 	require.NoError(t, err)
-	type closer interface{ Close() error }
-	require.NoError(t, s.(closer).Close())
+	es, ok := s.(*eventStore)
+	require.True(t, ok)
+	require.NoError(t, es.Close())
 
 	require.NoError(t, os.Chmod(path, 0o444))
 	require.NoError(t, os.Chmod(dir, 0o555))
 	t.Cleanup(func() {
-		_ = os.Chmod(dir, 0o755)
-		_ = os.Chmod(path, 0o644)
+		require.NoError(t, os.Chmod(dir, 0o755))
+		require.NoError(t, os.Chmod(path, 0o644))
 	})
 
 	_, err = NewEventStore(path)
@@ -55,154 +92,157 @@ func TestNewEventStore_ReadonlyDB_FailsToOpen(t *testing.T) {
 	assert.Contains(t, err.Error(), "readonly database")
 }
 
-func TestEventStore_Append_ThenReadFrom(t *testing.T) {
-	s := newTestEventStore(t)
+// Reads run beside an open write transaction under WAL; only writes queue.
+func TestEventStore_ReadsDoNotWaitForAnOpenTransaction(t *testing.T) {
+	s := openTemp(t)
 	ctx := context.Background()
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
-	blobs, err := s.ReadFrom(ctx, "agg-1", 1)
+	appendAll(t, s, "events:a", "e1")
+
+	held := make(chan struct{})
+	release := make(chan struct{})
+	committed := make(chan error, 1)
+	go func() {
+		committed <- s.Atomically(ctx, func(tx models.Tx) error {
+			if err := tx.Append(ctx, "events:b", 1, []byte("open")); err != nil {
+				return err
+			}
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+
+	blobs, err := s.ReadFrom(ctx, "events:a", 1)
 	require.NoError(t, err)
-	require.Len(t, blobs, 1)
-	assert.Equal(t, []byte("e1"), blobs[0])
+	assert.Len(t, blobs, 1)
+	_, err = s.ReadRange(ctx, "events:a", 1, 1)
+	require.NoError(t, err)
+	_, err = s.PendingDeliveries(ctx, 10)
+	require.NoError(t, err)
+	_, _, err = s.GetReceipt(ctx, "cmd")
+	require.NoError(t, err)
+
+	close(release)
+	require.NoError(t, <-committed)
 }
 
-func TestEventStore_Append_VersionConflict(t *testing.T) {
-	s := newTestEventStore(t)
-	ctx := context.Background()
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("first")))
-	err := s.Append(ctx, "agg-1", 1, []byte("dup"))
-	require.Error(t, err)
+// A log written before v1 (events table only, gorm's DDL of the time) opens
+// and reads back unchanged.
+func TestEventStore_OpensADatabaseWrittenBeforeV1(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	_, err = db.ExecContext(context.Background(), "CREATE TABLE `events` (`aggregate_id` text,`version` integer,`data` blob NOT NULL,PRIMARY KEY (`aggregate_id`,`version`))")
+	require.NoError(t, err)
+	_, err = db.ExecContext(context.Background(), "INSERT INTO events (aggregate_id, version, data) VALUES ('events:a', 1, 'e1'), ('events:a', 2, 'e2')")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s := openAt(t, path)
+	blobs, err := s.ReadFrom(context.Background(), "events:a", 1)
+	require.NoError(t, err)
+	assert.Equal(t, [][]byte{[]byte("e1"), []byte("e2")}, blobs)
+	pending, err := s.PendingDeliveries(context.Background(), 10)
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+	err = s.Atomically(context.Background(), func(tx models.Tx) error {
+		return tx.Append(context.Background(), "events:a", 2, []byte("dup"))
+	})
 	assert.ErrorIs(t, err, models.ErrPipelineFailed)
 }
 
-func TestEventStore_ReadFrom_Offset(t *testing.T) {
-	s := newTestEventStore(t)
-	ctx := context.Background()
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
-	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("e2")))
-	blobs, err := s.ReadFrom(ctx, "agg-1", 2)
-	require.NoError(t, err)
-	require.Len(t, blobs, 1)
-	assert.Equal(t, []byte("e2"), blobs[0])
+func TestEventStore_AnAppendThatIsNotAConflictIsNotAPipelineFailure(t *testing.T) {
+	s := openTemp(t)
+	err := s.Atomically(context.Background(), func(tx models.Tx) error {
+		return tx.Append(cancelledCtx(), "events:a", 1, []byte("x"))
+	})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, models.ErrPipelineFailed)
 }
 
-func TestEventStore_ReadRange_TruncatesCount(t *testing.T) {
-	s := newTestEventStore(t)
-	ctx := context.Background()
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
-	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("e2")))
-	blobs, err := s.ReadRange(ctx, "agg-1", 1, 100)
-	require.NoError(t, err)
-	assert.Len(t, blobs, 2)
-}
-
-// counter is the extra-method surface eventStore keeps beyond the v0.8
-// models.Store interface (which dropped Count). Tests reach it by assertion,
-// mirroring the AggregateIDs tests.
-type counter interface {
-	Count(ctx context.Context, aggregateID string, fromVersion int64) (int64, error)
-}
-
-func TestEventStore_Count(t *testing.T) {
-	s := newTestEventStore(t)
-	ctx := context.Background()
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
-	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("e2")))
-	c, ok := s.(counter)
-	require.True(t, ok)
-	count, err := c.Count(ctx, "agg-1", 1)
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), count)
-}
-
-func TestEventStore_Delete_RemovesAggregate(t *testing.T) {
-	s := newTestEventStore(t)
-	ctx := context.Background()
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
-	require.NoError(t, s.Delete(ctx, "agg-1"))
-	blobs, err := s.ReadFrom(ctx, "agg-1", 1)
-	require.NoError(t, err)
-	assert.Empty(t, blobs)
-}
-
-func TestEventStore_Delete_ContextCancelled(t *testing.T) {
-	s := newTestEventStore(t)
-	err := s.Delete(cancelledCtx(), "agg-1")
-	assert.Error(t, err)
-}
-
-func TestEventStore_Close_Success(t *testing.T) {
-	s, err := NewEventStore(":memory:")
-	require.NoError(t, err)
-	type closer interface {
-		Close() error
-	}
-	cl, ok := s.(closer)
-	require.True(t, ok, "expected eventStore to implement io.Closer")
-	assert.NoError(t, cl.Close())
-}
-
-func TestEventStore_Append_ContextCancelled(t *testing.T) {
-	s := newTestEventStore(t)
-	err := s.Append(cancelledCtx(), "agg-1", 1, []byte("d"))
-	assert.Error(t, err)
-}
-
-func TestEventStore_ReadFrom_ContextCancelled(t *testing.T) {
-	s := newTestEventStore(t)
-	_, err := s.ReadFrom(cancelledCtx(), "agg-1", 1)
-	assert.Error(t, err)
-}
-
-func TestEventStore_ReadRange_ContextCancelled(t *testing.T) {
-	s := newTestEventStore(t)
-	_, err := s.ReadRange(cancelledCtx(), "agg-1", 1, 10)
-	assert.Error(t, err)
-}
-
-func TestEventStore_Count_ContextCancelled(t *testing.T) {
-	s := newTestEventStore(t)
-	c, ok := s.(counter)
-	require.True(t, ok)
-	_, err := c.Count(cancelledCtx(), "agg-1", 1)
-	assert.Error(t, err)
+func TestEventStore_Native_IsTheSQLTransaction(t *testing.T) {
+	s := openTemp(t)
+	require.NoError(t, s.Atomically(context.Background(), func(tx models.Tx) error {
+		_, ok := tx.Native().(*sql.Tx)
+		assert.True(t, ok)
+		return nil
+	}))
 }
 
 func TestEventStore_AggregateIDs_ReturnsDistinct(t *testing.T) {
-	s := newTestEventStore(t)
-	ctx := context.Background()
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("a")))
-	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("b")))
-	require.NoError(t, s.Append(ctx, "agg-2", 1, []byte("c")))
+	s := openTemp(t)
+	appendAll(t, s, "agg-1", "a", "b")
+	appendAll(t, s, "agg-2", "c")
 
-	lister, ok := s.(interface {
-		AggregateIDs(ctx context.Context) ([]string, error)
-	})
-	require.True(t, ok)
-
-	ids, err := lister.AggregateIDs(ctx)
+	ids, err := s.AggregateIDs(context.Background())
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"agg-1", "agg-2"}, ids)
 }
 
 func TestEventStore_AggregateIDs_ContextCancelled(t *testing.T) {
-	s := newTestEventStore(t)
-	lister, ok := s.(interface {
-		AggregateIDs(ctx context.Context) ([]string, error)
-	})
-	require.True(t, ok)
-
-	_, err := lister.AggregateIDs(cancelledCtx())
+	s := openTemp(t)
+	_, err := s.AggregateIDs(cancelledCtx())
 	assert.Error(t, err)
 }
 
 func TestEventStore_AggregateIDs_EmptyStore(t *testing.T) {
-	s := newTestEventStore(t)
-	lister, ok := s.(interface {
-		AggregateIDs(ctx context.Context) ([]string, error)
-	})
-	require.True(t, ok)
-
-	ids, err := lister.AggregateIDs(context.Background())
+	s := openTemp(t)
+	ids, err := s.AggregateIDs(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, ids)
+}
+
+func TestEventStore_InMemoryStoreServesATransaction(t *testing.T) {
+	s := openAt(t, ":memory:")
+	appendAll(t, s, "events:a", "e1")
+	blobs, err := s.ReadFrom(context.Background(), "events:a", 1)
+	require.NoError(t, err)
+	assert.Len(t, blobs, 1)
+}
+
+type thing struct {
+	Name string `json:"name"`
+}
+
+// A delivery committed with its event but never handled (a crash between the
+// two) is redelivered by the next Build over the reopened file, then acked.
+func TestEventStore_APendingDeliverySurvivesAReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.db")
+	ctx := context.Background()
+	evt, err := json.Marshal(map[string]any{
+		"id": "e1", "event_name": "thing.created.a", "version": 1, "schema_version": 1,
+		"occurred_at": time.Unix(1, 0).UTC(),
+		"patches":     []map[string]any{{"op": "replace", "path": "/name", "value": "x"}},
+	})
+	require.NoError(t, err)
+	first, err := NewEventStore(path)
+	require.NoError(t, err)
+	require.NoError(t, first.Atomically(ctx, func(tx models.Tx) error {
+		return errors.Join(tx.Append(ctx, "events:a", 1, evt), tx.EnqueueDelivery(ctx, "a", 1))
+	}))
+	closer, ok := first.(*eventStore)
+	require.True(t, ok)
+	require.NoError(t, closer.Close())
+
+	s := openAt(t, path)
+	got := make(chan thing, 1)
+	ax, err := asynx.New[thing]().WithEventStore(s).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithSubscriber(asynx.Topic("thing.*"), func(_ context.Context, e models.Event[thing]) error {
+			got <- e.Aggregate
+			return nil
+		}).Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, ax.Shutdown(context.Background())) })
+
+	select {
+	case th := <-got:
+		assert.Equal(t, "x", th.Name)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the pending delivery was never redelivered")
+	}
+	require.Eventually(t, func() bool {
+		pending, err := s.PendingDeliveries(ctx, 10)
+		return err == nil && len(pending) == 0
+	}, 10*time.Second, 5*time.Millisecond, "the redelivered event must be acked")
 }

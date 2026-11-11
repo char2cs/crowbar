@@ -13,8 +13,9 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { publishFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
+import { workspaceRef } from '@/lib/api/documents'
 
 vi.mock('@/features/panes/components/terminal-pane', () => ({
   TerminalPane: () => <textarea aria-label="terminal input" />,
@@ -34,13 +35,11 @@ const EDITOR: PaneContent = {
   ...BASE,
   id: 'ed',
   type: 'editor',
-  path: '/a.ts',
+  path: 'a.ts',
   name: 'a.ts',
-  content: '',
-  savedContent: '',
+  authority: 'workspace',
   isDirty: false,
   isVirtual: false,
-  tokens: [],
 }
 const TERMINAL: PaneContent = { ...BASE, id: 'term', type: 'terminal', name: 'zsh', sessionId: 's' }
 const REVIEW: PaneContent = { ...BASE, id: 'rev', type: 'branchReview', name: 'Review', wsId: 'w1' }
@@ -50,7 +49,7 @@ const PREVIEW: PaneContent = {
   type: 'markdownPreview',
   name: 'README.md',
   content: '# hi',
-  sourceFilePath: '/README.md',
+  source: workspaceRef('w1', 'README.md'),
 }
 
 function Host({ activeTab }: { activeTab: string }) {
@@ -68,7 +67,7 @@ function Host({ activeTab }: { activeTab: string }) {
   )
 }
 
-const mode = () => useSidebarStore.getState().activeTab
+const mode = () => treeUiStore.getState().activeTab
 
 // Focus only moves the mode once the user has pressed something.
 function renderHost(activeTab: string) {
@@ -89,7 +88,7 @@ describe('PaneEditorViewContent sidebar surfaces', () => {
       s.buffers.push(EDITOR, TERMINAL, REVIEW, PREVIEW)
       return s
     })
-    useSidebarStore.setState(getInitialState())
+    treeUiStore.setState({ activeTab: 'chats' })
     publishFocusedWorkspaceContext({
       projectId: 'p1',
       workspaceId: 'w1',
@@ -122,7 +121,7 @@ describe('PaneEditorViewContent sidebar surfaces', () => {
   })
 
   it('focus in a terminal shows Chats', () => {
-    useSidebarStore.getState().setActiveTab('files')
+    treeUiStore.getState().setActiveTab('files')
     renderHost('term')
     act(() => screen.getByLabelText('terminal input').focus())
     expect(mode()).toBe('chats')

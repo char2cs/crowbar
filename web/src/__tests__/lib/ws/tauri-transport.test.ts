@@ -1,9 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The transport mints a Tauri Channel and bridges its frames into the
-// WebSocket-like onmessage callback. We mock @tauri-apps/api/core so a frame
-// pushed at the captured Channel fires onmessage with the RAW DTO text, and so
-// the open/send/close handlers invoke the right ws_* commands.
+// The mocked core captures each Channel the transport mints, so a test pushes frames
+// at it and reads which ws_* commands were invoked.
 
 interface MockChannel {
   onmessage: ((data: string | ArrayBuffer) => void) | null
@@ -36,11 +34,35 @@ const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/conn
 const { followStreamFailures } = await import('@/features/hosts/lib/host-failures')
 const { destroyHostRuntime, getHostRuntime, getOrCreateHostRuntime } =
   await import('@/features/hosts/stores/host-runtime-registry')
-const { pairRemoteHost, projectOn, resetHostWorld } =
-  await import('@/__tests__/__fixtures__/remote-host')
+const { pairRemoteHost, resetHostWorld } = await import('@/__tests__/__fixtures__/remote-host')
 const { startHostStatus } = await import('@/features/hosts/lib/host-status')
-const { connectProjectList, useProjectDataStore } = await import('@/lib/store/projects')
-const { projectListTransport } = await import('@/lib/api/project-list-transport')
+
+/** Holds the next ws_open unresolved until `resolve`: Rust's reader may already be forwarding. */
+function gateOpen() {
+  let resolve = () => {}
+  let reject = (_err: unknown) => {}
+  invoke.mockImplementationOnce(
+    () =>
+      new Promise<undefined>((res, rej) => {
+        resolve = () => res(undefined)
+        reject = rej
+      }),
+  )
+  return { resolve: () => resolve(), reject: (err: unknown) => reject(err) }
+}
+
+/** Records the shim's events in the order the manager would hear them. */
+function record(sock: InstanceType<typeof TauriWebSocket>) {
+  const events: string[] = []
+  sock.onopen = () => void events.push(`open@${sock.readyState}`)
+  sock.onmessage = (e) => void events.push(`msg ${String(e.data)}@${sock.readyState}`)
+  sock.onclose = () => void events.push('close')
+  sock.onerror = () => void events.push('error')
+  return events
+}
+
+const opened = (sock: InstanceType<typeof TauriWebSocket>) =>
+  vi.waitFor(() => expect(sock.readyState).toBe(TauriWebSocket.OPEN))
 
 describe('TauriWebSocket', () => {
   it('exposes the WebSocket readyState constants', () => {
@@ -74,7 +96,7 @@ describe('TauriWebSocket', () => {
     const onmessage = vi.fn()
     sock.onmessage = onmessage
 
-    await vi.waitFor(() => expect(channels.length).toBe(1))
+    await opened(sock)
     const dto = '{"id":"ws-1","status":"new","data":"not-extracted"}'
     channels[0].onmessage?.(dto)
 
@@ -83,17 +105,13 @@ describe('TauriWebSocket', () => {
 
   it('treats the close sentinel as a close (fires onclose, goes CLOSED) — not a message', async () => {
     const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
-    const onmessage = vi.fn()
-    const onclose = vi.fn()
-    sock.onmessage = onmessage
-    sock.onclose = onclose
+    const events = record(sock)
 
-    await vi.waitFor(() => expect(channels.length).toBe(1))
+    await opened(sock)
     // The Rust reader pushes this exact sentinel when the daemon closes the stream.
     channels[0].onmessage?.('\u0000crowbar-ws-close')
 
-    expect(onclose).toHaveBeenCalledTimes(1)
-    expect(onmessage).not.toHaveBeenCalled()
+    expect(events).toEqual(['open@1', 'close'])
     expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
   })
 
@@ -107,14 +125,9 @@ describe('TauriWebSocket', () => {
     )
   })
 
-  // 'local' (the default every existing caller keeps using) must send NO
-  // hostId at all — Tauri Bridge plan Task 6's ws_open treats an omitted
-  // host_id as the local daemon, so sending 'local' explicitly would be a
-  // different (if harmless) wire shape than today's zero-arg callers produce.
+  // ws_open reads an omitted host_id as the local daemon, so 'local' sends none.
   it('omits hostId from ws_open when the host is "local" (the default)', async () => {
     new TauriWebSocket('/v0/projects/p/repos/r/workspaces', { hostId: 'local' })
-    // toHaveBeenCalledWith treats an `undefined`-valued key as absent, so this
-    // also proves the real call carries no hostId at all for the local host.
     await vi.waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('ws_open', {
         connId: 'conn-fixed-id',
@@ -177,11 +190,11 @@ describe('TauriWebSocket', () => {
       )
       const { failures } = useConnectionStore.getState()
       expect(failures['crowbar://h1/v0/projects']).toMatchObject({
-        code: 'host_identity_changed',
+        problem: { code: 'host_identity_changed' },
         hostId: 'h1',
       })
       expect(failures['crowbar://h2/v0/projects']).toMatchObject({
-        code: 'host_unreachable',
+        problem: { code: 'host_unreachable' },
         hostId: 'h2',
       })
       // Armed with the bridge's read-idle close (two daemon pings): a half-open one reopens.
@@ -194,8 +207,7 @@ describe('TauriWebSocket', () => {
       stopDown()
     })
 
-    // A halted channel used to come back only once every subscriber had left and one came
-    // back; now the host's own return reopens it, whoever holds it.
+    // A halted channel reopens when its host returns, whoever holds it.
     it('opens nothing more for a host whose identity changed, and reopens it once it is up', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
       pairRemoteHost('h1')
@@ -277,68 +289,13 @@ describe('TauriWebSocket', () => {
         vi.useRealTimers()
       }
     })
-
-    // The app's whole path: a host's daemon is replaced, its project stream's redial is refused,
-    // nothing dials it while it needs repair, and once it is back it alone is re-read and streamed.
-    it('streams a host’s projects again once it is back from a change of identity', async () => {
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-      let replaced = false
-      const fetchMock = vi.fn(async (url: string) => {
-        if (replaced && url === 'crowbar://h1/v0/health') {
-          return new Response(null, {
-            status: 502,
-            headers: { 'x-crowbar-proxy': 'host-identity-changed' },
-          })
-        }
-        const rows = url === 'crowbar://h1/v0/projects' ? [projectOn('p-h1', 'h1')] : []
-        return new Response(JSON.stringify({ success: true, data: rows }), { status: 200 })
-      })
-      vi.stubGlobal('fetch', fetchMock)
-      const opens = () =>
-        invoke.mock.calls.filter(
-          ([command, args]) =>
-            command === 'ws_open' && (args as { hostId?: string }).hostId === 'h1',
-        ).length
-      const reads = () =>
-        fetchMock.mock.calls.filter(([url]) => url === 'crowbar://h1/v0/projects').length
-      connectProjectList(projectListTransport)
-      pairRemoteHost('h1')
-      const stops = [useProjectDataStore.getState().startSync(), startHostStatus()]
-      try {
-        await useProjectDataStore.getState().fetch()
-        await vi.waitFor(() => expect(opens()).toBe(1))
-        const readsWhileUp = reads()
-
-        replaced = true
-        invoke.mockImplementation(async (command: string) => {
-          if (command === 'ws_open') throw 'host-identity-changed: certificate mismatch'
-        })
-        channels.at(-1)!.onmessage?.('\u0000crowbar-ws-close')
-        await vi.advanceTimersByTimeAsync(1_000)
-        expect(getHostRuntime('h1')?.getState().status).toBe('needs-repair')
-        await vi.advanceTimersByTimeAsync(60_000)
-        expect(opens()).toBe(2)
-
-        replaced = false
-        invoke.mockImplementation(async () => undefined)
-        await vi.advanceTimersByTimeAsync(15_000)
-        await vi.waitFor(() => expect(opens()).toBe(3))
-        await vi.waitFor(() => expect(reads()).toBe(readsWhileUp + 1))
-      } finally {
-        stops.forEach((stop) => stop())
-        invoke.mockImplementation(async () => undefined)
-        destroyHostRuntime('h1')
-        resetHostWorld()
-        vi.unstubAllGlobals()
-        vi.useRealTimers()
-      }
-    })
   })
 
   it('surfaces a binary frame (terminal output) as its ArrayBuffer', async () => {
     const sock = new TauriWebSocket('/v0/chats/c/terminals/s/ws')
     const onmessage = vi.fn()
     sock.onmessage = onmessage
+    await opened(sock)
     const bytes = new Uint8Array([0, 104, 105]).buffer
     channels[channels.length - 1].onmessage?.(bytes)
     expect(onmessage).toHaveBeenCalledWith({ data: bytes })
@@ -349,11 +306,9 @@ describe('TauriWebSocket', () => {
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('ws_open', expect.anything()))
     invoke.mockClear()
 
-    sock.send('{"hello":true}')
-    expect(invoke).toHaveBeenCalledWith('ws_send', {
-      connId: 'conn-fixed-id',
-      data: '{"hello":true}',
-    })
+    const data = '{"hello":true}'
+    sock.send(data)
+    expect(invoke).toHaveBeenCalledWith('ws_send', { connId: 'conn-fixed-id', data })
   })
 
   it('close() invokes ws_close, fires onclose, and goes CLOSED', async () => {
@@ -369,39 +324,175 @@ describe('TauriWebSocket', () => {
     expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
   })
 
-  it('close() while CONNECTING defers ws_close until ws_open resolves and never fires onopen', async () => {
-    // Gate the ws_open resolution so we can close() while the socket is still
-    // CONNECTING — the StrictMode double-mount / rapid scope-switch race that
-    // leaks a daemon FD + 2 tokio tasks if the deferred teardown is missing.
-    let resolveOpen: (() => void) | undefined
-    invoke.mockImplementationOnce(
-      () =>
-        new Promise<undefined>((resolve) => {
-          resolveOpen = () => resolve(undefined)
-        }),
-    )
+  // Rust forwards frames as soon as the daemon sends them, and the Channel races the
+  // ws_open reply: a frame may land while the shim still says CONNECTING.
+  describe('a frame that arrives before ws_open resolves', () => {
+    it('is held until onopen has fired, then delivered once, while OPEN', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const events = record(sock)
 
-    const sock = new TauriWebSocket('/v0/projects/p/repos/r/workspaces')
-    const onopen = vi.fn()
-    sock.onopen = onopen
+      channels[0].onmessage?.('{"t":"ready","epoch":"e1"}')
+      expect(events).toEqual([])
 
-    // The Channel is minted, but ws_open has NOT resolved: still CONNECTING.
-    await vi.waitFor(() => expect(channels.length).toBe(1))
-    expect(sock.readyState).toBe(TauriWebSocket.CONNECTING)
+      gate.resolve()
+      await opened(sock)
+      channels[0].onmessage?.('{"t":"synced","scope":"projects"}')
 
-    // Close before the handshake completes. Rust hasn't registered the
-    // connection yet, so no eager ws_close (it would be a Rust-side no-op).
+      expect(events).toEqual([
+        'open@1',
+        'msg {"t":"ready","epoch":"e1"}@1',
+        'msg {"t":"synced","scope":"projects"}@1',
+      ])
+    })
+
+    it('keeps the order of a 5,000-frame burst, each frame once', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const seen: string[] = []
+      sock.onmessage = (e) => void seen.push(String(e.data))
+
+      const burst = Array.from({ length: 5000 }, (_, i) => `{"n":${i}}`)
+      for (const frame of burst) channels[0].onmessage?.(frame)
+      gate.resolve()
+      await opened(sock)
+
+      expect(seen).toEqual(burst)
+    })
+
+    it('a daemon close among them closes after the frames before it, and drops the ones after', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const events = record(sock)
+
+      channels[0].onmessage?.('a')
+      channels[0].onmessage?.('\u0000crowbar-ws-close')
+      channels[0].onmessage?.('b')
+      gate.resolve()
+      await vi.waitFor(() => expect(events).toContain('close'))
+
+      expect(events).toEqual(['open@1', 'msg a@1', 'close'])
+      expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+    })
+
+    // A close while CONNECTING (StrictMode's double mount) must still tear down what
+    // ws_open registers, or the daemon connection leaks.
+    it('is never delivered when closed while connecting, and ws_close waits for ws_open', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const events = record(sock)
+
+      channels[0].onmessage?.('a')
+      expect(sock.readyState).toBe(TauriWebSocket.CONNECTING)
+      sock.close()
+      expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+      // Rust has not registered the connection yet: an eager ws_close would be a no-op.
+      expect(invoke).not.toHaveBeenCalledWith('ws_close', expect.anything())
+      gate.resolve()
+      await vi.waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith('ws_close', { connId: 'conn-fixed-id' }),
+      )
+      channels[0].onmessage?.('b')
+
+      expect(events).toEqual(['close'])
+      expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+    })
+
+    it('is never delivered when ws_open fails', async () => {
+      const gate = gateOpen()
+      const sock = new TauriWebSocket('/v0/stream')
+      const events = record(sock)
+
+      channels[0].onmessage?.('a')
+      gate.reject(new Error('ws upgrade: 503'))
+      await vi.waitFor(() => expect(events).toContain('close'))
+
+      expect(events).toEqual(['error', 'close'])
+    })
+  })
+
+  it('drops a frame that arrives after close()', async () => {
+    const sock = new TauriWebSocket('/v0/stream')
+    await opened(sock)
+    const events = record(sock)
+
     sock.close()
-    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
-    expect(invoke).not.toHaveBeenCalledWith('ws_close', expect.anything())
+    channels[0].onmessage?.('late')
 
-    // ws_open now resolves: the connection is registered, so the deferred
-    // ws_close fires to tear it down — and onopen must NOT fire.
-    resolveOpen?.()
-    await vi.waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('ws_close', { connId: 'conn-fixed-id' }),
+    expect(events).toEqual(['close'])
+  })
+})
+
+describe('the stream over the desktop transport', () => {
+  const sent = () =>
+    (invoke.mock.calls as unknown as [string, { data: string }][])
+      .filter(([cmd]) => cmd === 'ws_send')
+      .map(([, args]) => JSON.parse(args.data) as unknown)
+
+  beforeAll(() => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+  })
+  afterAll(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+  })
+
+  it('subscribes every held scope on a ready that beat ws_open, applies the snapshot, and again after a daemon restart', async () => {
+    // The real manager and stream, not setup's fake stream daemon.
+    vi.doUnmock('@/lib/ws/manager')
+    vi.doUnmock('@/core/stream/stream')
+    vi.resetModules()
+    const stream = await import('@/core/stream/stream')
+    const frames: string[] = []
+    const releases = [
+      stream.registerScopeKind('projects', { frame: (_h, f) => void frames.push(f.t) }),
+      stream.registerScopeKind('ws', { frame: () => {} }),
+      stream.holdScope('local', 'projects'),
+      stream.holdScope('local', 'ws:w1'),
+    ]
+    const synced = vi.fn()
+    releases.push(stream.watchScope('local', 'projects', { synced }))
+
+    const first = gateOpen()
+    releases.push(stream.startStream())
+    channels[0].onmessage?.('{"t":"ready","epoch":"e1"}')
+    first.resolve()
+    await vi.waitFor(() => expect(sent()).toHaveLength(2))
+    expect(sent()).toEqual([
+      { op: 'sub', scope: 'projects' },
+      { op: 'sub', scope: 'ws:w1' },
+    ])
+
+    channels[0].onmessage?.(
+      JSON.stringify({
+        t: 'entity',
+        scope: 'projects',
+        kind: 'operation',
+        id: 'op1',
+        v: 1,
+        data: { id: 'op1', kind: 'repo.add', subject: { kind: 'project', id: 'p1' }, items: [] },
+      }),
     )
-    expect(onopen).not.toHaveBeenCalled()
-    expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+    channels[0].onmessage?.('{"t":"synced","scope":"projects"}')
+    expect(frames).toEqual(['entity', 'synced'])
+    expect(synced).toHaveBeenCalledTimes(1)
+
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    try {
+      invoke.mockClear()
+      const second = gateOpen()
+      channels[0].onmessage?.('\u0000crowbar-ws-close')
+      vi.advanceTimersByTime(1000)
+      expect(channels).toHaveLength(2)
+      channels[1].onmessage?.('{"t":"ready","epoch":"e2"}')
+      second.resolve()
+    } finally {
+      vi.useRealTimers()
+    }
+    await vi.waitFor(() => expect(sent()).toHaveLength(2))
+    expect(sent()).toEqual([
+      { op: 'sub', scope: 'projects' },
+      { op: 'sub', scope: 'ws:w1' },
+    ])
+    releases.reverse().forEach((release) => release())
   })
 })

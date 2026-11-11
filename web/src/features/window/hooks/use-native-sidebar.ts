@@ -1,14 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useStore } from 'zustand'
-import { applyPendingRemovals } from '@/components/layout/removal-plan'
-import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
-import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
-import { rowRepoScope } from '@/components/sidebar/lib/rows-from-repo'
-import {
-  hideRowsForInFlightCreates,
-  rowsFromPending,
-} from '@/components/sidebar/lib/rows-from-pending'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import {
   rowIsLocked,
@@ -18,14 +10,18 @@ import {
   type RowMenuHandlers,
 } from '@/components/sidebar/lib/row-menu'
 import { performRenameRow } from '@/components/sidebar/lib/row-actions'
-import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import { CREATE_ROW_PLACEHOLDER } from '@/components/layout/workspace-row-base'
+import { branchOutChat } from '@/features/agent/api/agent-chat-commands'
+import { userWords } from '@/lib/errors/report'
+import { performCancelMove, performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { dropTargetRow, rowDropTargets } from '@/components/sidebar/lib/row-drop-targets'
 import { killAgent, killAgentConfirmation } from '@/features/agent/lib/kill-agent'
 import { useNativeReadout } from '@/components/layout/use-readout-lines'
 import { hostNetStateOf } from '@/components/layout/build-readout-lines'
-import { openHomeDraft } from '@/components/layout/home-actions'
+import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { handleCreate } from '@/components/layout/create-actions'
 import { handleOpen } from '@/components/layout/open-actions'
+import { readSelect, selectAgentChat, selectRepos, useSelect } from '@/core/entities/select'
 import { useSidebarHostFilter } from '@/components/layout/use-sidebar-host-filter'
 import { hostStatusOf, subscribeHostStatusOf } from '@/features/hosts/lib/host-status'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
@@ -35,10 +31,9 @@ import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-sto
 import { toast } from '@/features/window/stores/toast-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
-import {
-  readChatWorking,
-  subscribeChatWorking,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { useTreeInput } from '@/features/workspace/tree/input'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import {
   nativePrompt,
   onNativeChromeIntent,
@@ -47,12 +42,12 @@ import {
   type NativeRowAction,
   type NativeSidebar,
 } from '@/lib/native-chrome'
-import { useActiveSessionsStore, type LiveSession } from '@/lib/store/active-sessions'
-import { usePendingCreatesStore } from '@/lib/store/pending-creates'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import {
+  selectActiveSession,
+  useActiveSessionList,
+  type ActiveSession,
+} from '@/core/entities/active-sessions'
+import { entityStore } from '@/core/entities/entity-store'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import type { Project } from '@/lib/types'
 import { isHostResolved } from '@/lib/host-resolve'
@@ -104,6 +99,34 @@ async function forkNatively(row: SidebarRow, navigate: RowMenuHandlers['navigate
   if (trimmed) await handleCreate(row.id, 'workspace', navigate, undefined, trimmed)
 }
 
+// The desktop names the branch in place on the thread's row; the phone asks, and asks again
+// with the daemon's reason while the name it typed cannot be taken.
+async function branchOutNatively(row: SidebarRow) {
+  const wsId = row.workspaceId
+  if (!wsId) return
+  let value = ''
+  let message: string | null = null
+  for (;;) {
+    const name = (
+      await nativePrompt({
+        title: 'Make a branch',
+        message,
+        value,
+        placeholder: CREATE_ROW_PLACEHOLDER,
+        confirmLabel: 'Make branch',
+      })
+    )?.trim()
+    if (!name) return
+    try {
+      await branchOutChat(wsId, row.id, name)
+      return
+    } catch (err) {
+      value = name
+      message = userWords(err) ?? "Couldn't make the branch"
+    }
+  }
+}
+
 const NOUN: Record<SidebarRow['kind'], string> = {
   chat: 'thread',
   folder: 'folder',
@@ -123,43 +146,51 @@ function confirmFor(id: RowMenuActionId, row: SidebarRow): NativeRowAction['conf
 }
 
 const KILL_AGENT = 'kill-agent'
+const CANCEL_MOVE = 'cancel-move'
 
-type Attached = Record<string, { count: number }>
+type Running = ReadonlyMap<string, ActiveSession>
 
 /** The rows with an agent running, as the desktop's Active section picks them. */
-function activeRows(rows: readonly SidebarRow[], sessions: Record<string, LiveSession>) {
-  return rows.filter((r) => r.kind !== 'folder' && !r.pending && sessions[r.id])
+function activeRows(rows: readonly SidebarRow[], running: Running) {
+  return rows.filter((r) => r.kind !== 'folder' && !r.operation && running.has(r.id))
 }
 
-function nativeRowActions(
-  rows: SidebarRow[],
-  sessions: Record<string, LiveSession>,
-  attached: Attached,
-) {
+function nativeRowActions(rows: SidebarRow[], running: Running, moving: ReadonlySet<string>) {
   const actions: Record<string, NativeRowAction[]> = {}
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
     // A row not yet created has no menu.
-    if (row.pending) {
+    if (row.operation) {
       actions[row.id] = []
       continue
     }
     actions[row.id] = // The phone has no terminal threads.
-      rowVerbs(row, { locked, canStartOnTerminal: false }).map((action) => ({
-        id: action.id,
-        title: action.label,
-        icon: action.nativeIcon,
-        destructive: action.destructive,
-        confirm: confirmFor(action.id, row),
-      }))
-    const session = sessions[row.id]
+      rowVerbs(row, { locked, canStartOnTerminal: false, movePending: moving.has(row.id) }).map(
+        (action) => ({
+          id: action.id,
+          title: action.label,
+          icon: action.nativeIcon,
+          destructive: action.destructive,
+          confirm: confirmFor(action.id, row),
+        }),
+      )
+    if (moving.has(row.id)) {
+      actions[row.id].push({
+        id: CANCEL_MOVE,
+        title: 'Cancel move',
+        icon: 'X',
+        destructive: false,
+        confirm: null,
+      })
+    }
+    const session = running.get(row.id)
     if (row.kind !== 'folder' && session) {
       actions[row.id].push({
         id: KILL_AGENT,
         title: 'Kill agent',
         icon: 'Prohibit',
         destructive: true,
-        confirm: killAgentConfirmation({ ...session, attached: attached[row.id]?.count ?? 0 }),
+        confirm: killAgentConfirmation(session),
       })
     }
   }
@@ -168,57 +199,19 @@ function nativeRowActions(
 
 const closeChatList = () => useMobileScreenStore.getState().setChatListOpen(false)
 
-/** The active project's rows, from the same derivers the desktop tree draws. */
+// A failed create is toasted in the shell, and a removal confirmed on the phone commits at once:
+// neither leaves a row behind the way the desktop tree draws one. The phone names a fork first,
+// so no naming input is drawn either.
+const drawnNatively = (row: SidebarRow) =>
+  !row.removal && !row.draft && row.operation?.state !== 'failed'
+
+/** The active project's rows, from the same deriver the desktop tree draws. */
 function useActiveProjectRows(projectId: string | null): SidebarRow[] {
-  const allRepos = useSidebarStore((s) => s.repos)
-  // A removal confirmed on the phone commits at once, so the row goes with what it takes: no
-  // countdown row stays behind the way the desktop tree draws one.
-  const hiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
-  const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
-  const seeded = useFolderSignalStore((s) => s.seededRepoIds)
-  const seededWorkspaces = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
-  const homeTree = useHomeTreeStore((s) => (projectId ? s.trees[projectId] : undefined))
-  const home = useHomeWorkspaceState(projectId)
-  // The desktop tree's own view of a create in flight (space-scroller.tsx): the pending row
-  // stands in for the real one. A failed create is toasted in the shell, and its row's Dismiss
-  // would act on the list page's own empty store, so only a create still running is drawn.
-  const pendingEntries = usePendingCreatesStore((s) => s.entries)
-  return useMemo(() => {
-    if (!projectId) return []
-    const treeRepos = repos.filter((r) => seeded.has(r.id) || seededWorkspaces.has(r.id))
-    const homeRows =
-      home.wsId && homeTree
-        ? rowsFromHome(
-            home.wsId,
-            homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
-            homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
-            home.owningChatId ?? undefined,
-          )
-        : []
-    const projectRows = rowsForProject(treeRepos, projectId)
-    const rowRepoId = rowRepoScope(allRepos.filter((r) => r.projectId === projectId))
-    const real = hideRowsForInFlightCreates(
-      [...homeRows, ...projectRows],
-      pendingEntries,
-      projectId,
-      rowRepoId,
-    )
-    const inFlight = pendingEntries.filter(
-      (e) => e.projectId === projectId && e.status === 'creating',
-    )
-    return [...real, ...rowsFromPending(inFlight)]
-  }, [
-    allRepos,
-    pendingEntries,
-    projectId,
-    repos,
-    seeded,
-    seededWorkspaces,
-    homeTree,
-    home.wsId,
-    home.owningChatId,
-    hiddenIds,
-  ])
+  const inputFor = useTreeInput()
+  return useMemo(
+    () => (projectId ? deriveRows(inputFor(projectId)).filter(drawnNatively) : []),
+    [projectId, inputFor],
+  )
 }
 
 export const isImageUrl = (url: string | undefined): url is string =>
@@ -252,32 +245,45 @@ function useIconsAsData(rows: readonly SidebarRow[], projects: readonly Project[
   }
 }
 
-/** Re-renders when any listed host's status or workspace's turn state changes. */
-function useLiveFacts(hostIds: readonly string[], wsIds: readonly string[]): number {
+/** Re-renders when any listed host's status changes. */
+function useHostStatusVersion(hostIds: readonly string[]): number {
   const [version, setVersion] = useState(0)
   const hostKey = hostIds.join('\n')
-  const wsKey = wsIds.join('\n')
   useEffect(() => {
     const bump = () => setVersion((v) => v + 1)
-    const stops = [
-      ...hostKey
-        .split('\n')
-        .filter(Boolean)
-        .map((id) => subscribeHostStatusOf(id, bump)),
-      ...wsKey
-        .split('\n')
-        .filter(Boolean)
-        .map((id) => subscribeChatWorking(id, bump)),
-    ]
+    const stops = hostKey
+      .split('\n')
+      .filter(Boolean)
+      .map((id) => subscribeHostStatusOf(id, bump))
     return () => stops.forEach((stop) => stop())
-  }, [hostKey, wsKey])
+  }, [hostKey])
   return version
 }
 
-/**
- * Keeps the phone's native chat list showing the sidebar, and carries out what the user asks
- * of it there. The list holds no state of its own: every push is the whole snapshot.
- */
+/** The rows whose chat is mid-turn, the live fact the desktop tree subscribes per row. */
+function useWorkingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
+  const key = useSelect((s) => {
+    const working: string[] = []
+    for (const r of rows)
+      if (r.kind !== 'folder' && selectAgentChat(s, r.id)?.working) working.push(r.id)
+    return working.join('\n')
+  })
+  return useMemo(() => new Set(key.split('\n')), [key])
+}
+
+/** The rows whose chat waits to move to another workspace after its turn. */
+function useMovingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
+  const key = useSelect((s) => {
+    const moving: string[] = []
+    for (const r of rows)
+      if (r.kind !== 'folder' && selectAgentChat(s, r.id)?.pendingMove) moving.push(r.id)
+    return moving.join('\n')
+  })
+  return useMemo(() => new Set(key.split('\n')), [key])
+}
+
+/** Keeps the phone's native chat list showing the sidebar and carries out its intents. The list
+ *  holds no state: every push is the whole snapshot. */
 export function useNativeSidebar({
   activeProjectId,
   projects,
@@ -291,17 +297,15 @@ export function useNativeSidebar({
     onSelectProject,
   )
   const rows = useActiveProjectRows(projectId)
-  const collapsed = useSidebarStore((s) => s.collapsedChatRows)
+  const collapsed = useTreeUi((s) => s.collapsed)
   const focusedChatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? null)
-  const sessions = useActiveSessionsStore((s) => s.sessions)
-  const attached = useActiveSessionsStore((s) => s.attached)
+  const sessions = useActiveSessionList()
+  const running = useMemo(() => new Map(sessions.map((s) => [s.chatId, s])), [sessions])
   const hostConfigs = useHostConfigStore((s) => s.hosts)
   const hostStreams = useConnectionStore((s) => s.hostStreams)
   const homeWsId = useHomeWorkspaceState(projectId).wsId
-  const wsIds = useMemo(
-    () => [...new Set(rows.flatMap((r) => (r.workspaceId ? [r.workspaceId] : [])))],
-    [rows],
-  )
+  const workingIds = useWorkingRowIds(rows)
+  const movingIds = useMovingRowIds(rows)
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
   const [dragSubjectId, setDragSubjectId] = useState<string | null>(null)
   const drop = useMemo(
@@ -310,20 +314,13 @@ export function useNativeSidebar({
   )
   const icons = useIconsAsData(rows, projects)
   const readout = useNativeReadout()
-  const live = useLiveFacts(
-    hostConfigs.map((h) => h.id),
-    wsIds,
-  )
+  const hostVersion = useHostStatusVersion(hostConfigs.map((h) => h.id))
 
   useEffect(() => {
     const hostState = (id: string): HostDotState => {
       const status = hostStatusOf(id)
       return status === 'up' && hostStreams[id] === 'disconnected' ? 'no-live-stream' : status
     }
-    // The two live facts the desktop tree subscribes per row (sidebar-tree.tsx), resolved here:
-    // the page that draws these rows watches nothing.
-    const chatWorking = (row: SidebarRow) =>
-      row.kind !== 'folder' && row.workspaceId ? readChatWorking(row.workspaceId, row.id) : false
     setNativeSidebar({
       focusedChatId,
       activeProjectId: projectId,
@@ -338,12 +335,13 @@ export function useNativeSidebar({
       })),
       rows: rows.map((row) => ({
         ...icons.row(row),
-        working: row.working || chatWorking(row),
+        // The page that draws these rows watches nothing: the live facts are resolved here.
+        working: row.working || workingIds.has(row.id),
         hasView: row.id === focusedChatId,
       })),
-      active: activeRows(rows, sessions).map((r) => ({ id: r.id })),
+      active: activeRows(rows, running).map((r) => ({ id: r.id })),
       collapsed: [...collapsed],
-      actions: nativeRowActions(rows, sessions, attached),
+      actions: nativeRowActions(rows, running, movingIds),
       drop,
       readout: readout && {
         ...readout,
@@ -362,10 +360,11 @@ export function useNativeSidebar({
     shown,
     hostConfigs,
     hostStreams,
-    live,
+    hostVersion,
+    workingIds,
+    movingIds,
     icons,
-    sessions,
-    attached,
+    running,
   ])
 
   useEffect(() => () => setNativeSidebar(EMPTY), [])
@@ -373,7 +372,7 @@ export function useNativeSidebar({
   const onIntent = useEffectEvent((intent: NativeChromeIntent) => {
     switch (intent.type) {
       case 'selectRow':
-        if (handleOpen(intent.id, useSidebarStore.getState().repos, navigate, { fold: false })) {
+        if (handleOpen(intent.id, readSelect(selectRepos), navigate, { fold: false })) {
           closeChatList()
         }
         return
@@ -382,7 +381,7 @@ export function useNativeSidebar({
           toast.error("Can't start a new thread yet")
           return
         }
-        void openHomeDraft(projectId, homeWsId, navigate)
+        void handleCreateHomeThread(projectId, homeWsId, navigate)
         return
       case 'selectProject':
         onSelectProject(intent.id)
@@ -391,7 +390,7 @@ export function useNativeSidebar({
         selectHost(intent.id)
         return
       case 'toggleFold':
-        useSidebarStore.getState().toggleChatRow(intent.id)
+        treeUiStore.getState().toggleChatRow(intent.id)
         return
       case 'rowAction': {
         const row = rows.find((r) => r.id === intent.rowId)
@@ -404,13 +403,16 @@ export function useNativeSidebar({
             setImportRepoRowId(target.id)
           },
           fork: (target) => void forkNatively(target, navigate),
+          branchOut: (target) => void branchOutNatively(target),
           removeAtOnce: true,
-          draftThreads: true,
+        }
+        if (intent.actionId === CANCEL_MOVE) {
+          void performCancelMove(row)
+          return
         }
         if (intent.actionId === KILL_AGENT) {
-          const { sessions: live, attached: counts } = useActiveSessionsStore.getState()
-          const session = live[row.id]
-          if (session) void killAgent({ ...session, attached: counts[row.id]?.count ?? 0 })
+          const session = selectActiveSession(entityStore.getState(), row.id)
+          if (session) void killAgent(session)
           return
         }
         const actionId = intent.actionId as RowMenuActionId

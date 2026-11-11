@@ -1,6 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import type * as Monaco from 'monaco-editor'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { workspaceRef } from '@/lib/api/documents'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { editorTab, makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
@@ -94,7 +96,7 @@ describe('editor tabs in a pane', () => {
     expect(activeOf()).toBeNull()
   })
 
-  it('refuses a tab that names no buffer — a tab id always names content (C2)', () => {
+  it('refuses a tab that names no buffer — a tab id always names content', () => {
     const store = withBuffers([{ id: 'tab-real', type: 'terminal', workspaceId: 'ws-test' }])
     const actions = store.getState().paneActions
     actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-ghost', 'terminal'))
@@ -170,8 +172,8 @@ describe('reorder / preview / pinned / cycling', () => {
 
   it('setEditorTabPreview marks exactly one preview per pane', () => {
     const store = withBuffers([
-      { id: 'a', type: 'editor', isPreview: false, workspaceId: 'ws-test' },
-      { id: 'b', type: 'editor', isPreview: false, workspaceId: 'ws-test' },
+      { id: 'a', type: 'editor', authority: 'workspace', isPreview: false, workspaceId: 'ws-test' },
+      { id: 'b', type: 'editor', authority: 'workspace', isPreview: false, workspaceId: 'ws-test' },
     ])
     const actions = store.getState().paneActions
     const preview = (id: string) => store.getState().buffers.find((b) => b.id === id)?.isPreview
@@ -183,8 +185,15 @@ describe('reorder / preview / pinned / cycling', () => {
 
   it('setEditorTabPinned sets isPinned; clearEditorTabPreviewEverywhere clears every pane', () => {
     const store = withBuffers([
-      { id: 'a', type: 'editor', isPinned: false, isPreview: true, workspaceId: 'ws-test' },
-      { id: 'b', type: 'editor', isPreview: true, workspaceId: 'ws-test' },
+      {
+        id: 'a',
+        type: 'editor',
+        authority: 'workspace',
+        isPinned: false,
+        isPreview: true,
+        workspaceId: 'ws-test',
+      },
+      { id: 'b', type: 'editor', authority: 'workspace', isPreview: true, workspaceId: 'ws-test' },
     ])
     const actions = store.getState().paneActions
     actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('a'))
@@ -213,7 +222,7 @@ describe('reorder / preview / pinned / cycling', () => {
   })
 })
 
-describe('activateEditorTabInPane only activates a tab the pane holds (I4)', () => {
+describe('activateEditorTabInPane only activates a tab the pane holds', () => {
   it('ignores an id the pane does not hold, including one in another pane', () => {
     const actions = makePaneOnlyStore().getState().paneActions
     actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-1'))
@@ -224,33 +233,86 @@ describe('activateEditorTabInPane only activates a tab the pane holds (I4)', () 
   })
 })
 
-describe('editorManager model release (C1)', () => {
+describe('editor model release', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  async function storeWithManager() {
+  async function storeWithHost() {
     const closeBuffer = vi.fn()
-    const registry = await import('@/features/workspace/stores/workspace-store-registry')
-    vi.spyOn(registry, 'getWorkspaceStore').mockReturnValue({
-      editorManager: { closeBuffer },
-    } as unknown as ReturnType<typeof registry.getWorkspaceStore>)
+    const release = vi.fn()
+    const host = await import('@/features/editor/host/editor-host')
+    vi.spyOn(host, 'getEditorHost').mockReturnValue({
+      manager: { closeBuffer },
+      documents: { release },
+    } as unknown as ReturnType<typeof host.getEditorHost>)
     const store = withBuffers([
-      { id: 'tab-ed', type: 'editor', path: '/src/a.ts', workspaceId: 'ws-test' },
+      {
+        id: 'tab-ed',
+        type: 'editor',
+        authority: 'workspace',
+        path: '/src/a.ts',
+        workspaceId: 'ws-test',
+      },
     ])
-    return { store, closeBuffer }
+    return { store, closeBuffer, release }
   }
 
-  it('removeEditorTabFromPane releases the model for that pane (paneId + fileUri)', async () => {
-    const { store, closeBuffer } = await storeWithManager()
+  it('removeEditorTabFromPane releases the model for that pane (paneId + document uri)', async () => {
+    const { store, closeBuffer, release } = await storeWithHost()
     store.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-ed'))
     store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-ed')
-    expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, fileUri('ws-test', '/src/a.ts'))
+    const uri = documentUri(workspaceRef('ws-test', '/src/a.ts'))
+    expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, uri)
+    // The last holder let go, so the document itself closes.
+    expect(release).toHaveBeenCalledWith(uri)
   })
 
   it('does not release for a pane that never held the tab', async () => {
-    const { store, closeBuffer } = await storeWithManager()
+    const { store, closeBuffer } = await storeWithHost()
     store.getState().paneActions.removeEditorTabFromPane(BOTTOM_PANE_ID, 'tab-ed')
     expect(closeBuffer).not.toHaveBeenCalled()
   })
+  it('a moved tab keeps its model, which is disposed once its last holder closes it', async () => {
+    const { loadEditorHost } = await import('@/features/editor/host/editor-host')
+    const { manager, documents } = await loadEditorHost()
+    const store = withBuffers([
+      {
+        id: 'tab-ed',
+        type: 'editor',
+        authority: 'workspace',
+        path: '/src/a.ts',
+        workspaceId: 'ws-test',
+      },
+    ])
+    const uri = documentUri(workspaceRef('ws-test', '/src/a.ts'))
+    documents.open(workspaceRef('ws-test', '/src/a.ts'), 'typescript', 'a')
+    const panes = [ROOT_PANE_ID, BOTTOM_PANE_ID]
+    for (const paneId of panes) manager.mountPane(paneId, document.createElement('div'))
+    // What each pane's controller does: show the pane's active tab on every change.
+    const showActive = () => {
+      for (const paneId of panes) {
+        if (store.getState().panes[paneId]?.activeEditorTabId === 'tab-ed') {
+          manager.showBuffer(paneId, uri)
+        }
+      }
+    }
+    showActive()
+    const unsubscribe = store.subscribe(showActive)
+    try {
+      const model = documents.get(uri)
+
+      store.getState().paneActions.moveEditorTabToPane('tab-ed', ROOT_PANE_ID, BOTTOM_PANE_ID)
+      expect(documents.get(uri)).toBe(model)
+      const shown = manager.getRawEditor(BOTTOM_PANE_ID) as Monaco.editor.ICodeEditor
+      const monacoModel = shown.getModel()!
+
+      store.getState().paneActions.removeEditorTabFromPane(BOTTOM_PANE_ID, 'tab-ed')
+      expect(documents.get(uri)).toBeNull()
+      expect(monacoModel.isDisposed()).toBe(true)
+    } finally {
+      unsubscribe()
+      for (const paneId of panes) manager.unmountPane(paneId)
+    }
+  }, 120000)
 })

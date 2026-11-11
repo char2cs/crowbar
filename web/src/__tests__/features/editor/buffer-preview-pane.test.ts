@@ -10,16 +10,11 @@ import {
   setActiveWorkspaceId,
   destroyWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
 
-// Task 26 hoisted buffers/panes out of the per-workspace store into one
-// window-level store, and Task 2's ruling settled that preview/pinned are the
-// TAB'S own `isPreview`/`isPinned` — `PaneGroup` never gained
-// `previewBufferId`/`pinnedBufferIds` (the fields this suite asserted on).
-// Migrated onto both: the real store, and the real place the flag lives.
-//
-// `openContent` resolves an unspecified `workspaceId` from
-// `getActiveWorkspaceId()`, and scopes its dedup and its tab cap on it — so
-// this registers a real active workspace rather than leaving it ''.
+// Preview/pinned are the tab's own `isPreview`/`isPinned` on the window-level store.
+// `openContent` resolves an unspecified `workspaceId` from `getActiveWorkspaceId()` and scopes
+// its dedup and tab cap on it, so this registers a real active workspace rather than ''.
 
 const createMockStorage = () => {
   const storage = new Map<string, string>()
@@ -76,10 +71,8 @@ describe('buffer preview pane integration', () => {
 
     const firstPreviewId = bufferActions.openContent({
       type: 'editor',
-      workspaceId: 'ws-test',
-      path: '/workspace/a.ts',
+      doc: workspaceRef('test-ws', '/workspace/a.ts'),
       name: 'a.ts',
-      content: 'a',
       isPreview: true,
     })
     const rightPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
@@ -89,10 +82,8 @@ describe('buffer preview pane integration', () => {
     // The split became the active pane, so the second preview opens there.
     const secondPreviewId = bufferActions.openContent({
       type: 'editor',
-      workspaceId: 'ws-test',
-      path: '/workspace/b.ts',
+      doc: workspaceRef('test-ws', '/workspace/b.ts'),
       name: 'b.ts',
-      content: 'b',
       isPreview: true,
     })
 
@@ -113,10 +104,8 @@ describe('buffer preview pane integration', () => {
 
     const previewId = bufferActions.openContent({
       type: 'editor',
-      workspaceId: 'ws-test',
-      path: '/workspace/preview.ts',
+      doc: workspaceRef('test-ws', '/workspace/preview.ts'),
       name: 'preview.ts',
-      content: 'preview',
       isPreview: true,
     })
 
@@ -132,10 +121,8 @@ describe('buffer preview pane integration', () => {
 
     const previewId = bufferActions.openContent({
       type: 'editor',
-      workspaceId: 'ws-test',
-      path: '/workspace/pinned.ts',
+      doc: workspaceRef('test-ws', '/workspace/pinned.ts'),
       name: 'pinned.ts',
-      content: 'pinned',
       isPreview: true,
     })
 
@@ -146,10 +133,4 @@ describe('buffer preview pane integration', () => {
     expect(bufferById(previewId)?.isPreview).toBe(false)
     expect(bufferById(previewId)?.isPinned).toBe(true)
   })
-
-  // DELETED (final fix wave): 'opens a new tab placeholder in the active pane'.
-  // The 'newTab' placeholder buffer no longer exists — Task 1 removed it from
-  // PaneContent's union and Task 31 made a pane with zero `editorTabIds` render
-  // the New Tab stage for free, so there is nothing to open and nothing to
-  // assert. `new-tab-view.test.tsx` covers the surface that replaced it.
 })

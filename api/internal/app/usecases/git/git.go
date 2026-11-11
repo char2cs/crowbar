@@ -5,25 +5,20 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// WorkspaceSyncer is the workspace surface the git usecase uses to resolve a
-// worktree path and trigger a working-tree resync after a mutation. The git
-// package keeps its own narrow copy so it never imports the file or workspace
-// usecase; the container passes the concrete workspace usecase, which satisfies it.
+// WorkspaceSyncer is the workspace surface the git usecase resolves worktree paths and
+// triggers resyncs through, kept narrow here so git never imports the workspace usecase.
 type WorkspaceSyncer interface {
 	Get(
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
-	// List returns every workspace row, so a pull/fetch can enumerate the pulled
-	// workspace's direct children and cascade the summary resync to them (a child's
-	// diff base is its parent branch's live merge-base, so moving the parent's tip
-	// stales the child until it is resynced). Mirrors how worktree usecases already
-	// list workspaces to find a node's children (worktree.childHasChildren).
+	// List returns every workspace row, so a pull/fetch can resync the pulled workspace's
+	// direct children: a child diffs against its parent's live merge-base.
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
@@ -61,11 +56,6 @@ type ReadEngine interface {
 		limit int,
 		skip int,
 	) ([]gitdomain.Commit, error)
-	Blame(
-		ctx context.Context,
-		repoPath string,
-		filePath string,
-	) ([]gitdomain.BlameEntry, error)
 	Branches(
 		ctx context.Context,
 		repoPath string,
@@ -87,7 +77,7 @@ type ReadEngine interface {
 
 // Usecase is the lifecycle/read git surface over a workspace's worktree.
 // Read methods pass through; mutating methods additionally trigger a working-tree
-// resync (00 §5.3).
+// resync.
 type Usecase interface {
 	Status(
 		ctx context.Context,
@@ -109,11 +99,6 @@ type Usecase interface {
 		limit int,
 		skip int,
 	) ([]gitdomain.Commit, error)
-	Blame(
-		ctx context.Context,
-		wsID string,
-		filePath string,
-	) ([]gitdomain.BlameEntry, error)
 	Branches(
 		ctx context.Context,
 		wsID string,
@@ -319,7 +304,7 @@ func (u *gitUsecase) writePath(
 		return "", fmt.Errorf("git: load workspace: %w", err)
 	}
 	if ws.Status == domain.WorkspaceStatusLocked {
-		return "", fmt.Errorf("git: mutate: workspace locked: %w", apperr.ErrLocked)
+		return "", fmt.Errorf("git: mutate: workspace locked: %w", problem.ErrLocked)
 	}
 	return ws.WorktreePath, nil
 }
@@ -357,11 +342,9 @@ func (u *gitUsecase) Diff(
 	return diff, nil
 }
 
-// CommitDiff returns the diff for a single commit. sha is validated as a safe
-// operand so a leading-dash / metacharacter value can never be read by `git
-// show`/`git diff` as an option such as `--output=<path>` (argument injection →
-// arbitrary file write); `git show` cannot hide a revision behind `--`, so the
-// validator is the guard here.
+// CommitDiff returns the diff for a single commit. sha is validated as a safe operand
+// because `git show` cannot hide a revision behind `--`, so a leading-dash value could
+// inject an option such as --output=<path>.
 func (u *gitUsecase) CommitDiff(
 	ctx context.Context,
 	wsID string,
@@ -397,23 +380,6 @@ func (u *gitUsecase) Log(
 		return nil, fmt.Errorf("git: log: %w", err)
 	}
 	return commits, nil
-}
-
-// Blame annotates each line of a file with its last-changing commit.
-func (u *gitUsecase) Blame(
-	ctx context.Context,
-	wsID string,
-	filePath string,
-) ([]gitdomain.BlameEntry, error) {
-	repoPath, err := u.repoPath(ctx, wsID)
-	if err != nil {
-		return nil, err
-	}
-	entries, err := u.git.Blame(ctx, repoPath, filePath)
-	if err != nil {
-		return nil, fmt.Errorf("git: blame: %w", err)
-	}
-	return entries, nil
 }
 
 // Branches returns all branches.

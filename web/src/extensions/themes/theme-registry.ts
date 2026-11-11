@@ -8,11 +8,8 @@ import {
 
 export { cacheThemeForBootstrap } from '@/features/settings/lib/appearance-bootstrap'
 
-/**
- * Built-in themes exposed in the UI. Colors are CSS-first (theme.css); a theme
- * is metadata + a `dataTheme` selector. A future installable theme adds a CSS
- * block for `[data-theme="<id>"]` (+ .dark) and one entry here — nothing else.
- */
+// Colours are CSS-first (theme.css): a theme is metadata plus a `dataTheme` selector, so adding
+// one is a `[data-theme="<id>"]` (+ .dark) block and an entry here.
 const BUILTIN_THEMES: ThemeDefinition[] = [
   {
     id: 'crowbar',
@@ -59,12 +56,8 @@ export class ThemeRegistry {
     this.notifyListeners()
   }
 
-  /**
-   * Apply a theme. Colors come from CSS keyed on `data-theme` + `.dark`
-   * (applyThemeMode toggles `.dark` immediately before this runs). We only set
-   * the selector attributes, refresh the bootstrap cache, and notify so the
-   * Monaco/xterm subscribers rebuild from the now-current CSS vars.
-   */
+  /** Colours come from CSS (`data-theme` + `.dark`, toggled just before by applyThemeMode); this
+   *  sets the selector and notifies Monaco/xterm to rebuild from the current CSS vars. */
   applyTheme(themeId: string): void {
     const known = this.themes.get(themeId)
     const resolvedId = known ? themeId : 'crowbar'
@@ -76,10 +69,8 @@ export class ThemeRegistry {
         ? document.documentElement.classList.contains('dark')
         : !themeId.includes('light')
 
-    // Refresh the RESOLVED theme's dark/light flag. When an unknown id degraded
-    // to the default, `known` is undefined but the fallback theme still has to
-    // report the mode that is actually on screen — otherwise getActiveTheme()
-    // hands its caller the stale seed value from BUILTIN_THEMES.
+    // The resolved theme's flag: a fallback for an unknown id must report the mode on screen, not
+    // BUILTIN_THEMES' stale seed value.
     const resolved = known ?? this.themes.get(resolvedId)
     if (resolved) {
       this.themes.set(resolvedId, { ...resolved, isDark })

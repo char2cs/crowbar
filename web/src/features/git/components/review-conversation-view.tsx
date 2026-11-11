@@ -6,6 +6,7 @@ import { isGeneralThread } from '@/features/git/components/diff/use-review-annot
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import { ReviewThreadSnippet } from '@/features/git/components/review-thread-snippet'
 import { useReviewThreadActions } from '@/features/git/hooks/use-review-thread-actions'
+import { useReviewThreads } from '@/features/git/hooks/use-review-threads'
 import { MARKDOWN_PROSE_CLASS } from '@/features/panes/lib/markdown-prose'
 import { LinkWorkspaceContext } from '@/lib/markdown-link'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
@@ -117,14 +118,11 @@ function ThreadCard({
   )
 }
 
-/**
- * The branch's conversation: description, every thread, then a general
- * composer. It reads only the threads store, never the file list, so it
- * renders the same on a branch with no changes and on one with a million lines.
- */
+/** Description, every thread, then a general composer. Reads only threads, never the file list,
+ *  so it costs the same on an empty branch and a million-line one. */
 export function ReviewConversationView({ wsId, onJumpToLine }: ReviewConversationViewProps) {
   const description = useWorkspaceStoreContext((s) => s.branchReview.description)
-  const threads = useWorkspaceStoreContext((s) => s.branchReview.threads)
+  const threads = useReviewThreads(wsId)
   const actions = useReviewThreadActions(wsId)
   const { error } = actions
 

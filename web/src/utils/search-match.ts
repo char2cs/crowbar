@@ -43,12 +43,8 @@ function isSubsequence(needle: string, haystack: string): boolean {
   return i === needle.length
 }
 
-/**
- * Fuzzy, token-based match: the query is split into whitespace tokens and every
- * token must appear in `text` as a subsequence (after normalization). Tokens can
- * appear in any order and across separators, so `"crowbar wave2"` and
- * `"qvr shell"` both match. Empty/whitespace query matches everything.
- */
+/** Every whitespace token must appear in `text` as a subsequence, in any order and across
+ *  separators ("qvr shell" matches). A blank query matches everything. */
 export function fuzzyMatch(query: string, text: string): boolean {
   const tokens = normalizeSearchText(query).split(' ').filter(Boolean)
   if (tokens.length === 0) return true

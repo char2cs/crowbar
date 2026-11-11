@@ -20,16 +20,14 @@ type outlineResponse struct {
 	Files []gitdomain.FileOutline `json:"files"`
 }
 
-// GetOutline handles GET /v0/chats/:chatId/review/outline, returning the
-// hunk geometry of the branch diff. It is what lets the client reserve the
-// right scroll space for every file before fetching a single patch, so it
-// answers the shape of a million-line diff without any of its content.
+// GetOutline handles GET /v0/chats/:chatId/review/outline, returning the branch diff's hunk
+// geometry so the client can reserve scroll space for every file before fetching any patch.
 func (h *Handlers) GetOutline(
 	ctx *gin.Context,
 ) {
 	files, err := h.reviewUsecase.GetOutline(ctx.Request.Context(), h.workspaceID(ctx), scopeCommit(ctx))
 	if err != nil {
-		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	if files == nil {
@@ -38,24 +36,9 @@ func (h *Handlers) GetOutline(
 	writeOutline(ctx, outlineResponse{Files: files})
 }
 
-// writeOutline streams the outline envelope rather than rendering it with
-// libs.WriteQueryOK, for two reasons that both come from its size.
-//
-// The outline is the one v0 payload that is large by design: a million-line
-// branch produces ~38,600 hunks, and at four JSON numbers under four names
-// apiece that is 2.3 MB. gin's JSON render marshals into a byte slice before
-// writing, so serving it that way would make the daemon hold the whole response
-// — the exact O(diff) allocation this endpoint family exists to abolish, merely
-// moved from the diff to its description. Encoding straight into the writer
-// holds one buffer instead.
-//
-// The same repetition is what makes it compress: the four field names recur
-// once per hunk, which is what DEFLATE is best at, and the wire cost drops by
-// roughly an order of magnitude. Field names are NOT shortened to buy the same
-// bytes: they are the published shape of gitdomain.FileOutline, and a second,
-// abbreviated vocabulary for the same four numbers would have to be learned and
-// maintained by every consumer, where the encoding is transparent to all of
-// them.
+// writeOutline encodes straight into the writer (gzip when accepted) instead of libs.WriteQueryOK:
+// the outline is large by design (megabytes for a huge branch), and gin's render would hold it all.
+// Its repeated field names compress well, so they stay unabbreviated.
 func writeOutline(
 	ctx *gin.Context,
 	data outlineResponse,
@@ -69,8 +52,10 @@ func writeOutline(
 	}
 	ctx.Header("Content-Encoding", "gzip")
 	zw := gzip.NewWriter(ctx.Writer)
-	defer func() { _ = zw.Close() }()
 	encodeOutline(ctx, zw, data)
+	if err := zw.Close(); err != nil {
+		libs.NoteError(ctx, err)
+	}
 }
 
 // encodeOutline records an encode failure on the context rather than replacing
@@ -83,7 +68,7 @@ func encodeOutline(
 ) {
 	err := json.NewEncoder(w).Encode(libs.Envelope{Success: true, Data: data})
 	if err != nil {
-		_ = ctx.Error(err)
+		libs.NoteError(ctx, err)
 	}
 }
 

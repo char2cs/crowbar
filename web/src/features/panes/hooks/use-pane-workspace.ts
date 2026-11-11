@@ -6,23 +6,14 @@ import {
   subscribeActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import type { PaneGroup } from '@/features/panes/types/pane'
+import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 
-/**
- * The workspace a pane belongs to — recorded on the pane by the gesture that put
- * its chat there (C3), so it answers on the first render. A chatless pane
- * (editor tabs only) follows the ACTIVE workspace.
- *
- * Only a chatless pane subscribes to the active workspace: the ambient context
- * store is deliberately stable, so a focus click that switches workspace
- * re-renders the panes it moves between, not every pane in the window.
- *
- * `chatStore` never mints a store: a workspace `WorkspaceHost` did not mount
- * falls back to the active (then the ambient) store, which (chat lists being
- * repo-scoped) still knows every chat of its own repo.
- */
+/** A pane's workspace: its chat's own, which a move changes, else its record's (C3); only a
+ *  chatless pane follows (and subscribes to) the active workspace, so a focus switch re-renders
+ *  just those. `chatStore` never mints: unmounted, it falls back to the active then ambient store. */
 export function usePaneWorkspace(pane: Pick<PaneGroup, 'chatId' | 'workspaceId'>) {
   const ambientStore = useWorkspaceStore()
-  const chatWsId = pane.chatId ? (pane.workspaceId ?? null) : null
+  const chatWsId = usePaneChatWorkspaceId(pane)
   const followedWsId = useSyncExternalStore(subscribeActiveWorkspaceId, () =>
     pane.chatId ? null : getActiveWorkspaceId(),
   )
@@ -32,4 +23,11 @@ export function usePaneWorkspace(pane: Pick<PaneGroup, 'chatId' | 'workspaceId'>
     getWorkspaceStore(getActiveWorkspaceId() ?? '') ||
     ambientStore
   return { wsId, chatWsId, chatStore }
+}
+
+/** Where a pane's chat runs: the chat's own workspace, which a move changes, else the pane's
+ *  record of it until the chat is known; null for a chatless pane. */
+export function usePaneChatWorkspaceId(pane: Pick<PaneGroup, 'chatId' | 'workspaceId'> | null) {
+  const runsIn = useChatField(pane?.chatId ?? '', (c) => c?.workspaceId || null)
+  return pane?.chatId ? (runsIn ?? pane.workspaceId ?? null) : null
 }

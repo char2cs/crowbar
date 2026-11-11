@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, isDaemonUnavailableError } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import {
-  ApiError,
   isHostIdentityChangedError,
   isHostUnreachableError,
   streamFailureOf,
 } from '@/lib/api/errors'
+import { ApiError } from '@/lib/errors/api-error'
 
 // What ws_open rejects with for a remote host (desktop/src-tauri/src/ws_bridge/remote.rs):
 // `<x-crowbar-proxy value>: <reason>`. Tauri hands a string error to JS as a string.
@@ -62,6 +62,8 @@ describe('streamFailureOf', () => {
 // so with eight attempts allowed fetch still runs exactly once.
 describe('apiFetch on a proxy-marked answer', () => {
   const eightAttempts = { attempts: 8, baseDelayMs: 0, maxDelayMs: 0, sleep: async () => {} }
+  const isDaemonUnavailableError = (err: unknown) =>
+    err instanceof ApiError && err.problem.code === 'daemon_unavailable'
   const PREDICATES = [isDaemonUnavailableError, isHostUnreachableError, isHostIdentityChangedError]
 
   afterEach(() => vi.unstubAllGlobals())
@@ -91,7 +93,7 @@ describe('apiFetch on a proxy-marked answer', () => {
     const err: unknown = await apiFetch('/v0/projects', undefined, eightAttempts).catch((e) => e)
 
     expect(err).toBeInstanceOf(ApiError)
-    expect(err).toMatchObject({ status, code })
+    expect(err).toMatchObject({ status, problem: { code } })
     for (const is of PREDICATES) expect(is(err)).toBe(is === named)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
@@ -101,7 +103,7 @@ describe('apiFetch on a proxy-marked answer', () => {
 
     const err: unknown = await apiFetch('/v0/projects', undefined, eightAttempts).catch((e) => e)
 
-    expect(err).toMatchObject({ status: 503, code: undefined })
+    expect(err).toMatchObject({ status: 503, problem: { code: 'unavailable' } })
     expect(isDaemonUnavailableError(err)).toBe(false)
   })
 })

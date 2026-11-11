@@ -27,17 +27,9 @@ export interface LineRequest {
 
 interface ReviewDiffTabProps {
   onRetry: () => void
-  /**
-   * The workspace THIS diff belongs to (BranchReviewContent.wsId /
-   * CommitDiffContent.wsId), NOT the ambient WorkspaceStoreContext.
-   * WorkspaceHost keeps every WorkspaceView it retains mounted at once for
-   * keep-alive, each rendering the same window-level pane tree under its OWN
-   * ambient context — a tab that read the ambient workspace instead of its
-   * own buffer's would fetch/display the WRONG (or empty) diff via
-   * useReviewFilesSummary/useReviewOutline in a hidden copy, scoped to
-   * whichever workspace happens to be active rather than the one this tab was
-   * opened for (same shape of bug as terminal-tab.tsx's `workspaceId` prop).
-   */
+  /** This diff's workspace (from its buffer), never the ambient context: every retained
+   *  WorkspaceView renders the pane tree under its own context, so the ambient one would fetch
+   *  another workspace's diff. */
   wsId: string
   /** Heading for a surface the Branch Review shell does not wrap (a commit tab). */
   title?: string
@@ -60,24 +52,9 @@ function CenteredState({ children }: { children: React.ReactNode }) {
   )
 }
 
-/**
- * The windowed diff surface.
- *
- * Its default scope is a child workspace's whole branch against its parent —
- * the GitHub-like review step. Passing `commit` narrows every read to one
- * commit, which is how history is read: the same layout, the same per-file
- * fetching, the same find-in-diff, against a different pair of trees. That
- * parameter is the whole reason there is no second diff renderer in this app
- * any more; the Monaco stack that used to serve commit diffs is gone.
- *
- * Fed by the files summary (one row per changed file, O(files)) and the outline
- * (hunk geometry, O(hunks)) — never by the old `/review` composite, which
- * carried one JSON object per diff line. On a 406-file / 1M-line branch that
- * composite was 158MB and 1,441,452 objects, cost 1,162MB of webview memory,
- * and still retained 544MB after the tab was closed. Patches are now fetched
- * per file as the viewport reaches them, so what this holds is bounded by the
- * window rather than by the size of the diff.
- */
+/** The windowed diff surface: a branch against its parent, or with `commit` one commit — so the
+ *  app has one diff renderer. Fed by the files summary (O(files)) and outline (O(hunks)), patches
+ *  fetched per file, so memory is bounded by the window, not the diff. */
 export function ReviewDiffTab({
   onRetry,
   wsId,
@@ -91,16 +68,12 @@ export function ReviewDiffTab({
   const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId, commit)
   const { outline } = useReviewOutline(wsId, commit)
   const [searchOpen, setSearchOpen] = useState(false)
-  // A display preference, not per-tab state — persisted via the settings
-  // store (features/settings/store.ts) so it survives closing and reopening
-  // the tab, same as sidebarPosition/theme.
+  // A display preference, not per-tab state, so it lives in settings and outlives the tab.
   const diffStyle = useSettingsStore((s) => s.settings.diffViewMode)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
   const surfaceRef = useRef<ReviewCodeViewHandle | null>(null)
-  // Mirrored into state as well as a ref: the reveal below has to run WHEN the
-  // handle appears, and a ref assignment does not re-render. The surface is
-  // lazy, so on the path that matters most — clicking a file while the review
-  // tab is still closed — the request is raised before the handle exists.
+  // Also state, not just a ref: the lazy surface's handle can appear after a reveal is
+  // requested (a file click that opens this tab), and the reveal must run when it does.
   const [surface, setSurface] = useState<ReviewCodeViewHandle | null>(null)
   const attachSurface = useCallback((handle: ReviewCodeViewHandle | null) => {
     surfaceRef.current = handle
@@ -111,19 +84,9 @@ export function ReviewDiffTab({
     surfaceRef.current?.revealLine(hit.path, hit.lineNumber, hit.side)
   }, [])
 
-  // The sidebar's changed-files tree asks for a file by path; the surface is
-  // the only thing that can honour it (the target may not be materialised, and
-  // scrolling to a placeholder lands near the file rather than at it).
-  //
-  // The request carries a NONCE because clicking the same file twice must
-  // reveal it again, and a path compared to itself never re-runs an effect.
-  // Gated on the handle rather than fired blind: a click that OPENS this tab
-  // raises the request before the lazy surface has mounted, so the reveal has
-  // to wait for the handle and then honour whatever is outstanding. The
-  // last-consumed nonce is what stops it re-firing on unrelated re-renders.
-  //
-  // Commit tabs opt out — the request comes from the branch review's own file
-  // list and may name a path a commit does not contain.
+  // The sidebar's file reveal, honoured once the handle exists. The nonce lets the same file be
+  // revealed twice; the consumed nonce stops re-firing on re-renders. Commit tabs skip it: the
+  // path comes from the branch's file list.
   const revealPath = useWorkspaceStoreContext((s) => s.branchReview.revealFilePath)
   const revealNonce = useWorkspaceStoreContext((s) => s.branchReview.revealFileNonce)
   const consumedNonce = useRef(0)

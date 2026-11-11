@@ -17,6 +17,10 @@ export interface HostPath {
   path: string
 }
 
+/** Why a host that will not resolve is not coming: the loaded list does not hold its
+ *  project, or holds it on a host that is not configured (or ambiguously). */
+export type HostUnavailable = 'project-missing' | 'host-unavailable'
+
 /** A host could not be determined for a project, workspace or chat; `reason` says
  *  why. Callers wait on `useHostResolved` or surface "still loading" — they
  *  never default to local. */
@@ -27,6 +31,8 @@ export class HostNotResolvedError extends Error {
     readonly reason: string,
     /** The project a workspace belongs to, when its scope names one. */
     readonly projectId?: string,
+    /** Why its host is not coming, as of the throw; null while it is worth waiting. */
+    readonly unavailable: HostUnavailable | null = null,
   ) {
     const owner = projectId === undefined ? '' : ` (project ${projectId})`
     super(`no host resolved for ${entity} ${id}${owner}: ${reason}`)

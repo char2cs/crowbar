@@ -1,9 +1,14 @@
 package commands
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
+	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // The user's lock override, and the one thing that makes it worth having: it has
@@ -86,15 +91,30 @@ func TestProviderStillLocksWithoutAnOverride(t *testing.T) {
 	}
 }
 
+// The refusal reaches the user as the toast's words, so it says why.
 func TestSetLockRefusesWhatCannotBeLocked(t *testing.T) {
-	cases := map[string]*domain.Workspace{
-		"home workspace":               {ID: "w1", Kind: domain.WorkspaceKindHome, WorktreePath: "/w", Provisioning: domain.WorkspaceShared},
-		"placeholder with no worktree": {ID: "w1", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspacePlaceholder},
+	cases := map[string]struct {
+		ws  *domain.Workspace
+		why string
+	}{
+		"home workspace": {
+			&domain.Workspace{ID: "w1", Kind: domain.WorkspaceKindHome, WorktreePath: "/w", Provisioning: domain.WorkspaceShared},
+			"The project's home checkout has no branch to lock.",
+		},
+		"placeholder with no worktree": {
+			&domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspacePlaceholder},
+			"This branch has no worktree of its own, so it can't be locked or unlocked.",
+		},
 	}
-	for name, ws := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if err := (SetLock{ID: "w1", Locked: ptr(false)}).Validate(ws); err == nil {
-				t.Fatal("expected a validation error")
+			err := (SetLock{ID: "w1", Locked: ptr(false)}).Validate(tc.ws)
+			want := problem.Problem{Code: problem.Unprocessable, Message: tc.why}
+			if got := problem.Of(fmt.Errorf("workspace: set lock: %w", err)); got != want {
+				t.Fatalf("got %+v, want %+v", got, want)
+			}
+			if !errors.Is(err, asynxModels.ErrValidation) {
+				t.Fatal("still the store's validation refusal")
 			}
 		})
 	}

@@ -16,16 +16,9 @@ import type {
 } from '@/features/keymaps/types'
 import { getCommand } from '@/features/keymaps/registry'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { cn } from '@/utils/cn'
 import Section from '../settings-section'
-import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
+import { SettingSelect } from '@/features/settings/components/setting-select'
 
 // Imported, not redeclared: this list decides which categories render AT ALL, so a
 // second copy here would silently hide any command whose category the registry
@@ -147,23 +140,14 @@ export const KeybindingsSettings = () => {
       >
         <div className="flex items-center justify-between px-1 py-1">
           <div className="ui-font ui-text-sm text-muted-foreground">Active preset</div>
-          <Select
+          <SettingSelect
+            options={KEYMAP_PRESET_OPTIONS}
             value={preset}
+            width="xwide"
             onValueChange={(value) => {
               if (value) actions.setPreset(value as KeymapPresetId)
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.xwide}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {KEYMAP_PRESET_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </div>
         <p className="ui-font ui-text-sm px-1 text-muted-foreground">
           Note: the standard IDE presets (VS Code, JetBrains, Sublime, Xcode, Atom, Emacs, Zed) are

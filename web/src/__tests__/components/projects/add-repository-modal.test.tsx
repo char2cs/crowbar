@@ -3,68 +3,49 @@ import userEvent from '@testing-library/user-event'
 import { vi, expect, test, beforeEach, describe, afterEach } from 'vitest'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
-// §3/§4 subscribe-before-POST: postRepo answers 202 (void). The daemon imports
-// the repo AND auto-imports its default-branch worktree, broadcasting the
-// RepoDTO on the per-project repos stream and the worktree on the repo's CHAT
-// stream — a worktree is held by a chat, so its live half is a `worktree_state`
-// event on that feed rather than a WorkspaceDTO on a stream of its own. The
-// modal subscribes both streams first (via awaitEntity → wsManager), fires the
-// single postRepo POST, resolves the new repo by path, then resolves its
-// default workspace and navigates into the IDE.
-//
-// We mock postRepo (the 202 mutation) and the wsManager so the test can emit
-// the canonical DTO frames the modal is waiting on, plus useNavigate to assert
-// the post-cache navigation target.
-const subscribers = new Map<string, Set<(data: unknown) => void>>()
-function emit(endpoint: string, data: unknown): void {
-  subscribers.get(endpoint)?.forEach((cb) => cb(data))
-}
-
-vi.mock('@/lib/ws/manager', () => ({
-  wsManager: {
-    subscribe: (endpoint: string, cb: (data: unknown) => void) => {
-      let set = subscribers.get(endpoint)
-      if (!set) {
-        set = new Set()
-        subscribers.set(endpoint, set)
-      }
-      set.add(cb)
-      return () => set!.delete(cb)
-    },
-    send: vi.fn(),
-  },
-}))
-
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return {
-    ...actual,
-    apiFetch: vi.fn(),
-    postRepo: vi.fn((_p: string, _name: string, _path: string) => Promise.resolve()),
-    fetchWorkspaces: vi.fn((_p: string, _r: string) => Promise.resolve([])),
-  }
+  return { ...actual, postRepo: vi.fn(), fetchRepos: vi.fn(), fetchWorkspaces: vi.fn() }
 })
 
 const navigateMock = vi.fn()
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>()
-  return {
-    ...actual,
-    useNavigate: () => navigateMock,
-  }
+  return { ...actual, useNavigate: () => navigateMock }
 })
 
 import * as api from '@/lib/api'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
+import { OperationsWatcher } from '@/components/layout/operations-watcher'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { inputOf } from '@/__tests__/__fixtures__/tree-rows'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState, type Operation, type OperationItem } from '@/core/entities/operations'
+import { toastManager } from '@/lib/toast-manager'
+import { useProjectStore } from '@/core/entities/active-project'
+import * as fetchApi from '@/lib/api/fetch'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
-import { success } from '@/lib/loadable'
-import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { wipeEntityCache } from '@/lib/persistence/idb'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+import type { Problem } from '@/lib/errors/problem'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
-function repoDTO(over: Partial<RepoDTO> & { id: string; path: string }): RepoDTO {
+function repoDTO(over: Partial<RepoDTO> = {}): RepoDTO {
   return {
+    id: 'repo-9',
+    path: '/tmp/my-repo',
     projectId: 'proj-1',
     name: 'my-repo',
     defaultBranch: 'main',
@@ -76,8 +57,9 @@ function repoDTO(over: Partial<RepoDTO> & { id: string; path: string }): RepoDTO
   }
 }
 
-function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string }): WorkspaceDTO {
+function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
   return {
+    repoId: 'repo-9',
     provisioning: 'provisioned',
     projectId: 'proj-1',
     branch: 'main',
@@ -85,7 +67,6 @@ function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string
     forkPointSha: '',
     status: 'new',
     working: false,
-    lastError: '',
     added: 0,
     deleted: 0,
     mergeStrategy: '',
@@ -99,257 +80,195 @@ function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string
   }
 }
 
-/** The chat-feed frame carrying `ws`'s worktree state. `chatId` and
- *  `worktree.owningChatId` are named separately on purpose: a thread of the
- *  owning chat receives the same object and is filtered out by comparing them. */
-function worktreeFrame(ws: WorkspaceDTO, chatId = `chat-${ws.id}`, owningChatId = chatId) {
+const repoItem: OperationItem = {
+  ref: { kind: 'repo', id: 'repo-9' },
+  label: 'Add my-repo',
+  state: 'accepted',
+}
+
+/** The daemon's row for the add, at `version`. */
+function addOp(opId: string, version: number, over: Partial<Operation> = {}): Operation {
   return {
-    chatId,
-    workspaceId: ws.id,
-    repoId: ws.repoId,
-    kind: 'worktree_state',
-    working: ws.working,
-    worktree: {
-      branch: ws.branch,
-      status: ws.status,
-      lastError: ws.lastError,
-      working: ws.working,
-      isDefault: ws.isDefault,
-      added: ws.added,
-      deleted: ws.deleted,
-      mergeStrategy: ws.mergeStrategy,
-      canMergeLocally: ws.canMergeLocally,
-      mergeConflicts: ws.mergeConflicts,
-      parentBranch: ws.parentBranch,
-      prUrl: ws.prUrl,
-      prTitle: ws.prTitle,
-      prTargetBranch: ws.prTargetBranch,
-      localPath: ws.localPath,
-      heldByPath: ws.heldByPath,
-      forkPointSha: ws.forkPointSha,
-      parentId: ws.parentId,
-      owningChatId,
-    },
+    id: opId,
+    kind: 'repo.create',
+    subject: { kind: 'project', id: 'proj-1' },
+    projectId: 'proj-1',
+    label: 'Add “my-repo”',
+    state: 'running',
+    items: [repoItem],
+    dismissed: false,
+    version,
+    createdAt: '2026-10-30T10:00:00Z',
+    updatedAt: '2026-10-30T10:00:00Z',
+    ...over,
   }
 }
 
+/** Starts the add; resolves with the operation id the modal sent. */
+async function startAdd(onOpenChange: (open: boolean) => void = () => {}): Promise<string> {
+  render(
+    <>
+      <OperationsWatcher />
+      <AddRepositoryModal open={true} onOpenChange={onOpenChange} projectId="proj-1" />
+    </>,
+  )
+  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
+  fireEvent.click(addButton())
+  await waitFor(() => expect(vi.mocked(api.postRepo)).toHaveBeenCalledTimes(1))
+  return vi.mocked(api.postRepo).mock.calls[0][3]
+}
+
 const pathInput = () => screen.getByPlaceholderText('/absolute/path/to/repo')
+const addButton = () => screen.getByRole('button', { name: /add repository/i })
+
+const home = workspaceDTO({ id: 'ws-home', isDefault: true })
 
 beforeEach(async () => {
-  subscribers.clear()
   navigateMock.mockReset()
   vi.mocked(api.postRepo).mockReset()
-  vi.mocked(api.postRepo).mockResolvedValue(undefined)
-  // The sidebar tree is built for the project in view; the modal never reads it.
-  useProjectStore.setState({ activeProjectId: 'proj-1' })
-  useSidebarStore.setState({ repos: [] })
+  vi.mocked(api.postRepo).mockImplementation(async (_p, _n, _path, opId) => ({
+    operation: addOp(opId, 1, { state: 'accepted' }),
+  }))
+  vi.mocked(api.fetchRepos).mockResolvedValue([repoDTO()])
+  vi.mocked(api.fetchWorkspaces).mockResolvedValue([
+    workspaceDTO({ id: 'ws-dev', branch: 'dev' }),
+    home,
+  ])
+  // The project in view is another one: the modal adds to the project it was opened for.
+  useProjectStore.setState({ activeProjectId: 'proj-other' })
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  await wipeEntityCache()
+  seedRepos([])
+  resetOperations()
 })
 
 test('Add button is disabled when the path is empty', () => {
   render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
-  expect(screen.getByRole('button', { name: /add repository/i })).toBeDisabled()
+  expect(addButton()).toBeDisabled()
 })
 
 test('Add stays disabled for a relative path and shows a hint', () => {
   render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
   fireEvent.change(pathInput(), { target: { value: 'my-repo' } })
-  expect(screen.getByRole('button', { name: /add repository/i })).toBeDisabled()
+  expect(addButton()).toBeDisabled()
   expect(screen.getByText(/absolute path/i)).toBeInTheDocument()
 })
 
 test('posts the repo under its own project with the folder-name fallback', async () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
-  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
-  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
-
-  await waitFor(() => {
-    const [projectId, name, path] = vi.mocked(api.postRepo).mock.calls[0]
-    expect(projectId).toBe('proj-1')
-    expect(name).toBe('my-repo')
-    expect(path).toBe('/tmp/my-repo')
+  const opId = await startAdd()
+  expect(vi.mocked(api.postRepo)).toHaveBeenCalledWith('proj-1', 'my-repo', '/tmp/my-repo', opId)
+  expect(operationsState().ops[opId]).toMatchObject({
+    kind: 'repo.create',
+    label: 'Add “my-repo”',
   })
 })
 
-test('subscribes the per-project repos stream then resolves the repo by path', async () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
-  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
-  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
-
-  // The repos stream is subscribed before the POST resolves the repo.
-  await waitFor(() => {
-    expect(subscribers.has('/v0/projects/proj-1/repos')).toBe(true)
-    expect(vi.mocked(api.postRepo)).toHaveBeenCalledTimes(1)
-  })
-})
-
-test('two-stage resolve: RepoDTO by path then default WorkspaceDTO, then navigates into the IDE', async () => {
+test('adding waits on the operation, then opens the default workspace', async () => {
   const onOpenChange = vi.fn()
-  render(<AddRepositoryModal open={true} onOpenChange={onOpenChange} projectId="proj-1" />)
-  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
-  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
+  const opId = await startAdd(onOpenChange)
+  await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
+  expect(navigateMock).not.toHaveBeenCalled()
 
-  // Stage 1: the canonical RepoDTO (server-assigned id) arrives on the repos stream.
-  await waitFor(() => expect(subscribers.has('/v0/projects/proj-1/repos')).toBe(true))
-  emit('/v0/projects/proj-1/repos', repoDTO({ id: 'repo-9', path: '/tmp/my-repo' }))
+  streamOperation(
+    addOp(opId, 2, { state: 'succeeded', items: [{ ...repoItem, state: 'succeeded' }] }),
+  )
 
-  // Stage 2: the modal subscribes the repo's CHAT stream for repo-9.
   await waitFor(() =>
-    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/chats/ws')).toBe(true),
-  )
-  emit(
-    '/v0/projects/proj-1/repos/repo-9/chats/ws',
-    worktreeFrame(workspaceDTO({ id: 'ws-1', repoId: 'repo-9' })),
-  )
-
-  // Navigation targets /ide/:p/:r/:w with the server-assigned ids; modal closes.
-  await waitFor(() => {
     expect(navigateMock).toHaveBeenCalledWith({
       to: '/ide/$projectId/$repoId/$wsId',
-      params: { projectId: 'proj-1', repoId: 'repo-9', wsId: 'ws-1' },
-    })
-    expect(onOpenChange).toHaveBeenCalledWith(false)
-  })
+      params: { projectId: 'proj-1', repoId: 'repo-9', wsId: 'ws-home' },
+    }),
+  )
+  expect(onOpenChange).toHaveBeenCalledWith(false)
 })
 
-test('seeds the new repo+workspace into the sidebar tree before navigating (no /ide bounce)', async () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
-  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
-  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
+test('a failed add re-enables the dialog; the reason comes from the operation', async () => {
+  const add = vi.spyOn(toastManager, 'add')
+  const onOpenChange = vi.fn()
+  const opId = await startAdd(onOpenChange)
+  await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
 
-  await waitFor(() => expect(subscribers.has('/v0/projects/proj-1/repos')).toBe(true))
-  emit('/v0/projects/proj-1/repos', repoDTO({ id: 'repo-9', path: '/tmp/my-repo' }))
-  await waitFor(() =>
-    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/chats/ws')).toBe(true),
+  const problem: Problem = { code: 'invalid_argument', message: 'not a git repository' }
+  streamOperation(
+    addOp(opId, 2, {
+      state: 'failed',
+      error: problem,
+      items: [{ ...repoItem, state: 'failed', error: problem }],
+    }),
   )
-  emit(
-    '/v0/projects/proj-1/repos/repo-9/chats/ws',
-    worktreeFrame(workspaceDTO({ id: 'ws-1', repoId: 'repo-9' })),
-  )
 
-  await waitFor(() => expect(navigateMock).toHaveBeenCalled())
-
-  // By the time navigation fires, the sidebar tree already contains the new
-  // workspace, so the /ide route guard won't treat it as unknown and bounce.
-  const repo = useSidebarStore.getState().repos.find((r) => r.id === 'repo-9')
-  expect(repo).toBeDefined()
-  expect(repo!.workspaces.some((w) => w.id === 'ws-1')).toBe(true)
-})
-
-test('ignores a deleted-status workspace frame and waits for a live one', async () => {
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
-  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
-  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
-
-  await waitFor(() => expect(subscribers.has('/v0/projects/proj-1/repos')).toBe(true))
-  emit('/v0/projects/proj-1/repos', repoDTO({ id: 'repo-9', path: '/tmp/my-repo' }))
-
-  await waitFor(() =>
-    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/chats/ws')).toBe(true),
-  )
-  // A deleted tombstone must NOT satisfy the resolve.
-  emit(
-    '/v0/projects/proj-1/repos/repo-9/chats/ws',
-    worktreeFrame(workspaceDTO({ id: 'ws-old', repoId: 'repo-9', status: 'deleted' })),
-  )
-  // Nor must any of the other vocabularies riding that same socket, nor a
-  // THREAD of the owning chat carrying the same worktree object.
-  emit('/v0/projects/proj-1/repos/repo-9/chats/ws', {
-    chatId: 'chat-ws-1',
-    workspaceId: 'ws-1',
-    kind: 'turn_started',
-    working: true,
-  })
-  emit(
-    '/v0/projects/proj-1/repos/repo-9/chats/ws',
-    worktreeFrame(
-      workspaceDTO({ id: 'ws-1', repoId: 'repo-9', status: 'new' }),
-      'chat-ws-1-thread',
-      'chat-ws-1',
-    ),
-  )
+  await waitFor(() => expect(addButton()).not.toBeDisabled())
   expect(navigateMock).not.toHaveBeenCalled()
-
-  // The live default worktree, off its OWN chat, resolves it.
-  emit(
-    '/v0/projects/proj-1/repos/repo-9/chats/ws',
-    worktreeFrame(workspaceDTO({ id: 'ws-1', repoId: 'repo-9', status: 'new' })),
+  expect(onOpenChange).not.toHaveBeenCalled()
+  expect(add).toHaveBeenCalledTimes(1)
+  expect(add).toHaveBeenCalledWith(
+    expect.objectContaining({ title: 'Add “my-repo” failed', description: 'not a git repository' }),
   )
+  add.mockRestore()
+})
+
+test('a partly failed add opens the repo home; the failed branch is drawn with its reason', async () => {
+  const opId = await startAdd()
+  await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
+
+  const reason: Problem = { code: 'internal', message: 'mkdir: not a directory' }
+  const partial = addOp(opId, 2, {
+    state: 'failed',
+    error: { code: 'partial', message: 'Add my-repo partly failed' },
+    items: [
+      { ...repoItem, state: 'succeeded' },
+      { ref: { kind: 'workspace', id: 'ws-home' }, label: 'main', state: 'succeeded' },
+      {
+        ref: { kind: 'workspace', id: 'ws-develop' },
+        label: 'develop',
+        state: 'failed',
+        error: reason,
+      },
+    ],
+  })
+  streamOperation(partial)
+
   await waitFor(() =>
     expect(navigateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ params: { projectId: 'proj-1', repoId: 'repo-9', wsId: 'ws-1' } }),
+      expect.objectContaining({
+        params: { projectId: 'proj-1', repoId: 'repo-9', wsId: 'ws-home' },
+      }),
     ),
   )
-})
-
-test('resets loading and re-enables Add button when postRepo rejects', async () => {
-  vi.mocked(api.postRepo).mockRejectedValueOnce(new Error('not a git repo'))
-
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-1" />)
-  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
-  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
-
-  await waitFor(() => {
-    expect(screen.getByRole('button', { name: /add repository/i })).not.toBeDisabled()
-    expect(screen.queryByText('Adding…')).not.toBeInTheDocument()
-  })
-  expect(navigateMock).not.toHaveBeenCalled()
-})
-
-// A project's streams are qualified with its own host, read off its row in the project list.
-const onHost2 = (id: string) => ({
-  id,
-  name: id,
-  path: `/work/${id}`,
-  lastActivity: new Date(0),
-  hostId: 'host-2',
-})
-function pairHost2() {
-  useHostConfigStore.getState().addHost({
-    id: 'host-2',
-    name: 'host-2',
-    endpoint: 'host-2.example:3737',
-    pairedFingerprint: 'SHA256:aaaa',
-    clientId: 'client-host-2',
-  })
-}
-
-test('adds a repo to a remote project through that host’s own streams', async () => {
-  pairHost2()
-  useProjectDataStore.setState({ data: success([onHost2('proj-2')]) })
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-2" />)
-  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
-  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
-
-  const reposStream = 'crowbar://host-2/v0/projects/proj-2/repos'
-  await waitFor(() => expect(subscribers.has(reposStream)).toBe(true))
-  emit(reposStream, repoDTO({ id: 'repo-9', projectId: 'proj-2', path: '/tmp/my-repo' }))
-  const chatStream = `${reposStream}/repo-9/chats/ws`
-  await waitFor(() => expect(subscribers.has(chatStream)).toBe(true))
-  emit(
-    chatStream,
-    worktreeFrame(workspaceDTO({ id: 'ws-1', repoId: 'repo-9', projectId: 'proj-2' })),
+  const present = new Set(['ws-home'])
+  const rows = deriveRows(
+    inputOf({
+      projectId: 'proj-1',
+      operations: [partial],
+      isPresent: (ref) => present.has(ref.id),
+    }),
   )
-
-  await waitFor(() => expect(navigateMock).toHaveBeenCalled())
-  expect([...subscribers.keys()]).toEqual([reposStream, chatStream])
-  expect(api.fetchWorkspaces).toHaveBeenCalledWith('proj-2', 'repo-9')
+  expect(rows).toEqual([
+    expect.objectContaining({
+      id: 'ws-develop',
+      kind: 'branch',
+      parentId: 'repo-9',
+      label: 'develop',
+      operation: { opId, state: 'failed', problem: reason },
+    }),
+  ])
 })
 
-test('subscribes nothing and posts nothing for a project whose host is not resolved', async () => {
-  pairHost2()
-  useProjectDataStore.setState({ data: success([onHost2('proj-2')]) })
-  render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-unknown" />)
-  fireEvent.change(pathInput(), { target: { value: '/tmp/my-repo' } })
-  fireEvent.click(screen.getByRole('button', { name: /add repository/i }))
+test('a refused add re-enables the dialog and reports the daemon’s reason', async () => {
+  const toasts = watchToasts()
+  vi.mocked(api.postRepo).mockRejectedValueOnce(refusal('path does not exist', 'invalid_argument'))
+  await startAdd()
 
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /add repository/i })).not.toBeDisabled(),
-  )
-  expect(subscribers.size).toBe(0)
-  expect(api.postRepo).not.toHaveBeenCalled()
+  await waitFor(() => expect(addButton()).not.toBeDisabled())
   expect(navigateMock).not.toHaveBeenCalled()
+  await waitFor(() => expectReported(toasts, 'Add “my-repo” failed', 'path does not exist'))
+})
+
+test('an add refused while the daemon migrates shows the migrating state, not a toast', async () => {
+  const toasts = watchToasts()
+  vi.mocked(api.postRepo).mockRejectedValueOnce(migratingRefusal())
+  await startAdd()
+
+  await waitFor(() => expectMigratingShown(toasts))
 })
 
 // The repo folder lives on the project's own daemon: Local's comes from the OS dialog as it
@@ -358,8 +277,11 @@ describe('the repository folder', () => {
   const invoke = vi.fn()
   const nativeDialogCalls = () => invoke.mock.calls.filter(([cmd]) => cmd === 'plugin:dialog|open')
   const browseButton = () => screen.getByRole('button', { name: 'Browse…' })
+  const listed: Record<string, string[]> = { '/': ['srv'], '/srv': ['app'], '/srv/app': [] }
+  const apiFetch = vi.spyOn(fetchApi, 'apiFetch')
 
   beforeEach(() => {
+    resetHostWorld()
     invoke.mockReset()
     invoke.mockImplementation((cmd: string) =>
       cmd === 'plugin:dialog|open'
@@ -367,13 +289,12 @@ describe('the repository folder', () => {
         : Promise.reject(new Error(`unexpected ${cmd}`)),
     )
     ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke }
-    useProjectDataStore.setState({ data: success([{ ...onHost2('proj-1'), hostId: 'local' }]) })
-    vi.mocked(api.apiFetch).mockReset()
-    vi.mocked(api.apiFetch).mockImplementation((url: string) => {
+    loadProjects(projectOn('proj-1', 'local'))
+    apiFetch.mockReset()
+    apiFetch.mockImplementation((url: string) => {
       const path = new URL(url, 'http://x').searchParams.get('path')
-      const names: Record<string, string[]> = { '/': ['srv'], '/srv': ['app'], '/srv/app': [] }
       const base = path === '/' ? '' : path
-      const entries = (names[path ?? ''] ?? []).map((n) => ({
+      const entries = (listed[path ?? ''] ?? []).map((n) => ({
         name: n,
         path: `${base}/${n}`,
         isDir: true,
@@ -384,6 +305,7 @@ describe('the repository folder', () => {
 
   afterEach(() => {
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    resetHostWorld()
   })
 
   test("a local project's folder comes from the OS dialog, and no host is browsed", async () => {
@@ -396,13 +318,13 @@ describe('the repository folder', () => {
       ['plugin:dialog|open', { options: { directory: true, multiple: false } }, undefined],
     ])
     expect(screen.queryByRole('dialog', { name: /choose a folder/i })).not.toBeInTheDocument()
-    expect(api.apiFetch).not.toHaveBeenCalled()
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 
   test("a remote project's folder is browsed on its own host, never through the OS dialog", async () => {
-    pairHost2()
+    pairRemoteHost('host-2')
     getOrCreateHostRuntime('host-2').getState().setStatus('up')
-    useProjectDataStore.setState({ data: success([onHost2('proj-2')]) })
+    loadProjects(projectOn('proj-2', 'host-2'))
     const user = userEvent.setup()
     render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-2" />)
 
@@ -416,13 +338,13 @@ describe('the repository folder', () => {
     await waitFor(() => expect(pathInput()).toHaveValue('/srv/app'))
     expect(screen.getByLabelText(/repository name/i)).toHaveValue('app')
     expect(nativeDialogCalls()).toEqual([])
-    const hosts = vi.mocked(api.apiFetch).mock.calls.map((call) => call[3])
+    const hosts = apiFetch.mock.calls.map((call) => call[3])
     expect(new Set(hosts)).toEqual(new Set(['host-2']))
   })
 
-  test('a project whose host is not resolved browses nothing — not Local, not a guess', async () => {
-    pairHost2()
-    useProjectDataStore.setState({ data: success([onHost2('proj-2')]) })
+  test('a project whose host is not resolved browses nothing — not Local, not a guess', () => {
+    pairRemoteHost('host-2')
+    loadProjects(projectOn('proj-2', 'host-2'))
     render(<AddRepositoryModal open={true} onOpenChange={() => {}} projectId="proj-unknown" />)
 
     expect(browseButton()).toBeDisabled()
@@ -430,6 +352,6 @@ describe('the repository folder', () => {
 
     expect(nativeDialogCalls()).toEqual([])
     expect(screen.queryByRole('dialog', { name: /choose a folder/i })).not.toBeInTheDocument()
-    expect(api.apiFetch).not.toHaveBeenCalled()
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 })

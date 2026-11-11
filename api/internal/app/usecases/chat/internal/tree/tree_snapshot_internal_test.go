@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // newTestUsecase builds the concrete usecase over an in-memory Chats+Agent
@@ -24,7 +24,7 @@ func newTestUsecase(t *testing.T) *chatFolderUsecase {
 	}
 }
 
-// A folder created through the new API is a domain.Folder+domain.Node pair,
+// A folder created through the new API is a dtree.Folder+dtree.Node pair,
 // not a row in the chat repository at all (2026-09-08
 // sidebar-placement-unification Task 5 for home-scoped, Task 8 for
 // repo-scoped too) — Create mints it through the Folders/Nodes ports
@@ -54,7 +54,7 @@ func TestTree_Create_MintsFolderPlusNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get node: %v", err)
 	}
-	if n.Kind != domain.NodeKindFolder {
+	if n.Kind != dtree.KindFolder {
 		t.Fatalf("want folder-kind Node, got %s", n.Kind)
 	}
 }
@@ -70,7 +70,7 @@ func TestTree_Create_MintsFolderPlusNode(t *testing.T) {
 // this from outside: the seam only exists between the plan and the rows.
 func TestWriteRow_SkipsAnIDTheSnapshotDoesNotHold(t *testing.T) {
 	u := &chatFolderUsecase{}
-	snapshot := newTreeSnapshot(nil)
+	snapshot := newTreeSnapshotScoped(nil, nil, nil)
 
 	row, err := u.writeRow(context.Background(), snapshot, "ghost")
 
@@ -82,7 +82,7 @@ func TestWriteRow_SkipsAnIDTheSnapshotDoesNotHold(t *testing.T) {
 // the same id twice by two levels of the walk. The second call must be a no-op,
 // not a rebuild of the index map over a row that is already gone.
 func TestDrop_IgnoresAnIDTheSnapshotDoesNotHold(t *testing.T) {
-	snapshot := newTreeSnapshot(nil)
+	snapshot := newTreeSnapshotScoped(nil, nil, nil)
 
 	snapshot.drop("ghost")
 

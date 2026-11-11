@@ -5,16 +5,8 @@ import (
 	"context"
 	"time"
 
-	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
-
-// ExportedParsePorcelain wraps parsePorcelain for use in external test packages.
-func ExportedParsePorcelain(
-	output string,
-) ([]gitdomain.BlameEntry, error) {
-	return parsePorcelain(output)
-}
 
 // ExportedParseUnixTime wraps parseUnixTime for use in external test packages.
 func ExportedParseUnixTime(
@@ -35,7 +27,7 @@ func errRunner(
 	_ string,
 	_ ...string,
 ) exec.Result {
-	return exec.Result{ExitCode: 1, Stderr: "injected runner error"}
+	return exec.Result{ExitCode: 128, Stderr: "injected runner error"}
 }
 
 // SetErrorRunner replaces gitRunner with a failing stub for the duration of a test.

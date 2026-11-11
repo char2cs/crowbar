@@ -4,6 +4,7 @@ import {
   chatMarkdownToValue,
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
+import { promptCases, sameText } from '@/__tests__/__fixtures__/composer-prompts'
 
 /** A paragraph, as the editor holds it — a round trip cannot express one that
     still carries the whitespace the parser strips. */
@@ -22,10 +23,8 @@ describe('the chat composer codec', () => {
     expect(typed('> quoted')).toBe('> quoted')
   })
 
-  // REGRESSION: remark-stringify PRESERVES outer whitespace by escaping it, so a
-  // prompt typed with a trailing space — most of them — reached the model as
-  // `…just with Codex?&#x20;`. Two real prompts were sent that way before this
-  // was caught.
+  // remark-stringify preserves outer whitespace by escaping it, so a trailing space would reach
+  // the model as `&#x20;`.
   it('never encodes trailing whitespace into the prompt', () => {
     expect(typed('what were we talking about? ')).toBe('what were we talking about?')
     expect(typed('name this chat please. ')).toBe('name this chat please.')
@@ -33,10 +32,8 @@ describe('the chat composer codec', () => {
     expect(typed('trailing newline\n')).toBe('trailing newline')
   })
 
-  // REGRESSION, the second half of the same bug. The escape is per LINE, not per
-  // document, so trimming the finished string cleared only its two outer ends —
-  // every interior line edge still shipped encoded, and a two-line prompt (the
-  // Shift+Enter case) reached the model as `hello&#x20;\n\nworld`.
+  // The escape is per LINE, so trimming the finished string is not enough: a Shift+Enter prompt
+  // would ship as `hello&#x20;\n\nworld`.
   describe('whitespace at the edge of an interior line', () => {
     const held = {
       'a paragraph that trails, then another': [p('hello '), p('world')],
@@ -60,15 +57,9 @@ describe('the chat composer codec', () => {
     })
   })
 
-  // REGRESSION: a genuinely empty document — a fresh, untouched box, or one
-  // typed into and then cleared back out — normalizes (Slate cannot hold zero
-  // children) to a single empty paragraph. The underlying codec serializes
-  // THAT as a lone U+200B (zero-width space), its own placeholder for telling
-  // an intentionally-blank paragraph apart from no paragraph at all on a
-  // markdown round trip. `.trim()` does not touch it — U+200B is a Cf
-  // formatting character, not whitespace — so this reached `isPromptTextWithinLimit`
-  // as one "real" character and a box that looked, and read via .textContent,
-  // completely empty could be sent as a real turn.
+  // An empty document normalizes to one empty paragraph, which the codec serializes as a lone
+  // U+200B; `.trim()` keeps it (Cf, not whitespace), so a box that looks empty must not count as
+  // a real character for `isPromptTextWithinLimit`.
   describe('a document with nothing actually typed in it', () => {
     it('serializes a single empty paragraph to the empty string, not U+200B', () => {
       expect(chatValueToMarkdown([p('')] as Value)).toBe('')
@@ -86,6 +77,13 @@ describe('the chat composer codec', () => {
       expect(chatValueToMarkdown([p('hello'), p('')] as Value)).toBe('hello')
     })
   })
+
+  // The draft, stash, queue and history store this markdown and re-parse it.
+  for (const [name, value] of promptCases) {
+    it(`reads a draft back unchanged: ${name}`, () => {
+      expect(sameText(chatMarkdownToValue(chatValueToMarkdown(value)))).toEqual(sameText(value))
+    })
+  }
 
   // A code line's indentation IS the program. It is the one place the encoder
   // never runs and the one place trimming would corrupt the prompt.

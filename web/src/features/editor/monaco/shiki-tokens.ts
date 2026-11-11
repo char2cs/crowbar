@@ -1,26 +1,8 @@
-/**
- * Shiki semantic tokens — the grammar tier beside the language servers' tokens.
- *
- * Shiki carries the same TextMate grammars VSCode ships (~240 languages), so
- * every file gets identifier coloring (function, type, constant, property …)
- * on top of Monarch, whether or not a language server covers it.
- *
- * SYNCHRONOUS by construction. `semantic-tokens-provider.ts` documents why the
- * provider must never await: Monaco wraps every call in createCancelablePromise
- * and _cancelAll() (scroll/resize) silently drops anything resolved later. Shiki
- * is async only while *loading* a grammar — once `loadLanguage` resolves, the
- * `IGrammar` tokenizes synchronously. So warm-up is async and off the request
- * path; a request that arrives before the grammar is warm returns null (Monarch
- * coloring stands) and the provider re-requests via onDidChange once it is.
- *
- * TextMate tokenization is stateful — row N needs row N-1's rule stack — so a
- * viewport cannot be tokenized in isolation. Per model we keep the rule stack
- * entering each row and resume from the nearest known one, which keeps both
- * scrolling and typing O(viewport). An edit truncates the stacks at its first
- * changed row. A jump further than MAX_ADVANCE_LINES past the last known stack
- * yields no tokens for that pass and advances the stacks on a background timer.
- */
+// The shiki grammar tier: VSCode's TextMate grammars color identifiers over Monarch for every file.
+// Synchronous (see semantic-tokens-provider.ts); rule stacks are kept per row so scroll and typing
+// stay O(viewport), and a far jump yields nothing while stacks advance on a background timer.
 import type { StateStack } from 'shiki/textmate'
+import { grammarFor, type ShikiGrammar } from '@/features/editor/lib/shiki-grammars'
 import { toMonacoLanguageId } from './language'
 
 /** The subset of Monaco's ITextModel this needs. */
@@ -35,24 +17,8 @@ export interface TokenizerModel {
   onWillDispose?(listener: () => void): { dispose(): void }
 }
 
-/** The slice of vscode-textmate's IGrammar this needs (a fake stands in for tests). */
-export interface TokenizerGrammar {
-  tokenizeLine(
-    lineText: string,
-    prevState: StateStack | null,
-    timeLimit?: number,
-  ): {
-    readonly tokens: readonly {
-      readonly startIndex: number
-      readonly endIndex: number
-      readonly scopes: string[]
-    }[]
-    readonly ruleStack: StateStack
-  }
-}
-
 /** Categories this emits; `semantic-tokens-legend.ts` maps each onto the legend. */
-export type ShikiCategory =
+type ShikiCategory =
   | 'function'
   | 'type'
   | 'constant'
@@ -75,25 +41,9 @@ export interface ShikiToken {
 
 // ── Scope → category ──────────────────────────────────────────────────────────
 
-/**
- * TextMate scope → semantic category, `null` meaning "leave it to Monaco".
- *
- * Deliberately covers only what a Monarch grammar structurally cannot know —
- * which identifier is a function, a type, a constant, a property. Keywords,
- * strings, comments, numbers, operators and punctuation map to `null` because
- * Monarch already colors those for every language Monaco registers; re-emitting
- * them would fight the base grammar for no gain and multiply the token count.
- *
- * Keys are matched exact first, then with trailing
- * `.segments` dropped — which also strips the per-grammar language suffix
- * (`entity.name.function.ts` → `entity.name.function`). Longer keys therefore
- * win over their own prefixes (`support.type.property-name` over `support.type`).
- *
- * Entries verified against the installed grammars' real output, not guessed —
- * `meta.function-call.generic` (python's callee), `entity.name.function.support`
- * (go), `variable.other.enummember` (hcl) and `meta.attribute` (python members)
- * are all scopes those grammars actually emit.
- */
+// TextMate scope → category, `null` meaning "leave it to Monaco": only what Monarch can't know
+// (function, type, constant, property). Matched exact, then dropping trailing `.segments` (and
+// the language suffix), so longer keys win. Entries are scopes the installed grammars really emit.
 const SCOPE_CATEGORY = new Map<string, ShikiCategory | null>([
   // function
   ['entity.name.function', 'function'],
@@ -148,11 +98,8 @@ const SCOPE_CATEGORY = new Map<string, ShikiCategory | null>([
   ['support', null],
 ])
 
-/**
- * For a language Monaco has no grammar for (its Monaco id is plaintext, e.g.
- * nix, dotenv), nothing else colors keywords, strings, comments or numbers, so
- * the grammar tier emits them too. Checked before SCOPE_CATEGORY's nulls.
- */
+/** For a language Monaco has no grammar for (plaintext, e.g. nix, dotenv), nothing else colors
+ *  keywords, strings, comments or numbers, so this tier does. Checked before SCOPE_CATEGORY. */
 const STRUCTURAL_CATEGORY = new Map<string, StructuralCategory>([
   ['keyword.operator', 'operator'],
   ['keyword', 'keyword'],
@@ -161,15 +108,9 @@ const STRUCTURAL_CATEGORY = new Map<string, StructuralCategory>([
   ['constant.numeric', 'number'],
 ])
 
-/**
- * Classify one TextMate token by its scope stack (outermost → innermost).
- *
- * Innermost wins, since that is the scope that named the token; outer scopes are
- * only consulted when the inner one is unknown down to its root. A token any
- * part of whose stack is a comment is never re-colored — jsdoc/doc-comment
- * grammars emit real `entity.name.type` scopes *inside* a comment, and coloring
- * those would paint prose as code. `structural` adds STRUCTURAL_CATEGORY.
- */
+/** Classify a token by its scope stack (outermost → innermost); innermost wins. Anything inside a
+ *  comment is never re-colored, since doc-comment grammars emit code scopes in prose.
+ *  `structural` adds STRUCTURAL_CATEGORY. */
 export function scopeCategory(scopes: readonly string[], structural = false): ShikiCategory | null {
   for (const scope of scopes) {
     if (scope === 'comment' || scope.startsWith('comment.')) return structural ? 'comment' : null
@@ -202,13 +143,10 @@ const MAX_ADVANCE_LINES = 1_000
 
 const WHITESPACE = /\s/
 
-/**
- * Tokenize rows [startRow, endRow] and append their categorized tokens to `out`.
- * `stacks[row]` is the rule stack entering `row`; the array is extended as rows
- * are consumed. Exported for tests, which pass a fake grammar.
- */
-export function tokenizeRows(
-  grammar: TokenizerGrammar,
+/** Tokenize rows [startRow, endRow], appending categorized tokens to `out`. `stacks[row]` is the
+ *  rule stack entering `row`, extended as rows are consumed. */
+function tokenizeRows(
+  grammar: ShikiGrammar,
   getLine: (row: number) => string,
   stacks: (StateStack | null)[],
   startRow: number,
@@ -245,12 +183,10 @@ export function tokenizeRows(
   }
 }
 
-/**
- * Walk the rule stacks forward to `targetRow` without emitting tokens, spending
- * at most `budget` rows. Returns true when `stacks` now covers `targetRow`.
- */
+/** Walk the rule stacks forward to `targetRow` without emitting tokens, at most `budget` rows;
+ *  true once `stacks` covers `targetRow`. */
 function advanceStacks(
-  grammar: TokenizerGrammar,
+  grammar: ShikiGrammar,
   getLine: (row: number) => string,
   stacks: (StateStack | null)[],
   targetRow: number,
@@ -273,89 +209,14 @@ function advanceStacks(
   return stacks.length - 1 >= targetRow
 }
 
-// ── Grammar warm-up ───────────────────────────────────────────────────────────
-
-/**
- * The theme markdown preview already loads. We never read its colors — the
- * TextMate registry just requires one to be registered — so naming the same one
- * keeps the shared highlighter at a single theme.
- */
-const SHIKI_THEME = 'github-dark'
-
-/** Crowbar language id → shiki bundle id, where the two disagree. */
-const SHIKI_LANG_BY_LANGUAGE_ID: Record<string, string> = {
-  javascriptreact: 'jsx',
-  typescriptreact: 'tsx',
-  embedded_template: 'erb',
-  angular: 'angular-html',
-  restructuredtext: 'rst',
-}
-
-type LanguageState =
-  { status: 'loading' } | { status: 'ready'; grammar: TokenizerGrammar } | { status: 'failed' }
-
-const languageStates = new Map<string, LanguageState>()
 /** Languages whose grammar has already been run over real code at least once. */
 const compiledLanguages = new Set<string>()
-
-type ShikiBundle = typeof import('shiki/bundle/full')
-type SharedHighlighter = Awaited<ReturnType<ShikiBundle['getSingletonHighlighter']>>
-
-let highlighterPromise: Promise<SharedHighlighter> | null = null
-let bundlePromise: Promise<ShikiBundle> | null = null
-
-function loadBundle(): Promise<ShikiBundle> {
-  if (!bundlePromise) bundlePromise = import('shiki/bundle/full')
-  return bundlePromise
-}
-
-/**
- * The same singleton `markdown.tsx` highlights fenced code with — one
- * highlighter, one oniguruma engine, one grammar cache for the whole app.
- * `getSingletonHighlighter` is module state inside `shiki/bundle/full`, so
- * sharing it only requires both call sites to name that exact specifier.
- */
-function getHighlighter(): Promise<SharedHighlighter> {
-  if (!highlighterPromise) {
-    highlighterPromise = loadBundle()
-      .then(({ getSingletonHighlighter }) =>
-        getSingletonHighlighter({ themes: [SHIKI_THEME], langs: [] }),
-      )
-      .catch((error) => {
-        highlighterPromise = null
-        throw error
-      })
-  }
-  return highlighterPromise
-}
-
-function warmLanguage(languageId: string, onReady: () => void): void {
-  if (languageStates.has(languageId)) return
-  languageStates.set(languageId, { status: 'loading' })
-
-  const shikiLang = SHIKI_LANG_BY_LANGUAGE_ID[languageId] ?? languageId
-
-  void loadBundle()
-    .then(async ({ bundledLanguages }) => {
-      if (!(shikiLang in bundledLanguages)) throw new Error(`no shiki grammar: ${shikiLang}`)
-      const highlighter = await getHighlighter()
-      await highlighter.loadLanguage(shikiLang as Parameters<SharedHighlighter['loadLanguage']>[0])
-      const grammar = highlighter.getInternalContext().getLanguage(shikiLang)
-      languageStates.set(languageId, { status: 'ready', grammar })
-      onReady()
-    })
-    .catch(() => {
-      // No grammar for this language (gitignore, lockfiles, …) or shiki failed
-      // to load. Monarch coloring stands; never retried for the page's lifetime.
-      languageStates.set(languageId, { status: 'failed' })
-    })
-}
 
 // ── Per-model rule-stack cache ────────────────────────────────────────────────
 
 interface ModelState {
   languageId: string
-  grammar: TokenizerGrammar
+  grammar: ShikiGrammar
   /** `stacks[row]` = rule stack entering `row`; `stacks[0]` is always INITIAL (null). */
   stacks: (StateStack | null)[]
   disposables: { dispose(): void }[]
@@ -381,7 +242,7 @@ function disposeModelState(key: string): void {
 function getModelState(
   model: TokenizerModel,
   languageId: string,
-  grammar: TokenizerGrammar,
+  grammar: ShikiGrammar,
 ): ModelState {
   const key = model.uri.toString()
   const versionId = model.getVersionId?.() ?? null
@@ -461,16 +322,9 @@ function scheduleCatchUp(
   state.catchUpTimer = setTimeout(step, 0)
 }
 
-/**
- * Grammar-backed tokens for rows [startRow, endRow] (0-based, inclusive).
- *
- * Returns null — meaning "nothing to add this pass, keep Monarch's colors" —
- * when the grammar is still loading or has none, when the language's rules have
- * not been compiled against real code yet, or when the viewport is too far past
- * the last known rule stack to reach synchronously. In each case `onReady` is
- * called once the situation resolves so the provider can fire onDidChange and
- * have Monaco re-request.
- */
+/** Grammar tokens for rows [startRow, endRow] (0-based, inclusive), or null to keep Monarch's
+ *  colors: grammar loading or absent, rules not yet compiled, or viewport too far past the last
+ *  stack. For the last two `onReady` fires once resolved; a grammar landing is onGrammarReady. */
 export function shikiTokensInRange(
   model: TokenizerModel,
   languageId: string,
@@ -478,24 +332,19 @@ export function shikiTokensInRange(
   endRow: number,
   onReady: () => void,
 ): ShikiToken[] | null {
-  const language = languageStates.get(languageId)
-  if (!language) {
-    warmLanguage(languageId, onReady)
-    return null
-  }
-  if (language.status !== 'ready') return null
+  const grammar = grammarFor(languageId)
+  if (!grammar) return null
 
   const lineCount = model.getLineCount()
   const start = Math.max(0, startRow)
   const end = Math.min(endRow, lineCount - 1)
   if (start > end) return null
 
-  const state = getModelState(model, languageId, language.grammar)
+  const state = getModelState(model, languageId, grammar)
   const getLine = (row: number) => model.getLineContent(row + 1)
 
-  // A grammar compiles its rules into oniguruma scanners lazily, as the code it
-  // is tokenizing reaches them — measured at 60-78ms for the first viewport of
-  // tsx/typescript, then ~3ms once compiled. Walk the first viewport on a timer
+  // A grammar compiles its regexes lazily as tokenizing reaches them, so a
+  // language's first viewport costs far more than later ones. Walk it on a timer
   // so that one-off cost never lands inside a synchronous provider call.
   if (!compiledLanguages.has(languageId)) {
     compiledLanguages.add(languageId)
@@ -514,11 +363,8 @@ export function shikiTokensInRange(
   return tokens
 }
 
-/** Test-only: drop every cached grammar and model rule stack. */
+/** Test-only: drop every model rule stack and compiled-language mark. */
 export function __resetShikiTokensForTests(): void {
   for (const key of [...modelStates.keys()]) disposeModelState(key)
-  languageStates.clear()
   compiledLanguages.clear()
-  highlighterPromise = null
-  bundlePromise = null
 }

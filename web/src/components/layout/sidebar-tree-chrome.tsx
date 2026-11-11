@@ -1,8 +1,8 @@
 import { useEffect, useState, type RefObject } from 'react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
-import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
-import type { Repo } from '@/lib/store/sidebar'
-import { performImportBranches } from '@/components/sidebar/lib/row-actions'
+import { performImportBranches } from '@/components/sidebar/lib/import-branches'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import type { Repo } from '@/core/entities/repo-types'
 import { RepoImportDialog } from './repo-import-dialog'
 import { resolveRow } from './open-actions'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -21,46 +21,15 @@ interface SidebarTreeChromeProps {
   repos: readonly Repo[]
 }
 
-/**
- * The sidebar chrome that used to live inside `SidebarTreePanel`, mounted
- * ONCE here rather than once per `SpaceScroller` panel — a second dialog
- * per project would duplicate the one the user is actually looking at.
- * Carries over `RepoImportDialog` and `SidebarRowContextMenu` verbatim;
- * none of their own logic changed, only where they mount. The "New Project"
- * entry point that used to live here too moved to a trailing `+` mark, now
- * in `SidebarFooter` (spec §4.1, relocated by task-10 of the
- * sidebar-restyle-recovery-batch2), with its modal state lifted to
- * `IDEShell` alongside it.
- *
- * `RemovalTray` no longer mounts here — a held row renders in place in the
- * tree now, and the tray (the commit clock) mounts ungated in the rail
- * itself, `ide-shell.tsx`. `RenameDialog` doesn't either any more:
- * the right-click menu's Rename item now starts the same inline editor
- * double-click does (`row-context-menu.tsx`), instead of a modal — this app
- * has exactly one rename gesture, not two.
- */
+// Sidebar chrome mounted ONCE for every `SpaceScroller` panel (a dialog per project would
+// duplicate the one on screen): the branch-import dialog, the row context menu, and the
+// double-click rename listener.
 export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromeProps) {
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
 
-  // Double-click-to-rename, restored from the deleted tree's per-row inline
-  // editors (git history: cf422bc5) — as a REAL inline `<input>` in place of
-  // the row's label (sidebar-row.tsx), matching `develop`'s actual behavior.
-  // This listener only starts the inline-rename store
-  // (sidebar-inline-rename.ts); the row that reads `renamingRowId` off it and
-  // actually draws the input lives several components away (SpaceScroller's
-  // own tree), so the two can't share a prop chain — a store, not this
-  // component's own state, is what lets both sides reach the same value. The
-  // right-click menu's Rename item (`row-context-menu.tsx`) starts the exact
-  // same store action, for the exact same reason.
-  //
-  // A native `dblclick` listener on the same `treeRef` ancestor
-  // SidebarRowContextMenu's own `contextmenu` listener already uses, for the
-  // same reason that component documents: reacting from state that lived
-  // INSIDE the tree would re-render every row for an edit that only one of
-  // them needs to draw. `[data-sidebar-row-label]` (sidebar-row.tsx) scopes
-  // this to the label specifically — the trailing trash/create/fold controls
-  // stop `click`/`pointerdown` from reaching the row, but not `dblclick`, so
-  // without this a double-click on the trash icon would also start a rename.
+  // Double-click starts the inline rename through the tree UI store (the row drawing the input is
+  // far away; the context menu's Rename uses the same action). A native listener on the tree avoids
+  // re-rendering rows; `[data-sidebar-row-label]` scopes it, since trailing controls pass dblclick.
   useEffect(() => {
     const tree = treeRef.current
     if (!tree) return
@@ -75,7 +44,7 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
       // rename write is silently dropped downstream (performRenameWorkspaceBranch),
       // so starting the inline editor here would look like it worked and didn't.
       if (row.kind === 'branch' && row.locked) return
-      useSidebarInlineRenameStore.getState().startRenaming(rowId)
+      treeUiStore.getState().startRenaming(rowId)
     }
     tree.addEventListener('dblclick', onDoubleClick)
     return () => tree.removeEventListener('dblclick', onDoubleClick)
@@ -114,7 +83,7 @@ export function RowBranchImportDialog({
         if (!open) onClose()
       }}
       onImport={(branches, lockedBranches) => {
-        if (repo) void performImportBranches(repo.id, branches, lockedBranches)
+        if (repo) performImportBranches(repo.id, branches, lockedBranches)
       }}
     />
   )

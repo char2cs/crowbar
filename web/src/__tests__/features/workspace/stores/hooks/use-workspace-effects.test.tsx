@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
+import { act, render, waitFor } from '@testing-library/react'
 import { useWorkspaceEffects } from '@/features/workspace/stores/hooks/use-workspace-effects'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import {
@@ -8,20 +8,18 @@ import {
   type WorkspaceStore,
 } from '@/features/workspace/stores/workspace-store'
 import { recordWorkspaceScope, setWorkspaceScope } from '@/lib/workspace-scope'
+import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
-const { fetchFileTree, subscribe, unsubscribes, fetchGitData } = vi.hoisted(() => {
-  const unsubscribes: Array<ReturnType<typeof vi.fn>> = []
-  return {
-    fetchFileTree: vi.fn(),
-    unsubscribes,
-    subscribe: vi.fn(() => {
-      const unsubscribe = vi.fn()
-      unsubscribes.push(unsubscribe)
-      return unsubscribe
-    }),
-    fetchGitData: vi.fn(),
-  }
-})
+const { fetchFileTree, fetchGitData } = vi.hoisted(() => ({
+  fetchFileTree: vi.fn(),
+  fetchGitData: vi.fn(),
+}))
 
 vi.mock('@/features/files/lib/file-tree-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/files/lib/file-tree-api')>()
@@ -31,9 +29,9 @@ vi.mock('@/features/git/api/git-data-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/git/api/git-data-api')>()
   return { ...actual, fetchGitData }
 })
-vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe, send: vi.fn() } }))
 
-const endpoints = () => (subscribe.mock.calls as unknown as [string][]).map(([ep]) => ep)
+const held = () => heldScopes('')
+const unsubs = () => streamDaemon.sent.filter((r) => r.op === 'unsub')
 
 function Feeds({ store, active }: { store: WorkspaceStore; active: boolean }) {
   return (
@@ -53,7 +51,6 @@ const statusOf = (ws: string) => ({ branch: ws, ahead: 0, behind: 0, files: [] }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  unsubscribes.length = 0
   for (const ws of ['ws-A', 'ws-B']) {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: ws, owningChatId: `chat-${ws}` })
   }
@@ -87,8 +84,10 @@ describe('useWorkspaceEffects across a workspace switch', () => {
 
     expect(fetchFileTree).not.toHaveBeenCalled()
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(unsubscribes.length).toBeGreaterThan(0)
-    expect(unsubscribes.every((u) => u.mock.calls.length === 0)).toBe(true)
+    expect(held()).toEqual(
+      expect.arrayContaining(['files:ws-A', 'git:ws-A', 'files:ws-B', 'git:ws-B']),
+    )
+    expect(unsubs()).toEqual([])
     expect(a.getState().files).toBe(treeA)
     expect(a.getState().fileTreeStatus).toBe('ready')
   })
@@ -119,21 +118,19 @@ describe('useWorkspaceEffects across a workspace switch', () => {
     expect(a.getState().gitStatus?.branch).toBe('ws-A')
   })
 
-  it('opens the files and git streams once a workspace has been shown and keeps them while hidden', async () => {
+  it('holds ws: while mounted, and files: and git: once shown, keeping them while hidden', async () => {
     const a = createWorkspaceStore('ws-A')
-    const { rerender } = render(<Feeds store={a} active={false} />)
-    expect(endpoints()).toEqual([])
+    const { rerender, unmount } = render(<Feeds store={a} active={false} />)
+    await waitFor(() => expect(held()).toEqual(['ws:ws-A']))
 
     rerender(<Feeds store={a} active />)
     await waitFor(() => expect(a.getState().gitLoad).toBe('ready'))
-    expect(endpoints()).toEqual(
-      expect.arrayContaining(['/v0/chats/chat-ws-A/files/ws', '/v0/chats/chat-ws-A/git/status']),
-    )
+    await waitFor(() => expect(held().sort()).toEqual(['files:ws-A', 'git:ws-A', 'ws:ws-A']))
 
-    subscribe.mockClear()
     rerender(<Feeds store={a} active={false} />)
-    expect(subscribe).not.toHaveBeenCalled()
-    expect(unsubscribes.every((u) => u.mock.calls.length === 0)).toBe(true)
+    expect(unsubs()).toEqual([])
+    unmount()
+    expect(held()).toEqual([])
   })
 
   it('skips the git feed for the home workspace but keeps its files stream', async () => {
@@ -142,8 +139,8 @@ describe('useWorkspaceEffects across a workspace switch', () => {
     render(<Feeds store={home} active />)
     await waitFor(() => expect(home.getState().fileTreeStatus).toBe('ready'))
 
-    expect(endpoints()).toContain('/v0/projects/p1/home/files/ws')
-    expect(endpoints().some((ep) => ep.includes('/git/'))).toBe(false)
+    expect(held()).toContain('files:home-ws')
+    expect(held().some((scope) => scope.startsWith('git:'))).toBe(false)
     expect(fetchGitData).not.toHaveBeenCalled()
   })
 
@@ -156,7 +153,7 @@ describe('useWorkspaceEffects across a workspace switch', () => {
 
     expect(fetchFileTree).not.toHaveBeenCalled()
     expect(fetchGitData).not.toHaveBeenCalled()
-    expect(endpoints()).toEqual([])
+    expect(held().filter((scope) => !scope.startsWith('ws:'))).toEqual([])
 
     recordWorkspaceScope({
       projectId: 'p1',
@@ -167,6 +164,30 @@ describe('useWorkspaceEffects across a workspace switch', () => {
 
     await waitFor(() => expect(race.getState().gitLoad).toBe('ready'))
     expect(fetchFileTree).toHaveBeenCalledWith('ws-race')
-    expect(endpoints()).toContain('/v0/chats/chat-race/git/status')
+    await waitFor(() => expect(held()).toContain('git:ws-race'))
   })
+})
+
+// A paired install cold-boots before the project list names a workspace's host.
+it('holds no scope of a workspace until the project list says whose it is', async () => {
+  resetHostWorld()
+  pairRemoteHost('host-1')
+  onTestFinished(resetHostWorld)
+  setWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'ws-R', owningChatId: 'chat-R' })
+  const remote = createWorkspaceStore('ws-R')
+  render(<Feeds store={remote} active />)
+  expect(held()).toEqual([])
+  expect(fetchFileTree).not.toHaveBeenCalled()
+
+  act(() => loadProjects(projectOn('p-remote', 'host-1')))
+
+  await waitFor(() =>
+    expect(heldScopes('', 'host-1').sort()).toEqual([
+      'files:ws-R',
+      'git:ws-R',
+      'projects',
+      'ws:ws-R',
+    ]),
+  )
+  expect(held()).toEqual([])
 })

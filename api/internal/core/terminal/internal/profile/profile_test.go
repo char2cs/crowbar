@@ -5,14 +5,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func TestResolve_NilProfile_UsesEnvShell(t *testing.T) {
-	orig := os.Getenv("SHELL")
 	t.Setenv("SHELL", "/bin/zsh")
-	defer os.Setenv("SHELL", orig)
 
 	r := Resolve(nil, "/workspace")
 	assert.Equal(t, "/bin/zsh", r.Shell)
@@ -21,9 +20,8 @@ func TestResolve_NilProfile_UsesEnvShell(t *testing.T) {
 }
 
 func TestResolve_NilProfile_NoEnvShell_FallsBackToSh(t *testing.T) {
-	orig := os.Getenv("SHELL")
-	os.Unsetenv("SHELL")
-	defer os.Setenv("SHELL", orig)
+	t.Setenv("SHELL", "")
+	require.NoError(t, os.Unsetenv("SHELL"))
 
 	r := Resolve(nil, "/ws")
 	assert.Equal(t, "/bin/sh", r.Shell)
@@ -56,9 +54,7 @@ func TestResolve_StartupCommands(t *testing.T) {
 }
 
 func TestResolve_EmptyProfile_Defaults(t *testing.T) {
-	orig := os.Getenv("SHELL")
 	t.Setenv("SHELL", "/bin/bash")
-	defer os.Setenv("SHELL", orig)
 
 	p := &domain.TerminalProfile{}
 	r := Resolve(p, "/home/user/project")

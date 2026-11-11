@@ -3,29 +3,15 @@ import { connectDaemonEvents } from '@/lib/events/connect'
 import { useGitRefreshStore } from '@/features/git/stores/git-refresh'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const mockFetch = vi.fn().mockResolvedValue(undefined)
-
-vi.mock('@/lib/store/workspace-list', () => ({
-  useWorkspaceListStore: {
-    getState: () => ({ fetch: mockFetch }),
-  },
-}))
-
 describe('connectDaemonEvents', () => {
   let disconnect: () => void
 
   beforeEach(() => {
-    mockFetch.mockClear()
     disconnect = connectDaemonEvents()
   })
 
   afterEach(() => {
     disconnect()
-  })
-
-  it('calls workspace list fetch on workspace:updated', () => {
-    window.__CROWBAR__.emit('workspace:updated')
-    expect(mockFetch).toHaveBeenCalled()
   })
 
   it("bumps that workspace's git status revision on git:changed", () => {

@@ -1,21 +1,9 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 
-/**
- * Retained scroll offsets for surfaces that are UNMOUNTED whenever their tab
- * isn't the pane's active one.
- *
- * PaneContainer renders only the active buffer (terminals and agent chats are
- * the two keep-alive exceptions), so a preview pane's DOM — and with it its
- * scroll position — is destroyed on every tab switch and rebuilt from scratch
- * on the way back. Monaco panes don't need this: their retained per-pane widget
- * restores a per-model view state. Everything else needs the offset to live
- * OUTSIDE the component, which is what this module is.
- *
- * Keyed by buffer id (not path), so the offset follows the buffer when it moves
- * between panes and two previews of different files never share one. Bounded
- * like the editor view-state cache — oldest entry evicted first.
- */
+// Scroll offsets kept outside surfaces that unmount behind another tab (Monaco needs none: its
+// retained widget restores per-model view state). Keyed by buffer id, so an offset follows its
+// buffer across panes; bounded like the view-state cache, oldest evicted first.
 const MAX_ENTRIES = EDITOR_CONSTANTS.MAX_POSITION_CACHE_SIZE
 
 const scrollOffsets = new Map<string, number>()
@@ -41,36 +29,21 @@ export function clearPreservedScroll(key?: string): void {
   else scrollOffsets.delete(key)
 }
 
-/**
- * Keeps `containerRef`'s scroll offset across unmount/remount cycles.
- *
- * @param containerRef the scrolling element
- * @param key          stable identity of the content (a buffer id); `null`
- *                     disables preservation entirely
- * @param isContentReady whether the scrollable content is in the DOM. Restoring
- *                     before it is would be clamped to 0 by the browser (an
- *                     empty scroll box has no room to scroll) and the offset
- *                     would be silently lost.
- */
+/** Keeps `containerRef`'s scroll offset across remounts, keyed by `key` (a buffer id; `null`
+ *  disables it). Restore waits for `isContentReady`: an empty box clamps the offset to 0. */
 export function usePreservedScroll(
   containerRef: RefObject<HTMLElement | null>,
   key: string | null,
   isContentReady: boolean,
 ): void {
   const restoredKeyRef = useRef<string | null>(null)
-  // The offset still OWED to `key`: set when a restore was clamped by content
-  // too short to hold it, cleared once reached or once the user takes over.
-  // While it is non-null, every offset the element reports is one of our own
-  // clamped attempts rather than where the user is reading, so nothing is
-  // recorded. It deliberately outlives the effect that created it — see the
-  // StrictMode note on the restore effect below.
+  // The offset still owed to `key` after a clamped restore, cleared once reached or the user takes
+  // over. While set, reported offsets are our own clamped attempts, so none is recorded. It
+  // outlives its effect on purpose (see the StrictMode note on the restore effect).
   const pendingTargetRef = useRef<number | null>(null)
 
-  // Record every scroll, and capture a final offset when this key is torn down.
-  // A LAYOUT effect (not a passive one) so that on an in-place key change the
-  // outgoing key's cleanup runs BEFORE the restore effect below moves the shared
-  // element to the incoming key's offset — otherwise the outgoing buffer would
-  // be handed the incoming buffer's position.
+  // Record every scroll, and a final offset at teardown. A layout effect, so on an in-place key
+  // change the outgoing key's cleanup runs before the restore below moves the element.
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!container || !key) return
@@ -83,13 +56,9 @@ export function usePreservedScroll(
 
     return () => {
       container.removeEventListener('scroll', handleScroll)
-      // Only capture a final offset for a key this element is actually SHOWING.
-      // A cleanup can fire against a freshly mounted element that hasn't been
-      // restored yet — StrictMode double-invokes every effect (setup → cleanup →
-      // setup), and the preview's content arrives a commit after mount — and
-      // recording that element's 0 would wipe the very offset the restore is
-      // about to read. The scroll listener above has already banked every real
-      // scroll, so skipping here loses nothing.
+      // Only bank a final offset for a key this element shows: a cleanup can hit a fresh,
+      // unrestored element (StrictMode, late content), whose 0 would wipe the offset about to be
+      // restored. The scroll listener already banked every real scroll.
       if (restoredKeyRef.current !== key) return
       // Same reasoning while a restore is still owed: the element is sitting at
       // a clamped fraction of the offset we're trying to reach.
@@ -99,13 +68,9 @@ export function usePreservedScroll(
     }
   }, [containerRef, key])
 
-  // Restore before paint so the surface never flashes at the top. The offset is
-  // APPLIED once per key — re-applying after the user has scrolled would yank
-  // them back — but the watcher that chases a clamped restore is re-established
-  // on every run, which is what makes this survive StrictMode (setup → cleanup
-  // → setup: the first cleanup tears the watcher down, and the second setup is
-  // past the once-per-key guard, so a watcher owned by that guard would be dead
-  // on arrival and the offset would stay truncated).
+  // Restore before paint so nothing flashes at the top. The offset is applied once per key (later
+  // would yank the user back), but the clamp-chasing watcher is rebuilt every run: under StrictMode
+  // the second setup is past the once-per-key guard, so a guarded watcher would be dead on arrival.
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!container || !key || !isContentReady) return
@@ -116,21 +81,16 @@ export function usePreservedScroll(
 
       const target = getPreservedScroll(key)
       container.scrollTop = target
-      // A CLAMPED assignment means the document is still shorter than the offset
-      // we're restoring into: images, embedded HTML and diagrams size themselves
-      // after the first commit, and a browser silently truncates a scrollTop
-      // beyond the current scroll range. Landing on the target (which includes
-      // the target-is-0 case) leaves nothing owed.
+      // A clamped assignment means the document is still shorter than the offset (images, HTML
+      // and diagrams size after the first commit). Landing on the target (or 0) leaves none owed.
       if (container.scrollTop < target) pendingTargetRef.current = target
     }
 
     const target = pendingTargetRef.current
     if (target === null || typeof ResizeObserver === 'undefined') return
 
-    // Growth is observed, not polled: a ResizeObserver fires exactly when a box
-    // changes, so this costs nothing once the document settles and there is no
-    // frame budget to guess wrong. It self-terminates — reaching the target, or
-    // the content simply not growing any further, ends it.
+    // Growth is observed with a ResizeObserver, not polled, so this costs nothing once settled. It
+    // ends itself on reaching the target or when the content stops growing.
     let applied = container.scrollTop
 
     // Detach the watcher but keep the target owed, so a re-run re-establishes it.

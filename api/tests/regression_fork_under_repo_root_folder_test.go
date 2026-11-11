@@ -3,7 +3,6 @@
 package tests
 
 import (
-	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,39 +27,4 @@ func TestRegression_ForkUnderRepoRootFolderForksTheDefaultWorkspace(t *testing.T
 	assert.Equal(t, imported.workspaceID, fork.ParentID, "the fork's git parent is the repo's default checkout")
 	assert.Equal(t, "test/test", fork.Branch)
 	assert.Equal(t, folder.ID, getAgentChat(t, h, base, chatID).ParentID)
-}
-
-func TestRegression_PromoteInsideRepoRootFolderForksTheDefaultWorkspace(t *testing.T) {
-	h := newHarness(t)
-	writePromoteStubProviderDescriptor(t, h)
-	imported := importProjectHomeHoldsDefault(t, h)
-	base := repoBase(imported)
-
-	folder := createChatFolder(t, h, base, "root-folder", "")
-	bubbleID := createChatWithProvider(t, h, base, "promotestub", "", folder.ID)
-	require.Empty(t, getAgentChat(t, h, base, bubbleID).WorkspaceID)
-
-	var promoted agentChatDetail
-	h.post(base+"/chats/"+bubbleID+"/promote", nil, http.StatusOK, &promoted)
-	h.QuiesceReactors()
-	require.NotEmpty(t, promoted.WorkspaceID)
-	assert.Equal(t, imported.workspaceID, workspaceRow(t, h, imported, promoted.WorkspaceID).ParentID)
-}
-
-// A thread placed directly under a chatless workspace's own row, then
-// promoted: the same walk as the fork, one verb later.
-func TestRegression_PromoteUnderChatlessLockedBranchForksThatBranch(t *testing.T) {
-	h := newHarness(t)
-	writePromoteStubProviderDescriptor(t, h)
-	imported := importWritableWorkspace(t, h)
-	base := repoBase(imported)
-
-	lockedID := chatlessLockedBranch(t, h, imported, "release/promote-anchor")
-	bubbleID := createChatWithProvider(t, h, base, "promotestub", "", lockedID)
-
-	var promoted agentChatDetail
-	h.post(base+"/chats/"+bubbleID+"/promote", nil, http.StatusOK, &promoted)
-	h.QuiesceReactors()
-	require.NotEmpty(t, promoted.WorkspaceID)
-	assert.Equal(t, lockedID, workspaceRow(t, h, imported, promoted.WorkspaceID).ParentID)
 }

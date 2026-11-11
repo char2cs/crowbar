@@ -10,12 +10,8 @@ import {
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import { DirectoryChevron } from './file-explorer-tree-item'
 
-/**
- * The folders pinned above the rows while you scroll inside them. They are
- * always expanded (that's why they're pinned), so the caret is always open.
- * Rows carry `data-file-path`, so the container's delegated handlers serve
- * them like any other row.
- */
+/** The folders pinned above the rows while you scroll inside them, always expanded (hence the
+ *  open caret). Rows carry `data-file-path`, so the container's delegated handlers serve them. */
 export function FileExplorerStickyAncestors({
   ancestors,
   style,

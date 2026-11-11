@@ -1,19 +1,12 @@
-// Click handling for links rendered inside markdown (the Plate editor's inline
-// `[text](url)` links and the raw-HTML README blocks). A bare `<a href>` click
-// inside the Tauri WKWebView navigates the WHOLE app view to the href — there
-// is no separate browser chrome to catch it — so every such click must cancel
-// its default navigation. External URLs are then handed to the OS default
-// browser via the shell opener; relative/anchor links simply stop hijacking the
-// webview (the caller may resolve them separately).
+// Click handling for links in rendered markdown. In the Tauri WKWebView a bare `<a href>` click
+// navigates the whole app view, so every click cancels default navigation; external URLs go to
+// the OS browser, and relative/anchor links are left to the caller.
 import { createContext, useContext } from 'react'
 import { openWorkspaceLink } from '@/lib/workspace-link'
 
 const EXTERNAL_SCHEME = /^(?:https?|mailto|tel):/i
 
-/**
- * True for a URL that belongs in the OS default browser / mail / dialer rather
- * than the in-app webview. Protocol-relative `//host/…` counts as external too.
- */
+/** A URL for the OS browser/mail/dialer, not the webview; protocol-relative `//host/…` counts. */
 export function isExternalUrl(url: string): boolean {
   return url.startsWith('//') || EXTERNAL_SCHEME.test(url)
 }
@@ -25,11 +18,8 @@ export function useLinkWorkspace(): string | null {
   return useContext(LinkWorkspaceContext)
 }
 
-/**
- * Handle a click on a rendered markdown anchor in workspace `wsId`'s content. Always cancels
- * the default webview navigation (see module note); external hrefs open through
- * openWorkspaceLink. A missing href is a no-op — nothing is cancelled.
- */
+// Handles a click on a rendered markdown anchor in `wsId`'s content: always cancels webview
+// navigation and opens external hrefs via openWorkspaceLink. No href: nothing is cancelled.
 export function handleMarkdownAnchorClick(
   event: Pick<Event, 'preventDefault' | 'stopPropagation'>,
   href: string | null | undefined,

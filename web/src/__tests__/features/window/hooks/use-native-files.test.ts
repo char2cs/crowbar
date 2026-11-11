@@ -8,10 +8,15 @@ import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-sto
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import type { GitStatus } from '@/features/git/types/git-types'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
-import type { Project } from '@/lib/types'
+import * as documents from '@/features/editor/documents/open-document'
+import * as editorSurface from '@/features/panes/lib/editor-surface-loader'
+import { workspaceRef } from '@/lib/api/documents'
+import {
+  projectDTO,
+  resetEntities,
+  seedHomeTree,
+  seedProjects,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 const chrome = vi.hoisted(() => ({
   pushed: [] as NativeFiles[],
@@ -24,19 +29,15 @@ vi.mock('@/lib/native-chrome', () => ({
     return () => chrome.listeners.delete(cb)
   },
 }))
-const opened = vi.hoisted(() => ({ open: vi.fn(), settle: null as null | (() => void) }))
-vi.mock('@/features/files/lib/file-tree-handlers', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/files/lib/file-tree-handlers')>()),
-  openWorkspaceFile: (...args: unknown[]) => {
-    opened.open(...args)
-    return new Promise<void>((resolve) => (opened.settle = resolve))
-  },
-}))
+const opened = { settle: null as null | (() => void) }
+const open = vi
+  .spyOn(documents, 'openDocument')
+  .mockImplementation(() => new Promise((resolve) => (opened.settle = () => resolve(null))))
 
-const surface = vi.hoisted(() => ({ settle: null as null | (() => void) }))
-vi.mock('@/features/panes/lib/editor-surface-loader', () => ({
-  preloadEditorFor: () => new Promise<void>((resolve) => (surface.settle = resolve)),
-}))
+const surface = { settle: null as null | (() => void) }
+vi.spyOn(editorSurface, 'preloadEditorFor').mockImplementation(
+  () => new Promise<void>((resolve) => (surface.settle = resolve)),
+)
 
 const { useNativeFiles } = await import('@/features/window/hooks/use-native-files')
 
@@ -52,25 +53,22 @@ const last = () => chrome.pushed.at(-1)!
 beforeEach(() => {
   chrome.pushed.length = 0
   chrome.listeners.clear()
-  opened.open.mockClear()
+  open.mockClear()
   useFileTreeStore.setState({ expandedPathsByWorkspace: {} })
-  useHomeTreeStore.setState({
-    trees: { p1: { chats: [{ id: CHAT, title: 'Nightly bug' } as never], folders: [] } },
-  })
-  useProjectDataStore.setState({
-    data: success([{ id: 'p1', name: 'Rabbyte Local' } as Project]),
-  })
+  resetEntities()
+  seedProjects([projectDTO({ id: 'p1', name: 'Rabbyte Local' })])
+  seedHomeTree('p1', { chats: [{ id: CHAT, repoId: '', title: 'Nightly bug', order: 0 }] })
   useFocusedWorkspaceContextStore.setState({ workspaceId: WS, rootPath: '/repos/checkout' })
   useMobileScreenStore.setState({ screen: 'ide', filesOpen: true })
   const store = getOrCreateWorkspaceStore(WS)
   store.getState().fileTreeActions.setFiles([
     {
       name: 'src',
-      path: '/repos/checkout/src',
+      path: 'src',
       isDir: true,
-      children: [{ name: 'pricing.ts', path: '/repos/checkout/src/pricing.ts', isDir: false }],
+      children: [{ name: 'pricing.ts', path: 'src/pricing.ts', isDir: false }],
     },
-    { name: 'README.md', path: '/repos/checkout/README.md', isDir: false },
+    { name: 'README.md', path: 'README.md', isDir: false },
   ])
   store.setState({
     workspaceGitStatus: {
@@ -98,18 +96,17 @@ describe('useNativeFiles', () => {
 
   it('folds a folder the drawer asks to open, and says so in the next push', () => {
     mount()
-    send({ type: 'toggleDir', path: '/repos/checkout/src' })
-    expect(last().expanded).toEqual(['/repos/checkout/src'])
+    send({ type: 'toggleDir', path: 'src' })
+    expect(last().expanded).toEqual(['src'])
   })
 
   // The drawer is the only thing on screen until the tab exists: closing it on the tap would
   // show the IDE's empty pane for as long as the file takes to load.
   it('opens a picked file as a preview and slides the drawer away once its tab can draw', async () => {
     mount()
-    send({ type: 'openFile', path: '/repos/checkout/README.md' })
-    expect(opened.open).toHaveBeenCalledWith(
-      WS,
-      '/repos/checkout/README.md',
+    send({ type: 'openFile', path: 'README.md' })
+    expect(open).toHaveBeenCalledWith(
+      workspaceRef(WS, 'README.md'),
       expect.objectContaining({ preview: true }),
     )
     expect(useMobileScreenStore.getState().filesOpen).toBe(true)

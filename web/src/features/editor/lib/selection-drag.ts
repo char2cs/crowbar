@@ -1,17 +1,6 @@
-/**
- * selection-drag — "a pointer is down inside an editor, dragging out a
- * selection", as one fact both CSS and JS can read.
- *
- * The `data-editor-selecting` attribute on `<html>` already existed for the CSS
- * half (editor-theme.css promotes `.monaco-editor` to its own CALayer for the
- * span of the drag). This owns that attribute so the JS half — throttling the
- * per-selection-change cursor sync in `editor-surface.tsx` — reads the same
- * fact from a module flag instead of re-parsing the DOM on the hot path.
- *
- * Refcounted: a window can hold several editor panes, and a drag that starts in
- * one and releases over another must not leave the flag stuck on (or clear it
- * while a second pane is still dragging).
- */
+// "A pointer is dragging out a selection in an editor" as one fact: `data-editor-selecting` on
+// <html> for the CSS (a CALayer promotion) and a module flag for editor-surface's cursor-sync
+// throttle. Refcounted, so a drag across panes never leaves it stuck or clears it early.
 
 const ATTRIBUTE = 'data-editor-selecting'
 
@@ -39,11 +28,8 @@ export function endSelectionDrag(): void {
   }
 }
 
-/**
- * Drop this pane's claim on the drag without caring whether it had one — for
- * unmount cleanup, where a pane torn down mid-drag would otherwise pin the flag
- * (and the CALayer promotion) on forever.
- */
+/** Drop this pane's claim on the drag if it had one, for unmount: a pane torn down mid-drag would
+ *  otherwise pin the flag (and the CALayer promotion) forever. */
 export function releaseSelectionDrag(held: boolean): void {
   if (held) endSelectionDrag()
 }

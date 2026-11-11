@@ -3,19 +3,14 @@
 package tests
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
-	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // switchableStubProviderDescriptorYAML is streamStubProviderDescriptorYAML
@@ -24,9 +19,6 @@ import (
 // the provider's own available list, and streamstub/quietstub declare none —
 // only the selection-marker tests below need one.
 const switchableStubProviderDescriptorYAML = `id: switchablestub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -65,9 +57,6 @@ runtime:
 // still valid. See
 // TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare.
 const otherSwitchableStubProviderDescriptorYAML = `id: otherswitchablestub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -99,28 +88,14 @@ runtime:
     format: json
 `
 
-type interruptionDTO struct {
-	ID     string `json:"id"`
-	Kind   string `json:"kind"`
-	Detail string `json:"detail"`
-}
-
-func readInterruptions(t *testing.T, h *harness, imported importedRepo, chatID string) []interruptionDTO {
+// readInterruptions are the markers chatID's feed records.
+func readInterruptions(t *testing.T, h *harness, _ importedRepo, chatID string) []ledger.Marker {
 	t.Helper()
-	var activity struct {
-		Interruptions []interruptionDTO `json:"interruptions"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
-	return activity.Interruptions
+	return rowsOf(t, chatRows(t, h, chatID), ledger.KindMarker, func(ledger.Marker) bool { return true })
 }
 
-// TestRegression_ProviderSwitchRecordsAMarkerInterruption is the integration
-// counterpart of the internal/runner package's
-// TestRegression_CloseAbandonedTurn_* family and chat_test.go's
-// TestSwitchProvider_RecordsAProviderSwitchedInterruption — those exercise
-// switchProviderLocked directly; this drives the real POST .../switch
-// endpoint the composer actually calls, and reads the marker back through
-// the real GET .../activity endpoint the transcript actually renders from.
+// The real POST .../switch records the marker the transcript draws its
+// divider from, on the chat's feed.
 func TestRegression_ProviderSwitchRecordsAMarkerInterruption(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -162,6 +137,17 @@ func TestRegression_SwitchingToTheSameProviderRecordsNoMarker(t *testing.T) {
 	assert.Empty(t, readInterruptions(t, h, imported, chatID))
 }
 
+// stubExchange is one turn of switchablestub's CLI: a pick divides a chat only
+// once it has said something.
+func stubExchange(t *testing.T, h *harness, imported importedRepo, runnerID string) {
+	t.Helper()
+	base := repoBase(imported)
+	postHook(t, h, base, "switchablestub", runnerID, "session_start", `{"session_id":"s-1"}`)
+	postHook(t, h, base, "switchablestub", runnerID, "user_prompt", `{"prompt":"hi"}`)
+	postHook(t, h, base, "switchablestub", runnerID, "turn_stop", `{"session_id":"s-1","last_assistant_message":"ok"}`)
+	h.Quiesce()
+}
+
 // TestRegression_SelectionChangeRecordsModelAndEffortMarkers is the
 // integration counterpart of chat_test.go's SetChatSelection unit coverage:
 // drives the real PATCH .../selection endpoint the model/effort pickers
@@ -172,10 +158,11 @@ func TestRegression_SelectionChangeRecordsModelAndEffortMarkers(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "switchablestub", switchableStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
-	chatID, _ := createStubChat(t, h, imported, "switchablestub")
+	chatID, runnerID := createStubChat(t, h, imported, "switchablestub")
+	stubExchange(t, h, imported, runnerID)
 
 	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
-		map[string]string{"model": "opus", "effort": "high"}, http.StatusAccepted)
+		map[string]string{"model": "opus", "effort": "high"}, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -194,10 +181,11 @@ func TestRegression_SelectionChangeOfOnlyOneHalfRecordsOneMarker(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "switchablestub", switchableStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
-	chatID, _ := createStubChat(t, h, imported, "switchablestub")
+	chatID, runnerID := createStubChat(t, h, imported, "switchablestub")
+	stubExchange(t, h, imported, runnerID)
 
 	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
-		map[string]string{"model": "", "effort": "low"}, http.StatusAccepted)
+		map[string]string{"model": "", "effort": "low"}, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -228,7 +216,7 @@ func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t 
 	// "opus" is valid for switchablestub, and invalid for otherswitchablestub
 	// (which only declares "haiku") — the exact shape of the live bug.
 	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
-		map[string]string{"model": "opus", "effort": "high"}, http.StatusAccepted)
+		map[string]string{"model": "opus", "effort": "high"}, http.StatusNoContent)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
@@ -239,7 +227,7 @@ func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t 
 		map[string]string{"provider": "otherswitchablestub"}, http.StatusOK, &result)
 	h.QuiesceReactors()
 
-	runner, err := h.app.Repositories.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
+	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
 	require.NoError(t, err, "the switch must leave a live runner on the chat")
 	assert.Empty(t, runner.LaunchModel,
 		"otherswitchablestub does not declare \"opus\" — the switch must not hand it "+
@@ -250,48 +238,8 @@ func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t 
 			"the stale effort with it rather than leave a mismatched pair")
 }
 
-// orderedMessage is recordedMessage plus DisplayOrder, which the transcript
-// actually sorts by — see TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt.
-type orderedMessage struct {
-	DisplayOrder int64  `json:"displayOrder"`
-	Role         string `json:"role"`
-	Text         string `json:"text"`
-}
-
-func readOrderedMessages(t *testing.T, h *harness, imported importedRepo, chatID string) []orderedMessage {
-	t.Helper()
-	var page struct {
-		Items []orderedMessage `json:"items"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/messages?limit=200", &page)
-	return page.Items
-}
-
-// orderedInterruption is interruptionDTO plus DisplayOrder.
-type orderedInterruption struct {
-	Kind         string `json:"kind"`
-	Detail       string `json:"detail"`
-	DisplayOrder int64  `json:"displayOrder"`
-}
-
-func readOrderedInterruptions(t *testing.T, h *harness, imported importedRepo, chatID string) []orderedInterruption {
-	t.Helper()
-	var activity struct {
-		Interruptions []orderedInterruption `json:"interruptions"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
-	return activity.Interruptions
-}
-
-// TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt is the reported bug
-// behind a screenshot: a codex turn failed with "model_not_found", the chat
-// went idle, the user then switched to claude — and the transcript rendered
-// the OLD codex failure notice AFTER the "Switched to Claude"/"Model: haiku"
-// divider pair, as if it belonged to the new session. The failure and the
-// switch are not concurrent here — the failure is fully recorded, and the
-// chat is fully idle, before the switch is even requested — so if THIS
-// still sorts wrong, the bug is in how DisplayOrder is computed or compared,
-// not in a race between an async hook and a synchronous switch.
+// A turn that failed before a switch is recorded before the switch's marker,
+// so the old provider's error is never drawn as the new session's.
 func TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -300,7 +248,7 @@ func TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt(t *testing.T) {
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"pick a model"}`)
@@ -317,155 +265,8 @@ func TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt(t *testing.T) {
 		map[string]string{"provider": "quietstub"}, http.StatusOK, &result)
 	h.Quiesce()
 
-	messages := readOrderedMessages(t, h, imported, chatID)
-	var notice *orderedMessage
-	for i := range messages {
-		if messages[i].Role == "notice" {
-			notice = &messages[i]
-		}
-	}
-	require.NotNil(t, notice, "the codex failure must be recorded as a notice-role message")
-
-	interruptions := readOrderedInterruptions(t, h, imported, chatID)
-	var switchMarker *orderedInterruption
-	for i := range interruptions {
-		if interruptions[i].Kind == "provider_switched" {
-			switchMarker = &interruptions[i]
-		}
-	}
-	require.NotNil(t, switchMarker, "the switch must record a provider_switched marker")
-
-	assert.Less(t, notice.DisplayOrder, switchMarker.DisplayOrder,
-		"the codex failure happened, and was fully recorded, BEFORE the switch was even "+
-			"requested — its DisplayOrder must sort before the switch marker's, or the "+
-			"transcript renders the old provider's error as if it belonged to the new session")
-}
-
-// waitingForTurnLog duplicates turn.WaitingForTurnLog's literal text: that
-// constant lives under .../usecases/chat/internal/turn, and Go's internal
-// package boundary makes it unreachable from this black-box package. It is
-// the one CAUSAL signal a test can block on to know a switch has genuinely
-// parked on an in-flight turn (see parkedOnSwitchWait) — see the constant's
-// own doc comment at the source for why nothing weaker will do.
-const waitingForTurnLog = "agent: switch provider: the chat is mid-turn; waiting for the CLI to finish before quitting it"
-
-// parkedOnSwitchWait returns a channel closed the moment a switch parks on an
-// in-flight turn — the usecase's own log record, emitted immediately before it
-// blocks. It is what lets TestRegression_AConcurrentFailureSortsBeforeTheSwitch
-// fire the failure hook at a moment it KNOWS the switch is genuinely waiting,
-// rather than guessing with a sleep.
-func parkedOnSwitchWait(t *testing.T) <-chan struct{} {
-	t.Helper()
-	prev := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	h := &parkOnLogHandler{ch: make(chan struct{}), match: waitingForTurnLog}
-	slog.SetDefault(slog.New(h))
-	return h.ch
-}
-
-type parkOnLogHandler struct {
-	once  sync.Once
-	ch    chan struct{}
-	match string
-}
-
-func (h *parkOnLogHandler) Enabled(context.Context, slog.Level) bool { return true }
-
-func (h *parkOnLogHandler) Handle(_ context.Context, r slog.Record) error {
-	if strings.Contains(r.Message, h.match) {
-		h.once.Do(func() { close(h.ch) })
-	}
-	return nil
-}
-
-func (h *parkOnLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
-func (h *parkOnLogHandler) WithGroup(string) slog.Handler      { return h }
-
-// TestRegression_AConcurrentFailureSortsBeforeTheSwitch is the actual reported
-// scenario, not the simplified sequential one above: the user switches provider
-// WHILE codex is still mid-turn, and codex's "model_not_found" failure is what
-// finally lets the switch's own wait release. The failure and the switch race
-// for real here — RecordChatSwitch's Interrupt/ResolveInterruption use asynx's
-// non-waiting Send, while the failure notice's AppendTurn uses SendWait — so
-// this is the one scenario that can actually catch a Seq/DisplayOrder ordering
-// bug the sequential test cannot.
-func TestRegression_AConcurrentFailureSortsBeforeTheSwitch(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"pick a model"}`)
-	h.Quiesce()
-
-	parked := parkedOnSwitchWait(t)
-
-	type switchResult struct {
-		status int
-		body   []byte
-	}
-	switchDone := make(chan switchResult, 1)
-	go func() {
-		body, _ := json.Marshal(map[string]string{"provider": "quietstub"})
-		req, err := http.NewRequest(http.MethodPost,
-			h.url+repoBase(imported)+"/chats/"+chatID+"/switch", bytes.NewReader(body))
-		if err != nil {
-			switchDone <- switchResult{status: -1}
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := h.server.Client().Do(req)
-		if err != nil {
-			switchDone <- switchResult{status: -1}
-			return
-		}
-		defer resp.Body.Close()
-		respBody, _ := io.ReadAll(resp.Body)
-		switchDone <- switchResult{status: resp.StatusCode, body: respBody}
-	}()
-
-	select {
-	case <-parked:
-	case <-time.After(10 * time.Second):
-		t.Fatal("switch never parked on the in-flight turn — nothing to race against")
-	}
-
-	post("turn_failed", `{"session_id":"sess-1","error":"model_not_found",`+
-		`"error_details":"gpt-5.4-mini may not exist or you may not have access to it"}`)
-
-	select {
-	case result := <-switchDone:
-		require.Equal(t, http.StatusOK, result.status, "switch response: %s", result.body)
-	case <-time.After(10 * time.Second):
-		t.Fatal("switch never returned after the parked turn failed")
-	}
-	h.Quiesce()
-
-	messages := readOrderedMessages(t, h, imported, chatID)
-	var notice *orderedMessage
-	for i := range messages {
-		if messages[i].Role == "notice" {
-			notice = &messages[i]
-		}
-	}
-	require.NotNil(t, notice, "the codex failure must be recorded as a notice-role message")
-
-	interruptions := readOrderedInterruptions(t, h, imported, chatID)
-	var switchMarker *orderedInterruption
-	for i := range interruptions {
-		if interruptions[i].Kind == "provider_switched" {
-			switchMarker = &interruptions[i]
-		}
-	}
-	require.NotNil(t, switchMarker, "the switch must record a provider_switched marker")
-
-	assert.Less(t, notice.DisplayOrder, switchMarker.DisplayOrder,
-		"the codex failure is what RELEASED the switch's own wait — it happened first "+
-			"by construction — so its DisplayOrder must sort before the switch marker's")
+	rows := chatRows(t, h, chatID)
+	failed := seqOf(t, rows, ledger.KindTurnFailed, func(ledger.TurnFailed) bool { return true })
+	switched := seqOf(t, rows, ledger.KindMarker, func(b ledger.Marker) bool { return b.Kind == ledger.MarkerProviderSwitched })
+	assert.Less(t, failed, switched, "the failure was recorded before the switch was requested")
 }

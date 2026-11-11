@@ -1,0 +1,479 @@
+package migrate
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"errors"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/home"
+	"github.com/char2cs/crowbar/api/internal/testutil"
+)
+
+type treeEntry struct {
+	Dir     bool
+	Content string
+	Mode    fs.FileMode
+}
+
+func plentyOfDisk(
+	_ string,
+) (uint64, error) {
+	return 1 << 40, nil
+}
+
+func diskOf(
+	free uint64,
+) FreeBytesFunc {
+	return func(string) (uint64, error) {
+		return free, nil
+	}
+}
+
+func readTree(
+	tb testing.TB,
+	root string,
+) map[string]treeEntry {
+	tb.Helper()
+	out := map[string]treeEntry{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || path == root {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			out[filepath.ToSlash(rel)] = treeEntry{Dir: true}
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		out[filepath.ToSlash(rel)] = treeEntry{Content: string(raw), Mode: info.Mode().Perm()}
+		return nil
+	})
+	require.NoError(tb, err)
+	return out
+}
+
+// readBackup lists the archive at path as readTree lists a directory, by the
+// paths its entries have under the home.
+func readBackup(
+	tb testing.TB,
+	path string,
+) map[string]treeEntry {
+	tb.Helper()
+	in, err := os.Open(path)
+	require.NoError(tb, err)
+	defer func() { require.NoError(tb, in.Close()) }()
+	zr, err := gzip.NewReader(in)
+	require.NoError(tb, err)
+	out := map[string]treeEntry{}
+	tr := tar.NewReader(zr)
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		require.NoError(tb, err)
+		if header.Typeflag == tar.TypeDir {
+			out[strings.TrimSuffix(header.Name, "/")] = treeEntry{Dir: true}
+			continue
+		}
+		raw, err := io.ReadAll(tr)
+		require.NoError(tb, err)
+		out[header.Name] = treeEntry{Content: string(raw), Mode: fs.FileMode(header.Mode)}
+	}
+}
+
+// archived is tree as a backup holds it under prefix: every file 0600.
+func archived(
+	tree map[string]treeEntry,
+	prefix string,
+) map[string]treeEntry {
+	out := map[string]treeEntry{prefix: {Dir: true}}
+	for rel, e := range tree {
+		if !e.Dir {
+			e.Mode = 0o600
+		}
+		out[prefix+"/"+rel] = e
+	}
+	return out
+}
+
+// only is the entries of tree under prefix.
+func only(
+	tree map[string]treeEntry,
+	prefix string,
+) map[string]treeEntry {
+	out := map[string]treeEntry{}
+	for rel, e := range tree {
+		if rel == prefix || strings.HasPrefix(rel, prefix+"/") {
+			out[rel] = e
+		}
+	}
+	return out
+}
+
+// backedUpView is state/view.db as the backup at path holds it.
+func backedUpView(
+	tb testing.TB,
+	path string,
+) string {
+	tb.Helper()
+	entry, ok := readBackup(tb, path)["state/view.db"]
+	require.True(tb, ok, "the backup holds state/view.db")
+	return entry.Content
+}
+
+// startedRun leaves h's ledger as a run leaves it just before its backup, and
+// returns the ledger's bytes.
+func startedRun(
+	tb testing.TB,
+	h home.Home,
+) string {
+	tb.Helper()
+	line := `{"v":1,"kind":"run.start","run":"run-1","pending":[1]}` + "\n"
+	testutil.WriteFile(tb, h, "migrate/ledger.jsonl", line)
+	return line
+}
+
+func assertNoBackupFor(
+	tb testing.TB,
+	h home.Home,
+	runID string,
+) {
+	tb.Helper()
+	backups := filepath.Join(h.MigrateDir(), "backups")
+	assert.NoFileExists(tb, filepath.Join(backups, runID+".tar.gz.partial"))
+	assert.NoFileExists(tb, filepath.Join(backups, runID+".tar.gz"))
+}
+
+func symlinkOrSkip(
+	tb testing.TB,
+	target string,
+	link string,
+) {
+	tb.Helper()
+	err := os.Symlink(target, link)
+	if err != nil && runtime.GOOS == "windows" {
+		tb.Skipf("creating a symlink on Windows needs privileges the runner may lack: %v", err)
+	}
+	require.NoError(tb, err)
+}
+
+func TestBackupState_ArchivesTheTreeByteForByteAsOwnerOnly(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	blob := make([]byte, 256)
+	for i := range blob {
+		blob[i] = byte(i)
+	}
+	testutil.WriteFile(t, h, "state/events/a.db", "events database")
+	testutil.WriteFile(t, h, "state/events/a.db-wal", "write-ahead log")
+	testutil.WriteFile(t, h, "state/content/aa/bb/blob", string(blob))
+	testutil.WriteFile(t, h, "state/view.db", "view")
+	testutil.WriteFile(t, h, "state/events/.lock", "user data, not the home lock")
+	require.NoError(t, os.MkdirAll(filepath.Join(h.State(), "store"), 0o700))
+	require.NoError(t, os.Chmod(filepath.Join(h.State(), "view.db"), 0o664))
+	startedRun(t, h)
+	lock, err := lockHome(h)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, lock.Close()) })
+	var probed string
+
+	got, err := backupState(h, "run-1", 0, nil, func(path string) (uint64, error) {
+		probed = path
+		return plentyOfDisk(path)
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz"), got.Path)
+	assert.Equal(t, int64(len("events database")+len("write-ahead log")+len(blob)+len("view")+len("user data, not the home lock")), got.Bytes)
+	info, err := os.Stat(got.Path)
+	require.NoError(t, err)
+	assert.Equal(t, info.Size(), got.Packed)
+	assert.Equal(t, fs.FileMode(0o600), info.Mode().Perm())
+	assert.Equal(t, h.Root(), probed)
+	want := readTree(t, h.State())
+	delete(want, ".lock")
+	assert.Equal(t, archived(want, "state"), only(readBackup(t, got.Path), "state"))
+	assert.Contains(t, want, "events/.lock")
+	assert.Contains(t, want, "store")
+	assert.NoFileExists(t, got.Path+".partial")
+}
+
+// A restore puts state/, LAYOUT and the ledger back together, so the backup holds
+// all three as they stood: a restored state/ alone would sit under a ledger that
+// says its steps already ran.
+func TestBackupState_HoldsTheLayoutAndLedgerItRewindsWith(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/view.db", "rows")
+	testutil.WriteFile(t, h, "LAYOUT", "3\n")
+	ledger := startedRun(t, h)
+
+	got, err := backupState(h, "run-1", 3, nil, plentyOfDisk)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]treeEntry{
+		"state":                {Dir: true},
+		"state/view.db":        {Content: "rows", Mode: 0o600},
+		"LAYOUT":               {Content: "3\n", Mode: 0o600},
+		"migrate/ledger.jsonl": {Content: ledger, Mode: 0o600},
+	}, readBackup(t, got.Path))
+}
+
+// A step that reads files outside state/ names them, so a restore puts back
+// its whole input; a pattern reaching out of the home is refused.
+func TestBackupState_HoldsThePathsAPlanBacksUp(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/view.db", "rows")
+	testutil.WriteFile(t, h, "chats/c1/prompt-requests/p1.json", "journal")
+	testutil.WriteFile(t, h, "chats/c1/attachments/a.png", "not input")
+	startedRun(t, h)
+
+	got, err := backupState(h, "run-1", 0, []string{"chats/*/prompt-requests"}, plentyOfDisk)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]treeEntry{
+		"chats/c1/prompt-requests":         {Dir: true},
+		"chats/c1/prompt-requests/p1.json": {Content: "journal", Mode: 0o600},
+	}, only(readBackup(t, got.Path), "chats"))
+
+	for _, pattern := range []string{"../elsewhere", "state/view.db", "/abs"} {
+		_, err := backupState(h, "run-2", 0, []string{pattern}, plentyOfDisk)
+		require.ErrorContains(t, err, "not a path under the home outside state/", pattern)
+	}
+}
+
+func TestBackupState_EmptyOrMissingStateMakesNoBackup(t *testing.T) {
+	t.Run("no state directory", func(t *testing.T) {
+		h := testutil.FixtureHome(t)
+
+		got, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
+
+		require.NoError(t, err)
+		assert.Equal(t, backupResult{}, got)
+		assert.NoDirExists(t, h.MigrateDir())
+	})
+
+	t.Run("empty state directory", func(t *testing.T) {
+		h := testutil.FixtureHome(t)
+		require.NoError(t, os.MkdirAll(h.State(), 0o700))
+
+		got, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
+
+		require.NoError(t, err)
+		assert.Equal(t, backupResult{}, got)
+		assert.NoDirExists(t, h.MigrateDir())
+	})
+
+	t.Run("only the home lock and empty directories", func(t *testing.T) {
+		h := testutil.FixtureHome(t)
+		require.NoError(t, os.MkdirAll(filepath.Join(h.State(), "events"), 0o700))
+		lock, err := lockHome(h)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, lock.Close()) })
+
+		got, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
+
+		require.NoError(t, err)
+		assert.Equal(t, backupResult{}, got)
+		assert.NoDirExists(t, h.MigrateDir())
+	})
+
+	t.Run("an empty regular file is still a file", func(t *testing.T) {
+		h := testutil.FixtureHome(t)
+		testutil.WriteFile(t, h, "state/empty.db", "")
+		startedRun(t, h)
+
+		got, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
+
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz"), got.Path)
+		assert.Equal(t, archived(readTree(t, h.State()), "state"), only(readBackup(t, got.Path), "state"))
+	})
+}
+
+func TestBackupState_InsufficientDiskLeavesNothingBehind(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/events/a.db", string(make([]byte, 1000)))
+	testutil.WriteFile(t, h, "state/view.db", "v")
+	before := testutil.TreeSnapshot(t, h)
+
+	_, err := backupState(h, "run-1", 0, nil, diskOf(1001+backupHeadroom-1))
+
+	require.ErrorIs(t, err, errInsufficientDisk)
+	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
+	assert.NoDirExists(t, h.MigrateDir())
+}
+
+func TestBackupState_AcceptsExactlyTheRequiredHeadroom(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/events/a.db", string(make([]byte, 1000)))
+	testutil.WriteFile(t, h, "state/view.db", "v")
+	startedRun(t, h)
+
+	got, err := backupState(h, "run-1", 0, nil, diskOf(1001+backupHeadroom))
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1001), got.Bytes)
+}
+
+func TestBackupState_AFailingProbeLeavesNothingBehind(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/view.db", "v")
+	probeFailed := errors.New("statfs unavailable")
+
+	_, err := backupState(h, "run-1", 0, nil, func(string) (uint64, error) { return 0, probeFailed })
+
+	require.ErrorIs(t, err, probeFailed)
+	assert.NoDirExists(t, h.MigrateDir())
+}
+
+func TestFreeBytes_ReportsTheVolumeOfAnExistingPath(t *testing.T) {
+	got, err := freeBytes(t.TempDir())
+
+	require.NoError(t, err)
+	assert.Positive(t, got)
+}
+
+func TestBackupState_RejectsAnUnsupportedEntry(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/a.db", "a")
+	testutil.WriteFile(t, h, "state/target", "t")
+	link := filepath.Join(h.State(), "z-link")
+	symlinkOrSkip(t, filepath.Join(h.State(), "target"), link)
+
+	_, err := backupState(h, "run-1", 0, nil, plentyOfDisk)
+
+	require.ErrorContains(t, err, link)
+	require.ErrorContains(t, err, "symlink")
+	assertNoBackupFor(t, h, "run-1")
+}
+
+func TestUnsupportedEntry_NamesTheKind(t *testing.T) {
+	for kind, mode := range map[string]fs.FileMode{
+		"symlink":        fs.ModeSymlink,
+		"socket":         fs.ModeSocket,
+		"device":         fs.ModeDevice | fs.ModeCharDevice,
+		"named pipe":     fs.ModeNamedPipe,
+		"irregular file": fs.ModeIrregular,
+	} {
+		err := unsupportedEntry("/state/odd", mode)
+
+		require.ErrorContains(t, err, "/state/odd")
+		require.ErrorContains(t, err, "unsupported "+kind)
+	}
+}
+
+func TestBackupState_AnExistingBackupForTheRunFailsBeforeCopying(t *testing.T) {
+	h := testutil.FixtureHome(t)
+	testutil.WriteFile(t, h, "state/a.db", "a")
+	testutil.WriteFile(t, h, "migrate/backups/run-1.tar.gz", "earlier")
+	probed := false
+
+	_, err := backupState(h, "run-1", 0, nil, func(path string) (uint64, error) {
+		probed = true
+		return plentyOfDisk(path)
+	})
+
+	require.ErrorIs(t, err, fs.ErrExist)
+	assert.False(t, probed, "the refusal must come before any space probe or copying")
+	raw, err := os.ReadFile(filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz"))
+	require.NoError(t, err)
+	assert.Equal(t, "earlier", string(raw))
+	assert.NoFileExists(t, filepath.Join(h.MigrateDir(), "backups", "run-1.tar.gz.partial"))
+}
+
+func TestBackupState_RejectsARunIDThatIsNotOneSegment(t *testing.T) {
+	for _, runID := range []string{"", ".", "..", "a/b", `a\b`, "../escape", "/abs", "run-1.partial"} {
+		t.Run(runID, func(t *testing.T) {
+			h := testutil.FixtureHome(t)
+			testutil.WriteFile(t, h, "state/a.db", "a")
+			before := testutil.TreeSnapshot(t, h)
+
+			_, err := backupState(h, runID, 0, nil, plentyOfDisk)
+
+			require.Error(t, err)
+			assert.Equal(t, before, testutil.TreeSnapshot(t, h))
+			assert.NoDirExists(t, h.MigrateDir())
+		})
+	}
+}
+
+func TestCleanPartialBackups_RemovesOnlyPartials(t *testing.T) {
+	t.Run("keeps finished backups", func(t *testing.T) {
+		h := testutil.FixtureHome(t)
+		testutil.WriteFile(t, h, "migrate/backups/crashed.partial/state/events/a.db", "half")
+		testutil.WriteFile(t, h, "migrate/backups/torn.tar.gz.partial", "half")
+		testutil.WriteFile(t, h, "migrate/backups/done/state/view.db", "whole")
+		testutil.WriteFile(t, h, "migrate/backups/whole.tar.gz", "whole")
+
+		require.NoError(t, cleanPartialBackups(h))
+
+		assert.NoDirExists(t, filepath.Join(h.MigrateDir(), "backups", "crashed.partial"))
+		assert.NoFileExists(t, filepath.Join(h.MigrateDir(), "backups", "torn.tar.gz.partial"))
+		assert.FileExists(t, filepath.Join(h.MigrateDir(), "backups", "done", "state", "view.db"))
+		assert.FileExists(t, filepath.Join(h.MigrateDir(), "backups", "whole.tar.gz"))
+	})
+
+	t.Run("no migrate directory is not an error and creates nothing", func(t *testing.T) {
+		h := testutil.FixtureHome(t)
+
+		require.NoError(t, cleanPartialBackups(h))
+
+		assert.NoDirExists(t, h.MigrateDir())
+	})
+
+	t.Run("an empty backups directory is left alone", func(t *testing.T) {
+		h := testutil.FixtureHome(t)
+		require.NoError(t, os.MkdirAll(filepath.Join(h.MigrateDir(), "backups"), 0o700))
+
+		require.NoError(t, cleanPartialBackups(h))
+
+		assert.DirExists(t, filepath.Join(h.MigrateDir(), "backups"))
+	})
+}
+
+func TestMeasureState_CountsFilesAndBytesAndSkipsTheLock(t *testing.T) {
+	dir := t.TempDir()
+	for rel, content := range map[string]string{
+		"a":           "abc",
+		"sub/b":       "12345",
+		".lock":       string(make([]byte, 100)),
+		"sub/.lock":   "1234567",
+		"sub/deep/.x": "",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	}
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "empty"), 0o700))
+
+	got, err := measureState(dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(3+5+7), got.bytes)
+	assert.Equal(t, 4, got.files, "a file of no bytes is still a file")
+
+	missing, err := measureState(filepath.Join(dir, "missing"))
+
+	require.NoError(t, err)
+	assert.Zero(t, missing)
+}

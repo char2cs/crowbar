@@ -104,3 +104,51 @@ func TestRegression_AttachmentHeadReportsContentLength(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.EqualValues(t, len(want), resp.ContentLength)
 }
+
+// TestAttachmentScriptableTypesDoNotRunOnTheAppOrigin proves an HTML or SVG attachment opened in a
+// tab downloads into a sandbox instead of rendering beside the API, while a PNG still renders.
+func TestAttachmentScriptableTypesDoNotRunOnTheAppOrigin(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importProject(t, h)
+	homeBase := "/v0/projects/" + imported.projectID + "/home"
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	require.NotEmpty(t, created.ID)
+	h.Quiesce()
+
+	dir := t.TempDir()
+	files := map[string]struct {
+		body   string
+		inline bool
+	}{
+		"page.html": {`<!doctype html><html><script>fetch("/v0/projects")</script></html>`, false},
+		"logo.svg":  {`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`, false},
+		"shot.png":  {"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", true},
+	}
+	for name, f := range files {
+		src := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(src, []byte(f.body), 0o600))
+		var uploaded struct {
+			FileName string `json:"fileName"`
+		}
+		h.post(homeBase+"/chats/"+created.ID+"/attachments",
+			map[string]string{"path": src, "id": "id-" + name[:4]}, http.StatusCreated, &uploaded)
+
+		resp := h.raw(http.MethodGet,
+			homeBase+"/chats/"+created.ID+"/attachments/"+uploaded.FileName, nil, http.StatusOK)
+		require.NoError(t, resp.Body.Close())
+
+		assert.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"), name)
+		if f.inline {
+			assert.Equal(t, "image/png", resp.Header.Get("Content-Type"), name)
+			assert.Equal(t, "inline", resp.Header.Get("Content-Disposition"), name)
+			continue
+		}
+		assert.Equal(t, "attachment", resp.Header.Get("Content-Disposition"), name)
+		assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "sandbox", name)
+	}
+}

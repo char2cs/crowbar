@@ -6,20 +6,76 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/config"
 	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Planning a spawn: where it runs, what context it is handed, and whether it may
-// start at all.
-//
-// Everything here is decided BEFORE a process exists, which is what makes it
-// separable from the fork that follows. A plan that is wrong costs nothing; a fork
-// that is wrong costs a CLI on the user's machine.
+// Planning a spawn — where it runs, what context it gets, whether it may start — all
+// decided BEFORE a process exists: a wrong plan costs nothing, a wrong fork costs a CLI.
+
+// spawnInput is what one spawn launches with beyond its chat and provider.
+type spawnInput struct {
+	runnerID string // preallocated; "" mints one
+	// launch is the session decision the caller already made; nil makes it here.
+	launch        *sessionLaunch
+	finalSteps    []engineagents.InjectStep
+	conversation  string
+	gapTurns      int
+	resuming      bool // the content signal: is the handoff a gap or the whole conversation
+	promptMessage string
+	// moveNote leads the dispatched prompt after a move; its echo is Crowbar's, never a turn.
+	moveNote string
+	// selection is a pick staged with the prompt, launched in place of the
+	// chat's own and made the chat's once the launch runs; nil stages none.
+	selection *domain.ChatSelection
+}
+
+// spawnLaunch is the spawn's session decision and the argv steps carrying it.
+func (rs *Runners) spawnLaunch(
+	ctx context.Context, chatID string, d engineagents.Agent, planned *sessionLaunch,
+) (sessionLaunch, []engineagents.InjectStep, error) {
+	if planned == nil {
+		launch, err := rs.planLaunch(ctx, chatID, d)
+		if err != nil {
+			return sessionLaunch{}, nil, err
+		}
+		planned = &launch
+	}
+	steps, err := planned.steps(d)
+	return *planned, steps, err
+}
+
+// bindLaunch appends the binding of a minted session before the CLI that will
+// announce it exists, so the announcement finds it already bound; and, when a lost
+// session's replacement is handed the record, the marker that says so.
+func (rs *Runners) bindLaunch(ctx context.Context, chatID string, launch sessionLaunch, handsRecord bool) error {
+	var rows []ledger.Row
+	if launch.assign != nil {
+		rows = append(rows, *launch.assign)
+	}
+	if launch.afterLoss && handsRecord {
+		marker, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerFromRecord})
+		if err != nil {
+			return fmt.Errorf("agent: spawn runner: from-record marker: %w", err)
+		}
+		rows = append(rows, marker)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	if _, _, err := rs.ledger.Append(ctx, chatID, rows...); err != nil {
+		return fmt.Errorf("agent: spawn runner: bind launch: %w", err)
+	}
+	return nil
+}
 
 type spawnPaths struct {
 	crowbarHome string
@@ -46,53 +102,36 @@ func (rs *Runners) spawnPaths(
 		return spawnPaths{}, fmt.Errorf("agent: spawn runner: worktree dir: %w", err)
 	}
 
-	// The chats dir is resolved separately from the worktree/Cwd: for a home-kind
-	// (adopted checkout) workspace the worktree is the user's REAL dir outside home,
-	// so chat state (this tmp dir, the ledger) reroots under crowbar home while the
-	// CLI still runs with Cwd = worktree.
+	// The chats dir is resolved apart from the Cwd: an adopted checkout's worktree is
+	// the user's REAL dir, so chat state reroots under crowbar home.
 	chatsDir, err := rs.ws.AgentChatsDir(ctx, cwdWorkspaceID)
 	if err != nil {
 		return spawnPaths{}, fmt.Errorf("agent: spawn runner: chats dir: %w", err)
 	}
 
-	// Under the workspace's chats dir (always beneath crowbar home), keyed by the RUNNER —
-	// id + provider — and NOT by the chat. The chat pointer is erasable (Displace clears it
-	// while the process still runs), and a dir that can only be found through an erasable
-	// pointer can never be reaped; see worktreepath.RunnerDir. This path is derivable from
-	// a bare runner row forever, which is what lets BOTH removers find it: onExit below on a
-	// clean death, and boot reconciliation when the daemon died before onExit could run.
-	//
-	// It holds the rendered hook config the CLI is pointed at, and must survive for the
-	// whole life of that CLI — so it is removed on PTY death, never eagerly after spawn.
-	//
-	// It holds no secret: a provider owns its own credentials and Crowbar never copies
-	// them anywhere (that rule is why CODEX_HOME is not ours, and why codex's sessions
-	// survive a switch). Nothing in the descriptors puts a credential here, and nothing
-	// may.
+	// Keyed by runner id and provider so a runner_started row alone finds it for the
+	// boot reap. It holds the CLI's hook config for the CLI's whole life (removed on PTY
+	// death) and never a credential: a provider owns those, and Crowbar never copies them.
 	tmpDir := worktreepath.RunnerDir(chatsDir, runnerID, providerID)
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+	rs.runnerDirs.Lock()
+	err = os.MkdirAll(tmpDir, 0o700)
+	rs.runnerDirs.Unlock()
+	if err != nil {
 		return spawnPaths{}, fmt.Errorf("agent: spawn runner: mkdir tmp: %w", err)
 	}
 	return spawnPaths{
 		crowbarHome: crowbarHome,
 		projectID:   projectID,
 		repoID:      repoID,
-		worktree:    worktree,
+		worktree:    canonicalDir(worktree),
 		tmpDir:      tmpDir,
 		chatsDir:    chatsDir,
 	}, nil
 }
 
-// cwdWorkspaceID answers the workspace a cwd-dependent op resolves
-// WorktreeDir/AgentChatsDir against: workspaceID itself for an ordinary
-// workspace-owning chat, or its nearest workspace-owning ancestor's for a
-// bubble (chat.WorkspaceID == "") — ancestorCwd's own answer to where a row's
-// CLI runs (model spec: a bubble under a worktree-owning row runs in that
-// row's worktree).
-//
-// Shared by every caller that needs a real workspace to run a bubble's CLI
-// against, not only spawnPaths: promptTarget, Compact and SlashCatalog all
-// resolve a LIVE runner's own worktree the same way.
+// cwdWorkspaceID answers the workspace a cwd-dependent op resolves against: workspaceID
+// itself, or for a bubble (WorkspaceID == "") its nearest workspace-owning ancestor's,
+// whose worktree a bubble runs in.
 func (rs *Runners) cwdWorkspaceID(
 	ctx context.Context,
 	chatID string,
@@ -121,6 +160,13 @@ func canonicalDir(dir string) string {
 	return dir
 }
 
+// withPWD is env with PWD naming dir, the folder the process starts in: an
+// inherited PWD names the daemon's own folder, and a shell trusts it over getcwd.
+func withPWD(env []string, dir string) []string {
+	out := slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, "PWD=") })
+	return append(out, "PWD="+dir)
+}
+
 // hookBase is where the daemon published its hook server under home. Without one a
 // CLI's hooks have nowhere to go, which is loud here because it is silent there.
 func hookBase(
@@ -141,13 +187,14 @@ func (rs *Runners) renderSpawnContext(
 	tctx := engineagents.TemplateCtx{
 		Tmp:         in.tmpDir,
 		Cwd:         canonicalDir(in.worktree),
-		CrowbarHook: rs.crowbarHookPath(in.crowbarHome),
+		CrowbarBin:  rs.crowbarBin,
 		CrowbarHome: in.crowbarHome,
-		Segid:       in.runnerID,
-		// The credential the descriptors hand `crowbar mcp` so this runner's tool
-		// calls can be attributed to it. Minted here because this is where the
-		// runner id is born, and by the SAME minter DispatchMCP verifies against —
-		// a token minted anywhere else would authenticate nothing.
+		// Created on the first paste: a CLI handed a missing directory carries on.
+		AttachmentsDir: worktreepath.AttachmentsDir(in.crowbarHome, in.chatID),
+		DaemonHost:     rs.daemonHost,
+		Segid:          in.runnerID,
+		// The token `crowbar mcp` attributes this runner's tool calls by, minted where
+		// the runner id is born and by the SAME minter DispatchMCP verifies against.
 		RunnerToken: rs.mintRunnerToken(in.runnerID),
 		HookBase:    hookBase(in.crowbarHome),
 		Provider:    in.providerID,
@@ -162,54 +209,28 @@ func (rs *Runners) renderSpawnContext(
 		// that would read them are not rendered at all in that case.
 		Model:  in.selection.Model,
 		Effort: in.selection.Effort,
-		// The resolved permission level's own named values, already looked
-		// up by the caller against the SAME descriptor SpawnPlan renders
-		// against — see spawn.go's own comment on why the lookup happens
-		// there, not here.
-		PermissionVars: in.permissionVars,
-		// Templated against by an api-transport descriptor's serve/attach argv
-		// ({socket}). A short path under the OS temp dir, never under the
-		// worktree — macOS's sun_path is a hard 104 bytes (see
-		// [[project_dev_home_isolation]]).
-		Socket: apiSocketPath(in.runnerID),
+		// The resolved permission level's named values, looked up by the caller
+		// against the SAME descriptor SpawnPlan renders.
+		PermissionVars:  in.permissionVars,
+		PermissionLevel: in.selection.PermissionLevel,
 		// The prior session id, if any — applyAPITransport overwrites this with
 		// whatever EstablishSession actually confirmed (a resumed id unchanged,
 		// or a freshly minted one) before attach's argv is ever rendered.
 		Session: in.launchSessionID,
 	}
-	// The message for a provider that can ONLY be reached through a user message (a
-	// resumed codex ignores every config channel). It POINTS at the ledger already on
-	// disk and says where to start reading — it never carries the transcript, which
-	// would dump the whole handed-off exchange into the chat for the user to scroll
-	// past. An agent reads files.
+	// The message for a provider reachable ONLY through a user message: it POINTS at the
+	// ledger on disk rather than carrying the transcript into the chat. An agent reads files.
 	tctx.ContextPointer = engineagents.Expand(config.GetPrompts().HandoffPointer, tctx)
-	// The preamble first (which tools exist), then the lineage (which OTHER chats
-	// this one reads), then the handoff (what was said here already). Orientation
-	// before history: a model should know it has get_chat_log and which ids to
-	// point it at before it reads a conversation it is told not to act on.
+	// Preamble (tools), then lineage (which OTHER chats it reads), then handoff:
+	// orientation before history.
 	tctx.Context = composeContext(
 		engineagents.Expand(config.GetPrompts().CapabilitiesInstruction, tctx),
 		in.threads,
 		in.conversation,
 	)
-	// WHETHER to deliver that document at all, which is a separate question from what
-	// it says.
-	//
-	// A handoff is something that HAPPENED and is always worth delivering. The
-	// capability preamble is standing orientation, so it may only drive delivery down a
-	// SILENT channel: a fresh spawn's ContextInject is a config key or a flag, but a
-	// resume's ResumeContextInject can be a USER MESSAGE — a resumed codex can be
-	// reached no other way (see codex.yaml) — and reopening a closed tab resumes a
-	// provider with nothing recorded in between. Letting the preamble deliver there
-	// would open every revived codex chat with a "while you were away" pointer about
-	// nothing, and codex answers its opening message on sight.
-	//
-	// The cost is that a provider whose resume channel IS silent (claude's is a flag)
-	// also loses the preamble on a gapless revive. That is deliberate over the
-	// alternative: whether a resume channel speaks out loud is the DESCRIPTOR's
-	// knowledge, and inventing a "this channel is silent" field to recover one
-	// directive would put a provider's manners in this package. Its tools are still
-	// registered on that spawn either way — only the directive is missing.
+	// Deliver a handoff always, but the preamble alone only on a fresh spawn: a resume's
+	// inject may be a USER MESSAGE the provider answers on sight. A silent resume channel
+	// thus also loses the preamble on a gapless revive; its tools are still registered.
 	inject := in.conversation != "" || !in.resuming
 	return tctx, inject
 }

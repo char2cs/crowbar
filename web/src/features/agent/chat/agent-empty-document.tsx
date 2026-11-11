@@ -1,51 +1,27 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
-  useState,
 } from 'react'
-import type { DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
+import type { ReactNode, Ref, RefObject } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { IS_MOBILE } from '@/utils/platform'
-import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
-import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
-import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
-import { loadExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
-import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
-import {
-  parseExcalidrawScene,
-  type ParsedExcalidrawScene,
-} from '@/features/agent/composer/plate/attachments/excalidraw-scene'
-import {
-  ChatMarkdownEditor,
-  type CaretEdges,
-  type ChatMarkdownEditorHandle,
-} from '@/features/agent/composer/plate/chat-markdown-editor'
 import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
-import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { cn } from '@/lib/utils'
 
-/** The handle's own position on an empty document: the doc's top padding plus
- *  one line, matching `.doc`'s 48px / 14px × 1.7. `headerClearancePx` is
- *  `.doc`'s OWN extra top padding (composer.css's `--agent-header-clearance`,
- *  the same value agent-chat-pane.tsx computes for its overlay header) —
- *  when the document is genuinely empty this fallback has no rendered first
- *  line to measure, so it has to add that same clearance itself or it would
- *  place the handle above where the (padded-down) caret actually sits. */
+// An empty doc has no line to measure, so the handle sits at `.doc`'s 48px padding plus one
+// 14px x 1.7 line, plus `--agent-header-clearance`, which the caret is padded down by too.
 function firstLineTop(headerClearancePx: number): number {
   return 48 + headerClearancePx + 23.8
 }
 /** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4
 
-/**
- * Where the handle belongs: right under the LAST line of whatever is
- * written, never wherever the caret happens to be. Clicking back into the
- * middle of a paragraph to fix a word does not walk the controls up the page
- * with it — they stay put, because the box under them is still what sends.
- */
+/** The handle rides under the LAST written line, not the caret: editing mid-paragraph must not
+ *  walk the send controls up the page. */
 export function lastLineTop(doc: HTMLElement, headerClearancePx = 0): number {
   const editable = doc.querySelector<HTMLElement>('[data-slate-editor]')
   const last = editable?.lastElementChild
@@ -54,89 +30,44 @@ export function lastLineTop(doc: HTMLElement, headerClearancePx = 0): number {
 }
 
 export interface AgentEmptyDocumentHandle {
-  /** The handle's own on-screen rect at this instant — read once, at the
-   *  moment of the first send, to anchor the composer's arrival animation to
-   *  wherever the eye already was. `null` before the first layout pass, or off
-   *  a stale/unmounted node — a caller that gets it treats that as "nothing to
-   *  arrive from" and skips the animation rather than guessing a position. */
+  /** The handle's rect, read at the first send to anchor the composer's arrival animation.
+   *  `null` before layout or once unmounted: the caller then skips the animation. */
   getHandleRect: () => DOMRect | null
 }
 
 export interface AgentEmptyDocumentProps {
-  /** Threaded straight through to `ChatMarkdownEditor`, which needs both to
-   *  register paste interception (uploading a pasted image calls
-   *  `uploadChatAttachment(wsId, chatId, ...)`). Optional to match
-   *  `ChatMarkdownEditorProps` — see its own note. */
-  wsId?: string
-  chatId?: string
-  /** The draft to OPEN with. The box owns its text after that. */
-  draft: string
-  /** Bumped when the draft is set from OUTSIDE the box, to remount it. */
-  draftSeed: number
-  /** Whether the box currently holds text — tracked live from the box's own
-   *  onChange, unlike `draft`, which only carries what it was last OPENED
-   *  with and goes stale the moment a person types for real. */
+  /** The document the composer's editor is written in, measured for its last line. */
+  docRef: RefObject<HTMLDivElement | null>
+  /** Whether the box holds text, from the editor's shape. */
   hasText: boolean
-  onDraftChange: (value: string) => void
   onSubmit: () => void
-  /** The chat's own key handling — Enter, Tab, arrows, Escape. */
-  onKeyDown: (
-    event: ReactKeyboardEvent<HTMLDivElement>,
-    readMarkdown: () => string,
-    caret: CaretEdges,
-  ) => void
   /** The selection chips and the surface switcher, left of the send button. */
   controls: ReactNode
+  /** The composer's attach control, beside the send button. */
+  attach: ReactNode
   working?: boolean
   canStop?: boolean
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
   onStop?: () => void
-  /** `.doc`'s own extra top padding (composer.css's `--agent-header-clearance`,
-   *  inherited from the `.agent-chat` ancestor AgentChatView sets it on) — the
-   *  overlay chat header's real height, so a truly empty document's fallback
-   *  handle position (`lastLineTop`'s only caller with nothing to measure)
-   *  agrees with where the padded-down first line actually renders. Defaults
-   *  to 0 for callers with no overlay header to clear. */
+  /** `.doc`'s own extra top padding (`--agent-header-clearance`), which the
+   *  empty fallback position must add itself. Defaults to 0. */
   headerClearancePx?: number
   /** Occupies the handle's own slot INSTEAD OF the model/effort/attach/send
-   *  row below, when this chat has a reason it cannot be typed into yet — a
-   *  trust-dialog wait, a revive in flight, or one that gave up. It rides the
-   *  exact same `place()`/`lastLineTop` transform the control row does; there
-   *  is only ever one thing in this slot, never a second row stacked above
-   *  it. `undefined` renders the normal row. */
+   *  row, when this chat has a reason it cannot be typed into yet. There is only
+   *  ever one thing in this slot. `undefined` renders the normal row. */
   banner?: ReactNode
   ref?: Ref<AgentEmptyDocumentHandle>
 }
 
-/**
- * A chat with nothing in it yet.
- *
- * It is a DOCUMENT, not an empty transcript with a message box under it. The
- * first thing a chat asks for is a description of the change you want, and that
- * is a piece of writing — so the blank chat gives it the whole pane at reading
- * measure and typographic size, and lets the controls come to the writing rather
- * than parking them in a bar at the bottom.
- *
- * The handle rides right under the LAST LINE, always — not the caret. Clicking
- * back into an earlier sentence to fix it does not drag the send button up
- * into the middle of the page with it; it stays where the document ends.
- *
- * Uncontrolled by design. React writes the text only when the incoming draft
- * genuinely differs from what the element holds — a controlled contenteditable
- * re-renders its own children out from under the selection and puts the caret
- * back at position zero on every keystroke.
- */
+/** A chat with nothing in it yet is a document the composer's editor writes in; this is the
+ *  handle carrying the controls and send under its last line. */
 export function AgentEmptyDocument({
-  wsId,
-  chatId,
-  draft,
-  draftSeed,
+  docRef,
   hasText,
-  onDraftChange,
   onSubmit,
-  onKeyDown,
   controls,
+  attach,
   working = false,
   canStop = false,
   sending,
@@ -145,18 +76,7 @@ export function AgentEmptyDocument({
   banner,
   ref,
 }: AgentEmptyDocumentProps) {
-  const docRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<HTMLDivElement>(null)
-  const wrapRef = useRef<HTMLDivElement>(null)
-  // Task 34's modals reach the box the same way the composer's own do
-  // (`agent-composer.tsx`'s `editorRef`) — they sit as SIBLINGS of the
-  // editor, outside `<Plate>`'s tree.
-  const editorRef = useRef<ChatMarkdownEditorHandle>(null)
-  const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
-  const [excalidrawInitialScene, setExcalidrawInitialScene] = useState<
-    ParsedExcalidrawScene | undefined
-  >(undefined)
-  const [dropTarget, setDropTarget] = useState(false)
 
   useImperativeHandle(
     ref,
@@ -166,205 +86,70 @@ export function AgentEmptyDocument({
     [],
   )
 
-  const insertAttachmentMarkdown = useCallback((md: string) => {
-    editorRef.current?.insertAttachmentMarkdown(md)
-  }, [])
-  const insertPendingImage = useCallback((objectUrl: string, alt: string) => {
-    editorRef.current?.insertPendingImage(objectUrl, alt)
-  }, [])
-  const settlePendingImage = useCallback((objectUrl: string, finalMarkdown: string | null) => {
-    editorRef.current?.settlePendingImage(objectUrl, finalMarkdown)
-  }, [])
-
-  // Attaching needs both ids — undefined here only for parity with
-  // `ChatMarkdownEditorProps` (see its own note); the real call site
-  // (`agent-chat-view.tsx`) always supplies both.
-  const attachmentsReady = Boolean(wsId && chatId)
-  const { uploadAndInsert } = useAttachmentUpload(
-    wsId ?? '',
-    chatId ?? '',
-    insertAttachmentMarkdown,
-    insertPendingImage,
-    settlePendingImage,
-  )
-
-  // Same reasoning as agent-composer.tsx's own memoized drop handlers: an
-  // inline arrow here would get a fresh identity on every render (this
-  // component re-renders on every keystroke via `onDraftChange`), tearing
-  // down and re-establishing Tauri's `onDragDropEvent` IPC subscription.
-  const handleTauriDrop = useCallback(
-    (paths: string[]) => {
-      setDropTarget(false)
-      if (!attachmentsReady) return
-      for (const path of paths) void uploadAndInsert({ path })
-    },
-    [attachmentsReady, uploadAndInsert],
-  )
-
-  useTauriFileDrop(wrapRef, handleTauriDrop)
-
-  const handleDragOver = useCallback((e: DragEvent) => {
-    if (!e.dataTransfer.types.includes('Files')) return
-    e.preventDefault()
-    setDropTarget(true)
-  }, [])
-
-  const handleDragLeave = useCallback((e: DragEvent) => {
-    const related = e.relatedTarget as HTMLElement | null
-    if (!related || !e.currentTarget.contains(related)) setDropTarget(false)
-  }, [])
-
-  // Plain-browser (non-Tauri dev) fallback — same as agent-composer.tsx's
-  // own pill drop handler.
-  const handleDrop = useCallback(
-    (e: DragEvent) => {
-      setDropTarget(false)
-      if (!e.dataTransfer.types.includes('Files')) return
-      e.preventDefault()
-      if (!attachmentsReady) return
-      for (const file of Array.from(e.dataTransfer.files)) void uploadAndInsert({ file })
-    },
-    [attachmentsReady, uploadAndInsert],
-  )
-
   const place = useCallback(() => {
     const doc = docRef.current
     const handle = handleRef.current
     if (!doc || !handle) return
     const top = lastLineTop(doc, headerClearancePx)
     handle.style.transform = `translateY(${Math.round(top + HANDLE_LEAD)}px)`
-  }, [headerClearancePx])
+  }, [docRef, headerClearancePx])
 
-  // Same frame as the text that moved it. An effect would paint the handle at the
-  // previous line for one frame, which reads as the bar lagging the content.
+  // Same frame as the line that moved it: the composer re-renders on the field's
+  // height, observed before paint. An effect would lag the handle one frame.
   useLayoutEffect(place)
 
-  // Typing fires `selectionchange` as a side effect (the collapsed selection
-  // moves with every keystroke) even though `place` itself no longer reads
-  // it — cheaper than a MutationObserver, and it already covers every way
-  // the last line can change: typing, deleting, pasting, undo.
-  //
-  // `selectionchange` is a DOCUMENT event, so it also fires for selections that
-  // have nothing to do with this box — and the loudest source of those is
-  // Monaco: it mirrors the editor selection into its hidden textarea, so a
-  // drag-select emits one per pointer move / auto-scroll tick (measured live in
-  // the Tauri app: 239 events fired 478 `getBoundingClientRect` reads here, two
-  // per mounted composer). `place()` is a layout READ followed by a style WRITE,
-  // so running it on that firehose thrashes layout for the whole document from
-  // every open chat pane, while the person is doing nothing in any of them.
-  // Gate on the selection actually landing inside THIS document: every case the
-  // listener exists for (typing, deleting, pasting, undo) puts the caret here.
+  // A caret that moves inside this document is the cheap signal for every edit
+  // that does not change the height. Gated on the selection landing here:
+  // `selectionchange` is document-wide, and Monaco fires it per pointer move.
+  const onSelectionChange = useEffectEvent(() => {
+    const anchor = document.getSelection()?.anchorNode ?? null
+    if (!anchor || !docRef.current?.contains(anchor)) return
+    place()
+  })
   useEffect(() => {
-    const onSelectionChange = () => {
-      const anchor = document.getSelection()?.anchorNode ?? null
-      if (!anchor || !docRef.current?.contains(anchor)) return
-      place()
-    }
     document.addEventListener('selectionchange', onSelectionChange)
     return () => document.removeEventListener('selectionchange', onSelectionChange)
-  }, [place])
+  }, [])
 
   const empty = !hasText
-  // STOPPING WINS EVEN WITH TEXT IN THE DOCUMENT — see composer-handle.tsx's
-  // own note. A person typing while a turn is already running (a background
-  // handoff, say — this surface can render before anything shows up in the
-  // ledger) must not lose their only way to interrupt it just because they
-  // started writing.
-  const stopping = working && canStop
-  // SENDING gets the same feedback composer-handle.tsx gives every later
-  // message — this box owns only the FIRST one, but its own dispatch waits on
-  // the identical round trip and used to show nothing at all for it.
+  // Stopping wins even with text in the document: a turn already running must
+  // keep its only way to be interrupted while the person writes.
+  const stopping = (working || sending) && canStop
   const sendingVisual = !stopping && empty && sending
   const idle = !stopping && !sendingVisual && empty
 
   return (
-    <div
-      ref={wrapRef}
-      className={cn('docwrap', dropTarget && 'drop-target')}
-      data-testid="agent-empty-document"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      <div ref={docRef} className="doc">
-        <ChatMarkdownEditor
-          key={draftSeed}
-          ref={editorRef}
-          wsId={wsId}
-          chatId={chatId}
-          initialValue={draft}
-          placeholder="Describe the change…"
-          ariaLabel="Describe the change"
-          autoFocus
-          onChange={onDraftChange}
-          onKeyDown={onKeyDown}
-          className="blk"
-        />
-      </div>
-      <div ref={handleRef} className="dochandle" data-touch={IS_MOBILE || undefined}>
-        <div className="inner">
-          {banner ? (
-            <div className="banner">{banner}</div>
-          ) : (
-            <div className="grp">
-              <span className="side">{controls}</span>
-              <span className="side">
-                {attachmentsReady && (
-                  <ComposerPlusButton
-                    onOpenExcalidraw={() => {
-                      const saved = wsId && chatId ? loadExcalidrawDesign(wsId, chatId) : null
-                      setExcalidrawInitialScene(
-                        (saved ? parseExcalidrawScene(saved) : null) ?? undefined,
-                      )
-                      setModal('excalidraw')
-                    }}
-                    onOpenAttachFile={() => setModal('attach-file')}
-                  />
+    <div ref={handleRef} className="dochandle" data-touch={IS_MOBILE || undefined}>
+      <div className="inner">
+        {banner ? (
+          <div className="banner">{banner}</div>
+        ) : (
+          <div className="grp">
+            <span className="side">{controls}</span>
+            <span className="side">
+              {attach}
+              <button
+                type="button"
+                className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
+                disabled={idle || sendingVisual}
+                aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
+                title={
+                  stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'
+                }
+                onClick={stopping ? onStop : onSubmit}
+              >
+                {stopping ? (
+                  <StopIcon size={16} />
+                ) : sendingVisual ? (
+                  <FlickerSpinner className="size-4" />
+                ) : (
+                  <UpIcon size={16} />
                 )}
-                <button
-                  type="button"
-                  className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
-                  disabled={idle || sendingVisual}
-                  aria-label={
-                    stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'
-                  }
-                  title={
-                    stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'
-                  }
-                  onClick={stopping ? onStop : onSubmit}
-                >
-                  {stopping ? (
-                    <StopIcon size={16} />
-                  ) : sendingVisual ? (
-                    <FlickerSpinner className="size-4" />
-                  ) : (
-                    <UpIcon size={16} />
-                  )}
-                </button>
-              </span>
-            </div>
-          )}
-        </div>
+              </button>
+            </span>
+          </div>
+        )}
       </div>
-      {wsId && chatId && modal === 'attach-file' && (
-        <AttachFileModal
-          wsId={wsId}
-          chatId={chatId}
-          open
-          onClose={() => setModal(null)}
-          onInsertMarkdown={insertAttachmentMarkdown}
-        />
-      )}
-      {wsId && chatId && modal === 'excalidraw' && (
-        <ExcalidrawTakeover
-          wsId={wsId}
-          chatId={chatId}
-          open
-          onClose={() => setModal(null)}
-          onInsertMarkdown={insertAttachmentMarkdown}
-          initialScene={excalidrawInitialScene}
-        />
-      )}
     </div>
   )
 }

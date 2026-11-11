@@ -41,15 +41,18 @@ func TestReview_FilesSummary_FullBranchPicture(t *testing.T) {
 	var saved struct {
 		ID string `json:"id"`
 	}
+	save := func(path, content string) {
+		h.put(documentsContent, map[string]string{"workspaceId": imported.workspaceID, "path": path, "content": content}, nil)
+	}
 	// A committed change on the branch.
-	h.put(base+"/files/content", map[string]string{"path": "committed.txt", "content": "one\ntwo\n"}, &saved)
+	save("committed.txt", "one\ntwo\n")
 	h.post(base+"/git/stage", map[string]any{"paths": []string{"committed.txt"}}, 200, &saved)
 	h.post(base+"/git/commit", map[string]string{"subject": "add committed.txt"}, 200, &saved)
 
 	// An uncommitted working-tree edit of a tracked file.
-	h.put(base+"/files/content", map[string]string{"path": "README.md", "content": "edited line\n"}, &saved)
+	save("README.md", "edited line\n")
 	// A brand-new untracked file (no diff against the fork point).
-	h.put(base+"/files/content", map[string]string{"path": "scratch.txt", "content": "scratch\n"}, &saved)
+	save("scratch.txt", "scratch\n")
 
 	var summary reviewFilesDTO
 	h.get(base+"/review/files", &summary)

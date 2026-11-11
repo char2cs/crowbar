@@ -11,6 +11,7 @@ import "C"
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -22,6 +23,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
 type op uint32
@@ -43,12 +46,9 @@ type event struct {
 // burst, which NoDefer delivers at once; the watcher debounces on top of it.
 const streamLatency = 0.05
 
-// fseventsBackend is one recursive FSEvents stream over the tree and the git
-// dirs. It opens no descriptor per file or directory and walks nothing on
-// start; it filters events down to what a per-directory watch would see.
-//
-// The stream's callback writes each event to a pipe that one goroutine reads,
-// so no Go code runs on the dispatch thread.
+// fseventsBackend is one recursive FSEvents stream over the tree and git dirs, filtered
+// to what a per-directory watch would see, with no per-file descriptors or start walk.
+// Its callback writes events to a pipe one goroutine reads, so no Go runs on dispatch.
 type fseventsBackend struct {
 	spec   watchSpec
 	roots  []streamRoot
@@ -77,6 +77,7 @@ type streamRoot struct {
 }
 
 func newBackend(
+	_ context.Context,
 	spec watchSpec,
 ) (backend, error) {
 	r, w, err := os.Pipe()
@@ -107,24 +108,24 @@ func newBackend(
 	b.stream = C.watchStreamStart(C.int(w.Fd()), C.CFArrayRef(cfPaths), streamLatency, b.queue)
 	if b.stream == nil {
 		C.watchQueueRelease(b.queue)
-		_ = r.Close()
-		_ = w.Close()
-		return nil, errors.New("start FSEvents stream")
+		return nil, errors.Join(errors.New("start FSEvents stream"), r.Close(), w.Close())
 	}
 	go b.read()
 	return b, nil
 }
 
 // resolveRoots records every root's real path and returns the outermost ones:
-// a stream is recursive, so a main worktree's .git needs no root of its own.
+// a stream is recursive, so a main worktree's .git needs no root of its own. An
+// anchor is a root because a stream reports a rename of its root, not of an ancestor.
 func (b *fseventsBackend) resolveRoots() []string {
-	for _, p := range append([]string{b.spec.tree}, b.spec.gitDirs...) {
+	paths := append(append([]string{b.spec.tree}, b.spec.gitDirs...), b.spec.anchors...)
+	for _, p := range paths {
 		real, err := filepath.EvalSymlinks(p)
 		if err != nil {
 			if p != b.spec.tree {
 				continue
 			}
-			real = p
+			real = safepath.Canonical(p)
 		}
 		b.roots = append(b.roots, streamRoot{spelled: p, real: real})
 	}
@@ -163,22 +164,23 @@ func (b *fseventsBackend) errors() <-chan error {
 }
 
 // created and removed are no-ops: the stream is recursive.
-func (b *fseventsBackend) created(string) {}
+func (b *fseventsBackend) created(context.Context, string) {}
 
 func (b *fseventsBackend) removed(string) {}
 
-// close stops the stream, then closes the pipe's write end; the reader keeps
-// draining until EOF so a callback blocked on a full pipe can always finish.
+// close stops the stream, then closes the pipe's write end; the reader keeps draining
+// until EOF so a callback blocked on a full pipe can always finish. Later calls return nil.
 func (b *fseventsBackend) close() error {
+	var err error
 	b.once.Do(func() {
 		close(b.done)
 		C.watchStreamStop(b.stream, b.queue)
 		C.watchQueueRelease(b.queue)
-		_ = b.w.Close()
+		wErr := b.w.Close()
 		<-b.exited
-		_ = b.r.Close()
+		err = errors.Join(wErr, b.r.Close())
 	})
-	return nil
+	return err
 }
 
 // read decodes the pipe's records (flags, path length, path) until EOF, then
@@ -234,12 +236,15 @@ func (b *fseventsBackend) spelled(
 	return b.roots[best].spelled + path[len(b.roots[best].real):]
 }
 
-// wanted reports whether a per-directory watch over the spec would see path:
-// anything in a ref tree, a git dir's direct entries, and working-tree entries
-// whose every ancestor directory survives spec.skip.
+// wanted reports whether a per-directory watch over spec would see path: anything in a
+// ref tree, a git dir's direct entries, an anchor itself, and working-tree entries whose
+// every ancestor survives spec.skip. A stream rooted at one file reports that file alone.
 func (b *fseventsBackend) wanted(
 	path string,
 ) bool {
+	if b.spec.file || containsString(b.spec.anchors, path) {
+		return true
+	}
 	for _, root := range b.spec.refTrees {
 		if isUnder(path, root) {
 			return true
@@ -286,11 +291,9 @@ func (b *fseventsBackend) skipDir(
 	return skip
 }
 
-// opFor maps a stream's flags onto the fsnotify vocabulary. FSEvents reports a
-// path's recent history, not the edge: a file created minutes ago still says
-// Created on every write. So a gone path is a removal or a move away, and an
-// existing one is created only when this stream first sees that inode there,
-// born after the stream started or moved into place.
+// opFor maps a stream's flags onto fsnotify ops. FSEvents reports a path's history,
+// not the edge, so a gone path is a removal or move away, and an existing one counts as
+// created only when this stream first sees that inode there.
 func (b *fseventsBackend) opFor(
 	name string,
 	flags uint32,

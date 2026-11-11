@@ -11,8 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/fanout"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 type emptyReader struct{}
@@ -20,7 +19,18 @@ type emptyReader struct{}
 func (emptyReader) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	return domain.Chat{ID: id}, nil
 }
-func (emptyReader) AllLive(context.Context) ([]agents.Runner, error) { return nil, nil }
+
+func (emptyReader) GetChats(_ context.Context, ids []string) ([]domain.Chat, error) {
+	out := make([]domain.Chat, len(ids))
+	for i, id := range ids {
+		out[i] = domain.Chat{ID: id}
+	}
+	return out, nil
+}
+
+func (emptyReader) ViewLedger(_ context.Context, _ string, fn func(ledger.State) error) error {
+	return fn(ledger.State{})
+}
 
 func owner(t *testing.T) (*snapshot.Snapshots, *[]snapshot.Frame) {
 	t.Helper()
@@ -31,43 +41,27 @@ func owner(t *testing.T) (*snapshot.Snapshots, *[]snapshot.Frame) {
 	return s, &frames
 }
 
-// A chat event reaches the owner with the aggregate it carried: the frame's
-// working is the command-side fold, not a re-read.
+// A chat event reaches the owner with the aggregate it carried, not a re-read.
 func TestFanout_ChatEventBecomesASnapshotFrame(t *testing.T) {
 	s, frames := owner(t)
 	fanout.New(s).ChatWatch()(agentchat.ChatEvent{
-		ChatID: "chat-1", WorkspaceID: "ws-1", Kind: "turn_started", Working: true,
-		Chat: domain.Chat{WorkspaceID: "ws-1", Working: true}, Version: 3,
+		ChatID: "chat-1", WorkspaceID: "ws-1",
+		Chat: domain.Chat{WorkspaceID: "ws-1", Title: "t"}, Version: 3,
 	})
 
 	require.Len(t, *frames, 1)
 	f := (*frames)[0]
-	assert.Equal(t, "turn_started", f.Kind)
 	assert.Equal(t, "chat-1", f.Snapshot.Chat.ID)
-	assert.True(t, f.Snapshot.Chat.Working)
+	assert.Equal(t, "t", f.Snapshot.Chat.Title)
 }
 
 func TestFanout_ForgottenChatIsADeleteFrame(t *testing.T) {
 	s, frames := owner(t)
 	fanout.New(s).ChatWatch()(agentchat.ChatEvent{
-		ChatID: "chat-9", WorkspaceID: "ws-1", Kind: "deleted", Working: true, Forgotten: true,
+		ChatID: "chat-9", WorkspaceID: "ws-1", Forgotten: true,
 	})
 
 	require.Len(t, *frames, 1)
 	assert.True(t, (*frames)[0].Deleted)
 	assert.Equal(t, "chat-9", (*frames)[0].Snapshot.Chat.ID)
-}
-
-func TestFanout_RunnerEventPlacesTheRunner(t *testing.T) {
-	s, frames := owner(t)
-	fanout.New(s).RunnerWatch()(agentrunner.RunnerEvent{
-		RunnerID: "run-1", WorkspaceID: "ws-1", ChatID: "chat-1", Kind: "started",
-		Runner: agents.Runner{CurrentChatID: "chat-1", ProviderID: "claude"}, Version: 1,
-	})
-
-	require.Len(t, *frames, 1)
-	f := (*frames)[0]
-	assert.Equal(t, "run-1", f.RunnerID)
-	require.NotNil(t, f.Snapshot.Live)
-	assert.Equal(t, "run-1", f.Snapshot.Live.ID)
 }

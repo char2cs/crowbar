@@ -38,29 +38,24 @@ type PresentationSpec struct {
 
 type PromptSubmitSpec struct {
 	Strategy      string             `yaml:"strategy"`
-	Fresh         []InjectStep       `yaml:"fresh"`
-	Resume        []InjectStep       `yaml:"resume"`
+	Fresh         InjectSteps        `yaml:"fresh"`
+	Resume        InjectSteps        `yaml:"resume"`
 	LeadingSigils *LeadingSigilsSpec `yaml:"leading_sigils"`
 	Steer         *SteerSpec         `yaml:"steer"`
 }
 
-// SteerSpec declares that a message sent while a turn is running can ride the
-// CLI's own turn-end hook instead of restarting it. Frame wraps the text
-// ({message} once); Reply is the hook stdout carrying it ({message_json} once,
-// replaced by the framed text as a JSON string). A message opening with one of
-// SkipPrefixes is a command, not text, and is never steered.
+// SteerSpec lets a mid-turn message ride the CLI's turn-end hook instead of a
+// restart: Frame wraps {message}, Reply is the hook stdout with {message_json}.
+// A message opening with a SkipPrefixes entry is a command and is never steered.
 type SteerSpec struct {
 	SkipPrefixes []string `yaml:"skip_prefixes"`
 	Frame        string   `yaml:"frame"`
 	Reply        string   `yaml:"reply"`
 }
 
-// LeadingSigilsSpec names the characters this CLI reads as a CONTROL gesture
-// rather than as text when one of them is the message's FIRST character, and
-// what to put in front of one to make it text again. Crowbar's own attachment
-// encoding can put such a character there with nobody typing it — see the
-// promptsigil package, the only consumer, which never touches a sigil a person
-// typed.
+// LeadingSigilsSpec names the characters this CLI reads as a CONTROL gesture when
+// first in a message, and the escape that makes one text. promptsigil applies it
+// only where Crowbar's attachment encoding, not a person, put the sigil.
 type LeadingSigilsSpec struct {
 	Chars  []string `yaml:"chars"`
 	Escape string   `yaml:"escape"`
@@ -73,6 +68,26 @@ type SlashCatalogSpec struct {
 	MaxStderrBytes int                 `yaml:"max_stderr_bytes"`
 	MaxItems       int                 `yaml:"max_items"`
 	Pipeline       CatalogPipelineSpec `yaml:"pipeline"`
+	// Builtins are the CLI's own commands, which no probe reports.
+	Builtins []CatalogBuiltin `yaml:"builtins"`
+	// Workspace names the directories, inside the workspace, the CLI reads commands from.
+	Workspace []CatalogWorkspaceDir `yaml:"workspace"`
+}
+
+// CatalogBuiltin is one command the CLI ships. Terminal marks one that opens a
+// dialog only the CLI's own terminal can answer.
+type CatalogBuiltin struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Terminal    bool   `yaml:"terminal"`
+}
+
+// CatalogWorkspaceDir is a directory of commands relative to the workspace root:
+// each *.md file is one, or with Entry, each subdirectory holding that file is a skill.
+type CatalogWorkspaceDir struct {
+	Dir    string `yaml:"dir"`
+	Entry  string `yaml:"entry"`
+	Source string `yaml:"source"`
 }
 
 type CatalogPipelineSpec struct {

@@ -8,14 +8,10 @@ import type { ReviewThread } from '@/features/workspace/stores/slices/branch-rev
 import type { ReviewCodeViewHandle } from './review-code-view'
 import type { PatchState } from './review-patch-header'
 import { toAnnotationSide } from './use-review-annotations'
+import { onGitStatusChanged } from '@/features/git/stores/git-refresh'
 import type { ReviewAnnotation } from './use-review-annotations'
 
-/**
- * The payload every annotation carries.
- *
- * Threads are the surface's only annotation, so the renderer's `LAnnotation`
- * type parameter IS `ReviewThread` — see `use-review-annotations.tsx`.
- */
+// Threads are the surface's only annotation, so CodeView's `LAnnotation` is ReviewThread.
 type CodeViewInstance = ReturnType<CodeViewHandle<ReviewThread, undefined>['getInstance']>
 
 /** What a path holds right now. `failed` is remembered rather than forgotten so
@@ -40,12 +36,8 @@ interface ReviewPatchWindowOptions {
   surfaceRef?: Ref<ReviewCodeViewHandle>
 }
 
-/**
- * The patch window behind the review surface: which files hold real patch
- * text right now, fetching as the reader approaches a file and evicting back
- * to its placeholder once they have moved on, plus reveal (materialise, flush,
- * scroll) for threads, lines and files.
- */
+/** The review surface's patch window: fetches a file's patch as the reader nears it, evicts it
+ *  to its placeholder once past, and reveals (materialise, flush, scroll) threads, lines, files. */
 export function useReviewPatchWindow({
   wsId,
   commit,
@@ -79,16 +71,11 @@ export function useReviewPatchWindow({
   activeRef.current = isActivePane
   annotationsRef.current = annotationsByPath
 
-  /**
-   * Republish one file's item.
-   *
-   * Every imperative update replaces the whole item, so the current annotations
-   * have to ride along on all of them — omitting them anywhere silently drops
-   * that file's threads the next time it is materialised or evicted.
-   */
   /** The last fileDiff published per path, so a header repaint can reuse it. */
   const publishedRef = useRef(new Map<string, FileDiffMetadata>())
 
+  // An update replaces the whole item, so annotations ride along on every publish or that
+  // file's threads silently drop.
   const publishItem = useCallback((path: string, fileDiff: FileDiffMetadata) => {
     publishedRef.current.set(path, fileDiff)
     handleRef.current?.updateItem({
@@ -112,10 +99,8 @@ export function useReviewPatchWindow({
         else next[path] = state
         return next
       })
-      // The notice ("Diff truncated / Show all", "Retry") renders through
-      // renderHeaderMetadata, and the library CACHES a file's header HTML — a
-      // React state change alone never repaints it, so the notice could never
-      // appear. Republishing with a bumped version invalidates that cache.
+      // The library caches header HTML, so a state change alone never repaints the notice;
+      // republishing with a bumped version invalidates it.
       if (!changed) return
       const current = publishedRef.current.get(path) ?? placeholdersRef.current.get(path)
       if (current != null) publishItem(path, current)
@@ -218,24 +203,15 @@ export function useReviewPatchWindow({
     [materialize, setPatchState],
   )
 
-  /**
-   * A reveal of a viewed file lands on its collapsed header and fetches
-   * nothing; only unchecking "Viewed" opens it again.
-   */
+  // Revealing a viewed file lands on its collapsed header and fetches nothing.
   const scrollToViewedHeader = useCallback((path: string): boolean => {
     if (!viewedRef.current.has(path)) return false
     handleRef.current?.scrollTo({ type: 'item', id: path, align: 'start' })
     return true
   }, [])
 
-  /**
-   * Scroll to a thread, materialising its file first.
-   *
-   * The order is the whole point. A file the window has not loaded is a
-   * placeholder with no lines in it, and `scrollTo({type:'line'})` against one
-   * resolves no position at all — it warns and does nothing, leaving the reader
-   * exactly where they were with no indication anything was attempted.
-   */
+  // Materialise first: a placeholder has no lines, so a line scrollTo against it silently
+  // does nothing.
   const revealThread = useCallback(
     async (thread: ReviewThread) => {
       const path = thread.filePath
@@ -244,10 +220,8 @@ export function useReviewPatchWindow({
         setPatchState(path, 'loading')
         await materialize(path, undefined, false)
       }
-      // `updateItem` only QUEUES a render, while `scrollTo` resolves its
-      // destination eagerly — so without flushing, the scroll is computed
-      // against the placeholder that was just replaced, finds no such line, and
-      // silently does nothing.
+      // updateItem only queues a render while scrollTo resolves eagerly; unflushed, it would
+      // aim at the replaced placeholder and find no line.
       handleRef.current?.getInstance()?.render(true)
       handleRef.current?.scrollTo({
         type: 'line',
@@ -310,19 +284,25 @@ export function useReviewPatchWindow({
     [revealLine, revealFile],
   )
 
-  // A changed file list remounts CodeView (see the `key` below), which discards
-  // every item — so what this component believes it is holding has to go with
-  // them, or the planner never fetches those paths again.
+  // A changed file list remounts CodeView (its viewKey), discarding every item, so the held map
+  // goes too or the planner never fetches those paths again.
   useEffect(() => {
     heldRef.current.clear()
     setPatchStates((prev) => (Object.keys(prev).length === 0 ? prev : {}))
   }, [signature])
 
-  // The same file list with different geometry is NOT a remount: the summary
-  // refetches on every git-status tick, and a file whose ± counts moved has a
-  // new reserved height that only its placeholder carries. Republish it for
-  // every file that is still showing a placeholder; a materialised file holds
-  // real content and its height is measured, not estimated.
+  // A worktree patch is stale after any git change, so it re-fetches in place; a commit's never.
+  useEffect(() => {
+    if (commit) return
+    return onGitStatusChanged(wsId, () => {
+      for (const [path, held] of heldRef.current) {
+        if (held.state === 'ready') void materialize(path)
+      }
+    })
+  }, [wsId, commit, materialize])
+
+  // Same files, new geometry (± counts moved on a git-status tick) is no remount: republish
+  // files still on a placeholder; a materialised file's height is measured, not estimated.
   useEffect(() => {
     const handle = handleRef.current
     if (handle == null) return
@@ -340,10 +320,8 @@ export function useReviewPatchWindow({
     }
   }, [placeholders, publishItem])
 
-  // Threads arrive over the WS stream at any moment, entirely independently of
-  // the diff. An item's annotations are part of the item, so a new, edited,
-  // resolved or deleted thread has to be republished onto whatever that file is
-  // currently showing — placeholder or real patch, it keeps its own geometry.
+  // Threads stream in independently of the diff; annotations are part of the item, so a changed
+  // thread is republished onto whatever the file shows, keeping its geometry.
   useEffect(() => {
     const handle = handleRef.current
     if (handle == null) return
@@ -363,9 +341,8 @@ export function useReviewPatchWindow({
     }
   }, [annotationsByPath])
 
-  // Viewed is the library's own `collapsed` flag: the file keeps its fileDiff,
-  // so the header's ± counts survive, and only the paths whose flag moved are
-  // touched.
+  // Viewed is the library's own `collapsed` flag: the file keeps its fileDiff, so the header's ±
+  // counts survive, and only the paths whose flag moved are touched.
   const collapsedRef = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => {
     const handle = handleRef.current
@@ -415,14 +392,8 @@ function sameAnnotations(
 
 // ── Viewport geometry ───────────────────────────────────────────────
 
-/**
- * The inclusive index range of files currently on screen.
- *
- * Derived from the viewer's own item tops rather than from its rendered range,
- * because `onScroll` fires BEFORE the next render pass: reading the render
- * range there would plan the window one frame behind every scroll. Item tops
- * are monotonic, so a binary search answers in O(log files).
- */
+/** The inclusive index range on screen, from item tops (binary search) rather than the render
+ *  range: onScroll fires before the next render, so that would plan one frame behind. */
 function visibleBand(
   viewer: NonNullable<CodeViewInstance>,
   paths: readonly string[],

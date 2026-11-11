@@ -2,12 +2,10 @@ package conversation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func (c *Conversations) SetChatSelection(
@@ -19,45 +17,15 @@ func (c *Conversations) SetChatSelection(
 	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: set chat selection: chat: %w", err)
 	}
-	if model != "" || effort != "" {
-		if err := c.validateSelection(ctx, chatID, model, effort); err != nil {
-			return err
-		}
-	}
 	if _, err := c.chats.SetSelection(ctx, chatID, model, effort); err != nil {
 		return fmt.Errorf("agent: set chat selection: save: %w", err)
 	}
 	return nil
 }
 
-func (c *Conversations) validateSelection(
-	ctx context.Context,
-	chatID string,
-	model string,
-	effort string,
-) error {
-	agent, err := c.chatAgent(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	discovered := agent.Capabilities().ModelDiscovery
-	if model != "" && !engineagents.Allowed(agent.Models(), discovered, model) {
-		return fmt.Errorf("agent: set chat selection: %q declares no model %q: %w",
-			agent.ID(), model, apperr.ErrInvalidArgument)
-	}
-	if effort != "" && !engineagents.Allowed(agent.Efforts(model), discovered, effort) {
-		return fmt.Errorf("agent: set chat selection: %q declares no effort %q for model %q: %w",
-			agent.ID(), effort, model, apperr.ErrInvalidArgument)
-	}
-	return nil
-}
-
-// SetChatPermissionLevel pins the chat's own guarded/trusted/full-auto
-// override, refusing a level the chat's CURRENT provider does not declare —
-// never clamping to a neighboring one, per the same "if a provider can't
-// reach a level, it is not offered" rule the switcher's own options list
-// enforces. A provider that later replaces this one may accept a level this
-// one refused; nothing here freezes the choice against a future switch.
+// SetChatPermissionLevel pins the chat's own guarded/trusted/full-auto override,
+// refusing (never clamping) a level the chat's CURRENT provider does not declare,
+// the same rule the switcher's options follow.
 func (c *Conversations) SetChatPermissionLevel(
 	ctx context.Context,
 	chatID string,
@@ -69,7 +37,7 @@ func (c *Conversations) SetChatPermissionLevel(
 	}
 	if !contains(agent.PermissionLevels(), level) {
 		return fmt.Errorf("agent: set chat permission level: %q declares no level %q: %w",
-			agent.ID(), level, apperr.ErrInvalidArgument)
+			agent.ID(), level, problem.ErrInvalidArgument)
 	}
 	if _, err := c.chats.SetPermissionLevel(ctx, chatID, level); err != nil {
 		return fmt.Errorf("agent: set chat permission level: save: %w", err)
@@ -97,22 +65,14 @@ func (c *Conversations) chatAgent(
 }
 
 // ChatProviderID resolves the provider a chat's next CLI should be: the live
-// runner's while one is placed (mid-switch the incoming runner is already the
-// truth), else the chat's own durable vendor — domain.Chat.ProviderID, seeded at
-// birth, restated on every placement and backfilled once at boot for rows that
-// predate it (BackfillProviders). It is the ONE owner of the answer; nothing
-// re-derives it from the runner projections any more. Refuses with
-// apperr.ErrUnprocessable when no provider has ever been recorded.
+// runner's (mid-switch, the incoming one), else domain.Chat.ProviderID.
+// problem.ErrUnprocessable when no provider has ever been recorded.
 func (c *Conversations) ChatProviderID(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
-	live, err := c.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if err == nil {
+	if live, err := c.runners.LiveRunnerForChat(ctx, chatID); err == nil {
 		return live.ProviderID, nil
-	}
-	if !errors.Is(err, agentrunner.ErrNotFound) {
-		return "", fmt.Errorf("agent: chat provider: live runner: %w", err)
 	}
 	chat, err := c.chats.GetChat(ctx, chatID)
 	if err != nil {
@@ -120,33 +80,16 @@ func (c *Conversations) ChatProviderID(
 	}
 	if chat.ProviderID == "" {
 		return "", fmt.Errorf("agent: chat provider: no provider has ever run on this chat: %w",
-			apperr.ErrUnprocessable)
+			problem.ErrUnprocessable)
 	}
 	return chat.ProviderID, nil
 }
 
-// ChatSelection reads what a chat WANTS to run its provider as. minting=true
-// is for a chat that has no row yet (mid-mint, its runner's argv already
-// being rendered): Model/Effort correctly read as "the provider's own
-// default" (their own always-valid empty state), but PermissionLevel has no
-// such reading — a spawn with none at all would run whatever the provider's
-// own untouched default turns out to be, exactly the ungoverned behavior
-// this feature exists to replace. So minting resolves the CURRENT global
-// default directly, falling back to guarded (never full-auto) on a lookup
-// failure — the one place this package still knows that name, because
-// nothing durable exists yet to read it from.
+// ChatSelection reads what a chat WANTS to run its provider as.
 func (c *Conversations) ChatSelection(
 	ctx context.Context,
 	chatID string,
-	minting bool,
 ) (engineagents.Selection, error) {
-	if minting {
-		level, err := c.defaultPermissionLevel(ctx)
-		if err != nil {
-			level = "guarded"
-		}
-		return engineagents.Selection{PermissionLevel: level}, nil
-	}
 	chat, err := c.chats.LoadChat(ctx, chatID)
 	if err != nil {
 		return engineagents.Selection{}, fmt.Errorf("agent: chat selection: %w", err)
@@ -154,36 +97,22 @@ func (c *Conversations) ChatSelection(
 	level := chat.PermissionLevel
 	switch {
 	case chat.PermissionLevelExplicit:
-		// A human chose this level FOR THIS CHAT (SetChatPermissionLevel): it
-		// wins over the global dial for good, whatever the dial says now.
+		// A human chose this level FOR THIS CHAT: it wins over the global dial for good.
 	case level != "":
-		// INHERITED, never pinned — the common case. The value seeded at mint
-		// (or by the legacy branch below) is a display snapshot, not a spawn
-		// intent: re-resolve the CURRENT global default on every spawn, so a
-		// later change to the dial reaches every chat that never opted out of
-		// it. Confirmed live: a chat left on "inherit" kept answering from
-		// whatever the default was the day it was minted, forever — this is
-		// the actual reported bug ("I set my global permissions to full-auto
-		// and my chats don't use it"). A lookup failure degrades to the
-		// last-seeded value rather than erroring the spawn.
+		// INHERITED: the seeded value is a display snapshot, so re-resolve the CURRENT
+		// global default on every spawn and a dial change reaches every chat that never
+		// opted out. A lookup failure degrades to the seeded value.
 		if cur, cerr := c.defaultPermissionLevel(ctx); cerr == nil {
 			level = cur
 		}
 	default:
-		// Should never happen — domain.Chat's own doc comment says a chat is
-		// always seeded with a real level at creation — except for one that
-		// predates the seeding logic and was carried through unseeded (a chat
-		// from before this feature existed, replayed through the chat-model
-		// migration that never had this field at all). Read as "not seeded
-		// yet", never as a genuine choice: resolve the CURRENT global default
-		// here, the same as a fresh mint, and seed it (still non-explicit) so
-		// this chat stops being unseeded — though the case above would keep
-		// tracking the live default for it either way.
+		// A legacy chat that predates seeding: "not seeded yet", never a choice.
+		// Resolve the global default as a fresh mint does, and seed it (non-explicit).
 		level, err = c.defaultPermissionLevel(ctx)
 		if err != nil {
 			level = "guarded"
 		} else {
-			c.SeedPermissionLevel(ctx, chatID)
+			c.seedPermissionLevel(ctx, chatID)
 		}
 	}
 	return engineagents.Selection{

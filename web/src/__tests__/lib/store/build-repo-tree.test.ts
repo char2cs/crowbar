@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
+import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 import {
   buildRepoTree,
   sortByPlacement,
+  sortReposByOrder,
   toSidebarChat,
   toSidebarRepo,
   toSidebarWorkspace,
 } from '@/lib/store/build-repo-tree'
+import type { Repo } from '@/core/entities/repo-types'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO => ({
@@ -34,7 +35,6 @@ const ws = (id: string, repoId: string, over: Partial<WorkspaceDTO> = {}): Works
   forkPointSha: '',
   status: 'new',
   working: false,
-  lastError: '',
   added: 0,
   deleted: 0,
   mergeStrategy: 'merge',
@@ -125,11 +125,7 @@ describe('buildRepoTree', () => {
 
   describe('the icon of a repo on a remote host', () => {
     const loadRow = (hostId: string) =>
-      useProjectDataStore.setState({
-        data: success([
-          { id: 'p1', name: 'p1', path: '/work/p1', lastActivity: new Date(0), hostId },
-        ]),
-      })
+      seedProjects([{ id: 'p1', name: 'p1', path: '/work/p1', lastActivity: new Date(0), hostId }])
     const withIcon = [repo('r1', 'my-repo', { avatarUrl: '/v0/projects/p1/repos/r1/icon?v=1' })]
 
     beforeEach(() => {
@@ -142,13 +138,13 @@ describe('buildRepoTree', () => {
         pairedFingerprint: 'SHA256:aaaa',
         clientId: 'client-host-2',
       })
-      useProjectDataStore.setState({ data: idle() })
+      resetEntities()
     })
 
     afterEach(() => {
       delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
       useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-      useProjectDataStore.setState({ data: idle() })
+      resetEntities()
     })
 
     it('is loaded from that host, never from the local daemon', () => {
@@ -247,7 +243,6 @@ function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
     forkPointSha: '',
     status: 'new',
     working: false,
-    lastError: '',
     added: 0,
     deleted: 0,
     mergeStrategy: 'merge',
@@ -351,7 +346,7 @@ describe('folders and order', () => {
   })
 
   it('tolerates a frame from a backend that carries neither', () => {
-    // Set rather than omitted, for the same reason as lastError/heldByPath:
+    // Set rather than omitted, for the same reason as heldByPath:
     // applyWorkspaceDTO merges with {...w, ...ws}, so a workspace moved OUT of a
     // folder has to overwrite the stale id instead of keeping it.
     const w = toSidebarWorkspace(ws('w1', 'r1'))
@@ -435,5 +430,53 @@ describe('a tied level sorts the way the daemon sorts it', () => {
       ],
     )
     expect(tree[0].workspaces.map((w) => w.id)).toEqual(['w-z', 'w-m', 'w-a'])
+  })
+})
+
+const sortRepo = (id: string, order?: number): Repo => ({
+  id,
+  projectId: 'p1',
+  name: id,
+  avatarLabel: id[0].toUpperCase(),
+  avatarColor: 'bg-indigo-700',
+  workspaces: [],
+  ...(order !== undefined && { order }),
+})
+
+const sortDto = (id: string, order: number): RepoDTO => ({
+  id,
+  projectId: 'p1',
+  name: id,
+  path: `/${id}`,
+  defaultBranch: 'main',
+  avatarLabel: id[0].toUpperCase(),
+  avatarColor: 'bg-indigo-700',
+  avatarUrl: '',
+  avatarEmoji: '',
+  order,
+})
+
+describe('the sort', () => {
+  it('orders by index, with a missing order last', () => {
+    expect(
+      sortReposByOrder([
+        sortRepo('c', 2),
+        sortRepo('a', 0),
+        sortRepo('nope'),
+        sortRepo('b', 1),
+      ]).map((r) => r.id),
+    ).toEqual(['a', 'b', 'c', 'nope'])
+  })
+
+  it('keeps arrival order among ties, so an undragged level never reshuffles', () => {
+    expect(
+      sortReposByOrder([sortRepo('x', 0), sortRepo('y', 0), sortRepo('z', 0)]).map((r) => r.id),
+    ).toEqual(['x', 'y', 'z'])
+  })
+
+  it('is applied when the tree is built from the stored rows, which have no order of their own', () => {
+    expect(
+      buildRepoTree([sortDto('c', 2), sortDto('a', 0), sortDto('b', 1)], []).map((r) => r.id),
+    ).toEqual(['a', 'b', 'c'])
   })
 })

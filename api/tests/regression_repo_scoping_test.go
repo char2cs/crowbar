@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // This file pins repo/project scoping end to end, driving the real HTTP +
@@ -15,7 +17,7 @@ import (
 // fail here.
 //
 // It used to also pin the sidebar's now-retired folder feature
-// (domain.Folder, the /folders REST resource, and the dense Order
+// (tree.Folder, the /folders REST resource, and the dense Order
 // Workspace.FolderID/Order shared with it) — all deleted onto the unified
 // chat/folder tree (usecases/chat/internal/tree), which the Chats-panel's own
 // regression suite (regression_agent_chat_folders_test.go) already covers.
@@ -45,11 +47,11 @@ func TestRegression_RepoListIsScopedToTheProjectInThePath(t *testing.T) {
 	imported := importProject(t, h)
 
 	otherPath := gitRepoWithCommit(t)
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "second", "path": otherPath}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	other := readUntil(t, projectsWS, func(m map[string]any) bool {
+	other := projectsWS.read(t, func(m map[string]any) bool {
 		return m["path"] == otherPath
 	})
 	otherID, _ := other["id"].(string)

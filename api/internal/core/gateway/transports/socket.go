@@ -3,16 +3,12 @@ package transports
 import (
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
-
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"syscall"
 )
-
-const defaultSocketName = "crowbar.sock"
 
 // chmod is indirected so tests can simulate a chmod failure.
 var chmod = os.Chmod
@@ -22,21 +18,21 @@ var chmod = os.Chmod
 // binding would steal the address from a healthy daemon.
 var ErrDaemonRunning = errors.New("gateway: socket: daemon already running")
 
-// NewSocket binds a Unix domain socket for the daemon. host is the full
-// "unix://[path]" string; an empty path resolves to crowbar.sock under the
-// crowbar home (CROWBAR_HOME override, else ~/.crowbar) so every client (CLI,
-// the desktop proxy) can find the daemon at a fixed, well-known location
-// instead of guessing a per-process path.
-//
-// A stale socket left behind by a crashed daemon is removed before binding; a
-// socket that still has a live daemon behind it yields ErrDaemonRunning rather
-// than being clobbered. The returned listener removes the socket file on Close
-// so a clean shutdown never leaves a stale socket for the next launch.
+// NewSocket binds the daemon's Unix socket for host ("unix://[path]"; empty path is
+// the home's SocketPath), creating its directory. A stale socket is removed, a live
+// one yields ErrDaemonRunning, and Close removes the socket file.
 func NewSocket(
 	host string,
 ) (net.Listener, error) {
 	path, err := SocketPath(host)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("gateway: socket: create dir for %s: %w", path, err)
+	}
+	if err := privateDir(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
 
@@ -51,12 +47,28 @@ func NewSocket(
 
 	if runtime.GOOS != "windows" {
 		if err := chmod(path, 0o600); err != nil {
-			_ = ln.Close()
-			return nil, fmt.Errorf("gateway: socket: chmod %s: %w", path, err)
+			return nil, errors.Join(fmt.Errorf("gateway: socket: chmod %s: %w", path, err), ln.Close())
 		}
 	}
 
 	return &socketListener{Listener: ln, path: path}, nil
+}
+
+// privateDir refuses a socket directory another user owns, or others may write
+// to without the sticky bit, such as one made ahead of the daemon: they could
+// put their own socket in it, and every client would dial that.
+func privateDir(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("gateway: socket: %w", err)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Uid != 0 && int(st.Uid) != os.Getuid() {
+		return fmt.Errorf("gateway: socket: %s belongs to another user", dir)
+	}
+	if info.Mode()&os.ModeSticky == 0 && info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("gateway: socket: others can write to %s; make it owner-only (chmod 700)", dir)
+	}
+	return nil
 }
 
 // handleStale clears a socket file left over from a crashed daemon, but refuses
@@ -73,66 +85,8 @@ func handleStale(
 		return os.Remove(path)
 	}
 
-	_ = conn.Close()
+	if closeErr := conn.Close(); closeErr != nil {
+		return errors.Join(ErrDaemonRunning, closeErr)
+	}
 	return ErrDaemonRunning
-}
-
-func socketPath(
-	path string,
-) (string, error) {
-	if path != "" {
-		return path, nil
-	}
-	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
-		// A caller that merely SPELLS OUT the plain default home (every in-PTY
-		// callback's --home flag always carries a concrete value, never a blank
-		// one — see applyHomeOverride) is not asking for dev-instance isolation;
-		// it wants the one real daemon, at the one literal socket the app itself
-		// binds when it never sets CROWBAR_HOME at all. Hashing it anyway sent
-		// every hook/rename/handoff callback in production to a temp-dir socket
-		// nothing ever listens on — a silent, total transport failure, caught
-		// live 2026-09-18 (zero POST .../chats/hooks in 30+ hours of daemon
-		// uptime). Only a home that actually DIFFERS from the default is a real
-		// override needing its own isolated socket.
-		if filepath.Clean(override) == filepath.Clean(metadata.DefaultHomePath()) {
-			return literalSocketPath(override)
-		}
-		//nolint:gosec // G703: CROWBAR_HOME is operator-controlled config, not untrusted input.
-		if err := os.MkdirAll(override, 0o700); err != nil {
-			return "", err
-		}
-		return overrideSocketPath(override), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return literalSocketPath(filepath.Join(home, ".crowbar"))
-}
-
-// literalSocketPath is the one true production socket: crowbar.sock directly
-// under crowbarHome — an already-resolved crowbar home directory (e.g.
-// ~/.crowbar, NOT the raw OS home) — the same path the daemon binds when
-// launched with no explicit --host and no CROWBAR_HOME override at all.
-func literalSocketPath(crowbarHome string) (string, error) {
-	if err := os.MkdirAll(crowbarHome, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(crowbarHome, defaultSocketName), nil
-}
-
-// overrideSocketPath returns the socket path for a CROWBAR_HOME override: a
-// short, deterministic name in the temp dir, keyed by a hash of the home.
-// The socket cannot live inside the override home itself — macOS caps
-// sun_path at 104 bytes and override homes (workspace worktrees under
-// ~/.crowbar/projects/...) routinely exceed it. Hashing the home keeps
-// concurrent dev instances on distinct sockets. The desktop shell derives the
-// identical path (fnv1a64 in desktop/src-tauri/src/sidecar/mod.rs) so a
-// manually restarted daemon and the app proxy always agree.
-func overrideSocketPath(
-	home string,
-) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(home))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("crowbar-%x.sock", h.Sum64()))
 }

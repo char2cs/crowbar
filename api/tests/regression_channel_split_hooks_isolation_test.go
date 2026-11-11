@@ -3,10 +3,13 @@
 package tests
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
 // channelSplitStubProviderDescriptorYAML mirrors codex.yaml's OWN migrated
@@ -16,9 +19,6 @@ import (
 // same conversational fact. session_start/user_prompt/turn_stop stay
 // flat/hooks-only — only tool_pre is under test here.
 const channelSplitStubProviderDescriptorYAML = `id: channelsplitstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 runtime:
   transport: hooks
   hooks:
@@ -52,19 +52,15 @@ events:
         tool_target: tool_input.command
 `
 
-type channelSplitActivityCall struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Target string `json:"target"`
-}
-
-func channelSplitActivity(t *testing.T, h *harness, ws importedRepo, chatID string) []channelSplitActivityCall {
+// toolCalls are the tool calls chatID's feed records, each by its first row.
+func toolCalls(t *testing.T, h *harness, chatID string) []ledger.ToolCall {
 	t.Helper()
-	var out struct {
-		ToolCalls []channelSplitActivityCall `json:"toolCalls"`
-	}
-	h.get(repoBase(ws)+"/chats/"+chatID+"/activity", &out)
-	return out.ToolCalls
+	seen := map[string]bool{}
+	return rowsOf(t, chatRows(t, h, chatID), ledger.KindToolCall, func(b ledger.ToolCall) bool {
+		first := !seen[b.ToolID]
+		seen[b.ToolID] = true
+		return first
+	})
 }
 
 // TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields is
@@ -72,9 +68,8 @@ func channelSplitActivity(t *testing.T, h *harness, ws importedRepo, chatID stri
 // proven at the black-box HTTP level against a descriptor using the SAME
 // api:/hooks: shape codex.yaml itself now ships for tool_pre (that plan's P3).
 //
-// POST /chats/hooks always delivers on the HOOKS channel — turn/ingest.go's
-// channelFor: "an HTTP hook relay POST marks nothing, so the zero value here
-// is hooks" — regardless of what shape the BODY happens to carry. So a
+// The hook route always delivers on the HOOKS channel — the hook handler's
+// choice — regardless of what shape the BODY happens to carry. So a
 // payload shaped for the OTHER channel (api: threadId/item.*, exactly what a
 // real item/started notification carries) posted to this endpoint is exactly
 // the foreign-shape delivery the channel split exists to refuse: before the
@@ -91,7 +86,7 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	chatID, runnerID := createStubChat(t, h, ws, "channelsplitstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, ws, "channelsplitstub", runnerID, event, payload)
+		postHook(t, h, repoBase(ws), "channelsplitstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"do a thing"}`)
@@ -102,14 +97,13 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 		`"tool_input":{"command":"echo hi"}}`)
 	h.Quiesce()
 
-	calls := channelSplitActivity(t, h, ws, chatID)
+	calls := toolCalls(t, h, chatID)
 	require.Len(t, calls, 1, "the genuine hooks-shaped tool_pre must record one tool call")
-	assert.Equal(t, "tool-hooks-1", calls[0].ID, "resolved via the hooks: block's tool_id: tool_use_id")
+	assert.Equal(t, "tool-hooks-1", calls[0].ToolID, "resolved via the hooks: block's tool_id: tool_use_id")
 	assert.Equal(t, "Bash", calls[0].Name, "resolved via the hooks: block's tool_name: tool_name")
 	assert.Equal(t, "echo hi", calls[0].Target, "resolved via the hooks: block's tool_target: tool_input.command")
 
-	// THE ATTACK: an api-SHAPED tool_pre body posted to the SAME /chats/hooks
-	// endpoint. If channel selection degenerated back into reading both
+	// THE ATTACK: an api-SHAPED tool_pre body posted to the SAME hook route. If channel selection degenerated back into reading both
 	// shapes at once — the old || cross-shape fallback this design replaces
 	// — this would resolve the attacker's own id/type/command.
 	//
@@ -120,16 +114,18 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	// delivery is REJECTED outright (RequiredFieldError) rather than
 	// recorded under a fallback identity — strictly stronger than before:
 	// nothing attacker-controlled reaches the ledger AT ALL, not even a
-	// nameless placeholder row.
-	post("tool_pre", `{"threadId":"attacker-thread","item":{"type":"commandExecution",`+
-		`"id":"attacker-tool-id","command":"ATTACKER-COMMAND-LEAKED"}}`)
+	// nameless placeholder row. The CLI is told so: 422.
+	resp := stubLaunch(t, h, "channelsplitstub", runnerID).PostHook(t, h.url+repoBase(ws), "channelsplitstub", "tool_pre", //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+		[]byte(`{"threadId":"attacker-thread","item":{"type":"commandExecution",`+
+			`"id":"attacker-tool-id","command":"ATTACKER-COMMAND-LEAKED"}}`))
+	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 	h.Quiesce()
 
-	calls = channelSplitActivity(t, h, ws, chatID)
+	calls = toolCalls(t, h, chatID)
 	require.Len(t, calls, 1, "the api-shaped delivery is missing its required session_id/tool_id/"+
 		"tool_name on the hooks: block — required: (design spec 2.3) must reject it outright, "+
 		"not record it under a fallback identity")
-	assert.Equal(t, "tool-hooks-1", calls[0].ID, "the genuine hooks-shaped call must be the only one recorded")
+	assert.Equal(t, "tool-hooks-1", calls[0].ToolID, "the genuine hooks-shaped call must be the only one recorded")
 	assert.Equal(t, "Bash", calls[0].Name)
 	assert.Equal(t, "echo hi", calls[0].Target,
 		"none of the attacker's id/type/command ever reached the ledger")

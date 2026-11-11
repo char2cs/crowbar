@@ -1,19 +1,12 @@
-/**
- * Language id → monaco language id, used for MODEL ASSIGNMENT
- * (`toMonacoLanguageId` feeds `langForUri` / the editor+diff surfaces).
- *
- * DRIFT GUARD: `language-contributions.ts` independently maps file EXTENSIONS
- * to these same monaco ids to decide which grammar contribution to fetch on
- * demand. Every non-plaintext monaco id produced here must have a loader
- * there, be one of its custom Monarch registrations, or be on the documented
- * exclusion list in `language-contributions.test.ts` — otherwise models get an
- * id whose grammar never loads (silent plaintext). That test enforces this;
- * adding a value here will fail it until the loader side is updated too.
- */
-export const MONACO_LANGUAGE_BY_LANGUAGE_ID: Record<string, string> = {
+// Language id → Monaco language id for model assignment, and so the one list of languages that
+// colour: every non-plaintext id here needs a registration in language-contributions.ts or renders
+// as plaintext. language-contributions.test.ts enforces it.
+export const MONACO_LANGUAGE_BY_LANGUAGE_ID = {
   angular: 'html',
   bash: 'shell',
+  batch: 'bat',
   c: 'c',
+  clojure: 'clojure',
   cpp: 'cpp',
   csharp: 'csharp',
   css: 'css',
@@ -24,22 +17,20 @@ export const MONACO_LANGUAGE_BY_LANGUAGE_ID: Record<string, string> = {
   elixir: 'elixir',
   elisp: 'elisp',
   elm: 'elm',
-  // ERB (`.erb`) is HTML with embedded Ruby; monaco has no dedicated grammar,
-  // so host it in the html grammar (its loader is registered). Without this the
-  // resolver's 'embedded_template' id hit `toMonacoLanguageId`'s `?? languageId`
-  // fallback — an id nothing registers — and .erb rendered as plaintext.
+  // ERB is HTML with embedded Ruby and Monaco has no grammar for it, so it is hosted in html;
+  // an unmapped id would fall through to one nothing registers (plaintext).
   embedded_template: 'html',
+  fsharp: 'fsharp',
   gitattributes: 'gitattributes',
   gitignore: 'gitignore',
   go: 'go',
   graphql: 'graphql',
   html: 'html',
+  ini: 'ini',
   java: 'java',
   javascript: 'javascript',
-  // JSX (`.jsx`) routes through monaco's javascript grammar, mirroring
-  // `typescriptreact: 'typescript'`. Without this the resolver's
-  // 'javascriptreact' id fell through `toMonacoLanguageId`'s `?? languageId`
-  // fallback to an unregistered id, so .jsx rendered as plaintext.
+  // JSX routes through Monaco's javascript grammar, as typescriptreact does through typescript;
+  // unmapped, the id would fall through to one nothing registers (plaintext).
   javascriptreact: 'javascript',
   json: 'json',
   jsonc: 'json',
@@ -52,25 +43,30 @@ export const MONACO_LANGUAGE_BY_LANGUAGE_ID: Record<string, string> = {
   objc: 'objective-c',
   ocaml: 'ocaml',
   php: 'php',
+  powershell: 'powershell',
   // 'proto' is the id monaco's protobuf.contribution actually registers —
   // mapping to 'protobuf' (as this did historically) produced an id nothing
   // ever registers, so .proto files silently rendered as plaintext.
   protobuf: 'proto',
   python: 'python',
   ql: 'sql',
+  r: 'r',
   rescript: 'javascript',
+  restructuredtext: 'restructuredtext',
   ruby: 'ruby',
   rust: 'rust',
   sass: 'scss',
   scala: 'scala',
   scheme: 'scheme',
   scss: 'scss',
+  shell: 'shell',
   solidity: 'sol',
   sql: 'sql',
   svelte: 'html',
   swift: 'swift',
   systemrdl: 'plaintext',
   terraform: 'hcl',
+  text: 'plaintext',
   tla: 'plaintext',
   toml: 'toml',
   typescriptreact: 'typescript',
@@ -79,9 +75,22 @@ export const MONACO_LANGUAGE_BY_LANGUAGE_ID: Record<string, string> = {
   xml: 'xml',
   yaml: 'yaml',
   zig: 'zig',
-}
+} as const satisfies Record<string, string>
+
+/** A language id the app knows how to hand Monaco. */
+export type LanguageId = keyof typeof MONACO_LANGUAGE_BY_LANGUAGE_ID
 
 export function toMonacoLanguageId(languageId: string | null | undefined): string {
   if (!languageId) return 'plaintext'
-  return MONACO_LANGUAGE_BY_LANGUAGE_ID[languageId] ?? languageId
+  return Object.hasOwn(MONACO_LANGUAGE_BY_LANGUAGE_ID, languageId)
+    ? MONACO_LANGUAGE_BY_LANGUAGE_ID[languageId as LanguageId]
+    : languageId
+}
+
+/** Whether a language id colours: Monaco has a grammar registered for what it maps to. */
+export function hasGrammar(languageId: string): boolean {
+  return (
+    Object.hasOwn(MONACO_LANGUAGE_BY_LANGUAGE_ID, languageId) &&
+    MONACO_LANGUAGE_BY_LANGUAGE_ID[languageId as LanguageId] !== 'plaintext'
+  )
 }

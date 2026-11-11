@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func permissionLevelRequest(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {
@@ -49,7 +49,7 @@ func TestSetChatPermissionLevel_RejectsAMalformedBody(t *testing.T) {
 }
 
 func TestSetChatPermissionLevel_SurfacesAnUnknownLevel(t *testing.T) {
-	uc := &fakeAgentUsecase{setChatPermissionLevelErr: apperr.ErrInvalidArgument}
+	uc := &fakeAgentUsecase{setChatPermissionLevelErr: problem.ErrInvalidArgument}
 	ctx, rec := permissionLevelRequest(t, `{"level":"yolo"}`)
 
 	newChatHandlers(inWorkspace(uc)).SetChatPermissionLevel(ctx)

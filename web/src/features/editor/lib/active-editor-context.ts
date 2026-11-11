@@ -1,15 +1,6 @@
-/**
- * Per-pane active-editor pub/sub registry.
- *
- * Each pane tracks its current ActiveEditorContext. Subscribers are notified
- * immediately on subscription (with the current context or undefined), and on
- * every subsequent change. `set` dedups on uri AND model identity: if the new
- * context carries the same uri AND the same model as the current one, subscribers
- * are NOT re-notified. Comparing the model too is essential — a close-then-reopen
- * of the same file recreates the model (the old one was disposed), so the uri is
- * unchanged but the held model is stale; deduping on uri alone would keep the
- * disposed model and crash satellite reads with 'Model is disposed!'.
- */
+// Per-pane active-editor pub/sub. Subscribers get the current context at once, then every change.
+// `set` dedups on uri AND model identity: a reopened file keeps its uri but gets a new model, and
+// keeping the disposed one would crash satellite reads with 'Model is disposed!'.
 
 export interface ActiveEditorContext {
   paneId: string
@@ -25,12 +16,8 @@ export interface ActiveEditorRegistry {
   get(paneId: string): ActiveEditorContext | undefined
   subscribe(paneId: string, cb: (ctx: ActiveEditorContext | undefined) => void): () => void
   clear(paneId: string): void
-  /**
-   * Clear the pane's context ONLY if its current context still points at `uri`.
-   * Used by the buffer-close path: when the closed buffer was the active ctx the
-   * registry must drop the (now-disposed) model so a later reopen does not keep
-   * the stale entry. A no-op if the pane already moved on to a different uri.
-   */
+  /** Clear the pane's context only if it still points at `uri` (buffer close drops the disposed
+   *  model so a reopen doesn't keep it); a no-op once the pane moved to another uri. */
   clearIfActive(paneId: string, uri: string): void
 }
 
@@ -41,7 +28,7 @@ interface PaneState {
   listeners: Set<Listener>
 }
 
-export function createActiveEditorRegistry(): ActiveEditorRegistry {
+function createActiveEditorRegistry(): ActiveEditorRegistry {
   const panes = new Map<string, PaneState>()
 
   function getOrCreate(paneId: string): PaneState {
@@ -98,3 +85,6 @@ export function createActiveEditorRegistry(): ActiveEditorRegistry {
     },
   }
 }
+
+/** The window's one registry: every pane publishes here, whatever workspace it shows. */
+export const activeEditors: ActiveEditorRegistry = createActiveEditorRegistry()

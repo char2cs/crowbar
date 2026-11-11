@@ -1,16 +1,20 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
+import type { Project } from '@/lib/types'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import {
+  resetEntities,
+  seedHomeTree,
+  seedProjects,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/components/sidebar/lib/row-actions', () => ({
   performRenameChat: vi.fn().mockResolvedValue(undefined),
@@ -63,7 +67,12 @@ function renderHeader({
   working = false,
   title = 'Seeding test',
   wsId = 'w1' as string | null,
-  repos = [makeRepo([makeWorkspace()])],
+  repos = [
+    makeRepo(
+      [makeWorkspace({ owningChatId: 'chat-1' })],
+      [makeSidebarChat({ workspaceId: 'w1', ownsWorktree: true })],
+    ),
+  ],
 }: {
   working?: boolean
   title?: string
@@ -71,15 +80,9 @@ function renderHeader({
   repos?: Repo[]
 } = {}) {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: {
-      ...s.agentChats,
-      chats: [makeChat({ title })],
-      working: { 'chat-1': working },
-    },
-  }))
-  useSidebarStore.setState({ repos })
+  resetChatStore()
+  seedRepos(repos)
+  writeChat({ ...makeChat({ title }), working })
 
   return render(
     createElement(
@@ -94,11 +97,8 @@ function renderHeader({
  *  from a saved layout, or a list that raced it. */
 function renderHeaderWithoutChatRecord() {
   const store = createWorkspaceStore('w1')
-  store.setState((s) => ({
-    ...s,
-    agentChats: { ...s.agentChats, chats: [], listSeeded: true },
-  }))
-  useSidebarStore.setState({ repos: [makeRepo([makeWorkspace()])] })
+  resetChatStore()
+  seedRepos([makeRepo([makeWorkspace()])])
 
   return render(
     createElement(
@@ -110,7 +110,7 @@ function renderHeaderWithoutChatRecord() {
 }
 
 afterEach(() => {
-  useSidebarStore.setState({ repos: [] })
+  seedRepos([])
   vi.clearAllMocks()
 })
 
@@ -146,7 +146,7 @@ describe('ChatBranchHeader', () => {
 
   it('draws no branch mark and no dash for a draft with no workspace yet', () => {
     const store = createWorkspaceStore('w1')
-    useSidebarStore.setState({ repos: [] })
+    seedRepos([])
     render(
       createElement(
         WorkspaceStoreContext.Provider,
@@ -298,10 +298,8 @@ describe('ChatBranchHeader', () => {
 
   it('merges a caller-supplied className onto its own root element', () => {
     const store = createWorkspaceStore('w1')
-    store.setState((s) => ({
-      ...s,
-      agentChats: { ...s.agentChats, chats: [makeChat()] },
-    }))
+    resetChatStore()
+    writeChat(makeChat())
     render(
       createElement(
         WorkspaceStoreContext.Provider,
@@ -327,19 +325,14 @@ describe('ChatBranchHeader', () => {
     function seedHomeChat(
       projects: unknown[] = [{ id: 'proj-1', name: 'Crowbar Seed', path: '/p' }],
     ) {
-      useHomeTreeStore.setState({
-        trees: { 'proj-1': { chats: [makeSidebarChat()], folders: [] } },
-      })
-      useProjectDataStore.setState({ data: success(projects as never) })
+      seedHomeTree('proj-1', { chats: [makeSidebarChat({ repoId: '' })] })
+      seedProjects(projects as Project[])
     }
-    afterEach(() => {
-      useHomeTreeStore.setState({ trees: {} })
-      useProjectDataStore.setState({ data: { status: 'idle' } as never })
-    })
+    afterEach(resetEntities)
 
     it('shows the project icon on the left and the project name as the path', () => {
-      seedHomeChat()
       renderHeader({ wsId: null, repos: [] })
+      act(() => seedHomeChat())
       const header = screen.getByTestId('chat-branch-header')
       const icon = screen.getByTestId('chat-branch-header-project-icon')
       expect(icon.parentElement).toBe(header)
@@ -349,8 +342,8 @@ describe('ChatBranchHeader', () => {
     })
 
     it('keeps the plain fallback until the project resolves', () => {
-      seedHomeChat([])
       renderHeader({ wsId: null, repos: [] })
+      act(() => seedHomeChat([]))
       expect(screen.queryByTestId('chat-branch-header-project-icon')).not.toBeInTheDocument()
       expect(screen.queryByTestId('chat-branch-header-route')).not.toBeInTheDocument()
     })

@@ -2,12 +2,18 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -65,4 +71,172 @@ func TestValidateSelectionForProvider_AStaticEmptyCatalogueStillRejects(t *testi
 	err := rs.validateSelectionForProvider(context.Background(), "chat-1", "some-provider", "anything", "")
 
 	require.Error(t, err, "no catalogue at all (not discovery-backed) must keep rejecting, same as before")
+}
+
+// stagedConversations is reviveConversations holding the chat's pick and
+// keeping the picks a send commits.
+type stagedConversations struct {
+	reviveConversations
+	committed *[]string
+	held      engineagents.Selection
+}
+
+func (c stagedConversations) ChatSelection(context.Context, string) (engineagents.Selection, error) {
+	return c.held, nil
+}
+
+func (c stagedConversations) SetChatSelection(_ context.Context, _, model, effort string) error {
+	*c.committed = append(*c.committed, model+"/"+effort)
+	return nil
+}
+
+// A pick staged with a switch rides the switch's launch, and is the chat's,
+// dividers and all, once that launch runs: a failed one leaves the chat as it was.
+func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testing.T) {
+	for name, runs := range map[string]bool{"the launch runs": true, "the launch fails": false} {
+		t.Run(name, func(t *testing.T) {
+			h := newSpawnHarness(t, "")
+			installDescriptor(t, h.home, selectionCarrierDescriptor)
+			var committed []string
+			h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "claude"}}
+			h.rs.conversations = stagedConversations{reviveConversations: reviveConversations{provider: "claude"}, committed: &committed}
+			if !runs {
+				h.rs.term = unforkable{}
+			}
+			opened, err := ledger.NewRow(ledger.KindTurnStarted, "T-0", "", ledger.TurnStarted{Provider: "claude", RunnerID: "r-0"})
+			require.NoError(t, err)
+			closed, err := ledger.NewRow(ledger.KindTurnEnded, "T-0", "", ledger.TurnEnded{Status: "done", RunnerID: "r-0"})
+			require.NoError(t, err)
+			_, _, err = h.rs.ledger.Append(t.Context(), h.chatID, opened, closed)
+			require.NoError(t, err)
+
+			_, err = h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", uuid.NewString(),
+				"carrier-test", &domain.ChatSelection{Model: "deep"})
+
+			if !runs {
+				require.Error(t, err)
+				assert.Empty(t, committed, "the chat keeps its own pick")
+				assert.Empty(t, dividers(t, h.rs.ledger, h.chatID), "and no divider records a switch that never ran")
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, h.term.lastCall().argv, "deep", "the launch carries the staged pick")
+			assert.Equal(t, []string{"deep/"}, committed)
+			assert.Equal(t, []string{
+				ledger.MarkerProviderSwitched + ":carrier-test", ledger.MarkerModelChanged + ":deep",
+			}, dividers(t, h.rs.ledger, h.chatID))
+		})
+	}
+}
+
+// providerlessConversations is the record of a chat no CLI ever ran on: it
+// names no provider, as an owning chat is minted.
+type providerlessConversations struct{ stagedConversations }
+
+func (providerlessConversations) ChatProviderID(context.Context, string) (string, error) {
+	return "", fmt.Errorf("agent: chat provider: no provider has ever run on this chat: %w", problem.ErrUnprocessable)
+}
+
+// The first send of a chat no CLI ever ran on launches the provider staged with it.
+func TestSubmitPromptWithSwitch_AProviderlessChatLaunchesTheStagedProvider(t *testing.T) {
+	h := newSpawnHarness(t, "")
+	installDescriptor(t, h.home, selectionCarrierDescriptor)
+	var committed []string
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1"}}
+	h.rs.conversations = providerlessConversations{stagedConversations{committed: &committed}}
+
+	submission, err := h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", uuid.NewString(),
+		"carrier-test", &domain.ChatSelection{Model: "deep"})
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, submission.RunnerID)
+	assert.Contains(t, h.term.lastCall().argv, "hello", "the staged provider's CLI carries the prompt")
+	assert.Equal(t, []string{"deep/"}, committed)
+}
+
+// A revive whose pick is the chat's own writes nothing: the composer re-posts
+// its pick with every send.
+func TestSubmitPromptWithSwitch_ARevivesUnchangedPickCommitsNothing(t *testing.T) {
+	h := newSpawnHarness(t, "")
+	installDescriptor(t, h.home, selectionCarrierDescriptor)
+	var committed []string
+	h.rs.chats = stubChatsForSpawn{chat: domain.Chat{ID: h.chatID, WorkspaceID: "ws-1", ProviderID: "carrier-test"}}
+	h.rs.conversations = stagedConversations{
+		reviveConversations: reviveConversations{provider: "carrier-test"}, committed: &committed,
+		held: engineagents.Selection{Model: "deep"},
+	}
+
+	_, err := h.rs.SubmitPromptWithSwitch(t.Context(), h.chatID, "hello", uuid.NewString(), "",
+		&domain.ChatSelection{Model: "deep"})
+
+	require.NoError(t, err)
+	assert.Contains(t, h.term.lastCall().argv, "deep", "the revive runs the chat's pick")
+	assert.Empty(t, committed, "an unchanged pick is not written again")
+	assert.Empty(t, dividers(t, h.rs.ledger, h.chatID))
+}
+
+// A selection's dividers land after the hook holding its chat: the change
+// waits for the chat's lock, so they never cut into that hook's record.
+func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T) {
+	locks, asked := ingress.NewLocks(), make(chan string, 1)
+	var committed []string
+	rs := &Runners{
+		chatLock: askedLock{Locks: locks, asked: asked}, parks: newParks(), ledger: newTestLedger(t),
+		conversations: stagedConversations{committed: &committed, held: engineagents.Selection{Model: "deep"}},
+	}
+	unlock, err := locks.Lock(t.Context(), "chat-1") // a hook mid-record
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- rs.SetChatSelection(context.Background(), "chat-1", "", "") }()
+	select {
+	case <-asked:
+	case err := <-done:
+		done <- err
+	}
+	said, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{Provider: "p", RunnerID: "r-1"})
+	require.NoError(t, err)
+	_, _, err = rs.ledger.Append(t.Context(), "chat-1", said)
+	require.NoError(t, err)
+	unlock()
+	require.NoError(t, <-done)
+
+	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, ledger.KindTurnStarted, rows[0].Kind)
+	assert.Equal(t, ledger.KindMarker, rows[1].Kind, "the divider follows the hook's row")
+}
+
+// An effort the chat never set runs as the one its last turn reported: a pick
+// naming that effort changes the model only.
+func TestSetChatSelection_AnUnsetEffortIsTheOneTheLastTurnReported(t *testing.T) {
+	for pick, want := range map[string][]string{
+		"medium": {"model_changed:haiku"},
+		"high":   {"model_changed:haiku", "effort_changed:high"},
+	} {
+		t.Run(pick, func(t *testing.T) {
+			var committed []string
+			rs := &Runners{
+				chatLock: ingress.NewLocks(), parks: newParks(), ledger: newTestLedger(t),
+				conversations: stagedConversations{committed: &committed},
+			}
+			for _, row := range []struct {
+				kind ledger.Kind
+				body any
+			}{
+				{ledger.KindTurnStarted, ledger.TurnStarted{Provider: "p", RunnerID: "r-1"}},
+				{ledger.KindTurnEnded, ledger.TurnEnded{Status: "done", RunnerID: "r-1", Effort: "medium"}},
+			} {
+				r, err := ledger.NewRow(row.kind, "T-1", "", row.body)
+				require.NoError(t, err)
+				_, _, err = rs.ledger.Append(t.Context(), "chat-1", r)
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, rs.setChatSelectionLocked(t.Context(), "chat-1", "haiku", pick))
+
+			assert.Equal(t, want, dividers(t, rs.ledger, "chat-1"))
+		})
+	}
 }

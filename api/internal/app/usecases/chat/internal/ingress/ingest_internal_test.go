@@ -1,0 +1,498 @@
+package ingress
+
+import (
+	"context"
+	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+)
+
+func descriptorFor(t *testing.T, provider string) engineagents.Agent {
+	t.Helper()
+	agent, err := engineagents.New().Get(t.Context(), t.TempDir(), provider)
+	require.NoError(t, err)
+	return agent
+}
+
+// showingRunners answers only ShowingNativeView: surfaceGated is all that is
+// under test here.
+type showingRunners struct {
+	RecorderRunners
+	showing bool
+}
+
+func (r showingRunners) ShowingNativeView(string) bool { return r.showing }
+
+// An event that declares no surfaces is on every one, without ever asking
+// which surface is showing.
+func TestSurfaceGated_AnEventWithNoDeclaredSurfacesIsNeverGated(t *testing.T) {
+	t.Parallel()
+	r := &Recorder{runners: showingRunners{showing: true}}
+
+	assert.False(t, r.surfaceGated("runner-1", descriptorFor(t, "codex"), "turn_stop"))
+}
+
+// A chat-only event is not listened to while the provider's own view shows.
+func TestSurfaceGated_AChatOnlyEventIsGatedOffWhileTheNativeViewIsShowing(t *testing.T) {
+	t.Parallel()
+	r := &Recorder{runners: showingRunners{showing: true}}
+
+	assert.True(t, r.surfaceGated("runner-1", descriptorFor(t, "codex"), "message_delta"))
+}
+
+func TestSurfaceGated_AChatOnlyEventFlowsWhenTheNativeViewIsNotShowing(t *testing.T) {
+	t.Parallel()
+	r := &Recorder{runners: showingRunners{showing: false}}
+
+	assert.False(t, r.surfaceGated("runner-1", descriptorFor(t, "codex"), "message_delta"))
+}
+
+type fakeChats struct {
+	agentchat.EventStore
+	err error
+}
+
+func (f fakeChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
+	if f.err != nil {
+		return domain.Chat{}, f.err
+	}
+	if id != testChat {
+		return domain.Chat{}, agentchat.ErrNotFound
+	}
+	return domain.Chat{ID: testChat, WorkspaceID: "ws-1"}, nil
+}
+
+type fakeWorkspace struct {
+	seam.WorkspaceReader
+	home, worktree string
+	err            error
+}
+
+func (w fakeWorkspace) WorktreeDir(context.Context, string) (string, string, string, string, error) {
+	return w.home, "", "", w.worktree, w.err
+}
+
+func (w fakeWorkspace) AgentChatsDir(context.Context, string) (string, error) {
+	return filepath.Join(w.home, "chats"), w.err
+}
+
+type recordedTitles struct {
+	mu     sync.Mutex
+	titles []string
+}
+
+func (r *recordedTitles) RenameChat(_ context.Context, _, title, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.titles = append(r.titles, title)
+	return errors.New("titles are not kept here")
+}
+
+type recorderRunners struct {
+	ending  bool
+	started []engineagents.CanonicalEvent
+}
+
+func (r *recorderRunners) TurnRunner(_ string, open func(engineagents.Runner) error) (bool, error) {
+	if r.ending {
+		return false, nil
+	}
+	return true, open(engineagents.Runner{})
+}
+
+func (r *recorderRunners) HandleSessionStart(_ context.Context, _ engineagents.Runner, ev engineagents.CanonicalEvent) error {
+	r.started = append(r.started, ev)
+	return nil
+}
+
+func (r *recorderRunners) TelemetryOnChatSurface(context.Context, string) bool { return true }
+
+func (r *recorderRunners) ShowingNativeView(string) bool { return false }
+
+type feedSpy struct {
+	mu        sync.Mutex
+	deltas    []ledger.FeedDelta
+	telemetry int
+}
+
+func (f *feedSpy) FeedDelta(_ string, d ledger.FeedDelta) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deltas = append(f.deltas, d)
+}
+
+func (f *feedSpy) TelemetryGone(string) {}
+
+func (f *feedSpy) Telemetry(string, string, engineagents.Telemetry) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.telemetry++
+}
+
+// recorderFixture is a Recorder over a real ledger and the shipped descriptor
+// of provider, recording for runner run-1, the chat's live runner.
+type recorderFixture struct {
+	r       *Recorder
+	ledger  *ledgerstore.Store
+	agents  engineagents.Agents
+	agent   engineagents.Agent
+	runner  engineagents.Runner
+	runners *recorderRunners
+	titles  *recordedTitles
+	answers *answerdesk.Desk
+	feed    *feedSpy
+	blobs   *ledgerstore.Blobs
+	blobDir string
+	db      *gorm.DB
+}
+
+func newRecorderFixture(t *testing.T, provider string) *recorderFixture {
+	t.Helper()
+	home := t.TempDir()
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	store, err := ledgerstore.Open(t.Context(), db, time.Now)
+	require.NoError(t, err)
+	blobDir := t.TempDir()
+	blobs, err := ledgerstore.OpenBlobs(blobDir)
+	require.NoError(t, err)
+	agents := engineagents.New()
+	agent, err := agents.Get(t.Context(), home, provider)
+	require.NoError(t, err)
+	f := &recorderFixture{
+		ledger: store, agents: agents, agent: agent, runners: &recorderRunners{}, titles: &recordedTitles{},
+		answers: answerdesk.New(time.Minute, noLedger{}), feed: &feedSpy{}, blobs: blobs, blobDir: blobDir, db: db,
+		runner: engineagents.Runner{ID: "run-1", ProviderID: provider, WorkspaceID: "ws-1", CurrentChatID: testChat},
+	}
+	f.r = NewRecorder(RecorderDeps{
+		Chats: fakeChats{}, Agents: agents, Workspace: fakeWorkspace{home: home, worktree: testWorktree},
+		Home: func() (string, error) { return home, nil }, Ledger: store, Blobs: blobs,
+		Telemetry: telemetry.NewDurable(context.Background(), nil), Answers: f.answers, Titles: f.titles, Frames: f.feed,
+	})
+	f.r.SetRunners(f.runners)
+	_, _, err = store.Append(t.Context(), testChat,
+		row(t, ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "run-1", Provider: provider}))
+	require.NoError(t, err)
+	return f
+}
+
+func (f *recorderFixture) dispatch(t *testing.T, ev engineagents.CanonicalEvent) ([]byte, string, error) {
+	t.Helper()
+	return f.r.Dispatch(t.Context(), f.runner, f.agent, ev, []byte(`{}`), engineagents.ChannelHooks)
+}
+
+func (f *recorderFixture) rows(t *testing.T) []ledger.Row {
+	t.Helper()
+	rows, err := f.ledger.Read(t.Context(), testChat, 0, 0)
+	require.NoError(t, err)
+	return rows
+}
+
+func (f *recorderFixture) state(t *testing.T) ledger.State {
+	t.Helper()
+	st, err := f.ledger.State(t.Context(), testChat)
+	require.NoError(t, err)
+	return st
+}
+
+// said is what rows say the agent said, message by message.
+func said(rows []ledger.Row) []string {
+	var fold ledger.MessageFold
+	for _, r := range rows {
+		fold.Apply(r)
+	}
+	var out []string
+	for _, m := range fold.Messages() {
+		out = append(out, m.Text)
+	}
+	return out
+}
+
+func TestRecorder_APromptOpensATurnAndTitlesTheChat(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "\n  fix the build\nplease"})
+
+	require.NoError(t, err)
+	turn, running := f.state(t).RunningTurn()
+	require.True(t, running)
+	assert.Equal(t, "run-1", turn.RunnerID)
+	assert.Equal(t, []string{"fix the build"}, f.titles.titles, "a title the chat's words derive, best-effort")
+}
+
+// Crowbar's own injected context is nobody's words: its echo opens the turn and
+// says nothing.
+func TestRecorder_AnInjectedEchoSaysNothing(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	f.agents.RecordInjection("run-1", "handoff blob")
+
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "handoff blob"})
+
+	require.NoError(t, err)
+	assert.Equal(t, []ledger.Kind{ledger.KindRunnerStarted, ledger.KindTurnStarted}, kinds(f.rows(t)))
+	assert.Empty(t, f.titles.titles)
+}
+
+func TestRecorder_AHookOfAChatGoneIsRefused(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	ev := engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "x"}
+
+	nowhere := f.runner
+	nowhere.CurrentChatID = ""
+	_, _, err := f.r.Dispatch(t.Context(), nowhere, f.agent, ev, nil, engineagents.ChannelHooks)
+	require.ErrorIs(t, err, problem.ErrNotFound)
+
+	deleted := f.runner
+	deleted.CurrentChatID = "chat-deleted"
+	_, _, err = f.r.Dispatch(t.Context(), deleted, f.agent, ev, nil, engineagents.ChannelHooks)
+	require.ErrorIs(t, err, problem.ErrNotFound)
+
+	f.r.chats = fakeChats{err: errors.New("disk")}
+	_, _, err = f.dispatch(t, ev)
+	require.ErrorContains(t, err, "disk")
+}
+
+func TestRecorder_SessionEventsAreTheRunnersNotTheLedgers(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookSessionStart, SessionID: "s-1"})
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookSessionEnd})
+	require.NoError(t, err)
+
+	require.Len(t, f.runners.started, 1)
+	assert.Len(t, f.rows(t), 1)
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookTelemetry})
+	require.ErrorIs(t, err, seam.ErrHookNotRecorded)
+}
+
+// An event of a session the chat is not bound to is foreign, unless it is a
+// nested conversation the chat's agent opened.
+func TestRecorder_AnotherSessionsEventIsForeignUnlessNested(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	bound, err := ledger.Announce(f.state(t), "claude", "main", "")
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), testChat, bound...)
+	require.NoError(t, err)
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "stranger",
+		Tool: &engineagents.ToolEvent{ID: "t1", Name: "Bash"},
+	})
+	require.ErrorIs(t, err, engineagents.ErrForeignConversation)
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, SessionID: "main", Message: "go"})
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPost, SessionID: "main",
+		Tool: &engineagents.ToolEvent{ID: "spawn", Name: "Agent", Kind: ledger.ToolKindSubagent, SpawnsScope: "child"},
+	})
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "child",
+		Tool: &engineagents.ToolEvent{ID: "t1", Name: "Bash"},
+	})
+	require.NoError(t, err)
+
+	rows := f.rows(t)
+	assert.Equal(t, "child", rows[len(rows)-1].Scope)
+}
+
+// A runner past its exit still says what it said, in its own turn; it moves
+// the chat onto no session.
+func TestRecorder_AnExitedRunnersLastWordsAreItsTurns(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	exit, err := ledger.Exit(f.state(t), ledger.RunnerExited{RunnerID: "run-1", Reason: "exited"}, "exited")
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), testChat, exit...)
+	require.NoError(t, err)
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "the last word"})
+	require.NoError(t, err)
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookSessionStart, SessionID: "s-late"})
+
+	require.ErrorIs(t, err, seam.ErrHookNotRecorded)
+	assert.Empty(t, f.runners.started)
+	assert.Equal(t, []string{"the last word"}, said(f.rows(t)))
+}
+
+func TestRecorder_AHeldAskIsParkedOnTheDesk(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+
+	_, ask, err := f.dispatch(t, engineagents.CanonicalEvent{
+		Kind:   engineagents.HookPermission,
+		Choice: &engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"},
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, ask)
+	held := f.answers.Holds(ask)
+	assert.True(t, held)
+}
+
+// An api ask too big for the desk is refused to its CLI at once, so it is
+// recorded refused, never left a card nobody can answer; its input is kept cut.
+func TestRegression_AnOversizeAPIAskIsRecordedRefusedNotLeftPending(t *testing.T) {
+	f := newRecorderFixture(t, "codex")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	input := `{"command":"` + strings.Repeat("x", answerdesk.MaxPayloadBytes) + `"}`
+	ev := engineagents.CanonicalEvent{Kind: engineagents.HookPermission, Choice: &engineagents.ChoicePrompt{
+		Kind: "tool_permission", ToolName: "commandExecution", ToolInput: []byte(input),
+	}}
+
+	_, ask, err := f.r.Dispatch(t.Context(), f.runner, f.agent, ev, []byte(input), engineagents.ChannelAPI)
+
+	require.NoError(t, err)
+	assert.Empty(t, ask, "nothing holds it")
+	var open []string
+	for _, p := range f.state(t).PendingAsks() {
+		open = append(open, p.AskID)
+	}
+	assert.Empty(t, open, "no card waits on an answer its CLI was refused")
+	rows := f.rows(t)
+	require.Equal(t, []ledger.Kind{ledger.KindAsk, ledger.KindAskResolved}, kinds(rows[len(rows)-2:]))
+	assert.Equal(t, ledger.ResolutionRefused, bodyOf[ledger.AskResolved](t, rows[len(rows)-1]).Resolution)
+	assert.True(t, bodyOf[ledger.Ask](t, rows[len(rows)-2]).ToolInputTruncated, "its input is cut, not dropped")
+}
+
+// A turn's end on a runner whose own end is under way is recorded unheld: it
+// hands no steer over.
+func TestRecorder_AnEndOnAnEndingRunnerIsRecordedUnheld(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
+	require.NoError(t, err)
+	f.runners.ending = true
+
+	_, _, err = f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "done"})
+
+	require.NoError(t, err)
+	_, running := f.state(t).RunningTurn()
+	assert.False(t, running)
+}
+
+func TestRecorder_AManualCompactionIsMarkedAsAsked(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	f.r.ArmManualCompaction(testChat)
+
+	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookCompactPre})
+
+	require.NoError(t, err)
+	rows := f.rows(t)
+	assert.Equal(t, "manual", bodyOf[ledger.Marker](t, rows[len(rows)-1]).Detail)
+}
+
+func TestRecorder_TelemetryIsHeldAndPushed(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+
+	require.NoError(t, f.r.RecordTelemetry(t.Context(), f.runner, f.agent, []byte(`{}`)), "an empty report is no report")
+	_, ok := f.r.Telemetry(testChat)
+	assert.False(t, ok)
+
+	require.NoError(t, f.r.RecordTelemetry(t.Context(), f.runner, f.agent,
+		[]byte(`{"context_window":{"context_window_size":200000,"used_percentage":19},"model":{"id":"m","display_name":"M"}}`)))
+	_, ok = f.r.Telemetry(testChat)
+	assert.True(t, ok)
+	assert.Equal(t, 1, f.feed.telemetry)
+
+	err := f.r.RecordTelemetry(t.Context(), f.runner, f.agent, []byte(`not json`))
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
+	gone := f.runner
+	gone.CurrentChatID = ""
+	require.ErrorIs(t, f.r.RecordTelemetry(t.Context(), gone, f.agent, []byte(`{}`)), problem.ErrNotFound)
+}
+
+func TestRecorder_DescriptorIsTheRunnersProviders(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+
+	agent, err := f.r.Descriptor(t.Context(), f.runner)
+	require.NoError(t, err)
+	assert.NotNil(t, agent)
+
+	unknown := f.runner
+	unknown.ProviderID = "no-such-provider"
+	_, err = f.r.Descriptor(t.Context(), unknown)
+	require.Error(t, err)
+
+	f.r.ws = fakeWorkspace{err: errors.New("no workspace")}
+	_, err = f.r.Descriptor(t.Context(), f.runner)
+	require.ErrorContains(t, err, "no workspace")
+}
+
+func TestDeriveTitle_IsThePromptsFirstLine(t *testing.T) {
+	assert.Equal(t, "first", deriveTitle("\n  \n first \nsecond"))
+	assert.Empty(t, deriveTitle(" \n "))
+	long := "a very long first line that runs well past the sixty characters a title may hold"
+	assert.Equal(t, "a very long first line that runs well past the sixty charact…", deriveTitle(long))
+}
+
+// Every event of the hook vocabulary is one Map decides rows for, or one the
+// dispatcher handles without the mapper; none falls between the two.
+func TestRecords_EveryHookEventIsMappedOrHandledElsewhere(t *testing.T) {
+	notMapped := []string{engineagents.HookSessionStart, engineagents.HookSessionEnd, engineagents.HookTelemetry}
+	vocabulary := hookVocabulary(t)
+	require.Subset(t, vocabulary, notMapped)
+
+	for _, kind := range vocabulary {
+		assert.Equal(t, !slices.Contains(notMapped, kind), records(kind), kind)
+	}
+	for kind := range mappers {
+		assert.Contains(t, vocabulary, kind, "the mapper decides rows for a known event")
+	}
+}
+
+// hookVocabulary reads the Hook constants from their declaring file: Go has no
+// runtime list of a package's constants, and a copied list would not grow with them.
+func hookVocabulary(t *testing.T) []string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "../../../../../engine/agents/internal/spec/hooks.go", nil, 0)
+	require.NoError(t, err)
+	var out []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok || !strings.HasPrefix(spec.Names[0].Name, "Hook") {
+			return true
+		}
+		lit, ok := spec.Values[0].(*ast.BasicLit)
+		require.True(t, ok, spec.Names[0].Name)
+		value, err := strconv.Unquote(lit.Value)
+		require.NoError(t, err)
+		out = append(out, value)
+		return false
+	})
+	require.NotEmpty(t, out)
+	return out
+}
+
+// noLedger takes every outcome the desk writes back and keeps none.
+type noLedger struct{}
+
+func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }

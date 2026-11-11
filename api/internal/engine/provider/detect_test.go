@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,7 +20,7 @@ func TestHelperProcess(t *testing.T) {
 		return
 	}
 	args := os.Args
-	fmt.Fprint(os.Stdout, args[len(args)-2])
+	_, _ = fmt.Fprint(os.Stdout, args[len(args)-2])
 	if args[len(args)-1] != "0" {
 		os.Exit(1)
 	}
@@ -36,13 +37,10 @@ func detectFakeCmd(
 		name string,
 		args ...string,
 	) *exec.Cmd {
-		exitStr := "0"
-		if exitCode != 0 {
-			exitStr = fmt.Sprintf("%d", exitCode)
-		}
-		cs := []string{"-test.run=TestHelperProcess", "--", output, exitStr}
+		cs := []string{"-test.run=TestHelperProcess", "--", output, fmt.Sprint(exitCode)}
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		// A coverage build exits warning on stderr without GOCOVERDIR; share the parent's.
+		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "GOCOVERDIR=" + flag.Lookup("test.gocoverdir").Value.String()}
 		return cmd
 	}
 }

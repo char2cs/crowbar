@@ -8,11 +8,9 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// Detection and protected-branch lists change on human timescales (a login, a
-// remote edit, a branch-protection rule), yet every poll tick used to re-derive
-// them: a `git remote get-url` fork, a `gh auth status` network round-trip and a
-// paginated branches API call per workspace per minute. Caching them per repo
-// leaves one PR lookup per tick.
+// Detection and protected-branch lists change on human timescales, so they are cached
+// per repo rather than re-derived (a fork, an auth round-trip, a paginated API call) on
+// every poll tick, which then costs one PR lookup.
 const (
 	detectTTL         = 5 * time.Minute
 	detectMissTTL     = time.Minute // a fresh `gh auth login` is picked up quickly
@@ -25,10 +23,8 @@ type ttlEntry[V any] struct {
 	expires time.Time
 }
 
-// ttlCache is a small per-key cache with expiry and a hard size cap. Keys name
-// repos (paths, git dirs, remotes), so the working set is tiny; on overflow
-// expired entries go first, then the whole map is reset rather than tracking
-// recency.
+// ttlCache is a small per-key cache with expiry and a hard size cap. Keys name repos, so
+// the working set is tiny: on overflow expired entries go, then the whole map resets.
 type ttlCache[V any] struct {
 	mu     sync.Mutex
 	now    func() time.Time
@@ -106,10 +102,9 @@ func (c *ttlCache[V]) evictLocked(now time.Time) {
 	}
 }
 
-// cachedDetect wraps a detect function with a TTL cache keyed by repository:
-// every worktree of a repo shares one origin, so one answer, and concurrent
-// misses share one detection. Errors are not cached; an unauthenticated or
-// provider-less result is, but briefly.
+// cachedDetect wraps detect with a per-repo TTL cache (worktrees share an origin), and
+// concurrent misses share one detection. Errors are not cached; unauthenticated or
+// provider-less results are, briefly.
 func cachedDetect(
 	detect func(ctx context.Context, repoPath string) (DetectResult, error),
 	now func() time.Time,

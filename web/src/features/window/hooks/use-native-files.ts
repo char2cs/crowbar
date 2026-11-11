@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { useStore } from 'zustand'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { workspaceRef } from '@/lib/api/documents'
 import { useFilteredFileTree } from '@/features/file-explorer/file-explorer/hooks/use-filtered-file-tree'
 import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
@@ -12,6 +13,7 @@ import { preloadEditorFor } from '@/features/panes/lib/editor-surface-loader'
 import { useChatBranchHeaderModel } from '@/features/tabs/hooks/use-chat-branch-header-model'
 import { isImageUrl, projectIconUrl } from '@/features/window/hooks/use-native-sidebar'
 import { useIconDataUris } from '@/lib/icon-data-uri'
+import { report } from '@/lib/errors/report'
 import { useSettingsStore } from '@/features/settings/store'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
@@ -86,10 +88,8 @@ function useActiveFilePath(): string | null {
   return getExplorerTargetPath(buffer) ?? null
 }
 
-/**
- * Feeds the phone's file drawer with `wsId`'s tree, filtered and git-marked as the desktop
- * explorer draws it, and carries out what the drawer asks: fold a folder, open a file, close.
- */
+/** Feeds the phone's file drawer `wsId`'s tree, filtered and git-marked like the desktop explorer,
+ *  and carries out its asks: fold a folder, open a file, close. */
 export function useNativeFiles(wsId: string, chatId: string) {
   const header = useDrawerHeader(chatId, wsId)
   const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)
@@ -134,8 +134,10 @@ export function useNativeFiles(wsId: string, chatId: string) {
         // The IDE stays behind the drawer until the file's tab exists and its editor is loaded,
         // so the pane is never seen empty or blank while it loads.
         void Promise.all([
-          openWorkspaceFile(wsId, intent.path, { preview: true, paneId }),
-          preloadEditorFor(intent.path).catch(() => undefined),
+          openDocument(workspaceRef(wsId, intent.path), { preview: true, paneId }),
+          preloadEditorFor(intent.path).catch((err: unknown) =>
+            report(err, { action: 'Load the editor' }),
+          ),
         ]).then(close)
       }
     })

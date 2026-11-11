@@ -118,6 +118,6 @@
   },
   "overrides": {
     "lodash-es": "^4.17.21",
-    "dompurify": ">=3.4.11"
+    "dompurify": ">=3.4.17"
   }
 }

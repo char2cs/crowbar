@@ -11,14 +11,8 @@ import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import NumberInput from '@/components/ui/number-input'
 import { Switch } from '@/components/ui/switch'
 import Section, { SettingRow } from '../settings-section'
+import { SettingSelect } from '@/features/settings/components/setting-select'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select'
 import { cn } from '@/utils/cn'
 import { FontSelector } from '../font-selector'
 import type { TabListScope, Theme, ThemeMode } from '@/features/settings/types/settings'
@@ -95,24 +89,14 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting('theme', getDefaultSetting('theme'))}
           canReset={settings.theme !== getDefaultSetting('theme')}
         >
-          <Select
-            items={normalizedThemeOptions}
+          <SettingSelect
+            options={normalizedThemeOptions}
             value={settings.theme}
+            width="wide"
             onValueChange={(value) => {
               if (value) updateSetting('theme', value as Theme)
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.wide}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {normalizedThemeOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
 
         <SettingRow
@@ -121,24 +105,14 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting('themeMode', getDefaultSetting('themeMode'))}
           canReset={settings.themeMode !== getDefaultSetting('themeMode')}
         >
-          <Select
-            items={THEME_MODE_OPTIONS}
+          <SettingSelect
+            options={THEME_MODE_OPTIONS}
             value={settings.themeMode}
+            width="wide"
             onValueChange={(value) => {
               if (value) updateSetting('themeMode', value as ThemeMode)
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.wide}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {THEME_MODE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
       </Section>
 
@@ -149,24 +123,14 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting('iconTheme', getDefaultSetting('iconTheme'))}
           canReset={settings.iconTheme !== getDefaultSetting('iconTheme')}
         >
-          <Select
-            items={normalizedIconThemeOptions}
+          <SettingSelect
+            options={normalizedIconThemeOptions}
             value={settings.iconTheme}
+            width="wide"
             onValueChange={(value) => {
               if (value) updateSetting('iconTheme', value)
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.wide}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {normalizedIconThemeOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
       </Section>
 
@@ -227,24 +191,14 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting('sidebarPosition', getDefaultSetting('sidebarPosition'))}
           canReset={settings.sidebarPosition !== getDefaultSetting('sidebarPosition')}
         >
-          <Select
-            items={SIDEBAR_POSITION_OPTIONS}
+          <SettingSelect
+            options={SIDEBAR_POSITION_OPTIONS}
             value={settings.sidebarPosition}
+            width="compact"
             onValueChange={(value) => {
               if (value) updateSetting('sidebarPosition', value as 'left' | 'right')
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.compact}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SIDEBAR_POSITION_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
         <SettingRow
           label="Tab list"
@@ -252,24 +206,14 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting('tabListScope', getDefaultSetting('tabListScope'))}
           canReset={settings.tabListScope !== getDefaultSetting('tabListScope')}
         >
-          <Select
-            items={TAB_LIST_SCOPE_OPTIONS}
+          <SettingSelect
+            options={TAB_LIST_SCOPE_OPTIONS}
             value={settings.tabListScope}
+            width="compact"
             onValueChange={(value) => {
               if (value) updateSetting('tabListScope', value as TabListScope)
             }}
-          >
-            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.compact}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TAB_LIST_SCOPE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </SettingRow>
         <SettingRow
           label="Sidebar follows focus"
@@ -288,12 +232,12 @@ export const AppearanceSettings = () => {
         <SettingRow
           label="Build readout"
           description="Show the build, daemon connection, frame rate and open terminal, agent and workspace counts at the foot of the sidebar, or in the tab strip while it is hidden"
-          onReset={() => updateSetting('showBuildReadout', getDefaultSetting('showBuildReadout'))}
-          canReset={settings.showBuildReadout !== getDefaultSetting('showBuildReadout')}
+          onReset={() => updateSetting('buildReadout', getDefaultSetting('buildReadout'))}
+          canReset={settings.buildReadout !== getDefaultSetting('buildReadout')}
         >
           <Switch
-            checked={settings.showBuildReadout}
-            onChange={(checked) => updateSetting('showBuildReadout', checked)}
+            checked={settings.buildReadout}
+            onChange={(checked) => updateSetting('buildReadout', checked)}
             size="sm"
           />
         </SettingRow>

@@ -14,8 +14,7 @@ func (h *Handlers) GetDefaultPermissionLevel(
 ) {
 	level, err := h.providers.DefaultPermissionLevel(ctx.Request.Context())
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, gin.H{"level": level})
@@ -34,8 +33,7 @@ func (h *Handlers) PutDefaultPermissionLevel(
 	}
 	err := h.providers.SetDefaultPermissionLevel(ctx.Request.Context(), body.Level)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, gin.H{"level": body.Level})

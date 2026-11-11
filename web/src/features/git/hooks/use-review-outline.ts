@@ -10,27 +10,12 @@ export interface UseReviewOutlineResult {
   loaded: boolean
 }
 
-// Stable-empty rule: one module-level empty array kept referentially stable
-// across renders and workspaces, so a selector returning it never looks like a
-// new value (see use-review-files-summary.ts).
+// One module-level empty array, so an empty outline never looks like a new value.
 const EMPTY_OUTLINE: FileOutline[] = []
 
-/**
- * Fetches the branch-review outline: per-file hunk GEOMETRY, no line content.
- *
- * This is what lets the review surface reserve correct scroll space for every
- * changed file before fetching a single patch. It is O(hunks) — 2.28MB raw but
- * 27KB gzipped on a 1M-line branch — where the old composite it replaces was
- * 158MB of per-line JSON.
- *
- * Deliberately NOT part of first paint: the file list renders from the summary,
- * and heights sharpen when this lands. Passing a null wsId disables fetching.
- *
- * `commit` scopes the outline to one commit instead of the branch. A
- * commit-scoped outline describes two immutable trees, so it also drops the
- * status-change refetch: nothing the working tree does can change it,
- * and refetching on every keystroke in a terminal would be pure waste.
- */
+/** The outline (hunk geometry, O(hunks)) that sizes every file before a patch is fetched. Not
+ *  first paint: the summary renders and heights sharpen when it lands. A `commit` outline is of
+ *  immutable trees, so it skips status refetches; a null wsId fetches nothing. */
 export function useReviewOutline(wsId: string | null, commit?: string): UseReviewOutlineResult {
   const [outline, setOutline] = useState<FileOutline[]>(EMPTY_OUTLINE)
   const [loaded, setLoaded] = useState(false)
@@ -46,15 +31,8 @@ export function useReviewOutline(wsId: string | null, commit?: string): UseRevie
     setLoaded(false)
   }
 
-  // reviewBaseForWorkspace(wsId) — which getReviewOutline resolves through —
-  // throws without a recorded owning chat id. The sidebar's chat-list fetch
-  // that records one races WorkspaceView's own (often faster) hydration, so on
-  // a workspace that just activated this can still be null; firing anyway used
-  // to hit the throw, land in the catch below, and leave the outline empty
-  // until an unrelated git status change happened to retry it.
-  // Subscribing makes the id a piece of React state so the effect re-runs the
-  // moment the sidebar records one — same fix as useWorkspaceEffects'
-  // useOwningChatId.
+  // getReviewOutline throws until the owning chat id is recorded, which can trail activation;
+  // subscribing re-runs the effect when it lands instead of failing silently until a git tick.
   const owningChatId = useSyncExternalStore(
     (onChange) => (wsId ? subscribeToWorkspaceScope(wsId, onChange) : () => {}),
     () => (wsId ? getOwningChatId(wsId) : null),
@@ -77,9 +55,7 @@ export function useReviewOutline(wsId: string | null, commit?: string): UseRevie
         setOutline(next)
         setLoaded(true)
       } catch {
-        // The pane must not blank on an outline failure: the summary alone
-        // still renders every file, just with estimated rather than exact
-        // heights. A later tick can succeed.
+        return // polled: the summary still renders every file at estimated heights
       }
     }
 

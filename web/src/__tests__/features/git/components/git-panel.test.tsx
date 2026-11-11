@@ -12,7 +12,9 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import type { BranchReviewContent } from '@/features/panes/types/pane-content'
-import { getInitialState, useSidebarStore, type Workspace } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import {
@@ -111,7 +113,8 @@ beforeEach(() => {
   }
   vi.clearAllMocks()
   resetWindowPaneStoreForTests()
-  useSidebarStore.setState({ ...getInitialState(), activeTab: 'git' })
+  resetEntities()
+  treeUiStore.setState({ activeTab: 'git' })
   publishFocusedWorkspaceContext(REPO_CTX)
 })
 
@@ -155,7 +158,7 @@ describe('GitPanel', () => {
     }
 
     it('stays inert while another sidebar mode is shown', () => {
-      useSidebarStore.setState({ activeTab: 'chats' })
+      treeUiStore.setState({ activeTab: 'chats' })
       const load = watchLoad([diff('a.ts')])
       render(<GitPanel />)
       expect(load).not.toHaveBeenCalled()
@@ -193,19 +196,13 @@ describe('GitPanel', () => {
     expect(screen.queryByRole('region', { name: 'Merge' })).not.toBeInTheDocument()
     cleanup()
 
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'repo1',
-          name: 'repo1',
-          avatarLabel: 'R',
-          avatarColor: 'bg-indigo-700',
-          workspaces: [
-            { id: 'ws-active', branch: 'epoch/first-pr', parentBranch: 'develop', age: '' },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        id: 'repo1',
+        projectId: 'proj1',
+        workspaces: [{ id: 'ws-active', branch: 'epoch/first-pr', parentBranch: 'develop' }],
+      } as unknown as Repo,
+    ])
     render(<GitPanel />)
     const card = screen.getByRole('region', { name: 'Merge' })
     const branch = screen.getByText('epoch/first-pr')
@@ -213,27 +210,36 @@ describe('GitPanel', () => {
     expect(screen.getByText('Merge into develop')).toBeInTheDocument()
   })
 
+  // A worktree git cannot read (its repo moved or vanished) is no clean branch to merge.
+  it("says git can't read the workspace, with no merge and no empty change list", () => {
+    const store = seedWorkspace('ws-active')
+    store.setState({ gitStatusError: 'fatal: not a git repository: /gone/.git/worktrees/w1' })
+    seedRepos([
+      {
+        id: 'repo1',
+        projectId: 'proj1',
+        workspaces: [{ id: 'ws-active', branch: 'feature/write', parentBranch: 'main' }],
+      } as unknown as Repo,
+    ])
+    render(<GitPanel />)
+
+    expect(screen.getByText("Git can't read this workspace")).toBeInTheDocument()
+    expect(screen.getByText(/not a git repository: \/gone/)).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Merge' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Changed/)).not.toBeInTheDocument()
+  })
+
   it('shows the branch card with its parent', () => {
     seedWorkspace('ws-active', { gitStatus: status({ branch: 'epoch/first-pr' }) })
-    useSidebarStore.setState({
-      repos: [
-        {
-          id: 'repo1',
-          name: 'repo1',
-          avatarLabel: 'R',
-          avatarColor: 'bg-indigo-700',
-          workspaces: [
-            {
-              id: 'ws-active',
-              branch: 'epoch/first-pr',
-              parentBranch: 'develop',
-              status: 'new',
-              age: '',
-            } as Workspace,
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        id: 'repo1',
+        projectId: 'proj1',
+        workspaces: [
+          { id: 'ws-active', branch: 'epoch/first-pr', parentBranch: 'develop', status: 'new' },
+        ],
+      } as unknown as Repo,
+    ])
     render(<GitPanel />)
     expect(screen.getByText('epoch/first-pr')).toBeInTheDocument()
     expect(screen.getByText('develop')).toBeInTheDocument()

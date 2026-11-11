@@ -2,17 +2,15 @@ package answerdesk
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Decide turns the options a person picked into the decision a provider can be
-// asked to render.
-//
-// The picked options must be of ONE kind: a decision that both allows and denies
-// is not a decision, and no provider's answer format can express it.
+// Decide turns the options a person picked into a decision a provider can render. The options must be
+// of one kind: no provider's answer format can express a decision that both allows and denies.
 func Decide(
 	choice domain.ActivityChoice,
 	optionIDs []string,
@@ -21,13 +19,13 @@ func Decide(
 ) (engineagents.AnswerDecision, error) {
 	if len(optionIDs) == 0 {
 		return engineagents.AnswerDecision{}, fmt.Errorf(
-			"%w: an answer must name at least one option", apperr.ErrInvalidArgument,
+			"%w: an answer must name at least one option", problem.ErrInvalidArgument,
 		)
 	}
 	decision := engineagents.AnswerDecision{Reason: reason, Content: content}
 	answers, err := choice.ResolvePicks(optionIDs)
 	if err != nil {
-		return engineagents.AnswerDecision{}, fmt.Errorf("%w: %w", apperr.ErrInvalidArgument, err)
+		return engineagents.AnswerDecision{}, fmt.Errorf("%w: %w", problem.ErrInvalidArgument, err)
 	}
 	if len(answers) == 0 {
 		decision.Key = optionIDs[0]
@@ -39,6 +37,15 @@ func Decide(
 		return engineagents.AnswerDecision{}, err
 	}
 	decision.Key = key
+	// A provider reads a deny with no message as its own hook's refusal, and a bare
+	// reason as tool output it should not trust: both must read as the person's.
+	if key == domain.ChoiceOptionDeny {
+		said := strings.TrimSpace(decision.Reason)
+		decision.Reason = strings.TrimSuffix("The user denied this request and said: "+said, " and said: ")
+	}
+	if key == domain.ChoiceOptionSuggestion {
+		decision.Picked = optionIDs
+	}
 	if key == domain.ChoiceOptionAnswer {
 		decision.Answers = answersByQuestion(answers)
 	}
@@ -60,7 +67,7 @@ func decisionKey(answers []domain.ChoiceAnswer) (string, error) {
 		for _, option := range answer.Picked {
 			if key != "" && key != option.Kind {
 				return "", fmt.Errorf(
-					"%w: an answer must pick options of one kind", apperr.ErrInvalidArgument,
+					"%w: an answer must pick options of one kind", problem.ErrInvalidArgument,
 				)
 			}
 			key = option.Kind

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -21,7 +22,7 @@ func newRootCmd() *cobra.Command {
 		Use:   "crowbar",
 		Short: "Crowbar — self-improving agentic development platform",
 	}
-	root.AddCommand(newServeCmd(), newVersionCmd(), newHookCmd(), newHandoffCmd(), newMCPCmd(), newDescriptorCmd(), newPairCmd())
+	root.AddCommand(newServeCmd(), newVersionCmd(), newHandoffCmd(), newMCPCmd(), newDescriptorCmd(), newPathsCmd(), newMigrateCmd(), newPairCmd())
 	return root
 }
 
@@ -30,6 +31,8 @@ func newServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the Crowbar daemon",
+		// A failed start is the home or the host, never a mistyped flag.
+		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runServe(host)
 		},
@@ -56,26 +59,43 @@ func runServe(
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// Apply the user's login-shell PATH process-wide BEFORE anything execs
-	// external tools or spawns PTYs. A daemon launched by macOS launchd (the
-	// packaged .app) inherits a minimal PATH without Homebrew/npm/go dirs —
-	// without this, gh/glab, language servers and terminal children all see a
-	// crippled environment. Degrades to the inherited PATH on failure.
+	// Apply the login-shell PATH before anything execs tools or spawns PTYs: a daemon
+	// launched by launchd inherits a minimal PATH. Degrades to the inherited PATH.
 	shellenv.ApplyLoginShellPath(ctx)
 
 	staticFS, err := embeddedStaticFS()
 	if err != nil {
 		return err
 	}
+	return serve(ctx, host, staticFS, internal.WithLogRing(installLogRing()))
+}
 
-	container, err := internal.New(ctx, host, staticFS, internal.WithLogRing(installLogRing()))
+// serve runs the daemon until ctx is done. A halted daemon runs too, serving
+// only its health route, so its supervisor reads why instead of respawning it.
+func serve(
+	ctx context.Context,
+	host string,
+	staticFS fs.FS,
+	options ...internal.Option,
+) error {
+	container, err := internal.New(ctx, host, staticFS, options...)
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		// Stopped mid-migration: the next boot resumes the run, so this is no failed
+		// start. The error is kept: it carries any teardown failure joined to ctx's.
+		slog.Warn("daemon: boot interrupted", "component", "daemon", "err", err)
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("failed to start: %w", err)
 	}
-	defer container.Close()
+	defer container.Close() //nolint:contextcheck // teardown runs after ctx is cancelled; it must not inherit that cancellation
 
 	slog.Info("daemon: listening", "component", "daemon", "version", metadata.GetVersion(),
-		"host", host, "pid", os.Getpid(), "home", metadata.GetHomePath())
+		"host", host, "address", container.Address(), "pid", os.Getpid(), "home", container.Home())
+	if halt := container.Halt(); halt != nil {
+		slog.Error("daemon: halted", "component", "daemon", "reason", string(halt.Reason),
+			"message", halt.Message, "ledger", halt.Ledger, "backup", halt.Backup)
+	}
 	return container.Run(ctx)
 }
 

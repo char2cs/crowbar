@@ -1,11 +1,7 @@
 type Platform = 'macos' | 'windows' | 'linux' | 'ios'
 
-/**
- * Single source of truth for platform detection.
- * Falls back to a sensible default when evaluated outside a browser/webview
- * (for example during unit tests in node) so modules that transitively import
- * from platform can still load without a window reference.
- */
+// Single source of truth for platform detection; falls back outside a browser (node tests) so
+// modules importing this still load without `window`.
 function detectPlatform(): Platform {
   if (typeof window === 'undefined') {
     if (typeof process !== 'undefined' && process.platform) {
@@ -38,10 +34,7 @@ export const IS_MOBILE: boolean = currentPlatform === 'ios'
 /** Command is the primary modifier, shown as ⌘⇧⌥: a Mac, and an iPhone's hardware keyboard. */
 export const APPLE_KEYBOARD: boolean = IS_MAC || IS_MOBILE
 
-/**
- * Normalize key combination for current platform.
- * Converts 'cmd' to 'ctrl' where Command is not the primary modifier.
- */
+/** 'cmd' becomes 'ctrl' where Command is not the primary modifier. */
 export function normalizeKey(key: string): string {
   if (APPLE_KEYBOARD) return key
   return key.replace(/\bcmd\b/gi, 'ctrl')

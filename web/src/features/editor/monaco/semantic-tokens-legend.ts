@@ -1,16 +1,10 @@
-/**
- * The one semantic-token legend every provider speaks — the LSP tier (the
- * daemon rewrites each server's legend into it) and the shiki grammar tier —
- * plus how each type is colored. Pure: no DOM, no Monaco.
- */
+// The one semantic-token legend every provider speaks (the LSP tier, whose legends the daemon
+// rewrites into it, and the shiki tier), plus how each type is colored. Pure: no DOM, no Monaco.
 import type { SyntaxTokenKey } from '@/features/editor/theme/resolve-css-color'
 import type { ShikiToken } from './shiki-tokens'
 
-/**
- * Mirrors `semtok.TokenTypes` in the daemon (api/internal/engine/lsp/internal/
- * semtok) index for index: the LSP 3.18 standard types plus tag/attribute.
- * Both sides pin this list in a test.
- */
+/** Mirrors the daemon's `semtok.TokenTypes` index for index (LSP 3.18 standard types plus
+ *  tag/attribute); both sides pin the list in a test. */
 const SEMANTIC_TOKEN_TYPES = [
   'namespace',
   'type',
@@ -90,10 +84,8 @@ const TYPE_PALETTE: Record<SemanticTokenType, SyntaxTokenKey> = {
   attribute: 'attribute',
 }
 
-/**
- * Theme-rule selectors for the legend: Monaco styles a semantic token by
- * matching "type.modifier…" against theme rules by longest dotted prefix.
- */
+/** Theme-rule selectors for the legend: Monaco matches a token's "type.modifier…" against theme
+ *  rules by longest dotted prefix. */
 export const SEMANTIC_TOKEN_RULES: ReadonlyArray<[selector: string, key: SyntaxTokenKey]> = [
   ...SEMANTIC_TOKEN_TYPES.map((type): [string, SyntaxTokenKey] => [type, TYPE_PALETTE[type]]),
   ['variable.readonly', 'constant'],
@@ -118,11 +110,9 @@ const SHIKI_ENCODING: Record<ShikiToken['category'], [number, number]> = {
   operator: [typeIndex('operator'), 0],
 }
 
-/**
- * Encode shiki tokens to Monaco's semantic-tokens array: 5 ints per token
- * [deltaLine, deltaStartChar, length, typeIndex, modifierSet], each relative to
- * the previous token. Tokens must be ordered by position and non-overlapping.
- */
+/** Encode shiki tokens as Monaco's semantic-tokens array: 5 ints per token [deltaLine,
+ *  deltaStartChar, length, typeIndex, modifierSet], relative to the previous one. Tokens must be
+ *  ordered by position and non-overlapping. */
 export function encodeShikiTokens(tokens: readonly ShikiToken[]): Uint32Array {
   const data = new Uint32Array(tokens.length * 5)
   let prevRow = 0

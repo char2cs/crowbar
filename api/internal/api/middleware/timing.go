@@ -12,27 +12,9 @@ import (
 
 const serverTimingHeader = "Server-Timing"
 
-// Timing records per-request wall time into the perf ring and echoes it as a
-// Server-Timing header, so a capture run can attribute latency from either side
-// of the socket without correlating two clocks.
-//
-// The sample name uses gin's route TEMPLATE (c.FullPath()), not the concrete
-// URL: every workspace hits the same handler under a different :wsId, and
-// bucketing by concrete path would shatter one hot endpoint into hundreds of
-// single-sample names that no aggregation could reassemble. Requests that match
-// no route share the "unmatched" bucket for the same reason.
-//
-// Disabled is the default; the cost is then one atomic load per request, which
-// is what lets this wrap every route permanently. While disabled it does not
-// wrap the writer or add a header, so an instrumented build is byte-identical
-// on the wire to an uninstrumented one.
-//
-// The ring sample is total wall time. The HEADER can only carry time-to-first-
-// byte, because a header set after the handler has written its body never
-// reaches the client — the status line went out long before. That is why the
-// response writer is wrapped rather than the header simply being set after
-// c.Next(): the wrapper stamps the header at the instant the response starts,
-// which is the last moment it can still be sent.
+// Timing records per-request wall time into the perf ring, keyed by route template
+// so per-workspace URLs share one bucket, and echoes time-to-first-byte as
+// Server-Timing (the writer is wrapped because a header set after the body is lost).
 func Timing() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !perf.Enabled() {

@@ -6,22 +6,13 @@ type CanonicalEvent struct {
 	Message   string
 
 	// TurnID is the provider's own turn identifier, when its descriptor maps
-	// one. Most canonical events never need it — a chat has one open turn at
-	// a time, so Kind plus SessionID is enough to place the effect. It exists
-	// for the case that assumption breaks: codex's turn/completed is a sum
-	// type that ALSO wraps a compact_start round trip, with nothing else on
-	// the frame telling that apart from an ordinary reply (confirmed live —
-	// a genuinely interrupted turn and a genuine turn with no final message
-	// produce the IDENTICAL shape). compact_pre maps turn_id to arm a latch
-	// keyed by it; turn_stop and turn_failed map turn_id to consult and
-	// consume that latch before acting. See turn/compaction.go.
+	// one: a turn end can belong to a compaction's own turn, and only the id
+	// tells it apart from a reply.
 	TurnID string
 
 	// TurnStatus is the provider-reported terminal state when its completion
 	// event distinguishes completed from interrupted. Descriptors normalize it.
 	TurnStatus string
-
-	AsyncWork int
 
 	Model string
 
@@ -35,6 +26,9 @@ type CanonicalEvent struct {
 
 	Delta *MessageDelta
 
+	// Complete is the whole text of one finished message.
+	Complete *MessageComplete
+
 	Failure *TurnFailure
 
 	Choice *ChoicePrompt
@@ -42,6 +36,9 @@ type CanonicalEvent struct {
 	// Plan is the agent's own running to-do list for this turn, newest state
 	// wholesale. Nil when the event carries none.
 	Plan []PlanStep
+
+	// Step is one step of the plan, changed alone (plan_step).
+	Step *PlanStepEvent
 
 	Raw map[string]any
 }
@@ -51,16 +48,22 @@ type MessageDelta struct {
 	MessageID string
 
 	// Index is the increment's position, meaningful only when Sequenced is
-	// true. A provider whose descriptor maps no index: field (its deltas
-	// arrive on one ordered stream with nothing to number) leaves this zero
-	// on every increment — reading it then would fold every chunk onto the
-	// same slot, so stream.Streams instead assigns arrival order itself.
+	// true: with no index: field mapped every increment reads zero, so the
+	// chat shows such a stream live in arrival order and records no chunk.
 	Index     int
 	Sequenced bool
 
 	Final bool
 
 	Text string
+}
+
+// MessageComplete is one finished assistant message, whole.
+type MessageComplete struct {
+	TurnID    string
+	MessageID string
+	Text      string
+	Phase     string
 }
 
 type TurnFailure struct {
@@ -87,10 +90,23 @@ type ToolEvent struct {
 	Result []byte
 	Status string
 
+	// Title is the agent's own one-line description of the call.
+	Title string
+	// MCPServer and MCPTool name the server and tool of a call into one.
+	MCPServer string
+	MCPTool   string
+	// ExitCode is a command's exit status; nil when the payload carries none, so 0 is an answer.
+	ExitCode    *int
+	Interrupted bool
+
 	// EditBefore/EditAfter are the text an edit replaced and its replacement,
 	// when the descriptor maps them; a new file has an empty EditBefore.
 	EditBefore string
 	EditAfter  string
+	// Output is what a finished call printed, when the descriptor maps it.
+	Output string
+	// Cwd is the session's directory when the call ran: a diff names its files from there.
+	Cwd string
 	// Diff is a unified preview of this tool call's own changed files.
 	Diff string
 	// Patch is the provider's own hunks for the change a completed tool made,
@@ -100,14 +116,10 @@ type ToolEvent struct {
 	Error      string
 	DurationMS int
 
-	// NestedSessionID names a SECOND conversation this tool call's own
-	// completion references — a whole other turn/item stream riding the same
-	// connection, not a flat sibling id (codex's collabAgentToolCall: the
-	// spawned agent's own thread id, present on spawnAgent/wait/closeAgent's
-	// completion once the provider has minted or is addressing it). Empty for
-	// every tool call that names no such thing. See turn/ingest.go's
-	// nested-session routing for what Go does with it.
-	NestedSessionID string
+	// SpawnsScope names the subagent this call spawned, AddressesScope one it
+	// waits on or closes; a subagent's events are recorded in its scope.
+	SpawnsScope    string
+	AddressesScope string
 }
 
 type ToolLocation struct {
@@ -115,9 +127,21 @@ type ToolLocation struct {
 	Line int
 }
 
+// SubagentEvent is what a subagent's own event says of it. Status is
+// Crowbar's word, by the event's status_map.
 type SubagentEvent struct {
-	ID        string
-	AgentType string
+	ID, AgentType, Title, Status, Result string
+	Usage                                *SubagentUsage
+}
+
+// SubagentUsage is what a subagent spent; nil fields were not reported.
+type SubagentUsage struct {
+	Tokens, ToolUses, DurationMs int64
+}
+
+// PlanStepEvent is one step of a plan changed alone, in the scope that keeps it.
+type PlanStepEvent struct {
+	ScopeID, StepID, Text, Detail, Status string
 }
 
 const (
@@ -125,29 +149,6 @@ const (
 	InterruptNotification = "notification"
 	InterruptElicitation  = "elicitation"
 	InterruptCompaction   = "compaction"
-	// InterruptStopped is Crowbar's own doing, not a provider hook: recorded when
-	// a person cuts an in-flight turn short, so the transcript can draw the same
-	// kind of durable, sequence-anchored divider a compaction gets instead of a
-	// client-side guess about what it just clicked.
-	InterruptStopped = "stopped"
-	// InterruptProviderSwitched, InterruptModelChanged and InterruptEffortChanged
-	// are ALSO Crowbar's own doing, same as InterruptStopped: nothing a provider
-	// reports, recorded the instant Crowbar itself commits to a provider switch or
-	// a model/effort selection change, so the transcript can mark it with the same
-	// durable, sequence-anchored divider. Detail carries the new value (the target
-	// provider id, model id, or effort level).
-	InterruptProviderSwitched = "provider_switched"
-	InterruptModelChanged     = "model_changed"
-	InterruptEffortChanged    = "effort_changed"
-	// InterruptInferred is ALSO Crowbar's own doing, not a provider hook — but
-	// unlike the three above, it is not something Crowbar decided: it is
-	// Crowbar's own INFERENCE that a turn was interrupted, drawn from silence
-	// rather than observed directly. Recorded when a fuse elsewhere in the
-	// hook ingress (the message-quiet timeout an assistant reply stopped
-	// growing under, with nothing else open to explain why) decides a turn
-	// is never going to close on its own — the only trace a CLI's own
-	// hookless abort (an ESC/Ctrl+C it reports to nobody) leaves behind.
-	InterruptInferred = "inferred"
 )
 
 type InterruptEvent struct {
@@ -193,6 +194,12 @@ type ChoicePrompt struct {
 	Questions []PromptQuestion
 
 	Schema []byte
+
+	// ToolTarget, ToolInput and MCPServer say which call a tool question or
+	// permission is about, so it can be matched to that call's row.
+	ToolTarget string
+	ToolInput  []byte
+	MCPServer  string
 }
 
 type PromptQuestion struct {
@@ -209,14 +216,12 @@ type ChoiceOption struct {
 	Kind        string
 	Label       string
 	Description string
+	// Reason: the reply to this option carries the person's reason to the agent.
+	Reason bool
 }
 
-// PlanStep is one entry of an agent's running plan.
-//
-// Status is CROWBAR'S word, not the provider's: a descriptor translates its own
-// vocabulary with `steps.status_map` (the same mechanism permission's
-// suggestion_label.* uses), so Go never learns any provider's spelling of
-// "in progress".
+// PlanStep is one entry of an agent's running plan. Status is Crowbar's word: the
+// descriptor maps its own vocabulary via `steps.status_map`, so Go never learns it.
 type PlanStep struct {
 	Text   string
 	Status string
@@ -229,4 +234,6 @@ const (
 	PlanStepPending = "pending"
 	PlanStepActive  = "active"
 	PlanStepDone    = "done"
+	// PlanStepRemoved is a step that leaves the plan.
+	PlanStepRemoved = "removed"
 )

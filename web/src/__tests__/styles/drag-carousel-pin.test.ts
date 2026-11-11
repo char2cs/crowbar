@@ -66,7 +66,7 @@ describe('drag-time carousel pin', () => {
 
 describe('every carousel-shaped scroller carries the attribute the pin rule targets', () => {
   const CAROUSEL_SOURCES = {
-    'space-scroller.tsx (the unified sidebar, Task 21)': resolve(
+    'space-scroller.tsx (the unified sidebar)': resolve(
       HERE,
       '..',
       '..',

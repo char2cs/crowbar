@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { uploadChatAttachment } from '@/features/agent/api/upload-chat-attachment'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { ApiError } from '@/lib/api/errors'
+import { ApiError } from '@/lib/errors/api-error'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import * as scopeUrl from '@/lib/workspace-scope-url'
 import {
@@ -111,11 +111,8 @@ describe('uploadChatAttachment', () => {
     vi.unstubAllGlobals()
   })
 
-  // REGRESSION, reported by review: backslash/quote were the only characters
-  // escaped, so a filename carrying a literal CR/LF split the hand-built
-  // Content-Disposition line in two, injecting an extra header line into the
-  // multipart body this client itself constructs. Self-request-only (this
-  // is the CLIENT'S own outgoing request), but a real gap regardless.
+  // A CR/LF in the filename would split the hand-built Content-Disposition line and inject an
+  // extra header into the client's own multipart body.
   it('strips CR/LF from the filename instead of letting it inject an extra header line', async () => {
     const fetchMock = vi
       .fn()
@@ -227,31 +224,33 @@ describe('uploadChatAttachment', () => {
     vi.unstubAllGlobals()
   })
 
-  it('throws an error carrying the status and body text on a non-ok response', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(() => Promise.resolve(new Response('too big', { status: 413 }))),
-    )
-    await expect(uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')).rejects.toThrow(
-      /413/,
-    )
-    await expect(uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')).rejects.toThrow(
-      /too big/,
-    )
+  it('rejects a refused upload with the daemon’s own words and code', async () => {
+    const refusal = { success: false, error: 'attachment exceeds 20 MB', code: 'too_large' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(refusal, 413)))
+
+    const upload = uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')
+
+    await expect(upload).rejects.toBeInstanceOf(ApiError)
+    await expect(upload).rejects.toMatchObject({
+      status: 413,
+      problem: { code: 'too_large', message: 'attachment exceeds 20 MB' },
+    })
     vi.unstubAllGlobals()
   })
 
-  // The local daemon's failures read as they always have, the proxy's own answers included.
-  it('says a local daemon that is not up yet in the same words as before hosts existed', async () => {
+  // The local daemon's failures read as every other request's, the proxy's own answers included.
+  it('says a local daemon that is not up yet in the words every request uses', async () => {
     const notReady = new Response('crowbar daemon socket not ready', {
       status: 503,
       headers: { 'x-crowbar-proxy': 'daemon-unavailable' },
     })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(notReady))
 
-    await expect(uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')).rejects.toThrow(
-      /^upload chat attachment failed: 503 crowbar daemon socket not ready$/,
+    const err = await uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x').catch(
+      (e: unknown) => e,
     )
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status: 503, problem: { code: 'daemon_unavailable' } })
     vi.unstubAllGlobals()
   })
 })
@@ -298,7 +297,7 @@ describe('uploadChatAttachment on a remote host', () => {
       502,
       'host_identity_changed',
     ],
-    ['was refused by it (401)', {}, 401, undefined],
+    ['was refused by it (401)', {}, 401, 'internal'],
   ])('fails as that host’s when the upload %s', async (_name, headers, status, code) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status, headers })))
 
@@ -310,7 +309,7 @@ describe('uploadChatAttachment on a remote host', () => {
     ).catch((e: unknown) => e)
 
     expect(err).toBeInstanceOf(ApiError)
-    expect(err).toMatchObject({ status, code, hostId: 'h1' })
+    expect(err).toMatchObject({ status, problem: { code }, hostId: 'h1' })
   })
 
   // Read as apiFetch reads an answer: the daemon's own words, or only the status for the proxy's
@@ -340,9 +339,9 @@ describe('uploadChatAttachment on a remote host', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(uploadChatAttachment('ws1', 'c1', { path: '/tmp/x.png' }, 'x')).rejects.toThrow(
-      /unknown host/,
-    )
+    await expect(
+      uploadChatAttachment('ws1', 'c1', { file: new File(['x'], 'x.png') }, 'x'),
+    ).rejects.toThrow(/unknown host/)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

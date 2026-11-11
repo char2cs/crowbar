@@ -1,6 +1,7 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { operationHeaders, type OperationReply } from '@/core/entities/run-operation'
 import {
-  reviewBaseForWorkspace,
+  reviewBaseForWorkspace as reviewBase,
   workspaceBase,
   worktreeVerbBaseForWorkspace,
 } from '@/lib/workspace-scope-url'
@@ -13,40 +14,18 @@ import type {
 } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { ThreadDTO, ThreadReplyDTO } from '@/lib/types'
 
-// Branch-review REST client. Review routes hang off the chat that owns the
-// workspace's worktree (reviewBaseForWorkspace, /v0/chats/:chatId/review) and
-// return the standard {success,data} envelope, which apiFetch already unwraps
-// for us (see git-diff-api.ts for the pattern). Merging is a worktree LIFECYCLE
-// verb rather than a review read, so it goes to the repo-scoped chat prefix the
-// other six verbs share (worktreeVerbBaseForWorkspace), not to reviewBase.
-//
-// The /threads routes below are a DIFFERENT concept sharing the word: they are
-// the code-review comment system, which backend spec §4.4 leaves untouched on
-// purpose. They stay workspace-scoped (workspaceBase) and are not part of this
-// migration.
-//
-// Scope: this is the LOCAL branch-vs-parent review surface (description +
-// multi-file diff + inline threads + merge strategy). It does NOT create remote
-// PRs or execute the merge — those are out of scope for this surface.
-
-function reviewBase(wsId: string): string {
-  return reviewBaseForWorkspace(wsId)
-}
+// The local branch-vs-parent review client. Review routes hang off the worktree's owning chat;
+// merge is a worktree lifecycle verb (worktreeVerbBaseForWorkspace). Review-comment /threads are
+// a separate, workspace-scoped system. No remote PRs here.
 
 // ── Wire shapes ─────────────────────────────────────────────────────
 
-// Re-export canonical DTO types so consumers (e.g. use-workspace-threads-stream)
-// can import them from a single place without reaching into lib/types directly.
-export type { ThreadDTO, ThreadReplyDTO }
-
-/** Raw composite read model (domain.BranchReview).
- *  Note: the `threads` field here comes from the OLD /review composite endpoint
- *  and is intentionally ignored — threads are sourced exclusively from /threads. */
+/** Raw composite read model (domain.BranchReview). Its threads are ignored: they
+ *  arrive on the workspace's ws: scope. */
 interface WireBranchReview {
   description: string
   mergeStrategy: MergeStrategy
   diff: MultiFileDiff
-  threads: unknown[] | null
   conversations: WireBranchChat[] | null
 }
 
@@ -61,10 +40,8 @@ interface WireBranchChat {
 
 // ── Mappers (wire → store slice types) ──────────────────────────────
 
-// The two attribution fields are carried as '' → undefined rather than through
-// verbatim: the wire omits them entirely on a human message and on every agent
-// message predating attribution, and an empty string would look like a real id to
-// every `find` downstream.
+// Missing attribution becomes undefined, not '': the wire omits it on human and older agent
+// messages, and '' would look like a real id to every `find` downstream.
 function mapReply(r: ThreadReplyDTO): ReviewThread['messages'][number] {
   return {
     id: r.id,
@@ -77,7 +54,7 @@ function mapReply(r: ThreadReplyDTO): ReviewThread['messages'][number] {
   }
 }
 
-/** Map a backend ThreadDTO (from /threads or the WS stream) to the store's ReviewThread.
+/** Map a backend ThreadDTO (as the ws: scope streams it) to the UI's ReviewThread.
  *  The root comment body/author/isAgent live at the top level of ThreadDTO; subsequent
  *  messages are in the replies[] array. */
 export function mapThread(t: ThreadDTO): ReviewThread {
@@ -120,30 +97,24 @@ export interface ReviewState {
   description: string
   mergeStrategy: MergeStrategy
   diff: MultiFileDiff
-  threads: ReviewThread[]
   conversations: ReviewConversation[]
 }
 
 // ── Reads ───────────────────────────────────────────────────────────
 
-/** GET the composite branch-review read model for a workspace.
- *  Threads are intentionally returned as [] — they are sourced exclusively
- *  from /threads + the WS stream (listThreads / useWorkspaceThreadsStream). */
+/** GET the composite branch-review read model for a workspace. */
 export async function getReview(wsId: string): Promise<ReviewState> {
   const raw = await apiFetch<WireBranchReview>(reviewBase(wsId))
   return {
     description: raw.description,
     mergeStrategy: raw.mergeStrategy,
     diff: raw.diff,
-    threads: [],
     conversations: (raw.conversations ?? []).map(mapConversation),
   }
 }
 
-/** One entry in the files-only branch-review summary (domain.ReviewFileSummary).
- *  It is the FULL changed-files picture for a path — committed-vs-fork-point AND
- *  working-tree — with +/- counts but NO line content. `additions`/`deletions`
- *  are -1 for binary files (numstat "-" convention). */
+/** One path's full change picture (committed and working tree), counts but no line content.
+ *  `additions`/`deletions` are -1 for binaries (numstat "-"). */
 export interface ReviewFileSummary {
   path: string
   old_path?: string
@@ -154,11 +125,8 @@ export interface ReviewFileSummary {
   staged: boolean
 }
 
-/** GET the files-only branch-review summary for a workspace. This is the cheap,
- *  O(file count) source for the always-mounted sidebar changed-files list: it
- *  returns the full branch picture WITHOUT the line-level diff body that
- *  getReview carries, so it can be fetched on every git-status tick without the
- *  refetch loop that made the full diff expensive. */
+/** The files-only summary: O(files) with no diff body, so the sidebar's changed-files list can
+ *  refetch it on every git-status tick. */
 export async function getReviewFiles(scope: DiffScope): Promise<ReviewFileSummary[]> {
   const query = scope.commit ? `?sha=${encodeURIComponent(scope.commit)}` : ''
   const raw = await apiFetch<{ files: ReviewFileSummary[] }>(
@@ -169,19 +137,17 @@ export async function getReviewFiles(scope: DiffScope): Promise<ReviewFileSummar
 
 // ── Writes ──────────────────────────────────────────────────────────
 
-/**
- * POST to merge the workspace branch into its parent. Returns void (202 async).
- * When deleteSource is true, the daemon removes the now-merged child workspace
- * after a clean merge (a conflict keeps it); the caller redirects to the parent.
- */
-export async function mergeIntoParent(
+/** Merge the branch into its parent; 202 with the operation under `opId`. deleteSource removes
+ *  the merged child after a clean merge (a conflict keeps it). */
+export function mergeIntoParent(
   wsId: string,
   strategy: MergeStrategy,
-  deleteSource = false,
-): Promise<void> {
-  await apiFetch<unknown>(`${worktreeVerbBaseForWorkspace(wsId)}/merge-into-parent`, {
+  deleteSource: boolean,
+  opId: string,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(`${worktreeVerbBaseForWorkspace(wsId)}/merge-into-parent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...operationHeaders(opId) },
     body: JSON.stringify({ strategy, deleteSource }),
   })
 }
@@ -216,12 +182,6 @@ export interface ReplyToThreadInput {
   body: string
 }
 
-/** GET all review threads for a workspace. */
-export async function listThreads(wsId: string): Promise<ReviewThread[]> {
-  const raw = await apiFetch<ThreadDTO[]>(`${workspaceBase(wsId)}/threads`)
-  return (raw ?? []).map(mapThread)
-}
-
 /** POST a new review thread anchored to a file location. Returns the thread. */
 export async function openThread(wsId: string, input: OpenThreadInput): Promise<ReviewThread> {
   const raw = await apiFetch<ThreadDTO>(`${workspaceBase(wsId)}/threads`, {
@@ -238,7 +198,7 @@ export async function replyToThread(
   threadId: string,
   input: ReplyToThreadInput | string,
 ): Promise<ReviewThread> {
-  // Accept a plain string body for backward compat (old callers pass just the text).
+  // A plain string is the body alone.
   const payload: ReplyToThreadInput = typeof input === 'string' ? { body: input } : input
   const raw = await apiFetch<ThreadDTO>(
     `${workspaceBase(wsId)}/threads/${encodeURIComponent(threadId)}/replies`,
@@ -276,9 +236,8 @@ export async function deleteThread(wsId: string, threadId: string): Promise<void
   })
 }
 
-/** DELETE a single reply by message id. Returns the updated thread (root + the
- *  remaining replies). The root comment cannot be deleted this way — delete the
- *  whole thread instead. */
+/** DELETE a single reply by message id. Returns the updated thread (root + the remaining replies).
+ *  The root comment cannot be deleted this way — delete the whole thread instead. */
 export async function deleteMessage(
   wsId: string,
   threadId: string,

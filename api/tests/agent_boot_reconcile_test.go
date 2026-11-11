@@ -5,10 +5,21 @@ package tests
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations/chatledger"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // bootReconcileFixture boots a daemon at home, spawns a livestub chat, binds a
@@ -16,8 +27,8 @@ import (
 // restart regressions below start from.
 //
 // Binding a conversation is load-bearing, not decoration: a chat with no
-// conversation history has nothing for ResumeChat to bring back
-// (LastConversation), so a chat that never announced could not distinguish "resume
+// conversation has nothing for ResumeChat to bring back (its ledger binds
+// none), so a chat that never announced could not distinguish "resume
 // is broken" from "there was nothing to resume".
 //
 // It returns the harness, the project-home mount, the chat, and the id of the
@@ -33,34 +44,32 @@ func bootReconcileFixture(
 	imported := importProject(t, h)
 	homeBase = "/v0/projects/" + imported.projectID + "/home"
 
-	frames := dialAgentWS(t, h, homeBase+"/chats/ws")
+	feed := recordSidebar(t, h)
 
 	var created struct {
 		ID string `json:"id"`
 	}
 	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
-	waitForChatFrame(t, frames, created.ID, "created")
+	feed.awaitListed(created.ID)
 
-	h.Quiesce()
+	startChat(t, h, homeBase, created.ID)
 	spawned := getAgentChat(t, h, homeBase, created.ID)
 	require.NotEmpty(t, spawned.LiveRunnerID, "precondition: the freshly spawned chat has a runner placed on it")
 	require.NotEmpty(t, spawned.TerminalSessionID, "precondition: that runner has a PTY")
 	runnerID = spawned.LiveRunnerID
 
 	// Announce a conversation, so the chat has history to be revived from.
-	postHomeHook(t, h, homeBase, runnerID, "session_start", `{"session_id":"sess-before-restart"}`)
-	waitForChatFrame(t, frames, created.ID, "session_bound")
+	postHook(t, h, homeBase, "livestub", runnerID, "session_start", `{"session_id":"sess-before-restart"}`)
+	feed.awaitConversation(created.ID, "sess-before-restart")
 
 	// Open a turn, so the boot reconcile has a live turn to close — not merely a
 	// runner row to reap (the crash-mid-turn shape the FE spinner depends on).
-	postHomeHook(t, h, homeBase, runnerID, "user_prompt", `{"prompt":"hi"}`)
-	waitForChatFrame(t, frames, created.ID, "turn_started")
+	postHook(t, h, homeBase, "livestub", runnerID, "user_prompt", `{"prompt":"hi"}`)
+	feed.awaitTurnStart(created.ID)
 	h.Quiesce()
 
-	working, err := h.app.Usecases.AgentChat.GetChat(context.Background(), created.ID)
-	require.NoError(t, err)
-	require.True(t, working.Working, "precondition: the chat is mid-turn before the restart")
+	require.True(t, chatBusy(t, h, created.ID), "precondition: the chat is mid-turn before the restart")
 
 	return h, homeBase, created.ID, runnerID
 }
@@ -126,11 +135,9 @@ func TestRegression_AgentBootReconcile_DeadCLIProcess_EndsSegment(t *testing.T) 
 	assert.Equal(t, []string{"sess-before-restart"}, post.sessionIDs(),
 		"boot reconcile reaps the RUNNER, never the chat's conversation history")
 
-	reconciled, err := h2.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
-	require.NoError(t, err)
-	assert.False(t, reconciled.Working,
+	assert.False(t, chatBusy(t, h2, chatID),
 		"boot reconcile must close the turn interrupted by the restart: the CLI that would have sent the "+
-			"turn_stop hook no longer exists, so a chat left Working spins forever — and the workspace's "+
+			"turn_stop hook no longer exists, so a chat left working spins forever — and the workspace's "+
 			"whole overlay spins with it")
 }
 
@@ -197,4 +204,144 @@ func TestRegression_AfterRestart_ResumeStillWorks(t *testing.T) {
 			"re-serving the dead one is how the pane ends up attached to a suspended placeholder")
 	assert.Equal(t, "livestub", back.ActiveProviderID,
 		"resume brings back the provider the chat was last on, read from its conversation history")
+}
+
+// exitReason is how chatID's last runner ended, as its feed records it.
+func exitReason(t *testing.T, h *harness, _ importedRepo, chatID string) string {
+	t.Helper()
+	exit, _ := chatState(t, h, chatID).LastExit()
+	return exit.Reason
+}
+
+// A chat's last exit reason is a ledger fact, so the next daemon still knows
+// why the CLI ended.
+func TestRegression_ARunnersExitReasonSurvivesARestart(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, l := createFakeChat(t, h, imported, fake)
+	killAndAwaitExit(t, h, recordSidebar(t, h), chatID, l)
+	require.Equal(t, "exited", exitReason(t, h, imported, chatID), "precondition: the exit was reported")
+
+	h.shutdown()
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	assert.Equal(t, "exited", exitReason(t, h2, imported, chatID))
+}
+
+// A runner the ledger still holds live at boot died with the old daemon: boot
+// records it as daemon_restart, and the next prompt launches a new CLI.
+func TestRegression_ABootWithALiveRunnerRecordsDaemonRestart(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID, l1 := createFakeChat(t, h, imported, fake)
+
+	h.crash()
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	view := readChatSession(t, h2, imported, chatID)
+	assert.Empty(t, view.LiveRunnerID, "no CLI outlives the daemon that started it")
+	assert.Equal(t, "daemon_restart", exitReason(t, h2, imported, chatID))
+	l2 := promptLaunch(t, h2, imported, fake, chatID, "after the restart", "")
+	assert.NotEqual(t, l1.RunnerID, l2.RunnerID, "the prompt launched a new CLI")
+}
+
+// A daemon from before runners were ledger rows that crashed mid-turn left its
+// runner only in its own runner store. The upgrade boot ends it like any other,
+// or the chat's turn spins forever.
+func TestRegression_AgentBootReconcileEndsTheRunnerACrashedOldDaemonLeft(t *testing.T) {
+	assertLegacyRunnerEnded(t, false)
+}
+
+// A home whose older daemon already ran the provider step carries its marker,
+// so that step is adopted and never runs: the runner is ended all the same.
+func TestRegression_AgentBootReconcileEndsTheRunnerOnAHomeThatAdoptedTheProviderStep(t *testing.T) {
+	assertLegacyRunnerEnded(t, true)
+}
+
+func assertLegacyRunnerEnded(t *testing.T, providerStepMarked bool) {
+	t.Helper()
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	h.Quiesce()
+	h.crash()
+	now := time.Now().UTC()
+	chat := domain.Chat{
+		ID: uuid.NewString(), WorkspaceID: imported.workspaceID, ProviderID: "claude", Title: "mid-turn",
+		CreatedAt: now,
+	}
+	seed := openBaseEra(t, home)
+	seed.chat(chat)
+	seed.close()
+	if providerStepMarked {
+		marker := filepath.Join(home, "state", "upgrades", "chat-providers-from-history")
+		require.NoError(t, os.MkdirAll(filepath.Dir(marker), 0o700))
+		require.NoError(t, os.WriteFile(marker, nil, 0o600))
+	}
+	store := homeAt(t, home).Store()
+	legacy := openSQLite(t, filepath.Join(store, chatledger.RunnerDB))
+	require.NoError(t, legacy.Exec(chatledger.RunnersDDL).Error)
+	require.NoError(t, legacy.Exec(
+		"INSERT INTO agent_runners (id, provider_id, current_chat_id, started_at) VALUES (?, ?, ?, ?)",
+		"runner-old", "claude", chat.ID, now).Error)
+	closeSQLite(t, legacy)
+
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	assert.False(t, chatBusy(t, h2, chat.ID), "the turn the old daemon died in is closed")
+	assert.Equal(t, "daemon_restart", exitReason(t, h2, imported, chat.ID))
+	ledgerDB := openSQLite(t, filepath.Join(store, ledgerstore.FileName))
+	defer closeSQLite(t, ledgerDB)
+	var exits int64
+	require.NoError(t, ledgerDB.Raw(
+		"SELECT count(*) FROM chat_ledger WHERE chat_id = ? AND kind = 'runner_exited'", chat.ID).Scan(&exits).Error)
+	assert.Equal(t, int64(1), exits)
+}
+
+func openSQLite(t *testing.T, path string) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, err)
+	return db
+}
+
+func closeSQLite(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	raw, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+}
+
+// chatBusy is the chat's snapshot saying a turn or its work is open.
+func chatBusy(t *testing.T, h *harness, chatID string) bool {
+	t.Helper()
+	snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
+	require.NoError(t, err)
+	return snap.Ledger.Busy
+}
+
+// A chat created before a restart and never prompted comes back dormant with
+// nothing to reconcile, and its first prompt is its one launch.
+func TestRegression_ANewChatAcrossARestartLaunchesOnceOnItsFirstPrompt(t *testing.T) {
+	home := t.TempDir()
+	h := newHarnessAt(t, home)
+	imported := importWritableWorkspace(t, h)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude"})
+	chatID := createChat(t, h, imported, fake.ID)
+
+	h.shutdown()
+	h2 := newHarnessAt(t, home)
+	h2.Quiesce()
+
+	assert.Empty(t, readChatSession(t, h2, imported, chatID).LiveRunnerID)
+	assert.Empty(t, exitReason(t, h2, imported, chatID), "no runner ever ran, so none ended")
+	l := promptLaunch(t, h2, imported, fake, chatID, "after the restart", "")
+	requireOneLaunch(t, fake, l)
 }

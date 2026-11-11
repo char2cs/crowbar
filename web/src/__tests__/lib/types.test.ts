@@ -23,7 +23,6 @@ describe('canonical DTO shapes', () => {
       forkPointSha: '',
       status: 'pr-conflicts',
       working: true,
-      lastError: '',
       added: 1,
       deleted: 2,
       mergeStrategy: 'rebase',

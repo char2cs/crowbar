@@ -1,14 +1,6 @@
-// Package store owns the workspace read model: the durable, queryable projection
-// of the aggregate at state/store/workspace.db. New builds the read model over
-// the read-pool DB and registers the SAVE-ONLY store projection on the singleton
-// axWorkspace (spec §3.5/§3.7, decision 5). Unlike the retired per-entity store
-// it does NO eager reconcile on open — a normal boot re-opens the durable read
-// model with zero replay; read-model repair is lazy (Tasks 9/11): the per-request
-// ListOrRebuild heals a lost model on first access via whole-model asynx.Replay,
-// while the raw List (the boot orphan-sweep path) never replays. The hub
-// projection is registered separately by repositories.Container, which owns the
-// enrichment callback, so the durable read model and the WS frame derive
-// independently from evt.Aggregate and cannot drift.
+// Package store owns the workspace read model (state/store/workspace.db), fed by axWorkspace's durable
+// store projection. Open does no reconcile: ListOrRebuild heals a lost model lazily via Replay, while the
+// raw List never replays; the hub projection derives independently, so the two cannot drift.
 package store
 
 import (
@@ -17,38 +9,30 @@ import (
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
-	gormdb "gorm.io/gorm"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Store is the workspace read model. Per-request per-id reads fold the aggregate
-// from the event log via axWorkspace.Get (always current), so that per-id read is
-// not part of this surface. The one exception is Get below, which the async delete
-// reactor's ordering gate needs precisely because it reflects only the DURABLE
-// projection, not the always-current fold.
+// Store is the workspace read model. Per-id reads fold the event log via axWorkspace.Get, except Get
+// below, which the delete reactor's ordering gate needs because it reflects only the DURABLE projection.
 type Store interface {
 	// List returns the durable projection at state/store/workspace.db DIRECTLY,
-	// WITHOUT lazy Replay repair. The boot orphan-sweep uses this path (spec §3.8)
+	// WITHOUT lazy Replay repair. The boot orphan-sweep uses this path
 	// so boot pays no replay and a lost model reaps nothing.
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
-	// Get returns the workspace's DURABLE read-model row, or nil when the model has
-	// no such row. It reflects only what the store projection has persisted — NOT
-	// the always-current event-log fold Workspace.Get returns — which is exactly
-	// what the async delete reactor's ordering gate must observe: it purges only
-	// once the projection has persisted the "deleted" tombstone, so the tombstone
-	// can never be re-saved after the worktree is gone (spec §3.6 ordering
-	// contract). Also satisfies the reactor package's StoreReader seam.
+	// Get returns the DURABLE read-model row, or nil. The delete reactor purges only once the projection has
+	// persisted the tombstone, so it can never be re-saved after the worktree is gone. Also the reactor's
+	// StoreReader seam.
 	Get(
 		ctx context.Context,
 		id string,
 	) (*domain.Workspace, error)
 	// Drop deletes id's durable row directly. It exists for the one row the
 	// projection can no longer delete: a tombstone whose aggregate was already
-	// Forgotten before its OnForget row delete landed.
+	// Forgotten before its marker's row delete landed.
 	Drop(
 		ctx context.Context,
 		id string,
@@ -60,10 +44,8 @@ type Store interface {
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
-	// ListOrRebuild returns the read model (which doubles as the location index,
-	// §3.7), first healing it via whole-model lazy Replay when the model is empty
-	// but the event log still holds aggregates (spec §3.7, decision 7). The
-	// per-request workspace List uses this path.
+	// ListOrRebuild returns the read model (also the location index), first healing it via lazy Replay when
+	// it is empty but the event log still holds aggregates.
 	ListOrRebuild(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
@@ -78,24 +60,15 @@ type service struct {
 	ax    asynx.Asynx[domain.Workspace]
 }
 
-// New builds the durable read model over db (state/store/workspace.db) and
-// registers the save-only store projection on ax, once, for the singleton
-// axWorkspace. It performs no reconcile: read-model repair is lazy (Tasks 9/11).
-// es is the same per-type event log ax wraps, retained so ListOrRebuild can reach
-// its serialize.AggregateLister capability for the whole-model rebuild (§3.7).
+// New builds the workspace read model over st, which the instance ax already
+// delivers to as a durable subscriber (projections.Subscriber). es is the log
+// ax wraps, kept so ListOrRebuild can enumerate its aggregates.
 func New(
-	db *gormdb.DB,
+	st *projections.Store,
 	es asynxModels.Store,
 	ax asynx.Asynx[domain.Workspace],
-) (Store, error) {
-	st, err := projections.NewStore(db)
-	if err != nil {
-		return nil, fmt.Errorf("workspace store: %w", err)
-	}
-	if err := projections.RegisterStore(st, ax); err != nil {
-		return nil, fmt.Errorf("workspace store: %w", err)
-	}
-	return &service{store: st, es: es, ax: ax}, nil
+) Store {
+	return &service{store: st, es: es, ax: ax}
 }
 
 // RegisterHub registers the hub (WS fan-out) projection over s's own
@@ -118,12 +91,12 @@ func RegisterHub[F any](
 func (s *service) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
-	return s.store.List(ctx)
+	return s.store.List(ctx, func(context.Context, string) (*domain.Workspace, error) { return nil, nil })
 }
 
 // Get returns the durable read-model row for id (nil when absent), delegating to
 // the save-only store projection — the persisted view the delete reactor's
-// ordering gate observes (spec §3.6).
+// ordering gate observes.
 func (s *service) Get(
 	ctx context.Context,
 	id string,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -15,13 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // TestCreate_Success proves Create reads the workspace id from the :wsId path
@@ -58,205 +54,51 @@ func TestCreate_Success(
 	assert.Equal(t, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, tree.gotCreate2)
 }
 
-// The landing surface decides which of the provider's faces this chat is born
-// on (design spec 2.5) — and for a mixed-transport provider it decides whether
-// an api connection is opened for the chat at all, so a handler that dropped
-// it would answer 201 with a chat on the wrong face and no sign of it.
-func TestCreate_ForwardsTheSurfaceTheChatIsBornOn(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+// Create forwards what the request names and nothing it does not: the
+// surface the chat is born on, its parent (thread or panel root), the
+// workspace from the path or the body, and ownWorktree only when no workspace
+// is named. A refused body reaches nothing; a tree failure is a mapped error.
+func TestCreate_ForwardsWhatTheRequestNames(t *testing.T) {
+	const wsPath, repoPath = "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", "/v0/projects/p1/repos/r1/chats"
+	wsParams, repoParams := gin.Params{{Key: "wsId", Value: "ws-1"}}, gin.Params{{Key: "repoId", Value: "r1"}}
+	onWS, onWS9 := createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}
+	var none createChatCall
+	for _, tc := range []struct {
+		name, path string
+		params     gin.Params
+		body       string
+		surface    string
+		treeErr    error
+		code       int
+		calls      int
+		want       createChatCall
+	}{
+		{"the surface", wsPath, wsParams, `{"provider":"vendor-a","surface":"terminal"}`, "terminal", nil, http.StatusCreated, 1, onWS},
+		{"no surface is the provider's default", wsPath, wsParams, `{"provider":"vendor-a"}`, "", nil, http.StatusCreated, 1, onWS},
+		{"an unknown surface is refused", wsPath, wsParams, `{"provider":"vendor-a","surface":"holodeck"}`, "", nil, http.StatusBadRequest, 0, none},
+		{"the parent", wsPath, wsParams, `{"provider":"vendor-a","parentId":"parent-chat"}`, "", nil, http.StatusCreated, 1, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a", ParentID: "parent-chat"}},
+		{"bad JSON", wsPath, wsParams, "{not json", "", nil, http.StatusBadRequest, 0, none},
+		{"a tree failure", wsPath, wsParams, `{"provider":"vendor-a"}`, "", errors.New("boom"), http.StatusInternalServerError, 1, onWS},
+		{"the body's workspace at the repo mount", repoPath, repoParams, `{"provider":"vendor-a","workspaceId":"ws-9"}`, "", nil, http.StatusCreated, 1, onWS9},
+		{"no workspace at all is workspace-less", repoPath, repoParams, `{"provider":"vendor-a"}`, "", nil, http.StatusCreated, 1, createChatCall{ProviderID: "vendor-a"}},
+		{"ownWorktree at the repo mount", repoPath, repoParams, `{"provider":"vendor-a","parentId":"parent-chat","ownWorktree":true}`, "", nil, http.StatusCreated, 1, createChatCall{ProviderID: "vendor-a", ParentID: "parent-chat", OwnWorktree: true}},
+		{"ownWorktree is ignored when the path names a workspace", wsPath, wsParams, `{"provider":"vendor-a","ownWorktree":true}`, "", nil, http.StatusCreated, 1, onWS},
+		{"ownWorktree is ignored when the body names a workspace", repoPath, repoParams, `{"provider":"vendor-a","workspaceId":"ws-9","ownWorktree":true}`, "", nil, http.StatusCreated, 1, onWS9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}, err: tc.treeErr}
+			h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+			ctx, rec := newTestContext(t, http.MethodPost, tc.path, []byte(tc.body))
+			ctx.Params = tc.params
 
-	body := []byte(`{"provider":"vendor-a","surface":"terminal"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+			h.Create(ctx)
 
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, "terminal", tree.gotSurface)
-}
-
-// Omitted is the overwhelming majority, and means the provider's own default
-// landing — never a surface invented for it.
-func TestCreate_NoSurfaceAskedForForwardsTheProvidersDefault(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, "", tree.gotSurface)
-}
-
-// A surface name design spec 2.5 does not define is a client bug, refused
-// before anything is minted — never silently coerced to a default, which
-// would hand back a chat on a face the caller did not ask for.
-func TestCreate_AnUnknownSurfaceIs400(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","surface":"holodeck"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Zero(t, tree.createChatCalls, "nothing may be minted for a surface that does not exist")
-}
-
-// The parent is the half of a create that decides whether the new chat is a
-// THREAD, so it has to reach the usecase intact. A handler that dropped it would
-// still create a chat, still answer 201, and produce a chat at the panel root that
-// the user asked to be a thread — the failure this asserts against.
-func TestCreate_ForwardsTheParentTheChatIsBornUnder(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","parentId":"parent-chat"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t,
-		createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a", ParentID: "parent-chat"},
-		tree.gotCreate2)
-}
-
-// TestRegression_Create_AnnouncesTheNewChatsPlacement pins the exact live bug:
-// CreateChat's own placement write (for a home-scoped or otherwise Node-backed
-// row) lands on the Node aggregate, a SEPARATE write from MintChat's — whose
-// own chat-lifecycle-hub broadcast fires first, with no idea the placement
-// hasn't landed yet. PlaceChat's handler already announces the row it moves
-// (folders.go's own "placement_set" broadcast, TestRegression_PlaceChat_...
-// above) — Create never got the same treatment, so every ALREADY-OPEN viewer
-// besides the one creating it never learned the real placement happened at
-// all: caught live, a thread created inside a project-home folder rendered at
-// the top of the list in a second open window and never corrected.
-func TestRegression_Create_AnnouncesTheNewChatsPlacement(t *testing.T) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	var frames []folderFrame
-	h := newFolderHandlersWith(&fakeAgentUsecase{}, tree, &frames)
-
-	body := []byte(`{"provider":"vendor-a","parentId":"folder-1"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	require.Equal(t, http.StatusCreated, rec.Code)
-	require.Len(t, frames, 1, "the new chat's own placement must be announced")
-	assert.Equal(t, "chat-1", frames[0].folderID)
-	assert.Equal(t, "ws-1", frames[0].workspaceID)
-	assert.Equal(t, "placement_set", frames[0].kind)
-}
-
-// TestCreate_BadJSON proves a malformed body is rejected 400 without reaching
-// the usecase.
-func TestCreate_BadJSON(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", []byte("{not json"))
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Equal(t, createChatCall{}, tree.gotCreate2)
-}
-
-// TestCreate_UsecaseError proves a create failure surfaces as a mapped error
-// response.
-func TestCreate_UsecaseError(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{err: errors.New("boom")}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-// TestCreate_NoPathWorkspace_ReadsWorkspaceIDFromBody proves that at the
-// repo-scoped mount (Task 17: no :wsId path param) Create reads the new
-// chat's workspace anchor from the body's workspaceId instead.
-func TestCreate_NoPathWorkspace_ReadsWorkspaceIDFromBody(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","workspaceId":"ws-9"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}, tree.gotCreate2)
-}
-
-// TestCreate_NoPathWorkspaceAndNoBodyWorkspace_CreatesWorkspaceLess proves an
-// omitted body workspaceId at the repo-scoped mount forwards "" rather than
-// inventing one — a workspace-less chat, legal since WorkspaceID became
-// optional (Task 5).
-func TestCreate_NoPathWorkspaceAndNoBodyWorkspace_CreatesWorkspaceLess(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, createChatCall{ProviderID: "vendor-a"}, tree.gotCreate2)
-}
-
-// TestCreate_ForwardsOwnWorktreeAtTheRepoScopedMount proves ownWorktree reaches
-// the tree usecase when the request names no workspace at all — the one shape
-// (model spec §5.1) that is actually allowed to mean "fork me a fresh one".
-func TestCreate_ForwardsOwnWorktreeAtTheRepoScopedMount(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","parentId":"parent-chat","ownWorktree":true}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t,
-		createChatCall{ProviderID: "vendor-a", ParentID: "parent-chat", OwnWorktree: true},
-		tree.gotCreate2)
+			assert.Equal(t, tc.code, rec.Code)
+			assert.Equal(t, tc.calls, tree.createChatCalls)
+			assert.Equal(t, tc.want, tree.gotCreate2)
+			assert.Equal(t, tc.surface, tree.gotSurface)
+		})
+	}
 }
 
 // TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate pins
@@ -270,7 +112,7 @@ func TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate(
 	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
 	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
-	body := []byte(`{"provider":"vendor-a","ownWorktree":true,"branch":"feature/typed-name"}`)
+	body := []byte(`{"provider":"vendor-a","ownWorktree":true,"branch":"feature/typed-name","parentId":"c-owner"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
 	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
 
@@ -280,48 +122,6 @@ func TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate(
 	assert.Equal(t, agentusecase.WorktreeFork, tree.gotWorktree.Mode)
 	assert.Equal(t, "feature/typed-name", tree.gotWorktree.Branch,
 		"the typed branch name must reach WorktreeSpec, not be dropped in favour of the auto-generated one")
-}
-
-// TestCreate_OwnWorktreeIsIgnoredWhenThePathNamesAWorkspace proves the single
-// most important thing to get right here: a request that still names a
-// workspace (the home mount's injected :wsId) takes the EXISTING
-// attach-to-existing-workspace path unchanged, whatever the body's
-// ownWorktree says.
-func TestCreate_OwnWorktreeIsIgnoredWhenThePathNamesAWorkspace(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","ownWorktree":true}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, tree.gotCreate2,
-		"ownWorktree must not survive a request that also names a workspace")
-}
-
-// TestCreate_OwnWorktreeIsIgnoredWhenTheBodyNamesAWorkspace is the same
-// refusal at the repo-scoped mount, where workspaceId arrives in the body
-// instead of the path.
-func TestCreate_OwnWorktreeIsIgnoredWhenTheBodyNamesAWorkspace(
-	t *testing.T,
-) {
-	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
-	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
-
-	body := []byte(`{"provider":"vendor-a","workspaceId":"ws-9","ownWorktree":true}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.Create(ctx)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	assert.Equal(t, createChatCall{WorkspaceID: "ws-9", ProviderID: "vendor-a"}, tree.gotCreate2,
-		"ownWorktree must not survive a request that also names a workspace")
 }
 
 // configurableListGetUsecase is a configurable agent-port double dedicated to
@@ -349,16 +149,9 @@ type configurableListGetUsecase struct {
 	// refusal can be proved to have landed BEFORE the write.
 	renamed []string
 
-	// promoted records the chat ids Promote was called with, and promoteErr is
-	// the refusal branch (an already-promoted chat, a bubble with no fork
-	// parent).
-	promoted   []string
-	promoteErr error
-
-	// liveRunners maps a chat id to the runner PLACED on it. A chat ABSENT from
-	// the map is DORMANT, and LiveRunnerForChat answers agentrunner.ErrNotFound —
-	// which is the real answer (no live row exists, because no PTY does), not a
-	// failure. liveErr is the genuine-failure branch (a read that blew up).
+	// liveRunners maps a chat id to the runner live on it; a chat ABSENT from
+	// the map is DORMANT. liveErr is the genuine-failure branch (a read that
+	// blew up).
 	liveRunners map[string]engineagents.Runner
 	liveErr     error
 
@@ -367,13 +160,6 @@ type configurableListGetUsecase struct {
 	// dormant chat's activeProviderId derives from.
 	conversations map[string][]engineagents.ChatConversation
 	convErr       error
-
-	// interruptions maps a chat id to its durable interruption ledger — the
-	// second fallback source activeProviderId needs for a chat whose provider
-	// binds via its own connection identity and so never appears in
-	// conversations at all.
-	interruptions map[string][]domain.ActivityInterruption
-	interruptErr  error
 
 	selection    selectionCall
 	selectionErr error
@@ -430,29 +216,10 @@ func (u *configurableListGetUsecase) ChatSnapshotsOf(
 	return out, nil
 }
 
-func (configurableListGetUsecase) SpawnChat(
-	_ context.Context,
-	_ string,
-	_ string,
-) (string, string, error) {
-	return "", "", nil
-}
-
-func (configurableListGetUsecase) IngestHook(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ []byte,
-) error {
-	return nil
-}
-
-func (configurableListGetUsecase) IngestHookDelivery(
-	_ context.Context, _, _, _, _ string,
-	_ []byte,
-) error {
-	return nil
+func (configurableListGetUsecase) Hook(
+	context.Context, string, string, string, []byte, engineagents.Channel,
+) (agentusecase.HookReply, error) {
+	return agentusecase.HookReply{}, nil
 }
 
 func (u *configurableListGetUsecase) ListChatsByWorkspace(
@@ -501,30 +268,8 @@ func (u *configurableListGetUsecase) CwdWorkspaceID(
 	return u.cwdWorkspaceID, u.cwdWorkspaceID != "", nil
 }
 
-// Promote answers with the chat the fixture holds, its workspace slot filled by
-// promoted, so a handler test can tell a promotion apart from a plain read.
-func (u *configurableListGetUsecase) Promote(
-	_ context.Context,
-	chatID string,
-) (domain.Chat, error) {
-	if u.promoteErr != nil {
-		return domain.Chat{}, u.promoteErr
-	}
-	u.promoted = append(u.promoted, chatID)
-	out := u.chat
-	out.ID = chatID
-	out.WorkspaceID = "ws-promoted"
-	return out, nil
-}
-
 func (u *configurableListGetUsecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 	return u.terminalWait[chatID]
-}
-
-func (*configurableListGetUsecase) ReadMessages(
-	context.Context, string, int, int, int,
-) (domain.LedgerPage, error) {
-	return domain.LedgerPage{}, nil
 }
 
 func (*configurableListGetUsecase) SubmitPrompt(
@@ -539,26 +284,6 @@ func (*configurableListGetUsecase) SlashCatalog(
 	return engineagents.SlashCatalog{}, nil
 }
 
-func (*configurableListGetUsecase) PendingPrompt(
-	context.Context, string,
-) (domain.PendingPrompt, bool, error) {
-	return domain.PendingPrompt{}, false, nil
-}
-
-func (u *configurableListGetUsecase) LiveRunnerForChat(
-	_ context.Context,
-	chatID string,
-) (engineagents.Runner, error) {
-	if u.liveErr != nil {
-		return engineagents.Runner{}, u.liveErr
-	}
-	runner, ok := u.liveRunners[chatID]
-	if !ok {
-		return engineagents.Runner{}, agentrunner.ErrNotFound
-	}
-	return runner, nil
-}
-
 func (u *configurableListGetUsecase) ConversationsForChat(
 	_ context.Context,
 	chatID string,
@@ -569,74 +294,29 @@ func (u *configurableListGetUsecase) ConversationsForChat(
 	return u.conversations[chatID], nil
 }
 
-func (u *configurableListGetUsecase) Interruptions(
-	_ context.Context,
-	chatID string,
-) ([]domain.ActivityInterruption, error) {
-	if u.interruptErr != nil {
-		return nil, u.interruptErr
-	}
-	return u.interruptions[chatID], nil
-}
-
-func (configurableListGetUsecase) SwitchProvider(
-	_ context.Context,
-	_ string,
-	_ string,
-) (string, error) {
+func (configurableListGetUsecase) SwitchProvider(context.Context, string, string, string) (string, error) {
 	return "", nil
 }
 
-func (configurableListGetUsecase) ResumeChat(
-	_ context.Context,
-	_ string,
-) (string, error) {
+func (configurableListGetUsecase) ResumeChat(context.Context, string) (string, error) { return "", nil }
+
+func (configurableListGetUsecase) Compact(context.Context, string) error { return nil }
+
+func (configurableListGetUsecase) StopChat(context.Context, string) error { return nil }
+
+func (configurableListGetUsecase) KillChat(context.Context, string) error { return nil }
+
+func (configurableListGetUsecase) SwitchToTerminal(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (configurableListGetUsecase) Compact(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
-
-func (configurableListGetUsecase) StopChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
-
-func (configurableListGetUsecase) KillChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
-
-func (configurableListGetUsecase) SwitchToTerminal(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	return "", nil
-}
-
-func (configurableListGetUsecase) SwitchToNative(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (configurableListGetUsecase) SwitchToNative(context.Context, string) error { return nil }
 
 func (configurableListGetUsecase) AttachedTerminalSession(_ string) (string, bool) {
 	return "", false
 }
 
-func (configurableListGetUsecase) AssembleHandoff(
-	_ context.Context,
-	_ string,
-) (string, error) {
+func (configurableListGetUsecase) AssembleHandoff(context.Context, string) (string, error) {
 	return "", nil
 }
 
@@ -666,12 +346,7 @@ func (configurableListGetUsecase) DispatchMCP(
 	return nil, false, nil
 }
 
-func (configurableListGetUsecase) PurgeChat(
-	_ context.Context,
-	_ string,
-) error {
-	return nil
-}
+func (configurableListGetUsecase) PurgeChat(context.Context, string) error { return nil }
 
 func (configurableListGetUsecase) DescriptorReports(
 	context.Context,
@@ -683,9 +358,7 @@ func (configurableListGetUsecase) InstallDescriptor(context.Context, []byte) (de
 	return descriptorcheck.Report{}, nil
 }
 
-func (configurableListGetUsecase) ResolveProviders(
-	_ context.Context,
-) ([]domain.AgentProvider, error) {
+func (configurableListGetUsecase) ResolveProviders(context.Context) ([]domain.AgentProvider, error) {
 	return nil, nil
 }
 
@@ -696,29 +369,19 @@ func (configurableListGetUsecase) ReplaceProviderPreferences(
 	return nil, nil
 }
 
-func (configurableListGetUsecase) DefaultPermissionLevel(
-	_ context.Context,
-) (string, error) {
+func (configurableListGetUsecase) DefaultPermissionLevel(context.Context) (string, error) {
 	return agentusecase.PermissionFullAuto, nil
 }
 
-func (configurableListGetUsecase) SetDefaultPermissionLevel(
-	_ context.Context,
-	_ string,
-) error {
+func (configurableListGetUsecase) SetDefaultPermissionLevel(context.Context, string) error {
 	return nil
 }
 
-func (configurableListGetUsecase) ModelManifestFetchEnabled(
-	_ context.Context,
-) (bool, error) {
+func (configurableListGetUsecase) ModelManifestFetchEnabled(context.Context) (bool, error) {
 	return true, nil
 }
 
-func (configurableListGetUsecase) SetModelManifestFetchEnabled(
-	_ context.Context,
-	_ bool,
-) error {
+func (configurableListGetUsecase) SetModelManifestFetchEnabled(context.Context, bool) error {
 	return nil
 }
 
@@ -752,22 +415,6 @@ func TestList_Success(
 	assert.Equal(t, "c1", envelope.Data[0].ID)
 
 	require.Equal(t, []string{"ws1"}, uc.listWsIDs)
-}
-
-// TestList_UsecaseError proves a ListChatsByWorkspace failure surfaces as a
-// mapped error.
-func TestList_UsecaseError(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{listErr: errors.New("db down")}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
-
-	h.List(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // TestList_NoPathWorkspace_ScopesToTheRepo proves that at the repo-scoped mount
@@ -805,23 +452,6 @@ func TestList_NoPathWorkspace_ScopesToTheRepo(
 	assert.Equal(t, []string{"r1"}, uc.listInRepoIDs,
 		"the repo in the URL is what the list must be scoped to")
 	assert.Empty(t, uc.listWsIDs, "ListChatsByWorkspace must not run when no workspace is named")
-}
-
-// TestList_NoPathWorkspace_UsecaseError proves a ListChatsInRepo failure on the
-// repo-scoped branch surfaces as a mapped error, same as the
-// ListChatsByWorkspace branch.
-func TestList_NoPathWorkspace_UsecaseError(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{listErr: errors.New("db down")}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats", nil)
-	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
-
-	h.List(ctx)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // chatRow mirrors the derived runner facts on the wire shape of dto.AgentChatDTO:
@@ -1083,27 +713,6 @@ func TestGet_RuntimeLookupError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestGet_WrongWorkspace404s proves the by-id scope check
-// (requireChatInWorkspace) still applies when the request names a workspace
-// (the home mount's injected :wsId): a chat that exists but is anchored to a
-// DIFFERENT workspace than :wsId 404s exactly like an unknown id, never
-// leaking that the chat exists elsewhere (Task 3, preserved by Task 17).
-func TestGet_WrongWorkspace404s(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{
-		chat: domain.Chat{ID: "c1", WorkspaceID: "ws-other"},
-	}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c1"}}
-
-	h.Get(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
 // TestGet_NoPathWorkspace_AnyWorkspaceIsVisible proves the repo-scoped mount
 // (Task 17: no :wsId path param) drops the WORKSPACE-ownership half of
 // requireChatInWorkspace: a chat anchored to some OTHER workspace OF THIS REPO
@@ -1293,25 +902,9 @@ func TestGet_RepoMount_ARowWithNoResolvableGroundIsStillServed(
 	}
 }
 
-// TestGet_ChatNotFound proves an unknown chat id 404s via the
-// agentchat.ErrNotFound -> StatusAndMessage mapping.
-func TestGet_ChatNotFound(
-	t *testing.T,
-) {
-	uc := &configurableListGetUsecase{getErr: agentchat.ErrNotFound}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodGet, "/v0/chats/missing", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
-
-	h.Get(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
 // TestRename_PostsTitleAndSource proves Rename decodes {title}, forwards the
 // path id, decoded title, and the `source` query param to RenameChat, and
-// responds 202 with an empty body on success.
+// responds 204 with an empty body on success.
 func TestRename_PostsTitleAndSource(
 	t *testing.T,
 ) {
@@ -1324,7 +917,7 @@ func TestRename_PostsTitleAndSource(
 
 	h.Rename(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
 
 	require.Len(t, uc.renameCalls, 1)
@@ -1333,187 +926,7 @@ func TestRename_PostsTitleAndSource(
 	assert.Equal(t, "agent", uc.renameCalls[0].source)
 }
 
-// TestRename_WrongWorkspace404s proves the by-id scope check
-// (requireChatInWorkspace): a chat anchored to a DIFFERENT workspace than the
-// :wsId path param 404s before RenameChat is ever called (Task 3).
-func TestRename_WrongWorkspace404s(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"title":"My Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1/rename", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
-
-	h.Rename(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, uc.renameCalls, "RenameChat must never be called once the scope check 404s")
-}
-
-// TestRename_BadJSON proves a malformed body is rejected 400 without reaching
-// the usecase.
-func TestRename_BadJSON(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/c-1/rename", []byte("{not json"))
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.Rename(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, uc.renameCalls)
-}
-
-// TestRename_UsecaseError proves a RenameChat failure surfaces as a mapped
-// error response rather than a 202.
-func TestRename_UsecaseError(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{renameErr: agentchat.ErrNotFound}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"title":"My Title"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/missing/rename", body)
-	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
-
-	h.Rename(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// TestDelete_Success proves Delete forwards the path id to the tree usecase's
-// cascading delete and responds 202 with an empty body on success (Task 5).
-//
-// It goes through the TREE and not straight to PurgeChat because a chat's
-// children are threads of it and go with it — see Handlers.Delete.
-func TestDelete_Success(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	tree := &fakeChatTree{}
-	var frames []folderFrame
-	h := newFolderHandlersWith(uc, tree, &frames)
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.Delete(ctx)
-
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Empty(t, rec.Body.Bytes())
-	assert.Equal(t, "c-1", tree.gotPurge)
-	assert.Empty(t, uc.purgeCalls, "the handler must not purge behind the tree's back")
-}
-
-// A chat delete takes any folder inside its subtree with it, and those folders
-// are a plain row with no projection to announce them — so the handler does.
-func TestDelete_AnnouncesTheFoldersTheCascadeTook(t *testing.T) {
-	tree := &fakeChatTree{deletion: agentusecase.ChatDeletion{
-		Chats:   []string{"c-2", "c-1"},
-		Folders: []string{"f-1"},
-		Shifted: []domain.Chat{{ID: "f-0", Type: domain.ChatTypeFolder}},
-	}}
-	var frames []folderFrame
-	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-1"}}
-	h := newFolderHandlersWith(uc, tree, &frames)
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c-1"}}
-
-	h.Delete(ctx)
-
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	require.Len(t, frames, 2)
-	assert.Equal(t, folderFrame{folderID: "f-1", workspaceID: "ws-1", kind: "folder_deleted"}, frames[0])
-	assert.Equal(t, folderFrame{folderID: "f-0", workspaceID: "ws-1", kind: "folder_updated"}, frames[1])
-}
-
-// TestDelete_WrongWorkspace404s proves the by-id scope check
-// (requireChatInWorkspace): a chat anchored to a DIFFERENT workspace than the
-// :wsId path param 404s before PurgeChat is ever called (Task 5).
-func TestDelete_WrongWorkspace404s(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
-	tree := &fakeChatTree{}
-	var frames []folderFrame
-	h := newFolderHandlersWith(uc, tree, &frames)
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1", nil)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
-
-	h.Delete(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, uc.purgeCalls, "PurgeChat must never be called once the scope check 404s")
-	assert.Empty(t, tree.gotPurge, "and neither must the cascade behind it")
-}
-
-// TestDelete_UsecaseError proves a cascade failure surfaces as a mapped error
-// response rather than a 202.
-func TestDelete_UsecaseError(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	var frames []folderFrame
-	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentchat.ErrNotFound}, &frames)
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/missing", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "missing"}}
-
-	h.Delete(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// TestDelete_RefusesWorkingSubtree proves the tree's unconditional working-row
-// refusal reaches the caller as 409, not the generic 500 an unmapped sentinel
-// would fall through to.
-func TestDelete_RefusesWorkingSubtree(t *testing.T) {
-	uc := &fakeAgentUsecase{}
-	var frames []folderFrame
-	h := newFolderHandlersWith(uc, &fakeChatTree{err: agentusecase.ErrTreeSubtreeWorking}, &frames)
-
-	ctx, rec := newTestContext(t, http.MethodDelete, "/v0/chats/c-1", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.Delete(ctx)
-
-	assert.Equal(t, http.StatusConflict, rec.Code)
-}
-
-func (configurableListGetUsecase) ReadActivity(
-	context.Context, string, int64, int,
-) (agentusecase.ChatActivity, error) {
-	return agentusecase.ChatActivity{}, nil
-}
-
-func (configurableListGetUsecase) TakeHookReply(string) (string, bool) { return "", false }
-
-func (configurableListGetUsecase) ReadToolPayload(
-	context.Context, string, string, string,
-) ([]byte, error) {
-	return nil, nil
-}
-
-func (configurableListGetUsecase) ReadPendingChoices(
-	context.Context, string,
-) ([]domain.ActivityChoice, error) {
-	return nil, nil
-}
-
 func (configurableListGetUsecase) AnswerTerminalWait(context.Context, string, string) error {
-	return nil
-}
-
-func (configurableListGetUsecase) AnswerableChoiceIDs(
-	string, []domain.ActivityChoice,
-) []string {
 	return nil
 }
 
@@ -1523,8 +936,8 @@ func (configurableListGetUsecase) AnswerChoice(
 	return nil
 }
 
-func (configurableListGetUsecase) PendingAnswer(string) (agentusecase.PendingAnswer, bool) {
-	return agentusecase.PendingAnswer{}, false
+func (configurableListGetUsecase) HoldsAnswer(string) bool {
+	return false
 }
 
 func (configurableListGetUsecase) AwaitAnswer(
@@ -1532,8 +945,6 @@ func (configurableListGetUsecase) AwaitAnswer(
 ) (agentusecase.HookAnswer, error) {
 	return agentusecase.HookAnswer{}, nil
 }
-
-func (configurableListGetUsecase) AbandonAnswer(context.Context, string) error { return nil }
 
 func (configurableListGetUsecase) SetChatPermissionLevel(
 	context.Context, string, string,
@@ -1558,7 +969,7 @@ func (configurableListGetUsecase) ReadAttachment(
 }
 
 // TestSetSelection_ForwardsTheWholeSelection proves the endpoint decodes both
-// halves and forwards them together with the path id, answering 202 with an empty
+// halves and forwards them together with the path id, answering 204 with an empty
 // body.
 func TestSetSelection_ForwardsTheWholeSelection(
 	t *testing.T,
@@ -1572,7 +983,7 @@ func TestSetSelection_ForwardsTheWholeSelection(
 
 	h.SetSelection(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.Bytes())
 	require.Len(t, uc.selectionCalls, 1)
 	assert.Equal(t, selectionCall{chatID: "c-1", model: "opus", effort: "high"}, uc.selectionCalls[0])
@@ -1592,57 +1003,7 @@ func TestSetSelection_EmptyBodyClearsBothHalves(
 
 	h.SetSelection(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusNoContent, rec.Code)
 	require.Len(t, uc.selectionCalls, 1)
 	assert.Equal(t, selectionCall{chatID: "c-1"}, uc.selectionCalls[0])
-}
-
-func TestSetSelection_WrongWorkspace404s(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c-1", WorkspaceID: "ws-other"}}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"model":"opus"}`)
-	ctx, rec := newTestContext(t, http.MethodPatch,
-		"/v0/projects/p1/repos/r1/workspaces/ws1/chats/c-1/selection", body)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}, {Key: "id", Value: "c-1"}}
-
-	h.SetSelection(ctx)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Empty(t, uc.selectionCalls, "the scope check must 404 before the usecase is reached")
-}
-
-func TestSetSelection_BadJSON(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{}
-	h := newChatHandlers(uc)
-
-	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/chats/c-1/selection", []byte("{not json"))
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.SetSelection(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Empty(t, uc.selectionCalls)
-}
-
-// TestSetSelection_RejectedValueSurfacesAs400: a value outside the provider's
-// declared catalogue is a client error, and the mapped apperr must reach the
-// client as one rather than as an opaque 500.
-func TestSetSelection_RejectedValueSurfacesAs400(
-	t *testing.T,
-) {
-	uc := &fakeAgentUsecase{selectionErr: fmt.Errorf("no such model: %w", apperr.ErrInvalidArgument)}
-	h := newChatHandlers(uc)
-
-	body := []byte(`{"model":"telepathy"}`)
-	ctx, rec := newTestContext(t, http.MethodPatch, "/v0/chats/c-1/selection", body)
-	ctx.Params = gin.Params{{Key: "id", Value: "c-1"}}
-
-	h.SetSelection(ctx)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

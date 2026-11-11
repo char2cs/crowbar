@@ -2,14 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Lightning as Zap, LightningSlash as ZapOff } from '@phosphor-icons/react'
 import { LspClient, type LspServerStatus } from '@/features/editor/lsp/lsp-client'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { isEditorContent } from '@/features/panes/types/pane-content'
+import { documentText } from '@/features/editor/documents/document-text'
+import { workspaceRef } from '@/lib/api/documents'
 import { Button } from '@/components/ui/button'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { Dropdown } from '@/components/ui/dropdown'
-import { toast } from '@/features/window/stores/toast-store'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
 import { cn } from '@/utils/cn'
+import { report } from '@/lib/errors/report'
 
 const actionButtonClass = cn(buttonVariants({ variant: 'ghost' }), 'rounded text-muted-foreground')
 
@@ -32,12 +31,9 @@ function describe(status: LspServerStatus | null): { title: string; detail?: str
   }
 }
 
-/**
- * The language-server status chip for the active file: what the DAEMON says
- * (GET /lsp/status), refreshed when the file changes, when its document
- * finishes opening (that is when a server spawns) and when the menu opens —
- * never polled. Restart and Start act on the daemon and show its answer.
- */
+/** The active file's language-server chip, from the daemon's GET /lsp/status: refreshed when the
+ *  file changes, its document finishes opening (a server spawns then) and the menu opens, never
+ *  polled. Restart and Start act on the daemon and show its answer. */
 export function LspStatusMenu({ workspaceId, path }: { workspaceId: string; path: string }) {
   const [status, setStatus] = useState<LspServerStatus | null>(null)
   const [isOpen, setIsOpen] = useState(false)
@@ -73,7 +69,7 @@ export function LspStatusMenu({ workspaceId, path }: { workspaceId: string; path
       if (next) setStatus(next)
       setRevision((r) => r + 1)
     } catch (error) {
-      toast.error('Language server action failed', actionErrorMessage(error, undefined))
+      report(error, { action: 'Language server action failed' })
     } finally {
       setBusy(false)
     }
@@ -82,11 +78,7 @@ export function LspStatusMenu({ workspaceId, path }: { workspaceId: string; path
   const restart = () => run(() => LspClient.getInstance().restart(workspaceId, path))
   const start = () =>
     run(async () => {
-      window.dispatchEvent(new Event('flush-editor-content'))
-      const buffer = windowPaneStore
-        .getState()
-        .buffers.find((b) => isEditorContent(b) && b.path === path && b.workspaceId === workspaceId)
-      const content = buffer && isEditorContent(buffer) ? buffer.content : ''
+      const content = documentText(workspaceRef(workspaceId, path)) ?? ''
       const languageId = getLanguageIdFromPath(path) ?? 'plaintext'
       await LspClient.getInstance().reopen(workspaceId, path, content, languageId)
     })

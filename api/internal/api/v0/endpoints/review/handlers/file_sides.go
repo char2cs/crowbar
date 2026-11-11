@@ -8,13 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// GetFileSides handles GET /v0/chats/:chatId/review/contents?path=&oldPath=,
-// serving one file's full old and new text so the reader can reveal the
-// unchanged lines a patch leaves out.
-//
-// It is answered per file and only on request — never as part of the outline or
-// the patch — so a branch pays for it only where a reader expands. oldPath is
-// the rename source and may be omitted.
+// GetFileSides handles GET /v0/chats/:chatId/review/contents?path=&oldPath=, serving one file's
+// full old and new text only when the reader expands unchanged lines, so a branch pays per file.
+// oldPath is the optional rename source.
 func (h *Handlers) GetFileSides(
 	ctx *gin.Context,
 ) {
@@ -31,7 +27,7 @@ func (h *Handlers) GetFileSides(
 		ctx.Query("oldPath"),
 	)
 	if err != nil {
-		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, sides)

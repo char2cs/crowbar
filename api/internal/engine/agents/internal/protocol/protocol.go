@@ -1,13 +1,6 @@
-// Package protocol is how Crowbar speaks one provider's language.
-//
-// It is the single face over the three things that make a provider legible: reading
-// its descriptor, translating its payloads in both directions, and (through the
-// descriptor's transport declaration) knowing which wire carries them. Everything
-// under internal/ here is reachable only through this file, so a caller learns one
-// API instead of five packages.
-//
-// It holds no state and starts no processes. A conversation's lifecycle belongs to the
-// runner; this only makes bytes meaningful.
+// Package protocol is the single face over a provider's descriptor, translating payloads both ways
+// and driving the api transport; internal/ is reached only through this file. It holds no
+// conversation lifecycle: that belongs to the runner.
 package protocol
 
 import (
@@ -19,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/apidriver"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/jsonrpc"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/answer"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
@@ -34,6 +28,7 @@ var (
 	ErrInvalidDescriptor    = descriptor.ErrInvalid
 	ErrUndeclaredEvent      = inbound.ErrUndeclaredEvent
 	ErrForeignPayload       = inbound.ErrForeignConversation
+	ErrVariantMismatch      = inbound.ErrVariantMismatch
 	ErrRequiredFieldMissing = inbound.ErrRequiredFieldMissing
 	ErrUnsupportedFormat    = inbound.ErrUnsupportedFormat
 	ErrNotAnswerable        = answer.ErrNotAnswerable
@@ -42,6 +37,8 @@ var (
 
 	ErrTelemetryUnsupported    = telemetry.ErrUnsupported
 	ErrTelemetryInvalidWorkdir = telemetry.ErrInvalidWorkdir
+
+	ErrAPISessionLost = apidriver.ErrSessionLost
 )
 
 // ForeignPayloadError reports which required field was absent, i.e. why the payload
@@ -49,7 +46,7 @@ var (
 type ForeignPayloadError = inbound.ForeignConversationError
 
 // RequiredFieldError names the descriptor, event, channel and field a
-// declared required: mapping resolved to nothing against (design spec 2.3).
+// declared required: mapping resolved to nothing against.
 type RequiredFieldError = inbound.RequiredFieldError
 
 // DescriptorRuleFailure is one load rule a descriptor breaks.
@@ -61,6 +58,16 @@ type DescriptorSource = descriptor.Source
 // CheckDescriptor parses raw and reports every load rule it breaks.
 func CheckDescriptor(raw []byte) (*spec.Descriptor, []DescriptorRuleFailure) {
 	return descriptor.Check(raw)
+}
+
+// CheckDescriptorVersion refuses a document whose schema_version selects no reader.
+func CheckDescriptorVersion(raw []byte) error {
+	return descriptor.CheckVersion(raw)
+}
+
+// UnknownDescriptorKeys are the keys raw's own schema version does not define.
+func UnknownDescriptorKeys(raw []byte) []string {
+	return descriptor.UnknownKeys(raw)
 }
 
 // DescriptorSourceFor is the document Crowbar would load for id.
@@ -83,10 +90,8 @@ func All(ctx context.Context, homeDir string, accept func(raw []byte) bool) ([]*
 	return descriptor.All(ctx, homeDir, accept)
 }
 
-// EmbeddedModelManifest is descriptor.EmbeddedModelManifest, re-exported so a
-// caller outside protocol/ (modeldiscovery, which the descriptor package's
-// own internal-visibility boundary would otherwise hide this behind) never
-// needs to import descriptor directly.
+// EmbeddedModelManifest is descriptor.EmbeddedModelManifest, re-exported for
+// callers the internal/ boundary keeps out of descriptor.
 func EmbeddedModelManifest() []byte {
 	return descriptor.EmbeddedModelManifest()
 }
@@ -97,9 +102,8 @@ func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bo
 	return descriptor.Resolve(ctx, homeDir, id, accept)
 }
 
-// OverridePath is descriptor.OverridePath, re-exported for a caller that
-// needs to know whether Resolve's answer for (homeDir, id) can still change
-// without paying Resolve's own cost to find out — see its own doc comment.
+// OverridePath is descriptor.OverridePath: where Resolve looks for id's override,
+// so a caller can tell cheaply whether Resolve's answer may have changed.
 func OverridePath(homeDir, id string) string {
 	return descriptor.OverridePath(homeDir, id)
 }
@@ -115,9 +119,8 @@ func CheckVersion(d *spec.Descriptor, actual string) error {
 
 // --- inbound: they tell us -------------------------------------------------
 
-// Recv turns one raw provider payload into a canonical event, reading the
-// field map the ACTUAL delivery channel selects (see inbound.Parse and
-// spec.Channel) — never the event's static declared transport.
+// Recv turns one raw provider payload into a canonical event, reading the field
+// map of the channel it ACTUALLY arrived on, never the declared transport.
 func Recv(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel) (models.CanonicalEvent, error) {
 	return inbound.Parse(d, canonical, raw, channel)
 }
@@ -149,9 +152,6 @@ func Send(
 ) (wireEvent string, payload map[string]string, ok bool) {
 	return outbound.Resolve(d, canonical, values)
 }
-
-// Sends lists the canonical events Crowbar can drive on this provider.
-func Sends(d *spec.Descriptor) []string { return outbound.Declared(d) }
 
 // CanSend reports whether one outbound event is available.
 func CanSend(d *spec.Descriptor, canonical string) bool {
@@ -197,14 +197,15 @@ func MatchTerminalPrompt(d *spec.Descriptor, screen string) (models.TerminalProm
 // frame. AskID is non-nil exactly when a human decision must be sent back.
 type APIEvent = apidriver.Event
 
-// APISessionOrigin is told which sessions an api connection produced ITSELF,
-// in place of the one its caller named — see apidriver.SessionOrigin.
+// APISessionOrigin is told every session an api connection opens or enters —
+// see apidriver.SessionOrigin.
 type APISessionOrigin = apidriver.SessionOrigin
 
-// APIConn wraps *apidriver.Driver so a caller outside this package's own
-// internal/ boundary (agents.go, one layer up) can hold and call it without
-// ever naming the apidriver package — Go's internal/ visibility is per
-// directory, and apidriver sits one level deeper than this file does.
+// APIStdio is serve's stdin and stdout, the pipes its api connection speaks on.
+type APIStdio = jsonrpc.Stdio
+
+// APIConn wraps *apidriver.Driver so callers above this package's internal/
+// boundary can hold it without naming apidriver.
 type APIConn struct{ drv *apidriver.Driver }
 
 func (c *APIConn) Events() <-chan APIEvent { return c.drv.Events() }
@@ -216,13 +217,11 @@ func (c *APIConn) Reply(askID json.RawMessage, rendered []byte) error {
 func (c *APIConn) Close() error { return c.drv.Close() }
 
 // Overflowed reports whether the connection closed because its consumer fell
-// too far behind (see wsrpc's mailbox).
+// too far behind (see jsonrpc's mailbox).
 func (c *APIConn) Overflowed() bool { return c.drv.Overflowed() }
 
-// EstablishSession runs canonical's Fresh-or-Resume steps on this connection,
-// if it has not already — see apidriver.Driver.EstablishSession's own doc
-// comment for why a caller needs this split out from Dispatch (attach's argv
-// must name the session id before anything is said on it).
+// EstablishSession runs canonical's Fresh-or-Resume steps once per connection,
+// split from Dispatch so attach's argv can name the session id first.
 func (c *APIConn) EstablishSession(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
@@ -249,14 +248,12 @@ func (c *APIConn) InjectAt(ctx context.Context, at string, values map[string]str
 	return c.drv.InjectAt(ctx, at, values)
 }
 
-// StartAPIDriver dials a provider's API socket, completes its declared
-// handshake, and returns a connection translating inbound frames into canonical
-// events — see apidriver's own doc comment for why this is the one new thing
-// this façade exposes for mixed transport.
+// StartAPIDriver completes a provider's declared handshake over serve's stdio
+// and returns a connection translating inbound frames into canonical events.
 func StartAPIDriver(
-	ctx context.Context, d *spec.Descriptor, socketPath string, origin APISessionOrigin,
+	ctx context.Context, d *spec.Descriptor, stdio APIStdio, origin APISessionOrigin,
 ) (*APIConn, error) {
-	drv, err := apidriver.Start(ctx, d, socketPath, origin)
+	drv, err := apidriver.Start(ctx, d, stdio, origin)
 	if err != nil {
 		return nil, err
 	}

@@ -10,7 +10,7 @@ import (
 
 // DeleteReviewMessage removes a reply from a thread. The root comment
 // (Messages[0]) cannot be removed this way — a thread must keep its root, so
-// deleting the root is expressed by forgetting the whole thread instead (09 §3).
+// deleting the root is expressed by forgetting the whole thread instead.
 type DeleteReviewMessage struct {
 	ID        string
 	MessageID string
@@ -32,7 +32,7 @@ func (c DeleteReviewMessage) Validate(
 	current *domain.ReviewThread,
 ) error {
 	if current == nil {
-		return fmt.Errorf("delete review message: %w", asynxModels.ErrValidation)
+		return domain.ReviewThreadNotFound(asynxModels.ErrValidation)
 	}
 	if c.MessageID == "" {
 		return fmt.Errorf("delete review message: missing message id: %w", asynxModels.ErrValidation)

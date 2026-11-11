@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getReviewFiles } from '@/features/git/api/review-api'
 import { reviewFilesSummaryToChangedFiles } from '@/features/git/utils/review-file-summary-to-git-diff'
 import { useHostResolved } from '@/lib/host-resolve'
+import { report } from '@/lib/errors/report'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import type { GitDiff } from '@/features/git/types/git-types'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
@@ -14,17 +15,12 @@ export interface UseReviewFilesSummaryResult {
   loaded: boolean
 }
 
-// Stable-empty rule: one module-level empty array kept referentially stable
-// across renders and workspaces (see use-review-diff.ts).
+// One module-level empty array, referentially stable across renders and workspaces.
 const EMPTY_FILES: GitDiff[] = []
 
-/**
- * The files-only branch-review summary. The workspace's own scope reads the
- * workspace store's `reviewFiles`, which the git feed keeps current — the one
- * fetch per git tick, shared with the sidebar tree. A commit scope describes two
- * immutable trees, so it is fetched once on its own and takes no ticks.
- * A null wsId disables all fetching and returns empty.
- */
+/** The files summary. The branch scope reads the store's `reviewFiles` (one fetch per git tick,
+ *  shared with the sidebar); a commit scope is immutable, so fetched once. A null wsId fetches
+ *  nothing and returns empty. */
 export function useReviewFilesSummary(
   wsId: string | null,
   commit?: string,
@@ -61,7 +57,7 @@ function useCommitFilesSummary(
   )
 
   // The host is named by the project list, which the sidebar's cache can outrun; a
-  // fetch before it is swallowed below and never retried. '' reads as unresolved.
+  // fetch before it would fail and never be retried. '' reads as unresolved.
   const hostResolved = useHostResolved({ wsId: wsId ?? '' })
 
   useEffect(() => {
@@ -73,7 +69,7 @@ function useCommitFilesSummary(
         setFiles(reviewFilesSummaryToChangedFiles(summary))
         setLoaded(true)
       })
-      .catch(() => {})
+      .catch((err: unknown) => report(err, { action: 'Load the commit’s files' }))
     return () => {
       cancelled = true
     }

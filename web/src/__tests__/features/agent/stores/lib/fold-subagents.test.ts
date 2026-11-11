@@ -1,0 +1,289 @@
+import { describe, expect, it } from 'vitest'
+import { emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
+import type {
+  PlanSnapshotItem,
+  ReasoningItem,
+  SubagentItem,
+} from '@/features/agent/stores/lib/transcript-items'
+import { applyRows, ledger, subagentSessionRows } from '@/__tests__/__fixtures__/ledger-rows'
+
+const spawn = (
+  l: ReturnType<typeof ledger>,
+  toolId: string,
+  phase: 'pre' | 'post',
+  scope?: string,
+) =>
+  l.row(
+    'tool_call',
+    { toolId, phase, name: 'Agent', kind: 'subagent', title: 'Find tests', spawnsScope: scope },
+    { turnId: 'turn-1' },
+  )
+
+const bound = (l: ReturnType<typeof ledger>, call: string, scope: string) =>
+  l.row('subagent', { phase: 'bound', spawnToolId: call }, { turnId: 'turn-1', scope })
+
+describe('subagent cards', () => {
+  it('creates a subagent card on its spawn and keeps its key when it binds', () => {
+    const l = ledger()
+    let feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      spawn(l, 'call-1', 'pre'),
+      l.row(
+        'subagent',
+        { phase: 'start', spawnToolId: 'call-1', title: 'Find tests' },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    expect(feed.order).toEqual(['s:call-1'])
+    expect(feed.items.get('t:call-1')).toBeUndefined()
+    expect(feed.items.get('s:call-1')).toMatchObject({
+      kind: 'subagent',
+      status: 'starting',
+      title: 'Find tests',
+    })
+    feed = applyRows(feed, [
+      l.row('subagent', { phase: 'start', type: 'explore' }, { turnId: 'turn-1', scope: 'sub-1' }),
+      spawn(l, 'call-1', 'post', 'sub-1'),
+      bound(l, 'call-1', 'sub-1'),
+    ])
+    expect(feed.order).toEqual(['s:call-1'])
+    expect(feed.items.get('s:call-1')).toMatchObject({
+      status: 'running',
+      scope: 'sub-1',
+      type: 'explore',
+    })
+    expect(feed.facts.liveSubagents).toEqual(['s:call-1'])
+  })
+
+  it('attaches child rows that precede their card bind', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      spawn(l, 'call-1', 'pre'),
+      l.row(
+        'tool_call',
+        { toolId: 'early', phase: 'pre', name: 'Read', kind: 'read' },
+        { turnId: 'turn-1', scope: 'sub-1' },
+      ),
+      bound(l, 'call-1', 'sub-1'),
+      l.row(
+        'tool_call',
+        { toolId: 'late', phase: 'pre', name: 'Read', kind: 'read' },
+        { turnId: 'turn-1', scope: 'sub-1' },
+      ),
+    ])
+    const card = feed.items.get('s:call-1') as SubagentItem
+    expect(card.scope).toBe('sub-1')
+    expect(feed.scoped[card.scope!]).toEqual(['t:early', 't:late'])
+    expect(feed.order).toEqual(['s:call-1'])
+  })
+
+  // The rows claude 2.1.319 recorded for "say ALPHA, launch two agents, say
+  // BRAVO": it reports ALPHA only once both spawns had started.
+  it('draws spawns where they were said, live and on reload, and finishes them in place', () => {
+    const l = ledger()
+    const say = (id: string, text: string) => l.text('turn-1', id, 0, text, true)
+    const end = (scope: string, phase: 'stop' | 'result', result = scope, usage?: object) =>
+      l.row('subagent', { phase, result, usage }, { turnId: 'turn-1', scope })
+    const rows = [
+      l.prompt('r1', 'launch two'),
+      l.start('turn-1', 'r1'),
+      spawn(l, 'call-1', 'pre'),
+      spawn(l, 'call-2', 'pre'),
+      spawn(l, 'call-1', 'post', 'sub-1'),
+      bound(l, 'call-1', 'sub-1'),
+      say('m-alpha', 'ALPHA'),
+      spawn(l, 'call-2', 'post', 'sub-2'),
+      bound(l, 'call-2', 'sub-2'),
+      say('m-bravo', 'BRAVO'),
+      end('sub-2', 'stop'),
+      l.end('turn-1'),
+      end('sub-1', 'result', 'Found 3', { tokens: 1200, toolUses: 2 }),
+      end('sub-2', 'result'),
+      end('sub-1', 'stop', 'later'),
+      l.start('turn-2'),
+      l.text('turn-2', 'm-charlie', 0, 'CHARLIE', true),
+      l.end('turn-2'),
+    ]
+    const said = ['p:r1', 'm:turn-1:m-alpha', 's:call-1', 's:call-2', 'm:turn-1:m-bravo']
+    let live = emptyFeed()
+    for (const row of rows) {
+      live = applyRows(live, [row])
+      if (live.order.includes('m:turn-1:m-alpha'))
+        expect(live.order.slice(0, 4)).toEqual(said.slice(0, 4))
+    }
+    const replay = new FeedFold(emptyFeed())
+    for (const row of rows) replay.apply(row)
+    expect(live.order).toEqual([...said, 'm:turn-2:m-charlie'])
+    expect(replay.finish().order).toEqual(live.order)
+    const usage = { tokens: 1200, toolUses: 2 }
+    expect(live.items.get('s:call-1')).toMatchObject({ status: 'done', result: 'Found 3', usage })
+    expect(live.items.get('s:call-2')).toMatchObject({ status: 'done', result: 'sub-2' })
+  })
+
+  it('marks running cards interrupted when the turn is stopped', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      spawn(l, 'call-1', 'pre'),
+      bound(l, 'call-1', 'sub-1'),
+      l.row('subagent', { phase: 'start', type: 'plan' }, { turnId: 'turn-1', scope: 'sub-2' }),
+      l.row(
+        'subagent',
+        { phase: 'stop', status: 'interrupted' },
+        { turnId: 'turn-1', scope: 'sub-1' },
+      ),
+      l.end('turn-1', 'interrupted'),
+      l.row('runner_exited', { runnerId: 'r1', reason: 'stopped', exitCode: 0 }),
+    ])
+    expect(feed.items.get('s:call-1')).toMatchObject({ status: 'interrupted' })
+    expect(feed.items.get('s:sub-2')).toMatchObject({ status: 'interrupted' })
+    expect(feed.facts.liveSubagents).toEqual([])
+  })
+
+  it('marks a card abandoned when its parent turn ends before it binds', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      spawn(l, 'call-1', 'pre'),
+      l.end('turn-1'),
+    ])
+    expect(feed.items.get('s:call-1')).toMatchObject({ status: 'abandoned' })
+    expect(feed.facts.liveSubagents).toEqual([])
+  })
+
+  it('sets parent waiting while the parent addresses the subagent', () => {
+    const l = ledger()
+    const wait = (phase: 'pre' | 'post') =>
+      l.row(
+        'tool_call',
+        { toolId: 'w1', phase, name: 'wait', addressesScope: 'sub-1' },
+        { turnId: 'turn-1' },
+      )
+    let feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      spawn(l, 'call-1', 'pre'),
+      bound(l, 'call-1', 'sub-1'),
+      wait('pre'),
+    ])
+    expect(feed.items.get('s:call-1')).toMatchObject({ parentWaiting: true })
+    feed = applyRows(feed, [wait('post')])
+    expect(feed.items.get('s:call-1')).toMatchObject({ parentWaiting: false })
+  })
+
+  it('runs a card that ended again on a follow-up, in its place, until its next result', () => {
+    const l = ledger()
+    const run = (phase: 'start' | 'resume' | 'stop', result?: string) =>
+      l.row('subagent', { phase, title: 'pong', result }, { turnId: 'turn-1', scope: 'thread-c' })
+    let feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      l.text('turn-1', 'm1', -1, 'Asking an agent.', true),
+      run('start'),
+      run('stop', 'pong'),
+      run('resume'),
+    ])
+    expect(feed.order).toEqual(['m:turn-1:m1', 's:thread-c'])
+    expect(feed.items.get('s:thread-c')).toMatchObject({ status: 'running', endedAt: undefined })
+    expect(feed.facts.liveSubagents).toEqual(['s:thread-c'])
+    feed = applyRows(feed, [run('stop', 'bye')])
+    expect(feed.items.get('s:thread-c')).toMatchObject({ status: 'done', result: 'bye' })
+    expect(feed.facts.liveSubagents).toEqual([])
+  })
+
+  it('folds the recorded session into two cards that each hold their own calls and result', () => {
+    const feed = applyRows(emptyFeed(), subagentSessionRows())
+    const cards = feed.order
+      .map((id) => feed.items.get(id))
+      .filter((item): item is SubagentItem => item?.kind === 'subagent')
+    expect(cards.map((card) => card.status)).toEqual(['done', 'done'])
+    for (const card of cards) {
+      expect(
+        feed.scoped[card.scope!]?.filter((id) => feed.items.get(id)?.kind === 'tool'),
+      ).toHaveLength(3)
+      expect(card.result).toMatch(/alpha/)
+    }
+    expect(cards[1]?.type).toBe('general-purpose')
+    expect(feed.facts.liveSubagents).toEqual([])
+  })
+})
+
+describe('reasoning and plan rows', () => {
+  it('folds a reasoning row into a collapsed item above its turn reply', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.prompt('r1', 'hi'),
+      l.start('turn-1', 'r1'),
+      l.text('turn-1', 'm1', 0, 'Hello', true),
+      l.row('reasoning', { messageId: 'm1', text: 'Thinking hard' }, { turnId: 'turn-1' }),
+      l.end('turn-1'),
+    ])
+    expect(feed.order).toEqual(['p:r1', 'r:turn-1:m1', 'm:turn-1:m1'])
+    const item = feed.items.get('r:turn-1:m1') as ReasoningItem
+    expect(item).toMatchObject({ kind: 'reasoning', text: 'Thinking hard' })
+    expect(Date.parse(item.endedAt) - Date.parse(item.startedAt)).toBe(2000)
+  })
+
+  it('leaves a snapshot of the main plan in the transcript when its turn ends', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      l.row(
+        'plan',
+        { op: 'upsert', items: [{ id: '1', text: 'Read', status: 'active' }] },
+        { turnId: 'turn-1' },
+      ),
+      l.row(
+        'plan',
+        { op: 'upsert', items: [{ id: '2', text: 'Gone', status: 'pending' }] },
+        { turnId: 'turn-1' },
+      ),
+      l.row(
+        'plan',
+        { op: 'upsert', items: [{ id: '1', text: 'Read', status: 'done' }] },
+        { turnId: 'turn-1' },
+      ),
+      l.row(
+        'plan',
+        { op: 'upsert', items: [{ id: '2', text: 'Gone', status: 'removed' }] },
+        { turnId: 'turn-1' },
+      ),
+      l.end('turn-1'),
+    ])
+    expect(feed.order).toEqual(['l:turn-1'])
+    expect((feed.items.get('l:turn-1') as PlanSnapshotItem).items).toEqual([
+      { id: '1', text: 'Read', status: 'done' },
+    ])
+  })
+
+  // The strip and the working line read the live plan: it ends with its turn.
+  const ends = {
+    completed: (l: ReturnType<typeof ledger>) => l.end('turn-1'),
+    interrupted: (l: ReturnType<typeof ledger>) => l.end('turn-1', 'interrupted'),
+    failed: (l: ReturnType<typeof ledger>) =>
+      l.row('turn_failed', { reason: 'provider_error' }, { turnId: 'turn-1' }),
+  }
+  it.each(Object.entries(ends))(
+    'ends the live plan with a %s turn, live and on reload',
+    (_, end) => {
+      const l = ledger()
+      const rows = [
+        l.start('turn-1'),
+        l.row(
+          'plan',
+          { op: 'replace', items: [{ id: '1', text: 'Fix', status: 'active' }] },
+          { turnId: 'turn-1' },
+        ),
+        end(l),
+      ]
+      const live = rows.reduce((feed, row) => applyRows(feed, [row]), emptyFeed())
+      const fold = new FeedFold(emptyFeed())
+      for (const row of rows) fold.apply(row)
+      for (const feed of [live, fold.finish()]) {
+        expect(feed.facts.plan['']).toBeUndefined()
+        expect((feed.items.get('l:turn-1') as PlanSnapshotItem).items).toEqual([
+          { id: '1', text: 'Fix', status: 'active' },
+        ])
+      }
+    },
+  )
+})

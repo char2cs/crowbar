@@ -2,15 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
 
-// clientCapabilities declares what the editor (Monaco, via the daemon's /lsp
-// routes) can consume. Servers shape their answers by it: without
-// codeActionLiteralSupport a server returns bare commands instead of edits,
-// without hierarchicalDocumentSymbolSupport a flat symbol list, without a
-// markdown contentFormat plain-text hovers.
+// clientCapabilities declares what the Monaco editor can consume. Servers shape answers
+// by it: without codeActionLiteralSupport they send bare commands, without hierarchical
+// symbols a flat list, without markdown plain-text hovers.
 func clientCapabilities() map[string]any {
 	markup := []string{"markdown", "plaintext"}
 	return map[string]any{
@@ -89,22 +89,42 @@ type serverFeatures struct {
 
 func featuresFromInitialize(
 	result json.RawMessage,
-) serverFeatures {
+) (serverFeatures, error) {
 	var res struct {
 		Capabilities json.RawMessage `json:"capabilities"`
 	}
 	if err := json.Unmarshal(result, &res); err != nil {
-		return serverFeatures{}
+		return serverFeatures{}, fmt.Errorf("initialize result: %w", err)
 	}
 	var caps struct {
 		ExecuteCommand struct {
 			Commands []string `json:"commands"`
 		} `json:"executeCommandProvider"`
 	}
-	_ = json.Unmarshal(res.Capabilities, &caps)
+	if len(res.Capabilities) > 0 {
+		if err := json.Unmarshal(res.Capabilities, &caps); err != nil {
+			// Only code actions and lenses use the commands: the server still starts.
+			slog.Warn("lsp: executeCommandProvider unreadable; offering no commands", "err", err)
+			caps.ExecuteCommand.Commands = nil
+		}
+	}
 	commands := make(map[string]bool, len(caps.ExecuteCommand.Commands))
 	for _, c := range caps.ExecuteCommand.Commands {
 		commands[c] = true
 	}
-	return serverFeatures{semTok: semtok.FromCapabilities(res.Capabilities), commands: commands}
+	return serverFeatures{semTok: semtok.FromCapabilities(res.Capabilities), commands: commands}, nil
+}
+
+// recordFeatures keeps what the initialize result declares for the session.
+func (s *server) recordFeatures(
+	result json.RawMessage,
+) error {
+	features, err := featuresFromInitialize(result)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.features = features
+	s.mu.Unlock()
+	return nil
 }

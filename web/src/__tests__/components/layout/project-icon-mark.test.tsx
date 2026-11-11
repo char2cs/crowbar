@@ -3,22 +3,20 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ProjectIconMark, EditableProjectIcon } from '@/components/layout/project-icon-mark'
 import { assetURL } from '@/lib/api'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
-import type { Project } from '@/lib/types'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch,
 }))
 
-/**
- * The mark a project shows, wherever it is shown. It exists because the context
- * pill used to draw its own <Library>, so a project with an icon rendered that
- * icon in the sidebar row and the default glyph in the pill above it.
- */
+/** The mark a project shows, wherever it is shown, so the sidebar row and the pill agree. */
 describe('ProjectIconMark', () => {
   const project = { id: 'p1', name: 'Crowbar' }
 
@@ -110,7 +108,7 @@ describe('EditableProjectIcon', () => {
   })
 
   it('clicking the mark opens the picker, without folding the header it sits in', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const onHeaderClick = vi.fn()
     render(
       <div onClick={onHeaderClick}>
@@ -123,7 +121,7 @@ describe('EditableProjectIcon', () => {
   })
 
   it('has no GitHub owner-avatar action — a project has no origin remote', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<EditableProjectIcon project={project} size="lg" />)
     await user.click(screen.getByRole('button', { name: /edit harbour icon/i }))
     await screen.findByText('Icon')
@@ -131,7 +129,7 @@ describe('EditableProjectIcon', () => {
   })
 
   it('setting an emoji PUTs it to this project’s own REST base and persists it', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<EditableProjectIcon project={project} size="lg" />)
     await user.click(screen.getByRole('button', { name: /edit harbour icon/i }))
     await user.click(await screen.findByRole('button', { name: /emoji/i }))
@@ -164,39 +162,23 @@ describe('EditableProjectIcon', () => {
 // draws the default mark, and a remote project's image is never fetched from the local daemon.
 describe('a project on a remote host', () => {
   const project = { id: 'p1', name: 'harbour', avatarUrl: '/v0/projects/p1/icon?v=1' }
-  const row = (hostId: string): Project => ({
-    id: 'p1',
-    name: 'harbour',
-    path: '/work/p1',
-    lastActivity: new Date(0),
-    hostId,
-  })
-  const pairHost = (id: string) =>
-    useHostConfigStore.getState().addHost({
-      id,
-      name: id,
-      endpoint: `${id}.example:3737`,
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: `client-${id}`,
-    })
+  const row = (hostId: string) => projectOn('p1', hostId)
 
   beforeEach(() => {
     vi.clearAllMocks()
     apiFetch.mockResolvedValue(undefined)
     ;(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {}
-    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-    useProjectDataStore.setState({ data: idle() })
-    pairHost('host-2')
+    resetHostWorld()
+    pairRemoteHost('host-2')
   })
 
   afterEach(() => {
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
-    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-    useProjectDataStore.setState({ data: idle() })
+    resetHostWorld()
   })
 
   it('loads the image from its own host', () => {
-    useProjectDataStore.setState({ data: success([row('host-2')]) })
+    loadProjects(row('host-2'))
     const { container } = render(<ProjectIconMark project={project} size="lg" />)
     expect(container.querySelector('img')?.getAttribute('src')).toBe(
       'crowbar://host-2/v0/projects/p1/icon?v=1',
@@ -205,10 +187,7 @@ describe('a project on a remote host', () => {
 
   it.each([
     ['the project list has not loaded', () => undefined],
-    [
-      'its host is not configured',
-      () => useProjectDataStore.setState({ data: success([row('gone')]) }),
-    ],
+    ['its host is not configured', () => loadProjects(row('gone'))],
   ])('draws the default mark, with no image, while %s', (_why, arrange) => {
     arrange()
     const { container } = render(<ProjectIconMark project={project} size="lg" />)
@@ -219,15 +198,15 @@ describe('a project on a remote host', () => {
   it('swaps the default mark for the image once the project’s row arrives', () => {
     const { container } = render(<ProjectIconMark project={project} size="lg" />)
     expect(container.querySelector('img')).toBeNull()
-    act(() => useProjectDataStore.setState({ data: success([row('host-2')]) }))
+    act(() => loadProjects(row('host-2')))
     expect(container.querySelector('img')?.getAttribute('src')).toBe(
       'crowbar://host-2/v0/projects/p1/icon?v=1',
     )
   })
 
   it('edits against its own host: an emoji is PUT to the qualified base', async () => {
-    useProjectDataStore.setState({ data: success([row('host-2')]) })
-    const user = userEvent.setup()
+    loadProjects(row('host-2'))
+    const user = userEvent.setup({ delay: null })
     render(<EditableProjectIcon project={project} size="lg" />)
     await user.click(screen.getByRole('button', { name: /edit harbour icon/i }))
     await user.click(await screen.findByRole('button', { name: /emoji/i }))
@@ -244,7 +223,7 @@ describe('a project on a remote host', () => {
     const { container } = render(<EditableProjectIcon project={project} size="lg" />)
     expect(screen.queryByRole('button', { name: /edit harbour icon/i })).toBeNull()
     expect(container.querySelector('img')).toBeNull()
-    act(() => useProjectDataStore.setState({ data: success([row('host-2')]) }))
+    act(() => loadProjects(row('host-2')))
     expect(screen.getByRole('button', { name: /edit harbour icon/i })).toBeInTheDocument()
   })
 })

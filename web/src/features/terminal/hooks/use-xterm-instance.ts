@@ -2,50 +2,13 @@ import type { Terminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
-import { toast } from '@/features/window/stores/toast-store'
-import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import type { TerminalAddons } from './use-terminal-addons'
 import { useTerminalTheme } from './use-terminal-theme'
 import { fitToContainer } from './use-pty-size-sync'
 import { mountXterm, type MountedXterm } from '../lib/mount-xterm'
-import { workspaceRelativePath } from '../lib/terminal-file-links'
-import type { TerminalLinksOptions } from '../lib/terminal-links'
-import { showTerminalUrlMenu, type TerminalView } from '../lib/terminal-url-menu'
-import { useTerminalStore } from '../stores/terminal-store'
+import { terminalLinksFor } from '../lib/terminal-links'
+import type { TerminalView } from '../lib/terminal-url-menu'
 import { resolveTerminalFont } from '../utils/resolve-font'
-
-/**
- * Links open inside the view this terminal belongs to, never the active one.
- * File references resolve against the session cwd when known, else the
- * workspace root, then are relativized back onto it (the files API takes
- * worktree-relative paths). URLs offer a native menu.
- */
-function linksFor(getSessionId: () => string, getView: () => TerminalView): TerminalLinksOptions {
-  return {
-    getRoot: () => {
-      const cwd = useTerminalStore.getState().getSession(getSessionId())?.currentDirectory
-      if (cwd?.startsWith('/')) return cwd
-      return resolveWorkspaceRootPath(getView().workspaceId)
-    },
-    openFile: (absolutePath) => {
-      const { workspaceId, paneId } = getView()
-      const rel = workspaceRelativePath(absolutePath, resolveWorkspaceRootPath(workspaceId))
-      if (!rel) {
-        toast.error('Cannot open file', `${absolutePath} is outside the current workspace.`)
-        return
-      }
-      void openWorkspaceFile(workspaceId, rel, { paneId }).catch((err: unknown) => {
-        if (!toastHostFailure(err)) toast.error('Could not open file', absolutePath)
-      })
-    },
-    onUnresolved: (candidateText) => {
-      toast.error('Cannot open file', `Could not resolve ${candidateText} to a path.`)
-    },
-    onUrl: (url, position) => void showTerminalUrlMenu(url, position, getView()),
-  }
-}
 
 interface UseXtermInstanceOptions {
   sessionId: string
@@ -64,11 +27,8 @@ export interface XtermInstance {
   addons: TerminalAddons | null
 }
 
-/**
- * Builds this view's xterm once its container has a box, keeps its options in
- * step with the settings, and disposes it on unmount. It knows nothing about the
- * PTY: output and input are wired by useTerminalConnection, size by usePtySizeSync.
- */
+/** Builds the xterm once its container has a box and tracks settings. Knows nothing of the PTY:
+ *  I/O is useTerminalConnection's, size usePtySizeSync's. */
 export function useXtermInstance({
   sessionId,
   workspaceId,
@@ -157,7 +117,7 @@ export function useXtermInstance({
           },
           {
             write: (data, origin) => writeRef.current(data, origin),
-            links: linksFor(
+            links: terminalLinksFor(
               () => sessionIdRef.current,
               () => viewRef.current,
             ),

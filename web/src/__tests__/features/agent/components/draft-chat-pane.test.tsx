@@ -1,7 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import { PlateController, useEditorRef, type PlateEditor } from 'platejs/react'
+import * as promote from '@/components/layout/draft-promote'
+import * as drafts from '@/components/layout/draft-thread'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import { chatValueToMarkdown } from '@/features/agent/composer/plate/chat-composer-serialization'
 
 const claude: AgentProvider = {
   id: 'claude',
@@ -21,11 +25,22 @@ const claude: AgentProvider = {
 }
 
 vi.mock('@/features/agent/hooks/use-pane-providers', () => ({ usePaneProviders: () => [claude] }))
-vi.mock('@/features/workspace/stores/workspace-context', () => ({ useWorkspaceStore: () => ({}) }))
 // The document itself is the chat's own; only the controls the pane hands it matter here.
 vi.mock('@/features/agent/chat/agent-empty-document', () => ({
-  AgentEmptyDocument: ({ controls }: { controls: ReactNode }) => <div>{controls}</div>,
+  AgentEmptyDocument: ({ controls, onSubmit }: { controls: ReactNode; onSubmit: () => void }) => (
+    <div>
+      {controls}
+      <button onClick={onSubmit}>Send</button>
+    </div>
+  ),
 }))
+
+const grabbed: { editor?: PlateEditor } = {}
+function GrabEditor() {
+  grabbed.editor = useEditorRef()
+  return null
+}
+const boxText = () => chatValueToMarkdown(grabbed.editor!.children as never).trim()
 
 const { DraftChatPane } = await import('@/features/agent/components/draft-chat-pane')
 
@@ -36,5 +51,27 @@ describe('DraftChatPane', () => {
     render(<DraftChatPane paneId="p1" wsId="w1" hostId="local" belowOverlayHeader={false} />)
     const chip = screen.getByRole('button', { name: /Agent:/ })
     expect(chip.closest('.agent-chat-pane')).not.toBeNull()
+  })
+
+  it('gives a refused create its prompt back, ahead of what was typed meanwhile', async () => {
+    vi.spyOn(drafts, 'draftOfPane').mockReturnValue({ draftId: 'd1' } as never)
+    let refuse = () => {}
+    vi.spyOn(promote, 'promoteDraftThread').mockImplementation(
+      () => new Promise<void>((resolve) => (refuse = resolve)),
+    )
+    render(
+      <PlateController>
+        <DraftChatPane paneId="p1" wsId="w1" hostId="local" belowOverlayHeader={false} />
+        <GrabEditor />
+      </PlateController>,
+    )
+    await act(async () => grabbed.editor!.tf.insertText('fix the bug'))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(boxText()).toBe('')
+
+    await act(async () => grabbed.editor!.tf.insertText('and add a test'))
+    await act(async () => refuse())
+
+    expect(boxText()).toBe('fix the bug\n\nand add a test')
   })
 })

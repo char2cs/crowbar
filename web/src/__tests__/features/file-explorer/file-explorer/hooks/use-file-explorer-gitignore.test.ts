@@ -1,11 +1,15 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { readWorkspaceFile } = vi.hoisted(() => ({ readWorkspaceFile: vi.fn() }))
-vi.mock('@/features/file-system/controllers/platform', () => ({ readWorkspaceFile }))
+const { readDocument } = vi.hoisted(() => ({ readDocument: vi.fn() }))
+vi.mock('@/lib/api/documents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/documents')>()),
+  readDocument,
+}))
 
 import { useFileExplorerGitignore } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-gitignore'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
 
 const references = [{ path: '.gitignore', directoryPath: '' }]
 
@@ -14,7 +18,7 @@ const references = [{ path: '.gitignore', directoryPath: '' }]
 describe('useFileExplorerGitignore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    readWorkspaceFile.mockResolvedValue('dist/\n')
+    readDocument.mockImplementation(async (ref: unknown) => ({ ref, text: 'dist/\n' }))
     setActiveWorkspaceId('ws-in-view')
   })
 
@@ -24,13 +28,13 @@ describe('useFileExplorerGitignore', () => {
     )
 
     await waitFor(() => expect(result.current.isGitIgnored('dist', true)).toBe(true))
-    expect(readWorkspaceFile).toHaveBeenCalledExactlyOnceWith('ws-a', '.gitignore')
+    expect(readDocument).toHaveBeenCalledExactlyOnceWith(workspaceRef('ws-a', '.gitignore'))
   })
 
   it('reads nothing when the tree shows no workspace', async () => {
     renderHook(() => useFileExplorerGitignore(null, 'ws-a', references, () => 'ws-a'))
 
     await Promise.resolve()
-    expect(readWorkspaceFile).not.toHaveBeenCalled()
+    expect(readDocument).not.toHaveBeenCalled()
   })
 })

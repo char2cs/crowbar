@@ -3,16 +3,7 @@ import type { WindowPaneState } from '../window-pane-store.types'
 import type {
   PaneContent,
   OpenEditorTabSpec,
-  EditorContent,
-  BranchReviewContent,
   BranchReviewView,
-  BrowserContent,
-  CommitDiffContent,
-  NewTabPageContent,
-  TerminalContent,
-  MarkdownPreviewContent,
-  HtmlPreviewContent,
-  CsvPreviewContent,
   ClosedBuffer,
   PendingClose,
 } from '@/features/panes/types/pane-content'
@@ -20,17 +11,19 @@ import { isEditorContent } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
 import { placeTab } from './pane-actions/editor-tab-actions'
-import { findOpenBuffer } from './find-open-buffer'
+import { findOpenBuffer, ownerOf, specWorkspaceId } from './find-open-buffer'
+import { newBuffer } from './new-buffer'
 import { useSettingsStore } from '@/features/settings/store'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
+import type { DocumentRef } from '@/lib/api/documents'
 import { nanoid } from 'nanoid'
-import { bestEffort } from '@/lib/best-effort'
+import { report } from '@/lib/errors/report'
 import { browserTabName } from '@/features/browser/lib/browser-tab-name'
 
 // ── Constants ────────────────────────────────────────────────────────
 
-// A pane with zero editorTabIds falls back to rendering its New Tab surface
-// for free (PaneContainer) — there is no placeholder buffer to protect any
-// more, only the always-live terminal type stays exempt from auto-eviction.
+// A live terminal is never auto-evicted; a pane emptied by eviction just shows its New Tab
+// surface.
 const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['terminal'])
 
 // ── Actions ──────────────────────────────────────────────────────────
@@ -47,6 +40,8 @@ export interface BufferActions {
   openContent(spec: OpenEditorTabSpec, opts?: OpenContentOptions): string
   closeBuffer(id: string): void
   renameBuffer(id: string, name: string): void
+  /** An untitled buffer saved as `doc` becomes that document's tab. */
+  rebindEditorBuffer(id: string, doc: DocumentRef, name: string): void
   setBranchReviewView(id: string, view: BranchReviewView): void
   setBrowserLocation(id: string, patch: { url?: string; title?: string; loading?: boolean }): void
   setPinned(id: string, pinned: boolean): void
@@ -58,17 +53,9 @@ export interface BufferActions {
   confirmPendingClose(): void
 }
 
-/** Sync the isUncloseable flag on editor tabs in a pane: the sole editor tab
- *  becomes uncloseable UNLESS the pane can safely lose it — either it also
- *  holds a chat (closing its last tab just collapses it to chat-only,
- *  `chatFillsPane` in pane-container.tsx) or it is one of several panes in a
- *  split (closing its last tab drops the whole pane from the layout,
- *  `dropEmptiedPanes` in pane-slice.ts). Only a chatless pane that is truly
- *  alone — nothing to collapse into, nothing to fall back to — still protects
- *  its last tab, since THAT pane has nowhere left to go but the bare "nothing
- *  is open" fallback screen forever. `canSafelyEmpty` is resolved by the
- *  caller (pane-slice.ts), which alone has the full layout tree this needs.
- *  Called whenever a pane's editorTabIds change (add/remove/move operations). */
+/** A pane's sole editor tab is uncloseable unless the pane can lose it (it holds a chat, or is
+ *  one split of several). pane-slice resolves `canSafelyEmpty` — only it sees the layout tree —
+ *  and calls this whenever a pane's editorTabIds change. */
 export function syncSoleEditorTabCloseability(
   state: { buffers?: PaneContent[]; panes?: Record<string, { editorTabIds: string[] }> },
   paneId: string,
@@ -111,15 +98,10 @@ export const createBufferSlice: StateCreator<
     bufferActions: {
       openContent(spec, opts = {}) {
         const paneId = opts.paneId ?? get().activePaneId
-        // `buffers` is one flat, window-level list: every path-keyed lookup below scopes on
-        // the caller's workspace, or two worktrees of one repo would share a buffer.
-        const workspaceId =
-          spec.type === 'branchReview' || spec.type === 'commitDiff' ? spec.wsId : spec.workspaceId
-
+        const workspaceId = specWorkspaceId(spec)
         const existing = findOpenBuffer(
           get().buffers,
           spec,
-          workspaceId,
           get().panes[paneId]?.editorTabIds ?? [],
         )
 
@@ -135,16 +117,9 @@ export const createBufferSlice: StateCreator<
         }
 
         if (existing) {
-          // A terminal buffer IS a live view onto ONE PTY. Opening it again must
-          // REVEAL the view that already exists — jump to the pane that holds it —
-          // never drop a SECOND copy into the active pane. Two views of the same
-          // PTY race each other over the shared transport (the daemon serializes
-          // its screen model to a client only at attach), and one of the two ends
-          // up blank. Editors and everything else are safe to surface in the
-          // active pane, so they keep the addEditorTabToPane path. (An agent chat
-          // used to share this jump path too — it is no longer reachable here at
-          // all: a chat is `PaneGroup.chatId`, never opened
-          // through `openContent`.)
+          // Reopening a terminal jumps to the pane holding it, never seats a second view: two
+          // views of one PTY race over the transport (the daemon sends its screen model only
+          // at attach) and one goes blank. Other content is safe to show in the active pane.
           if (existing.type === 'terminal') {
             const pane = get().paneActions.getPaneByEditorTabId(existing.id)
             if (pane) {
@@ -157,24 +132,9 @@ export const createBufferSlice: StateCreator<
           return existing.id
         }
 
-        // Auto-evict when at max tabs (before creating a new buffer).
-        //
-        // ONE cap, enforced here. `maxOpenTabs` on this slice is the engine's
-        // own budget; the user's `settings.maxOpenTabs` narrows it when they ask
-        // for fewer tabs than that. Until now the setting was enforced a second
-        // time, in the tab bar, by an effect that watched the workspace-wide
-        // buffer list and closed tabs through the pane's own close handler — so
-        // it only bit below the engine budget, and with two panes open BOTH tab
-        // bars trimmed the same shared list.
-        //
-        // Task 26 fix round 1 (Critical 3): buffers are one flat window-wide
-        // list now, shared across every workspace WorkspaceHost keeps
-        // retained (up to RETENTION_CAP). Scoping the count AND the evictee
-        // search to THIS buffer's own workspace keeps the cap per-workspace,
-        // as it always was — otherwise opening a file in workspace A could
-        // silently discard a tab (or, without the isDirty guard below,
-        // unsaved work) belonging to workspace B, C, ... which the user isn't
-        // even looking at.
+        // The one tab cap: the engine budget, narrowed by settings.maxOpenTabs. Buffers are one
+        // window-wide list, so count and evict within this buffer's workspace — opening a file
+        // must never discard a tab in a workspace the user isn't looking at.
         const settingCap = useSettingsStore.getState().settings.maxOpenTabs
         const cap = settingCap > 0 ? Math.min(get().maxOpenTabs, settingCap) : get().maxOpenTabs
         const workspaceBuffers = get().buffers.filter((b) => b.workspaceId === workspaceId)
@@ -197,125 +157,8 @@ export const createBufferSlice: StateCreator<
 
         const id = nanoid()
 
-        // Build the new buffer object
-        let buf: PaneContent
-
-        if (spec.type === 'editor') {
-          const isPreview = spec.isPreview ?? false
-          buf = {
-            id,
-            type: 'editor',
-            path: spec.path,
-            name: spec.name,
-            content: spec.content,
-            savedContent: spec.content,
-            isDirty: false,
-            isVirtual: spec.isVirtual ?? false,
-            language: spec.language,
-            tokens: [],
-            isPinned: false,
-            isPreview,
-            workspaceId,
-          } satisfies EditorContent
-        } else if (spec.type === 'branchReview') {
-          buf = {
-            id,
-            type: 'branchReview',
-            wsId: spec.wsId,
-            name: spec.name,
-            path: `branch-review://${spec.wsId}`,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies BranchReviewContent
-        } else if (spec.type === 'commitDiff') {
-          buf = {
-            id,
-            type: 'commitDiff',
-            wsId: spec.wsId,
-            sha: spec.sha,
-            name: spec.name,
-            // One tab per commit per workspace: reopening the same commit
-            // focuses the tab that is already there rather than stacking another.
-            path: `commit-diff://${spec.wsId}/${spec.sha}`,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies CommitDiffContent
-        } else if (spec.type === 'terminal') {
-          const terminalCount = get().buffers.filter((b) => b.type === 'terminal').length
-          const sessionId = spec.sessionId ?? `terminal-tab-${Date.now()}`
-          buf = {
-            id,
-            type: 'terminal',
-            sessionId,
-            path: spec.path ?? `terminal://${sessionId}`,
-            name: spec.name ?? `Terminal ${terminalCount + 1}`,
-            initialCommand: spec.command,
-            workingDirectory: spec.workingDirectory,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies TerminalContent
-        } else if (spec.type === 'browser') {
-          buf = {
-            id,
-            type: 'browser',
-            url: spec.url ?? '',
-            name: browserTabName(undefined, spec.url ?? ''),
-            path: `browser://${id}`,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies BrowserContent
-        } else if (spec.type === 'newTabPage') {
-          buf = {
-            id,
-            type: 'newTabPage',
-            name: 'New Tab',
-            path: `new-tab://${id}`,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies NewTabPageContent
-        } else if (spec.type === 'markdownPreview') {
-          buf = {
-            id,
-            type: 'markdownPreview',
-            path: spec.path,
-            name: spec.name,
-            content: spec.content,
-            sourceFilePath: spec.sourceFilePath,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies MarkdownPreviewContent
-        } else if (spec.type === 'htmlPreview') {
-          buf = {
-            id,
-            type: 'htmlPreview',
-            path: spec.path,
-            name: spec.name,
-            content: spec.content,
-            sourceFilePath: spec.sourceFilePath,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies HtmlPreviewContent
-        } else {
-          // spec.type === 'csvPreview'
-          buf = {
-            id,
-            type: 'csvPreview',
-            path: spec.path,
-            name: spec.name,
-            content: spec.content,
-            sourceFilePath: spec.sourceFilePath,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies CsvPreviewContent
-        }
+        const terminalCount = get().buffers.filter((b) => b.type === 'terminal').length
+        const buf = newBuffer(spec, id, workspaceId, terminalCount)
 
         // Created and seated in one write: a buffer never exists without a
         // pane listing it (invariant C2). No pane, no buffer.
@@ -335,11 +178,9 @@ export const createBufferSlice: StateCreator<
       },
 
       closeBuffer(id) {
-        // A pane still listing `id` is a split sibling showing it live:
-        // tearing it down would kill the sibling's content (a terminal's PTY)
-        // out from under it. Pane writes already release a buffer the moment
-        // its last pane lets go (invariant C2, see pane-slice); this is for
-        // a buffer nothing lists any more.
+        // A pane still listing `id` shows it live (tearing it down would kill a terminal's PTY).
+        // Pane writes release a buffer when its last pane lets go (C2); this only sweeps
+        // buffers nothing lists.
         if (Object.values(get().panes).some((pane) => pane.editorTabIds.includes(id))) return
         let released: PaneContent[] = []
         set((state) => {
@@ -348,14 +189,24 @@ export const createBufferSlice: StateCreator<
         disposeBuffers(released)
       },
 
-      // Rename an open buffer's tab label in place. `openContent` snapshots the
-      // name at open time, so any content whose title can change AFTER the tab
-      // exists (an agent chat auto-titled by the agent, or renamed by the user)
-      // needs this to keep the tab in sync with its source of truth.
+      // `openContent` snapshots the name at open time; content retitled after that
+      // keeps its tab label in sync through this.
       renameBuffer(id, name) {
         set((state) => {
           const buf = state.buffers.find((b) => b.id === id)
           if (buf) buf.name = name
+        })
+      },
+
+      rebindEditorBuffer(id, doc, name) {
+        set((state) => {
+          const buf = state.buffers.find((b) => b.id === id)
+          if (!buf || !isEditorContent(buf)) return
+          buf.authority = doc.authority
+          buf.path = doc.path
+          buf.workspaceId = ownerOf(doc)
+          buf.name = name
+          buf.isVirtual = false
         })
       },
 
@@ -418,40 +269,10 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           state.closedBuffersHistory.shift()
         })
-        const id = get().bufferActions.openContent({
-          type: 'editor',
-          path: entry.path,
-          name: entry.name,
-          content: '',
-          workspaceId: entry.workspaceId,
-        })
-        // The history entry carries no content; load it from disk and fill the
-        // buffer in place. Dynamic import avoids a slice → platform-controller
-        // cycle. Skip the fill if the user already typed into the empty buffer.
-        // Read from the CLOSED buffer's own workspace (not necessarily the
-        // active one — the active workspace can change while the read is in
-        // flight, and the same relative path in a sibling worktree holds
-        // different content).
-        bestEffort(
-          import('@/features/file-system/controllers/platform').then(
-            async ({ readWorkspaceFile }) => {
-              try {
-                const content = await readWorkspaceFile(entry.workspaceId, entry.path)
-                set((state) => {
-                  const buf = state.buffers.find((b) => b.id === id)
-                  if (buf && buf.type === 'editor' && buf.content === '') {
-                    buf.content = content
-                    buf.savedContent = content
-                    buf.isDirty = false
-                  }
-                })
-              } catch {
-                // File no longer exists — leave the empty buffer; saving will recreate it.
-              }
-            },
-          ),
-          'refill reopened buffer',
-        )
+        // Dynamic import keeps the document API out of the slice's static graph.
+        void import('@/features/editor/documents/open-document')
+          .then(({ openDocument }) => openDocument(documentRefOf(entry)))
+          .catch((err: unknown) => report(err, { action: 'Reopen the closed tab' }))
       },
 
       setPendingClose(pc) {
@@ -466,12 +287,8 @@ export const createBufferSlice: StateCreator<
         set((state) => {
           state.pendingClose = null
         })
-        if (pc.type === 'single') {
-          get().bufferActions.closeBuffer(pc.bufferId)
-        }
-        // Other close types (others, all, to-left, to-right) are handled by the
-        // callers that set pendingClose — they call closeBuffer for each target
-        // after confirmation. This resets the gate.
+        get().paneActions.removeEditorTabFromPane(pc.paneId, pc.bufferId)
+        get().bufferActions.closeBuffer(pc.bufferId)
       },
     },
   }

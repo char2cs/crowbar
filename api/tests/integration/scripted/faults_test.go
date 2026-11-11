@@ -4,6 +4,7 @@ package scripted_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,11 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 const healthy = "turn:\n  - say: continued\n"
@@ -26,12 +31,12 @@ func (r *rig) dormantSaying(chatID string, reasons ...string) {
 	r.t.Helper()
 	r.eventually(func() bool {
 		live, _ := r.live(chatID)
-		return !live && !r.working(chatID) && slices.Contains(reasons, r.snapshot(chatID).Session.ExitReason)
+		return !live && !r.working(chatID) && slices.Contains(reasons, r.exitReason(chatID))
 	}, "the chat never went dormant with one of "+strings.Join(reasons, ", "))
 }
 
 // continues sends text and waits for the reply to land: the conversation
-// carried on, on some rung (S5).
+// carried on (S5).
 func (r *rig) continues(chatID, text string) {
 	r.t.Helper()
 	r.setScript(healthy)
@@ -63,8 +68,9 @@ func TestScripted_KillMidTurn(t *testing.T) {
 
 			r.dormantSaying(chatID, domain.AgentExitExited, domain.AgentExitConnectionLost)
 			r.continues(chatID, "are you back?")
-			assert.True(t, r.transcriptReached("PELICAN") || r.snapshot(chatID).Session.Rung == domain.AgentRungSession,
-				"the revived CLI has the conversation: its own session, or the transcript")
+			prompts := r.logged("prompt")
+			assert.Equal(t, prompts[0]["session"], prompts[len(prompts)-1]["session"],
+				"the revived CLI resumed the chat's own session")
 		})
 	}
 }
@@ -85,11 +91,9 @@ func TestScripted_HangThenStop(t *testing.T) {
 			assert.Less(t, time.Since(started), 15*time.Second, "Stop is bounded (S4)")
 
 			r.eventually(func() bool { return !r.working(chatID) }, "the hung turn never closed")
-			activity, err := r.d.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-			require.NoError(t, err)
 			stopped := 0
-			for _, in := range activity.Interruptions {
-				if in.Kind == "stopped" {
+			for _, kind := range r.markers(chatID) {
+				if kind == ledger.MarkerStopped {
 					stopped++
 				}
 			}
@@ -110,7 +114,7 @@ func TestScripted_SlowHook(t *testing.T) {
 			require.NoError(t, r.send(chatID, "take your time"))
 			r.eventually(func() bool { return r.working(chatID) }, "the turn never opened")
 
-			assert.ErrorIs(t, r.send(chatID, "are you done?"), agentusecase.ErrPromptBusy)
+			require.ErrorIs(t, r.send(chatID, "are you done?"), agentusecase.ErrPromptBusy)
 
 			r.eventually(func() bool {
 				return slices.Contains(r.said(chatID), "assistant: slowly") && !r.working(chatID)
@@ -120,9 +124,9 @@ func TestScripted_SlowHook(t *testing.T) {
 	}
 }
 
-// A dropped api socket ends its runner with a reason; the next message
+// A dropped api connection ends its runner with a reason; the next message
 // re-establishes the conversation.
-func TestScripted_SocketDrop(t *testing.T) {
+func TestScripted_ConnectionDrop(t *testing.T) {
 	r := newRig(t)
 	chatID := r.spawn("codex")
 	r.firstTurn(chatID)
@@ -177,6 +181,26 @@ func TestScripted_UnansweredPermissionAsk(t *testing.T) {
 	}
 }
 
+// An ask over the 128 KiB a held ask may carry is refused on its api
+// connection at once: it never waits on the chat, and nothing approves it.
+func TestScripted_AnAskTooBigToHoldIsRefused(t *testing.T) {
+	r := newRig(t)
+	chatID := r.spawn("codex")
+	r.setScript("turn:\n  - permission: " + strings.Repeat("x", 129<<10) + "\n  - say: carried on\n")
+	require.NoError(t, r.send(chatID, "needs approval"))
+
+	r.eventually(func() bool {
+		assert.Empty(t, r.choices(chatID), "an ask Crowbar cannot hold is never pending")
+		return slices.Contains(r.said(chatID), "assistant: carried on") && !r.working(chatID)
+	}, "the refused ask held the turn open")
+	assert.Empty(t, r.choices(chatID))
+	require.Len(t, r.logged("answer"), 1)
+	assert.NotRegexp(t, `allow|accept`, r.logged("answer")[0]["verdict"])
+	resolved := kit.Bodies[ledger.AskResolved](r.rows(chatID), ledger.KindAskResolved)
+	require.Len(t, resolved, 1)
+	assert.Equal(t, ledger.ResolutionRefused, resolved[0].Resolution)
+}
+
 // An ask the user answers reaches the CLI as that answer.
 func TestScripted_AnsweredPermissionAsk(t *testing.T) {
 	for _, provider := range providers {
@@ -214,9 +238,9 @@ func allowOption(c domain.ActivityChoice) string {
 	return "allow"
 }
 
-// A vendor session the provider no longer has is never resumed: the chat
-// continues on a fresh session handed Crowbar's own transcript, and says so.
-func TestScripted_MissingSessionFileFallsToTheTranscript(t *testing.T) {
+// A vendor session the provider no longer has is refused by its CLI: the chat
+// loses it, and the next message starts a fresh session with no transcript.
+func TestScripted_MissingSessionFileIsLost(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			r := newRig(t)
@@ -224,20 +248,16 @@ func TestScripted_MissingSessionFileFallsToTheTranscript(t *testing.T) {
 			r.firstTurn(chatID)
 			require.NoError(t, r.runners().StopChat(context.Background(), chatID))
 			r.dormantSaying(chatID, domain.AgentExitStopped)
-			removeSessionFiles(t)
+			r.removeSessionFiles()
 
-			r.continues(chatID, "do you remember?")
-
-			assert.Empty(t, r.logged("refused"), "the lost session was never handed to the CLI")
-			assert.Equal(t, domain.AgentRungTranscript, r.snapshot(chatID).Session.Rung)
-			assert.True(t, r.transcriptReached("PELICAN"), "the fresh session was handed the conversation")
+			r.lostThenFresh(chatID, provider, "do you remember?")
 		})
 	}
 }
 
 // A resume the CLI refuses although its session file exists (a changed CLI,
-// a corrupt transcript) still continues the conversation, on the next rung.
-func TestScripted_RefusedResumeContinuesOnTheTranscript(t *testing.T) {
+// a corrupt transcript) is lost the same way.
+func TestScripted_RefusedResumeIsLost(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			r := newRig(t)
@@ -247,16 +267,72 @@ func TestScripted_RefusedResumeContinuesOnTheTranscript(t *testing.T) {
 			r.dormantSaying(chatID, domain.AgentExitStopped)
 			r.setScript("resume: refuse\n" + healthy)
 
-			require.NoError(t, r.send(chatID, "carry on please"))
-
-			r.eventually(func() bool {
-				return slices.Contains(r.said(chatID), "assistant: continued") && !r.working(chatID)
-			}, "a refused resume stranded the chat")
-			assert.NotEmpty(t, r.logged("refused"), "the CLI did refuse\n%s", r.dump())
-			assert.Equal(t, domain.AgentRungTranscript, r.snapshot(chatID).Session.Rung)
-			assert.True(t, r.transcriptReached("PELICAN"))
+			r.lostThenFresh(chatID, provider, "carry on please")
 		})
 	}
+}
+
+// lostThenFresh sends text to chatID, whose session its CLI refuses: the
+// message is not taken, and the next one starts a fresh session handed no
+// transcript of the conversation.
+func (r *rig) lostThenFresh(chatID, provider, text string) {
+	r.t.Helper()
+	first := r.logged("prompt")[0]["session"]
+	r.sendToALostSession(chatID, provider, text)
+	assert.NotEmpty(r.t, r.logged("refused"), "the CLI refused the session")
+
+	r.continues(chatID, "start again")
+
+	prompts := r.logged("prompt")
+	assert.NotEqual(r.t, first, prompts[len(prompts)-1]["session"], "the refused session is never resumed again")
+	assert.False(r.t, r.transcriptReached("PELICAN"), "a lost session's replacement is handed no transcript\n%s", r.dump())
+	assert.Equal(r.t, 1, r.lostSessions(chatID), "the fresh session is not lost")
+}
+
+// sendToALostSession sends text to chatID, whose session its CLI refuses: the
+// prompt is settled session_lost and the session is lost once. Codex's chat
+// runs over its api connection, which refuses before the send answers.
+func (r *rig) sendToALostSession(chatID, provider, text string) {
+	r.t.Helper()
+	requestID := uuid.NewString()
+	_, err := r.runners().SubmitPrompt(context.Background(), chatID, text, requestID, "", nil)
+	if provider == "codex" || err != nil {
+		require.Equal(r.t, problem.SessionLost, problem.CodeOf(err), "%v", err)
+	}
+	r.eventually(func() bool {
+		c, ok := r.snapshot(chatID).Conversation()
+		return ok && c.State == ledger.ConversationLost && !r.working(chatID) && len(r.settled(chatID, requestID)) > 0
+	}, "the CLI never refused the session")
+	assert.Equal(r.t, []string{ledger.ReasonSessionLost}, r.settled(chatID, requestID), "the refused prompt was not taken")
+	assert.Equal(r.t, 1, r.lostSessions(chatID))
+}
+
+// settled is every reason chatID's ledger settled requestID's prompt with.
+func (r *rig) settled(chatID, requestID string) []string {
+	r.t.Helper()
+	var bodies []string
+	require.NoError(r.t, r.d.adapters.ChatLedgerDB().Raw(
+		"SELECT body FROM chat_ledger WHERE chat_id = ? AND kind = ? ORDER BY seq",
+		chatID, string(ledger.KindPromptSettled)).Scan(&bodies).Error)
+	var reasons []string
+	for _, body := range bodies {
+		var s ledger.PromptSettled
+		require.NoError(r.t, json.Unmarshal([]byte(body), &s))
+		if s.RequestID == requestID {
+			reasons = append(reasons, s.Reason)
+		}
+	}
+	return reasons
+}
+
+// lostSessions counts chatID's session_lost rows.
+func (r *rig) lostSessions(chatID string) int {
+	r.t.Helper()
+	var n int
+	require.NoError(r.t, r.d.adapters.ChatLedgerDB().Raw(
+		"SELECT count(*) FROM chat_ledger WHERE chat_id = ? AND kind = ?",
+		chatID, string(ledger.KindSessionLost)).Scan(&n).Error)
+	return n
 }
 
 // transcriptReached reports whether a CLI after the first turn was handed
@@ -285,10 +361,13 @@ func (r *rig) transcriptReached(text string) bool {
 	return false
 }
 
-func removeSessionFiles(t *testing.T) {
-	t.Helper()
-	for _, root := range []string{os.Getenv("CLAUDE_CONFIG_DIR"), os.Getenv("CODEX_HOME")} {
-		require.NoError(t, filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+// removeSessionFiles deletes every transcript in the CLIs' homes, which must
+// lie inside the rig's temp dir.
+func (r *rig) removeSessionFiles() {
+	r.t.Helper()
+	for _, env := range []string{kit.ClaudeHomeEnv, kit.CodexHomeEnv} {
+		root := kit.RequireProviderHomeIn(r.t, env, r.providers)
+		require.NoError(r.t, filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() && strings.HasSuffix(path, ".jsonl") {
 				return os.Remove(path)
 			}

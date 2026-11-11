@@ -14,12 +14,10 @@ import (
 const (
 	pollEvery     = 250 * time.Millisecond
 	eventTurnStop = "turn_stop"
-	// sessionFlushWindow is how long a session file may trail turn_stop.
-	sessionFlushWindow = 5 * time.Second
 )
 
-// boot starts the TUI the way a chat does and keeps it up for the hook,
-// turn and session-locate steps that need a live process.
+// boot starts the TUI the way a chat does and keeps it up for the hook and
+// turn steps that need a live process.
 func (l *live) boot(ctx context.Context) []Step {
 	start := time.Now()
 	tmp, err := l.tmpDir("boot")
@@ -38,10 +36,10 @@ func (l *live) boot(ctx context.Context) []Step {
 		return []Step{s}
 	case parked:
 		why := "the CLI is parked on a prompt only a person answers (first-run setup, login or folder trust); log the CLI in once, or rerun with --cwd set to a directory it trusts"
-		return []Step{s, skip("hooks", why), skip("turn", why), skip("session_locate", why)}
+		return []Step{s, skip("hooks", why), skip("turn", why)}
 	}
 	turn := l.turn(ctx, t)
-	return []Step{s, l.hookStep(), turn, l.sessionLocate()}
+	return []Step{s, l.hookStep(), turn}
 }
 
 // watchBoot holds the TUI for the boot window: an exit fails it, and a
@@ -129,45 +127,6 @@ func (l *live) parseHook(rec hookRecord) error {
 	}
 	_, err := l.agent.ParseHook(rec.event, rec.payload, agents.ChannelHooks)
 	return err
-}
-
-// sessionLocate checks that a session the CLI reported is where
-// session.locate says, which is what the resume ladder's first rung reads.
-func (l *live) sessionLocate() Step {
-	if !l.opts.Turn {
-		return skip("session_locate", "a session is written by its first turn (--turn)")
-	}
-	id := l.reportedSession()
-	if id == "" {
-		return fail("session_locate", "no hook reported a session id")
-	}
-	// A CLI may flush its transcript a moment after reporting the turn's end
-	// (claude 2.1.281 does): look again for a short while before failing.
-	exists, declared := l.agent.SessionExists(id)
-	for deadline := time.Now().Add(sessionFlushWindow); declared && !exists && time.Now().Before(deadline); {
-		<-time.After(pollEvery)
-		exists, _ = l.agent.SessionExists(id)
-	}
-	switch {
-	case !declared:
-		return skip("session_locate", "the descriptor declares no session.locate")
-	case exists:
-		return pass("session_locate", "found session "+id)
-	default:
-		return fail("session_locate", fmt.Sprintf("session %s is not where session.locate points", id))
-	}
-}
-
-func (l *live) reportedSession() string {
-	for _, rec := range l.hooks.records() {
-		if _, declared := l.d.Events[rec.event]; !declared {
-			continue
-		}
-		if ev, err := l.agent.ParseHook(rec.event, rec.payload, agents.ChannelHooks); err == nil && ev.SessionID != "" {
-			return ev.SessionID
-		}
-	}
-	return ""
 }
 
 func dedupe(in []string) []string {

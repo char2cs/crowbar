@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  __resetScrollPositionsForTests,
   clearScrollPosition,
   getScrollPosition,
   setScrollPosition,
@@ -9,7 +8,7 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 
 describe('transcript-scroll-positions', () => {
   beforeEach(() => {
-    __resetScrollPositionsForTests()
+    for (const id of ['c1', 'c2']) clearScrollPosition(id)
   })
 
   it('returns null for a chat with no saved position', () => {
@@ -39,11 +38,8 @@ describe('transcript-scroll-positions', () => {
     expect(getScrollPosition('c1')).toBeNull()
   })
 
-  // Regression: this module exists specifically because the per-workspace
-  // store does NOT survive a workspace switch (destroyWorkspaceStore drops it
-  // from the registry wholesale) — a position saved here must still read back
-  // after whatever workspace store existed at save time is gone, which a
-  // workspace-scoped store could never do for itself.
+  // The reason this module exists: a saved position must outlive the per-workspace store that
+  // was live when it was written (destroyWorkspaceStore drops it on a switch).
   it('survives the workspace store that was live when it was written being replaced by a new one', () => {
     const before = createWorkspaceStore('w1')
     void before // stands in for "the store destroyWorkspaceStore is about to drop"
@@ -56,14 +52,5 @@ describe('transcript-scroll-positions', () => {
     void after
 
     expect(getScrollPosition('c1')).toEqual({ stuck: false, distanceFromBottom: 500 })
-  })
-
-  it("removeAgentChat's own cleanup reaches this module, not just the workspace store", () => {
-    const store = createWorkspaceStore('w1')
-    setScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
-
-    store.getState().removeAgentChat('c1')
-
-    expect(getScrollPosition('c1')).toBeNull()
   })
 })

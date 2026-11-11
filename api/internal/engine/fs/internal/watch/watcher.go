@@ -1,11 +1,12 @@
 // Package watch watches a workspace recursively (inotify on Linux, FSEvents on
-// darwin) and runs the fan-out pipeline defined in 05 §5 and 03 §5.
+// darwin) and runs the change fan-out pipeline.
 package watch
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sync"
 	"time"
@@ -18,29 +19,19 @@ import (
 
 const debounceDuration = 100 * time.Millisecond
 
-// A git recompute (status + diff stat, two git processes) waits for changes to
-// stop for gitRecomputeQuiet, so an agent writing files in bursts costs one
-// recompute per burst rather than one per pause. gitRecomputeMaxWait bounds the
-// delay for a burst that never ends. Workspaces sharing one .git (linked
-// worktrees) all observe each other's ref events, so the same wait also keeps a
-// single ref update from making every workspace shell out at once.
+// A git recompute waits for changes to stop for gitRecomputeQuiet (bounded by gitRecomputeMaxWait), so
+// a burst costs one recompute, and linked worktrees sharing one .git don't all shell out on one ref update.
 const (
 	gitRecomputeQuiet   = 2 * time.Second
 	gitRecomputeMaxWait = 10 * time.Second
 )
 
-// ErrAlreadyStarted is returned by Start when the watcher has already been
-// started (or stopped). A Watcher's lifecycle is single-use: the caller owns
-// exactly one Start. Re-Starting would leak the first backend and its loop
-// goroutine, so it is rejected instead.
+// ErrAlreadyStarted is returned by a second Start: a Watcher is single-use, and re-starting would leak
+// the first backend and loop goroutine.
 var ErrAlreadyStarted = errors.New("watch: already started")
 
-// debounceTimer is the timer behind the trailing git-recompute debounce. It is
-// an interface so that a test can substitute a timer it fires by hand: the
-// coalescing guarantee (N bursts collapse into exactly one recompute) is then
-// proven by firing once and counting recomputes, rather than by racing a wall
-// clock and hoping the bursts landed inside the window. Production always uses
-// realTimer.
+// debounceTimer is the git-recompute debounce timer, an interface so tests can fire it by hand and
+// prove coalescing without racing a wall clock. Production uses realTimer.
 type debounceTimer interface {
 	Reset(d time.Duration) bool
 	Stop() bool
@@ -90,7 +81,7 @@ type Watcher struct {
 
 	be          backend
 	mu          sync.Mutex
-	stopCh      chan struct{}
+	cancelLoop  context.CancelFunc
 	started     bool
 	stopped     bool
 	beCloseOnce sync.Once
@@ -108,16 +99,16 @@ type Watcher struct {
 
 	prevStatus    gitdomain.GitStatus
 	prevStatusSet bool
+	// unreadable is set while recomputes fail, so a failure streak is reported once.
+	unreadable bool
 
 	// diffBase is the resolved base of the last recompute, kept until a ref
 	// event says refs moved: it is a function of refs alone, so a working-tree
 	// burst never changes it. Only the loop goroutine touches it.
 	diffBase *gitdomain.DiffBase
 
-	// gitTimer is the trailing-debounce timer for git recomputes. It is
-	// created stopped in NewWatcher, armed by scheduleGitRecompute, and
-	// drained exclusively by loop's <-gitTimer.Chan() case. gitPending tracks
-	// whether a recompute is scheduled but not yet run (guarded by mu).
+	// gitTimer is the trailing git-recompute debounce, created stopped, armed by scheduleGitRecompute and
+	// drained only by loop. gitPending (guarded by mu) marks a scheduled, unrun recompute.
 	gitTimer   debounceTimer
 	gitPending bool
 	// gitPendingSince is when the oldest unrun change scheduled the recompute;
@@ -127,16 +118,12 @@ type Watcher struct {
 	// now is the clock the max wait reads; a test injects its own.
 	now func() time.Time
 
-	// loopDone is closed when the loop goroutine returns. It is the real signal
-	// that the watcher has finished tearing down (used by tests to block on the
-	// loop's exit instead of polling the process's goroutine count).
+	// loopDone is closed when the loop goroutine returns: the real signal that
+	// the watcher has finished tearing down, which Stop joins on.
 	loopDone chan struct{}
 
-	// onGitRecompute, when non-nil, is invoked by the loop goroutine after every
-	// completed git recompute (including one that fanOutGit short-circuits, e.g.
-	// mid-rebase). It is nil in production and set only by tests — before Start,
-	// so the `go w.loop` that follows establishes the happens-before edge — so a
-	// test can block on "the debounce flushed" instead of sleeping past it.
+	// onGitRecompute, test-only, is invoked by the loop after every git recompute (short-circuited ones
+	// too). Set before Start so `go w.loop` orders it; lets tests wait on the flush instead of sleeping.
 	onGitRecompute func()
 }
 
@@ -155,22 +142,14 @@ func NewWatcher(
 		git:        git,
 		dispatcher: dispatcher,
 		ignore:     ignore.NewMatcher(repoPath),
-		stopCh:     make(chan struct{}),
 		loopDone:   make(chan struct{}),
 		gitTimer:   newStoppedTimer(gitRecomputeQuiet),
 		now:        time.Now,
 	}
 }
 
-// Start begins watching the repo root recursively. It blocks until ctx is
-// cancelled or Stop is called. Every backend Start creates is closed exactly
-// once regardless of cancel/stop ordering: if ctx is already cancelled or Stop
-// already ran before registration, the freshly created backend is closed
-// immediately and Start returns without leaking a descriptor or a goroutine.
-//
-// A Watcher is single-use: calling Start a second time (after a prior Start, or
-// after Stop) returns ErrAlreadyStarted and closes the freshly created backend
-// in place rather than overwriting w.be and leaking the first one.
+// Start watches the repo root recursively until ctx is cancelled or Stop. Each backend is closed exactly
+// once whatever the cancel/stop order; a second Start returns ErrAlreadyStarted, closing the new backend.
 func (w *Watcher) Start(
 	ctx context.Context,
 ) error {
@@ -180,7 +159,7 @@ func (w *Watcher) Start(
 	default:
 	}
 
-	be, err := newBackend(w.spec())
+	be, err := newBackend(ctx, w.spec())
 	if err != nil {
 		return fmt.Errorf("watch: start: %w", err)
 	}
@@ -188,20 +167,32 @@ func (w *Watcher) Start(
 	w.mu.Lock()
 	if w.started {
 		w.mu.Unlock()
-		_ = be.close()
-		return ErrAlreadyStarted
+		return failStart(ErrAlreadyStarted, be)
 	}
 	if w.stopped {
 		w.mu.Unlock()
-		_ = be.close()
-		return context.Canceled
+		return failStart(context.Canceled, be)
 	}
 	w.started = true
 	w.be = be
+	loopCtx, cancel := context.WithCancel(ctx)
+	w.cancelLoop = cancel
 	w.mu.Unlock()
 
-	go w.loop(ctx)
+	go w.loop(loopCtx)
 	return nil
+}
+
+// failStart closes the backend Start built but will not use and returns why Start refused;
+// a close error rides along, and the reason keeps its identity when closing succeeds.
+func failStart(
+	reason error,
+	be backend,
+) error {
+	if err := be.close(); err != nil {
+		return errors.Join(reason, err)
+	}
+	return reason
 }
 
 // spec is what the watcher observes. The git dirs and ref trees are resolved,
@@ -213,40 +204,42 @@ func (w *Watcher) spec() watchSpec {
 		skip:     w.skipDir,
 		gitDirs:  w.gitWatchDirs(),
 		refTrees: w.gitRefRoots(),
+		anchors:  w.anchors(),
 	}
 }
 
-// closeBackend closes the backend exactly once. It is safe to call from loop
-// on exit and from Stop concurrently.
+// closeBackend closes the backend exactly once, as the loop exits.
 func (w *Watcher) closeBackend() {
 	w.beCloseOnce.Do(func() {
 		w.mu.Lock()
 		be := w.be
 		w.mu.Unlock()
 		if be != nil {
-			_ = be.close()
+			if err := be.close(); err != nil {
+				slog.Warn("watch: close backend", "workspace", w.wsID, "err", err)
+			}
 		}
 	})
 }
 
-// Stop tears down the watcher. It is idempotent and safe to call before, during,
-// or after Start. Calling Stop before Start makes the next Start observe stopped
-// and close its backend immediately rather than entering the loop.
+// Stop cancels the loop, and with it a git recompute in flight, then waits for
+// the loop to exit. It is idempotent and safe before, during, or after Start;
+// before Start, it makes the next Start close its backend instead of looping.
 func (w *Watcher) Stop() {
 	w.mu.Lock()
-	if w.stopped {
-		w.mu.Unlock()
-		return
-	}
 	w.stopped = true
-	close(w.stopCh)
+	cancel, started := w.cancelLoop, w.started
 	w.mu.Unlock()
 
-	w.closeBackend()
+	if cancel != nil {
+		cancel()
+	}
+	if started {
+		<-w.loopDone
+	}
 }
 
 // loop is the main event loop. It debounces events and calls handleBurst.
-// The select is kept at exactly one level of nesting via processEvent.
 func (w *Watcher) loop(
 	ctx context.Context,
 ) {
@@ -257,78 +250,41 @@ func (w *Watcher) loop(
 	defer safego.Recover("fs.watch.loop")
 	defer w.closeBackend()
 
-	// No initial git emit on subscribe: the snapshot-on-subscribe already delivers
-	// fresh git status (gitSnapshot reads real `git status`, not the read model),
-	// so an initial broadcast would be a redundant duplicate of the snapshot — and,
-	// racing ahead of or behind the snapshot, it would either leak a stray frame to
-	// a wsId-scoped client (cross-workspace isolation) or suppress the first real
-	// change. Live git frames are driven purely by real file changes; the
-	// read-model summary badge is kept fresh by lazy reconcile-on-open and by
-	// file-change recomputes (spec §3.8).
-	timer := time.NewTimer(0)
-	if !timer.Stop() {
-		<-timer.C
-	}
-	var pending []event
+	// No initial git emit on subscribe: the snapshot already carries fresh git status, and a racing
+	// duplicate could leak to another workspace's client or suppress the first real change.
+	pending := newBurst()
+	defer pending.stop()
 	events, errs := w.be.events(), w.be.errors()
 
 	for {
 		select {
 		case evt, ok := <-events:
-			if !w.processEvent(evt, ok, &pending, timer) {
+			if !ok {
 				return
 			}
+			pending.add(evt.Name, evt.Op)
 		case <-errs:
 			// swallow individual watch errors
-		case <-timer.C:
-			w.handleBurst(ctx, pending)
-			pending = pending[:0]
+		case <-pending.ready():
+			w.handleBurst(ctx, pending.take())
 		case <-w.gitTimer.Chan():
 			w.runGitRecompute(ctx)
 		case <-ctx.Done():
 			return
-		case <-w.stopCh:
-			return
 		}
 	}
 }
 
-// processEvent appends an event to pending and resets the debounce timer.
-// Returns false when the events channel is closed (loop should exit).
-func (w *Watcher) processEvent(
-	evt event,
-	ok bool,
-	pending *[]event,
-	debounce *time.Timer,
-) bool {
-	if !ok {
-		return false
-	}
-	*pending = append(*pending, evt)
-	debounce.Reset(debounceDuration)
-	return true
-}
-
-// handleBurst processes all events from a single debounce window.
-// Events for the same path are merged (OR of ops) so that CREATE+WRITE
-// on Linux inotify is reported as a single "created" event, not "modified".
-// The git recompute is scheduled exactly once per burst (not once per event)
-// and further coalesced across bursts by scheduleGitRecompute.
+// handleBurst processes one debounce window's events, already merged per path
+// by burst. The git recompute is scheduled exactly once per burst (not once per
+// event) and further coalesced across bursts by scheduleGitRecompute.
 func (w *Watcher) handleBurst(
 	ctx context.Context,
 	events []event,
 ) {
-	merged := make(map[string]op, len(events))
-	order := make([]string, 0, len(events))
-	for _, evt := range events {
-		if _, seen := merged[evt.Name]; !seen {
-			order = append(order, evt.Name)
-		}
-		merged[evt.Name] |= evt.Op
-	}
 	relevant := false
-	for _, name := range order {
-		if w.handleOne(ctx, event{Name: name, Op: merged[name]}) {
+	for _, evt := range events {
+		if w.handleOne(ctx, evt) {
 			relevant = true
 		}
 	}
@@ -346,10 +302,17 @@ func (w *Watcher) handleOne(
 ) bool {
 	// Before dispatching, so a dispatched directory is already being watched.
 	if evt.Op&opCreate != 0 {
-		w.be.created(evt.Name)
+		w.be.created(ctx, evt.Name)
 	}
 	if evt.Op&opRemove != 0 {
 		w.be.removed(evt.Name)
+	}
+	if isAnchor, ok := w.anchorEntry(evt.Name); ok {
+		// The main worktree itself came or went: refs may differ and git may not read us.
+		if isAnchor {
+			w.diffBase = nil
+		}
+		return isAnchor
 	}
 	// Checked before shouldIgnore: a main worktree's ref events are not "ignored"
 	// (they pass as file changes), a linked worktree's are, and both move the base.
@@ -363,9 +326,10 @@ func (w *Watcher) handleOne(
 	}
 
 	w.dispatcher.OnFileChange(ctx, domain.FileChangeEvent{
-		Type: classifyChange(evt.Op),
-		Path: w.relPath(evt.Name),
-		WsID: w.wsID,
+		Type:      classifyChange(evt.Op),
+		Authority: domain.DocumentAuthorityWorkspace,
+		Path:      w.relPath(evt.Name),
+		WsID:      w.wsID,
 	})
 	// The git recompute is intentionally NOT scheduled here; handleBurst
 	// schedules it once for the whole burst (Fix 2).
@@ -387,11 +351,8 @@ func (w *Watcher) shouldIgnore(
 	rel := w.relPath(path)
 	// ".gitignore", ".github/" and friends are working-tree files, not git internals.
 	if !isUnder(rel, ".git") {
-		// A linked worktree's gitdir, and the common dir holding the shared ref tree,
-		// sit OUTSIDE the worktree, so no relative-path test can recognise them. Their
-		// events are git internals: they drive the recompute (maybeHandleGitRef) and are
-		// never file changes — reporting one as a file change would ship a path that
-		// escapes the workspace ("../../../repo/.git/refs/heads/main").
+		// A linked worktree's gitdir and common dir sit outside the worktree; their events drive the recompute
+		// and are never file changes, which would ship a path escaping the workspace.
 		return w.isGitInternal(path)
 	}
 	isHead := rel == filepath.Join(".git", "HEAD")

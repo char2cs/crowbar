@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  markdownToPlateValue,
+  parseMarkdown,
   plateValueToMarkdown,
 } from '@/features/editor/markdown/plate/markdown-serialization'
 
-const roundTrip = (md: string) => plateValueToMarkdown(markdownToPlateValue(md))
+const roundTrip = (md: string) => plateValueToMarkdown(parseMarkdown(md).value)
 
 describe('raw HTML block preservation', () => {
   it('round-trips a centered README header block byte-exact', () => {

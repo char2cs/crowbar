@@ -1,0 +1,236 @@
+package snapshot_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+)
+
+// boundTo is chat c1's ledger after Crowbar bound each provider's session, in order.
+func boundTo(t *testing.T, sessions ...[2]string) ledger.State {
+	t.Helper()
+	st := ledger.State{ChatID: "c1"}
+	for i, ps := range sessions {
+		r, err := ledger.Assign(st, ps[0], ps[1])
+		require.NoError(t, err)
+		r.Seq, r.At = int64(i+1), t0
+		st.Apply(r)
+	}
+	return st
+}
+
+func TestSnapshots_LedgerFactsBumpTheVersionOnlyWhenTheyChange(t *testing.T) {
+	ctx := context.Background()
+	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", ProviderID: "p1"}}})
+	before, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+
+	facts := snapshot.FactsOf(boundTo(t, [2]string{"p1", "S1"}))
+	s.ApplyLedger(ctx, "c1", facts, false)
+	frame := rec.last(t)
+	assert.Greater(t, frame.Snapshot.Version, before.Version)
+	c, ok := frame.Snapshot.Conversation()
+	require.True(t, ok)
+	assert.Equal(t, ledger.Conversation{
+		Provider: "p1", SessionID: "S1", State: ledger.ConversationBound, BoundAt: t0, Cause: ledger.CauseAssigned,
+	}, c)
+
+	s.ApplyLedger(ctx, "c1", snapshot.FactsOf(boundTo(t, [2]string{"p1", "S1"})), false)
+	assert.Len(t, rec.frames, 1, "the same facts announce nothing")
+}
+
+// Busy is the ledger's answer: its flip is reported once, with the chat's
+// workspace, and a moved turn announces a frame even when nothing changed.
+func TestSnapshots_ApplyLedgerReportsBusyFlips(t *testing.T) {
+	ctx := context.Background()
+	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", WorkspaceID: "ws1"}}})
+	_, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+
+	flipped, wsID := s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{Busy: true}, true)
+	assert.True(t, flipped)
+	assert.Equal(t, "ws1", wsID)
+	assert.True(t, rec.last(t).Snapshot.Ledger.Busy)
+
+	flipped, _ = s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{Busy: true}, false)
+	assert.False(t, flipped)
+	assert.Len(t, rec.frames, 1, "the same facts with no moved turn announce nothing")
+
+	flipped, _ = s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{Busy: true}, true)
+	assert.False(t, flipped)
+	assert.Len(t, rec.frames, 2, "a moved turn announces the same facts again")
+
+	flipped, _ = s.ApplyLedger(ctx, "c1", snapshot.LedgerFacts{}, true)
+	assert.True(t, flipped)
+	assert.False(t, rec.last(t).Snapshot.Ledger.Busy)
+}
+
+func TestSnapshots_AChatWithoutFactsReadsItsLedgerWithTheLockReleased(t *testing.T) {
+	ctx := context.Background()
+	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", ProviderID: "p1"}}}
+	s, _, _ := newOwner(t, rd)
+	stale := boundTo(t, [2]string{"p1", "S1"})
+	published := snapshot.FactsOf(boundTo(t, [2]string{"p1", "S1"}, [2]string{"p1", "S2"}))
+	rd.ledger = func(string) (ledger.State, error) {
+		s.ApplyLedger(ctx, "c1", published, false) // the writer publishing while this read is in flight
+		return stale, nil
+	}
+
+	got, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	c, _ := got.Conversation()
+	assert.Equal(t, "S2", c.SessionID, "an older read never replaces what the writer published")
+
+	rd.ledger = func(string) (ledger.State, error) { return ledger.State{}, errors.New("disk gone") }
+	again, err := s.Get(ctx, "c1")
+	require.NoError(t, err, "facts once held are not read again")
+	assert.Equal(t, got.Version, again.Version)
+
+	_, err = s.Get(ctx, "c2")
+	require.Error(t, err)
+}
+
+// A chat whose stored ledger cannot be read is answered without its ledger
+// facts, read once; any other failure still fails the read.
+func TestSnapshots_AnUnreadableLedgerLeavesOnlyItsChatWithoutFacts(t *testing.T) {
+	ctx := context.Background()
+	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", ProviderID: "p1"}, "c2": {ID: "c2"}, "c3": {ID: "c3"}}}
+	s, _, _ := newOwner(t, rd)
+	reads := map[string]int{}
+	rd.ledger = func(chatID string) (ledger.State, error) {
+		reads[chatID]++
+		switch chatID {
+		case "c2":
+			return ledger.State{}, fmt.Errorf("scan: %w", ledger.ErrUnreadableRow)
+		case "c3":
+			return ledger.State{}, errors.New("disk gone")
+		}
+		return boundTo(t, [2]string{"p1", "S1"}), nil
+	}
+
+	for range 2 {
+		snaps, err := s.GetMany(ctx, []string{"c1", "c2"})
+		require.NoError(t, err)
+		require.Len(t, snaps, 2)
+		c, ok := snaps[0].Conversation()
+		require.True(t, ok)
+		assert.Equal(t, "S1", c.SessionID, "a readable sibling keeps its facts")
+		assert.Equal(t, "c2", snaps[1].Chat.ID)
+		assert.Equal(t, snapshot.LedgerFacts{}, snaps[1].Ledger)
+	}
+	assert.Equal(t, 1, reads["c2"], "an unreadable ledger is read once")
+
+	_, err := s.GetMany(ctx, []string{"c1", "c3"})
+	require.Error(t, err, "a failure that is not the rows' own is no verdict on the chat")
+}
+
+// A commit landing as the fill's writer is released, whose publication drops
+// the chat's entry, never leaves the fill's older facts behind.
+func TestSnapshots_NoStaleFillOutlivesAPublication(t *testing.T) {
+	ctx := context.Background()
+	c1 := domain.Chat{ID: "c1", ProviderID: "p1"}
+	rd := &reader{chats: map[string]domain.Chat{"c1": c1}}
+	s, _, _ := newOwner(t, rd)
+	head := boundTo(t, [2]string{"p1", "S1"})
+	rd.ledger = func(string) (ledger.State, error) { return head, nil }
+	rd.released = func() {
+		rd.released = nil
+		head = boundTo(t, [2]string{"p1", "S1"}, [2]string{"p1", "S2"})
+		delete(rd.chats, "c1") // the publication's own read of the chat fails
+		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(head), false)
+		rd.chats["c1"] = c1
+	}
+
+	_, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+
+	got, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	c, _ := got.Conversation()
+	assert.Equal(t, "S2", c.SessionID)
+}
+
+// Held is what a ledger subscriber reads under the chat's writer: the ledger is
+// never read, so it cannot wait on that writer.
+func TestSnapshots_HeldNeverReadsTheLedger(t *testing.T) {
+	ctx := context.Background()
+	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", WorkspaceID: "ws1"}}}
+	rd.ledger = func(string) (ledger.State, error) {
+		t.Error("Held read the ledger")
+		return ledger.State{}, nil
+	}
+	s, _, _ := newOwner(t, rd)
+
+	got, err := s.Held(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, "ws1", got.Chat.WorkspaceID)
+	_, err = s.Held(ctx, "c2")
+	require.Error(t, err)
+}
+
+func TestSnapshots_TheConversationIsTheLiveRunnersProvidersElseTheChats(t *testing.T) {
+	ctx := context.Background()
+	rd := &reader{
+		chats: map[string]domain.Chat{"c1": {ID: "c1", ProviderID: "p1"}},
+		ledger: func(string) (ledger.State, error) {
+			return boundTo(t, [2]string{"p1", "S1"}, [2]string{"p2", "X1"}), nil
+		},
+	}
+	s, _, rt := newOwner(t, rd)
+
+	dormant, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	c, _ := dormant.Conversation()
+	assert.Equal(t, "S1", c.SessionID)
+	assert.Len(t, dormant.Ledger.Conversations, 2)
+
+	live := liveR1
+	live.ProviderID = "p2"
+	rt.place(live)
+	onP2, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	c, _ = onP2.Conversation()
+	assert.Equal(t, "X1", c.SessionID)
+
+	live.ProviderID = "p3"
+	rt.place(live)
+	onP3, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	_, ok := onP3.Conversation()
+	assert.False(t, ok, "a provider the chat never bound has no conversation")
+}
+
+// How the last runner ended is a ledger fact: it survives the daemon, and it
+// is no answer while a runner is live.
+func TestSnapshots_TheSessionIsTheLedgersLastExit(t *testing.T) {
+	ctx := context.Background()
+	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
+	st := ledger.State{ChatID: "c1"}
+	apply := func(kind ledger.Kind, body any) {
+		r, err := ledger.NewRow(kind, "", "", body)
+		require.NoError(t, err)
+		r.Seq, r.At = st.Head()+1, t0
+		st.Apply(r)
+		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(st), false)
+	}
+
+	apply(ledger.KindRunnerStarted, ledger.RunnerStarted{RunnerID: "r1", Provider: "claude"})
+	rt.place(liveR1)
+	live, err := s.Get(ctx, "c1")
+	require.NoError(t, err)
+	assert.Nil(t, live.Ledger.LastExit)
+
+	rt.vacate("c1")
+	apply(ledger.KindRunnerExited, ledger.RunnerExited{RunnerID: "r1", Reason: domain.AgentExitStopped})
+
+	assert.Equal(t, &ledger.RunnerExit{RunnerID: "r1", Reason: domain.AgentExitStopped, At: t0},
+		rec.last(t).Snapshot.Ledger.LastExit, "the exit is announced")
+}

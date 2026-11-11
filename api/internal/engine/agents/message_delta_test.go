@@ -81,11 +81,10 @@ func TestAgent_ParseHookToleratesAFailedTurnWithNoDetail(t *testing.T) {
 	assert.Empty(t, ev.Failure.Detail)
 }
 
-// This test used to assert the opposite — "codex still declares no failure hook
-// at all — turn_failed has no wire event on either transport". That claim was
-// wrong against codex's own generated protocol schema
-// (codex-rs/app-server-protocol/schema/json/ServerNotification.json): turn/completed
-// is a SUM TYPE carrying turn.status ∈ {completed, interrupted, failed, inProgress}
+// This test used to assert the opposite — "codex still declares no failure hook at all —
+// turn_failed has no wire event on either transport". That claim was wrong against codex's own
+// generated protocol schema (codex-rs/app-server-protocol/schema/json/ServerNotification.json):
+// turn/completed is a SUM TYPE carrying turn.status ∈ {completed, interrupted, failed, inProgress}
 // plus a turn.error, and `failed` is the failure signal.
 //
 // While it went unmapped, a failed codex turn was ingested as an ordinary stop
@@ -104,6 +103,17 @@ func TestAgent_CodexMapsAFailedTurnOffTurnStatus(t *testing.T) {
 	assert.Equal(t, "connection reset by peer", ev.Failure.Detail)
 }
 
+// A codex that is not logged in fails the turn with the reason in error.message
+// and no additionalDetails (recorded live, 0.167): the chat must still say why.
+func TestAgent_CodexFailedTurnWithNoDetailsStillSaysWhy(t *testing.T) {
+	ev, err := get(t, "codex").ParseHook(agents.HookTurnFailed,
+		codexParams(t, "turn_completed.failed.unauthorized.json"), agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Failure)
+	assert.Contains(t, ev.Failure.Detail, "401 Unauthorized")
+}
+
 // The routing half of the same sum type — which of turn_stop / turn_failed a given
 // turn/completed frame is delivered as — is asserted in the dispatch package, where
 // the when: clauses are actually evaluated.
@@ -117,4 +127,46 @@ func TestAgent_CodexObservesMessageDeltaOverAPITransport(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ev.Delta)
 	assert.Equal(t, "partial text", ev.Delta.Text)
+}
+
+func TestAgent_ParseHookMapsACompletedMessageWhole(t *testing.T) {
+	raw := `{"item":{"type":"agentMessage","id":"msg_1","text":"The whole reply.","phase":"final_answer"},
+	  "threadId":"t","turnId":"tn"}`
+	ev, err := get(t, "codex").ParseHook(agents.HookMessageComplete, []byte(raw), agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Complete)
+	assert.Equal(t, agents.MessageComplete{
+		TurnID: "tn", MessageID: "msg_1", Text: "The whole reply.", Phase: "final_answer",
+	}, *ev.Complete)
+}
+
+// A message that says nothing is still a message, not a mapping that missed
+// its field: it parses, and the chat records nothing of it.
+func TestAgent_ParseHookTakesAnEmptyCompletedMessage(t *testing.T) {
+	raw := `{"item":{"type":"agentMessage","id":"msg_1","text":""},"threadId":"t","turnId":"tn"}`
+	ev, err := get(t, "codex").ParseHook(agents.HookMessageComplete, []byte(raw), agents.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Complete)
+	assert.Equal(t, agents.MessageComplete{TurnID: "tn", MessageID: "msg_1"}, *ev.Complete)
+}
+
+func TestAgent_ParseHookTellsACompletedMessageFromACompletedTool(t *testing.T) {
+	raw := `{"item":{"type":"commandExecution","id":"c1","status":"completed"},"threadId":"t","turnId":"tn"}`
+	_, err := get(t, "codex").ParseHook(agents.HookMessageComplete, []byte(raw), agents.ChannelAPI)
+
+	require.ErrorIs(t, err, agents.ErrHookVariantMismatch)
+}
+
+// A session claude started for /clear reads as cleared; any other start does not.
+func TestAgent_ClaudeTellsAClearedSessionStartApart(t *testing.T) {
+	for source, want := range map[string]string{"clear": "cleared", "startup": "startup", "resume": "resume"} {
+		raw := []byte(`{"session_id":"s","hook_event_name":"SessionStart","source":"` + source + `"}`)
+
+		ev, err := get(t, "claude").ParseHook(agents.HookSessionStart, raw, agents.ChannelHooks)
+
+		require.NoError(t, err)
+		assert.Equal(t, want, ev.Reason, source)
+	}
 }

@@ -7,10 +7,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// Range returns the three-dot diff between base and branch (09 §2).
-// It runs `git diff -M <base>...<branch>` and returns a MultiFileDiff
-// with Files, TotalFiles, TotalAdditions, and TotalDeletions populated.
-// Commit metadata fields are always zero-value.
+// Range returns the three-dot diff `git diff -M <base>...<branch>` with files and totals
+// populated; commit metadata is always zero.
 func Range(
 	ctx context.Context,
 	repoPath string,

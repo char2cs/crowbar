@@ -1,6 +1,6 @@
 package git
 
-// GitStatus is the full working-tree status for a workspace (04 §3).
+// GitStatus is the full working-tree status for a workspace.
 // Pushed directly on the Git topic (Class B) by the file watcher and git write
 // usecases.
 type GitStatus struct {

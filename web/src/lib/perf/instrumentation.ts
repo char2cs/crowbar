@@ -1,10 +1,6 @@
-/**
- * Shared perf instrumentation. Zero-cost unless armed: enabled in dev, or in
- * any build when `window.__CROWBAR_PERF__` is truthy (set it from the console
- * or via webview_execute_js in the packaged app). All entries land in the
- * `window.__perfLog` ring buffer so Chrome traces (dev) and WKWebView
- * peek-back (packaged) read the same data. Spec §3.1.
- */
+// Shared perf instrumentation, zero-cost unless armed (dev, or `window.__CROWBAR_PERF__` from the
+// console / webview_execute_js). Entries land in the `window.__perfLog` ring, so Chrome traces and
+// WKWebView peek-back read the same data (spec §3.1).
 interface PerfLogEntry {
   name: string
   startTime: number
@@ -21,10 +17,8 @@ declare global {
 }
 
 const RING_CAP = 500
-// Measures are the signal; Event Timing entries are the noise that evicts them
-// from __perfLog within seconds under real interaction. External readers (perf
-// capture runs) read THIS ring, which only ever receives `measure` entries and
-// is sized for a full scenario rather than a few seconds.
+// A measure-only ring: Event Timing entries evict measures from __perfLog within seconds of real
+// interaction, so external readers (perf capture runs) read this one, sized for a full scenario.
 const MEASURE_RING_CAP = 2000
 let observer: PerformanceObserver | null = null
 const openMarks = new Set<string>()
@@ -43,11 +37,8 @@ export function perfEnabled(): boolean {
   return Boolean(import.meta.env.DEV || window.__CROWBAR_PERF__ || armedByStorage())
 }
 
-/**
- * Push an entry into the shared perf ring, honouring the cap. Exported so
- * out-of-module producers (the INP reporter in main.tsx) cannot grow the ring
- * without bound — a direct `window.__perfLog.push` did exactly that.
- */
+// Push into the shared perf ring, honouring the cap; exported so out-of-module producers (main.tsx's
+// INP reporter) can't grow the ring without bound.
 export function pushPerfEntry(entry: PerfLogEntry): void {
   if (!perfEnabled()) return
   window.__perfLog ??= []
@@ -67,14 +58,8 @@ export function markEnd(name: string): void {
   if (!openMarks.has(name)) return
   openMarks.delete(name)
   performance.mark(`${name}:end`)
-  // A missing `:start` mark must be a REAL no-op, never a throw. The observer
-  // below clears a completed span's marks asynchronously, and clearMarks wipes
-  // EVERY mark of a name at once — so a prior span's drain could clear the
-  // `:start` of a span still open here (see the observer's guard, which now
-  // prevents that). This try/catch is the belt to that braces: performance.measure
-  // throws a SyntaxError when the start mark is absent, and this runs inside
-  // xterm's write() parse-complete callback (use-terminal-connection), where an
-  // uncaught throw escaped as an unhandled error and broke the write pipeline.
+  // A missing `:start` mark must be a no-op, never a throw: performance.measure throws without it,
+  // and this runs inside xterm's write() callback, where a throw breaks the write pipeline.
   try {
     performance.measure(name, `${name}:start`, `${name}:end`)
   } catch {
@@ -99,9 +84,7 @@ export function installPerfObserver(): void {
       })
       if (log.length > RING_CAP) log.shift()
       if (e.entryType === 'measure') {
-        // Second, measure-only ring: __perfLog's 500 slots are flooded by Event
-        // Timing entries within seconds of real interaction, evicting the spans
-        // an external reader came for. This one never receives that noise.
+        // Second, measure-only ring (`__measures`): Event Timing noise never reaches it.
         const measures = window.__measures!
         measures.push({
           name: e.name,
@@ -115,13 +98,9 @@ export function installPerfObserver(): void {
         // lifetime. Per-name only: other code's un-mirrored entries survive.
         performance.clearMeasures(e.name)
         performance.clearMarks(`${e.name}:end`)
-        // clearMarks removes ALL marks of a name at once. A NEW span of the same
-        // name can open (markStart) between a prior span's markEnd and this async
-        // observer callback — coalesced keystroke echoes do exactly this. Clearing
-        // `:start` unconditionally would then yank the live span's start mark out
-        // from under it, and its markEnd would measure against a missing mark. Only
-        // clear when no span of this name is currently open; an open span drains its
-        // own `:start` when it closes (openMarks no longer has it by then).
+        // clearMarks removes every mark of a name, and a new span of that name can open before this
+        // async callback (coalesced keystroke echoes do). Clear `:start` only when no span of the
+        // name is open; an open span drains its own `:start` when it closes.
         if (!openMarks.has(e.name)) performance.clearMarks(`${e.name}:start`)
       }
     }

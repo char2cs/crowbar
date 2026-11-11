@@ -56,11 +56,8 @@ export const collectNodeFiles = (node: GitFolderNode): GitFile[] => [
   ...Array.from(node.folders.values()).flatMap((child) => collectNodeFiles(child)),
 ]
 
-/**
- * Follow a folder down through single-child, file-less levels (`a` > `b` > `c`)
- * so the chain renders as one row. `node` is the deepest folder: its path is
- * the chain's identity.
- */
+/** Folds single-child, file-less levels (`a` > `b` > `c`) into one row. `node` is the deepest
+ *  folder; its path is the chain's identity. */
 export const compactFolder = (start: GitFolderNode): { label: string; node: GitFolderNode } => {
   const names = [start.name]
   let node = start
@@ -76,10 +73,8 @@ export interface FolderAggregate {
   viewed: number
 }
 
-/**
- * Descendant file and viewed counts for every folder below `root`, keyed by
- * `fullPath`. One post-order walk asks `isViewed` once per file.
- */
+/** File and viewed counts per folder below `root`, by `fullPath`: one post-order walk, one
+ *  `isViewed` call per file. */
 export const aggregateFolders = (
   root: GitFolderNode,
   isViewed: (file: GitFile) => boolean,

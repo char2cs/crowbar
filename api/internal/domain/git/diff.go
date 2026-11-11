@@ -6,7 +6,7 @@ import (
 )
 
 // DiffLine is one line in a FileDiff's flat rendering. Changed lines carry
-// hunkId linking them to their Hunk (04 §4).
+// hunkId linking them to their Hunk.
 type DiffLine struct {
 	LineType      DiffLineType `json:"line_type"`
 	Content       string       `json:"content"`
@@ -15,7 +15,7 @@ type DiffLine struct {
 	HunkID        string       `json:"hunkId,omitempty"`
 }
 
-// DiffLineType classifies a single line in a unified diff (04 §3).
+// DiffLineType classifies a single line in a unified diff.
 type DiffLineType string
 
 const (
@@ -25,7 +25,7 @@ const (
 	DiffLineHeader  DiffLineType = "header"
 )
 
-// FileDiff is the parsed diff for a single file (04 §3, §4).
+// FileDiff is the parsed diff for a single file.
 type FileDiff struct {
 	FilePath      string     `json:"file_path"`
 	OldPath       string     `json:"old_path,omitempty"`
@@ -47,19 +47,9 @@ type FileDiff struct {
 	Uncommitted bool `json:"uncommitted"`
 }
 
-// MarshalJSON emits a FileDiff whose slice fields are always arrays.
-//
-// A binary file never enters a hunk, so its Lines is never appended to and
-// stays nil — and a nil slice marshals to `null`, not `[]`. Clients declare the
-// field as a plain array and dereference it (`diff.lines.length`), so any
-// commit touching a binary file took down the whole diff pane with "null is not
-// an object". A JSON contract that promises an array has to send one even when
-// there is nothing in it.
-//
-// Normalised here rather than at each producer so the guarantee holds for every
-// endpoint that returns a FileDiff, including ones written later — the parser
-// leaving Lines nil for a binary file is correct, it is only the wire format
-// that must not expose it.
+// MarshalJSON emits a FileDiff whose slice fields are always arrays: a binary file's
+// Lines stays nil, and clients dereference the field as an array. Normalising here
+// keeps the guarantee for every endpoint while the parser stays honest.
 func (f FileDiff) MarshalJSON() ([]byte, error) {
 	// A local type sheds FileDiff's method set, so json.Marshal below cannot
 	// re-enter this function.
@@ -74,7 +64,7 @@ func (f FileDiff) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// MultiFileDiff is the diff for a commit (04 §3).
+// MultiFileDiff is the diff for a commit.
 type MultiFileDiff struct {
 	CommitHash        string     `json:"commitHash,omitempty"`
 	CommitMessage     string     `json:"commitMessage,omitempty"`
@@ -88,7 +78,7 @@ type MultiFileDiff struct {
 }
 
 // Hunk is a contiguous changed block in a FileDiff. StartLine and EndLine are
-// inclusive indices into FileDiff.Lines (04 §4).
+// inclusive indices into FileDiff.Lines.
 type Hunk struct {
 	HunkID    string `json:"hunkId"`
 	Header    string `json:"header"`

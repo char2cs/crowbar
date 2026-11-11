@@ -1,13 +1,6 @@
-// Adapted from the Plate registry (`https://platejs.org/r/slash-kit.json` ->
-// `slash-node`) — the `/` command menu.
-//
-// TRIMMED: upstream's menu also offers an "AI" group (`@platejs/ai`), a
-// Toggle block, a Table of contents, "3 columns" (`@platejs/layout`),
-// Excalidraw, a mermaid/plantuml "Code Drawing" block (`@platejs/code-drawing`),
-// a Date node and a Footnote — none of those plugins are registered in
-// `markdownPlugins`, so their entries are dropped along with the imports
-// that would otherwise pull in packages this editor doesn't use. What's left
-// covers exactly the block kinds `transforms.ts` (see its header) supports.
+// Adapted from the Plate registry (slash-kit.json -> `slash-node`): the `/` command menu, trimmed
+// to the block kinds `transforms.ts` supports; entries for unregistered plugins (AI, toggle, TOC,
+// columns, drawings, date, footnote) are dropped with their imports.
 'use client'
 
 import * as React from 'react'

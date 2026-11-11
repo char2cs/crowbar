@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The chat DTO's git half (spec §5): ONE read of the chat list has to answer
@@ -84,21 +85,21 @@ func newWorktreeHandlers(
 	uc *configurableListGetUsecase,
 	worktrees handlers.Worktrees,
 ) *handlers.Handlers {
-	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}, nil).WithWorktrees(worktrees)
+	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}).WithWorktrees(worktrees)
 }
 
 // fakeNodeReads is the Nodes port: one Node row keyed by id.
 type fakeNodeReads struct {
-	rows map[string]domain.Node
+	rows map[string]tree.Node
 }
 
 func (f *fakeNodeReads) GetNode(
 	_ context.Context,
 	id string,
-) (domain.Node, error) {
+) (tree.Node, error) {
 	n, ok := f.rows[id]
 	if !ok {
-		return domain.Node{}, errors.New("no such node")
+		return tree.Node{}, errors.New("no such node")
 	}
 	return n, nil
 }
@@ -126,7 +127,7 @@ func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsOwnFields(t 
 	}}
 	// The fork's own, never-touched workspace-anchor Node — a fixed row that
 	// must NOT be what this read answers from.
-	nodes := &fakeNodeReads{rows: map[string]domain.Node{
+	nodes := &fakeNodeReads{rows: map[string]tree.Node{
 		"ws-fork": {ID: "ws-fork", ParentID: "", Order: 0},
 	}}
 	h := newWorktreeHandlers(uc, worktrees).WithNodes(nodes)
@@ -150,7 +151,7 @@ func TestRegression_List_ALockedBranchStillReadsItsOwnWorkspaceAnchorNode(t *tes
 	worktrees := &fakeWorktreeReads{rows: []domain.Workspace{
 		{ID: "ws-locked", RepoID: "r1", ProjectID: "p1", Branch: "main", Status: domain.WorkspaceStatusLocked},
 	}}
-	nodes := &fakeNodeReads{rows: map[string]domain.Node{
+	nodes := &fakeNodeReads{rows: map[string]tree.Node{
 		"ws-locked": {ID: "ws-locked", ParentID: "folder-1", Order: 2},
 	}}
 	h := newWorktreeHandlers(uc, worktrees).WithNodes(nodes)
@@ -284,7 +285,7 @@ func TestList_AnUnreadableWorktreeStillListsTheChat(t *testing.T) {
 func TestList_UnwiredWorktreeReadsDegradeToAbsent(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws-1"}}}
 
-	rows := listChats(t, handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}, nil))
+	rows := listChats(t, handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}))
 
 	require.Len(t, rows, 1)
 	assert.Nil(t, rows[0].Worktree)
@@ -316,39 +317,6 @@ func TestGet_ByIdCarriesTheWorktreeToo(t *testing.T) {
 	assert.Equal(t, "feature/x", envelope.Data.Worktree.Branch)
 	assert.Equal(t, 9, envelope.Data.Worktree.Added)
 	assert.Equal(t, "c1", envelope.Data.Worktree.OwningChatID)
-}
-
-// mintingTree is fakeChatTree with a mint that succeeds and an attach that
-// fails — the shape a request context cancelled between the two (the client
-// reloading mid-GET) leaves behind.
-type mintingTree struct {
-	fakeChatTree
-	minted   int
-	discards int
-}
-
-func (m *mintingTree) MintOwningChat(
-	_ context.Context,
-	_ string,
-) (string, error) {
-	m.minted++
-	return "minted-1", nil
-}
-
-func (m *mintingTree) AttachOwningWorkspace(
-	_ context.Context,
-	_ string,
-	_ domain.Workspace,
-) error {
-	return errors.New("context canceled")
-}
-
-func (m *mintingTree) DiscardOwningChat(
-	_ context.Context,
-	_ string,
-) error {
-	m.discards++
-	return nil
 }
 
 // A list of many chats over a few worktrees must cost one resolution per

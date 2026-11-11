@@ -14,10 +14,8 @@ import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useWorkspaceIsLocal } from '@/lib/host-resolve'
 
-/**
- * The sidebar's Files panel — every file-system-store binding and the
- * `FileExplorerTree` they drive (selection, create/rename/delete/upload).
- */
+/** The sidebar's Files panel — every file-system-store binding and the
+ *  `FileExplorerTree` they drive (selection, create/rename/delete/upload). */
 export function SidebarFilesPanel({ onFileOpened }: { onFileOpened?: () => void } = {}) {
   const workspaceId = useFocusedWorkspaceContextStore((s) => s.workspaceId)
   const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)
@@ -30,10 +28,12 @@ export function SidebarFilesPanel({ onFileOpened }: { onFileOpened?: () => void 
   const isLoading = useWorkspaceStoreById(wsId, isFileTreeLoading)
   const setFiles = useWorkspaceStoreById(wsId, (s) => s.fileTreeActions.setFiles)
   const handlers = useMemo(() => createFileTreeHandlers(wsId, store), [wsId, store])
-  const handleUploadFile = useCallback(
-    (directoryPath: string) => {
-      if (workspaceId) void pickAndUploadFiles(workspaceId, directoryPath)
-    },
+  // Upload is offered only with a workspace to write into.
+  const handleUploadFile = useMemo(
+    () =>
+      workspaceId
+        ? (directoryPath: string) => void pickAndUploadFiles(workspaceId, directoryPath)
+        : undefined,
     [workspaceId],
   )
   // The explorer click names the pane it opens into (C8): the on-screen pane

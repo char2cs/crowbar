@@ -2,7 +2,7 @@ package git
 
 import "time"
 
-// Branch is a git branch entry (04 §3).
+// Branch is a git branch entry.
 type Branch struct {
 	Name           string     `json:"name"`
 	IsCurrent      bool       `json:"isCurrent"`

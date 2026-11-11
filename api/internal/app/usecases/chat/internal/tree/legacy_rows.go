@@ -2,14 +2,15 @@ package tree
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The rows a level draws that predate Node rows — a repo imported or a locked
-// branch adopted before the Node aggregate existed. No backfill: each is
-// counted where the sidebar draws it, and the first write that touches its
-// level mints its Node at the decided slot.
+// Rows a level draws that predate Node rows (an old repo import or locked branch). No backfill: each is
+// counted where the sidebar draws it, and the first write touching its level mints its Node.
 
 // rowExists reports whether id names any row a chat can be filed under.
 func (u *chatFolderUsecase) rowExists(
@@ -47,29 +48,35 @@ func (f *forest) addNodelessRepos(
 	}
 }
 
-// addNodelessAnchors appends a fresh anchor for every branch row of a repo
-// scope that has no Node row yet (a locked branch from before Node rows
-// existed): the sidebar draws it where its fork parent's row is, so the
-// densify counts it there and the first write mints its Node.
+// addNodelessAnchors appends a fresh anchor for every branch row of a repo scope with no Node row yet,
+// placed under its fork parent's row where the sidebar draws it, so the densify counts it there.
 func (u *chatFolderUsecase) addNodelessAnchors(
 	ctx context.Context,
 	f *forest,
 	scope forestScope,
 	nodeSeen map[string]bool,
-) {
+) error {
 	if scope.repoID == "" {
-		return
+		return nil
 	}
 	ids, err := u.workspaces.BranchRowsOf(ctx, scope.repoID)
 	if err != nil {
-		return
+		return fmt.Errorf("agent chat folder: branch rows of %s: %w", scope.repoID, err)
 	}
 	for _, id := range ids {
 		if nodeSeen[id] || id == scope.workspaceID {
 			continue
 		}
-		parent, _ := u.workspaces.VisibleForkParent(ctx, id)
-		f.rows = append(f.rows, u.anchorView(ctx, id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace, ParentID: parent}))
+		parent, err := u.workspaces.VisibleForkParent(ctx, id)
+		if err != nil && problem.CodeOf(err) != problem.NotFound {
+			return fmt.Errorf("agent chat folder: fork parent of %s: %w", id, err)
+		}
+		anchor, err := u.anchorView(ctx, id, dtree.Node{ID: id, Kind: dtree.KindWorkspace, ParentID: parent})
+		if err != nil {
+			return err
+		}
+		f.rows = append(f.rows, anchor)
 		f.homeIDs[id], f.fresh[id] = true, true
 	}
+	return nil
 }

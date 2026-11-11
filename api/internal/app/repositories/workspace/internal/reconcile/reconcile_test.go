@@ -17,12 +17,12 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	wscmds "github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace/internal/store/projections"
 	"github.com/char2cs/crowbar/api/internal/domain"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 type broadcastSpy struct {
@@ -94,14 +94,14 @@ func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 }
 
 // TestReconciler_OnOpen_SkipsOnNotFound proves idempotency: a vanished workspace
-// (derive returns apperr.ErrNotFound) is a no-op — no command is sent and no
+// (derive returns problem.ErrNotFound) is a no-op — no command is sent and no
 // frame is broadcast (spec §3.8 "skip on ErrNotFound").
 func TestReconciler_OnOpen_SkipsOnNotFound(t *testing.T) {
 	derive := func(
 		_ context.Context,
 		_ string,
 	) (asynxModels.Command[domain.Workspace], error) {
-		return nil, fmt.Errorf("gone: %w", apperr.ErrNotFound)
+		return nil, fmt.Errorf("gone: %w", problem.ErrNotFound)
 	}
 	var sendCalls int32
 	sendWait := func(
@@ -209,7 +209,7 @@ func TestReconciler_OnOpen_RefusedOnceDraining(t *testing.T) {
 }
 
 // TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend proves that a real derive
-// error (anything other than apperr.ErrNotFound) stops before SendWait and
+// error (anything other than problem.ErrNotFound) stops before SendWait and
 // before broadcast — reconcile must not fold a command it never derived.
 func TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend(t *testing.T) {
 	derive := func(context.Context, string) (asynxModels.Command[domain.Workspace], error) {
@@ -248,17 +248,22 @@ func TestReconciler_Reconcile_SendWaitErrorAbortsBroadcast(t *testing.T) {
 	assert.Empty(t, spy.all(), "a real SendWait error must never reach broadcast")
 }
 
+// newAx builds axWorkspace; a non-nil st is its durable read model.
 func newAx(
 	t *testing.T,
+	st *projections.Store,
 ) (context.Context, asynx.Asynx[domain.Workspace]) {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
-	ax, err := asynx.New[domain.Workspace]().
+	b := asynx.New[domain.Workspace]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	if st != nil {
+		projections.Subscriber(st)(b)
+	}
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	return context.Background(), ax
@@ -270,12 +275,11 @@ func newAx(
 // folds into state/store/workspace.db), then broadcasts the corrected frame. This
 // is the end-to-end "reconcile updates the read model + broadcasts" of §3.8.
 func TestReconciler_OnOpen_UpdatesReadModelAndBroadcasts(t *testing.T) {
-	ctx, ax := newAx(t)
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	st, err := projections.NewStore(db)
 	require.NoError(t, err)
-	require.NoError(t, projections.RegisterStore(st, ax))
+	ctx, ax := newAx(t, st)
 
 	_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID:           "w1",

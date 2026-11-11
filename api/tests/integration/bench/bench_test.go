@@ -18,8 +18,8 @@ func TestMain(m *testing.M) {
 }
 
 // wsPushSeq is a package-level monotonic counter, used to give each push
-// iteration a distinguishable PR URL so its own WS frame can be picked out of
-// the stream.
+// iteration a distinguishable PR URL so its own row can be picked out of the
+// stream.
 var wsPushSeq atomic.Int64
 
 // mergeSeq is a package-level monotonic counter for unique worktree branches.
@@ -27,23 +27,14 @@ var mergeSeq atomic.Int64
 
 // runWorkspaceWSPushIteration performs one benchmark iteration: pushes a
 // provider-state change for wsID (the mock-provider seam, PushProviderState)
-// and waits for the corresponding worktree_state frame on watcher. This is the
-// state-change→broadcast hot path.
-//
-// It no longer creates a fresh workspace per iteration (spec §8 step 6 deleted
-// POST .../workspaces, and the atomic chat-scoped create that replaced it does
-// its git worktree provisioning SYNCHRONOUSLY — the create response no longer
-// races a background broadcast the way the old 202 create did, so timing it
-// would measure request handling, not push latency). Reusing one workspace and
-// varying the pushed PR URL isolates the same thing the old benchmark cared
-// about: how fast a workspace state change reaches a connected WS client,
-// through the identical hub-broadcast → chat-feed fan-out path
-// (container.go's pushChatWorktree) production's provider poll rides.
+// and waits for its workspace row on the projects scope — the
+// state-change→publish hot path. One workspace is reused, each push with a new
+// PR URL, so the timing is push latency rather than worktree provisioning.
 func runWorkspaceWSPushIteration(
 	t *testing.T,
 	env *kit.Env,
 	wsID string,
-	watcher *kit.WSWatcher,
+	watcher *kit.EntityWatcher,
 ) {
 	t.Helper()
 	seq := wsPushSeq.Add(1)
@@ -54,14 +45,13 @@ func runWorkspaceWSPushIteration(
 		PRUrl:    prURL,
 		PRTitle:  "bench",
 	})
-	watcher.ReadUntil(t, 10*time.Second, func(raw map[string]any) bool {
-		return kit.WorktreeFrame(raw)["prUrl"] == prURL
+	kit.WaitForWorkspace(t, watcher, wsID, 10*time.Second, func(m map[string]any) bool {
+		return m["prUrl"] == prURL
 	})
 }
 
 // TestBenchmarkWorkspaceWSPushLatency measures the end-to-end push latency from
-// a workspace state change to the WS event being received by a connected chat
-// client.
+// a workspace state change to its row reaching a projects-scope holder.
 //
 // This is a latency regression test, not a standard Go benchmark. Run with
 // -tags=integration and UPDATE_BASELINE=1 to record a new baseline.
@@ -69,9 +59,9 @@ func TestBenchmarkWorkspaceWSPushLatency(t *testing.T) {
 	const n = 50
 	env := kit.BuildEnv(t)
 	imported := env.ImportRepo(t, "bench-ws", "")
-	wsID, chatID := env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/bench-ws-push", "")
+	wsID, _ := env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/bench-ws-push", "")
 
-	watcher := env.DialChat(t, chatID)
+	watcher := env.HoldProjects(t)
 
 	result := kit.RunBenchmark(t, "WorkspaceWSPushLatency", n, func() {
 		runWorkspaceWSPushIteration(t, env, wsID, watcher)
@@ -107,7 +97,7 @@ func runWorktreeMergeIteration(
 	// only a fork point past this one says the merge has landed.
 	before := kit.RevParse(t, imported.RepoPath, "HEAD")
 
-	watcher := env.DialChat(t, childChatID)
+	watcher := env.HoldProjects(t)
 	mergeResp := env.POST(t,
 		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/chats/"+childChatID+"/merge-into-parent",
 		map[string]any{"strategy": "merge"})

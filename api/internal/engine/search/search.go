@@ -1,8 +1,6 @@
-// Package search is the global search/replace engine (wave 2).
-//
-// It exposes a SearchEngine that concurrently walks a repository, applies
-// gitignore filtering, and returns per-line match results with UTF-16 column
-// offsets suitable for Monaco/LSP clients.
+// Package search is the global search/replace engine: it walks a repository
+// concurrently with gitignore filtering and returns per-line matches with UTF-16 column
+// offsets for Monaco/LSP clients.
 package search
 
 import (
@@ -12,12 +10,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/ignore"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/match"
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/replace"
@@ -25,15 +25,15 @@ import (
 )
 
 // ErrLocked is returned by Replace when the workspace is locked.
-var ErrLocked = errors.New("workspace is locked")
+var ErrLocked = problem.New(problem.Locked, "workspace is locked")
 
 // ErrPathOutsideWorkspace is returned by Replace when the file scope resolves
 // to a path outside the repository root.
-var ErrPathOutsideWorkspace = errors.New("path is outside the workspace")
+var ErrPathOutsideWorkspace = problem.New(problem.InvalidArgument, "path is outside the workspace")
 
 // ErrBadPattern is returned by Replace (and Search) when the query cannot be
 // compiled into a valid regular expression.
-var ErrBadPattern = errors.New("invalid search pattern")
+var ErrBadPattern = problem.New(problem.InvalidArgument, "invalid search pattern")
 
 const (
 	defaultMaxResults = 1000
@@ -117,6 +117,9 @@ func (e *searchEngine) Search(
 
 	ig := buildIgnoreStack(repoPath)
 	paths, err := walk.Walk(ctx, repoPath, ig, req.Include, req.Exclude)
+	if errors.Is(err, walk.ErrBadGlob) {
+		return SearchResponse{}, fmt.Errorf("%w: %w", ErrBadPattern, err)
+	}
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("search: walk: %w", err)
 	}
@@ -188,7 +191,7 @@ func buildIgnoreStack(
 	repoPath string,
 ) *ignore.Stack {
 	var s ignore.Stack
-	_ = filepath.WalkDir(repoPath, func(
+	err := filepath.WalkDir(repoPath, func(
 		path string,
 		d fs.DirEntry,
 		err error,
@@ -203,9 +206,16 @@ func buildIgnoreStack(
 		if d.Name() == ".git" {
 			return filepath.SkipDir
 		}
-		_ = s.Add(path, filepath.Join(path, ".gitignore"))
+		// Like git, an unreadable .gitignore is skipped, not fatal.
+		if err := s.Add(path, filepath.Join(path, ".gitignore")); err != nil {
+			slog.Warn("search: ignore file skipped", "dir", path, "err", err)
+		}
 		return nil
 	})
+	// The callback returns only nil or Skip*, so this guards a future callback error.
+	if err != nil {
+		slog.Warn("search: ignore files not all loaded", "repo", repoPath, "err", err)
+	}
 	return &s
 }
 
@@ -214,12 +224,12 @@ func searchFile(
 	absPath string,
 	repoPath string,
 	re *regexp.Regexp,
-) ([]SearchResult, error) {
+) (_ []SearchResult, err error) {
 	f, err := os.Open(absPath) //nolint:gosec // path comes from filepath.WalkDir under repoPath
 	if err != nil {
 		return nil, fmt.Errorf("search: open %s: %w", absPath, err)
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { err = errors.Join(err, f.Close()) }()
 
 	// Binary sniff on the first 8 KB.
 	sample := make([]byte, binarySampleSize)

@@ -19,10 +19,8 @@ type WSWatcher struct {
 	conn *websocket.Conn
 }
 
-// Dial opens a WebSocket connection to rawURL using the supplied dialer and
-// returns a watcher. The dialer is the env's Unix-socket dialer (host-agnostic:
-// it routes to the socket regardless of rawURL's host). The connection is closed
-// automatically via t.Cleanup.
+// Dial opens a WebSocket to rawURL through dialer (the env's Unix-socket dialer, which
+// ignores rawURL's host) and returns a watcher; the connection closes on t.Cleanup.
 func Dial(
 	t *testing.T,
 	dialer *websocket.Dialer,
@@ -33,14 +31,18 @@ func Dial(
 		rawURL,
 		nil,
 	)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
 	require.NoError(
 		t,
 		err,
 	)
-	t.Cleanup(func() { _ = conn.Close() })
+	if resp != nil {
+		require.NoError(t, resp.Body.Close())
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Logf("kit: close websocket: %v", err)
+		}
+	})
 	return &WSWatcher{conn: conn}
 }
 
@@ -112,6 +114,20 @@ func (w *WSWatcher) ReadUntil(
 	}
 }
 
+// WriteJSON sends v to the daemon.
+func (w *WSWatcher) WriteJSON(t *testing.T, v any) {
+	t.Helper()
+	require.NoError(t, w.conn.WriteJSON(v), "ws: WriteJSON")
+}
+
+// Close closes the socket before the test ends, as a client letting go does.
+func (w *WSWatcher) Close(
+	t *testing.T,
+) {
+	t.Helper()
+	require.NoError(t, w.conn.Close())
+}
+
 // ReadMsg reads a single message within timeout.
 func (w *WSWatcher) ReadMsg(
 	t *testing.T,
@@ -121,10 +137,8 @@ func (w *WSWatcher) ReadMsg(
 	return w.ReadUntil(t, timeout, func(_ map[string]any) bool { return true })
 }
 
-// AssertNoMessage asserts that no WebSocket message arrives within timeout.
-// It returns true if the read times out cleanly (expected), or fails the test
-// if a message arrives before the deadline. It never calls t.Fatal on timeout —
-// a timeout is the success condition.
+// AssertNoMessage fails the test if a WebSocket message arrives within timeout and
+// returns true on a clean timeout, which is the success condition.
 func (w *WSWatcher) AssertNoMessage(
 	t *testing.T,
 	timeout time.Duration,
@@ -152,11 +166,8 @@ func (w *WSWatcher) AssertNoMessage(
 	return false
 }
 
-// AssertNoMatch drains messages until timeout and fails the test if any message
-// satisfies match. Non-matching messages (legitimate in-prefix frames) are
-// ignored. A clean timeout is the success condition. This is the negative
-// prefix-filtering idiom: assert an out-of-prefix frame NEVER arrives while
-// tolerating the subscriber's own in-prefix traffic. Returns true on success.
+// AssertNoMatch drains messages until timeout and fails the test if any satisfies
+// match, tolerating the subscriber's own in-prefix traffic. Returns true on success.
 func (w *WSWatcher) AssertNoMatch(
 	t *testing.T,
 	timeout time.Duration,
@@ -202,31 +213,4 @@ func (w *WSWatcher) SendJSON(
 	raw, err := json.Marshal(msg)
 	require.NoError(t, err, "ws: SendJSON marshal")
 	require.NoError(t, w.conn.WriteMessage(websocket.TextMessage, raw), "ws: SendJSON write")
-}
-
-// ReadRawMsg reads one raw WebSocket frame (binary or text) within timeout.
-// Use this for non-JSON protocols such as terminal PTY streams.
-func (w *WSWatcher) ReadRawMsg(
-	t *testing.T,
-	timeout time.Duration,
-) []byte {
-	t.Helper()
-	require.NoError(
-		t,
-		w.conn.SetReadDeadline(time.Now().Add(timeout)),
-		"ws: SetReadDeadline",
-	)
-	msgType, raw, err := w.conn.ReadMessage()
-	require.NoError(
-		t,
-		err,
-		"ws: ReadMessage failed",
-	)
-	require.True(
-		t,
-		msgType == websocket.BinaryMessage || msgType == websocket.TextMessage,
-		"unexpected ws message type %d, want binary (2) or text (1)",
-		msgType,
-	)
-	return raw
 }

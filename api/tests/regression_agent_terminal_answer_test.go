@@ -4,8 +4,6 @@ package tests
 
 import (
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -56,10 +54,7 @@ func readTerminalWait(t *testing.T, h *harness, imported importedRepo, chatID st
 // detector clears the wait once the screen no longer shows the prompt.
 func TestRegression_TerminalPromptIsAnswerableFromTheChat(t *testing.T) {
 	h := newHarness(t)
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "truststub.yaml"),
-		[]byte(stubDescriptor(trustStubProviderDescriptorYAML)), 0o644))
+	writeProviderDescriptor(t, h, "truststub", trustStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
 
 	var created struct {
@@ -69,6 +64,8 @@ func TestRegression_TerminalPromptIsAnswerableFromTheChat(t *testing.T) {
 		map[string]string{"provider": "truststub", "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
+	// The modal shows once the CLI runs, which a new chat's start (or first prompt) does.
+	startChat(t, h, repoBase(imported), created.ID)
 	answerURL := repoBase(imported) + "/chats/" + created.ID + "/terminal-wait/answer"
 
 	require.Eventually(t, func() bool {
@@ -81,12 +78,12 @@ func TestRegression_TerminalPromptIsAnswerableFromTheChat(t *testing.T) {
 	assert.Equal(t, "accept", wait.Answers[0].ID)
 	assert.Equal(t, "Trust workspace", wait.Answers[0].Label)
 
-	h.raw(http.MethodPost, answerURL, map[string]string{"answerId": "nope"}, http.StatusBadRequest).Body.Close()
-	h.raw(http.MethodPost, answerURL, map[string]string{"answerId": "accept"}, http.StatusOK).Body.Close()
+	require.NoError(t, h.raw(http.MethodPost, answerURL, map[string]string{"answerId": "nope"}, http.StatusBadRequest).Body.Close())
+	require.NoError(t, h.raw(http.MethodPost, answerURL, map[string]string{"answerId": "accept"}, http.StatusOK).Body.Close())
 
 	require.Eventually(t, func() bool {
 		return readTerminalWait(t, h, imported, created.ID).TerminalWait == nil
 	}, 20*time.Second, 100*time.Millisecond, "the wait must clear once the provider moved past its prompt")
 
-	h.raw(http.MethodPost, answerURL, map[string]string{"answerId": "accept"}, http.StatusConflict).Body.Close()
+	require.NoError(t, h.raw(http.MethodPost, answerURL, map[string]string{"answerId": "accept"}, http.StatusConflict).Body.Close())
 }

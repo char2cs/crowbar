@@ -1,20 +1,15 @@
-// Package icons holds the entity-agnostic half of a sidebar icon: reading an
-// upload, validating it, storing it, serving it back, and deciding what counts
-// as a single emoji.
-//
-// Repos have had an editable icon since the sidebar redesign; projects now have
-// the same one. The only thing that differs between them is WHERE the bytes
-// live — <crowbarHome>/projects/<projectID>/<repoID>/icon for a repo,
-// <crowbarHome>/projects/<projectID>/icon for a project — so the path is the
-// caller's to supply and everything else lives here once. Duplicating it per
-// entity is how the two would drift on the parts that matter: the size cap, the
-// content sniffing that stops a JSON path pointing at /etc/passwd being stored
-// as an image, and the SVG special case.
+// Package icons is the entity-agnostic half of a sidebar icon: reading, validating, storing and
+// serving an upload, and deciding what counts as a single emoji. Repos and projects differ only
+// in where the bytes live, so the caller supplies the path.
 package icons
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,21 +21,15 @@ import (
 	"github.com/rivo/uniseg"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
 )
 
-// MaxBytes caps a stored icon at 2 MiB. Any file larger than this is rejected
-// before or immediately after opening, so the daemon never reads an unbounded
+// MaxBytes caps a stored icon at 2 MiB, so the daemon never reads an unbounded
 // amount of data from a client-supplied path.
 const MaxBytes = 2 << 20
 
-// ContentType picks the Content-Type for a stored icon.
-//
-// http.DetectContentType has no SVG signature — it sniffs SVG as text/* — and
-// browsers refuse to render an <img> whose SVG is served as text/*. Some GitHub
-// owner avatars are SVG (org avatars, for one), so detect SVG explicitly and
-// serve image/svg+xml; otherwise the fetched icon silently degrades to the
-// generated placeholder. Real raster images keep their sniffed image/* type.
+// ContentType picks the Content-Type for a stored icon. http.DetectContentType
+// sniffs SVG as text/*, which browsers refuse to render in an <img>, and an
+// imported repo's logo or a GitHub avatar can be SVG, so SVG is detected explicitly.
 func ContentType(
 	data []byte,
 ) string {
@@ -58,24 +47,8 @@ func ContentType(
 	return ct
 }
 
-// DefaultCrowbarHome returns the root for all crowbar-managed state: the
-// CROWBAR_HOME env override when set (dev instances point it inside the
-// workspace being developed), otherwise ~/.crowbar.
-func DefaultCrowbarHome() (string, error) {
-	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
-		return override, nil
-	}
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("crowbar home: %w", err)
-	}
-	return filepath.Join(h, ".crowbar"), nil
-}
-
-// Serve writes the icon at path as the response, or 404s.
-//
-// The read is stat-rejected and capped: these bytes are written by this daemon,
-// but a corrupted or replaced file must not cause an unbounded heap allocation.
+// Serve writes the icon at path as the response, or 404s. The read is capped:
+// a corrupted or replaced file must not cause an unbounded heap allocation.
 func Serve(
 	c *gin.Context,
 	path string,
@@ -91,23 +64,23 @@ func Serve(
 		c.Status(http.StatusNotFound)
 		return
 	}
-	defer func() { _ = f.Close() }()
+	defer libs.CloseLogged(c.Request.Context(), "icons: close the icon", f)
 	data, err := io.ReadAll(io.LimitReader(f, MaxBytes+1))
 	if err != nil {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	// no-cache: revalidate on every use. The bytes change in place behind this
-	// URL (uploads overwrite the same file); the ?v= param on the DTO URL is the
-	// primary cache-buster, this header is the belt-and-braces layer.
+	// Uploads overwrite the bytes behind this URL; the DTO's ?v= param is the
+	// primary cache-buster and no-cache is the backstop.
 	c.Header("Cache-Control", "no-cache")
-	c.Data(http.StatusOK, ContentType(data), data)
+	// A stored SVG comes from an imported repo's files: opened directly, it must not run script
+	// in the daemon's origin. An <img> applies none of these headers.
+	libs.WriteUntrustedFile(c, ContentType(data), data)
 }
 
-// ReadUpload extracts icon bytes from the request, dispatching on Content-Type:
-// a JSON {"path"} body (desktop — the daemon reads the file) or a multipart
-// "icon" field (web). On any failure it writes the response and returns
-// ok=false.
+// ReadUpload extracts icon bytes from a JSON {"path"} body (desktop: the daemon
+// reads the file) or a multipart "icon" field (web). On failure it writes the
+// response and returns ok=false.
 func ReadUpload(
 	c *gin.Context,
 ) (data []byte, ok bool) {
@@ -117,21 +90,9 @@ func ReadUpload(
 	return readFromMultipart(c)
 }
 
-// readFromPath reads the icon from an absolute path supplied as JSON.
-//
-// Residual trust assumption: the path is an absolute host path supplied by the
-// desktop client (native file-picker dialog). The daemon and the WKWebView run
-// on the same host, so this is equivalent to the repo-import path trust model:
-// the path is user-chosen, not attacker-controlled from the network. This path
-// should eventually be replaced by a byte-upload (multipart) so the daemon never
-// reads arbitrary host paths at client direction.
-//
-// Hardening applied:
-//   - Stat-reject: file must exist and be ≤ MaxBytes before any read.
-//   - LimitReader: read at most MaxBytes+1 so an oversize file is detected.
-//   - Content sniffing (in Validate): content-type is derived from the first 512
-//     bytes, not from the file extension, so /etc/passwd styled as photo.png is
-//     rejected.
+// readFromPath reads the icon from an absolute host path the desktop's native
+// file picker chose: user-chosen, like a repo-import path, not network-supplied.
+// Size is capped here and content is sniffed in Validate, never trusted by extension.
 func readFromPath(
 	c *gin.Context,
 ) ([]byte, bool) {
@@ -157,7 +118,7 @@ func readFromPath(
 		libs.WriteErr(c, http.StatusBadRequest, "could not read icon file")
 		return nil, false
 	}
-	defer func() { _ = f.Close() }()
+	defer libs.CloseLogged(c.Request.Context(), "icons: close the upload", f)
 	// LimitReader caps the actual read even if the file grows between Stat and Open.
 	data, err := io.ReadAll(io.LimitReader(f, MaxBytes+1))
 	if err != nil {
@@ -182,7 +143,7 @@ func readFromMultipart(
 		libs.WriteErr(c, http.StatusBadRequest, "icon field required")
 		return nil, false
 	}
-	defer func() { _ = file.Close() }()
+	defer libs.CloseLogged(c.Request.Context(), "icons: close the upload", file)
 
 	data, err := io.ReadAll(io.LimitReader(file, MaxBytes+1))
 	if err != nil {
@@ -196,12 +157,9 @@ func readFromMultipart(
 // paths cannot disagree about what the limit is called.
 const oversizeMessage = "icon must be under 2 MB"
 
-// Validate rejects anything that is not an image of an acceptable size. On
-// failure it writes the response and returns false.
-//
-// ALWAYS by content sniffing, never by trusting the extension or the
-// caller-supplied Content-Type: otherwise a non-image file could be stored by
-// supplying a .png filename, or a JSON path to an arbitrary host file.
+// Validate rejects anything but an acceptably sized image, writing the response on failure. It
+// sniffs content rather than trusting the extension or Content-Type, and refuses SVG: it can
+// carry script, and the picker offers raster only.
 func Validate(
 	c *gin.Context,
 	data []byte,
@@ -224,24 +182,30 @@ func Store(
 	path string,
 	data []byte,
 ) error {
-	//nolint:gosec // G301: 0o755 is the intended perm for the daemon's own icon directory; it matches the perms it creates its project directories with.
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("could not create icon directory: %w", err)
 	}
-	//nolint:gosec // G306: icon bytes are non-secret assets served over HTTP; 0o644 is the intended readable perm.
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write error: %w", err)
 	}
 	return nil
 }
 
-// IsSingleEmoji reports whether s holds exactly one user-perceived character
-// (grapheme cluster) that is not a plain ASCII letter.
-//
-// Grapheme clusters — not code points — are the unit that matters: most real
-// emoji are multi-codepoint sequences (❤️ carries a variation selector, 👨‍💻 is a
-// ZWJ sequence, 🇦🇷 is a two-codepoint flag, 👍🏽 carries a skin-tone modifier)
-// and must all be accepted as "a single emoji".
+// Remove deletes the stored icon at path. One already gone is not a failure; any
+// other is logged, because the caller clears the record either way and Serve
+// answers 404 for it from then on.
+func Remove(
+	ctx context.Context,
+	path string,
+) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		slog.WarnContext(ctx, "icons: remove the stored icon", "path", path, "err", err)
+	}
+}
+
+// IsSingleEmoji reports whether s holds exactly one grapheme cluster that is not
+// a plain ASCII letter. Graphemes, not code points, because most emoji are
+// multi-codepoint sequences (variation selectors, ZWJ, flags, skin tones).
 func IsSingleEmoji(
 	s string,
 ) bool {

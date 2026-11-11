@@ -14,28 +14,24 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
-// `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —
-// the real resolver needs an async fetch+cache round trip these tests have
-// no reason to exercise; `handleCreateHomeThread`'s own tests never needed
-// this mock since they take `homeWorkspaceId` as a direct argument instead.
+// The real home resolver needs a fetch+cache round trip these tests don't exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
 }))
 
 import { resolveRow, handleOpen } from '@/components/layout/open-actions'
-import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import type { Chat, Repo } from '@/core/entities/repo-types'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -60,14 +56,11 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
-  useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
-  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
-  // CLI, unlike the old chat-less postWorkspace) — the global provider store
-  // (agent-providers-store.ts), not a per-workspace one, since there is no
-  // workspace yet to scope a per-workspace read through.
+  resetEntities()
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  resetEntities()
+  // Creating a workspace starts a CLI, so it needs a provider from the global store (there is no
+  // workspace yet to scope a per-workspace read through).
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
@@ -117,7 +110,7 @@ describe('handleOpen', () => {
 
   it('toggles a folder instead of navigating', () => {
     const navigate = vi.fn()
-    const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+    const toggle = vi.spyOn(treeUiStore.getState(), 'toggleChatRow')
     const repos = [repo({ folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 0 }] })]
     expect(handleOpen('f1', repos, navigate)).toBe(false)
     expect(toggle).toHaveBeenCalledWith('f1')
@@ -159,22 +152,9 @@ describe('handleOpen', () => {
       })
     })
 
-    // Regression: a real deadlock, not a guess — live-reproduced by clicking
-    // a chat whose workspace was NOT the one an already-occupied pane
-    // belonged to. `navigateThenOpenChat` used to `navigate()` then POLL
-    // `getActiveWorkspaceId()` for up to 2s before opening a pane — but that
-    // global only ever changes from INSIDE `WorkspaceView`'s own effect, which
-    // only runs once `IDEShell`'s `effectiveActiveWorkspaceId` resolves to the
-    // new workspace, and that resolution prefers `activePaneWorkspaceId` (the
-    // ALREADY-occupied pane's own workspace) over the just-changed route by
-    // design (ide-shell.tsx, for the unrelated "switch focus between two
-    // panes of an existing split" case). With any pane already holding a
-    // foreign chat, the poll could never win — the click looked like it did
-    // nothing, live-reported as "clicking on a not opened row... simply
-    // anything happens." Panes are window-level (Task 26), so nothing here
-    // ever actually needed "active" to be true — this pins that a chat now
-    // lands in a pane immediately once `navigate()` resolves, not after some
-    // global that this suite never had to move to begin with.
+    // The pane opens right after `navigate()` resolves, never after waiting for "active": the shell
+    // prefers the occupied pane's workspace over the route, so with a foreign chat in the active
+    // pane that wait would deadlock (ide-shell.tsx).
     it('opens into a pane immediately after navigating, even while the active PANE already holds a chat from a DIFFERENT workspace', async () => {
       resetWindowPaneStoreForTests()
       setActiveWorkspaceId('ws-other') // some other workspace is "active"
@@ -196,13 +176,8 @@ describe('handleOpen', () => {
       resetWindowPaneStoreForTests()
     })
 
-    // Regression: a bubble at the repo root used to fold instead of opening
-    // — it owns no `Workspace` of its own, so `chat.workspaceId` is null, and
-    // that null used to be read as "this row opens nothing." It now falls
-    // back to its nearest ANCESTOR workspace (rows-from-repo.ts's own
-    // `ancestorWorkspaceId`) — the repo's own home, for a bubble with no
-    // workspace/folder ancestor above it at all. Live-reported: "clicking on
-    // a not opened row... it should create a view on its own."
+    // A bubble owns no workspace (`chat.workspaceId` null), so it opens into its nearest ANCESTOR
+    // workspace (`deriveRows`' `ancestorWorkspaceId`) — the repo home at the root — not a fold.
     it('opens a BUBBLE into its nearest ancestor workspace (the repo home, at the root)', () => {
       const navigate = vi.fn()
       handleOpen('c1', [withChat({ id: 'c1' })], navigate)
@@ -226,20 +201,14 @@ describe('handleOpen', () => {
     // ws that is not under :r would be a URL nothing resolves.
     it('folds rather than routing to a workspace that is not in this repo', () => {
       const navigate = vi.fn()
-      const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+      const toggle = vi.spyOn(treeUiStore.getState(), 'toggleChatRow')
       handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-in-another-repo' })], navigate)
       expect(toggle).toHaveBeenCalledWith('c1')
       expect(navigate).not.toHaveBeenCalled()
     })
 
-    /**
-     * Spec §8.4: "clicking a chat in the tree makes its own view." The click
-     * used to be routed straight through the DROP (`openChatIntoPane` with a
-     * synthetic `zone: 'center'` on the active pane), which meant an occupied
-     * active pane took the drop's MERGE branch: a split carved out of it, plus
-     * `groupIntoArrangement` filing both chats into one Recents entry. Clicking
-     * a second row therefore appended a chat to the view you were already in.
-     */
+    /** §8.4: a click makes the chat its OWN view; never the drop's merge, which would split the
+     *  active pane and group both chats into one Recents entry. */
     describe('opening it into a pane (the workspace is already on screen)', () => {
       beforeEach(() => {
         resetWindowPaneStoreForTests()
@@ -316,15 +285,9 @@ describe('handleOpen', () => {
 
     it('opens an existing home chat in place when home is already active', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
-            ],
-            folders: [],
-          },
-        },
+      seedHomeTree('p1', {
+        chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+        folders: [],
       })
       setActiveWorkspaceId('home-ws-1')
       const navigate = vi.fn()
@@ -342,15 +305,9 @@ describe('handleOpen', () => {
       // whatever the last test happened to leave.
       setActiveWorkspaceId('unrelated-ws')
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [
-              { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
-            ],
-            folders: [],
-          },
-        },
+      seedHomeTree('p1', {
+        chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+        folders: [],
       })
       // Stands in for the route change actually mounting the home workspace
       // view (workspace-view.tsx's own effect, which is what really flips
@@ -372,10 +329,11 @@ describe('handleOpen', () => {
 
     it('toggles fold for a home folder instead of opening it', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
-      useHomeTreeStore.setState({
-        trees: { p1: { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] } },
+      seedHomeTree('p1', {
+        chats: [],
+        folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }],
       })
-      const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+      const toggle = vi.spyOn(treeUiStore.getState(), 'toggleChatRow')
       const navigate = vi.fn()
 
       handleOpen('f1', [], navigate)
@@ -388,17 +346,13 @@ describe('handleOpen', () => {
       getHomeWorkspaceId.mockImplementation((projectId: string) =>
         projectId === 'p2' ? 'home-ws-2' : 'home-ws-1',
       )
-      useHomeTreeStore.setState({
-        trees: {
-          p1: {
-            chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: '', order: 0 }],
-            folders: [],
-          },
-          p2: {
-            chats: [{ id: 'c2', repoId: '', workspaceId: 'home-ws-2', title: '', order: 0 }],
-            folders: [],
-          },
-        },
+      seedHomeTree('p1', {
+        chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: '', order: 0 }],
+        folders: [],
+      })
+      seedHomeTree('p2', {
+        chats: [{ id: 'c2', repoId: '', workspaceId: 'home-ws-2', title: '', order: 0 }],
+        folders: [],
       })
       setActiveWorkspaceId('home-ws-2')
       const navigate = vi.fn()

@@ -1,13 +1,21 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { Button } from '@/components/ui/button'
+import { report } from '@/lib/errors/report'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useEditorHost } from '@/features/editor/host/use-editor-host'
 import {
   loadEditorSurface,
   loadMarkdownEditorPane,
 } from '@/features/panes/lib/editor-surface-loader'
-import { isEditorContent } from '@/features/panes/types/pane-content'
+import {
+  isEditorContent,
+  type DocumentUnavailable,
+  type EditorContent,
+} from '@/features/panes/types/pane-content'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { retryLoad } from '@/features/editor/documents/open-document'
+import { useDocumentOpen } from '@/features/editor/documents/use-document-open'
 import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 
@@ -31,8 +39,6 @@ interface EditorPaneProps {
   paneId: string
   bufferId: string
   isActiveSurface: boolean
-  isPreview: boolean
-  onPromote: () => void
   showToolbar?: boolean
   className?: string
 }
@@ -41,8 +47,6 @@ export function EditorPane({
   paneId,
   bufferId,
   isActiveSurface,
-  isPreview,
-  onPromote,
   showToolbar,
   className,
 }: EditorPaneProps) {
@@ -55,92 +59,18 @@ export function EditorPane({
     buffer ? (s.views[buffer.id] ?? 'rich') : 'rich',
   )
 
-  // Lazy-Monaco seam (Task 4b): the workspace store constructs its Monaco-backed
-  // EditorManager/ModelRegistry only on the first real editor need, so opening a
-  // file is what pulls in `monaco-editor` — not cold launch. Arm it before we
-  // mount EditorSurface (which reads the manager synchronously). The dynamic
-  // import resolves within this already-lazy pane chunk (monaco is loaded
-  // alongside it), so `armed` flips on the same/next tick — no user-visible gap.
-  // `armEditor` is idempotent, so a second pane opening an already-armed store
-  // starts armed and renders immediately.
-  //
-  // Resolved by the BUFFER's own workspace (buffer.workspaceId) whenever that
-  // workspace already has a registered store — NOT the ambient
-  // WorkspaceStoreContext: WorkspaceHost keeps every retained WorkspaceView
-  // mounted at once for keep-alive, each rendering the same window-level pane
-  // tree under a DIFFERENT ambient context. Arming (and later mounting
-  // EditorSurface's Monaco widget against) the ambient workspace's
-  // EditorManager instead of the buffer's own would let a wrong-ambient
-  // hidden copy create a second, leaked Monaco model/widget under a manager
-  // the buffer's own `closeBuffer` cleanup — scoped to buf.workspaceId, see
-  // buffer-slice.ts's `editorManagerFor` — never visits.
-  //
-  // Falls back to the ambient workspace only when the buffer's own workspace
-  // has NO store yet — e.g. a buffer opened by a chat the user hasn't
-  // navigated into this session, so nothing ever called
-  // `getOrCreateWorkspaceStore` for it. Minting one here instead (rather than
-  // falling back) would register a store WorkspaceHost never agreed to retain
-  // and will never destroy (see getWorkspaceStore's own doc) — a worse,
-  // permanent leak than the wrong-ambient-copy one this fix targets. Live-
-  // verified: without this fallback, such a buffer's tab renders permanently
-  // blank instead of merely wrong-scoped. The fallback never fires for the
-  // keep-alive-retention case above, since a retained workspace's store
-  // already exists.
-  const ambientWorkspaceId = useWorkspaceStoreContext((s) => s.workspaceId)
-  const workspaceId =
-    buffer && getWorkspaceStore(buffer.workspaceId) ? buffer.workspaceId : ambientWorkspaceId
-  const workspaceStore = getWorkspaceStore(workspaceId)
-  // `armed` is derived FRESH every render from the CURRENT workspaceStore,
-  // never cached in state — `editorManager` is a plain getter on the store,
-  // not part of its reactive Zustand state, so nothing re-renders this
-  // component when it flips from undefined to set. A `useState` lazy
-  // initializer computed this ONCE and never rechecked it: when `workspaceId`
-  // flips from the ambient fallback to the buffer's real workspace (see the
-  // ambient-fallback doc below) while `armed` was already `true` for the OLD
-  // store, the stale `true` carried over to a real store whose OWN
-  // `editorManager` might not exist yet, and `EditorSurface` crashed on
-  // `workspaceStore.editorManager!` a few lines past its own "always present
-  // here" doc. Rare under the old lazy-mount-on-activation architecture (the
-  // flip usually settled before a user's own tab switch reached it); apparent
-  // on nearly every cold boot once EditorHostRegistry started mounting every
-  // pane's editor eagerly, before any user interaction gave the race time to
-  // resolve. `armTick` exists only to force a re-render once `armEditor()`
-  // resolves — flipping a closure variable a getter reads does not.
-  const armed = workspaceStore?.editorManager !== undefined
-  const [, setArmTick] = useState(0)
-  useEffect(() => {
-    if (armed || !workspaceStore) return
-    let cancelled = false
-    void workspaceStore
-      .armEditor()
-      .then(() => {
-        if (!cancelled) setArmTick((t) => t + 1)
-      })
-      // A failed adapter load leaves the pane blank (unarmed) rather than throwing
-      // an unhandled rejection; a remount retries via the store's cleared promise.
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [armed, workspaceStore])
+  const host = useEditorHost()
+  const uri =
+    buffer && isEditorContent(buffer) && buffer.path ? documentUri(documentRefOf(buffer)) : null
+  const documentOpen = useDocumentOpen(uri)
 
-  // BUG-001: the file backing a restored buffer no longer exists on disk.
-  // Render a terminal placeholder instead of an editor — there is no content
-  // to edit and re-fetching the dead path would only repeat the 404.
-  if (buffer && isEditorContent(buffer) && buffer.fileMissing) {
-    return (
-      <div className="flex h-full flex-1 flex-col items-center justify-center gap-1 p-8 text-center">
-        <span className="text-sm font-medium text-foreground">File not found</span>
-        <span className="text-xs text-muted-foreground">
-          {buffer.path} no longer exists on disk. Close this tab, or restore the file to reload it.
-        </span>
-      </div>
-    )
+  // The document could not be loaded: an empty editor would read as an empty file.
+  if (buffer && isEditorContent(buffer) && buffer.unavailable) {
+    return <UnavailableDocument buffer={buffer} reason={buffer.unavailable} />
   }
 
-  // Markdown buffers in rich view route to Plate instead of Monaco. This must
-  // come BEFORE the `!armed` gate below: rich mode never touches Monaco, so it
-  // must not wait on Monaco's arming to render.
+  // Markdown buffers in rich view route to Plate instead of Monaco's editor.
+  // Plate parses its document once, so it waits for the document's text.
   if (
     buffer &&
     isEditorContent(buffer) &&
@@ -148,11 +78,10 @@ export function EditorPane({
     isMarkdownPath(buffer.path) &&
     markdownView === 'rich'
   ) {
+    if (!documentOpen) return null
     return (
-      // M8: the lazy chunk can fail to load (offline, a stale asset hash after
-      // a deploy) and a rejected `lazy()` throws during render — Suspense only
-      // handles the pending state, not the rejection. Without a boundary here
-      // that escapes the pane and takes the whole workspace down.
+      // A lazy chunk can fail to load (offline, stale asset hash) and throw during render;
+      // Suspense handles only pending, so without this boundary it takes the workspace down.
       <ErrorBoundary
         fallback={
           <div className="flex h-full flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
@@ -161,30 +90,17 @@ export function EditorPane({
         }
       >
         <Suspense fallback={null}>
-          {/* C1: the pane tree renders the active buffer WITHOUT a key, so a
-              `.md` -> `.md` tab switch arrives here as a prop update. The rich
-              editor parses its document once per mount, so it must be keyed by
-              buffer — otherwise file A's document stays live while `bufferId`
-              (and the flush target) moves to B, and the next edit writes A's
-              whole text into B. */}
-          <MarkdownEditorPane
-            key={bufferId}
-            paneId={paneId}
-            bufferId={bufferId}
-            isPreview={isPreview}
-            onPromote={onPromote}
-          />
+          {/* Keyed by buffer: the rich editor parses once per mount, so a `.md` -> `.md` switch
+              would otherwise write A's text into B. */}
+          <MarkdownEditorPane key={bufferId} paneId={paneId} bufferId={bufferId} />
         </Suspense>
       </ErrorBoundary>
     )
   }
 
-  // Hold the surface back until the Monaco handles are armed (also covers the
-  // buffer not having resolved yet — `workspaceStore` above is undefined
-  // without one, so `armed` can never flip true). Rendering nothing (rather
-  // than a spinner) avoids a flash: arming completes within the same lazy
-  // chunk load that brought us here.
-  if (!armed || !buffer) return null
+  // Nothing (not a spinner) until Monaco has loaded: it loads alongside the
+  // surface's own lazy chunk, so a spinner would only flash.
+  if (!host || !buffer) return null
 
   return (
     <ErrorBoundary
@@ -201,14 +117,38 @@ export function EditorPane({
           key={paneId}
           paneId={paneId}
           bufferId={bufferId}
-          workspaceId={workspaceId}
+          host={host}
           isActiveSurface={isActiveSurface}
-          isPreview={isPreview}
-          onPromote={onPromote}
           showToolbar={showToolbar}
           className={className}
         />
       </Suspense>
     </ErrorBoundary>
+  )
+}
+
+/** Why a tab's document could not be loaded, with a retry that runs one at a time. */
+function UnavailableDocument({
+  buffer,
+  reason,
+}: {
+  buffer: EditorContent
+  reason: DocumentUnavailable
+}) {
+  const [retrying, setRetrying] = useState(false)
+  const retry = () => {
+    setRetrying(true)
+    void retryLoad(buffer)
+      .catch((err: unknown) => report(err, { action: 'Load the document' }))
+      .finally(() => setRetrying(false))
+  }
+  return (
+    <div className="flex h-full flex-1 flex-col items-center justify-center gap-1 p-8 text-center">
+      <span className="text-sm font-medium text-foreground">{reason.title}</span>
+      <span className="text-xs text-muted-foreground">{reason.message}</span>
+      <Button variant="outline" size="xs" className="mt-2" loading={retrying} onClick={retry}>
+        Try again
+      </Button>
+    </div>
   )
 }

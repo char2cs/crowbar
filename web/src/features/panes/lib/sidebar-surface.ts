@@ -1,4 +1,4 @@
-import type { SidebarTab } from '@/lib/store/sidebar-ui'
+import type { SidebarTab } from '@/features/workspace/tree/tree-ui-store'
 import type { PaneContent } from '../types/pane-content'
 
 // Each tab type's `data-sidebar-surface` value (use-sidebar-focus-mode.ts).
@@ -6,7 +6,6 @@ const SURFACE_BY_TYPE: Record<PaneContent['type'], SidebarTab> = {
   editor: 'files',
   markdownPreview: 'files',
   htmlPreview: 'files',
-  csvPreview: 'files',
   commitDiff: 'git',
   branchReview: 'git',
   terminal: 'chats',

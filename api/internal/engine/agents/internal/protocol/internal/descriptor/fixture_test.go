@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -20,21 +21,9 @@ var placeholderRe = regexp.MustCompile(`\{[a-z][a-z0-9_]*\}`)
 const fixtureRoot = "../../testdata/fixtures"
 
 // Every inbound field a v3 descriptor maps must resolve against RECORDED provider
-// traffic. This is the only mechanism that catches a provider changing payload shape,
-// and it is what closes the design spec's open question about unverified leaf paths.
-//
-// It has already earned its place: four paths written from the published JSON schema
-// were wrong against real traffic — turn.lastAgentMessage and item.output do not
-// exist, the delta carries no sequence, and tokenUsage nests under total/.
-//
-// A CHANNEL-SCOPED event (api:/hooks: blocks) has no field map or wire name at its
-// OWN top level by construction — ev.WireEvent()/ev.Map are empty for it, always.
-// Checking only those, the way this test did before the descriptor channel-split
-// (docs/plans/2026-09-22-descriptor-channel-split.md), silently verified NOTHING
-// for such an event: loadFixtures got zero wire names, logged "no fixture", and
-// moved on — a false green, not a skip. Every channel a HasChannelBlocks() event
-// declares is walked and checked on its own, through the SAME channel-aware
-// accessors production resolution uses (WireEventFor/WhenFor/EventFieldsFor).
+// traffic: the only check that catches a payload shape differing from the schema.
+// A channel-scoped event has no top-level map or wire name, so each channel is walked
+// through the same accessors production uses, or nothing would be verified at all.
 func TestV3Descriptors_ResolveAgainstRecordedTraffic(t *testing.T) {
 	// Walks experimental/ too: a descriptor that is not shipped yet is exactly the one
 	// whose paths are least proven, so it needs the replay most.
@@ -49,7 +38,7 @@ func TestV3Descriptors_ResolveAgainstRecordedTraffic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, err := descriptor.ParseV3(raw)
+		d, err := descriptor.ParseV0(raw)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
@@ -76,7 +65,7 @@ func TestV3Descriptors_ResolveAgainstRecordedTraffic(t *testing.T) {
 					channel = spec.ChannelHooks
 				}
 				checkedEvents += checkEventAgainstFixtures(
-					t, d.ID, channel, name, wire, ev.When, ev.Map, ev.Unverified, nil)
+					t, d.ID, channel, name, wire, ev.When, ev.Map, ev.Unverified, ev.UnverifiedFields, nil)
 			}
 		})
 	}
@@ -104,51 +93,28 @@ func checkChannelBlockEvent(t *testing.T, d *spec.Descriptor, name string, ev sp
 		}
 		checked += checkEventAgainstFixtures(
 			t, d.ID, ch, name+"/"+string(ch), wire, ev.WhenFor(ch), fields,
-			block.Unverified, block.ByWire)
+			block.Unverified, block.UnverifiedFields, block.ByWire)
 	}
 	return checked
 }
 
-// TestCheckEventAgainstFixtures_UnverifiedOptOutLogsRatherThanFails pins one
-// side of the enforcement mechanism design spec 2.4 asks for, in isolation
-// from the two real descriptors: declaring unverified: true on a block with
-// zero recorded fixtures must not fail the suite, only report the gap. Its
-// opposite — an UNMARKED gap failing the suite — is not expressible as a
-// t.Run subtest here (a failing subtest always marks its parent failed too,
-// by Go's own testing semantics, so a test cannot assert "this subtest fails"
-// without itself going red); that side is instead proven directly by this
-// package's own history — every one of the fixtureless blocks below FAILED
-// TestV3Descriptors_ResolveAgainstRecordedTraffic until its own
-// unverified: true was added (see codex.yaml/claude.yaml's own comments).
+// unverified: true on a block with zero recorded fixtures must not fail the suite, only
+// report the gap. The opposite (an unmarked gap fails) cannot be asserted from a subtest.
 func TestCheckEventAgainstFixtures_UnverifiedOptOutLogsRatherThanFails(t *testing.T) {
 	passed := t.Run("probe", func(t *testing.T) {
 		checkEventAgainstFixtures(t, "probe", spec.ChannelHooks, "never_recorded",
-			spec.WireRef{"NoSuchWireEventAnywhere"}, nil, spec.FieldMap{"x": {"y"}}, true, nil)
+			spec.WireRef{"NoSuchWireEventAnywhere"}, nil, spec.FieldMap{"x": mapping.Paths("y")}, true, nil, nil)
 	})
 	if !passed {
 		t.Fatal("unverified: true must not fail the suite")
 	}
 }
 
-// checkEventAgainstFixtures loads every recorded fixture for wire, unwraps it the
-// way channel's own wire format expects (an api-transport frame wraps its payload
-// in a JSON-RPC {"params": ...} envelope; a hooks-transport payload IS the
-// envelope), and — if at least one document matches when — asserts every field in
-// fields resolves against at least one of them. Returns 1 if a fixture was actually
-// exercised, 0 otherwise, so the caller can require at least one real check happened.
-//
-// unverified is the block's own explicit opt-out (ChannelBlock.Unverified /
-// EventSpec.Unverified): a declared block/event with ZERO recorded payloads is a
-// hard FAILURE unless it says so itself — design spec 2.4. An ask: event that
-// only fires when the CLI actually asks, or a channel genuinely never captured
-// yet, marks unverified: true instead of inventing a payload or being silently
-// skipped.
-//
-// byWire is the block's own ChannelBlock.ByWire (nil for a legacy event, or
-// a channel block declaring none) — loadFixtures applies the SAME overlay
-// apidriver.translateLoop applies at runtime, keyed off each fixture's own
-// recorded method, so a field design spec F1 derives from the matched wire
-// name is proven end to end, off the real descriptor data, not skipped.
+// checkEventAgainstFixtures asserts every field of fields resolves against at least one
+// recorded fixture of wire that matches when; it returns 1 if a fixture was exercised.
+// A declared block with ZERO recorded payloads fails unless it says unverified: true
+// (design spec 2.4); byWire is applied to each fixture as the runtime applies it. A field in
+// unproven is logged while it resolves nowhere, and fails the day it does.
 func checkEventAgainstFixtures(
 	t *testing.T,
 	provider string,
@@ -158,6 +124,7 @@ func checkEventAgainstFixtures(
 	when spec.WhenMap,
 	fields spec.FieldMap,
 	unverified bool,
+	unproven []string,
 	byWire map[string]map[string]string,
 ) int {
 	t.Helper()
@@ -194,26 +161,19 @@ func checkEventAgainstFixtures(
 			provider, label, len(docs), wire, when)
 		return 0
 	}
-	assertFieldsResolve(t, provider, label, fields, matched)
+	assertFieldsResolve(t, provider, label, fields, matched, unproven)
 	return 1
 }
 
-// assertFieldsResolve requires every mapped field to resolve against AT LEAST ONE
-// of the payloads its event matches — not against all of them.
-//
-// The distinction matters for a sum type. codex's tool events serve five ThreadItem
-// variants and the variants genuinely differ: a webSearch has no output field and no
-// durationMs, an mcpToolCall reports failure in `error` rather than `result`. That is
-// what the alternation in the mapping is FOR, and demanding every branch resolve in
-// every variant would only push descriptor authors to stop mapping real fields.
-//
-// It still catches the bug this harness exists for: `tool_result: item.content`
-// resolved against none of the five, because no codex item has ever had a `content`
-// field.
-func assertFieldsResolve(t *testing.T, provider, name string, fields spec.FieldMap, docs []fixtureDoc) {
+// assertFieldsResolve requires every mapped field to resolve against AT LEAST ONE of the
+// payloads its event matches, not all: the variants of a sum type genuinely differ, and
+// demanding every branch in every variant would push authors to stop mapping real fields.
+func assertFieldsResolve(
+	t *testing.T, provider, name string, fields spec.FieldMap, docs []fixtureDoc, unproven []string,
+) {
 	t.Helper()
 	for field, paths := range fields {
-		if len(paths) == 0 {
+		if len(paths) == 0 || isSubObjectField(field) {
 			continue
 		}
 		var tried []string
@@ -225,14 +185,32 @@ func assertFieldsResolve(t *testing.T, provider, name string, fields spec.FieldM
 				break
 			}
 		}
-		if !resolved {
-			t.Errorf("%s/%s: %q -> %q resolved to nothing against any recorded "+
-				"payload (tried %s)", provider, name, field, paths, strings.Join(tried, ", "))
+		switch isUnproven := slices.Contains(unproven, field); {
+		case resolved && isUnproven:
+			t.Errorf("%s/%s: %q resolves now; drop it from unverified_fields", provider, name, field)
+		case !resolved && isUnproven:
+			t.Logf("%s/%s: %q resolves against no recording — declared in unverified_fields", provider, name, field)
+		case !resolved:
+			t.Errorf("%s/%s: %q resolved to nothing against any recorded "+
+				"payload (tried %s)", provider, name, field, strings.Join(tried, ", "))
+		}
+	}
+	for _, field := range unproven {
+		if _, mapped := fields[field]; !mapped {
+			t.Errorf("%s/%s: unverified_fields names %q, which this block does not map", provider, name, field)
 		}
 	}
 }
 
-func resolves(doc map[string]any, paths []string) bool {
+// isSubObjectField is true for the families that resolve against a sub-object (a
+// suggestion, a question, an option) or are literal labels, which no whole payload can
+// satisfy; choice_test.go proves them against those sub-objects.
+func isSubObjectField(field string) bool {
+	return strings.HasPrefix(field, "suggestion_") || strings.HasPrefix(field, "question_") ||
+		strings.HasPrefix(field, "option_")
+}
+
+func resolves(doc map[string]any, paths mapping.Expr) bool {
 	if _, ok := mapping.Scalar(doc, paths); ok {
 		return true
 	}
@@ -350,9 +328,11 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 	// The placeholders a reply template may carry, and a stand-in that keeps the
 	// document valid once substituted.
 	fillers := map[string]string{
-		"{reason_json}":     `"denied by a human"`,
-		"{content_json}":    `{"field":"value"}`,
-		"{tool_input_json}": `{"command":"ls"}`,
+		"{reason_json}":      `"denied by a human"`,
+		"{content_json}":     `{"field":"value"}`,
+		"{tool_input_json}":  `{"command":"ls"}`,
+		"{suggestions_json}": `[{"type":"setMode","mode":"acceptEdits"}]`,
+		"{suggestion_json}":  `{"type":"setMode","mode":"acceptEdits"}`,
 	}
 
 	var checked int
@@ -361,7 +341,7 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, err := descriptor.ParseV3(raw)
+		d, err := descriptor.ParseV0(raw)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
@@ -421,7 +401,7 @@ func TestV3Descriptors_ReplyTemplatesAreValidJSON(t *testing.T) {
 // through outbound.Resolve/AnswerFor's own ok=false.
 //
 // This is a TEST-level check against the real shipped descriptors, not a
-// rules.Apply/ParseV3-time gate: unlike required:/fixtures: (below), a small
+// rules.Apply/ParseV0-time gate: unlike required:/fixtures: (below), a small
 // hand-built probe descriptor used to test one unrelated rule has no reason
 // to declare the other ~20 canonical events it will never use, and gating
 // every such descriptor on total vocabulary coverage would make ordinary rule
@@ -441,7 +421,7 @@ func TestV3Descriptors_EveryInboundEventIsMappedOrNotEmitted(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, err := descriptor.ParseV3(raw)
+		d, err := descriptor.ParseV0(raw)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}

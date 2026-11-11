@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceFileTree } from '@/features/workspace/stores/hooks/use-workspace-file-tree'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -8,6 +8,10 @@ import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
 import type { AppFile } from '@/features/file-system/types/app'
+import { toastManager } from '@/lib/toast-manager'
+import { heldScopes, reconnectStream, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
+import { holding } from '@/core/stream/stream'
+import { ApiError } from '@/lib/errors/api-error'
 import {
   loadProjects,
   pairRemoteHost,
@@ -15,9 +19,8 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 
-const { fetchFileTree, subscribe, reconcileBuffers } = vi.hoisted(() => ({
+const { fetchFileTree, reconcileBuffers } = vi.hoisted(() => ({
   fetchFileTree: vi.fn(),
-  subscribe: vi.fn(() => () => {}),
   reconcileBuffers: vi.fn(async (_wsId: string) => {}),
 }))
 
@@ -25,9 +28,9 @@ vi.mock('@/features/files/lib/file-tree-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/files/lib/file-tree-api')>()
   return { ...actual, fetchFileTree }
 })
-vi.mock('@/lib/ws/manager', () => ({ wsManager: { subscribe, send: vi.fn() } }))
-vi.mock('@/lib/persistence/hydrate', () => ({
-  reconcileWorkspaceBuffersWithDisk: reconcileBuffers,
+vi.mock('@/features/workspace/lib/external-buffer-sync', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/workspace/lib/external-buffer-sync')>()),
+  reconcileWorkspaceDocuments: reconcileBuffers,
 }))
 
 const rootTree: AppFile[] = [
@@ -47,10 +50,9 @@ function setup(wsId = 'ws-test', ready = true) {
   return { store, ...hook }
 }
 
-const filesHandler = () => {
-  const calls = subscribe.mock.calls as unknown as [string, (evt: unknown) => void][]
-  return calls.find(([ep]) => ep.endsWith('/files/ws'))![1]
-}
+const held = () => heldScopes('files:')
+const fileChange = (data: unknown) =>
+  streamDaemon.deliver({ t: 'signal', scope: 'files:ws-test', kind: 'file_change', data })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -62,7 +64,6 @@ beforeEach(() => {
 describe('useWorkspaceFileTree', () => {
   it('loads the root tree into the workspace’s own store when first shown', async () => {
     const { store } = setup()
-    expect(store.getState().fileTreeStatus).toBe('loading')
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
     expect(fetchFileTree).toHaveBeenCalledWith('ws-test')
     expect(store.getState().files).toEqual(rootTree)
@@ -82,7 +83,7 @@ describe('useWorkspaceFileTree', () => {
   })
 
   it('retries on the next activation after a failed load', async () => {
-    fetchFileTree.mockRejectedValueOnce(new Error('boom'))
+    fetchFileTree.mockRejectedValueOnce(new ApiError('boom', 500))
     const { store, rerender } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('failed'))
 
@@ -92,14 +93,89 @@ describe('useWorkspaceFileTree', () => {
     expect(fetchFileTree).toHaveBeenCalledTimes(2)
   })
 
-  // The files stream carries no snapshot on subscribe: a structural change is
-  // applied in place and a plain content edit never re-lists a directory.
+  it('a failed tree load reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    fetchFileTree.mockRejectedValueOnce(new ApiError('daemon unreachable', 500))
+    const { store } = setup()
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('failed'))
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Load the file tree', description: 'daemon unreachable' }),
+    )
+  })
+
+  it('a failed check of open files against disk reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    reconcileBuffers.mockRejectedValueOnce(new ApiError('read failed', 500))
+    setup()
+    await waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Check open files against disk',
+          description: 'read failed',
+        }),
+      ),
+    )
+  })
+
+  it('re-lists after the first read when the snapshot lands during it', async () => {
+    let attach: () => void = () => {}
+    streamDaemon.answer = ({ op, scope }) => {
+      if (op === 'sub') attach = () => streamDaemon.deliver({ t: 'synced', scope })
+      return []
+    }
+    let read: (files: AppFile[]) => void = () => {}
+    fetchFileTree.mockReturnValueOnce(new Promise<AppFile[]>((resolve) => (read = resolve)))
+    const { store, unmount } = setup()
+    await waitFor(() => expect(held()).toEqual(['files:ws-test']))
+    expect(fetchFileTree).toHaveBeenCalledTimes(1)
+
+    attach() // a change before the attach may be missing from the read
+    fetchFileTree.mockResolvedValueOnce([rootTree[1]])
+    read(rootTree)
+    await waitFor(() => expect(store.getState().files).toEqual([rootTree[1]]))
+    unmount()
+    expect(held()).toEqual([])
+  })
+
+  it('loads the tree while the stream is down', async () => {
+    streamDaemon.drop()
+    onTestFinished(() => reconnectStream())
+    const { store } = setup()
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
+    expect(store.getState().files).toEqual(rootTree)
+  })
+
+  it('a refused files: scope fails the tree and says why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    fetchFileTree.mockReturnValueOnce(new Promise<AppFile[]>(() => {}))
+    streamDaemon.answer = ({ op, scope }) =>
+      op === 'sub'
+        ? [
+            {
+              t: 'closed',
+              scope,
+              reason: 'refused',
+              problem: { code: 'not_found', message: 'no workspace' },
+            },
+          ]
+        : []
+    const { store } = setup()
+    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('failed'))
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Follow the file tree', description: 'no workspace' }),
+    )
+  })
+
+  // A structural change is applied in place and a plain content edit never
+  // re-lists a directory.
   it('re-lists the parent directory on a structural change only', async () => {
     const { store } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalled())
     fetchFileTree.mockClear()
-    const onEvent = filesHandler()
+    const onEvent = fileChange
 
     onEvent({ type: 'modified', path: 'src/a.ts' })
     expect(fetchFileTree).not.toHaveBeenCalled()
@@ -112,16 +188,16 @@ describe('useWorkspaceFileTree', () => {
     await waitFor(() => expect(store.getState().files).toHaveLength(3))
   })
 
-  // The stream has no snapshot on subscribe, so after a reconnect the tree and
-  // any open buffers may have missed writes: both are re-read from disk.
+  // After a reconnect the tree and any open buffers may have missed writes: the
+  // resubscribe's synced re-reads both from disk.
   it('re-lists the root and reconciles open buffers when the stream reconnects', async () => {
     const { store } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalled())
     fetchFileTree.mockClear()
+    reconcileBuffers.mockClear()
     fetchFileTree.mockResolvedValueOnce([rootTree[1]])
 
-    filesHandler()({ reconnected: true })
+    reconnectStream()
 
     await waitFor(() => expect(store.getState().files).toHaveLength(1))
     expect(reconcileBuffers).toHaveBeenCalledWith('ws-test')
@@ -130,7 +206,10 @@ describe('useWorkspaceFileTree', () => {
   it('fetches an expanded folder’s children once, and again if a re-list drops them', async () => {
     const srcChildren: AppFile[] = [{ name: 'index.ts', path: 'src/index.ts', isDir: false }]
     useFileTreeStore.setState({ expandedPathsByWorkspace: { 'ws-test': new Set(['src']) } })
-    fetchFileTree.mockResolvedValueOnce(rootTree).mockResolvedValueOnce(srcChildren)
+    // The snapshot may land during the first read, which then re-lists the root.
+    fetchFileTree.mockImplementation(async (_ws: string, path?: string) =>
+      path === 'src' ? srcChildren : rootTree,
+    )
 
     const { store } = setup()
     await waitFor(() => expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src'))
@@ -138,11 +217,31 @@ describe('useWorkspaceFileTree', () => {
       expect(store.getState().files.find((f) => f.path === 'src')?.children).toEqual(srcChildren),
     )
 
-    fetchFileTree.mockResolvedValueOnce(srcChildren)
+    fetchFileTree.mockClear()
     store.getState().fileTreeActions.setFiles(rootTree)
     await waitFor(() =>
       expect(store.getState().files.find((f) => f.path === 'src')?.children).toEqual(srcChildren),
     )
+    expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src')
+  })
+
+  it('an expanded folder that no longer exists leaves the expansion quietly', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    useFileTreeStore.setState({
+      expandedPathsByWorkspace: { 'ws-test': new Set(['src', 'src/gone']) },
+    })
+    fetchFileTree.mockImplementation(async (_ws: string, path?: string) => {
+      if (path === 'src') throw new ApiError('no such directory', 404)
+      return rootTree
+    })
+
+    setup()
+    await waitFor(() =>
+      expect(useFileTreeStore.getState().isExpanded('ws-test', 'src')).toBe(false),
+    )
+    expect(useFileTreeStore.getState().isExpanded('ws-test', 'src/gone')).toBe(false)
+    expect(toastAdd).not.toHaveBeenCalled()
   })
 
   it('waits for the chat scope before fetching an expanded folder’s children', async () => {
@@ -159,11 +258,6 @@ describe('useWorkspaceFileTree', () => {
 })
 
 describe('on an install that has paired a remote host', () => {
-  const REMOTE_FILES = 'crowbar://host-1/v0/chats/chat-remote/files/ws'
-  const LOCAL_FILES = '/v0/chats/chat-local/files/ws'
-  const filesEndpoints = () =>
-    (subscribe.mock.calls as unknown as [string][]).map(([endpoint]) => endpoint)
-
   beforeEach(() => {
     resetHostWorld()
     pairRemoteHost('host-1')
@@ -188,6 +282,7 @@ describe('on an install that has paired a remote host', () => {
     const remote = setup('ws-remote')
     const local = setup('ws-local')
     expect(fetchFileTree).not.toHaveBeenCalled()
+    expect(held()).toEqual([])
     expect(remote.store.getState().fileTreeStatus).toBe('idle')
     expect(local.store.getState().fileTreeStatus).toBe('idle')
 
@@ -195,7 +290,8 @@ describe('on an install that has paired a remote host', () => {
 
     await waitFor(() => expect(remote.store.getState().fileTreeStatus).toBe('ready'))
     await waitFor(() => expect(local.store.getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(filesEndpoints().sort()).toEqual([LOCAL_FILES, REMOTE_FILES].sort()))
+    await waitFor(() => expect(held()).toEqual(['files:ws-local']))
+    expect(heldScopes('files:', 'host-1')).toEqual(['files:ws-remote'])
   })
 
   it('does not fetch an expanded folder before the host is known', () => {
@@ -210,10 +306,8 @@ describe('on an install that has paired a remote host', () => {
     expect(fetchFileTree).not.toHaveBeenCalled()
   })
 
-  it('switching local to remote closes the old channel and no event from it reaches the new tree', async () => {
+  it('switching local to remote releases the old scope and no signal on it reaches the new tree', async () => {
     loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
-    const unsubLocal = vi.fn()
-    subscribe.mockReturnValueOnce(unsubLocal)
     const stores = {
       'ws-local': createWorkspaceStore('ws-local'),
       'ws-remote': createWorkspaceStore('ws-remote'),
@@ -227,42 +321,39 @@ describe('on an install that has paired a remote host', () => {
       ),
     })
     await waitFor(() => expect(stores['ws-local'].getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
-    const calls = () => subscribe.mock.calls as unknown as [string, (evt: unknown) => void][]
-    const fromLocalChannel = calls()[0][1]
+    await waitFor(() => expect(held()).toEqual(['files:ws-local']))
 
     current = 'ws-remote'
     rerender()
     await waitFor(() => expect(stores['ws-remote'].getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(heldScopes('files:', 'host-1')).toEqual(['files:ws-remote']))
+    expect(held()).toEqual([])
 
-    expect(unsubLocal).toHaveBeenCalledTimes(1)
-    expect(filesEndpoints()).toEqual([LOCAL_FILES, REMOTE_FILES])
     fetchFileTree.mockClear()
-    reconcileBuffers.mockClear()
-    fromLocalChannel({ reconnected: true })
-    expect(reconcileBuffers).not.toHaveBeenCalledWith('ws-remote')
+    streamDaemon.deliver({
+      t: 'signal',
+      scope: 'files:ws-local',
+      kind: 'file_change',
+      data: { type: 'created', path: 'new.ts' },
+    })
+    expect(fetchFileTree).not.toHaveBeenCalled()
   })
 
-  it('revoking the host closes its channel and never reopens it against the local daemon', async () => {
+  it('revoking the host releases its scope and lists nothing more', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
-    const unsubscribe = vi.fn()
-    subscribe.mockReturnValueOnce(unsubscribe)
     const { store } = setup('ws-remote')
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
-    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(heldScopes('files:', 'host-1')).toEqual(['files:ws-remote']))
     fetchFileTree.mockClear()
 
     act(() => useHostConfigStore.getState().removeHost('host-1'))
 
-    expect(unsubscribe).toHaveBeenCalledTimes(1)
-    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(holding('host-1', 'files:ws-remote')).toBe(false)
     expect(fetchFileTree).not.toHaveBeenCalled()
   })
 
-  // The files stream sends no snapshot, so a tree held across a gap in which the host
-  // stopped resolving may have missed changes: it is read again when the host is back.
-  it('reloads the tree when its host returns, picking up what changed in the gap', async () => {
+  // The scope's synced on re-hold re-reads a tree that may have missed changes in the gap.
+  it('re-lists the tree when its host returns, picking up what changed in the gap', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     const { store } = setup('ws-remote')
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
@@ -273,20 +364,13 @@ describe('on an install that has paired a remote host', () => {
       { name: 'new.ts', path: 'new.ts', isDir: false },
     ])
 
-    act(() => pairRemoteHost('host-1'))
-
-    await waitFor(() => expect(store.getState().files).toHaveLength(3))
-    expect(fetchFileTree).toHaveBeenCalledExactlyOnceWith('ws-remote')
-    await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
-  })
-
-  it('does not let a refused channel escape the effect', async () => {
-    loadProjects(projectOn('p-remote', 'host-1'))
-    subscribe.mockImplementationOnce(() => {
-      throw new Error('remote hosts need the desktop app')
+    // A re-paired host streams its projects again.
+    act(() => {
+      pairRemoteHost('host-1')
+      loadProjects(projectOn('p-remote', 'host-1'))
     })
 
-    expect(() => setup('ws-remote')).not.toThrow()
-    await waitFor(() => expect(fetchFileTree).toHaveBeenCalled())
+    await waitFor(() => expect(store.getState().files).toHaveLength(3))
+    expect(fetchFileTree.mock.calls.map(([wsId]) => wsId)).toEqual(['ws-remote'])
   })
 })

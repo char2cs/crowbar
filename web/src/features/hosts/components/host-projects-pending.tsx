@@ -4,8 +4,11 @@ import { HostStatusIcon } from '@/features/hosts/components/host-status-icon'
 import { useHostView } from '@/features/hosts/hooks/use-host-status'
 import { hostDotLabel } from '@/features/hosts/lib/host-tone'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { dataOf } from '@/lib/loadable'
-import { EMPTY_PROJECTS, useProjectDataStore, useProjectStore } from '@/lib/store/projects'
+import { useProjectStore } from '@/core/entities/active-project'
+import { selectProjects, useSelect } from '@/core/entities/select'
+import { entityStore } from '@/core/entities/entity-store'
+import { hostScope } from '@/core/stream/host-scope'
+import { useStore } from 'zustand'
 
 interface HostProjectsPendingProps {
   onProject: (projectId: string) => void
@@ -16,7 +19,7 @@ interface HostProjectsPendingProps {
  *  and the active (or first) project opened the moment one lands. */
 export function HostProjectsPending({ onProject, onAddHost }: HostProjectsPendingProps) {
   const hosts = useHostConfigStore((s) => s.hosts)
-  const projects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
+  const projects = useSelect(selectProjects)
 
   useEffect(() => {
     if (projects.length === 0) return
@@ -41,13 +44,17 @@ export function HostProjectsPending({ onProject, onAddHost }: HostProjectsPendin
   )
 }
 
+// A host whose projects scope has synced has said it holds none; until then it is pending.
 function HostLine({ hostId }: { hostId: string }) {
   const { name, state } = useHostView(hostId)
+  const listed = useStore(entityStore, (s) => !!s.loaded[hostScope(hostId, 'projects')])
   return (
     <li className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
       <HostStatusIcon hostId={hostId} state={state} />
       <span className="min-w-0 flex-1 truncate text-left">{name}</span>
-      <span className="text-[12px] text-muted-foreground">{hostDotLabel(state)}</span>
+      <span className="text-[12px] text-muted-foreground">
+        {listed ? 'No projects' : hostDotLabel(state)}
+      </span>
     </li>
   )
 }

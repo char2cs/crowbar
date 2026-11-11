@@ -5,18 +5,20 @@ import '../styles/monaco-editor.css'
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useStore } from 'zustand'
-import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
-import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import { hasTextContent } from '@/features/panes/types/pane-content'
+import { isEditorContent } from '@/features/panes/types/pane-content'
+import { documentRefOf } from '@/features/editor/documents/document-ref'
+import type { EditorHost } from '@/features/editor/host/editor-host'
+import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { registerLspProviders } from '../lsp/monaco-lsp-providers'
 import { EditorStylesheet } from './stylesheet'
 import Breadcrumb, { type BreadcrumbProps } from './toolbar/breadcrumb'
 import { usePaneEditorController } from '../hooks/use-pane-editor-controller'
 import { usePaneEditorSatellites } from '../hooks/use-pane-editor-satellites'
+import { useWorkspaceReadOnly } from '../hooks/use-workspace-read-only'
 import { defineMonacoTheme } from '../monaco/define-theme'
 import { toEditorPosition, toEditorRange } from '../monaco/editor-conversions'
 import { createRafCoalescer } from '../lib/raf-coalesce'
@@ -32,69 +34,31 @@ import type * as Monaco from 'monaco-editor'
 // the daemon's /lsp routes; registered once, with the editor chunk.
 registerLspProviders()
 
-/**
- * How often the cursor/selection store write is allowed to land WHILE a
- * selection drag is in flight.
- *
- * Monaco emits one selection change per pointer move and per auto-scroll tick —
- * ~120/s on this display — and each one used to schedule a store write that
- * React turned into a commit through the app's whole provider chain. The only
- * things that RENDER from it are the status bar's `line:col` chip and the
- * completion popup (which is never open mid-drag); everything else reads the
- * store imperatively, after the gesture. Measured live in the Tauri app on an
- * 896-line file: 200 selection changes cost 76fps with a commit each and 83fps
- * with none, and a real drag-select went 89 → 94 fps median (50 → 11 commits).
- * 100ms keeps the chip visibly live at 10Hz — past what the eye resolves on a
- * moving caret — and `flush()` on pointer-up lands the exact final position, so
- * nothing downstream ever sees a stale value at rest.
- */
+/** How often the cursor/selection store write may land during a selection drag. Monaco emits
+ *  ~120 changes/s mid-drag and only the line:col chip renders from them; 10 Hz keeps it live, and
+ *  `flush()` on pointer-up lands the exact final position. */
 const SELECTION_DRAG_SYNC_MS = 100
 
 export interface EditorSurfaceProps {
   paneId: string
   bufferId: string
-  /**
-   * The workspace THIS buffer belongs to (buffer.workspaceId), NOT the ambient
-   * WorkspaceStoreContext. WorkspaceHost keeps every retained WorkspaceView
-   * mounted at once for keep-alive, each rendering the same window-level pane
-   * tree under a DIFFERENT ambient context — resolving the EditorManager from
-   * ambient context instead of the buffer's own would let a wrong-ambient
-   * hidden copy mount a second, leaked Monaco model/widget under a manager
-   * the buffer's own `closeBuffer` cleanup (scoped to buf.workspaceId, see
-   * buffer-slice.ts's `editorManagerFor`) never visits. Passed explicitly by
-   * EditorPane, which already looked the buffer up to arm this exact
-   * workspace's editor before mounting this surface.
-   */
-  workspaceId: string
+  /** The window's editor host; EditorPane mounts this surface once it has loaded. */
+  host: EditorHost
   isActiveSurface?: boolean
-  isPreview?: boolean
-  onPromote?: () => void
   showToolbar?: boolean
   className?: string
   breadcrumbProps?: BreadcrumbProps
 }
 
-/**
- * Stable per-pane editor shell. Mounted ONCE per pane (keyed by `paneId` by the
- * parent). A buffer/tab switch is driven imperatively by
- * {@link usePaneEditorController} (model swap + content/cursor seam) and the
- * retained widget's satellite concerns are retargeted by
- * {@link usePaneEditorSatellites} — NOT by remounting this subtree.
- *
- * Crucially this component's RENDER reads NO active-buffer state
- * (`activeBufferId`/`value`/`filePath`). Everything buffer-dependent lives in
- * leaf children that each subscribe independently, so a tab switch updates only
- * those leaves instead of reconciling this whole subtree:
- *  - {@link Breadcrumb} self-resolves the active path via `paneId`.
- */
+/** Stable per-pane editor shell, mounted once per pane. Tab switches go through
+ *  usePaneEditorController and usePaneEditorSatellites, and its render reads no active-buffer
+ *  state, so only self-subscribing leaves (e.g. Breadcrumb) update on a switch. */
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive editor surface — hosts one Monaco viewport plus its overlays/resize observer sharing the same editor ref; splitting fragments that ref coordination.
 export function EditorSurface({
   paneId,
   bufferId,
-  workspaceId,
+  host,
   isActiveSurface = true,
-  isPreview = false,
-  onPromote,
   showToolbar = true,
   className,
   breadcrumbProps,
@@ -102,26 +66,16 @@ export function EditorSurface({
   const containerRef = useRef<HTMLDivElement>(null)
   const overlayContainerRef = useRef<HTMLDivElement>(null)
 
-  // Resolved by the buffer's OWN workspace id (see the `workspaceId` prop
-  // doc), not ambient context. Non-null: EditorPane awaits
-  // `getWorkspaceStore(workspaceId)?.armEditor()` for this same workspaceId
-  // before it mounts EditorSurface (that is the lazy-Monaco seam), so the
-  // store and its manager are always present here.
-  const workspaceStore = getWorkspaceStore(workspaceId)!
-  const editorManager = workspaceStore.editorManager!
-  const registry = workspaceStore.activeEditorRegistry
+  const { manager, documents } = host
 
   const { setActiveEditorViewKey, setCursorAndSelection } = useEditorStateStore.use.actions()
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
 
-  // ── Imperative buffer-switch controller (model swap + content seam) ───────
-  // Cursor/selection sync is rAF-COALESCED off the per-cursor hot path: a burst
-  // of cursor moves / keystrokes schedules a single trailing frame that reads
-  // the editor's CURRENT position+selection once and writes them in ONE batched
-  // store update. The pending frame is cancelled on dispose.
+  // Cursor/selection sync is rAF-coalesced off the keystroke path: a burst schedules one trailing
+  // frame that reads the live position and selection into one store update; cancelled on dispose.
   const flushCursorSync = useCallback(() => {
-    const editor = editorManager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
+    const editor = manager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
     const model = editor?.getModel()
     if (!editor || !model) return
     const position = editor.getPosition()
@@ -131,7 +85,7 @@ export function EditorSurface({
       toEditorPosition(model, position),
       selection ? toEditorRange(model, selection) : undefined,
     )
-  }, [editorManager, paneId, setCursorAndSelection])
+  }, [manager, paneId, setCursorAndSelection])
 
   const flushCursorSyncRef = useRef(flushCursorSync)
   flushCursorSyncRef.current = flushCursorSync
@@ -158,9 +112,9 @@ export function EditorSurface({
   const resizeCleanupRef = useRef<(() => void) | null>(null)
   const mountPane = useCallback(
     (container: HTMLElement) => {
-      editorManager.mountPane(paneId, container)
+      manager.mountPane(paneId, container)
 
-      const raw = editorManager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
+      const raw = manager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
       // Initial theme to avoid a flash; the satellites theme effect (which also
       // subscribes to theme changes) is authoritative right after mount.
       raw?.updateOptions({
@@ -169,7 +123,7 @@ export function EditorSurface({
 
       let layoutRafId: number | null = null
       let needsLayoutAfterResize = false
-      const runLayout = () => editorManager.layoutPane(paneId)
+      const runLayout = () => manager.layoutPane(paneId)
       const resizeObserver = new ResizeObserver(() => {
         if (document.documentElement.hasAttribute('data-pane-resizing')) {
           needsLayoutAfterResize = true
@@ -202,12 +156,9 @@ export function EditorSurface({
       }
       window.addEventListener('pane-resize-end', handlePaneResizeEnd)
 
-      // A selection drag is in flight: GPU-promote Monaco so per-frame
-      // selection-overlay updates are compositor-composited rather than triggering
-      // WKWebView CPU tile re-rasterization across each selected line (the CSS
-      // half, keyed on `data-editor-selecting`), and throttle the cursor/selection
-      // store write the drag would otherwise fire at pointer-move rate (the JS
-      // half, via `isSelectionDragging` in the coalescer above).
+      // During a selection drag, GPU-promote Monaco (CSS, via `data-editor-selecting`) so
+      // overlay updates don't re-rasterize WKWebView tiles per line, and throttle the store write
+      // the drag fires at pointer-move rate (JS, via `isSelectionDragging` in the coalescer).
       let dragHeld = false
       const handlePointerDown = (e: PointerEvent) => {
         if (e.button !== 0 || dragHeld) return
@@ -240,101 +191,56 @@ export function EditorSurface({
       }
     },
     // Theme is read fresh via getState(); mount-once per pane.
-    [editorManager, paneId],
+    [manager, paneId],
   )
 
   const unmountPane = useCallback(() => {
     resizeCleanupRef.current?.()
     resizeCleanupRef.current = null
-    editorManager.unmountPane(paneId)
-  }, [editorManager, paneId])
-
-  // Persist a content change, folding preview-promote-on-first-edit in. Skipped
-  // when this surface isn't active (matches legacy CodeEditor) or when the edit
-  // is the echo of a genuine external change applied by the satellites.
-  const isPreviewRef = useRef(isPreview)
-  isPreviewRef.current = isPreview
-  const onPromoteRef = useRef(onPromote)
-  onPromoteRef.current = onPromote
-  const isActiveSurfaceRef = useRef(isActiveSurface)
-  isActiveSurfaceRef.current = isActiveSurface
-  const externalApplyRef = useRef<string | null>(null)
-
-  // Shared write core. `targetBufferId` (when known) pins the write to a SPECIFIC
-  // buffer so a flush during a fast tab switch attributes content to the edited
-  // buffer, not the now-active one (I3). When omitted, the write targets this
-  // pane's active buffer.
-  const writeContent = useCallback(
-    (content: string, targetBufferId?: string) => {
-      if (externalApplyRef.current === content) {
-        externalApplyRef.current = null
-        return
-      }
-      if (!isActiveSurfaceRef.current) return
-      if (isPreviewRef.current) onPromoteRef.current?.()
-      const bufferId =
-        targetBufferId ?? windowPaneStore.getState().panes[paneId]?.activeEditorTabId ?? null
-      if (bufferId) setBufferContent(bufferId, content)
-    },
-    [paneId],
-  )
-
-  // Controller seam: the imperative ContentSink flush passes the buffer it was
-  // tracking so the write targets the edited buffer (I3 fix).
-  const onControllerContentChange = useCallback(
-    (content: string, bufferId: string | null) => writeContent(content, bufferId ?? undefined),
-    [writeContent],
-  )
+    manager.unmountPane(paneId)
+  }, [manager, paneId])
 
   const selectActiveBuffer = useCallback(
     (state: import('@/features/panes/stores/window-pane-store.types').WindowPaneState) => {
       const id = state.panes[paneId]?.activeEditorTabId ?? null
       const buffer = id ? state.buffers.find((b) => b.id === id) : null
-      // Text-content buffers always carry a real path (see OpenEditorTabSpec) —
-      // skip publishing an active-buffer switch rather than key Monaco's model
-      // registry by an undefined uri if that invariant is ever violated.
-      if (!buffer || !hasTextContent(buffer) || !buffer.path) return null
-      // `workspaceId` here is THIS SURFACE'S OWN resolved workspace (the prop
-      // above), not `buffer.workspaceId` — see ActiveBufferInfo's own doc:
-      // the model uri must agree with whichever workspace's armEditor()
-      // closure will be asked for this uri's content, which is always the
-      // manager this surface is CURRENTLY mounted on.
-      return { bufferId: buffer.id, filePath: buffer.path, workspaceId }
+      // Only an editor buffer names a document Monaco holds a model for.
+      if (!buffer || !isEditorContent(buffer) || !buffer.path) return null
+      return { doc: documentRefOf(buffer) }
     },
-    [paneId, workspaceId],
+    [paneId],
   )
 
-  usePaneEditorController(
-    paneId,
-    containerRef,
-    {
-      store: windowPaneStore,
-      selectActiveBuffer,
-      manager: editorManager,
-      registry,
-      mountPane,
-      unmountPane,
-      onContentChange: onControllerContentChange,
-      syncCursorAndSelection,
-    },
-    // The manager instance itself, NOT the workspace id — see the hook's own
-    // doc for why a string proxy missed a real regression: `destroyWorkspaceStore`
-    // can dispose and recreate this same workspace's EditorManager (a fresh
-    // instance) without `workspaceId` ever changing, and only the manager
-    // reference actually distinguishes "still the one this pane is mounted on"
-    // from "was replaced out from under it."
-    editorManager,
+  usePaneEditorController(paneId, containerRef, {
+    store: windowPaneStore,
+    selectActiveBuffer,
+    manager,
+    registry: activeEditors,
+    onDidOpen: (listener) => documents.onDidOpen(listener),
+    mountPane,
+    unmountPane,
+    syncCursorAndSelection,
+  })
+
+  const activeWorkspaceId = useStore(
+    windowPaneStore,
+    useCallback(
+      (state: import('@/features/panes/stores/window-pane-store.types').WindowPaneState) => {
+        const id = state.panes[paneId]?.activeEditorTabId
+        const buffer = id ? state.buffers.find((b) => b.id === id) : undefined
+        return buffer && isEditorContent(buffer) ? buffer.workspaceId : null
+      },
+      [paneId],
+    ),
   )
+  const readOnly = useWorkspaceReadOnly(activeWorkspaceId)
 
   // ── Retained-widget satellite concerns (settings, theme, LSP document sync) ─
   usePaneEditorSatellites(paneId, {
-    registry,
-    editorManager,
-    workspaceId,
+    registry: activeEditors,
     isActiveSurface,
-    readOnly: false,
+    readOnly,
     scrollable: true,
-    externalApplyRef,
   })
 
   // ── Status-bar cursor: which pane/buffer the mirrored cursor belongs to ───
@@ -349,9 +255,9 @@ export function EditorSurface({
 
   // The toolbar's search button opens Monaco's own find widget.
   const openFind = useCallback(() => {
-    const editor = editorManager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
+    const editor = manager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
     void editor?.getAction('actions.find')?.run()
-  }, [editorManager, paneId])
+  }, [manager, paneId])
 
   // `bufferId` is the parent's stable-mount hint (the surface keys off paneId and
   // its leaves read the active buffer reactively); referenced to satisfy
@@ -363,14 +269,8 @@ export function EditorSurface({
       <EditorStylesheet />
 
       <div className="absolute inset-0 flex flex-col overflow-hidden">
-        {/* `bufferId` passed explicitly — see EditorHostRegistry's own doc:
-            this EditorSurface can now be the pane's RETAINED editor while a
-            non-editor tab (branch review, ...) is the pane's actual active
-            tab. Breadcrumb's own `paneId`-only fallback resolves via
-            `pane.activeEditorTabId`, which would then name the OTHER tab —
-            live-caught as the breadcrumb reading "branch-review://..." while
-            still showing this file's content. `bufferId` is always the
-            buffer THIS surface is actually showing, active tab or not. */}
+        {/* `bufferId` explicitly: a retained editor may sit behind a non-editor active tab,
+            and the pane's active tab would then name the wrong buffer. */}
         {showToolbar && (
           <Breadcrumb
             {...breadcrumbProps}

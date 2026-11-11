@@ -37,14 +37,17 @@ func newWorkspaceRepo(
 	adapters *adapter.Container,
 ) (workspace.Workspace, func()) {
 	tb.Helper()
-	ax, err := asynx.New[domain.Workspace]().
+	rm, err := workspace.OpenReadModel(adapters.WorkspaceView())
+	require.NoError(tb, err)
+	axb := asynx.New[domain.Workspace]().
 		WithEventStore(adapters.WorkspaceES()).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	workspace.Subscriber(rm)(axb)
+	ax, err := axb.Build()
 	require.NoError(tb, err)
 	tb.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	repo, err := workspace.New(ax, adapters.WorkspaceES(), adapters.WorkspaceView())
+	repo, err := workspace.New(ax, adapters.WorkspaceES(), rm)
 	require.NoError(tb, err)
 	return repo, ax.WaitPublish
 }

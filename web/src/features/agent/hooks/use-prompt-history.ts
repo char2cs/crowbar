@@ -1,30 +1,23 @@
 import { useCallback, useRef } from 'react'
 
-/**
- * Shell-style recall through this chat's own sent turns — ArrowUp/ArrowDown
- * step back and forward through what the person has actually typed here,
- * newest first, exactly like a terminal's own history.
- *
- * `texts` is whatever window of the user's own messages is currently loaded,
- * oldest first; recall never reaches past what has actually been paged in; a
- * chat with older history not yet loaded simply runs out of recall at the
- * oldest visible turn, the same way a terminal's history runs out at the
- * start of the session.
- */
-export function usePromptHistory(texts: string[]) {
-  // -1: not browsing — the box holds the person's own live draft. 0..texts
-  // .length-1: browsing, counting back from the newest entry.
+/** `read` answers the loaded window of the user's messages, oldest first, when a
+ *  recall asks; recall never reaches past what has been paged in. */
+export function usePromptHistory(read: () => string[]) {
+  // -1: not browsing (the box holds the live draft); otherwise steps back from newest.
   const indexRef = useRef(-1)
   const stashRef = useRef('')
+  // The words a ctrl+r search looks for; the box shows each match, not them.
+  const queryRef = useRef<string | null>(null)
 
-  /** A real edit (typing, not a recall) abandons wherever browsing had gotten
-   *  to — the next ArrowUp starts a fresh walk from the newest turn again. */
+  /** A real edit restarts the next walk from the newest turn. */
   const reset = useCallback(() => {
     indexRef.current = -1
+    queryRef.current = null
   }, [])
 
   const recallOlder = useCallback(
     (liveDraft: string): string | undefined => {
+      const texts = read()
       if (texts.length === 0) return undefined
       if (indexRef.current === -1) {
         stashRef.current = liveDraft
@@ -35,7 +28,7 @@ export function usePromptHistory(texts: string[]) {
       indexRef.current += 1
       return texts[texts.length - 1 - indexRef.current]
     },
-    [texts],
+    [read],
   )
 
   const recallNewer = useCallback((): string | undefined => {
@@ -45,8 +38,27 @@ export function usePromptHistory(texts: string[]) {
       return stashRef.current
     }
     indexRef.current -= 1
+    const texts = read()
     return texts[texts.length - 1 - indexRef.current]
-  }, [texts])
+  }, [read])
 
-  return { recallOlder, recallNewer, reset }
+  /** The next older prompt containing `typed` (the words of the search under way). */
+  const searchOlder = useCallback(
+    (typed: string): string | undefined => {
+      const query = (queryRef.current ?? typed).trim().toLowerCase()
+      const texts = read()
+      for (let step = indexRef.current + 1; step < texts.length; step++) {
+        const text = texts[texts.length - 1 - step]!
+        if (!text.toLowerCase().includes(query)) continue
+        if (indexRef.current === -1) stashRef.current = typed
+        queryRef.current = query
+        indexRef.current = step
+        return text
+      }
+      return undefined
+    },
+    [read],
+  )
+
+  return { recallOlder, recallNewer, searchOlder, reset }
 }

@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func getContents(
@@ -52,7 +52,7 @@ func TestReviewHandlers_GetFileSides_RequiresAPath(t *testing.T) {
 }
 
 func TestReviewHandlers_GetFileSides_OversizedFileIs422(t *testing.T) {
-	r := routerFor(errUsecase{err: apperr.ErrUnprocessable})
+	r := routerFor(errUsecase{err: problem.ErrUnprocessable})
 
 	assert.Equal(t, http.StatusUnprocessableEntity, getContents(r, "?path=big.go").Code)
 }

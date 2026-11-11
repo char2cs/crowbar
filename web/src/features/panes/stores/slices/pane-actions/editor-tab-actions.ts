@@ -1,7 +1,7 @@
 import { isEditorContent } from '@/features/panes/types/pane-content'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 import { removePane } from '@/features/panes/lib/view-ops'
 import { focusPane, homeOf, layoutOf, touchPane } from '@/features/panes/lib/view-state'
 import { isPaneEmpty } from '@/features/panes/lib/view-selectors'
@@ -17,6 +17,7 @@ type EditorTabActions = Pick<
   | 'addEditorTabToPane'
   | 'removeEditorTabFromPane'
   | 'moveEditorTabToPane'
+  | 'replaceEditorTab'
   | 'setEditorTabPreview'
   | 'setEditorTabPinned'
   | 'setPaneLocked'
@@ -33,10 +34,9 @@ function paneCanSafelyLoseLastTab(state: WindowPaneState, paneId: string): boole
   return !!home && getAllLeafIds(layoutOf(state, home)).length > 1
 }
 
-/** Put `tabId` in `paneId` and make it the pane's shown tab. False when the
- *  pane does not exist. Pure over the draft, so `openContent` can create a
- *  buffer and seat it in one `set`. A `replaces` tab the pane holds leaves it,
- *  a new `tabId` taking its slot; the caller releases its buffer (C2). */
+/** Seat `tabId` in `paneId` as its shown tab (false: no such pane). Pure over the draft so
+ *  openContent creates and seats a buffer in one `set`. A held `replaces` tab gives up its
+ *  slot; the caller releases its buffer (C2). */
 export function placeTab(
   state: WindowPaneState,
   paneId: string,
@@ -69,15 +69,11 @@ export function placeTab(
 
 /** The editor tabs a pane holds beside its chat. */
 export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabActions {
-  // Never CREATE a workspace store just to reach its editor manager — a
-  // buffer can outlive its workspace, and a store created here would leak.
+  // No host means Monaco never loaded, so no pane holds a model to release.
   const releaseEditorTabModel = (paneId: string, tabId: string) => {
     const buf = get().buffers?.find((b) => b.id === tabId)
     if (!buf || !isEditorContent(buf) || !buf.path) return
-    getWorkspaceStore(buf.workspaceId)?.editorManager?.closeBuffer(
-      paneId,
-      fileUri(buf.workspaceId, buf.path),
-    )
+    getEditorHost()?.manager.closeBuffer(paneId, documentUri(documentRefOf(buf)))
   }
 
   return {
@@ -155,6 +151,26 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
           paneCanSafelyLoseLastTab(state, fromPaneId),
         )
         syncSoleEditorTabCloseability(state, toPaneId, paneCanSafelyLoseLastTab(state, toPaneId))
+      })
+      // After the set, so the destination already holds the model and it survives.
+      if (!get().panes[fromPaneId]?.editorTabIds.includes(tabId)) {
+        releaseEditorTabModel(fromPaneId, tabId)
+      }
+    },
+
+    replaceEditorTab(fromId, toId) {
+      for (const pane of Object.values(get().panes)) {
+        if (pane.editorTabIds.includes(fromId)) releaseEditorTabModel(pane.id, fromId)
+      }
+      set((state) => {
+        for (const pane of Object.values(state.panes)) {
+          const index = pane.editorTabIds.indexOf(fromId)
+          if (index === -1) continue
+          if (pane.editorTabIds.includes(toId)) pane.editorTabIds.splice(index, 1)
+          else pane.editorTabIds[index] = toId
+          if (pane.activeEditorTabId === fromId) pane.activeEditorTabId = toId
+          syncSoleEditorTabCloseability(state, pane.id, paneCanSafelyLoseLastTab(state, pane.id))
+        }
       })
     },
 

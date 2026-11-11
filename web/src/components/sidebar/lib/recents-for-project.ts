@@ -1,5 +1,5 @@
-import type { Repo } from '@/lib/store/sidebar'
-import { chatIconIndex, type ChatIconFields } from './rows-from-repo'
+import type { Repo } from '@/core/entities/repo-types'
+import { chatIconIndex, type ChatIconFields } from './chat-icon-index'
 
 const iconCache = new WeakMap<readonly Repo[], Map<string, ChatIconFields>>()
 

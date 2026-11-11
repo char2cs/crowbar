@@ -7,10 +7,8 @@ import (
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// MergeEligibility is the computed, non-persisted answer to "can this workspace
-// be merged into its local parent, and what is that parent's branch" (spec §10).
-// It is resolved per read from the sibling set by MergeEligibilitiesFor; it is never
-// stored on the workspace aggregate.
+// MergeEligibility answers whether a workspace can merge into its local parent and what
+// that parent's branch is. ResolveMergeEligibilities computes it per read; it is never stored.
 type MergeEligibility struct {
 	CanMergeLocally bool
 	ParentBranch    string
@@ -27,16 +25,9 @@ type MergeConflictBatchChecker interface {
 	WouldMergeConflicts(ctx context.Context, repoPath string, pairs []gitengine.MergePair) []gitengine.MergeVerdict
 }
 
-// ResolveMergeEligibilities computes the merge-eligibility overlay for every
-// workspace in wss, in order, from the sibling set: structural eligibility (parent
-// present and not locked/deleted) plus a predicted-conflict check for an eligible
-// child, with the dry-runs batched per parent checkout. It is the single source
-// of this overlay, shared by the usecase read path and the repository broadcast
-// path so the snapshot and the live stream always agree.
-//
-// The dry-run is fast and best-effort: a failed one fails OPEN (no conflict), so
-// a check glitch never wrongly blocks a mergeable branch. git may be nil (no
-// checker available) — then conflicts are simply not predicted.
+// ResolveMergeEligibilities computes each wss entry's overlay from siblings; it is the
+// single source for both reads and broadcasts so they agree. Conflict dry-runs batch per
+// parent checkout and fail open; a nil git skips conflict prediction.
 func ResolveMergeEligibilities(
 	ctx context.Context,
 	wss []domain.Workspace,

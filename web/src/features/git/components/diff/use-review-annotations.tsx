@@ -12,41 +12,19 @@ import type {
 import { Button } from '@/components/ui/button'
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import { useReviewThreadActions } from '@/features/git/hooks/use-review-thread-actions'
+import { useReviewThreads } from '@/features/git/hooks/use-review-threads'
 import { CommentComposer } from '@/features/panes/components/comment-composer'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
-/**
- * Review threads as `@pierre/diffs` line annotations.
- *
- * This replaces the HOST, not the behaviour. `use-review-comment-layer.tsx` hung
- * the same threads off Monaco view zones anchored to a unified model line; here
- * they are `DiffLineAnnotation`s the renderer portals into LIGHT dom beside the
- * line they belong to. Everything either side of that is unchanged: the threads
- * still come from `branchReview.threads` (kept live by the WS stream, and
- * therefore INDEPENDENT of whether the diff payload has loaded), and every write
- * still goes through `review-api.ts`.
- *
- * The one genuinely new problem the annotation host creates: an annotation needs
- * a rendered LINE to attach to, and the windowed surface deliberately leaves
- * most files as content-free placeholders. A thread on such a file is not
- * missing — it simply has nowhere to hang. That is why the layer publishes a
- * per-file thread COUNT alongside the annotations: the header can advertise what
- * the body cannot yet show. (Reaching one is the surface's job — it has to
- * materialise the file before it can scroll to a line inside it.)
- */
+// Review threads (live from the entity store, independent of the diff) as @pierre/diffs line
+// annotations. An annotation needs a rendered line, and placeholder files have none, so a per-file
+// thread count lets the header advertise what the body can't show yet.
 
 /** One review thread, positioned on one side of one line of one file. */
 export type ReviewAnnotation = DiffLineAnnotation<ReviewThread>
 
-/**
- * The id of the thread being composed but not yet posted.
- *
- * The composer is an annotation like any other so that it appears exactly where
- * the finished comment will, and `metadata` on a `DiffLineAnnotation<T>` is
- * required — so the draft is carried as a real, message-less `ReviewThread`.
- * Nothing the server ever returns can collide with this id.
- */
+/** The unposted draft's id. The composer is an annotation, so it sits where the comment will,
+ *  and annotations need metadata: the draft is a message-less ReviewThread no server id matches. */
 export const DRAFT_THREAD_ID = '__crowbar-draft-thread__'
 
 export function isDraftThread(thread: ReviewThread): boolean {
@@ -54,11 +32,8 @@ export function isDraftThread(thread: ReviewThread): boolean {
 }
 
 // ── The side map ────────────────────────────────────────────────────
-//
-// A thread records `old`/`new`; the renderer speaks `deletions`/`additions`.
-// The two mappings are written out rather than derived because an inversion
-// here is invisible in every round trip and puts every comment on the wrong
-// half of the diff.
+// Threads say old/new, the renderer deletions/additions. Written out, not derived: an inversion
+// survives every round trip and puts every comment on the wrong half.
 
 export function toAnnotationSide(side: ReviewThread['side']): AnnotationSide {
   return side === 'old' ? 'deletions' : 'additions'
@@ -100,12 +75,7 @@ export function groupAnnotationsByPath(
   return grouped
 }
 
-/**
- * How many threads each file carries.
- *
- * Counted from the threads store alone, so it is right for files the diff has
- * not loaded — which is the entire reason it exists.
- */
+/** Threads per file, from the threads alone, so it is right for files the diff hasn't loaded. */
 export function countThreadsByPath(threads: readonly ReviewThread[]): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const thread of threads) {
@@ -141,7 +111,7 @@ export interface ReviewAnnotationLayer {
 }
 
 export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotationLayer {
-  const threads = useWorkspaceStoreContext((s) => s.branchReview.threads)
+  const threads = useReviewThreads(wsId)
   const [draft, setDraft] = useState<Draft | null>(null)
   const {
     identity,
@@ -232,10 +202,7 @@ export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotati
       const thread = annotationToThread(annotation)
       if (isDraftThread(thread)) {
         return (
-          // The font opt-out this slot needs (an annotation is parented by the
-          // diff's <pre>, so it inherits the CODE font) lives on CommentComposer
-          // itself — it is a property of the composer, not of this one call
-          // site, and the other two call sites need it just as much.
+          // The code-font opt-out this slot needs lives on CommentComposer itself.
           <div className="max-w-xl py-2">
             <CommentComposer
               title={composerTitle(thread)}
@@ -279,18 +246,9 @@ export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotati
       getHoveredLine: (() => GetHoveredLineResult<'diff'> | undefined) | (() => unknown),
       item: CodeViewItem<ReviewThread>,
     ): ReactNode => (
-      // Filled rather than ghost, and lifted above the gutter.
-      //
-      // The library parks this button over the gutter column, which is
-      // `position: sticky; z-index: 3` — and the wrapper it slots the button
-      // into carries no z-index of its own. So the button painted UNDER the
-      // line numbers: the number read straight through the "+", the two glyphs
-      // tangled, and the control was neither legible nor recognisable as one.
-      // Opacity alone could not fix that; what is on top has to change.
-      //
-      // z-10 clears the gutter's 3 and the annotation row's 2 while staying
-      // inside the file's own stacking context, and the filled primary chip is
-      // legible against both the added-line green and the removed-line red.
+      // The button sits over the sticky gutter (z 3) in an unstacked wrapper: z-10 lifts it above
+      // the line numbers and annotation row (2) within the file's stacking context, and the
+      // filled chip reads on both added green and removed red.
       <Button
         variant="default"
         size="icon-xs"
@@ -298,8 +256,7 @@ export function useReviewAnnotations({ wsId }: { wsId: string }): ReviewAnnotati
         aria-label={`Comment on a line in ${item.id}`}
         onClick={() => {
           const hovered = getHoveredLine()
-          // A file (non-diff) row has no side, and there is no such thing as a
-          // one-sided review comment — so there is nothing to open.
+          // A file (non-diff) row has no side, and a review comment needs one.
           if (hovered == null || typeof hovered !== 'object' || !('side' in hovered)) return
           const { lineNumber, side } = hovered as GetHoveredLineResult<'diff'>
           startDraft(item.id, { start: lineNumber, end: lineNumber, side })

@@ -10,14 +10,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
-import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
-import { postProject } from '@/lib/api'
-import { awaitEntity } from '@/lib/ws/await-entity'
-import { projectFromDTO } from '@/lib/store/project-from-dto'
+import { createProject } from '@/lib/store/create-project'
 import { LOCAL_HOST } from '@/features/hosts/types'
-import type { Project, ProjectDTO } from '@/lib/types'
+import type { Project } from '@/lib/types'
+import { report } from '@/lib/errors/report'
 
 interface ImportProjectModalProps {
   open: boolean
@@ -25,10 +23,8 @@ interface ImportProjectModalProps {
   onImport: (project: Project) => void
 }
 
-// The backend imports a project from an absolute path on its own filesystem,
-// so the dialog takes the path as text. A browser folder picker cannot supply
-// one (webkitdirectory yields only the folder *name*), which used to send
-// garbage paths like "my-repo" to the import endpoint.
+// The daemon imports from an absolute path on its own filesystem, so the path is typed: a browser
+// folder picker (webkitdirectory) yields only the folder name.
 export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProjectModalProps) {
   const [selectedPath, setSelectedPath] = useState('')
   const [projectName, setProjectName] = useState('')
@@ -46,29 +42,18 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
     if (!pathLooksAbsolute) return
     setLoading(true)
     try {
-      // §4/§6 subscribe-before-POST: postProject answers 202 with no body — the
-      // daemon assigns the id and only the canonical ProjectDTO carries it, on
-      // the `/v0/projects` WS stream. We subscribe FIRST, fire the POST, then
-      // resolve the real project by matching the submitted path (the one field
-      // we can correlate before the id exists). No client-fabricated uuid.
       const fallbackName =
         trimmedPath
           .replace(/[\\/]+$/, '')
           .split(/[\\/]/)
           .pop() ?? trimmedPath
       const name = projectName.trim() || fallbackName
-      // awaitEntity only hears the local daemon's socket, so the import goes there.
-      const hostId = LOCAL_HOST.id
-      const dto = await awaitEntity<ProjectDTO>({
-        endpoint: '/v0/projects',
-        match: (p) => p.path === trimmedPath && p.status !== 'deleted',
-        action: () => postProject(name, trimmedPath, hostId),
-      })
-      onImport(projectFromDTO(dto, hostId))
+      // The path is picked on this machine, so the local daemon imports it.
+      onImport(await createProject(name, trimmedPath, LOCAL_HOST.id))
       setSelectedPath('')
       setProjectName('')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to import project')
+      report(err, { action: 'Failed to import project' })
     } finally {
       setLoading(false)
     }
@@ -78,20 +63,20 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Import project</DialogTitle>
+          <DialogTitle>Add a space</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 px-6 py-5">
           <div className="space-y-2">
             <label htmlFor="import-project-path" className="text-sm font-medium text-foreground">
-              Project folder
+              Space folder
             </label>
             <div className="flex gap-2">
               <Input
                 id="import-project-path"
                 value={selectedPath}
                 onChange={(e) => setSelectedPath(e.target.value)}
-                placeholder="/absolute/path/to/project"
+                placeholder="/absolute/path/to/folder"
                 className="font-mono text-[12px]"
               />
               {isTauri() && (
@@ -109,13 +94,13 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
 
           <div className="space-y-2">
             <label htmlFor="import-project-name" className="text-sm font-medium text-foreground">
-              Project name
+              Space name
             </label>
             <Input
               id="import-project-name"
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
-              placeholder="My project"
+              placeholder="My space"
             />
           </div>
         </div>
@@ -125,7 +110,7 @@ export function ImportProjectModal({ open, onOpenChange, onImport }: ImportProje
             Cancel
           </Button>
           <Button onClick={handleImport} disabled={!pathLooksAbsolute || loading}>
-            {loading ? 'Importing…' : 'Import'}
+            {loading ? 'Adding…' : 'Add space'}
           </Button>
         </DialogFooter>
       </DialogContent>

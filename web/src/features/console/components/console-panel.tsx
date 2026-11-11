@@ -20,12 +20,9 @@ const CLOSED_OFFSET: Record<ConsoleDock, string> = {
   right: 'translate-x-full',
 }
 
-/**
- * The quake-style console: it slides in from its dock edge and shows the
- * daemon's log. As an overlay it floats over the whole window; in push mode it
- * is a flex sibling of the app and the app shrinks. The version badge or Escape
- * from anywhere inside it closes it.
- */
+/** The quake-style console showing the daemon's log, slid in from its dock edge: an overlay
+ *  floats over the whole window, push mode shrinks the app beside it. The version badge or
+ *  Escape from anywhere inside closes it. */
 export function ConsolePanel() {
   const open = useConsoleStore((s) => s.open)
   const entries = useConsoleStore((s) => s.entries)

@@ -1,42 +1,30 @@
-import { getDB } from './idb'
-import type { EditorState, WorkspaceLayout } from './schemas'
+import type { WorkspaceLayout } from './schemas'
 import {
   loadWindowPaneLayout,
   saveWorkspaceLayout,
   WINDOW_LAYOUT_VERSION,
 } from './workspace-layout'
-import { getAllEntities } from './entity-cache'
-import type { ChatDTO } from '@/lib/types'
+import { entityOf, entityStore, type EntityState } from '@/core/entities/entity-store'
+import { chatHostOf } from '@/lib/host-resolve'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
 import { repairViewState } from '@/features/panes/lib/view-repair'
-import { validateLoadedBuffers } from '@/features/panes/utils/persisted-layout'
-import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
 import {
-  isEditorContent,
-  isPersistableContent,
-  type PaneContent,
-} from '@/features/panes/types/pane-content'
-import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
-import { fetchHomeChats, fetchRepoChats, fetchRepos, isNotFoundError } from '@/lib/api'
-import { awaitHost } from '@/lib/host-unavailability'
-import { isDraftChatId } from '@/features/agent/lib/draft-chat'
+  splitLegacyEditorContent,
+  upgradeLegacyBuffers,
+  validateLoadedBuffers,
+} from '@/features/panes/utils/persisted-layout'
+import { getFirstLeafId } from '@/features/panes/utils/pane-layout'
+import { putDrafts } from '@/features/editor/documents/draft-store'
+import { restoreDocuments } from '@/features/editor/documents/restore-documents'
 import { loadSidebarUI } from './sidebar-ui'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { parseSidebarTab } from '@/lib/store/sidebar-ui'
+import { parseSidebarTab, treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 
-export interface WorkspaceHydrationResult {
-  editorStates: EditorState[]
-}
-
-/**
- * One-time, window-level hydration of pane/buffer layout — awaited at boot
- * BEFORE `renderApp()`: a surface that mounts first and has its layout
- * replaced a frame later crashes. Local reads only; a restored member the
- * cache could not place is answered by `placeRestoredChatMembers` afterwards.
- */
+// Window-level hydration of pane/buffer layout, awaited before renderApp(): a surface whose layout
+// is replaced a frame after mount crashes. Local reads only; restored members the cache couldn't
+// place are answered later by placeRestoredPanesOnceSynced.
 export async function hydrateWindowPaneLayout(): Promise<void> {
   const stored = await loadWindowPaneLayout()
   if (!stored) return
@@ -62,109 +50,69 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
     ...restored,
     panes,
     activeProjectId: windowPaneStore.getState().activeProjectId,
-    buffers: buffers.map(restoreBufferDirtyState),
+    buffers,
   })
+  // Documents load behind the restored tabs: Monaco and disk are not on the boot path.
+  restoreDocuments().catch((err: unknown) => console.error('Restoring documents failed:', err))
 }
 
-/**
- * The one load-time upgrade of an older saved layout to the current shape.
- * Idempotent: a layout already at `WINDOW_LAYOUT_VERSION` is returned as is.
- *
- * v1 → v2: a chat pane records the workspace its chat belongs to, read from
- * the chat's cached record (`crowbar_chats`). A chat the cache does not know
- * (a project-home chat, a repo never opened) keeps its pane unplaced (null)
- * for the daemon to answer — never dropped on the cache's silence.
- */
+// The one idempotent load-time upgrade to WINDOW_LAYOUT_VERSION. v2: a chat pane records its
+// workspace (unplaced, null, until the projects scope answers). v3: buffers name their documents.
+// v4: buffers drop their text, written as drafts first.
 export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
-  if ((layout.version ?? 1) >= WINDOW_LAYOUT_VERSION) return layout
-  const owner = new Map<string, string>()
-  for (const chat of await getAllEntities<ChatDTO>('crowbar_chats')) {
-    if (chat.workspaceId) owner.set(chat.id, chat.workspaceId)
-  }
+  const version = layout.version ?? 1
+  if (version >= WINDOW_LAYOUT_VERSION) return layout
+  const placed = version < 2 ? unplaceChatPanes(layout) : layout
+  const buffers = placed.buffers && upgradeLegacyBuffers(placed.buffers)
+  const split = splitLegacyEditorContent({ ...placed, buffers })
+  await putDrafts(split.drafts)
+  return { ...split.layout, version: WINDOW_LAYOUT_VERSION }
+}
+
+function unplaceChatPanes(layout: WorkspaceLayout): WorkspaceLayout {
   const panes: Record<string, PaneGroup> = {}
   for (const [id, pane] of Object.entries(layout.panes ?? {})) {
-    const workspaceId = pane.chatId ? pane.workspaceId || owner.get(pane.chatId) : null
-    panes[id] = { ...pane, workspaceId: workspaceId ?? null }
+    panes[id] = { ...pane, workspaceId: pane.chatId ? pane.workspaceId || null : null }
   }
-  return { ...layout, panes, version: WINDOW_LAYOUT_VERSION }
+  return { ...layout, panes }
 }
 
-/**
- * Place every restored chat member that has no workspace, from the daemon's
- * chat listings of its view's project; drop a member only on a definitive
- * answer (the chat, or its whole project, is gone). A listing that fails
- * leaves its members unplaced for the next boot. No request when all placed.
- * A project waits for its host to resolve (the project list names it); each
- * project is placed as it answers, never held for one still waiting.
- */
-export async function placeRestoredChatMembers(): Promise<void> {
+// A chat a snapshot left out is gone only when that snapshot read every repo.
+function placeFrom(s: EntityState): boolean {
+  const definitive = !s.unread.projects?.length
   const { panes, views } = windowPaneStore.getState()
-  const byProject = new Map<string, Set<string>>()
-  for (const pane of Object.values(panes)) {
-    const projectId = pane.viewId ? views[pane.viewId]?.projectId : undefined
-    if (!pane.chatId || pane.workspaceId || projectId === undefined) continue
-    const chats = byProject.get(projectId) ?? new Set<string>()
-    byProject.set(projectId, chats.add(pane.chatId))
-  }
-  await Promise.all(
-    [...byProject].map(([projectId, chatIds]) => placeProjectMembers(projectId, chatIds)),
-  )
-}
-
-async function placeProjectMembers(projectId: string, chatIds: ReadonlySet<string>): Promise<void> {
-  const found = await findProjectChats(projectId, chatIds)
-  if (found === undefined) return
   const placed = new Map<string, string>()
   const gone = new Set<string>()
-  for (const chatId of chatIds) {
-    const workspaceId = found?.get(chatId)
-    if (workspaceId) placed.set(chatId, workspaceId)
-    else if (!found?.has(chatId)) gone.add(chatId)
+  for (const pane of Object.values(panes)) {
+    const inView = pane.viewId ? views[pane.viewId]?.projectId !== undefined : false
+    if (!pane.chatId || pane.workspaceId || !inView) continue
+    // A chat no host can be named for yet is neither placed nor gone.
+    const hostId = chatHostOf(pane.chatId)
+    if (!hostId) continue
+    const chat = entityOf(s, 'chat', hostId, pane.chatId)
+    if (chat?.workspaceId) placed.set(pane.chatId, chat.workspaceId)
+    else if (!chat && definitive) gone.add(pane.chatId)
   }
   if (placed.size > 0 || gone.size > 0) {
     windowPaneStore.getState().paneActions.placeRestoredMembers(placed, gone)
   }
+  return definitive
 }
 
-/**
- * chatId → workspaceId ('' when the chat has none) for `wanted`, listing the
- * project home first and its repos only if some chat is still unfound; null
- * when the project is gone, undefined when the daemon could not answer.
- */
-async function findProjectChats(
-  projectId: string,
-  wanted: ReadonlySet<string>,
-): Promise<Map<string, string> | null | undefined> {
-  // Boot runs before the project list loads, when a paired install cannot place any project.
-  if (!(await awaitHost({ projectId }))) return undefined
-  const found = new Map<string, string>()
-  const record = (chats: ChatDTO[]) => {
-    for (const chat of chats) if (wanted.has(chat.id)) found.set(chat.id, chat.workspaceId)
-  }
-  try {
-    record(await fetchHomeChats(projectId).catch(emptyWhenNotFound))
-    if (found.size === wanted.size) return found
-    const repos = await fetchRepos(projectId)
-    const lists = await Promise.all(
-      repos.map((repo) => fetchRepoChats(projectId, repo.id).catch(emptyWhenNotFound)),
-    )
-    for (const chats of lists) record(chats)
-    return found
-  } catch (err) {
-    return isNotFoundError(err) ? null : undefined
-  }
+/** Once the projects scope's first snapshot lands, places each restored chat pane that
+ *  names no workspace in its chat's, and drops one whose chat is gone; while a snapshot
+ *  could not read some repo, the next one answers for what it left out. */
+export function placeRestoredPanesOnceSynced(): void {
+  const now = entityStore.getState()
+  if (now.loaded.projects && placeFrom(now)) return
+  const stop = entityStore.subscribe((s, prev) => {
+    if (!s.loaded.projects || (prev.loaded.projects && s.unread === prev.unread)) return
+    if (placeFrom(s)) stop()
+  })
 }
 
-function emptyWhenNotFound(err: unknown): ChatDTO[] {
-  if (isNotFoundError(err)) return []
-  throw err
-}
-
-/**
- * The persisted views, repaired: a record, pane or pointer that breaks an
- * invariant is dropped and every valid one is kept. A record without views
- * restores an empty band around its stage. No older shape is read.
- */
+// The persisted views, repaired: a record, pane or pointer breaking an invariant is dropped, every
+// valid one kept. A record without views restores an empty band around its stage.
 export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState {
   const views = layout.views ?? {}
   return repairViewState({
@@ -182,119 +130,13 @@ export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState {
   })
 }
 
-/**
- * Per-workspace hydration: fetches this workspace's own saved editor-view
- * state (cursor/scroll/folds — still workspace+buffer keyed, untouched by
- * Task 26) and reconciles whatever of ITS buffers already exist in the
- * (window-level, already-hydrated-once) pane store against disk — a restored
- * buffer's content can be stale the moment the app opens.
- */
-export async function hydrateWorkspace(workspaceId: string): Promise<WorkspaceHydrationResult> {
-  const db = await getDB()
-  const editorStates = await db.getAllFromIndex('editor-state', 'workspaceId', workspaceId)
-
-  const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === workspaceId)
-  if (buffers.length > 0) {
-    await reconcileRestoredBuffers(workspaceId, buffers)
-  }
-
-  return { editorStates }
-}
-
-/**
- * Reconcile a LIVE workspace's open buffers against disk. Workspace keep-alive
- * skips re-hydration on a warm re-activation (the store never died), but files
- * can change on disk while the workspace sits hidden — its file watcher is
- * active-only, and agents/terminals keep working in hidden worktrees. Called on
- * every hidden→active transition; same policy as restore-time reconciliation:
- * clean buffers silently reload, dirty buffers keep edits and get flagged with
- * hasExternalChange.
- */
-export async function reconcileWorkspaceBuffersWithDisk(workspaceId: string): Promise<void> {
-  const buffers = windowPaneStore.getState().buffers.filter((b) => b.workspaceId === workspaceId)
-  await reconcileRestoredBuffers(workspaceId, buffers)
-}
-
-/**
- * Recompute the dirty flag for a restored editor buffer. Persistence stores
- * the full buffer (content + savedContent + isDirty), but a buffer whose
- * content diverges from savedContent must always show as dirty after a
- * reload — even if the persisted snapshot raced and saved isDirty=false.
- */
-function restoreBufferDirtyState(buffer: PaneContent): PaneContent {
-  if (!isPersistableContent(buffer)) return buffer
-  return { ...buffer, isDirty: buffer.isDirty || buffer.content !== buffer.savedContent }
-}
-
-/**
- * BUG-026/BUG-013: restored buffers may be stale — the file can change on
- * disk while the app is closed. Reconcile every restored real-file editor
- * buffer with disk using the same policy as live external FS events:
- * clean buffers silently reload, dirty buffers keep edits and get flagged
- * with hasExternalChange + a toast.
- *
- * Unlike a live FS event, at restore time we don't know whether the file
- * actually changed, so we first compare disk against savedContent and only
- * invoke syncBufferWithDisk when they diverge — otherwise every dirty
- * buffer would get a false "changed on disk" toast on every reload.
- */
-async function reconcileRestoredBuffers(
-  workspaceId: string,
-  buffers: PaneContent[],
-): Promise<void> {
-  const realFileBuffers = buffers.filter(isPersistableContent)
-  if (realFileBuffers.length === 0) return
-  await Promise.allSettled(
-    realFileBuffers.map(async (buffer) => {
-      // isPersistableContent buffers always have a real path (openContent
-      // requires one for 'editor'); skip defensively if that ever breaks.
-      if (!buffer.path) return
-      // Read from the hydrating workspace explicitly: hydration can still be
-      // in flight when the user switches workspaces, and the active-workspace
-      // readFile would then load the sibling worktree's file into this store.
-      let diskContent: string | null
-      try {
-        diskContent = await readWorkspaceFile(workspaceId, buffer.path)
-      } catch (err) {
-        // BUG-001: a 404 means the file is gone (e.g. its worktree was
-        // deleted). Mark a clean buffer terminally so the pane shows a "file
-        // not found" placeholder and nothing re-fetches the dead path. A
-        // dirty buffer keeps its editor: the unsaved edits are the only copy
-        // left, and saving recreates the file. Other errors (network, 5xx)
-        // stay silent and non-terminal as before.
-        if (isNotFoundError(err) && !buffer.isDirty) {
-          setBufferFileMissing(workspaceId, buffer.path, true)
-        }
-        return
-      }
-      // The file is back (or was never gone) — clear a stale missing flag
-      // that may have been persisted by a previous session.
-      if (buffer.fileMissing) setBufferFileMissing(workspaceId, buffer.path, false)
-      if (diskContent === buffer.savedContent) return
-      await syncBufferWithDisk(workspaceId, buffer.path)
-    }),
-  )
-}
-
-function setBufferFileMissing(workspaceId: string, path: string, fileMissing: boolean): void {
-  windowPaneStore.setState((state) => ({
-    buffers: state.buffers.map((b) =>
-      isEditorContent(b) && !b.isVirtual && b.path === path && b.workspaceId === workspaceId
-        ? { ...b, fileMissing }
-        : b,
-    ),
-  }))
-}
-
 export async function hydrateSidebar(): Promise<void> {
   const sidebarUI = await loadSidebarUI()
   if (!sidebarUI) return
-  // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
-  // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
-  useSidebarStore.setState({
-    // Absent on a record written before the Chats panel was collapsible —
-    // replays as "nothing folded", the product default (see schemas.ts).
-    collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
+  // Retired keys the pre-restyle tree wrote (see schemas.ts), never replayed.
+  treeUiStore.setState({
+    // Absent on older records: replays as "nothing folded", the product default.
+    collapsed: new Set(sidebarUI.collapsedChatRows ?? []),
     activeTab: parseSidebarTab(sidebarUI.activeTab),
     hostFilter: sidebarUI.hostFilter ?? '',
     lastProjectByHost: sidebarUI.lastProjectByHost ?? {},

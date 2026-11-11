@@ -36,17 +36,20 @@ func newLiveRig(t *testing.T) (*rig, *modelServer) {
 	model := newModelServer(t)
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
-	kit.IsolateProviderHomes(t)
+	homes := kit.IsolateProviderHomes(t)
 	t.Setenv("ANTHROPIC_BASE_URL", model.URL)
 	t.Setenv("ANTHROPIC_API_KEY", liveAPIKey)
 	t.Setenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
 	t.Setenv("DISABLE_TELEMETRY", "1")
 	t.Setenv("LIVE_OPENAI_KEY", "live")
-	require.NoError(t, os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "config.toml"), []byte(
+	require.NoError(t, os.WriteFile(filepath.Join(kit.RequireProviderHomeIn(t, kit.CodexHomeEnv, homes), "config.toml"), []byte(
 		"model = \"gpt-live\"\nmodel_provider = \"live\"\n[model_providers.live]\nname = \"live\"\n"+
 			"base_url = \""+model.URL+"/v1\"\nwire_api = \"responses\"\nenv_key = \"LIVE_OPENAI_KEY\"\n"), 0o600))
 	scratch := t.TempDir()
-	r := &rig{t: t, home: home, script: filepath.Join(scratch, "unused.yaml"), log: filepath.Join(scratch, "unused.log")}
+	r := &rig{
+		t: t, home: home, providers: homes,
+		script: filepath.Join(scratch, "unused.yaml"), log: filepath.Join(scratch, "unused.log"),
+	}
 	r.d = bootDaemon(t, home)
 	t.Cleanup(func() { r.d.stop() })
 	r.wsID = r.workspace(kit.InitRepo(t))
@@ -60,7 +63,7 @@ const liveAPIKey = "sk-ant-api03-livelivelivelivelivelivelive"
 // key approved, the worktree trusted.
 func trustForClaude(t *testing.T, r *rig) {
 	t.Helper()
-	path := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".claude.json")
+	path := filepath.Join(kit.RequireProviderHomeIn(t, kit.ClaudeHomeEnv, r.providers), ".claude.json")
 	cfg := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(raw, &cfg)
@@ -118,7 +121,6 @@ func TestLive_TurnsContinueAndResumeTheSameSession(t *testing.T) {
 			r.eventually(r.replied(chatID, 3), "the revived real CLI never answered")
 
 			assert.Len(t, r.sessions(chatID), 1, "the revive resumed the same vendor session")
-			assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung)
 			assert.True(t, slices.Contains(r.said(chatID), "user: after a stop"), "%q\nhooks:\n%s", r.said(chatID), r.d.hooks)
 		})
 	}
@@ -166,7 +168,6 @@ func TestLive_CodexTerminalBeforeAnyTurnAndBack(t *testing.T) {
 	r.eventually(r.replied(chatID, 2), "the chat surface never answered")
 
 	assert.Equal(t, before, r.sessions(chatID), "the chat surface resumed the TUI's session, starting none")
-	assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung)
 }
 
 // A real codex chat born in its TUI moves to Crowbar's chat on the same
@@ -174,7 +175,7 @@ func TestLive_CodexTerminalBeforeAnyTurnAndBack(t *testing.T) {
 func TestLive_TerminalChatsMoveToTheChat(t *testing.T) {
 	r, _ := newLiveRig(t)
 	ctx := context.Background()
-	codexChat, err := r.d.app.Usecases.AgentChat.MintChat(ctx, r.wsID, "codex", "terminal")
+	codexChat, err := r.d.app.Usecases.AgentChat.MintChat(ctx, "", r.wsID, "codex", "terminal")
 	require.NoError(t, err)
 	_, err = r.runners().StartRunner(ctx, codexChat, "codex")
 	require.NoError(t, err)
@@ -206,24 +207,28 @@ func TestLive_SwitchToCodexThenItsTerminal(t *testing.T) {
 	chatID := r.spawn("claude")
 	require.NoError(t, r.send(chatID, "first"))
 	r.eventually(r.replied(chatID, 1), "claude never answered")
+	before, ok := r.snapshot(chatID).Conversation()
+	require.True(t, ok)
 
-	_, err := r.runners().SwitchProvider(ctx, chatID, "codex")
+	_, err := r.runners().SwitchProvider(ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	_, err = r.runners().SwitchToTerminal(ctx, chatID)
 	require.NoError(t, err)
 	require.NoError(t, r.send(chatID, "codex in its terminal"))
 	r.eventually(r.replied(chatID, 2), "codex's TUI never answered")
 
-	_, err = r.runners().SwitchProvider(ctx, chatID, "claude")
+	_, err = r.runners().SwitchProvider(ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	require.NoError(t, r.send(chatID, "claude again"))
 	r.eventually(r.replied(chatID, 3), "claude never answered again")
-	assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung, "claude resumed its own session")
+	after, ok := r.snapshot(chatID).Conversation()
+	require.True(t, ok)
+	assert.Equal(t, before.SessionID, after.SessionID, "claude resumed its own session")
 }
 
-// A vendor session the CLI no longer has continues on a fresh one handed the
-// transcript — with the real CLIs, which exit on an unknown session.
-func TestLive_LostSessionContinuesFromTheTranscript(t *testing.T) {
+// A vendor session the CLI no longer has is lost — the real CLIs exit on an
+// unknown session — and the next message starts a fresh one.
+func TestLive_LostSessionStartsFresh(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			r, _ := newLiveRig(t)
@@ -232,12 +237,13 @@ func TestLive_LostSessionContinuesFromTheTranscript(t *testing.T) {
 			r.eventually(r.replied(chatID, 1), "the first real turn never landed")
 			require.NoError(t, r.runners().StopChat(context.Background(), chatID))
 			r.dormantSaying(chatID, domain.AgentExitStopped)
-			removeSessionFiles(t)
+			r.removeSessionFiles()
 
-			require.NoError(t, r.send(chatID, "still there?"))
+			r.sendToALostSession(chatID, provider, "still there?")
+			require.NoError(t, r.send(chatID, "start again"))
 			r.eventually(r.replied(chatID, 2), "a lost session stranded the chat")
-			assert.Equal(t, domain.AgentRungTranscript, r.snapshot(chatID).Session.Rung)
 			assert.Len(t, r.sessions(chatID), 2, "a new vendor session carries the chat on: %v\nhooks:\n%s", r.said(chatID), r.d.hooks)
+			assert.Equal(t, 1, r.lostSessions(chatID), "the new session is not lost")
 		})
 	}
 }

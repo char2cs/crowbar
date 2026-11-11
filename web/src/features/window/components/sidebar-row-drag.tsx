@@ -70,11 +70,8 @@ function hitAt(x: number, y: number, drop: NativeRowDrop | null): Hit | null {
   return mode ? { id, mode } : null
 }
 
-/**
- * Press-and-hold reordering for the phone's chat list: the page draws the lift and the
- * indicator, and the main webview, which knows the desktop's drop rules, answers where the
- * row may land (`drop`) and carries out the move.
- */
+/** Phone chat-list reordering: the page draws the lift and indicator; the main webview, which
+ *  knows the desktop's drop rules, answers where the row may land (`drop`) and moves it. */
 export function RowDragScope({
   drop,
   overlay,

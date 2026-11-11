@@ -1,22 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 
 vi.mock('@/features/agent/lib/kill-agent', () => ({ confirmAndKillAgent: vi.fn() }))
 
 import { useKillAgentMenuItems } from '@/features/agent/hooks/use-kill-agent-menu-items'
 import { confirmAndKillAgent } from '@/features/agent/lib/kill-agent'
-import { useActiveSessionsStore } from '@/lib/store/active-sessions'
+import { runChat } from '@/__tests__/__fixtures__/running-chats'
+import { resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
-const runThread = () =>
-  useActiveSessionsStore.getState().applyFrame('repo:r1', {
-    chatId: 'c1',
-    kind: 'started',
-    chat: { id: 'c1', workspaceId: 'ws-1', title: 'A thread', liveRunnerId: 'run-1' },
-  })
+const runThread = (viewers = 0) => runChat('c1', { title: 'A thread', viewers })
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useActiveSessionsStore.setState({ sessions: {}, attached: {} })
+  resetHostWorld()
+  resetEntities()
 })
 
 describe('useKillAgentMenuItems', () => {
@@ -35,16 +33,26 @@ describe('useKillAgentMenuItems', () => {
   })
 
   it('kills the chat’s agent, with its viewer count, once chosen', () => {
-    runThread()
-    useActiveSessionsStore
-      .getState()
-      .applyFrame('repo:r1', { chatId: 'c1', kind: 'attached', attached: 2 })
+    runThread(2)
     const { result } = renderHook(() => useKillAgentMenuItems('c1'))
 
     result.current.find((item) => item.id === 'kill-agent')!.onClick()
 
     expect(confirmAndKillAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ chatId: 'c1', workspaceId: 'ws-1', attached: 2 }),
+      expect.objectContaining({ hostId: 'local', chatId: 'c1', workspaceId: 'ws-1', viewers: 2 }),
+    )
+  })
+
+  it("kills a paired host's agent on that host", async () => {
+    pairRemoteHost('host-1')
+    await act(async () => {})
+    act(() => runChat('c-r', { hostId: 'host-1' }))
+    const { result } = renderHook(() => useKillAgentMenuItems('c-r'))
+
+    result.current.find((item) => item.id === 'kill-agent')!.onClick()
+
+    expect(confirmAndKillAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ hostId: 'host-1', chatId: 'c-r' }),
     )
   })
 })

@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // DELETE .../repos/:r drops the Repository row and its workspaces but never
@@ -31,15 +33,15 @@ func TestRegression_DeletedRepoLeavesAGhostNodeInItsHomeFolder(t *testing.T) {
 	h.raw(http.MethodPatch, "/v0/projects/"+p+"/repos/"+imported.repoID,
 		map[string]any{"folderId": folder.ID, "order": 0}, http.StatusNoContent).Body.Close()
 	h.Quiesce()
-	reposWS := h.dial("/v0/projects/" + p + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	h.raw(http.MethodDelete, "/v0/projects/"+p+"/repos/"+imported.repoID, nil, http.StatusAccepted).Body.Close()
 	// The delete runs off the request path; its tombstone frame is the signal.
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == imported.repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 
-	_, err := h.app.Repositories.Node.GetNode(context.Background(), imported.repoID)
+	_, err := h.app.Repositories.Placement.GetNode(context.Background(), imported.repoID)
 	t.Logf("deleted repo's Node row after delete: err=%v", err)
 	assert.Error(t, err, "a deleted repo must not keep a Node row")
 

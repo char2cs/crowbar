@@ -1,20 +1,16 @@
 package handlers_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func answerRequest(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {
@@ -48,7 +44,7 @@ func TestAnswerChoice_ForwardsThePicksVerbatim(t *testing.T) {
 }
 
 func TestAnswerChoice_APromptNobodyIsWaitingOnIsAConflict(t *testing.T) {
-	uc := &fakeAgentUsecase{answerErr: apperr.ErrConflict}
+	uc := &fakeAgentUsecase{answerErr: problem.ErrConflict}
 	ctx, rec := answerRequest(t, `{"optionIds":["allow"]}`)
 
 	newChatHandlers(inWorkspace(uc)).AnswerChoice(ctx)
@@ -82,147 +78,22 @@ func TestAnswerChoice_RejectsAnEmptyOrMalformedDecision(t *testing.T) {
 	}
 }
 
-func TestHooks_AnAnswerablePromptTellsTheRelayToWait(t *testing.T) {
-	uc := &fakeAgentUsecase{
-		pendingAwait:  true,
-		pendingAnswer: agentusecase.PendingAnswer{ChoiceID: "c1", Wait: 270 * time.Second},
-	}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks",
-		[]byte(`{"delivery_id":"d1","segment_id":"seg","provider":"claude",`+
-			`"event":"permission","payload_raw":"{}"}`))
+// A held ask nobody decided in time answers with no body: the CLI asks it itself.
+func TestHTTPHook_AHeldAskNobodyDecidedAnswersEmpty(t *testing.T) {
+	uc := &fakeAgentUsecase{validToken: "tok", hookAsk: "c1", pendingAwait: true}
+	ctx, rec := newHTTPHookContext(t, "tok", []byte(`{}`))
 
-	newChatHandlers(uc).Hooks(ctx)
+	newChatHandlers(uc).HTTPHook(ctx)
 
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	var envelope struct {
-		Data struct {
-			Await struct {
-				ChoiceID string `json:"choiceId"`
-				WaitMS   int64  `json:"waitMs"`
-			} `json:"await"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	assert.Equal(t, "c1", envelope.Data.Await.ChoiceID)
-	assert.Equal(t, int64(270_000), envelope.Data.Await.WaitMS)
-}
-
-func TestRegression_HooksKeepsTheBare202WhenNothingIsAnswerable(t *testing.T) {
-	uc := &fakeAgentUsecase{}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks",
-		[]byte(`{"delivery_id":"d1","segment_id":"seg","provider":"codex",`+
-			`"event":"permission","payload_raw":"{}"}`))
-
-	newChatHandlers(uc).Hooks(ctx)
-
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Empty(t, rec.Body.String())
 }
 
-func TestAwaitHookAnswer_ServesTheRenderedVerdict(t *testing.T) {
-	uc := &fakeAgentUsecase{awaitAnswer: agentusecase.HookAnswer{
-		Stdout: []byte(`{"hookSpecificOutput":{"hookEventName":"PermissionRequest"}}`),
-	}}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
-		[]byte(`{"delivery_id":"d1"}`))
+func TestHTTPHook_AFailedWaitIsMapped(t *testing.T) {
+	uc := &fakeAgentUsecase{validToken: "tok", hookAsk: "c1", pendingAwait: true, awaitErr: problem.ErrUnavailable}
+	ctx, rec := newHTTPHookContext(t, "tok", []byte(`{}`))
 
-	newChatHandlers(uc).AwaitHookAnswer(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, []string{"d1"}, uc.awaitCalls)
-	assert.Contains(t, rec.Body.String(), "hookSpecificOutput")
-}
-
-func TestAwaitHookAnswer_NoDecisionIsStillA200(t *testing.T) {
-	uc := &fakeAgentUsecase{}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
-		[]byte(`{"delivery_id":"d1"}`))
-
-	newChatHandlers(uc).AwaitHookAnswer(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"stdout":""`)
-}
-
-func TestAwaitHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
-	for _, body := range []string{"{", `{}`, `{"delivery_id":""}`} {
-		uc := &fakeAgentUsecase{}
-		ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await", []byte(body))
-
-		newChatHandlers(uc).AwaitHookAnswer(ctx)
-
-		assert.Equal(t, http.StatusBadRequest, rec.Code, "body %q", body)
-		assert.Empty(t, uc.awaitCalls)
-	}
-}
-
-func TestAbandonHookAnswer_ReportsAndAcknowledges(t *testing.T) {
-	uc := &fakeAgentUsecase{}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon",
-		[]byte(`{"delivery_id":"d1"}`))
-
-	newChatHandlers(uc).AbandonHookAnswer(ctx)
-
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, []string{"d1"}, uc.abandonCalls)
-}
-
-func TestAbandonHookAnswer_RejectsARequestWithNoDelivery(t *testing.T) {
-	for _, body := range []string{"{", `{"delivery_id":""}`} {
-		uc := &fakeAgentUsecase{}
-		ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon", []byte(body))
-
-		newChatHandlers(uc).AbandonHookAnswer(ctx)
-
-		assert.Equal(t, http.StatusBadRequest, rec.Code, "body %q", body)
-		assert.Empty(t, uc.abandonCalls)
-	}
-}
-
-func TestAbandonHookAnswer_SurfacesAFailure(t *testing.T) {
-	uc := &fakeAgentUsecase{abandonErr: apperr.ErrUnavailable}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/abandon",
-		[]byte(`{"delivery_id":"d1"}`))
-
-	newChatHandlers(uc).AbandonHookAnswer(ctx)
+	newChatHandlers(uc).HTTPHook(ctx)
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-}
-
-func TestAwaitHookAnswer_SurfacesAFailure(t *testing.T) {
-	uc := &fakeAgentUsecase{awaitErr: apperr.ErrUnavailable}
-	ctx, rec := newTestContext(t, http.MethodPost, "/v0/x/chats/hooks/await",
-		[]byte(`{"delivery_id":"d1"}`))
-
-	newChatHandlers(uc).AwaitHookAnswer(ctx)
-
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-}
-
-func TestChoices_StampWhetherAPromptCanStillBeAnswered(t *testing.T) {
-	uc := &fakeAgentUsecase{
-		pending: []domain.ActivityChoice{
-			{ID: "c1", Kind: domain.ChoiceKindPermission, At: activityAt},
-			{ID: "c2", Kind: domain.ChoiceKindPermission, At: activityAt},
-		},
-		answerable: []string{"c1"},
-	}
-	ctx, rec := scoped(t, "/choices")
-
-	newChatHandlers(inWorkspace(uc)).Choices(ctx)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var envelope struct {
-		Data []struct {
-			ID         string `json:"id"`
-			Pending    bool   `json:"pending"`
-			Answerable bool   `json:"answerable"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
-	require.Len(t, envelope.Data, 2)
-	assert.True(t, envelope.Data[0].Pending)
-	assert.True(t, envelope.Data[0].Answerable)
-	assert.True(t, envelope.Data[1].Pending)
-	assert.False(t, envelope.Data[1].Answerable)
 }

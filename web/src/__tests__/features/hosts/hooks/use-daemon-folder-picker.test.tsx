@@ -1,13 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch: vi.fn(),
 }))
 vi.mock('@/lib/native-dialog', () => ({ openNativeDialog: vi.fn() }))
 
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { openNativeDialog } from '@/lib/native-dialog'
 import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'

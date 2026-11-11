@@ -13,10 +13,12 @@ func (richMappings) Name() string { return "rich event mappings" }
 func (richMappings) Check(d *spec.Descriptor) error {
 	kinds := map[string]struct{}{
 		"read": {}, "edit": {}, "execute": {}, "search": {}, "fetch": {}, "other": {},
+		"mcp": {}, "subagent": {}, "plan": {}, "meta": {}, "ask": {},
 	}
 	statuses := map[string]struct{}{
 		"pending": {}, "active": {}, "running": {}, "completed": {}, "ok": {},
-		"failed": {}, "error": {}, "declined": {}, "interrupted": {}, "abandoned": {},
+		"failed": {}, "error": {}, "declined": {}, "interrupted": {}, "abandoned": {}, "done": {}, "removed": {},
+		"cleared": {},
 	}
 	names := make([]string, 0, len(d.Events))
 	for name := range d.Events {
@@ -38,11 +40,30 @@ func checkRichEvent(id, name string, event spec.EventSpec, kinds, statuses map[s
 	if event.Locations != nil && (event.Locations.Items == "" || event.Locations.Path == "") {
 		return invalid(id, "events[%s].locations: items and path are required", name)
 	}
-	if f := event.DiffFiles; f != nil && (f.Items == "" || f.Path == "" || f.Diff == "") {
-		return invalid(id, "events[%s].diff_files: items, path and diff are required", name)
+	if err := checkDiffFiles(id, name, event.DiffFiles); err != nil {
+		return err
 	}
 	if p := event.Patch; p != nil && (p.Items == "" || p.OldStart == "" || p.NewStart == "" || p.Lines == "") {
 		return invalid(id, "events[%s].patch: items, old_start, new_start and lines are required", name)
+	}
+	return nil
+}
+
+func checkDiffFiles(id, name string, f *spec.DiffFilesSpec) error {
+	if f == nil {
+		return nil
+	}
+	if f.Items == "" || f.Path == "" || f.Diff == "" {
+		return invalid(id, "events[%s].diff_files: items, path and diff are required", name)
+	}
+	if len(f.Whole) > 0 && f.Kind == "" {
+		return invalid(id, "events[%s].diff_files: whole needs kind", name)
+	}
+	for word, whole := range f.Whole {
+		if whole != spec.DiffAdded && whole != spec.DiffDeleted {
+			return invalid(id, "events[%s].diff_files.whole[%s]: %q is neither %s nor %s",
+				name, word, whole, spec.DiffAdded, spec.DiffDeleted)
+		}
 	}
 	return nil
 }

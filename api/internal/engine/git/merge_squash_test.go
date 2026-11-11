@@ -98,3 +98,87 @@ func TestMergeSquash_NoNetChange_ReturnsNil(
 	require.NoError(t, err)
 	assert.Equal(t, parentTipBefore, headSHA(t, repo), "parent must be unchanged")
 }
+
+// A squash into a parent holding the user's staged work is refused before it
+// starts: committing would take that work into the squash, undoing would drop it.
+func TestMergeSquash_RefusesAParentWithStagedWork(t *testing.T) {
+	for name, edit := range map[string]string{"staged": "", "staged then edited": "edited\n"} {
+		t.Run(name, func(t *testing.T) {
+			repo := initRepo(t)
+			makeCommit(t, repo, "base.txt", "base\n", "base")
+			gitRun(t, repo, "checkout", "-b", "p1")
+			makeCommit(t, repo, "p1.txt", "p1\n", "p1")
+			gitRun(t, repo, "checkout", "main")
+			require.NoError(t, os.WriteFile(filepath.Join(repo, "mine.txt"), []byte("mine\n"), 0o600))
+			gitRun(t, repo, "add", "mine.txt")
+			if edit != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(repo, "mine.txt"), []byte(edit), 0o600))
+			}
+			failingHook(t, repo, "pre-commit")
+
+			err := git.New().MergeSquash(context.Background(), repo, "p1", "squash p1")
+
+			require.ErrorIs(t, err, git.ErrDirtyTree)
+			assert.Equal(t, "mine.txt", gitOutput(t, repo, "diff", "--cached", "--name-only"), "only the user's work is staged")
+			assert.Equal(t, "mine", gitOutput(t, repo, "show", ":mine.txt"))
+			assert.FileExists(t, filepath.Join(repo, "mine.txt"))
+		})
+	}
+}
+
+// A squash with no net change commits nothing and leaves no squash pending.
+func TestMergeSquash_NoNetChangeLeavesNothingInProgress(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "base.txt", "base\n", "base")
+	gitRun(t, repo, "checkout", "-b", "c")
+	makeCommit(t, repo, "x.txt", "x\n", "x")
+	gitRun(t, repo, "revert", "--no-edit", "HEAD")
+	gitRun(t, repo, "checkout", "main")
+	e := git.New()
+
+	require.NoError(t, e.MergeSquash(context.Background(), repo, "c", "squash c"))
+
+	op, err := e.OperationInProgress(context.Background(), repo)
+	require.NoError(t, err)
+	assert.Empty(t, op)
+}
+
+// An intent-to-add entry is staged work too: a squash committing over it, then
+// refused by a hook, could not be undone (`reset --merge` rejects ita entries).
+func TestMergeSquash_RefusesAParentWithAnIntentToAddEntry(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "base.txt", "base\n", "base")
+	gitRun(t, repo, "checkout", "-b", "p1")
+	makeCommit(t, repo, "p1.txt", "p1\n", "p1")
+	gitRun(t, repo, "checkout", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "ita.txt"), []byte("mine\n"), 0o600))
+	gitRun(t, repo, "add", "-N", "ita.txt")
+	failingHook(t, repo, "pre-commit")
+	before := gitOutput(t, repo, "status", "--porcelain=v2")
+	e := git.New()
+
+	err := e.MergeSquash(context.Background(), repo, "p1", "squash p1")
+
+	require.ErrorIs(t, err, git.ErrDirtyTree)
+	assert.Equal(t, before, gitOutput(t, repo, "status", "--porcelain=v2"), "the user's ita entry is left as found")
+	assert.NoFileExists(t, filepath.Join(repo, ".git", "SQUASH_MSG"))
+	op, opErr := e.OperationInProgress(context.Background(), repo)
+	require.NoError(t, opErr)
+	assert.Empty(t, op)
+}
+
+// A parent branch with no commit yet has no HEAD to squash onto: refused in
+// plain words, not as git's own error.
+func TestMergeSquash_RefusesAParentWithNoCommitYet(t *testing.T) {
+	repo := initRepo(t)
+	makeCommit(t, repo, "base.txt", "base\n", "base")
+	gitRun(t, repo, "branch", "p1")
+	gitRun(t, repo, "switch", "-q", "--orphan", "empty")
+	e := git.New()
+
+	err := e.MergeSquash(context.Background(), repo, "p1", "squash p1")
+
+	require.ErrorIs(t, err, git.ErrDirtyTree)
+	assert.Equal(t, "the parent branch has no commits yet: commit to it first, then merge again", err.Error())
+	assert.Empty(t, gitOutput(t, repo, "status", "--porcelain"))
+}

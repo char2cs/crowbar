@@ -43,44 +43,120 @@ func TestValidateAll_AnOverrideShadowsTheShippedDescriptor(t *testing.T) {
 	}
 }
 
-// A user who copied the pre-audit shipped descriptor into ~/.crowbar/descriptors
-// has an override the current rules refuse (retired keys, hooks no longer
-// wired the old way). It must not take the provider down: the shipped
-// descriptor runs, and the status report says the override was refused and why.
-func TestValidateAll_AnOverrideCopiedFromAnOldShippedDescriptorFallsBack(t *testing.T) {
-	for _, id := range []string{"claude", "codex"} {
-		t.Run(id, func(t *testing.T) {
-			home := t.TempDir()
-			dir := filepath.Join(home, "descriptors")
-			require.NoError(t, os.MkdirAll(dir, 0o750))
-			old, err := os.ReadFile(filepath.Join("testdata", "base-70ec430", id+".yaml"))
-			require.NoError(t, err)
-			// Renamed so the test can tell which document actually runs.
-			old = []byte(strings.Replace(string(old), "display_name: ", "display_name: My ", 1))
-			override := filepath.Join(dir, id+".yaml")
-			require.NoError(t, os.WriteFile(override, old, 0o600))
-
-			reports, err := descriptorcheck.ValidateAll(home)
-			require.NoError(t, err)
-			var rep descriptorcheck.Report
-			for _, r := range reports {
-				if r.ID == id {
-					rep = r
-				}
-			}
-			assert.Equal(t, override, rep.Source)
-			assert.True(t, rep.FellBack, "the shipped descriptor runs in its place")
-			findingFor(t, rep, "hooks.in_config_injection")
-			assert.False(t, descriptorcheck.AcceptOverride(old))
-
-			require.NoError(t, descriptorcheck.NewGate().Require(home, id),
-				"the provider stays enabled on the shipped descriptor")
-			a, err := agents.New(agents.WithOverrideCheck(descriptorcheck.AcceptOverride)).
-				Get(context.Background(), home, id)
-			require.NoError(t, err)
-			assert.NotContains(t, a.Display().Name, "My ", "the refused override is not what runs")
-		})
+func errorRules(rep descriptorcheck.Report) []string {
+	var out []string
+	for _, f := range rep.Findings {
+		if f.Severity == descriptorcheck.SeverityError {
+			out = append(out, f.Rule)
+		}
 	}
+	return out
+}
+
+// shippedAs is the shipped claude descriptor as a user's file: renamed so a test
+// can tell which document runs, under id, then edited.
+func shippedAs(t *testing.T, id string, edit func(string) string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	doc := strings.Replace(string(raw), "display_name: ", "display_name: My ", 1)
+	doc = strings.Replace(doc, "\nid: claude\n", "\nid: "+id+"\n", 1)
+	edited := edit(doc)
+	require.NotEqual(t, doc, edited, "the edit applies")
+	return []byte(edited)
+}
+
+func writeDescriptor(t *testing.T, home, id string, raw []byte) string {
+	t.Helper()
+	path := filepath.Join(home, "descriptors", id+".yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
+	return path
+}
+
+// The schema is pre-release and nothing is carried over: an override written for
+// another schema is refused, says so, and the shipped descriptor runs. The file
+// stays exactly as the user wrote it.
+func TestValidateAll_AnOverrideForAnotherSchemaFallsBackUntouched(t *testing.T) {
+	home := t.TempDir()
+	doc := shippedAs(t, "claude", func(s string) string {
+		return strings.Replace(s, "\nid: claude\n", "\nid: claude\nschema_version: 3\n", 1)
+	})
+	override := writeDescriptor(t, home, "claude", doc)
+
+	rep := reportFor(t, home, "claude")
+	assert.True(t, rep.FellBack)
+	f := findingFor(t, rep, "schema.version")
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+	assert.Positive(t, f.Line)
+	assert.Contains(t, f.Message, "written for schema 3")
+	assert.Contains(t, f.Hint, "pre-release")
+	require.NoError(t, descriptorcheck.NewGate().Require(home, "claude"), "the shipped descriptor runs")
+	a, err := agents.New(agents.WithOverrideCheck(descriptorcheck.AcceptOverride)).Get(context.Background(), home, "claude")
+	require.NoError(t, err)
+	assert.NotContains(t, a.Display().Name, "My ")
+	got, err := os.ReadFile(override)
+	require.NoError(t, err)
+	assert.Equal(t, doc, got, "the user's file is never rewritten")
+}
+
+// A custom descriptor in an older shape is blocked, never dropped: it is
+// reported at the retired key with what to do, and the gate refuses it.
+func TestValidateAll_ACustomDescriptorOfAnOlderShapeIsBlockedWithItsFix(t *testing.T) {
+	home := t.TempDir()
+	doc := shippedAs(t, "mine", func(s string) string {
+		return strings.Replace(s, "\nsession:\n", "\nsession:\n  locate: { root: \"~/x\" }\n", 1)
+	})
+	writeDescriptor(t, home, "mine", doc)
+
+	rep := reportFor(t, home, "mine")
+	assert.False(t, rep.FellBack, "there is no shipped descriptor to run instead")
+	assert.Equal(t, []string{"yaml.unknown_field"}, errorRules(rep))
+	f := findingFor(t, rep, "yaml.unknown_field")
+	assert.Equal(t, "session.locate", f.Path)
+	assert.Positive(t, f.Line)
+	assert.NotEmpty(t, f.Hint)
+	require.ErrorIs(t, descriptorcheck.NewGate().Require(home, "mine"), descriptorcheck.ErrBlocked)
+}
+
+func TestValidate_ADescriptorFromAnotherSchemaNamesBoth(t *testing.T) {
+	rep := descriptorcheck.Validate([]byte("id: x\nschema_version: 9\n"))
+	f := findingFor(t, rep, "schema.version")
+	assert.Equal(t, "x", rep.ID)
+	assert.Equal(t, 2, f.Line)
+	assert.Contains(t, f.Message, "written for schema 9 (line 2), this build reads 0")
+}
+
+func reportFor(t *testing.T, home, id string) descriptorcheck.Report {
+	t.Helper()
+	reports, err := descriptorcheck.ValidateAll(home)
+	require.NoError(t, err)
+	for _, r := range reports {
+		if r.ID == id {
+			return r
+		}
+	}
+	t.Fatalf("no report for %s in %+v", id, reports)
+	return descriptorcheck.Report{}
+}
+
+// The real migration case: an override in today's vocabulary whose hooks still
+// run the retired relay is refused once, by the finding that names the replacement.
+func TestValidate_AShippedDescriptorStillWiredToTheRelayIsRefused(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	relayed := strings.Replace(string(raw), "{hook_curl} {hook_url}/telemetry", "{crowbar_hook} hook telemetry --segment {segid}", 1)
+	require.NotEqual(t, string(raw), relayed, "the shipped descriptor posts its telemetry through curl")
+
+	rep := descriptorcheck.Validate([]byte(relayed))
+	f := findingFor(t, rep, "hooks.relay_retired")
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+	assert.True(t, strings.HasPrefix(f.Path, "hooks_injection["), f.Path)
+	assert.Equal(t, "post hooks to {hook_url}/<event> (HTTP) or through {hook_curl}", f.Hint)
+	for _, other := range rep.Findings {
+		assert.NotEqual(t, "template.unknown_var", other.Rule, "one cause, one finding")
+	}
+	assert.False(t, descriptorcheck.AcceptOverride([]byte(relayed)))
 }
 
 // An override with no shipped default to fall back to is still blocked.
@@ -147,7 +223,7 @@ func complete(extra string) []byte {
 }
 
 const completeLifecycle = `hooks_injection:
-  - pass_arg: { arg: --hook, value: "{crowbar_hook} hook any --segment {segid}" }
+  - pass_arg: { arg: --hook, value: "{hook_curl} {hook_url}" }
 events:
   session_start: { required: [session_id], in: SessionStart, map: { session_id: session_id } }
   user_prompt: { required: [session_id], in: UserPromptSubmit, map: { session_id: session_id, message: prompt } }

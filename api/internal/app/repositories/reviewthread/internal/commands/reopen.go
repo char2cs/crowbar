@@ -29,7 +29,7 @@ func (c ReopenReviewThread) Validate(
 	current *domain.ReviewThread,
 ) error {
 	if current == nil {
-		return fmt.Errorf("reopen review thread: %w", asynxModels.ErrValidation)
+		return domain.ReviewThreadNotFound(asynxModels.ErrValidation)
 	}
 	if current.Status != domain.ReviewThreadStatusResolved {
 		return fmt.Errorf("reopen review thread: not resolved: %w", asynxModels.ErrValidation)

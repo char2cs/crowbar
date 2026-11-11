@@ -1,19 +1,14 @@
-import { useCallback, useImperativeHandle, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { layoutHeight } from '@/lib/layout-size'
 import type { CSSProperties, KeyboardEvent, Ref } from 'react'
-import {
-  NodeApi,
-  PathApi,
-  PointApi,
-  RangeApi,
-  type Path,
-  type Point,
-  type TRange,
-  type Value,
-} from 'platejs'
+import { NodeApi, PointApi, RangeApi, type Descendant, type Value } from 'platejs'
 import type { PlateEditor } from 'platejs/react'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
-import { CodeBlockPlugin } from '@platejs/code-block/react'
+import {
+  insertAttachmentMarkdownInto,
+  insertPendingImageInto,
+  settlePendingImageInto,
+} from '@/features/agent/composer/plate/chat-attachment-insert'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatComposerStructurePlugin } from '@/features/agent/composer/plate/chat-composer-structure'
 import {
@@ -23,6 +18,7 @@ import {
 import { createChatPastePlugin } from '@/features/agent/composer/plate/chat-paste-plugin'
 import { cn } from '@/lib/utils'
 import { IS_MOBILE } from '@/utils/platform'
+import { forgetDraft, loadDraft, saveDraft } from '@/features/agent/composer/lib/draft-persistence'
 
 /** Whether the caret has anywhere left to go WITHIN the text — the box's own
  *  arrow-key history recall only fires at these edges, so moving through a
@@ -32,270 +28,128 @@ export interface CaretEdges {
   atEnd: boolean
 }
 
-/** What a caller OUTSIDE the editable can do to it — the same imperative-
- *  handle shape `AgentEmptyDocumentHandle` already uses for `getHandleRect`
- *  (`agent-empty-document.tsx`), for the same reason: the plus button, the
- *  Attach File modal, and the Excalidraw modal all live outside `<Plate>`'s
- *  own tree, so `useEditorRef` is not reachable from any of them. */
+// An imperative handle because the plus button and the attach/Excalidraw modals live outside
+// `<Plate>`'s tree, where `useEditorRef` cannot reach.
 export interface ChatMarkdownEditorHandle {
-  /**
-   * Inserts a block-level node at the current selection (end of document if
-   * there is none), built by deserializing `markdown` through this editor's
-   * own `chatComposerPlugins`-bound codec — the same path a paste of that
-   * text would take, so a fenced `text-attachment`/`excalidraw` block or an
-   * `![alt](ref)` image lands as the exact node shape the rendering-side
-   * plugins expect.
-   */
+  /** Inserts `markdown` at the selection (else the end) through the editor's own codec, so an
+   *  attachment block or image lands as the exact node shape a paste of it would. */
   insertAttachmentMarkdown(markdown: string): void
-  /**
-   * Inserts an image pointing at a local `objectUrl` (from
-   * `URL.createObjectURL`) — the preview a photo attachment shows
-   * immediately, before its upload even starts. Pair with
-   * `settlePendingImage` once the upload settles, one way or the other.
-   */
+  /** Inserts a local `objectUrl` image as the preview shown before its upload starts; pair
+   *  with `settlePendingImage` once the upload settles. */
   insertPendingImage(objectUrl: string, alt: string): void
-  /**
-   * Resolves a pending image previously inserted via `insertPendingImage`,
-   * found by its own `objectUrl`. `finalMarkdown` is the real `![alt](ref)`
-   * the upload resolved to — its `url` replaces the placeholder's in place;
-   * `null` means the upload failed, and the placeholder is removed instead.
-   */
+  /** Finds the pending image by `objectUrl`: swaps in `finalMarkdown`'s url in place, or
+   *  removes the placeholder when it is `null` (the upload failed). */
   settlePendingImage(objectUrl: string, finalMarkdown: string | null): void
+  /** The box's markdown: serialized here, once, for whoever sends it. */
+  getMarkdown(): string
+  /** Replaces the text, caret at its end, with a fresh undo history. */
+  setMarkdown(markdown: string): void
+  /** Adds blocks after the last one, leaving the caret where the person had it. */
+  appendMarkdown(markdown: string): void
+  /** Replaces the `@path` before the caret with `text`. */
+  completeMention(text: string): void
+  focus(): void
+  clear(): void
+}
+
+/** What the chat reads off the box while it is typed into, without markdown. */
+export interface ComposerShape {
+  empty: boolean
+  /** The text after a leading `/` on the first line, or null when there is none. */
+  slashQuery: string | null
+  /** The `@path` typed right before the caret, without its `@`; null when there is none. */
+  mentionQuery: string | null
+}
+
+// A list or quote paragraph is text-bearing markdown even when it has no letters;
+// a block id is the editor's bookkeeping, not markdown.
+function blankParagraph(node: Descendant): boolean {
+  const markup = Object.keys(node).filter((key) => key !== 'id' && key !== 'children')
+  if (!('type' in node) || node.type !== 'p' || markup.length > 1) return false
+  return NodeApi.string(node).trim() === ''
+}
+
+function mentionBefore(editor: PlateEditor): string | null {
+  const { selection } = editor
+  if (!selection || !RangeApi.isCollapsed(selection)) return null
+  const leaf = NodeApi.get(editor, selection.anchor.path)
+  const before = leaf && 'text' in leaf ? String(leaf.text).slice(0, selection.anchor.offset) : ''
+  return /(?:^|\s)@([^\s@]*)$/.exec(before)?.[1] ?? null
+}
+
+function shapeOf(editor: PlateEditor): ComposerShape {
+  const children = editor.children as Value
+  const first = children[0]
+  const line = first && 'type' in first && first.type === 'p' ? NodeApi.string(first) : ''
+  return {
+    empty: children.every(blankParagraph),
+    slashQuery: line.startsWith('/') ? line.slice(1) : null,
+    mentionQuery: mentionBefore(editor),
+  }
+}
+
+/** Loads markdown as if the box had just opened with it. */
+function loadMarkdown(editor: PlateEditor, markdown: string) {
+  editor.tf.replaceNodes(chatMarkdownToValue(markdown), { at: [], children: true })
+  editor.history.undos = []
+  editor.history.redos = []
+  const end = editor.api.end([])
+  if (end) editor.tf.select(end)
 }
 
 export interface ChatMarkdownEditorProps {
-  /** Feeds `createChatPastePlugin`'s `uploadChatAttachment` call for a pasted
-   *  image. Both production call sites (`composer-field.tsx`,
-   *  `agent-empty-document.tsx`) pass them; kept optional here rather than
-   *  required so a caller that genuinely can't supply them yet still gets a
-   *  working editor — paste interception simply does not register, and a
-   *  paste falls through to Slate's own default handling. */
+  /** Where a pasted image uploads. Without both ids the paste plugin is not registered and a
+   *  paste falls through to Slate's default handling. */
   wsId?: string
   chatId?: string
-  /** Markdown to open with. Read ONCE, at mount — see the note on remounting. */
-  initialValue: string
   placeholder: string
   ariaLabel: string
-  /** Fires with the document's markdown after any content change. */
-  onChange: (markdown: string) => void
-  /**
-   * Enter, Tab, arrows, Escape — the chat's own key handling.
-   *
-   * `readMarkdown` is the box's text AS IT STANDS, not as React last heard it.
-   * A key handler installed at render can be called by a keystroke that has not
-   * reached state yet, and submitting from state there sends the prompt one
-   * character short — or, on the first keystroke, empty.
-   */
+  /** Fires after every content change; never serializes. `edited` is false for
+   *  text loaded through `setMarkdown`/`clear`, true for anything else. */
+  onShapeChange: (shape: ComposerShape, edited: boolean) => void
+  /** The chat's own key handling. `readMarkdown` reads the editor as it stands: React state
+   *  can lag the keystroke, and sending from it drops the last character. */
   onKeyDown: (
     event: KeyboardEvent<HTMLDivElement>,
     readMarkdown: () => string,
     caret: CaretEdges,
+    shape: ComposerShape,
   ) => void
   /** The editable's measured height, for a control that rides its last line. */
   onHeightChange?: (height: number) => void
   autoFocus?: boolean
-  /** Focus on mount even on a phone: this box replaced one the person was typing in. */
-  focusOnMount?: boolean
   /** Combobox wiring for the chat's skill picker. */
   expanded?: boolean
   controls?: string
   className?: string
   style?: CSSProperties
   ref?: Ref<ChatMarkdownEditorHandle>
+  /** The chat whose unsent draft this box keeps across a reload or a remount. */
+  persistAs?: string
 }
 
-/** The path of an EMPTY paragraph ancestor at `at`, or null — used instead of
- *  the point itself so `insertNodes` inserts at that array index (pushing
- *  the still-empty paragraph after the new content) rather than splitting
- *  the paragraph at a text offset, which would leave two empty halves
- *  straddling the new content instead of one trailing one. Real (non-empty)
- *  text at `at` returns null, unchanged from before this existed: attaching
- *  something mid-sentence still inserts inline at that exact point. */
-function emptyParagraphPathAt(
-  editor: PlateEditor,
-  at: Point | Path | TRange | undefined,
-): Path | null {
-  if (!at) return null
-  const entry = editor.api.above({ at, match: { type: 'p' } })
-  if (!entry) return null
-  const [node, path] = entry
-  return NodeApi.string(node) === '' ? path : null
-}
-
-/** After inserting an attachment, lands the caret on a fresh, empty line
- *  right after it — reported live: there was nowhere to keep typing except
- *  clicking below the block yourself. A no-op beyond moving the caret if the
- *  document's last node is ALREADY an empty paragraph (either the ordinary
- *  empty draft an attachment was just inserted into, or the same trailing
- *  line a previous attachment already made) — insertAttachmentMarkdownInto's
- *  own `emptyParagraphPathAt` redirect is what keeps that ONE paragraph
- *  trailing rather than stacking a new one behind each attachment. */
-function ensureTrailingEditableLine(editor: PlateEditor): void {
-  const last = editor.children.at(-1)
-  const alreadyEmpty = !!last && last.type === 'p' && NodeApi.string(last) === ''
-  if (!alreadyEmpty) {
-    editor.tf.insertNodes([{ type: 'p', children: [{ text: '' }] }], {
-      at: [editor.children.length],
-    })
-  }
-  const end = editor.api.end([])
-  if (end) editor.tf.select(end)
-}
-
-/**
- * Where an attachment inserted from OUTSIDE the editable lands, and the
- * insert itself. Split out from focusing the box and reporting the change
- * (the imperative handle below still does both, right after calling this)
- * so the one real branch here — was there already a selection to insert at,
- * or not — can be proven against a bare `createPlateEditor`, with no
- * mounted DOM: `editor.tf.focus()` throws without one.
- *
- * Fenced blocks get their own branch: inserted right after its `code_block`
- * path rather than at the raw point, or it splits the fence's OWN internals
- * and silently drops the new node's content instead of appending it as a
- * sibling (this is what two attachments inserted back-to-back, still inside
- * the first one's own structure, would otherwise hit). Detected specifically
- * via `CodeBlockPlugin` — NOT a blanket `mode: 'highest'`, which "fixes" this
- * by always walking to the top-level block, and in doing so splits a `table`
- * in two (header row separated from body) for the unrelated, previously-fine
- * case of a caret sitting inside a table cell.
- *
- * Lands the caret on a fresh trailing empty line afterward — see
- * `ensureTrailingEditableLine` — so the person can keep typing immediately.
- */
-function attachmentInsertionPath(editor: PlateEditor): Path | Point | TRange | undefined {
-  const at = editor.selection ?? editor.api.end([])
-  const codeBlock = editor.api.above({ at, match: { type: CodeBlockPlugin.key } })
-  return codeBlock ? PathApi.next(codeBlock[1]) : (emptyParagraphPathAt(editor, at) ?? at)
-}
-
-export function insertAttachmentMarkdownInto(editor: PlateEditor, markdown: string): void {
-  const nodes = chatMarkdownToValue(markdown)
-  editor.tf.insertNodes(nodes, { at: attachmentInsertionPath(editor) })
-  ensureTrailingEditableLine(editor)
-}
-
-/**
- * Inserts an image node pointing at a LOCAL, temporary `objectUrl` (from
- * `URL.createObjectURL`) — the optimistic half of an attachment upload: the
- * preview appears immediately, before the network round trip that produces
- * the real, persistable ref even starts. Built as a raw node rather than
- * routed through `insertAttachmentMarkdownInto`'s markdown codec so a
- * filename with `]`/`)` in it can never be misparsed as markdown syntax —
- * this bypasses markdown entirely, exactly once, for exactly this node.
- * `settlePendingImageInto` (below) is what replaces it once the upload
- * settles, one way or the other.
- */
-export function insertPendingImageInto(editor: PlateEditor, objectUrl: string, alt: string): void {
-  const node = {
-    type: 'img',
-    url: objectUrl,
-    caption: [{ text: alt }],
-    children: [{ text: '' }],
-  } as unknown as Value[number]
-  editor.tf.insertNodes([node], { at: attachmentInsertionPath(editor) })
-  ensureTrailingEditableLine(editor)
-}
-
-/**
- * Resolves a pending image previously inserted by `insertPendingImageInto`,
- * found by its own `objectUrl` (unique for the life of that blob, never
- * reused) — NOT by position, since the person may have kept typing or
- * reordered attachments while the upload was in flight.
- *
- * `finalMarkdown` is the real `![alt](ref)` `uploadAttachmentMarkdown`
- * resolved to: its `url` replaces the placeholder's IN PLACE, preserving
- * whatever position the placeholder ended up in. `null` means the upload
- * failed — the placeholder is removed instead, matching what happened
- * before this existed (a failed upload never left anything behind either).
- * Either way the object URL is revoked: once swapped, the browser holds the
- * real image; once removed, there is nothing left to preview.
- */
-export function settlePendingImageInto(
-  editor: PlateEditor,
-  objectUrl: string,
-  finalMarkdown: string | null,
-): void {
-  const [entry] = Array.from(
-    editor.api.nodes({
-      at: [],
-      match: (n) =>
-        (n as { type?: string }).type === 'img' && (n as { url?: string }).url === objectUrl,
-    }),
-  )
-  if (entry) {
-    const [, path] = entry
-    if (finalMarkdown === null) {
-      editor.tf.removeNodes({ at: path })
-    } else {
-      const nodes = chatMarkdownToValue(finalMarkdown)
-      const [finalNode] = nodes as unknown as { url?: string }[]
-      if (finalNode?.url) {
-        editor.tf.setNodes({ url: finalNode.url }, { at: path })
-      } else {
-        // The upload resolved to something other than an image — the
-        // server's own sniffed content type disagreed with the browser's
-        // guess that put this on the optimistic image path in the first
-        // place (uploadAttachmentMarkdown fell back to fileMarkdown, which
-        // deserializes to a link nested in a wrapping paragraph, not a
-        // top-level node with its own `.url`). Patching `url` in place
-        // would leave a void `img` node pointing at a non-image file —
-        // replace the placeholder with whatever it actually resolved to.
-        editor.tf.withoutNormalizing(() => {
-          editor.tf.removeNodes({ at: path })
-          editor.tf.insertNodes(nodes, { at: path })
-        })
-      }
-    }
-  }
-  URL.revokeObjectURL(objectUrl)
-}
-
-/**
- * The prompt box, as rich markdown.
- *
- * The same editable serves the conversation's pill and the blank chat's
- * document — they differ in type size and in what rides alongside them, not in
- * what you can write. A prompt is markdown either way, and a person who types
- * `- ` should get a list in both.
- *
- * UNCONTROLLED, and the caller drives text in by REMOUNTING (a `key` change)
- * rather than by prop. A controlled contenteditable rebuilds its own children
- * under the selection on every keystroke and puts the caret back at zero; the
- * one thing the chat needs to push in from outside — the text of a queued
- * prompt being edited, or a skill the picker inserted — is exactly the case
- * where losing the caret is fine, because the caret should land at the end of
- * what was just loaded.
- */
+// The rich-markdown prompt box, shared by the conversation's pill and the blank chat's document.
+// Uncontrolled: the text lives only in the editor; callers push through the handle and read once
+// on send, so typing serializes and re-renders nothing outside the box.
 export function ChatMarkdownEditor({
   wsId,
   chatId,
-  initialValue,
   placeholder,
   ariaLabel,
-  onChange,
+  onShapeChange,
   onKeyDown,
   onHeightChange,
   autoFocus,
-  focusOnMount,
   expanded,
   controls,
   className,
   style,
   ref,
+  persistAs,
 }: ChatMarkdownEditorProps) {
-  // THE KEY HANDLER IS A PLUGIN, NOT THE `onKeyDown` DOM PROP.
-  //
-  // `PlateContent`'s DOM prop runs AFTER Slate's own handling, so preventing the
-  // default there is too late for any key Slate already acts on. Enter is
-  // exactly that key: the chat sends on it, Slate splits the block on it, and
-  // with the prop the split won — three prompts typed in a row stacked up inside
-  // the box as three paragraphs and none of them was ever sent. Plugin handlers
-  // are piped in ahead of the editor's own behaviour, which is where a handler
-  // that says "not this key" has to sit.
-  //
-  // Read through a ref so the plugin — and therefore the editor — is built once
-  // while the handler it calls stays current.
+  // A plugin, not the `onKeyDown` DOM prop: the prop runs after Slate's own handling, so Enter
+  // would split the block instead of sending. Read through a ref so the editor is built once
+  // while the handler stays current.
   const keyHandlerRef = useRef(onKeyDown)
   keyHandlerRef.current = onKeyDown
   const keyPlugin = useMemo(
@@ -304,14 +158,8 @@ export function ChatMarkdownEditor({
         key: 'agent-chat-keys',
         handlers: {
           onKeyDown: ({ editor: current, event }) => {
-            // Cmd/Ctrl+A selects the WHOLE document ourselves rather than
-            // leaving it to WebKit's native `selectAll:` — the same reason
-            // Monaco carries its own select-all keybinding (see
-            // desktop/src-tauri/src/lib.rs's build_app_menu): a framework-
-            // managed contenteditable is not guaranteed to be the element
-            // AppKit's editing-command routing actually reaches, and a
-            // no-op here costs nothing when the native path would have
-            // worked anyway.
+            // Select-all done here, not by WebKit's native `selectAll:`: AppKit's command
+            // routing is not guaranteed to reach a framework-managed contenteditable.
             if (
               (event.metaKey || event.ctrlKey) &&
               !event.shiftKey &&
@@ -339,6 +187,7 @@ export function ChatMarkdownEditor({
               event as KeyboardEvent<HTMLDivElement>,
               () => chatValueToMarkdown(current.children as Value),
               { atStart, atEnd },
+              shapeOf(current),
             )
           },
         },
@@ -346,30 +195,9 @@ export function ChatMarkdownEditor({
     [],
   )
 
-  // Guards against slate-react's OWN default drop handling, which runs
-  // independently of (and BEFORE, in the same synchronous dispatch — see
-  // slate-react's `Editable` `onDrop`, which calls `isEventHandled(event,
-  // attributes.onDrop)`, i.e. THIS plugin chain, before deciding whether to
-  // run its own logic) whatever the app's file-drop handler
-  // (`agent-composer.tsx`'s `handlePillDrop`, `agent-empty-document.tsx`'s
-  // `handleDrop`) does with the SAME event once it bubbles up to their
-  // wrapping `.pill`/`.docwrap` element.
-  //
-  // Confirmed live (a real `drop` DOM event dispatched at the actual
-  // `[data-slate-editor]` node, not a shortcut that calls the insertion
-  // function directly): with no guard, slate-react's default `insertData`
-  // reads the SAME dropped file's `text/plain` payload and inserts it as a
-  // paragraph of raw text — independently of, and in addition to, whatever
-  // the app-level handler goes on to upload/insert from the same drop. A
-  // dropped CSV that resolves to a table is the visible case (duplicate raw
-  // CSV text alongside the real table), but the bug is general to any
-  // file-carrying drop that also happens to expose text data.
-  //
-  // `event.preventDefault()` alone is enough for slate-react to treat the
-  // drop as handled (`isEventHandled` checks `event.isDefaultPrevented()`)
-  // and skip its own insertion — it does NOT stop propagation, so the app's
-  // own `.pill`/`.docwrap` handler still receives and processes the same
-  // event exactly as before.
+  // A file drop belongs to the wrapping `.pill`/`.docwrap` handler; slate-react would also insert
+  // the file's text/plain payload as raw text. preventDefault marks it handled for slate-react
+  // without stopping propagation, so the app's handler still gets the event.
   const dropGuardPlugin = useMemo(
     () =>
       createPlatePlugin({
@@ -385,17 +213,7 @@ export function ChatMarkdownEditor({
     [],
   )
 
-  // Deserialize ONCE. Re-parsing per render would rebuild the document under
-  // the caret on every keystroke.
-  const initial = useMemo(
-    () => chatMarkdownToValue(initialValue),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount value only, deliberately not re-derived
-    [],
-  )
-
-  // Undefined without both ids — see the note on `wsId`/`chatId` above. Built
-  // once, same as `keyPlugin` and `initial` below: the editor's plugin list
-  // is fixed at mount, not re-derived as props change underneath it.
+  // Undefined without both ids. Built once: the editor's plugin list is fixed at mount.
   const pastePlugin = useMemo(
     () => (wsId && chatId ? createChatPastePlugin({ wsId, chatId }) : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount value only, deliberately not re-derived
@@ -412,34 +230,46 @@ export function ChatMarkdownEditor({
           pastePlugin,
         ]
       : [...chatComposerPlugins, chatComposerStructurePlugin, keyPlugin, dropGuardPlugin],
-    value: initial,
     autoSelect: 'end',
+    // Unused here, and it re-subscribes every edited block to the editor store on
+    // each keystroke: one more render queued behind every key typed.
+    navigationFeedback: false,
+    // Plate drops block ids under NODE_ENV=test; kept so tests see the browser's blocks.
+    nodeId: true,
   })
 
+  // Plate copies its `onChange` prop into its own store from an effect, so a new
+  // handler per render costs the editor a second commit per keystroke.
+  const shapeHandlerRef = useRef(onShapeChange)
+  shapeHandlerRef.current = onShapeChange
+
+  // Reported synchronously from the handle too: Plate's own onChange fires later.
+  // A load's own later onChange sees the very children it left: not an edit.
+  const loadedRef = useRef<Value | null>(null)
+  const report = useCallback(
+    (edited = true) => shapeHandlerRef.current(shapeOf(editor), edited),
+    [editor],
+  )
   const handleChange = useCallback(() => {
-    // A click or an arrow key cannot change the serialized document, so
-    // serializing for them is pure waste. Guarded on a NON-EMPTY operation
-    // list: an empty list means we cannot tell what happened, and skipping a
-    // real edit would silently drop what was typed.
+    // A click or an arrow key cannot change the text. An empty operation list
+    // cannot be told apart from an edit, so it reports.
     const ops = editor.operations
     if (ops.length > 0 && ops.every((op) => op.type === 'set_selection')) return
-    onChange(chatValueToMarkdown(editor.children as Value))
-  }, [editor, onChange])
-
-  // Back to the box, and reported synchronously: every handle method below
-  // mutates the document from OUTSIDE it (a modal, a drop handler, an
-  // upload's own async settle), and the whole point is to keep writing right
-  // after. `Plate`'s own `onChange` prop fires off the editor's async change
-  // notification, which nothing here waits on — a caller reading `onChange`'s
-  // last call right after one of these returns (Task 29/34 close their modal
-  // on it) would see the PREVIOUS markdown otherwise.
-  const report = useCallback(() => {
-    onChange(chatValueToMarkdown(editor.children as Value))
-  }, [editor, onChange])
+    report(editor.children !== loadedRef.current)
+  }, [editor, report])
   const focusAndReport = useCallback(() => {
     editor.tf.focus()
     report()
   }, [editor, report])
+  const load = useCallback(
+    (markdown: string) => {
+      loadMarkdown(editor, markdown)
+      loadedRef.current = editor.children as Value
+      editor.tf.focus()
+      report(false)
+    },
+    [editor, report],
+  )
 
   useImperativeHandle(
     ref,
@@ -452,41 +282,57 @@ export function ChatMarkdownEditor({
         insertPendingImageInto(editor, objectUrl, alt)
         focusAndReport()
       },
-      // NOT `focusAndReport`: this fires whenever the upload settles, which
-      // can be long after the user has moved on — typing further, switching
-      // chats. Forcing focus back here would yank the caret out from under
-      // them the instant a background upload happens to finish.
+      // Not `focusAndReport`: the upload can settle long after the person moved on, and
+      // refocusing would yank the caret away from wherever they are now.
       settlePendingImage: (objectUrl: string, finalMarkdown: string | null) => {
         settlePendingImageInto(editor, objectUrl, finalMarkdown)
         report()
       },
+      getMarkdown: () => chatValueToMarkdown(editor.children as Value),
+      setMarkdown: load,
+      appendMarkdown: (markdown: string) => {
+        if (shapeOf(editor).empty) return load(markdown)
+        const at = [editor.children.length]
+        editor.tf.insertNodes(chatMarkdownToValue(markdown), { at, select: false })
+        report()
+      },
+      completeMention: (text: string) => {
+        const typed = mentionBefore(editor)
+        if (typed === null) return
+        editor.tf.delete({ distance: typed.length + 1, unit: 'character', reverse: true })
+        editor.tf.insertText(text)
+        focusAndReport()
+      },
+      focus: () => editor.tf.focus(),
+      clear: () => {
+        if (persistAs) forgetDraft(persistAs)
+        load('')
+      },
     }),
-    [editor, focusAndReport, report],
+    [editor, focusAndReport, load, report, persistAs],
   )
 
-  // The editable's height, for whatever rides its last line. Observed rather
-  // than derived from the text: a wrapped line and a typed newline are the same
-  // thing to a reader, and only the browser knows where the wrap fell.
-  //
-  // A REF CALLBACK on the editable itself, not a `useLayoutEffect` querying
-  // for `[data-slate-editor]` inside a wrapper ref (the previous approach) —
-  // that version bound the observer's lifetime to THIS component's own
-  // effect dependencies (`[onHeightChange]`, stable), so it only ever
-  // reconnected when this component genuinely unmounted and remounted.
-  // Slate/slate-react can tear down and recreate the editable's OWN DOM node
-  // — e.g. when `editor` itself changes identity — without this component
-  // ever unmounting, and the previous version had no way to notice: the
-  // observer kept watching a node that had already been detached, silently,
-  // forever (reported live, repeatedly, as the pill's rounding going stale
-  // until a full page reload — a dev-only Fast-Refresh module swap is the
-  // other way this exact gap shows up). A ref callback has no such blind
-  // spot: React calls it on every attach AND detach of THIS SPECIFIC node,
-  // whatever caused it, so a fresh node always gets a fresh observer.
-  //
-  // Still fires synchronously during commit — the same phase a layout effect
-  // runs in, before paint — so a box that mounts (or grows) already
-  // multi-line still gets the right radius in its very first visible frame,
-  // never one frame of the fully-round single-line pill stretched tall.
+  // The box owns its draft; storage keeps it while there is no box: written as the
+  // page hides or the box goes, read once into an empty box, without taking focus.
+  useEffect(() => {
+    if (!persistAs) return
+    const saved = loadDraft(persistAs)
+    if (saved && shapeOf(editor).empty) {
+      loadMarkdown(editor, saved)
+      loadedRef.current = editor.children as Value
+      report(false)
+    }
+    const save = () => saveDraft(persistAs, chatValueToMarkdown(editor.children as Value))
+    window.addEventListener('pagehide', save)
+    return () => {
+      window.removeEventListener('pagehide', save)
+      save()
+    }
+  }, [editor, persistAs, report])
+
+  // The editable's measured height, observed because only the browser knows where
+  // a line wrapped. A ref callback, not an effect: Slate can replace the editable's
+  // node without this component remounting, and the ref sees every attach.
   const heightObserverRef = useRef<ResizeObserver | null>(null)
   const reportHeightFrom = useCallback(
     (node: HTMLDivElement | null) => {
@@ -501,7 +347,7 @@ export function ChatMarkdownEditor({
       }
       report()
       const observer = new ResizeObserver(report)
-      // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (l.481: disconnect() at the top of this same callback, which also runs on every detach since React calls a ref callback with node=null then); tracer expects a useEffect return, not a ref-callback's own next invocation.
+      // react-doctor-disable-next-line effect-needs-cleanup -- cleanup exists (disconnect() at the top of this same callback, which also runs on every detach since React calls a ref callback with node=null then); tracer expects a useEffect return, not a ref-callback's own next invocation.
       observer.observe(node)
       heightObserverRef.current = observer
     },
@@ -513,7 +359,7 @@ export function ChatMarkdownEditor({
       <PlateContent
         ref={reportHeightFrom}
         // On the phone focus raises the keyboard over the chat just opened; a tap asks for it.
-        autoFocus={(autoFocus && !IS_MOBILE) || focusOnMount}
+        autoFocus={autoFocus && !IS_MOBILE}
         placeholder={placeholder}
         aria-label={ariaLabel}
         aria-expanded={expanded}

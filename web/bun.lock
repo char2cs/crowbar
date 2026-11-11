@@ -104,7 +104,7 @@
     },
   },
   "overrides": {
-    "dompurify": ">=3.4.11",
+    "dompurify": ">=3.4.17",
     "lodash-es": "^4.17.21",
   },
   "packages": {

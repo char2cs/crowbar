@@ -16,11 +16,8 @@ export const tooltipContentPrimary =
 const TOOLTIP_DELAY_MS = 150
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {
-  // timeout=0: no "open instantly because another tooltip just closed" window.
-  // A window shorter than the close animation let two floating-ui rigs
-  // (ResizeObservers, an IntersectionObserver, ancestor listeners) stay mounted
-  // at once during a fast sweep across several triggers, live-measured as real
-  // jank; at 0 a quick pass over a row of triggers never opens a tooltip.
+  // timeout=0: no "instant open after another closed" window, which kept two floating-ui rigs
+  // mounted during a fast sweep (jank); a quick pass over triggers opens none.
   return (
     <TooltipPrimitive.Provider delay={TOOLTIP_DELAY_MS} timeout={0}>
       {children}
@@ -28,12 +25,8 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
-/**
- * `trigger` with a tooltip. The tooltip's props merge onto `trigger` itself —
- * never a wrapper around it — so a button stays one `<button>` (a button inside
- * a button is invalid HTML) and a menu item keeps its role. `trigger` must
- * forward its ref.
- */
+/** Props merge onto `trigger` itself, never a wrapper, so a button stays one `<button>` and a
+ *  menu item keeps its role. `trigger` must forward its ref. */
 export function WithTooltip({
   trigger,
   content,

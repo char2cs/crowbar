@@ -6,10 +6,8 @@ export interface BuildInfo {
   timestamp?: string
 }
 
-// `make dev-desktop` and `bun run dev` both serve through Vite's dev server,
-// so `import.meta.env.DEV` alone identifies a dev build — no CI stamp needed.
-// Captured once per module load as a stand-in "compiled at" timestamp for the
-// dev badge, since an unbundled dev server has no real build step to stamp.
+// Both dev commands serve through Vite, so `import.meta.env.DEV` alone identifies a dev build.
+// The module-load time stands in as the dev badge's "compiled at", since dev has no build step.
 const DEV_SESSION_START = new Date().toISOString()
 
 interface BuildEnv {
@@ -19,14 +17,9 @@ interface BuildEnv {
   VITE_BUILD_TIMESTAMP?: string
 }
 
-/**
- * Release CI (nightly.yml, prerelease.yml, stable-release.yml) stamps
- * VITE_BUILD_CHANNEL/VERSION/TIMESTAMP on the frontend build step before
- * `bun run build`. A production bundle built outside that pipeline (a local
- * `bun run build`) carries none of them and falls back to the quiet release
- * badge rather than guessing a channel. Split from `getBuildInfo()` so the
- * branching is testable without stubbing Vite's own `import.meta.env`.
- */
+// Release CI stamps VITE_BUILD_CHANNEL/VERSION/TIMESTAMP before `bun run build`; a bundle built
+// outside it falls back to the quiet release badge rather than guess a channel. Split from
+// getBuildInfo() so the branching is testable without stubbing `import.meta.env`.
 export function resolveBuildInfo(env: BuildEnv): BuildInfo {
   if (env.DEV) return { channel: 'dev', timestamp: DEV_SESSION_START }
 

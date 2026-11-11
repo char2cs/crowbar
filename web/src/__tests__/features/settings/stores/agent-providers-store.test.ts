@@ -1,14 +1,5 @@
-/**
- * The GLOBAL agent-provider list.
- *
- * Providers are machine-level — the daemon's own comment on ListProviders says
- * the workspaceID "is only used to resolve crowbar home" — but the frontend kept
- * its only copy inside the per-workspace store. The Settings dialog is global, so
- * opening it with no active workspace (Project Home, the projects screen, mid
- * switch) read an empty list and rendered "No providers available." over a daemon
- * that had them, enabled. This store is the copy that does not depend on a
- * workspace being in view.
- */
+// The global agent-provider list: providers are machine-level and Settings is global, so the list
+// must not depend on a workspace being in view.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { listProvidersFn, listGlobalProvidersFn } = vi.hoisted(() => ({
@@ -16,8 +7,7 @@ const { listProvidersFn, listGlobalProvidersFn } = vi.hoisted(() => ({
   listGlobalProvidersFn: vi.fn(),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
+vi.mock('@/features/agent/api/agent-providers-api', () => ({
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
   listGlobalProviders: (...a: unknown[]) => listGlobalProvidersFn(...a),
 }))
@@ -26,7 +16,7 @@ import {
   providersOf,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
@@ -35,6 +25,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { deferred } from '@/__tests__/__fixtures__/deferred'
 
 const provider = (id: string, enabled = true): AgentProvider => ({
   id,
@@ -50,16 +41,6 @@ const provider = (id: string, enabled = true): AgentProvider => ({
   hotswap: false,
   terminalStartHere: false,
 })
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (reason: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-  return { promise, resolve, reject }
-}
 
 const state = () => useAgentProvidersStore.getState()
 
@@ -94,9 +75,7 @@ describe('agent providers store', () => {
     expect(state().providers.map((p) => p.id)).toEqual(['claude'])
   })
 
-  // The three states the tab used to collapse into one sentence. "No providers
-  // available." is a claim about the DAEMON; it must never be what a failed
-  // fetch looks like.
+  // "No providers available." is a claim about the daemon; a failed fetch must never look like it.
   it('reports FAILED when the fetch rejects and nothing was ever loaded', async () => {
     listProvidersFn.mockRejectedValueOnce(new Error('daemon is down'))
 
@@ -183,7 +162,7 @@ describe('agent providers store', () => {
     expect(state().providers.map((p) => p.id)).toEqual(['codex'])
   })
 
-  it('setProviders writes a list resolved elsewhere (a workspace seed, a preferences PUT)', () => {
+  it('setProviders writes a list resolved elsewhere (a preferences PUT)', () => {
     state().setProviders([provider('claude')])
 
     expect(state().status).toBe('ready')
@@ -226,12 +205,31 @@ describe('agent providers store across hosts', () => {
     expect(state().providers.map((p) => p.id)).toEqual(['claude'])
   })
 
-  it('load asks nothing and writes nothing for a workspace on a remote host', async () => {
+  it('load reads a remote workspace’s list from its own host and leaves the local list alone', async () => {
     state().setProviders([provider('claude')])
+    listGlobalProvidersFn.mockResolvedValueOnce([provider('codex')])
 
-    await expect(state().load('w-remote')).resolves.toBeNull()
+    await state().load('w-remote')
 
     expect(listProvidersFn).not.toHaveBeenCalled()
+    expect(listGlobalProvidersFn).toHaveBeenCalledWith('host-1')
+    expect(providersOf(state(), 'host-1').map((p) => p.id)).toEqual(['codex'])
+    expect(state().providers.map((p) => p.id)).toEqual(['claude'])
+  })
+
+  it('load asks nothing while the workspace’s host is unknown', async () => {
+    await state().load('w-unrecorded')
+
+    expect(listProvidersFn).not.toHaveBeenCalled()
+    expect(listGlobalProvidersFn).not.toHaveBeenCalled()
+  })
+
+  it('loadLocal reads the local daemon through the global route', async () => {
+    listGlobalProvidersFn.mockResolvedValueOnce([provider('claude')])
+
+    await state().loadLocal()
+
+    expect(listGlobalProvidersFn).toHaveBeenCalledWith()
     expect(state().providers.map((p) => p.id)).toEqual(['claude'])
   })
 

@@ -8,23 +8,34 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-func TestValidate_AResumeWithoutLocateIsAWarning(t *testing.T) {
-	rep := descriptorcheck.Validate(complete("session:\n  resume: { arg: \"--resume {id}\" }\n"))
-	f := findingFor(t, rep, "session.resume_unverified")
+func TestValidate_AResumeWithoutARecognisedRefusalIsAWarning(t *testing.T) {
+	rep := descriptorcheck.Validate(complete("session:\n  resume: { arg: \"--resume {id}\" }\n  persists: turn_start\n"))
+	f := findingFor(t, rep, "session.refusal_unrecognised")
 	assert.Equal(t, descriptorcheck.SeverityWarning, f.Severity)
 	assert.True(t, rep.OK(), "a warning does not block the descriptor")
 }
 
-func TestValidate_TheSessionRulesRefuseAnUnusableLadder(t *testing.T) {
+// Over an api connection a refused resume is an error reply on the turn it
+// was asked for; unrecognised, the chat keeps a session the server lost.
+func TestValidate_AnAPIProvidersResumeWithoutARecognisedRefusalIsAnError(t *testing.T) {
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
+		"  api: { protocol: jsonrpc2, serve: [api, serve] }\n"
+	f := findingFor(t, descriptorcheck.Validate([]byte(api+"session:\n  resume: { arg: \"--resume {id}\" }\n")),
+		"session.refusal_unrecognised")
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+}
+
+func TestValidate_TheSessionRulesRefuseAnUnusableSession(t *testing.T) {
 	cases := map[string]struct {
 		yaml, rule, path string
 	}{
-		"assign without id": {"session:\n  assign: { arg: \"--session-id\" }\n", "session.assign_id", "session.assign.arg"},
-		"resume without id": {"session:\n  resume: { arg: \"--resume\" }\n", "session.resume_id", "session.resume.arg"},
-		"no root":           {locate("", "", `["{id}.jsonl"]`), "session.locate_root", "session.locate"},
-		"relative root":     {locate("sessions", "", `["{id}.jsonl"]`), "session.locate_root", "session.locate.root"},
-		"no glob":           {locate("~/.x", "", `[]`), "session.locate_glob", "session.locate"},
-		"glob without id":   {locate("~/.x", "X_HOME", `["*.jsonl"]`), "session.locate_glob", "session.locate.glob[0]"},
+		"resume without id":   {"session:\n  resume: { arg: \"--resume\" }\n", "session.resume_id", "session.resume.arg"},
+		"assign without id":   {"session:\n  assign: { arg: \"--session-id\" }\n", "session.assign_id", "session.assign.arg"},
+		"refused exit 0":      {refused("0", `["gone"]`), "session.refused_exit", "session.refused"},
+		"no needles":          {refused("1", `[]`), "session.refused_needles", "session.refused"},
+		"an empty needle":     {refused("1", `[""]`), "session.refused_needles", "session.refused"},
+		"unknown persists":    {"session:\n  persists: turn_middle\n", "session.persists", "session.persists"},
+		"resume, no persists": {"session:\n  resume: { arg: \"--resume {id}\" }\n", "session.persists_missing", "session.resume"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -34,6 +45,19 @@ func TestValidate_TheSessionRulesRefuseAnUnusableLadder(t *testing.T) {
 			assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
 			assert.Positive(t, f.Line)
 		})
+	}
+}
+
+func TestValidate_AnAPIProvidersRefusalNamesItsRPCCode(t *testing.T) {
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
+		"  api: { protocol: jsonrpc2, delivery: stdio, format: ndjson, serve: [api, serve] }\n"
+	f := findingFor(t, descriptorcheck.Validate([]byte(api+refused("1", `["gone"]`))), "session.refused_rpc")
+	assert.Equal(t, "session.refused", f.Path)
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+
+	withCode := "session:\n  resume: { arg: \"--resume {id}\" }\n  refused: { exit_code: 1, rpc_code: -32600, needles: [gone] }\n"
+	for _, f := range descriptorcheck.Validate([]byte(api + withCode)).Findings {
+		assert.NotEqual(t, "session.refused_rpc", f.Rule)
 	}
 }
 
@@ -51,13 +75,6 @@ func TestValidate_AnUnknownInjectVerbIsAnError(t *testing.T) {
 	assert.Equal(t, "context_inject[0]", f.Path)
 }
 
-func TestValidate_HookWiringOutsideHooksInjectionIsAnError(t *testing.T) {
-	rep := descriptorcheck.Validate(minimal(
-		"config_injection:\n  - pass_arg: { arg: -c, value: \"hooks.Stop={crowbar_hook} hook turn_stop\" }\n"))
-	f := findingFor(t, rep, "hooks.in_config_injection")
-	assert.Equal(t, "config_injection[0]", f.Path)
-}
-
 func TestValidate_CurlHookWiringOutsideHooksInjectionIsAnError(t *testing.T) {
 	rep := descriptorcheck.Validate(minimal(
 		"config_injection:\n  - pass_arg: { arg: -c, value: \"hooks.Stop={hook_curl} {hook_url}/turn_stop\" }\n"))
@@ -69,6 +86,19 @@ func TestValidate_HookEventsWithNoWiringAreAnError(t *testing.T) {
 	rep := descriptorcheck.Validate(minimal("events:\n  session_start:\n    in: SessionStart\n    map: { session_id: session_id }\n"))
 	f := findingFor(t, rep, "hooks.not_wired")
 	assert.Equal(t, "hooks_injection", f.Path)
+	assert.Contains(t, f.Hint, "{hook_url}")
+	assert.NotContains(t, f.Hint, "crowbar_hook")
+}
+
+// An override written for the retired relay would otherwise load with hooks
+// that reach nothing.
+func TestRelayHookWiringIsRefusedWithTheReplacement(t *testing.T) {
+	rep := descriptorcheck.Validate(complete(
+		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{crowbar_hook} hook tool_pre --segment {segid}\"' }\n"))
+	f := findingFor(t, rep, "hooks.relay_retired")
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+	assert.Equal(t, "mcp_injection[0].pass_arg.value", f.Path)
+	assert.Equal(t, "post hooks to {hook_url}/<event> (HTTP) or through {hook_curl}", f.Hint)
 }
 
 func TestValidate_AnAPIProviderNeedsAServeArgv(t *testing.T) {
@@ -79,13 +109,18 @@ func TestValidate_AnAPIProviderNeedsAServeArgv(t *testing.T) {
 	assert.Equal(t, 7, f.Line)
 }
 
-func locate(root, env, glob string) string {
-	s := "session:\n  resume: { arg: \"--resume {id}\" }\n  locate:\n"
-	if root != "" {
-		s += "    root: " + root + "\n"
+func TestValidate_AnAPIProviderDeclaresItsHandshake(t *testing.T) {
+	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n  api:\n" +
+		"    protocol: jsonrpc2\n    serve: [api, serve]\n"
+	f := findingFor(t, descriptorcheck.Validate([]byte(api)), "runtime.api_handshake")
+	assert.Equal(t, "runtime.api", f.Path)
+	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
+
+	for _, f := range descriptorcheck.Validate([]byte(api + "    handshake: { call: open, notify: opened }\n")).Findings {
+		assert.NotEqual(t, "runtime.api_handshake", f.Rule)
 	}
-	if env != "" {
-		s += "    root_env: " + env + "\n"
-	}
-	return s + "    glob: " + glob + "\n"
+}
+
+func refused(code, needles string) string {
+	return "session:\n  resume: { arg: \"--resume {id}\" }\n  refused: { exit_code: " + code + ", needles: " + needles + " }\n"
 }

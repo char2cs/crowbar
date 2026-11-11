@@ -25,29 +25,9 @@
   initial-value: 0px;
 }
 
-/* Deliberately outside every @layer: cascade layers invert !important
-   precedence (an unlayered !important beats a layered one), so this has to
-   stay unlayered to override every Tailwind utility transition/animation
-   (transition-colors, animate-in, tw-animate-css, the toast keyframes below)
-   regardless of layer order. Covers plain CSS motion — framer-motion's
-   own animations are gated separately via <MotionConfig reducedMotion="user">
-   in main.tsx. WCAG 2.3.3.
-
-   EXEMPT: indeterminate loading spinners. A spinner is STATUS, not
-   decorative motion — freezing it turns "still working" into "looks hung",
-   and reduced-motion guidance targets large translations/parallax/zooms,
-   not a small continuous rotation. Two hooks, both excluded below:
-     - `.animate-spin` — Tailwind's spin utility, covering the shared
-       <Spinner> (components/ui/spinner.tsx) and the OOBE checks
-       (components/oobe/oobe-screen.tsx);
-     - `[data-essential-motion]` (self or descendants) — opt-out attribute
-       for spinners whose animation class is a Tailwind VARIANT (the toast
-       loading icons' `in-data-[type=loading]:animate-spin` in
-       components/ui/toast.tsx and components/layout/
-       sidebar-toast-overlay.tsx generates an escaped class name that
-       `.animate-spin` does not match), and for any future essential
-       indicator.
-   Guarded by src/__tests__/reduced-motion.test.ts. */
+/* Unlayered, since an unlayered !important beats every layered Tailwind motion (framer-motion is
+   gated by <MotionConfig>). Spinners are status, not decoration, so `.animate-spin` and
+   `[data-essential-motion]` (for variant-class spinners) are exempt. WCAG 2.3.3. */
 @media (prefers-reduced-motion: reduce) {
   *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *),
   *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *)::before,
@@ -92,7 +72,10 @@
 }
 
 /* The daemon names a repo's tile colour by token (avatar.go palette); without
-   a class behind each token the tile has no fill and its letter vanishes. */
+   a class behind each token the tile has no fill and its letter vanishes. The
+   tokens arrive at runtime, so the scanner never sees them: emit all eight. */
+@source inline('avatar-{rose,amber,emerald,cyan,indigo,violet,slate,pink}');
+
 @utility avatar-rose {
   background-color: var(--color-rose-700);
 }
@@ -154,138 +137,57 @@
   overflow: visible !important;
 }
 
-/* Flatten the pane's rounded corner and drop shadow for the duration of a pane
-   or sidebar drag. Re-rasterising a rounded, shadowed surface at a new width on
-   every frame is what makes dragging the sidebar crawl: measured 60ms/frame
-   during a drag, 26ms with these two properties removed. A 10px corner is not
-   perceptible mid-drag, and both come straight back on release.
-   `!important` because buildPaneContentStyle sets them as inline styles. */
+/* Re-rasterising rounded, shadowed boxes at a new width every frame makes drags crawl, so they
+   go flat until release. `!important` beats the inline styles buildPaneContentStyle sets. */
 html[data-pane-resizing] [data-pane-content],
-/* The two halves of the chat/editor split get the SAME treatment, and need it
-   more than the pane box does: `buildInnerViewStyle` gives each its own rounded
-   border on the edge that faces the other, and it is THEIR flex-basis PaneSash
-   rewrites on every raw pointermove — so a ~620x1110 rounded, `overflow:hidden`,
-   background-painting box is the one surface re-clipped and re-rasterised every
-   single frame of the drag. Measured live (Tauri MCP + a rAF frame-time probe)
-   on a chat/editor sash drag: with the corners flattened for the drag span the
-   same gesture ran 36fps → 78fps, p90 frame 56ms → 19ms. The pane box's rule
-   above never covered these, because they are not `[data-pane-content]`. */
+/* The chat/editor halves most of all: PaneSash rewrites their flex-basis every pointermove, and
+   each has its own rounded, clipped border (buildInnerViewStyle). */
 html[data-pane-resizing] [data-chat-view],
 html[data-pane-resizing] [data-editor-view] {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
 
-/* The chat header's progressive-blur "dissolve" (EdgeDissolve, chat-blur
-   variant — pane-top-row.tsx) lives inside the chat/editor split's own box,
-   whose flex-basis PaneSash rewrites on every raw pointermove during a drag.
-   Each of its 7 stacked backdrop-filter layers has to resample the pixels
-   behind it at the new width on every one of those writes. Measured live
-   (Tauri MCP + a rAF frame-time probe) during a chat/editor sash drag: up to
-   103ms/frame against a 31ms idle ceiling, with the fix below it dropped to a
-   17ms ceiling. Paused (not removed) for the exact span `data-pane-resizing`
-   already exists for — same mechanism `.monaco-editor`'s GPU-layer promotion
-   below uses for the identical reason — and restored the instant the drag
-   ends, so the glass looks the same at rest either way. */
+/* The chat header's EdgeDissolve: each of its 7 backdrop-filter layers resamples at the new width
+   on every sash write, so the blur pauses for the drag and returns at rest. */
 html[data-pane-resizing] [data-testid='edge-dissolve'] > div,
-/* The composer's own dissolve (agent-chat-view.tsx + composer.css) is the SAME
-   7-layer recipe — EdgeDissolve was extracted from it — so it pays the same
-   per-frame resample, over a band the full width of the chat. It was simply
-   never added to the pause above. */
+/* The composer's dissolve is the same 7-layer recipe, over the chat's full width. */
 html[data-pane-resizing] .agent-chat .dissolve-layer {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  /* The mask goes too, and it is free to drop: with the blur off these layers
-     have no background and no content, so they paint NOTHING either way — but
-     a mask still costs its own raster at the new width on every frame of the
-     drag. Live-audited under `data-pane-resizing`, these 7 layers were the only
-     masked surfaces left in the resizing subtree, and removing them took the
-     same sash drag from 49.8fps to ~71fps. */
+  /* Free to drop: with the blur off these layers paint nothing, but a mask still rasterises at
+     the new width every frame. */
   mask-image: none !important;
   -webkit-mask-image: none !important;
 }
 
-/* Nothing is selectable while a row is in the air.
-   The `selectstart` listener (armed on pointerdown, workspace-tree-context.tsx)
-   is the primary guard and cancels the selection at its source; this is the
-   backstop for the paths that never fire one — a caret dragged out of an
-   already-focused editor, an engine that re-starts selection mid-gesture.
-   Inherited, so ONE selector covers the document: `user-select` inherits, which
-   the cursor deliberately does not, and that is why this can be a single rule
-   where the cursor needed a real element. Descendants that set their own
-   (Monaco sets `text`) keep it — the listener covers those.
-   Both spellings: WebKit reports this property only as -webkit-user-select. */
+/* Backstop for the `selectstart` listener (workspace-tree-context.tsx) on paths that never fire
+   it. `user-select` inherits, so one rule covers the document; Monaco's own `text` is left to the
+   listener. Both spellings: WebKit reports only -webkit-user-select. */
 html[data-row-dragging] {
   -webkit-user-select: none;
   user-select: none;
 }
 
-/* A sidebar row is in the air: say so with the cursor, everywhere.
-   Pointer capture keeps the events on the grabbed row, but the cursor is drawn
-   from whatever the pointer is physically over, so a rule on the row itself
-   would show `grabbing` only while the hand happened to be back over where it
-   started. `!important` and the universal selector because every row declares
-   `cursor-pointer` (ROW_BASE) and the pane declares its own, and a drag in
-   flight outranks both.
-
-   MEASURED, twice, because the universal selector looks like it should be the
-   expensive option and is not. On the live app during a drag: 400 dispatched
-   pointermoves cost 16ms with this rule and 17ms without it, and a 90-frame
-   drag ran at an 8ms median frame either way. It was once replaced by a
-   full-viewport transparent element that owned the cursor by sitting on top —
-   that "cheaper" version cost 42ms PER FRAME (51ms median frame against 9ms
-   with it hidden), because a fixed full-window box overlaps every composited
-   layer in the page. Do not trade this rule for an element again. */
+/* The cursor comes from whatever the pointer is over, not the captured row, so it goes everywhere,
+   !important over ROW_BASE's cursor-pointer. The universal selector measured free; a full-window
+   cursor overlay instead overlaps every composited layer and costs ~40ms a frame. */
 html[data-row-dragging],
 html[data-row-dragging] * {
   cursor: grabbing !important;
 }
 
-/* Pin the sidebar's space carousel while a row is in the air.
-   The carousel (space-scroller.tsx) is the tree's nearest scrollable
-   ancestor: `overflow-x: scroll` with `scroll-snap-type: x mandatory`, one
-   min-w-full panel per space. Carrying a row rightwards out of it — which is
-   exactly the drag that removes one — leaves a captured pointer travelling past
-   the edge of a horizontally scrollable box, and WebKit answers that by
-   scrolling it. With MANDATORY snapping there is no small version of that: any
-   nudge lands a whole panel away, so the sidebar jumps to another space
-   mid-drag and the rows the drag came from are gone.
-   `hidden` rather than `clip`: it stops USER and native scrolling while leaving
-   the box programmatically scrollable, so the carousel's own re-align
-   (ResizeObserver) and its `scrollTo` keep working through a drag.
-   The scrollbar is already display:none, so there is no gutter to shift.
-
-   `will-change: transform` is NOT a speculative hint here, it is what makes this
-   rule affordable. `overflow-x: scroll` earns the carousel a composited
-   scrolling layer; dropping to `hidden` takes that promotion away, and the whole
-   315x976 sidebar — 295 descendants — falls back onto the page layer, where
-   every per-frame write a drag makes (the drop line, row classes, the ghost)
-   repaints it on the main thread. Measured on the live app, one pointermove per
-   frame across 125 frames: 8.3ms/frame idle, 28-39ms/frame dragging with this
-   rule alone, 8.3ms/frame with the rule deleted, and 8.3ms/frame with the rule
-   KEPT and this line added. Bisected against the alternatives — hiding the
-   removal overlay changed nothing (41.6ms), deleting the cursor rule below
-   changed nothing (31.0ms), and `scroll-snap-type: none` changed nothing
-   (31.8ms). It is the lost layer, nothing else.
-   Scoped to the drag by the same attribute, so there is no permanent hint: the
-   layer exists anyway whenever the carousel is its normal scrollable self. */
+/* A row dragged past the mandatory-snap carousel's edge makes WebKit scroll it a whole space away.
+   `hidden`, not `clip`, keeps programmatic scrollTo working; will-change restores the composited
+   layer `hidden` drops, without which every drag frame repaints the whole sidebar. */
 html[data-row-dragging] [data-sidebar-carousel] {
   overflow-x: hidden;
   will-change: transform;
 }
 
-/* The flip-dot spinner's playback (components/ui/flicker-spinner.tsx). The
-   dots' timeline is baked into a horizontal sprite strip, so "animating" is one
-   stepped translate of an already-painted layer — no SMIL timers, no per-step
-   style recalc, no layer-tree rebuild. -100% is the strip's OWN width, i.e.
-   exactly `frames` frame-widths, so steps(frames) lands on frame boundaries.
-
-   Deliberately NOT inside `@theme` with the other keyframes: Tailwind v4 emits
-   @theme keyframes only when the matching `--animate-*` utility is used, and
-   this animation is composed inline (duration and step count differ per asset).
-   Declared there, it would be tree-shaken out of the production stylesheet and
-   the spinner would sit motionless in packaged builds only. Guarded by
-   __tests__/components/ui/flicker-spinner.test.tsx. */
+/* One stepped translate of a sprite strip (-100% = `frames` frame-widths). Outside `@theme`:
+   Tailwind emits those keyframes only for a used `--animate-*` utility, and this one is composed
+   inline, so it would be tree-shaken from production. */
 @keyframes flicker-strip {
   to {
     transform: translateX(-100%);

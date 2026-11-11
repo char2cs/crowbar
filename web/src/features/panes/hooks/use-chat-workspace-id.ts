@@ -1,39 +1,43 @@
 import { useMemo, useCallback, useSyncExternalStore } from 'react'
-import { useStore } from 'zustand'
+import { entityStore } from '@/core/entities/entity-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 
-// Ids can never contain NUL (workspace-host.tsx's own guarantee, reused
-// verbatim here) — safe as a join delimiter for the stable keys below.
+// Ids never contain NUL, so it is a safe join delimiter for the stable keys below.
 const ID_DELIM = '\x00'
 
-/**
- * The workspace the ACTIVE PANE's chat belongs to — read off the pane record
- * (C3), so clicking between two chats of the same workspace re-renders
- * nothing: the selector's answer does not move.
- */
-export function useActivePaneWorkspaceId(): string | null {
-  return useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.workspaceId ?? null)
+// A pane's chat workspace moves with either store: the pane (focus, open) or the chat (move).
+function subscribePanesAndChats(onChange: () => void): () => void {
+  const panes = windowPaneStore.subscribe(onChange)
+  const chats = entityStore.subscribe(onChange)
+  return () => {
+    panes()
+    chats()
+  }
 }
 
-/**
- * Every workspace id some pane's EDITOR TABS reference — files, terminals,
- * diffs, previews — via each open buffer's own `workspaceId`
- * (`EditorTabBase.workspaceId`, pane-content.ts).
- *
- * `useViewWorkspaceIds` below only names a pane's CHAT — but a pane can
- * hold editor tabs with `chatId: null` (an editor-only split, e.g. a file
- * opened beside a chat pane). Such a pane names no chat at all, so it was
- * invisible to `WorkspaceHost`'s retention set (`paneWsIds`): unless its
- * workspace also happened to be the single active one, or own a chat
- * Recents was tracking, `planRetention` (keep-alive-policy.ts) could
- * legitimately evict it — destroying the workspace's store, and with it
- * `EditorSurface`'s `editorManager` — while the pane displaying its file was
- * still on screen. Live-reported as "Editor failed to load. Try closing and
- * reopening this file.": the split's OTHER pane (a chat) switched the
- * active workspace elsewhere, its own workspace had no chat left in
- * Recents, and the next render's `getWorkspaceStore(workspaceId)!.editorManager`
- * threw on the now-destroyed store.
- */
+function activePaneWorkspaceId(): string | null {
+  const { panes, activePaneId } = windowPaneStore.getState()
+  return paneChatWorkspaceId(panes[activePaneId])
+}
+
+/** The active pane's chat workspace, where the chat runs now: switching between two chats of
+ *  one workspace re-renders nothing. */
+export function useActivePaneWorkspaceId(): string | null {
+  return useSyncExternalStore(subscribePanesAndChats, activePaneWorkspaceId, activePaneWorkspaceId)
+}
+
+function viewWorkspaceIdsKey(): string {
+  const ids = new Set<string>()
+  for (const pane of Object.values(windowPaneStore.getState().panes)) {
+    const wsId = pane.viewId ? paneChatWorkspaceId(pane) : null
+    if (wsId) ids.add(wsId)
+  }
+  return [...ids].sort().join(ID_DELIM)
+}
+
+/** Every workspace some pane's editor tabs reference. A chatless pane can still hold tabs, which
+ *  useViewWorkspaceIds misses; naming them keeps their workspace store retained while shown. */
 export function usePaneEditorWorkspaceIds(): string[] {
   const subscribe = useCallback((onChange: () => void) => windowPaneStore.subscribe(onChange), [])
   const snapshot = useCallback(() => {
@@ -52,19 +56,9 @@ export function usePaneEditorWorkspaceIds(): string[] {
   return useMemo(() => (key ? key.split(ID_DELIM) : []), [key])
 }
 
-/**
- * Every workspace owning a chat held by some view record — "in a view" per
- * `keep-alive-policy.ts`. Read straight off the members' records: no scan of
- * the workspace stores, and the string key means a pane-store write that
- * moves no workspace (every streaming frame) re-renders nothing.
- */
+/** Every workspace with a chat in some view ("in a view" for keep-alive-policy.ts). The string
+ *  key means a pane write that moves no workspace (every streaming frame) re-renders nothing. */
 export function useViewWorkspaceIds(): string[] {
-  const key = useStore(windowPaneStore, (s) => {
-    const ids = new Set<string>()
-    for (const pane of Object.values(s.panes)) {
-      if (pane.viewId && pane.chatId && pane.workspaceId) ids.add(pane.workspaceId)
-    }
-    return [...ids].sort().join(ID_DELIM)
-  })
+  const key = useSyncExternalStore(subscribePanesAndChats, viewWorkspaceIdsKey, viewWorkspaceIdsKey)
   return useMemo(() => (key ? key.split(ID_DELIM) : []), [key])
 }

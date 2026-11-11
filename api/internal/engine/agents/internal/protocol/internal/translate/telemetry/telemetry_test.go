@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/telemetry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -23,12 +24,13 @@ func withCallback(fields map[string]string, windows ...spec.TelemetryRateLimitMa
 	}
 }
 
+// claude's documented status line: resets_at is Unix epoch seconds.
 const claudeStatusLine = `{
   "context_window":{"context_window_size":200000,"used_percentage":19,
                     "remaining_percentage":81,"total_input_tokens":37117},
   "cost":{"total_cost_usd":0.0649,"total_api_duration_ms":8123},
-  "rate_limits":{"five_hour":{"used_percentage":1,"resets_at":"2026-08-17T15:00:00Z"},
-                 "seven_day":{"used_percentage":47,"resets_at":"2026-08-24T00:00:00Z"}},
+  "rate_limits":{"five_hour":{"used_percentage":1,"resets_at":1786978800},
+                 "seven_day":{"used_percentage":47,"resets_at":1787529600}},
   "model":{"id":"claude-haiku-4-5-20251001","display_name":"Haiku 4.5"}}`
 
 func claudeDescriptor() *spec.Descriptor {
@@ -79,6 +81,12 @@ func TestParseCallback_MapsEveryReportedFact(t *testing.T) {
 	assert.Equal(t, "5-hour", got.RateLimits[0].Label)
 	assert.InDelta(t, 1, *got.RateLimits[0].UsedPercent, 0.001)
 	assert.Equal(t, time.Date(2026, 8, 17, 15, 0, 0, 0, time.UTC), got.RateLimits[0].ResetsAt.UTC())
+
+	iso, err := telemetry.ParseCallback(claudeDescriptor(),
+		[]byte(`{"rate_limits":{"five_hour":{"used_percentage":1,"resets_at":"2026-08-17T15:00:00Z"}}}`), at)
+	require.NoError(t, err)
+	require.Len(t, iso.RateLimits, 1)
+	assert.Equal(t, *got.RateLimits[0].ResetsAt, iso.RateLimits[0].ResetsAt.UTC(), "an RFC 3339 time reads the same")
 }
 
 func TestParseCallback_AFreshSessionReportsNothingRatherThanZero(t *testing.T) {
@@ -239,8 +247,8 @@ func TestParseCallback_FallsBackToTheV3TelemetryEvent(t *testing.T) {
 		"telemetry": {
 			In: spec.WireRef{"thread/tokenUsage/updated"},
 			Map: spec.FieldMap{
-				spec.FactContextUsedTokens:     {"tokenUsage.total.totalTokens"},
-				spec.FactContextCapacityTokens: {"tokenUsage.modelContextWindow"},
+				spec.FactContextUsedTokens:     mapping.Paths("tokenUsage.total.totalTokens"),
+				spec.FactContextCapacityTokens: mapping.Paths("tokenUsage.modelContextWindow"),
 			},
 		},
 	}}
@@ -264,7 +272,7 @@ func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
 	d := withCallback(map[string]string{spec.FactContextUsedTokens: "v2.used"})
 	d.Events = map[string]spec.EventSpec{"telemetry": {
 		In:  spec.WireRef{"some/event"},
-		Map: spec.FieldMap{spec.FactContextUsedTokens: {"v3.used"}},
+		Map: spec.FieldMap{spec.FactContextUsedTokens: mapping.Paths("v3.used")},
 	}}
 
 	got, err := telemetry.ParseCallback(d, []byte(`{"v2":{"used":7},"v3":{"used":9}}`), at)
@@ -278,7 +286,7 @@ func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
 // "this provider has no telemetry" stays distinguishable from "it reported nothing".
 func TestParseCallback_UnsupportedWhenNeitherFormIsDeclared(t *testing.T) {
 	d := &spec.Descriptor{ID: "bare", Events: map[string]spec.EventSpec{
-		"turn_stop": {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": {"m"}}},
+		"turn_stop": {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": mapping.Paths("m")}},
 	}}
 
 	_, err := telemetry.ParseCallback(d, []byte(`{}`), at)

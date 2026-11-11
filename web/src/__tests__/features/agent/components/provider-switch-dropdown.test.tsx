@@ -2,16 +2,7 @@ import { createElement, forwardRef } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
-
-// jsdom has no ResizeObserver; the shared Dropdown only needs
-// construct/observe/disconnect to reposition its menu on open.
-class ResizeObserverStub {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
 // The shared Dropdown animates open/close via framer-motion's AnimatePresence,
 // which keeps the exiting menu mounted until its exit transition resolves —

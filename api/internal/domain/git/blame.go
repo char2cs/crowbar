@@ -1,8 +1,15 @@
 package git
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
-// BlameEntry annotates a single line with the commit that last changed it (04 §3).
+// ErrNoHistory signals a path with no committed history to blame: a new or
+// untracked file, or a repository with no commits yet.
+var ErrNoHistory = errors.New("git: path has no committed history")
+
+// BlameEntry annotates a single line with the commit that last changed it.
 type BlameEntry struct {
 	LineNumber    int       `json:"lineNumber"`
 	CommitHash    string    `json:"commitHash"`

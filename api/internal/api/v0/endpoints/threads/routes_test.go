@@ -100,21 +100,6 @@ func (stubBroadcaster) Push(
 ) {
 }
 
-// passthroughDispatch mirrors ws.DualServe's signature for the route-mount test:
-// it returns the REST handler so a plain GET is served (the WS branch is
-// exercised by the container integration tests).
-func passthroughDispatch(
-	rest gin.HandlerFunc,
-	_ gin.HandlerFunc,
-) gin.HandlerFunc {
-	return rest
-}
-
-func noopWSHandle(
-	_ *gin.Context,
-) {
-}
-
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
@@ -124,8 +109,6 @@ func TestRegisterMountsRoutes(
 		repoScoped,
 		stubStore{},
 		stubBroadcaster{},
-		noopWSHandle,
-		passthroughDispatch,
 	)
 
 	const base = "/v0/projects/p1/repos/r1/workspaces/w1/threads"

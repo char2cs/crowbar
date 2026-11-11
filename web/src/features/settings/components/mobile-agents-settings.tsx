@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { PermissionLevel } from '@/features/agent/api/agent-api'
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { PermissionLevelRow } from '@/features/settings/components/tabs/default-permission-level-setting'
 import { ProvidersSettingsView } from '@/features/settings/components/tabs/providers-settings-view'
 import type { NativeAgentsSettings } from '@/lib/native-chrome'

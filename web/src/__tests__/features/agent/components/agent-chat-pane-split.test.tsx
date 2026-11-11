@@ -1,54 +1,30 @@
-/**
- * THE SPLIT VIEW IS AN INSTRUMENT, NOT A FEATURE.
- *
- * Crowbar reconstructs a conversation from hooks; the CLI's own TUI is the ground
- * truth. Every gap between them — a turn that never closed, an assistant message
- * silently dropped, a prompt the chat could not see — is obvious the moment the
- * two can be read against each other and close to invisible otherwise. Split puts
- * them side by side so that comparison is a glance.
- *
- * Which makes the FIRST suite below the one that matters most. A diagnostic that
- * changed the two surfaces everybody actually uses would have cost more than it
- * found, so with its switch off the pane has to be the pane it has always been:
- * two buttons, one live surface, the other dormant under `display:none`.
- */
+// Split is a diagnostic that sets the chat beside the CLI's own TUI. With its switch
+// off the pane must stay what it always was: two surfaces, one live, one dormant.
 import { createElement, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const { getChatFn, resumeChatFn } = vi.hoisted(() => ({
-  getChatFn: vi.fn(),
-  resumeChatFn: vi.fn(),
-}))
-
-vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({}),
-}))
-
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/agent/api/agent-api')>()
-  return {
-    ...actual,
-    getChat: (...a: unknown[]) => getChatFn(...a),
-    switchProvider: vi.fn(),
-    resumeChat: (...a: unknown[]) => resumeChatFn(...a),
-    listChatMessages: vi.fn(),
-    submitAgentPrompt: vi.fn(),
-    getSlashCatalog: vi.fn(),
-  }
-})
-
-vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({ saveReconnect: vi.fn() }))
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn() } }))
+import { stubPaneChrome } from '@/__tests__/__fixtures__/agent-pane'
+stubPaneChrome()
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(vi.fn())
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
+vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
+vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(vi.fn())
+const switchToTerminal = vi.spyOn(commandsApi, 'switchToTerminal').mockResolvedValue('pty-1')
+vi.spyOn(commandsApi, 'switchToNative').mockResolvedValue()
 
 // Both surfaces are stubbed to the ONE thing this file is about: the liveness
 // each of them is told it has, plus something real to put the caret in. The chat
 // view in particular is stubbed rather than rendered for real because `active`
 // is exactly the prop under test — a stub reports it, a real transcript only
 // implies it.
+const handed = vi.hoisted(() => new Set<unknown>())
 vi.mock('@/features/agent/chat/agent-chat-view', async () => {
   const { ViewSwitcher } = await import('@/features/agent/controls/view-switcher')
   return {
@@ -58,6 +34,7 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
       presentation,
       splitEnabled,
       onSelectPresentation,
+      onOpenTerminal,
       blankSignpost,
     }: {
       active: boolean
@@ -65,8 +42,10 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
       presentation: 'chat' | 'terminal' | 'split'
       splitEnabled: boolean
       onSelectPresentation: (next: 'chat' | 'terminal' | 'split') => void
+      onOpenTerminal: () => void
       blankSignpost?: ReactNode
     }) =>
+      handed.add(onOpenTerminal).add(onSelectPresentation) &&
       createElement(
         'div',
         {
@@ -75,17 +54,9 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
           'data-visible': String(visible),
         },
         createElement('textarea', { 'data-testid': 'composer' }),
-        // The pane's trust/reviving/idle signpost is no longer a sibling of this
-        // view — it is handed DOWN and rendered inside AgentEmptyDocument's own
-        // control-bar slot (agent-chat-view.tsx's `blank` branch,
-        // `banner={blankSignpost}`). Every chat this file seeds is blank, so the
-        // stub takes that branch unconditionally; dropping the prop instead
-        // would hide the wait banner from a suite whose whole subject is what
-        // the banner does in a split.
+        // Every seeded chat is blank, so the pane's wait banner renders inside the view.
         blankSignpost,
-        // The surface switcher lives in the chat's provider bar now, so the stub
-        // carries the real one: it is a pane control, and this file is the pane's
-        // contract for it.
+        // The real switcher: it is a pane control, and this file is its contract.
         presentation === 'terminal'
           ? null
           : createElement(ViewSwitcher, {
@@ -97,8 +68,9 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
   }
 })
 
-vi.mock('@/features/terminal/components/lazy-terminal', () => ({
-  LazyXtermTerminal: ({
+import * as lazyTerminalMod from '@/features/terminal/components/lazy-terminal'
+vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
+  ({
     sessionId,
     isActive,
     isVisible,
@@ -117,39 +89,28 @@ vi.mock('@/features/terminal/components/lazy-terminal', () => ({
       },
       createElement('textarea', { 'data-testid': 'tty' }),
     ),
-}))
-
-vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
-  ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
-}))
+)
 
 import { ChatHeaderSlot, ChatHeaderSlotProvider } from '@/features/agent/hooks/chat-header-slot'
+import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
-import { nextVersion, seedChats, setChatTerminalWait } from '@/__tests__/__fixtures__/agent-chat'
+import {
+  nextVersion,
+  provider,
+  resetChatStore,
+  seedChats,
+  setChatTerminalWait,
+  setProviders,
+} from '@/__tests__/__fixtures__/agent-chat'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 // Both real descriptors declare hotswap:true — see
 // TestShippedDescriptors_DeclareHotswapTrue on the backend — which is what
 // offers split at all; this suite is about split's OWN behaviour, not the gate.
-const providers: AgentProvider[] = [
-  {
-    id: 'claude',
-    displayName: 'Claude',
-    icon: '<svg/>',
-    connected: true,
-    enabled: true,
-    mcpEnabled: true,
-    hasTerminal: true,
-    hotswap: true,
-    modelSelect: false,
-    effortSelect: false,
-    compaction: false,
-    terminalStartHere: false,
-  },
-]
+const providers: AgentProvider[] = [provider('claude', 'Claude')]
 
 function liveChat(): AgentChat {
   return {
@@ -169,8 +130,8 @@ function liveChat(): AgentChat {
 
 function seed() {
   const store = createWorkspaceStore('w1')
-  store.getState().setAgentProviders(providers)
-  seedChats(store, [liveChat()])
+  setProviders(providers)
+  seedChats([liveChat()])
   return store
 }
 
@@ -183,26 +144,23 @@ function setSplitEnabled(enabled: boolean) {
   })
 }
 
-async function renderPane(
-  store: Store,
-  opts: { isActivePane?: boolean; isVisible?: boolean } = {},
-) {
-  await act(async () =>
-    render(
-      createElement(
-        WorkspaceStoreContext.Provider,
-        { value: store },
-        createElement(AgentChatPane, {
-          chatId: 'c1',
-          runnerId: 'r1',
-          wsId: 'w1',
-          paneId: 'b1',
-          isActivePane: opts.isActivePane ?? true,
-          isVisible: opts.isVisible ?? true,
-        }),
-      ),
-    ),
+function pane(store: Store, opts: { isActivePane?: boolean; isVisible?: boolean } = {}) {
+  return createElement(
+    WorkspaceStoreContext.Provider,
+    { value: store },
+    createElement(AgentChatPane, {
+      chatId: 'c1',
+      runnerId: 'r1',
+      wsId: 'w1',
+      paneId: 'b1',
+      isActivePane: opts.isActivePane ?? true,
+      isVisible: opts.isVisible ?? true,
+    }),
   )
+}
+
+async function renderPane(store: Store, opts?: { isActivePane?: boolean; isVisible?: boolean }) {
+  await act(async () => render(pane(store, opts)))
 }
 
 /** A string `name` is matched against the WHOLE accessible name, which is what
@@ -239,8 +197,7 @@ async function focusInto(testId: string) {
 }
 
 beforeEach(() => {
-  getChatFn.mockReset()
-  getChatFn.mockImplementation(() => Promise.resolve({ ...liveChat(), conversations: [] }))
+  resetChatStore()
   useTerminalStore.setState({ sessions: new Map() })
   // These cases are about the Chat surface, so they land on it.
   useSettingsStore.setState({
@@ -271,7 +228,7 @@ describe('AgentChatPane — with the split view switched off', () => {
     expect(screen.queryByRole('separator')).not.toBeInTheDocument()
   })
 
-  // The regression that actually matters: one surface live, the other dormant.
+  // The invariant that matters most: one surface live, the other dormant.
   it('keeps exactly one surface live, whichever one is in front', async () => {
     await renderPane(seed())
 
@@ -299,18 +256,7 @@ describe('AgentChatPane — terminal controls', () => {
           ChatHeaderSlotProvider,
           null,
           createElement('header', { 'data-testid': 'header' }, createElement(ChatHeaderSlot)),
-          createElement(
-            WorkspaceStoreContext.Provider,
-            { value: seed() },
-            createElement(AgentChatPane, {
-              chatId: 'c1',
-              runnerId: 'r1',
-              wsId: 'w1',
-              paneId: 'b1',
-              isActivePane: true,
-              isVisible: true,
-            }),
-          ),
+          pane(seed()),
         ),
       ),
     )
@@ -325,19 +271,7 @@ describe('AgentChatPane — terminal controls', () => {
 
 describe('AgentChatPane — the split view', () => {
   beforeEach(() => {
-    resumeChatFn.mockReset()
-    resumeChatFn.mockResolvedValue('r')
     setSplitEnabled(true)
-  })
-
-  it('starts a dormant chat’s session when split shows its terminal', async () => {
-    const store = seed()
-    seedChats(store, [{ ...liveChat(), liveRunnerId: '', terminalSessionId: '' }])
-    await renderPane(store)
-
-    await choose('Split')
-
-    expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
   })
 
   it('is reachable from the chat’s own switcher', async () => {
@@ -406,13 +340,26 @@ describe('AgentChatPane — a split nobody is looking at', () => {
   // rendering, so the props have to.
   it('goes dormant with the tab that holds it', async () => {
     const store = seed()
-    await renderPane(store, { isVisible: false })
+    const view = await act(async () => render(pane(store)))
+    await act(async () => view.rerender(pane(store, { isVisible: false })))
     await choose('Split')
 
     expect(showing()).toBe('split')
     expect(xterm()).toHaveAttribute('data-visible', 'false')
     expect(xterm()).toHaveAttribute('data-active', 'false')
     expect(chatView()).toHaveAttribute('data-visible', 'false')
+  })
+})
+
+// A fresh handler per pane render is a fresh row action for every transcript row.
+describe('AgentChatPane — what it hands the chat view', () => {
+  it('hands the same terminal and surface handlers across its renders', async () => {
+    const store = seed()
+    const view = await act(async () => render(pane(store)))
+    handed.clear()
+    await act(async () => view.rerender(pane(store, { isActivePane: false })))
+    await act(async () => view.rerender(pane(store)))
+    expect(handed.size).toBe(2)
   })
 })
 
@@ -464,9 +411,9 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     setSplitEnabled(true)
   })
 
-  async function setWait(store: Store, wait: { kind: string } | null) {
+  async function setWait(wait: { kind: string } | null) {
     await act(async () => {
-      setChatTerminalWait(store, 'c1', wait)
+      setChatTerminalWait('c1', wait)
     })
   }
 
@@ -474,11 +421,10 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
   // is on screen already, so moving anybody would mean taking away the chat half
   // they are deliberately watching.
   it('does not collapse the split when the CLI blocks on a prompt', async () => {
-    const store = seed()
-    await renderPane(store)
+    await renderPane(seed())
     await choose('Split')
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     expect(showing()).toBe('split')
     expect(screen.getByTestId('agent-terminal-wait')).toBeInTheDocument()
@@ -487,12 +433,11 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
   // And having moved nobody, it owes nobody a way back: the "return to chat"
   // offer over a surface with the chat already on it would be nonsense.
   it('offers no way back once the prompt clears, because it took nobody anywhere', async () => {
-    const store = seed()
-    await renderPane(store)
+    await renderPane(seed())
     await choose('Split')
 
-    await setWait(store, { kind: 'workspace_trust' })
-    await setWait(store, null)
+    await setWait({ kind: 'workspace_trust' })
+    await setWait(null)
 
     expect(showing()).toBe('split')
     expect(screen.queryByRole('button', { name: /return to chat/i })).not.toBeInTheDocument()
@@ -501,10 +446,9 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
   // The banner's button still has to do SOMETHING useful. There is nowhere to
   // send anybody, so it sends the caret.
   it('points the banner’s button at the terminal’s caret instead', async () => {
-    const store = seed()
-    await renderPane(store)
+    await renderPane(seed())
     await choose('Split')
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /open terminal/i }))
@@ -513,18 +457,24 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     expect(showing()).toBe('split')
     expect(terminalHalf()).toHaveAttribute('data-surface-focused', 'true')
   })
+})
 
-  // The control: with the split OFF this is the escort that has always run.
-  it('still escorts a user who is on Chat alone', async () => {
+// A reload empties the pane's memory: a hot-swap chat lands where the daemon
+// recorded it was last shown, even when that record arrives after the mount.
+describe('AgentChatPane — a hot-swap chat after a reload', () => {
+  it('lands on the recorded surface over the default, and records the next pick', async () => {
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: false },
+    }) // lands on the terminal
+    resetChatPresentationMemoryForTests()
     const store = seed()
-    setSplitEnabled(false)
     await renderPane(store)
-    expect(showing()).toBe('chat')
-
-    await setWait(store, { kind: 'workspace_trust' })
     expect(showing()).toBe('terminal')
 
-    await setWait(store, null)
+    await act(async () => seedChats([{ ...liveChat(), surface: 'chat' }]))
     expect(showing()).toBe('chat')
+
+    await choose('Terminal')
+    expect(switchToTerminal).toHaveBeenCalledWith('w1', 'c1')
   })
 })

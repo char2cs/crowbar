@@ -13,11 +13,8 @@ type MatchSpan struct {
 	End   int
 }
 
-// BuildPattern compiles a *regexp.Regexp from the search parameters.
-//
-// Fixed-string mode (Regex=false) escapes the query with regexp.QuoteMeta.
-// WholeWord wraps the pattern with \b word boundaries.
-// CaseSensitive=false prepends (?i).
+// BuildPattern compiles the search regexp: a fixed string is QuoteMeta-escaped,
+// WholeWord adds \b boundaries, and case-insensitive prepends (?i).
 func BuildPattern(
 	query string,
 	caseSensitive bool,

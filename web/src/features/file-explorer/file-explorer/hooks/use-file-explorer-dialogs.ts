@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { readWorkspaceDirectory } from '@/features/file-system/controllers/platform'
+import { readDirectory } from '@/features/file-system/controllers/platform'
 import type { FileEntry } from '@/features/file-system/types/app'
 import {
   collectLoadedFilesInDirectory,
@@ -11,10 +11,8 @@ import type { FileExplorerDialogs } from '../components/file-explorer-dialogs'
 
 type OpenHandler = (path: string, isDir: boolean) => void | Promise<void>
 
-/**
- * The explorer's modal flows — an alert, the delete confirmation and "Open
- * All" (confirmed past a threshold) — as state plus the props that render them.
- */
+/** The explorer's modal flows (an alert, the delete confirmation, and "Open All", confirmed
+ *  past a threshold) as state plus the props that render them. */
 export function useFileExplorerDialogs({
   workspaceId,
   filteredFiles,
@@ -25,7 +23,6 @@ export function useFileExplorerDialogs({
   onDeletePath,
   updateActivePath,
 }: {
-  /** The workspace the tree shows; "Open All" scans that workspace, whichever is in view. */
   workspaceId: string | null
   filteredFiles: FileEntry[]
   isVisible: Parameters<typeof collectLocalFilesInDirectory>[2]
@@ -63,12 +60,9 @@ export function useFileExplorerDialogs({
     async (directoryPath: string) => {
       let filePaths: string[]
       try {
-        if (!workspaceId) throw new Error('the tree shows no workspace')
-        filePaths = await collectLocalFilesInDirectory(
-          directoryPath,
-          (path) => readWorkspaceDirectory(workspaceId, path),
-          isVisible,
-        )
+        if (!workspaceId) throw new Error('the explorer names no workspace')
+        const list = (path: string) => readDirectory(workspaceId, path)
+        filePaths = await collectLocalFilesInDirectory(directoryPath, list, isVisible)
       } catch (error) {
         console.error('Failed to scan directory for Open All, falling back to loaded tree:', error)
         filePaths = collectLoadedFilesInDirectory(filteredFiles, directoryPath, rootFolderPath)
@@ -82,7 +76,7 @@ export function useFileExplorerDialogs({
       }
       await openFilePathsInTabs(uniqueFilePaths)
     },
-    [workspaceId, filteredFiles, isVisible, openFilePathsInTabs, rootFolderPath],
+    [filteredFiles, isVisible, openFilePathsInTabs, rootFolderPath, workspaceId],
   )
 
   const confirmOpenAllFiles = useCallback(async () => {

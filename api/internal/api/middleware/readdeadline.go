@@ -9,11 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// PreAuthReadDeadline bounds how long a request arriving over TLS may take to
-// deliver its body, including the drain net/http does after an early answer.
-// Until a guard verifies the caller (LiftReadDeadline) the peer is anonymous,
-// and an unbounded read lets it pin a connection by trickling bytes. Plaintext
-// is the local transport, whose trust boundary is the OS, so it is left alone.
+// PreAuthReadDeadline bounds a TLS request's reads until a guard verifies the caller
+// (LiftReadDeadline), so an anonymous peer can't pin a connection by trickling bytes.
+// Plaintext is the local transport, trusted by the OS boundary, and is left alone.
 func PreAuthReadDeadline(
 	timeout time.Duration,
 ) gin.HandlerFunc {

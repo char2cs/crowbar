@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { classifyHostFailure } from '@/features/hosts/lib/classify-host-failure'
-import { ApiError } from '@/lib/api/errors'
+import { ApiError } from '@/lib/errors/api-error'
 
 describe('classifyHostFailure', () => {
   it.each([

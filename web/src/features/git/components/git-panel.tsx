@@ -6,9 +6,10 @@ import { cn } from '@/lib/utils'
 import { useShownSidebarTab } from '@/components/layout/sidebar-panel-tabs'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-command-actions'
+import { selectWorkspace, useSelect } from '@/core/entities/select'
 import { useReviewViewedById } from '@/features/git/lib/review-viewed'
+import { useReviewThreads } from '@/features/git/hooks/use-review-threads'
 import { openThreadCountsByPath } from '@/features/git/lib/review-thread-counts'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import {
   hasRepoWorkspace,
@@ -26,16 +27,10 @@ export function GitPanel() {
 
   // Narrow selectors: pull only the fields we need from each store.
   const gitStatus = useWorkspaceStoreById(wsId ?? '', (s) => s.gitStatus)
+  const gitError = useWorkspaceStoreById(wsId ?? '', (s) => s.gitStatusError)
 
-  // Active workspace metadata from sidebar store (branch, parentBranch).
-  const activeWs = useSidebarStore((s) => {
-    if (!wsId) return null
-    for (const repo of s.repos) {
-      const ws = repo.workspaces.find((w) => w.id === wsId)
-      if (ws) return ws
-    }
-    return null
-  })
+  // Active workspace metadata from the entity store (branch, parentBranch).
+  const activeWs = useSelect((s) => (wsId ? (selectWorkspace(s, wsId) ?? null) : null))
 
   // Changed-files tree source: the full branch-vs-parent diff only while the
   // Branch Review pane is open, otherwise the cheap working-tree status (P2b).
@@ -60,13 +55,15 @@ export function GitPanel() {
     wsId ?? '',
     shown === 'git' && files.length > 0,
   )
-  const threads = useWorkspaceStoreById(wsId ?? '', (s) => s.branchReview.threads)
+  const threads = useReviewThreads(wsId ?? '')
   const openThreadCounts = useMemo(() => openThreadCountsByPath(threads), [threads])
 
   const changedLabel = `${files.length} file${files.length !== 1 ? 's' : ''}`
 
+  // Scrolls as a whole: the merge box grows with its reason and must not be
+  // clipped by the carousel card's height.
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {wsId && branch && (
         <div className={cn('mx-1.5 my-0.5', SELECTED_PILL)}>
           <div className="flex select-none items-center gap-2 h-9 px-2 text-[13px] font-medium">
@@ -82,29 +79,30 @@ export function GitPanel() {
         </div>
       )}
 
-      {wsId && activeWs && <ReviewMergeBox wsId={wsId} />}
+      {wsId && gitError && (
+        <div role="alert" className="mx-3 my-2 flex min-w-0 flex-col gap-1">
+          <p className="ui-text-sm font-medium">Git can't read this workspace</p>
+          <p className="ui-text-xs break-words text-muted-foreground">{gitError}</p>
+        </div>
+      )}
 
-      {/* No workspace to show git for at all (project home, or the route/pane
-          hasn't resolved one yet) — never fall through to the sections below,
-          which would otherwise render `useSidebarChangedFiles`'s stale-status
-          fallback: a workspace-scoped git store with no wsId to key its
-          "which workspace is this?" question against just keeps whatever
-          OTHER workspace's status/branch/changed-files it last fetched,
-          cross-chat and cross-project. Git has no meaning without a repo,
-          so it shows nothing instead of stale data. */}
+      {wsId && activeWs && !gitError && <ReviewMergeBox wsId={wsId} />}
+
+      {/* No workspace resolved: show nothing, since the git store would otherwise keep
+          another workspace's status and changed files. */}
       {!wsId && (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-[13px] text-muted-foreground">
           No repository open
         </div>
       )}
 
-      {wsId && (
+      {wsId && !gitError && (
         <>
           {/* Spec 6.3 #3 — "Changed — n files", then the changed list. */}
           <div className="ui-text-xs shrink-0 px-3.5 pt-2 pb-1 text-muted-foreground">
             Changed — {changedLabel}
           </div>
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-24 flex-1">
             <ChangedFilesTree
               files={files}
               repoPath={repoPath}

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { stageSelection, effectiveSelection } from '@/features/agent/lib/staged-selection'
+import {
+  declaredModel,
+  effectiveSelection,
+  stageSelection,
+} from '@/features/agent/lib/staged-selection'
 
 const live = { providerId: 'claude', model: 'opus', effort: 'high' }
 
@@ -21,5 +25,13 @@ describe('effectiveSelection', () => {
     const staged = stageSelection(live, { providerId: 'codex', model: 'gpt', effort: 'low' })
     const switched = { providerId: 'claude', model: 'sonnet', effort: 'high' }
     expect(effectiveSelection(staged, switched)).toEqual(switched)
+  })
+})
+
+// With nothing to check a model against, the daemon passes it through too.
+describe('declaredModel', () => {
+  it('keeps any model for a provider with no catalogue to check against', () => {
+    expect(declaredModel({ models: [] }, 'haiku')).toBe('haiku')
+    expect(declaredModel(undefined, 'haiku')).toBe('haiku')
   })
 })

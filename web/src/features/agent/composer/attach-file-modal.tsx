@@ -21,14 +21,8 @@ interface AttachFileModalProps {
   onInsertMarkdown: (markdown: string) => void
 }
 
-/**
- * A single entry point regardless of kind — image, CSV, PDF, other — the
- * kind is inferred from the uploaded file's own contentType, not from
- * anything the user picked here.
- *
- * Modal, not inline: the composer pill has no room to grow a picker without
- * shoving the transcript around mid-drag.
- */
+/** Modal, not inline: the composer pill has no room to grow a picker without
+ *  shoving the transcript around mid-drag. */
 export function AttachFileModal({
   wsId,
   chatId,
@@ -49,11 +43,7 @@ export function AttachFileModal({
     [onInsertMarkdown, onClose],
   )
 
-  // Upload, CSV-inline resolution, and the failure toast all live in the
-  // shared hook now (also used by agent-composer.tsx and
-  // agent-empty-document.tsx) — this wrapper only adds the `uploading` state
-  // local to this modal, in a `finally` around it. `handleInserted` only
-  // fires on success, so `onClose` still never runs on a failed upload.
+  // `handleInserted` fires only on success, so a failed upload keeps the modal open.
   const { uploadAndInsert: coreUploadAndInsert } = useAttachmentUpload(wsId, chatId, handleInserted)
 
   const uploadAndInsert = useCallback(
@@ -68,14 +58,8 @@ export function AttachFileModal({
     [coreUploadAndInsert],
   )
 
-  // Memoized for the same reason agent-composer.tsx's own pill drop handler
-  // is (Task 29, same hook): `useTauriFileDrop`'s effect depends on
-  // `[containerRef, onDrop]` and re-subscribes Tauri's `onDragDropEvent` IPC
-  // channel whenever `onDrop` gets a new identity. Here that would mean every
-  // `dragOver`/`dragLeave` re-render (each toggles `dropTarget`) tearing the
-  // subscription down and back up continuously for the whole span of an
-  // active drag — an inline arrow would churn it far more than Task 29's
-  // per-keystroke case did.
+  // Memoized: `useTauriFileDrop` re-subscribes its IPC channel on a new `onDrop`,
+  // and every dragOver/dragLeave re-renders this modal.
   const handleTauriDrop = useCallback(
     (paths: string[]) => {
       setDropTarget(false)
@@ -94,9 +78,7 @@ export function AttachFileModal({
 
   const handleDragLeave = useCallback(() => setDropTarget(false), [])
 
-  // Plain-browser fallback — a real DataTransfer.files DOES carry usable File
-  // bytes here, unrelated to extractDroppedFilePaths (which is about a host
-  // PATH, not bytes).
+  // Plain-browser fallback: File bytes, never a host path.
   const handleDrop = useCallback(
     (e: DragEvent) => {
       setDropTarget(false)

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { getIdentity } from '@/features/git/api/identity-api'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('@/lib/api', () => ({ apiFetch }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
 // identity is addressed through the chat holding the worktree now, never
 // through the workspace: the api module resolves the base via
 // identityBaseForWorkspace.

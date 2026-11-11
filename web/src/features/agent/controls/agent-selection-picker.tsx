@@ -3,51 +3,34 @@ import { MagnifyingGlass as Search } from '@phosphor-icons/react'
 import { Dropdown } from '@/components/ui/dropdown'
 import { Input } from '@/components/ui/input'
 import { ProviderIcon } from '@/components/ui/provider-icon'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 import { hasNativeChrome } from '@/lib/native-chrome'
 import { effortLevelsFor, resolveEffort } from './agent-selection-efforts'
 import { NativeModelPicker } from './native-model-picker'
 
-// The menu's width. Wide enough for a provider section header plus its
-// longest model id (`gpt-5.6-terra`) without wrapping. An inline STYLE, not a
-// class: Dropdown locks its measured content width on open and would
-// overwrite a class-set one (see provider-picker.tsx's own MENU_WIDTH_PX).
+// Fits the longest model id unwrapped. An inline style because Dropdown locks
+// its measured width on open and would overwrite a class-set one.
 const MENU_WIDTH_PX = 280
 
 export interface AgentSelectionPickerProps {
   /** The agent running this chat, or undefined before any runner has been on it. */
   provider?: AgentProvider
   providers: AgentProvider[]
-  /** The chat's EFFECTIVE model — its sticky selection, or a staged pick on
-   *  top of it. '' means unset. */
+  /** The effective model (sticky selection or staged pick); '' means unset. */
   model: string
   effort: string
   /** A turn is in flight, or a switch is already running. */
   disabled?: boolean
-  /** A pick — LOCAL staging only, provider included. Nothing is written to
-   *  the server and no CLI is switched until the next message actually
-   *  sends; see AgentChatPane's `stageSelection`. Picking a model under a
-   *  DIFFERENT provider's section stages that provider too — it never calls
-   *  a switch itself, so a row click can never tear down the live CLI on its
-   *  own. */
+  /** Local staging only, provider included: nothing is written or switched
+   *  until the next message sends, so a row click never tears down the live CLI. */
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  /** The word shown in place of an unset `model`/`effort` — the trigger's
-   *  aria-label and visible chip text ONLY. `model`/`effort` themselves stay
-   *  RAW everywhere else (effortLevelsFor's `efforts['']` lookup, the
-   *  `picked` checkmark, and every onSelectionChange call) — this label must
-   *  never reach any of those, since `pickEffort` echoes `model` straight
-   *  back out and a label echoed as a value is exactly the bug this splits
-   *  apart. Defaults to 'unset'; the production caller (SelectionCluster)
-   *  passes 'Default'. */
+  /** Display text for an unset `model`/`effort` only. Values stay raw elsewhere:
+   *  `pickEffort` echoes `model` back out, and a label must never become a value. */
   unsetLabel?: string
-  /** What the provider's last turn actually answered with — display only,
-   *  shown alongside `unsetLabel` while `model` is '' so a completed turn no
-   *  longer leaves "Default" unexplained. Never substituted for `model`
-   *  itself: that would feed `efforts['']`'s lookup a concrete id instead of
-   *  '', silently killing the slider — same trap `unsetLabel` above split
-   *  apart from `model`. */
+  /** The model the last turn reported, shown beside an unset label. Display only:
+   *  substituting it for `model` would break the `efforts['']` lookup. */
   reportedModel?: string
 }
 
@@ -87,11 +70,8 @@ function effortLabel(level: string): string {
   return level === 'xhigh' ? 'XHigh' : level.charAt(0).toUpperCase() + level.slice(1)
 }
 
-/** The menu's search results: a "no matches" message, or every offered
- *  provider's section with its rows — pulled out of the picker itself so the
- *  running rowIndex (each row's ordinal position, for both hover- and
- *  keyboard-highlighting) stays a local concern instead of leaking into the
- *  picker's own body. */
+/** Search results, split out so the running rowIndex used for highlighting
+ *  stays local. */
 function ModelSections({
   sections,
   query,
@@ -152,34 +132,30 @@ function ModelSections({
   )
 }
 
-/** The menu's foot: the reasoning-effort track, thumb and tick labels for
- *  whichever model is current. Renders nothing when the model declares no
- *  effort levels — absence, not a disabled control, the same house rule
- *  AgentSelectionPicker itself follows for the whole control. Owns the drag
- *  gesture end to end so the picker's own body carries none of its state. */
+/** Renders nothing when the model declares no levels — absence, not a disabled
+ *  control. Owns its drag gesture so the picker carries none of that state. */
 function EffortSlider({
   levels,
   effort,
+  defaultEffort,
   onPick,
 }: {
   levels: string[]
   effort: string
+  defaultEffort: string
   onPick: (level: string) => void
 }) {
-  // -1 (nothing known/confirmed yet — see AgentChatView's `latestTurnEffort`)
-  // must NOT clamp to 0: that silently drew the thumb sitting on "Low" for a
-  // level nobody picked or confirmed, live-reported as the slider looking
-  // pre-filled when it was not.
-  const knownIndex = levels.indexOf(effort)
+  // An unknown effort draws no thumb rather than clamping to the first level,
+  // which would look like a pick nobody made. '' runs at the stated default.
+  const shown = effort || defaultEffort
+  const shownLabel = effort ? effortLabel(effort) : `${effortLabel(defaultEffort)} (default)`
+  const knownIndex = levels.indexOf(shown)
   const hasKnownEffort = knownIndex !== -1
   const effortIndex = Math.max(0, knownIndex)
   const effortPct = levels.length > 1 ? Math.round((effortIndex / (levels.length - 1)) * 100) : 0
 
-  // A real slider: press ANYWHERE on the track (thumb included — it sits
-  // over the track and is otherwise non-interactive) captures the pointer,
-  // jumps to that position immediately, and keeps tracking every move until
-  // release, snapping continuously to the nearest discrete level. Not just a
-  // click-to-jump bar with clickable tick labels underneath.
+  // Press anywhere on the track jumps there and keeps tracking until release,
+  // snapping to the nearest discrete level.
   const setEffortFromClientX = useCallback(
     (track: HTMLDivElement, clientX: number) => {
       if (levels.length === 0) return
@@ -193,14 +169,8 @@ function EffortSlider({
     [levels, onPick],
   )
 
-  // Plain window listeners for the life of the gesture, not the Pointer
-  // Capture API — confirmed live that this app's WKWebView throws
-  // NotFoundError from setPointerCapture even for a genuine user pointerdown
-  // (not just a synthetic one), which silently ate the value-jump on press
-  // too, since it aborted the handler before setEffortFromClientX ran. This
-  // needs no capture support at all: press sets the value and starts
-  // tracking, move keeps tracking while the ref says so, release/cancel
-  // stops it — the same contract capture would have given, without it.
+  // Window listeners instead of pointer capture: WKWebView throws NotFoundError
+  // from setPointerCapture even on a genuine pointerdown.
   const draggingRef = useRef<(() => void) | null>(null)
 
   const onTrackPointerDown = useCallback(
@@ -233,7 +203,7 @@ function EffortSlider({
     <div className="border-border/60 border-t px-2.5 pt-2.5 pb-2">
       <div className="mb-2.5 flex items-baseline justify-between text-muted-foreground text-xs">
         <span>Effort</span>
-        <b className="font-semibold text-foreground">{effortLabel(effort)}</b>
+        <b className="font-semibold text-foreground">{shown ? shownLabel : ''}</b>
       </div>
       <div className="px-1.5 py-2">
         <div
@@ -242,7 +212,7 @@ function EffortSlider({
           aria-valuemin={0}
           aria-valuemax={levels.length - 1}
           aria-valuenow={hasKnownEffort ? effortIndex : undefined}
-          aria-valuetext={effortLabel(effort)}
+          aria-valuetext={shown ? shownLabel : ''}
           tabIndex={0}
           onPointerDown={onTrackPointerDown}
           onKeyDown={(event) => {
@@ -280,7 +250,7 @@ function EffortSlider({
             onClick={() => onPick(level)}
             className={cn(
               'rounded px-1 py-0.5 text-[10px] hover:bg-muted hover:text-foreground',
-              level === effort ? 'font-bold text-foreground' : 'text-muted-foreground',
+              level === shown ? 'font-bold text-foreground' : 'text-muted-foreground',
             )}
           >
             {effortLabel(level)}
@@ -291,20 +261,9 @@ function EffortSlider({
   )
 }
 
-/**
- * The chat's merged provider + model + effort control.
- *
- * One trigger and one menu instead of three chip dropdowns: picking a MODEL
- * already picks its PROVIDER (each provider is a section, its models the
- * rows under it — there is no separate provider row to choose first), and
- * effort is a property of whichever model is current, so it lives as its own
- * persistent control at the foot of the menu — the last thing you'd touch,
- * not one row among many to search past.
- *
- * Absent capability, absent UI, same house rule as the pickers this replaces:
- * a provider with no model catalogue contributes no section, and a chat with
- * NO model-select provider at all gets no control here — never a disabled one.
- */
+/** One menu: picking a model picks its provider (providers are sections), and
+ *  effort sits at the foot as a property of the current model. A provider with
+ *  no catalogue contributes nothing — never a disabled control. */
 export function AgentSelectionPicker({
   provider,
   providers,
@@ -315,10 +274,8 @@ export function AgentSelectionPicker({
   unsetLabel = 'unset',
   reportedModel,
 }: AgentSelectionPickerProps) {
-  // Display only — never passed to onSelectionChange or effortLevelsFor.
   const modelLabel = model || unsetLabel
   const effortLabelText = effort || unsetLabel
-  // Only annotates the UNSET case — a real pick already says what it is.
   const showsReport = !model && Boolean(reportedModel)
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -326,18 +283,13 @@ export function AgentSelectionPicker({
   const anchorRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Offered = installed AND enabled — the same filter AgentProviderPicker
-  // applied: a provider whose CLI isn't on PATH cannot be spawned, and one
-  // the user switched off in Settings asked not to be.
+  // An uninstalled CLI cannot spawn; a disabled one the user asked not to see.
   const offered = useMemo(
     () => providers.filter((candidate) => candidate.connected && candidate.enabled),
     [providers],
   )
 
-  // Whether there is anything to pick AT ALL — independent of the search
-  // query, which can legitimately filter every row out while a query is
-  // stale from a closed-without-picking menu. This, not `sections`, is what
-  // decides whether the trigger renders.
+  // Decides whether the trigger renders, independent of a query that may filter every row out.
   const catalogueProviders = useMemo(
     () =>
       offered.filter((candidate) => candidate.modelSelect && (candidate.models?.length ?? 0) > 0),
@@ -347,8 +299,7 @@ export function AgentSelectionPicker({
   const sections = useMemo<ProviderSection[]>(() => {
     const result: ProviderSection[] = []
     for (const candidate of catalogueProviders) {
-      // A query matching the PROVIDER's own name surfaces every model
-      // under it — typing "codex" should not require also knowing a model name.
+      // Matching the provider's name surfaces all its models.
       const sectionScore = fuzzyScore(query, candidate.displayName)
       const rows: ModelRow[] = []
       for (const m of candidate.models ?? []) {
@@ -381,9 +332,7 @@ export function AgentSelectionPicker({
 
   const close = useCallback(() => setIsOpen(false), [])
 
-  // Picking a model under a DIFFERENT provider's section stages that
-  // provider right alongside it — never a live SwitchProvider call. The
-  // picker only ever stages; see AgentSelectionPickerProps.onSelectionChange.
+  // Stages the provider alongside the model — never a live switch.
   const pickModel = useCallback(
     (targetProvider: AgentProvider, targetModel: string) => {
       const nextEffort = resolveEffort(targetProvider, targetModel, effort)
@@ -418,8 +367,6 @@ export function AgentSelectionPicker({
     [flatRows, highlight, close, pickModel],
   )
 
-  // No provider offers a model catalogue at all: absence, not a disabled
-  // control — the same law every picker on this surface follows.
   if (catalogueProviders.length === 0) {
     return null
   }
@@ -495,7 +442,12 @@ export function AgentSelectionPicker({
                 onPick={pickModel}
               />
             </div>
-            <EffortSlider levels={levels} effort={effort} onPick={pickEffort} />
+            <EffortSlider
+              levels={levels}
+              effort={effort}
+              defaultEffort={provider?.defaultEfforts?.[model] ?? ''}
+              onPick={pickEffort}
+            />
           </div>
         </Dropdown>
       )}

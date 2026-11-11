@@ -2,30 +2,16 @@ package chat
 
 import (
 	"context"
-	"errors"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// RunnerUsecase owns the vendor CLI: starting one on a chat, replacing it,
-// resuming it, stopping it, and delivering a React-authored prompt to it.
-//
-// Every path in here that starts or ends a CLI on a chat holds that chat's
-// spawn gate, which is the only thing that can stop two concurrent switches
-// putting two CLIs on one chat (see inflight.Gate). The gate is NEVER taken on the
-// hook path, and the destructive paths park on the in-flight turn instead of
-// decapitating it.
+// RunnerUsecase owns the vendor CLI: start, replace, resume, stop, prompt. Every path
+// that starts or ends a CLI decides under the chat's hook lock (so two switches never
+// put two CLIs on one chat) and waits with it released, so hooks are never held up.
 type RunnerUsecase interface {
-	// SpawnChat mints a chat and starts a CLI on it in one act, returning both
-	// ids. A refused spawn takes the half-created chat with it.
-	SpawnChat(
-		ctx context.Context,
-		workspaceID string,
-		providerID string,
-	) (chatID, runnerID string, err error)
-
 	// StartRunner starts a CLI on a chat that already exists.
 	StartRunner(
 		ctx context.Context,
@@ -48,40 +34,31 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
-	// KillChat force-ends the CLI on a chat, even mid-turn, leaving the chat
-	// dormant and resumable. Unlike StopChat it never interrupts in place. It is
-	// the only way a running agent ends because of a client: closing a view only
-	// detaches.
+	// Retract withdraws a sent prompt: settled while no CLI holds it, its turn
+	// interrupted once it runs. A prompt a CLI holds, or a settled one, is a conflict.
+	Retract(ctx context.Context, chatID, requestID string) (RetractResult, error)
+
+	// KillChat force-ends the CLI on a chat, even mid-turn, leaving it dormant and
+	// resumable. It is the only way a client ends a running agent: closing a view
+	// only detaches.
 	KillChat(
 		ctx context.Context,
 		chatID string,
 	) error
 
-	// SwitchProvider replaces the chat's CLI with one from another provider,
-	// handing the incoming CLI the conversation so far. It WAITS for any in-flight
-	// turn rather than quitting a CLI mid-answer, and refuses a disabled target
-	// before anything is torn down.
+	// SwitchProvider replaces the chat's CLI with another provider's, handing over the
+	// conversation. It WAITS out an in-flight turn, and refuses a disabled target
+	// before anything is torn down. A non-empty surface is where the incoming CLI starts.
 	SwitchProvider(
 		ctx context.Context,
 		chatID string,
 		targetProviderID string,
+		surface string,
 	) (string, error)
 
-	// SubmitPrompt delivers a React-authored prompt to the chat's CLI. Delivery is
-	// at-most-once against clientRequestID: a retry replays the original outcome
-	// rather than prompting twice.
-	//
-	// provider/selection are the STAGED pick the composer is showing right
-	// now — not necessarily what the chat already holds. An empty provider is
-	// "nothing staged, use the current one as-is"; a non-empty one that
-	// differs from the chat's current one is switched to via SwitchProvider
-	// BEFORE the prompt is delivered. A nil selection is "nothing staged,
-	// leave the sticky model/effort alone"; a non-nil one is committed via
-	// SetChatSelection next, INCLUDING an all-empty one, which clears the
-	// chat back to the provider's own default (domain.ChatSelection).
-	// Picking a row in the UI never mutates the chat on its own — provider
-	// included — it only takes effect bundled with the next message, one
-	// atomic call instead of two (or three).
+	// SubmitPrompt delivers a prompt at most once per clientRequestID (a retry replays the
+	// outcome). provider/selection are the composer's STAGED pick, applied atomically
+	// with the send: "" / nil keep the current; an all-empty selection resets to default.
 	SubmitPrompt(
 		ctx context.Context,
 		chatID, text, clientRequestID, provider string,
@@ -95,14 +72,6 @@ type RunnerUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (engineagents.SlashCatalog, error)
-
-	// PendingPrompt returns the chat's most recent prompt submission the
-	// journal has not yet confirmed the provider accepted, so a client whose
-	// own local copy of the text was lost can recover it.
-	PendingPrompt(
-		ctx context.Context,
-		chatID string,
-	) (domain.PendingPrompt, bool, error)
 
 	// SwitchToTerminal moves the chat onto its provider's own TUI — idle-only
 	// when that relaunches or hands over a process — and returns the terminal
@@ -119,10 +88,8 @@ type RunnerUsecase interface {
 		chatID string,
 	) error
 
-	// AttachedTerminalSession answers, for a live runner, which terminal session
-	// IS its native view right now — set only between a SwitchToTerminal and its
-	// matching SwitchToNative. A plain in-memory read, like TerminalWait: no ctx,
-	// no error, and false for a runner with nothing attached.
+	// AttachedTerminalSession answers which terminal session IS a live runner's view,
+	// set only between SwitchToTerminal and SwitchToNative; false when none is attached.
 	AttachedTerminalSession(runnerID string) (string, bool)
 
 	// TelemetryOnChatSurface is the CHAT-scoped form of a capability a
@@ -130,14 +97,13 @@ type RunnerUsecase interface {
 	// be on different surfaces. See runner/capabilities.go.
 	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
 
-	// ShutdownAPIConnections kills every live api-transport connection this
-	// daemon still holds. It is the shutdown-time counterpart to
-	// ReconcileRunnersOnBoot: that call cleans up the PREVIOUS run's dead
-	// rows on the way up, this one kills THIS run's live processes on the way
-	// down — neither path reaches the other's targets.
+	// ShutdownAPIConnections notes daemon_restart on every live runner and
+	// kills every api-transport connection this daemon still holds: the
+	// shutdown-time counterpart to ReconcileRunnersOnBoot.
 	ShutdownAPIConnections()
 
-	// LiveRunnerForChat returns the runner currently placed on a chat.
+	// LiveRunnerForChat returns the runner on a chat; ErrNoLiveRunner when it
+	// is dormant.
 	LiveRunnerForChat(
 		ctx context.Context,
 		chatID string,
@@ -150,19 +116,27 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
-	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
-	// the restart, closes the turns they died in, and recovers their prompt
-	// journals.
+	// ReconcileRunnersOnBoot records daemon_restart for every runner the ledger
+	// still holds live, closes the turns they died in, and settles the prompts
+	// they left pending.
 	ReconcileRunnersOnBoot(
 		ctx context.Context,
 	) error
 
 	// RestateProvidersFromHistory makes each chat's durable provider agree with
-	// its runner history, as the pre-audit daemon resolved it. It runs once per
-	// install, after ReconcileRunnersOnBoot, and reports whether it finished.
+	// newest, the provider the legacy history last names per chat. It runs once
+	// per install and counts the rows it skipped.
 	RestateProvidersFromHistory(
 		ctx context.Context,
-	) bool
+		newest map[string]string,
+	) (skipped int, err error)
+
+	// StaleProviders lists the replayable chats RestateProvidersFromHistory left
+	// on a provider newest disagrees with.
+	StaleProviders(
+		ctx context.Context,
+		newest map[string]string,
+	) ([]string, error)
 
 	// Compact asks the chat's CLI to compact its own context, using the gesture the
 	// provider declares. A provider that declares none reports ErrNotFound.
@@ -185,6 +159,10 @@ type RunnerUsecase interface {
 
 var _ RunnerUsecase = (*Usecase)(nil)
 
+// RetractResult is what a retract did ("retracted" | "interrupted") and the
+// prompt's text, handed back to the composer.
+type RetractResult = runner.RetractResult
+
 // The CLI lifecycle's refusals, re-exported so a handler can map them to a status
 // without importing past the door. Each is the SAME value the lifecycle returns,
 // so errors.Is matches across the boundary.
@@ -204,85 +182,9 @@ var (
 	ErrPromptBusy               = runner.ErrPromptBusy
 	ErrPromptRequestIDConflict  = runner.ErrPromptRequestIDConflict
 	ErrPromptOutcomeUnknown     = runner.ErrPromptOutcomeUnknown
-	ErrPromptAlreadyAccepted    = runner.ErrPromptAlreadyAccepted
 	ErrPromptUnsupported        = runner.ErrPromptUnsupported
 	ErrPromptSessionUnavailable = runner.ErrPromptSessionUnavailable
 )
-
-const (
-	PromptCodeBusy              = "chat_busy"
-	PromptCodeOutcomeUnknown    = "request_outcome_uncertain"
-	PromptCodeAlreadyAccepted   = "request_already_accepted"
-	PromptCodeRequestIDConflict = "request_id_conflict"
-	PromptCodeUnsupported       = "prompt_submit_unsupported"
-	PromptCodeSessionRequired   = "live_tui_required"
-)
-
-const (
-	CatalogCodeUnsupported = "catalog_unsupported"
-	CatalogCodeTimeout     = "catalog_timeout"
-	CatalogCodeUnavailable = "catalog_command_unavailable"
-	CatalogCodeOutputLimit = "catalog_output_limit"
-	CatalogCodeCommand     = "catalog_command_failed"
-	CatalogCodeMalformed   = "catalog_malformed_output"
-	CatalogCodeSuperseded  = "catalog_superseded"
-)
-
-// PromptErrorCode returns the stable machine-readable API code for a prompt
-// submission error. The human message may evolve; clients branch only on this.
-func PromptErrorCode(err error) string {
-	switch {
-	case errors.Is(err, ErrPromptBusy):
-		return PromptCodeBusy
-	case errors.Is(err, ErrPromptOutcomeUnknown):
-		return PromptCodeOutcomeUnknown
-	case errors.Is(err, ErrPromptAlreadyAccepted):
-		return PromptCodeAlreadyAccepted
-	case errors.Is(err, ErrPromptRequestIDConflict):
-		return PromptCodeRequestIDConflict
-	case errors.Is(err, ErrPromptUnsupported):
-		return PromptCodeUnsupported
-	case errors.Is(err, ErrPromptSessionUnavailable):
-		return PromptCodeSessionRequired
-	default:
-		return ""
-	}
-}
-
-func CatalogErrorCode(err error) string {
-	switch {
-	case errors.Is(err, ErrSlashCatalogUnsupported):
-		return CatalogCodeUnsupported
-	case errors.Is(err, ErrSlashCatalogTimeout):
-		return CatalogCodeTimeout
-	case errors.Is(err, ErrSlashCatalogUnavailable):
-		return CatalogCodeUnavailable
-	case errors.Is(err, ErrSlashCatalogOutputLimit):
-		return CatalogCodeOutputLimit
-	case errors.Is(err, ErrSlashCatalogCommand):
-		return CatalogCodeCommand
-	case errors.Is(err, ErrSlashCatalogMalformed):
-		return CatalogCodeMalformed
-	case errors.Is(err, ErrSlashCatalogSuperseded):
-		return CatalogCodeSuperseded
-	default:
-		return ""
-	}
-}
-
-// The vendor CLI's lifecycle. Everything here is USER-INITIATED, which is what
-// separates it from the hook ingress: it may block, it may refuse, and it takes
-// the per-chat spawn gate — the only thing that stops two clicks putting two CLIs
-// on one chat.
-
-// SpawnChat mints a chat and starts a provider CLI on it in one step.
-func (u *Usecase) SpawnChat(
-	ctx context.Context,
-	workspaceID string,
-	providerID string,
-) (chatID, runnerID string, err error) {
-	return u.runners.SpawnChat(ctx, workspaceID, providerID)
-}
 
 // StartRunner starts a provider CLI on a chat that already exists.
 func (u *Usecase) StartRunner(
@@ -310,6 +212,11 @@ func (u *Usecase) StopChat(
 	return u.runners.StopChat(ctx, chatID)
 }
 
+// Retract withdraws requestID from the chat; its text comes back.
+func (u *Usecase) Retract(ctx context.Context, chatID, requestID string) (RetractResult, error) {
+	return u.runners.Retract(ctx, chatID, requestID)
+}
+
 // KillChat force-ends the CLI on a chat. The chat itself survives.
 func (u *Usecase) KillChat(
 	ctx context.Context,
@@ -318,55 +225,22 @@ func (u *Usecase) KillChat(
 	return u.runners.KillChat(ctx, chatID)
 }
 
-// SwitchProvider replaces the chat's CLI with another provider's, waiting for any
-// turn in flight so the outgoing CLI is never killed mid-answer.
-//
-// Switching to the provider the chat is ALREADY on is deliberately NOT a no-op
-// here, unlike SubmitPrompt's staged half (which skips it so an ordinary resend
-// does not pay for a switch nobody asked for). This verb means "tear the CLI
-// down and put a fresh one on the chat as X", and a same-provider call is the
-// one respawn primitive Promote has: its chat's WorkspaceID just changed, so the
-// live CLI is running in the wrong worktree and rebuilding it as itself is the
-// entire point. Nothing reachable from the UI sends an identity switch anyway —
-// the dropdown lists only the OTHER providers and ⌘/ skips a cycle that lands
-// back where it started — so a guard here would cost that primitive and buy
-// nothing.
+// SwitchProvider replaces the chat's CLI with another provider's, waiting out any turn
+// in flight. A same-provider switch is deliberately NOT a no-op: it rebuilds
+// the CLI from scratch. A non-empty surface
+// becomes the chat's before the incoming CLI starts; "" keeps the chat's own.
 func (u *Usecase) SwitchProvider(
 	ctx context.Context,
 	chatID string,
 	targetProviderID string,
+	surface string,
 ) (string, error) {
-	return u.runners.SwitchProvider(ctx, chatID, targetProviderID)
+	return u.runners.SwitchProvider(ctx, chatID, targetProviderID, surface)
 }
 
-// SubmitPrompt delivers a Crowbar-authored prompt into the chat's CLI, at most
-// once per client request id.
-//
-// A non-empty provider that differs from the chat's CURRENT one is switched
-// to FIRST — the same switch a standalone POST .../switch would run, staged
-// here instead. This is what lets the composer hold a picked provider
-// (picking a model under a different section) as pure local state: the
-// picker never calls SwitchProvider itself any more, so a row click never
-// tears down the live CLI on its own — only the next actual send does. A
-// provider equal to the chat's current one, or left empty, never switches at
-// all — an idle resend must not pay for a switch it never asked for.
-//
-// A non-nil selection commits the chat's sticky model/effort NEXT — same
-// validation the standalone PATCH .../selection route runs, so a bad value
-// still 400s here exactly as it would there, before anything is sent to the
-// CLI and, critically, before the provider switch above is even attempted —
-// see Runners.SubmitPromptWithSwitch's own doc for why validating first
-// (rather than switching, THEN discovering the pick was bad) matters. This is
-// what lets the composer hold a picked model/effort as pure local state and
-// never write it anywhere until the user actually sends.
-//
-// A selection whose BOTH halves are "" is a real pick, not silence: it clears
-// the chat back to the provider's own default, the same distinct fact
-// domain.Chat.Model documents. Only nil means "nothing staged".
-//
-// The whole sequence — switch, selection, delivery — runs under ONE hold of
-// the chat's spawn gate (Runners.SubmitPromptWithSwitch), not three separate
-// ones: see that method's own doc for the race a gap between them opened.
+// SubmitPrompt delivers a prompt at most once per client request id, in one hold
+// of the chat. A staged provider unlike the chat's is switched to by the send's
+// one launch; a non-nil selection, validated first, rides the send.
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID, provider string,
@@ -385,17 +259,8 @@ func (u *Usecase) SlashCatalog(
 	return u.runners.SlashCatalog(ctx, chatID)
 }
 
-// PendingPrompt returns the chat's most recent prompt submission the journal
-// has not yet confirmed the provider accepted.
-func (u *Usecase) PendingPrompt(
-	ctx context.Context,
-	chatID string,
-) (domain.PendingPrompt, bool, error) {
-	return u.runners.PendingPrompt(ctx, chatID)
-}
-
-// ReconcileRunnersOnBoot exits every runner whose PTY did not survive the
-// restart. Nothing else can: no event was ever recorded for a process the daemon
+// ReconcileRunnersOnBoot ends every runner whose PTY did not survive the
+// restart. Nothing else can: no exit was ever recorded for a process the daemon
 // outlived.
 func (u *Usecase) ReconcileRunnersOnBoot(
 	ctx context.Context,
@@ -404,20 +269,28 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 }
 
 // RestateProvidersFromHistory is the one-off upgrade of every chat's durable
-// provider to what its runner history names; see Conversations'.
+// provider to what its legacy history names; see Conversations'.
 func (u *Usecase) RestateProvidersFromHistory(
 	ctx context.Context,
-) bool {
-	return u.conversations.RestateProvidersFromHistory(ctx)
+	newest map[string]string,
+) (int, error) {
+	return u.conversations.RestateProvidersFromHistory(ctx, newest)
+}
+
+// StaleProviders implements RunnerUsecase.
+func (u *Usecase) StaleProviders(
+	ctx context.Context,
+	newest map[string]string,
+) ([]string, error) {
+	return u.conversations.StaleProviders(ctx, newest)
 }
 
 // Compact asks the chat's provider to compact its own context, through whichever
 // gesture the provider's descriptor declares for it.
 func (u *Usecase) Compact(ctx context.Context, chatID string) error {
-	// A person just asked for this, from the ONE place that fact is knowable.
-	// Armed even though the call below can still fail validation — see
-	// manualCompactRequests' own doc for why that's an acceptable tradeoff.
-	u.turns.ArmManualCompaction(chatID)
+	// The one place a manual request is knowable; armed even if the call below then
+	// fails validation (see manualCompactRequests).
+	u.recorder.ArmManualCompaction(chatID)
 	return u.runners.Compact(ctx, chatID)
 }
 
@@ -443,8 +316,8 @@ func (u *Usecase) TelemetryOnChatSurface(ctx context.Context, chatID string) boo
 	return u.runners.TelemetryOnChatSurface(ctx, chatID)
 }
 
-// ShutdownAPIConnections kills every live api-transport connection this
-// daemon still holds.
+// ShutdownAPIConnections notes daemon_restart on every live runner and kills
+// every api-transport connection this daemon still holds.
 func (u *Usecase) ShutdownAPIConnections() {
 	u.runners.Shutdown()
 }
@@ -458,5 +331,15 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 // StartTerminalWaitSweep starts the screen sweep and wires the publish callbacks
 // the hub owns.
 func (u *Usecase) StartTerminalWaitSweep(ctx context.Context, feed ChatFeed) {
-	u.runners.StartTerminalWaitSweep(ctx, feed)
+	u.feed.Store(&feed)
+	u.runners.StartTerminalWaitSweep(ctx)
+}
+
+// OpenChat is a just-created chat's launch: a CLI now only on the terminal.
+func (u *Usecase) OpenChat(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+) (string, error) {
+	return u.runners.OpenChat(ctx, chatID, providerID)
 }

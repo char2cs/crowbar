@@ -7,10 +7,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
-// Run sweeps immediately and then on the interval — but only while there is
-// something to sweep. A sweep that finds no live runner parks the loop until
-// Wake (a runner was recorded live), so an idle daemon does no periodic work:
-// no timer, no read transaction every interval (spec §6a).
+// Run sweeps immediately and then on the interval, but only while a runner is live:
+// otherwise the loop parks until Wake, so an idle daemon does no periodic work.
 func (d *detector) Run(ctx context.Context, publish Publish) {
 	go func() {
 		defer safego.Recover("agent.termwait.run")

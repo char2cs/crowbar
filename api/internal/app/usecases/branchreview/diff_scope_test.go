@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // stubRevParser answers `<commit>^` with parent, or an error when the commit is
@@ -77,7 +77,7 @@ func TestResolveScopeRef_RejectsAnythingButAHexObjectName(t *testing.T) {
 	} {
 		_, err := u.resolveScopeRef(context.Background(), domain.Workspace{}, commit)
 		require.Errorf(t, err, "commit %q must be refused", commit)
-		assert.ErrorIsf(t, err, apperr.ErrInvalidArgument, "commit %q must be an invalid argument", commit)
+		assert.ErrorIsf(t, err, problem.ErrInvalidArgument, "commit %q must be an invalid argument", commit)
 	}
 }
 

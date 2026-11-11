@@ -11,10 +11,8 @@ import (
 type SetPermissionLevel struct {
 	ChatID string
 	Level  string
-	// Explicit is false for a mint-time seed (the chat merely INHERITS this
-	// value; ChatSelection re-resolves the live global default for it on
-	// every future spawn) and true for an explicit SetChatPermissionLevel
-	// pick (which then pins the chat against the global dial for good).
+	// Explicit is false for a seed the chat merely inherits (every spawn
+	// re-resolves the global default) and true for a user pick, which pins it.
 	Explicit bool
 }
 

@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// resetModes is the allowlist of git reset modes the API accepts. The mode is
-// turned into a `--<mode>` flag by the engine, so an unconstrained value would
-// let a caller inject an arbitrary git option (argument injection → RCE /
-// arbitrary file write). Only these well-known modes are permitted.
+// resetModes is the allowlist of git reset modes: the mode becomes a `--<mode>` flag, so an open value
+// would allow git argument injection.
 var resetModes = map[string]struct{}{
 	"soft":  {},
 	"mixed": {},
@@ -28,23 +26,15 @@ func validateResetMode(
 	if _, ok := resetModes[mode]; !ok {
 		return fmt.Errorf(
 			"%w: reset mode %q is not one of soft, mixed, hard, keep, merge",
-			apperr.ErrInvalidArgument, mode,
+			problem.ErrInvalidArgument, mode,
 		)
 	}
 	return nil
 }
 
-// validateOperand rejects a user-controlled git operand (branch / ref / onto /
-// commit) that could be misread by git as a command-line option or that escapes
-// git's ref/revision grammar. Defense in depth: even where the engine inserts a
-// `--` end-of-options separator before the operand, a leading-dash operand is
-// rejected here so it can never become an option if a separator is ever missing
-// or infeasible for a given subcommand (e.g. the upstream/branch positionals of
-// `git rebase --onto`, which git's grammar will not hide behind `--`).
-//
-// label names the field for the error message (e.g. "branch", "onto", "ref").
-// An empty operand is permitted (callers treat "" as "use the default") and is
-// left for the engine/git to handle; the checks only apply to non-empty values.
+// validateOperand rejects a non-empty git operand (label names it) that git could read as an option or
+// that escapes ref grammar. A leading dash is refused even where `--` exists, since some positionals
+// (git rebase --onto) cannot sit behind it; "" means the default.
 func validateOperand(
 	label string,
 	operand string,
@@ -55,26 +45,21 @@ func validateOperand(
 	if strings.HasPrefix(operand, "-") {
 		return fmt.Errorf(
 			"%w: %s %q must not begin with '-'",
-			apperr.ErrInvalidArgument, label, operand,
+			problem.ErrInvalidArgument, label, operand,
 		)
 	}
 	if !isRefShaped(operand) {
 		return fmt.Errorf(
 			"%w: %s %q is not a valid git ref/revision",
-			apperr.ErrInvalidArgument, label, operand,
+			problem.ErrInvalidArgument, label, operand,
 		)
 	}
 	return nil
 }
 
-// isRefShaped applies a conservative subset of `git check-ref-format`
-// semantics in-process (no shell-out) to a non-empty operand. It is permissive
-// enough to accept every operand the git write usecase legitimately passes —
-// branch names (feature/x), full refs (refs/heads/x), abbreviated/full SHAs,
-// and the revision forms used by reset (HEAD, HEAD^, HEAD~3) — while rejecting
-// the shapes git itself forbids in ref names, plus shell/pathspec metacharacters
-// and whitespace. Combined with the leading-dash guard in validateOperand this
-// keeps an operand from being read as an option or escaping git's grammar.
+// isRefShaped is a conservative in-process subset of `git check-ref-format`: it accepts branch names,
+// full refs, SHAs and HEAD^/HEAD~3, and rejects forbidden ref characters, shell/pathspec metacharacters
+// and whitespace.
 func isRefShaped(
 	s string,
 ) bool {
@@ -86,10 +71,7 @@ func isRefShaped(
 		if r <= ' ' || r == 0x7f {
 			return false
 		}
-		// Reject git check-ref-format forbidden chars and shell/pathspec
-		// metacharacters. '^' and '~' are intentionally allowed: they are part
-		// of legitimate revision expressions (HEAD^, HEAD~3) and are inert to
-		// the shell because the engine never invokes a shell.
+		// '^' and '~' are allowed for revision expressions; inert because the engine never invokes a shell.
 		switch r {
 		case ':', '?', '[', '\\', '*', '"', '\'', '`', '$', '(', ')',
 			'{', '}', '<', '>', '|', '&', ';', '!', '#':

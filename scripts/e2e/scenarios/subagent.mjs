@@ -98,12 +98,5 @@ export default {
       1,
       'the hand-back is one harness row',
     )
-
-    const activity = await daemon.get(`${fx.base}/chats/${chat.id}/activity`)
-    assertEqual(
-      activity.toolCalls.map((t) => t.target),
-      ['PARENT-TOOL'],
-      'the daemon recorded only the parent tool call',
-    )
   },
 }

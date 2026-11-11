@@ -1,16 +1,13 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -20,23 +17,6 @@ func newUUID() string {
 	return uuid.NewString()
 }
 
-// threadErrorStatus maps a store error to an HTTP status: a not-found aggregate
-// yields 404, a command validation failure (e.g. deleting the root via the
-// message route, or editing a message that no longer exists) yields 400 as a
-// deterministic client error, and every other failure yields 500 so a real
-// store error is never masked.
-func threadErrorStatus(
-	err error,
-) int {
-	if errors.Is(err, apperr.ErrNotFound) {
-		return http.StatusNotFound
-	}
-	if errors.Is(err, asynxModels.ErrValidation) {
-		return http.StatusBadRequest
-	}
-	return http.StatusInternalServerError
-}
-
 // scope reads the hierarchical project/repo/workspace ids from the request path.
 func scope(
 	ctx *gin.Context,
@@ -44,26 +24,22 @@ func scope(
 	return ctx.Param("projectId"), ctx.Param("repoId"), ctx.Param("wsId")
 }
 
-// List handles GET
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads, returning the
-// workspace's review threads as scoped DTOs. A WebSocket upgrade on the same
-// path is routed to the thread broadcaster by the dual-serve wrapper.
+// List handles GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads, returning the
+// workspace's review threads as scoped DTOs.
 func (h *Handlers) List(
 	ctx *gin.Context,
 ) {
 	projectID, repoID, wsID := scope(ctx)
 	threads, err := h.store.ListByWorkspace(ctx.Request.Context(), wsID)
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, dto.ThreadDTOList(threads, projectID, repoID))
 }
 
-// OpenThread handles POST
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads, opening a new
-// review thread anchored to a file location. It returns 201 with the scoped DTO
-// and broadcasts the same DTO so the workspace-scoped stream converges.
+// OpenThread handles POST .../workspaces/:wsId/threads, opening a thread anchored to a file
+// location. It returns 201 with the scoped DTO and broadcasts the same DTO.
 func (h *Handlers) OpenThread(
 	ctx *gin.Context,
 ) {
@@ -96,7 +72,7 @@ func (h *Handlers) OpenThread(
 		Body:       body.Body,
 	}, h.now())
 	if err != nil {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -104,25 +80,22 @@ func (h *Handlers) OpenThread(
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, d)
 }
 
-// Detail handles GET
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,
-// returning the single thread as a DTO with its anchor and ordered replies.
+// Detail handles GET .../workspaces/:wsId/threads/:threadId, returning the thread as a DTO with
+// its anchor and ordered replies.
 func (h *Handlers) Detail(
 	ctx *gin.Context,
 ) {
 	projectID, repoID, _ := scope(ctx)
 	thread, err := h.store.Get(ctx.Request.Context(), ctx.Param("threadId"))
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID))
 }
 
-// SetResolved handles PATCH
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,
-// resolving or reopening a thread. It returns 200 with the scoped DTO and
-// broadcasts it.
+// SetResolved handles PATCH .../threads/:threadId, resolving or reopening a thread; it returns
+// 200 with the scoped DTO and broadcasts it.
 func (h *Handlers) SetResolved(
 	ctx *gin.Context,
 ) {
@@ -137,7 +110,7 @@ func (h *Handlers) SetResolved(
 	}
 	thread, err := h.setResolved(ctx, threadID, body.IsResolved)
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -174,10 +147,8 @@ func (h *Handlers) Reply(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	// The route carries no provider or chat, and deliberately: this is the
-	// user-facing reply endpoint, and an agent replies through the MCP tool
-	// surface, which attributes off its authenticated caller rather than off a
-	// request body anyone could type.
+	// No provider or chat on this user-facing route: agents reply through MCP, which attributes
+	// off the authenticated caller rather than a request body anyone could type.
 	thread, err := h.store.Reply(ctx.Request.Context(), reviewthread.ReplyInput{
 		ID:        threadID,
 		MessageID: h.newID(),
@@ -186,7 +157,7 @@ func (h *Handlers) Reply(
 		Body:      body.Body,
 	}, h.now())
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -194,10 +165,8 @@ func (h *Handlers) Reply(
 	libs.WriteQueryOK(ctx, d)
 }
 
-// EditMessage handles PATCH
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,
-// rewriting a message body. It targets any message by id, including the root
-// comment. Returns 200 with the scoped DTO and broadcasts it.
+// EditMessage handles PATCH .../threads/:threadId/messages/:messageId, rewriting any message
+// body including the root comment; it returns 200 with the scoped DTO and broadcasts it.
 func (h *Handlers) EditMessage(
 	ctx *gin.Context,
 ) {
@@ -213,7 +182,7 @@ func (h *Handlers) EditMessage(
 	}
 	thread, err := h.store.EditMessage(ctx.Request.Context(), threadID, messageID, body.Body)
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -221,11 +190,9 @@ func (h *Handlers) EditMessage(
 	libs.WriteQueryOK(ctx, d)
 }
 
-// DeleteMessage handles DELETE
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/messages/:messageId,
-// removing a single reply. The root comment cannot be removed this way (deleting
-// the root is DELETE on the thread); attempting it yields a 400. Returns 200 with
-// the updated thread DTO and broadcasts it.
+// DeleteMessage handles DELETE .../threads/:threadId/messages/:messageId, removing one reply
+// (the root is refused as unprocessable; delete the thread instead). It returns 200 with the
+// updated DTO and broadcasts it.
 func (h *Handlers) DeleteMessage(
 	ctx *gin.Context,
 ) {
@@ -234,7 +201,7 @@ func (h *Handlers) DeleteMessage(
 	messageID := ctx.Param("messageId")
 	thread, err := h.store.DeleteMessage(ctx.Request.Context(), threadID, messageID)
 	if err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	d := dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID)
@@ -242,18 +209,15 @@ func (h *Handlers) DeleteMessage(
 	libs.WriteQueryOK(ctx, d)
 }
 
-// DeleteThread handles DELETE
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId,
-// forgetting the whole thread (root comment + replies). It broadcasts a tombstone
-// DTO (Deleted=true) carrying the entity scope so subscribed clients drop it, and
-// returns 200 with the same tombstone.
+// DeleteThread handles DELETE .../threads/:threadId, forgetting the whole thread. It broadcasts
+// and returns a scoped tombstone DTO (Deleted=true) so subscribed clients drop it.
 func (h *Handlers) DeleteThread(
 	ctx *gin.Context,
 ) {
 	projectID, repoID, wsID := scope(ctx)
 	threadID := ctx.Param("threadId")
 	if err := h.store.DeleteThread(ctx.Request.Context(), threadID); err != nil {
-		libs.WriteErr(ctx, threadErrorStatus(err), err.Error())
+		libs.Fail(ctx, err)
 		return
 	}
 	tombstone := dto.ThreadDTO{

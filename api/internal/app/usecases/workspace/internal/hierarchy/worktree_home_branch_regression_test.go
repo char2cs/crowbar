@@ -103,3 +103,34 @@ func TestRegression_CreateChildDetachingTheHome_ClearsTheHomeRowBranch(t *testin
 	}
 	assert.Equal(t, 1, onMain, "exactly one workspace claims the branch")
 }
+
+// TestRegression_CreateChildOffADetachedHome_ForksFromItsCommit: a repo added on
+// a detached HEAD has a home row with no branch, and "New branch" on it failed
+// with "rev-parse : branch_not_found" instead of forking from the home's commit.
+func TestRegression_CreateChildOffADetachedHome_ForksFromItsCommit(t *testing.T) {
+	repoPath, _ := setupImportRepo(t)
+	gitRun(t, repoPath, "checkout", "--detach")
+	head := revParse(t, repoPath, "HEAD")
+	uc, workspaces, _ := homeBranchHarness(t, repoPath)
+	ctx := context.Background()
+
+	_, err := workspaces.Create(ctx, workspace.CreateInput{
+		ID:           "home",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		WorktreePath: repoPath,
+		IsDefault:    true,
+		Provisioning: domain.WorkspaceShared,
+	}, time.Unix(1000, 0).UTC())
+	require.NoError(t, err)
+
+	ownWorktree := true
+	child, err := uc.CreateChild(ctx, hierarchy.CreateChildInput{
+		ParentID:    "home",
+		Branch:      "ui-branch",
+		OwnWorktree: &ownWorktree,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, head, child.ForkPointSha, "the branch forks from the commit the home holds")
+	assert.Equal(t, head, revParse(t, child.WorktreePath, "HEAD"))
+}

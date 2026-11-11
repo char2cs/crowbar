@@ -9,12 +9,10 @@
 #
 # No owner: anywhere below (design spec P6b tag 1): owner: only resolves
 # which of TWO channels is authoritative, and claude speaks one. No
-# per-event surfaces: either (P6b tag 2) — the mechanism (Runners.
-# ShowingNativeView) is INERT for claude: hotswap: true below means the
-# terminal is a second live window onto a session Crowbar still drives, so
-# SwitchToTerminal is never called and ShowingNativeView reads false even
-# while the user is looking straight at the TUI. Live only for a
-# non-hotswap provider (codex) until that signal covers hotswap too.
+# per-event surfaces: either (P6b tag 2). hotswap: true below means the
+# terminal is a second live window onto a session Crowbar still drives: the
+# client moves between them itself and only records the move (SwitchTo*),
+# so ShowingNativeView reads true while the user is on the TUI alone.
 #
 # No `claude` binary/credentials were available to capture fixtures for P4
 # (attempted: `claude -p` refused "Not logged in"). P4b captured six real
@@ -31,6 +29,7 @@
 # captured payload) its mapping rests on.
 id: claude
 display_name: Claude
+sign_in: claude auth login
 icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>'
 
 runtime:
@@ -49,7 +48,7 @@ runtime:
 #
 # idle is NOT among them any more: claude has no live status stream, but it does
 # send one authoritative idle report — see the idle: event below.
-not_emitted: [reasoning_delta, tool_output_delta, plan_update, diff_update]
+not_emitted: [reasoning_delta, tool_output_delta, plan_update, diff_update, message_complete, warning]
 
 # Both faces are live from the instant the process spawns (hotswap: true
 # above) — the terminal PTY IS claude, chat is the same hooks stream read
@@ -60,10 +59,12 @@ surfaces:
   terminal: { channel: hooks, start_here: true }
 
 events:
+  # source says why the session started; a clear starts the conversation over.
   session_start:
     required: [session_id]
     in: SessionStart
-    map: { session_id: session_id, model: model }
+    status_map: { clear: cleared }
+    map: { session_id: session_id, model: model, reason: source }
     fixtures: [SessionStart.json]
 
   # session_id IS mapped: UserPromptSubmit.json's own real capture carries it
@@ -73,7 +74,7 @@ events:
   user_prompt:
     required: [session_id, message]
     in: UserPromptSubmit
-    map: { session_id: session_id, message: prompt, subagent_id: agent_id }
+    map: { session_id: session_id, message: prompt, scope_id: agent_id, turn_id: prompt_id }
     fixtures: [UserPromptSubmit.json, UserPromptSubmit.Subagent.json, UserPromptSubmit.AgentMessage.json]
 
   turn_stop:
@@ -82,8 +83,8 @@ events:
     map:
       session_id: session_id
       message:    last_assistant_message
-      async_work: background_tasks
       effort:     effort.level
+      turn_id:    prompt_id
     fixtures: [Stop.json]
 
   turn_failed:
@@ -97,7 +98,6 @@ events:
       message:    last_assistant_message
 
   message_delta:
-    unverified: true
     in: MessageDisplay
     map:
       session_id: session_id
@@ -106,70 +106,133 @@ events:
       index:      index
       final:      final
       text:       delta
+    fixtures: [MessageDisplay.json]
 
   tool_pre:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
+      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
+      SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
     in: PreToolUse
     map:
       session_id:  session_id
-      subagent_id: agent_id
+      scope_id:    agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
-      tool_kind:   tool_name
-      tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
+      tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
+      tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
+                                     tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
+      tool_title:  { first_present: [tool_input.description, tool_input.subject] }
+      mcp_server:  mcp_server.name
+      mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       edit_before: tool_input.old_string
       edit_after:  { first_present: [tool_input.new_string, tool_input.content] }
-    fixtures: [PreToolUse.json, PreToolUse.Edit.json, PreToolUse.Subagent.json]
+    fixtures: [PreToolUse.json, PreToolUse.Edit.json, PreToolUse.Subagent.json, PreToolUse.Bash.json,
+               PreToolUse.mcp.json, PreToolUse.TaskUpdate.json]
+    # Refuses one call before it runs: a write into a folder the chat moved out of.
+    reply:
+      deny: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":{reason_json}}}'
 
   tool_post:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
+      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
+      SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
     in: PostToolUse
     map:
       session_id:  session_id
-      subagent_id: agent_id
+      scope_id:    agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
-      tool_kind:   tool_name
-      tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
+      tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
+      tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
+                                     tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
+      tool_title:  { first_present: [tool_input.description, tool_input.subject] }
+      mcp_server:  mcp_server.name
+      mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       tool_result: tool_response
+      tool_output: tool_response.stdout
       duration_ms: duration_ms
+      spawns_scope: tool_response.agentId
     patch: { items: tool_response.structuredPatch, old_start: oldStart, new_start: newStart, lines: lines }
-    fixtures: [PostToolUse.json, PostToolUse.Edit.json, PostToolUse.Subagent.json]
+    fixtures: [PostToolUse.json, PostToolUse.Edit.json, PostToolUse.Subagent.json, PostToolUse.Bash.json,
+               PostToolUse.mcp.json, PostToolUse.Agent.json]
 
   # Fires INSTEAD OF PostToolUse, not alongside it — mapping only tool_post
   # leaves a failed tool open until the turn-close sweep abandons it.
   tool_fail:
-    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute, Grep: search, Glob: search, WebFetch: fetch, WebSearch: search }
+    kind_map: { Read: read, Write: edit, Edit: edit, MultiEdit: edit, NotebookEdit: edit, Bash: execute,
+      Grep: search, Glob: search, WebFetch: fetch, WebSearch: search, Agent: subagent, Task: subagent,
+      TaskCreate: plan, TaskUpdate: plan, TaskList: plan, TaskGet: plan, ExitPlanMode: plan, ToolSearch: meta,
+      SubagentHandback: meta, AskUserQuestion: ask }
     required: [session_id, tool_id, tool_name]
+    # No fixture: the real failure leaves scope_id, mcp_server and mcp_tool unresolved; the
+    # replay would need a recorded subagent failure and a failed MCP call.
     unverified: true
     in: PostToolUseFailure
     map:
       session_id:  session_id
-      subagent_id: agent_id
+      scope_id:    agent_id
       tool_id:     tool_use_id
       tool_name:   tool_name
-      tool_kind:   tool_name
-      tool_target: { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
+      tool_kind:   { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
+      tool_target: { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
+                                     tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
+      tool_title:  { first_present: [tool_input.description, tool_input.subject] }
+      mcp_server:  mcp_server.name
+      mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
       tool_input:  tool_input
+      cwd:         cwd
       tool_result: { first_present: [tool_response, error] }
       tool_error:  error
       duration_ms: duration_ms
+      interrupted: is_interrupt
 
   subagent_pre:
-    required: [session_id, subagent_id]
+    required: [session_id, scope_id]
     in: SubagentStart
-    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+    map: { session_id: session_id, scope_id: agent_id, agent_type: agent_type }
     fixtures: [SubagentStart.json]
 
   subagent_post:
-    required: [session_id, subagent_id]
+    required: [session_id, scope_id]
     in: SubagentStop
-    map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+    map: { session_id: session_id, scope_id: agent_id, agent_type: agent_type, result: last_assistant_message }
     fixtures: [SubagentStop.json]
+    # The recorded stop is a background agent's, which carries no last message.
+    unverified_fields: [result]
+
+  # A hand-back is a UserPromptSubmit (see injected_prompts); its turn_id is the
+  # prompt's, which names the parent's turn that answers it.
+  subagent_result:
+    in: UserPromptSubmit
+    map: { session_id: session_id, turn_id: prompt_id }
+    fixtures: [UserPromptSubmit.AgentMessage.json]
+
+  # The task list, one step at a time: TaskCreated and TaskCompleted, and the
+  # TaskUpdate tool's PostToolUse (registered with that matcher below). No capture
+  # of the first two exists yet; the field names are the hooks' documented ones.
+  plan_step:
+    unverified: true
+    unverified_fields: [step_id, text, detail, status]
+    in: [TaskCreated, TaskCompleted, PostToolUse]
+    status_map: { pending: pending, in_progress: active, completed: done, deleted: removed,
+      TaskCreated: pending, TaskCompleted: done }
+    map:
+      session_id: session_id
+      scope_id:   agent_id
+      step_id:    { first_present: [task_id, tool_input.taskId] }
+      text:       { first_present: [task_subject, tool_input.subject] }
+      detail:     task_description
+      # A TaskUpdate that changes no status says none; only the two task hooks are one.
+      status:     { first_present: [tool_response.statusChange.to, tool_input.status,
+                                    { from: hook_event_name, pattern: '^(?P<v>Task(?:Created|Completed))$' }] }
 
   notification:
     required: [session_id]
@@ -181,25 +244,12 @@ events:
   # config_injection fires two relay commands for Notification, one per
   # canonical name, and the when: below is what tells the two deliveries apart.
   #
-  # WHY IT EXISTS. Measured wedge, claude chat 7745f69f (2026-09-23), hit twice:
-  # Stop arrived and closed the turn at 22:50:17.302, a PreToolUse for
-  # ScheduleWakeup landed 2.4s later with no turn open (ingest mints a synthetic
-  # turn, restateAsyncWork relights Working), and its PostToolUse NEVER came.
-  # Nothing could recover the chat — providerSaysItIsIdle needed this event,
-  # abandonedMessage is gated on OpenWork which that one running row holds true
-  # forever, and stalled needs a terminal_notices entry claude declares none of
-  # — so the spinner ran until a 2h staleness ceiling swept the row. claude had
-  # said it was done all along: Notification at 22:51:17.440, exactly 60.0s
-  # after the close.
-  #
-  # THE when: IS THE SAFETY MECHANISM, NOT AN OPTIMISATION. Notification ALSO
-  # carries permission prompts. Arming the idle latch on an unfiltered
-  # Notification would have AbandonMessage kill a genuinely live turn ~5s later
-  # (termwait.DefaultIdleQuiet), losing the answer. EQUALITY on the whole
-  # message, never a needle: a permission notice names the tool it wants
-  # ("Claude needs your permission to use Bash") and cannot equal this string,
-  # and a wording change claude makes one day degrades to a MISS — back to the
-  # 2h floor — never to a false arm.
+  # THE when: IS THE SAFETY MECHANISM. Notification ALSO carries permission
+  # prompts, and idle ends the running turn: an unfiltered match would end a
+  # live turn and lose its answer. EQUALITY on the whole message, never a
+  # needle: a permission notice names the tool it wants ("Claude needs your
+  # permission to use Bash") and cannot equal this string, and a wording change
+  # claude makes one day degrades to a MISS, never to a false end.
   #
   # The string itself is provider payload, verbatim: inbound.build sets
   # Interrupt.Detail = ev.Message and notification:'s map: is `message: message`,
@@ -237,25 +287,33 @@ events:
   # would open the same prompt twice.
   permission:
     required: [session_id, tool_name]
-    unverified: true
+    fixtures: [PermissionRequest.mcp.json, PermissionRequest.Edit.json, PermissionRequest.ExitPlanMode.json]
+    # No recorded PermissionRequest is an AskUserQuestion one yet.
+    unverified_fields: [questions]
     ask: PermissionRequest
-    timeout_seconds: 270
+    timeout_seconds: 86340
     answers_into: answers
     map:
       session_id:             session_id
       message:                tool_name
       prompt_id:              prompt_id
       tool_name:              tool_name
-      tool_target:            { first_present: [tool_input.file_path, tool_input.command, tool_input.url, tool_input.pattern] }
-      tool_input:              tool_input
+      tool_target:            { first_present: [tool_input.file_path, tool_input.notebook_path, tool_input.command,
+                                                tool_input.url, tool_input.pattern, tool_input.query, tool_input.taskId] }
+      tool_input:             tool_input
+      mcp_server:             mcp_server.name
       suggestions:            permission_suggestions
       # claude's own machine name for a broader grant, never shown as itself.
       suggestion_type:        type
       suggestion_description: { first_present: [mode, destination] }
-      # Labels only — claude declares no reply template for a suggestion.
+      # A label for <type>.<description> names the grant exactly, in place of claude's word.
       suggestion_label.addRules:       "Add a permanent rule for this"
       suggestion_label.addDirectories: "Allow this directory from now on"
       suggestion_label.setMode:        "Switch to a more permissive mode"
+      suggestion_label.setMode.acceptEdits: "Allow edits for the rest of this session"
+      suggestion_label.setMode.plan:   "Switch to plan mode"
+      suggestion_label.setMode.auto:   "Yes, and use auto mode"
+      suggestion_label.setMode.default: "Yes, manually approve edits"
       suggestion_label.default:        "A broader permission than this one"
       questions:              tool_input.questions
       question_title:         header
@@ -264,16 +322,24 @@ events:
       question_multi:         multiSelect
       option_label:           label
       option_description:     description
+    # ExitPlanMode lists no permission_suggestions; these are its TUI dialog's own options.
+    tool_suggestions:
+      ExitPlanMode:
+        - { type: setMode, mode: auto, destination: session }
+        - { type: setMode, mode: default, destination: session }
     reply:
-      allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+      # The input echoed back: on a bare allow claude still opens its own plan dialog.
+      allow:  '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
       deny:   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":{reason_json}}}}'
       answer: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json}}}}'
+      # Allows this call and applies the grants picked from permission_suggestions.
+      suggestion: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{tool_input_json},"updatedPermissions":{suggestions_json}}}}'
 
   elicitation:
     required: [session_id]
     unverified: true
     ask: Elicitation
-    timeout_seconds: 270
+    timeout_seconds: 86340
     map:
       session_id: session_id
       message:    message
@@ -307,8 +373,7 @@ permission_levels:
         - pass_arg: { arg: "--permission-mode", value: "auto" }
 
 # --- carried across from v2 unchanged -------------------------------------
-# Validated against claude 2.1.236. An older claude degrades safely: a Stop
-# payload without background_tasks yields 0 and Working folds from the turn.
+# Validated against claude 2.1.236.
 spawn:
   cmd: claude
   interactive_required: true
@@ -335,17 +400,12 @@ spawn:
       - CLAUDE_CODE_SESSION_ATTENDED
       - CLAUDE_SESSION_INGRESS_TOKEN_FILE
 session:
-  resume: { arg: "--resume {id}" }
+  resume:  { arg: "--resume {id}" }
   # A fresh claude is told its session id up front: its SessionStart hook is
-  # not reliably delivered, and a chat whose id Crowbar never learned cannot
-  # be resumed (verified on 2.1.310).
-  assign: { arg: "--session-id {id}" }
-  # Checked before any resume: a pruned or never-written transcript makes
-  # `--resume <id>` exit 1 (verified on 2.1.281).
-  locate:
-    root_env: CLAUDE_CONFIG_DIR
-    root: "~/.claude"
-    glob: ["projects/*/{id}.jsonl"]
+  # not reliably delivered (verified on 2.1.310).
+  assign:  { arg: "--session-id {id}" }
+  refused: { exit_code: 1, needles: ["No conversation found with session ID"] }
+  persists: turn_start
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -366,12 +426,14 @@ presentation:
       escape: " "
     # A message sent mid-turn rides the Stop hook's block reply, so the running
     # CLI takes it without a restart. `/` and `!` are commands, never steered.
+    # The model reads a block reason as the hook's own notice: the frame names the
+    # words as the person's and sets them apart, or it answers it sees no message.
     steer:
       skip_prefixes: ["/", "!"]
-      frame: "The user sent a new message while you were working. Respond to it now.\n\n{message}"
+      frame: "Message from the user, typed while you were working (Crowbar hands it to you through this hook):\n\n{message}\n\nReply to it as their next message."
       reply: '{"decision":"block","reason":{message_json}}'
-  # Plugin metadata is readable without a model turn; project/user skills
-  # are not, hence plugin_only rather than complete.
+  # Plugin metadata is readable without a model turn; user skills are not,
+  # hence plugin_only rather than complete.
   slash_catalog:
     completeness: plugin_only
     timeout_ms: 10000
@@ -398,6 +460,32 @@ presentation:
         description: ""
         insert_text: "/{source}:{name} "
         source: "{source}"
+    # Read from claude 2.1.319's own `/` menu. terminal: the command opens a dialog
+    # (or paints its answer) that only the CLI's terminal shows.
+    builtins:
+      - { name: compact, description: "Free up context by summarizing the conversation so far" }
+      - { name: clear, description: "Start a new session with empty context" }
+      - { name: init, description: "Initialize a new CLAUDE.md file with codebase documentation" }
+      # Measured on 2.1.319 over the argv prompt: plans, then asks through ExitPlanMode.
+      - { name: plan, description: "Enable plan mode, then plan what follows" }
+      - { name: security-review, description: "Complete a security review of the pending changes on the current branch" }
+      - { name: context, description: "Visualize current context usage as a colored grid", terminal: true }
+      - { name: help, description: "Show help and available commands", terminal: true }
+      - { name: model, description: "Set the AI model for Claude Code", terminal: true }
+      - { name: resume, description: "Resume a previous conversation", terminal: true }
+      - { name: status, description: "Show version, model, account, API connectivity, and tool statuses", terminal: true }
+      - { name: usage, description: "Show session cost, plan usage, and activity stats", terminal: true }
+      - { name: config, description: "Open settings", terminal: true }
+      - { name: permissions, description: "Manage allow and deny tool permission rules", terminal: true }
+      - { name: mcp, description: "Manage MCP servers", terminal: true }
+      - { name: hooks, description: "View hook configurations for tool events", terminal: true }
+      - { name: memory, description: "Edit CLAUDE.md files and memory settings", terminal: true }
+      - { name: doctor, description: "Health-check your setup and fix issues", terminal: true }
+      - { name: rewind, description: "Restore the code and/or conversation to a previous point", terminal: true }
+    # The workspace's own commands and skills; never the user's home.
+    workspace:
+      - { dir: .claude/commands, source: project }
+      - { dir: .claude/skills, entry: SKILL.md, source: project }
 # claude exposes no machine-readable model list at all (no `models`
 # subcommand, --model's own --help gives examples not an enum, the
 # unauthenticated API 401s) — MANIFEST, not discover:, refreshed over the
@@ -438,8 +526,9 @@ hooks_injection:
   # on 2.1.310, interactive), only to a command, so it goes through curl.
   #
   # PermissionRequest/Elicitation carry an explicit timeout: they're the two
-  # hooks Crowbar HOLDS OPEN while a human decides, and an overrun is KILLED
-  # rather than abandoned. The held request IS the answer channel: the daemon
+  # hooks Crowbar HOLDS OPEN while a human decides, for as long as one may take
+  # (a day, just past the ask's own budget), and an overrun is KILLED rather
+  # than abandoned. The held request IS the answer channel: the daemon
   # answers it when the human decides, and a CLI that hangs up has been decided
   # at the terminal.
   #
@@ -463,7 +552,13 @@ hooks_injection:
           "PreToolUse":[{"hooks":[{"type":"http",
             "url":"{hook_url}/tool_pre","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "PostToolUse":[{"hooks":[{"type":"http",
-            "url":"{hook_url}/tool_post","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
+            "url":"{hook_url}/tool_post","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]},
+            {"matcher":"TaskUpdate","hooks":[{"type":"http",
+            "url":"{hook_url}/plan_step","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
+          "TaskCreated":[{"hooks":[{"type":"http",
+            "url":"{hook_url}/plan_step","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
+          "TaskCompleted":[{"hooks":[{"type":"http",
+            "url":"{hook_url}/plan_step","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "PostToolUseFailure":[{"hooks":[{"type":"http",
             "url":"{hook_url}/tool_fail","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "SubagentStart":[{"hooks":[{"type":"http",
@@ -474,9 +569,9 @@ hooks_injection:
             "url":"{hook_url}/notification","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}},
             {"type":"http",
             "url":"{hook_url}/idle","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
-          "PermissionRequest":[{"hooks":[{"type":"http","timeout":300,
+          "PermissionRequest":[{"hooks":[{"type":"http","timeout":86400,
             "url":"{hook_url}/permission","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
-          "Elicitation":[{"hooks":[{"type":"http","timeout":300,
+          "Elicitation":[{"hooks":[{"type":"http","timeout":86400,
             "url":"{hook_url}/elicitation","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
           "PreCompact":[{"hooks":[{"type":"http",
             "url":"{hook_url}/compact_pre","headers":{"X-Crowbar-Runner-Token":"{runner_token}"}}]}],
@@ -500,9 +595,15 @@ hooks_injection:
 # bare positional must NEVER follow it. Pinned by
 # TestSpawnChat_Claude_MCPConfigIsNeverFollowedByAPositional.
 mcp_injection:
+  # The relay's token rides a 0600 file in the runner's tmp dir: argv is readable by ps.
+  - write_file: { path: "{tmp}/mcp.token", content: "{runner_token}" }
   - pass_arg:
       arg: "--mcp-config"
-      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]}}}'
+      value: '{"mcpServers":{"crowbar":{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token-file","{tmp}/mcp.token","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}}}'
+# A pasted image lives in Crowbar's home, outside the workspace, and claude asks to
+# Read each one otherwise. `=`: --add-dir is variadic, and the joined form takes one value.
+add_dirs:
+  - pass_arg: { arg: "--add-dir={attachments_dir}" }
 context_inject:
   - pass_arg: { arg: "--append-system-prompt", value: "{context}" }
 # NOT --append-system-prompt on resume: confirmed live, a resumed session's
@@ -547,7 +648,11 @@ injected_prompts:
   - kind: task_notification
     needle: "<task-notification>"
   - needle: "<teammate-message"
-  - needle: "<agent-message"
+  # The hand-back of a subagent's result: subagent_result, never a prompt.
+  - kind: subagent_result
+    needle: "<agent-message"
+    scope_id: { pattern: 'from="(?P<v>[^"]+)"' }
+    result:   { pattern: '(?s)The report follows:\n(?P<v>.*)</agent-message>' }
   - needle: "[Subagent hand-back]"
 # claude paints its trust dialog BEFORE any hook fires, so a chat behind it
 # is an empty pane over a blocked process with no channel to answer it.
@@ -555,14 +660,24 @@ injected_prompts:
 terminal_prompts:
   - kind: workspace_trust
     needle: "I trust this folder"
-    # The dialog opens with "Yes, I trust this folder" selected; Enter takes it.
+    # Which row the dialog preselects varies by version (2.1.319: "No, exit"), so
+    # the answer aims at its option's text from the cursor's row.
+    cursor: "❯"
+    down: "\e[B"
+    up: "\e[A"
     answers:
       - id: accept
         label: "Trust workspace"
+        option: "Yes, I trust this folder"
         keys: "\r"
   # Footer every claude selection modal paints. Unkinded: a match only
   # justifies "something is blocking".
   - needle: "Enter to confirm"
+  # Footer of a dialog a command opens (/help, verified on 2.1.319): it holds the
+  # CLI until closed in the terminal, and no hook says so.
+  - needle: "Esc to cancel"
+  # /help's tab row: an unviewed 80x24 grid cuts the dialog above its footer.
+  - needle: "Help General Commands Custom commands"
   # First-run onboarding, painted before any hook by a claude never set up on
   # this machine (verified on 2.1.281 with an empty CLAUDE_CONFIG_DIR): the
   # theme picker, then the login method. Neither paints the footer above.

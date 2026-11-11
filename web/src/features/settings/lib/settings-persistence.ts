@@ -4,12 +4,8 @@ import {
 } from '@/features/settings/config/default-settings'
 import type { Settings } from '@/features/settings/types/settings'
 
-/**
- * The one persistence path for settings: one localStorage key per setting,
- * namespaced under "crowbar:settings:". Keys absent from storage take their
- * default; object-valued settings merge stored fields over the defaults so a
- * newly added field gets its default.
- */
+// One localStorage key per setting. Absent keys take their default; object values merge stored
+// fields over the defaults so a newly added field gets its default.
 const STORAGE_PREFIX = 'crowbar:settings:'
 
 function readKey(key: string): unknown {
@@ -44,6 +40,15 @@ export function persistSettings(settings: Partial<Settings>): void {
       console.warn('Failed to persist setting:', key, error)
     }
   }
+}
+
+/** Rewrites the settings already in storage (a load may have normalized them) and adds none:
+ *  a default written here would outlive a later build's different default. */
+export function persistStoredSettings(settings: Settings): void {
+  const stored = (Object.keys(settings) as Array<keyof Settings>).filter(
+    (key) => readKey(key) !== null,
+  )
+  persistSettings(Object.fromEntries(stored.map((key) => [key, settings[key]])))
 }
 
 let saveTimeout: ReturnType<typeof setTimeout> | null = null

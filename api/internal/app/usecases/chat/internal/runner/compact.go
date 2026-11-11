@@ -6,38 +6,24 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // compactStartEvent is the canonical outbound event a provider declares when Crowbar
 // can ask it to compact. Key-presence on the descriptor is the whole capability check.
 const compactStartEvent = "compact_start"
 
-// Compact asks the chat's CLI to compact its own context.
-//
-// Crowbar does not compact anything itself — it cannot, the context belongs to the
-// provider. It sends the provider's own declared gesture: claude has no API for it and
-// declares the /compact slash command over the prompt transport; codex declares
-// thread/compact/start over the api transport. A provider that declares neither
-// cannot be asked, and says so with ErrNotFound rather than silently doing nothing.
-//
-// It is offered on CROWBAR'S OWN CHAT ONLY. On the provider's terminal the
-// user types the provider's own gesture themselves, and a second control for
-// it is Crowbar drawing a button over someone else's UI — see
-// ErrCompactionOffSurface.
-//
-// The provider then reports back through compact_pre and compact_post, which is how
-// the chat learns it happened; nothing here writes that record.
+// Compact asks the chat's CLI to compact its own context by the gesture its
+// descriptor declares (ErrNotFound for none), from Crowbar's own chat only. The
+// CLI reports it back through compact_pre and compact_post.
 func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: compact: %w", err)
 	}
-	// Before anything is resolved: the SURFACE decides, not the provider. See
-	// ErrCompactionOffSurface (capabilities.go) — and CompactionOnChatSurface
-	// beside it, which is the read the client gates its control on so the
-	// button is absent rather than present-and-erroring.
+	// Before anything is resolved: the SURFACE decides, not the provider
+	// (ErrCompactionOffSurface).
 	if chat.Surface == domain.SurfaceTerminal {
 		return ErrCompactionOffSurface
 	}
@@ -64,7 +50,7 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 	})
 	if !ok {
 		return fmt.Errorf(
-			"agent: compact: %q declares no compaction gesture: %w", providerID, apperr.ErrNotFound,
+			"agent: compact: %q declares no compaction gesture: %w", providerID, problem.ErrNotFound,
 		)
 	}
 
@@ -73,7 +59,7 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 		if text == "" {
 			return fmt.Errorf(
 				"agent: compact: %q declares compact_start with no text: %w",
-				providerID, apperr.ErrInvalidArgument,
+				providerID, problem.ErrInvalidArgument,
 			)
 		}
 		if _, err := rs.SubmitPrompt(ctx, chatID, text, uuid.NewString()); err != nil {
@@ -82,25 +68,16 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 		return nil
 	}
 
-	// Any other wire is an api-transport call (codex: thread/compact/start),
-	// driven over this chat's already-live connection exactly the way
-	// interruptTurn drives turn/interrupt — a fresh dial has no session to
-	// compact. A chat with no live api connection (still spawning, running
-	// over hooks-only, or between runners) cannot be asked yet.
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if err != nil {
-		return fmt.Errorf(
-			"agent: compact: %q compacts over the %q wire, which needs a live api "+
-				"connection this chat does not currently have: %w",
-			providerID, wire, apperr.ErrUnavailable,
-		)
-	}
+	// Any other wire is a call over the chat's live api connection, as an
+	// interrupt is: a fresh dial has no session to compact, so a chat with no
+	// live connection cannot be asked yet.
+	live, _ := rs.live.byChat(chatID) // dormant: no id, so no connection
 	conn, ok := rs.apiConns.get(live.ID)
 	if !ok {
 		return fmt.Errorf(
 			"agent: compact: %q compacts over the %q wire, which needs a live api "+
 				"connection this chat does not currently have: %w",
-			providerID, wire, apperr.ErrUnavailable,
+			providerID, wire, problem.ErrUnavailable,
 		)
 	}
 	if err := conn.driver.Send(ctx, compactStartEvent, nil); err != nil {

@@ -1,4 +1,5 @@
-import { ApiError, isHostIdentityChangedError, isHostUnreachableError } from '@/lib/api/errors'
+import { isHostIdentityChangedError, isHostUnreachableError } from '@/lib/api/errors'
+import { ApiError } from '@/lib/errors/api-error'
 import type { HostStatus } from '@/features/hosts/types'
 
 /** A remote host's own trouble with a request: not reached, not the host that was paired, or

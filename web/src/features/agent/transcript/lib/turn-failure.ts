@@ -1,0 +1,68 @@
+/** What kind of trouble failed a turn, as far as its words tell: a sign-in has a
+ *  way out the person can take, a limit lifts by itself, anything else is retried. */
+export type FailureKind = 'auth' | 'limit' | 'other'
+
+export interface TurnFailure {
+  kind: FailureKind
+  /** The provider's own first line, else a plain sentence for its code. */
+  text: string
+  /** The rest of what the provider said, when it said more than one line. */
+  more?: string
+}
+
+const AUTH = /\b40[13]\b|unauthori[sz]ed|authentication|not logged in|invalid api key|log ?in/i
+// An overloaded provider (529) is busy, not limited: it has no window to wait out.
+const LIMIT = /\b429\b|rate.?limit|usage.?limit|too many requests|quota/i
+
+// A reason that is a code, not a sentence: the provider gave no words of its own.
+const CODE = /^[a-z_]+$/
+const CODE_TEXT: Record<FailureKind, string> = {
+  auth: 'The provider refused the sign-in.',
+  limit: 'The provider’s usage limit was reached.',
+  other: 'The provider stopped this turn.',
+}
+const OVERLOADED = 'The provider is overloaded right now.'
+
+/** The message inside a provider error whose words end in its raw JSON body. */
+function jsonMessage(words: string): string | undefined {
+  const start = words.indexOf('{')
+  if (start < 0 || !words.endsWith('}')) return undefined
+  try {
+    const body = JSON.parse(words.slice(start)) as {
+      message?: unknown
+      error?: { message?: unknown }
+    }
+    const message = body.error?.message ?? body.message
+    return typeof message === 'string' && message ? message : undefined
+  } catch {
+    return undefined // not JSON after all: the words stand as they are
+  }
+}
+
+export function describeFailure(reason = '', detail = ''): TurnFailure {
+  const said = `${reason}\n${detail}`
+  const kind: FailureKind = AUTH.test(said) ? 'auth' : LIMIT.test(said) ? 'limit' : 'other'
+  const words = detail.trim() || (CODE.test(reason) ? '' : reason.trim())
+  if (!words) return { kind, text: reason === 'overloaded' ? OVERLOADED : CODE_TEXT[kind] }
+  const message = jsonMessage(words)
+  if (message) return { kind, text: message, more: words }
+  const [first = '', ...rest] = words.split('\n')
+  return { kind, text: first, more: rest.join('\n').trim() || undefined }
+}
+
+/** When a limit lifts, in the person's own clock; '' for an unreadable time. */
+export function resetLabel(resetsAt: string): string {
+  const at = new Date(resetsAt)
+  if (Number.isNaN(at.getTime())) return ''
+  return `Resets ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+}
+
+// A sentence ends at a stop before a capital; a dot inside a path or a URL does not.
+const SENTENCE_END = /[.!?](?=\s+[A-Z])/
+
+/** A provider's warning, said by its first sentence; `more` is its whole message. */
+export function warningHeadline(detail = ''): { text: string; more?: string } {
+  const said = detail.trim()
+  const end = said.search(SENTENCE_END)
+  return end < 0 ? { text: said } : { text: said.slice(0, end + 1), more: said }
+}

@@ -283,7 +283,7 @@ func TestCreate_WithoutARepoStore(
 		tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
 		h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
 
-		rec := repoScopedCreate(t, h, `{"provider":"vendor-a","ownWorktree":true}`)
+		rec := repoScopedCreate(t, h, `{"provider":"vendor-a","ownWorktree":true,"parentId":"c-owner"}`)
 
 		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 		assert.Equal(t, agentusecase.WorktreeFork, tree.gotWorktree.Mode)

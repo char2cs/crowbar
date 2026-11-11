@@ -9,28 +9,26 @@ import { useRecentsChat } from '@/components/sidebar/lib/use-recents-chat'
 import { recentsChatIcon } from '@/components/sidebar/lib/recents-for-project'
 import type { SidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import type { ChatIconFields } from '@/components/sidebar/lib/rows-from-repo'
+import type { ChatIconFields } from '@/components/sidebar/lib/chat-icon-index'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { viewMembers } from '@/features/panes/lib/view-state'
 import type { ViewMember } from '@/features/panes/types/pane'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { isDraftChatId } from '@/features/agent/lib/draft-chat'
+import { selectRepos, useSelect } from '@/core/entities/select'
 
 const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
+const pendingLabel = (chatId: string) => (isDraftChatId(chatId) ? 'New thread' : LOADING_CHAT_LABEL)
 
-/**
- * A chat as the sidebar row model: the workspace store's live title and
- * spinner when one is mounted, else the sidebar's own chat record. A row is
- * its record: with no chat data yet it still draws (as loading).
- */
+// A chat as a sidebar row: the workspace store's live title and spinner when mounted, else the
+// sidebar's chat record. With no chat data yet it still draws, as loading.
 export function useMemberRow(
   chatId: string,
   workspaceId: string,
   hasView: boolean,
 ): SidebarRowType {
-  const icon = useSidebarStore(useShallow((s) => recentsChatIcon(s.repos, chatId) ?? NO_ICON))
+  const icon = useSelect(useShallow((s) => recentsChatIcon(selectRepos(s), chatId) ?? NO_ICON))
   const known = useRecentsChat(workspaceId, chatId)
   const chat = known ?? { id: chatId, title: '', workspaceId, working: false }
   return {
@@ -38,9 +36,7 @@ export function useMemberRow(
     parentId: null,
     order: 0,
     // The tree's own fallback: both rows name an untitled chat alike.
-    // An unsent new thread has no chat to wait for: it is untitled, as it will be once sent.
-    label:
-      chat.title || (known || isDraftChatId(chatId) ? UNTITLED_CHAT_LABEL : LOADING_CHAT_LABEL),
+    label: chat.title || (known ? UNTITLED_CHAT_LABEL : pendingLabel(chatId)),
     labelProvisional: !chat.title,
     workspaceId: chat.workspaceId,
     working: chat.working,
@@ -51,14 +47,9 @@ export function useMemberRow(
   }
 }
 
-/**
- * One view as a tab: a bare row for a lone chat, or one shell around the
- * members of a split. Each tab subscribes to its own labels, so a streaming
- * delta or a view switch re-renders the tabs it touches only.
- *
- * The single × ends the whole view. It is not `SidebarRow`'s `onTrash` slot,
- * which is the tree's destructive delete.
- */
+// One view as a tab: a bare row for a lone chat, or one shell around a split's members. Each tab
+// subscribes to its own labels, so a delta re-renders only the tabs it touches. Its × ends the
+// whole view — not SidebarRow's `onTrash`, which is the tree's destructive delete.
 export function RecentsViewRow({
   viewId,
   onFocus,
@@ -210,7 +201,7 @@ function RecentsMemberRow({
       // Flex item: without `min-w-0 flex-1` it shrinks to its label. The
       // shell paints the hover, not the row.
       className={cn(
-        'relative min-w-0 flex-1 [&_[role=treeitem]]:hover:bg-transparent',
+        'relative min-w-0 flex-1 [&_[role=tab]]:hover:bg-transparent',
         fadesForClose &&
           '[mask-image:linear-gradient(to_right,black_calc(100%_-_34px),transparent_calc(100%_-_24px))]',
       )}

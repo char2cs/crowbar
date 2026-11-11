@@ -12,15 +12,8 @@
  * pass. jsdom runs no animations, which is precisely why the timer and the bar
  * are two separate things: the bar is what you see, the timer is what fires.
  *
- * Driven through `SidebarTreeSurface` (Task 30) — SpaceScroller's real mount
- * point — so a held row is proven to disappear from a REAL tree, not just
- * from the tray's own list. `TestSidebar` below mounts the real
- * `<RemovalTray />` as a sibling by hand — this suite is about
- * hold/cancel/drain/commit behavior, not about where the shell mounts it.
- *
- * That hand-mount is exactly why this suite stayed green through a live bug
- * where no row could be deleted at all: the tray was gated behind a panel
- * the shell unmounted on an empty stage, so the real app had no commit clock. `ide-shell.test.tsx` owns the mount point now.
+ * Driven through `SidebarTreeSurface`, so a held row is proven to leave a REAL tree. The
+ * tray is hand-mounted beside it; `ide-shell.test.tsx` owns where the shell mounts it.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
@@ -46,57 +39,20 @@ vi.mock('@tanstack/react-router', () => ({
   useMatch: () => null,
 }))
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
-  deleteRepo: vi.fn(() => Promise.resolve()),
-}))
-
-// A worktree is taken by deleting the CHAT that holds it — DELETE .../chats/:id
-// cascades the worktree teardown now, so there is no workspace DELETE left to
-// spy on. Note the argument order: `deleteChat(wsId, chatId)`, where the first
-// is only the workspace the URL is scoped by.
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
-  deleteChat: vi.fn(() => Promise.resolve()),
-}))
-
-vi.mock('@/lib/api/sidebar-placement', () => ({
-  placeWorkspace: vi.fn(() => Promise.resolve()),
-  placeFolder: vi.fn(() =>
-    Promise.resolve({
-      folder: { id: 'f1', repoId: 'r1', projectId: 'p1', name: 'spikes', order: 0 },
-      shifted: [],
-    }),
-  ),
-  placeRepo: vi.fn(() => Promise.resolve()),
-  placeProject: vi.fn(() => Promise.resolve()),
-  createFolder: vi.fn(() =>
-    Promise.resolve({
-      folder: { id: 'new-folder', repoId: 'r1', projectId: 'p1', name: 'New folder', order: 0 },
-      shifted: [],
-    }),
-  ),
-  // Task 34: DELETE .../chats/folders/:folderId answers {shifted: [...]},
-  // not void — commitRemoval applies it (and the deletion's own tombstone)
-  // to the sidebar store directly, since folders have no dedicated push
-  // channel any more.
-  deleteFolder: vi.fn(() => Promise.resolve([])),
-}))
-
 import { deleteRepo } from '@/lib/api'
-import { deleteChat } from '@/features/agent/api/agent-api'
+import { deleteChat } from '@/features/agent/api/agent-chat-commands'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
-import { deleteFolder } from '@/lib/api/sidebar-placement'
-import { idle, success } from '@/lib/loadable'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import * as placement from '@/lib/api/sidebar-placement'
+import * as api from '@/lib/api'
+import * as chatCommands from '@/features/agent/api/agent-chat-commands'
+import type { Repo } from '@/core/entities/repo-types'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { RemovalTray } from '@/components/layout/removal-tray'
 import { planRemoval, type DragSubject } from '@/components/layout/removal-plan'
 import type { Project } from '@/lib/types'
+import { seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
 const project: Project = {
   id: 'p1',
@@ -138,7 +94,7 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
   folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 2 }],
   // The chat minted chat-first for the home workspace. The tree is only
   // built for a repo whose chat seed has landed, and by then every home
-  // owns one — see rows-from-repo.ts's `resolveHomeOwnerId`.
+  // owns one — see deriveRows's `resolveHomeOwnerId`.
   chats: [
     {
       id: 'w-default-row',
@@ -156,8 +112,8 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 // one) — read the tree back by the labels it draws, in document order, which
 // is exactly the hierarchical order the tree renders in. Scoped to
 // `[data-sidebar-row-label]` (sidebar-row.tsx's own double-click-to-rename
-// delegation marker), not the whole treeitem's textContent: since Task 5
-// (icon personalization) the project-home row's glyph draws real text too —
+// delegation marker), not the whole treeitem's textContent: the project-home row's glyph
+// draws real text too —
 // the repo's own letter tile (e.g. "C" for crowbar) — so the unscoped
 // textContent would read "Ccrowbar" instead of "crowbar".
 const rows = () =>
@@ -168,7 +124,7 @@ const rows = () =>
 /** Put `subjects` in the tray, exactly as a drop on the pane would. */
 function hold(...subjects: DragSubject[]) {
   act(() => {
-    useRemovalTrayStore.getState().hold(planRemoval(subjects, useSidebarStore.getState().repos))
+    treeUiStore.getState().hold(planRemoval(subjects, readSelect(selectRepos)))
   })
 }
 
@@ -189,11 +145,34 @@ const heldRows = () =>
   )
 const heldRow = () => heldRows()[0]
 
+// The daemon writes a removal makes. A worktree goes by deleting the CHAT that holds it
+// (`deleteChat(wsId, chatId)`, the workspace only scoping the URL); placements answer as the
+// real endpoints do, since the commit applies their responses to the sidebar store.
+function stubDaemonWrites() {
+  vi.spyOn(api, 'deleteRepo').mockResolvedValue({ items: [] })
+  vi.spyOn(chatCommands, 'deleteChat').mockResolvedValue([])
+  vi.spyOn(placement, 'placeWorkspace').mockResolvedValue(undefined as never)
+  vi.spyOn(placement, 'placeFolder').mockResolvedValue({
+    folder: { id: 'f1', repoId: 'r1', projectId: 'p1', name: 'spikes', order: 0 },
+    shifted: [],
+    shiftedRows: [],
+  })
+  vi.spyOn(placement, 'placeRepo').mockResolvedValue(undefined)
+  vi.spyOn(placement, 'placeProject').mockResolvedValue(undefined)
+  vi.spyOn(placement, 'createFolder').mockResolvedValue({
+    folder: { id: 'new-folder', repoId: 'r1', projectId: 'p1', name: 'New folder', order: 0 },
+    shifted: [],
+    shiftedRows: [],
+  })
+  vi.spyOn(placement, 'deleteFolder').mockResolvedValue([])
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  stubDaemonWrites()
   renders.count = 0
   // jsdom does not implement scrollTo — SpaceScroller (mounted for real via
-  // SidebarTreeSurface as of Task 30) calls it to align its panel on every
+  // SidebarTreeSurface) calls it to align its panel on every
   // activeProjectId/projects change, including on mount.
   HTMLElement.prototype.scrollTo = vi.fn()
   // NOT `shouldAdvanceTime`: the deadline is a wall-clock instant, so a fake
@@ -201,13 +180,11 @@ beforeEach(() => {
   // race with however long the test itself took to get there.
   vi.useFakeTimers()
   router.pathname = '/'
-  useWorkspaceListStore.setState({ data: idle() })
-  useProjectDataStore.setState({ data: success([project]) })
-  useRemovalTrayStore.setState(getInitialRemovalState())
-  useSidebarStore.setState({ repos: [repo()] })
+  seedProjects([project])
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  seedRepos([repo()])
   // Rows are only built for a repo whose tree has been read back — see
   // SidebarTreeSurface's own gate.
-  useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set(['r1']) })
   // Which CHAT holds each worktree. Removing a workspace deletes that chat (the
   // DELETE cascades the worktree), so a row with no owning chat recorded cannot
   // be removed at all — the sidebar records these off WorkspaceDTO.owningChatId
@@ -295,7 +272,7 @@ describe('the countdown', () => {
       vi.advanceTimersByTime(8000)
     })
 
-    expect(deleteFolder).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'f1')
+    expect(placement.deleteFolder).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'f1')
     expect(deleteChat).not.toHaveBeenCalled()
   })
 })
@@ -452,7 +429,7 @@ describe('a repo, which takes every worktree under it', () => {
       fireEvent.click(screen.getByText('Delete repository'))
     })
 
-    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1')
+    expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1', expect.any(String))
   })
 })
 
@@ -460,18 +437,18 @@ describe('a ghost row during the DELETE round trip', () => {
   // The bug this pins: `settle()` drops the tray ROW (`entries`) the instant
   // the drain ends, before `deleteChat`'s promise has resolved. The
   // countdown UI is gone (`attachRemovalState` has nothing left to mark), but
-  // the row's underlying data is still sitting in `useSidebarStore` — nothing
+  // the row's underlying data is still sitting in the entity store — nothing
   // has deleted it yet. If the tree's row-building only ever consults
-  // `entries` (via `descendantHiddenIds`) rather than the tray's own
+  // `entries` (via `renderedHiddenIds`) rather than the tray's own
   // `hiddenIds` (populated at `hold()`, cleared only at `release()`), the row
   // falls through and paints again as an ordinary, fully interactive row for
   // as long as the network round trip takes — reported live as "the row was
   // deleted, but Crowbar's frontend is still showing it up".
   it('does not fall back to a normal row while the DELETE is still in flight', async () => {
-    let resolveDelete: () => void = () => {}
+    let resolveDelete: (taken: string[]) => void = () => {}
     vi.mocked(deleteChat).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<string[]>((resolve) => {
           resolveDelete = resolve
         }),
     )
@@ -492,7 +469,7 @@ describe('a ghost row during the DELETE round trip', () => {
 
     // Let the DELETE resolve so the test leaves nothing dangling.
     await act(async () => {
-      resolveDelete()
+      resolveDelete([])
       await Promise.resolve()
     })
   })

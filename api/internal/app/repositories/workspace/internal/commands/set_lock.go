@@ -6,21 +6,12 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// SetLock records the user's own lock decision for a workspace and applies it
-// to the status in the same event.
-//
-// Locking has always been the provider's call: a protected branch is created
-// locked and re-locked on every poll (nextProviderStatus). This is the override
-// on top of that — it does not replace the automatic locking, it outranks it for
-// the one workspace the user has an opinion about. Any branch can be locked,
-// including a fork child; any branch can be unlocked, including main.
-//
-// Locked is a real restriction, not a badge: file writes, branch renames, merges
-// and several git operations all refuse a locked workspace. That is why the
-// decision is persisted on the aggregate rather than kept in the sidebar — a
-// lock the frontend remembered would be a lock the daemon did not enforce.
+// SetLock records the user's lock decision and applies it to the status in the same
+// event. It outranks the provider's protected-branch locking for this workspace, and
+// lives on the aggregate because writes, renames and merges enforce it daemon-side.
 type SetLock struct {
 	ID string
 	// Locked is the user's answer, or nil to hand the question back to the
@@ -52,24 +43,26 @@ func (c SetLock) Validate(
 	// The home workspace is not a git worktree and has no branch to protect, so
 	// there is nothing for a lock to mean on it.
 	if current.Kind == domain.WorkspaceKindHome {
-		return fmt.Errorf("set lock: home workspace cannot be locked: %w", asynxModels.ErrValidation)
+		return refusedLock("The project's home checkout has no branch to lock.")
 	}
-	// A placeholder is locked BECAUSE it has no worktree of its own — something
-	// else is holding its branch. Unlocking it would promise write access to a
-	// directory that does not exist. Retry provisioning is the way out of that
-	// state, not this.
+	// A placeholder is locked because another checkout holds its branch; unlocking
+	// would promise writes to a directory that does not exist.
 	if current.Provisioning == domain.WorkspacePlaceholder {
-		return fmt.Errorf("set lock: workspace has no worktree: %w", asynxModels.ErrValidation)
+		return refusedLock("This branch has no worktree of its own, so it can't be locked or unlocked.")
 	}
 	return nil
+}
+
+// refusedLock is a lock change the workspace cannot take, worded for the user it
+// is shown to.
+func refusedLock(why string) error {
+	return &problem.Error{Code: problem.Unprocessable, Message: why, Err: asynxModels.ErrValidation}
 }
 
 func (c SetLock) EmitEvent(
 	current *domain.Workspace,
 ) domain.Workspace {
 	ws := *current
-	// A successful mutating command clears any stale background error (00 §4).
-	ws.LastError = ""
 	ws.LockOverride = c.Locked
 	ws.Status = nextLockStatus(ws.Status, c.Locked, c.Protected)
 	return ws

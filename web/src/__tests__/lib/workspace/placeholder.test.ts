@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
-import type { Workspace } from '@/lib/store/sidebar'
+import type { Workspace } from '@/core/entities/repo-types'
 
 // The daemon records a workspace with no checkout as a placeholder.
 const ws = (over: Partial<Workspace> = {}): Workspace => ({
@@ -34,12 +34,8 @@ describe('placeholderKind', () => {
     )
   })
 
-  // THE regression: `main` sitting in the repo's own main folder is the resting
-  // state of every imported repo (adoptRepoHome adopts repo.Path in place;
-  // provisioning then resolves holder.HeldByHome for that same branch). Read as
-  // a failed provision it put a permanent amber "Branch needs provisioning"
-  // triangle — and an error toast — on every repo's default branch, forever,
-  // pointing at a Retry that RetryProvision refuses outright.
+  // The repo's own main folder on `main` is every import's resting state, not a failed provision:
+  // read as one, every default branch wore a permanent warning pointing at a refused Retry.
   it('is own-checkout when the branch is the repo’s own default branch', () => {
     const kind = placeholderKind(
       ws({ branch: 'main', status: 'locked', heldByPath: '/Users/me/repo-beta' }),
@@ -82,28 +78,35 @@ describe('placeholderKind', () => {
 describe('placeholderReason', () => {
   it('names the branch and the holder path when known', () => {
     const w = ws({ status: 'locked', heldByPath: '/Users/me/repo' })
-    const reason = placeholderReason(w, placeholderKind(w, 'main'))
+    const reason = placeholderReason(w, placeholderKind(w, 'main'), null)
     expect(reason).toContain('develop')
     expect(reason).toContain('/Users/me/repo')
   })
   it('falls back to a generic reason without a holder path', () => {
     const w = ws({ status: 'locked' })
-    expect(placeholderReason(w, placeholderKind(w, 'main'))).toContain('develop')
+    expect(placeholderReason(w, placeholderKind(w, 'main'), null)).toContain('develop')
   })
-  // A failure with no live holder has no reconstructable reason, so the daemon
-  // persists the cause on the row; showing "Retry to provision it" instead would
-  // hide the only explanation the user can act on.
-  it('prefers the recorded cause when there is no holder path', () => {
-    const w = ws({ status: 'new', lastError: 'worktree add: disk full' })
-    expect(placeholderReason(w, placeholderKind(w, 'main'))).toContain('worktree add: disk full')
-  })
-  it('still prefers the holder path over a recorded cause', () => {
-    const w = ws({
-      status: 'new',
-      heldByPath: '/Users/me/other',
-      lastError: 'branch_already_exists',
+  // A failure with no live holder has no reconstructable reason: the newest
+  // failed operation naming it is the only explanation the user can act on.
+  it("a failed retry shows the operation's reason on the placeholder", () => {
+    const w = ws({ status: 'new' })
+    const reason = placeholderReason(w, placeholderKind(w, 'main'), {
+      code: 'conflict',
+      message: 'branch is still held',
     })
-    expect(placeholderReason(w, placeholderKind(w, 'main'))).toContain('/Users/me/other')
+    expect(reason).toContain('branch is still held')
+  })
+  it('with no holder and no failed operation it names Retry', () => {
+    const w = ws({ status: 'new' })
+    expect(placeholderReason(w, placeholderKind(w, 'main'), null)).toContain('Retry')
+  })
+  it('still prefers the holder path over an operation reason', () => {
+    const w = ws({ status: 'new', heldByPath: '/Users/me/other' })
+    const reason = placeholderReason(w, placeholderKind(w, 'main'), {
+      code: 'internal',
+      message: 'branch_already_exists',
+    })
+    expect(reason).toContain('/Users/me/other')
   })
 
   // The own-checkout line must not claim a failure, and must not name Retry:
@@ -111,7 +114,7 @@ describe('placeholderReason', () => {
   // that works is Detach.
   it('never says "couldn’t set up" or promises a Retry for the repo’s own checkout', () => {
     const w = ws({ branch: 'main', status: 'locked', heldByPath: '/Users/me/repo-beta' })
-    const reason = placeholderReason(w, placeholderKind(w, 'main'))
+    const reason = placeholderReason(w, placeholderKind(w, 'main'), null)
     expect(reason).toContain('/Users/me/repo-beta')
     expect(reason).toContain('detach')
     expect(reason.toLowerCase()).not.toContain("couldn't")
@@ -120,6 +123,6 @@ describe('placeholderReason', () => {
 
   it('has nothing to say about a workspace with a worktree', () => {
     const w = ws({ localPath: '/managed' })
-    expect(placeholderReason(w, placeholderKind(w, 'main'))).toBe('')
+    expect(placeholderReason(w, placeholderKind(w, 'main'), null)).toBe('')
   })
 })

@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,16 +30,9 @@ type manifestDoc struct {
 	root      any
 }
 
-// ProbeManifest resolves a model.manifest: catalogue as the freshest of the
-// embedded bundle, the last good on-disk cache, and (fetchEnabled) a live
-// HTTP GET — compared by each candidate's own "updatedAt", never positional
-// preference alone, so a fetch that regresses in time can never override a
-// newer cache. A successful, non-regressing fetch is persisted to disk so a
-// later offline run still has it. embedded is required (the one candidate
-// that must always exist); homeDir=="" skips the disk-cache half entirely;
-// fetchEnabled==false skips the network half entirely — either way this
-// degrades to whatever candidates remain, never an error and never an
-// emptied catalogue.
+// ProbeManifest resolves a model.manifest: catalogue as the newest "updatedAt" of the
+// embedded bundle, the on-disk cache (homeDir != "") and a live GET (fetchEnabled),
+// persisting a non-regressing fetch; missing candidates degrade, never empty the list.
 func ProbeManifest(
 	ctx context.Context,
 	man *spec.ModelManifestSpec,
@@ -109,7 +104,9 @@ func mergeFetchedManifest(
 	// Never regress the disk cache: only overwrite it when the fetch is at
 	// least as fresh as what is already there.
 	if cachePath != "" && (!diskOK || !doc.updatedAt.Before(diskDoc.updatedAt)) {
-		_ = writeManifestCache(cachePath, raw)
+		if err := writeManifestCache(cachePath, raw); err != nil {
+			slog.Warn("modeldiscovery: manifest cache not saved", "path", cachePath, "err", err)
+		}
 	}
 	return best
 }
@@ -132,11 +129,14 @@ func parseManifestDoc(raw []byte) (manifestDoc, bool) {
 		return manifestDoc{}, false
 	}
 	ts, _ := scalarString(obj["updatedAt"])
-	updatedAt, _ := time.Parse(time.RFC3339, ts)
+	updatedAt, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		updatedAt = time.Time{} // an undated copy is the oldest candidate
+	}
 	return manifestDoc{updatedAt: updatedAt, root: root}, true
 }
 
-func fetchManifest(ctx context.Context, url string, timeoutMS int) ([]byte, error) {
+func fetchManifest(ctx context.Context, url string, timeoutMS int) (_ []byte, err error) {
 	if url == "" {
 		return nil, fmt.Errorf("agents: model manifest url is empty")
 	}
@@ -150,7 +150,7 @@ func fetchManifest(ctx context.Context, url string, timeoutMS int) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("agents: model manifest fetch: status %d", resp.StatusCode)
 	}
@@ -166,8 +166,8 @@ func manifestCachePath(homeDir, url string) string {
 }
 
 func writeManifestCache(path string, raw []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, raw, 0o644) //nolint:gosec // cache file, not a secret
+	return os.WriteFile(path, raw, 0o600)
 }

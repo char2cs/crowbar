@@ -55,16 +55,6 @@ func (c *Conversations) AssembleConversation(
 	return strings.ReplaceAll(wrapper, "{conversation}", string(blob)), nil
 }
 
-func ComposeContext(sections ...string) string {
-	parts := make([]string, 0, len(sections))
-	for _, section := range sections {
-		if section != "" {
-			parts = append(parts, section)
-		}
-	}
-	return strings.Join(parts, "\n\n")
-}
-
 func (c *Conversations) AssembleHandoff(
 	ctx context.Context,
 	chatID string,
@@ -75,9 +65,8 @@ func (c *Conversations) AssembleHandoff(
 func (c *Conversations) ThreadContext(
 	ctx context.Context,
 	chatID string,
-	minting bool,
 ) (string, error) {
-	if minting || c.lineage == nil {
+	if c.lineage == nil {
 		return "", nil
 	}
 	ancestors, err := c.lineage.Ancestors(ctx, chatID)

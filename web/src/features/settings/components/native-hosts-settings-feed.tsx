@@ -7,11 +7,9 @@ import {
   type NativeChromeIntent,
 } from '@/lib/native-chrome'
 
-/**
- * Feeds the phone's Hosts settings tab (a webview with no IPC) while the native settings sheet is
- * up: every paired host, pushed whole on each change. A host picked to show is the chat list's
- * own `selectHost` intent.
- */
+/** Feeds the phone's Hosts settings tab (a webview with no IPC) while the native sheet is up:
+ *  every paired host, pushed whole on change. A host picked to show is the chat list's own
+ *  `selectHost` intent. */
 export function NativeHostsSettingsFeed({ shownHost }: { shownHost: string | null }) {
   const { snapshot, revoke } = useNativeHostsSnapshot(shownHost)
 

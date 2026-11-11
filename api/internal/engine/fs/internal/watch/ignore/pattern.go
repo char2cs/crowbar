@@ -8,11 +8,9 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// pattern is one compiled line of a gitignore file. glob is the gitignore glob
-// with any leading "!" (negation), trailing "/" (directory marker), and leading
-// "/" (anchor) stripped; anchored records whether the original line contained an
-// internal or leading slash (matched relative to its .gitignore's directory
-// rather than at any depth); negate records a leading "!" (re-include).
+// pattern is one compiled gitignore line. glob has any leading "!", trailing "/" and
+// leading "/" stripped; anchored means the line had a leading or internal slash (match
+// relative to its .gitignore's dir); negate means a leading "!".
 type pattern struct {
 	glob     string
 	anchored bool
@@ -20,7 +18,7 @@ type pattern struct {
 }
 
 // parseLine compiles one gitignore line into a pattern. It returns ok=false for
-// blank lines and comments, which carry no matching rule.
+// blank lines, comments and a malformed glob, none of which can match anything.
 func parseLine(
 	line string,
 ) (pattern, bool) {
@@ -39,20 +37,20 @@ func parseLine(
 	}
 
 	trimmed := strings.TrimSuffix(line, "/")
-	if trimmed == "" {
+	glob := strings.TrimPrefix(trimmed, "/")
+	if trimmed == "" || !doublestar.ValidatePattern(glob) {
 		return pattern{}, false
 	}
 	return pattern{
-		glob:     strings.TrimPrefix(trimmed, "/"),
+		glob:     glob,
 		anchored: strings.Contains(trimmed, "/"),
 		negate:   negate,
 	}, true
 }
 
-// match reports whether absPath is matched by this pattern, where base is the
-// directory of the .gitignore the pattern came from. An anchored pattern matches
-// the path relative to base; an unanchored pattern matches the path's final
-// component at any depth below base.
+// match reports whether absPath matches, base being the pattern's .gitignore directory:
+// an anchored pattern matches the path relative to base, an unanchored one the final
+// component at any depth below it.
 func (p pattern) match(
 	base string,
 	absPath string,
@@ -63,9 +61,7 @@ func (p pattern) match(
 	}
 	rel = filepath.ToSlash(rel)
 	if p.anchored {
-		ok, _ := doublestar.Match(p.glob, rel)
-		return ok
+		return doublestar.MatchUnvalidated(p.glob, rel)
 	}
-	ok, _ := doublestar.Match(p.glob, path.Base(rel))
-	return ok
+	return doublestar.MatchUnvalidated(p.glob, path.Base(rel))
 }

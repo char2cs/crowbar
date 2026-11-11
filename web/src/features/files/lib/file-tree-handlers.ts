@@ -1,4 +1,3 @@
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
   copyFileNode,
   createFileNode,
@@ -8,16 +7,18 @@ import {
   mergeChildren,
   renameFileNode,
 } from '@/features/files/lib/file-tree-api'
-import { openFileContent } from '@/features/workspace/lib/open-file-content'
+import { openDocument } from '@/features/editor/documents/open-document'
+import { workspaceRef } from '@/lib/api/documents'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { AppFile } from '@/features/file-system/types/app'
 import { revealItemInFinder } from '@/lib/crowbar-bridge'
-import { resolveWorkspaceRootPath } from '@/lib/workspace/resolve-root-path'
-import { toast } from '@/features/window/stores/toast-store'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
+import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
+import { report } from '@/lib/errors/report'
+import { isNotFoundError } from '@/lib/errors/api-error'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { joinPath } from '@/utils/path-helpers'
 
-/** Which pane a file opens into (C8). Omitted, the focused pane. */
+/** Which pane a file opens into; omitted, the focused pane. */
 export interface FileOpenTarget {
   paneId?: string
 }
@@ -27,10 +28,9 @@ function parentDir(path: string): string {
   return idx === -1 ? '' : path.slice(0, idx)
 }
 
-// Derive a non-colliding "<name> copy" destination for a duplicate, checking the
-// loaded siblings so a second duplicate becomes "<name> copy 2" instead of
-// clobbering the first. A dot in position 0 (dotfile) is treated as part of the
-// stem, not an extension, so ".env" duplicates to ".env copy".
+// A "<name> copy" destination that skips loaded siblings, so a second duplicate becomes
+// "<name> copy 2" rather than clobbering the first. A leading dot belongs to the stem:
+// ".env" duplicates to ".env copy".
 function duplicateDestPath(srcPath: string, files: AppFile[]): string {
   const dir = parentDir(srcPath)
   const name = dir ? srcPath.slice(dir.length + 1) : srcPath
@@ -67,44 +67,37 @@ export async function refreshDirectory(
   store: WorkspaceStore,
   path?: string,
 ): Promise<void> {
-  const fresh = await fetchFileTree(wsId, path || undefined).catch(() => null)
-  if (!Array.isArray(fresh)) return
+  // Only a level the tree holds is re-listed: an unopened or vanished folder would answer 404.
+  if (path && !findNode(store.getState().files, path)?.children) return
+  let fresh: AppFile[]
+  try {
+    fresh = await fetchFileTree(wsId, path || undefined)
+  } catch (err) {
+    // A folder gone from disk leaves the expansion; its parent's re-list drops the node.
+    if (path && isNotFoundError(err)) useFileTreeStore.getState().collapsePath(wsId, path)
+    else report(err, { action: 'Refresh the file tree' })
+    return
+  }
   const { files, fileTreeActions } = store.getState()
   const reconciled = preserveLoadedChildren(files, fresh)
   fileTreeActions.setFiles(!path ? reconciled : mergeChildren(files, path, reconciled))
 }
 
-/** Open a workspace-relative file in an editor tab (preview unless `preview` is false). */
-export function openWorkspaceFile(
-  wsId: string,
-  path: string,
-  opts: FileOpenTarget & { preview?: boolean } = {},
-): Promise<void> {
-  return openFileContent(wsId, path, windowPaneStore.getState().bufferActions, {
-    preview: opts.preview ?? false,
-    paneId: opts.paneId,
-  })
-}
-
-// Reveal in Finder (explorer + tab context menus). The tab menu passes the
-// buffer's workspace-relative path; the explorer passes an absolute one.
-// Relative paths resolve against the on-disk workspace root; virtual buffers
-// (diff:// …) have no disk presence to reveal.
+// Reveal in Finder. The tab menu passes a workspace-relative path, resolved against the on-disk
+// workspace root; the explorer passes an absolute one. Virtual buffers (diff:// …) have no disk
+// presence to reveal.
 export function revealInFolder(wsId: string, path: string): void {
   if (path.includes('://')) return
-  const root = path.startsWith('/') ? '' : resolveWorkspaceRootPath(wsId)
+  const root = path.startsWith('/') ? '' : workspaceRootPath(wsId)
   if (root === undefined) return
   const absolute = root ? joinPath(root, path) : path
   revealItemInFinder(absolute).catch((error: unknown) => {
-    toast.error('Reveal in Finder failed', error instanceof Error ? error.message : String(error))
+    report(error, { action: 'Reveal in Finder failed' })
   })
 }
 
-/**
- * The file explorer's mutations for one workspace. The daemon emits a
- * structural FileChangeEvent on success, which the files stream reconciles into
- * the tree — so these don't refetch (except the explicit Refresh action).
- */
+/** The file explorer's mutations for one workspace. None refetch (except Refresh): the daemon's
+ *  structural FileChangeEvent is reconciled into the tree by the files stream. */
 export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
   // Tree paths are workspace-relative (root === ''); a dirPath equal to the
   // absolute wsId is the root addressed by its full path (right-click empty space).
@@ -112,11 +105,11 @@ export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
   return {
     handleFileOpen: async (path: string, isDir?: boolean, opts?: FileOpenTarget) => {
       if (isDir) return
-      await openWorkspaceFile(wsId, path, { preview: false, paneId: opts?.paneId })
+      await openDocument(workspaceRef(wsId, path), { paneId: opts?.paneId })
     },
     handleFileSelect: (path: string, isDir?: boolean, opts?: FileOpenTarget) => {
       if (isDir) return
-      void openWorkspaceFile(wsId, path, { preview: true, paneId: opts?.paneId })
+      void openDocument(workspaceRef(wsId, path), { preview: true, paneId: opts?.paneId })
     },
     handleCreateNewFileInDirectory: async (dirPath: string, fileName?: string) => {
       if (!fileName) return
@@ -133,14 +126,13 @@ export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
     handleDeletePath: async (path: string) => {
       await deleteFileNode(wsId, path)
     },
-    // Duplicate goes through the daemon's server-side copy verb — byte faithful
-    // and recursive for directories; only the collision-free destination is
-    // derived client-side.
+    // Duplicate goes through the daemon's server-side copy verb — byte faithful and recursive for
+    // directories; only the collision-free destination is derived client-side.
     handleDuplicatePath: async (path: string) => {
       try {
         await copyFileNode(wsId, path, duplicateDestPath(path, store.getState().files))
       } catch (error) {
-        toast.error('Duplicate failed', actionErrorMessage(error, String(error)))
+        report(error, { action: 'Duplicate failed' })
       }
     },
     handleRenamePath: async (path: string, newName?: string) => {

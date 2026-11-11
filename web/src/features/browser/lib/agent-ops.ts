@@ -122,10 +122,8 @@ function nextLoadEnd(id: string, signal: AbortSignal): Promise<void> {
   })
 }
 
-/**
- * Makes sure the tab's page is running. A tab nobody has looked at gets its
- * webview parked off screen, so no op needs the tab shown or the view changed.
- */
+/** Makes sure the tab's page is running. A tab nobody has looked at gets its webview parked
+ *  off screen, so no op needs the tab shown or the view changed. */
 async function liveTab(chatId: string, tabId: string): Promise<void> {
   const { buffer } = ownedTab(chatId, tabId)
   if (buffer.url === '') throw new Error('this tab has no page yet; use browser_navigate first')
@@ -183,11 +181,8 @@ function waitTimeout(args: Record<string, unknown>): number {
   return Math.min(Math.max(asked, 1), 30_000)
 }
 
-/**
- * Carries out one agent request against the browser tabs of `chatId`'s pane.
- * `chatId` comes from the daemon's authenticated session, and every tab it
- * names is re-checked against that pane before anything runs.
- */
+/** Runs one agent request against the browser tabs of `chatId`'s pane. `chatId` comes from the
+ *  daemon's authenticated session; every tab named is re-checked against that pane first. */
 export async function runAgentOp(
   { chatId, op, tab, args }: AgentRequest,
   limits: AgentLimits = DEFAULT_LIMITS,

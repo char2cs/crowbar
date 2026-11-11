@@ -6,26 +6,21 @@ import {
   EditableRepoIcon,
   type RepoIconSource,
 } from '@/components/layout/repo-icon-mark'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch,
 }))
 
-/**
- * A repo's mark is ONE component across the repo home row, the context pill, the
- * workspace switcher, the removal tray and the New Tab heading.
- *
- * It used to be two. The row drew it through IconPopover (separate emoji/iconUrl
- * props, rounded-md, px-1, a full type step larger); everywhere else drew it
- * through RepoAvatar, which encodes the emoji INSIDE the url as an `emoji:`
- * sentinel and used rounded-sm, px-0.5 and a smaller emoji. Same repo, two
- * different marks — visibly so in the pill sitting directly above the row.
- */
+// A repo's mark is ONE component across the home row, context pill, switcher, removal tray and
+// New Tab heading, so the same repo never renders as two different marks.
 describe('RepoIconMark', () => {
   const repo: RepoIconSource = {
     name: 'crowbar',
@@ -95,13 +90,7 @@ describe('RepoIconMark', () => {
   })
 })
 
-/**
- * The repo home row's click-to-edit icon — the reconnection Task 5 (icon
- * personalization) restores. Built in cf422bc5 as `repo-icon-popover.tsx`,
- * deleted in the tree retirement along with the row that hosted it; this is
- * a fresh, thin wrapper against today's IconPopover/RepoIconMark, not a
- * resurrection of the deleted file.
- */
+// The repo home row's click-to-edit icon: a thin wrapper joining IconPopover to RepoIconMark.
 describe('EditableRepoIcon', () => {
   const repo: RepoIconSource = {
     name: 'crowbar',
@@ -180,31 +169,16 @@ describe('EditableRepoIcon', () => {
 // host, and nothing is editable (or thrown) until that host is known.
 describe('EditableRepoIcon on a remote host', () => {
   const repo: RepoIconSource = { name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700' }
-  const loadRow = (hostId: string) =>
-    useProjectDataStore.setState({
-      data: success([
-        { id: 'p1', name: 'p1', path: '/work/p1', lastActivity: new Date(0), hostId },
-      ]),
-    })
+  const loadRow = (hostId: string) => loadProjects(projectOn('p1', hostId))
 
   beforeEach(() => {
     vi.clearAllMocks()
     apiFetch.mockResolvedValue(undefined)
-    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-    useHostConfigStore.getState().addHost({
-      id: 'host-2',
-      name: 'host-2',
-      endpoint: 'host-2.example:3737',
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: 'client-host-2',
-    })
-    useProjectDataStore.setState({ data: idle() })
+    resetHostWorld()
+    pairRemoteHost('host-2')
   })
 
-  afterEach(() => {
-    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-    useProjectDataStore.setState({ data: idle() })
-  })
+  afterEach(() => resetHostWorld())
 
   it('PUTs an emoji to the repo’s qualified base', async () => {
     loadRow('host-2')

@@ -1,5 +1,5 @@
 import { useLayoutEffect } from 'react'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { selectRepos, useSelect } from '@/core/entities/select'
 import { publishFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
 
 interface PublishInput {
@@ -17,10 +17,8 @@ interface PublishInput {
   projectPath: string
 }
 
-/**
- * Derives the focused-workspace context from the resolved active workspace and
- * publishes it pre-paint, so the panel never renders one frame of stale scope.
- */
+/** Derives the focused-workspace context from the resolved active workspace and
+ *  publishes it pre-paint, so the panel never renders one frame of stale scope. */
 export function usePublishFocusedWorkspaceContext({
   workspaceId,
   homeWorkspaceId,
@@ -32,9 +30,9 @@ export function usePublishFocusedWorkspaceContext({
   projectPath,
 }: PublishInput): void {
   const isProjectHome = workspaceId ? workspaceId === homeWorkspaceId : isHomeRoute
-  const sidebarRepoId = useSidebarStore((s) => {
+  const sidebarRepoId = useSelect((s) => {
     if (!workspaceId || isProjectHome) return null
-    for (const repo of s.repos) {
+    for (const repo of selectRepos(s)) {
       if (repo.defaultWorkspaceId === workspaceId) return repo.id
       if (repo.workspaces.some((w) => w.id === workspaceId)) return repo.id
     }

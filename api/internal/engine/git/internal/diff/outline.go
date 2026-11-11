@@ -13,17 +13,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// MaxOutlineHunksPerFile bounds what one file may contribute to an outline. A
-// diff whose hunk count approaches its line count — a file rewritten line by
-// line — would otherwise make the outline as large as the thing it exists to
-// avoid materialising. Past the cap the leading hunks are kept and the entry is
-// marked partial.
+// MaxOutlineHunksPerFile bounds one file's outline: a line-by-line rewrite would otherwise make it
+// as large as the diff. Past the cap the leading hunks are kept and the entry is marked partial.
 const MaxOutlineHunksPerFile = 1000
 
-// outlineBufferBytes sizes the read buffer. It also bounds what a single line
-// can cost: a line longer than this is dispatched on its leading bytes and the
-// remainder is discarded unread, so a 650 KB minified line costs the buffer, not
-// its length.
+// outlineBufferBytes also bounds a single line's cost: a longer line is dispatched on its
+// leading bytes and the rest discarded unread.
 const outlineBufferBytes = 64 << 10
 
 var (
@@ -37,25 +32,18 @@ var (
 
 const devNull = "/dev/null"
 
-// Outline returns the hunk geometry of the working tree's diff against ref —
-// the same file set as FileSummaries and DiffAgainstRef — with no diff content.
-// Every file carries its `@@` shapes, which is all the client needs to reserve
-// the right scroll space per file before fetching a single patch.
-//
-// The diff is streamed and discarded a line at a time: memory is O(hunks) plus
-// one read buffer, never O(diff size), which is what lets a 46 MB patch be
-// described without ever being held. -U3 matches the context the patch endpoint
-// serves, so the shapes describe what the client will actually render.
+// Outline returns the hunk geometry (no content) of FileSummaries' file set so the client can reserve
+// scroll space; streamed a line at a time, O(hunks) memory. -U3 matches the patch endpoint.
 func Outline(
 	ctx context.Context,
 	repoPath string,
 	ref string,
-) ([]gitdomain.FileOutline, error) {
+) (_ []gitdomain.FileOutline, err error) {
 	reader, wait, err := exec.GitStream(ctx, repoPath, "diff", "-M", "-U3", ref, "--")
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { err = errors.Join(err, reader.Close()) }()
 
 	s := &outlineScan{}
 	if scanErr := s.run(bufio.NewReaderSize(reader, outlineBufferBytes)); scanErr != nil {
@@ -67,10 +55,8 @@ func Outline(
 	return s.files, nil
 }
 
-// outlineScan walks the patch as a state machine rather than by prefix alone,
-// because a diff can contain a diff: an added line reading `+diff --git a/x b/y`
-// is content, not a file header. Tracking how many lines each hunk still owes
-// tells the two apart with certainty.
+// outlineScan is a state machine, not a prefix match: a diff can contain a diff, and the
+// lines each hunk still owes tell a `+diff --git` content line from a header.
 type outlineScan struct {
 	files        []gitdomain.FileOutline
 	current      gitdomain.FileOutline
@@ -127,11 +113,8 @@ func (s *outlineScan) inHunk() bool {
 	return s.oldRemaining > 0 || s.newRemaining > 0
 }
 
-// body consumes one line of a hunk against the counts its header promised. An
-// empty line is a context line git wrote without its leading space; a `\` line
-// ("No newline at end of file") belongs to no side. Anything else means the
-// header lied about its size, so the hunk is closed and the line re-read as a
-// header rather than letting the miscount swallow the rest of the file.
+// body consumes one hunk line; an empty line is unspaced context, `\` belongs to no side, and
+// anything else means the header lied, so the hunk closes and the line is re-read as a header.
 func (s *outlineScan) body(
 	line []byte,
 ) {
@@ -197,10 +180,8 @@ func (s *outlineScan) startFile(
 	s.hunksSeen = 0
 }
 
-// newSidePath prefers the `+++` line's path over the one recovered from the
-// `diff --git` header: that header names both sides on one line and so cannot be
-// split unambiguously when a path contains a space, while `+++` runs to the end
-// of the line. A deletion's `+++ /dev/null` names no file and is ignored.
+// newSidePath prefers `+++`'s path, which runs to end of line, over the ambiguous `diff --git`
+// header; a deletion's `+++ /dev/null` is ignored.
 func (s *outlineScan) newSidePath(
 	raw string,
 ) {
@@ -235,10 +216,8 @@ func (s *outlineScan) flush() {
 	s.oldRemaining, s.newRemaining = 0, 0
 }
 
-// readOutlineLine returns the next line without its newline. The slice is only
-// valid until the next read — nothing here retains it. A line too long for the
-// buffer comes back truncated to its leading bytes, which carry every prefix
-// this scanner dispatches on, and the tail is discarded without being held.
+// readOutlineLine returns the next line, valid until the next read; an over-long line comes
+// back truncated to its leading bytes (all the scanner dispatches on).
 func readOutlineLine(
 	r *bufio.Reader,
 ) ([]byte, error) {
@@ -312,11 +291,8 @@ func parseHunkRange(
 	return start, count, true
 }
 
-// diffGitPath recovers the b-side path from `a/<old> b/<new>`. The two sides
-// share one line with no escaping between them, so a path containing " b/" is
-// genuinely ambiguous here; the last occurrence wins and the `+++` line
-// overrides the guess for every file that has one. Only binary and
-// mode-change-only entries, which git gives no `+++` line, rely on this.
+// diffGitPath recovers the b-side path; " b/" in a path is ambiguous, so the last occurrence
+// wins. Only binary and mode-only entries, which have no `+++` line, rely on it.
 func diffGitPath(
 	rest string,
 ) string {

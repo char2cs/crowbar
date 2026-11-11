@@ -2,7 +2,7 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
+.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ratchet ios-device ios-sim ios-doctor
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
@@ -11,7 +11,7 @@ export CARGO_HOME := $(HOME)/.cargo
 dev dev-api dev-web dev-desktop dev-bundle seed seed-chat: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
 
 # Which worktree launched this dev instance. Debug builds put it in the window
-# title (see apply_dev_window_title in desktop/src-tauri/src/lib.rs) so that the
+# title (see apply_window_title in desktop/src-tauri/src/dev_identity.rs) so that the
 # several dev apps running on one machine — one per worktree, all of them a
 # `target/debug/crowbar-desktop` window called "Crowbar" — can be told apart.
 #
@@ -123,10 +123,19 @@ test-coverage:
 	@$(MAKE) -C web test-coverage
 	@$(MAKE) -C desktop test-coverage
 
-pr-checks: lint test-coverage build
+RATCHETS := file-size counters loc-budgets
+
+# File-size cap, pattern counters and per-module LOC budgets (scripts/ratchet/).
+# Baselines only shrink: after deleting code run `make ratchet ARGS=--update`.
+# Every gate runs even when one fails, so one run reports everything to fix.
+ratchet:
+	@node --test scripts/ratchet/*.test.mjs
+	@rc=0; for g in $(RATCHETS); do node scripts/ratchet/$$g.mjs $(ARGS) || rc=1; done; exit $$rc
+
+pr-checks: ratchet lint test-coverage build
 	@echo "All PR checks passed! ✓"
 
-ci: lint test build
+ci: ratchet lint test build
 
 docker-up:
 	@$(MAKE) -C web build

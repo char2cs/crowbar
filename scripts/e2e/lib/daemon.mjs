@@ -1,25 +1,16 @@
+import { Fatal } from './driver.mjs'
 import { until } from './wait.mjs'
 
 const BASE = 'http://crowbar.local'
 
-/** fnv1a64 of the home string, byte-identical to the daemon's own socket derivation. */
-export function socketPathFor(home, tmpdir) {
-  let h = 0xcbf29ce484222325n
-  for (const byte of new TextEncoder().encode(home)) {
-    h ^= BigInt(byte)
-    h = (h * 0x100000001b3n) & 0xffffffffffffffffn
-  }
-  return `${tmpdir.replace(/\/$/, '')}/crowbar-${h.toString(16)}.sock`
-}
-
 /** A client for one daemon over its unix socket. Bun's fetch takes the socket as an option. */
 export function daemonClient(socket) {
-  async function call(method, path, body) {
+  async function call(method, path, body, headers) {
     const tcp = socket.startsWith('http')
     const res = await fetch((tcp ? socket : BASE) + path, {
       method,
       ...(tcp ? {} : { unix: socket }),
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+      headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     const text = await res.text()
@@ -50,10 +41,23 @@ export function daemonClient(socket) {
         return null
       }
     },
+    /** Waits until the daemon serves its API (a migrating daemon answers health too);
+     *  a halted one never will, so it fails at once with the reason. */
     waitHealthy(timeout = 60_000) {
-      return until('the daemon to answer /v0/health', () => this.health(), {
-        timeout,
-      })
+      return until(
+        'the daemon to report ok on /v0/health',
+        async () => {
+          const health = await this.health()
+          const status = health?.data?.status
+          if (status === 'halted') {
+            throw new Fatal(
+              `the daemon halted: ${health.data.detail?.message ?? 'no reason given'}`,
+            )
+          }
+          return status === 'ok' ? health : null
+        },
+        { timeout },
+      )
     },
   }
 }

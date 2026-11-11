@@ -1,16 +1,15 @@
 import { useCallback } from 'react'
-import { answerTerminalWait } from '@/features/agent/api/agent-api'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
-import { toast } from '@/features/window/stores/toast-store'
+import { answerTerminalWait } from '@/features/agent/api/agent-chat-commands'
+import { report } from '@/lib/errors/report'
 
-/** Sends a terminal prompt's declared answer; a failure is toasted, a success
+/** Sends a terminal prompt's declared answer; a failure is reported, a success
  *  needs nothing — the wait clears when the daemon sees the prompt gone. */
 export function useAnswerTerminalWait(wsId: string, chatId: string) {
   return useCallback(
     (answerId: string) => {
-      answerTerminalWait(wsId, chatId, answerId).catch((err: unknown) => {
-        toast.error("Couldn't send that answer", actionErrorMessage(err, String(err)))
-      })
+      answerTerminalWait(wsId, chatId, answerId).catch((err: unknown) =>
+        report(err, { action: "Couldn't send that answer" }),
+      )
     },
     [wsId, chatId],
   )

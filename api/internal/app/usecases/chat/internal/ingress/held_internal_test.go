@@ -1,0 +1,230 @@
+package ingress
+
+import (
+	"errors"
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+)
+
+// apiChild is a chat on session main whose agent has started spawning a
+// subagent over its api connection, the call not yet bound.
+func apiChild(t *testing.T) *recorderFixture {
+	t.Helper()
+	f := newRecorderFixture(t, "codex")
+	bound, err := ledger.Announce(f.state(t), "codex", "main", "")
+	require.NoError(t, err)
+	_, _, err = f.ledger.Append(t.Context(), testChat, bound...)
+	require.NoError(t, err)
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, SessionID: "main", Message: "delegate", TurnID: "pt-1"})
+	f.api(t, spawnOn(engineagents.HookToolPre, ""))
+	return f
+}
+
+func (f *recorderFixture) api(t *testing.T, ev engineagents.CanonicalEvent) {
+	t.Helper()
+	_, _, err := f.r.Dispatch(t.Context(), f.runner, f.agent, ev, []byte(`{}`), engineagents.ChannelAPI)
+	require.NoError(t, err)
+}
+
+func spawnOn(kind, scope string) engineagents.CanonicalEvent {
+	ev := spawnCall(kind, scope)
+	ev.SessionID = "main"
+	return ev
+}
+
+func (f *recorderFixture) unclaimedCount(t *testing.T) int {
+	t.Helper()
+	n, err := f.ledger.DeadLetterCount(t.Context(), reasonUnclaimedScope)
+	require.NoError(t, err)
+	return n
+}
+
+func TestIngress_ChildFramesBeforeTheBindAreHeldThenDrained(t *testing.T) {
+	f := apiChild(t)
+
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookSessionStart, SessionID: "child"})
+	f.api(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "child", Tool: &engineagents.ToolEvent{ID: "c1", Name: "Bash"},
+	})
+	assert.Empty(t, f.runners.started, "a child's thread start never rebinds the chat")
+	conv, ok := f.state(t).Conversation("codex")
+	require.True(t, ok)
+	assert.Equal(t, "main", conv.SessionID)
+
+	f.api(t, spawnOn(engineagents.HookToolPost, "child"))
+
+	rows := f.rows(t)
+	last := rows[len(rows)-1]
+	assert.Equal(t, ledger.KindToolCall, last.Kind)
+	assert.Equal(t, "child", last.Scope, "the held frame is drained into its scope on the bind")
+	assert.Zero(t, f.unclaimedCount(t))
+	notRecorded, err := f.ledger.DeadLetterCount(t.Context(), reasonNotRecorded)
+	require.NoError(t, err)
+	assert.Zero(t, notRecorded, "a child's thread start says nothing new: acknowledged, no row")
+	assert.True(t, f.state(t).ScopeWaits("child"))
+
+	// C20: the parent's end restates nothing; the child keeps the chat working until its own end.
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "main", TurnID: "pt-1"})
+	assert.True(t, f.state(t).Busy(), "a backgrounded subagent keeps the chat working")
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "child", Message: "done"})
+	assert.False(t, f.state(t).Busy())
+}
+
+func TestIngress_HeldFramesTheParentTurnsEndLeavesAreDeadLettered(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "child", Tool: &engineagents.ToolEvent{ID: "c1", Name: "Bash"},
+	})
+
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "main", TurnID: "pt-1"})
+
+	assert.Equal(t, 1, f.unclaimedCount(t))
+	assert.False(t, f.state(t).Busy(), "the spawn nothing bound is abandoned with its turn")
+	_, _, err := f.r.Dispatch(t.Context(), f.runner, f.agent, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "child", Tool: &engineagents.ToolEvent{ID: "c2", Name: "Bash"},
+	}, []byte(`{}`), engineagents.ChannelAPI)
+	require.ErrorIs(t, err, engineagents.ErrForeignConversation, "with nothing starting, another session is foreign")
+}
+
+func TestIngress_AFullChatDeadLettersItsOldestHeldFrame(t *testing.T) {
+	f := apiChild(t)
+	for i := range heldPerChat + 1 {
+		f.api(t, engineagents.CanonicalEvent{
+			Kind: engineagents.HookToolPre, SessionID: "child", Tool: &engineagents.ToolEvent{ID: fmt.Sprintf("c%d", i), Name: "Bash"},
+		})
+	}
+
+	assert.Equal(t, 1, f.unclaimedCount(t))
+	f.api(t, spawnOn(engineagents.HookToolPost, "child"))
+	var drained []string
+	for _, r := range f.rows(t) {
+		if r.Kind == ledger.KindToolCall && r.Scope == "child" {
+			drained = append(drained, bodyOf[ledger.ToolCall](t, r).ToolID)
+		}
+	}
+	require.Len(t, drained, heldPerChat)
+	assert.Equal(t, "c1", drained[0], "the oldest went first, the rest in arrival order")
+}
+
+func TestIngress_AnAskOfAnUnboundConversationIsNeverHeld(t *testing.T) {
+	f := apiChild(t)
+
+	_, _, err := f.r.Dispatch(t.Context(), f.runner, f.agent, engineagents.CanonicalEvent{
+		Kind: engineagents.HookPermission, SessionID: "child",
+		Choice: &engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"},
+	}, []byte(`{}`), engineagents.ChannelAPI)
+
+	require.ErrorIs(t, err, engineagents.ErrForeignConversation, "its sender waits on an answer a hold could never give")
+}
+
+// A late end of another turn closes nothing: the running turn's spawn still
+// starts, so what is held for it stays held for its bind.
+func TestIngress_ALateTurnEndLeavesTheRunningTurnsHeldFrames(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "child", Tool: &engineagents.ToolEvent{ID: "c1", Name: "Bash"},
+	})
+
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "main", TurnID: "pt-0"})
+	_, running := f.state(t).RunningTurn()
+	require.True(t, running, "precondition: the late end closed nothing")
+	assert.Zero(t, f.unclaimedCount(t))
+
+	f.api(t, spawnOn(engineagents.HookToolPost, "child"))
+	var drained int
+	for _, r := range f.rows(t) {
+		if r.Kind == ledger.KindToolCall && r.Scope == "child" {
+			drained++
+		}
+	}
+	assert.Equal(t, 1, drained)
+}
+
+func handBack(scope, result string) engineagents.CanonicalEvent {
+	return engineagents.CanonicalEvent{
+		Kind: engineagents.HookSubagentResult, SessionID: "main", TurnID: "pt-2",
+		Subagent: &engineagents.SubagentEvent{ID: scope, Result: result},
+	}
+}
+
+// A hand-back of a scope no subagent is bound to, while a spawn is starting,
+// may be that spawn's: it waits for the bind instead of starting a second one.
+func TestIngress_AHandBackBeforeItsBindLandsInTheBoundSubagent(t *testing.T) {
+	f := apiChild(t)
+	other := spawnOn(engineagents.HookToolPre, "")
+	other.Tool.ID = "call-2"
+	f.api(t, other) // still starting after the bind: the hand-back is claimed by its scope
+
+	f.api(t, handBack("child", "found it"))
+
+	_, recorded := f.state(t).SubagentOf("child")
+	assert.False(t, recorded, "held until the call that spawned it binds")
+	f.api(t, spawnOn(engineagents.HookToolPost, "child"))
+	child, ok := f.state(t).SubagentOf("child")
+	require.True(t, ok)
+	assert.Equal(t, "call-1", child.SpawnToolID, "the spawn and the hand-back are one subagent")
+	assert.Equal(t, "found it", child.Result)
+	assert.Zero(t, f.unclaimedCount(t))
+}
+
+// A held hand-back nothing binds is still recorded once nothing is starting,
+// after a turn end or a runner exit: its result is never dead-lettered.
+func TestIngress_AHeldHandBackNothingBindsIsRecorded(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, handBack("child", "found it"))
+
+	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "main", TurnID: "pt-1"})
+
+	child, ok := f.state(t).SubagentOf("child")
+	require.True(t, ok)
+	assert.Equal(t, "found it", child.Result)
+	assert.Zero(t, f.unclaimedCount(t))
+}
+
+func TestIngress_AHeldHandBackIsRecordedWhenItsRunnerExits(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, handBack("child", "found it"))
+	_, _, err := f.ledger.Do(t.Context(), testChat, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Exit(st, ledger.RunnerExited{RunnerID: "run-1", Reason: "exited"}, ledger.ReasonRunnerExited)
+	})
+	require.NoError(t, err)
+
+	f.r.Retire(testChat, "run-1")
+
+	child, ok := f.state(t).SubagentOf("child")
+	require.True(t, ok)
+	assert.Equal(t, "found it", child.Result)
+	assert.Zero(t, f.unclaimedCount(t))
+}
+
+// A runner's exit interrupts what was starting, so nothing can claim its
+// held frames any more.
+func TestIngress_ARunnersExitDeadLettersItsHeldFrames(t *testing.T) {
+	f := apiChild(t)
+	f.api(t, engineagents.CanonicalEvent{
+		Kind: engineagents.HookToolPre, SessionID: "child", Tool: &engineagents.ToolEvent{ID: "c1", Name: "Bash"},
+	})
+
+	f.r.Retire(testChat, "run-1")
+
+	assert.Equal(t, 1, f.unclaimedCount(t))
+}
+
+// A drained frame that cannot be recorded is dead-lettered for the reason it
+// would have been on arrival.
+func TestDrainReason_IsTheIngresssOwn(t *testing.T) {
+	for err, want := range map[error]string{
+		fmt.Errorf("x: %w", engineagents.ErrForeignConversation): reasonForeign,
+		fmt.Errorf("x: %w", seam.ErrHookNotRecorded):             reasonNotRecorded,
+		errors.New("disk full"):                                  reasonWriteFailed,
+	} {
+		assert.Equal(t, want, drainReason(err), err.Error())
+	}
+}

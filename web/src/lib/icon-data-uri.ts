@@ -37,10 +37,8 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener)
 }
 
-/**
- * Icons as data URIs, for a page that cannot reach the daemon an icon URL points at (the
- * phone's chat list). Read once per URL, from this webview, which can.
- */
+// Icons as data URIs for a page that can't reach the daemon an icon URL points at (the phone's
+// chat list), read once per URL from this webview, which can.
 export function useIconDataUris(urls: readonly string[]): ReadonlyMap<string, string | null> {
   useSyncExternalStore(subscribe, () => version)
   const key = urls.join('\n')

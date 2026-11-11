@@ -1,18 +1,10 @@
 import {
   hydrateSidebar,
   hydrateWindowPaneLayout,
-  placeRestoredChatMembers,
+  placeRestoredPanesOnceSynced,
 } from '@/lib/persistence/hydrate'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { seedProjectList } from '@/lib/store/projects'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { hydrateHomeTree } from '@/lib/store/home-tree'
-import { getVisibleProjectIds } from '@/lib/store/project-visibility'
-import { hydrateHomeWorkspace } from '@/features/workspace/lib/home-workspace-resolver'
-import { useWorkspaceListStore } from '@/lib/store/workspace-list'
-import { dataOf } from '@/lib/loadable'
-import { prefetchVisibleChats } from '@/features/agent/lib/prefetch-visible-chats'
 import { preloadAgentChatPane } from '@/features/panes/lib/chat-surface-loader'
+import { holdShownChatFeeds } from '@/features/panes/lib/shown-chat-feeds'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
@@ -21,34 +13,9 @@ import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 import { hostsRegistered } from '@/features/hosts/lib/host-registration'
 import { hasPairedRemote, useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
-/**
- * Hydrates whatever this window's pane/buffer layout and sidebar tree were
- * last time, from IndexedDB — NOT the network. `main.tsx` awaits this BEFORE
- * `renderApp()` is ever called, outside React entirely, so React's very
- * first commit already has the real layout in hand instead of mounting once
- * against empty defaults and again a frame later against the restored one.
- *
- * That "mount empty, then swap" transition is not just a visual flash: a
- * `WorkspaceView`/`EditorSurface` that mounts while `windowPaneStore` is
- * still at its just-booted defaults sees no workspace, no buffer — then
- * `hydrateWindowPaneLayout`'s `setState` replaces panes/buffers/layout out
- * from under it. Caught live as a wave of "Editor failed to load"
- * ErrorBoundary trips, every one of them `EditorSurface` throwing on a
- * workspace store that hadn't been armed for the pane it was already
- * rendering — the instant that swap landed a frame after an old,
- * gate-everything-on-the-network HydrationGate was replaced with rendering
- * immediately and hydrating in the background.
- *
- * Every step here is a plain local IndexedDB read — `hydrateWindowPaneLayout`
- * (the window layout row), and
- * `useWorkspaceListStore`'s own `fetch()` (`readVisibleRepoTree`, which reads
- * the entity cache — see project-visibility.ts — never the network). None of
- * this is a real backend round trip, so awaiting it here costs single-digit-
- * to low-tens of milliseconds, not the 600-900ms a network-gated boot used to
- * spend blank. `hydrateSidebar` alone has a genuine ordering dependency (it
- * applies hierarchy overrides on top of `s.repos` — see its own body), so it
- * waits on `setRepos` completing, not on anything else here.
- */
+// Hydrates this window's pane/buffer layout and sidebar UI from IndexedDB before first render: a
+// surface swapped from empty defaults a frame later trips on a workspace store not yet armed for
+// its pane. The tree itself is the projects scope's, drawn as a skeleton until its snapshot.
 export async function hydrateCriticalStores(): Promise<void> {
   void retireOrphanedStorage()
   const remoteHosts = prepareRemoteHosts()
@@ -56,44 +23,32 @@ export async function hydrateCriticalStores(): Promise<void> {
     await hydrateWindowPaneLayout()
   } catch (err) {
     // main.tsx renders even after a failed boot: render must not overtake the registration.
-    await remoteHosts
+    if (remoteHosts) await remoteHosts
     throw err
   }
   // The chat surface chunk loads beside the IndexedDB reads below, and render
   // waits for it, so the restored chat mounts in the first commit.
   const chatSurface = showsChat() ? preloadAgentChatPane() : undefined
+  // The shown chats' rows replay while that chunk loads and evaluates.
+  void holdShownChatFeeds()
   // Layout hydration to the first transcript row shown; AgentTranscript closes it.
   if (chatSurface) markStart('chat:first-row')
-  await remoteHosts
-  await hydrateHomeState()
-  // The one network step, deliberately not awaited: members stay unplaced until it answers.
-  void placeRestoredChatMembers()
-  await useWorkspaceListStore.getState().fetch()
-  const cachedRepos = dataOf(useWorkspaceListStore.getState().data) ?? []
-  useSidebarStore.getState().setRepos(cachedRepos)
-  // After the rows are in the store: the cache is all there is until a host answers.
-  useFolderSignalStore.getState().markSeededFromCache(cachedRepos)
-  // setRepos recorded each workspace's scope, which the messages URL needs. Not
-  // awaited: the first page loads while the chat surface's chunks do.
-  void prefetchVisibleChats()
+  if (remoteHosts) await remoteHosts
+  // Restored members stay unplaced until the projects scope answers for them.
+  placeRestoredPanesOnceSynced()
   await hydrateSidebar()
-  await chatSurface?.catch(() => {})
+  try {
+    await chatSurface
+  } catch {
+    return // the pane's own lazy load retries the chunk and shows its failure
+  }
 }
 
-/** A paired install's hosts registered, and the cached project rows held — where a restored
- *  pane's host, local too, resolves from, and what scopes the cached sidebar tree to every
- *  known project instead of only the active one. An install that never paired a remote
- *  registers nothing and only holds the rows. */
-function prepareRemoteHosts(): Promise<unknown> {
-  if (!hasPairedRemote(useHostConfigStore.getState())) return seedProjectList()
-  return Promise.all([hostsRegistered(), seedProjectList()])
-}
-
-/** Every known project's last-answered home workspace and tree, so project home and its
- *  restored chat panes draw from them while the host is unreachable. */
-async function hydrateHomeState(): Promise<void> {
-  const projectIds = [...getVisibleProjectIds()]
-  await Promise.all(projectIds.flatMap((id) => [hydrateHomeWorkspace(id), hydrateHomeTree(id)]))
+/** A paired install's hosts registered with the desktop bridge before a restored pane
+ *  dials one. Undefined where no remote was ever paired, so that boot does exactly what it did. */
+function prepareRemoteHosts(): Promise<void> | undefined {
+  if (!hasPairedRemote(useHostConfigStore.getState())) return undefined
+  return hostsRegistered()
 }
 
 function showsChat(): boolean {

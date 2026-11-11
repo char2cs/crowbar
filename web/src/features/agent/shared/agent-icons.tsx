@@ -1,20 +1,9 @@
 import type { SVGProps } from 'react'
 import { cn } from '@/lib/utils'
 
-/**
- * The chat surface's icon set, drawn from the design canvas.
- *
- * These are NOT interchangeable with lucide or phosphor. The canvas draws every
- * glyph on a 24-unit grid at `stroke-width: 1.6` with round caps and joins, and
- * a general-purpose set at its own weight (lucide ships 2, phosphor's regular is
- * heavier still) reads as a different family the moment it sits beside one of
- * these — thicker, with squarer terminals, on a different optical size. Mixing
- * them is what made the surface switcher look hand-drawn.
- *
- * Size is the only thing a caller chooses, and it chooses from the canvas's three
- * steps: 12 for a chip's affordance, 14 for the default, 16 for a control the
- * hand aims at.
- */
+// The chat surface's own icons (24-unit grid, stroke 1.6, round caps): phosphor's heavier weight
+// reads as another family beside them, so do not mix. Sizes are the canvas's three steps:
+// 12 for a chip's affordance, 14 default, 16 for a control the hand aims at.
 export type AgentIconSize = 12 | 14 | 16
 
 interface AgentIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
@@ -156,56 +145,4 @@ export const ToolIcon = icon(
     <path d="M14.5 6.5a4 4 0 0 0-5 5L4.5 16.5a2.1 2.1 0 0 0 3 3l5-5a4 4 0 0 0 5-5l-2.5 2.5-3-3z" />
   </>,
   'ToolIcon',
-)
-
-export const AlertIcon = icon(
-  <>
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M12 7.5v5.5M12 16.5h.01" />
-  </>,
-  'AlertIcon',
-)
-
-export const GaugeIcon = icon(
-  <>
-    <path d="M4.5 16.5a8 8 0 1 1 15 0" />
-    <path d="m12 13.5 4-4M7.5 17.5h9" />
-  </>,
-  'GaugeIcon',
-)
-
-export const LinkIcon = icon(
-  <>
-    <path d="m9.5 14.5 5-5" />
-    <path d="M7.5 16.5 6 18a2.8 2.8 0 0 1-4-4l3-3a2.8 2.8 0 0 1 4 0" />
-    <path d="m16.5 7.5 1.5-1.5a2.8 2.8 0 0 1 4 4l-3 3a2.8 2.8 0 0 1-4 0" />
-  </>,
-  'LinkIcon',
-)
-
-export const ListIcon = icon(
-  <>
-    <path d="m4.5 7 1.2 1.2L8 5.8M10.5 7h9" />
-    <path d="m4.5 12 1.2 1.2L8 10.8M10.5 12h9" />
-    <path d="m4.5 17 1.2 1.2L8 15.8M10.5 17h9" />
-  </>,
-  'ListIcon',
-)
-
-export const RefreshIcon = icon(
-  <>
-    <path d="M19 8a7.5 7.5 0 0 0-12.8-2L4.5 8" />
-    <path d="M4.5 4.5V8H8" />
-    <path d="M5 16a7.5 7.5 0 0 0 12.8 2l1.7-2" />
-    <path d="M19.5 19.5V16H16" />
-  </>,
-  'RefreshIcon',
-)
-
-export const OfflineIcon = icon(
-  <>
-    <path d="M5 10a11 11 0 0 1 4-2M15 8a11 11 0 0 1 4 2M8 14a6 6 0 0 1 8 0M11 18h2" />
-    <path d="m4 4 16 16" />
-  </>,
-  'OfflineIcon',
 )

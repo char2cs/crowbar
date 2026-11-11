@@ -3,7 +3,6 @@ package termwait_test
 import (
 	"context"
 	"errors"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -13,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -44,16 +42,32 @@ func (f *fakeRunners) AllLive(context.Context) ([]engineagents.Runner, error) {
 	return f.live, nil
 }
 
-type fakeChats struct {
-	byID map[string]domain.Chat
-	err  error
+// fakeWork is the ledger's answer, the same for every chat.
+type fakeWork struct {
+	mu             sync.Mutex
+	busy, awaiting bool
+	err            error
 }
 
-func (f *fakeChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
+func (f *fakeWork) set(busy bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.busy = busy
+}
+
+func (f *fakeWork) await(awaiting bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.awaiting = awaiting
+}
+
+func (f *fakeWork) ChatWork(context.Context, string) (bool, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.err != nil {
-		return domain.Chat{}, f.err
+		return false, false, f.err
 	}
-	return f.byID[id], nil
+	return f.busy, f.awaiting, nil
 }
 
 type fakeChoices struct {
@@ -186,201 +200,24 @@ func (f *fakeNotices) MatchTerminalNotice(
 	return engineagents.TerminalNotice{}, false
 }
 
-type fakeWork struct {
-	open  bool
-	err   error
-	asked int
-}
-
-func (f *fakeWork) OpenWork(context.Context, string) (bool, error) {
-	f.asked++
-	if f.err != nil {
-		return false, f.err
-	}
-	return f.open, nil
-}
-
-type stalls struct {
+// ended records each notice the detector reports as ending a turn.
+type ended struct {
 	mu   sync.Mutex
-	seen []seam.Stall
+	seen []engineagents.TerminalNotice
+	on   []engineagents.Runner
 }
 
-func (s *stalls) onStall(_ context.Context, stall seam.Stall) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.seen = append(s.seen, stall)
+func (e *ended) onNotice(_ context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.seen = append(e.seen, notice)
+	e.on = append(e.on, runner)
 }
 
-func (s *stalls) all() []seam.Stall {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]seam.Stall(nil), s.seen...)
-}
-
-type clock struct {
-	mu  sync.Mutex
-	now time.Time
-}
-
-func newClock() *clock {
-	return &clock{now: time.Date(2026, 8, 18, 16, 26, 34, 0, time.UTC)}
-}
-
-func (c *clock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
-
-func (c *clock) advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
-}
-
-type fakeDeliveries struct {
-	mu        sync.Mutex
-	pending   map[string]termwait.Delivery
-	err       error
-	asked     int
-	settled   []string
-	settleErr error
-
-	declineSettle bool
-}
-
-func (f *fakeDeliveries) PendingDelivery(
-	_ context.Context,
-	chatID string,
-) (termwait.Delivery, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.asked++
-	if f.err != nil {
-		return termwait.Delivery{}, false
-	}
-	delivery, ok := f.pending[chatID]
-	return delivery, ok
-}
-
-func (f *fakeDeliveries) SettleDelivery(_ context.Context, chatID, requestID string) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.settleErr != nil {
-		return false, f.settleErr
-	}
-	if f.declineSettle {
-		return false, nil
-	}
-	f.settled = append(f.settled, requestID)
-	delete(f.pending, chatID)
-	return true, nil
-}
-
-func (f *fakeDeliveries) allSettled() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.settled...)
-}
-
-type fakeLiveness struct {
-	live bool
-}
-
-func (f *fakeLiveness) HasLiveAPIConnection(string) bool { return f.live }
-
-// THE working-status desync, reproduced live: a codex security review reasoned
-// for 31s of complete silence between two of its own tool calls, this detector
-// read that as a dead CLI and abandoned the live turn — the spinner went dark
-// while codex went on to emit 337 more events. Its shell commands finish in
-// milliseconds, so the open-tool guard above vouched for almost none of the turn
-// (148 of 149 sweeps read open_work=false).
-//
-// Silence over a connection Crowbar still holds is a model thinking. Losing that
-// connection is reconciled directly instead (runner/connloss.go). Measured after
-// the fix: the same review ran 10m18s with a 159s quiet stretch and was never
-// touched.
-func TestRegression_NeverAbandonsAQuietMessageWhileTheConnectionIsLive(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-	r.liveness.live = true
-
-	r.clock.advance(10 * termwait.DefaultMessageQuiet)
-	r.sweep()
-
-	assert.Zero(t, r.msgs.count(),
-		"a turn riding a live connection is not silent because it died")
-}
-
-// The heuristic still has to work for the transport it was built for: a
-// hooks/PTY provider gives no connection to ask, and a message that goes quiet
-// there really is the only sign the CLI is gone.
-func TestRegression_StillAbandonsAQuietMessageWithNoLiveConnection(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-	r.liveness.live = false
-
-	r.clock.advance(termwait.DefaultMessageQuiet)
-	r.sweep()
-
-	assert.Equal(t, 1, r.msgs.count(),
-		"without a connection to vouch for it, a cut-off message must still close its turn")
-}
-
-type fakeMessages struct {
-	mu                 sync.Mutex
-	since              time.Time
-	unfinished         bool
-	abandoned          int
-	inferredInterrupts int
-	closed             bool
-	err                error
-	asked              int
-}
-
-func (f *fakeMessages) UnfinishedSince(string) (time.Time, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.asked++
-	return f.since, f.unfinished
-}
-
-func (f *fakeMessages) AbandonMessage(context.Context, string) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.err != nil {
-		return false, f.err
-	}
-	f.abandoned++
-	f.unfinished = false
-	return f.closed, nil
-}
-
-// AbandonMessageInferredInterrupt shares AbandonMessage's own accounting — count()
-// must answer "was a turn abandoned" the same way regardless of which method did
-// it — plus its own counter, so a test can tell the two call sites apart.
-func (f *fakeMessages) AbandonMessageInferredInterrupt(context.Context, string) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.err != nil {
-		return false, f.err
-	}
-	f.abandoned++
-	f.inferredInterrupts++
-	f.unfinished = false
-	return f.closed, nil
-}
-
-func (f *fakeMessages) count() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.abandoned
-}
-
-func (f *fakeMessages) inferredCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.inferredInterrupts
+func (e *ended) all() []engineagents.TerminalNotice {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]engineagents.TerminalNotice(nil), e.seen...)
 }
 
 const (
@@ -404,19 +241,13 @@ const (
 type rig struct {
 	detector termwait.Detector
 	runners  *fakeRunners
-	chats    *fakeChats
+	busy     *fakeWork
 	choices  *fakeChoices
 	screens  *fakeScreens
 	prompts  *fakePrompts
 	notices  *fakeNotices
-	work     *fakeWork
-	deliv    *fakeDeliveries
-	msgs     *fakeMessages
-	idle     *fakeIdle
-	liveness *fakeLiveness
-	clock    *clock
 	rec      *recorder
-	stalls   *stalls
+	ended    *ended
 }
 
 func newRig(t *testing.T) *rig {
@@ -433,72 +264,42 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		TerminalSession: session,
 		CurrentChatID:   chatID,
 	}}}
-	chats := &fakeChats{byID: map[string]domain.Chat{
-		chatID: {ID: chatID, WorkspaceID: wsID},
-	}}
-	choices := &fakeChoices{pending: map[string][]domain.ActivityChoice{}}
 	screens := newScreens()
 	screens.set(session, trustScreen)
-	prompts := &fakePrompts{needles: map[string][]engineagents.TerminalPrompt{
-		"claude": {{Kind: domain.AgentTerminalWaitTrust, Needle: "I trust this folder"}},
-	}}
-	notices := &fakeNotices{needles: map[string][]engineagents.TerminalNotice{
-		"codex": {{
-			Kind:     engineagents.TerminalNoticeUsageLimit,
-			Needle:   usageLimitNeedle,
-			Text:     usageLimitSentence,
-			EndsTurn: true,
-		}},
-	}}
-
 	r := &rig{
-		runners: runners, chats: chats, choices: choices, screens: screens,
-		prompts: prompts, notices: notices, work: &fakeWork{}, clock: newClock(),
-		rec: &recorder{}, stalls: &stalls{},
-		deliv:    &fakeDeliveries{pending: map[string]termwait.Delivery{}},
-		msgs:     &fakeMessages{closed: true},
-		idle:     &fakeIdle{},
-		liveness: &fakeLiveness{},
+		runners: runners, busy: &fakeWork{}, screens: screens,
+		choices: &fakeChoices{pending: map[string][]domain.ActivityChoice{}},
+		prompts: &fakePrompts{needles: map[string][]engineagents.TerminalPrompt{
+			"claude": {{Kind: domain.AgentTerminalWaitTrust, Needle: "I trust this folder"}},
+		}},
+		notices: &fakeNotices{needles: map[string][]engineagents.TerminalNotice{
+			"codex": {{
+				Kind:     engineagents.TerminalNoticeUsageLimit,
+				Needle:   usageLimitNeedle,
+				Text:     usageLimitSentence,
+				EndsTurn: true,
+			}},
+		}},
+		rec: &recorder{}, ended: &ended{},
 	}
 	r.detector = termwait.New(termwait.Deps{
-		Runners:    runners,
-		Chats:      chats,
-		Choices:    choices,
-		Screens:    screens,
-		Prompts:    prompts,
-		Notices:    notices,
-		Work:       r.work,
-		OnStall:    r.stalls.onStall,
-		Deliveries: r.deliv,
-		Messages:   r.msgs,
-		Liveness:   r.liveness,
-		Idle:       r.idle,
-		Interval:   interval,
-		Now:        r.clock.Now,
+		Runners:  runners,
+		Work:     r.busy,
+		Choices:  r.choices,
+		Screens:  screens,
+		Prompts:  r.prompts,
+		Notices:  r.notices,
+		OnNotice: r.ended.onNotice,
+		Interval: interval,
 	})
 	return r
 }
 
+// wedged is a busy codex chat whose screen shows the usage-limit banner.
 func (r *rig) wedged() {
 	r.runners.live[0].ProviderID = "codex"
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.busy.set(true)
 	r.screens.set(session, usageLimitScreen)
-}
-
-func (r *rig) delivering() {
-	r.screens.set(session, idleScreen)
-	// Stamped with the clock the way the journal stamps a real delivery: the
-	// timeout is measured against THIS, not only against the screen's own quiet
-	// window — see settleDelivery.
-	r.deliv.pending[chatID] = termwait.Delivery{
-		RequestID: "req-1", RunnerID: "runner-1", CreatedAt: r.clock.Now(),
-	}
-}
-
-func (r *rig) cutOff() {
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
-	r.msgs.unfinished = true
-	r.msgs.since = r.clock.Now()
 }
 
 func (r *rig) sweep() {
@@ -527,16 +328,37 @@ func TestDetector_Sweep_UnrecognisedPromptCarriesNoKind(t *testing.T) {
 	assert.Equal(t, domain.AgentTerminalWait{Waiting: true}, r.detector.Wait(chatID))
 }
 
-func TestDetector_Sweep_WorkingChatIsNeverWaiting(t *testing.T) {
+func TestDetector_Sweep_AWorkingChatWithNoDialogIsNotWaiting(t *testing.T) {
 	r := newRig(t)
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.busy.set(true)
+	r.screens.set(session, idleScreen)
 
 	r.sweep()
 
 	assert.False(t, r.detector.Wait(chatID).Waiting)
 	assert.Empty(t, r.rec.all())
-	assert.Zero(t, r.choices.asked, "a busy tick must not reach the choices read")
-	assert.Zero(t, r.work.asked, "a busy tick must not reach the open-work read")
+	assert.Zero(t, r.choices.asked, "a busy tick with no dialog must not reach the choices read")
+}
+
+// A dialog no hook covers (claude's plan dialog, a command's) holds a running
+// turn too: without the banner the chat looks stuck.
+func TestDetector_Sweep_ADialogOverARunningTurnIsWaiting(t *testing.T) {
+	r := newRig(t)
+	r.busy.set(true)
+
+	r.sweep()
+
+	assert.True(t, r.detector.Wait(chatID).Waiting)
+}
+
+func TestDetector_Sweep_ADialogTheChatAlreadyAsksAboutIsNotWaiting(t *testing.T) {
+	r := newRig(t)
+	r.busy.set(true)
+	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1", ChatID: chatID}}
+
+	r.sweep()
+
+	assert.False(t, r.detector.Wait(chatID).Waiting, "the card answers it")
 }
 
 func TestDetector_Sweep_PendingChoiceIsNeverWaiting(t *testing.T) {
@@ -678,9 +500,9 @@ func TestDetector_Sweep_ScreenCacheSurvivesABusyTurn(t *testing.T) {
 	r.sweep()
 	renders := r.screens.renderCount()
 
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.busy.set(true)
 	r.sweep()
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID}
+	r.busy.set(false)
 	r.sweep()
 
 	assert.Equal(t, renders, r.screens.renderCount())
@@ -698,9 +520,9 @@ func TestDetector_Sweep_CensusFailureChangesNothing(t *testing.T) {
 	assert.Len(t, r.rec.all(), 1)
 }
 
-func TestDetector_Sweep_ChatReadFailureIsSilent(t *testing.T) {
+func TestDetector_Sweep_BusyReadFailureIsSilent(t *testing.T) {
 	r := newRig(t)
-	r.chats.err = errBoom
+	r.busy.err = errBoom
 
 	r.sweep()
 
@@ -731,734 +553,4 @@ func TestDetector_Wait_UnknownChatIsNotWaiting(t *testing.T) {
 	r := newRig(t)
 
 	assert.Equal(t, domain.AgentTerminalWait{}, r.detector.Wait("never-heard-of-it"))
-}
-
-func TestDetector_Run_SweepsImmediatelyAndThenOnTheClock(t *testing.T) {
-	r := newRigEvery(t, time.Millisecond)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	got := make(chan domain.AgentTerminalWait, 4)
-	r.detector.Run(ctx, func(_, _ string, wait domain.AgentTerminalWait) {
-		select {
-		case got <- wait:
-		default:
-		}
-	})
-
-	select {
-	case wait := <-got:
-		assert.True(t, wait.Waiting)
-	case <-time.After(5 * time.Second):
-		t.Fatal("the first sweep must run immediately, not one interval in")
-	}
-
-	r.screens.set(session, idleScreen)
-	select {
-	case wait := <-got:
-		assert.False(t, wait.Waiting)
-	case <-time.After(5 * time.Second):
-		t.Fatal("the cadence stopped after its first pass")
-	}
-}
-
-func TestDetector_Run_StopsWithItsContext(t *testing.T) {
-	r := newRigEvery(t, time.Hour)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	swept := make(chan struct{}, 1)
-	r.detector.Run(ctx, func(string, string, domain.AgentTerminalWait) {
-		swept <- struct{}{}
-	})
-	select {
-	case <-swept:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the immediate sweep must run even on a context that is already done")
-	}
-
-	assert.Equal(t, 1, r.runners.callCount(), "the loop must not tick again after its context is done")
-}
-
-func TestDetector_Run_DefaultsItsInterval(t *testing.T) {
-	r := newRigEvery(t, 0)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	swept := make(chan struct{}, 1)
-	r.detector.Run(ctx, func(string, string, domain.AgentTerminalWait) {
-		swept <- struct{}{}
-	})
-
-	select {
-	case <-swept:
-	case <-time.After(5 * time.Second):
-		t.Fatal("a detector with no declared interval must still sweep")
-	}
-	assert.Equal(t, termwait.DefaultInterval, 2*time.Second)
-}
-
-func TestRegression_StalledTurnIsClosedWhenTheScreenHasBeenQuiet(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-
-	r.sweep()
-	require.Empty(t, r.stalls.all(), "nothing may close on the tick that first sees the banner")
-
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-
-	got := r.stalls.all()
-	require.Len(t, got, 1)
-	assert.Equal(t, chatID, got[0].ChatID)
-	assert.Equal(t, wsID, got[0].WorkspaceID)
-	assert.Equal(t, "codex", got[0].ProviderID)
-	assert.Equal(t, "runner-1", got[0].RunnerID)
-	assert.Equal(t, session, got[0].SessionID)
-	assert.Equal(t, engineagents.TerminalNoticeUsageLimit, got[0].Notice.Kind)
-}
-
-func TestRegression_StalledTurnIsNotClosedBeforeTheQuietPeriod(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-
-	r.sweep()
-	r.clock.advance(termwait.DefaultStallQuiet - time.Second)
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all())
-	assert.Zero(t, r.work.asked, "the repository gates must not be reached before the clock elapses")
-}
-
-func TestDetector_Sweep_MovingScreenIsNeverClosed(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	previous := usageLimitScreen
-
-	for i := 0; i < 50; i++ {
-		r.clock.advance(termwait.DefaultStallQuiet)
-
-		frame := usageLimitScreen + "\n  working (" + strconv.Itoa(i) + "s)"
-		require.NotEqual(t, previous, frame, "the fixture must move the TEXT, not just the generation")
-		previous = frame
-		r.screens.set(session, frame)
-		r.sweep()
-
-		require.Empty(t, r.stalls.all(), "a moving screen must never close a turn")
-		require.True(t, r.chats.byID[chatID].Working, "and the chat must still be working")
-	}
-}
-
-func TestDetector_Sweep_ProviderDeclaringNoNoticesNeverCloses(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.runners.live[0].ProviderID = "claude"
-
-	r.sweep()
-	r.clock.advance(100 * termwait.DefaultStallQuiet)
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all())
-}
-
-func TestDetector_Sweep_SessionWithNoScreenNeverCloses(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.sweep()
-	require.Equal(t, 1, r.notices.asked, "the banner must have been read and cached")
-
-	r.screens.absent[session] = true
-	r.clock.advance(100 * termwait.DefaultStallQuiet)
-	r.sweep()
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all())
-}
-
-func TestDetector_Sweep_IdleChatIsNeverClosed(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID}
-
-	r.sweep()
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all())
-}
-
-func TestDetector_Sweep_PendingChoiceIsNeverClosed(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1", ChatID: chatID}}
-
-	r.sweep()
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all())
-}
-
-func TestDetector_Sweep_OpenToolCallIsNeverClosed(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.work.open = true
-
-	r.sweep()
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-	require.Empty(t, r.stalls.all(), "a chat mid-tool is working, whatever its screen shows")
-
-	r.work.open = false
-	r.sweep()
-
-	assert.Len(t, r.stalls.all(), 1)
-}
-
-func TestDetector_Sweep_OpenWorkReadFailureIsSilent(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.work.err = errBoom
-
-	r.sweep()
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all())
-}
-
-func TestDetector_Sweep_StallIsReportedOnce(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-
-	r.sweep()
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-	r.sweep()
-
-	assert.Len(t, r.stalls.all(), 1)
-}
-
-func TestDetector_Sweep_NoticeWithoutEndsTurnNeverCloses(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.notices.needles["codex"] = []engineagents.TerminalNotice{{
-		Kind:   engineagents.TerminalNoticeUsageLimit,
-		Needle: usageLimitNeedle,
-		Text:   usageLimitSentence,
-	}}
-
-	r.sweep()
-	r.clock.advance(100 * termwait.DefaultStallQuiet)
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all())
-}
-
-func TestDetector_Sweep_BannerScrollingAwayWithdrawsTheEvidence(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.sweep()
-
-	r.screens.set(session, idleScreen)
-	r.clock.advance(100 * termwait.DefaultStallQuiet)
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all())
-}
-
-func TestDetector_Sweep_ReplacedRunnerRestartsTheQuietClock(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.sweep()
-	r.clock.advance(termwait.DefaultStallQuiet)
-
-	r.runners.live[0].TerminalSession = "pty-2"
-	r.screens.set("pty-2", usageLimitScreen)
-	r.sweep()
-
-	assert.Empty(t, r.stalls.all(), "a fresh PTY's clock starts at zero")
-
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-	assert.Len(t, r.stalls.all(), 1)
-}
-
-func TestDetector_Sweep_WithoutStallDependenciesNothingCloses(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	waitOnly := termwait.New(termwait.Deps{
-		Runners: r.runners,
-		Chats:   r.chats,
-		Choices: r.choices,
-		Screens: r.screens,
-		Prompts: r.prompts,
-		Now:     r.clock.Now,
-	})
-
-	waitOnly.Sweep(context.Background(), r.rec.publish)
-	r.clock.advance(100 * termwait.DefaultStallQuiet)
-	waitOnly.Sweep(context.Background(), r.rec.publish)
-
-	assert.Empty(t, r.stalls.all())
-	assert.Zero(t, r.notices.asked)
-}
-
-func TestDetector_Sweep_IdenticalRepaintDoesNotResetTheQuietClock(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.sweep()
-	renders := r.screens.renderCount()
-
-	for i := 0; i < 4; i++ {
-		r.clock.advance(termwait.DefaultStallQuiet / 4)
-		r.screens.repaint(session)
-		r.sweep()
-	}
-
-	assert.Len(t, r.stalls.all(), 1, "an identical repaint is not movement")
-	assert.Greater(t, r.screens.renderCount(), renders,
-		"the repaints must really have been rendered — otherwise this proves nothing")
-	assert.Equal(t, 1, r.notices.asked,
-		"and identical text must not be re-matched: the previous answer still holds")
-}
-
-func TestDetector_Sweep_OneCharacterOfNewTextResetsTheQuietClock(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.sweep()
-
-	r.clock.advance(termwait.DefaultStallQuiet - time.Second)
-	r.screens.set(session, usageLimitScreen+".")
-	r.sweep()
-
-	r.clock.advance(time.Second)
-	r.sweep()
-	assert.Empty(t, r.stalls.all(), "one changed character restarts the whole window")
-
-	r.clock.advance(termwait.DefaultStallQuiet)
-	r.sweep()
-	assert.Len(t, r.stalls.all(), 1)
-}
-
-func TestDetector_Sweep_CursorMovementCannotResetTheClock(t *testing.T) {
-	r := newRig(t)
-	r.wedged()
-	r.sweep()
-
-	for i := 0; i < 10; i++ {
-		r.clock.advance(termwait.DefaultStallQuiet / 10)
-		r.screens.repaint(session)
-		r.sweep()
-	}
-
-	assert.Len(t, r.stalls.all(), 1)
-}
-
-func TestDetector_Sweep_SettlesADeliveryThatProducedNoTurn(t *testing.T) {
-	r := newRig(t)
-	r.delivering()
-
-	r.sweep()
-	assert.Empty(t, r.deliv.allSettled(), "the quiet clock has not started yet")
-
-	r.clock.advance(termwait.DefaultDeliveryQuiet)
-	r.sweep()
-
-	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
-}
-
-// TestRegression_Sweep_GivesAPromptOnAnIdleChatItsFullGracePeriod is the
-// data-loss bug reported live against codex: "User's turns after some time of
-// idle is lost, and does not record anywhere."
-//
-// An api-transport chat's PTY is a disconnected companion driving an unrelated
-// conversation, so it draws NOTHING for as long as the chat sits idle. The
-// screen's quiet window is therefore already hours old when the user finally
-// types, and gating the delivery timeout on that alone retired the prompt on the
-// very next sweep — the thirty-second grace this timeout exists to give was
-// zero, measured live at under one second on a real codex chat.
-//
-// That retirement is broadcast to the browser, whose pending queue item is the
-// only copy of the user's text in the system (the journal stores a hash of it,
-// and nothing reached the ledger). A prompt still on its way — which is exactly
-// what the FIRST prompt after an idle gap is, with a session to resume and a
-// cold model — therefore had its text deleted out from under it.
-//
-// The delivery's own age is the clock that has to run out, whatever the screen
-// has been doing.
-func TestRegression_Sweep_GivesAPromptOnAnIdleChatItsFullGracePeriod(t *testing.T) {
-	r := newRig(t)
-
-	// The chat has sat idle for an hour: the companion PTY last changed then, so
-	// the screen's quiet window is long past DefaultDeliveryQuiet before the user
-	// has typed a single character.
-	r.screens.set(session, idleScreen)
-	r.sweep()
-	r.clock.advance(time.Hour)
-	r.sweep()
-
-	// Now the prompt is submitted, and the provider has not answered yet.
-	r.deliv.pending[chatID] = termwait.Delivery{
-		RequestID: "req-1", RunnerID: "runner-1", CreatedAt: r.clock.Now(),
-	}
-
-	r.sweep()
-	assert.Empty(t, r.deliv.allSettled(),
-		"a prompt submitted a moment ago must not be retired because the PTY beside it is idle")
-
-	r.clock.advance(termwait.DefaultDeliveryQuiet - time.Second)
-	r.sweep()
-	assert.Empty(t, r.deliv.allSettled(), "the delivery's own grace period has not run out yet")
-
-	r.clock.advance(2 * time.Second)
-	r.sweep()
-	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled(),
-		"once the delivery itself has gone quiet for the full window it is still retired")
-}
-
-func TestDetector_Sweep_LeavesADeliveryAloneUntilTheScreenHasBeenStillLongEnough(t *testing.T) {
-	r := newRig(t)
-	r.delivering()
-	r.sweep()
-
-	r.clock.advance(termwait.DefaultDeliveryQuiet - time.Second)
-	r.sweep()
-
-	assert.Empty(t, r.deliv.allSettled())
-}
-
-func TestDetector_Sweep_NeverSettlesADeliveryBehindABlockingModal(t *testing.T) {
-	r := newRig(t)
-	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-1"}
-
-	r.sweep()
-	r.clock.advance(10 * termwait.DefaultDeliveryQuiet)
-
-	r.sweep()
-
-	assert.True(t, r.detector.Wait(chatID).Waiting)
-	assert.Empty(t, r.deliv.allSettled())
-}
-
-func TestDetector_Sweep_OnlySettlesAgainstTheRunnerThatReceivedThePrompt(t *testing.T) {
-	r := newRig(t)
-	r.delivering()
-	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-OTHER"}
-	r.sweep()
-	r.clock.advance(termwait.DefaultDeliveryQuiet)
-
-	r.sweep()
-
-	assert.Empty(t, r.deliv.allSettled())
-}
-
-func TestDetector_Sweep_RetriesASettleThatCouldNotBePersisted(t *testing.T) {
-	r := newRig(t)
-	r.delivering()
-	r.deliv.settleErr = errBoom
-	r.sweep()
-	r.clock.advance(termwait.DefaultDeliveryQuiet)
-	r.sweep()
-	require.Empty(t, r.deliv.allSettled())
-
-	r.deliv.settleErr = nil
-	r.sweep()
-
-	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
-}
-
-func TestDetector_Sweep_SettlesOnce(t *testing.T) {
-	r := newRig(t)
-	r.delivering()
-	r.sweep()
-	r.clock.advance(termwait.DefaultDeliveryQuiet)
-
-	r.sweep()
-	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-1"}
-	r.sweep()
-	r.sweep()
-
-	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
-}
-
-func TestDetector_Sweep_NeverSettlesADeliveryOnAWorkingChat(t *testing.T) {
-	r := newRig(t)
-	r.delivering()
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
-	r.sweep()
-	r.clock.advance(10 * termwait.DefaultDeliveryQuiet)
-
-	r.sweep()
-
-	assert.Empty(t, r.deliv.allSettled())
-	assert.Zero(t, r.deliv.asked, "a busy chat's journal is never read")
-}
-
-func TestDetector_Sweep_SettlesNothingWithoutTheDeliveriesPort(t *testing.T) {
-	r := newRig(t)
-	r.delivering()
-	waitOnly := termwait.New(termwait.Deps{
-		Runners: r.runners,
-		Chats:   r.chats,
-		Choices: r.choices,
-		Screens: r.screens,
-		Prompts: r.prompts,
-		Now:     r.clock.Now,
-	})
-	waitOnly.Sweep(context.Background(), r.rec.publish)
-	r.clock.advance(10 * termwait.DefaultDeliveryQuiet)
-
-	waitOnly.Sweep(context.Background(), r.rec.publish)
-
-	assert.Empty(t, r.deliv.allSettled())
-	assert.Zero(t, r.deliv.asked)
-}
-
-func TestDetector_Sweep_DoesNotLatchWhenNothingWasRetired(t *testing.T) {
-	r := newRig(t)
-	r.delivering()
-	r.deliv.declineSettle = true
-	r.sweep()
-	r.clock.advance(termwait.DefaultDeliveryQuiet)
-	r.sweep()
-	require.Empty(t, r.deliv.allSettled())
-
-	r.deliv.declineSettle = false
-	r.sweep()
-
-	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
-}
-
-func TestDetector_Sweep_ClosesATurnWhoseMessageWasCutOff(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-
-	r.sweep()
-	assert.Zero(t, r.msgs.count(), "the quiet window has not elapsed yet")
-
-	r.clock.advance(termwait.DefaultMessageQuiet)
-	r.sweep()
-
-	assert.Equal(t, 1, r.msgs.count())
-}
-
-func TestDetector_Sweep_LeavesAThinkingPauseAlone(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-	r.sweep()
-
-	r.clock.advance(3 * time.Second)
-	r.sweep()
-
-	assert.Zero(t, r.msgs.count())
-}
-
-func TestDetector_Sweep_AGrowingMessageNeverLooksAbandoned(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-
-	for range 6 {
-		r.clock.advance(termwait.DefaultMessageQuiet - time.Second)
-		r.msgs.since = r.clock.Now()
-		r.sweep()
-	}
-
-	assert.Zero(t, r.msgs.count())
-}
-
-func TestDetector_Sweep_NeverAbandonsAMessageWhileAToolIsOpen(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-	r.work.open = true
-	r.sweep()
-	r.clock.advance(10 * termwait.DefaultMessageQuiet)
-
-	r.sweep()
-
-	assert.Zero(t, r.msgs.count())
-}
-
-func TestDetector_Sweep_NeverAbandonsAMessageWithAPendingChoice(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1"}}
-	r.sweep()
-	r.clock.advance(10 * termwait.DefaultMessageQuiet)
-
-	r.sweep()
-
-	assert.Zero(t, r.msgs.count())
-}
-
-func TestDetector_Sweep_AFinishedMessageIsNotEvidence(t *testing.T) {
-	r := newRig(t)
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
-	r.msgs.unfinished = false
-	r.clock.advance(10 * termwait.DefaultMessageQuiet)
-
-	r.sweep()
-
-	assert.Zero(t, r.msgs.count())
-}
-
-func TestDetector_Sweep_AbandonsNothingWithoutTheMessagesPort(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-	noMessages := termwait.New(termwait.Deps{
-		Runners: r.runners, Chats: r.chats, Choices: r.choices,
-		Screens: r.screens, Prompts: r.prompts, Now: r.clock.Now,
-	})
-	r.clock.advance(10 * termwait.DefaultMessageQuiet)
-
-	noMessages.Sweep(context.Background(), r.rec.publish)
-
-	assert.Zero(t, r.msgs.count())
-}
-
-// fakeIdle stands in for the provider's own "I am doing nothing" latch.
-type fakeIdle struct {
-	mu    sync.Mutex
-	since time.Time
-	armed bool
-}
-
-func (f *fakeIdle) ProviderIdleSince(string) (time.Time, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.since, f.armed
-}
-
-func (f *fakeIdle) arm(at time.Time) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.since, f.armed = at, true
-}
-
-// A turn whose close never arrives is the case NOTHING else here can reach: the
-// stall detector needs a declared notice sitting on a PTY for two minutes, and
-// the abandoned-message detector needs a half-written message that went quiet.
-// A turn that only reasoned produces neither — and codex.yaml records live that
-// codex can end a turn with no close event at all.
-func TestProviderIdle_ClosesATurnWhoseCloseNeverCame(t *testing.T) {
-	r := newRig(t)
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
-	r.idle.arm(r.clock.Now())
-
-	// Before the quiet period the report is indistinguishable from the one that
-	// lands microseconds ahead of an ordinary close.
-	r.detector.Sweep(t.Context(), r.rec.publish)
-	require.Equal(t, 0, r.msgs.count(), "must not pre-empt a normal turn close")
-
-	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
-	r.detector.Sweep(t.Context(), r.rec.publish)
-
-	assert.Equal(t, 1, r.msgs.count(),
-		"a latch still armed after the wait is a turn nothing is going to close")
-}
-
-// The latch is disarmed by the turn's own close, so a healthy turn never reaches
-// the detector at all. Proven here by the latch simply not being armed.
-func TestProviderIdle_LeavesAHealthyTurnAlone(t *testing.T) {
-	r := newRig(t)
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
-
-	r.clock.advance(termwait.DefaultIdleQuiet + time.Minute)
-	r.detector.Sweep(t.Context(), r.rec.publish)
-
-	assert.Equal(t, 0, r.msgs.count())
-}
-
-// A chat holding a prompt for a person is not stranded, whatever the provider
-// says about its own idleness — the human is the one being waited on.
-func TestProviderIdle_WaitsForAPersonBeforeItselves(t *testing.T) {
-	r := newRig(t)
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
-	r.idle.arm(r.clock.Now())
-	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1", ChatID: chatID}}
-
-	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
-	r.detector.Sweep(t.Context(), r.rec.publish)
-
-	assert.Equal(t, 0, r.msgs.count())
-}
-
-// TestRegression_MessageQuietFuseRecordsAnInferredInterrupt proves the
-// message-quiet detector — the one place a hooks/PTY provider's silent,
-// hookless abort (an ESC/Ctrl+C the CLI reports to nobody) is ever caught at
-// all — routes through AbandonMessageInferredInterrupt, not the bare
-// AbandonMessage the provider-idle authority below still uses. Reuses
-// DefaultMessageQuiet, the fuse TestDetector_Sweep_ClosesATurnWhoseMessageWasCutOff
-// already exercises, rather than a new threshold.
-func TestRegression_MessageQuietFuseRecordsAnInferredInterrupt(t *testing.T) {
-	r := newRig(t)
-	r.cutOff()
-
-	r.clock.advance(termwait.DefaultMessageQuiet)
-	r.sweep()
-
-	assert.Equal(t, 1, r.msgs.inferredCount(),
-		"the message-quiet fuse is Crowbar's own inference and must record itself as one")
-}
-
-// TestRegression_ProviderIdleNeverRecordsAnInferredInterrupt proves the
-// authoritative "provider says it is idle" path is left untouched: it still
-// closes the turn through the bare AbandonMessage, never the inferred-
-// interrupt sibling above. That path is a provider's OWN report of a clean
-// completion, not something Crowbar is guessing at — labelling it an
-// inferred interruption would misrepresent a normal turn end.
-func TestRegression_ProviderIdleNeverRecordsAnInferredInterrupt(t *testing.T) {
-	r := newRig(t)
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
-	r.idle.arm(r.clock.Now())
-
-	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
-	r.sweep()
-
-	require.Equal(t, 1, r.msgs.count(), "the idle report still closes the turn")
-	assert.Zero(t, r.msgs.inferredCount(),
-		"an authoritative idle report is not an interruption Crowbar inferred")
-}
-
-// §6a: an idle daemon does no periodic work. With no live runner the sweep
-// parks after one pass — no ticker, no read transaction every interval — and a
-// runner being recorded live wakes it.
-func TestDetector_Run_ParksWhileNoRunnerIsLiveAndWakesOnDemand(t *testing.T) {
-	r := newRigEvery(t, time.Millisecond)
-	r.runners.mu.Lock()
-	live := r.runners.live
-	r.runners.live = nil
-	r.runners.mu.Unlock()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	r.detector.Run(ctx, nil)
-	require.Eventually(t, func() bool { return r.runners.callCount() == 1 }, 5*time.Second, time.Millisecond)
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, 1, r.runners.callCount(), "nothing to sweep: the loop must park, not tick")
-
-	r.runners.mu.Lock()
-	r.runners.live = live
-	r.runners.mu.Unlock()
-	r.detector.Wake()
-	require.Eventually(t, func() bool { return r.runners.callCount() > 3 }, 5*time.Second, time.Millisecond,
-		"a live runner resumes the cadence")
-}
-
-// The idle report arrives over the api channel, and an api-channel runner has
-// no PTY: the authoritative close must not depend on a screen it never has.
-func TestProviderIdle_ClosesAnAPIRunnersTurnWithNoPTY(t *testing.T) {
-	r := newRig(t)
-	r.runners.live[0].TerminalSession = ""
-	r.runners.live[0].ProviderID = "codex"
-	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
-	r.idle.arm(r.clock.Now())
-
-	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
-	r.sweep()
-
-	assert.Equal(t, 1, r.msgs.count(), "a PTY-less runner's idle report still closes the turn")
-	assert.False(t, r.detector.Wait(chatID).Waiting, "a runner with no screen is never waiting on one")
 }

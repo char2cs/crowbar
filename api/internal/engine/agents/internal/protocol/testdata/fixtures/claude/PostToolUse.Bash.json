@@ -1,0 +1,25 @@
+{
+  "session_id": "6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "transcript_path": "/h/.claude/projects/-ws/6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d.jsonl",
+  "cwd": "/ws",
+  "prompt_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "ls -la",
+    "description": "List files in working directory with details"
+  },
+  "tool_response": {
+    "stdout": "total 16\ndrwxr-xr-x@  5 user  wheel  160 Oct 16 23:44 .\ndrwxr-xr-x@  8 user  wheel  256 Oct 16 23:44 ..\ndrwxr-xr-x@ 12 user  wheel  384 Oct 16 23:44 .git\n-rw-r--r--@  1 user  wheel   32 Oct 16 23:44 calc.py\n-rw-r--r--@  1 user  wheel   17 Oct 16 23:44 notes.txt",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_01K7CbqtvMBEpey6gvY5ZyE3",
+  "duration_ms": 468
+}

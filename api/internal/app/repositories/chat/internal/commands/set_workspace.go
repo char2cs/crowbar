@@ -8,13 +8,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetWorkspace writes the workspace a chat belongs to, filling the slot after
-// creation (chats start with WorkspaceID optional). A bubble gaining worktree
-// ownership and a promoted thread both use this command to establish workspace
-// membership.
+// SetWorkspace writes the workspace a chat belongs to after creation: a bubble
+// gaining worktree ownership, or a thread moved to run in another one.
 type SetWorkspace struct {
 	ID          string
 	WorkspaceID string
+	// Shares runs the chat in a workspace another row owns: a moved thread
+	// must never claim the branch it joins.
+	Shares bool `json:",omitempty"`
 }
 
 func (c SetWorkspace) AggregateID() string {
@@ -46,6 +47,6 @@ func (c SetWorkspace) EmitEvent(
 ) domain.Chat {
 	chat := *current
 	chat.WorkspaceID = c.WorkspaceID
-	chat.OwnsWorkspace = c.WorkspaceID != ""
+	chat.OwnsWorkspace = c.WorkspaceID != "" && !c.Shares
 	return chat
 }

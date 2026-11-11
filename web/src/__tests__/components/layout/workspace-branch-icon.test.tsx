@@ -7,7 +7,7 @@ describe('WorkspaceBranchIcon', () => {
     const { container, getByRole } = render(<WorkspaceBranchIcon status="new" working />)
     const status = getByRole('status')
     expect(status).toBeTruthy()
-    // Flicker spinner, not the retired @agilek/cli-loaders Spinner.
+    // The flicker spinner.
     expect(container.querySelector('[data-flicker-spinner]')).not.toBeNull()
     // Theme-token colored, never hardcoded — the wrapper carries the color class
     // since FlickerSpinner inherits via currentColor.
@@ -32,12 +32,8 @@ describe('WorkspaceBranchIcon placeholder', () => {
   })
 })
 
-// Live-reported regression: sidebar-row.tsx's own text just got fixed to
-// invert on Recents' ROW_ACTIVE ground (see sidebar-row.test.tsx), but this
-// icon hardcodes `text-foreground` regardless of caller — on the SAME
-// inverted ground it read as a barely-visible dark mark. `invertedGround`
-// swaps just that ambient token; the fixed status colors (amber/red/green/
-// violet) are untouched since they read fine on either ground.
+// On the inverted TAB_ACTIVE ground, `invertedGround` swaps the ambient `text-foreground` so the
+// icon stays visible; the fixed status colours read on either ground and are untouched.
 describe('WorkspaceBranchIcon invertedGround', () => {
   it('swaps text-foreground for text-foreground-inverse on a "new" branch icon', () => {
     const { container } = render(<WorkspaceBranchIcon status="new" invertedGround />)

@@ -24,16 +24,15 @@ import (
 // state the boot orphan-sweep exists to reap (a reactor that died mid-cascade,
 // spec §3.8). Sweep reads the read model directly and re-drives the idempotent
 // purge for the deleted row ONLY: its worktree is rm'd, its aggregate Forgotten,
-// and its read-model row dropped (via Forget's OnForget), converging to the
+// and its read-model row dropped (via Forget's marker), converging to the
 // delete invariant (no row, no worktree) — while the clean workspace and its
 // worktree are left untouched.
 func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
-	ctx, ax := newAx(t)
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	st, err := projections.NewStore(db)
 	require.NoError(t, err)
-	require.NoError(t, projections.RegisterStore(st, ax))
+	ctx, ax := newAx(t, st)
 
 	root := t.TempDir()
 	paths := map[string]string{
@@ -62,7 +61,7 @@ func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
 	require.Equal(t, domain.WorkspaceStatusDeleted, tomb.Status)
 
 	// purge re-drives the same idempotent teardown a delete reactor would: rm -rf
-	// the worktree, then Forget the aggregate (OnForget drops the read-model row).
+	// the worktree, then Forget the aggregate (its marker drops the read-model row).
 	var purged []string
 	purge := func(ctx context.Context, tomb domain.Workspace) error {
 		purged = append(purged, tomb.ID)
@@ -75,13 +74,13 @@ func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
 		return ax.Forget(ctx, tomb.ID)
 	}
 
-	NewSweeper(st.List, purge).Sweep(ctx)
+	NewSweeper(func(ctx context.Context) ([]domain.Workspace, error) { return st.List(ctx, leaveOut) }, purge).Sweep(ctx, noPurged)
 
 	assert.Equal(t, []string{"del"}, purged, "only the deleted row must be purged")
 
 	gone, err := st.Get(ctx, "del")
 	require.NoError(t, err)
-	assert.Nil(t, gone, "the deleted row must be reaped (Forget's OnForget drops it)")
+	assert.Nil(t, gone, "the deleted row must be reaped (Forget's marker drops it)")
 	_, statErr := os.Stat(filepath.Join(root, "del"))
 	assert.True(t, os.IsNotExist(statErr), "the lingering worktree must be rm'd")
 	exists, err := ax.Exists(ctx, "del")
@@ -111,7 +110,7 @@ func TestSweep_EmptyModel_NoReplay(t *testing.T) {
 	purgeCalled := false
 	purge := func(context.Context, domain.Workspace) error { purgeCalled = true; return nil }
 
-	NewSweeper(directList, purge).Sweep(context.Background())
+	NewSweeper(directList, purge).Sweep(context.Background(), noPurged)
 
 	assert.False(t, purgeCalled, "an empty model reaps nothing")
 	assert.Zero(t, replays, "the sweep must never trigger a lazy Replay")
@@ -132,7 +131,7 @@ func TestSweep_CleanModel_NoPurge(t *testing.T) {
 	var purged []string
 	purge := func(_ context.Context, ws domain.Workspace) error { purged = append(purged, ws.ID); return nil }
 
-	NewSweeper(list, purge).Sweep(context.Background())
+	NewSweeper(list, purge).Sweep(context.Background(), noPurged)
 
 	assert.Empty(t, purged, "a clean model must trigger no purge")
 	assert.Equal(t, 1, reads, "the read model is read directly exactly once")
@@ -148,7 +147,7 @@ func TestSweep_ListError_SkipsPurge(t *testing.T) {
 	purgeCalled := false
 	purge := func(context.Context, domain.Workspace) error { purgeCalled = true; return nil }
 
-	NewSweeper(list, purge).Sweep(context.Background())
+	NewSweeper(list, purge).Sweep(context.Background(), noPurged)
 
 	assert.False(t, purgeCalled, "a list failure must abort before any purge")
 }
@@ -173,8 +172,13 @@ func TestSweep_PurgeError_ContinuesToNextDeleted(t *testing.T) {
 		return nil
 	}
 
-	NewSweeper(list, purge).Sweep(context.Background())
+	var finished []string
+	NewSweeper(list, purge).Sweep(context.Background(), func(_ context.Context, id string) { finished = append(finished, id) })
 
+	assert.Equal(t, []string{"ok"}, finished, "only a purge that completed is reported finished")
 	assert.Equal(t, []string{"boom", "ok"}, purged,
 		"a failing purge is skipped, the clean row is never purged, and the next deleted row still is")
 }
+
+func noPurged(context.Context, string)                            {}
+func leaveOut(context.Context, string) (*domain.Workspace, error) { return nil, nil }

@@ -12,8 +12,7 @@ import (
 
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
-	"github.com/char2cs/crowbar/api/internal/core/paths"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 // Global-plane DB file name under <home>/state: the non-aggregate view.db.
@@ -24,47 +23,33 @@ const (
 // per-type DB file names under state/events and state/store. One event log +
 // one read-model DB per aggregate type, routed by shard hash across many ids.
 const (
-	workspaceDBName     = "workspace.db"
-	reviewThreadDBName  = "review_thread.db"
-	agentChatDBName     = "agent_chat.db"
-	agentRunnerDBName   = "agent_runner.db"
-	agentActivityDBName = "agent_activity.db"
-	nodeDBName          = "node.db"
+	workspaceDBName    = "workspace.db"
+	reviewThreadDBName = "review_thread.db"
+	agentChatDBName    = "agent_chat.db"
+	treeDBName         = "tree.db"
 )
 
-// per-type snapshot DB file names under state/events, one per aggregate type,
-// each its OWN file+connection (never a table in the event log's single-writer
-// db) — see eventsqlite.NewSnapshotStore for the locking rationale. asynx v0.8
-// keeps exactly one upserted snapshot per aggregate here, read in O(1) on the
-// workspace-scoped hot path.
+// Per-type snapshot DB file names under state/events. Each is its own file and
+// connection, never a table in the event log's single-writer db; see
+// eventsqlite.NewSnapshotStore for the locking rationale.
 const (
-	workspaceSnapshotDBName     = "workspace_snapshots.db"
-	reviewThreadSnapshotDBName  = "review_thread_snapshots.db"
-	agentChatSnapshotDBName     = "agent_chat_snapshots.db"
-	agentRunnerSnapshotDBName   = "agent_runner_snapshots.db"
-	agentActivitySnapshotDBName = "agent_activity_snapshots.db"
-	nodeSnapshotDBName          = "node_snapshots.db"
+	workspaceSnapshotDBName    = "workspace_snapshots.db"
+	reviewThreadSnapshotDBName = "review_thread_snapshots.db"
+	agentChatSnapshotDBName    = "agent_chat_snapshots.db"
+	treeSnapshotDBName         = "tree_snapshots.db"
 )
 
-// Container is the persistence layer.
-//
-// The quiver-faithful per-type plane opens ONE event log + ONE read-model DB
-// per aggregate type at boot: state/events/<type>.db (append-only truth) and
-// state/store/<type>.db (durable read-model projection, opened as a read pool).
-// One asynx instance per type routes many aggregate ids by shard hash.
-//
-// Projects, repositories, terminal profiles, and settings live in the global
-// view.db under <home>/state.
+// Container is the persistence layer. Per aggregate type it opens one append-only
+// event log (state/events/<type>.db) and one read-model DB (state/store/<type>.db,
+// a read pool); projects, repositories, terminal profiles and settings share view.db.
 type Container struct {
-	crowbarHome string
+	home home.Home
 
 	reviewThreadES asynxModels.Store
 	reviewThreadSS asynxModels.SnapshotStore
 
-	// Per-type handles (quiver-faithful): one event log + one snapshot store +
-	// one read-model DB per aggregate type, routed to many aggregate ids by
-	// shard hash. The snapshot store is the asynx v0.8 O(1) warm-read cache
-	// (one upserted snapshot per aggregate), keyed by aggregateID alone.
+	// Per-type handles: one event log, one snapshot store (one upserted snapshot per
+	// aggregate, keyed by aggregateID) and one read-model DB per aggregate type.
 	workspaceEventStore    asynxModels.Store
 	workspaceSnapshotStore asynxModels.SnapshotStore
 	workspaceStoreDB       *gormdb.DB
@@ -72,27 +57,12 @@ type Container struct {
 	agentChatEventStore    asynxModels.Store
 	agentChatSnapshotStore asynxModels.SnapshotStore
 	agentChatStoreDB       *gormdb.DB
-	// The activity plane is its OWN event log, snapshot store and read model.
-	// Never a table inside the chat plane: chat events are a handful per chat
-	// while activity events are hundreds per turn, and sharing one single-writer
-	// event DB would put the sidebar's writes behind a tool-call storm.
-	agentActivityEventStore    asynxModels.Store
-	agentActivitySnapshotStore asynxModels.SnapshotStore
-	agentActivityStoreDB       *gormdb.DB
-	agentRunnerEventStore      asynxModels.Store
-	agentRunnerSnapshotStore   asynxModels.SnapshotStore
-	agentRunnerStoreDB         *gormdb.DB
-	// The node plane (2026-09-08 sidebar-placement-unification) is its OWN event
-	// log, snapshot store and read model, mirroring every other per-type plane
-	// above — one entity owning every sidebar row's position, at every tree
-	// level, needs its own singleton the same way agentchat/workspace do.
-	nodeEventStore    asynxModels.Store
-	nodeSnapshotStore asynxModels.SnapshotStore
-	nodeStoreDB       *gormdb.DB
+	// The Tree has no read model: Get is its read.
+	treeEventStore    asynxModels.Store
+	treeSnapshotStore asynxModels.SnapshotStore
+	chatLedgerDB      *gormdb.DB
 
 	globalView *gormdb.DB
-
-	lock *instanceLock
 
 	globalClosers []io.Closer
 }
@@ -114,8 +84,8 @@ func WithHomeDir(
 }
 
 // New constructs the persistence layer: the global event stores, the global
-// view DB, and the lazy per-entity workspace registries. It acquires the
-// single-instance lock over the crowbar tree.
+// view DB, and the lazy per-entity workspace registries. It takes no lock: the
+// caller holds the home through its migration session (migrate.Begin).
 func New(
 	opts ...Option,
 ) (*Container, error) {
@@ -124,61 +94,38 @@ func New(
 		o(&cfg)
 	}
 
-	home, stateDir := resolveHome(cfg.homeDir)
-	if mkErr := os.MkdirAll(stateDir, 0o750); mkErr != nil {
-		return nil, fmt.Errorf("adapter: state dir: %w", mkErr)
+	h, err := home.ResolveDir(cfg.homeDir)
+	if err != nil {
+		return nil, fmt.Errorf("adapter: home: %w", err)
+	}
+	// Owner-only, and narrowed when an older build made them looser. The root
+	// is created so but never narrowed: it is on the way to every checkout.
+	for _, dir := range []string{h.Root(), h.State(), h.Events(), h.Store()} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("adapter: create %s: %w", dir, err)
+		}
+		if dir == h.Root() {
+			continue
+		}
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: a directory needs its search bit; 0700 is owner-only
+			return nil, fmt.Errorf("adapter: restrict %s: %w", dir, err)
+		}
 	}
 
-	lock, err := acquireStateLock(stateDir)
-	if err != nil {
-		return nil, err
-	}
-
-	container, err := newLocked(home, stateDir, lock)
-	if err != nil {
-		_ = lock.Close()
-		return nil, err
-	}
-	return container, nil
+	return openContainer(h)
 }
 
-// resolveHome returns the crowbar home root and the global state directory. When
-// homeDir is empty the production location is used; the home root is derived as
-// the parent of the resolved state directory.
-func resolveHome(
-	homeDir string,
-) (string, string) {
-	if homeDir != "" {
-		return homeDir, metadata.GetStateDirPathAt(homeDir)
-	}
-	stateDir := metadata.GetStateDirPath()
-	return filepath.Dir(stateDir), stateDir
-}
-
-func newLocked(
-	home string,
-	stateDir string,
-	lock *instanceLock,
+func openContainer(
+	h home.Home,
 ) (c *Container, err error) {
-	// Per-type planes derive from the resolved home, never from the env, so a
-	// test home cannot leak state into the prod ~/.crowbar (decision 14).
-	eventsDir, err := paths.EventsAt(home)
-	if err != nil {
-		return nil, fmt.Errorf("adapter: events dir: %w", err)
-	}
-	storeDir, err := paths.StoreAt(home)
-	if err != nil {
-		return nil, fmt.Errorf("adapter: store dir: %w", err)
-	}
+	eventsDir, storeDir := h.Events(), h.Store()
 
-	// Opening is a LIST, and o carries the two things every entry shares: the first
-	// error, and the rollback for everything opened before it. After the first
-	// failure every later open is a no-op, so the sequence reads as a declaration of
-	// what this container is made of rather than as twenty error branches.
+	// o keeps the first error and the rollback for everything opened before it; later
+	// opens are no-ops after a failure, so this reads as a list, not error branches.
 	var o opens
 	defer func() {
 		if err != nil {
-			o.unwind()
+			err = errors.Join(err, o.unwind())
 		}
 	}()
 
@@ -190,17 +137,11 @@ func newLocked(
 	reviewThreadView := o.viewDB(storeDir, reviewThreadDBName, "review thread view")
 	agentChatEventStore := o.eventStore(eventsDir, agentChatDBName, "agent chat event store")
 	agentChatSnapshotStore := o.snapshotStore(eventsDir, agentChatSnapshotDBName, "agent chat snapshot store")
-	agentActivityEventStore := o.eventStore(eventsDir, agentActivityDBName, "agent activity event store")
-	agentActivitySnapshotStore := o.snapshotStore(eventsDir, agentActivitySnapshotDBName, "agent activity snapshot store")
-	agentActivityStoreDB := o.viewDB(storeDir, agentActivityDBName, "agent activity read db")
 	agentChatStoreDB := o.viewDB(storeDir, agentChatDBName, "agent chat store db")
-	agentRunnerEventStore := o.eventStore(eventsDir, agentRunnerDBName, "agent runner event store")
-	agentRunnerSnapshotStore := o.snapshotStore(eventsDir, agentRunnerSnapshotDBName, "agent runner snapshot store")
-	agentRunnerStoreDB := o.viewDB(storeDir, agentRunnerDBName, "agent runner store db")
-	nodeEventStore := o.eventStore(eventsDir, nodeDBName, "node event store")
-	nodeSnapshotStore := o.snapshotStore(eventsDir, nodeSnapshotDBName, "node snapshot store")
-	nodeStoreDB := o.viewDB(storeDir, nodeDBName, "node store db")
-	globalView := o.viewDB(stateDir, viewDBName, "global view")
+	treeEventStore := o.eventStore(eventsDir, treeDBName, "tree event store")
+	treeSnapshotStore := o.snapshotStore(eventsDir, treeSnapshotDBName, "tree snapshot store")
+	chatLedgerDB := o.chatLedgerDB(h)
+	globalView := o.viewDB(h.State(), viewDBName, "global view")
 
 	if o.err != nil {
 		err = o.err
@@ -208,49 +149,41 @@ func newLocked(
 	}
 
 	c = &Container{
-		crowbarHome:                home,
-		reviewThreadES:             reviewThreadES,
-		reviewThreadSS:             reviewThreadSS,
-		workspaceEventStore:        workspaceEventStore,
-		workspaceSnapshotStore:     workspaceSnapshotStore,
-		workspaceStoreDB:           workspaceStoreDB,
-		reviewThreadView:           reviewThreadView,
-		agentChatEventStore:        agentChatEventStore,
-		agentChatSnapshotStore:     agentChatSnapshotStore,
-		agentChatStoreDB:           agentChatStoreDB,
-		agentActivityEventStore:    agentActivityEventStore,
-		agentActivitySnapshotStore: agentActivitySnapshotStore,
-		agentActivityStoreDB:       agentActivityStoreDB,
-		agentRunnerEventStore:      agentRunnerEventStore,
-		agentRunnerSnapshotStore:   agentRunnerSnapshotStore,
-		agentRunnerStoreDB:         agentRunnerStoreDB,
-		nodeEventStore:             nodeEventStore,
-		nodeSnapshotStore:          nodeSnapshotStore,
-		nodeStoreDB:                nodeStoreDB,
-		globalView:                 globalView,
-		lock:                       lock,
+		home:                   h,
+		reviewThreadES:         reviewThreadES,
+		reviewThreadSS:         reviewThreadSS,
+		workspaceEventStore:    workspaceEventStore,
+		workspaceSnapshotStore: workspaceSnapshotStore,
+		workspaceStoreDB:       workspaceStoreDB,
+		reviewThreadView:       reviewThreadView,
+		agentChatEventStore:    agentChatEventStore,
+		agentChatSnapshotStore: agentChatSnapshotStore,
+		agentChatStoreDB:       agentChatStoreDB,
+		treeEventStore:         treeEventStore,
+		treeSnapshotStore:      treeSnapshotStore,
+		chatLedgerDB:           chatLedgerDB,
+		globalView:             globalView,
 	}
 	c.globalClosers = collectClosers(reviewThreadES, reviewThreadSS)
 	return c, nil
 }
 
-// opens is a fail-fast opener for newLocked: it keeps the FIRST error and the
-// rollback for everything opened before it.
-//
-// Fail-fast matters as much as the rollback. Once one open has failed the rest are
-// no-ops, so the caller does not have to re-check between every line, and the
-// container is never built from a half-open set.
+// opens is a fail-fast opener for openContainer: it keeps the first error and the
+// rollback for everything opened before it. After a failure later opens are
+// no-ops, so the container is never built from a half-open set.
 type opens struct {
 	err      error
 	rollback []func() error
 }
 
-// unwind closes what was opened, newest first. Only called when newLocked is
+// unwind closes what was opened, newest first. Only called when openContainer is
 // returning an error — on success the Container owns these and Close has them.
-func (o *opens) unwind() {
+func (o *opens) unwind() error {
+	var errs []error
 	for i := len(o.rollback) - 1; i >= 0; i-- {
-		_ = o.rollback[i]()
+		errs = append(errs, o.rollback[i]())
 	}
+	return errors.Join(errs...)
 }
 
 func (o *opens) eventStore(dir, name, what string) asynxModels.Store {
@@ -298,40 +231,33 @@ func (c *Container) ReviewThreadSS() asynxModels.SnapshotStore {
 }
 
 // ReviewThreadView returns the reviewthread read-model DB at
-// state/store/review_thread.db, opened as a read pool. Task 12 wires the
-// reviewthread store/hub projections onto it (its read model moves out of the
-// shared view.db).
+// state/store/review_thread.db, opened as a read pool.
 func (c *Container) ReviewThreadView() *gormdb.DB {
 	return c.reviewThreadView
 }
 
 // WorkspaceES returns the workspace event log at state/events/workspace.db. This
 // is the singleton per-type handle: the app layer builds ONE axWorkspace over it
-// and routes every workspace id to a shard by hash (spec §3.3/§3.4).
+// and routes every workspace id to a shard by hash.
 func (c *Container) WorkspaceES() asynxModels.Store {
 	return c.workspaceEventStore
 }
 
-// WorkspaceSS returns the workspace snapshot store at
-// state/events/workspace_snapshots.db — the asynx v0.8 O(1) warm-read cache
-// paired with WorkspaceES. It is the store the workspace-scoped read hot path
-// (scopeWorkspaceToPath -> workspace.Get -> Reader.Load) now Gets by
-// aggregateID instead of the old O(n) snapshot-stream scan.
+// WorkspaceSS returns the workspace snapshot store at state/events/workspace_snapshots.db,
+// the O(1) warm-read cache paired with WorkspaceES on the workspace-scoped read path.
 func (c *Container) WorkspaceSS() asynxModels.SnapshotStore {
 	return c.workspaceSnapshotStore
 }
 
 // WorkspaceView returns the workspace read-model DB at state/store/workspace.db,
-// opened as a read pool (decision 12). The workspace store projection folds
-// evt.Aggregate into it, and it doubles as the location index (spec §3.7).
+// opened as a read pool. The workspace store projection folds
+// evt.Aggregate into it, and it doubles as the location index.
 func (c *Container) WorkspaceView() *gormdb.DB {
 	return c.workspaceStoreDB
 }
 
-// AgentChatES returns the agent-chat event log at state/events/agent_chat.db.
-// This is the singleton per-type handle: the app layer builds ONE axAgentChat
-// over it and routes every chat id to a shard by hash, mirroring
-// WorkspaceES/ReviewThreadES.
+// AgentChatES returns the agent-chat event log at state/events/agent_chat.db. The app
+// layer builds one axAgentChat over it and routes every chat id to a shard by hash.
 func (c *Container) AgentChatES() asynxModels.Store {
 	return c.agentChatEventStore
 }
@@ -343,124 +269,56 @@ func (c *Container) AgentChatSS() asynxModels.SnapshotStore {
 	return c.agentChatSnapshotStore
 }
 
-// AgentChatReadDB returns the agent-chat read-model DB at
-// state/store/agent_chat.db, opened as a read pool (decision 12). The
-// agentchat store projection folds evt.Aggregate into it, mirroring
-// WorkspaceView/ReviewThreadView.
+// AgentChatReadDB returns the agent-chat read-model DB at state/store/agent_chat.db,
+// opened as a read pool; the agentchat store projection folds into it.
 func (c *Container) AgentChatReadDB() *gormdb.DB {
 	return c.agentChatStoreDB
 }
 
-// AgentRunnerES returns the agent-runner event log at
-// state/events/agent_runner.db. This is the singleton per-type handle: the app
-// layer builds ONE axAgentRunner over it and routes every runner id to a shard by
-// hash, mirroring WorkspaceES/ReviewThreadES/AgentChatES.
-// AgentActivityES returns the conversation-record event log at
-// state/events/agent_activity.db.
-func (c *Container) AgentActivityES() asynxModels.Store {
-	return c.agentActivityEventStore
+// TreeES returns the Tree event log at state/events/tree.db.
+func (c *Container) TreeES() asynxModels.Store {
+	return c.treeEventStore
 }
 
-// AgentActivitySS returns the conversation-record snapshot store.
-func (c *Container) AgentActivitySS() asynxModels.SnapshotStore {
-	return c.agentActivitySnapshotStore
+// TreeSS returns the Tree snapshot store at state/events/tree_snapshots.db.
+func (c *Container) TreeSS() asynxModels.SnapshotStore {
+	return c.treeSnapshotStore
 }
 
-// AgentActivityReadDB returns the conversation-record read model at
-// state/store/agent_activity.db. Unlike the other read models it holds ROWS, not
-// one JSON blob per aggregate: turns, tool calls, subagents and interruptions are
-// queried by name, by file and by time, which a blob cannot answer.
-func (c *Container) AgentActivityReadDB() *gormdb.DB {
-	return c.agentActivityStoreDB
-}
-
-// NodeES returns the node event log at state/events/node.db. This is the
-// singleton per-type handle: the app layer builds ONE axNode over it and routes
-// every node id to a shard by hash, mirroring
-// WorkspaceES/ReviewThreadES/AgentChatES.
-func (c *Container) NodeES() asynxModels.Store {
-	return c.nodeEventStore
-}
-
-// NodeSS returns the node snapshot store at state/events/node_snapshots.db —
-// the asynx v0.8 O(1) warm-read cache paired with NodeES.
-func (c *Container) NodeSS() asynxModels.SnapshotStore {
-	return c.nodeSnapshotStore
-}
-
-// NodeReadDB returns the node read-model DB at state/store/node.db, opened as a
-// read pool (decision 12). The node store projection folds evt.Aggregate into
-// it, mirroring AgentChatReadDB/WorkspaceView.
-func (c *Container) NodeReadDB() *gormdb.DB {
-	return c.nodeStoreDB
-}
-
-func (c *Container) AgentRunnerES() asynxModels.Store {
-	return c.agentRunnerEventStore
-}
-
-// AgentRunnerSS returns the agent-runner snapshot store at
-// state/events/agent_runner_snapshots.db — the asynx v0.8 O(1) warm-read cache
-// paired with AgentRunnerES.
-func (c *Container) AgentRunnerSS() asynxModels.SnapshotStore {
-	return c.agentRunnerSnapshotStore
-}
-
-// AgentRunnerReadDB returns the agent-runner read-model DB at
-// state/store/agent_runner.db, opened as a read pool (decision 12). It holds BOTH
-// runner projections: the live-runner model (rows exist exactly while their CLI
-// runs — no status column, so nothing can go stale) and the append-only
-// conversation history, mirroring AgentChatReadDB/WorkspaceView.
-func (c *Container) AgentRunnerReadDB() *gormdb.DB {
-	return c.agentRunnerStoreDB
-}
-
-// GlobalView returns the global view DB at state/view.db holding projects,
-// repositories, terminal profiles, and settings read models. It is a view DB, so
-// it is opened as a read pool (decision 12) — never the single-conn OpenDB that
-// would head-of-line-block reads.
+// GlobalView returns the global view DB at state/view.db (projects, repositories,
+// terminal profiles, settings), opened as a read pool so reads never queue behind
+// a single connection.
 func (c *Container) GlobalView() *gormdb.DB {
 	return c.globalView
 }
 
-// CrowbarHome returns the resolved crowbar home root this container was opened
-// against. Path-deriving usecases (worktree add, project import/delete) MUST use
-// this same home so the git worktrees and the per-entity storages land under one
-// root — otherwise an overridden home (e.g. a test temp dir) splits them.
-func (c *Container) CrowbarHome() string {
-	return c.crowbarHome
+// Home is the Crowbar home this container was opened against. Path-deriving
+// usecases (worktree add, project import/delete) MUST use this same home so the
+// git worktrees and the per-entity storages land under one root.
+func (c *Container) Home() home.Home {
+	return c.home
 }
 
 // Close drains and closes every persistence plane — the per-type event/read
-// handles, the global view DB, and the global event stores — then releases the
-// single-instance lock. Closing a WAL DB's last connection checkpoints its WAL,
-// so errors.Join spans all planes with the WAL checkpointed.
+// handles, the global view DB, and the global event stores. Closing a WAL DB's
+// last connection checkpoints its WAL, so errors.Join spans all planes.
 func (c *Container) Close() error {
 	var errs []error
 
-	// Shutdown is a LIST, not a flow. Every entry is the same three steps — skip if
-	// never built, close it, forget it — and the only thing that varies is which
-	// handle and what to call it in the error. Written out inline that was twelve
-	// identical branches; written as a list, adding a store is one line and cannot
-	// forget to nil the field.
+	// A list, not a flow: each entry skips a handle never built, closes it and
+	// forgets it, so adding a store is one line that cannot forget to nil it.
 	closeEach(&errs, "workspace store db", &c.workspaceStoreDB, closeViewDB)
 	closeEach(&errs, "review thread view", &c.reviewThreadView, closeViewDB)
-	closeEach(&errs, "agent activity store db", &c.agentActivityStoreDB, closeViewDB)
 	closeEach(&errs, "agent chat store db", &c.agentChatStoreDB, closeViewDB)
-	closeEach(&errs, "agent runner store db", &c.agentRunnerStoreDB, closeViewDB)
-	closeEach(&errs, "node store db", &c.nodeStoreDB, closeViewDB)
+	closeEach(&errs, "chat ledger db", &c.chatLedgerDB, closeViewDB)
 	closeEach(&errs, "global view", &c.globalView, closeViewDB)
 
 	closeEach(&errs, "workspace event store", &c.workspaceEventStore, closeEventStore)
 	closeEach(&errs, "workspace snapshot store", &c.workspaceSnapshotStore, closeSnapshotStore)
-	closeEach(&errs, "agent activity event store", &c.agentActivityEventStore, closeEventStore)
-	closeEach(&errs, "agent activity snapshot store", &c.agentActivitySnapshotStore, closeSnapshotStore)
 	closeEach(&errs, "agent chat event store", &c.agentChatEventStore, closeEventStore)
 	closeEach(&errs, "agent chat snapshot store", &c.agentChatSnapshotStore, closeSnapshotStore)
-	closeEach(&errs, "agent runner event store", &c.agentRunnerEventStore, closeEventStore)
-	closeEach(&errs, "agent runner snapshot store", &c.agentRunnerSnapshotStore, closeSnapshotStore)
-	closeEach(&errs, "node event store", &c.nodeEventStore, closeEventStore)
-	closeEach(&errs, "node snapshot store", &c.nodeSnapshotStore, closeSnapshotStore)
+	closeEach(&errs, "tree event store", &c.treeEventStore, closeEventStore)
+	closeEach(&errs, "tree snapshot store", &c.treeSnapshotStore, closeSnapshotStore)
 
 	for _, cl := range c.globalClosers {
 		if err := cl.Close(); err != nil {
@@ -468,17 +326,12 @@ func (c *Container) Close() error {
 		}
 	}
 	c.globalClosers = nil
-
-	closeEach(&errs, "release state lock", &c.lock, (*instanceLock).Close)
 	return errors.Join(errs...)
 }
 
-// closeEach closes one handle and clears it, collecting a named error.
-//
-// The nil check is on the INTERFACE/pointer value, so a handle that was never
-// built is skipped — Close runs on partially-constructed containers, which is the
-// whole reason a boot failure can still shut down cleanly. Clearing the field
-// makes Close idempotent.
+// closeEach closes one handle and clears it, collecting a named error. A zero
+// handle is skipped, so Close works on a partially built container after a failed
+// boot; clearing the field makes Close idempotent.
 func closeEach[T comparable](errs *[]error, what string, field *T, close func(T) error) {
 	var zero T
 	if *field == zero {

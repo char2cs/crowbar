@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // WSConn is the WebSocket abstraction implemented by gorilla/websocket connections.
@@ -28,33 +29,28 @@ type WSConn interface {
 
 // ErrSessionNotFound is returned when an operation targets a session ID that is
 // not registered (never existed, or has ended).
-var ErrSessionNotFound = errors.New("terminal: session not found")
+var ErrSessionNotFound = problem.New(problem.NotFound, "terminal: session not found")
 
-// ErrShuttingDown is returned by the session-birth paths (Create, CreateCommand,
-// and the restore inside Attach) once Shutdown has begun draining. Birthing a
-// session after that point would hand back a PTY nothing is left to reap: the
-// kill loop has already walked the registry, so the process would outlive the
-// daemon and its exit callback would fire into a torn-down app.
+// ErrShuttingDown is returned by the session-birth paths once Shutdown has begun: the kill loop has
+// already walked the registry, so a new PTY would outlive the daemon with nothing left to reap it.
 var ErrShuttingDown = errors.New("terminal: engine is shutting down")
 
-// ErrCommandNotFound is returned by CreateCommand when argv[0] names a binary that
-// does not exist or is not executable. It is a MISSING DEPENDENCY on the user's
-// machine, not a server fault, and it is classified here — where the exec actually
-// fails — so callers never have to string-match exec's error text to tell "this CLI
-// is not installed" apart from a genuine spawn failure.
-var ErrCommandNotFound = errors.New("terminal: command not found")
+// ErrCommandNotFound is returned by CreateCommand when argv[0] is missing or not executable: a missing
+// dependency, classified where exec fails so callers never string-match exec's error text.
+var ErrCommandNotFound = problem.New(problem.FailedDependency, "terminal: command not found")
+
+// Exit is how a command session's process ended: its exit code (-1 when
+// unknown) and the text on its screen at the end.
+type Exit struct {
+	Code   int
+	Screen string
+}
 
 // Engine is the full PTY session operation surface.
 type Engine interface {
-	// Create spawns a new PTY session owned by chatID, running in
-	// workspaceDir.
-	//
-	// The two arguments answer DIFFERENT questions and must not be conflated.
-	// chatID is the session's OWNER: it is what the session is registered,
-	// listed, and reaped under, and it is why a chat never sees a sibling's
-	// shells. workspaceDir is merely where the shell starts — the resolved
-	// worktree path, which sibling chats routinely SHARE. One worktree, many
-	// owners.
+	// Create spawns a new PTY session owned by chatID, running in workspaceDir. chatID is the owner the
+	// session is registered, listed and reaped under; workspaceDir is only where it starts, and sibling
+	// chats routinely share it.
 	Create(
 		ctx context.Context,
 		chatID string,
@@ -62,31 +58,21 @@ type Engine interface {
 		prof *domain.TerminalProfile,
 	) (sessionID string, err error)
 
-	// CreateCommand spawns an explicit argv+env as a registered session (streamable
-	// over the terminal WS), skipping profile resolution. Used by the agentic
-	// engine to launch vendor CLIs (claude/codex) with descriptor-built argv/env.
-	// onExit, if non-nil, is invoked exactly once — after the session is fully
-	// reaped (natural PTY exit or an explicit Kill) — so a caller can release
-	// resources (e.g. the per-spawn hook-config tmp dir) that must stay alive for
-	// the whole lifetime of the running CLI. It is never called for a session
-	// that is merely suspended/detached.
+	// CreateCommand spawns an explicit argv+env as a registered session, skipping profile resolution.
+	// onExit, if non-nil, runs exactly once after the session is fully reaped (natural exit or Kill),
+	// never for a merely suspended session.
 	CreateCommand(
 		ctx context.Context,
 		chatID string,
 		cwd string,
 		argv []string,
 		env []string,
-		onExit func(),
+		onExit func(Exit),
 	) (sessionID string, err error)
 
-	// Attach connects a WebSocket connection to an existing session, sending the
-	// serialized screen-model snapshot to redraw the client and then streaming
-	// live output. A SUSPENDED session is transparently restored first; a session
-	// whose process has exited never is (see sessionState). When the process
-	// exits, the client is sent an exit frame before the conn is closed, so it can
-	// tell "the shell ended" from "the transport dropped". Attach returns within a
-	// bounded time once its client stalls (every write carries a deadline) or the
-	// session dies.
+	// Attach streams an existing session to conn: snapshot first, then live output, restoring a suspended
+	// session (never an exited one). An exit frame precedes close so the client can tell a shell ending
+	// from a dropped transport; every write has a deadline so a stalled client cannot pin it.
 	Attach(
 		ctx context.Context,
 		sessionID string,
@@ -116,35 +102,28 @@ type Engine interface {
 		sessionID string,
 	) error
 
-	// TerminateGraceful gracefully quits a running vendor CLI (spec §8): it
-	// sends a clean-exit SIGTERM — a PID-level action, never a PTY write —
-	// and waits up to an internal grace window before falling back to a hard
-	// Kill if the process hasn't exited on its own. Used by provider switches
-	// so a well-behaved CLI (e.g. Claude Code) gets the chance to flush its
-	// native transcript on a clean exit — a hard SIGKILL can lose the
-	// outgoing CLI's last pre-switch turn.
+	// TerminateGraceful sends a running CLI SIGTERM (a PID-level action, never a PTY write) and falls
+	// back to Kill after a grace window, so a well-behaved CLI can flush its transcript before a switch.
 	TerminateGraceful(
 		ctx context.Context,
 		sessionID string,
 	) error
 
-	// Suspend intentionally tears down an idle, unattached session's PTY and
-	// persists its scrollback to disk, moving the session to the suspended state.
-	// A subsequent Attach transparently restores it. Returns nil when the session
-	// is not eligible (has clients, not idle, not live, or a command session).
+	// Suspend tears down an idle, unattached session's PTY and persists its scrollback; Attach restores
+	// it. Returns nil when the session is not eligible.
 	Suspend(
 		ctx context.Context,
 		sessionID string,
 	) error
 
-	// SetHostTheme records the host terminal's default background/foreground colours, which
-	// every session born afterwards answers an OSC 10/11 query with from the moment it
-	// exists. See the implementation for why this is separate from the per-session
-	// Session.SetTheme push.
+	// SetHostTheme records the host terminal's default colours, which every session born afterwards
+	// answers OSC 10/11 queries with from birth.
 	SetHostTheme(
 		bg color.Color,
 		fg color.Color,
 	)
+	// HostTheme is the pair SetHostTheme last recorded; nil for a channel never set.
+	HostTheme() (bg, fg color.Color)
 
 	// ListSessions returns all active session IDs.
 	ListSessions() []string
@@ -155,23 +134,6 @@ type Engine interface {
 	ListSessionsForChat(
 		chatID string,
 	) []string
-
-	// OnSessionEnded registers the callback invoked when a session ends for good
-	// (a Kill, a PTY self-exit, an eviction, an unrestorable restore, or the
-	// Shutdown of a command session). It fires exactly once per session, never
-	// under an engine lock, so the lifecycle topic can emit an "ended" frame.
-	// exitCode is the process exit code; -1 if unknown (killed by signal, or the
-	// session was suspended with no process).
-	OnSessionEnded(
-		fn func(ctx context.Context, chatID, sessionID string, exitCode int),
-	)
-
-	// OnSessionState registers the callback invoked when a session transitions
-	// to "detached" (last client disconnects or post-restore) or "suspended".
-	// The most recent registration wins.
-	OnSessionState(
-		fn func(ctx context.Context, chatID, sessionID, state string),
-	)
 
 	// StateOf returns the current state string ("active", "detached", or
 	// "suspended") for the given session ID and true. Returns ("", false) when
@@ -185,80 +147,42 @@ type Engine interface {
 		sessionID string,
 	) bool
 
-	// SessionLive reports whether a session id is backed by a LIVE PTY right now
-	// — the honest process-liveness question, which SessionExists deliberately
-	// does not answer (it is also true for a PTY-less suspended placeholder,
-	// whose process is already dead and whose only remaining substance is
-	// scrollback on disk). Callers that must know "is the process I spawned
-	// still running" — the agent boot reconcile, which decides whether a chat's
-	// vendor CLI survived a daemon restart — must use this, never SessionExists.
+	// SessionLive reports whether a session is backed by a live PTY right now. SessionExists is also true
+	// for a suspended placeholder whose process is dead, so liveness checks must use this.
 	SessionLive(
 		ctx context.Context,
 		sessionID string,
 	) bool
 
-	// Screen renders a session's VISIBLE screen as plain text, and reports whether
-	// it has moved since generation `since` — pass 0 to always get the text.
-	//
-	// It is the daemon's own read of what a hosted program is showing, which is
-	// what makes screen-derived facts server-side facts: an agent CLI blocked on a
-	// modal is detected against this model, not scraped out of a browser that may
-	// not even have the chat open.
-	//
-	// It is a PULL, and deliberately not an Attach. Attach is a subscription with
-	// side effects — it restores a suspended placeholder, flushes pending emits and
-	// re-primes the differ, and makes a detached session active for lifecycle
-	// purposes — none of which an observer should cause merely by looking. This
-	// takes s.mu, reads cells, and leaves the session exactly as it found it.
-	//
-	// A session that does not exist, is a suspended placeholder, or whose model
-	// backend cannot render text reports ("", 0, false) — indistinguishable from
-	// "nothing to see", which is what every caller does with it anyway.
+	// Screen renders a session's visible screen as plain text and whether it changed since generation
+	// `since` (0 always returns text). It is a side-effect-free pull, unlike Attach; missing, suspended
+	// or text-less sessions report ("", 0, false).
 	Screen(
 		sessionID string,
 		since uint64,
 	) (text string, gen uint64, changed bool)
 
-	// SetMetaStore injects the durable session metadata store. It must be called
-	// after both the engine and the terminal usecase are constructed to avoid an
-	// import cycle (engine → usecase). A nil store is a valid no-op sentinel; all
-	// internal meta helpers short-circuit when metaStore is nil.
+	// SetMetaStore injects the durable session metadata store after construction to avoid an
+	// engine → usecase import cycle; a nil store is a valid no-op.
 	SetMetaStore(
 		s SessionMetaStore,
 	)
 
-	// LoadPlaceholder registers a durable session from disk in the suspended
-	// state so a subsequent Attach can transparently restore it. It is idempotent:
-	// if the session is already registered, the call is a no-op. Called by
-	// RestorePersistedSessions at daemon startup.
+	// LoadPlaceholder idempotently registers a durable session from disk in the suspended state so a
+	// later Attach can restore it.
 	LoadPlaceholder(
 		ctx context.Context,
 		m SessionMeta,
 		scrollback []byte,
 	) error
 
-	// Stats returns a snapshot of session counts, total estimated model memory, and
-	// the parse-health surface (§9.4) for observability (health endpoint, settings
-	// panel, etc.): how many live sessions are in the sticky degraded state and the
-	// aggregate recovered-parse-panic count across all sessions.
+	// Stats returns session counts, estimated model memory, and parse health (degraded sessions and
+	// recovered parse panics) for observability.
 	Stats() (active, detached, suspended int, modelBytes int64, degraded, parsePanics int)
 
-	// Shutdown terminates all active sessions and removes them from the registry,
-	// and BLOCKS until every session it killed has been fully reaped — i.e. until
-	// every onExit callback registered via CreateCommand has RUN to completion.
-	//
-	// That join is a contract, not an implementation detail. onExit is where a dying
-	// vendor CLI's death gets recorded (the agent usecase Exits its runner and closes
-	// the turn the CLI abandoned), and it runs on the engine's own reap goroutine.
-	// A caller that closed the databases without it would be closing them underneath
-	// their own writers: the runner's Exit would commit while the turn's close would
-	// not, leaving a chat spinning forever with no live runner left for the next
-	// boot's reconcile to find. So the shutdown sequence must Shutdown the terminal
-	// engine BEFORE it drains the aggregates and closes the DBs those callbacks write
-	// to (engine.Container.QuiesceTerminal, called from app.Container.Shutdown).
-	//
-	// Once it begins, the engine births no more sessions: Create/CreateCommand (and
-	// the restore inside Attach) return ErrShuttingDown. Idempotent.
+	// Shutdown kills every session and blocks until each onExit callback has run: those record a dying
+	// CLI's runner exit and turn close, so it must run before the databases they write are closed.
+	// Afterwards session births return ErrShuttingDown. Idempotent.
 	Shutdown()
 }
 
@@ -289,10 +213,8 @@ func defaultConfig() config {
 	}
 }
 
-// MaxTotalSessions returns the global hard ceiling on the number of concurrent
-// sessions (live plus suspended). RestorePersistedSessions uses it at daemon
-// startup to cap how many persisted sessions it reloads so a large on-disk
-// backlog cannot blow the in-memory ceiling on restart.
+// MaxTotalSessions returns the global ceiling on live plus suspended sessions; startup restore caps
+// reloads at it so a large on-disk backlog cannot blow the in-memory ceiling.
 func MaxTotalSessions() int {
 	return defaultMaxTotalSessions
 }
@@ -307,15 +229,10 @@ type terminalEngine struct {
 	byChat  map[string]map[string]*sessionEntry
 
 	cbMu      sync.RWMutex
-	onEnded   func(ctx context.Context, chatID, sessionID string, exitCode int)
-	onState   func(ctx context.Context, chatID, sessionID, state string)
 	metaStore SessionMetaStore
 
-	// themeMu guards the host theme. themeBg/themeFg are the HOST TERMINAL's default
-	// colours — one truth for every session in the window — held on the engine because
-	// they must be known BEFORE a session exists: a vendor CLI that detects its theme by
-	// querying the background does so within milliseconds of exec. Nil means unknown,
-	// and unknown stays unknown (the emulator keeps its own default).
+	// themeMu guards the host theme, held on the engine because a CLI may query its background within
+	// milliseconds of exec, before any session exists. Nil means unknown, and stays so.
 	themeMu          sync.RWMutex
 	themeBg, themeFg color.Color
 
@@ -348,14 +265,8 @@ func newEngine(cfg config) *terminalEngine {
 	return e
 }
 
-// SetHostTheme records the host terminal's default background/foreground colours as the
-// values every SUBSEQUENTLY BORN session answers an OSC 10/11 query with.
-//
-// It is the "future sessions" half of theme propagation; Session.SetTheme (driven by the
-// per-session theme frame) is the "sessions that already exist" half. Without this, a
-// session is born answering x/vt's hardcoded black, and an app that queries once at
-// startup and never subscribes to DEC 2031 latches the wrong theme for its lifetime.
-// A nil channel is a no-op for that channel, matching model.SetDefaultColors.
+// SetHostTheme records the host default colours every subsequently born session answers OSC 10/11
+// with; Session.SetTheme covers existing sessions. A nil channel is a no-op for that channel.
 func (e *terminalEngine) SetHostTheme(
 	bg color.Color,
 	fg color.Color,
@@ -370,31 +281,11 @@ func (e *terminalEngine) SetHostTheme(
 	}
 }
 
-// hostTheme reads the recorded host colours for a session about to be born.
-func (e *terminalEngine) hostTheme() (bg, fg color.Color) {
+// HostTheme reads the recorded host colours: a session about to be born answers with them.
+func (e *terminalEngine) HostTheme() (bg, fg color.Color) {
 	e.themeMu.RLock()
 	defer e.themeMu.RUnlock()
 	return e.themeBg, e.themeFg
-}
-
-// OnSessionEnded registers the termination callback. The most recent registration wins.
-func (e *terminalEngine) OnSessionEnded(
-	fn func(ctx context.Context, chatID, sessionID string, exitCode int),
-) {
-	e.cbMu.Lock()
-	e.onEnded = fn
-	e.cbMu.Unlock()
-}
-
-// OnSessionState registers the state-transition callback. The most recent registration
-// wins. Fires on "detached" (last-client detach or post-restore) and "suspended". Does
-// not fire for "ended" — use OnSessionEnded for that.
-func (e *terminalEngine) OnSessionState(
-	fn func(ctx context.Context, chatID, sessionID, state string),
-) {
-	e.cbMu.Lock()
-	e.onState = fn
-	e.cbMu.Unlock()
 }
 
 // SetMetaStore injects the durable session-metadata store. The most recent call wins;
@@ -405,22 +296,4 @@ func (e *terminalEngine) SetMetaStore(
 	e.cbMu.Lock()
 	e.metaStore = s
 	e.cbMu.Unlock()
-}
-
-func (e *terminalEngine) fireEnded(ctx context.Context, chatID, sessionID string, exitCode int) {
-	e.cbMu.RLock()
-	fn := e.onEnded
-	e.cbMu.RUnlock()
-	if fn != nil {
-		fn(ctx, chatID, sessionID, exitCode)
-	}
-}
-
-func (e *terminalEngine) fireState(ctx context.Context, chatID, sessionID, state string) {
-	e.cbMu.RLock()
-	fn := e.onState
-	e.cbMu.RUnlock()
-	if fn != nil {
-		fn(ctx, chatID, sessionID, state)
-	}
 }

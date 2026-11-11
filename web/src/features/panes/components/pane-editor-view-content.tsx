@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useBuffersByIds } from '@/features/workspace/stores/hooks/use-buffer-store'
 import type {
   BrowserContent,
@@ -11,9 +11,13 @@ import { NewTabView } from './new-tab-view'
 import { renderPaneContent } from './pane-content-registry'
 import { sidebarSurfaceOf, sidebarSurfaceRoot } from '../lib/sidebar-surface'
 import { TerminalPane } from './terminal-pane'
-import { BrowserPane } from '@/features/browser/components/browser-pane'
 
-type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type' | 'isPreview'>
+// Lazy: the page and pointer agents it injects load with the first browser tab, not at boot.
+const BrowserPane = lazy(() =>
+  import('@/features/browser/components/browser-pane').then((m) => ({ default: m.BrowserPane })),
+)
+
+type EditorBufferShell = Pick<EditorContent, 'id' | 'path' | 'name' | 'type'>
 type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
 
 interface PaneEditorViewContentProps {
@@ -31,10 +35,7 @@ interface PaneEditorViewContentProps {
   dropTargeted?: boolean
 }
 
-/**
- * Everything `editorTabIds` holds — files, terminals, branch review — the same
- * whether or not the pane also holds a chat.
- */
+/** Everything `editorTabIds` holds, the same whether or not the pane also holds a chat. */
 export function PaneEditorViewContent({
   paneId,
   wsId,
@@ -55,7 +56,6 @@ export function PaneEditorViewContent({
               path: buffer.path,
               name: buffer.name,
               type: buffer.type,
-              isPreview: buffer.isPreview,
             } satisfies EditorBufferShell)
           : buffer,
       ),
@@ -81,18 +81,10 @@ export function PaneEditorViewContent({
     setEditorPortalEntry(paneId, {
       node,
       activeEditorBufferId: activeEditorBuffer?.id ?? null,
-      isPreview: activeEditorBuffer?.isPreview ?? false,
       isActiveSurface: isEditorTabActive && isActivePane,
     })
     return () => clearEditorPortalEntry(paneId)
-  }, [
-    paneId,
-    hasOpenEditorBuffer,
-    activeEditorBuffer?.id,
-    activeEditorBuffer?.isPreview,
-    isEditorTabActive,
-    isActivePane,
-  ])
+  }, [paneId, hasOpenEditorBuffer, activeEditorBuffer?.id, isEditorTabActive, isActivePane])
 
   return (
     <>
@@ -153,11 +145,13 @@ export function PaneEditorViewContent({
               className="absolute inset-0 outline-none"
               style={isActive ? undefined : { visibility: 'hidden' }}
             >
-              <BrowserPane
-                paneId={paneId}
-                bufferId={b.id}
-                visible={isActive && showing && !dropTargeted}
-              />
+              <Suspense fallback={null}>
+                <BrowserPane
+                  paneId={paneId}
+                  bufferId={b.id}
+                  visible={isActive && showing && !dropTargeted}
+                />
+              </Suspense>
             </div>
           )
         })}

@@ -9,25 +9,12 @@ import {
 import { useEffect, useEffectEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { hasNativeChrome, nativeConfirm } from '@/lib/native-chrome'
-import type { WorkAtRisk } from '@/lib/api'
-import type { RemovalEntry } from '@/lib/store/sidebar-removal'
+import type { WorkAtRisk } from '@/lib/errors/api-error'
+import type { RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 
-/**
- * The last question before a repo or a project is deleted — or before anything
- * is deleted along with work that exists nowhere else.
- *
- * Everything else in the tray is undone by a clock: a workspace or a folder
- * drains for eight seconds and Keep puts it back. That is a proportionate safety
- * net for one row. It is not one for a repo, which takes every worktree under
- * it, and it is emphatically not one for a project, which takes every repo AND
- * every worktree under each — so those two never run a clock at all. They wait
- * in the tray for an answer, and pressing Remove asks this.
- *
- * It spells the cascade out in words rather than leaving "Remove" to imply it.
- * And when the daemon refused a delete over uncommitted files or unmerged
- * commits, it names each branch and what it would lose, and only an explicit
- * "Delete anyway" sends the delete that destroys them.
- */
+// The last question before deleting a repo or project (no undo clock: their cascade is too large),
+// or work that exists nowhere else. It spells out the cascade; on an unsaved-work refusal it names
+// each branch's loss, and only "Delete anyway" sends the destroying delete.
 export function RemovalConfirmDialog({
   entry,
   onCancel,
@@ -169,7 +156,7 @@ function Lead({ text }: { text: { strong: string; rest: string } }) {
 
 function WorkAtRiskList({ atRisk }: { atRisk: readonly WorkAtRisk[] }) {
   return (
-    <ul aria-label="Work that would be lost" className="flex flex-col gap-1 text-sm">
+    <ul aria-label="Work that would be lost" className="flex flex-col gap-1 px-6 pb-6 text-sm">
       {atRisk.map((w) => (
         <li key={w.workspaceId} className="flex flex-col">
           <span className="font-mono text-foreground">{w.branch}</span>

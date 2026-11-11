@@ -28,25 +28,13 @@ type SidebarToast = ReturnType<typeof Toast.useToastManager>['toasts'][number]
 /** How many toasts the sidebar's narrow column shows at once. */
 const SIDEBAR_TOAST_LIMIT = 3
 
-/**
- * A toast with `timeout: 0` opted out of auto-dismiss (`toast.show({duration: 0})`),
- * so nothing but the condition clearing will ever remove it — ConnectionIndicator's
- * "Backend unavailable" is the one that matters.
- */
+/** A `timeout: 0` toast is removed only when its condition clears (e.g. "Backend unavailable"). */
 function isPinned(toast: SidebarToast): boolean {
   return toast.timeout === 0
 }
 
-/**
- * Window the list WITHOUT ever dropping a pinned toast. base-ui inserts
- * newest-first, so the old `toasts.slice(0, 3)` kept the three newest and
- * discarded the rest: an outage that also produced three failure toasts evicted
- * the only thing on screen saying the backend was down, and — being
- * undismissable-but-also-unrenderable — nothing could bring it back.
- *
- * Pinned toasts are all kept; transient ones fill whatever slots are left, still
- * newest-first, so the oldest transient is what gets dropped.
- */
+// Window the list WITHOUT dropping a pinned toast: a pinned one evicted by newer failures could
+// never come back. Pinned are all kept; transient fill the remaining slots, newest-first.
 function selectVisibleToasts(toasts: SidebarToast[]): SidebarToast[] {
   const pinnedCount = toasts.reduce((count, toast) => count + (isPinned(toast) ? 1 : 0), 0)
   let transientSlots = Math.max(0, SIDEBAR_TOAST_LIMIT - pinnedCount)
@@ -86,11 +74,8 @@ function SidebarToastItem({
             <div
               className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
               data-slot="toast-icon"
-              // The loading icon's spin comes from the variant class
-              // in-data-[type=loading]:animate-spin, which the .animate-spin
-              // reduced-motion exemption in index.css can't match — this
-              // attribute keeps the spinner (status, not decoration) running
-              // under prefers-reduced-motion.
+              // The variant-class spin escapes index.css's .animate-spin reduced-motion exemption;
+              // this keeps the spinner (status, not decoration) running under reduced motion.
               data-essential-motion=""
             >
               <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
@@ -158,22 +143,9 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
   )
 }
 
-/**
- * The ONE AND ONLY viewport for `toastManager`. Do not add a second
- * `Toast.Provider` for this manager anywhere else in the tree.
- *
- * `createToastManager()` is a stateless emitter — every subscribed provider
- * builds its OWN copy of the toast list, so two providers means every toast
- * renders twice wherever both are mounted. That's what the old root-level
- * `<ToastProvider>` did; its `suppressToasts={ideShellMounted}` guard was a
- * single global boolean flipped by IDEShell's own mount effect, so any
- * remount race (HMR, route transition, unmount-after-mount ordering) left it
- * reading false while IDEShell was up and duplicated every toast.
- *
- * Consequence of being the only viewport: toasts fired while IDEShell is
- * unmounted (e.g. the /oobe route) are dropped, not queued — the manager
- * holds no state of its own.
- */
+// The ONE viewport for `toastManager`, mounted by IDEShell or the OOBE route, never both: each
+// `Toast.Provider` builds its own copy of the list, so a second one renders every toast twice.
+// Toasts fired while none is mounted (boot) wait in the manager.
 export function SidebarToastOverlay({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
   return (
     <Toast.Provider toastManager={toastManager}>

@@ -111,10 +111,8 @@ type TooltipProps<T extends React.ElementType> = {
   tooltip?: React.ReactNode
 } & React.ComponentProps<T>
 
-// The tooltip's props merge onto the button itself (see WithTooltip): every
-// `ToolbarButton` resolves to a <button>, whether through `Toolbar.ToggleItem`
-// (the `pressed` branch) or `Toolbar.Button`, and a wrapper <button> around it
-// would be invalid HTML ("<button> cannot contain a nested button").
+// Tooltip props merge onto the button itself (WithTooltip): every ToolbarButton is a <button>,
+// and a wrapper <button> around it would be invalid HTML.
 function withTooltip<T extends React.ElementType>(Component: T) {
   return function ExtendComponent({ tooltip, ...props }: TooltipProps<T>) {
     const component = <Component {...(props as React.ComponentProps<T>)} />

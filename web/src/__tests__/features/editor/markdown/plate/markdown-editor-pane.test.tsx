@@ -1,9 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import type { Value } from 'platejs'
+import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
+import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
+import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
+import {
+  applyExternalText,
+  documentText,
+  replaceDocumentText,
+} from '@/features/editor/documents/document-text'
+import { findDocumentBuffer } from '@/features/editor/documents/open-document'
 import { MarkdownEditorPane } from '@/features/editor/markdown/plate/markdown-editor-pane'
-import { markdownToPlateValue } from '@/features/editor/markdown/plate/markdown-serialization'
+import { parseMarkdown } from '@/features/editor/markdown/plate/markdown-serialization'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
+import type { EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
@@ -12,6 +26,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 // Buffer fixtures keyed by bufferId, so each test picks the shape it needs with no shared mutable
 // state; hoisted for the `vi.mock` factory below.
@@ -21,28 +36,19 @@ const { BUFFER_CONTENT, THROW_SENTINEL } = vi.hoisted(() => {
     THROW_SENTINEL,
     BUFFER_CONTENT: {
       b1: '# Hello\n\nWorld **bold**.\n',
-      // Regression fixture for Finding 1: `plateValueToMarkdown(markdownToPlateValue(md))`
-      // is NOT byte-stable for GFM tables (`| --- |` round-trips to `| - |`),
-      // so this is the case that would falsely dirty a pristine file under
-      // the old "write unconditionally" behavior.
+      // The round trip is not byte-stable for GFM tables (`| --- |` becomes `| - |`), so this
+      // would falsely dirty a pristine file if flush wrote unconditionally.
       'b-table': '| a | b |\n| --- | --- |\n| 1 | 2 |\n',
-      // C1 fixture: a SECOND, clearly distinguishable document. Switching
-      // between two `.md` tabs is a prop update (pane-container renders the
-      // active buffer without a key), so this is the content that must appear
-      // — and `b1`'s text must never be written to `b2`.
+      // A second, distinguishable document: switching `.md` tabs is a prop update (no key), so this
+      // content must appear and `b1`'s text must never be written to `b2`.
       b2: '# Second\n\nAnother **document**.\n',
       'b-throw': THROW_SENTINEL,
-      // C2 fixtures: an empty file and a whitespace-only file. Plate's `init`
-      // replaces empty children with a synthesized paragraph, so the editor's
-      // children at mount are NOT `initialValue` — a baseline taken from
-      // `initialValue` is `''` and the first flush writes an invisible
-      // zero-width space over a file the user never touched.
+      // An empty and a whitespace-only file: Plate's `init` synthesizes a paragraph, so a baseline
+      // from `initialValue` would make the first flush write a zero-width space.
       'b-empty': '',
       'b-blank': '\n',
-      // Task 8 (data safety): a real-world frontmatter block ahead of prose.
-      // Feeding this whole string into Plate would rewrite the `---` block
-      // into a thematic break + setext heading — the exact corruption the
-      // frontmatter split/join seam exists to prevent.
+      // Real-world frontmatter ahead of prose; fed whole into Plate, the `---` block would become a
+      // thematic break + setext heading.
       'b-frontmatter':
         '---\ntitle: Plate Live Check\ntags: [verification, markdown]\n---\n\n# Hello\n\nWorld.\n',
       // Frontmatter + a GFM table body: pristine mount/unmount of this must
@@ -57,67 +63,41 @@ const { BUFFER_CONTENT, THROW_SENTINEL } = vi.hoisted(() => {
         '<div align="center">\n  <h1>Crowbar</h1>\n  <a href="https://example.com/docs">Docs</a>\n</div>\n\n# Heading\n',
       // The same kind of block linking its host's own dev server, in a workspace on another host.
       'b-remote-html': '<div>\n  <a href="http://localhost:3000/">Preview</a>\n</div>\n',
+      // A hand-wrapped doc: soft line breaks, `_` emphasis and a compact table, none of which a
+      // fresh serialize writes back as-is.
+      'b-wrapped':
+        '# Notes\n\nA _wrapped_ paragraph\nover two lines.\n\n|a|b|\n|-|-|\n|1|2|\n\nLast one.\n',
     } as Record<string, string>,
   }
 })
 
-// A minimal reactive stand-in for the buffer store: `content` can be replaced
-// underneath a MOUNTED editor (a second pane flushing the same file, or
-// external-buffer-sync applying a git checkout), and subscribers re-render —
-// exactly the seam I1/I2 are about. The real store is a zustand selector, so a
-// content swap likewise produces a new buffer object and re-renders.
-const bufferStore = vi.hoisted(() => {
-  const listeners = new Set<() => void>()
-  let contents: Record<string, string> = {}
-  let version = 0
-  return {
-    reset(initial: Record<string, string>) {
-      contents = { ...initial }
-      version++
-    },
-    get: (id: string) => contents[id] ?? '',
-    setContent(id: string, content: string) {
-      contents[id] = content
-      version++
-      listeners.forEach((l) => l())
-    },
-    subscribe(l: () => void) {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    getVersion: () => version,
-  }
-})
+// Each fixture is an open document with its tab, so the pane reads and writes
+// it through the same seam the app uses; reading `documentText` also runs the
+// pane's pending write, the way a save does.
+// `b-remote-html` lives in a workspace on another host.
+const wsOf = (bufferId: string) => (bufferId === 'b-remote-html' ? 'w-remote' : 'ws-1')
+const docOf = (bufferId: string): DocumentRef => workspaceRef(wsOf(bufferId), `${bufferId}.md`)
 
-// Buffer + write-seam doubles, mocked at the REAL module specifiers so the
-// component under test resolves them exactly as it would in the app.
-const setBufferContent = vi.fn<(bufferId: string, md: string) => void>()
-vi.mock('@/features/workspace/stores/hooks/use-buffer-store', async () => {
-  const { useSyncExternalStore } = await import('react')
-  return {
-    useBufferById: (bufferId: string) => {
-      // Subscribe so a `setContent` re-renders the pane, like the real store.
-      useSyncExternalStore(bufferStore.subscribe, bufferStore.getVersion)
-      const content = bufferStore.get(bufferId)
+function openFixtures(): void {
+  resetWindowPaneStoreForTests()
+  windowPaneStore.setState({
+    buffers: Object.entries(BUFFER_CONTENT).map(([id, text]): EditorContent => {
+      getEditorHost()!.documents.open(docOf(id), 'markdown', text)
       return {
-        id: bufferId,
+        id,
         type: 'editor',
-        path: `/repo/${bufferId}.md`,
-        name: `${bufferId}.md`,
-        content,
-        savedContent: content,
+        authority: 'workspace',
+        workspaceId: wsOf(id),
+        path: `${id}.md`,
+        name: `${id}.md`,
         isDirty: false,
-        workspaceId: bufferId === 'b-remote-html' ? 'w-remote' : undefined,
+        isVirtual: false,
       }
-    },
-  }
-})
-vi.mock('@/features/editor/lib/buffer-save', () => ({
-  setBufferContent: (bufferId: string, md: string) => setBufferContent(bufferId, md),
-}))
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), info: vi.fn() },
-}))
+    }),
+  })
+}
+
+const isDirty = (bufferId: string) => findDocumentBuffer(docOf(bufferId))?.isDirty
 
 // The single approved shell-opener seam. Mocked here so the raw-HTML anchor
 // test can assert the click reached the OS browser without launching one.
@@ -126,18 +106,16 @@ vi.mock('@/lib/external-open', () => ({
   openExternalUrl: (url: string) => openExternalUrl(url),
 }))
 
-// Deserialization normally lives entirely inside `markdownToPlateValue`. Wrap
-// it (pass-through for everything except the sentinel) so the ErrorBoundary
-// test can force the exact throw Finding 2 is about, without touching real
-// parser internals.
+// Wrap `parseMarkdown` (pass-through except for the sentinel) so the ErrorBoundary test
+// can force a deserialize throw without touching real parser internals.
 vi.mock('@/features/editor/markdown/plate/markdown-serialization', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/features/editor/markdown/plate/markdown-serialization')>()
   return {
     ...actual,
-    markdownToPlateValue: (md: string) => {
+    parseMarkdown: (md: string) => {
       if (md === THROW_SENTINEL) throw new Error('boom: forced deserialize failure')
-      return actual.markdownToPlateValue(md)
+      return actual.parseMarkdown(md)
     },
   }
 })
@@ -157,14 +135,16 @@ vi.mock('platejs/react', async (importOriginal) => {
   }
 })
 
+beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
+
 beforeEach(() => {
-  setBufferContent.mockClear()
   openExternalUrl.mockClear()
   capturedEditor = null
-  bufferStore.reset(BUFFER_CONTENT)
+  openFixtures()
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   useMarkdownViewStore.setState({ views: {} })
 })
 
@@ -176,29 +156,46 @@ describe('MarkdownEditorPane', () => {
     expect(screen.getByText('bold')).toBeInTheDocument()
   })
 
-  it('does not write on flush-editor-content when the editor is pristine', async () => {
+  // A locked branch refuses every write, so typing is refused up front, not at save.
+  it('is read-only on a locked workspace', async () => {
+    seedRepos([
+      {
+        id: 'r1',
+        projectId: 'p1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'r',
+        workspaces: [],
+        defaultWorkspaceId: 'ws-1',
+        defaultWorkspaceStatus: 'locked',
+      },
+    ])
+    render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
+    const heading = await screen.findByText('Hello')
+
+    expect(heading.closest('[contenteditable]')).toHaveAttribute('contenteditable', 'false')
+    resetEntities()
+  })
+
+  it('does not write when a reader flushes a pristine editor', async () => {
     render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
     await screen.findByText('Hello')
 
-    window.dispatchEvent(new Event('flush-editor-content'))
-
     // Selection/cursor-only `onChange` noise and a same-content re-serialize
     // must never write — a pristine flush is a true no-op.
-    expect(setBufferContent).not.toHaveBeenCalled()
+    expect(documentText(docOf('b1'))).toBe(BUFFER_CONTENT.b1)
+    expect(isDirty('b1')).toBe(false)
   })
 
-  it('writes the changed content on flush-editor-content after a real edit', async () => {
+  it('a reader of the text gets an edit the editor has not flushed yet', async () => {
     render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
     await screen.findByText('Hello')
     expect(capturedEditor).not.toBeNull()
 
-    capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
-    window.dispatchEvent(new Event('flush-editor-content'))
+    capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **changed**.\n').value
 
-    expect(setBufferContent).toHaveBeenCalledTimes(1)
-    const [bufferId, md] = setBufferContent.mock.calls[0]!
-    expect(md).toContain('changed')
-    expect(bufferId).toBe('b1')
+    expect(documentText(docOf('b1'))).toContain('changed')
+    expect(isDirty('b1')).toBe(true)
   })
 
   it('flushes changed content to the correct buffer on unmount', async () => {
@@ -206,70 +203,68 @@ describe('MarkdownEditorPane', () => {
     await screen.findByText('Hello')
     expect(capturedEditor).not.toBeNull()
 
-    capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
+    capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **changed**.\n').value
     unmount()
 
-    expect(setBufferContent).toHaveBeenCalledTimes(1)
-    const [bufferId, md] = setBufferContent.mock.calls[0]!
-    expect(md).toContain('changed')
-    expect(bufferId).toBe('b1')
+    expect(documentText(docOf('b1'))).toContain('changed')
+    expect(documentText(docOf('b2'))).toBe(BUFFER_CONTENT.b2)
   })
 
-  // Regression test for Finding 1 (CRITICAL): opening a pristine file and
-  // unmounting/flushing without any edit must NOT write, even when the
-  // deserialize -> serialize round trip is not byte-stable for the file's
-  // content (GFM tables). Against the old "flush writes unconditionally"
-  // behavior, this fails because the re-canonicalized table markdown
-  // (`| --- |` -> `| - |`) differs from the original bytes and old code wrote
-  // it anyway. With autoSave on, that meant opening a table-containing file
-  // silently rewrote it on disk.
+  // Opening a pristine file and unmounting without an edit must not write, even when the round trip
+  // re-canonicalizes its content (GFM tables): with autoSave on that would rewrite it on disk.
   it('does not write on unmount when the editor is pristine, even for a GFM table', async () => {
     const { unmount } = render(<MarkdownEditorPane paneId="p1" bufferId="b-table" />)
     await screen.findByText('a')
 
     unmount()
 
-    expect(setBufferContent).not.toHaveBeenCalled()
+    expect(documentText(docOf('b-table'))).toBe(BUFFER_CONTENT['b-table'])
   })
 
-  // Task 8 (data safety, CRITICAL): frontmatter must never be fed through
-  // Plate's markdown deserialize/serialize round trip — doing so rewrites the
-  // `---` block into a thematic break + setext heading and destroys it. The
-  // flushed content's leading frontmatter block must be byte-identical to
-  // the buffer's original bytes, even after a real edit to the body.
+  // Frontmatter never goes through Plate's round trip (it would become a thematic break + setext
+  // heading): the flushed leading block is byte-identical to the original, even after a body edit.
   it('preserves the frontmatter block byte-identically after a real body edit', async () => {
     render(<MarkdownEditorPane paneId="p1" bufferId="b-frontmatter" />)
     await screen.findByText('Hello')
     expect(capturedEditor).not.toBeNull()
 
-    capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
-    window.dispatchEvent(new Event('flush-editor-content'))
+    capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **changed**.\n').value
 
-    expect(setBufferContent).toHaveBeenCalledTimes(1)
-    const [, md] = setBufferContent.mock.calls[0]!
+    const md = documentText(docOf('b-frontmatter'))!
     expect(
       md.startsWith('---\ntitle: Plate Live Check\ntags: [verification, markdown]\n---\n'),
     ).toBe(true)
     expect(md).toContain('changed')
   })
 
-  // Companion to the GFM-table pristine-flush regression above, but with
-  // frontmatter present too: opening and closing a frontmatter+table
-  // document without editing it must perform NO write at all.
+  // A save rewrites only what the user edited: a soft line break elsewhere must not become `\`.
+  it('writes an edit to one paragraph without touching the rest of the file', async () => {
+    render(<MarkdownEditorPane paneId="p1" bufferId="b-wrapped" />)
+    await screen.findByText('Notes')
+
+    const children = capturedEditor!.children
+    capturedEditor!.children = children.map((node, i) =>
+      i === children.length - 1 ? { type: 'p', children: [{ text: 'Last one, edited.' }] } : node,
+    ) as Value
+
+    expect(documentText(docOf('b-wrapped'))).toBe(
+      '# Notes\n\nA _wrapped_ paragraph\nover two lines.\n\n|a|b|\n|-|-|\n|1|2|\n\nLast one, edited.\n',
+    )
+  })
+
+  // As the GFM-table pristine flush above, with frontmatter too: opening and closing a
+  // frontmatter+table document without editing it writes nothing.
   it('does not write on mount+unmount of a pristine frontmatter+table document', async () => {
     const { unmount } = render(<MarkdownEditorPane paneId="p1" bufferId="b-frontmatter-table" />)
     await screen.findByText('a')
 
     unmount()
 
-    expect(setBufferContent).not.toHaveBeenCalled()
+    expect(documentText(docOf('b-frontmatter-table'))).toBe(BUFFER_CONTENT['b-frontmatter-table'])
   })
 
-  // C1 (CRITICAL): `pane-container` renders the active buffer with no `key`, so
-  // switching between two `.md` tabs is a PROP UPDATE, not a remount. The
-  // document is derived once (useMemo with `[]` deps, memoized editor) while
-  // `bufferId` — and therefore the flush's `targetBufferId` — does change. The
-  // result was file A's whole document being written into file B, destroying B.
+  // pane-container renders the active buffer with no `key`, so a `.md` → `.md` tab switch is a
+  // prop update, not a remount: the editor must follow `bufferId`, never writing A's text to B.
   describe('when the bufferId prop changes (md -> md tab switch)', () => {
     it('shows the new buffer content, not the previous one', async () => {
       const { rerender } = render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
@@ -293,24 +288,18 @@ describe('MarkdownEditorPane', () => {
         ...capturedEditor!.children,
         { type: 'p', children: [{ text: 'typed into b2' }] },
       ] as Value
-      window.dispatchEvent(new Event('flush-editor-content'))
 
-      const writesToB2 = setBufferContent.mock.calls
-        .filter(([bufferId]) => bufferId === 'b2')
-        .map(([, md]) => md)
-      expect(writesToB2).toHaveLength(1)
-      expect(writesToB2[0]).toContain('typed into b2')
-      expect(writesToB2[0]).toContain('Second')
+      const b2 = documentText(docOf('b2'))
+      expect(b2).toContain('typed into b2')
+      expect(b2).toContain('Second')
       // The smoking gun: b1's document reaching b1's neighbour on disk.
-      expect(writesToB2[0]).not.toContain('Hello')
+      expect(b2).not.toContain('Hello')
+      expect(documentText(docOf('b1'))).toBe(BUFFER_CONTENT.b1)
     })
   })
 
-  // C2 (CRITICAL): Plate's `init` replaces empty children with a synthesized
-  // paragraph, so `editor.children !== initialValue` at mount. A baseline taken
-  // from `initialValue` is therefore `''`, and the first flush writes the
-  // synthesized paragraph — an invisible U+200B plus a newline — over a file the
-  // user only opened.
+  // Plate's `init` replaces empty children with a synthesized paragraph, so a baseline from
+  // `initialValue` would make the first flush write a U+200B over a file the user only opened.
   describe('an empty document', () => {
     it('does not write on mount+unmount of an empty file', async () => {
       const { unmount } = render(<MarkdownEditorPane paneId="p1" bufferId="b-empty" />)
@@ -325,7 +314,7 @@ describe('MarkdownEditorPane', () => {
 
       unmount()
 
-      expect(setBufferContent).not.toHaveBeenCalled()
+      expect(documentText(docOf('b-empty'))).toBe('')
     })
 
     it('does not write on mount+unmount of a whitespace-only file', async () => {
@@ -334,7 +323,7 @@ describe('MarkdownEditorPane', () => {
 
       unmount()
 
-      expect(setBufferContent).not.toHaveBeenCalled()
+      expect(documentText(docOf('b-blank'))).toBe('\n')
     })
 
     // Asserted on `editor.children` rather than on test-env equivalence: the
@@ -350,23 +339,33 @@ describe('MarkdownEditorPane', () => {
       // Plate replaced the empty parsed value with a synthesized paragraph…
       expect(capturedEditor!.children.length).toBeGreaterThan(0)
       // …and flushing that untouched synthesized document still writes nothing.
-      window.dispatchEvent(new Event('flush-editor-content'))
-      expect(setBufferContent).not.toHaveBeenCalled()
+      expect(documentText(docOf('b-empty'))).toBe('')
     })
   })
 
-  // I1 (two panes on the same file) + I2 (external reload after a git
-  // checkout): the buffer's `content` is replaced underneath a MOUNTED editor.
-  // Plate held a parsed copy and never resynced, so the stale document was
-  // flushed back over the new content on the user's next keystroke.
-  describe('when the buffer content changes underneath the editor', () => {
-    it('adopts the new content while the editor is pristine', async () => {
+  // The document's text is replaced under a mounted editor (a second pane on the file, an external
+  // reload after checkout); the stale parsed copy must never be flushed back over the new text.
+  describe('when the document text changes underneath the editor', () => {
+    const reloaded = '# Reloaded\n\nFrom disk.\n'
+
+    it('adopts external text while the editor is pristine', async () => {
       render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
       await screen.findByText('Hello')
 
-      act(() => bufferStore.setContent('b1', '# Reloaded\n\nFrom disk.\n'))
+      // Slate re-renders a microtask after the change, not 150 ms later.
+      await act(async () => applyExternalText(docOf('b1'), reloaded, { saved: true }))
 
-      expect(await screen.findByText('Reloaded')).toBeInTheDocument()
+      expect(screen.getByText('Reloaded')).toBeInTheDocument()
+      expect(screen.queryByText('Hello')).toBeNull()
+    })
+
+    it('adopts an edit made in another pane while the editor is pristine', async () => {
+      render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
+      await screen.findByText('Hello')
+
+      act(() => replaceDocumentText(docOf('b1'), '# Other pane\n\nTyped there.\n'))
+
+      expect(await screen.findByText('Other pane')).toBeInTheDocument()
       expect(screen.queryByText('Hello')).toBeNull()
     })
 
@@ -374,11 +373,11 @@ describe('MarkdownEditorPane', () => {
       render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
       await screen.findByText('Hello')
 
-      act(() => bufferStore.setContent('b1', '# Reloaded\n\nFrom disk.\n'))
+      act(() => applyExternalText(docOf('b1'), reloaded, { saved: true }))
       await screen.findByText('Reloaded')
-      window.dispatchEvent(new Event('flush-editor-content'))
 
-      expect(setBufferContent).not.toHaveBeenCalled()
+      expect(documentText(docOf('b1'))).toBe(reloaded)
+      expect(isDirty('b1')).toBe(false)
     })
 
     it('adopts a new frontmatter block along with the body', async () => {
@@ -386,16 +385,19 @@ describe('MarkdownEditorPane', () => {
       await screen.findByText('Hello')
 
       act(() =>
-        bufferStore.setContent('b1', '---\ntitle: Checked Out\n---\n\n# Reloaded\n\nFrom disk.\n'),
+        applyExternalText(
+          docOf('b1'),
+          '---\ntitle: Checked Out\n---\n\n# Reloaded\n\nFrom disk.\n',
+          { saved: true },
+        ),
       )
       await screen.findByText('Reloaded')
 
       // The banner reflects the NEW frontmatter…
       expect(screen.getByText(/title: Checked Out/)).toBeInTheDocument()
       // …and a later edit re-attaches it byte-identically.
-      capturedEditor!.children = markdownToPlateValue('# Reloaded\n\nEdited after reload.\n')
-      window.dispatchEvent(new Event('flush-editor-content'))
-      const [, md] = setBufferContent.mock.calls[0]!
+      capturedEditor!.children = parseMarkdown('# Reloaded\n\nEdited after reload.\n').value
+      const md = documentText(docOf('b1'))!
       expect(md.startsWith('---\ntitle: Checked Out\n---\n')).toBe(true)
       expect(md).toContain('Edited after reload')
     })
@@ -404,33 +406,31 @@ describe('MarkdownEditorPane', () => {
       render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
       await screen.findByText('Hello')
 
-      capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **edited here**.\n')
-      act(() => bufferStore.setContent('b1', '# Reloaded\n\nFrom disk.\n'))
-      window.dispatchEvent(new Event('flush-editor-content'))
+      capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **edited here**.\n').value
+      const edited = capturedEditor!.children
+      act(() => applyExternalText(docOf('b1'), reloaded, { saved: true }))
 
-      expect(setBufferContent).toHaveBeenCalledTimes(1)
-      const [, md] = setBufferContent.mock.calls[0]!
+      expect(capturedEditor!.children).toBe(edited)
+      const md = documentText(docOf('b1'))
       expect(md).toContain('edited here')
       expect(md).not.toContain('Reloaded')
+      expect(isDirty('b1')).toBe(true)
     })
 
-    it('ignores its own write echoing back through the buffer', async () => {
+    it('ignores its own write echoing back through the document', async () => {
       render(<MarkdownEditorPane paneId="p1" bufferId="b1" />)
       await screen.findByText('Hello')
+      vi.useFakeTimers()
 
-      capturedEditor!.children = markdownToPlateValue('# Hello\n\nWorld **changed**.\n')
-      window.dispatchEvent(new Event('flush-editor-content'))
-      expect(setBufferContent).toHaveBeenCalledTimes(1)
-      const [, written] = setBufferContent.mock.calls[0]!
-
-      // The store applies our write; the same bytes come back as `content`.
-      // Re-parsing them would reset the caret mid-typing, so the document must
-      // be left exactly as-is.
+      capturedEditor!.children = parseMarkdown('# Hello\n\nWorld **changed**.\n').value
       const childrenBefore = capturedEditor!.children
-      act(() => bufferStore.setContent('b1', written))
+      const written = documentText(docOf('b1'))
+      // The same bytes come back as the document's text. Re-parsing them would
+      // reset the caret mid-typing, so the document must be left exactly as-is.
+      act(() => vi.advanceTimersByTime(300))
 
       expect(capturedEditor!.children).toBe(childrenBefore)
-      expect(setBufferContent).toHaveBeenCalledTimes(1)
+      expect(documentText(docOf('b1'))).toBe(written)
     })
   })
 
@@ -470,15 +470,17 @@ describe('MarkdownEditorPane raw-HTML anchors', () => {
     pairRemoteHost('h1', 'Build box')
     loadProjects(projectOn('p', 'h1'))
     recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w-remote' })
+    const info = vi.spyOn(toast, 'info').mockReturnValue('')
     try {
       render(<MarkdownEditorPane paneId="p1" bufferId="b-remote-html" />)
 
       const anchor = await screen.findByText('Preview')
       anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
 
-      expect(vi.mocked(toast.info).mock.calls.at(-1)?.[0]).toMatch(/^This link is on Build box/)
+      expect(info.mock.calls.at(-1)?.[0]).toMatch(/^This link is on Build box/)
       expect(openExternalUrl).not.toHaveBeenCalled()
     } finally {
+      info.mockRestore()
       resetHostWorld()
       __resetWorkspaceScopesForTest()
     }

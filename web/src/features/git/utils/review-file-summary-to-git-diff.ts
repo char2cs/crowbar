@@ -5,16 +5,8 @@ import type { GitDiff } from '@/features/git/types/git-types'
 // to a referentially stable result across renders (mirrors git-status-to-changed-files).
 const EMPTY: GitDiff[] = []
 
-/**
- * Map the files-only branch-review summary (`ReviewFileSummary[]`) into the
- * `GitDiff[]` shape the sidebar `ChangedFilesTree` consumes. Unlike the raw
- * status projection, the summary carries per-file `additions`/`deletions`, so
- * the +N/-N badges render.
- *
- * `lines` is left empty on purpose: the summary has no line content (that is the
- * whole point — the sidebar never pays for the line-level diff). Binary files
- * carry -1 counts, which `SidebarFileRowCounts` already hides (it only renders counts > 0).
- */
+/** The files summary as GitDiff[], with ± counts. `lines` stays empty — the summary has no
+ *  content; binaries' -1 counts are hidden by SidebarFileRowCounts. */
 export function reviewFilesSummaryToChangedFiles(
   files: ReviewFileSummary[] | undefined | null,
 ): GitDiff[] {

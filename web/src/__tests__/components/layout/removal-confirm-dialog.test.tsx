@@ -7,7 +7,7 @@ vi.mock('@/lib/native-chrome', () => ({
   nativeConfirm: native.confirm,
 }))
 import { RemovalConfirmDialog } from '@/components/layout/removal-confirm-dialog'
-import type { RemovalEntry } from '@/lib/store/sidebar-removal'
+import { type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 
 /**
  * The confirm dialog is the only place a user can consent to a delete that

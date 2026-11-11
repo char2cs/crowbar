@@ -13,7 +13,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { useCallback, useMemo, type ReactNode } from 'react'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import { Button } from '@/components/ui/button'
 import type { AgentProvidersStatus } from '@/features/settings/stores/agent-providers-store'
 import { cn } from '@/utils/cn'
 import { IS_MOBILE } from '@/utils/platform'
@@ -37,6 +38,8 @@ interface ProvidersSettingsViewProps {
   /** Adding an agent from a descriptor file, where the surface offers it. */
   descriptor?: ReactNode
   footer?: ReactNode
+  /** Ask again after a failed load, where the surface can. */
+  onRetry?: () => void
 }
 
 /** The Agents tab as drawn, fed its list and handlers: the desktop dialog owns the list
@@ -50,6 +53,7 @@ export function ProvidersSettingsView({
   permission,
   descriptor,
   footer,
+  onRetry,
 }: ProvidersSettingsViewProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -105,24 +109,28 @@ export function ProvidersSettingsView({
           Loading agents…
         </p>
       ) : providers.length === 0 && status === 'failed' ? (
-        <p
+        <div
           data-testid="providers-unavailable"
-          className={cn('ui-font ui-text-sm py-2 text-muted-foreground', NOTE_INSET)}
+          className={cn(
+            'ui-font ui-text-sm flex items-center gap-2 py-2 text-muted-foreground',
+            NOTE_INSET,
+          )}
         >
-          Crowbar could not load the agent list — it could not reach the daemon. Reopen this tab to
-          try again.
-        </p>
+          Crowbar could not load the agent list — it could not reach the daemon.
+          {onRetry && (
+            <Button size="xs" variant="outline" onClick={onRetry}>
+              Retry
+            </Button>
+          )}
+        </div>
       ) : providers.length === 0 ? (
         <p className={cn('ui-font ui-text-sm py-2 text-muted-foreground', NOTE_INSET)}>
           No agents available.
         </p>
       ) : (
         <>
-          {/* WHAT THE HEADER CANNOT SAY. The column titles now name each
-              control, so this line no longer has to describe the dot. What a
-              one-word header still cannot convey is the CONSEQUENCE of turning
-              Tools off — that the agent keeps running and only loses its way
-              into Crowbar — and that is what is left here. */}
+          {/* What a one-word column header can't say: turning Tools off keeps the agent running
+              and only cuts its way into Crowbar. */}
           <p className={cn('ui-font ui-text-sm pb-1 text-muted-foreground', NOTE_INSET)}>
             Drag to set which agent a new chat opens first, and turn one off to hide it from every
             New chat surface. Tools lets that agent use Crowbar itself — reading your workspaces and

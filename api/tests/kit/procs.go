@@ -4,11 +4,11 @@ package kit
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -21,14 +21,12 @@ import (
 const procTagEnv = "CROWBAR_TEST_PROC_TAG"
 
 // procReapBound is how long a teardown may take to see its processes exit
-// (codex's app-server is asked to stop gracefully, then waited on).
+// (a server child is asked to stop gracefully, then waited on).
 const procReapBound = 10 * time.Second
 
-// RequireNoLeakedProcesses fails tb if any process started during it — child,
-// grandchild or orphan — is still running when every other cleanup is done.
-// Call it before anything is started, so its cleanup runs last. Leaked
-// processes are killed so one failure does not pile up behind the next test.
-// It reads /proc; where there is none it checks nothing.
+// RequireNoLeakedProcesses fails tb if any process started during it is still running
+// after every other cleanup, and kills it. Call it first so its cleanup runs last. It
+// reads /proc; without one it checks nothing.
 func RequireNoLeakedProcesses(tb testing.TB) {
 	tb.Helper()
 	if _, err := os.Stat("/proc/self/environ"); err != nil {
@@ -47,7 +45,9 @@ func RequireNoLeakedProcesses(tb testing.TB) {
 		descs := make([]string, 0, len(leaked))
 		for _, pid := range leaked {
 			descs = append(descs, describe(pid))
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+			if err := kill(pid); err != nil {
+				tb.Errorf("kill leaked pid %d: %v", pid, err)
+			}
 		}
 		tb.Errorf("leaked (now killed):\n%s", strings.Join(descs, "\n"))
 	})
@@ -89,7 +89,25 @@ func zombie(pid int) bool {
 
 func describe(pid int) string {
 	p := strconv.Itoa(pid)
-	cmdline, _ := os.ReadFile(filepath.Join("/proc", p, "cmdline")) //nolint:gosec // G304: a /proc entry of a pid this helper listed
-	cwd, _ := os.Readlink("/proc/" + p + "/cwd")
+	cmdline, err := os.ReadFile(filepath.Join("/proc", p, "cmdline")) //nolint:gosec // G304: a /proc entry of a pid this helper listed
+	if err != nil {
+		return p + ": " + err.Error()
+	}
+	cwd, err := os.Readlink("/proc/" + p + "/cwd")
+	if err != nil {
+		return p + ": " + err.Error()
+	}
 	return p + " (cwd " + cwd + "): " + strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
+}
+
+// kill ends pid; one that is already gone needs no killing.
+func kill(pid int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	if err := p.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	return nil
 }

@@ -2,6 +2,7 @@ package model
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -98,18 +99,6 @@ func TestSnapshotRowInto_GrowsWhenDstTooSmall(t *testing.T) {
 	}
 }
 
-// encodeGridRow must stay equivalent to encoding a snapshot of the same row —
-// the identity that let writeScreenDiff drop its second materialisation.
-func TestEncodeGridRow_MatchesEncodedSnapshot(t *testing.T) {
-	emu := allocTestEmu(t, 10, 3)
-
-	want := encodeGridRow(emu, 10, 0)
-	got := encodeLine(snapshotRowInto(emu, nil, 10, 0), 10, true)
-	if got != want {
-		t.Errorf("encodeLine(snapshot) = %q, want encodeGridRow = %q", got, want)
-	}
-}
-
 // Scrolling is the hot path: every emit grows scrollback, which invalidates
 // every row. The rows' backing arrays must survive that invalidation and be
 // refilled in place — nilling them (or re-materialising a row per emit for the
@@ -152,4 +141,25 @@ func TestEmit_ScrollingDoesNotReallocateViewportRows(t *testing.T) {
 			"has the scroll invalidation marker regressed to nil?)", perScroll, ceiling)
 	}
 	t.Logf("bytes allocated per scrolled line: %.0f (ceiling %.0f)", perScroll, ceiling)
+}
+
+// Holding chains costs a no-change Emit nothing extra: the dirty check walks them in place.
+func TestEmit_NoChangeWithChainsAllocatesNoMore(t *testing.T) {
+	allocs := func(content string) float64 {
+		m, _ := newTestModel(t, 80, 24)
+		m.Write([]byte(content))
+		e := NewDiffEmitter()
+		e.Prime(m)
+		if data, _ := e.Emit(m); len(data) > 0 {
+			t.Fatalf("a no-change Emit wrote %q", data)
+		}
+		return testing.AllocsPerRun(100, func() { e.Emit(m) })
+	}
+	plain := allocs("hello")
+	// One chain of 30 rows on a 24-row grid: every row continues the one above, the top one history.
+	chained := allocs(strings.Repeat("x", 80*30))
+	if chained > plain {
+		t.Errorf("a no-change Emit allocates %.0f times holding chains, %.0f without", chained, plain)
+	}
+	t.Logf("no-change Emit allocations: %.0f with chains, %.0f without", chained, plain)
 }

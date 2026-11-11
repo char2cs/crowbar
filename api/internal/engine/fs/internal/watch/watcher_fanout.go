@@ -26,12 +26,9 @@ func gitStatusEqual(
 	return true
 }
 
-// scheduleGitRecompute arms (or re-arms) the trailing git-recompute debounce.
-// Back-to-back calls collapse into one fanOutGit run, executed by loop once
-// changes have been quiet for gitRecomputeQuiet, and never later than
-// gitRecomputeMaxWait after the first of them. It is called only from the loop
-// goroutine (handleBurst / maybeHandleGitRef), so resetting the timer never
-// races with loop's drain of gitTimer.C.
+// scheduleGitRecompute arms the trailing git-recompute debounce: calls collapse into one
+// fanOutGit once quiet for gitRecomputeQuiet, at most gitRecomputeMaxWait after the first.
+// Only the loop goroutine calls it, so resetting the timer never races its drain.
 func (w *Watcher) scheduleGitRecompute() {
 	w.mu.Lock()
 	now := w.now()
@@ -67,15 +64,12 @@ func (w *Watcher) fanOutGit(
 
 	status, err := w.git.ComputeStatus(ctx, w.repoPath)
 	if err != nil {
+		w.reportUnreadable(ctx, err)
 		return
 	}
-	// Workspaces sharing a .git (linked worktrees) all see each other's ref
-	// events; without this guard every such event re-broadcasts an unchanged
-	// status to every subscriber (observed as a ~6Hz identical-frame storm).
-	// prevStatus starts unset, so the FIRST recompute always broadcasts; since the
-	// watcher does no initial recompute on subscribe (see loop — the snapshot
-	// already delivers fresh status), that first broadcast is the first real
-	// file-change, and subsequent identical frames are deduped here.
+	w.unreadable = false
+	// Linked worktrees sharing a .git see each other's ref events, so an unchanged status
+	// is not re-broadcast. prevStatus starts unset, so the first recompute always sends.
 	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
 		w.prevStatus = status
 		w.prevStatusSet = true
@@ -110,6 +104,21 @@ func (w *Watcher) fanOutGit(
 		HasConflicts: hasConflicts,
 		HasCommits:   hasCommits,
 	})
+}
+
+// reportUnreadable tells the client git cannot read the workspace, once per failure
+// streak, and forgets the last status and base so the recovery is re-broadcast.
+func (w *Watcher) reportUnreadable(
+	ctx context.Context,
+	err error,
+) {
+	w.prevStatusSet = false
+	w.diffBase = nil
+	if w.unreadable || ctx.Err() != nil {
+		return
+	}
+	w.unreadable = true
+	w.dispatcher.OnGitStatusUnreadable(ctx, w.wsID, err)
 }
 
 // statusHasConflicts reads the unmerged entries git status already reported, so

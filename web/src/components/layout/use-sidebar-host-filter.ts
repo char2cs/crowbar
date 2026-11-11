@@ -6,7 +6,7 @@ import {
   sidebarHostIds,
 } from '@/features/hosts/lib/host-filter'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import type { Project } from '@/lib/types'
 
 /**
@@ -18,7 +18,7 @@ export function useSidebarHostFilter(
   activeProjectId: string | undefined,
   onSelectProject: (id: string) => void,
 ) {
-  const filter = useSidebarStore((s) => s.hostFilter)
+  const filter = useTreeUi((s) => s.hostFilter)
   const paired = useHostConfigStore((s) => s.hosts)
   const hostIds = useMemo(() => sidebarHostIds(paired), [paired])
   const shown = shownHostOf(filter, hostIds, projects, activeProjectId)
@@ -27,9 +27,9 @@ export function useSidebarHostFilter(
   // Land on the host's remembered project, else its latest, unless the active one is already there.
   const selectHost = useCallback(
     (hostId: string) => {
-      useSidebarStore.getState().setHostFilter(hostId)
+      treeUiStore.getState().setHostFilter(hostId)
       if (projects.find((p) => p.id === activeProjectId)?.hostId === hostId) return
-      const remembered = useSidebarStore.getState().lastProjectByHost[hostId]
+      const remembered = treeUiStore.getState().lastProjectByHost[hostId]
       const landing = landingProject(projects, hostId, remembered)
       if (landing) onSelectProject(landing.id)
     },

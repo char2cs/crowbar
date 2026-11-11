@@ -1,6 +1,6 @@
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import {
   SIDEBAR_PANEL_TABS,
@@ -8,13 +8,11 @@ import {
   useShownSidebarTab,
 } from './sidebar-panel-tabs'
 
-/**
- * The sidebar's mode switch: Chats / Files / Git as a segmented control with a sliding pill.
- * The active segment shows a filled icon and its label; the rest show their label once wide enough.
- */
+// The sidebar's mode switch: Chats / Files / Git as a segmented control with a sliding pill. The
+// active segment shows a filled icon and its label; the rest show labels once wide enough.
 export function SidebarModeBar({ className }: { className?: string }) {
   const shown = useShownSidebarTab()
-  const setActiveTab = useSidebarStore((s) => s.setActiveTab)
+  const setActiveTab = useTreeUi((s) => s.setActiveTab)
   const availableKey = useFocusedWorkspaceContextStore(availableSidebarPanelTabsKey)
   const available = new Set(availableKey.split(','))
 

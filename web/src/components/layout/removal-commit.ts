@@ -1,26 +1,30 @@
-import { DISCARD_WORK_INIT, deleteProject, deleteRepo, workAtRiskOf } from '@/lib/api'
+import { DISCARD_WORK_INIT, deleteProject, deleteRepo } from '@/lib/api'
+import { workAtRiskOf } from '@/lib/errors/api-error'
 import { deleteFolder, deleteHomeFolder } from '@/lib/api/sidebar-placement'
-import { deleteChat } from '@/features/agent/api/agent-api'
+import { deleteChat } from '@/features/agent/api/agent-chat-commands'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { owningChatIdOfWorkspace } from '@/components/sidebar/lib/branch-row-id'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useHomeTreeStore, removeHomeFolder, applyHomeFolders } from '@/lib/store/home-tree'
-import { toSidebarFolder } from '@/lib/store/build-repo-tree'
-import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { dataOf } from '@/lib/loadable'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import {
+  entityStore,
+  forgetEntities,
+  placeEntities,
+  type EntityState,
+} from '@/core/entities/entity-store'
+import { readSelect, selectRepos } from '@/core/entities/select'
+import { entityKey } from '@/core/stream/host-scope'
+import { hostIdForProject } from '@/lib/host-resolve'
+import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
+import { operationsState, putLocalOperation, type Operation } from '@/core/entities/operations'
+import { dismissOperation, whenSettled, type OperationReply } from '@/core/entities/run-operation'
+import { report } from '@/lib/errors/report'
 import { toast } from '@/features/window/stores/toast-store'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { holdsWorkspace } from '@/core/entities/repo-queries'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
-/**
- * Committing a hold — the one step of the removal path that destroys anything.
- *
- * Everything before this is reversible by construction: the rows were hidden,
- * not deleted, and Cancel puts the ids back. Here the daemon is finally told,
- * and from this point the tray has nothing left to undo.
- */
+// Committing a hold: the one step of the removal path that destroys anything. Before this the
+// rows were only hidden; here the daemon is told, and the tray has nothing left to undo.
 
 /** Where a committed removal sends you when it took the workspace you were in. */
 export interface RemovalNavigate {
@@ -34,93 +38,56 @@ export interface RemovalContext {
   navigate: RemovalNavigate
 }
 
-/**
- * Whether any of `ids` is still a row the sidebar knows about.
- *
- * Projects are matched through the repos that carry their id rather than through
- * the project list: this module watches the sidebar store, and a deleted project
- * takes its repos with it, so the last repo leaving IS the project being gone.
- * A project that held no repos has nothing here to wait on and releases at once,
- * which is correct — there was never a row to flash back.
- */
-function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
+/** Whether any of `ids` is still a row the projects scope carries; a project counts while
+ *  a repo of it does, since deleting it takes them. */
+function stillPresent(s: EntityState, ids: readonly string[]): boolean {
+  const { project, repo, workspace, chat } = s.byKind
   return ids.some(
     (id) =>
-      repos.some((r) => r.id === id || r.projectId === id) ||
-      repos.some((r) => r.workspaces.some((w) => w.id === id)) ||
-      // Chats: same reseed channel workspaces/repos ride, checked so a
-      // drag-to-trashed chat's row stays hidden across the round trip
-      // instead of flashing back the instant the DELETE resolves.
-      repos.some((r) => r.chats?.some((c) => c.id === id)) ||
-      // A project-home chat rides the identical live reseed a repo chat
-      // does (`performRenameHomeChat`'s own doc: its own `/home/chats/ws`
-      // feed is what settles a write) — checked across every visible
-      // project's home tree, not just `repos`, or a held home chat would
-      // release the instant its own DELETE resolved, well before the tree
-      // that actually draws it had caught up.
-      Object.values(useHomeTreeStore.getState().trees).some((t) =>
-        t.chats.some((c) => c.id === id),
-      ),
+      id in project ||
+      id in repo ||
+      id in workspace ||
+      id in chat ||
+      Object.values(repo).some((r) => r.data.projectId === id),
   )
 }
 
-/**
- * Why the daemon stopped deleting one of `ids`, as the repo or project row it
- * kept says — a repo or project delete answers 202 and finishes in the
- * background, so this is the only place its failure can arrive.
- */
-function deleteErrorOf(ids: readonly string[]): string | undefined {
-  const wanted = new Set(ids)
-  const repo = useSidebarStore.getState().repos.find((r) => r.deleteError && wanted.has(r.id))
-  if (repo) return repo.deleteError
-  const projects = dataOf(useProjectDataStore.getState().data) ?? []
-  return projects.find((p) => p.lastError && wanted.has(p.id))?.lastError
-}
-
-/**
- * Stop hiding the entry's rows once the daemon has actually taken them — or
- * has said it could not, in which case the rows come back and the user is
- * told why.
- *
- * The tray row goes the instant the request is sent, but the rows themselves
- * stay hidden across the round trip — releasing them with the request in flight
- * would flash every one of them back on screen for as long as it takes the
- * tombstones to arrive.
- *
- * A failure is a CHANGE of the recorded error: the daemon clears an earlier
- * attempt's error before it answers, so an error already present when this
- * starts is that earlier attempt's, not this one's.
- */
+/** Unhides the entry's rows only once the daemon has taken them; releasing with the request in
+ *  flight would flash them back on screen until the tombstones arrive. */
 function releaseWhenGone(entry: RemovalEntry): void {
   const ids = entry.hiddenIds
-  const release = () => useRemovalTrayStore.getState().release(ids)
-  if (!stillPresent(useSidebarStore.getState().repos, ids)) {
+  const release = () => treeUiStore.getState().release(ids)
+  if (!stillPresent(entityStore.getState(), ids)) {
     release()
     return
   }
-  let seenError = deleteErrorOf(ids)
-  const check = () => {
-    const error = deleteErrorOf(ids)
-    if (error && error !== seenError) {
-      stop()
-      release()
-      toast.error(`Couldn't remove ${entry.label}: ${error}`)
-      return
-    }
-    seenError = error
-    if (stillPresent(useSidebarStore.getState().repos, ids)) return
+  const stop = entityStore.subscribe((s) => {
+    if (stillPresent(s, ids)) return
     stop()
     release()
-  }
-  const unsubscribeRepos = useSidebarStore.subscribe(check)
-  const unsubscribeProjects = useProjectDataStore.subscribe(check)
-  function stop() {
-    unsubscribeRepos()
-    unsubscribeProjects()
-  }
+  })
 }
 
-function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
+/** A repo or project delete is an operation: its rows come back when it fails,
+ *  and the operations watcher has told why. */
+function releaseWhenSettled(entry: RemovalEntry, opId: string): void {
+  const release = () => treeUiStore.getState().release(entry.hiddenIds)
+  whenSettled(opId).then(release, (err: unknown) => {
+    release()
+    report(err, { action: `Remove ${entry.label}` })
+  })
+}
+
+/** Sends an operation's delete under a fresh key and holds its answer. */
+async function sendOperation(send: (opId: string) => Promise<OperationReply>): Promise<string> {
+  const opId = crypto.randomUUID()
+  const reply = await send(opId)
+  if ('operation' in reply) putLocalOperation(reply.operation)
+  return opId
+}
+
+/** Sends the entry's delete; a repo or project delete resolves with its operation id. */
+function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<string | void> {
   // An entry carrying `atRisk` was confirmed with that list on screen: that
   // confirmation, and nothing else, is consent to destroy it.
   const sendInit = entry.atRisk ? { ...init, ...DISCARD_WORK_INIT } : init
@@ -130,206 +97,139 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
   const opts: [RequestInit] | [] = sendInit ? [sendInit] : []
   switch (entry.kind) {
     case 'workspace': {
-      // A worktree is taken by deleting the CHAT that holds it: DELETE
-      // .../chats/:id now cascades the worktree teardown, so this is the same
-      // destruction the workspace route did, addressed by the only id a route
-      // may name. No fallback to a workspace route — that group is gone.
-      // Rejected rather than thrown, so `flushDrainingRemovals`'s `.catch` on
-      // an unloading page still catches it.
-      //
-      // Resolved from the SIDEBAR TREE first (`owningChatIdOfWorkspace` — the
-      // same union `rows-from-repo.ts` renders the row from), and only then
-      // from `workspace-scope.ts`'s side registry. That order is the fix: the
-      // registry is a second copy of this fact, written on navigation and on
-      // seed, and a workspace the user has only ever SEEN as a row — never
-      // opened — could legitimately be absent from it. Asking it first turned
-      // that absence into a rejected delete on a perfectly valid row, and since
-      // the row had already been optimistically hidden, the removal looked like
-      // it worked right up until the next reseed brought it back.
+      // A worktree goes by deleting the CHAT that holds it (DELETE .../chats/:id cascades the
+      // teardown). Owner read off the sidebar tree first: the scope registry misses never-opened
+      // rows. Rejected, not thrown, so `flushDrainingRemovals`'s `.catch` still catches it.
       const owningChatId =
-        owningChatIdOfWorkspace(useSidebarStore.getState().repos, entry.id) ??
-        getOwningChatId(entry.id)
+        owningChatIdOfWorkspace(readSelect(selectRepos), entry.id) ?? getOwningChatId(entry.id)
       if (!owningChatId) {
-        return Promise.reject(new Error('its chat is still loading — try again in a moment'))
+        return Promise.reject(
+          new UserFacingError('its chat is still loading — try again in a moment'),
+        )
       }
-      return deleteChat(entry.id, owningChatId, ...opts).then(() => {
-        bumpRepoTree(entry.repoId)
-      })
+      return deleteChat(entry.id, owningChatId, ...opts).then(announceTaken(entry))
     }
     case 'folder':
-      // A project-home folder rides no repo at all (`repoId` is '' — see
-      // `removal-plan.ts`'s own home branch) and has its own DELETE route
-      // (`deleteHomeFolder`, scoped by project rather than repo): the repo
-      // route below would either 404 or, worse, land on the WRONG repo,
-      // since a home folder is exactly the row `fetchFolders`'s bleed
-      // (`handleTrash`'s own doc) can make a repo falsely claim.
-      if (!entry.repoId) {
-        return deleteHomeFolder(entry.projectId, entry.id, ...opts).then((shifted) => {
-          // No live channel for a home folder either (same Task 34 reason
-          // the repo branch below has none) — apply the tombstone directly
-          // rather than wait for a reseed nothing will ever send.
-          removeHomeFolder(entry.projectId, entry.id)
-          shifted.forEach((f) => applyHomeFolders(entry.projectId, [toSidebarFolder(f)]))
-        })
-      }
-      // Folders carry no dedicated push channel any more (Task 34). `stillPresent`
-      // above never checks `r.folders` at all, so `releaseWhenGone` below always
-      // finds a folder id already absent and releases the tray row IMMEDIATELY —
-      // it never subscribes for a folder kind, so there is no hang to worry about
-      // here. The real problem this guards against: the row is still sitting in
-      // `useSidebarStore` (nothing else removes it any more), so an immediate
-      // release without applying the tombstone would let it flash right back on
-      // screen the instant the tray hides it. Apply the tombstone (and the
-      // promotion shift the delete triggers) straight off the DELETE's own
-      // response, the same way row-actions.ts's writes do — and `bump` the repo's
-      // folder signal too, so the `crowbar_folders` cache every tree rebuild reads
-      // from agrees, or the deleted folder comes BACK on the next unrelated
-      // rebuild (see row-actions.ts's performRenameFolder for the full story).
-      return deleteFolder(entry.projectId, entry.repoId, entry.id, ...opts).then((shifted) => {
-        const apply = useSidebarStore.getState().applyFolderDTO
-        apply({
-          id: entry.id,
-          repoId: entry.repoId,
-          projectId: entry.projectId,
-          name: '',
-          order: 0,
-          status: 'deleted',
-        })
-        shifted.forEach(apply)
-        useFolderSignalStore.getState().bump(entry.repoId)
+      // A project-home folder rides no repo and has its own route, scoped by project.
+      return (
+        entry.repoId
+          ? deleteFolder(entry.projectId, entry.repoId, entry.id, ...opts)
+          : deleteHomeFolder(entry.projectId, entry.id, ...opts)
+      ).then((shifted) => {
+        // The delete's answer applies at once, so the row does not flash back before its frame.
+        const hostId = hostIdForProject(entry.projectId)
+        forgetEntities('folder', [entityKey(hostId, entry.id)])
+        placeEntities(
+          'folder',
+          Object.fromEntries(shifted.map((f) => [entityKey(hostId, f.id), f])),
+        )
       })
     case 'repo':
-      return deleteRepo(entry.projectId, entry.repoId, ...opts)
+      return sendOperation((opId) => deleteRepo(entry.projectId, entry.repoId, opId, ...opts))
     case 'project':
-      // A space owns its content's lifetime (project-scoped panes §8, Zen's
-      // `#deleteWorkspaceOwnedTabs`): its views go through the real
-      // `closeView` teardown — every member's CLI stopped, every workspace
-      // evicted — rather than being left parked where nothing can ever reach
-      // or close them again. Before the DELETE, while the chats are still
-      // resolvable.
+      // A space owns its views' lifetime (§8): close them through the real teardown, BEFORE the
+      // DELETE while their chats still resolve, or they would be parked where nothing can reach.
       windowPaneStore.getState().paneActions.closeViewsForProject(entry.projectId)
-      return deleteProject(entry.projectId, ...opts)
+      return sendOperation((opId) => deleteProject(entry.projectId, opId, ...opts))
     case 'chat':
-      // No local tombstone (unlike folder's own special case): a chat DOES
-      // arrive on a real push/reseed channel. But that channel has a condition
-      // — see `bumpRepoTree` — and this is one of the surfaces that does not
-      // meet it, so the acting client rings its own bell.
-      return deleteChat(entry.wsId, entry.id, ...opts).then(() => {
-        bumpRepoTree(entry.repoId)
-      })
+      return deleteChat(entry.wsId, entry.id, ...opts).then(announceTaken(entry))
   }
 }
 
-/**
- * Tell this repo's sidebar tree to re-read its rows.
- *
- * `app-sync-provider.tsx`'s `openRepoTreeSubscription` reseeds `crowbar_chats`
- * on exactly one trigger: this repo's generation in `useFolderSignalStore`
- * moving. The only thing that normally moves it is
- * `use-workspace-agent-chats-stream.ts`, on a structural chat frame — and that
- * hook runs only for a MOUNTED workspace. App-sync's own comment records the
- * assumption that made that acceptable: "a chat can only be created, renamed or
- * moved from a surface that has that workspace mounted."
- *
- * That assumption is no longer true, and this is the correction. The sidebar is
- * on screen on every route (including project home, where no repo workspace is
- * mounted at all), it deletes and creates chats, and it does so for rows whose
- * workspace the user has never opened. Without this bump the daemon really did
- * take the chat and the row simply stayed on screen — which reads as "I deleted
- * these chats and they came back", because the optimistic hide releases as soon
- * as the WORKSPACE half tombstones and the surviving chat row paints again.
- *
- * The same reasoning `row-actions.ts` already applies to every folder and chat
- * RENAME it fires (`performRenameChat`, `performRenameFolder`,
- * `performCreateFolder`, `performSetWorkspaceLock` all bump); create and delete
- * were the two verbs left out.
- */
-function bumpRepoTree(repoId: string): void {
-  if (repoId) useFolderSignalStore.getState().bump(repoId)
+/** The title of each chat as held before the delete, so a taken row is named. */
+function chatTitles(): (id: string) => string {
+  const chats = entityStore.getState().byKind.chat
+  return (id) => chats[id]?.data.title || UNTITLED_CHAT_LABEL
 }
 
-/**
- * Send every removal that was only waiting on its clock, because the page is
- * going away.
- *
- * The tray holds a row for eight seconds before the delete is sent, and the tray
- * is memory. Anything that ends the page inside that window — a reload, an HMR
- * update, quitting the app — used to drop the intent silently: the row had
- * already been hidden, so the removal LOOKED done, and the next boot read it
- * straight back off the daemon. That is not an undo, it is a lost write, and the
- * user has no way to tell the two apart.
- *
- * Only the draining entries go. A repo or a project sits in the tray with no
- * clock, waiting on an explicit answer, and an unload is not that answer — those
- * are dropped, which is the safe direction for the two removals that cascade.
- *
- * `keepalive` is what makes this work at all: a request issued from a pagehide
- * handler is normally cancelled with the document. It caps the body at 64KB,
- * which a DELETE with no body is comfortably inside.
- */
+/** Once a chat delete lands, names the chats its git cascade took beyond the selection,
+ *  which the user never chose. */
+function announceTaken(entry: RemovalEntry): (taken: string[]) => void {
+  const titleOf = chatTitles()
+  return (taken) => {
+    const chosen = new Set(entry.hiddenIds)
+    const extra = taken.filter((id) => !chosen.has(id))
+    if (extra.length === 0) return
+    const noun = extra.length === 1 ? 'chat' : 'chats'
+    toast.info(`Also removed ${extra.length} ${noun}`, extra.map(titleOf).join(', '))
+  }
+}
+
+// On unload, send every removal still draining on its clock: the hidden row LOOKS removed, so
+// dropping it would be a lost write. Clockless repo/project holds await an answer and are dropped.
+// `keepalive` keeps a pagehide request from being cancelled with the document (64KB body cap).
 export function flushDrainingRemovals(): void {
-  for (const entry of useRemovalTrayStore.getState().entries) {
+  for (const entry of treeUiStore.getState().removals) {
     if (entry.deadlineAt === null) continue
-    // Settled BEFORE the send, which makes this idempotent: the tray is drawn in
-    // two places now (the workspace tree and the Chats panel), both are mounted
-    // at once inside the sidebar carousel, and both register the pagehide
-    // handler that calls this — so without it one unload would post every
-    // pending delete twice.
-    useRemovalTrayStore.getState().settle(entry.entryId)
-    // No await and no catch: the document is unloading, there is nobody left to
-    // tell and nothing left to roll back to.
-    void sendRemoval(entry, { keepalive: true }).catch(() => {})
+    // Settled BEFORE the send so this is idempotent: every mounted tray registers a pagehide
+    // handler, and one unload must not post a delete twice.
+    treeUiStore.getState().settle(entry.entryId)
+    // No await: the document is unloading and there is nothing to roll back to;
+    // a refusal still reaches the user if the page outlives it.
+    sendRemoval(entry, { keepalive: true }).catch((err: unknown) =>
+      report(err, { action: 'Remove' }),
+    )
   }
 }
 
-/**
- * Fire the removal `entry` has been holding.
- *
- * The tray row leaves first: from the moment the request is out there is nothing
- * left to cancel, and a row that still offers Cancel would be lying. A refusal
- * puts the rows back and says why — this is the only path that can surface one,
- * because the user has already walked away from the gesture that started it.
- *
- * A refusal over work that exists nowhere else is a question, not a failure:
- * the entry goes back in the tray, still hidden, for the confirm dialog to list
- * that work and ask whether to delete it anyway.
- */
+// Fires the held removal. The tray row leaves first (nothing is cancellable once sent); a refusal
+// puts the rows back and reports it. A refusal over unsaved work instead re-holds the entry so the
+// confirm dialog can ask whether to discard it.
 export async function commitRemoval(entry: RemovalEntry, context: RemovalContext): Promise<void> {
-  useRemovalTrayStore.getState().settle(entry.entryId)
+  treeUiStore.getState().settle(entry.entryId)
 
+  let opId: string | void
   try {
-    await sendRemoval(entry)
+    opId = await sendRemoval(entry)
   } catch (err) {
     const atRisk = workAtRiskOf(err)
     if (atRisk && !entry.atRisk) {
-      useRemovalTrayStore.getState().askToDiscard(entry, atRisk)
+      treeUiStore.getState().askToDiscard(entry, atRisk)
       return
     }
-    useRemovalTrayStore.getState().release(entry.hiddenIds)
-    toast.error(`Couldn't remove ${entry.label}: ${actionErrorMessage(err, 'request failed')}`)
+    treeUiStore.getState().release(entry.hiddenIds)
+    report(err, { action: `Couldn't remove ${entry.label}`, fallback: 'request failed' })
     return
   }
 
-  releaseWhenGone(entry)
+  if (opId) releaseWhenSettled(entry, opId)
+  else releaseWhenGone(entry)
+  dismissCreatesOf(entry.hiddenIds)
   leaveIfRemoved(entry, context)
 }
 
-/**
- * Leave a route whose workspace has just been removed.
- *
- * The fallback was resolved when the row was held, against a tree that still
- * had it — by now the answer is gone from the tree, which is the whole reason
- * it is carried on the entry.
- */
+// A partly failed create keeps its failed items' reasons until the user acts on them.
+function allSucceeded(op: Operation): boolean {
+  return op.items.every(
+    (item) =>
+      !item.error &&
+      item.state !== 'failed' &&
+      (item.state === 'succeeded' || op.state === 'succeeded'),
+  )
+}
+
+/** A succeeded create's row stands in until its entity arrives; once the user
+ *  removed that entity it never will, so the operation is settled history. */
+function dismissCreatesOf(ids: readonly string[]): void {
+  const removed = new Set(ids)
+  for (const op of Object.values(operationsState().ops)) {
+    if (op.dismissed || !allSucceeded(op)) continue
+    if (op.items.some((item) => removed.has(item.ref.id)))
+      void dismissOperation(op.id).catch((err: unknown) => report(err, { action: 'Dismiss' }))
+  }
+}
+
+/** Leaves a route whose workspace was just removed, using the fallback resolved at hold time,
+ *  while the tree still had the row. */
 function leaveIfRemoved(
   entry: RemovalEntry,
   { activeWorkspaceId, navigate }: RemovalContext,
 ): void {
   if (!activeWorkspaceId || !entry.hiddenIds.includes(activeWorkspaceId)) return
 
-  const repos = useSidebarStore.getState().repos
+  const repos = readSelect(selectRepos)
   const fallbackRepo = entry.fallbackWsId
-    ? repos.find((r) => r.workspaces.some((w) => w.id === entry.fallbackWsId))
+    ? repos.find((r) => holdsWorkspace(r, entry.fallbackWsId ?? ''))
     : undefined
   if (!fallbackRepo?.projectId || !entry.fallbackWsId) {
     navigate(null)

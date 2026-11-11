@@ -1,0 +1,134 @@
+import { useCallback } from 'react'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import { resumeChat } from '@/features/agent/api/agent-chat-commands'
+import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
+import { useChatField } from '@/features/agent/hooks/use-chat-entity'
+import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { useChatStore } from '@/features/agent/stores/chat-store'
+import { readSelect, selectAgentChat } from '@/core/entities/select'
+import { useHostDotState } from '@/features/hosts/hooks/use-host-status'
+import { hostStatusOf } from '@/features/hosts/lib/host-status'
+import { hostIsUnreachable } from '@/features/hosts/lib/host-tone'
+import type { TerminalAttachment } from '@/features/agent/terminal/agent-terminal-surface'
+import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+
+interface PaneAttachmentInputs {
+  wsId: string
+  /** The host the chat runs on; its reachability decides `offline`. */
+  hostId: string
+  chatId: string
+  providerName: string
+  presentation: ChatPresentation
+  /** A send's own replacement is in flight: the pane is mid-send, not waiting. */
+  promptReplacing: boolean
+}
+
+/** Why a dormant chat has no CLI, in one sentence, and what continues it. */
+function describeDormant(exitReason: string): string {
+  switch (exitReason) {
+    case 'stopped':
+      return 'Stopped. Send a message to continue the conversation.'
+    case 'daemon_restart':
+      return 'The agent ended when Crowbar restarted. Send a message to continue.'
+    case 'connection_lost':
+    case 'transport_overflow':
+      return 'Crowbar lost its connection to the agent. Send a message to continue.'
+    case 'resume_failed':
+      return 'The provider could not reopen its session. Send a message to start a new conversation.'
+    case 'moved':
+      return 'This conversation was resumed in another chat. Send a message to start a new one here.'
+    case 'displaced':
+      return 'Crowbar took the agent off this chat. Send a message to continue.'
+    case 'retracted':
+      return 'You took the prompt back. Send a message to continue.'
+    case 'spawn_failed':
+      return 'The agent could not start. Check that its CLI is installed, then try again.'
+    default:
+      return 'The agent is not running. Send a message to continue the conversation.'
+  }
+}
+
+function attachmentOf(
+  chat: Pick<AgentChat, 'liveRunnerId' | 'phase' | 'terminalSessionId'> | null,
+  exitReason: string,
+  providerName: string,
+  neverStarted: boolean,
+): TerminalAttachment {
+  if (!chat) return { state: 'pending' }
+  // The attach-only view is bound to the PTY it names; a replacement is a swap.
+  if (chat.liveRunnerId) return { state: 'attached', sessionId: chat.terminalSessionId || null }
+  if (chat.phase === 'starting' || chat.phase === 'switching') {
+    return { state: 'reviving', message: `Starting ${providerName}…` }
+  }
+  // A new chat's CLI starts with its first message: not yet started is no ended session.
+  if (neverStarted) return { state: 'idle', message: `Your first message starts ${providerName}.` }
+  return { state: 'idle', message: describeDormant(exitReason) }
+}
+
+/** The pane's view of its chat's session: liveness from the entity snapshot, the
+ *  exit from the last `runner_exited` row. The pane never orchestrates a revive:
+ *  a send revives a dormant chat server-side, and startSession is the one intent. */
+export function usePaneAttachment({
+  wsId,
+  hostId,
+  chatId,
+  providerName,
+  presentation,
+  promptReplacing,
+}: PaneAttachmentInputs) {
+  const offline = hostIsUnreachable(useHostDotState(hostId))
+  const known = useChatField(chatId, (c) => c !== undefined)
+  const liveRunnerId = useChatField(chatId, (c) => c?.liveRunnerId ?? '')
+  // Not a second liveness signal: an api-transport runner is live with no PTY.
+  const terminalSessionId = useChatField(chatId, (c) => c?.terminalSessionId ?? '')
+  const phase = useChatField(chatId, (c) => c?.phase ?? 'dormant')
+  const exitReason = useChatStore((s) => s.feeds[chatId]?.facts.lastExit?.reason ?? '')
+  // A loaded ledger with no row: no CLI ever ran on the chat.
+  const neverStarted = useChatStore(
+    (s) => s.feeds[chatId]?.status === 'live' && s.feeds[chatId]?.seq === 0,
+  )
+
+  const attachment = attachmentOf(
+    known ? { liveRunnerId, phase, terminalSessionId } : null,
+    exitReason,
+    providerName,
+    neverStarted,
+  )
+  const chatSide = presentation !== 'terminal' && !promptReplacing
+  const revival: ComposerRevival | undefined =
+    chatSide && attachment.state === 'reviving'
+      ? { state: 'reviving', message: attachment.message }
+      : undefined
+  const sessionNote = chatSide && attachment.state === 'idle' ? attachment.message : undefined
+  // A CLI starting or moving onto the chat surface: sends queue, but nothing answers yet.
+  const connecting =
+    chatSide && (phase === 'starting' || phase === 'switching')
+      ? `Connecting to ${providerName}…`
+      : undefined
+
+  // Reads the chat and its host as they are when called: every way onto the terminal may call
+  // it, and only a known, dormant chat on a host that answers is started.
+  const startSession = useCallback(() => {
+    if (hostIsUnreachable(hostStatusOf(hostId))) return
+    const chat = readSelect((s) => selectAgentChat(s, chatId))
+    if (!chat || chat.liveRunnerId || chat.phase === 'starting' || chat.phase === 'switching')
+      return
+    void resumeChat(wsId, chatId).catch((err: unknown) => {
+      toastSpawnFailure(err, providerName, 'resume')
+    })
+  }, [hostId, wsId, chatId, providerName])
+
+  return {
+    known,
+    liveRunnerId,
+    attachment,
+    revival,
+    sessionNote,
+    connecting,
+    // A prompt queues on any chat that exists, a spawning one included, while its host answers.
+    canSend: !offline && attachment.state !== 'pending',
+    /** The chat's host does not answer: the pane shows what it last held, read-only. */
+    offline,
+    startSession,
+  }
+}

@@ -1,270 +1,20 @@
-import type {
-  ChatDTO,
-  ChatType,
-  ChatWorktreeDTO,
-  FolderDTO,
-  Prerequisites,
-  RepoDTO,
-  WorkspaceDTO,
-} from './types'
+import type { Prerequisites, RepoDTO, WorkspaceDTO } from './types'
 import type { PRLink } from '@/lib/import/parent-plan'
-import { getOwningChatId } from '@/lib/workspace-scope'
+import { apiFetch, apiUrl } from '@/lib/api/fetch'
 import { projectBase, repoBase } from '@/lib/project-url'
-import { daemonChanges, noteDaemonChange } from '@/lib/transport/daemon-changes'
-import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
-import { isTauri } from '@/lib/crowbar-bridge'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
-import { LOCAL_HOST } from '@/features/hosts/types'
-import {
-  ApiError,
-  DAEMON_UNAVAILABLE_CODE,
-  HostNotConfiguredError,
-  PROXY_HEADER,
-  proxyMarkerError,
-} from './api/errors'
-import { routeToHost } from './api/host-route'
+import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
+// Type-only: keeps this module out of the entity store's import graph.
+import type { OperationReply } from '@/core/entities/run-operation'
 
-export { ApiError } from './api/errors'
-
-const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
-export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
-
-/**
- * Resolves the API base for a given host. 'local' (the default every existing
- * call site keeps using unchanged) returns the SAME API_BASE this file has
- * always exported — zero behavior change. Any other id must be a registered
- * remote host; resolving one requires the desktop app, since only the Tauri
- * bridge (crowbar://<hostId>) can complete the pinned-TLS dial.
- */
-export function apiBaseFor(hostId: string): string {
-  if (hostId === 'local') return API_BASE
-  if (!isTauri()) {
-    throw new Error(`remote host "${hostId}" is only reachable from the desktop app`)
-  }
-  const known = useHostConfigStore.getState().hosts.some((h) => h.id === hostId)
-  if (!known) {
-    throw new HostNotConfiguredError(hostId)
-  }
-  return `crowbar://${hostId}`
-}
-
-/**
- * The absolute URL for a daemon-relative path, qualified or not, for callers that
- * build their own `fetch`. Throws for a host this window cannot reach rather than
- * falling back to the local daemon.
- */
-export function apiUrl(path: string): string {
-  const target = routeToHost(path)
-  return `${apiBaseFor(target.hostId)}${target.path}`
-}
-
-/**
- * Turn a daemon-relative asset path into one the webview can actually load.
- *
- * Only for URLs handed to the BROWSER — an `<img src>`, not an `apiFetch` (which
- * applies the base itself). A DTO's icon URL arrives as a bare `/v0/...` path,
- * and the desktop webview is served from its own origin: on the dev server that
- * path resolves to Vite, in a packaged build to the app bundle. Either way it is
- * not the daemon, so the request 404s and the <img> quietly falls back to the
- * entity's default mark — a broken icon that looks exactly like an icon nobody
- * set.
- *
- * Defined here, beside API_BASE, so the repo avatar and the project icon cannot
- * resolve the same kind of URL two different ways.
- */
+// A daemon-relative asset path the webview can load, for URLs handed to the browser (`<img src>`,
+// not apiFetch). A bare `/v0/...` path would resolve to Vite or the app bundle and 404 into the
+// default mark; one function so the repo avatar and project icon resolve alike.
 export function assetURL(path: string): string {
   return apiUrl(path)
 }
 
-/** What deleting one workspace would destroy that exists nowhere else. */
-export interface WorkAtRisk {
-  workspaceId: string
-  branch: string
-  uncommittedFiles: number
-  unmergedCommits: number
-}
-
-/**
- * The work a delete was refused over, or null for any other failure. The
- * daemon refuses a delete that would destroy work existing nowhere else until
- * it is resent with {@link DISCARD_WORK_INIT} — which only a client that has
- * shown the user this list may do.
- */
-export function workAtRiskOf(err: unknown): WorkAtRisk[] | null {
-  if (!(err instanceof ApiError) || err.code !== 'work_at_risk') return null
-  const list = (err.data as { workAtRisk?: WorkAtRisk[] } | undefined)?.workAtRisk
-  return Array.isArray(list) ? list : []
-}
-
 /** The request options that consent to a delete destroying work at risk. */
 export const DISCARD_WORK_INIT: RequestInit = { headers: { 'Crowbar-Discard-Work': 'true' } }
-
-export function isNotFoundError(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 404
-}
-
-export function isDaemonUnavailableError(err: unknown): boolean {
-  return err instanceof ApiError && err.code === DAEMON_UNAVAILABLE_CODE
-}
-
-/** Tunable transient-retry policy for {@link apiFetch}. A `fetch()` *rejection*
- *  (a network/transport error — never an HTTP status) means the request never
- *  reached the daemon; at app launch that is the sidecar's unix socket not yet
- *  accepting connections. Idempotent reads retry across that startup window so a
- *  cold start lands on the workspace instead of crashing or showing an empty
- *  state. Injectable so tests run without real backoff sleeps. */
-export interface RetryConfig {
-  /** Total attempts including the first (1 = no retry). */
-  attempts: number
-  /** Exponential backoff base; delay = baseDelayMs * 2^(attempt-1), capped. */
-  baseDelayMs: number
-  maxDelayMs: number
-  sleep?: (ms: number) => Promise<void>
-}
-
-// ~5s of bounded backoff (0,100,200,400,800,1000,1000,1000) comfortably covers a
-// daemon sidecar's socket-bind window without masking a genuinely-down daemon.
-const DEFAULT_RETRY: RetryConfig = { attempts: 8, baseDelayMs: 100, maxDelayMs: 1000 }
-
-const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
-
-/** Only idempotent reads auto-retry on transport failure. Mutations have their
- *  own async-202 + subscribe-before-POST resilience and must never be blindly
- *  replayed (at-least-once would double-apply). */
-function isIdempotentRead(init?: RequestInit): boolean {
-  const method = init?.method?.toUpperCase()
-  return method === undefined || method === 'GET'
-}
-
-/** Perform a request with transient-transport retry and
- *  error-status handling, returning the raw `Response`.
- *
- *  This is the layer beneath {@link apiFetch}: every v0 route answers the
- *  `{success,data}` envelope EXCEPT `/review/patch`, which answers text/plain
- *  and reports truncation in a response header. That one caller needs the
- *  Response itself — its body is not JSON and its headers carry meaning — but it
- *  needs the retry and the error-envelope decoding just as much, so both live
- *  here rather than being reimplemented beside it. */
-export async function apiFetchRaw(
-  path: string,
-  init?: RequestInit,
-  retry: RetryConfig = DEFAULT_RETRY,
-  hostId?: string,
-): Promise<Response> {
-  const target = routeToHost(path, hostId)
-  if (target.hostId === LOCAL_HOST.id && !hasLocalDaemon()) {
-    throw new ApiError(
-      'this install has no local daemon',
-      503,
-      DAEMON_UNAVAILABLE_CODE,
-      undefined,
-      target.hostId,
-    )
-  }
-  const read = isIdempotentRead(init)
-  if (!read) noteDaemonChange()
-  const maxAttempts = read ? Math.max(1, retry.attempts) : 1
-  const sleep = retry.sleep ?? defaultSleep
-  const base = apiBaseFor(target.hostId)
-
-  for (let attempt = 1; ; attempt++) {
-    let res: Response
-    try {
-      res = await fetch(`${base}${target.path}`, init)
-    } catch (err) {
-      // Transport-level failure — the request never produced an HTTP response
-      // (daemon not ready / connection refused). Retry idempotent reads with
-      // bounded backoff; surface the error once attempts are exhausted.
-      if (attempt >= maxAttempts) throw err
-      await sleep(Math.min(retry.maxDelayMs, retry.baseDelayMs * 2 ** (attempt - 1)))
-      continue
-    }
-
-    // Status FIRST, body second. `fetch` resolves on 4xx/5xx, so reading the
-    // envelope before looking at the status is how an error payload gets
-    // mistaken for a result. The daemon does answer errors with the same
-    // {success,error,data} envelope, so the body is still worth reading here —
-    // deliberately, on the error path, purely to recover its `error` message.
-    //
-    // An HTTP error status is a real daemon response, not a transport failure —
-    // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
-    // must never be retried.
-    if (!res.ok) {
-      const proxied = proxyMarkerError(res.headers?.get(PROXY_HEADER), target.hostId, res.status)
-      if (proxied) throw proxied
-      const errorBody = await res.json().catch(() => null)
-      throw new ApiError(
-        errorBody?.error ?? `${res.status} ${res.statusText}`,
-        res.status,
-        typeof errorBody?.code === 'string' ? errorBody.code : undefined,
-        errorBody?.data,
-        target.hostId,
-      )
-    }
-    return res
-  }
-}
-
-interface Envelope {
-  status: number
-  statusText: string
-  body: { success?: boolean; error?: string; data?: unknown } | null
-}
-
-async function readEnvelope(res: Response): Promise<Envelope> {
-  // An empty 204/202 (a write accepted with no payload) is success with no data.
-  const empty = res.status === 204 || res.status === 202
-  const body = empty ? null : await res.json().catch(() => null)
-  return { status: res.status, statusText: res.statusText, body }
-}
-
-/** Plain GETs in flight, by `hostId:path`, with the change count they were
- *  sent at — hostId keeps two hosts' reads of the same path from colliding. */
-const readsInFlight = new Map<string, { changes: number; envelope: Promise<Envelope> }>()
-
-/** A plain GET, shared with an identical one still in flight when nothing the
- *  client could know of has changed since that one was sent. Joiners get a
- *  copy: callers may hand their answer to a store that freezes it. */
-async function sharedRead(path: string, retry: RetryConfig, hostId: string): Promise<Envelope> {
-  const key = `${hostId}:${path}`
-  const held = readsInFlight.get(key)
-  if (held && held.changes === daemonChanges()) return structuredClone(await held.envelope)
-  const envelope = apiFetchRaw(path, undefined, retry, hostId).then(readEnvelope)
-  const entry = { changes: daemonChanges(), envelope }
-  readsInFlight.set(key, entry)
-  const release = () => {
-    if (readsInFlight.get(key) === entry) readsInFlight.delete(key)
-  }
-  envelope.then(release, release)
-  return envelope
-}
-
-export async function apiFetch<T>(
-  path: string,
-  init?: RequestInit,
-  retry: RetryConfig = DEFAULT_RETRY,
-  hostId?: string,
-): Promise<T> {
-  const target = routeToHost(path, hostId)
-  const { status, statusText, body } =
-    init === undefined
-      ? await sharedRead(target.path, retry, target.hostId)
-      : await readEnvelope(await apiFetchRaw(target.path, init, retry, target.hostId))
-  if (body === null) {
-    return undefined as T
-  }
-  if (!body.success) {
-    throw new ApiError(
-      body.error ?? `${status} ${statusText}`,
-      status,
-      undefined,
-      undefined,
-      target.hostId,
-    )
-  }
-  return body.data as T
-}
 
 // ---------------------------------------------------------------------------
 // Hierarchical READ API (§3/§7).
@@ -275,365 +25,30 @@ export async function fetchRepos(projectId: string): Promise<RepoDTO[]> {
   return apiFetch(`${projectBase(projectId)}/repos`)
 }
 
-/**
- * One repo's workspaces, straight off the real GET .../workspaces resource.
- *
- * This USED to derive WorkspaceDTOs from the chat list (a worktree rides each
- * chat row as `worktree`) on the theory that there was no workspace resource
- * left to list — every worktree is held by SOME chat, so deriving from chats
- * was "just" a join. That theory breaks for a workspace with NO chat at all: a
- * repo's own default checkout before anyone has chatted in it, or any locked
- * tracking branch nobody ever opened a conversation in. Neither has a chat row
- * to derive from, so the old join silently produced zero rows for them — not
- * just missing branches, but a missing REPO HEADER (rows-from-repo.ts mints
- * that from the default workspace) — reproduced live against real production
- * data: an entire repo, and a repo's own other locked branches, absent from
- * the sidebar.
- *
- * The live half (an open chat's `worktree_state` frames, `workspaceDTOFromChat`
- * below) is unaffected — it only ever refreshes a workspace already in the
- * store, never discovers one — so it is untouched.
- */
+// A repo's workspaces from the GET .../workspaces resource, never derived from chats: a workspace
+// with no chat (a default checkout nobody chatted in, an unopened locked branch) would vanish, and
+// with the default one the repo header too. Live worktree frames only refresh known workspaces.
 export async function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
   const rows = await apiFetch<WorkspaceDTO[]>(`${repoBase(projectId, repoId)}/workspaces`)
   return rows ?? []
 }
 
-/**
- * The wire shape of one row GET .../chats/folders returns: a folder-typed
- * domain.Chat rendered through dto.AgentChatDTO (Task 34 — the dedicated
- * `/folders` resource was deleted; folders are Chat rows now). Neither repoId
- * nor projectId travel on it — the URL is the only place either is known —
- * and its display text is `title`, not `name`.
- */
-export interface ChatsFolderWireDTO {
-  id: string
-  /** The row's kind: a folder, or — among a write's `shifted` siblings — a
-   *  locked branch reported by its workspace id. Absent means folder. */
-  type?: string
-  parentId: string
-  title: string
-  order: number
-  /** ISO creation time — the daemon's `order` tiebreak (tree.compareNodes). */
-  createdAt?: string
-}
-
-/** `ChatsFolderWireDTO` -> the sidebar's own `FolderDTO`, filling in the
- *  repo/project scope the wire row doesn't carry. Shared by `fetchFolders`
- *  and `sidebar-placement.ts`'s write verbs, which read the same rows back
- *  off their own mutation responses. */
-export function folderDTOFromWire(
-  row: ChatsFolderWireDTO,
-  projectId: string,
-  repoId: string,
-): FolderDTO {
-  return {
-    id: row.id,
-    repoId,
-    projectId,
-    parentId: row.parentId,
-    name: row.title,
-    order: row.order,
-    createdAt: row.createdAt,
-  }
-}
-
-/**
- * One repo's sidebar folders, in sidebar order.
- *
- * There is no dedicated push channel for this any more — folders lost their
- * own REST+WS resource (backend plan closed; see app-sync-provider.tsx's
- * folders subscription for how a change now reaches the sidebar tree).
- *
- * KNOWN BACKEND LIMITATION, not fixed here: the daemon's `ListInRepo`
- * (api/internal/app/usecases/chat/internal/tree/tree.go) never actually
- * filters by its own `repoID` argument — it filters only by
- * `Type == folder`, so `GET .../chats/folders` returns EVERY folder in the
- * whole daemon, not just this repo's (already self-disclosed in the
- * backend's own container.go comment on the folder push frame's repo
- * scoping). `folderDTOFromWire` below stamps every row it gets back with
- * THIS call's own `repoId`/`projectId` regardless of which repo the row
- * really belongs to, since the wire carries neither — so with more than one
- * repo open, each repo's folder list can end up claiming another repo's
- * folders as its own. There is no correct frontend workaround (the wire row
- * carries no real repoId to filter on); this needs a Go-side fix, out of
- * scope for this task and the closed backend plan.
- */
-export async function fetchFolders(projectId: string, repoId: string): Promise<FolderDTO[]> {
-  const rows = await apiFetch<ChatsFolderWireDTO[]>(`${repoBase(projectId, repoId)}/chats/folders`)
-  return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, repoId))
-}
-
-/**
- * The wire shape of one row GET .../repos/:r/chats returns — the conversation
- * half of the same `dto.AgentChatDTO` `.../chats/folders` serves the folder half
- * of. Only the fields a TREE row needs are declared: every runner-derived field
- * on that DTO (liveRunnerId, terminalSessionId, activeProviderId, telemetry) is
- * about a PROCESS, and the tree answers "does this exist", not "what is up right
- * now" (design spec §5.7 — the live half is Recents' question, off the workspace
- * store's own live chat list). `liveRunnerId` is declared only so the list can
- * seed the active-sessions store; it never reaches a tree row.
- */
-export interface RepoChatWireDTO {
-  id: string
-  liveRunnerId?: string
-  workspaceId: string
-  parentId: string
-  title: string
-  order: number
-  /** ISO creation time — the daemon's `order` tiebreak (tree.compareNodes),
-   *  so a level nobody has dragged draws in the sequence a drop is counted. */
-  createdAt?: string
-  /** The row's own kind. Always sent by the daemon (dto.AgentChatDTO.Type is
-   *  never omitted — "" is not a real ChatType), so an absent value here only
-   *  ever means a frame older than the field. */
-  type?: ChatType
-  /** The worktree this row HOLDS. Present iff `workspaceId` is non-empty — on
-   *  EVERY row carrying that workspace, not just the one that owns it. */
-  worktree?: ChatWorktreeDTO
-}
-
-/**
- * The one place a `ChatWorktreeDTO` becomes a `WorkspaceDTO`.
- *
- * Both the chat LIST (`workspaceDTOFromChat`) and the chat lifecycle STREAM
- * (`workspaceDTOFromWorktreeFrame`) carry the same nested object, so they map it
- * through here rather than each grounding the optionals their own way — the
- * sidebar merges a live frame over a seeded row field by field
- * (`build-repo-tree.ts`'s `toSidebarWorkspace`), and two mappings that disagree
- * on what an absent `prUrl` means would show up as a field that never clears.
- */
-function workspaceDTOFromWorktree(
-  worktree: ChatWorktreeDTO,
-  workspaceId: string,
-  projectId: string,
-  repoId: string,
-): WorkspaceDTO {
-  return {
-    id: workspaceId,
-    repoId,
-    projectId,
-    branch: worktree.branch ?? '',
-    parentId: worktree.parentId ?? '',
-    forkPointSha: worktree.forkPointSha ?? '',
-    status: worktree.status ?? 'new',
-    working: worktree.working ?? false,
-    lastError: worktree.lastError ?? '',
-    isDefault: worktree.isDefault ?? false,
-    added: worktree.added ?? 0,
-    deleted: worktree.deleted ?? 0,
-    mergeStrategy: worktree.mergeStrategy ?? '',
-    canMergeLocally: worktree.canMergeLocally ?? false,
-    mergeConflicts: worktree.mergeConflicts ?? false,
-    parentBranch: worktree.parentBranch ?? '',
-    prUrl: worktree.prUrl ?? '',
-    prTitle: worktree.prTitle ?? '',
-    prTargetBranch: worktree.prTargetBranch ?? '',
-    localPath: worktree.localPath ?? '',
-    heldByPath: worktree.heldByPath ?? '',
-    provisioning: worktree.provisioning,
-    owningChatId: worktree.owningChatId,
-    folderId: worktree.folderId ?? '',
-    order: worktree.order ?? 0,
-    createdAt: worktree.createdAt,
-  }
-}
-
-/**
- * One chat row -> the `WorkspaceDTO` for the worktree it OWNS, or null.
- *
- * Null covers all three ways a row is not a worktree's row: a bubble chat holds
- * none at all, a thread carries its parent's `worktree` object but is not the
- * row that owns it (`row.id !== worktree.owningChatId`), and a row with no
- * `workspaceId` has no id to key the workspace by. Mapping a whole chat list
- * through this therefore yields exactly one DTO per worktree, however many rows
- * share it.
- */
-export function workspaceDTOFromChat(
-  row: RepoChatWireDTO,
-  projectId: string,
-  repoId: string,
-): WorkspaceDTO | null {
-  const worktree = row.worktree
-  if (!worktree || worktree.owningChatId !== row.id || !row.workspaceId) return null
-  return workspaceDTOFromWorktree(worktree, row.workspaceId, projectId, repoId)
-}
-
-/** One frame of the chat lifecycle feed (`AgentChatEvent`), as far as the
- *  worktree half is concerned. Every other kind rides the same socket. */
-interface WorktreeStateFrame {
-  chatId?: string
-  workspaceId?: string
-  kind?: string
-  /**
-   * The repo the frame's own row runs in (`AgentChatEvent.RepoID`). On a
-   * `worktree_state` frame this is authoritative, never derived: the daemon
-   * takes it straight off the workspace (`container.go`'s `pushChatWorktree` —
-   * "a worktree-owning row names its own repo outright"). Absent means the
-   * worktree has no repo AT ALL — the project-home worktree.
-   */
-  repoId?: string
-  worktree?: ChatWorktreeDTO
-}
-
-/**
- * A chat-stream frame -> a `WorkspaceDTO`, or null for every frame that is not
- * this chat's own worktree state IN THIS REPO.
- *
- * The chat sockets carry lifecycle EVENTS, not entity DTOs, and most kinds
- * (`turn_started`, `deleted`, `folder_created`, …) say nothing about a worktree.
- * The owning-row rule is the same one `workspaceDTOFromChat` applies to the
- * list: a thread of the owning chat gets `worktree_state` frames too, and
- * letting one through would write the workspace under the wrong chat's identity.
- *
- * The REPO rule is the second half, and `repoId` here is a caller's SCOPE, not
- * a fact about the frame — every caller passes the repo whose socket/route it
- * subscribed under, and this function stamps it onto the DTO it mints. So it
- * may only mint when the frame agrees that its worktree really is that repo's.
- *
- * A repo-scoped chats socket does NOT only carry that repo's frames: the daemon
- * holds a frame that knows its repo to exactly that repo, but deliberately fans
- * a frame with an EMPTY repo out to every subscriber (`container.go`'s
- * `matchRepoOrUnscoped`) so the live folder feed and root bubbles — rows that
- * genuinely have no repo — are not silently dropped. The project-home worktree
- * has no repo either, so its `worktree_state` reaches every repo's socket; each
- * one used to stamp its OWN repo id onto it and mint the home workspace as that
- * repo's workspace, producing one labelless `branch` row (its branch is '')
- * under every repo header, per project, the instant a home chat took a turn.
- * Live-reported twice. Never re-derive the row away downstream — the row must
- * not be constructible.
- */
-export function workspaceDTOFromWorktreeFrame(
-  raw: unknown,
-  projectId: string,
-  repoId: string,
-): WorkspaceDTO | null {
-  const frame = raw as WorktreeStateFrame | null
-  if (!frame || frame.kind !== 'worktree_state') return null
-  const worktree = frame.worktree
-  if (!worktree || !frame.workspaceId || worktree.owningChatId !== frame.chatId) return null
-  if ((frame.repoId ?? '') !== repoId) return null
-  return workspaceDTOFromWorktree(worktree, frame.workspaceId, projectId, repoId)
-}
-
-/** `RepoChatWireDTO` -> the sidebar's own `ChatDTO`, filling in the repo/project
- *  scope the wire row doesn't carry (the URL is the only place either is known —
- *  the same rule `folderDTOFromWire` follows). */
-export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId: string): ChatDTO {
-  return {
-    id: row.id,
-    repoId,
-    projectId,
-    type: row.type,
-    workspaceId: row.workspaceId ?? '',
-    // The SAME predicate `workspaceDTOFromChat` above uses to decide this row
-    // is the worktree's row, kept on the chat instead of only being spent
-    // deriving a separate `WorkspaceDTO`. `worktree` rides EVERY row holding
-    // the workspace (a thread carries its parent's), so `owningChatId` is the
-    // only thing that picks the owner out — see ChatDTO.ownsWorktree for why
-    // the answer has to travel with the chat rather than be re-joined later.
-    ownsWorktree: row.worktree?.owningChatId === row.id,
-    parentId: row.parentId,
-    title: row.title,
-    order: row.order ?? 0,
-    createdAt: row.createdAt,
-  }
-}
-
-/**
- * One repo's chat rows, in sidebar order.
- *
- * Genuinely repo-scoped, unlike `fetchFolders` above: the daemon's
- * `ListChatsInRepo` (api/internal/app/usecases/chat/repo_scope.go) resolves each
- * row's owning repo by walking its ancestry to the nearest provisioned workspace
- * and keeps only the rows that land in THIS repo. A row whose whole ancestry owns
- * no workspace resolves to no repo and is served to none — so a root bubble the
- * spec's §9.1 open question flags as unplaceable never arrives here at all,
- * rather than arriving in every repo's list at once.
- *
- * Stamping this call's own repoId/projectId onto the rows is therefore honest
- * here, where the same line in `fetchFolders` is the documented cross-repo bleed:
- * the server already guaranteed every row belongs to the repo in the URL.
- *
- * Live updates ride `folder-signal.ts`'s per-repo generation, which
- * `use-workspace-agent-chats-stream.ts` bumps on the structural chat frames
- * (created / deleted / title_set / moved) as well as the folder ones — one
- * signal, because chats and folders are ONE aggregate (`domain.Chat`) and one
- * tree.
- */
-export async function fetchRepoChats(
-  projectId: string,
-  repoId: string,
-  onRows?: (rows: readonly RepoChatWireDTO[]) => void,
-): Promise<ChatDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`${repoBase(projectId, repoId)}/chats`)
-  onRows?.(rows ?? [])
-  return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, repoId))
-}
-
-/**
- * One workspace, read through the CHAT that owns its worktree.
- *
- * Callers still hold only a wsId, so the owning chat is resolved from the scope
- * registry the sidebar records — and a missing one throws rather than guessing a
- * URL, the same contract `worktreeVerbBaseForWorkspace` keeps.
- */
-export async function fetchWorkspace(
-  projectId: string,
-  repoId: string,
-  wsId: string,
-): Promise<WorkspaceDTO> {
-  const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new OwningChatNotRecordedError(wsId)
-  const row = await apiFetch<RepoChatWireDTO>(`${repoBase(projectId, repoId)}/chats/${chatId}`)
-  const workspace = row ? workspaceDTOFromChat(row, projectId, repoId) : null
-  if (!workspace) throw new Error(`chat ${chatId} holds no worktree for workspace ${wsId}`)
-  return workspace
-}
-
-// The PROJECT-level home workspace, which is a different entity from a repo's
-// default branch: it rides no repo at all, so it appears in NO repo's chat list
-// and cannot be derived from one. This route stays as it is.
-export async function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
-  return apiFetch(`${projectBase(projectId)}/home`)
-}
-
-/**
- * The project-home workspace's own chat rows and folders, in sidebar order.
- *
- * Same wire shapes as a repo's `/chats` and `/chats/folders` (the daemon
- * mounts the SAME `chathandlers.Handlers` at both routes — see
- * `api/internal/api/v0/endpoints/home/routes.go`), just with no `repoId` to
- * stamp: `''` is the sentinel every home-scoped `ChatDTO`/`FolderDTO` carries,
- * matching `WorkspaceDTO.repoId` for the home workspace itself.
- */
-export async function fetchHomeChats(
-  projectId: string,
-  onRows?: (rows: readonly RepoChatWireDTO[]) => void,
-): Promise<ChatDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`${projectBase(projectId)}/home/chats`)
-  onRows?.(rows ?? [])
-  return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, ''))
-}
-
-export async function fetchHomeFolders(projectId: string): Promise<FolderDTO[]> {
-  const rows = await apiFetch<ChatsFolderWireDTO[]>(`${projectBase(projectId)}/home/chats/folders`)
-  return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, ''))
-}
-
 // ---------------------------------------------------------------------------
-// Hierarchical WRITE API (§3/§7) — every mutation is fire-and-forget: the
-// daemon answers 202 Accepted with an empty body and the real entity (with its
-// status transitions) arrives over the scoped WS broadcaster. Callers therefore
-// await the WS DTO for navigation, never an id from these calls.
+// Hierarchical WRITE API (§3/§7). Creates and deletes answer 202 with an operation (whenSettled).
 // ---------------------------------------------------------------------------
 
-export function postProject(name: string, path: string, hostId: string): Promise<void> {
-  return apiFetch(
+/** Create a project on `hostId`: it is not in the project list yet, so no row can name its host. */
+export function postProject(
+  name: string,
+  path: string,
+  opId: string,
+  hostId: string,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(
     '/v0/projects',
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': opId },
       body: JSON.stringify({ name, path }),
     },
     undefined,
@@ -641,10 +56,15 @@ export function postProject(name: string, path: string, hostId: string): Promise
   )
 }
 
-export async function postRepo(projectId: string, name: string, path: string): Promise<void> {
-  return apiFetch(`${projectBase(projectId)}/repos`, {
+export async function postRepo(
+  projectId: string,
+  name: string,
+  path: string,
+  opId: string,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(`${projectBase(projectId)}/repos`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': opId },
     body: JSON.stringify({ name, path }),
   })
 }
@@ -660,10 +80,7 @@ export async function renameRepo(projectId: string, repoId: string, name: string
   })
 }
 
-/**
- * Rename a project. The renamed ProjectDTO arrives on the projects WS stream, so
- * no caller patches its own cache from this — same contract as renameRepo.
- */
+// Rename a project; the renamed ProjectDTO arrives on the projects stream, as with renameRepo.
 export async function renameProject(projectId: string, name: string): Promise<void> {
   return apiFetch(projectBase(projectId), {
     method: 'PATCH',
@@ -673,18 +90,20 @@ export async function renameProject(projectId: string, name: string): Promise<vo
 }
 
 /** Delete a project, and with it every repo and workspace inside. */
-export async function deleteProject(projectId: string, init?: RequestInit): Promise<void> {
-  return apiFetch(projectBase(projectId), { method: 'DELETE', ...init })
+export async function deleteProject(
+  projectId: string,
+  opId: string,
+  init?: RequestInit,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(projectBase(projectId), {
+    method: 'DELETE',
+    ...init,
+    headers: { ...init?.headers, 'Idempotency-Key': opId },
+  })
 }
 
-/**
- * Set (or clear) a workspace's lock.
- *
- * `locked` null is the third state, not a synonym for false: it drops the user's
- * override and hands the question back to the provider, so a branch goes back to
- * being locked exactly when it is protected. Automatic locking is unaffected
- * either way — this only decides whether the user is overruling it.
- */
+// Set or clear a workspace's lock. `null` is a third state, not false: it drops the user's
+// override so the branch is locked exactly when it is protected. Automatic locking is unaffected.
 export function setWorkspaceLock(wsId: string, locked: boolean | null): Promise<void> {
   return apiFetch(`${worktreeVerbBaseForWorkspace(wsId)}/lock`, {
     method: 'POST',
@@ -699,52 +118,40 @@ export async function getRepoPullRequests(projectId: string, repoId: string): Pr
   return apiFetch<PRLink[]>(`${repoBase(projectId, repoId)}/pull-requests`)
 }
 
-// Batch-import branches as chats holding a worktree each. The daemon PR-parents
-// each branch under the row for its open PR's base and creates missing ancestors
-// (the whole tree). Resolves on 202-accept; the created rows arrive on the
-// workspaces WS stream.
-//
-// It is a route of its own rather than a loop over POST .../chats, which adopts
-// ONE named branch: only this one resolves the PR graph ACROSS a set, creates
-// the ancestors a branch is parented under, and falls back to a placeholder row
-// for a branch another worktree already holds. Driving it per-branch would drop
-// all three silently.
+// Batch-import branches as chats holding a worktree each; answers 202 with one operation item per
+// branch (named by its caller-minted chat id); `lock` creates it locked. Not a loop over POST
+// .../chats: only this resolves PR parents across the set, creates ancestors, and placeholders.
 export async function importBranches(
   projectId: string,
   repoId: string,
-  branches: string[],
-): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}/chats/import-batch`, {
+  branches: { name: string; chatId: string; lock: boolean }[],
+  opId: string,
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(`${repoBase(projectId, repoId)}/chats/import-batch`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': opId },
     body: JSON.stringify({ branches }),
   })
 }
 
-// Remove a repository from the project, worktrees and all. The removed RepoDTO
-// and its workspaces' tombstones arrive on the entity streams; nothing here
-// writes the sidebar tree. This is the one removal the sidebar asks the user to
-// confirm — everything under the repo goes with it.
+// Remove a repository, worktrees and all; the RepoDTO and tombstones arrive on the entity streams.
+// The one removal the sidebar asks the user to confirm.
 export async function deleteRepo(
   projectId: string,
   repoId: string,
+  opId: string,
   init?: RequestInit,
-): Promise<void> {
-  return apiFetch(repoBase(projectId, repoId), { method: 'DELETE', ...init })
+): Promise<OperationReply> {
+  return apiFetch<OperationReply>(repoBase(projectId, repoId), {
+    method: 'DELETE',
+    ...init,
+    headers: { ...init?.headers, 'Idempotency-Key': opId },
+  })
 }
 
-// Rename a worktree's branch, addressed through the CHAT that holds it — a
-// worktree verb like lock and merge, on the same repo-scoped chat prefix. The
-// daemon renames the git ref and nothing else: the directory is NOT relocated
-// any more, so a chat's cwd survives the rename. The updated worktree arrives on
-// the chat stream, so — as with renameRepo — callers do not update the sidebar
-// store themselves. Answers synchronously: a refusal (name taken, worktree
-// locked, branch adopted, not provisioned) arrives as a 409 with a readable
-// message while the inline editor is still on screen.
-//
-// `projectId`/`repoId` stay on the signature for the callers that hold them;
-// the URL comes from the recorded scope, which is the only place the owning
-// chat is known.
+// Rename a worktree's branch through its owning chat, like lock and merge. Only the git ref changes
+// (the directory stays, so cwds survive); the worktree arrives on the chat stream. A refusal is a
+// readable 409 while the editor is up. The URL comes from the recorded scope; ids are unused.
 export function renameWorkspaceBranch(
   _projectId: string,
   _repoId: string,
@@ -758,6 +165,9 @@ export function renameWorkspaceBranch(
   })
 }
 
-export function fetchPrerequisites(): Promise<Prerequisites> {
-  return apiFetch('/v0/system/prerequisites')
+/** One tool's check, so each row shows as soon as its probe answers. */
+export function fetchPrerequisite<T extends keyof Prerequisites>(
+  tool: T,
+): Promise<Prerequisites[T]> {
+  return apiFetch(`/v0/system/prerequisites/${tool}`)
 }

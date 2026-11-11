@@ -1,10 +1,10 @@
 use serde_json::json;
-use tauri::{Emitter, Runtime, Webview};
+use tauri::{AppHandle, Emitter, Runtime, Webview};
 
 const TARGET: &str = "main";
 
-fn emit<R: Runtime>(webview: &Webview<R>, event: &str, payload: serde_json::Value) {
-    if let Err(e) = webview.emit_to(TARGET, event, payload) {
+fn emit<R: Runtime>(from: &impl Emitter<R>, event: &str, payload: serde_json::Value) {
+    if let Err(e) = from.emit_to(TARGET, event, payload) {
         log::warn!("browser: emit {event} failed: {e}");
     }
 }
@@ -31,4 +31,9 @@ pub fn loading<R: Runtime>(webview: &Webview<R>, id: &str, loading: bool) {
         "browser://loading",
         json!({ "id": id, "loading": loading }),
     );
+}
+
+/// The pane opens it as a tab: a native window would float outside the app, untracked.
+pub fn new_window<R: Runtime>(app: &AppHandle<R>, id: &str, url: &str) {
+    emit(app, "browser://new-window", json!({ "id": id, "url": url }));
 }

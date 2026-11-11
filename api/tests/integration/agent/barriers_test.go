@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
 	"github.com/gin-gonic/gin"
@@ -17,52 +18,23 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// This file holds the harness's SYNCHRONISATION seams. There are exactly two
-// things a test driving a real vendor CLI ever has to wait for, and neither of
-// them is an amount of time:
-//
-//   - The CLI told the daemon something. Every state this suite asserts on —
-//     a conversation bound, a runner moved by /clear, a turn appended to the
-//     ledger — is produced by the CLI shelling out to `crowbar hook`, which POSTs
-//     to the daemon. That POST is an EVENT, and hookBarrier turns it into one a
-//     test can block on (awaitHook).
-//
-//   - The CLI is showing us something. A modal to acknowledge, or the text we typed
-//     echoed back into its composer. Both are visible ON SCREEN, and kit.PTYTap turns
-//     the PTY into a signal (settleCLI, drive).
-//
-// The suite used to sleep for both, because it had neither seam: nudgeUntil
-// re-sampled the read model every 250ms while blindly firing Enter into the PTY
-// every 2s, and a bare time.Sleep(300ms) stood in for "the TUI has taken my
-// input". Those are guesses about how fast this machine is, and they are wrong
-// under load — which is exactly when the CI runs.
+// This file holds the harness's synchronisation seams. A test driving a real CLI
+// waits for two things, never an amount of time: the CLI telling the daemon
+// something (a hook POST, which hookBarrier turns into awaitHook), and the CLI
+// showing something on screen (kit.PTYTap, behind settleCLI and drive).
 
-// backstop bounds a wait so a failure is DIAGNOSED rather than left to hang until
-// `go test -timeout` kills the binary with no message. It is NOT a synchronisation
-// device: no barrier below ever waits for it on the happy path — each one returns
-// the instant its real signal arrives — and lengthening it can never make a passing
-// test pass "more" or a slow machine pass "differently".
-//
-// It is deliberately far larger than any legitimate wait. The slowest real thing
-// here is one model turn on a resumed codex, which must first finish booting the
-// MCP servers the user's own ~/.codex config declares (observed live at ~50s before
-// the turn is even dispatched) and then think. A bound has to clear that with room
-// to spare, or it stops being a bound on FAILURE and starts being a bound on the
-// vendor's mood — which is the very thing this rewrite exists to remove.
+// backstop bounds a wait so a failure is diagnosed rather than hung; no barrier
+// waits for it on the happy path. It clears the slowest real wait, a resumed
+// codex booting its MCP servers before a turn, with room to spare.
 const backstop = 5 * time.Minute
 
 // hookBarrier observes COMPLETED agent-hook requests: gin middleware fires it
-// after the handler chain for POST .../chats/hooks has returned.
+// after the handler chain for POST .../chats/runners/:segid/hooks/... has returned.
 //
 // "After" is the whole point, and it is why this is middleware rather than a hub
-// subscription. When the handler returns, IngestHook has already run to
-// completion on that goroutine: the reducer's outcome is committed (runner
-// commands are asynx SendWait) and any ledger turn is physically written to disk
-// — appendTurn is a synchronous file write inside IngestHook. So a test woken by
-// this edge can immediately READ the thing the hook produced, with no second race
-// to lose. A hub event would be the wrong seam: the hub is broadcast from inside
-// the fold, so a turn_stopped frame is emitted BEFORE the ledger append it
-// announces, and a test that read the ledger on it would race the write.
+// subscription. When the handler returns, the hook ingress has committed what
+// the hook recorded, or refused it, so a test woken by this edge can READ it at
+// once. A hub frame can be broadcast before the write it announces.
 type hookBarrier struct {
 	sig *kit.Signal
 }
@@ -75,7 +47,7 @@ func newHookBarrier() *hookBarrier {
 func (b *hookBarrier) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
-		if c.Request.Method == "POST" && strings.HasSuffix(c.FullPath(), "/chats/hooks") {
+		if c.Request.Method == "POST" && strings.HasSuffix(c.FullPath(), "/hooks/:provider/:event") {
 			b.sig.Fire()
 		}
 	}
@@ -242,12 +214,6 @@ func codexReady(
 // directory and thrown away with it, instead of accumulating one dead stanza per test
 // run in the user's own ~/.codex/config.toml and ~/.claude.json forever.
 //
-// (Isolating claude was long believed impossible because CLAUDE_CONFIG_DIR "breaks its
-// auth". It does not break it so much as RENAME it: claude derives its keychain service
-// name from the config dir, so moving the dir makes it look up an item that does not
-// exist. CLAUDE_SECURESTORAGE_CONFIG_DIR="" pins the lookup back to the real
-// credential. See kit.IsolateProviderHomes.)
-//
 // What matters HERE is only that isolation does not change the SHAPE of the first run:
 // a throwaway home trusts nothing, exactly like a never-before-seen repo path in a real
 // home, so the dialog still appears exactly once per provider per test. Every test here
@@ -392,15 +358,13 @@ func settleCLI(
 			if provider == "codex" && codexReady(tap) {
 				return sawReady, true
 			}
-			// Already bound == already past every modal — but ONLY for a provider
-			// whose PTY *is* its conversation. Not codex: under the api transport
-			// its runner is bound within a second by the app-server's own
-			// thread/started, while the PTY this tap watches is still sitting on
-			// its trust dialog. Accepting that here is how a codex got declared
-			// settled before it had read a single keystroke.
+			// Already announced == already past every modal — but ONLY for a
+			// provider whose PTY *is* its conversation. Not codex: under the api
+			// transport its app-server announces within a second, while the PTY
+			// this tap watches is still sitting on its trust dialog.
 			if provider == "claude" {
-				if r, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil &&
-					r.CurrentSession != "" {
+				if r, ok := runnerByID(h, runnerID); ok &&
+					announcedSession(h, r) != "" {
 					return sawBound, true
 				}
 			}
@@ -735,9 +699,9 @@ func spawnReady(
 	t.Helper()
 	ctx := context.Background()
 
-	chatID, runnerID, err := h.app.Usecases.AgentRunner.SpawnChat(ctx, wsID, provider)
+	chatID, runnerID, err := spawnChat(ctx, h, wsID, provider)
 	if err != nil {
-		t.Fatalf("spawnReady: SpawnChat(%s): %v", provider, err)
+		t.Fatalf("spawnReady: spawnChat(%s): %v", provider, err)
 	}
 	termSessID = liveRunnerTerminalSession(t, h, chatID)
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
@@ -807,16 +771,9 @@ func drive(
 	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("\r")), "drive: submit")
 }
 
-// awaitSessionBound blocks until runnerID has announced a native conversation —
-// the reducer's "bound" outcome, landed via the CLI's SessionStart hook — and
-// returns it with the runner row it read.
-//
-// It is keyed on the RUNNER because a runner id is minted at spawn and is stable
-// for the whole life of the process, INCLUDING across every conversation move it
-// makes: this one lookup keeps answering after a /clear has carried the CLI into
-// a different chat entirely. A dead runner reads as ErrNotFound rather than a
-// stale row, so a CLI that died on startup surfaces as "never bound" instead of
-// silently passing on a corpse.
+// awaitSessionBound blocks until runnerID's CLI has announced the session its
+// chat is bound to, and returns it with the runner row it read. A dead runner
+// reads as ErrNotFound, so a CLI that died on startup surfaces as "never bound".
 // A dead CLI can never bind, so awaitSessionBound watches the PTY as well as the
 // hook feed and fails the moment the process is gone — printing the screen it died
 // on. Without that, a CLI that exits on startup (a `--resume` against a session the
@@ -837,10 +794,10 @@ func awaitSessionBound(
 	var last agents.Runner
 	sid := kit.Await(t, ctx, "runner "+runnerID+" to bind a provider conversation", func() (string, bool) {
 		h.app.Repositories.WaitQuiescent()
-		if runner, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil {
+		if runner, ok := runnerByID(h, runnerID); ok {
 			last = runner
-			if runner.CurrentSession != "" {
-				return runner.CurrentSession, true
+			if sid := announcedSession(h, runner); sid != "" {
+				return sid, true
 			}
 		}
 		// The PTY id is passed in rather than read off the runner row, because the row
@@ -857,14 +814,29 @@ func awaitSessionBound(
 	return sid, last
 }
 
+// announcedSession is the session r's CLI has announced on its chat, "" until it
+// has. Claude is bound at launch, so its announcement shows as the model its
+// SessionStart reported; codex is bound by its announcement alone.
+func announcedSession(h *harness, r agents.Runner) string {
+	snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), r.CurrentChatID)
+	if err != nil {
+		return ""
+	}
+	c, ok := snap.Conversation()
+	if !ok || c.Provider != r.ProviderID || c.State != ledger.ConversationBound {
+		return ""
+	}
+	if r.ProviderID == "claude" && r.ReportedModel == "" {
+		return ""
+	}
+	return c.SessionID
+}
+
 // awaitAssistantReply blocks until the ledger holds an assistant turn from
 // provider whose text contains want, and returns every assistant turn seen.
 //
-// The signal is the CLI's own Stop hook: it POSTs, IngestHook writes the turn to
-// disk, and the handler returns — so by the time this predicate re-runs, the
-// .turn file is there to be read. That ordering is why the barrier is the
-// completed HTTP request and not the hub's turn_stopped frame, which is broadcast
-// from inside the fold, BEFORE the append it announces.
+// The signal is the CLI's own Stop hook: by the time its request returns, the
+// ingress has committed the reply, so the predicate re-run on it reads it.
 func awaitAssistantReply(
 	t *testing.T,
 	h *harness,
@@ -944,10 +916,10 @@ func awaitTurnComplete(
 			if len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), provider)) == 0 {
 				return false, false
 			}
-			chat, err := h.app.Usecases.AgentChat.GetChat(context.Background(), chatID)
+			snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), chatID)
 			if err != nil {
 				return false, false
 			}
-			return !chat.Working, !chat.Working
+			return !snap.Ledger.Busy, !snap.Ledger.Busy
 		})
 }

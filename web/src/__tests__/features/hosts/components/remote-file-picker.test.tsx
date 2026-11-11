@@ -3,8 +3,8 @@ import { StrictMode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
+vi.mock('@/lib/api/fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch: vi.fn(),
 }))
 // Counts every row drawn, to see which rows a key press draws again.
@@ -20,7 +20,8 @@ vi.mock('@/components/ui/tree-row', async (importOriginal) => {
   }
 })
 
-import { ApiError, apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { ApiError } from '@/lib/errors/api-error'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { RemoteFilePicker } from '@/features/hosts/components/remote-file-picker'
 import type { BrowseEntry } from '@/features/hosts/lib/browse'
@@ -85,7 +86,7 @@ beforeEach(() => {
   })
 })
 
-// I1: whatever happens in a test, no request ever leaves for a host it was not opened on.
+// Whatever happens in a test, no request ever leaves for a host it was not opened on.
 afterEach(() => {
   expect(requests.filter((r) => r.hostId !== 'h1' && r.hostId !== 'h2')).toEqual([])
 })
@@ -116,14 +117,6 @@ describe('RemoteFilePicker — browsing', () => {
     const names = screen.getAllByRole('treeitem').map((item) => item.textContent)
     expect(names).toEqual(['srv', 'home', 'notes.txt'])
     expect(requests).toEqual([{ hostId: 'h1', path: '/' }])
-  })
-
-  it('says it is loading while the first listing is on its way', async () => {
-    renderPicker()
-
-    expect(screen.getByText('Loading folders…')).toBeInTheDocument()
-    await answer('h1', '/', [dir('/home')])
-    expect(await findRow('home')).toBeInTheDocument()
   })
 
   it('lists a folder only when it is opened, and reopens it from what was listed', async () => {

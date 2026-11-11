@@ -1,11 +1,6 @@
-// Package shellenv resolves the user's login-shell PATH and applies it to the
-// daemon process. A daemon launched by macOS launchd (the packaged .app)
-// inherits a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin) that
-// misses Homebrew, npm, go and cargo install locations — so every bare-name
-// exec (gh, glab, language servers) and every spawned PTY child sees a
-// crippled environment. Resolving the login shell's PATH once at startup and
-// applying it process-wide fixes all of them in one place (the same approach
-// VS Code uses on macOS).
+// Package shellenv applies the user's login-shell PATH to the daemon process. A daemon
+// launched by launchd inherits a minimal PATH missing Homebrew, npm, go and cargo dirs,
+// so resolving it once at startup fixes every exec and PTY child in one place.
 package shellenv
 
 import (
@@ -13,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/user"
@@ -28,15 +24,9 @@ type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 // calls, prompts) must never block daemon startup.
 const resolveTimeout = 5 * time.Second
 
-// ApplyLoginShellPath resolves the login-shell PATH and applies it to the
-// process via os.Setenv, merged with (and taking precedence over) the current
-// PATH so no inherited entry is ever lost. It degrades gracefully: on any
-// resolution failure the current PATH is left untouched. Returns the PATH the
-// process ends up with.
-//
-// Setting the PROCESS PATH (not cmd.Env) matters: Go's exec.Command resolves
-// bare binary names against the process PATH at construction time — a PATH
-// placed only in cmd.Env is ignored for lookup.
+// ApplyLoginShellPath resolves the login-shell PATH and sets it on the process, merged
+// ahead of the current PATH, returning the result; on failure PATH is untouched. It sets
+// the process PATH because exec.Command looks binaries up there, not in cmd.Env.
 func ApplyLoginShellPath(ctx context.Context) string {
 	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
@@ -46,7 +36,10 @@ func ApplyLoginShellPath(ctx context.Context) string {
 		return os.Getenv("PATH")
 	}
 	merged := mergePaths(loginPath, os.Getenv("PATH"))
-	_ = os.Setenv("PATH", merged)
+	if err := os.Setenv("PATH", merged); err != nil {
+		slog.WarnContext(ctx, "shellenv: apply the login-shell PATH", "err", err)
+		return os.Getenv("PATH")
+	}
 	return merged
 }
 

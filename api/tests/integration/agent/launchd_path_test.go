@@ -41,7 +41,7 @@ func TestRegression_SpawnChatUnderLaunchdMinimalPath(t *testing.T) {
 			requireCLI(t, provider)
 
 			// The harness first, while PATH is still the developer's: it shells out to `go
-			// build` for the real crowbar hook binary, which needs the toolchain on PATH.
+			// build` for the real crowbar binary, which needs the toolchain on PATH.
 			// Only the SPAWN is put under launchd's PATH, which is the layer under test.
 			h := newHarness(t)
 			repoPath := kit.InitRepo(t)
@@ -51,14 +51,14 @@ func TestRegression_SpawnChatUnderLaunchdMinimalPath(t *testing.T) {
 			require.NotContains(t, os.Getenv("PATH"), ".local/bin",
 				"the repro requires a PATH that does NOT contain the CLI's install dir")
 
-			chatID, runnerID, err := h.app.Usecases.AgentRunner.SpawnChat(context.Background(), wsID, provider)
+			chatID, runnerID, err := spawnChat(context.Background(), h, wsID, provider)
 			require.NoError(t, err,
 				"the vendor CLI must still spawn under launchd's minimal PATH; a bare argv[0] fails here with "+
 					`"executable file not found in $PATH" — the error that surfaced as POST /chats 500`)
 			require.NotEmpty(t, chatID)
 			require.NotEmpty(t, runnerID)
 
-			// A live PTY exists, so the process genuinely came up — rather than SpawnChat
+			// A live PTY exists, so the process genuinely came up — rather than spawnChat
 			// merely recording a runner for a CLI that never started.
 			termSessID := liveRunnerTerminalSession(t, h, chatID)
 			require.NotEmpty(t, termSessID)

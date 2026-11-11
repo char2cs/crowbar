@@ -1,36 +1,15 @@
 import { useCallback } from 'react'
 import type { UploadChatAttachmentInput } from '@/features/agent/api/upload-chat-attachment'
 import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
-import { toast } from '@/features/window/stores/toast-store'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
+import { report, UNREACHED } from '@/lib/errors/report'
 
 export interface UseAttachmentUploadResult {
   uploadAndInsert: (input: UploadChatAttachmentInput) => Promise<void>
 }
 
-/**
- * The upload half of every attach entry point — drop, browse, the Attach
- * File modal — collapsed into one hook instead of three near-identical
- * try/catch/toast blocks (`agent-composer.tsx`, `attach-file-modal.tsx`, and
- * now `agent-empty-document.tsx`). Resolves CSV inline where it fits
- * (`uploadAttachmentMarkdown`), otherwise uploads and hands the resulting
- * markdown to `onInsert`; a failure is caught and toasted here rather than
- * left for a caller to notice a silently-unresolved promise.
- *
- * Callers that need extra bookkeeping around the call (attach-file-modal.tsx's
- * `uploading` state, an `onClose`) wrap the returned `uploadAndInsert`
- * themselves — `onInsert` only fires on success, so wrapping this in a
- * `finally` for local state is safe without duplicating the try/catch.
- *
- * `onInsertPendingImage`/`onSettlePendingImage`, when BOTH are supplied,
- * switch an image FILE (never a Tauri `{path}` — there are no client-side
- * bytes there to preview before the daemon reads the path itself) onto an
- * optimistic path instead: a local `URL.createObjectURL` preview goes in
- * immediately, and the upload resolves in the background — reported live as
- * "photos attachments are not loaded instantly... let's not wait for them."
- * `onInsert` never fires for this file; the placeholder is what carries it
- * through to its real ref (or removal, on failure) instead.
- */
+// Every attach entry point's upload: markdown goes to `onInsert` on success, a failure is reported
+// here, never rejected. With both pending-image callbacks, an image File (a host path has no bytes
+// to preview) shows a local preview at once and settles it instead of calling `onInsert`.
 export function useAttachmentUpload(
   wsId: string,
   chatId: string,
@@ -48,7 +27,7 @@ export function useAttachmentUpload(
           : null
 
       if (imageFile && insertPending && settlePending) {
-        // react-doctor-disable-next-line no-create-object-url-without-revoke -- revoked in chat-markdown-editor.tsx's settlePendingImageInto, which every branch below (success and catch) hands this same objectUrl to; the rule can't trace it across the settlePending callback boundary.
+        // react-doctor-disable-next-line no-create-object-url-without-revoke -- revoked in chat-attachment-insert.ts's settlePendingImageInto, which every branch below (success and catch) hands this same objectUrl to; the rule can't trace it across the settlePending callback boundary.
         const objectUrl = URL.createObjectURL(imageFile)
         insertPending(objectUrl, imageFile.name)
         try {
@@ -56,10 +35,7 @@ export function useAttachmentUpload(
           settlePending(objectUrl, markdown)
         } catch (err) {
           settlePending(objectUrl, null)
-          toast.error(
-            'Could not attach that file',
-            actionErrorMessage(err, 'Crowbar could not reach the daemon — try again.'),
-          )
+          report(err, { action: 'Could not attach that file', fallback: UNREACHED })
         }
         return
       }
@@ -68,10 +44,7 @@ export function useAttachmentUpload(
         const markdown = await uploadAttachmentMarkdown(wsId, chatId, input)
         onInsert(markdown)
       } catch (err) {
-        toast.error(
-          'Could not attach that file',
-          actionErrorMessage(err, 'Crowbar could not reach the daemon — try again.'),
-        )
+        report(err, { action: 'Could not attach that file', fallback: UNREACHED })
       }
     },
     [wsId, chatId, onInsert, onInsertPendingImage, onSettlePendingImage],

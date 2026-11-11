@@ -21,7 +21,7 @@ import (
 func TestGet_UnreportedChatIsUnknownNotZero(t *testing.T) {
 	t.Parallel()
 
-	s := telemetry.New()
+	s := telemetry.NewDurable(context.Background(), nil)
 
 	report, ok := s.Get("chat-1")
 
@@ -32,7 +32,7 @@ func TestGet_UnreportedChatIsUnknownNotZero(t *testing.T) {
 func TestSet_ReplacesRatherThanMerges(t *testing.T) {
 	t.Parallel()
 
-	s := telemetry.New()
+	s := telemetry.NewDurable(context.Background(), nil)
 	s.Set(context.Background(), "chat-1", engineagents.Telemetry{Source: "statusline", Model: &engineagents.ModelIdentity{ID: "opus"}})
 	s.Set(context.Background(), "chat-1", engineagents.Telemetry{Source: "jsonrpc"})
 
@@ -46,7 +46,7 @@ func TestSet_ReplacesRatherThanMerges(t *testing.T) {
 func TestForget_DropsOnlyThatChat(t *testing.T) {
 	t.Parallel()
 
-	s := telemetry.New()
+	s := telemetry.NewDurable(context.Background(), nil)
 	s.Set(context.Background(), "chat-1", engineagents.Telemetry{Source: "a"})
 	s.Set(context.Background(), "chat-2", engineagents.Telemetry{Source: "b"})
 
@@ -61,7 +61,7 @@ func TestForget_DropsOnlyThatChat(t *testing.T) {
 func TestForget_OfAnUnknownChatIsSilent(t *testing.T) {
 	t.Parallel()
 
-	telemetry.New().Forget(context.Background(), "never-seen")
+	telemetry.NewDurable(context.Background(), nil).Forget(context.Background(), "never-seen")
 }
 
 // Reports arrive on hook goroutines while the chats panel polls. Under -race a
@@ -69,7 +69,7 @@ func TestForget_OfAnUnknownChatIsSilent(t *testing.T) {
 func TestStore_IsSafeUnderConcurrentReportsAndReads(t *testing.T) {
 	t.Parallel()
 
-	s := telemetry.New()
+	s := telemetry.NewDurable(context.Background(), nil)
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	for i := range 32 {
@@ -105,9 +105,7 @@ func openStore(t *testing.T, path string) telemetry.Persistence {
 
 // A durable Store must recover a chat's last report from a FRESH construction
 // over the same backing store — this is what a daemon restart does: the
-// process-local map is gone, but NewDurable seeds a new one from disk. This is
-// the exact reproduction of the live bug: before this existed, telemetry.New()
-// was always empty on every construction, restart or not.
+// process-local map is gone, but NewDurable seeds a new one from disk.
 func TestNewDurable_RecoversReportsWrittenByAPriorStore(t *testing.T) {
 	t.Parallel()
 

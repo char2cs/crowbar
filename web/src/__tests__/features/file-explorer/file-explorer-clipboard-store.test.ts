@@ -20,10 +20,8 @@ beforeEach(async () => {
   await actions().clear()
 })
 
-// Paste used to resolve [] unconditionally (crowbar-bridge's clipboardPaste was
-// a `return []` stub behind a "FUTURE:" comment). Cmd+C/Cmd+X staged the
-// clipboard — Cut even greyed the node out — and then Cmd+V moved nothing, with
-// no error: the user was shown a completed move that never happened.
+// Paste completes the staged operation: a Cut that greys the node out and then moves nothing,
+// with no error, shows the user a move that never happened.
 describe('file clipboard paste', () => {
   it('copies each staged entry into the target directory', async () => {
     await actions().copy([{ path: 'src/a.ts', is_dir: false }], 'ws-1')

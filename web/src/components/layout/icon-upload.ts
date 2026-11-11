@@ -1,5 +1,5 @@
 import { LOCAL_HOST } from '@/features/hosts/types'
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { encodeMultipart, readDesktopFile } from '@/lib/desktop-file-upload'
 import { splitHostPath } from '@/lib/host-path'
 

@@ -19,16 +19,12 @@ import type { ReviewThread } from '@/features/workspace/stores/slices/branch-rev
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { clearReviewThreads, putReviewThread } from '@/__tests__/__fixtures__/review-threads'
+import { warmDiffHighlighter } from '@/__tests__/__fixtures__/diff-highlighter'
+
+await warmDiffHighlighter()
 
 /**
- * Task C of the windowed Branch Review renderer
- * (docs/superpowers/plans/2026-07-27-diff-perf-phase-3-renderer.md).
- *
- * Review threads stop being Monaco view zones and become `@pierre/diffs` line
- * annotations. The data layer does not move: threads still come from
- * `branchReview.threads`, kept live by the WS stream, and every write still goes
- * through `review-api.ts`. Only the HOST changed.
- *
  * Two things this file exists to pin down:
  *
  *  - the `old`/`new` ↔ `deletions`/`additions` side map, asserted LITERALLY and
@@ -72,10 +68,6 @@ vi.mock('@/features/git/api/review-window-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/git/api/review-window-api')>()
   return { ...actual, getReviewPatch: mocks.getReviewPatch }
 })
-
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
-}))
 
 // ── jsdom geometry ──────────────────────────────────────────────────
 //
@@ -252,9 +244,9 @@ function deepOutline(): FileOutline {
 // ── Harnesses ───────────────────────────────────────────────────────
 
 function seedStore(threads: readonly ReviewThread[]): WorkspaceStore {
-  const store = createWorkspaceStore('ws-1')
-  for (const thread of threads) store.getState().upsertReviewThread(thread)
-  return store
+  clearReviewThreads()
+  for (const thread of threads) putReviewThread('ws-1', thread)
+  return createWorkspaceStore('ws-1')
 }
 
 function renderLayer(threads: readonly ReviewThread[] = []) {
@@ -289,25 +281,22 @@ function shadowText(container: HTMLElement): string {
     .join('\n')
 }
 
+// jsdom has no Worker, so the deep file's ~1.5s of tokenising is main-thread CPU.
+const DEEP_RENDER = { timeout: 20_000 }
+
 /** Block until a CODE marker reaches the DOM — never merely until text exists. */
-async function waitForCode(container: HTMLElement, marker: string): Promise<void> {
+async function waitForCode(container: HTMLElement, marker: string, timeout = 5_000): Promise<void> {
   await waitFor(
     () => {
       expect(shadowText(container), `code rows for ${marker} have not rendered`).toContain(marker)
     },
-    { timeout: 5_000 },
+    { timeout },
   )
 }
 
-/**
- * The annotation slots the renderer actually opened, read from the SHADOW side.
- *
- * The light-DOM `<div slot="annotation-…">` is portalled for every annotation on
- * an item whether or not its line exists, and an unassigned one simply never
- * renders. So the honest question — is this thread anchored to a line? — is
- * answered by the `<slot name="annotation-…">` inside the shadow root, which the
- * renderer emits only next to a line it drew.
- */
+/** The annotation slots the renderer opened, read from the shadow root: it emits a
+ *  `<slot name="annotation-…">` only beside a line it drew, while the light-DOM
+ *  slotted div is portalled for every annotation whether or not its line exists. */
 function projectedAnnotationSlots(container: HTMLElement): string[] {
   return [...container.querySelectorAll('diffs-container')].flatMap((host) =>
     [
@@ -345,10 +334,6 @@ describe('threadToAnnotation / annotationToThread', () => {
     expect(annotation.lineNumber).toBe(42)
     expect(annotation.side).toBe('additions')
     expect(annotation.metadata).toBe(thread)
-  })
-
-  it('places an old-side thread on the deletions half', () => {
-    expect(threadToAnnotation(makeThread({ side: 'old' })).side).toBe('deletions')
   })
 
   it('round-trips a thread through an annotation and back, on both sides', () => {
@@ -599,14 +584,14 @@ describe('ReviewCodeView thread annotations', () => {
     expect(projectedAnnotationSlots(container)).toContain('annotation-deletions-2')
   })
 
-  it('picks up a thread that arrives after mount, as the WS stream delivers it', async () => {
-    const { container, store } = renderSurface([textFile(0)], [textOutline(0)])
+  it('picks up a thread that arrives after mount, as the stream delivers it', async () => {
+    const { container } = renderSurface([textFile(0)], [textOutline(0)])
 
     await waitForCode(container, markerOf(0))
     expect(projectedAnnotationSlots(container)).toHaveLength(0)
 
     act(() => {
-      store.getState().upsertReviewThread(makeThread({ filePath: pathOf(0), lineNumber: 2 }))
+      putReviewThread('ws-1', makeThread({ filePath: pathOf(0), lineNumber: 2 }))
     })
 
     await waitFor(() => {
@@ -640,7 +625,7 @@ describe('ReviewCodeView thread annotations', () => {
     expect(projectedAnnotationSlots(container)).toHaveLength(0)
   })
 
-  it("materialises a thread's file BEFORE scrolling to its line", async () => {
+  it("materialises a thread's file BEFORE scrolling to its line", DEEP_RENDER, async () => {
     // The whole point: `scrollTo({type:"line"})` against a placeholder resolves
     // no line at all and quietly does nothing. Reaching the 1,500th line of a
     // file whose patch had failed proves both halves happened, in order.
@@ -667,7 +652,7 @@ describe('ReviewCodeView thread annotations', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '1 comment' }))
 
-    await waitForCode(container, DEEP_MARKER)
+    await waitForCode(container, DEEP_MARKER, DEEP_RENDER.timeout)
     expect(fetchesOf(DEEP_FILE)).toBeGreaterThan(1)
   })
 })

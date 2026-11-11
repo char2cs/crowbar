@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The project-home level is ONE list of repo headers and home chats/folders.
@@ -30,7 +31,7 @@ func newHomeLevelFixture(t *testing.T) (*mocks.RepositoryStore, *mocks.NodePlace
 		{ID: "home-ws-B", ProjectID: "pB", Kind: domain.WorkspaceKindHome},
 	}
 	homeChats := mocks.NewAgentChatPlacements()
-	uc := project.New(mocks.NewProjectStore(), repos, workspaces, folders, nodes, homeChats, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, folders, nodes, homeChats)
 	require.NoError(t, repos.Save(context.Background(), domain.Repository{ID: "repo-A", ProjectID: "pA"}))
 	return repos, nodes, homeChats, folders, uc
 }
@@ -41,13 +42,13 @@ func TestRegression_UpdateRepo_NeverRenumbersAWorkspaceAnchorSharingTheRoot(t *t
 		{ID: "owner", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, OwnsWorkspace: true},
 		{ID: "c1", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(1, 0)},
 	}
-	nodes.Rows = []domain.Node{
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "locked-main", Kind: domain.NodeKindWorkspace, Order: 0},
-		{ID: "c1", Kind: domain.NodeKindChat, Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "repo-A", Kind: tree.KindRepo, Order: 0},
+		{ID: "locked-main", Kind: tree.KindWorkspace, Order: 0},
+		{ID: "c1", Kind: tree.KindChat, Order: 1},
 	}
 
-	_, err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(1)})
+	err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(1)})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, nodeRow(t, nodes, "c1").Order)
@@ -71,9 +72,9 @@ func TestRegression_UpdateRepo_PassesANodelessHomeChat(t *testing.T) {
 		{ID: "c1", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(1, 0)},
 		{ID: "c2", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(2, 0)},
 	}
-	nodes.Rows = []domain.Node{{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0}}
+	nodes.Rows = []tree.Node{{ID: "repo-A", Kind: tree.KindRepo, Order: 0}}
 
-	_, err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(1)})
+	err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(1)})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, nodeRow(t, nodes, "c1").Order, "c1 keeps the front")
@@ -86,19 +87,19 @@ func TestRegression_UpdateRepo_PassesANodelessHomeChat(t *testing.T) {
 
 func TestRegression_UpdateRepo_IgnoresAnotherProjectsHomeFolder(t *testing.T) {
 	_, nodes, _, folders, uc := newHomeLevelFixture(t)
-	folders.Saved = []domain.Folder{
+	folders.Saved = []tree.Folder{
 		{ID: "folder-A", RepoID: "", HomeID: "home-ws-A"},
 		{ID: "folder-B", RepoID: "", HomeID: "home-ws-B"},
 		{ID: "repo-folder", RepoID: "repo-A"},
 	}
-	nodes.Rows = []domain.Node{
-		{ID: "folder-A", Kind: domain.NodeKindFolder, Order: 0},
-		{ID: "folder-B", Kind: domain.NodeKindFolder, Order: 0},
-		{ID: "repo-folder", Kind: domain.NodeKindFolder, Order: 0},
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 1},
+	nodes.Rows = []tree.Node{
+		{ID: "folder-A", Kind: tree.KindFolder, Order: 0},
+		{ID: "folder-B", Kind: tree.KindFolder, Order: 0},
+		{ID: "repo-folder", Kind: tree.KindFolder, Order: 0},
+		{ID: "repo-A", Kind: tree.KindRepo, Order: 1},
 	}
 
-	_, err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(0)})
+	err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(0)})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, nodeRow(t, nodes, "repo-A").Order)
@@ -118,13 +119,13 @@ func TestRegression_UpdateRepo_CountsAChatFiledUnderAGhostParent(t *testing.T) {
 		{ID: "ghost-filed", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, ParentID: "retired-folder", CreatedAt: time.Unix(1, 0)},
 		{ID: "c2", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(2, 0)},
 	}
-	nodes.Rows = []domain.Node{
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 1},
-		{ID: "c2", Kind: domain.NodeKindChat, Order: 2},
+	nodes.Rows = []tree.Node{
+		{ID: "repo-A", Kind: tree.KindRepo, Order: 1},
+		{ID: "c2", Kind: tree.KindChat, Order: 2},
 	}
 
 	// Drawn [ghost-filed, repo-A, c2]; the repo to the very top.
-	_, err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(0)})
+	err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(0)})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, nodeRow(t, nodes, "repo-A").Order)
@@ -144,16 +145,16 @@ func TestRegression_UpdateRepo_LeavingTheRootDensifiesTheWholeLevel(t *testing.T
 		{ID: "c1", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(1, 0)},
 		{ID: "c2", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(2, 0)},
 	}
-	folders.Saved = []domain.Folder{{ID: "F", RepoID: "", HomeID: "home-ws-A"}}
-	nodes.Rows = []domain.Node{
-		{ID: "c1", Kind: domain.NodeKindChat, Order: 0},
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 1},
-		{ID: "c2", Kind: domain.NodeKindChat, Order: 2},
-		{ID: "repo-B", Kind: domain.NodeKindRepo, Order: 3},
-		{ID: "F", Kind: domain.NodeKindFolder, Order: 4},
+	folders.Saved = []tree.Folder{{ID: "F", RepoID: "", HomeID: "home-ws-A"}}
+	nodes.Rows = []tree.Node{
+		{ID: "c1", Kind: tree.KindChat, Order: 0},
+		{ID: "repo-A", Kind: tree.KindRepo, Order: 1},
+		{ID: "c2", Kind: tree.KindChat, Order: 2},
+		{ID: "repo-B", Kind: tree.KindRepo, Order: 3},
+		{ID: "F", Kind: tree.KindFolder, Order: 4},
 	}
 
-	_, err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{FolderID: name("F"), Order: index(0)})
+	err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{FolderID: name("F"), Order: index(0)})
 	require.NoError(t, err)
 
 	assert.Equal(t, "F", nodeRow(t, nodes, "repo-A").ParentID)
@@ -173,13 +174,13 @@ func TestRegression_UpdateRepo_SiblingRepoFiledInAFolderIsNotReminted(t *testing
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-B", ProjectID: "pA"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-C", ProjectID: "pA"}))
-	nodes.Rows = []domain.Node{
-		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
-		{ID: "repo-C", Kind: domain.NodeKindRepo, Order: 1},
-		{ID: "repo-B", Kind: domain.NodeKindRepo, ParentID: "f1", Order: 0},
+	nodes.Rows = []tree.Node{
+		{ID: "repo-A", Kind: tree.KindRepo, Order: 0},
+		{ID: "repo-C", Kind: tree.KindRepo, Order: 1},
+		{ID: "repo-B", Kind: tree.KindRepo, ParentID: "f1", Order: 0},
 	}
 
-	_, err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(1)})
+	err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(1)})
 	require.NoError(t, err)
 	assert.Equal(t, "f1", nodeRow(t, nodes, "repo-B").ParentID,
 		"a repo filed in a folder must not be dragged to the root by a sibling's reorder")

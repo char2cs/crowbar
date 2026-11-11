@@ -224,6 +224,17 @@ describe('SidebarSplitPane retained layout and keyboard behavior', () => {
     expect(screen.getByTestId('sidebar-child')).toBe(sidebarBefore)
   })
 
+  // In a window too narrow to share, the open sidebar lies over the content; a tap beside it
+  // closes it, as a drawer does.
+  it('offers a scrim that closes the sidebar while it is open, and none once closed', () => {
+    const { props, rerender, onOpenChange } = renderSplit()
+    fireEvent.click(screen.getByRole('button', { name: 'Close sidebar' }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    rerender(<SidebarSplitPane {...props} open={false} />)
+    expect(screen.queryByRole('button', { name: 'Close sidebar' })).not.toBeInTheDocument()
+  })
+
   it('supports physical arrow keys on either side and Enter to collapse', () => {
     const left = renderSplit()
     fireEvent.keyDown(left.handle, { key: 'ArrowRight' })
@@ -235,5 +246,30 @@ describe('SidebarSplitPane retained layout and keyboard behavior', () => {
     expect(right.onWidthCommit).toHaveBeenCalledWith(284)
     fireEvent.keyDown(right.handle, { key: 'Enter' })
     expect(right.onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+// Laid over the content (a narrow window, its scrim shown), the sidebar is an overlay, and
+// Esc dismisses an overlay. Docked beside the content (scrim hidden by CSS) Esc leaves it be.
+describe('SidebarSplitPane Esc', () => {
+  it('closes the sidebar while it covers the content', () => {
+    const { onOpenChange } = renderSplit()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('leaves a docked sidebar open', () => {
+    const { onOpenChange } = renderSplit()
+    screen.getByRole('button', { name: 'Close sidebar', hidden: true }).style.display = 'none'
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('leaves it open when something on top already took the Esc', () => {
+    const { onOpenChange } = renderSplit()
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+    event.preventDefault()
+    window.dispatchEvent(event)
+    expect(onOpenChange).not.toHaveBeenCalled()
   })
 })

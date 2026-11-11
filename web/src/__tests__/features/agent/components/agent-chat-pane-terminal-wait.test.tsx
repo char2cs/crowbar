@@ -1,202 +1,111 @@
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
-import { reportChannelState } from '@/lib/ws/connection-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { createElement } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-const { getChatFn, listMessagesFn, slashCatalogFn, switchToTerminalFn } = vi.hoisted(() => ({
-  getChatFn: vi.fn(),
-  listMessagesFn: vi.fn(),
+const { slashCatalogFn, switchToTerminalFn, switchToNativeFn } = vi.hoisted(() => ({
   slashCatalogFn: vi.fn(),
   switchToTerminalFn: vi.fn(),
+  switchToNativeFn: vi.fn(),
 }))
 
-vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({}),
-}))
-
-// The 44px header-clearance assertion below is a macOS value — force it
-// rather than depend on whatever navigator.userAgent the test happens to run
-// on (jsdom's UA bakes in the CI runner's own host platform, which is Linux
-// on GitHub Actions).
+// The header clearance below is a macOS value; jsdom's UA is the runner's own platform.
 vi.mock('@/utils/platform', () => ({ IS_MAC: true, IS_MOBILE: false, APPLE_KEYBOARD: true }))
 
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => {
-  // Partial: the module also exports the TERMINAL_WAIT_* constants the banner
-  // reads, and stubbing those away would make it silently take its fallback
-  // wording on every render — a green test over a broken banner.
-  const actual = await importOriginal<typeof import('@/features/agent/api/agent-api')>()
-  return {
-    ...actual,
-    getChat: (...a: unknown[]) => getChatFn(...a),
-    switchProvider: vi.fn(),
-    resumeChat: vi.fn(),
-    listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
-    submitAgentPrompt: vi.fn(),
-    getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
-    switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
-  }
-})
-
-vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({ saveReconnect: vi.fn() }))
-vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn() } }))
+import { chatPane, renderChatPane, stubPaneChrome } from '@/__tests__/__fixtures__/agent-pane'
+stubPaneChrome()
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'switchProvider').mockImplementation(vi.fn())
+vi.spyOn(commandsApi, 'resumeChat').mockImplementation(vi.fn())
+vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(vi.fn())
+vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
+vi.spyOn(commandsApi, 'switchToNative').mockImplementation(switchToNativeFn)
 
 // jsdom cannot run xterm/WebGL. The marker records the visibility props the pane
 // threads down, which is how "the terminal surface is the selected one" is proven
 // without reading a class name.
-vi.mock('@/features/terminal/components/lazy-terminal', () => ({
-  LazyXtermTerminal: ({ sessionId, isVisible }: { sessionId: string; isVisible?: boolean }) =>
+import * as lazyTerminalMod from '@/features/terminal/components/lazy-terminal'
+vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
+  ({ sessionId, isVisible }: { sessionId: string; isVisible?: boolean }) =>
     createElement('div', {
       'data-testid': 'xterm',
       'data-session-id': sessionId,
       'data-visible': String(isVisible),
     }),
-}))
+)
 
-vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
-  ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
-}))
-
-import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { chatStore } from '@/features/agent/stores/chat-store'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
-import { nextVersion, seedChats, setChatTerminalWait } from '@/__tests__/__fixtures__/agent-chat'
+import {
+  chatSnapshot,
+  provider,
+  resetChatStore,
+  seedChats,
+  setChatTerminalWait,
+  setProviders,
+  writeChat,
+} from '@/__tests__/__fixtures__/agent-chat'
 
-const providers: AgentProvider[] = [
-  {
-    id: 'claude',
-    displayName: 'Claude',
-    icon: '<svg/>',
-    connected: true,
-    enabled: true,
-    mcpEnabled: true,
-    // These tests move the SAME provider between chat/terminal via chooseSurface,
-    // which is now capability-gated: hotswap:true is what keeps that move
-    // synchronous (claude's terminal is already live) rather than routing
-    // through switchToTerminal/switchToNative, which a non-hotswap provider
-    // needs instead.
-    hotswap: true,
-    modelSelect: false,
-    effortSelect: false,
-    compaction: false,
-    hasTerminal: true,
-    terminalStartHere: false,
-  },
-]
+// Hotswap keeps a chat/terminal move synchronous; without it the move goes
+// through switchToTerminal first.
+const providers = [provider('claude', 'Claude')]
 
 function liveChat(wait?: { kind: string }): AgentChat {
-  return {
+  return chatSnapshot({
     id: 'c1',
-    workspaceId: 'w1',
     title: 'Chat c1',
     liveRunnerId: 'r1',
     terminalSessionId: 'pty-1',
     activeProviderId: 'claude',
-    working: false,
-    version: nextVersion(),
     phase: 'dormant',
-    createdAt: '',
-    order: 0,
     terminalWait: wait,
-  }
-}
-
-function seed(wait?: { kind: string }) {
-  const store = createWorkspaceStore('w1')
-  store.getState().setAgentProviders(providers)
-  seedChats(store, [liveChat(wait)])
-  return store
-}
-
-type Store = ReturnType<typeof seed>
-
-// A non-hotswap api-transport provider (codex: attach declared, hotswap
-// false). Its terminal is not already live the way claude's is — reaching it
-// has to go through switchToTerminal first — so a chat on this provider has
-// no terminalSessionId until that call succeeds.
-const nonHotswapProviders: AgentProvider[] = [
-  {
-    id: 'codex',
-    displayName: 'Codex',
-    icon: '<svg/>',
-    connected: true,
-    enabled: true,
-    mcpEnabled: true,
-    hotswap: false,
-    modelSelect: false,
-    effortSelect: false,
-    compaction: false,
-    hasTerminal: true,
-    terminalStartHere: false,
-  },
-]
-
-function nonHotswapChat(wait?: { kind: string }): AgentChat {
-  return {
-    id: 'c1',
-    workspaceId: 'w1',
-    title: 'Chat c1',
-    liveRunnerId: 'r1',
-    terminalSessionId: '',
-    activeProviderId: 'codex',
-    working: false,
-    version: nextVersion(),
-    phase: 'dormant',
-    createdAt: '',
-    order: 0,
-    terminalWait: wait,
-  }
-}
-
-function seedNonHotswap(wait?: { kind: string }) {
-  const store = createWorkspaceStore('w1')
-  store.getState().setAgentProviders(nonHotswapProviders)
-  seedChats(store, [nonHotswapChat(wait)])
-  return store
-}
-
-/** Render the pane directly rather than through a buffer: these tests are about
- *  the surface the pane SELECTS, and the three visibility axes are exactly the
- *  props under test — so they have to be settable one at a time. */
-async function renderPane(
-  store: Store,
-  opts: { isActivePane?: boolean; isVisible?: boolean; belowOverlayHeader?: boolean } = {},
-) {
-  const result = await act(async () =>
-    render(
-      createElement(
-        WorkspaceStoreContext.Provider,
-        { value: store },
-        createElement(AgentChatPane, {
-          chatId: 'c1',
-          runnerId: 'r1',
-          wsId: 'w1',
-          paneId: 'b1',
-          isActivePane: opts.isActivePane ?? true,
-          isVisible: opts.isVisible ?? true,
-          belowOverlayHeader: opts.belowOverlayHeader ?? false,
-        }),
-      ),
-    ),
-  )
-  return result
-}
-
-/** Raise or clear the daemon's verdict the way the WS frame does. */
-async function setWait(store: Store, wait: { kind: string } | null) {
-  await act(async () => {
-    setChatTerminalWait(store, 'c1', wait)
   })
 }
 
-/** Which surface is showing, read off `hidden` on `agent-chat-surface` rather than the
- *  switcher tab's `aria-selected`: the blank chat's switcher copy is not on screen while a
- *  signpost occupies its slot, and the terminal's own copy is the thing under test. */
+function seedOne(list: AgentProvider[], chat: AgentChat) {
+  setProviders(list)
+  seedChats([chat])
+  return createWorkspaceStore('w1')
+}
+const seed = (wait?: { kind: string }) => seedOne(providers, liveChat(wait))
+
+// A non-hotswap provider has no live terminal until switchToTerminal succeeds.
+const nonHotswapProviders = [provider('codex', 'Codex', { hotswap: false })]
+
+const nonHotswapChat = (wait?: { kind: string }): AgentChat => ({
+  ...liveChat(wait),
+  terminalSessionId: '',
+  activeProviderId: 'codex',
+})
+
+const seedNonHotswap = (wait?: { kind: string }) =>
+  seedOne(nonHotswapProviders, nonHotswapChat(wait))
+
+const renderPane = renderChatPane
+
+/** A tab the user looked at, then left: its chat is open, its pane hidden. */
+async function renderLeft(store: ReturnType<typeof seed>) {
+  const view = await renderPane(store)
+  await act(async () => view.rerender(chatPane(store, { isVisible: false })))
+}
+
+/** Raise or clear the daemon's verdict the way the WS frame does. */
+async function setWait(wait: { kind: string } | null) {
+  await act(async () => {
+    setChatTerminalWait('c1', wait)
+  })
+}
+
+/** Which surface is showing: the pane hides one via `hidden` on the chat surface;
+ *  the blank chat's switcher is not on screen while a signpost holds its slot. */
 const showing = () =>
   (screen.getByTestId('agent-chat-surface').className.includes('hidden') ? 'terminal' : 'chat') as
     'chat' | 'terminal'
@@ -206,25 +115,27 @@ const showing = () =>
 const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 
 beforeEach(() => {
-  reportChannelState('test://daemon', true, 'local')
   resetChatPresentationMemoryForTests()
+  resetChatStore()
   // The wait banner is about a chat that is on the Chat surface.
   useSettingsStore.setState({
     settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: true },
   })
-  getChatFn.mockReset()
-  listMessagesFn.mockReset()
   slashCatalogFn.mockReset()
   switchToTerminalFn.mockReset()
-  switchToTerminalFn.mockResolvedValue('term-session-1')
-  listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+  // Each switch's answer is the daemon's frame moving the chat's surface.
+  switchToTerminalFn.mockImplementation(async () => {
+    writeChat({ id: 'c1', surface: 'terminal', terminalSessionId: 'term-session-1' })
+    return 'term-session-1'
+  })
+  switchToNativeFn.mockReset()
+  switchToNativeFn.mockImplementation(async () => writeChat({ id: 'c1', surface: undefined }))
   slashCatalogFn.mockResolvedValue({
     providerId: 'claude',
     completeness: 'model_visible',
     items: [],
     warnings: [],
   })
-  getChatFn.mockImplementation(() => Promise.resolve({ ...liveChat(), conversations: [] }))
   useTerminalStore.setState({ sessions: new Map() })
   localStorage.clear()
   setActiveWorkspaceId('w1')
@@ -232,152 +143,67 @@ beforeEach(() => {
 
 describe('AgentChatPane — waiting in the terminal', () => {
   // ── THE HEADLINE ───────────────────────────────────────────────────
-  // The user's bug: the CLI is parked on a dialog no hook reports, the chat pane
-  // shows nothing at all, and Crowbar looks broken. Both halves of the answer are
-  // asserted here — the chat SAYS what is happening, and the user is taken to the
-  // one place it can be dealt with.
-  it('says what the agent is waiting on and takes the user to the terminal', async () => {
+  // The CLI is parked on a dialog no hook reports: the chat SAYS what is happening
+  // and offers the way to the terminal, but the surface is the person's to change.
+  it('says what the agent is waiting on and leaves the surface to the user', async () => {
     const store = seed()
     await renderPane(store)
     expect(showing()).toBe('chat')
 
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     expect(screen.getByTestId('agent-terminal-wait')).toHaveTextContent(
       'Claude is asking whether you trust this folder',
     )
-    expect(showing()).toBe('terminal')
+    expect(screen.getByRole('button', { name: 'Open Terminal' })).toBeInTheDocument()
+    expect(showing()).toBe('chat')
   })
 
   it('reports an unidentified prompt without naming it', async () => {
     const store = seed()
     await renderPane(store)
 
-    await setWait(store, { kind: '' })
+    await setWait({ kind: '' })
 
     expect(screen.getByTestId('agent-terminal-wait')).toHaveTextContent(
       'Claude is waiting for input in its terminal',
     )
   })
 
-  // ── Don't yank focus ───────────────────────────────────────────────
+  // ── Don't yank the surface ─────────────────────────────────────────
 
-  // A hidden tab is still mounted for keep-alive, so nothing structural stops
-  // this pane navigating — it has to decline. The banner is still raised, so the
-  // user finds the explanation waiting when they come back.
-  it('does not switch a chat the user is not looking at (hidden tab)', async () => {
-    const store = seed()
-    await renderPane(store, { isVisible: false })
-
-    await setWait(store, { kind: 'workspace_trust' })
-
-    expect(showing()).toBe('chat')
-    expect(screen.getByTestId('agent-terminal-wait')).toBeInTheDocument()
-  })
-
-  it('does not switch a chat in a pane that does not have focus', async () => {
-    const store = seed()
-    await renderPane(store, { isActivePane: false })
-
-    await setWait(store, { kind: 'workspace_trust' })
-
-    expect(showing()).toBe('chat')
-  })
-
-  // The third axis, and the one that is invisible from inside the pane: a
-  // RETAINED workspace stays mounted under display:none + inert, so isActivePane
-  // and isVisible are both true for a pane nobody can see. Asking the registry is
-  // the only way to know.
-  it('does not switch a chat in a workspace that is not in view', async () => {
-    const store = seed()
-    await renderPane(store)
-    setActiveWorkspaceId('w2')
-
-    await setWait(store, { kind: 'workspace_trust' })
-
-    expect(showing()).toBe('chat')
-  })
-
-  // Opening a chat that is ALREADY parked is the same rising edge as one that
-  // becomes parked, and it is the commoner one: the CLI asks about trust before
-  // the user has done anything.
-  it('switches a chat that is already waiting when it is opened', async () => {
+  // A new chat's CLI often opens on a dialog (trust, a startup notice) before it
+  // has done anything: opening on it, or it clearing, moves nobody.
+  it('keeps a chat that is already waiting on the chat, and there once the wait clears', async () => {
     const store = seed({ kind: 'workspace_trust' })
-
     await renderPane(store)
+    expect(showing()).toBe('chat')
 
-    expect(showing()).toBe('terminal')
+    await setWait(null)
+
+    expect(showing()).toBe('chat')
+    expect(screen.queryByTestId('agent-return-to-chat')).not.toBeInTheDocument()
+  })
+
+  // A restored tab nobody looks at would replay its feed at open, behind the one in view.
+  it('opens a hidden tab’s chat only once it is shown, and keeps it after', async () => {
+    const store = seed()
+    const view = await renderPane(store, { isVisible: false })
+    expect(chatStore.getState().feeds.c1).toBeUndefined()
+    await act(async () => view.rerender(chatPane(store)))
+    expect(chatStore.getState().feeds.c1).toBeDefined()
+    await act(async () => view.rerender(chatPane(store, { isVisible: false })))
+    expect(chatStore.getState().feeds.c1).toBeDefined()
   })
 
   // ── Don't fight the user ───────────────────────────────────────────
 
-  it('returns the user to the chat once the prompt is cleared', async () => {
-    const store = seed()
-    await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
-    expect(showing()).toBe('terminal')
-
-    await setWait(store, null)
-
-    expect(showing()).toBe('chat')
-    expect(screen.queryByTestId('agent-terminal-wait')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('agent-return-to-chat')).not.toBeInTheDocument()
-  })
-
-  // The user chose to stay in the terminal. Their choice outranks ours from then
-  // on, so the pane must not haul them out of a terminal they are using.
-  it('leaves the user where they chose to be, and offers the way back instead', async () => {
-    const store = seed()
-    await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
-
-    // Reasserting the surface they are already on IS a choice — it is the click
-    // that says "I want to be here", and it is the only one available once the
-    // pane has already moved them.
-    fireEvent.click(surfaceToggle())
-    await setWait(store, null)
-
-    expect(showing()).toBe('terminal')
-    expect(screen.getByTestId('agent-return-to-chat')).toBeInTheDocument()
-  })
-
-  // Never silently stranded: the pane sent them here, the reason has gone, and it
-  // cannot take them back — so it says so.
-  it('offers the way back when it cannot return the user itself', async () => {
-    const store = seed()
-    const { rerender } = await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
-    expect(showing()).toBe('terminal')
-
-    // The user walks away — another pane takes focus — before the dialog clears.
-    await act(async () => {
-      rerender(
-        createElement(
-          WorkspaceStoreContext.Provider,
-          { value: store },
-          createElement(AgentChatPane, {
-            chatId: 'c1',
-            runnerId: 'r1',
-            wsId: 'w1',
-            paneId: 'b1',
-            isActivePane: false,
-            isVisible: true,
-          }),
-        ),
-      )
-    })
-    await setWait(store, null)
-
-    expect(showing()).toBe('terminal')
-    expect(screen.getByTestId('agent-return-to-chat')).toBeInTheDocument()
-  })
-
   it('takes the user back when they accept the offer', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
-    fireEvent.click(surfaceToggle())
-    await setWait(store, null)
+    await setWait({ kind: 'workspace_trust' })
+    fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
+    await setWait(null)
 
     fireEvent.click(screen.getByRole('button', { name: 'Return to Chat' }))
 
@@ -388,9 +214,9 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('stops offering when the user dismisses it', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
-    fireEvent.click(surfaceToggle())
-    await setWait(store, null)
+    await setWait({ kind: 'workspace_trust' })
+    fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
+    await setWait(null)
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
 
@@ -406,8 +232,8 @@ describe('AgentChatPane — waiting in the terminal', () => {
     fireEvent.click(surfaceToggle())
     expect(showing()).toBe('terminal')
 
-    await setWait(store, { kind: 'workspace_trust' })
-    await setWait(store, null)
+    await setWait({ kind: 'workspace_trust' })
+    await setWait(null)
 
     expect(showing()).toBe('terminal')
     expect(screen.queryByTestId('agent-return-to-chat')).not.toBeInTheDocument()
@@ -417,13 +243,13 @@ describe('AgentChatPane — waiting in the terminal', () => {
   // not auto-return — but Crowbar did send them, so it owes them the offer.
   it('offers the way back to a user who followed the banner', async () => {
     const store = seed()
-    await renderPane(store, { isVisible: false })
-    await setWait(store, { kind: 'workspace_trust' })
+    await renderLeft(store)
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
     expect(showing()).toBe('terminal')
-    await setWait(store, null)
+    await setWait(null)
 
     expect(showing()).toBe('terminal')
     expect(screen.getByTestId('agent-return-to-chat')).toBeInTheDocument()
@@ -431,17 +257,12 @@ describe('AgentChatPane — waiting in the terminal', () => {
 
   // ── Doesn't overlap the composer ───────────────────────────────────
 
-  // Task 1 measured a real, live overlap that got WORSE as the window
-  // narrowed and the banner's own text wrapped to more lines: the banner sat
-  // ABOVE the composer handle as its own free-floating row, so a resize could
-  // separate the two. It now rides INSIDE AgentEmptyDocument's own
-  // `.dochandle` — the SAME element the model/effort/attach/send row would
-  // otherwise occupy, sharing that row's one `place()` transform — so there
-  // is no second position left to drift out of sync with the first.
+  // The banner rides INSIDE AgentEmptyDocument's `.dochandle`, sharing the composer row's one
+  // `place()` transform, so a resize has no second position to drift out of sync with.
   it('renders the wait banner inside AgentEmptyDocument, not as a free-floating row above it', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     const banner = screen.getByTestId('agent-terminal-wait')
     const handle = banner.closest('.dochandle')
@@ -452,23 +273,12 @@ describe('AgentChatPane — waiting in the terminal', () => {
   })
 
   // ── Doesn't render under the chat's own overlay header ──────────────
-  //
-  // ChatColumnHeader and ChatOnlyPaneHeader (pane-top-row.tsx) float
-  // `position: absolute; top: 0` with no fill of their own, so nothing about
-  // the pane's DOM stops pinned-near-top content from landing at that exact
-  // same y=0 and sitting underneath the header's own real, clickable 44px
-  // (Mac) hit-box. `--agent-header-clearance` (on `.agent-chat.chat`) is the
-  // ONE mechanism that pushes it clear — `AgentEmptyDocument`'s own
-  // `place()`/`lastLineTop` reads the same number, so the banner riding
-  // inside it clears the header exactly as the ordinary control row does.
-  // `belowOverlayHeader` is pane-container's own answer to "is an overlay
-  // header actually floating above me" — passed false by default (the
-  // collapsed 'tabs' presentation's small in-flow ChatBranchHeader already
-  // reserves its own space, so there is nothing to clear there).
+  // `--agent-header-clearance` is the one mechanism that keeps pinned-near-top
+  // content clear of an overlay header; `belowOverlayHeader` says one floats here.
   it('clears the overlay header row when one floats above this pane', async () => {
     const store = seed()
     await renderPane(store, { belowOverlayHeader: true })
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     screen.getByTestId('agent-terminal-wait')
     // 44px header (IS_MAC forced true above) plus the pane's own original
@@ -480,35 +290,24 @@ describe('AgentChatPane — waiting in the terminal', () => {
   it('keeps its original offset with no overlay header above (default)', async () => {
     const store = seed()
     await renderPane(store)
-    await setWait(store, { kind: 'workspace_trust' })
+    await setWait({ kind: 'workspace_trust' })
 
     screen.getByTestId('agent-terminal-wait')
     const section = document.querySelector('.agent-chat.chat') as HTMLElement
     expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('8px')
   })
 
-  // The chat surface's className is built as `hidden`-when-not-
-  // `presentation==='chat'`, full stop — there is no longer a second class to
-  // reconcile it with (`flex flex-col` used to apply here too, only while
-  // the wait banner was up, back when the banner was a sibling row this
-  // container had to stack alongside AgentChatView). Reachable through the
-  // banner's own primary CTA: `openTerminalFromBanner` flips `presentation`
-  // to 'terminal' but does NOT clear `waiting` (that only clears once the CLI
-  // actually answers) — so a user clicking "Open Terminal" while the prompt
-  // is still pending is exactly `splitting=false, presentation='terminal',
-  // waiting=true`.
+  // Open Terminal moves the surface but leaves `waiting` up until the CLI answers.
   it('keeps the chat surface hidden after Open Terminal, even while still waiting', async () => {
     const store = seed()
-    await renderPane(store, { isVisible: false })
-    await setWait(store, { kind: 'workspace_trust' })
+    await renderLeft(store)
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
     expect(showing()).toBe('terminal')
 
-    // Deliberately NOT calling setWait(store, null) here — the daemon has not
-    // answered, `waiting` is still true, which is the exact case the bug
-    // needs to reproduce.
+    // The prompt is still pending: `waiting` stays true.
     const chatSurface = screen.getByTestId('agent-chat-surface')
     expect(chatSurface.className).toMatch(/\bhidden\b/)
     expect(chatSurface.className).not.toMatch(/\bflex\b/)
@@ -516,9 +315,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
 
   // ── The quiet case ─────────────────────────────────────────────────
 
-  // A chat nothing is blocking must be untouched by all of this: no banner, no
-  // navigation, no offer. This is every chat of every provider that declares no
-  // needles, forever.
+  // A chat nothing is blocking gets no banner, no navigation and no offer.
   it('does nothing at all to a chat that is not waiting', async () => {
     const store = seed()
 
@@ -530,48 +327,12 @@ describe('AgentChatPane — waiting in the terminal', () => {
   })
 })
 
-// Regression: a non-hotswap api-transport provider (codex) has no terminal
-// session live until switchToTerminal forks one — every path onto the
-// terminal surface used to call setPresentation('terminal') directly, which
-// left the pane showing a terminal with nothing behind it and, from the
-// user's side, no way to ever reach the provider's real TUI. The suite above
-// only ever exercises claude (hotswap:true), where that shortcut happens to
-// be correct — see its own `providers` fixture comment.
+// A non-hotswap provider (codex) has no terminal view until switchToTerminal forks one.
 describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () => {
-  it('calls switchToTerminal before showing the terminal on the automatic escort', async () => {
-    const store = seedNonHotswap()
-    getChatFn.mockImplementation(() =>
-      Promise.resolve({
-        // The daemon's snapshot carries the wait it is reporting.
-        ...nonHotswapChat({ kind: 'workspace_trust' }),
-        terminalSessionId: 'term-session-1',
-        conversations: [],
-      }),
-    )
-    await renderPane(store)
-    expect(showing()).toBe('chat')
-
-    await setWait(store, { kind: 'workspace_trust' })
-
-    expect(screen.getByTestId('agent-terminal-wait')).toHaveTextContent(
-      'Codex is asking whether you trust this folder',
-    )
-    await waitFor(() => expect(showing()).toBe('terminal'))
-    expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1')
-  })
-
   it("calls switchToTerminal when the wait banner's Open Terminal button is used", async () => {
     const store = seedNonHotswap()
-    getChatFn.mockImplementation(() =>
-      Promise.resolve({
-        // The daemon's snapshot carries the wait it is reporting.
-        ...nonHotswapChat({ kind: 'workspace_trust' }),
-        terminalSessionId: 'term-session-1',
-        conversations: [],
-      }),
-    )
-    await renderPane(store, { isVisible: false })
-    await setWait(store, { kind: 'workspace_trust' })
+    await renderLeft(store)
+    await setWait({ kind: 'workspace_trust' })
     expect(showing()).toBe('chat')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
@@ -580,18 +341,67 @@ describe('AgentChatPane — waiting in the terminal (non-hotswap provider)', () 
     expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1')
   })
 
-  // A refused switch (a turn in flight) must leave
-  // the user on chat rather than stranding them on an empty terminal view —
-  // the same "left where they were" contract chooseSurface's own click path
-  // already had.
+  // The banner forked the terminal view, so the way back it offers drops it, as any return would.
+  it('hands the chat back to its api channel when the user returns after the prompt', async () => {
+    const store = seedNonHotswap()
+    await renderPane(store)
+    await setWait({ kind: 'workspace_trust' })
+    expect(switchToTerminalFn).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
+    await waitFor(() => expect(showing()).toBe('terminal'))
+
+    await setWait(null)
+    fireEvent.click(screen.getByRole('button', { name: 'Return to Chat' }))
+
+    await waitFor(() => expect(showing()).toBe('chat'))
+    expect(switchToNativeFn).toHaveBeenCalledWith('w1', 'c1')
+  })
+
+  // A refused switch (a turn in flight) leaves the user on the chat, not an empty terminal.
   it('leaves the user on chat when switchToTerminal is refused', async () => {
     switchToTerminalFn.mockRejectedValue(new Error('agent: provider cannot hand a live turn'))
     const store = seedNonHotswap()
     await renderPane(store)
+    await setWait({ kind: 'workspace_trust' })
 
-    await setWait(store, { kind: 'workspace_trust' })
+    fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
     await waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledWith('w1', 'c1'))
 
     expect(showing()).toBe('chat')
+  })
+})
+
+// A reload keeps no surface of its own: a codex chat's view is the one its daemon holds.
+describe('AgentChatPane — a non-hotswap chat after a reload', () => {
+  const landOn = (presentation: 'chat' | 'terminal') =>
+    useSettingsStore.setState({
+      settings: {
+        ...getDefaultSettingsSnapshot(),
+        chatIsDefaultPresentation: presentation === 'chat',
+      },
+    })
+
+  it('opens on the chat its daemon holds, even where new chats land on the terminal', async () => {
+    landOn('terminal')
+    const store = seedNonHotswap()
+    await renderPane(store)
+
+    expect(showing()).toBe('chat')
+    expect(switchToTerminalFn).not.toHaveBeenCalled()
+    expect(switchToNativeFn).not.toHaveBeenCalled()
+  })
+
+  it('opens on the terminal view its daemon holds, even where new chats land on the chat', async () => {
+    landOn('chat')
+    const store = seedOne(nonHotswapProviders, {
+      ...nonHotswapChat(),
+      terminalSessionId: 'pty-1',
+      surface: 'terminal',
+    })
+    await renderPane(store)
+
+    expect(showing()).toBe('terminal')
+    expect(switchToTerminalFn).not.toHaveBeenCalled()
+    expect(switchToNativeFn).not.toHaveBeenCalled()
   })
 })

@@ -1,8 +1,6 @@
-// Package handlers contains the HTTP and WebSocket handler logic for the
-// first-class workspace-scoped review-thread endpoint: list/open (GET/WS +
-// POST), detail/resolve (GET/PATCH), and reply (POST). Threads reuse the global
-// ReviewThread aggregate; the owning project/repo are read from the request path
-// and stamped onto each ThreadDTO before it is broadcast (09, 00 §5.5).
+// Package handlers serves the workspace-scoped review-thread routes over the ReviewThread
+// aggregate. The owning project/repo come from the request path and are stamped onto each
+// ThreadDTO before it is broadcast.
 package handlers
 
 import (
@@ -14,9 +12,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ThreadStore is the review-thread aggregate surface the handlers consume. It is
-// the subset of reviewthread.ReviewThread needed to open, reply, resolve/reopen,
-// read, and list threads, so the concrete repository satisfies it directly.
+// ThreadStore is the subset of reviewthread.ReviewThread the handlers consume; the concrete
+// repository satisfies it directly.
 type ThreadStore interface {
 	Open(
 		ctx context.Context,

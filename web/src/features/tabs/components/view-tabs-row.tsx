@@ -4,7 +4,8 @@ import { useNavigate } from '@tanstack/react-router'
 import { useSidebar } from '@/components/ui/sidebar'
 import { RecentsViewRow } from '@/components/sidebar/view-row'
 import { focusRecent, closeRecent } from '@/components/sidebar/lib/recents-actions'
-import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
+import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
+import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
@@ -15,7 +16,7 @@ import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds, viewMembers } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { readSelect, selectRepos } from '@/core/entities/select'
 import { usePaneTopRowEdges } from '../hooks/use-pane-top-row-edges'
 import { PaneTopRow } from './pane-top-row'
 import TabNavigationButtons from './tab-navigation-buttons'
@@ -25,12 +26,9 @@ import TabNavigationButtons from './tab-navigation-buttons'
 const TAB_MAX_WIDTH_PX = 240
 const TAB_MIN_WIDTH_PX = 112
 
-/**
- * The sidebar's Recents rows laid out across the top: one per view of the
- * active project, switched, closed and dragged exactly as in the sidebar.
- * Draws nothing until a view exists. Owns the sidebar-reopen toggle while it
- * is mounted, since the panes below it are no longer at the window's top edge.
- */
+/** The sidebar's Recents rows across the top, one per view of the active project, behaving as in
+ *  the sidebar; draws nothing until a view exists. While mounted it owns the sidebar-reopen
+ *  toggle, because the panes below it are not at the window's top edge. */
 export const ViewTabsRow = memo(function ViewTabsRow() {
   const navigate = useNavigate()
   const viewIds = useTabViewIds()
@@ -79,6 +77,8 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
         ref={scrollRef}
         data-testid="view-tabs"
         data-view-tab-strip
+        role="tablist"
+        aria-label="Open views"
         data-drop-axis="x"
         data-tauri-drag-region
         // py-1 / -my-1: room for the lifted tab's outline and shadow inside the clip, with no layout change.
@@ -88,7 +88,7 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
           <ViewTabSlot key={viewId} viewId={viewId}>
             <RecentsViewRow
               viewId={viewId}
-              onFocus={(id) => focusRecent(id, useSidebarStore.getState().repos, navigate)}
+              onFocus={(id) => focusRecent(id, readSelect(selectRepos), navigate)}
               onClose={closeRecent}
               drag={drag}
               registerRow={registerRecentsRow}

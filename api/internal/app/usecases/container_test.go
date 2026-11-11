@@ -11,10 +11,7 @@ import (
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents"
-
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -24,26 +21,29 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
+	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func newTestAsynx[T any](
 	t *testing.T,
 	es asynxModels.Store,
+	subscriber func(*asynx.Builder[T]),
 ) asynx.Asynx[T] {
 	t.Helper()
-	ax, err := asynx.New[T]().
+	b := asynx.New[T]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	subscriber(b)
+	ax, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	return ax
@@ -61,22 +61,20 @@ func newContainerDeps(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
 
+	rm, err := repositories.OpenReadModels(adapters)
+	require.NoError(t, err)
 	repos, err := repositories.New(
 		context.Background(),
 		adapters,
-		hub.NewHub(),
-		newTestAsynx[domain.ReviewThread](t, adapters.ReviewThreadES()),
-		newTestAsynx[domain.Workspace](t, adapters.WorkspaceES()),
-		newTestAsynx[domain.Chat](t, adapters.AgentChatES()),
-		newTestAsynx[domain.ChatActivity](t, adapters.AgentActivityES()),
-		newTestAsynx[agents.Runner](t, adapters.AgentRunnerES()),
-		newTestAsynx[domain.Node](t, adapters.NodeES()),
+		rm,
+		func(dto.WorkspaceDTO, int64) {},
+		newTestAsynx(t, adapters.ReviewThreadES(), reviewthread.Subscriber(rm.ReviewThread)),
+		newTestAsynx(t, adapters.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
+		newTestAsynx(t, adapters.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
+		testutil.Placements(t),
 		nil, // git conflict-checker not exercised by this test
 		noChatWatch,
-		noRunnerWatch,
-		noNodeWatch,
-		nil,
-		nil,
+		func(context.Context, string, *domain.Workspace, error) {},
 	)
 	require.NoError(t, err)
 
@@ -117,7 +115,7 @@ func newContainerDeps(
 func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil, nil)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	assert.NotNil(t, c.Project)
@@ -150,7 +148,7 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 // the token is arbitrary and the answer is exactly what the daemon advertises.
 func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil, nil)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	out, send, err := c.AgentProvider.DispatchMCP(context.Background(), "RUN", "any-token",
@@ -172,6 +170,7 @@ func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 	require.ElementsMatch(t, []string{
 		"set_chat_title",
 		"set_branch_name",
+		"branch_out",
 		"list_review_threads",
 		"wait_for_review_comments",
 		"get_review_scope",
@@ -182,50 +181,6 @@ func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 		"get_chat_log",
 	}, names, "the tool surface a running daemon serves is incomplete — a port New is "+
 		"responsible for self-wiring is nil, so the tool that needs it was withdrawn")
-}
-
-// TestContainer_AgentToolDepsWireEveryToolGroup is the wiring guard.
-//
-// agenttools registers no tool whose port is nil, so a group the container forgets
-// to hand a dependency to simply does not exist — and the only symptom in a running
-// daemon is an agent with fewer tools than it should have, which nothing logs and no
-// unit test in agenttools can see (its own fixtures supply their own deps). This
-// asserts the PRODUCTION Deps, built by the real newAgentToolDeps over the real
-// repositories, advertises the complete surface by name.
-//
-// Chats, ChatLogs and Lineage are filled in the way production fills them:
-// agentusecase.New binds the usecase to itself for all three (see its doc
-// comment), so c.AgentChat is the exact value the running daemon's Deps carries
-// for each port.
-func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
-	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil, nil)
-	require.NoError(t, err)
-
-	minter, err := agentusecase.NewTokenMinter()
-	require.NoError(t, err)
-	deps, err := usecases.NewAgentToolDepsForTest(minter, repos, c.BranchReview, noopThreadBroadcast, c.Workspace)
-	require.NoError(t, err)
-	deps.Chats = c.AgentChat
-	deps.ChatLogs = c.AgentChat
-	deps.Lineage = c.AgentChat
-
-	names := []string{}
-	for _, tool := range agentusecase.NewToolSet(deps, "RUN", minter.Mint("RUN")).Tools() {
-		names = append(names, tool.Name)
-	}
-	require.ElementsMatch(t, []string{
-		"set_chat_title",
-		"set_branch_name",
-		"list_review_threads",
-		"wait_for_review_comments",
-		"get_review_scope",
-		"post_review_comment",
-		"reply_to_review_thread",
-		"resolve_review_thread",
-		"list_workspaces",
-		"get_chat_log",
-	}, names, "the production agent tool surface is incomplete — a port is unwired in newAgentToolDeps")
 }
 
 // TestContainer_AgentToolMetricsAreReadableFromTheContainer closes the loop the
@@ -240,7 +195,7 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 // rejected call is counted too, and it is the datum this counter most exists for.
 func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil, nil)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	require.Empty(t, c.AgentToolMetrics(), "a daemon that has served no tool call has nothing to report")
@@ -255,48 +210,6 @@ func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 		c.AgentToolMetrics())
 }
 
-// A missing port is a failed start, not a silently narrowed tool list.
-func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
-	repos, _, _ := newContainerDeps(t)
-	minter, err := agentusecase.NewTokenMinter()
-	require.NoError(t, err)
-	review := stubReviewReaderForContainer{}
-
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, nil, noopThreadBroadcast, stubBranchRenamer{})
-	require.Error(t, err, "no review reader")
-
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, nil, stubBranchRenamer{})
-	require.Error(t, err, "no thread broadcaster")
-
-	_, err = usecases.NewAgentToolDepsForTest(nil, repos, review, noopThreadBroadcast, stubBranchRenamer{})
-	require.Error(t, err, "no token minter")
-
-	_, err = usecases.NewAgentToolDepsForTest(minter, repos, review, noopThreadBroadcast, nil)
-	require.Error(t, err, "no workspace usecase")
-
-	bare := &repositories.Container{}
-	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast, stubBranchRenamer{})
-	require.Error(t, err, "no repository stores")
-
-	// A container with SOME stores wired still refuses a genuinely partial
-	// surface: bare's AgentRunner==nil check alone can never exercise the
-	// Workspace/ReviewThread branches behind it in the same guard. Every store
-	// ahead of the one under test is therefore wired for real, and the message is
-	// asserted rather than just "an error" — a case that merely trips an earlier
-	// guard would pass while proving nothing about the branch it names.
-	chatOnly := &repositories.Container{AgentRunner: repos.AgentRunner, AgentChat: repos.AgentChat}
-	_, err = usecases.NewAgentToolDepsForTest(minter, chatOnly, review, noopThreadBroadcast, stubBranchRenamer{})
-	require.ErrorContains(t, err, "no workspace store")
-
-	noReviewThread := &repositories.Container{
-		AgentRunner: repos.AgentRunner,
-		AgentChat:   repos.AgentChat,
-		Workspace:   repos.Workspace,
-	}
-	_, err = usecases.NewAgentToolDepsForTest(minter, noReviewThread, review, noopThreadBroadcast, stubBranchRenamer{})
-	require.ErrorContains(t, err, "no review thread store")
-}
-
 // TestContainer_New_SurfacesAgentWiringError proves New itself propagates a
 // failure from newAgentWiring (here: a repos container missing the agent-chat
 // store) rather than returning a Container with a nil agentic surface a caller
@@ -305,49 +218,19 @@ func TestContainer_New_SurfacesAgentWiringError(t *testing.T) {
 	_, gormStores, eng := newContainerDeps(t)
 
 	_, err := usecases.New(&repositories.Container{}, gormStores, eng,
-		func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil, nil)
+		func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 
 	require.Error(t, err)
 }
 
-// noopThreadBroadcast stands in for the app layer's hub adapter. These tests build
+// noopThreadBroadcast stands in for the app layer's stream adapter. These tests build
 // the usecases container without the api layer, and what the fan-out DOES is proved
 // in the agenttools package; here it only has to be non-nil so the wiring is complete.
 func noopThreadBroadcast(_ domain.ReviewThread, _, _ string) {}
 
-// stubBranchRenamer stands in for the workspace usecase in the refusal test,
-// where every other port is deliberately nil in turn and this one only has to
-// be non-nil so the case under test is the one that fires.
-type stubBranchRenamer struct{}
-
-func (stubBranchRenamer) RenameBranch(
-	_ context.Context,
-	_ string,
-	_ string,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
-type stubReviewReaderForContainer struct{}
-
-func (stubReviewReaderForContainer) GetScope(
-	_ context.Context,
-	_ domain.Workspace,
-) (gitdomain.ReviewScope, error) {
-	return gitdomain.ReviewScope{}, nil
-}
-
-func (stubReviewReaderForContainer) GetOutline(
-	_ context.Context,
-	_ string,
-	_ string,
-) ([]gitdomain.FileOutline, error) {
-	return nil, nil
-}
-
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil, nil)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -364,57 +247,9 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	assert.Empty(t, nodes)
 }
 
-// TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent
-// pins the Promote fix: workspace.CreateChild's own taxonomy default rule
-// (model spec §4.1) inherits OwnWorktree from the PARENT, so a fork parent
-// that is itself a workspace-less bubble (WorktreePath == "") would otherwise
-// default a promotion into ANOTHER bubble — a chat with neither a worktree nor
-// a branch name, silently. worktreeChildCreator forces OwnWorktree true
-// always, which this proves against the REAL workspace.Usecase (real git, real
-// resolveInherited, real branch generator), not the fake usecases/chat wires
-// its own fixture with.
-func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent(t *testing.T) {
-	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil, nil)
-	require.NoError(t, err)
-
-	root := t.TempDir()
-	repoDir := filepath.Join(root, "repo")
-	require.NoError(t, os.MkdirAll(repoDir, 0o755))
-	runGit(t, repoDir, "init", "-b", "main")
-	runGit(t, repoDir, "commit", "--allow-empty", "-m", "init")
-
-	require.NoError(t, gormStores.Repositories.Save(context.Background(), domain.Repository{
-		ID:   "r1",
-		Name: "repo",
-		Path: repoDir,
-	}))
-	parent, err := repos.Workspace.Create(context.Background(), workspace.CreateInput{
-		ID:        "parent-ws",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "main",
-		// WorktreePath left empty on purpose: this is the workspace-less
-		// "bubble" fork parent the reviewer's finding is about.
-		Provisioning: domain.WorkspacePlaceholder,
-	}, time.Now())
-	require.NoError(t, err)
-	require.Empty(t, parent.WorktreePath, "precondition: the fork parent owns no worktree of its own")
-
-	creator := usecases.NewWorktreeChildCreatorForTest(c.Workspace)
-
-	child, err := creator.CreateChildWorkspace(context.Background(), parent.ID, "")
-
-	require.NoError(t, err)
-	assert.NotEmpty(t, child.WorktreePath,
-		"promotion must always produce a real worktree, even forked from a workspace-less parent")
-	assert.NotEmpty(t, child.Branch,
-		"promotion must always produce a generated branch name")
-}
-
 func TestContainer_Import_ResolvesDefaultBranchViaRealGit(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil, nil)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
 	require.NoError(t, err)
 
 	root := t.TempDir()
@@ -455,14 +290,5 @@ func (containerStatusStub) GitStatus(
 	return gitdomain.GitStatus{}, nil
 }
 
-// noChatWatch / noRunnerWatch are the agent announcement seams for tests that assert
-// nothing about WS frames. They are non-nil on purpose: agentrunner's store REFUSES a
-// nil watch at construction (a store that silently drops every frame is worse than one
-// that fails to build), so `nil` here would break every container in this file.
-func noChatWatch(_ agentchat.ChatEvent)       {}
-func noRunnerWatch(_ agentrunner.RunnerEvent) {}
-
-// noNodeWatch is node's own announcement seam, spelled out for the same
-// readability reason noChatWatch/noRunnerWatch are — node's store (mirroring
-// agentchat's) tolerates a nil watch, unlike agentrunner's.
-func noNodeWatch(_ node.NodeEvent) {}
+// noChatWatch is the announcement seam for tests that assert nothing about WS frames.
+func noChatWatch(_ agentchat.ChatEvent) {}

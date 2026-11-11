@@ -85,8 +85,11 @@ func declaredFlags(d *spec.Descriptor) []string {
 	for _, a := range d.Spawn.Args {
 		add(a)
 	}
-	if d.Session.Resume != nil {
-		for _, tok := range strings.Fields(d.Session.Resume.Arg) {
+	for _, s := range []*spec.ArgSpec{d.Session.Resume, d.Session.Assign} {
+		if s == nil {
+			continue
+		}
+		for _, tok := range strings.Fields(s.Arg) {
 			add(tok)
 		}
 	}
@@ -112,7 +115,8 @@ func (l *live) run(ctx context.Context, args ...string) (string, error) {
 }
 
 // resumeUnknown launches a resume of a session that never existed. The CLI
-// must end: the resume probe reads an early exit as "that session is gone".
+// must end with the refusal session.refused recognises: nothing else loses a
+// chat's session.
 func (l *live) resumeUnknown(ctx context.Context) Step {
 	arg, ok := l.agent.ResumeArg()
 	if !ok {
@@ -135,7 +139,7 @@ func (l *live) resumeUnknown(ctx context.Context) Step {
 	deadline := time.Now().Add(l.opts.ResumeWindow)
 	for time.Now().Before(deadline) {
 		if ended, code := t.exited(pollEvery); ended {
-			return pass("resume_unknown", fmt.Sprintf("exited %d for an unknown session", code))
+			return l.refusalStep(code, t.text())
 		}
 		if prompt, ok := l.agent.MatchTerminalPrompt(t.text()); ok {
 			return warn("resume_unknown", fmt.Sprintf(
@@ -145,6 +149,19 @@ func (l *live) resumeUnknown(ctx context.Context) Step {
 	return fail("resume_unknown", fmt.Sprintf(
 		"still running after %s on an unknown session; a lost session would look live: %s",
 		l.opts.ResumeWindow, tail(t.text(), 160)))
+}
+
+func (l *live) refusalStep(code int, screen string) Step {
+	if l.d.Session.Refused == nil {
+		return warn("resume_unknown", fmt.Sprintf(
+			"exited %d; declare session.refused so a chat can tell a refused resume from a crash", code))
+	}
+	if line, refused := l.agent.RefusedResume(code, screen); refused {
+		return pass("resume_unknown", fmt.Sprintf("exited %d refusing an unknown session: %s", code, line))
+	}
+	return fail("resume_unknown", fmt.Sprintf(
+		"exited %d, which session.refused does not recognise; a lost session would never be noticed: %s",
+		code, tail(screen, 160)))
 }
 
 func (l *live) spawn(ctx context.Context, tmp string, steps []agents.InjectStep) (*term, error) {

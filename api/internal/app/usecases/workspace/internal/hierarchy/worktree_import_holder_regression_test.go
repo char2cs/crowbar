@@ -86,8 +86,7 @@ func findByBranch(all []domain.Workspace, branch string) *domain.Workspace {
 // already has checked out (e.g. another tool's worktree under ~/.superconductor)
 // produced NOTHING — git refuses `worktree add` for an already-checked-out
 // branch, CreateChild fails, CreateFromImport logs + `continue`s and returns nil,
-// and the handler's broadcastLastError is a documented no-op for a blank wsID. No
-// row ever reached the workspaces stream, so the FE's optimistic import row —
+// and nothing reported the failure. No row ever reached the workspaces stream, so the FE's optimistic import row —
 // which is cleared ONLY when a workspace with that branch arrives — spun forever
 // with no toast.
 //
@@ -112,8 +111,8 @@ func TestRegression_ImportBranchHeldByExternalWorktreeYieldsPlaceholder(t *testi
 		RepoPath:      repoPath,
 		RemoteURL:     "https://github.com/test/integration-repo.git",
 		DefaultBranch: "main",
-		Branches:      []string{"feature/x"},
-	})
+		Branches:      branches("feature/x"),
+	}, &outcomes{})
 	require.NoError(t, err, "a held branch is a recoverable outcome, not a batch failure")
 
 	_, all := readAll()
@@ -147,8 +146,8 @@ func TestRegression_ImportFreeBranchStillProvisionsRealWorktree(t *testing.T) {
 		RepoPath:      repoPath,
 		RemoteURL:     "https://github.com/test/integration-repo.git",
 		DefaultBranch: "main",
-		Branches:      []string{"feature/x"},
-	})
+		Branches:      branches("feature/x"),
+	}, &outcomes{})
 	require.NoError(t, err)
 
 	_, all := readAll()

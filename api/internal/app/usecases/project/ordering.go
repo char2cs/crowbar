@@ -7,6 +7,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // slot is one row of an ordered sidebar list: where it sits in the caller's
@@ -28,16 +29,9 @@ type move struct {
 	order int
 }
 
-// place renumbers slots into a dense 0..n-1 sequence, optionally lifting id out
-// and re-inserting it at target first, and returns only the rows whose order
-// actually changed — a reorder writes the moved row and the tail it displaced,
-// never the whole list.
-//
-// Rows are read in (order, id) order. The id tiebreak is what keeps a list whose
-// rows all still carry the migration default of 0 from re-shuffling itself
-// between two identical requests; the first reorder replaces it with a real
-// dense sequence. target is clamped, so an index computed against a stale list
-// lands at an end rather than failing the request.
+// place renumbers slots densely, optionally reinserting id at target, and returns only rows whose order
+// changed. The (order, id) read order keeps all-zero migrated rows stable between identical requests;
+// target is clamped so a stale index lands at an end.
 func place(
 	slots []slot,
 	id string,
@@ -57,12 +51,8 @@ func place(
 	return moves
 }
 
-// sortSlots is place()'s own ordering rule — (order, id) — factored out so a
-// caller that needs to know exactly where an id LANDS, not merely whether
-// place() judged that a change, can replicate the identical sort without
-// duplicating its comparator (see finalIndexOf). Mutates slots in place,
-// mirroring place()'s own contract; place()'s own external behavior is
-// unchanged by this extraction.
+// sortSlots is place()'s (order, id) rule, shared with finalIndexOf so both sort identically. Mutates
+// slots in place.
 func sortSlots(
 	slots []slot,
 ) {
@@ -80,19 +70,9 @@ func sortSlots(
 	})
 }
 
-// finalIndexOf returns where id ends up under the SAME sort (and, when target
-// is given, reinsert) place() performs internally — its dense index, whether
-// or not place() itself reported a move for it.
-//
-// place() only reports rows whose numeric order actually changed. A row that
-// is being reparented (a different aggregate field entirely, invisible to
-// place()) can coincidentally land back on the SAME dense index it already
-// held — the sole member of a container it just entered lands at index 0, the
-// exact value a fresh Node's Order defaults to — and place() reports no move
-// for it at all even though its parent still needs writing. A caller that
-// needs to guarantee that write calls this instead of trusting place()'s
-// silence. Operates on its own copy — never mutates the caller's slots,
-// unlike place()/sortSlots. Returns -1 when id is not present.
+// finalIndexOf returns id's dense index under place()'s sort and reinsert, or -1. place() reports only
+// order changes, so a reparented row landing on its old index (0 in a new container) needs this to get
+// its parent written. Works on a copy.
 func finalIndexOf(
 	slots []slot,
 	id string,
@@ -128,12 +108,9 @@ func containsID(
 	return slices.ContainsFunc(slots, func(s slot) bool { return s.id == id })
 }
 
-// nodeIndex builds a []slot from a repo-kind sibling space read off Node
-// (api/internal/app/repositories/node) — the place() input for both
-// densifyRepos and placeRepoAmongHomeSiblings, replacing the Repository-sourced
-// repoIndex this migrated off of.
+// nodeIndex builds place()'s []slot input from a repo-kind sibling space read off Node.
 func nodeIndex(
-	rows []domain.Node,
+	rows []dtree.Node,
 ) []slot {
 	slots := make([]slot, 0, len(rows))
 	for i, row := range rows {
@@ -144,14 +121,14 @@ func nodeIndex(
 
 // rankOfKind is tree.Node.Rank for a Node kind.
 func rankOfKind(
-	kind domain.NodeKind,
+	kind dtree.Kind,
 ) int {
 	switch kind {
-	case domain.NodeKindFolder:
+	case dtree.KindFolder:
 		return tree.RankFolder
-	case domain.NodeKindChat:
+	case dtree.KindChat:
 		return tree.RankChat
-	case domain.NodeKindWorkspace:
+	case dtree.KindWorkspace:
 		return tree.RankWorkspace
 	}
 	return tree.RankRepo

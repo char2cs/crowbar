@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // TestHelperProcess is the subprocess used by fakeCmd.
@@ -19,10 +22,11 @@ func TestHelperProcess(t *testing.T) {
 	args := os.Args
 	output := args[len(args)-2]
 	exitCode := args[len(args)-1]
-	fmt.Fprint(os.Stdout, output)
 	if exitCode != "0" {
+		_, _ = fmt.Fprint(os.Stderr, output)
 		os.Exit(1)
 	}
+	_, _ = fmt.Fprint(os.Stdout, output)
 	os.Exit(0)
 }
 
@@ -38,13 +42,10 @@ func fakeCmd(
 		name string,
 		args ...string,
 	) *exec.Cmd {
-		exitStr := "0"
-		if exitCode != 0 {
-			exitStr = fmt.Sprintf("%d", exitCode)
-		}
-		cs := []string{"-test.run=TestHelperProcess", "--", output, exitStr}
+		cs := []string{"-test.run=TestHelperProcess", "--", output, fmt.Sprint(exitCode)}
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		// A coverage build exits warning on stderr without GOCOVERDIR; share the parent's.
+		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "GOCOVERDIR=" + flag.Lookup("test.gocoverdir").Value.String()}
 		return cmd
 	}
 }
@@ -377,4 +378,13 @@ func TestGHProvider_OwnerAvatarURL_SlugError_ReturnsEmpty(t *testing.T) {
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
 	require.NoError(t, err) // soft failure
 	assert.Empty(t, got)
+}
+
+// A failed command reads as what the tool printed, so the user sees how to fix it.
+func TestProtectedBranches_AFailureReadsAsTheToolsOwnWords(t *testing.T) {
+	g := New(testRemote, fakeCmd("To get started with GitHub CLI, please run:  gh auth login", 1))
+	_, err := g.ProtectedBranches(context.Background(), t.TempDir())
+
+	require.Error(t, err)
+	assert.Equal(t, "To get started with GitHub CLI, please run:  gh auth login", problem.Of(err).Message)
 }

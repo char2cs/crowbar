@@ -14,7 +14,7 @@ import (
 
 // Engine is the full filesystem operation surface (05).
 type Engine interface {
-	// Tree returns one level of the file tree rooted at dirPath (05 §2).
+	// Tree returns one level of the file tree rooted at dirPath.
 	// dirPath is relative to repoPath; empty string = root.
 	Tree(
 		repoPath string,
@@ -22,13 +22,13 @@ type Engine interface {
 		provider tree.StatusProvider,
 	) ([]domain.FileNode, error)
 
-	// ReadContent returns the content of a file (05 §3).
+	// ReadContent returns the content of a file.
 	ReadContent(
 		repoPath string,
 		filePath string,
 	) (domain.FileContent, error)
 
-	// WriteContent writes content to a file (05 §3). encoding is "base64" for a
+	// WriteContent writes content to a file. encoding is "base64" for a
 	// byte-faithful binary payload or "" / "utf8" for raw UTF-8.
 	WriteContent(
 		repoPath string,
@@ -37,19 +37,32 @@ type Engine interface {
 		encoding string,
 	) error
 
-	// CreateFile creates an empty file (05 §4).
+	// ReadHostContent reads a file by absolute, clean host path. The caller
+	// decides the path may be served; the engine only enforces the cap.
+	ReadHostContent(
+		absPath string,
+	) (domain.FileContent, error)
+
+	// WriteHostContent writes a file by absolute, clean host path.
+	WriteHostContent(
+		absPath string,
+		content string,
+		encoding string,
+	) error
+
+	// CreateFile creates an empty file.
 	CreateFile(
 		repoPath string,
 		filePath string,
 	) error
 
-	// CreateDir creates a directory (05 §4).
+	// CreateDir creates a directory.
 	CreateDir(
 		repoPath string,
 		dirPath string,
 	) error
 
-	// Copy duplicates a file or directory byte-faithfully (05 §4). Directories
+	// Copy duplicates a file or directory byte-faithfully. Directories
 	// copy recursively; the destination must not already exist.
 	Copy(
 		repoPath string,
@@ -57,21 +70,21 @@ type Engine interface {
 		destPath string,
 	) error
 
-	// Rename renames or moves a file or directory (05 §4).
+	// Rename renames or moves a file or directory.
 	Rename(
 		repoPath string,
 		oldPath string,
 		newPath string,
 	) error
 
-	// Delete removes a file or directory (05 §4).
+	// Delete removes a file or directory.
 	Delete(
 		repoPath string,
 		filePath string,
 	) error
 
 	// NewWatcher builds a file watcher for a workspace. The caller owns Start
-	// and Stop (05 §5, 03 §6).
+	// and Stop.
 	NewWatcher(
 		ctx context.Context,
 		wsID string,
@@ -80,6 +93,13 @@ type Engine interface {
 		git watch.GitStatusProvider,
 		dispatcher watch.Dispatcher,
 	) *watch.Watcher
+
+	// NewFileWatcher builds a watcher on one file, which need not exist yet;
+	// the caller owns Start and Stop.
+	NewFileWatcher(
+		path string,
+		emit func(change domain.FileChangeType),
+	) *watch.FileWatcher
 }
 
 type fsEngine struct{}
@@ -113,6 +133,20 @@ func (e *fsEngine) WriteContent(
 	encoding string,
 ) error {
 	return content.Write(repoPath, filePath, c, encoding)
+}
+
+func (e *fsEngine) ReadHostContent(
+	absPath string,
+) (domain.FileContent, error) {
+	return content.ReadAbs(absPath)
+}
+
+func (e *fsEngine) WriteHostContent(
+	absPath string,
+	c string,
+	encoding string,
+) error {
+	return content.WriteAbs(absPath, c, encoding)
 }
 
 func (e *fsEngine) CreateFile(
@@ -161,4 +195,11 @@ func (e *fsEngine) NewWatcher(
 	dispatcher watch.Dispatcher,
 ) *watch.Watcher {
 	return watch.NewWatcher(wsID, repoPath, base, git, dispatcher)
+}
+
+func (e *fsEngine) NewFileWatcher(
+	path string,
+	emit func(change domain.FileChangeType),
+) *watch.FileWatcher {
+	return watch.NewFileWatcher(path, emit)
 }

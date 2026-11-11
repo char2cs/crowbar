@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
@@ -10,23 +11,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Worktrees is the narrow read port the chat DTO's worktree enrichment needs
-// (spec §5, "the Chat DTO gains the git fields Workspace's own DTO currently
-// carries"): the workspace a chat owns, that workspace's repo siblings, and the
-// merge-eligibility overlay resolved over them.
-//
-// Declared here, by the consumer (law 4), and satisfied in the container with
-// whatever concrete types actually implement it (law 6). The three verbs are on
-// ONE port because they are one question from here — "what is this chat's
-// worktree, as a client should see it" — and answering it needs all three: the
-// row, the siblings eligibility is resolved against, and the resolver itself.
-//
-// Left unwired, every chat serializes without a worktree. That is a legible
-// degradation rather than a silent one: the surfaces that mount these handlers
-// without it (the project-home group, whose row has no repo and no git surface
-// at all) serve rows that own no worktree anyway.
+// Worktrees is the read port behind a chat DTO's git fields: the workspace a chat owns, its repo
+// siblings, and the merge overlay resolved over them. Unwired, chats serialize without a worktree,
+// which only the project-home mount does, whose rows own none.
 type Worktrees interface {
 	// Get returns one workspace by id.
 	Get(
@@ -53,33 +43,17 @@ type Worktrees interface {
 	) []workspace.MergeEligibility
 }
 
-// Nodes is the narrow read port a worktree-owning chat's DTO needs to carry
-// its own sidebar placement (2026-09-09 sidebar-placement-unification,
-// workspace-placement fix): the workspace's own Node{Kind:workspace} row —
-// the SAME position PlaceWorkspace writes — read back so the panel a drag
-// just wrote to actually redraws it.
+// Nodes reads a workspace's Node{Kind:workspace} row, where a locked branch's sidebar placement lives.
 type Nodes interface {
 	GetNode(
 		ctx context.Context,
 		id string,
-	) (domain.Node, error)
+	) (tree.Node, error)
 }
 
-// worktreeScope is ONE read's worth of the answers the enrichment needs: the
-// repo's workspace rows, and the owning chat resolved per workspace.
-//
-// It is built per call and thrown away, never held on Handlers. That is
-// deliberate rather than wasteful: both halves are snapshots of state a
-// concurrent create, delete or promotion moves, and a memo that outlived the
-// request would serve a chat the branch of a worktree it no longer holds — the
-// exact class of staleness this whole refactor exists to delete. Within one
-// response it is pure win, since a list of twenty chats sharing four worktrees
-// takes four reads instead of twenty.
-//
-// Everything it answers is memoized per WORKSPACE, because every chat of one
-// workspace asks the same questions: eligibility (a git dry-run), the chat rows
-// that name the owner and the placement (store reads). The distinct
-// workspaces' dry-runs are batched by warm.
+// worktreeScope is one request's memo of the enrichment reads, keyed per workspace since every chat of
+// a workspace asks the same questions. Never held past the request: a concurrent create, delete or
+// promotion would make it serve a chat a worktree it no longer holds.
 type worktreeScope struct {
 	handlers  *Handlers
 	siblings  []domain.Workspace
@@ -105,27 +79,9 @@ type placementAt struct {
 	order    int
 }
 
-// repoWorktrees builds the per-row worktree closure a repo-scoped chat list is
-// serialized through: one ListInRepo for the whole list, indexed by id, and
-// every row resolved out of that index.
-//
-// It is the direct counterpart of the retired workspace list's own snapshot,
-// which composed its eligibility over one repo-wide read for exactly the same
-// reason: resolving eligibility needs the row's siblings, and reading them per
-// row would turn one list into one repo-wide read per chat.
-//
-// A read that fails yields a nil closure — every row's worktree absent — rather
-// than an error, and the same is true of a chat naming a workspace the index
-// does not hold. That degradation is deliberate and matches resolveOwningChatID's
-// own: the caller asked for the chat list, and a chat whose git state cannot be
-// resolved is still a chat worth listing. The alternative — failing the whole
-// list — would blank the panel over one unreadable row.
-//
-// The home mount binds no :repoId, and repoID "" lists exactly the project's
-// home workspace (it rides no repo), so the home owner's row carries
-// worktree.owningChatId == its own id the same way a repo's does. Without
-// that the client had no marker to keep the owner off the tree, and it drew
-// as an "Untitled chat" ghost row above every real home chat.
+// repoWorktrees builds the per-row worktree closure for a chat list from one repo-wide sibling read,
+// since eligibility needs siblings. A failed read yields nil (worktrees absent) rather than failing a
+// list that is still worth showing; repoID "" lists the project's home workspace.
 func (h *Handlers) repoWorktrees(
 	ctx context.Context,
 	projectID string,
@@ -151,10 +107,8 @@ func chatWorkspaces(chats []domain.Chat) []domain.Workspace {
 	return out
 }
 
-// pendingWorktrees is a repo's worktree enrichment already under way: the
-// sibling read is done and every workspace's merge eligibility is resolving in
-// the background, so a caller with other reads to make overlaps them with git.
-// The zero value, from unwired or failed reads, enriches nothing.
+// pendingWorktrees is a repo's enrichment under way: siblings read, eligibility resolving in the
+// background so the caller's other reads overlap git. The zero value enriches nothing.
 type pendingWorktrees struct {
 	scope *worktreeScope
 }
@@ -217,14 +171,8 @@ func (p pendingWorktrees) rowFn(
 	}
 }
 
-// chatWorktree answers ONE chat's worktree, for the by-id reads (Get, Promote,
-// a placement's echoed row) that have no list to amortise a repo-wide read
-// over.
-//
-// It resolves the workspace first and takes its OWN repo from the row rather
-// than from the URL, because the by-id routes are addressed by chat alone: the
-// home mount binds no :repoId, and a chat's repo is derived from the workspace
-// it lands on, never asserted by the caller.
+// chatWorktree answers one chat's worktree for the by-id reads. The repo comes from the workspace, not
+// the URL: by-id routes are addressed by chat alone and the home mount binds no :repoId.
 func (h *Handlers) chatWorktree(
 	ctx context.Context,
 	c domain.Chat,
@@ -240,10 +188,8 @@ func (h *Handlers) chatWorktree(
 	}
 	siblings, err := h.worktrees.ListInRepo(ctx, w.ProjectID, w.RepoID)
 	if err != nil {
-		// The row itself is readable and its own fields are already correct; only
-		// the merge overlay is not. Serializing it against an empty sibling set
-		// says "not mergeable", which is the same answer a workspace with no
-		// resolvable parent already gets — never a wrong branch name.
+		// An empty sibling set reads as "not mergeable", the answer a workspace with no resolvable parent
+		// already gets; the row's own fields stay correct.
 		slog.WarnContext(ctx, "chat: list siblings for the worktree this chat owns",
 			"chat_id", c.ID, "workspace_id", c.WorkspaceID, "err", err)
 		siblings = nil
@@ -301,10 +247,8 @@ func (s *worktreeScope) eligibility(
 	return e
 }
 
-// seedRows takes the chats a list already read as the rows of the workspaces
-// they name. A workspace's own chats are all in that list — the repo's list
-// holds every conversation whose workspace is in the repo — so reading them
-// again, which decodes every chat in the store, would only repeat it.
+// seedRows reuses the chats a list already read as their workspaces' rows: the repo list holds every
+// conversation in the repo, and re-reading would decode every chat in the store.
 func (s *worktreeScope) seedRows(chats []domain.Chat) {
 	seeded := map[string][]domain.Chat{}
 	for _, c := range chats {
@@ -333,10 +277,8 @@ func (s *worktreeScope) rowsOf(
 	return rows
 }
 
-// project is the one place a worktree becomes wire bytes, for both the list
-// path and the by-id path: it builds the workspace's OWN DTO and projects the
-// git half out of it, so a chat and a workspace can never describe the same
-// branch differently (see dto.ChatWorktreeFrom).
+// project builds the workspace's own DTO and projects the chat's git half from it, so a chat and a
+// workspace can never describe the same branch differently.
 func (s *worktreeScope) project(
 	ctx context.Context,
 	c domain.Chat,
@@ -346,20 +288,8 @@ func (s *worktreeScope) project(
 		dto.WorkspaceDTOFrom(ctx, w, s.eligibility(ctx, w), s.owner(ctx, c), s.placements()))
 }
 
-// owner answers which chat OWNS the worktree c is describing — c itself for the
-// ordinary case, and some OTHER row when c is a thread carrying its parent's
-// workspace id.
-//
-// It reuses domain.ResolveOwningChat over the workspace's own chat rows,
-// which is the same call the repositories container's own owningChatIDFor makes
-// as it enriches a workspace's WS frame, so the two surfaces name the same
-// owner for the same worktree. Re-deriving it here with a local rule ("the
-// branch-typed one", say) would be a second authority, drifting the first time
-// that rule changed.
-//
-// It is never answered as c's own id: c may be a THREAD started inside the
-// workspace, and naming it the owner folded that thread into the branch row it
-// was filed under.
+// owner is the chat owning c's workspace, via domain.ResolveOwningChat (the rule workspace frames use,
+// so both surfaces agree). It is not assumed to be c, which may be a thread inside the workspace.
 func (s *worktreeScope) owner(
 	ctx context.Context,
 	c domain.Chat,
@@ -381,15 +311,9 @@ func (s *worktreeScope) placements() dto.WorkspacePlacementReader {
 	return s
 }
 
-// Placement implements dto.WorkspacePlacementReader over the scope's own reads.
-//
-// An ordinary fork's placement lives on its OWNING CHAT's own ParentID/Order —
-// PlaceWorkspace writes it there through Chats.SetPlacement/SetOrder, and no
-// Node is ever minted for a plain chat, so a Node lookup always missed and
-// snapped a dragged fork back to the repo root. Only a LOCKED branch, whose
-// owning chat carries no Node of its own, is addressed by the workspace's own
-// Node{Kind:workspace} row. A row with no Node yet degrades to "" / 0: the repo
-// root, first slot, until something places it.
+// Placement implements dto.WorkspacePlacementReader. A fork's placement lives on its owning chat's
+// ParentID/Order; only a locked branch, rendered as a branch, uses its Node{Kind:workspace} row. No
+// Node yet means the repo root, first slot.
 func (s *worktreeScope) Placement(
 	ctx context.Context,
 	workspaceID string,
@@ -411,8 +335,10 @@ func (s *worktreeScope) placementOf(
 			return placementAt{owner.ParentID, owner.Order}
 		}
 	}
-	n, err := s.handlers.nodes.GetNode(ctx, workspaceID)
+	n, err := tree.OrUnplaced(s.handlers.nodes.GetNode(ctx, workspaceID))
 	if err != nil {
+		// The reader answers no error; the scope caches the slot, so this logs once.
+		slog.ErrorContext(ctx, "worktree: placement", "workspace", workspaceID, "err", err)
 		return placementAt{}
 	}
 	return placementAt{n.ParentID, n.Order}
@@ -420,7 +346,7 @@ func (s *worktreeScope) placementOf(
 
 // OwnerOf answers the chat that owns ws: the row that records ownership, or ""
 // when none does. It is a pure read — the boot reconcile gives every live
-// workspace its owner (invariant D4), so a read never has to mint one.
+// workspace its owner, so a read never has to mint one.
 func (h *Handlers) OwnerOf(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -433,53 +359,38 @@ func (h *Handlers) OwnerOf(
 	return owner.ID
 }
 
-// Workspaces handles GET .../repos/:repoId/workspaces: every workspace row in
-// the repo, chat or no chat.
-//
-// This is the resource fetchWorkspaces's own doc (web/src/lib/api.ts) says
-// does not exist any more — workspaces have been derived from the chat list
-// since the chat-scoped API redesign, on the assumption that every worktree
-// worth showing has a chat to derive it from. That assumption breaks for a
-// repo's own default/main checkout and for any locked tracking branch nobody
-// has ever chatted in: no chat, no derived DTO, no row — not just missing
-// content but a missing REPO HEADER, since rows-from-repo.ts mints that from
-// the default workspace. Caught live: an entire repo (and a repo's own other
-// locked branches) silently absent from the sidebar the instant it had no
-// chats, reproduced against a real production data set.
-//
-// Reuses the exact same worktreeScope/WorkspaceDTOFrom machinery
-// repoWorktrees already built for the chat-derived path — same eligibility
-// resolution, same placement overlay, same DTO shape — so a workspace looks
-// identical whether the client learns of it through a chat or through this
-// route directly. ownerOf resolves each row's owning chat id the same way
-// worktreeScope.owner does (OwnerOf).
+// Workspaces handles GET .../repos/:repoId/workspaces: every workspace row, chat or not, since a repo's
+// default checkout and never-chatted-in locked branches (and so the repo header) have no chat to derive
+// from. It uses the same scope machinery as the chat path, so a workspace looks identical either way.
 func (h *Handlers) Workspaces(
 	ctx *gin.Context,
 ) {
-	rctx := ctx.Request.Context()
-	projectID, repoID := ctx.Param("projectId"), ctx.Param("repoId")
-
-	if h.worktrees == nil {
-		libs.WriteQueryOK(ctx, []dto.WorkspaceDTO{})
-		return
-	}
-	rows, err := h.worktrees.ListInRepo(rctx, projectID, repoID)
+	rows, err := h.workspacesIn(ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
+	libs.WriteQueryOK(ctx, rows)
+}
 
+// workspacesIn is a repo's workspaces as Workspaces serves them.
+func (h *Handlers) workspacesIn(ctx context.Context, projectID, repoID string) ([]dto.WorkspaceDTO, error) {
+	if h.worktrees == nil {
+		return []dto.WorkspaceDTO{}, nil
+	}
+	rows, err := h.worktrees.ListInRepo(ctx, projectID, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("chat: workspaces of %s: %w", repoID, err)
+	}
 	scope := h.newScope(rows)
-	scope.warm(rctx, rows)
-
-	libs.WriteQueryOK(ctx, dto.WorkspaceDTOList(
-		rctx,
+	scope.warm(ctx, rows)
+	return dto.WorkspaceDTOList(
+		ctx,
 		rows,
-		func(w domain.Workspace) workspace.MergeEligibility { return scope.eligibility(rctx, w) },
+		func(w domain.Workspace) workspace.MergeEligibility { return scope.eligibility(ctx, w) },
 		func(w domain.Workspace) string {
-			return scope.owner(rctx, domain.Chat{WorkspaceID: w.ID})
+			return scope.owner(ctx, domain.Chat{WorkspaceID: w.ID})
 		},
 		scope.placements(),
-	))
+	), nil
 }

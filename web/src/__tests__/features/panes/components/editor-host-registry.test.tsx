@@ -50,13 +50,11 @@ function seedEditorTab(paneId: string, id: string) {
     state.buffers.push({
       id,
       type: 'editor',
+      authority: 'workspace',
       path: `/${id}.ts`,
       name: `${id}.ts`,
-      content: '',
-      savedContent: '',
       isDirty: false,
       isVirtual: false,
-      tokens: [],
       isPinned: false,
       isPreview: false,
       workspaceId: 'w1',
@@ -72,16 +70,9 @@ function seedEditorTab(paneId: string, id: string) {
 }
 
 describe('EditorHostRegistry / EditorHostSlot', () => {
-  // Regression: live-reported the SAME blank-pane symptom EditorHostRegistry
-  // was built to eliminate, reappearing with no repro steps. Root cause: an
-  // earlier version of EditorHostSlot returned null (unmounting its portaled
-  // EditorPane) whenever the registry's published entry was momentarily
-  // undefined — which happens on EVERY dependency change of PaneContainer's
-  // own registration effect (its cleanup clears the entry, its new body sets
-  // it) — not only when the pane's last editor tab actually closes. This
-  // simulates that exact clear-then-set sequence directly against the
-  // registry (the same two calls PaneContainer's effect makes back to back)
-  // and asserts the portaled EditorPane survives it without unmounting.
+  // PaneContainer's registration effect clears then re-sets the entry on every dependency
+  // change; the portaled EditorPane must survive that gap, unmounting only when the pane's
+  // last editor tab closes.
   it('does not unmount the portaled EditorPane across a clear-then-reset of its registry entry', async () => {
     seedEditorTab(ROOT_PANE_ID, 'tab-a')
     const node = createPortalTarget()
@@ -92,7 +83,6 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
       setEditorPortalEntry(ROOT_PANE_ID, {
         node,
         activeEditorBufferId: 'tab-a',
-        isPreview: false,
         isActiveSurface: true,
       })
     })
@@ -100,14 +90,8 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
     const before = await screen.findByTestId('editor-marker-tab-a')
     expect(editorMountCount.current).toBe(1)
 
-    // The exact sequence PaneContainer's registration effect runs when ANY
-    // of its dependencies change (a tab switch, a focus change, ...): its
-    // cleanup fires first (clearing the entry), then its new body
-    // immediately re-publishes a fresh one. Forced into SEPARATE `act`s (one
-    // commit each) rather than one — batched into a single commit, React
-    // only ever renders the end state and never actually exercises the gap
-    // this regression is about; production's two effect-phase writes are not
-    // guaranteed to land in the same commit either.
+    // Separate `act`s (one commit each): batched, React renders only the end state and never
+    // exercises the gap, and production's two writes aren't guaranteed one commit either.
     act(() => {
       clearEditorPortalEntry(ROOT_PANE_ID)
     })
@@ -115,7 +99,6 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
       setEditorPortalEntry(ROOT_PANE_ID, {
         node,
         activeEditorBufferId: 'tab-a',
-        isPreview: false,
         isActiveSurface: true,
       })
     })
@@ -133,7 +116,6 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
       setEditorPortalEntry(ROOT_PANE_ID, {
         node,
         activeEditorBufferId: 'tab-a',
-        isPreview: false,
         isActiveSurface: true,
       })
     })

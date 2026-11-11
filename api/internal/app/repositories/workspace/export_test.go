@@ -4,14 +4,8 @@ import (
 	"context"
 	"errors"
 
-	asynxModels "github.com/char2cs/asynx/models"
-
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
-
-// MaxOCCAttempts exposes the OCC retry bound so external tests can assert the
-// ErrPipelineFailed disposition contract (retry ≤5×; spec §3.5, decision 10).
-const MaxOCCAttempts = maxOCCAttempts
 
 // WaitQuiescentForTest blocks until the repo's asynx instance has drained its
 // dispatch queue and run every projection handler (WaitPublish = dispatcher
@@ -42,15 +36,4 @@ func WriteLegacyRowForTest(ctx context.Context, repo Workspace, ws domain.Worksp
 	}
 	_, err := w.ax.SendWait(ctx, legacyCreate{ws: ws})
 	return err
-}
-
-// OccSend exposes the OCC retry + terminal error-disposition helper so external
-// tests can drive it against a fake send closure (forcing ErrPipelineFailed /
-// ErrValidation / ErrQueueFull) without standing up a real asynx.
-func OccSend(
-	ctx context.Context,
-	send func(context.Context, asynxModels.Command[domain.Workspace]) (asynxModels.Event[domain.Workspace], error),
-	cmd asynxModels.Command[domain.Workspace],
-) (asynxModels.Event[domain.Workspace], error) {
-	return occSend(ctx, send, cmd)
 }

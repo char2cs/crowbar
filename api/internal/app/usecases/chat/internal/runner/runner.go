@@ -1,70 +1,55 @@
-// Package runner is the vendor CLI's lifecycle: starting one on a chat,
-// replacing it with another provider's, resuming it after a restart, stopping
-// it, and delivering a Crowbar-authored prompt into it.
-//
-// Everything here is USER-INITIATED, which is what separates it from the hook
-// ingress. It may block, it may refuse, and it takes the per-chat spawn gate —
-// the only thing that stops two clicks putting two CLIs on one chat. That is
-// also why nothing on the hook path may call into it through a gated door: a
-// switch holds the gate while parked on a turn only a hook can end.
-//
-// A runner's own PROCESS is the sole authority on its liveness. Nothing here
-// asserts a process is alive or dead that it has not observed; a CLI is ended
-// by killing it and letting its death carry the runner row away. That process
-// is usually a PTY, and for an api-driven runner it is the `serve` connection
-// or the native view it hands over to instead — see apirunner.go.
+// Package runner is the vendor CLI's lifecycle: start, switch provider, resume, stop, and deliver a Crowbar-authored
+// prompt. Everything here is user-initiated and decides under the chat's hook lock (chatlock.go); the hook path must
+// never call in through a locking door. A runner's process (PTY, serve connection or native view) is the sole authority
+// on its liveness: a CLI is ended by killing it and letting its death record the exit.
 package runner
 
 import (
+	"context"
+	"log/slog"
 	"strings"
-	"time"
+	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/catalog"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Runners is the CLI lifecycle.
 type Runners struct {
-	chats       agentchat.EventStore
-	runnerStore agentrunner.EventStore
-	activity    agentactivity.EventStore
-	agents      engineagents.Agents
-	term        seam.TerminalCommander
-	ws          seam.WorkspaceReader
+	chats agentchat.EventStore
+	// choices are the questions each chat's CLI waits on, for the screen sweep.
+	choices termwait.Choices
+	agents  engineagents.Agents
+	term    seam.TerminalCommander
+	ws      seam.WorkspaceReader
+	// runnerDirs orders a spawn's mkdir of its runner dir against a reap pruning
+	// the parents it emptied, so neither removes what the other is creating.
+	runnerDirs sync.Mutex
+	// home resolves the crowbar home a chat's attachments live under.
+	home func() (string, error)
 	// ancestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see AncestorCwd's own doc for why this is declared here rather
 	// than imported directly.
 	ancestorCwd AncestorCwd
-	// home is the app-config crowbar-home resolver, NOT a wsId lookup: it
-	// anchors each chat's own prompt-delivery journal (worktreepath.LedgerChatsDir),
-	// which must stay put regardless of the chat's WorkspaceID (see promptJournalDirFor).
-	home func() (string, error)
-	// spawns serialises the USER-INITIATED spawn paths per chat. It is the only
-	// thing that can stop two concurrent switches putting two CLIs on one chat, and
-	// it is NEVER taken on the hook path.
-	spawns *inflight.Gate
-	// inflightTurns is the in-flight-turn registry this type BLOCKS on before it
-	// quits a CLI.
-	inflightTurns *inflight.Turns
-	// turnStarts makes a hook's durable turn start atomic with the final
-	// idle-check-and-displace section of destructive TUI replacement.
-	turnStarts *inflight.Gate
-	work       *inflight.Work
-	// prompts is the durable at-most-once React-submission journal and the
-	// process-local transition lock shared with user_prompt hook confirmation.
-	prompts agentjournal.PromptRequests
-	// pendingHooks is the fork-before-runner-persistence barrier this type installs
-	// before the fork and finishes after the runner row exists.
-	pendingHooks *inflight.Hooks
+	// ledger is each chat's ledger: a prompt is a row there before any CLI sees it.
+	ledger *ledgerstore.Store
+	// daemonHost is the address the daemon bound, rendered into every callback's
+	// --host so none derives one of its own.
+	daemonHost string
+	// crowbarBin is the crowbar binary the descriptors run (the daemon's own);
+	// noAPITransport keeps every provider on hooks alone.
+	crowbarBin     string
+	noAPITransport bool
+	// chatLock is the chat's lock a user-initiated path decides under; parks are
+	// the waits it sits in outside it, which a stop cancels.
+	chatLock ChatLock
+	parks    *parks
 	// catalogs owns only cancellation for in-flight deterministic probes. Results
 	// are deliberately never cached.
 	catalogs *catalog.Runs
@@ -75,10 +60,8 @@ type Runners struct {
 	// apiConns holds each runner's api-transport connection (serve process +
 	// driver), for a mixed-transport provider. Empty for a hooks-only one.
 	apiConns *apiConnRegistry
-	// attached holds, for a runner CURRENTLY showing its provider's native TUI
-	// instead of its api connection, the terminal session that IS that TUI —
-	// in memory only, exactly like apiConns: it describes a live process, not
-	// a fact to survive a restart on. See attach.go.
+	// attached is the terminal session of each runner CURRENTLY showing its native
+	// TUI instead of its api connection; in memory, as it describes a live process.
 	attached *attachRegistry
 	// surfaces is the CURRENT surface each runner's chat is on — the
 	// in-process mirror of domain.Chat.Surface. See surfaceRegistry.
@@ -90,62 +73,49 @@ type Runners struct {
 	// together and neither can name the other first.
 	turns Turns
 
-	// termWait detects the state no hook reports: a CLI parked on a modal Crowbar
-	// cannot answer, which otherwise renders as an empty pane over a live process.
-	// NIL when the terminal seam cannot render a screen, in which case every chat
-	// reports the zero verdict.
+	// termWait detects a CLI parked on a modal no hook reports. Nil when the terminal
+	// seam cannot render a screen; every chat then reports the zero verdict.
 	termWait termwait.Detector
-	// promptSettled fans out the edge where a delivery is retired without ever
-	// having produced a turn. Wired at sweep start rather than at construction,
-	// because what it publishes through is the hub — a layer above this one.
-	//
-	// consumed says whether anything proved the provider took the prompt. It is
-	// false for the terminal-wait sweep's bare timeout, where the client's queue
-	// item holds the only surviving copy of the user's text — see settleDelivery.
-	promptSettled func(chatID, workspaceID, requestID string, consumed bool)
 
+	// live is the one CLI on each chat: in memory, like every process registry
+	// here. Its durable facts are the ledger's runner rows.
+	live *liveTable
 	// phases is the lifecycle operation each chat is mid-way through — see
 	// phase.go — and snapshots is where a change no aggregate event carries is
 	// announced. snapshots is nil in tests that build a bare Runners.
-	phases *phases
-	// sessions is the supervisor's record of why each chat is in its state.
-	sessions  *sessionBook
+	phases    *phases
 	snapshots Snapshotter
 	// background is the supervisor's own follow-up work; Shutdown ends it.
 	background *backgroundWork
-
-	// switchAwaitTimeout overrides forceSwitchAfter's bound. Zero (the production
-	// default) means "use termwait.DefaultStallQuiet" — see SetSwitchAwaitTimeout.
-	switchAwaitTimeout time.Duration
-	// interruptTimeout overrides Stop's interrupt bound; zero is the default.
-	interruptTimeout time.Duration
 }
 
 // Deps is everything the CLI lifecycle is built over. It is a struct and not an
-// argument list for the same reason turn.Deps is: the shared in-flight state is
-// built once, elsewhere, and an ordered list of seventeen pointers is a place to
-// swap two of them silently.
+// argument list because the shared in-flight state is built once, elsewhere,
+// and an ordered list of pointers is a place to swap two of them silently.
 type Deps struct {
-	Chats     agentchat.EventStore
-	Runners   agentrunner.EventStore
-	Activity  agentactivity.EventStore
+	Chats agentchat.EventStore
+	// Choices are the questions each chat's CLI waits on.
+	Choices   termwait.Choices
 	Agents    engineagents.Agents
 	Terminal  seam.TerminalCommander
 	Workspace seam.WorkspaceReader
+	// Home resolves the crowbar home.
+	Home func() (string, error)
 	// AncestorCwd resolves a bubble's cwd through the tree usecase's ancestor
 	// walk — see the AncestorCwd interface's own doc.
 	AncestorCwd AncestorCwd
-	// Home is the app-config crowbar-home resolver, NOT a wsId lookup — see the
-	// Runners.home field it fills.
-	Home func() (string, error)
+	Ledger      *ledgerstore.Store
+	// DaemonHost is the address the daemon bound, rendered into the callbacks.
+	DaemonHost string
+	// CrowbarBin is the crowbar binary the descriptors run: the daemon's own.
+	CrowbarBin string
+	// NoAPITransport runs every provider over hooks alone, its serve never forked.
+	NoAPITransport bool
 
-	Spawns        *inflight.Gate
-	InflightTurns *inflight.Turns
-	TurnStarts    *inflight.Gate
-	Work          *inflight.Work
-	PendingHooks  *inflight.Hooks
-	Minter        *agenttools.TokenMinter
-	Answers       *answerdesk.Desk
+	// ChatLock is the lock the hook ingress records each chat's hooks under.
+	ChatLock ChatLock
+	Minter   *agenttools.TokenMinter
+	Answers  *answerdesk.Desk
 
 	Conversations Conversations
 	Providers     Providers
@@ -157,48 +127,39 @@ type Deps struct {
 // SetTurns, because the two call each other.
 func New(d Deps) *Runners {
 	return &Runners{
-		chats:         d.Chats,
-		runnerStore:   d.Runners,
-		activity:      d.Activity,
-		agents:        d.Agents,
-		term:          d.Terminal,
-		ws:            d.Workspace,
-		ancestorCwd:   d.AncestorCwd,
-		home:          d.Home,
-		spawns:        d.Spawns,
-		inflightTurns: d.InflightTurns,
-		turnStarts:    d.TurnStarts,
-		work:          d.Work,
-		// Owned outright, so built here rather than handed in: the at-most-once
-		// submission journal and the probe limiter are named by nothing outside this
-		// package.
-		prompts:      agentjournal.NewPromptRequests(),
-		catalogs:     catalog.New(),
-		pendingHooks: d.PendingHooks,
-		minter:       d.Minter,
-		answers:      d.Answers,
-		apiConns:     newAPIConnRegistry(),
-		attached:     newAttachRegistry(),
-		surfaces:     newSurfaceRegistry(),
-		phases:       newPhases(),
-		sessions:     newSessionBook(),
-		snapshots:    d.Snapshots,
-		background:   newBackgroundWork(),
+		chats:          d.Chats,
+		choices:        d.Choices,
+		agents:         d.Agents,
+		term:           d.Terminal,
+		ws:             d.Workspace,
+		home:           d.Home,
+		ancestorCwd:    d.AncestorCwd,
+		ledger:         d.Ledger,
+		daemonHost:     d.DaemonHost,
+		crowbarBin:     d.CrowbarBin,
+		noAPITransport: d.NoAPITransport,
+		chatLock:       d.ChatLock,
+		parks:          newParks(),
+		// Owned outright, so built here rather than handed in: the probe limiter is
+		// named by nothing outside this package.
+		catalogs:   catalog.New(),
+		minter:     d.Minter,
+		answers:    d.Answers,
+		apiConns:   newAPIConnRegistry(),
+		attached:   newAttachRegistry(),
+		surfaces:   newSurfaceRegistry(),
+		live:       newLiveTable(),
+		phases:     newPhases(),
+		snapshots:  d.Snapshots,
+		background: newBackgroundWork(),
 
 		conversations: d.Conversations,
 		providers:     d.Providers,
 	}
 }
 
-// SetTurns binds the hook ingress and, with it, builds the terminal-wait
-// detector.
-//
-// The detector is built HERE rather than in New because its ports are spread
-// across both sides — the screen classifiers and the message stream belong to the
-// hook ingress — and it binds them by value. Building it in New would bind nil.
-//
-// It is nil when the terminal seam cannot render a screen, which is the whole of
-// the "no detector" case every reader of termWait guards for.
+// SetTurns binds the hook ingress and builds the terminal-wait detector, here rather
+// than in New because its screen classifiers belong to the ingress (bound by value).
 func (rs *Runners) SetTurns(turns Turns) {
 	rs.turns = turns
 	screens, ok := rs.term.(termwait.Screens)
@@ -206,19 +167,26 @@ func (rs *Runners) SetTurns(turns Turns) {
 		return
 	}
 	rs.termWait = termwait.New(termwait.Deps{
-		Runners:    rs.runnerStore,
-		Chats:      rs.chats,
-		Choices:    rs.activity,
-		Screens:    screens,
-		Prompts:    turns,
-		Notices:    turns,
-		Work:       turns,
-		OnStall:    turns.CloseStalledTurn,
-		Deliveries: rs,
-		Messages:   turns,
-		Liveness:   rs,
-		Idle:       turns,
+		Runners:  rs,
+		Work:     rs,
+		Choices:  rs.choices,
+		Screens:  screens,
+		Prompts:  turns,
+		Notices:  turns,
+		OnNotice: rs.failTurnOnNotice,
 	})
+}
+
+// failTurnOnNotice records what a notice on runner's screen ends, under the
+// chat's lock so no hook ends that work between its check and its record.
+func (rs *Runners) failTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
+	unlock, err := rs.chatLock.Lock(ctx, runner.CurrentChatID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: notice: hold the chat", "runner_id", runner.ID, "err", err)
+		return
+	}
+	defer unlock()
+	rs.turns.FailTurnOnNotice(ctx, runner, notice)
 }
 
 // composeContext joins the non-empty sections of a spawn's {context} in the order
@@ -233,22 +201,3 @@ func composeContext(sections ...string) string {
 	}
 	return strings.Join(parts, "\n\n")
 }
-
-// ComposeContext is composeContext, exposed for the chat usecase's own tests.
-//
-// The rule is reached directly rather than through a spawn because one of its
-// inputs comes from the process-wide config singleton, and config.Get MEMOISES on
-// first use — so a spawn-level test could not present a blanked
-// capabilities_instruction without depending on which test in the binary ran
-// first. A composition rule tested through a memoised global is a test that passes
-// for the wrong reason.
-var ComposeContext = composeContext
-
-// SetPromptJournal replaces the at-most-once submission journal. It exists for
-// the deterministic durability faults the usecase's tests inject; production
-// always uses the fsync-on-rename journal New builds.
-//
-// It REPLACES the journal, so it must be called before the chat under test has
-// submitted anything. The prompt journal holds no state between calls, so a
-// replacement loses nothing.
-func (rs *Runners) SetPromptJournal(prompts agentjournal.PromptRequests) { rs.prompts = prompts }

@@ -1,9 +1,6 @@
-// Package tlsid owns the daemon's long-lived TLS identity: a self-signed
-// certificate generated once and reused for the life of the installation.
-//
-// Stability is the whole point. A client pairs by confirming this identity's
-// fingerprint, so regenerating it silently breaks every paired client — the
-// certificate is created only when absent and never rotated automatically.
+// Package tlsid owns the daemon's long-lived self-signed TLS identity. Clients pair
+// by its fingerprint, so it is created only when absent and never rotated
+// automatically.
 package tlsid
 
 import (
@@ -73,11 +70,9 @@ func Load(dir string) (*Identity, error) {
 	return &Identity{Certificate: pair, Fingerprint: FingerprintOf(pair.Certificate[0])}, nil
 }
 
-// FingerprintOf renders a certificate's SHA-256 as grouped lowercase hex.
-// It deliberately keeps only the first 96 bits (24 hex chars) of the SHA-256
-// digest, grouped as 6 space-separated 4-char groups, for a short human-
-// comparable string. This truncated format is a contract with Rust-side code
-// and must not be changed without updating all fingerprint formatters.
+// FingerprintOf renders the first 96 bits of a certificate's SHA-256 as six
+// space-separated groups of 4 lowercase hex chars. The format is a contract with the
+// Rust-side formatters and must change with them.
 func FingerprintOf(der []byte) string {
 	sum := sha256.Sum256(der)
 	full := hex.EncodeToString(sum[:])
@@ -127,7 +122,7 @@ func generate(certPath, keyPath string) error {
 	if err := writePEM(keyPath, "EC PRIVATE KEY", keyDER, 0o600); err != nil {
 		return err
 	}
-	return writePEM(certPath, "CERTIFICATE", der, 0o644)
+	return writePEM(certPath, "CERTIFICATE", der, 0o600)
 }
 
 func missing(path string) bool {
@@ -137,13 +132,17 @@ func missing(path string) bool {
 
 // writePEM replaces path atomically (synced temp file, then rename), so a
 // crash or full disk never leaves a truncated PEM under the real name.
-func writePEM(path, blockType string, der []byte, mode os.FileMode) error {
+func writePEM(path, blockType string, der []byte, mode os.FileMode) (err error) {
 	name := filepath.Base(path)
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+name+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("tlsid: write %s: %w", name, err)
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // no-op once renamed
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, os.Remove(tmp.Name()))
+		}
+	}()
 
 	buf := pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
 	_, err = tmp.Write(buf)

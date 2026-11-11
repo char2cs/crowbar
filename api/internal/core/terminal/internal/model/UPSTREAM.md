@@ -11,7 +11,7 @@ no spec-locked decision is made silently.
 
 | module | pin |
 | --- | --- |
-| `github.com/charmbracelet/x/vt` | `v0.0.0-20260629091435-9c70f75e26a4` (untagged) |
+| `github.com/charmbracelet/x/vt` | `v0.0.0-20260629091435-9c70f75e26a4` (untagged), vendored at `api/third_party/x-vt` and wired by `replace` in `api/go.mod`; not read from the module cache |
 | `github.com/charmbracelet/ultraviolet` | `v0.0.0-20260622092850-f39628c8a989` |
 | `github.com/charmbracelet/x/ansi` | `v0.11.7` |
 
@@ -19,8 +19,9 @@ no spec-locked decision is made silently.
 
 `x/vt` is adopted for the foundational `model/` package. The `midterm` fall-through (§5.4 /
 §15 exit-gate item 7) is **not** taken at this phase. Several §15 hard gates are met by `x/vt`
-directly; two are **not** met at the pin and are carried as **explicit, recorded deviations**
-rather than silent overrides (see "Deviations" below). The foundational packages deliberately
+directly, and the soft-wrap gate (§15 item 7) by the patched copy below; the `xterm.js` oracle
+(D2) is **not** met and is carried as an **explicit, recorded deviation** rather than a silent
+override (see "Deviations" below). The foundational packages deliberately
 do **not** yet wire into `Session`, delete the old replay path, or claim the §13.2 conformance
 proof — those are P2-P5 work. The decision recorded here is therefore scoped to: *what the
 foundation ships, and which gates are deferred vs. accepted, with eyes open.*
@@ -66,47 +67,42 @@ foundation ships, and which gates are deferred vs. accepted, with eyes open.*
 
 ## Deviations (recorded, NOT silent overrides)
 
-### D1 — soft-wrap / reflow bit: HARD adoption gate (§15 item 7, §6.2 family) **UNMET at the pin**
+### Patched copy of `x/vt`
 
-The pinned `x/vt` commit exposes **no** per-row soft-wrap signal and **no** pre-scroll /
-line-eviction hook: there is no `RowWrapped`-equivalent getter on the emulator, `ultraviolet`'s
-`uv.Line` is a flat `[]Cell` with no `isWrapped` attribute, no `LineEvict`/`Callbacks` eviction
-entry exists, and `x/vt`'s built-in `Scrollback.Push` trims trailing cells. Per §15 item 7 this
-is a HARD adoption gate, and with neither signal present (and no thin wrapper able to synthesise
-the evicted-row wrap bit without re-implementing `x/vt`'s scroll state machine, which §9.2
-forbids), the gate is **NOT met**.
+`api/third_party/x-vt` is the pinned commit plus a small local patch:
 
-**Decision for the foundation phase:** ship `x/vt` **with the wrap-bit loss as an accepted,
-explicitly-recorded residual**, rather than silently emitting wrap-aware output the backend
-cannot support, and rather than pulling `midterm` in for a foundation-only package that is not
-yet wired into `Session`. The serializer emits every scrollback and grid row hard-broken with
-`CR`/`LF` and trailing-blank-trimmed. **The visible cells are preserved exactly**; only the
-wrapped/reflow semantic is lost, so a width resize on the `xterm.js` client *after* attach can
-reflow a previously-wrapped logical line differently from the model. The loss is bounded to that
-post-attach-resize corner and self-heals on the app's next full repaint (TUIs repaint on the
-SIGWINCH the attach implies; shells re-emit the prompt). This is the exact §1.2 bug class the
-design exists to reduce, here bounded to one corner rather than eliminated.
+- Each screen row and scrollback line carries xterm's `isWrapped` (`Emulator.RowWrapped` /
+  `ScrollbackRowWrapped`): set by autowrap, moved with its row, cleared where xterm clears it and
+  on ring eviction; a row off the grid is ignored. The serializer writes a soft-wrapped row
+  unbroken, so the client's xterm sets the same bit.
+- A resize reflows the primary screen and its scrollback as xterm.js 6.0.0's `Buffer.resize` does
+  (`reflow.go`, ported under the MIT License, see `NOTICE.md`): chains rejoin or rewrap, rows
+  scroll into and out of history as xterm's do, and a resize leaves no pending wrap. The alternate
+  screen is not reflowed and keeps its wrap bits. A line no reflow rewraps (the alternate screen's,
+  and the cursor's own chain on the primary screen) is cut to the new width, where xterm keeps the
+  cells past it, and a wide glyph the cut would split is blanked, where xterm keeps it clipped.
+- A wide glyph that does not fit the last column wraps early and leaves that cell blank in the
+  current pen; one whose second half lands on the last column leaves a pending wrap.
+- ED 1 also clears the next row when it erases the cursor row whole, as xterm's comment intends;
+  xterm's code (`InputHandler.ts:1218`) indexes that row without `ybase`, a bug deliberately not
+  copied.
+- The alternate screen keeps no scrollback, and DECSTBM and DECSLRM clamp their margins to the
+  screen, as xterm does.
 
-- Asserted as a tracked, non-regressing fact by
-  `TestSoftWrapResidualHardBreaksButPreservesCells`.
-- Documented in the `model` package doc.
-- **Revisit trigger:** the moment a pinned `x/vt` (or `midterm`) commit surfaces both the
-  eviction-hook wrap bit and a visible-grid wrap signal, implement steps 5/7 wrap-awareness and
-  delete this residual + its test. If `Session` wiring (P2+) is reached before that, the
-  `midterm` swap (§5.4) is re-evaluated as the §15-item-7 branch proper, since by then the gate
-  blocks a user-visible path.
+Delete the copy (and the `replace` in `api/go.mod`) once a tagged upstream has every behaviour
+listed above, the reflow included.
 
-### D1a — parse-panic recovery discards scrollback CONTENT (consequence of D1) **ACCEPTED RESIDUAL**
+### D1a — parse-panic recovery discards scrollback CONTENT **ACCEPTED RESIDUAL**
 
-A direct, recorded consequence of D1 (scrollback sourced from `x/vt`'s own buffer rather than
-an adapter-owned compact ring): the §4.1/§8.2 parse-panic recovery (`vtModel.Write` →
+Scrollback is sourced from `x/vt`'s own buffer rather than an adapter-owned compact ring (`x/vt`
+has no pre-scroll eviction hook), so the §4.1/§8.2 parse-panic recovery (`vtModel.Write` →
 `recreateEmu` → `buildEmu`) builds a **brand-new blank emulator**, which discards **all
 scrollback CONTENT (history)** along with the visible grid. Only the configured scrollback
 **depth** (the `SetScrollbackSize` capacity, re-applied by `buildEmu`) and the title (shadow
 state, not parser state) survive the recreate.
 
 The spec §13.1 panic-recovery wording ("the compact scrollback ring + `sbBytes` are preserved
-(history not lost)") presumes the §9.2 compact-ring mechanism that **D1 explicitly defers**.
+(history not lost)") presumes the §9.2 compact-ring mechanism this foundation defers.
 With no adapter-owned ring at this pin, there is nothing to preserve history in across the
 emulator swap, so the spec's "history not lost" guarantee is **not** met on the degraded path.
 
@@ -121,10 +117,9 @@ explicitly.
 
 - Asserted as a tracked, non-regressing fact by `TestWriteRecoverDiscardsScrollbackContent`.
 - Documented in the `vtModel.Write` doc comment.
-- **Revisit trigger:** the same trigger as D1 — the moment the compact-ring / `sbBytes`
-  mechanism is adopted (a pinned `x/vt`/`midterm` commit surfaces the eviction-hook wrap bit),
-  the ring becomes adapter-owned and outlives the emulator, so `recreateEmu` preserves it and
-  this residual is deleted with its test.
+- **Revisit trigger:** the moment the compact-ring / `sbBytes` mechanism is adopted (it needs a
+  pre-scroll eviction hook, which the pinned `x/vt` lacks), the ring becomes adapter-owned and
+  outlives the emulator, so `recreateEmu` preserves it and this residual is deleted with its test.
 
 ### D2 — `xterm.js` `SerializeAddon` buffer-equivalence oracle (§6.1 / §13.2 / §15 P1) **DEFERRED**
 
@@ -133,7 +128,7 @@ our payload reproduces the model's buffer in a fresh `xterm.js` across real-app 
 (pinned `@xterm/xterm` + `@xterm/addon-serialize`). That harness is a Node/JS deliverable; this
 workflow's gate is `go test` over the foundational Go packages only, and per §15 the conformance
 harness is a **P1 exit-gate** item (and the real-app PTY fixtures, DECSTR-autowrap /
-region-relative-CUP / wrap-CR-LF behaviors it checks, are most meaningful once `Attach` actually
+region-relative-CUP / soft-wrap behaviors it checks, are most meaningful once `Attach` actually
 serializes — P3).
 
 **Decision for the foundation phase:** the foundation does **not** claim the mandated
@@ -144,6 +139,22 @@ equivalence to the actual `xterm.js` client. Its own header says so; it must **n
 presented as the oracle. The `xterm.js` `SerializeAddon` harness is tracked as a deferred
 P1/P3 deliverable.
 
+Known `x/vt`-vs-`xterm.js` divergences the self-fixpoint cannot see (found with the wrap bit, not
+patched):
+
+- EL 0 at a pending wrap erases the last cell and cancels the wrap in `x/vt`; `xterm.js` erases
+  nothing and keeps the wrap. The serializer never sends EL 0 there.
+- `x/vt` cannot tell a printed space from an erased cell: an erase fills with a space cell, and an
+  empty cell collapses its column when rendered. A reflow counts a chain's trailing printed spaces
+  as blanks where `xterm.js` counts them as content, so the chain rewraps that much shorter. The
+  resize fixture pins it as the `printedSpacesKnownDivergence` scenario.
+- A wide glyph a shrink splits on a line no reflow rewraps is blanked by `x/vt` and kept clipped
+  by `xterm.js` (`BufferLine.resize`); the keyframe after the resize repaints the blank, and a
+  later grow shows the glyph again only on the client.
+- A keyframe parks the cursor with a CUP, so the client is never at a pending wrap. After a
+  widening resize at one, the client's own reflow leaves its cursor one column left of the
+  daemon's until the keyframe of the same resize lands.
+
 ## Blocking exit checklist before this package is wired or shipped
 
 Both deviations above are accepted **only** for the not-yet-wired foundation phase. To stop
@@ -152,17 +163,9 @@ consolidated here as a single greppable gate list. Each line is a hard precondit
 that trips it (the §P3 `Session` `Attach` wiring that first calls `Serialize` on a live client,
 and the production enablement of that path) MUST NOT land until its box is checked.
 
-- [ ] **D1 — soft-wrap / reflow bit (HARD §15 item 7 gate) — resolve BEFORE `Session` wiring (P3).**
-  Either (a) a pinned `x/vt`/`midterm` commit surfaces both the pre-scroll eviction-hook wrap bit
-  and a visible-grid wrap signal, then implement steps 5/7 wrap-aware emission (no CR/LF separator
-  + full-`cols` width for a wrapped row), delete the residual, and flip
-  `TestSoftWrapResidualHardBreaksButPreservesCells`; or (b) take the §5.4 `midterm` swap as the
-  §15-item-7 branch proper. Do NOT promote the current hard-break residual to a live attach path
-  without doing one of these — that re-introduces the §1.2 reflow-on-resize bug class on a
-  user-visible surface.
-- [ ] **D1a — panic-recovery scrollback-content loss — resolves WITH D1.** Once an adapter-owned
-  compact ring exists (it depends on the same eviction hook as D1), `recreateEmu` must preserve it
-  so history survives the emulator swap; delete `TestWriteRecoverDiscardsScrollbackContent`.
+- [ ] **D1a — panic-recovery scrollback-content loss.** Once an adapter-owned compact ring exists
+  (it needs a pre-scroll eviction hook), `recreateEmu` must preserve it so history survives the
+  emulator swap; delete `TestWriteRecoverDiscardsScrollbackContent`.
 - [ ] **D2 — `xterm.js` `SerializeAddon` buffer-equivalence oracle — land BEFORE the
   serialize-on-attach path is enabled in production.** Commit the Node harness with a pinned
   `@xterm/xterm` + `@xterm/addon-serialize` lockfile and the §13.2 real-app PTY fixtures (vim,
@@ -170,8 +173,8 @@ and the production enablement of that path) MUST NOT land until its box is check
   pass. The in-package `TestRoundTripThroughXVT` self-fixpoint is NOT a substitute and must not be
   presented as the oracle.
 
-Until every box is checked, `Serialize` output is foundation-only: correct cells/cursor/modes,
-with the D1 wrap residual and the D2 unproven-against-`xterm.js` caveat both in force.
+Until every box is checked, `Serialize` output is foundation-only: correct cells, wrap bits,
+cursor and modes, with the D2 unproven-against-`xterm.js` caveat in force.
 
 ## Mechanism constants locked
 
@@ -179,7 +182,7 @@ with the D1 wrap residual and the D2 unproven-against-`xterm.js` caveat both in 
   built-in scrollback and the eviction hook is absent, so the foundation sources scrollback from
   `x/vt`'s own buffer (`Scrollback().Line(y)`) rather than the `WithScrollback(0)` +
   compact-`lineRing` mechanism (which depends on the absent hook). The compact-ring / `sbBytes`
-  accounting (§9.2/§9.4) is therefore also deferred with D1, to the same revisit trigger.
+  accounting (§9.2/§9.4) is therefore also deferred, to D1a's revisit trigger.
 - Step-2 set-signal: `Callbacks.{Foreground,Background,Cursor}Color` (recorded above).
 - Locking-shift / charset / scroll-region: in-`Write` scan (`escan.go`), recorded above.
 
@@ -188,7 +191,7 @@ with the D1 wrap residual and the D2 unproven-against-`xterm.js` caveat both in 
 Hand-rolled line diff adopted (diff.go) over ultraviolet's renderer:
 uv's diff/render pipeline is a TUI *presenter* (owns cursor state, assumes it
 is the only writer, renders to an io.Writer with its own frame lifecycle);
-constraining its output to our emit contract (absolute CUP per dirty row, pen
-reset per row via encodeLine, no cursor-state ownership) would mean fighting
-the library. The hand-rolled diff is ~120 lines and reuses the serializer's
-encodeGridRow/encodeLine, so both emission paths share one cell renderer.
+constraining its output to our emit contract (absolute CUP per dirty chain of
+soft-wrapped rows, pen reset per row, no cursor-state ownership) would mean
+fighting the library. The hand-rolled diff reuses the serializer's row encoder
+(appendChainRow), so both emission paths share one cell renderer and one wrap rule.

@@ -39,3 +39,22 @@ func TestClientLenses_PassesThroughWhatDoesNotDecode(t *testing.T) {
 		assert.Equal(t, raw, string(ClientLenses(json.RawMessage(raw), runsOnly())))
 	}
 }
+
+func TestConvertCommands_AMalformedCommandIsDroppedAndTheRestKept(t *testing.T) {
+	actions := ClientCodeActions("/w", json.RawMessage(`[
+		{"title":"Bad","command":{"title":"t","command":7}},
+		{"title":"Bare","command":7},
+		{"title":"Tidy","command":{"title":"t","command":"gopls.tidy"}}
+	]`), runsOnly("gopls.tidy"))
+	assert.JSONEq(t, `[{"title":"Tidy","command":{"title":"t","command":"gopls.tidy"}}]`, string(actions))
+
+	lenses := ClientLenses(json.RawMessage(`[
+		{"range":{"a":1},"command":{"title":"t","command":7}},
+		{"range":{"a":2},"command":{"title":5,"command":"x"}},
+		{"range":{"a":3},"command":{"title":"run","command":"gopls.test"}}
+	]`), runsOnly("gopls.test"))
+	assert.JSONEq(t, `[{"range":{"a":3},"command":{"title":"run","command":"gopls.test"}}]`, string(lenses))
+
+	resolved := ClientLenses(json.RawMessage(`{"range":{},"command":{"title":"t","command":7}}`), runsOnly())
+	assert.JSONEq(t, `null`, string(resolved))
+}

@@ -86,3 +86,11 @@ spawns:
   contract changed; check every consumer, not only the first prompt.
 - Latency: the first prompt no longer finds a warm CLI, but today's warm CLI is
   already discarded, so no regression.
+
+## Status (2026-11-05)
+
+Option A implemented. A create launches nothing unless the chat lands on its
+terminal (`Runners.OpenChat`, called by every create path); the first prompt
+revives the dormant chat with one launch carrying it. `SwitchToTerminal` on a
+chat no CLI ever ran on launches there; "Start session" is the existing resume.
+The bbx helpers start a chat explicitly where a test needs a live runner.

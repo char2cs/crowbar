@@ -119,18 +119,11 @@ func (f *fakeDispatcher) OnFileChange(
 	}
 }
 
-func (f *fakeDispatcher) OnGitStatus(
-	_ context.Context,
-	_ string,
-	_ gitdomain.GitStatus,
-) {
-}
+func (f *fakeDispatcher) OnGitStatus(context.Context, string, gitdomain.GitStatus) {}
 
-func (f *fakeDispatcher) OnSyncWorkingTreeState(
-	_ context.Context,
-	_ watch.SyncInput,
-) {
-}
+func (f *fakeDispatcher) OnGitStatusUnreadable(context.Context, string, error) {}
+
+func (f *fakeDispatcher) OnSyncWorkingTreeState(context.Context, watch.SyncInput) {}
 
 func (f *fakeDispatcher) find(
 	match func(domain.FileChangeEvent) bool,
@@ -202,10 +195,8 @@ func TestWatcher_DetectsFileCreate(
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o600))
 
-	evt := d.waitForChange(pathIs("new.txt"))
-	assert.Equal(t, domain.FileChangeCreated, evt.Type)
-	assert.Equal(t, "new.txt", evt.Path)
-	assert.Equal(t, "ws1", evt.WsID)
+	want := domain.FileChangeEvent{Type: domain.FileChangeCreated, Authority: domain.DocumentAuthorityWorkspace, Path: "new.txt", WsID: "ws1"}
+	assert.Equal(t, want, d.waitForChange(pathIs("new.txt")))
 }
 
 func TestWatcher_DetectsFileModify(

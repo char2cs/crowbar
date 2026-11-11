@@ -1,13 +1,13 @@
 package transports
 
 import (
-	"fmt"
-	"hash/fnv"
-	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 func TestSocketPath_ExplicitPathPassthrough(t *testing.T) {
@@ -17,15 +17,51 @@ func TestSocketPath_ExplicitPathPassthrough(t *testing.T) {
 }
 
 func TestSocketPath_CrowbarHomeHashed(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CROWBAR_HOME", home)
-	got, err := SocketPath("unix://")
+	t.Setenv(home.EnvVar, t.TempDir())
+	h, err := home.Resolve()
 	require.NoError(t, err)
 
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(home))
-	want := filepath.Join(os.TempDir(), "crowbar-"+hex64(h.Sum64())+".sock")
-	require.Equal(t, want, got)
+	got, err := SocketPath("unix://")
+	require.NoError(t, err)
+	require.Equal(t, h.Socket(), got)
 }
 
-func hex64(v uint64) string { return fmt.Sprintf("%x", v) }
+func TestSocketPath_DefaultHomeBindsInsideIt(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(home.EnvVar, "")
+	h, err := home.Resolve()
+	require.NoError(t, err)
+
+	got, err := SocketPath("unix://")
+	require.NoError(t, err)
+	require.Equal(t, h.Socket(), got)
+}
+
+// An in-PTY callback's --home always spells the home out, even the default
+// one; ipc.NewClient resolves it through SocketPath and must reach the daemon.
+func TestSocketPath_SpelledOutDefaultHomeIsNotAnOverride(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME does not set the user home on windows")
+	}
+	t.Setenv("TMPDIR", "/tmp") // a home short enough for its socket to bind inside it
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv(home.EnvVar, "")
+	unset, err := SocketPath("unix://")
+	require.NoError(t, err)
+
+	t.Setenv(home.EnvVar, filepath.Join(userHome, ".crowbar"))
+	spelledOut, err := SocketPath("unix://")
+	require.NoError(t, err)
+
+	require.Equal(t, filepath.Join(userHome, ".crowbar", "crowbar.sock"), unset)
+	require.Equal(t, unset, spelledOut)
+}
+
+func TestSocketPath_RelativeHomeFails(t *testing.T) {
+	t.Setenv(home.EnvVar, "relative/home")
+
+	_, err := SocketPath("unix://")
+
+	require.ErrorContains(t, err, "must be an absolute path")
+}

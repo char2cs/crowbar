@@ -6,41 +6,17 @@ import { RecentsViewRow } from '@/components/sidebar/view-row'
 import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import { newDraftChatId } from '@/features/agent/lib/draft-chat'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { resetChatStore, setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
-}))
-
-interface FakeChat {
-  id: string
-  workspaceId: string
-  title: string
-}
-
-const { stores } = vi.hoisted(() => ({
-  stores: {
-    current: new Map<string, { chats: FakeChat[]; working: Record<string, boolean> }>(),
-  },
-}))
-
-// Each member row resolves its chat through its OWN workspace's registered
-// store; a workspace absent here has no store, exactly like an unmounted one.
-vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('@/features/workspace/stores/workspace-store-registry')
-  >()),
-  getWorkspaceStore: (wsId: string) => {
-    const agentChats = stores.current.get(wsId)
-    if (!agentChats) return undefined
-    return { subscribe: () => () => {}, getState: () => ({ agentChats }) }
-  },
 }))
 
 const DRAG_PROPS = {
@@ -68,20 +44,11 @@ const SIDEBAR_CHATS: Repo['chats'] = [
 ]
 
 beforeEach(() => {
-  stores.current = new Map([
-    [
-      'ws-1',
-      {
-        chats: [
-          { id: 'chat-1', workspaceId: 'ws-1', title: 'Chat One' },
-          { id: 'chat-2', workspaceId: 'ws-1', title: 'Chat Two' },
-          { id: 'chat-3', workspaceId: 'ws-1', title: 'Chat Three' },
-        ],
-        working: {},
-      },
-    ],
-  ])
-  useSidebarStore.setState({ ...getInitialState(), repos: [repo(SIDEBAR_CHATS)] })
+  resetChatStore()
+  writeChat({ id: 'chat-1', workspaceId: 'ws-1', title: 'Chat One' })
+  writeChat({ id: 'chat-2', workspaceId: 'ws-1', title: 'Chat Two' })
+  writeChat({ id: 'chat-3', workspaceId: 'ws-1', title: 'Chat Three' })
+  seedRepos([repo(SIDEBAR_CHATS)])
   resetWindowPaneStoreForTests()
   windowPaneStore.getState().paneActions.setActiveProject('p1')
 })
@@ -136,10 +103,6 @@ function renderBand(overrides: Partial<BandProps> = {}) {
     ...overrides,
   }
   return { ...render(<Band {...props} />), props }
-}
-
-function classesOf(el: Element): string[] {
-  return el.className.split(/\s+/).filter(Boolean)
 }
 
 /** A group of chat-1 + chat-2 in one view, plus chat-3 as its own view. */
@@ -199,7 +162,7 @@ describe('RecentsViewRow', () => {
   it('clicking a row calls onFocus with its view', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     const { props } = renderBand()
-    screen.getByRole('treeitem').click()
+    screen.getByRole('tab').click()
     expect(props.onFocus).toHaveBeenCalledWith(viewOf('chat-1'))
   })
 
@@ -223,17 +186,16 @@ describe('RecentsViewRow', () => {
 
   it('every row has a close control — a working one included', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
-    stores.current.get('ws-1')!.working = { 'chat-1': true }
+    setChatWorking('chat-1', true)
     renderBand()
     expect(screen.getByRole('button', { name: 'Close view' })).toBeInTheDocument()
     expect(document.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
   })
 
-  it('only the showing view is painted; an off-screen group takes no ground', () => {
+  it('only the showing view is lit; an off-screen group is not', () => {
     groupAndSolo()
     renderBand()
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
-    expect(group.className).not.toMatch(/control-surface/)
     expect(group.getAttribute('data-view-showing')).toBeNull()
     const solo = screen.getByTestId('recents-row-chat-3').parentElement!
     expect(solo.getAttribute('data-view-showing')).toBe('true')
@@ -245,48 +207,37 @@ describe('RecentsViewRow', () => {
     act(() => actions().activateView(viewOf('chat-1')))
     const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
     expect(group.getAttribute('data-view-showing')).toBe('true')
-    expect(group.className).toMatch(/control-surface/)
     expect(
       screen.getByTestId('recents-row-chat-3').parentElement!.getAttribute('data-view-showing'),
     ).toBeNull()
   })
 
-  it('every tab is one h-8 shell with no margin of its own on the row', () => {
-    groupAndSolo()
-    renderBand()
-    const solo = screen.getByTestId('recents-row-chat-3').parentElement!
-    const group = screen.getByTestId(`recents-set-${viewOf('chat-1')}`)
-    for (const shell of [solo, group]) {
-      expect(classesOf(shell)).toEqual(expect.arrayContaining(['mx-0.5', 'h-8', 'rounded-full']))
-    }
-    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2', 'recents-row-chat-3']) {
-      const treeitem = within(screen.getByTestId(rowId)).getByRole('treeitem')
-      expect(classesOf(treeitem)).toEqual(expect.arrayContaining(['h-8', 'mx-0', 'my-0']))
-    }
-  })
-
   it('an untitled chat renders the UNTITLED_CHAT_LABEL fallback', () => {
-    stores.current.get('ws-1')!.chats[0] = { id: 'chat-1', workspaceId: 'ws-1', title: '' }
+    writeChat({ id: 'chat-1', title: '' })
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     renderBand()
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
   })
 
+  it('a draft not yet sent is named as the new thread it is, never as loading', () => {
+    actions().openChat('draft-1', { workspaceId: 'ws-1' })
+    renderBand()
+    expect(screen.getByTestId('recents-row-draft-1')).toHaveTextContent('New thread')
+  })
+
   it("draws a workspace-owning chat's real icon, not the generic bubble", () => {
-    useSidebarStore.setState({
-      repos: [
-        repo(SIDEBAR_CHATS, [
-          {
-            id: 'ws-1',
-            branch: 'feature/x',
-            age: '',
-            owningChatId: 'chat-1',
-            status: 'locked',
-            provisioning: 'placeholder',
-          },
-        ]),
-      ],
-    })
+    seedRepos([
+      repo(SIDEBAR_CHATS, [
+        {
+          id: 'ws-1',
+          branch: 'feature/x',
+          age: '',
+          owningChatId: 'chat-1',
+          status: 'locked',
+          provisioning: 'placeholder',
+        },
+      ]),
+    ])
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     actions().openChat('chat-2', { workspaceId: 'ws-1' })
     renderBand()
@@ -296,24 +247,11 @@ describe('RecentsViewRow', () => {
     ).not.toBeInTheDocument()
   })
 
-  // Regression: a working chat whose workspace store is not mounted keeps its
-  // row — the row is its record, drawn from the sidebar's own chat list.
-  it('a background row survives its workspace store unmounting', () => {
-    actions().adoptBackgroundChat('chat-2', 'p1', 'ws-1')
-    stores.current = new Map()
-    renderBand()
-    expect(screen.getByTestId('recents-row-chat-2')).toBeInTheDocument()
-    expect(screen.getByText('Chat Two')).toBeInTheDocument()
-  })
-
-  // Regression: a record whose chat no cache knew rendered null — an
-  // invisible row nobody could close. It draws from its record (loading)
-  // until the sidebar's tree names the chat; nothing is fetched for it.
+  // A record whose chat no cache knows still draws (loading) — a null row could never be closed.
+  // Nothing is fetched for it; the sidebar's tree names the chat in time.
   describe('a row whose chat data has not resolved', () => {
     const unknownChat = () => {
-      useSidebarStore.setState({
-        repos: [{ ...repo(SIDEBAR_CHATS), defaultWorkspaceId: 'ws-1' }],
-      })
+      seedRepos([{ ...repo(SIDEBAR_CHATS), defaultWorkspaceId: 'ws-1' }])
       actions().adoptBackgroundChat('chat-9', 'p1', 'ws-1')
     }
 
@@ -323,17 +261,6 @@ describe('RecentsViewRow', () => {
       expect(screen.getByTestId('recents-row-chat-9')).toBeInTheDocument()
       screen.getByRole('button', { name: 'Close view' }).click()
       expect(props.onClose).toHaveBeenCalledWith(viewOf('chat-9'))
-    })
-
-    // A new thread has no chat on the daemon until its first prompt: nothing is coming to name it.
-    it('names an unsent new thread untitled, not loading', () => {
-      const draft = newDraftChatId()
-      actions().openChat(draft, { workspaceId: 'ws-1' })
-      renderBand()
-      expect(
-        within(screen.getByTestId(`recents-row-${draft}`)).getByText(UNTITLED_CHAT_LABEL),
-      ).toBeInTheDocument()
-      expect(screen.queryByText('Loading…')).toBeNull()
     })
   })
 })

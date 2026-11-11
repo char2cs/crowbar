@@ -9,7 +9,7 @@ import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-st
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 let buildBadgeOverride: string = 'auto'
-let showBuildReadout = true
+let buildReadout = true
 const chrome = vi.hoisted(() => ({ phone: false }))
 vi.mock('@/lib/native-chrome', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/native-chrome')>()),
@@ -17,14 +17,14 @@ vi.mock('@/lib/native-chrome', async (importOriginal) => ({
 }))
 vi.mock('@/features/settings/store', () => ({
   useSettingsStore: (sel: (s: unknown) => unknown) =>
-    sel({ settings: { buildBadgeOverride, showBuildReadout } }),
+    sel({ settings: { buildBadgeOverride, buildReadout } }),
 }))
 
 import { BuildReadout, NativeReadoutView } from '@/components/layout/build-readout'
 
 beforeEach(() => {
   buildBadgeOverride = 'beta'
-  showBuildReadout = true
+  buildReadout = true
   chrome.phone = false
   resetConnectionState()
   resetHostWorld()
@@ -57,7 +57,7 @@ describe('BuildReadout', () => {
   })
 
   it('renders nothing when the build readout is turned off', () => {
-    showBuildReadout = false
+    buildReadout = false
     const { container } = render(<BuildReadout />)
     expect(container).toBeEmptyDOMElement()
   })

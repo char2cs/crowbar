@@ -5,53 +5,21 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// commitSHAPattern is the only shape a scoping commit may take.
-//
-// Deliberately hex-only rather than "any valid ref": the ref this produces
-// becomes an ARGUMENT to `git diff`, and git reads a leading `-` as a flag. A
-// permissive pattern would put the caller one string away from passing
-// `--output=/etc/passwd`. Hex also matches how the surface actually addresses a
-// commit — it navigates from the history list, which carries SHAs — so nothing
-// is given up. Abbreviated SHAs are allowed; git resolves them.
+// commitSHAPattern is the only shape a scoping commit may take: hex-only because the ref becomes a
+// `git diff` argument and a leading `-` would be read as a flag. Abbreviated SHAs are allowed.
 var commitSHAPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
 
-// emptyTreeSHA is git's canonical empty tree, the thing a root commit is
-// diffed against — the same base `git show` uses when a commit has no parent.
-//
-// SHA-1 object format, which is git's default. A repository created with
-// `--object-format=sha256` has a different empty tree and a root commit there
-// will fail to diff; that is a deliberate limit rather than an oversight,
-// because the alternative is a `hash-object` round trip on every commit diff to
-// serve a case that needs it only for the very first commit of a sha256 repo.
+// emptyTreeSHA is git's SHA-1 empty tree, which a root commit is diffed against. sha256 repos are a
+// deliberate limit: supporting them would cost a hash-object round trip on every commit diff.
 const emptyTreeSHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-// resolveScopeRef resolves the ref the windowed review reads.
-//
-// An empty commit means the workspace's branch diff — everything this branch
-// carries since it forked, working tree included. That is the default and the
-// GitHub-like review step the surface exists for.
-//
-// A non-empty commit narrows to that ONE commit, expressed as the range
-// `<parent>..<commit>`. The range form matters: every read underneath
-// (`Outline`, `FilePatch`, `SearchDiff`) passes its ref to `git diff <ref> --`,
-// which against a single ref means "ref versus the WORKING TREE". For a commit
-// that would answer "everything since that commit", the opposite of what the
-// reader asked for. Naming both ends pins the diff to two immutable trees.
-//
-// Being a diff of two immutable trees is also why a commit-scoped read is
-// cacheable regardless of the working tree — see cacheableOutlineKey.
-//
-// A PLACEHOLDER workspace — one whose branch has no worktree on disk — is
-// refused here, the single point every review read resolves its ref through,
-// and after the commit shape is checked so a malformed argument stays a 400.
-// Its empty WorktreePath was passed straight to git as the working directory,
-// so `git merge-base` ran in whatever directory the daemon itself was started
-// in and answered with that repo's refs or a raw `fatal: Not a valid object
-// name <branch>` 500. There is no tree to diff and no safe directory to ask.
+// resolveScopeRef resolves the review ref: "" is the branch diff incl. working tree; a commit becomes
+// `<parent>..<commit>`, two immutable trees (hence cacheable), since a lone ref diffs against the
+// working tree. A placeholder workspace has no worktree to run git in and is refused here.
 func (u *branchReviewUsecase) resolveScopeRef(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -60,7 +28,7 @@ func (u *branchReviewUsecase) resolveScopeRef(
 	if commit != "" && !commitSHAPattern.MatchString(commit) {
 		return "", fmt.Errorf(
 			"branch review: %w: commit must be a hex object name",
-			apperr.ErrInvalidArgument,
+			problem.ErrInvalidArgument,
 		)
 	}
 	if ws.Provisioning == domain.WorkspacePlaceholder {

@@ -2,19 +2,16 @@ import { useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import { selectRepos, useSelect } from '@/core/entities/select'
+import { workspaceNames } from '@/lib/workspace/workspace-branch'
 import { calculateDisplayNames } from '../utils/path-shortener'
 
 interface UseBufferDisplayNameOptions {
   buffers: PaneContent[]
-  rootFolderPath: string | undefined
 }
 
-// Separates the projected fields joined into each tuple string below. The
-// brief this hook implements space-joins the fields, but terminal titles and
-// cwd paths routinely contain spaces (e.g. "My Project", "/Users/x/My Docs"),
-// which would let two different session states alias onto the same joined
-// string and silently collapse the shallow-equality check. A control
-// character that can never appear in a title or path is used instead.
+// Joins each tuple's fields. A control character, not a space: titles and paths contain spaces,
+// so two different session states could join to the same string and fool the shallow compare.
 const FIELD_SEP = ''
 
 interface TerminalSessionFields {
@@ -24,19 +21,11 @@ interface TerminalSessionFields {
   currentDirectory: string
 }
 
-/**
- * Returns `getBufferDisplayName(buffer)` — a stable callback that derives the
- * human-readable tab label from buffer metadata, terminal session state and
- * path-shortener disambiguation.
- */
-export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDisplayNameOptions) {
-  // Subscribe only to the session fields this hook actually reads, projected
-  // per terminal buffer into a flat string. Previously this subscribed to
-  // the whole `sessions` Map, so every terminal's prompt redraw or `cd`
-  // (which reallocates that Map) re-rendered every tab label in the app.
-  // useShallow compares the resulting array element-by-element, so a change
-  // to an unrelated session — or to a field of this session that no tab
-  // label reads — never invalidates it.
+/** A stable `getBufferDisplayName(buffer)` deriving each tab's label from buffer metadata,
+ *  terminal session state and path-shortener disambiguation. */
+export function useBufferDisplayName({ buffers }: UseBufferDisplayNameOptions) {
+  // Project only the session fields a label reads into flat strings: the `sessions` Map is
+  // reallocated on every prompt redraw or `cd`, and useShallow ignores unrelated changes.
   const sessionFieldTuples = useTerminalStore(
     useShallow((state) =>
       buffers
@@ -63,9 +52,13 @@ export function useBufferDisplayName({ buffers, rootFolderPath }: UseBufferDispl
     return map
   }, [sessionFieldTuples])
 
+  const workspaceIds = useMemo(() => [...new Set(buffers.map((b) => b.workspaceId))], [buffers])
+  const names = useSelect(
+    useShallow((s) => [...workspaceNames(selectRepos(s), workspaceIds).values()]),
+  )
   const displayNames = useMemo(
-    () => calculateDisplayNames(buffers, rootFolderPath),
-    [buffers, rootFolderPath],
+    () => calculateDisplayNames(buffers, new Map(workspaceIds.map((id, i) => [id, names[i]]))),
+    [buffers, workspaceIds, names],
   )
 
   const isUsefulTerminalTitle = useCallback((title?: string) => {

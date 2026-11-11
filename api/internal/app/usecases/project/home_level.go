@@ -6,40 +6,32 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// homeRow is one member of a project's home level as the repo placement pass
-// sees it. fresh marks a home chat that has no Node row yet (created at the
-// root before Node rows existed): it holds its frozen Chat.Order, and the
-// first write that moves it mints its Node instead of ordering one.
+// homeRow is one member of a project's home level. fresh marks a home chat predating Node rows: it holds
+// its frozen Chat.Order, and the first write that moves it mints its Node.
 type homeRow struct {
-	domain.Node
+	tree.Node
 	fresh     bool
 	createdAt time.Time
 }
 
-// homeLevel answers ONE project's rows in the container folderID of its home
-// level: the project's own repos, its home workspace's chats (Node-backed or
-// not, never the hidden home owner) and its own home folders. Never a
-// workspace anchor — a locked branch's Node shares the "" root but is drawn
-// inside its repo — and never another project's rows. This is the member set
-// the sidebar renders at the project top level, so an index computed against
-// it lands where the drop line was drawn.
-//
-// homeWorkspaceID is "" when no home workspace resolves (or none is wired):
-// chats then degrade to "every chat sharing the container", the posture
-// every earlier version of this pass took.
+// homeLevel answers one project's rows in container folderID of its home level — its repos, home chats
+// (never the hidden owner) and home folders, never workspace anchors or other projects' rows — so an
+// index lands where the sidebar drew the drop line. Without a home workspace, chats are every chat there.
 func (u *projectUsecase) homeLevel(
 	ctx context.Context,
 	projectID string,
 	folderID string,
 	exclude string,
-) (rows []homeRow, homeWorkspaceID string, err error) {
+) (rows []homeRow, err error) {
 	repoIDs, err := u.repoIDSet(ctx, projectID)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	var chats []domain.Chat
+	homeWorkspaceID := ""
 	chatIDs := map[string]bool(nil)
 	if u.workspaces != nil {
 		if ws, hErr := u.workspaces.GetHomeForProject(ctx, projectID); hErr == nil {
@@ -49,7 +41,7 @@ func (u *projectUsecase) homeLevel(
 	if u.homeChats != nil && homeWorkspaceID != "" {
 		chats, err = u.homeChats.ListByWorkspace(ctx, homeWorkspaceID)
 		if err != nil {
-			return nil, "", fmt.Errorf("project: reorder repos: list home chats: %w", err)
+			return nil, fmt.Errorf("project: reorder repos: list home chats: %w", err)
 		}
 		chats = withoutHomeOwner(chats)
 		chatIDs = make(map[string]bool, len(chats))
@@ -59,7 +51,7 @@ func (u *projectUsecase) homeLevel(
 	}
 	nodes, err := u.nodes.ListByParent(ctx, folderID)
 	if err != nil {
-		return nil, "", fmt.Errorf("project: reorder repos: list nodes: %w", err)
+		return nil, fmt.Errorf("project: reorder repos: list nodes: %w", err)
 	}
 	createdAt := make(map[string]time.Time, len(chats))
 	for _, c := range chats {
@@ -74,22 +66,14 @@ func (u *projectUsecase) homeLevel(
 		rows = append(rows, homeRow{Node: n, createdAt: createdAt[n.ID]})
 	}
 	if folderID != "" {
-		return rows, homeWorkspaceID, nil
+		return rows, nil
 	}
-	return u.withNodelessRows(ctx, rows, repoIDs, chats, seen, exclude), homeWorkspaceID, nil
+	return u.withNodelessRows(ctx, rows, repoIDs, chats, seen, exclude), nil
 }
 
-// withNodelessRows appends the root rows that predate Node rows — a repo,
-// or a home chat created before the root minted one — at the root the
-// sidebar draws them at; their first move mints the row.
-//
-// Absent from ListByParent("") is NOT "has no Node row": a repo filed into a
-// home folder has one, parented there. Both kinds therefore confirm the miss
-// with GetNode before claiming the row is fresh — a repo that answers is
-// filed elsewhere and is no member of this container at all. Skipping that
-// check for repos refused every later root-level repo drag with "reorder
-// repos: mint <id>: node: create: create node: exists" the moment one repo
-// of the project lived in a folder.
+// withNodelessRows appends root rows predating Node rows (repos, old home chats); their first move mints
+// the row. Absence from ListByParent("") is not "no Node" — a repo filed in a folder has one — so each
+// miss is confirmed with GetNode before being claimed fresh.
 func (u *projectUsecase) withNodelessRows(
 	ctx context.Context,
 	rows []homeRow,
@@ -109,7 +93,7 @@ func (u *projectUsecase) withNodelessRows(
 			continue // filed under a live row of the home
 		}
 		rows = append(rows, homeRow{
-			Node:      domain.Node{ID: c.ID, Kind: domain.NodeKindChat, Order: c.Order},
+			Node:      tree.Node{ID: c.ID, Kind: tree.KindChat, Order: c.Order},
 			fresh:     true,
 			createdAt: c.CreatedAt,
 		})
@@ -143,17 +127,17 @@ func (u *projectUsecase) homeRowExists(
 // homeMember is homeLevel's per-kind membership rule for one Node row.
 func (u *projectUsecase) homeMember(
 	ctx context.Context,
-	n domain.Node,
+	n tree.Node,
 	repoIDs map[string]bool,
 	chatIDs map[string]bool,
 	homeWorkspaceID string,
 ) bool {
 	switch n.Kind {
-	case domain.NodeKindRepo:
+	case tree.KindRepo:
 		return repoIDs[n.ID]
-	case domain.NodeKindChat:
+	case tree.KindChat:
 		return chatIDs == nil || chatIDs[n.ID]
-	case domain.NodeKindFolder:
+	case tree.KindFolder:
 		if u.folders == nil {
 			return true
 		}
@@ -186,7 +170,7 @@ func (u *projectUsecase) NextHomeSlot(
 	ctx context.Context,
 	projectID string,
 ) (int, error) {
-	rows, _, err := u.homeLevel(ctx, projectID, "", "")
+	rows, err := u.homeLevel(ctx, projectID, "", "")
 	if err != nil {
 		return 0, err
 	}
@@ -208,4 +192,102 @@ func homeIndex(
 		slots = append(slots, slot{at: i, id: row.ID, order: row.Order, rank: rankOfKind(row.Kind), createdAt: row.createdAt})
 	}
 	return slots
+}
+
+// placeRepoAmongHomeSiblings gives subject the asked Order within (projectID, folderID), shifting
+// repos, home chats and home folders alike; subject is included authoritatively (see densifyRepos),
+// and a row with no Node yet is minted where it lands.
+func (u *projectUsecase) placeRepoAmongHomeSiblings(
+	ctx context.Context,
+	projectID string,
+	folderID string,
+	subject tree.Node,
+	target int,
+) ([]tree.Node, error) {
+	siblings, err := u.homeLevel(ctx, projectID, folderID, subject.ID)
+	if err != nil {
+		return nil, err
+	}
+	rows := append(siblings, homeRow{Node: subject})
+	slots := homeIndex(rows)
+	reparented := subject.ParentID != folderID
+	decided, written, err := u.writeHomeLevel(ctx, rows, place(slots, subject.ID, &target),
+		folderID, subject.ID, reparented)
+	if err != nil {
+		return nil, err
+	}
+	n, err := u.ensureSubjectWritten(ctx, slots, subject.ID, reparented, folderID, &target, written)
+	if err != nil {
+		return nil, err
+	}
+	if n != nil {
+		decided = append(decided, *n)
+	}
+	return decided, nil
+}
+
+// densifyHomeLevel closes the gap a departed repo left over the level's full member set; exclude is
+// the row known to have left even if Node's read model has not folded it yet.
+func (u *projectUsecase) densifyHomeLevel(
+	ctx context.Context,
+	projectID string,
+	folderID string,
+	exclude string,
+) ([]tree.Node, error) {
+	rows, err := u.homeLevel(ctx, projectID, folderID, exclude)
+	if err != nil {
+		return nil, err
+	}
+	decided, _, err := u.writeHomeLevel(ctx, rows, place(homeIndex(rows), "", nil),
+		folderID, "", false)
+	return decided, err
+}
+
+// writeHomeLevel writes every move a home-level pass decided, mints the
+// fresh rows the level touched; the Tree's own announce publishes each move.
+func (u *projectUsecase) writeHomeLevel(
+	ctx context.Context,
+	rows []homeRow,
+	moves []move,
+	folderID string,
+	subjectID string,
+	reparented bool,
+) ([]tree.Node, map[string]bool, error) {
+	written := make(map[string]bool, len(rows))
+	var decided []tree.Node
+	for _, moved := range moves {
+		row := rows[moved.at]
+		written[row.ID] = true
+		decided = append(decided, tree.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
+		if err := u.writeHomeRow(ctx, row, folderID, moved.order, row.ID == subjectID && reparented); err != nil {
+			return nil, nil, err
+		}
+	}
+	// A legacy root chat whose slot did not move (place reports no change, so
+	// its order IS its final index) still becomes Node-backed: the level was
+	// touched, and the next read must find every row on one surface.
+	for _, row := range rows {
+		if !row.fresh || written[row.ID] || row.ID == subjectID {
+			continue
+		}
+		written[row.ID] = true
+		if err := u.mintNode(ctx, row.ID, row.Kind, folderID, row.Order); err != nil {
+			return nil, nil, err
+		}
+	}
+	return decided, written, nil
+}
+
+// writeHomeRow mints a row with no Node yet where it lands, and moves any other.
+func (u *projectUsecase) writeHomeRow(
+	ctx context.Context,
+	row homeRow,
+	folderID string,
+	order int,
+	reparenting bool,
+) error {
+	if row.fresh {
+		return u.mintNode(ctx, row.ID, row.Kind, folderID, order)
+	}
+	return u.writeNode(ctx, row.ID, folderID, order, reparenting)
 }

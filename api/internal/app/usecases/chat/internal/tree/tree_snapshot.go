@@ -9,36 +9,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// treeSnapshot is a set of Chat rows as of a single read, paired with the
-// kind-agnostic plan that does the ordering. Every guard and every renumber
-// runs against it, so an operation reads the world once and writes only what
-// moved.
-//
-// Folder rows and conversation rows are the same aggregate now, so there is
-// only ONE slice here, unlike the sidebar's own snapshot of this shape — a
-// row's Type says what it is, and its ParentID is both where the panel draws
-// it and, for a chat row, what it reads.
-//
-// Placement lives in the PLAN alone and is stamped back onto a domain row only
-// when that row is about to be returned or written. Mirroring it into the rows
-// as well would give every move two sources of truth to keep in step, and the
-// one that lost would be whichever the next read happened to consult.
+// treeSnapshot is a set of Chat-shaped rows (chats, folders, repo phantoms, anchors) as of one read, with
+// the kind-agnostic plan that orders them; every guard and renumber runs against it. Placement lives in the
+// plan alone and is stamped onto a row only when it is returned or written, so there is one source of truth.
 type treeSnapshot struct {
 	rows []domain.Chat
 	at   map[string]int
 	plan tree.Tree
-	// homeIDs marks every row (chat, folder, or a repo phantom — see plan.go's
-	// mergeHomeForest) whose PLACEMENT write goes through Nodes instead of
-	// Chats (2026-09-08 sidebar-placement-unification Task 5). Always
-	// non-nil; empty for a snapshot no home merge ever touched.
+	// homeIDs marks every row whose placement is written through Nodes rather than Chats. Always non-nil.
 	homeIDs map[string]bool
-	// freshIDs is homeIDs' subset that has no Node row yet — writeRow mints
-	// one via Nodes.Create instead of SetOrder/SetPlacement. Always non-nil.
+	// freshIDs is homeIDs' subset with no Node row yet, minted by Nodes.Create. Always non-nil.
 	freshIDs map[string]bool
-	// foreign marks base rows at the bare root that belong to another
-	// level sharing "" (another workspace's root chats). They are planned
-	// under foreignRoot instead, so a root densify never counts or writes
-	// them, while every walk still resolves through them.
+	// foreign marks root rows of another level sharing "" (another workspace's root chats), planned under
+	// foreignRoot so a root densify never counts or writes them while walks still resolve through them.
 	foreign map[string]bool
 	// aliases folds the ids that name one level onto the id the plan keys
 	// it by (see levelAliases). A row keeps the id it was filed under.
@@ -52,17 +35,8 @@ type treeSnapshot struct {
 // under; nothing is ever placed there and nothing is ever written back with it.
 const foreignRoot = "\x00foreign-root"
 
-// newTreeSnapshot builds the snapshot over one read of Chat rows — either one
-// workspace's (chat placement) or the wider set folder CRUD plans against (see
-// Chats.ListChats).
-func newTreeSnapshot(
-	rows []domain.Chat,
-) *treeSnapshot {
-	return newTreeSnapshotScoped(rows, nil, nil)
-}
-
-// newTreeSnapshotScoped is newTreeSnapshot with the rows foreign to this
-// snapshot's root level named — see treeSnapshot.foreign — and the level
+// newTreeSnapshotScoped builds the snapshot over one read of Chat rows, with the
+// rows foreign to its root level named (see treeSnapshot.foreign) and the level
 // aliases the plan folds together.
 func newTreeSnapshotScoped(
 	rows []domain.Chat,
@@ -85,10 +59,8 @@ func newTreeSnapshotScoped(
 	return t
 }
 
-// nodes flattens the rows into the plan's sibling space. A chat carries its
-// CreatedAt so a level nobody has dragged yet still comes back in a stable
-// order: every such row holds Order 0, and without the tiebreak two identical
-// reads can answer in two different sequences.
+// nodes flattens the rows into the plan's sibling space. CreatedAt breaks ties so a never-dragged level,
+// all at Order 0, reads back in a stable order.
 func (t *treeSnapshot) nodes() []tree.Node {
 	nodes := make([]tree.Node, 0, len(t.rows))
 	for _, row := range t.rows {
@@ -152,10 +124,8 @@ func (t *treeSnapshot) row(
 	return &t.rows[at]
 }
 
-// placedRow returns a row with the placement the plan settled on stamped onto
-// it. Nothing else reads a stored ParentID or Order once a plan is running:
-// they are the plan's answer, and a row that skipped this step would be saved
-// with the placement it had before the drag.
+// placedRow returns a row with the plan's placement stamped onto it; a row saved without this step would
+// keep the placement it had before the drag.
 func (t *treeSnapshot) placedRow(
 	id string,
 ) *domain.Chat {
@@ -195,12 +165,8 @@ func (t *treeSnapshot) drop(
 	}
 }
 
-// subtree returns every row BELOW id, deepest first, split by kind.
-//
-// Deepest first is the order the cascade needs, not a detail of the walk: each
-// chat is erased as a LEAF, so no half-finished cascade ever leaves a chat
-// pointing at a parent that is already gone — which for this tree is not an
-// orphan but a context read that resolves to nothing.
+// subtree returns every row below id, deepest first, split by kind. The cascade erases each chat as a
+// leaf, so a half-finished delete never leaves a chat reading a parent that is gone.
 func (t *treeSnapshot) subtree(
 	id string,
 ) (chats, folders []string) {
@@ -222,7 +188,7 @@ func (t *treeSnapshot) container(
 	return id
 }
 
-// subtreeIDs is subtreeIDsOf over the plan's containers, so rows filed under
+// subtreeIDs is cascade.Plan over the plan's containers, so rows filed under
 // either id of one level are one subtree.
 func (t *treeSnapshot) subtreeIDs(
 	id string,
@@ -262,13 +228,8 @@ func (t *treeSnapshot) isChat(
 	return row != nil && row.IsChat()
 }
 
-// chatLineage returns the CHAT ancestors of id as THE PLAN currently has them,
-// nearest first, with folders stepped through.
-//
-// It reads the plan and never the rows, because a move has to be answered before
-// it is written: the lineage a drag is about to create exists nowhere but here,
-// and a store re-read would serve the tree exactly as it was before the drag —
-// which for the one comparison this feeds is the same as not asking.
+// chatLineage returns id's chat ancestors as the plan has them, nearest first, folders stepped through. It
+// reads the plan, not the store, because the lineage a drag is about to create exists only here.
 func (t *treeSnapshot) chatLineage(
 	id string,
 ) []string {

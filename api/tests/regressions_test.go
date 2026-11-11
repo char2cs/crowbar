@@ -17,6 +17,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // This file pins backend contracts that broke in the field during the UX QA
@@ -67,7 +70,7 @@ func TestRegression_AllReadEndpointsUseEnvelope(t *testing.T) {
 		repoBase + "/chats",
 		repoBase + "/chats/" + imported.chatID,
 		base + "/files/tree",
-		base + "/files/content?path=README.md",
+		docURL(imported.workspaceID, "README.md"),
 		base + "/git/status",
 		base + "/git/log?limit=10&skip=0",
 		base + "/git/branches",
@@ -189,45 +192,36 @@ func TestRegression_GitTopicQuietWhenIdle(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 
-	conn := h.dial(wsBase(imported) + "/git/status")
+	scope := "git:" + imported.workspaceID
+	c := dialStream(t, h)
+	c.Sub(t, scope, 0)
 
-	// Snapshot-on-subscribe frame arrives first and must carry files: [].
-	// Its arrival is the signal — block for it, no deadline.
-	snapshot := readTextFrame(t, conn)
-	require.NotContains(t, string(snapshot), `"files":null`,
-		"snapshot frame must serialise files as [], not null")
+	// The snapshot signal arrives first and must carry files: [].
+	snapshot := c.Next(t, func(f stream.Frame) bool { return f.T == stream.FrameSignal && f.Scope == scope })
+	require.Contains(t, string(snapshot.Data), `"files":[]`,
+		"snapshot signal must serialise files as [], not null")
 
-	// The topic must now stay quiet while the tree is idle. "Quiet" is a
-	// NEGATIVE, and a read deadline can only ever guess at one: it proves
-	// "nothing showed up within 2s", which under load false-FAILS just as
-	// readily as it false-passes. Close the idle window with a SENTINEL
-	// instead — dirty a file of our own in the watched worktree and block (no
-	// deadline) until the frame carrying it arrives.
-	//
-	// The sentinel travels the SAME topic, out of the same watcher, down the
-	// same per-connection FIFO as any storm frame would. So once it lands, every
-	// frame the idle period was ever going to produce has already been delivered
-	// on this connection, and the frames counted BEFORE it are exactly the
-	// idle-period frames — the negative, proven exactly, with no clock.
-	//
-	// Tolerate at most one straggler: the watcher does no recompute on subscribe
-	// (the snapshot already carried fresh status), so its FIRST fan-out always
-	// broadcasts, and only subsequent IDENTICAL frames are deduped. An
-	// identical-frame stream is the bug.
+	// "Quiet" is proven with a sentinel, not a deadline: it rides the same
+	// scope and FIFO as any storm signal, so the signals before it are exactly
+	// the idle period's. One straggler is allowed: the first fan-out always goes.
 	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, imported), sentinelFile, "quiet probe\n")
 	defer stop()
 
 	idle := 0
-	for {
+	c.Next(t, func(f stream.Frame) bool {
+		if f.T != stream.FrameSignal {
+			return false
+		}
 		var frame map[string]any
-		require.NoError(t, json.Unmarshal(readTextFrame(t, conn), &frame))
+		require.NoError(t, json.Unmarshal(f.Data, &frame))
 		if statusHasFile(frame, sentinelFile) {
-			return // sentinel landed: the idle window is closed, and it was quiet
+			return true // sentinel landed: the idle window is closed, and it was quiet
 		}
 		idle++
 		require.LessOrEqual(t, idle, 1,
 			"idle workspace must not stream repeated git status frames")
-	}
+		return false
+	})
 }
 
 // P1 (UX QA 2026-06-10): git mutations once 500'd intermittently with
@@ -244,10 +238,12 @@ func TestRegression_GitMutationsSurviveLockContention(t *testing.T) {
 	base := wsBase(imported)
 	worktree := workspaceWorktreePath(t, h, imported)
 
-	// Subscribing to the git topic keeps the workspace watcher live so its
-	// status reads contend with the mutations below. Drain frames so the
-	// broadcaster never stalls on this connection.
-	conn := h.dial(base + "/git/status")
+	// Holding the git scope keeps the workspace watcher live so its status
+	// reads contend with the mutations below. Drain frames so the stream never
+	// stalls on this connection.
+	held := dialStream(t, h)
+	held.Sub(t, "git:"+imported.workspaceID, 0)
+	conn := held.conn
 	go func() {
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
@@ -325,33 +321,20 @@ func TestRegression_GitDiscardRecoversFromStaleIndexLock(t *testing.T) {
 	require.NoFileExists(t, lock, "the stale lock must have been cleared")
 }
 
-// §13: deleting an unlocked workspace's owning chat returns 202 and then
-// broadcasts a worktree_state frame carrying status:"deleted" on the chat feed,
-// so the client cache drops the entity (spec §4/§6).
-//
-// The deleted POST/DELETE .../workspaces group's own create/delete contract
-// (201+id vs 202+WS-learned-id) does not carry over 1:1: a chat's create is
-// SYNCHRONOUS now (CreateChat's ownWorktree branch calls CreateChildWorkspace
-// inline before answering 201 with the CHAT's id — chats.go/own_worktree.go —
-// so there is no "learn the new id from a later WS frame" step left to pin, and
-// no HTTP route names a caller-chosen branch at all any more, spec §8 step 6).
-// DELETE is what survives that shape unchanged: it is still fire-and-forget
-// (202) with the outcome delivered on the stream, now via the chat that owns
-// the worktree (worktree/handlers, DeleteCascade through DeleteChat's reap).
+// TestRegression_WorkspaceDeleteBroadcastsDeletedStatus: deleting the chat that
+// owns a worktree reaps it inline and answers 200; the workspace then leaves the
+// projects scope as gone, so every live sidebar drops it.
 func TestRegression_WorkspaceDeleteBroadcastsDeletedStatus(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	conn := repoChatsWS(h, imported)
+	feed := recordSidebar(t, h)
 	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
-		http.StatusAccepted)
+		http.StatusOK)
 	_ = resp.Body.Close()
 
-	got := readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["status"] == "deleted"
-	})
-	require.Equal(t, "deleted", got["status"])
+	feed.awaitGone(stream.KindWorkspace, imported.workspaceID)
 }
 
 // §13: deleting a locked workspace's owning chat is refused SYNCHRONOUSLY
@@ -360,7 +343,7 @@ func TestRegression_WorkspaceDeleteBroadcastsDeletedStatus(t *testing.T) {
 // worktree INLINE (worktree/hierarchy.DeleteCascade) before ever answering, and
 // DeleteCascade refuses a locked root synchronously (ErrWorkspaceLocked, mapped
 // to 409 — internal/api/libs/status.go's conflictSentinels) rather than
-// accepting a 202 and surfacing the refusal as lastError later. The Locked bool
+// accepting a 202 and surfacing the refusal later. The Locked bool
 // was removed — the lock is now the status enum (spec §5).
 func TestRegression_DeleteLockedWorkspaceRejected(t *testing.T) {
 	h := newHarness(t)
@@ -387,9 +370,8 @@ func TestRegression_DeleteLockedWorkspaceRejected(t *testing.T) {
 }
 
 // §13 / spec §3.6+§3.8: deleting a workspace's owning chat tombstones it under
-// the asynx-alignment delete lifecycle. The DELETE is accepted (202) and a
-// worktree_state frame carrying status:"deleted" is broadcast off the
-// store/hub projections once the tombstone is folded — before the physical
+// the asynx-alignment delete lifecycle. The DELETE is accepted and the
+// workspace leaves the projects scope as gone once the tombstone is folded — before the physical
 // worktree purge (the async, gated delete reactor; Task 8; end-to-end lifecycle
 // validated by the crash/lifecycle integration suite) has necessarily finished.
 // The old entity-scoped storages tree
@@ -416,13 +398,11 @@ func TestRegression_DeleteWorkspaceTombstones(t *testing.T) {
 	require.True(t, found,
 		"the imported workspace must be listable before the delete cascade runs")
 
-	conn := repoChatsWS(h, imported)
+	feed := recordSidebar(t, h)
 	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+imported.chatID, nil,
-		http.StatusAccepted)
+		http.StatusOK)
 	_ = resp.Body.Close()
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID && m["status"] == "deleted"
-	})
+	feed.awaitGone(stream.KindWorkspace, imported.workspaceID)
 }
 
 // §13: the repo icon is served from on-disk bytes, never proxied live from
@@ -604,21 +584,19 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	runGit(t, repoPath, "worktree", "add", "-b", "feature/linked",
 		filepath.Join(root, "wt"))
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "wt-demo", "path": root}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	project := readUntil(t, projectsWS, func(m map[string]any) bool {
+	project := projectsWS.read(t, func(m map[string]any) bool {
 		return m["path"] == root
 	})
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	addResp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "repo", "path": repoPath}, http.StatusAccepted)
-	_ = addResp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool {
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "repo", "path": repoPath})
+	repo := reposWS.read(t, func(m map[string]any) bool {
 		return m["projectId"] == projectID
 	})
 	repoID, _ := repo["id"].(string)
@@ -641,11 +619,8 @@ func TestRegression_LinkedWorktreeImportsAsOneRepo(t *testing.T) {
 	// The sound form of a NEVER is: run the producer to COMPLETION, then assert once.
 	// Quiesce drains the import's projections, so when it returns the importer has
 	// finished deciding what to adopt and nothing is left in flight that could still
-	// add the row. Its absence is then final. It is also the barrier that lets the
-	// settled projection be read straight back over REST below: the repo-scoped chat
-	// feed that replaced the workspaces WS carries no snapshot (agentChatDef), so a
-	// live-frame wait for "main" dialled after this point could hang having already
-	// missed it.
+	// add the row. Its absence is then final, and the settled projection can be
+	// read straight back over REST below.
 	h.Quiesce()
 	require.Zero(t, countBranchRows(t, h, projectID, repoID, "feature/linked"),
 		"a non-protected linked worktree must not be auto-adopted at import")
@@ -789,8 +764,8 @@ func TestRegression_ImportDefaultBranchStaysHomeWithPlaceholder(t *testing.T) {
 // (releasing the branch — the working tree is untouched) and re-provisions that
 // branch into its OWN managed worktree in place. The placeholder becomes a real,
 // on-disk locked worktree — heldByPath cleared, localPath set, .git present —
-// with no LastError. The op is async (202 Accepted), so the outcome is observed
-// by polling the read model. This is the deterministic contract that "Detach
+// with its operation succeeded. The op is async (202 Accepted), so the outcome
+// is read once that operation settles. This is the deterministic contract that "Detach
 // works" (it once failed silently when the derived path was already occupied).
 func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T) {
 	h := newHarness(t)
@@ -808,7 +783,6 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 		Status     string
 		LocalPath  string
 		HeldByPath string
-		LastError  string
 	}
 	// Raw fetch: tolerates transport errors rather than asserting, so it stays usable
 	// as a plain read after the async op has been drained to completion. The
@@ -836,7 +810,7 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 			rows = append(rows, wsRow{
 				ID: c.WorkspaceID, Branch: c.Worktree.Branch, IsDefault: c.Worktree.IsDefault,
 				Status: c.Worktree.Status, LocalPath: c.Worktree.LocalPath,
-				HeldByPath: c.Worktree.HeldByPath, LastError: c.Worktree.LastError,
+				HeldByPath: c.Worktree.HeldByPath,
 			})
 		}
 		return rows
@@ -852,20 +826,13 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 	}
 	require.NotEmpty(t, placeholderID, "the held main branch must surface as a placeholder")
 
-	// Act: detach the holder (async → 202 Accepted; chat-keyed now, spec §4.3).
-	// Dial BEFORE the POST so the working overlay's rising edge can never be missed.
-	conn := repoChatsWS(h, imported)
+	// Act: detach the holder (202 with its operation; chat-keyed now, spec §4.3).
+	// The work — freeing the branch from the repo home and running `git worktree
+	// add` — runs after the 202; its operation settling is the daemon saying it is
+	// over. Then fold the projections, and the read model is a settled fact.
 	placeholderChatID := owningChatID(t, h, placeholderID)
-	resp := h.raw(http.MethodPost, repoBase+"/chats/"+placeholderChatID+"/detach-holder", nil, http.StatusAccepted)
-	_ = resp.Body.Close()
-
-	// The 202 only means "accepted": the real work — freeing the branch from the repo
-	// home and running `git worktree add` to materialise the placeholder — happens in a
-	// detached goroutine. The daemon brackets that goroutine with its working overlay,
-	// so the falling edge is the op ANNOUNCING it is finished. Block on that, then fold
-	// the projections, and the read model can be inspected as a settled fact instead of
-	// polled for 10 seconds.
-	waitForWorkComplete(t, conn, placeholderID)
+	detach := startOperation(t, h, repoBase+"/chats/"+placeholderChatID+"/detach-holder", nil)
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, detach.ID, operationSettled).State)
 	h.QuiesceReactors()
 
 	// Assert: the placeholder became a real, on-disk managed worktree — the branch was
@@ -878,7 +845,6 @@ func TestRegression_DetachHolderFreesBranchAndMaterialisesWorktree(t *testing.T)
 	}
 	require.Equal(t, placeholderID, final.ID, "the placeholder row must still exist after detach-holder")
 	require.Empty(t, final.HeldByPath, "detach-holder must free the branch from the repo home")
-	require.Empty(t, final.LastError, "detach-holder must materialise the placeholder with no error")
 	require.NotEmpty(t, final.LocalPath, "detach-holder must give the placeholder a managed worktree")
 	require.True(t, dirExists(final.LocalPath), "the materialised worktree must exist on disk")
 
@@ -994,13 +960,11 @@ func TestRegression_SidebarDiffTracksAdvancingBaseNotStaleForkPoint(t *testing.T
 	// counts only the child's one line.
 	runGit(t, childWorktree, "rebase", "main")
 
-	// Recompute the summary (async) and wait for the work-complete edge. sync is
-	// a chat-keyed lifecycle verb now (spec §4.3); dial the chat feed BEFORE the
-	// POST since it carries no snapshot (agentChatDef).
-	syncConn := repoChatsWS(h, imported)
-	acc := h.raw(http.MethodPost, repoBase+"/chats/"+childChatID+"/sync", nil, http.StatusAccepted)
-	_ = acc.Body.Close()
-	waitForWorkComplete(t, syncConn, childID)
+	// Recompute the summary and wait for its operation, then for the read model
+	// it committed (an independent async projection, see harness.Quiesce).
+	sync := startOperation(t, h, repoBase+"/chats/"+childChatID+"/sync", nil)
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, sync.ID, operationSettled).State)
+	h.Quiesce()
 
 	var child workspaceDTO
 	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
@@ -1063,7 +1027,7 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	// assertion below proves the PULL alone (no post-pull child sync) refreshes it.
 	// Syncing the base does not touch the child's own summary; the child's chat is
 	// the id this verb has to be addressed through.
-	syncBaseline(t, h, imported, childChatID, childID)
+	syncBaseline(t, h, imported, childChatID)
 	require.Equal(t, 1, childDiff(t, h, imported, childID).Added,
 		"baseline: the child shows its own +1 against feature/base before the pull")
 
@@ -1076,11 +1040,9 @@ func TestRegression_PullingParentUpdatesChildDiffWithoutManualSync(t *testing.T)
 	// now equals the child's own tip and its diff must collapse to +0/-0. Nothing syncs
 	// the child explicitly; only the pull's cascade can refresh it. git moved onto the
 	// flat chat prefix (spec §8 step 4): pull through the base's OWN owning chat.
-	pullConn := repoChatsWS(h, imported)
-	pull := h.raw(http.MethodPost, "/v0/chats/"+baseChatID+"/git/pull", nil, http.StatusAccepted)
-	_ = pull.Body.Close()
-	waitForWorkComplete(t, pullConn, baseID)
-	// waitForWorkComplete only proves the PARENT's pull finished. The child's
+	pull := startOperation(t, h, "/v0/chats/"+baseChatID+"/git/pull", nil)
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, pull.ID, operationSettled).State)
+	// The operation settling only proves the PARENT's pull finished. The child's
 	// refresh is the CASCADE off that pull — a post-commit reactor in its own
 	// goroutine — so the parent going idle says nothing about whether the child
 	// has been resynced yet. Join the reactors before reading the child, which
@@ -1104,19 +1066,14 @@ func syncBaseline(
 	h *harness,
 	imported importedRepo,
 	chatID string,
-	wsID string,
 ) {
 	t.Helper()
-	conn := repoChatsWS(h, imported)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
-	acc := h.raw(http.MethodPost, repoBase+"/chats/"+chatID+"/sync", nil, http.StatusAccepted)
-	_ = acc.Body.Close()
-	waitForWorkComplete(t, conn, wsID)
-	// The work-complete edge is EndWork's own rebroadcast — it fires when the work
-	// function returns, which is not the same instant the summary it committed
-	// becomes listable: the read model is an independent async projection (see
-	// harness.Quiesce). Callers read the pre-condition back over plain REST, so
-	// without this barrier the baseline assertion reads the PREVIOUS summary.
+	sync := startOperation(t, h, repoBase+"/chats/"+chatID+"/sync", nil)
+	require.Equal(t, domain.OpSucceeded, awaitOperation(t, h, sync.ID, operationSettled).State)
+	// The operation settles when the work returns, which is not the instant the
+	// summary it committed becomes listable: the read model is an independent
+	// async projection (see harness.Quiesce). Callers read it back over REST.
 	h.Quiesce()
 }
 
@@ -1264,9 +1221,7 @@ func TestRegression_CreateChildForksFromOriginTipNotStaleLocal(t *testing.T) {
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
 	// Main provisioning as a managed worktree is the import's completion signal.
-	// Read back rather than awaited on a stream: the chat feed carries no
-	// snapshot (agentChatDef), so Quiesce is the barrier (importProject's own
-	// doc comment gives the full reasoning).
+	// Read back once Quiesce has drained the import's projections.
 	h.Quiesce()
 	var sawMain bool
 	for _, c := range listChats(t, h, projectID, repoID) {

@@ -8,15 +8,13 @@ import (
 	gormdb "gorm.io/gorm"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// agentChatRow is the durable read-model row for one AgentChat, persisted to
-// agent_chats_read. WorkspaceID is carried as its own indexed column even
-// though ListByWorkspace currently filters in Go over the full read model
-// (chats-per-workspace are few, mirroring reviewthread) — the index positions
-// the table for a WHERE workspace_id = ? query if that assumption ever stops
-// holding.
+// agentChatRow is the durable read-model row for one AgentChat in
+// agent_chats_read. WorkspaceID is indexed for a WHERE workspace_id = ? query,
+// though ListByWorkspace filters in Go while chats-per-workspace stay few.
 type agentChatRow struct {
 	ID          string `gorm:"primaryKey;column:id"`
 	WorkspaceID string `gorm:"column:workspace_id;index"`
@@ -40,9 +38,10 @@ type storage interface {
 		ctx context.Context,
 		id string,
 	) (*domain.Chat, error)
+	// FindAll answers every row that decodes, and the ids of those that do not.
 	FindAll(
 		ctx context.Context,
-	) ([]domain.Chat, error)
+	) ([]domain.Chat, []string, error)
 }
 
 type storageStore struct {
@@ -52,6 +51,7 @@ type storageStore struct {
 		FindByKey(ctx context.Context, key string) (*agentChatRow, error)
 		FindAll(ctx context.Context) ([]agentChatRow, error)
 	}
+	unreadable serialize.Unreadable
 }
 
 func newStorageStore(
@@ -98,20 +98,23 @@ func (s *storageStore) FindByKey(
 
 func (s *storageStore) FindAll(
 	ctx context.Context,
-) ([]domain.Chat, error) {
+) ([]domain.Chat, []string, error) {
 	rows, err := s.inner.FindAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("agentchat storage: find all: %w", err)
+		return nil, nil, fmt.Errorf("agentchat storage: find all: %w", err)
 	}
 	result := make([]domain.Chat, 0, len(rows))
+	var undecodable []string
 	for _, row := range rows {
 		chat, err := unmarshalAgentChat(row.Data)
 		if err != nil {
-			return nil, err
+			s.unreadable.Skip(ctx, "chat", row.ID, err)
+			undecodable = append(undecodable, row.ID)
+			continue
 		}
 		result = append(result, *chat)
 	}
-	return result, nil
+	return result, undecodable, nil
 }
 
 func unmarshalAgentChat(

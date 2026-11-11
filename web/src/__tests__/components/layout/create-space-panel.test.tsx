@@ -1,64 +1,74 @@
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import type { ProjectDTO } from '@/lib/types'
+import { describe, expect, it, test, vi, beforeEach, afterEach } from 'vitest'
 import type { Host } from '@/features/hosts/types'
-
-// Same subscribe-before-POST shape import-project-modal.test.tsx exercises:
-// postProject answers 202 (void) and the real ProjectDTO arrives on the
-// `/v0/projects` WS stream. We mock postProject (the 202 mutation) and the
-// wsManager channel so the test can emit the canonical DTO frame the panel
-// is waiting on.
-// Keyed by endpoint: the host a project is created on is the host whose stream is awaited.
-const subscribers = new Map<string, Set<(data: unknown) => void>>()
-function emit(endpoint: string, data: unknown): void {
-  subscribers.get(endpoint)?.forEach((cb) => cb(data))
-}
-
-vi.mock('@/lib/ws/manager', () => ({
-  wsManager: {
-    subscribe: (endpoint: string, cb: (data: unknown) => void) => {
-      const forEndpoint = subscribers.get(endpoint) ?? new Set<(data: unknown) => void>()
-      subscribers.set(endpoint, forEndpoint)
-      forEndpoint.add(cb)
-      return () => forEndpoint.delete(cb)
-    },
-    send: vi.fn(),
-  },
-}))
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return {
-    ...actual,
-    apiFetch: vi.fn(() => Promise.resolve()),
-    postProject: vi.fn((_name: string, _path: string, _hostId?: string) => Promise.resolve()),
-  }
+  return { ...actual, postProject: vi.fn() }
 })
-
+vi.mock('@/lib/api/fetch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/fetch')>()
+  return { ...actual, apiFetch: vi.fn() }
+})
 vi.mock('@/lib/native-dialog', () => ({
   openNativeDialog: vi.fn(),
 }))
 
 import * as api from '@/lib/api'
+import * as fetchApi from '@/lib/api/fetch'
 import { openNativeDialog } from '@/lib/native-dialog'
 import { CreateSpacePanel } from '@/components/layout/create-space-panel'
+import { OperationsWatcher } from '@/components/layout/operations-watcher'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState, type Operation } from '@/core/entities/operations'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { useConnectionStore } from '@/lib/ws/connection-store'
-import { toast } from '@/features/window/stores/toast-store'
+import type { Project } from '@/lib/types'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
+import { seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
+
+function createOp(opId: string, version: number, state: Operation['state'], id = 'space-id') {
+  return {
+    id: opId,
+    kind: 'project.create',
+    subject: { kind: 'project', id },
+    projectId: id,
+    label: 'Add space',
+    state,
+    items: [{ ref: { kind: 'project', id }, label: 'space', state }],
+    dismissed: false,
+    version,
+    createdAt: '2026-10-30T10:00:00Z',
+    updatedAt: '2026-10-30T10:00:00Z',
+  } satisfies Operation
+}
+
+function space(over: Partial<Project> & { id: string; path: string }): Project {
+  return { name: 'space', lastActivity: new Date(0), hostId: 'local', ...over }
+}
+
+/** The create the daemon accepted as `opId` succeeds, its project `id` landing in the store
+ *  from the host the create was posted to. */
+async function settleCreate(id: string, path: string, others: Project[] = []) {
+  await waitFor(() => expect(vi.mocked(api.postProject)).toHaveBeenCalled())
+  const [, , opId, hostId] = vi.mocked(api.postProject).mock.calls[0]
+  await waitFor(() => expect(operationsState().ops[opId]?.version).toBe(1))
+  act(() => {
+    seedProjects([...others, space({ id, path, hostId })])
+    streamOperation(createOp(opId, 2, 'succeeded', id))
+  })
+}
 
 function host(over: Partial<Host> & { id: string; name: string }): Host {
   return { endpoint: 'x', pairedFingerprint: 'x', clientId: 'c', ...over }
-}
-
-function projectDTO(over: Partial<ProjectDTO> & { id: string; path: string }): ProjectDTO {
-  return {
-    name: 'test-space',
-    status: '',
-    lastActivity: new Date().toISOString(),
-    ...over,
-  }
 }
 
 const daemonTrigger = () => screen.getByRole('combobox', { name: /daemon/i })
@@ -80,6 +90,70 @@ function serveApi(url: string, _init?: RequestInit, _retry?: unknown, hostId?: s
   )
 }
 
+beforeEach(() => {
+  vi.mocked(api.postProject).mockReset()
+  vi.mocked(api.postProject).mockImplementation(async (_n, _p, opId) => ({
+    operation: createOp(opId, 1, 'accepted'),
+  }))
+  vi.mocked(openNativeDialog).mockReset()
+  vi.mocked(fetchApi.apiFetch).mockReset()
+  vi.mocked(fetchApi.apiFetch).mockImplementation(serveApi)
+  remoteFolders = {}
+  browsed.length = 0
+  resetOperations()
+  seedProjects([])
+  useHostConfigStore.setState({ hosts: [] })
+  useConnectionStore.setState({ status: 'connected' })
+})
+
+test('import waits on the operation and hands over the project from the store', async () => {
+  vi.mocked(openNativeDialog).mockResolvedValue('/tmp/space')
+  const onCreate = vi.fn()
+  render(<CreateSpacePanel onCreate={onCreate} onCancel={() => {}} />)
+  fireEvent.click(folderButton())
+  await waitFor(() => expect(createButton()).not.toBeDisabled())
+  fireEvent.click(createButton())
+
+  await waitFor(() => expect(vi.mocked(api.postProject)).toHaveBeenCalledTimes(1))
+  const [name, path] = vi.mocked(api.postProject).mock.calls[0]
+  expect([name, path]).toEqual(['space', '/tmp/space'])
+  expect(onCreate).not.toHaveBeenCalled()
+  await settleCreate('space-id', '/tmp/space')
+
+  await waitFor(() =>
+    expect(onCreate).toHaveBeenCalledWith(space({ id: 'space-id', path: '/tmp/space' })),
+  )
+})
+
+async function refuseCreate(error: unknown) {
+  vi.mocked(openNativeDialog).mockResolvedValue('/tmp/space')
+  vi.mocked(api.postProject).mockRejectedValueOnce(error)
+  render(
+    <>
+      <OperationsWatcher />
+      <CreateSpacePanel onCreate={() => {}} onCancel={() => {}} />
+    </>,
+  )
+  fireEvent.click(folderButton())
+  await waitFor(() => expect(createButton()).not.toBeDisabled())
+  fireEvent.click(createButton())
+  await waitFor(() => expect(vi.mocked(api.postProject)).toHaveBeenCalledTimes(1))
+}
+
+test('a refused create reports the daemon’s reason', async () => {
+  const toasts = watchToasts()
+  await refuseCreate(refusal('a space already uses that folder'))
+  await waitFor(() =>
+    expectReported(toasts, 'Add “space” failed', 'a space already uses that folder'),
+  )
+})
+
+test('a create refused while the daemon migrates shows the migrating state, not a toast', async () => {
+  const toasts = watchToasts()
+  await refuseCreate(migratingRefusal())
+  await waitFor(() => expectMigratingShown(toasts))
+})
+
 /** Picks `/a/b/…` in the remote picker by opening each folder of it in turn. */
 async function pickRemoteFolder(user: ReturnType<typeof userEvent.setup>, path: string) {
   fireEvent.click(folderButton())
@@ -91,36 +165,26 @@ async function pickRemoteFolder(user: ReturnType<typeof userEvent.setup>, path: 
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 }
 
-/** Waits for the popup's item to become the real, clickable thing (base-ui
- *  keeps every item mounted for measurement but `pointer-events: none`s the
- *  whole popup until `open` has actually propagated — see
- *  providers-settings.test.tsx's identical wait on the same quirk). */
+/** Waits for the popup's item to become clickable: base-ui keeps every item
+ *  mounted but sets `pointer-events: none` inline on the positioner until it is
+ *  open. Reading that style, not the computed one, keeps each pick cheap. */
 async function selectDaemonOption(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
   await user.click(daemonTrigger())
   const option = await screen.findByRole('option', { name })
-  await waitFor(() => expect(getComputedStyle(option).pointerEvents).not.toBe('none'))
+  await waitFor(() =>
+    expect(option.closest<HTMLElement>('[role=presentation]')?.style.pointerEvents).not.toBe(
+      'none',
+    ),
+  )
   await user.click(option)
 }
-
-beforeEach(() => {
-  subscribers.clear()
-  vi.mocked(api.postProject).mockReset()
-  vi.mocked(api.postProject).mockResolvedValue(undefined)
-  vi.mocked(openNativeDialog).mockReset()
-  vi.mocked(api.apiFetch).mockReset()
-  vi.mocked(api.apiFetch).mockImplementation(serveApi)
-  remoteFolders = {}
-  browsed.length = 0
-  useHostConfigStore.setState({ hosts: [] })
-  useConnectionStore.setState({ status: 'connected' })
-})
 
 describe('CreateSpacePanel — daemon picker', () => {
   it('a selected host that stops answering cannot be created on until it answers again, and says so', async () => {
     useHostConfigStore.setState({ hosts: [host({ id: 'h1', name: 'homelab-prox' })] })
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     remoteFolders.h1 = { '/': ['later'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await selectDaemonOption(user, /homelab-prox/i)
     await waitFor(() => expect(daemonTrigger()).toHaveTextContent('homelab-prox'))
@@ -155,7 +219,7 @@ describe('CreateSpacePanel — daemon picker', () => {
     getOrCreateHostRuntime('h1').getState().setStatus('up')
     remoteFolders.h1 = { '/': ['tmp'], '/tmp': ['my-space'] }
     const onCreate = vi.fn()
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
 
     render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
 
@@ -168,13 +232,15 @@ describe('CreateSpacePanel — daemon picker', () => {
     fireEvent.click(createButton())
 
     await waitFor(() => {
-      expect(api.postProject).toHaveBeenCalledWith(expect.any(String), '/tmp/my-space', 'h1')
+      expect(api.postProject).toHaveBeenCalledWith(
+        expect.any(String),
+        '/tmp/my-space',
+        expect.any(String),
+        'h1',
+      )
     })
 
-    emit(
-      'crowbar://h1/v0/projects',
-      projectDTO({ id: 'server-id', path: '/tmp/my-space', name: 'my-space' }),
-    )
+    await settleCreate('server-id', '/tmp/my-space')
 
     await waitFor(() => {
       expect(onCreate).toHaveBeenCalledWith(
@@ -183,7 +249,7 @@ describe('CreateSpacePanel — daemon picker', () => {
     })
   })
 
-  it('the default Local daemon keeps its flow: OS dialog, local create, local stream', async () => {
+  it('the default Local daemon keeps its flow: OS dialog, local create', async () => {
     vi.mocked(openNativeDialog).mockResolvedValue('/tmp/local-space')
     const onCreate = vi.fn()
 
@@ -197,15 +263,16 @@ describe('CreateSpacePanel — daemon picker', () => {
     fireEvent.click(createButton())
 
     await waitFor(() => {
-      expect(api.postProject).toHaveBeenCalledWith(expect.any(String), '/tmp/local-space', 'local')
+      expect(api.postProject).toHaveBeenCalledWith(
+        expect.any(String),
+        '/tmp/local-space',
+        expect.any(String),
+        'local',
+      )
     })
-    expect([...subscribers.keys()]).toEqual(['/v0/projects'])
     expect(browsed).toEqual([])
 
-    emit(
-      '/v0/projects',
-      projectDTO({ id: 'server-id-2', path: '/tmp/local-space', name: 'local-space' }),
-    )
+    await settleCreate('server-id-2', '/tmp/local-space')
 
     await waitFor(() =>
       expect(onCreate).toHaveBeenCalledWith(
@@ -228,7 +295,7 @@ describe('CreateSpacePanel — folder', () => {
 
   it("a remote daemon's folder is browsed on that host, never through the OS dialog", async () => {
     remoteFolders.h2 = { '/': ['srv'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await selectDaemonOption(user, /office-vm/i)
 
@@ -241,7 +308,7 @@ describe('CreateSpacePanel — folder', () => {
 
   it('a remote space needs a folder: Create waits for one and says so', async () => {
     remoteFolders.h1 = { '/': ['srv'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await selectDaemonOption(user, /homelab-prox/i)
 
@@ -256,7 +323,7 @@ describe('CreateSpacePanel — folder', () => {
   it('a folder belongs to the daemon it was picked on, whichever way the daemon changes', async () => {
     vi.mocked(openNativeDialog).mockResolvedValue('/Users/me/code')
     remoteFolders.h1 = { '/': ['srv'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     fireEvent.click(folderButton())
     await waitFor(() => expect(createButton()).toBeEnabled())
@@ -275,7 +342,7 @@ describe('CreateSpacePanel — folder', () => {
   it('an OS dialog that answers after the daemon changed never lands on the new daemon', async () => {
     let answer!: (path: string) => void
     vi.mocked(openNativeDialog).mockReturnValue(new Promise((resolve) => (answer = resolve)))
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     fireEvent.click(folderButton())
 
@@ -290,7 +357,7 @@ describe('CreateSpacePanel — folder', () => {
 
   it('a selected host that is removed never leaves its folder to be created anywhere', async () => {
     remoteFolders.h1 = { '/': ['srv'] }
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await selectDaemonOption(user, /homelab-prox/i)
     await pickRemoteFolder(user, '/srv')
@@ -328,15 +395,16 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-// The DTO is stamped with the host it was created on, so it must be read from that host's
-// own stream: a local project at the same path must never be mistaken for the new remote one.
-describe('CreateSpacePanel — provenance of the created project', () => {
+// The project handed over is the one the operation names, on the host it was created on.
+describe('CreateSpacePanel — the created project', () => {
   async function createOn(user: ReturnType<typeof userEvent.setup>) {
     await selectDaemonOption(user, /homelab-prox/i)
     await waitFor(() => expect(daemonTrigger()).toHaveTextContent('homelab-prox'))
     await pickRemoteFolder(user, '/tmp/shared')
     fireEvent.click(createButton())
-    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
+    await settleCreate('remote-id', '/tmp/shared', [
+      space({ id: 'local-twin', path: '/tmp/shared' }),
+    ])
   }
 
   beforeEach(() => {
@@ -345,22 +413,11 @@ describe('CreateSpacePanel — provenance of the created project', () => {
     remoteFolders.h1 = { '/': ['tmp'], '/tmp': ['shared'] }
   })
 
-  it('awaits the selected host’s stream, not the local one', async () => {
-    const user = userEvent.setup()
-    render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
-    await createOn(user)
-
-    expect([...subscribers.keys()]).toEqual(['crowbar://h1/v0/projects'])
-  })
-
-  it('resolves to the remote project when a local one has the same path', async () => {
+  it('is the remote project the operation names when a local one has the same path', async () => {
     const onCreate = vi.fn()
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={onCreate} onCancel={vi.fn()} />)
     await createOn(user)
-
-    emit('/v0/projects', projectDTO({ id: 'local-twin', path: '/tmp/shared' }))
-    emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1))
     expect(onCreate).toHaveBeenCalledWith(
@@ -369,7 +426,7 @@ describe('CreateSpacePanel — provenance of the created project', () => {
   })
 
   it('applies a staged icon to the project on the host it was created on', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await user.click(screen.getByRole('button', { name: /edit space icon/i }))
     await user.click(await screen.findByRole('button', { name: /emoji/i }))
@@ -378,10 +435,8 @@ describe('CreateSpacePanel — provenance of the created project', () => {
     await user.keyboard('{Escape}')
     await createOn(user)
 
-    emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
-
     await waitFor(() =>
-      expect(api.apiFetch).toHaveBeenCalledWith(
+      expect(fetchApi.apiFetch).toHaveBeenCalledWith(
         'crowbar://h1/v0/projects/remote-id/icon/emoji',
         expect.objectContaining({ method: 'PUT' }),
       ),
@@ -389,15 +444,14 @@ describe('CreateSpacePanel — provenance of the created project', () => {
   })
 
   it('sends a staged image to the host as its bytes, never its path on this computer', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user)
     await createOn(user)
 
-    emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
-
     const url = 'crowbar://h1/v0/projects/remote-id/icon'
-    const put = () => vi.mocked(api.apiFetch).mock.calls.find(([called]) => called === url)?.[1]
+    const put = () =>
+      vi.mocked(fetchApi.apiFetch).mock.calls.find(([called]) => called === url)?.[1]
     await waitFor(() => expect(put()).toBeDefined())
     const body = new TextDecoder().decode(put()?.body as Uint8Array)
     expect(body).toContain('name="icon"; filename="icon.png"')
@@ -406,46 +460,39 @@ describe('CreateSpacePanel — provenance of the created project', () => {
   })
 
   it('says why a staged image could not be sent to the host: its only clue', async () => {
-    const toastError = vi.spyOn(toast, 'error')
-    const user = userEvent.setup()
+    const toasts = watchToasts()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user, 3 * 1024 * 1024)
     await createOn(user)
 
-    emit('crowbar://h1/v0/projects', projectDTO({ id: 'remote-id', path: '/tmp/shared' }))
-
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledExactlyOnceWith(
-        'Failed to set icon',
-        'icon.png is larger than the 2 MB icon limit',
-      ),
+      expectReported(toasts, 'Failed to set icon', 'icon.png is larger than the 2 MB icon limit'),
     )
   })
 
-  it('still hands the local daemon a staged image’s path, and says its failure as before', async () => {
-    const toastError = vi.spyOn(toast, 'error')
-    vi.mocked(api.apiFetch).mockImplementation((url, ...rest) =>
-      url.endsWith('/icon') ? Promise.reject(new Error('too big')) : serveApi(url, ...rest),
+  it('still hands the local daemon a staged image’s path, and reports its refusal', async () => {
+    const toasts = watchToasts()
+    vi.mocked(fetchApi.apiFetch).mockImplementation((url, ...rest) =>
+      url.endsWith('/icon') ? Promise.reject(refusal('too big')) : serveApi(url, ...rest),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null, pointerEventsCheck: 0 })
     render(<CreateSpacePanel onCreate={vi.fn()} onCancel={vi.fn()} />)
     await stageImage(user)
     vi.mocked(openNativeDialog).mockResolvedValueOnce('/tmp/mine')
     fireEvent.click(folderButton())
     await waitFor(() => expect(screen.getByText('mine')).toBeInTheDocument())
     fireEvent.click(createButton())
-    await waitFor(() => expect(api.postProject).toHaveBeenCalled())
-
-    emit('/v0/projects', projectDTO({ id: 'local-id', path: '/tmp/mine' }))
+    await settleCreate('local-id', '/tmp/mine')
 
     await waitFor(() =>
-      expect(api.apiFetch).toHaveBeenCalledWith('/v0/projects/local-id/icon', {
+      expect(fetchApi.apiFetch).toHaveBeenCalledWith('/v0/projects/local-id/icon', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: PICKED }),
       }),
     )
-    await waitFor(() => expect(toastError).toHaveBeenCalledExactlyOnceWith('Failed to set icon'))
+    await waitFor(() => expectReported(toasts, 'Failed to set icon', 'too big'))
     expect(fetch).not.toHaveBeenCalled()
   })
 })

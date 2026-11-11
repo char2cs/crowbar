@@ -1,20 +1,13 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, render, renderHook, screen, within } from '@testing-library/react'
 import { isValidElement, type ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
-
-const { readWorkspaceFile, writeWorkspaceFile } = vi.hoisted(() => ({
-  readWorkspaceFile: vi.fn(),
-  writeWorkspaceFile: vi.fn(),
-}))
-vi.mock('@/features/file-system/controllers/platform', () => ({
-  readWorkspaceFile,
-  writeWorkspaceFile,
-}))
-
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { useFileExplorerContextMenu } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { joinPath } from '@/utils/path-helpers'
+import * as documents from '@/lib/api/documents'
+import { ApiError } from '@/lib/errors/api-error'
+import { toastManager } from '@/lib/toast-manager'
 
 const ROOT = '/root'
 
@@ -45,20 +38,27 @@ function baseOptions() {
 // The hook returns a React element tree, not the raw item list; walk it to find
 // the ContextMenu element and read its `items` prop. This avoids rendering the
 // base-ui portal (which does not lay out meaningfully under jsdom).
-function findItems(node: ReactNode): ContextMenuItem[] | null {
+interface MenuProps {
+  items: ContextMenuItem[]
+  onClose: () => void
+}
+
+function findMenu(node: ReactNode): MenuProps | null {
   if (!node || typeof node !== 'object') return null
   if (Array.isArray(node)) {
     for (const child of node) {
-      const found = findItems(child)
+      const found = findMenu(child)
       if (found) return found
     }
     return null
   }
   if (!isValidElement(node)) return null
-  const props = node.props as { items?: unknown; children?: ReactNode }
-  if (Array.isArray(props.items)) return props.items as ContextMenuItem[]
-  return findItems(props.children ?? null)
+  const props = node.props as { items?: unknown; onClose?: () => void; children?: ReactNode }
+  if (Array.isArray(props.items)) return props as MenuProps
+  return findMenu(props.children ?? null)
 }
+
+const findItems = (node: ReactNode) => findMenu(node)?.items ?? null
 
 const mouseEvent = { preventDefault() {}, stopPropagation() {}, pageX: 10, pageY: 10 }
 
@@ -232,6 +232,12 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
     expect(dir.labels).toContain('New Folder')
   })
 
+  it('offers no Upload or env-template item without a workspace to write to', () => {
+    const none = { ...baseOptions(), workspaceId: null }
+    expect(openMenu(none, 'api', true).labels).not.toContain('Upload File')
+    expect(openMenu(none, '.env', false).labels).not.toContain('Create .env.example')
+  })
+
   it('defaults to unlocked when isLocked is omitted', () => {
     const { labels } = openMenu(baseOptions(), 'api/main.go', false)
     expect(labels).toContain('Rename')
@@ -240,15 +246,112 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
   })
 })
 
+describe('useFileExplorerContextMenu — failures', () => {
+  function spyToasts() {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    return toastAdd
+  }
+
+  function spyRead() {
+    const read = vi.spyOn(documents, 'readDocument')
+    onTestFinished(() => read.mockRestore())
+    return read
+  }
+
+  function stubClipboard() {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    onTestFinished(() => void vi.unstubAllGlobals())
+    return writeText
+  }
+
+  it('Properties names the file, its path and its type', () => {
+    const options = baseOptions()
+    const { result } = renderHook(() => useFileExplorerContextMenu(options))
+    act(() => {
+      result.current.handleContextMenu(
+        mouseEvent as unknown as React.MouseEvent,
+        'api/main.go',
+        false,
+      )
+    })
+    click(findItems(result.current.contextMenuElement) ?? [], 'Properties')
+    // A chosen item closes the menu, which is modal while open.
+    act(() => findMenu(result.current.contextMenuElement)?.onClose())
+
+    render(<>{result.current.contextMenuElement}</>)
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('main.go')).toBeInTheDocument()
+    expect(within(dialog).getByText('api/main.go')).toBeInTheDocument()
+    expect(within(dialog).getByText('go')).toBeInTheDocument()
+    expect(within(dialog).queryByText('Size')).not.toBeInTheDocument()
+  })
+
+  it("copies the file's text as the daemon reads it", async () => {
+    const writeText = stubClipboard()
+    spyRead().mockResolvedValue({ ref: documents.workspaceRef('ws-1', 'a.ts'), text: 'abc' })
+    const { items } = openMenu(baseOptions(), 'a.ts', false)
+
+    click(items, 'Copy Content')
+
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('abc'))
+  })
+
+  it('a failed Copy Content reports why', async () => {
+    stubClipboard()
+    const toastAdd = spyToasts()
+    spyRead().mockRejectedValue(new ApiError('permission denied', 403))
+    const { items } = openMenu(baseOptions(), 'a.ts', false)
+
+    click(items, 'Copy Content')
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Copy the file content',
+          description: 'permission denied',
+        }),
+      ),
+    )
+  })
+
+  it('a failed env-file creation reports why and writes nothing', async () => {
+    const toastAdd = spyToasts()
+    spyRead().mockRejectedValue(new ApiError('daemon unreachable', 503))
+    const write = vi.spyOn(documents, 'writeDocument')
+    onTestFinished(() => write.mockRestore())
+    const options = baseOptions()
+    const { items } = openMenu(options, '.env', false)
+
+    click(items, 'Create .env.example')
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Create .env.example',
+          description: 'daemon unreachable',
+        }),
+      ),
+    )
+    expect(options.onCreateNewFileInDirectory).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+  })
+})
+
 // "Create .env.example" reads and writes files: those belong to the workspace the tree
 // shows, never to whichever other one is in view.
 describe('useFileExplorerContextMenu — env template', () => {
-  function createEnvExample(workspaceId: string | null) {
-    readWorkspaceFile.mockReset()
-    writeWorkspaceFile.mockReset()
-    readWorkspaceFile.mockImplementation(async (_wsId: string, path: string) => {
-      if (path.endsWith('.env.example')) throw new Error('not found')
-      return 'KEY=secret\n'
+  function createEnvExample(workspaceId: string) {
+    const read = vi.spyOn(documents, 'readDocument').mockImplementation(async (target) => {
+      if (!('authority' in target)) throw new Error('read by absolute path')
+      if (target.path.endsWith('.env.example')) throw new ApiError('not found', 404, 'not_found')
+      return { ref: target, text: 'KEY=secret\n' }
+    })
+    const write = vi.spyOn(documents, 'writeDocument').mockResolvedValue(undefined as never)
+    onTestFinished(() => {
+      read.mockRestore()
+      write.mockRestore()
     })
     const options = {
       ...baseOptions(),
@@ -257,26 +360,28 @@ describe('useFileExplorerContextMenu — env template', () => {
     }
     const { items } = openMenu(options, '.env', false)
     click(items, 'Create .env.example')
+    return { read, write }
   }
 
   it('reads the source and writes the template in the explorer’s workspace', async () => {
-    createEnvExample('ws-a')
+    const { read, write } = createEnvExample('ws-a')
 
     await vi.waitFor(() =>
-      expect(writeWorkspaceFile).toHaveBeenCalledExactlyOnceWith(
-        'ws-a',
-        '.env.example',
+      expect(write).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ workspaceId: 'ws-a' }),
         expect.stringContaining('KEY='),
       ),
     )
-    expect(readWorkspaceFile.mock.calls.map(([wsId]) => wsId)).toEqual(['ws-a', 'ws-a'])
+    expect(
+      read.mock.calls.map(
+        ([t]) => 'authority' in t && t.authority === 'workspace' && t.workspaceId,
+      ),
+    ).toEqual(['ws-a', 'ws-a'])
   })
 
-  it('touches no file when the tree shows no workspace', async () => {
-    createEnvExample(null)
+  it('offers no template when the tree shows no workspace', () => {
+    const { labels } = openMenu({ ...baseOptions(), workspaceId: null }, '.env', false)
 
-    await Promise.resolve()
-    expect(readWorkspaceFile).not.toHaveBeenCalled()
-    expect(writeWorkspaceFile).not.toHaveBeenCalled()
+    expect(labels).not.toContain('Create .env.example')
   })
 })

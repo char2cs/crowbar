@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
@@ -16,15 +17,9 @@ export interface ContextMenuItem {
   onClick: () => void
   separator?: boolean
   disabled?: boolean
-  /**
-   * Displayed verbatim as text in the fallback popup, but on the native path
-   * (Tauri) this is passed straight through as the native menu's
-   * `accelerator` string, which the underlying `muda` crate PARSES — it must
-   * be valid Tauri accelerator syntax (e.g. `"CmdOrCtrl+R"`), not a display
-   * string like `"⌘R"`. An invalid value fails the whole native `Menu.new()`
-   * call, which falls back to the rendered popup — but the accelerator
-   * display is then lost for that click.
-   */
+  /** Shown as text in the fallback popup, but natively passed as the `accelerator`, which muda
+   *  PARSES: use Tauri syntax (`"CmdOrCtrl+R"`), not `"⌘R"`. Invalid syntax fails the native
+   *  menu, which then falls back to the popup without the accelerator. */
   shortcut?: string
   /** Fallback-only: rendered next to the label in the non-Tauri popup. Being a `React.ReactNode` (not a string), this can never become a native `accelerator` — use `shortcut` for that instead. The native OS menu ignores this entirely. */
   keybinding?: React.ReactNode
@@ -139,8 +134,9 @@ function ImperativeContextMenu({
   )
 
   return (
-    <MenuPrimitive.Root
-      modal={false}
+    // A context-menu root, not a plain one: a plain root gets its floating node id from a
+    // Trigger, and without one a submenu opening reads as a sibling and closes the whole menu.
+    <ContextMenuPrimitive.Root
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) onCloseRef.current()
@@ -162,7 +158,7 @@ function ImperativeContextMenu({
           </MenuPrimitive.Popup>
         </MenuPrimitive.Positioner>
       </MenuPrimitive.Portal>
-    </MenuPrimitive.Root>
+    </ContextMenuPrimitive.Root>
   )
 }
 
@@ -189,17 +185,18 @@ export function useContextMenu<T = unknown>() {
     setState({ isOpen: true, position, data: data ?? null })
   }, [])
 
+  // Keeps position/data so the caller can keep the menu mounted while it closes:
+  // base-ui only skips its focus return when an item moved focus (a rename input)
+  // if the popup outlives that focus move; unmounting it on close steals focus back.
   const close = useCallback(() => {
-    setState({ isOpen: false, position: { x: 0, y: 0 }, data: null })
+    setState((s) => ({ ...s, isOpen: false }))
   }, [])
 
   return { ...state, open, openAt, close }
 }
 
-// `ContextMenu` is native-first: in the desktop app it pops the OS's own menu and
-// renders nothing; elsewhere (plain-browser `bun run dev`, the phone app) it falls back
-// to ImperativeContextMenu, the rendered popup this app used everywhere
-// before native menus existed.
+// Native-first: in the desktop app it pops the OS menu and renders nothing; elsewhere (browser
+// dev, phone) it falls back to the rendered ImperativeContextMenu.
 function ContextMenuHost({
   isOpen,
   position,
@@ -229,11 +226,8 @@ function ContextMenuHost({
       } catch (error) {
         console.error('Failed to show native context menu:', error)
         if (!cancelled) setNativeFailed(true)
-        // Do NOT call onClose here — the fallback ImperativeContextMenu's own
-        // dismissal calls the real onClose when the user actually dismisses
-        // it. Closing immediately would flip the caller's `isOpen` to false
-        // and unmount the fallback before it ever renders, since every real
-        // call site gates its own render on that same `isOpen`.
+        // Not onClose here: the fallback popup calls it on real dismissal, and closing now would
+        // flip `isOpen` false before the fallback ever renders.
       }
     })()
     return () => {

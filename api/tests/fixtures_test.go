@@ -5,15 +5,16 @@ package tests
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // importedRepo bundles the ids a project import yields: the project, its
@@ -50,7 +51,6 @@ type worktreeWire struct {
 	Branch          string `json:"branch"`
 	Status          string `json:"status"`
 	Working         bool   `json:"working"`
-	LastError       string `json:"lastError"`
 	IsDefault       bool   `json:"isDefault"`
 	Added           int    `json:"added"`
 	Deleted         int    `json:"deleted"`
@@ -97,7 +97,7 @@ func listChats(
 // importWritableWorkspace to get an unlocked child forked off it. Tests that need
 // the home to STAY on its protected branch (and thus a placeholder) use
 // importProjectHomeHoldsDefault instead. All ids are learned from the
-// hierarchical WS streams (dial-before-POST).
+// projects scope.
 func importProject(
 	t *testing.T,
 	h *harness,
@@ -113,13 +113,8 @@ func importProject(
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
 	// The locked managed worktree for the protected default branch ("main") is
-	// persisted during the background ImportRepo job. It is READ BACK rather than
-	// awaited on a stream, and that is forced: a chat frame is only reachable
-	// through a repo-scoped mount, and the repo whose id that mount needs is
-	// created BY this same job — so by the moment there is a repoId to dial, the
-	// adoption it would have carried has already happened. Quiesce drains the
-	// projections and the chat list is then read; both are real signals, neither
-	// is a poll or a sleep.
+	// persisted by the import createProjectAndRepo waited out; Quiesce drains
+	// the projections and the chat list is then read back.
 	//
 	// With the home detached, "main" is unambiguously that single managed
 	// worktree (the home carries branch==""), and it has a real on-disk path —
@@ -195,34 +190,39 @@ func importProjectHomeHoldsDefault(
 
 // createProjectAndRepo runs the two-step public import flow (POST /v0/projects
 // then POST .../repos) for an on-disk repo at repoPath and returns the project
-// and repo ids learned from the hierarchical WS streams (dial-before-POST).
+// and repo ids learned from the projects scope, once the import has settled.
 func createProjectAndRepo(
 	t *testing.T,
 	h *harness,
 	repoPath string,
 ) (projectID, repoID string) {
 	t.Helper()
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
 	_ = resp.Body.Close()
 
-	project := readUntil(t, projectsWS, func(m map[string]any) bool {
+	project := projectsWS.read(t, func(m map[string]any) bool {
 		return m["path"] == repoPath
 	})
 	projectID, _ = project["id"].(string)
 	require.NotEmpty(t, projectID, "create must broadcast a ProjectDTO with an id")
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	addResp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "demo", "path": repoPath}, http.StatusAccepted)
-	_ = addResp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool {
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "demo", "path": repoPath})
+	repo := reposWS.read(t, func(m map[string]any) bool {
 		return m["projectId"] == projectID
 	})
 	repoID, _ = repo["id"].(string)
 	require.NotEmpty(t, repoID, "add-repo must broadcast a RepoDTO with an id")
 	return projectID, repoID
+}
+
+// importRepo POSTs an add-repo and returns once its import settled: the repo
+// row lands as the import starts, its worktrees only by the time it settles.
+func importRepo(t *testing.T, h *harness, path string, body map[string]string) {
+	t.Helper()
+	awaitOperation(t, h, startOperation(t, h, path, body).ID, operationSettled)
 }
 
 // importWritableWorkspace imports a project and then creates a child workspace
@@ -272,7 +272,7 @@ func createWorktree(
 	imported importedRepo,
 	branch string,
 	parentID string,
-) (wsID string, chatID string) {
+) (wsID, chatID string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -291,7 +291,7 @@ func createWorktree(
 		parentBranch = parent.Branch
 	}
 
-	mintedChatID, err := h.app.Usecases.AgentChatFolder.MintOwningChat(ctx, parentID)
+	mintedChatID, err := h.app.Usecases.AgentChatFolder.MintOwningChat(ctx, "", parentID)
 	require.NoError(t, err, "createWorktree: mint the owning chat")
 
 	ownWorktree := true
@@ -360,16 +360,6 @@ func worktreeOf(
 	return workspaceDTO{}
 }
 
-// repoChatsWS dials the repo-scoped chat feed — the replacement for the deleted
-// repo-scoped `workspaces` stream. Frames are dto.AgentChatEvent; read them with
-// readUntilWorktree so a predicate written in workspace vocabulary still works.
-func repoChatsWS(
-	h *harness,
-	imported importedRepo,
-) *websocket.Conn {
-	return h.dial("/v0/projects/" + imported.projectID + "/repos/" + imported.repoID + "/chats/ws")
-}
-
 // owningChatID resolves the chat that OWNS wsID, through the daemon's own
 // resolver (domain.ResolveOwningChat) rather than a second one derived here.
 //
@@ -412,7 +402,7 @@ func listRepos(
 }
 
 // workspaceDTO mirrors the migrated WorkspaceDTO wire shape (spec §5): the
-// Locked bool is gone (status-based now); ParentID, LastError, CanMergeLocally,
+// Locked bool is gone (status-based now); ParentID, CanMergeLocally,
 // ParentBranch, and the PR* fields are surfaced.
 type workspaceDTO struct {
 	ID              string `json:"id"`
@@ -424,7 +414,6 @@ type workspaceDTO struct {
 	IsDefault       bool   `json:"isDefault"`
 	Status          string `json:"status"`
 	Working         bool   `json:"working"`
-	LastError       string `json:"lastError"`
 	Added           int    `json:"added"`
 	Deleted         int    `json:"deleted"`
 	MergeStrategy   string `json:"mergeStrategy"`
@@ -471,7 +460,6 @@ func listWorkspaces(
 			IsDefault:       w.IsDefault,
 			Status:          w.Status,
 			Working:         w.Working,
-			LastError:       w.LastError,
 			Added:           w.Added,
 			Deleted:         w.Deleted,
 			MergeStrategy:   w.MergeStrategy,
@@ -514,17 +502,15 @@ func threadsBase(
 		"/workspaces/" + imported.workspaceID
 }
 
-// chatVerbBase returns the repo-scoped prefix the worktree LIFECYCLE VERBS hang
-// off (lock, sync, merge-into-parent, reparent, rebase-onto-parent,
-// retry-provision, detach-holder, PATCH branch) plus the chat row itself. Unlike
-// the shared leaves above these did NOT go flat: they stayed under the repo
-// group, keyed by chat id (endpoints/worktree/routes.go).
-func chatVerbBase(
-	imported importedRepo,
+// documentsContent is the one document read/write route.
+const documentsContent = "/v0/documents/content"
+
+// docURL addresses a workspace file on the document route.
+func docURL(
+	wsID string,
+	path string,
 ) string {
-	return "/v0/projects/" + imported.projectID +
-		"/repos/" + imported.repoID +
-		"/chats/" + imported.chatID
+	return documentsContent + "?" + url.Values{"workspace": {wsID}, "path": {path}}.Encode()
 }
 
 func writeFile(

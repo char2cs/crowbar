@@ -17,11 +17,8 @@ export interface BranchAction {
   kind: BranchActionKind
 }
 
-/**
- * Precedence: uncommitted > conflicts-with-parent > protected > mergeable >
- * sync-only. A predicted conflict arrives as status pr-conflicts (the backend
- * folds the prediction in), so the single 'resolve' case covers it.
- */
+/** Precedence: uncommitted > conflicts-with-parent > protected > mergeable > sync-only. The
+ *  backend folds a predicted conflict into pr-conflicts, so 'resolve' covers it. */
 export function resolveBranchAction(input: BranchActionInput): BranchAction {
   const { hasUncommitted, hasParent, canMergeLocally, status } = input
 

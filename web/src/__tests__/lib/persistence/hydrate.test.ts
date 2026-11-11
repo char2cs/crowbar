@@ -1,54 +1,26 @@
 import { vi } from 'vitest'
 
-const readFileMock = vi.fn<(wsId: string, path: string) => Promise<string>>()
-vi.mock('@/features/file-system/controllers/platform', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/features/file-system/controllers/platform')>()
-  return { ...actual, readWorkspaceFile: (wsId: string, path: string) => readFileMock(wsId, path) }
-})
-
-// The daemon's chat listings, for placing a restored member the cache does not know.
-const fetchHomeChatsMock = vi.fn<(projectId: string) => Promise<ChatDTO[]>>()
-const fetchReposMock = vi.fn<(projectId: string) => Promise<RepoDTO[]>>()
-const fetchRepoChatsMock = vi.fn<(projectId: string, repoId: string) => Promise<ChatDTO[]>>()
-vi.mock('@/lib/api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/api')>()
-  return {
-    ...actual,
-    fetchHomeChats: (p: string) => fetchHomeChatsMock(p),
-    fetchRepos: (p: string) => fetchReposMock(p),
-    fetchRepoChats: (p: string, r: string) => fetchRepoChatsMock(p, r),
-  }
-})
-
-const toastWarning = vi.fn()
-vi.mock('@/features/window/stores/toast-store', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/window/stores/toast-store')>()
-  return {
-    ...actual,
-    toast: {
-      ...actual.toast,
-      warning: (...args: unknown[]) => toastWarning(...args),
-    },
-  }
-})
+// Restoring documents loads Monaco and reads disk; restore-documents.test owns that.
+const restoreDocumentsMock = vi.fn(async () => {})
+vi.mock('@/features/editor/documents/restore-documents', () => ({
+  restoreDocuments: () => restoreDocumentsMock(),
+}))
 
 import {
-  hydrateWorkspace,
   hydrateSidebar,
   hydrateWindowPaneLayout,
-  placeRestoredChatMembers,
+  placeRestoredPanesOnceSynced,
   upgradeWindowPaneLayout,
 } from '@/lib/persistence/hydrate'
-import { ApiError } from '@/lib/api'
+import { loadDrafts } from '@/features/editor/documents/draft-store'
 import { getDB, resetDB } from '@/lib/persistence/idb'
+import { entityStore } from '@/core/entities/entity-store'
 import {
   WINDOW_LAYOUT_VERSION,
   WINDOW_SESSION_ID,
   loadWindowPaneLayout,
 } from '@/lib/persistence/workspace-layout'
-import type { WorkspaceLayout, EditorState } from '@/lib/persistence/schemas'
-import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -57,16 +29,27 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { upsertEntity } from '@/lib/persistence/entity-cache'
-import type { ChatDTO, Project, RepoDTO } from '@/lib/types'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { failed, idle, loading, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import {
+  chatEntity,
+  markProjectsSynced,
+  putEntities,
+  resetEntities,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
+
+/** The projects scope's snapshot landing with `chats`. */
+function syncChats(chats: Array<{ id: string; workspaceId: string }>): void {
+  putEntities(
+    'chat',
+    chats.map((c) => chatEntity(c)),
+  )
+  markProjectsSynced()
+}
 
 const HYDRATE_TEST_REPOS: Repo[] = [
   {
@@ -95,79 +78,18 @@ const HYDRATE_TEST_REPOS: Repo[] = [
   },
 ]
 
-async function seedDB(workspaceId: string) {
-  const db = await getDB()
-  const layout: WorkspaceLayout = {
-    workspaceId,
-    panes: {
-      [ROOT_PANE_ID]: {
-        id: ROOT_PANE_ID,
-        type: 'group',
-        chatId: null,
-        runnerId: null,
-        editorTabIds: [],
-        activeEditorTabId: null,
-        editorOpen: false,
-        viewId: null,
-      },
-    },
-    views: {},
-    viewOrder: [],
-    activeViewId: null,
-    stage: createLeaf(ROOT_PANE_ID),
-    bottomLayout: createLeaf('bottom-pane'),
-    activePaneId: ROOT_PANE_ID,
-    mostRecentActivePaneIds: [ROOT_PANE_ID],
-    buffers: [],
-    updatedAt: Date.now(),
-  }
-  const editorState: EditorState = {
-    workspaceId,
-    bufferId: '/src/main.ts',
-    cursorLine: 10,
-    cursorColumn: 5,
-    scrollTop: 200,
-    folds: [],
-    updatedAt: Date.now(),
-  }
-  await db.put('workspace-layout', layout)
-  await db.put('editor-state', editorState)
-  return { layout, editorState }
-}
-
-describe('hydrateWorkspace', () => {
-  beforeEach(async () => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-  })
-
-  afterEach(() => {
-    destroyWorkspaceStore('missing-ws')
-    destroyWorkspaceStore('ws-test')
-  })
-
-  // Task 26: hydrateWorkspace no longer returns `layout` — pane/buffer layout
-  // is window-level now and restored once at boot by hydrateWindowPaneLayout
-  // (see the describe block below); this is left with editorStates only
-  // (still workspace+buffer keyed, untouched by the hoist).
-  it('returns empty editor states when IDB is empty', async () => {
-    const result = await hydrateWorkspace('missing-ws')
-    expect(result.editorStates).toEqual([])
-  })
-
-  it('returns editor states when seeded', async () => {
-    const { editorState } = await seedDB('ws-test')
-    const result = await hydrateWorkspace('ws-test')
-    expect(result.editorStates).toHaveLength(1)
-    expect(result.editorStates[0].bufferId).toBe(editorState.bufferId)
-  })
-})
-
 describe('hydrateWindowPaneLayout', () => {
   beforeEach(() => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
     resetWindowPaneStoreForTests()
+  })
+
+  it('restores the host filter and each host’s last open project', async () => {
+    const host = { hostFilter: 'h1', lastProjectByHost: { h1: 'p9' } }
+    await saveSidebarUI({ collapsedChatRows: [], ...host })
+    await hydrateSidebar()
+    expect(treeUiStore.getState()).toMatchObject(host)
   })
 
   it('does nothing when IDB is empty', async () => {
@@ -178,9 +100,9 @@ describe('hydrateWindowPaneLayout', () => {
     expect(after.panes).toEqual(before.panes)
   })
 
-  it('restores the views, the stage and the buffers from the one window-session row', async () => {
-    const db = await getDB()
+  it('restores a v2 row: views, stage, buffers that name their file, then their documents', async () => {
     const layout: WorkspaceLayout = {
+      version: 2,
       workspaceId: WINDOW_SESSION_ID,
       panes: {
         [ROOT_PANE_ID]: pane(ROOT_PANE_ID, null, { editorTabIds: ['buf-1'] }),
@@ -199,32 +121,29 @@ describe('hydrateWindowPaneLayout', () => {
       bottomLayout: createLeaf('bottom-pane'),
       activePaneId: 'pane-a',
       mostRecentActivePaneIds: ['pane-a'],
-      buffers: [buffer('buf-1')],
+      buffers: [{ ...buffer('buf-1'), authority: undefined } as never],
       updatedAt: Date.now(),
     }
-    await db.put('workspace-layout', layout)
-
+    await (await getDB()).put('workspace-layout', layout)
+    let tabsAtRestore: string[] = []
+    restoreDocumentsMock.mockImplementationOnce(async () => {
+      tabsAtRestore = windowPaneStore.getState().buffers.map((b) => b.id)
+    })
     await hydrateWindowPaneLayout()
-
+    expect(tabsAtRestore).toEqual(['buf-1'])
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual(['view-b', 'view-a'])
     expect(state.activeViewId).toBe('view-a')
     expect(state.activePaneId).toBe('pane-a')
     expect(getAllLeafIds(state.stage)).toEqual([ROOT_PANE_ID])
-    expect(state.buffers).toHaveLength(1)
-    expect(state.buffers[0]).toMatchObject({ id: 'buf-1', content: 'saved' })
+    expect(state.buffers).toMatchObject([{ id: 'buf-1', authority: 'workspace' }])
+    expect(state.buffers[0]).not.toHaveProperty('content')
   })
 
-  // The one versioned load-time upgrade: a v1 member carried only its chat;
-  // v2 records the workspace, read from the chat's own cached record.
-  it('upgrades a v1 layout: members gain their workspace from the chat cache', async () => {
-    await upsertEntity('crowbar_chats', {
-      id: 'chat-a',
-      repoId: 'r1',
-      projectId: 'p1',
-      workspaceId: 'ws-a',
-      title: 'A',
-    } as ChatDTO)
+  // A v1 member carried only its chat; it is restored unplaced, and the projects scope
+  // places it, or drops it once a snapshot that read every repo leaves its chat out.
+  it('upgrades a v1 layout: members gain their workspace once the projects scope answers', async () => {
+    resetEntities()
     const db = await getDB()
     const v1 = (id: string, viewId: string, chatId: string) => {
       const p = pane(id, viewId, { chatId })
@@ -251,15 +170,19 @@ describe('hydrateWindowPaneLayout', () => {
       buffers: [],
       updatedAt: Date.now(),
     } as WorkspaceLayout)
-
     await hydrateWindowPaneLayout()
-
-    const state = windowPaneStore.getState()
-    expect(state.panes['pane-a'].workspaceId).toBe('ws-a')
-    // A member the cache cannot place is not guessed at and not dropped: it
-    // is restored unplaced, for the daemon to answer (placeRestoredChatMembers).
-    expect(state.viewOrder).toEqual(['view-a', 'view-x'])
-    expect(state.panes['pane-x'].workspaceId).toBeNull()
+    placeRestoredPanesOnceSynced()
+    const placed = () => windowPaneStore.getState().panes
+    const views = () => windowPaneStore.getState().viewOrder
+    expect(views()).toEqual(['view-a', 'view-x'])
+    expect([placed()['pane-a'].workspaceId, placed()['pane-x'].workspaceId]).toEqual([null, null])
+    // One that could not read some repo places, but says no chat is gone.
+    entityStore.setState({ unread: { projects: ['r-unread'] } })
+    syncChats([{ id: 'chat-a', workspaceId: 'ws-a' }])
+    expect(placed()['pane-a'].workspaceId).toBe('ws-a')
+    expect(views()).toEqual(['view-a', 'view-x'])
+    entityStore.setState({ unread: { projects: [] } })
+    expect(views()).toEqual(['view-a'])
   })
 
   it('a payload without views hydrates to an empty band and keeps its buffers', async () => {
@@ -275,9 +198,7 @@ describe('hydrateWindowPaneLayout', () => {
       buffers: [buffer('buf-1')],
       updatedAt: Date.now(),
     } as unknown as WorkspaceLayout)
-
     await hydrateWindowPaneLayout()
-
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual([])
     expect(state.views).toEqual({})
@@ -302,14 +223,12 @@ describe('hydrateWindowPaneLayout', () => {
       buffers: [],
       updatedAt: Date.now(),
     })
-
     await hydrateWindowPaneLayout()
-
     expect(windowPaneStore.getState().viewOrder).toEqual([])
     expect(windowPaneStore.getState().activeViewId).toBeNull()
   })
 
-  // Regression: one violation used to discard the whole band.
+  // One broken record must not discard the whole band.
   it('repairs a payload with one broken record, keeping every valid one in order', async () => {
     const db = await getDB()
     await db.put('workspace-layout', {
@@ -336,9 +255,7 @@ describe('hydrateWindowPaneLayout', () => {
       buffers: [],
       updatedAt: Date.now(),
     })
-
     await hydrateWindowPaneLayout()
-
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual(['view-b', 'view-a'])
     expect(Object.keys(state.views).sort()).toEqual(['view-a', 'view-b'])
@@ -351,7 +268,7 @@ describe('hydrateWindowPaneLayout', () => {
  * First load after upgrading an install from the base build (70ec430). The
  * seeds are exactly what that build wrote: a layout row with no `version`,
  * chat panes with no `workspaceId`, the retired `sidebarWidth` fields, and
- * whatever buffers it held (it kept buffers no pane listed — P0-11).
+ * whatever buffers it held (it kept buffers no pane listed).
  */
 describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
   const P = 'p1'
@@ -360,9 +277,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
     resetWindowPaneStoreForTests()
-    fetchHomeChatsMock.mockReset()
-    fetchReposMock.mockReset()
-    fetchRepoChatsMock.mockReset()
+    resetEntities()
   })
 
   function basePane(id: string, viewId: string | null, over: Partial<PaneGroup> = {}): PaneGroup {
@@ -379,7 +294,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
       savedContent: 'on disk',
       isDirty: true,
       workspaceId,
-    }
+    } as EditorContent
   }
 
   async function seedBaseLayout(over: Record<string, unknown>) {
@@ -403,15 +318,7 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     } as unknown as WorkspaceLayout)
   }
 
-  it('keeps a project-home chat pane the cache does not know, with its dirty buffer', async () => {
-    // Only the repo chat is in the entity cache; the project-home chat never is.
-    await upsertEntity('crowbar_chats', {
-      id: 'chat-repo',
-      repoId: 'r1',
-      projectId: P,
-      workspaceId: 'ws-repo',
-      title: 'repo',
-    } as ChatDTO)
+  it('keeps an unplaced chat pane with its dirty buffer until the projects scope places it', async () => {
     await seedBaseLayout({
       panes: {
         [ROOT_PANE_ID]: basePane(ROOT_PANE_ID, null),
@@ -447,30 +354,33 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
       workspaceId: null,
       editorTabIds: ['buf-dirty'],
     })
-    expect(state.panes['pane-repo'].workspaceId).toBe('ws-repo')
+    expect(state.panes['pane-repo'].workspaceId).toBeNull()
     // No unsaved edit is lost: the orphan is re-homed to a surviving pane.
     expect(state.buffers.map((b) => b.id).sort()).toEqual(['buf-dirty', 'buf-orphan'])
     const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-orphan'))
     expect(holders).toHaveLength(1)
-    expect(state.buffers.every((b) => (b as EditorContent).content === 'unsaved edits')).toBe(true)
+    expect(state.buffers.every((b) => (b as EditorContent).isDirty)).toBe(true)
+    expect([...(await loadDrafts()).values()].map((d) => d.text)).toEqual([
+      'unsaved edits',
+      'unsaved edits',
+    ])
     expect(viewIntegrityViolations(state)).toEqual([])
 
-    // The daemon then places the unknown member.
-    fetchHomeChatsMock.mockResolvedValue([
-      { id: 'chat-home', repoId: '', projectId: P, workspaceId: 'ws-home', title: 'h' } as ChatDTO,
+    // The projects scope then places both members.
+    placeRestoredPanesOnceSynced()
+    syncChats([
+      { id: 'chat-home', workspaceId: 'ws-home' },
+      { id: 'chat-repo', workspaceId: 'ws-repo' },
     ])
-    await placeRestoredChatMembers()
 
-    expect(fetchHomeChatsMock).toHaveBeenCalledWith(P)
-    // Home answered every unknown chat; no repo was listed.
-    expect(fetchReposMock).not.toHaveBeenCalled()
     const placed = windowPaneStore.getState()
     expect(placed.panes['pane-home'].workspaceId).toBe('ws-home')
+    expect(placed.panes['pane-repo'].workspaceId).toBe('ws-repo')
     expect(placed.panes['pane-home'].editorTabIds).toEqual(['buf-dirty'])
     expect(placed.viewOrder).toEqual(['view-home', 'view-repo'])
   })
 
-  it('drops a member the daemon reports not found, re-homing its unsaved buffer', async () => {
+  it('drops a member the projects scope does not carry, re-homing its unsaved buffer', async () => {
     await seedBaseLayout({
       panes: {
         [ROOT_PANE_ID]: basePane(ROOT_PANE_ID, null),
@@ -495,26 +405,21 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     })
     await hydrateWindowPaneLayout()
 
-    fetchHomeChatsMock.mockResolvedValue([])
-    fetchReposMock.mockResolvedValue([{ id: 'r1' } as RepoDTO])
-    fetchRepoChatsMock.mockResolvedValue([
-      { id: 'chat-kept', repoId: 'r1', projectId: P, workspaceId: 'ws-k', title: 'k' } as ChatDTO,
-    ])
-    await placeRestoredChatMembers()
+    syncChats([{ id: 'chat-kept', workspaceId: 'ws-k' }])
+    placeRestoredPanesOnceSynced()
 
     const state = windowPaneStore.getState()
-    expect(fetchRepoChatsMock).toHaveBeenCalledWith(P, 'r1')
     expect(state.viewOrder).toEqual(['view-kept'])
     expect(state.panes['pane-gone']).toBeUndefined()
     expect(state.panes['pane-kept'].workspaceId).toBe('ws-k')
-    // The unsaved buffer outlives its chat; the clean one is released (C2).
+    // The unsaved buffer outlives its chat; the clean one is released.
     expect(state.buffers.map((b) => b.id)).toEqual(['buf-dirty'])
     const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-dirty'))
     expect(holders).toHaveLength(1)
     expect(viewIntegrityViolations(state)).toEqual([])
   })
 
-  it('drops every member of a project the daemon no longer has', async () => {
+  it('keeps an unknown member unplaced until the projects scope answers', async () => {
     await seedBaseLayout({
       panes: {
         'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
@@ -527,167 +432,11 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     })
     await hydrateWindowPaneLayout()
 
-    fetchReposMock.mockRejectedValue(new ApiError('project not found', 404))
-    fetchHomeChatsMock.mockRejectedValue(new ApiError('project not found', 404))
-    await placeRestoredChatMembers()
-
-    expect(windowPaneStore.getState().viewOrder).toEqual([])
-  })
-
-  it('keeps an unknown member unplaced when the daemon cannot answer', async () => {
-    await seedBaseLayout({
-      panes: {
-        'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
-        'bottom-pane': basePane('bottom-pane', null),
-      },
-      views: { 'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') } },
-      viewOrder: ['view-a'],
-      activeViewId: 'view-a',
-      activePaneId: 'pane-a',
-    })
-    await hydrateWindowPaneLayout()
-
-    fetchHomeChatsMock.mockRejectedValue(new ApiError('daemon starting', 503))
-    fetchReposMock.mockRejectedValue(new ApiError('daemon starting', 503))
-    await placeRestoredChatMembers()
+    placeRestoredPanesOnceSynced()
 
     const state = windowPaneStore.getState()
     expect(state.viewOrder).toEqual(['view-a'])
     expect(state.panes['pane-a'].workspaceId).toBeNull()
-  })
-
-  // Boot places members before the project list loads, when a paired install cannot yet say
-  // which host a project is on: it waits for the list, and gives up only if the list never names it.
-  describe('on an install that paired a remote', () => {
-    const flush = async () => {
-      for (let i = 0; i < 10; i++) await Promise.resolve()
-    }
-    const row = (hostId: string): Project => ({
-      id: P,
-      name: P,
-      path: `/work/${P}`,
-      lastActivity: new Date(0),
-      hostId,
-    })
-
-    beforeEach(async () => {
-      useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-      useProjectDataStore.setState({ data: idle() })
-      await seedBaseLayout({
-        panes: {
-          'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
-          'bottom-pane': basePane('bottom-pane', null),
-        },
-        views: { 'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') } },
-        viewOrder: ['view-a'],
-        activeViewId: 'view-a',
-        activePaneId: 'pane-a',
-      })
-      await hydrateWindowPaneLayout()
-      fetchHomeChatsMock.mockResolvedValue([
-        { id: 'chat-a', repoId: '', projectId: P, workspaceId: 'ws-a', title: 'a' } as ChatDTO,
-      ])
-    })
-
-    afterEach(() => {
-      useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-      useProjectDataStore.setState({ data: idle(), readHosts: new Set() })
-    })
-
-    const pairHost = (id: string) =>
-      useHostConfigStore.getState().addHost({
-        id,
-        name: id,
-        endpoint: `${id}.example:3737`,
-        pairedFingerprint: 'SHA256:aaaa',
-        clientId: `client-${id}`,
-      })
-
-    it('asks at once on a never-paired install, with the list still idle', async () => {
-      await placeRestoredChatMembers()
-      expect(fetchHomeChatsMock).toHaveBeenCalledWith(P)
-      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe('ws-a')
-    })
-
-    it('waits for the project list, then asks and places the member', async () => {
-      pairHost('host-2')
-      const placing = placeRestoredChatMembers()
-      await flush()
-      expect(fetchHomeChatsMock).not.toHaveBeenCalled()
-      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
-
-      useProjectDataStore.setState({ data: success([row('local')]) })
-      await placing
-
-      expect(fetchHomeChatsMock).toHaveBeenCalledExactlyOnceWith(P)
-      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe('ws-a')
-    })
-
-    it('leaves the member unplaced, without asking or looping, once the list and every host lack its project', async () => {
-      pairHost('host-2')
-      const placing = placeRestoredChatMembers()
-      const settled = vi.fn()
-      void placing.then(settled)
-      useProjectDataStore.setState({ data: success([{ ...row('local'), id: 'other' }]) })
-      await flush()
-      // host-2 has not said what it has: the project may be there.
-      expect(settled).not.toHaveBeenCalled()
-      useProjectDataStore.setState({ readHosts: new Set(['host-2']) })
-      await placing
-
-      useProjectDataStore.setState({ data: success([{ ...row('local'), id: 'another' }]) })
-      await flush()
-      expect(fetchHomeChatsMock).not.toHaveBeenCalled()
-      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
-      expect(windowPaneStore.getState().viewOrder).toEqual(['view-a'])
-    })
-
-    it('places each project’s members as it answers, while another still waits for its host', async () => {
-      await seedBaseLayout({
-        panes: {
-          'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
-          'pane-b': basePane('pane-b', 'view-b', { chatId: 'chat-b' }),
-          'bottom-pane': basePane('bottom-pane', null),
-        },
-        views: {
-          'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') },
-          'view-b': { id: 'view-b', projectId: 'p2', layout: createLeaf('pane-b') },
-        },
-        viewOrder: ['view-a', 'view-b'],
-        activeViewId: 'view-a',
-        activePaneId: 'pane-a',
-      })
-      await hydrateWindowPaneLayout()
-      fetchHomeChatsMock.mockImplementation(async (projectId) => [
-        { id: `chat-${projectId === P ? 'a' : 'b'}`, workspaceId: `ws-${projectId}` } as ChatDTO,
-      ])
-      pairHost('host-2')
-      // The cached list places P; p2's row comes only with the list's first read.
-      useProjectDataStore.setState({ data: loading(success([row('local')])) })
-
-      const placing = placeRestoredChatMembers()
-      await flush()
-      expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBe(`ws-${P}`)
-      expect(windowPaneStore.getState().panes['pane-b'].workspaceId).toBeNull()
-
-      useProjectDataStore.setState({
-        data: success([row('local'), { ...row('host-2'), id: 'p2' }]),
-      })
-      await placing
-      expect(windowPaneStore.getState().panes['pane-b'].workspaceId).toBe('ws-p2')
-    })
-
-    it('keeps waiting while the list read has not succeeded', async () => {
-      pairHost('host-2')
-      const placing = placeRestoredChatMembers()
-      useProjectDataStore.setState({ data: failed(new Error('daemon starting')) })
-      await flush()
-      expect(fetchHomeChatsMock).not.toHaveBeenCalled()
-
-      useProjectDataStore.setState({ data: success([row('host-2')]) })
-      await placing
-      expect(fetchHomeChatsMock).toHaveBeenCalledExactlyOnceWith(P)
-    })
   })
 
   it('stamps the upgraded layout once; a second load does not upgrade again', async () => {
@@ -709,15 +458,6 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     expect(stamped?.panes['pane-a']).toMatchObject({ chatId: 'chat-a', workspaceId: null })
     // Idempotent: upgrading an upgraded layout changes nothing.
     expect(await upgradeWindowPaneLayout(stamped!)).toBe(stamped)
-    // The cache learning the chat later does not re-run the upgrade — the
-    // daemon placement (placeRestoredChatMembers) owns what is left.
-    await upsertEntity('crowbar_chats', {
-      id: 'chat-a',
-      repoId: 'r1',
-      projectId: P,
-      workspaceId: 'ws-late',
-      title: 'A',
-    } as ChatDTO)
     resetWindowPaneStoreForTests()
     await hydrateWindowPaneLayout()
     expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
@@ -736,7 +476,8 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     const state = windowPaneStore.getState()
     expect(state.buffers.map((b) => b.id)).toEqual(['buf-1', 'buf-2'])
     expect(state.panes[ROOT_PANE_ID].editorTabIds).toEqual(['buf-1', 'buf-2'])
-    expect((state.buffers[0] as EditorContent).content).toBe('unsaved edits')
+    expect(state.buffers[0]).toMatchObject({ isDirty: true })
+    expect((await loadDrafts()).size).toBe(1)
   })
 })
 
@@ -753,426 +494,83 @@ function pane(
     editorTabIds: [],
     activeEditorTabId: over.editorTabIds?.[0] ?? null,
     editorOpen: false,
-    // A current-shape member records its workspace (C3).
+    // A current-shape member records its workspace.
     workspaceId: over.chatId ? `ws-of-${over.chatId}` : null,
     ...over,
     viewId,
   }
 }
 
+/** A buffer as layouts before v4 saved it, text and all. */
 function buffer(id: string): EditorContent {
   return {
     id,
     type: 'editor',
+    authority: 'workspace',
     path: '/src/main.ts',
     name: 'main.ts',
     content: 'saved',
     savedContent: 'saved',
     isDirty: false,
     isVirtual: false,
-    isPinned: false,
     isPreview: false,
     tokens: [],
     workspaceId: 'ws-test',
   } as EditorContent
 }
 
-describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)', () => {
-  const WS = 'ws-restore'
-
-  function makeEditorBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
-    return {
-      id: 'buf-1',
-      type: 'editor',
-      path: '/repo/README.md',
-      name: 'README.md',
-      content: 'saved content',
-      savedContent: 'saved content',
-      isDirty: false,
-      isVirtual: false,
-      isPinned: false,
-      isPreview: false,
-      tokens: [],
-      workspaceId: WS,
-      ...overrides,
-    }
-  }
-
-  // Task 26: buffers are window-level now, restored from the one
-  // WINDOW_SESSION_ID-keyed IDB row by hydrateWindowPaneLayout() (once at
-  // boot) — not the per-workspace `hydrateWorkspace` under test here, which
-  // only reconciles whatever hydrateWindowPaneLayout already restored against
-  // disk. Route through the real restore path (IDB write + a real
-  // hydrateWindowPaneLayout() call) rather than poking `windowPaneStore`
-  // directly, so restoreBufferDirtyState's persisted-isDirty correction is
-  // still genuinely exercised, not bypassed.
-  async function seedLayoutWithBuffers(buffers: EditorContent[]) {
-    resetWindowPaneStoreForTests()
-    const db = await getDB()
-    await db.put('workspace-layout', {
-      workspaceId: WINDOW_SESSION_ID,
-      panes: {
-        [ROOT_PANE_ID]: {
-          id: ROOT_PANE_ID,
-          type: 'group',
-          chatId: null,
-          runnerId: null,
-          editorTabIds: buffers.map((b) => b.id),
-          activeEditorTabId: buffers[0]?.id ?? null,
-          editorOpen: true,
-          viewId: null,
-        },
-      },
-      views: {},
-      viewOrder: [],
-      activeViewId: null,
-      stage: createLeaf(ROOT_PANE_ID),
-      bottomLayout: createLeaf('bottom-pane'),
-      activePaneId: ROOT_PANE_ID,
-      mostRecentActivePaneIds: [ROOT_PANE_ID],
-      buffers,
-      updatedAt: Date.now(),
-    })
-    await hydrateWindowPaneLayout()
-  }
-
-  function getRestoredBuffer(): EditorContent {
-    return windowPaneStore.getState().buffers[0] as EditorContent
-  }
-
-  beforeEach(() => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-    readFileMock.mockReset()
-    toastWarning.mockReset()
-    localStorage.removeItem(`workspace:${WS}:state`)
-  })
-
-  afterEach(() => {
-    destroyWorkspaceStore(WS)
-  })
-
-  it('silently reloads a restored clean buffer whose file changed on disk', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer()])
-    readFileMock.mockResolvedValue('disk content changed while closed')
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    // Reads must target the hydrating workspace explicitly, not the active one.
-    expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/README.md')
-    expect(buf.content).toBe('disk content changed while closed')
-    expect(buf.savedContent).toBe('disk content changed while closed')
-    expect(buf.isDirty).toBe(false)
-    expect(buf.hasExternalChange).toBe(false)
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-
-  it('keeps a restored dirty buffer intact and flags the external change', async () => {
-    await seedLayoutWithBuffers([
-      makeEditorBuffer({ content: 'unsaved user edits', isDirty: true }),
-    ])
-    readFileMock.mockResolvedValue('disk content changed while closed')
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    expect(buf.content).toBe('unsaved user edits')
-    expect(buf.isDirty).toBe(true)
-    expect(buf.hasExternalChange).toBe(true)
-    expect(toastWarning).toHaveBeenCalledTimes(1)
-  })
-
-  it('restores the dirty marker when content diverges from savedContent even if isDirty was persisted as false', async () => {
-    await seedLayoutWithBuffers([
-      makeEditorBuffer({ content: 'unsaved user edits', isDirty: false }),
-    ])
-    // Disk matches savedContent — no external change, so no toast/reload.
-    readFileMock.mockResolvedValue('saved content')
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    expect(buf.content).toBe('unsaved user edits')
-    expect(buf.isDirty).toBe(true)
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-
-  it('does not reload or toast when disk matches the restored buffer', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer()])
-    readFileMock.mockResolvedValue('saved content')
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    expect(buf.content).toBe('saved content')
-    expect(buf.isDirty).toBe(false)
-    expect(buf.hasExternalChange).toBeUndefined()
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-
-  it('skips virtual editor buffers and survives unreadable files', async () => {
-    await seedLayoutWithBuffers([
-      makeEditorBuffer({ id: 'buf-virtual', path: 'untitled:1', isVirtual: true }),
-    ])
-    readFileMock.mockRejectedValue(new Error('ENOENT'))
-
-    await hydrateWorkspace(WS)
-
-    expect(readFileMock).not.toHaveBeenCalled()
-    expect(getRestoredBuffer().content).toBe('saved content')
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-
-  // BUG-001: a restored tab for a file that no longer exists must become a
-  // terminal "file not found" state — flagged once, never re-fetched.
-  it('flags the buffer fileMissing when the content load 404s', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer()])
-    readFileMock.mockRejectedValue(new ApiError('file not found', 404))
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    expect(readFileMock).toHaveBeenCalledTimes(1)
-    expect(buf.fileMissing).toBe(true)
-    // Content untouched — closing the tab or restoring the file is the way out.
-    expect(buf.content).toBe('saved content')
-  })
-
-  it('keeps the editor (no fileMissing) for a dirty buffer whose file 404s', async () => {
-    await seedLayoutWithBuffers([
-      makeEditorBuffer({ content: 'unsaved user edits', isDirty: true }),
-    ])
-    readFileMock.mockRejectedValue(new ApiError('file not found', 404))
-
-    await hydrateWorkspace(WS)
-
-    const buf = getRestoredBuffer()
-    // The unsaved edits are the only copy left; saving recreates the file.
-    expect(buf.fileMissing).toBeUndefined()
-    expect(buf.content).toBe('unsaved user edits')
-  })
-
-  it('does not flag fileMissing on non-404 errors (transient failures)', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer()])
-    readFileMock.mockRejectedValue(new ApiError('backend exploded', 500))
-
-    await hydrateWorkspace(WS)
-
-    expect(getRestoredBuffer().fileMissing).toBeUndefined()
-  })
-
-  it('clears a persisted fileMissing flag when the file is back on disk', async () => {
-    await seedLayoutWithBuffers([makeEditorBuffer({ fileMissing: true })])
-    readFileMock.mockResolvedValue('saved content')
-
-    await hydrateWorkspace(WS)
-
-    expect(getRestoredBuffer().fileMissing).toBe(false)
-  })
-})
-
-// Keep-alive warm return: the workspace store is LIVE (no hydration happens),
-// but files changed on disk while the workspace sat hidden — its file watcher
-// is active-only and agents keep editing hidden worktrees. The warm-activation
-// path calls this to apply the same policy as the restore-time reconcile.
-describe('reconcileWorkspaceBuffersWithDisk (keep-alive warm return)', () => {
-  const WS = 'ws-warm'
-
-  function liveEditorBuffer(overrides: Partial<EditorContent> = {}): EditorContent {
-    return {
-      id: 'buf-live',
-      type: 'editor',
-      path: '/repo/agent-edited.ts',
-      name: 'agent-edited.ts',
-      content: 'content when hidden',
-      savedContent: 'content when hidden',
-      isDirty: false,
-      isVirtual: false,
-      isPinned: false,
-      isPreview: false,
-      tokens: [],
-      workspaceId: WS,
-      ...overrides,
-    }
-  }
-
-  beforeEach(() => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-    readFileMock.mockReset()
-    toastWarning.mockReset()
-    localStorage.removeItem(`workspace:${WS}:state`)
-    resetWindowPaneStoreForTests()
-  })
-
-  afterEach(() => {
-    destroyWorkspaceStore(WS)
-  })
-
-  it('reloads a clean buffer whose file changed on disk while the workspace was hidden', async () => {
-    windowPaneStore.setState((s) => {
-      s.buffers = [liveEditorBuffer()]
-      return s
-    })
-    readFileMock.mockResolvedValue('agent rewrote this while you were away')
-
-    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
-    await reconcileWorkspaceBuffersWithDisk(WS)
-
-    const buf = windowPaneStore.getState().buffers[0] as EditorContent
-    expect(readFileMock).toHaveBeenCalledWith(WS, '/repo/agent-edited.ts')
-    expect(buf.content).toBe('agent rewrote this while you were away')
-    expect(buf.savedContent).toBe('agent rewrote this while you were away')
-    expect(buf.isDirty).toBe(false)
-  })
-
-  it('keeps a dirty buffer intact and flags the external change', async () => {
-    windowPaneStore.setState((s) => {
-      s.buffers = [liveEditorBuffer({ content: 'unsaved user edits', isDirty: true })]
-      return s
-    })
-    readFileMock.mockResolvedValue('agent rewrote this while you were away')
-
-    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
-    await reconcileWorkspaceBuffersWithDisk(WS)
-
-    const buf = windowPaneStore.getState().buffers[0] as EditorContent
-    expect(buf.content).toBe('unsaved user edits')
-    expect(buf.isDirty).toBe(true)
-    expect(buf.hasExternalChange).toBe(true)
-  })
-
-  it('is a no-op when disk still matches the buffers', async () => {
-    windowPaneStore.setState((s) => {
-      s.buffers = [liveEditorBuffer()]
-      return s
-    })
-    readFileMock.mockResolvedValue('content when hidden')
-
-    const { reconcileWorkspaceBuffersWithDisk } = await import('@/lib/persistence/hydrate')
-    await reconcileWorkspaceBuffersWithDisk(WS)
-
-    const buf = windowPaneStore.getState().buffers[0] as EditorContent
-    expect(buf.content).toBe('content when hidden')
-    expect(buf.hasExternalChange).toBeUndefined()
-    expect(toastWarning).not.toHaveBeenCalled()
-  })
-})
-
 describe('hydrateSidebar', () => {
   beforeEach(async () => {
     resetDB()
     globalThis.indexedDB = new IDBFactory()
-    useSidebarStore.setState({
-      repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
-      collapsedChatRows: new Set<string>(),
-      activeTab: 'chats',
-      hostFilter: '',
-    })
+    seedRepos(HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })))
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
   })
 
-  it('restores the persisted sidebar mode', async () => {
-    await saveSidebarUI({ collapsedChatRows: [], activeTab: 'files' })
+  // A mode an older build wrote ('workspaces'), or none, must not name a missing panel.
+  it.each([
+    ['files', 'files'],
+    ['workspaces', 'chats'],
+    [undefined, 'chats'],
+  ])('replays the persisted sidebar mode %s as %s', async (activeTab, mode) => {
+    treeUiStore.setState({ activeTab: 'git' })
+    await saveSidebarUI({ collapsedChatRows: [], activeTab })
     await hydrateSidebar()
-    expect(useSidebarStore.getState().activeTab).toBe('files')
-  })
-
-  // A mode an older build wrote ('workspaces') or a corrupt value must not
-  // leave the sidebar on a panel that does not exist.
-  it('replays an unknown persisted mode as chats', async () => {
-    useSidebarStore.setState({ activeTab: 'git' })
-    await saveSidebarUI({ collapsedChatRows: [], activeTab: 'workspaces' })
-    await hydrateSidebar()
-    expect(useSidebarStore.getState().activeTab).toBe('chats')
-  })
-
-  it('replays a record written before the mode was persisted as chats', async () => {
-    useSidebarStore.setState({ activeTab: 'git' })
-    await saveSidebarUI({ collapsedChatRows: ['f1'] })
-    await hydrateSidebar()
-    expect(useSidebarStore.getState().activeTab).toBe('chats')
-  })
-
-  it('restores the persisted host filter', async () => {
-    await saveSidebarUI({ collapsedChatRows: [], hostFilter: 'h1' })
-    await hydrateSidebar()
-    expect(useSidebarStore.getState().hostFilter).toBe('h1')
-  })
-
-  it('restores each host’s last open project', async () => {
-    await saveSidebarUI({ collapsedChatRows: [], lastProjectByHost: { h1: 'p9' } })
-    await hydrateSidebar()
-    expect(useSidebarStore.getState().lastProjectByHost).toEqual({ h1: 'p9' })
-  })
-
-  it('replays a record written before the host filter as no host chosen', async () => {
-    useSidebarStore.setState({ hostFilter: 'h1' })
-    await saveSidebarUI({ collapsedChatRows: [] })
-    await hydrateSidebar()
-    expect(useSidebarStore.getState().hostFilter).toBe('')
+    expect(treeUiStore.getState().activeTab).toBe(mode)
   })
 
   it('does nothing when IDB is empty', async () => {
     await hydrateSidebar()
-    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
+    expect(treeUiStore.getState().collapsed.size).toBe(0)
   })
 
-  // REGRESSION (restyle v2): the previous build's tree collapsed every repo
-  // but the active one and persisted that set; the restyled tree folds via
-  // `collapsedChatRows` and never writes it, yet the sync engine still gated
-  // a repo's chats/folders on it. Over an existing profile those repos drew
-  // header + branch rows and never loaded a thread. The retired key replays
-  // as "every repo open", the product default.
-  it('ignores the retired collapsedRepos key a previous build persisted', async () => {
+  // Retired keys a previous build persisted replay as "everything open", the product
+  // default: gating on them left repos that never loaded a thread and projects blank.
+  it('ignores the retired collapsedRepos, -Workspaces and -Projects keys', async () => {
     await saveSidebarUI({
       collapsedRepos: ['crowbar', 'quiver-core'],
-      collapsedWorkspaces: [],
-      collapsedChatRows: ['f1'],
-    })
-    await hydrateSidebar()
-    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
-    expect(state.collapsedRepos).toBeUndefined()
-    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(true)
-  })
-
-  it('ignores the retired collapsedWorkspaces key a previous build persisted', async () => {
-    await saveSidebarUI({ collapsedRepos: [], collapsedWorkspaces: ['ws3', 'ws1'] })
-    await hydrateSidebar()
-    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
-    expect(state.collapsedWorkspaces).toBeUndefined()
-    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
-  })
-
-  // REGRESSION (restyle v2): the old build's project-row fold persisted this
-  // set and project-visibility gated a folded project's streams on it; the
-  // restyled sidebar has no writer, so a project it folded rendered blank
-  // whenever it was not active. The key is retired like collapsedRepos.
-  it('ignores the retired collapsedProjects key a previous build persisted', async () => {
-    await saveSidebarUI({
-      collapsedRepos: [],
-      collapsedWorkspaces: [],
+      collapsedWorkspaces: ['ws3', 'ws1'],
       collapsedProjects: ['p2', 'p3'],
       collapsedChatRows: ['f1'],
     })
     await hydrateSidebar()
-    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
-    expect(state.collapsedProjects).toBeUndefined()
-    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(true)
+    const state = treeUiStore.getState() as unknown as Record<string, unknown>
+    expect(state.collapsedRepos ?? state.collapsedWorkspaces ?? state.collapsedProjects).toBe(
+      undefined,
+    )
+    expect([...treeUiStore.getState().collapsed]).toEqual(['f1'])
   })
 
   it('restores collapsedChatRows from IDB', async () => {
     await saveSidebarUI({ collapsedRepos: [], collapsedChatRows: ['f1', 'c7'] })
     await hydrateSidebar()
-    const { collapsedChatRows } = useSidebarStore.getState()
-    expect(collapsedChatRows.has('f1')).toBe(true)
-    expect(collapsedChatRows.has('c7')).toBe(true)
+    expect([...treeUiStore.getState().collapsed]).toEqual(['f1', 'c7'])
   })
 
   it('replays a record written before the Chats panel was collapsible as "all open"', async () => {
-    useSidebarStore.setState({ collapsedChatRows: new Set(['stale']) })
+    treeUiStore.setState({ collapsed: new Set(['stale']) })
     await saveSidebarUI({ collapsedRepos: ['crowbar'], collapsedWorkspaces: [] })
     await hydrateSidebar()
-    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
+    expect(treeUiStore.getState().collapsed.size).toBe(0)
   })
 })

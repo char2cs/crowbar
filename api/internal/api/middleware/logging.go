@@ -11,12 +11,9 @@ import (
 // slowRequest is the duration past which a plain request is worth a Warn.
 const slowRequest = 2 * time.Second
 
-// Logger access-logs requests by what a debugger needs: failures (5xx or a
-// recorded gin error) at Error, slow requests at Warn, everything else at
-// Debug — the UI polls, so Info-level access lines drown the real signal.
-// Websocket handshakes (path ends in "/ws", or an Upgrade header) are skipped:
-// they reconnect about once a second and gin hijacks them, so their duration
-// means nothing.
+// Logger logs failures at Error, slow requests at Warn and the rest at Debug, since
+// the UI polls and Info-level access lines would drown the signal. WebSocket
+// handshakes are skipped: gin hijacks them, so their duration means nothing.
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if strings.HasSuffix(c.Request.URL.Path, "/ws") ||
@@ -33,6 +30,11 @@ func Logger() gin.HandlerFunc {
 			"path", c.Request.URL.Path, "status", status, "took", took,
 		}
 		ctx := c.Request.Context()
+		// A canceled request's 500 is the client leaving (a pane closed), not a failure.
+		if status >= 500 && ctx.Err() != nil {
+			slog.DebugContext(ctx, "http: client went away", attrs...)
+			return
+		}
 		if errs := c.Errors.Errors(); len(errs) > 0 && status >= 500 {
 			slog.ErrorContext(ctx, "http: request failed", append(attrs, "err", strings.Join(errs, "; "))...)
 			return

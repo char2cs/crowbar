@@ -6,7 +6,7 @@ describe('initializeSettingsState', () => {
     localStorage.clear()
   })
 
-  // A profile from the base build saved the static cut this build no longer ships.
+  // A saved static cut, which the bundle does not ship.
   it('rewrites a saved static Geist Mono to the variable cut, once, in storage', async () => {
     localStorage.setItem('crowbar:settings:fontFamily', JSON.stringify('Geist Mono'))
     localStorage.setItem('crowbar:settings:terminalFontFamily', JSON.stringify('Geist Mono'))
@@ -21,5 +21,16 @@ describe('initializeSettingsState', () => {
     expect(JSON.parse(localStorage.getItem('crowbar:settings:terminalFontFamily')!)).toBe(
       'Geist Mono Variable',
     )
+  })
+
+  // A default frozen into storage at boot would outlive a later build's different default.
+  it('writes back only what was stored, never a default', async () => {
+    localStorage.setItem('crowbar:settings:fontFamily', JSON.stringify('Geist Mono'))
+
+    await initializeSettingsState(() => {})
+
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i) ?? '')
+    const written = keys.filter((key) => key.startsWith('crowbar:settings:'))
+    expect(written).toEqual(['crowbar:settings:fontFamily'])
   })
 })

@@ -33,25 +33,6 @@ func (stubFiles) Tree(
 	return nil, nil
 }
 
-func (stubFiles) ReadContent(
-	_ context.Context,
-	_ string,
-	_ string,
-) (domain.FileContent, error) {
-	return domain.FileContent{}, nil
-}
-
-func (stubFiles) WriteContent(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-	_ time.Time,
-) error {
-	return nil
-}
-
 func (stubFiles) CreateFile(
 	_ context.Context,
 	_ string,
@@ -103,11 +84,6 @@ func (stubFiles) Delete(
 // once and asserted against BOTH live prefixes. The relative half is
 // deliberately prefix-free: a route that reached only one of the two mounts is
 // the failure this shape makes impossible to miss.
-//
-// /ws is in the list like any other route. It is its own leaf here rather than
-// a dual-serve of /tree the way git's status route is, so nothing distinguishes
-// it at the routing level — and a mount that dropped it would take the live
-// file-change stream with it.
 func filesSurface() []struct {
 	method string
 	path   string
@@ -117,13 +93,10 @@ func filesSurface() []struct {
 		path   string
 	}{
 		{http.MethodGet, "/tree"},
-		{http.MethodGet, "/content"},
-		{http.MethodPut, "/content"},
 		{http.MethodPost, ""},
 		{http.MethodPost, "/copy"},
 		{http.MethodPatch, ""},
 		{http.MethodDelete, ""},
-		{http.MethodGet, "/ws"},
 	}
 }
 
@@ -136,7 +109,7 @@ func registerChatScoped(
 	t.Helper()
 	r := gin.New()
 	v0 := r.Group("/v0")
-	files.Register(v0.Group("/chats/:chatId"), stubFiles{}, func(_ *gin.Context) {})
+	files.Register(v0.Group("/chats/:chatId"), stubFiles{})
 	return r
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import type { AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { onNativeChromeIntent, setNativeContext, type NativeContext } from '@/lib/native-chrome'
 
 const HIDDEN: NativeContext = { percent: null, usedLabel: '', canCompact: false, compacting: false }
@@ -10,10 +10,8 @@ function usedLabel(telemetry: AgentTelemetry | null): string {
   return `${context.usedTokens.toLocaleString('en-US')} of ${context.capacityTokens.toLocaleString('en-US')} tokens`
 }
 
-/**
- * Feeds the phone's native context meter from the visible chat, the one the composer gauge
- * reads on desktop, and runs its Compact. `onCompact` absent means compaction is not offered.
- */
+/** Feeds the phone's native context meter from the visible chat, the one the composer gauge
+ *  reads on desktop, and runs its Compact. `onCompact` absent means compaction is not offered. */
 export function useNativeContext({
   visible,
   telemetry,

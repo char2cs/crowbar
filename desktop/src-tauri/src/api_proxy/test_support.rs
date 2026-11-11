@@ -12,7 +12,7 @@ use rustls::SupportedProtocolVersion;
 use tauri::http;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UnixListener};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio_rustls::TlsAcceptor;
 
 use super::PROXY_HEADER;
@@ -152,6 +152,38 @@ pub async fn serve_once_tls_speaking(
         match reply {
             Some(bytes) => tls.write_all(&bytes).await.expect("write response"),
             None => std::future::pending().await,
+        }
+    });
+    (addr, reported)
+}
+
+/// A response that leaves the connection open for another request.
+pub fn kept_alive(status: &str, body: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .into_bytes()
+}
+
+/// Answers `replies` in turn on one TLS connection, reporting each request it read.
+pub async fn serve_tls_exchanges(
+    cert: CertificateDer<'static>,
+    key: PrivateKeyDer<'static>,
+    replies: Vec<Vec<u8>>,
+) -> (SocketAddr, mpsc::UnboundedReceiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test remote daemon");
+    let addr = listener.local_addr().unwrap();
+    let acceptor = tls_acceptor(rustls::DEFAULT_VERSIONS, cert, key);
+    let (report, reported) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.expect("accept");
+        let mut tls = acceptor.accept(tcp).await.expect("handshake");
+        for reply in replies {
+            let _ = report.send(read_request(&mut tls).await);
+            tls.write_all(&reply).await.expect("write response");
         }
     });
     (addr, reported)

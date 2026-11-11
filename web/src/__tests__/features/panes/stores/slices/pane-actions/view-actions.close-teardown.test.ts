@@ -6,12 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/agent/api/agent-api', () => ({
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   killChat: vi.fn().mockResolvedValue(undefined),
   stopChat: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { killChat, stopChat } from '@/features/agent/api/agent-api'
+import { killChat, stopChat } from '@/features/agent/api/agent-chat-commands'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,

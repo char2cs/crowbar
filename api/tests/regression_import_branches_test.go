@@ -9,7 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // This file pins the branch-import contract the import dialog depends on
@@ -99,9 +102,21 @@ func (f importFixture) pushBranchToOrigin(
 	content string,
 ) string {
 	t.Helper()
+	return f.pushFileToOrigin(t, branch, base, "f.txt", content)
+}
+
+// pushFileToOrigin publishes branch @ base plus one commit writing content to file.
+func (f importFixture) pushFileToOrigin(
+	t *testing.T,
+	branch string,
+	base string,
+	file string,
+	content string,
+) string {
+	t.Helper()
 	runGit(t, f.seed, "checkout", "-B", branch, base)
-	require.NoError(t, writeFile(f.seed, "f.txt", content))
-	runGit(t, f.seed, "add", "f.txt")
+	require.NoError(t, writeFile(f.seed, file, content))
+	runGit(t, f.seed, "add", file)
 	runGit(t, f.seed, "commit", "-m", "on "+branch)
 	runGit(t, f.seed, "push", "-u", "origin", branch)
 	sha := strings.TrimSpace(runGitOut(t, f.seed, "rev-parse", "HEAD"))
@@ -146,19 +161,12 @@ func TestRegression_ImportBranchTakesRemoteContentNotDivergedLocal(t *testing.T)
 	require.NotEqual(t, originSha, localSha,
 		"precondition: the local branch must have diverged from origin")
 
-	conn := h.dial(f.repoBase() + "/chats/ws")
+	feed := recordSidebar(t, h)
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
-	// No worktree_state frame ever reaches a freshly imported chat: pushChatWorktree
-	// drops it whenever the chat's SetWorkspace event has not yet reached the
-	// AgentChat projection (owningChatIDFor resolves "" and the push is skipped),
-	// which is exactly the moment a create races into. workspace_set is the
-	// reliable signal instead — SpawnChatWithImportedWorktree only fires it once
-	// CreateImportedWorkspace has already materialised the workspace, so its
-	// WorkspaceID is the real one.
-	created := readUntil(t, conn, func(m map[string]any) bool {
-		return m["kind"] == "workspace_set"
-	})
+		importBranches(branch), http.StatusAccepted).Body.Close()
+	// The new chat's row names its workspace only once the import has
+	// materialised it (placeholder or worktree), so its WorkspaceID is the real one.
+	created := feed.awaitNewChat(hasWorkspace)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "import must broadcast a workspace for the branch")
 
@@ -195,16 +203,12 @@ func TestRegression_ImportParentsUnderLockedDefaultBranchWorkspace(t *testing.T)
 	const branch = "feature/nests-under-main"
 	f.pushBranchToOrigin(t, branch, "main", "work\n")
 
-	conn := h.dial(f.repoBase() + "/chats/ws")
+	feed := recordSidebar(t, h)
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
-	// No worktree_state frame ever reaches a freshly imported chat (see the sibling
-	// test's comment on the same wait), and the bare workspace_set event carries no
-	// parentId at all — so this one reads back over REST once workspace_set proves
-	// the import settled, rather than waiting on a frame that could never answer it.
-	readUntil(t, conn, func(m map[string]any) bool {
-		return m["kind"] == "workspace_set"
-	})
+		importBranches(branch), http.StatusAccepted).Body.Close()
+	// The new chat's row names its workspace only once the import has
+	// materialised it (placeholder or worktree), so its WorkspaceID is the real one.
+	feed.awaitNewChat(hasWorkspace)
 	h.Quiesce()
 
 	var parentID string
@@ -294,15 +298,12 @@ func TestRegression_RetryProvisionTakesRemoteContentNotDivergedLocal(t *testing.
 
 	// …and it stays CHECKED OUT in that worktree, so the import cannot
 	// materialise it and must fall back to a placeholder row.
-	conn := h.dial(f.repoBase() + "/chats/ws")
+	feed := recordSidebar(t, h)
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
-	// No worktree_state frame ever reaches a freshly imported chat (see the sibling
-	// tests' comment on the same wait); workspace_set is the reliable signal that
-	// the placeholder row now exists, materialised or not.
-	created := readUntil(t, conn, func(m map[string]any) bool {
-		return m["kind"] == "workspace_set"
-	})
+		importBranches(branch), http.StatusAccepted).Body.Close()
+	// The new chat's row names its workspace only once the import has
+	// materialised it (placeholder or worktree), so its WorkspaceID is the real one.
+	created := feed.awaitNewChat(hasWorkspace)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "a branch held elsewhere must still produce a row")
 
@@ -320,7 +321,7 @@ func TestRegression_RetryProvisionTakesRemoteContentNotDivergedLocal(t *testing.
 	chatID := owningChatID(t, h, wsID)
 	_ = h.raw(http.MethodPost,
 		f.repoBase()+"/chats/"+chatID+"/retry-provision", nil, http.StatusAccepted).Body.Close()
-	provisioned := readUntilWorktree(t, conn, func(m map[string]any) bool {
+	provisioned := feed.awaitWorkspace("provisioned", func(m map[string]any) bool {
 		path, _ := m["localPath"].(string)
 		return m["id"] == wsID && path != ""
 	})
@@ -385,10 +386,9 @@ func TestRegression_ProvisionedWorktreeCanPullFromOrigin(t *testing.T) {
 		"precondition: the clone must not already have a local develop")
 
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
-	// Read back rather than awaited on a stream: the repo-scoped chat feed has no
-	// snapshot (agentChatDef), so a connection dialed after the async ImportRepo
-	// job may already have missed develop's live frame. Quiesce is the barrier
-	// that guarantees the job's provisioning has landed before the list is read.
+	// Read back rather than awaited on a stream: Quiesce is the barrier that
+	// guarantees the async ImportRepo job's provisioning has landed before the
+	// list is read.
 	h.Quiesce()
 	var path string
 	for _, c := range listChats(t, h, projectID, repoID) {
@@ -420,19 +420,44 @@ func TestRegression_ProvisionedWorktreeCanPullFromOrigin(t *testing.T) {
 
 // BUG (import-hangs-on-unknown-branch): a branch that is not on the remote must
 // be refused on the REQUEST, where the client can toast it. The import 202'd
-// unconditionally and the async batch reported failure through
-// runAsync(wsID: ""), which broadcastLastError drops on the floor — leaving the
-// dialog's optimistic spinner row (cleared only by a workspace arriving on the
+// unconditionally and the async batch reported a failure nothing showed —
+// leaving the dialog's optimistic spinner row (cleared only by a workspace arriving on the
 // stream) spinning forever with nothing surfaced.
 func TestRegression_ImportRejectsBranchMissingFromRemote(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)
 
 	resp := h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{"feature/never-existed"}}, http.StatusBadRequest)
+		importBranches("feature/never-existed"), http.StatusBadRequest)
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Contains(t, string(body), "feature/never-existed",
 		"the refusal must name the branch so the client can surface it")
+}
+
+// An imported branch's chat is one nobody picked an agent for: it is born on
+// the user's default (the agent order's first), so its first prompt runs there.
+func TestRegression_AnImportedBranchChatPromptsOnTheDefaultProvider(t *testing.T) {
+	h := newHarness(t)
+	fake := kit.InstallFakeProvider(t, h.home, kit.FakeSpec{Base: "claude", ID: "importfake"})
+	putProviderPrefs(t, h, providerPref{ID: fake.ID})
+	f := newImportFixture(t, h)
+
+	const branch = "feature/imported-chat"
+	f.pushBranchToOrigin(t, branch, "main", "work\n")
+	feed := recordSidebar(t, h)
+	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
+		importBranches(branch), http.StatusAccepted).Body.Close()
+	created := feed.awaitNewChat(hasWorkspace)
+	h.Quiesce()
+	chatID, _ := created["id"].(string)
+	require.NotEmpty(t, chatID)
+
+	repo := importedRepo{projectID: f.projectID, repoID: f.repoID}
+	require.Equal(t, fake.ID, getAgentChat(t, h, f.repoBase(), chatID).ActiveProviderID)
+	require.Empty(t, fake.LaunchedRunners(t), "the import launches nothing")
+	l := promptLaunch(t, h, repo, fake, chatID, "first words", "")
+	assert.Contains(t, l.Argv, "first words")
+	requireOneLaunch(t, fake, l)
 }

@@ -88,8 +88,7 @@ describe('turnLatencyLabel', () => {
     expect(turnLatencyLabel(userAt, assistantAt)).toBe(`0m · ${expectedAbsolute(assistantAt)}`)
   })
 
-  // REGRESSION: this used to keep growing as a raw minute count with no
-  // ceiling ("85m") — now rounds to hours, then days, same as `turnTimeLabel`.
+  // Rounds to hours, then days, like `turnTimeLabel`, rather than an unbounded minute count.
   it('rounds a long reply gap to hours, not a raw minute count', () => {
     const userAt = '2026-08-30T13:00:00Z'
     const assistantAt = '2026-08-30T14:15:00Z' // 75 minutes — 1h, not 75m

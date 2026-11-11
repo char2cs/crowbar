@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { GitPanel } from '@/features/git/components/git-panel'
-import type { SidebarTab } from '@/lib/store/sidebar-ui'
+import type { SidebarTab } from '@/features/workspace/tree/tree-ui-store'
 import { NavStack } from './nav-stack'
 import { SidebarFilesPanel } from './sidebar-files-panel'
 import { SidebarModeBar } from './sidebar-mode-bar'
@@ -14,10 +14,8 @@ interface SidebarBodyProps {
   projectSwitcher: ReactNode
 }
 
-/**
- * The project switcher and mode bar over exactly one visible panel. All three stay mounted and the
- * inactive ones are `hidden`, so scroll position and folded rows survive a switch.
- */
+/** The project switcher and mode bar over exactly one visible panel. All three stay mounted and the
+ *  inactive ones are `hidden`, so scroll position and folded rows survive a switch. */
 export function SidebarBody({ chatsPanel, projectSwitcher }: SidebarBodyProps) {
   const shown = useShownSidebarTab()
   const panel = (tab: SidebarTab, children: ReactNode) => (

@@ -7,7 +7,7 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
@@ -20,7 +20,7 @@ const pane = (chatId: string) => {
 }
 
 beforeEach(() => {
-  useSidebarStore.setState(getInitialState())
+  treeUiStore.setState({ activeTab: 'chats' })
   resetWindowPaneStoreForTests()
   actions().setActiveProject('p1')
 })

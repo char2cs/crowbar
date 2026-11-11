@@ -1,0 +1,18 @@
+{
+  "method": "item/started",
+  "params": {
+    "item": {
+      "type": "subAgentActivity",
+      "model": null,
+      "reasoningEffort": null,
+      "id": "call_45a17650b49b422f8afe8f94f99ccadb",
+      "kind": "interacted",
+      "agentThreadId": "01a1b5d6-1ac1-7cd0-b1c4-9e3fc039bb44",
+      "agentPath": "/root/reader"
+    },
+    "threadId": "01a1b5d6-0ac4-7cb1-ae1d-c0ade1465834",
+    "turnId": "01a1b5d6-0af5-77d0-b1d9-fa3a400aac37",
+    "startedAtMs": 1794052078396
+  },
+  "emittedAtMs": 1794052078396
+}

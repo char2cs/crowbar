@@ -269,3 +269,28 @@ describe('createFollowScroll against a clamping container', () => {
     expect(seen.at(-1)).toBe(el.scrollTop)
   })
 })
+
+describe('createFollowScroll on an engine that keeps whole pixels', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('reaches the target instead of stalling a few pixels short', () => {
+    const el = document.createElement('div')
+    let top = 0
+    Object.defineProperty(el, 'scrollTop', {
+      get: () => top,
+      set: (v: number) => {
+        top = Math.round(v)
+      },
+    })
+    createFollowScroll(el).setTarget(300)
+
+    vi.advanceTimersByTime(2000)
+    expect(el.scrollTop).toBe(300)
+  })
+})

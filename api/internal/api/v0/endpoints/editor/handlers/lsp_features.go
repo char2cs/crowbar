@@ -14,7 +14,7 @@ import (
 func (h *Handlers) SignatureHelp(
 	c *gin.Context,
 ) {
-	worktreePath, req, ok := h.bindPosition(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPositionRequest](h, c)
 	if !ok {
 		return
 	}
@@ -33,7 +33,7 @@ func (h *Handlers) SignatureHelp(
 func (h *Handlers) CodeLens(
 	c *gin.Context,
 ) {
-	worktreePath, req, ok := h.bindPath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPathRequest](h, c)
 	if !ok {
 		return
 	}
@@ -52,16 +52,8 @@ func (h *Handlers) CodeLens(
 func (h *Handlers) CodeLensResolve(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPCodeLensResolveRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPCodeLensResolveRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	result, err := h.lsp.CodeLensResolve(
@@ -74,23 +66,14 @@ func (h *Handlers) CodeLensResolve(
 	writeRaw(c, result, err)
 }
 
-// SemanticTokens handles POST /v0/chats/:chatId/lsp/semanticTokens. The data
-// field carries the file's semantic tokens in the canonical legend — a delta
-// ({resultId, edits}) when previousResultId is set and the server supports
-// one, else the full set ({resultId, data}) — or null when none are offered.
+// SemanticTokens handles POST /v0/chats/:chatId/lsp/semanticTokens: a delta
+// ({resultId, edits}) when previousResultId is set and the server supports it,
+// else the full set ({resultId, data}), or null when none are offered.
 func (h *Handlers) SemanticTokens(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPSemanticTokensRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPSemanticTokensRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	result, err := h.lsp.SemanticTokens(
@@ -109,16 +92,8 @@ func (h *Handlers) SemanticTokens(
 func (h *Handlers) SemanticTokensRange(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPRangeRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPRangeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	result, err := h.lsp.SemanticTokensRange(
@@ -131,23 +106,14 @@ func (h *Handlers) SemanticTokensRange(
 	writeRaw(c, result, err)
 }
 
-// ExecuteCommand handles POST /v0/chats/:chatId/lsp/executeCommand: it runs a
-// command a code lens or code action carried. The data field carries the
-// server's result and the workspace edits the command applied, for the
-// editor to apply.
+// ExecuteCommand handles POST /v0/chats/:chatId/lsp/executeCommand, running a
+// code lens or code action command. It returns the server's result plus the
+// workspace edits the command applied, for the editor to apply.
 func (h *Handlers) ExecuteCommand(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPExecuteCommandRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPExecuteCommandRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	result, err := h.lsp.ExecuteCommand(
@@ -159,8 +125,7 @@ func (h *Handlers) ExecuteCommand(
 		req.Arguments,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, result)
@@ -171,16 +136,8 @@ func (h *Handlers) ExecuteCommand(
 func (h *Handlers) Formatting(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPFormattingRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPFormattingRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	result, err := h.lsp.Formatting(
@@ -198,7 +155,7 @@ func (h *Handlers) Formatting(
 func (h *Handlers) DidSave(
 	c *gin.Context,
 ) {
-	worktreePath, req, ok := h.bindPath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPathRequest](h, c)
 	if !ok {
 		return
 	}
@@ -209,8 +166,7 @@ func (h *Handlers) DidSave(
 		req.Path,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, syncOK{OK: true})
@@ -241,31 +197,12 @@ func (h *Handlers) Status(
 func (h *Handlers) Restart(
 	c *gin.Context,
 ) {
-	if _, req, ok := h.bindPath(c); ok {
+	if _, req, ok := bindLSP[dto.LSPPathRequest](h, c); ok {
 		status, err := h.lsp.Restart(c.Request.Context(), h.lspOwnerID(c), req.Path)
 		if err != nil {
-			code, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(c, code, msg)
+			libs.Fail(c, err)
 			return
 		}
 		libs.WriteQueryOK(c, status)
 	}
-}
-
-func (h *Handlers) bindPath(
-	c *gin.Context,
-) (string, dto.LSPPathRequest, bool) {
-	var req dto.LSPPathRequest
-	if !h.requireLSP(c) {
-		return "", req, false
-	}
-	worktreePath, ok := h.worktreePath(c)
-	if !ok {
-		return "", req, false
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
-		return "", req, false
-	}
-	return worktreePath, req, true
 }

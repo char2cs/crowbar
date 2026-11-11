@@ -1,10 +1,23 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
+import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
 afterEach(cleanup)
+
+/** The composer's own interactive editor: the transcript renders diagrams instead. */
+function ComposerDraft({ md }: { md: string }) {
+  const editor = usePlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(md) })
+  return (
+    <Plate editor={editor} readOnly>
+      <PlateContent readOnly />
+    </Plate>
+  )
+}
 
 /** Under the real `DndScope`, as `AgentChatView` renders it. */
 function renderWithDnd(ui: React.ReactNode) {
@@ -20,9 +33,8 @@ describe('chat attachment images', () => {
     expect(img).toBeInTheDocument()
   })
 
-  // REGRESSION, reported live: images had no max-height cap at all (unlike
-  // every other attachment kind — the excalidraw preview, the text-attachment
-  // pill), so a tall photo could take over the whole composer.
+  // Like every other attachment kind, an image is height-capped so a tall photo can't take over
+  // the composer.
   it('caps a settled image at a fixed max height', () => {
     render(
       <MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>,
@@ -37,9 +49,7 @@ describe('chat attachment images', () => {
     expect(img.className).toContain('max-h-80')
   })
 
-  // REGRESSION, reported live: "Images ... cannot be rearranged or reordered
-  // once on the input box" — every other attachment kind got a drag handle;
-  // images never did.
+  // Images are reorderable in the input box like every other attachment kind.
   it('renders a drag handle for an interactive image, unlike a settled one', () => {
     const interactive = renderWithDnd(
       <MarkdownMessage>{'![a photo](https://example.com/photo.png)'}</MarkdownMessage>,
@@ -69,7 +79,7 @@ describe('chat attachment images', () => {
   it('still hides the excalidraw PNG sibling, with no drag handle either', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
-    renderWithDnd(<MarkdownMessage>{md}</MarkdownMessage>)
+    renderWithDnd(<ComposerDraft md={md} />)
 
     expect(document.querySelectorAll('img')).toHaveLength(0)
     // Only the excalidraw fence's OWN handle, none for the hidden PNG.

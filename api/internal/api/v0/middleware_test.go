@@ -79,7 +79,7 @@ func TestRegression_RepoScopeGuard_404OnMissingRepo(t *testing.T) {
 
 // TestRegression_RepoScopeGuard_ReturnsMappedErrorOnReaderFailure proves a
 // repository-lookup error (a storage read failure, not a missing repo) is
-// mapped through libs.StatusAndMessage and aborts the chain, rather than
+// mapped through libs.Fail and aborts the chain, rather than
 // falling through to the generic 404 a nil repo gets or reaching the handler.
 func TestRegression_RepoScopeGuard_ReturnsMappedErrorOnReaderFailure(t *testing.T) {
 	reader := &fakeRepoReader{err: errors.New("read model unavailable")}
@@ -170,7 +170,7 @@ func TestRegression_ScopeGuard_AllowsMatchingScope(t *testing.T) {
 
 // TestRegression_ScopeGuard_ReturnsMappedErrorOnReaderFailure proves a
 // workspace-lookup error (a storage read failure, not a missing workspace) is
-// mapped through libs.StatusAndMessage and aborts the chain, rather than
+// mapped through libs.Fail and aborts the chain, rather than
 // falling through to the generic 404 a project/repo mismatch gets or reaching
 // the handler.
 func TestRegression_ScopeGuard_ReturnsMappedErrorOnReaderFailure(t *testing.T) {
@@ -287,20 +287,20 @@ func mountRejectEmptyPathParams() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(rejectEmptyPathParams())
-	r.GET("/v0/chats/:chatId/activity", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	r.GET("/v0/chats/:chatId/telemetry", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	return r
 }
 
 // TestRejectEmptyPathParams_RejectsAnEmptySegment pins the fix this
 // middleware exists for: gin's radix tree happily matches
-// GET /v0/chats//activity against /v0/chats/:chatId/activity with chatId
+// GET /v0/chats//telemetry against /v0/chats/:chatId/telemetry with chatId
 // bound to "". Without this guard, an empty id would reach the handler and be
 // treated as a real (if nonsensical) chat id.
 func TestRejectEmptyPathParams_RejectsAnEmptySegment(t *testing.T) {
 	r := mountRejectEmptyPathParams()
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v0/chats//activity", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/chats//telemetry", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -314,7 +314,7 @@ func TestRejectEmptyPathParams_AllowsANonEmptySegment(t *testing.T) {
 	r := mountRejectEmptyPathParams()
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v0/chats/c1/activity", nil)
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/chats/c1/telemetry", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

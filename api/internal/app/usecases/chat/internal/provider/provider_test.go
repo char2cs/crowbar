@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
@@ -23,13 +24,17 @@ import (
 // would let the ordering rules agree with a fiction.
 func newTable(t *testing.T, installed func(engineagents.Agent) bool) *provider.Providers {
 	t.Helper()
+	return newTableAt(t, t.TempDir(), installed)
+}
+
+func newTableAt(t *testing.T, home string, installed func(engineagents.Agent) bool) *provider.Providers {
+	t.Helper()
 
 	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
 	require.NoError(t, err)
 
-	home := t.TempDir()
-	return provider.New(provider.Deps{
-		Agents:    engineagents.New(),
+	return provider.New(provider.Deps{ // wired as the daemon wires it: a refused override falls back
+		Agents:    engineagents.New(engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
 		Home:      func() (string, error) { return home, nil },
 		Installed: installed,
 		Prefs:     prefs,
@@ -63,15 +68,9 @@ func TestResolveProviders_ListsTheShippedDescriptors(t *testing.T) {
 
 func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T) {
 	t.Parallel()
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
 	home := t.TempDir()
-	table := provider.New(provider.Deps{
-		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
-		Installed: func(engineagents.Agent) bool { return false },
-	})
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
-	require.NoError(t, err)
+	table := newTableAt(t, home, func(engineagents.Agent) bool { return false })
+	shipped := shippedClaude(t)
 	raw := []byte(strings.Replace(string(shipped), "id: claude", "id: customagent", 1))
 	report, err := table.InstallDescriptor(t.Context(), raw)
 	require.NoError(t, err)
@@ -80,11 +79,11 @@ func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T
 	require.NoError(t, err)
 	assert.Contains(t, ids(providers), "customagent")
 	_, err = table.InstallDescriptor(t.Context(), raw)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	_, err = table.InstallDescriptor(t.Context(), shipped)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	_, err = table.InstallDescriptor(t.Context(), []byte("id: broken\n"))
-	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
 	_, err = os.Stat(filepath.Join(home, "descriptors", "broken.yaml"))
 	assert.True(t, os.IsNotExist(err))
 }
@@ -93,15 +92,9 @@ func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T
 // without the icon: the webview injects icons as HTML.
 func TestInstallDescriptor_ServesAnUnsafeIconAsNone(t *testing.T) {
 	t.Parallel()
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
 	home := t.TempDir()
-	table := provider.New(provider.Deps{
-		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
-		Installed: func(engineagents.Agent) bool { return false },
-	})
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
-	require.NoError(t, err)
+	table := newTableAt(t, home, func(engineagents.Agent) bool { return false })
+	shipped := shippedClaude(t)
 	raw := strings.Replace(string(shipped), "id: claude", "id: customagent", 1)
 	raw = regexp.MustCompile(`(?m)^icon: .*$`).ReplaceAllString(raw,
 		`icon: '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><img src="x" onerror="alert(1)"/></foreignObject></svg>'`)
@@ -128,15 +121,10 @@ func TestInstallDescriptor_ServesAnUnsafeIconAsNone(t *testing.T) {
 // dropping the provider it replaces.
 func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T) {
 	t.Parallel()
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "codex.yaml"), []byte("id: codex\n"), 0o600))
-	table := provider.New(provider.Deps{
-		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
-		Installed: func(engineagents.Agent) bool { return false },
-	})
+	table := newTableAt(t, home, func(engineagents.Agent) bool { return false })
 
 	reports, err := table.DescriptorReports(t.Context())
 	require.NoError(t, err)
@@ -148,7 +136,8 @@ func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T)
 
 	providers, err := table.ResolveProviders(t.Context())
 	require.NoError(t, err)
-	assert.NotContains(t, ids(providers), "codex", "a blocked descriptor is never enabled")
+	assert.Contains(t, ids(providers), "codex", "the shipped codex runs in its place")
+	require.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"))
 }
 
 // A descriptor that loads but fails a static rule (here: a shell as its
@@ -157,26 +146,54 @@ func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T)
 // this is a provider with no shipped default to fall back to.)
 func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 	t.Parallel()
-	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
-	require.NoError(t, err)
-	home := t.TempDir()
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal",
-		"protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
-	require.NoError(t, err)
-	shell := strings.Replace(string(shipped), "  cmd: claude\n  interactive_required", "  cmd: /bin/sh\n  interactive_required", 1)
-	shell = strings.Replace(shell, "\nid: claude\n", "\nid: acme\n", 1)
-	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "acme.yaml"), []byte(shell), 0o600))
-	table := provider.New(provider.Deps{
-		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
-	})
+	table := newTableAt(t, blockedHome(t, "acme"), nil)
 
-	err = table.RequireProviderEnabled(t.Context(), "acme")
+	err := table.RequireProviderEnabled(t.Context(), "acme")
 
 	require.ErrorIs(t, err, descriptorcheck.ErrBlocked)
-	require.ErrorIs(t, err, apperr.ErrUnprocessable)
+	require.ErrorIs(t, err, problem.ErrUnprocessable)
 	assert.Contains(t, err.Error(), "is a shell")
 	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"), "the shipped codex is untouched")
+}
+
+// A descriptor the gate refuses is not offered to start a chat on, nor made the
+// default: every new chat on it would fail. It stays in DescriptorReports with
+// its file, line and fix.
+func TestResolveProviders_OffersNoProviderTheGateRefuses(t *testing.T) {
+	t.Parallel()
+	table := newTableAt(t, blockedHome(t, "aaa"), func(engineagents.Agent) bool { return true })
+
+	got, err := table.ResolveProviders(t.Context())
+	require.NoError(t, err)
+	assert.NotContains(t, ids(got), "aaa")
+	def, err := table.DefaultProviderID(t.Context())
+	require.NoError(t, err)
+	assert.NotEqual(t, "aaa", def)
+
+	reports, err := table.DescriptorReports(t.Context())
+	require.NoError(t, err)
+	assert.True(t, slices.ContainsFunc(reports, func(r descriptorcheck.Report) bool { return r.ID == "aaa" && !r.OK() }),
+		"the refused descriptor is still reported, with what to fix")
+}
+
+// blockedHome is a home holding descriptor id: the shipped claude one run as a
+// shell, which the gate refuses and no shipped descriptor stands in for.
+func blockedHome(t *testing.T, id string) string {
+	t.Helper()
+	home := t.TempDir()
+	shell := strings.Replace(string(shippedClaude(t)), "  cmd: claude\n  interactive_required", "  cmd: /bin/sh\n  interactive_required", 1)
+	shell = strings.Replace(shell, "\nid: claude\n", "\nid: "+id+"\n", 1)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", id+".yaml"), []byte(shell), 0o600))
+	return home
+}
+
+func shippedClaude(t *testing.T) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal",
+		"protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
+	require.NoError(t, err)
+	return raw
 }
 
 func TestDescriptorReports_SurfacesAHomeFailure(t *testing.T) {
@@ -213,6 +230,24 @@ func TestResolveProviders_CarriesTerminalStartHereFromTheDescriptor(t *testing.T
 		"codex's terminal surface rides the hooks channel: spawnable from birth, no session to resume")
 }
 
+// TestResolveProviders_CarriesTheSignInCommandFromTheDescriptor: a turn the provider
+// refused for want of a login names the command that signs its CLI in.
+func TestResolveProviders_CarriesTheSignInCommandFromTheDescriptor(t *testing.T) {
+	t.Parallel()
+
+	table := newTable(t, func(engineagents.Agent) bool { return false })
+
+	providers, err := table.ResolveProviders(t.Context())
+
+	require.NoError(t, err)
+	byID := map[string]domain.AgentProvider{}
+	for _, p := range providers {
+		byID[p.ID] = p
+	}
+	assert.Equal(t, "claude auth login", byID["claude"].SignIn)
+	assert.Equal(t, "codex login", byID["codex"].SignIn)
+}
+
 // TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey pins the wire
 // contract resolveEfforts implements (provider.go): Efforts has a key for
 // every model in Models, PLUS "" for the provider's own default model — a
@@ -244,6 +279,31 @@ func TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey(t *testing.T) {
 	}
 }
 
+// A provider that states each model's default effort reports it, so a chat whose stored effort is
+// "" (provider default) can show which level that is. Seeded from the last probe's disk cache.
+func TestResolveProviders_ReportsEachDiscoveredModelsDefaultEffort(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	cache := filepath.Join(home, "model-discover-cache")
+	require.NoError(t, os.MkdirAll(cache, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(cache, "codex.json"), []byte(`[
+		{"ID":"m1","Label":"M1","Efforts":["low","medium","high"],"DefaultEffort":"medium"},
+		{"ID":"m2","Label":"M2","Efforts":["low","high"],"DefaultEffort":""}]`), 0o600))
+
+	providers, err := newTableAt(t, home, func(engineagents.Agent) bool { return false }).
+		ResolveProviders(t.Context())
+
+	require.NoError(t, err)
+	for _, p := range providers {
+		if p.ID == "codex" {
+			assert.Equal(t, map[string]string{"m1": "medium"}, p.DefaultEfforts,
+				"a model stating no default is absent, never guessed")
+			return
+		}
+	}
+	t.Fatal("codex not listed")
+}
+
 // Connected is the install probe's answer, not a stored flag. It is injected so
 // this never depends on the host having claude or codex on its PATH.
 func TestResolveProviders_ConnectedComesFromTheInstallProbe(t *testing.T) {
@@ -256,6 +316,38 @@ func TestResolveProviders_ConnectedComesFromTheInstallProbe(t *testing.T) {
 	require.NoError(t, err)
 	for _, p := range providers {
 		assert.Equal(t, p.ID == "codex", p.Connected, "provider %s", p.ID)
+	}
+}
+
+// The default is the agent order's first provider that could launch: a disabled
+// or uninstalled one ahead of it is skipped, and none at all is "".
+func TestDefaultProviderID_IsTheFirstEnabledInstalledProviderInTheUsersOrder(t *testing.T) {
+	t.Parallel()
+	all := func(engineagents.Agent) bool { return true }
+
+	ordered := newTable(t, all)
+	_, err := ordered.ReplaceProviderPreferences(t.Context(), []domain.AgentProviderPreference{
+		{ProviderID: "codex", Priority: 0}, {ProviderID: "claude", Priority: 1},
+	})
+	require.NoError(t, err)
+	disabled := newTable(t, all)
+	_, err = disabled.ReplaceProviderPreferences(t.Context(), []domain.AgentProviderPreference{
+		{ProviderID: "claude", Priority: 0, Disabled: true}, {ProviderID: "codex", Priority: 1},
+	})
+	require.NoError(t, err)
+
+	for name, tc := range map[string]struct {
+		table *provider.Providers
+		want  string
+	}{
+		"the order's first":        {ordered, "codex"},
+		"skips a disabled one":     {disabled, "codex"},
+		"skips an uninstalled one": {newTable(t, func(a engineagents.Agent) bool { return a.ID() == "codex" }), "codex"},
+		"none installed":           {newTable(t, func(engineagents.Agent) bool { return false }), ""},
+	} {
+		got, err := tc.table.DefaultProviderID(t.Context())
+		require.NoError(t, err, name)
+		assert.Equal(t, tc.want, got, name)
 	}
 }
 
@@ -339,7 +431,7 @@ func TestReplaceProviderPreferences_RefusesAnUnknownProvider(t *testing.T) {
 		{ProviderID: "telepathy"},
 	})
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // Disabled is a decision the table records and ResolveProviders reports, but
@@ -357,7 +449,7 @@ func TestRequireProviderEnabled_RefusesADisabledProvider(t *testing.T) {
 	err = table.RequireProviderEnabled(t.Context(), "claude")
 
 	require.ErrorIs(t, err, provider.ErrProviderDisabled)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument, "handlers answer 400 off this class")
+	require.ErrorIs(t, err, problem.ErrInvalidArgument, "handlers answer 400 off this class")
 	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"))
 	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "never-preferenced"),
 		"a provider with no row is enabled")

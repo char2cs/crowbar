@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// Project is the org-level node grouping repositories (00 §5.1).
+// Project is the org-level node grouping repositories.
 type Project struct {
 	ID           string    `gorm:"primaryKey" json:"id"`
 	Name         string    `json:"name"`
@@ -12,10 +12,8 @@ type Project struct {
 	// column; rows written before it existed default to 0 and fall back to the id
 	// tiebreak, which the first reorder replaces with a dense sequence.
 	Order int `json:"order"`
-	// The project's icon, on the same three-state model a Repository's avatar
-	// uses (emoji > on-disk image > default). A project's default is the Library
-	// glyph the sidebar draws, not a generated letter tile, so there is no label
-	// or colour to carry — an unset icon is simply both of these empty/false.
+	// The project's icon, on a Repository avatar's three-state model (emoji > on-disk
+	// image > default). The default is the sidebar's Library glyph, so unset is both empty.
 	AvatarHasIcon bool `json:"avatarHasIcon"`
 	// AvatarVersion increments every time the on-disk icon bytes change, so the
 	// DTO's otherwise-stable proxy URL gets a query param that moves and the
@@ -25,8 +23,6 @@ type Project struct {
 	// Deleting is the durable intent of a delete, written before any of the
 	// teardown runs; it is one-way, and boot re-drives every row carrying it.
 	Deleting bool `json:"deleting,omitempty"`
-	// LastError is why the last delete attempt stopped; cleared on a re-drive.
-	LastError string `json:"lastError,omitempty"`
 }
 
 func (Project) TableName() string {

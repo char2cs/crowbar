@@ -1,8 +1,6 @@
 import { nanoid } from 'nanoid'
-import { insertPane, removePane } from '@/features/panes/lib/view-ops'
-import { hasUnsavedEdits, type PaneContent } from '@/features/panes/types/pane-content'
-import { getAllLeafIds, getFirstLeafId } from '@/features/panes/utils/pane-layout'
-import { makePane, type ViewState } from '@/features/panes/lib/view-state'
+import { insertPane, keepUnsavedTabs, removePane } from '@/features/panes/lib/view-ops'
+import { makePane } from '@/features/panes/lib/view-state'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import type { PaneActions } from '../pane-slice'
 import type { PaneSet } from './context'
@@ -83,23 +81,4 @@ export function createRunnerActions(set: PaneSet): RunnerActions {
       })
     },
   }
-}
-
-/**
- * A pane about to leave as its view's last member takes its tabs with it; the
- * unsaved ones (the only copy of those edits) move to the stage instead.
- */
-function keepUnsavedTabs(state: ViewState & { buffers: PaneContent[] }, paneId: string): void {
-  const pane = state.panes[paneId]
-  const view = pane.viewId ? state.views[pane.viewId] : undefined
-  if (!view || getAllLeafIds(view.layout).length > 1) return
-  const unsaved = new Set<string>()
-  for (const buffer of state.buffers) if (hasUnsavedEdits(buffer)) unsaved.add(buffer.id)
-  const kept = pane.editorTabIds.filter((id) => unsaved.has(id))
-  if (kept.length === 0) return
-  const stage = state.panes[getFirstLeafId(state.stage)]
-  const staged = new Set(stage.editorTabIds)
-  stage.editorTabIds = [...stage.editorTabIds, ...kept.filter((id) => !staged.has(id))]
-  stage.activeEditorTabId ??= kept[0]
-  stage.editorOpen = true
 }

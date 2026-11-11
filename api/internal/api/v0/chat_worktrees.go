@@ -8,17 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// chatWorktrees satisfies the chat handlers' own Worktrees port (spec §5) with
-// the concrete collaborators the app container holds — law 6, the container is
-// the only place that knows concrete types.
-//
-// It is an adapter rather than a direct injection because the three reads come
-// from two different places: the row and the merge overlay from the workspace
-// USECASE, the repo-scoped sibling list from the REPOSITORY container (which is
-// where the derived Working overlay is applied). That is the same pair the
-// retired workspace list composed its own DTOs from, reached the same way, so a
-// chat's git fields and a workspace's own are resolved from one source of truth
-// rather than two.
+// chatWorktrees adapts the app container to the chat handlers' Worktrees port. The
+// reads come from two owners: the row and merge overlay from the workspace usecase,
+// the sibling list (with its derived Working overlay) from the repository container.
 type chatWorktrees struct {
 	app *app.Container
 }

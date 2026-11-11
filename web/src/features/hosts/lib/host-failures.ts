@@ -2,7 +2,7 @@ import { classifyHostFailure, hostFailureKind } from '@/features/hosts/lib/class
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { LOCAL_HOST } from '@/features/hosts/types'
-import type { ApiError } from '@/lib/api/errors'
+import type { ApiError } from '@/lib/errors/api-error'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 
 /** Records what a failure says about its host (not reached, another identity, a 401 refusal)

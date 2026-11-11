@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func newProjectUsecase(
@@ -42,7 +42,7 @@ func newProjectUsecaseWithWorkspaces(
 	repos := mocks.NewRepositoryStore()
 	workspaces := mocks.NewWorkspacePlacements()
 	repos.Nodes = mocks.NewNodePlacements()
-	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), repos.Nodes, nil, nil)
+	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), repos.Nodes, nil)
 	return projects, repos, workspaces, uc
 }
 
@@ -60,7 +60,7 @@ func newProjectUsecaseWithNodes(
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
 	uc := project.New(
-		mocks.NewProjectStore(), repos, mocks.NewWorkspacePlacements(), mocks.NewFolderStore(), nodes, nil, nil,
+		mocks.NewProjectStore(), repos, mocks.NewWorkspacePlacements(), mocks.NewFolderStore(), nodes, nil,
 	)
 	return repos, nodes, uc
 }
@@ -99,7 +99,7 @@ func TestProjectUsecase_Get_NotFound(t *testing.T) {
 
 	_, err := uc.Get(ctx, "missing")
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // TestProjectUsecase_Get_StoreError covers a lookup failure (e.g. a DB error),
@@ -112,7 +112,7 @@ func TestProjectUsecase_Get_StoreError(t *testing.T) {
 
 	_, err := uc.Get(ctx, "p1")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, apperr.ErrNotFound, "a lookup failure is not a not-found")
+	assert.NotErrorIs(t, err, problem.ErrNotFound, "a lookup failure is not a not-found")
 }
 
 // TestProjectUsecase_List_StoreError covers List surfacing the underlying
@@ -156,54 +156,6 @@ func TestProjectUsecase_TouchProjectActivity_ProjectMissing_LogsNotPanics(t *tes
 
 	_ = repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p-gone"})
 	uc.TouchProjectActivity(ctx, "r1", time.Now())
-}
-
-func TestProjectUsecase_UpdateRepo_UpdatesNameAndAvatar(t *testing.T) {
-	_, repos, uc := newProjectUsecase(t)
-	ctx := context.Background()
-
-	// Seed a repo whose generated avatar is derived from its ORIGINAL name.
-	_ = repos.Save(ctx, domain.Repository{
-		ID: "r1", ProjectID: "p1", Name: "widget", AvatarLabel: "W", AvatarColor: "avatar-slate",
-	})
-
-	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
-	got := updated.Repo
-	require.NoError(t, err)
-	assert.Equal(t, "Renamed Repo", got.Name)
-	assert.Equal(t, "R", got.AvatarLabel, "the fallback avatar letter tracks the new name")
-	assert.NotEmpty(t, got.AvatarColor, "the fallback avatar color is recomputed from the new name")
-}
-
-// A rename is a LABEL change. The on-disk slug must not move with it, or every
-// worktree already derived under the old slug is stranded while new ones open a
-// second tree beside it.
-func TestProjectUsecase_UpdateRepo_LeavesThePathSlugAlone(t *testing.T) {
-	_, repos, uc := newProjectUsecase(t)
-	ctx := context.Background()
-
-	_ = repos.Save(ctx, domain.Repository{
-		ID: "r1", ProjectID: "p1", Name: "widget", PathSlug: "widget",
-	})
-
-	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
-	got := updated.Repo
-	require.NoError(t, err)
-	assert.Equal(t, "widget", got.PathSlug, "the on-disk identity survives the rename")
-
-	stored, err := repos.FindByKey(ctx, "r1")
-	require.NoError(t, err)
-	require.NotNil(t, stored)
-	assert.Equal(t, "widget", stored.PathSlug, "the persisted slug is not rewritten")
-	assert.Equal(t, "Renamed Repo", stored.Name)
-}
-
-func TestProjectUsecase_UpdateRepo_NotFound(t *testing.T) {
-	_, _, uc := newProjectUsecase(t)
-	ctx := context.Background()
-
-	_, err := uc.UpdateRepo(ctx, "missing", project.RepoUpdate{Name: name("Whatever")})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
 func TestProjectUsecase_TouchProjectActivity_SaveFails_LogsNotPanics(t *testing.T) {
@@ -251,7 +203,7 @@ func TestProjectUsecase_UpdateRejectsABlankName(t *testing.T) {
 	blank := "   "
 	_, err := uc.Update(ctx, "p1", project.Update{Name: &blank})
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	stored, _ := projects.FindByKey(ctx, "p1")
 	assert.Equal(t, "harbour", stored.Name, "a refused rename must not have been written")
 }
@@ -301,7 +253,7 @@ func TestProjectUsecase_UpdateUnknownProject(t *testing.T) {
 	name := "nope"
 	_, err := uc.Update(context.Background(), "missing", project.Update{Name: &name})
 
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestProjectUsecase_UpdateSurfacesAFailedLoad(t *testing.T) {
@@ -325,5 +277,16 @@ func TestProjectUsecase_UpdateSurfacesAFailedSave(t *testing.T) {
 	name := "harbour"
 	_, err := uc.Update(ctx, "p1", project.Update{Name: &name})
 
+	require.Error(t, err)
+}
+
+// TestProjectUsecase_Reorder_ListError covers Reorder surfacing a failure
+// listing every project (the sidebar's full sibling space) before any row is
+// touched.
+func TestProjectUsecase_Reorder_ListError(t *testing.T) {
+	projects, _, uc := newProjectUsecase(t)
+	projects.FindAllErr = errors.New("db down")
+
+	_, err := uc.Reorder(context.Background(), "p1", 0)
 	require.Error(t, err)
 }

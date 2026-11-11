@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 // IntegrationSuite is the base testify suite for all integration packages.
@@ -37,34 +37,6 @@ func Main(
 	os.Exit(run(m))
 }
 
-// MainGuardingProviderHomes is Main for a package that spawns REAL vendor CLIs. It
-// additionally brackets the whole run with a snapshot of the user's provider homes and
-// fails the run if it added a place to one of them.
-//
-// It belongs at TestMain and not in a test of its own because the thing being policed
-// is the WHOLE package: any test that spawns a CLI without kit.IsolateProviderHomes
-// leaks, and a per-test assertion would only ever cover the tests someone remembered
-// to add it to. Bracketing m.Run covers the ones written next year too.
-//
-// A leak fails a run that otherwise passed. That is the point — the pollution it
-// catches is invisible in test output and permanent on disk, so the only moment it can
-// still be cheap to fix is the run that introduced it.
-func MainGuardingProviderHomes(
-	m *testing.M,
-) {
-	before := SnapshotProviderHomes()
-	code := run(m)
-	added := SnapshotProviderHomes().Added(before)
-	if added == "" {
-		os.Exit(code)
-	}
-	fmt.Fprintf(os.Stderr, "\nPROVIDER HOME POLLUTION: %s\n", added)
-	if code == 0 {
-		code = 1
-	}
-	os.Exit(code)
-}
-
 func run(
 	m *testing.M,
 ) int {
@@ -75,27 +47,31 @@ func run(
 	slog.SetDefault(slog.New(handler))
 	gin.SetMode(gin.TestMode)
 
-	// ISOLATE THE HOME FOR THE WHOLE BINARY. Anything that resolves the crowbar
-	// home without an injected one falls back to the developer's real ~/.crowbar
-	// and writes there, beside real work: a live home had 110 empty project
-	// directories, one per run of this suite, plus a projects/p2 from the unit
-	// tests' own fixture id. An explicit CROWBAR_HOME is honoured as-is so a
-	// caller can still point a run somewhere deliberate.
-	cleanup := ""
-	if os.Getenv(metadata.HomeEnvVar) == "" {
-		home, err := os.MkdirTemp("", "crowbar-test-home")
-		if err != nil {
-			panic("kit: create isolated crowbar home: " + err.Error())
-		}
-		if setErr := os.Setenv(metadata.HomeEnvVar, home); setErr != nil {
-			panic("kit: set " + metadata.HomeEnvVar + ": " + setErr.Error())
-		}
-		cleanup = home
-	}
+	cleanup := isolateHome()
 
 	code := m.Run()
+	removeFakeCLI()
 	if cleanup != "" {
-		_ = os.RemoveAll(cleanup)
+		if err := os.RemoveAll(cleanup); err != nil {
+			fmt.Fprintf(os.Stderr, "kit: remove the isolated crowbar home: %v\n", err)
+		}
 	}
 	return code
+}
+
+// isolateHome points the binary at a throwaway Crowbar home: a non-default
+// CROWBAR_HOME inside os.TempDir() is honoured, anything else is replaced. It returns
+// the directory to remove, or "".
+func isolateHome() string {
+	if h, err := home.Resolve(); err == nil && !h.IsDefault() {
+		return ""
+	}
+	isolated, err := os.MkdirTemp("", "crowbar-test-home")
+	if err != nil {
+		panic("kit: create isolated crowbar home: " + err.Error())
+	}
+	if setErr := os.Setenv(home.EnvVar, isolated); setErr != nil {
+		panic("kit: set " + home.EnvVar + ": " + setErr.Error())
+	}
+	return isolated
 }

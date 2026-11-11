@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -43,11 +44,11 @@ func TestEventSpec_ChannelBlocksParse(t *testing.T) {
 	require.NotNil(t, ev.Hooks)
 	assert.Equal(t, spec.WireRef{"item/started"}, ev.API.In)
 	assert.Equal(t, []string{"commandExecution", "fileChange"}, ev.API.When["item.type"])
-	assert.Equal(t, []string{"threadId"}, ev.API.Map["session_id"])
+	assert.Equal(t, mapping.Paths("threadId"), ev.API.Map["session_id"])
 	assert.Equal(t, []string{"item-started.commandExecution.json"}, ev.API.Fixtures)
 
 	assert.Equal(t, spec.WireRef{"PreToolUse"}, ev.Hooks.In)
-	assert.Equal(t, []string{"session_id"}, ev.Hooks.Map["session_id"])
+	assert.Equal(t, mapping.Paths("session_id"), ev.Hooks.Map["session_id"])
 	assert.Equal(t, []string{"pre-tool-use.bash.json"}, ev.Hooks.Fixtures)
 
 	assert.Equal(t, []string{"session_id", "tool_id", "tool_name"}, ev.Required)
@@ -117,13 +118,13 @@ func TestDescriptor_EventFieldsFor(t *testing.T) {
 
 	apiFields, ok := d.EventFieldsFor("tool_pre", spec.ChannelAPI)
 	require.True(t, ok)
-	assert.Equal(t, []string{"threadId"}, apiFields["session_id"])
-	assert.Equal(t, []string{"item.id"}, apiFields["tool_id"])
+	assert.Equal(t, mapping.Paths("threadId"), apiFields["session_id"])
+	assert.Equal(t, mapping.Paths("item.id"), apiFields["tool_id"])
 
 	hooksFields, ok := d.EventFieldsFor("tool_pre", spec.ChannelHooks)
 	require.True(t, ok)
-	assert.Equal(t, []string{"session_id"}, hooksFields["session_id"])
-	assert.Equal(t, []string{"tool_use_id"}, hooksFields["tool_id"])
+	assert.Equal(t, mapping.Paths("session_id"), hooksFields["session_id"])
+	assert.Equal(t, mapping.Paths("tool_use_id"), hooksFields["tool_id"])
 
 	_, ok = d.EventFieldsFor("tool_pre", spec.Channel("oneshot"))
 	assert.False(t, ok, "a channel this event declares no block for is absent, not silently mapped")
@@ -144,7 +145,7 @@ events:
 	for _, ch := range []spec.Channel{spec.ChannelAPI, spec.ChannelHooks} {
 		fields, ok := d.EventFieldsFor("session_start", ch)
 		require.True(t, ok, "channel %q", ch)
-		assert.Equal(t, []string{"session_id"}, fields["session_id"], "channel %q", ch)
+		assert.Equal(t, mapping.Paths("session_id"), fields["session_id"], "channel %q", ch)
 	}
 }
 

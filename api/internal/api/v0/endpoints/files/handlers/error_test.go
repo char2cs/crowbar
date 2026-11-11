@@ -3,7 +3,10 @@ package handlers_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,12 +21,6 @@ type errFiles struct{ err error }
 func (e errFiles) Tree(_ context.Context, _, _ string, _ file.FileStatusProvider) ([]domain.FileNode, error) {
 	return nil, e.err
 }
-
-func (e errFiles) ReadContent(_ context.Context, _, _ string) (domain.FileContent, error) {
-	return domain.FileContent{}, e.err
-}
-
-func (e errFiles) WriteContent(_ context.Context, _, _, _, _ string, _ time.Time) error { return e.err }
 
 func (e errFiles) CreateFile(_ context.Context, _, _ string, _ time.Time) error { return e.err }
 
@@ -41,9 +38,6 @@ func TestFileHandlers_ErrorPaths(
 	r := newRouter(errFiles{err: errors.New("boom")})
 
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=a.go", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPut, "/v0/workspaces/ws1/files/content",
-		map[string]any{"path": "a.go", "content": "hi"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, "/v0/workspaces/ws1/files",
 		map[string]any{"path": "new.go", "type": "file"}).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, "/v0/workspaces/ws1/files/copy",
@@ -53,12 +47,14 @@ func TestFileHandlers_ErrorPaths(
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodDelete, "/v0/workspaces/ws1/files?path=a.go", nil).Code)
 }
 
+// The fs engine hands up the os error itself; its errno alone makes it a 404.
 func TestFileHandlers_NotFoundError(
 	t *testing.T,
 ) {
-	r := newRouter(errFiles{err: errors.New("file not found")})
+	_, missing := os.Lstat(filepath.Join(t.TempDir(), "missing"))
+	r := newRouter(errFiles{err: fmt.Errorf("file: tree: %w", missing)})
 
-	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/files/content?path=missing.go", nil).Code)
+	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree?path=missing", nil).Code)
 }
 
 // TestFileHandlers_Create_DirectoryError proves a CreateDir failure is mapped

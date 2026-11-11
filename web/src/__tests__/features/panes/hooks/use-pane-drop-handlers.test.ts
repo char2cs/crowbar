@@ -1,20 +1,20 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { openWorkspaceFile } = vi.hoisted(() => ({ openWorkspaceFile: vi.fn(async () => {}) }))
-vi.mock('@/features/files/lib/file-tree-handlers', () => ({ openWorkspaceFile }))
-vi.mock('@/features/file-system/utils/file-system-dropped-paths', () => ({
-  extractDroppedFilePaths: () => ['src/a.ts'],
+const { openDocumentsAtPaths, useTauriFileDrop } = vi.hoisted(() => ({
+  openDocumentsAtPaths: vi.fn(async () => {}),
+  useTauriFileDrop: vi.fn(),
 }))
-vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({ useTauriFileDrop: vi.fn() }))
+vi.mock('@/features/editor/documents/open-document', () => ({ openDocumentsAtPaths }))
+vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({ useTauriFileDrop }))
 
 import { usePaneDropHandlers } from '@/features/panes/hooks/use-pane-drop-handlers'
 import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
-// What lands on a pane belongs to the pane's own workspace, which is not necessarily
-// the one in view (a drop onto a non-active pane is the ordinary case).
+// An OS drop carries host paths, which name their own files: they open into the pane they
+// landed on, whichever workspace is in view.
 describe('usePaneDropHandlers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -22,24 +22,13 @@ describe('usePaneDropHandlers', () => {
     setActiveWorkspaceId('ws-in-view')
   })
 
-  function render() {
+  it('opens files dropped from the OS into the pane they landed on', async () => {
     const container = document.createElement('div')
-    return renderHook(() => usePaneDropHandlers(ROOT_PANE_ID, 'ws-pane', { current: container }))
-  }
+    renderHook(() => usePaneDropHandlers(ROOT_PANE_ID, { current: container }))
+    const [, onDrop] = useTauriFileDrop.mock.calls.at(-1) as [unknown, (paths: string[]) => void]
 
-  it('opens files dropped from the OS in the pane’s workspace', async () => {
-    const { result } = render()
+    await act(async () => onDrop(['/disk/src/a.ts']))
 
-    await act(async () => {
-      await result.current.handleDrop({
-        preventDefault: vi.fn(),
-        stopPropagation: vi.fn(),
-        dataTransfer: { types: ['Files'] },
-      } as unknown as React.DragEvent)
-    })
-
-    expect(openWorkspaceFile).toHaveBeenCalledExactlyOnceWith('ws-pane', 'src/a.ts', {
-      paneId: ROOT_PANE_ID,
-    })
+    expect(openDocumentsAtPaths).toHaveBeenCalledExactlyOnceWith(['/disk/src/a.ts'], ROOT_PANE_ID)
   })
 })

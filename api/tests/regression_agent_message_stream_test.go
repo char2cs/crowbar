@@ -4,7 +4,6 @@ package tests
 
 import (
 	"encoding/json"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,13 +11,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 const streamStubProviderDescriptorYAML = `id: streamstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -69,9 +67,6 @@ runtime:
 `
 
 const quietStubProviderDescriptorYAML = `id: quietstub
-spawn:
-  cmd: "cat"
-  interactive_required: true
 events:
   session_start:
     in: session_start
@@ -105,89 +100,20 @@ runtime:
     format: json
 `
 
-func writeProviderDescriptor(t *testing.T, h *harness, id, body string) {
-	t.Helper()
-	dir := filepath.Join(h.home, "descriptors")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(stubDescriptor(body)), 0o644))
-}
-
-// stubDescriptor completes a stub descriptor that declares only what its test
-// exercises with the wired lifecycle Crowbar requires before it enables any
-// descriptor. The wiring is an env var, so a stub like `cat` sees no new argv.
-func stubDescriptor(body string) string {
-	var doc map[string]any
-	if err := yaml.Unmarshal([]byte(body), &doc); err != nil || doc == nil {
-		return body
-	}
-	events, _ := doc["events"].(map[string]any)
-	if events == nil {
-		events = map[string]any{}
-	}
-	for name, spec := range map[string]map[string]any{
-		"session_start": {"in": "session_start", "map": map[string]any{"session_id": "session_id"}},
-		"user_prompt":   {"in": "user_prompt", "map": map[string]any{"message": "prompt"}},
-		"turn_stop":     {"in": "turn_stop", "map": map[string]any{"session_id": "session_id", "message": "last_assistant_message"}},
-	} {
-		if _, ok := events[name]; !ok {
-			events[name] = spec
-		}
-	}
-	doc["events"] = events
-	if _, ok := doc["hooks_injection"]; !ok {
-		doc["hooks_injection"] = []any{map[string]any{"set_env": map[string]any{
-			"name": "STUB_HOOK", "value": "{crowbar_hook} hook any --segment {segid}",
-		}}}
-	}
-	out, err := yaml.Marshal(doc)
-	if err != nil {
-		return body
-	}
-	return string(out)
-}
-
+// createStubChat creates and starts a chat on stub provider, returning the
+// runner its hooks are posted as.
 func createStubChat(t *testing.T, h *harness, imported importedRepo, provider string) (chatID, runnerID string) {
 	t.Helper()
-	var created struct {
-		ID string `json:"id"`
-	}
-	h.post(repoBase(imported)+"/chats",
-		map[string]string{"provider": provider, "workspaceId": imported.workspaceID},
-		http.StatusCreated, &created)
-	require.NotEmpty(t, created.ID)
-	h.Quiesce()
-
-	detail := getAgentChat(t, h, repoBase(imported), created.ID)
-	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
-	return created.ID, detail.LiveRunnerID
+	chatID = createChat(t, h, imported, provider)
+	return chatID, startChat(t, h, repoBase(imported), chatID)
 }
 
-func postProviderHook(
-	t *testing.T,
-	h *harness,
-	imported importedRepo,
-	provider, segID, event, payload string,
-) {
+type recordedMessage = kit.Message
+
+// readRecordedMessages is what chatID's feed rows say, as a client shows it.
+func readRecordedMessages(t *testing.T, h *harness, _ importedRepo, chatID string) []recordedMessage {
 	t.Helper()
-	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
-		"segment_id": segID, "provider": provider, "event": event, "payload_raw": payload,
-	}, http.StatusAccepted).Body.Close()
-}
-
-type recordedMessage struct {
-	Sequence int    `json:"sequence"`
-	TurnID   string `json:"turnId"`
-	Role     string `json:"role"`
-	Text     string `json:"text"`
-}
-
-func readRecordedMessages(t *testing.T, h *harness, imported importedRepo, chatID string) []recordedMessage {
-	t.Helper()
-	var page struct {
-		Items []recordedMessage `json:"items"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/messages?limit=200", &page)
-	return page.Items
+	return kit.Said(ledgerRows(t, h, chatID))
 }
 
 func assistantTexts(messages []recordedMessage) []string {
@@ -218,7 +144,7 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"say one, work, say two"}`)
@@ -243,194 +169,128 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 
 	require.Len(t, messages, 3)
 	assert.Equal(t, "user", messages[0].Role)
-	assert.Less(t, messages[1].Sequence, messages[2].Sequence,
+	assert.Less(t, messages[1].Seq, messages[2].Seq,
 		"the first message the agent said must sit ABOVE the second in the record")
-	assert.NotEqual(t, messages[1].TurnID, messages[2].TurnID,
-		"each message needs its own turn id, or the UI cannot say which tools produced which reply")
+	assert.NotEqual(t, messages[1].ID, messages[2].ID, "each message keeps its own id")
 
-	var activity struct {
-		ToolCalls []struct {
-			ID     string `json:"id"`
-			TurnID string `json:"turnId"`
-		} `json:"toolCalls"`
-	}
-	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
-	require.Len(t, activity.ToolCalls, 1, "the tool call must be recorded exactly once")
-	assert.Equal(t, messages[2].TurnID, activity.ToolCalls[0].TurnID,
-		"the tool call ran in the segment that ended with the second message, and must attach to it")
+	require.Len(t, toolCalls(t, h, chatID), 1, "the tool call must be recorded exactly once")
+	ran := seqOf(t, chatRows(t, h, chatID), ledger.KindToolCall, func(b ledger.ToolCall) bool { return b.ToolID == "tool-1" })
+	assert.Greater(t, ran, messages[1].Seq, "the tool ran after the first message")
+	assert.Less(t, ran, messages[2].Seq, "and before the second")
 }
 
-func TestRegression_AMessageIsVisibleBEFOREItsTurnEnds(t *testing.T) {
+// What a turn records as the agent's reply, from its stream and its
+// terminating hook: a completed message is readable while the turn runs; a
+// provider with no stream records the hook's copy; the hook's complete copy
+// fills what a lossy stream dropped, yet a shorter hook report never truncates
+// a stream delivered in full (a live report once lost all but the last
+// paragraph); a streamed reply is recorded once, even when its final delta
+// lands after its turn_stop, and the fuller text wins.
+func TestRegression_TheReplyIsReconciledFromTheStreamAndTheTerminatingHook(t *testing.T) {
+	type hook struct{ event, payload string }
+	stop := func(text string) hook {
+		return hook{"turn_stop", `{"session_id":"sess-1","last_assistant_message":"` + text + `"}`}
+	}
+	for _, tc := range []struct {
+		name, provider, descriptor string
+		hooks                      []hook
+		want                       []string
+	}{
+		{
+			"a message is visible before its turn ends", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{{"message_delta", delta("msg-one", 0, true, "SAID EARLY")}},
+			[]string{"SAID EARLY"},
+		},
+		{
+			"a provider with no stream records what it always did", "quietstub", quietStubProviderDescriptorYAML,
+			[]hook{stop("ONLY MESSAGE")},
+			[]string{"ONLY MESSAGE"},
+		},
+		{
+			"the terminating hook supersedes a lossy stream", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{
+				{"message_delta", delta("msg-one", 0, false, "THE BEGINNING ")},
+				{"message_delta", delta("msg-one", 2, true, "AND THE END")},
+				stop("THE BEGINNING AND THE MIDDLE AND THE END"),
+			},
+			[]string{"THE BEGINNING AND THE MIDDLE AND THE END"},
+		},
+		{
+			"a lossy terminating hook never truncates the stream", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{
+				{"message_delta", delta("msg-one", 0, false, "THE BEGINNING AND THE MIDDLE ")},
+				{"message_delta", delta("msg-one", 1, true, "AND THE END")},
+				stop("AND THE END"),
+			},
+			[]string{"THE BEGINNING AND THE MIDDLE AND THE END"},
+		},
+		{
+			"a streamed reply is not recorded twice", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{{"message_delta", delta("msg-one", 0, true, "SAID ONCE")}, stop("SAID ONCE")},
+			[]string{"SAID ONCE"},
+		},
+		{
+			"a final delta after its turn_stop joins the reply", "streamstub", streamStubProviderDescriptorYAML,
+			[]hook{stop("SAID"), {"message_delta", delta("msg-one", 0, true, "SAID IN FULL")}},
+			[]string{"SAID IN FULL"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			writeProviderDescriptor(t, h, tc.provider, tc.descriptor)
+			imported := importWritableWorkspace(t, h)
+			chatID, runnerID := createStubChat(t, h, imported, tc.provider)
+			hooks := append([]hook{
+				{"session_start", `{"session_id":"sess-1"}`},
+				{"user_prompt", `{"session_id":"sess-1","prompt":"hello"}`},
+			}, tc.hooks...)
+			for _, k := range hooks {
+				postHook(t, h, repoBase(imported), tc.provider, runnerID, k.event, k.payload)
+			}
+			h.Quiesce()
+
+			assert.Equal(t, tc.want, assistantTexts(readRecordedMessages(t, h, imported, chatID)))
+		})
+	}
+}
+
+// A growing message reaches the chat's feed while its turn runs, though it is
+// not a settled message yet.
+func TestRegression_AGrowingMessageReachesTheFeedBeforeTheTurnEnds(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
 	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
+	feed := dialFeed(t, h, chatID, 0)
+	untilReady(t, feed)
 
 	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"speak then work"}`)
-	post("message_delta", delta("msg-one", 0, true, "SAID EARLY"))
-	h.Quiesce()
-
-	assert.Equal(t, []string{"SAID EARLY"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"a completed message must be readable while its turn is still running")
-}
-
-// TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds is the
-// half TestRegression_AMessageIsVisibleBEFOREItsTurnEnds cannot cover: that one
-// reads the REST ledger, and the ledger is written by the ingest path whether or
-// not anything is wired to the LIVE feed. Live streaming runs through a plain
-// callback field on the agent usecase, assigned by the composition root
-// (app.New → startTerminalWaitSweep → BroadcastAgentChatMessageDelta). Drop that
-// wiring and the pane goes silent until the turn ends while every ledger
-// assertion in this file stays green — so this test watches the socket.
-//
-// BEFORE is proven positively: the newest partial is read before turn_stop is
-// even posted. Only the newest is awaited because the feed coalesces deltas
-// latest-wins per message, so an earlier partial may be superseded unsent.
-//
-// Both partials are NON-FINAL, and the ledger is checked while they are in
-// flight: "STILL GROWING" exists nowhere durable at that point, so the socket is
-// the only channel that could have carried it.
-func TestRegression_AGrowingMessageReachesTheChatSocketBeforeTheTurnEnds(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-
-	// Subscribe BEFORE the chat exists, then take its own `created` frame as the
-	// barrier proving this connection is registered — a frame broadcast before the
-	// subscriber attached is a frame no amount of waiting recovers.
-	conn := h.dial(repoBase(imported) + "/chats/ws")
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-	chatFrame := func(kind string) func(map[string]any) bool {
-		return func(m map[string]any) bool { return m["chatId"] == chatID && m["kind"] == kind }
-	}
-	readUntil(t, conn, chatFrame("created"))
-
-	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
+		postHook(t, h, repoBase(imported), "streamstub", runnerID, event, payload)
 	}
 	post("session_start", `{"session_id":"sess-1"}`)
 	post("user_prompt", `{"session_id":"sess-1","prompt":"narrate while you work"}`)
-	readUntil(t, conn, chatFrame("turn_started"))
-
 	post("message_delta", delta("msg-one", 0, false, "STILL "))
 	post("message_delta", delta("msg-one", 1, false, "GROWING"))
 
-	growing := func(text string) func(map[string]any) bool {
-		return func(m map[string]any) bool {
-			if !chatFrame("message_delta")(m) {
-				return false
-			}
-			message, ok := m["message"].(map[string]any)
-			return ok && message["id"] == "msg-one" && message["text"] == text
+	// A numbered chunk rides the feed as its own row the moment it lands.
+	var said string
+	for said != "STILL GROWING" {
+		f := nextFeedFrame(t, feed)
+		var chunk ledger.AssistantText
+		if f.Row != nil && f.Row.Kind == ledger.KindAssistantText &&
+			json.Unmarshal(f.Row.Body, &chunk) == nil && chunk.MessageID == "msg-one" {
+			said += chunk.Text
 		}
 	}
-	readUntil(t, conn, growing("STILL GROWING"))
-
 	assert.Empty(t, assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"an unfinished message is a view, not a record — the socket is the only place it exists")
+		"an unfinished message is not yet said")
 
 	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"STILL GROWING"}`)
-	readUntil(t, conn, chatFrame("turn_stopped"))
 	h.Quiesce()
 
 	assert.Equal(t, []string{"STILL GROWING"},
 		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"the finished message lands in the ledger once, after the partials the socket already carried")
-}
-
-func TestRegression_ProviderWithNoStreamingHookRecordsExactlyWhatItAlwaysDid(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "quietstub")
-
-	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "quietstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"ONLY MESSAGE"}`)
-	h.Quiesce()
-
-	assert.Equal(t, []string{"ONLY MESSAGE"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
-}
-
-func TestRegression_TheTerminatingHookSupersedesALossyStream(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-
-	post("message_delta", delta("msg-one", 0, false, "THE BEGINNING "))
-	post("message_delta", delta("msg-one", 2, true, "AND THE END"))
-	post("turn_stop",
-		`{"session_id":"sess-1","last_assistant_message":"THE BEGINNING AND THE MIDDLE AND THE END"}`)
-	h.Quiesce()
-
-	assert.Equal(t, []string{"THE BEGINNING AND THE MIDDLE AND THE END"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"the provider's own complete copy must replace what the stream lost")
-}
-
-// TestRegression_ALossyTerminatingHookNeverTruncatesTheStream is
-// TestRegression_TheTerminatingHookSupersedesALossyStream's missing
-// counterpart — the two together are the whole reconciliation contract, and
-// only one direction had a test. Reported live 2026-09-01: a full,
-// multi-paragraph reply was visible while the turn was still streaming, but
-// a real provider's own terminating hook reported only the reply's LAST
-// paragraph, and closeAssistantTurn's reconciliation silently deleted the
-// rest from the persisted transcript on the strength of that shorter report.
-func TestRegression_ALossyTerminatingHookNeverTruncatesTheStream(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-
-	post("message_delta", delta("msg-one", 0, false, "THE BEGINNING AND THE MIDDLE "))
-	post("message_delta", delta("msg-one", 1, true, "AND THE END"))
-	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"AND THE END"}`)
-	h.Quiesce()
-
-	assert.Equal(t, []string{"THE BEGINNING AND THE MIDDLE AND THE END"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)),
-		"a shorter terminating-hook report must never overwrite text the stream already delivered in full")
-}
-
-func TestRegression_AStreamedReplyIsNotRecordedTwice(t *testing.T) {
-	h := newHarness(t)
-	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
-	imported := importWritableWorkspace(t, h)
-	chatID, runnerID := createStubChat(t, h, imported, "streamstub")
-
-	post := func(event, payload string) {
-		postProviderHook(t, h, imported, "streamstub", runnerID, event, payload)
-	}
-	post("session_start", `{"session_id":"sess-1"}`)
-	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
-	post("message_delta", delta("msg-one", 0, true, "SAID ONCE"))
-	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"SAID ONCE"}`)
-	h.Quiesce()
-
-	assert.Equal(t, []string{"SAID ONCE"},
-		assistantTexts(readRecordedMessages(t, h, imported, chatID)))
+		"the finished message lands in the ledger once")
 }
 
 func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {

@@ -1,14 +1,11 @@
-// Package ignore is an in-process gitignore matcher used by the file watcher to
-// decide, without forking `git check-ignore` per directory, whether a directory
-// should be excluded from recursive watching. It honours the repository's root
-// .gitignore, nested per-directory .gitignore files, and .git/info/exclude —
-// the sources that determine whether a directory tree (node_modules/, dist/,
-// vendor/, …) is tracked. It does NOT consult a global core.excludesFile, which
-// in practice lists per-file editor/OS noise rather than directories.
+// Package ignore is an in-process gitignore matcher that lets the watcher skip directories without
+// forking `git check-ignore`. It honours root and nested .gitignore and .git/info/exclude, but not
+// core.excludesFile, which lists per-file editor/OS noise rather than directories.
 package ignore
 
 import (
 	"bufio"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,7 +115,11 @@ func readPatterns(
 	if err != nil {
 		return nil
 	}
-	defer func() { _ = f.Close() }()
+	defer func() {
+		if err := f.Close(); err != nil {
+			slog.Warn("watch: ignore: close", "path", path, "err", err)
+		}
+	}()
 
 	var patterns []pattern
 	scanner := bufio.NewScanner(f)

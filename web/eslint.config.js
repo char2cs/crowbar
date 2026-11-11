@@ -8,77 +8,32 @@ import globals from 'globals'
 // Files over the 600-line cap when the cap landed (2026-09-24). This list is
 // the backlog: split a file, then delete its entry. Never add to it.
 const MAX_LINES_BASELINE = [
-  'src/__tests__/components/app-sync-provider-folders.test.tsx',
   'src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts',
   'src/__tests__/components/sidebar/lib/drop-actions.test.ts',
-  'src/__tests__/components/sidebar/lib/row-actions.test.ts',
-  'src/__tests__/components/sidebar/lib/rows-from-repo.test.ts',
   'src/__tests__/components/sidebar/lib/sidebar-drop-policy.test.ts',
   'src/__tests__/components/sidebar/sidebar-row.test.tsx',
   'src/__tests__/components/sidebar/space-scroller.test.tsx',
-  'src/__tests__/features/agent/api/agent-api.test.ts',
-  'src/__tests__/features/agent/chat/agent-chat-view.test.tsx',
-  'src/__tests__/features/agent/chat/agent-empty-document.test.tsx',
   'src/__tests__/features/agent/components/agent-chat-pane.test.tsx',
-  'src/__tests__/features/agent/composer/agent-composer.test.tsx',
   'src/__tests__/features/agent/composer/composer-choice.test.tsx',
-  'src/__tests__/features/agent/composer/plate/chat-markdown-editor.test.tsx',
   'src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx',
-  'src/__tests__/features/agent/hooks/use-chat-messages.test.ts',
-  'src/__tests__/features/agent/hooks/use-transcript-anchor.test.tsx',
-  'src/__tests__/features/agent/transcript/agent-transcript.test.tsx',
   'src/__tests__/features/agent/transcript/plate/streaming-value-patch.test.ts',
-  'src/__tests__/features/agent/tree/lib/chat-rows.test.ts',
   'src/__tests__/features/git/components/diff/use-review-annotations.test.tsx',
   'src/__tests__/features/panes/components/pane-container.test.tsx',
-  'src/__tests__/features/panes/hooks/use-pane-keyboard.test.ts',
   'src/__tests__/features/settings/components/tabs/providers-settings.test.tsx',
-  'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
-  'src/__tests__/features/workspace/stores/hooks/use-workspace-agent-chats-stream.test.ts',
-  'src/__tests__/features/workspace/stores/slices/agent-chats-slice.test.ts',
-  'src/__tests__/lib/persistence/hydrate.test.ts',
-  'src/components/app-sync-engine.ts',
-  'src/components/sidebar/hooks/use-sidebar-drag.ts',
-  'src/components/sidebar/lib/drop-actions.ts',
-  'src/components/sidebar/lib/row-actions.ts',
-  'src/components/sidebar/lib/rows-from-repo.ts',
-  'src/components/ui/dropdown.tsx',
-  'src/components/ui/table-icons.tsx',
-  'src/components/ui/table-node.tsx',
-  'src/features/agent/api/agent-api.ts',
-  'src/features/agent/chat/agent-chat-view.tsx',
-  'src/features/agent/components/agent-chat-pane.tsx',
-  'src/features/agent/hooks/use-prompt-queue.ts',
-  'src/features/agent/hooks/use-transcript-anchor.ts',
-  'src/features/agent/transcript/agent-transcript.tsx',
-  'src/features/agent/transcript/plate/streaming-value-patch.ts',
-  'src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx',
-  'src/features/tabs/components/tab-bar.tsx',
-  'src/features/workspace/stores/slices/agent-chats-slice.ts',
-  'src/lib/api.ts',
 ]
 
 // Findings that predate these rules, in areas being rewritten by the
 // stabilization plan (docs/plans/2026-09-24-stabilization.md §7). Each entry
 // goes when its file is fixed; never add to these lists.
-const EXHAUSTIVE_DEPS_BASELINE = ['src/features/agent/transcript/agent-transcript.tsx']
 const UNDESCRIBED_DIRECTIVE_BASELINE = [
-  'src/__tests__/features/terminal/hooks/use-terminal-connection.test.ts',
-  'src/features/agent/transcript/plate/chat-fresh-text-plugin.tsx',
-  'src/features/editor/hooks/use-pane-editor-controller.ts',
-  'src/features/panes/components/pane-sash.tsx',
   'src/features/tabs/hooks/use-pane-top-row-edges.ts',
   'src/features/terminal/hooks/use-terminal-connection.ts',
   'src/features/terminal/utils/input-tape.ts',
 ]
-const NO_ASSERTION_BASELINE = [
-  'src/__tests__/features/agent/composer/agent-composer.test.tsx',
-  'src/__tests__/features/agent/composer/excalidraw-takeover.test.tsx',
-]
+const NO_ASSERTION_BASELINE = ['src/__tests__/features/agent/composer/excalidraw-takeover.test.tsx']
 
 export const BASELINES = [
   { rule: 'max-lines', files: MAX_LINES_BASELINE },
-  { rule: 'react-hooks/exhaustive-deps', files: EXHAUSTIVE_DEPS_BASELINE },
   {
     rule: '@eslint-community/eslint-comments/require-description',
     files: UNDESCRIBED_DIRECTIVE_BASELINE,
@@ -103,6 +58,51 @@ const ENTITY_API_SELECTORS = [
 const ENTITY_API_PATH_MESSAGE =
   'Build project/repo/workspace/chat URLs with projectBase/repoBase (lib/project-url) or the ' +
   'lib/workspace-scope-url builders: a hand-written path carries no host and lands on the local daemon.'
+
+// A swallowed failure is invisible: return a fallback or report() it.
+const SWALLOWED_FAILURE_RULES = [
+  {
+    selector: 'CatchClause > BlockStatement[body.length=0]',
+    message: 'An empty catch hides a failure: return the fallback, or report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='BlockStatement'][body.body.length=0]",
+    message: '.catch(() => {}) hides a failure: report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > FunctionExpression.arguments[body.body.length=0]",
+    message: '.catch(function () {}) hides a failure: report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='then'][arguments.length=2] > :matches(ArrowFunctionExpression, FunctionExpression).arguments:last-child[body.type='BlockStatement'][body.body.length=0]",
+    message: '.then(onDone, () => {}) hides a failure: report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Literal']",
+    message: '.catch(() => null/false/…) hides a failure: handle it or report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.operator='void'][body.argument.type='Literal']",
+    message: '.catch(() => void 0) hides a failure: handle it or report() it.',
+  },
+  {
+    selector:
+      "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[body.type='Identifier'][body.name='undefined']",
+    message: '.catch(() => undefined) hides a failure: handle it or report() it.',
+  },
+  {
+    // A thrown value's own text skips report(): a migrating refusal becomes a toast.
+    // A heuristic: it misses `${err}`, a message a helper returns, other names.
+    selector:
+      "CallExpression[callee.object.name=/^(toast|toastManager)$/] :matches(ConditionalExpression[test.operator='instanceof'][test.right.name='Error'], MemberExpression[object.name=/^(e|err|error)$/][property.name='message'], CallExpression[callee.name='String'][arguments.0.name=/^(e|err|error)$/])",
+    message: "A toast of a thrown value's text skips report(): report(err, { action }) it.",
+  },
+]
 
 const TAURI_IMPORTS = {
   group: ['@tauri-apps/*'],
@@ -169,17 +169,20 @@ export default tseslint.config(
   },
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: [
-      'src/__tests__/**',
-      'src/lib/host-path.ts',
-      'src/lib/project-url.ts',
-      'src/lib/workspace-scope-url.ts',
-    ],
+    ignores: ['src/__tests__/**'],
     rules: {
       'no-restricted-syntax': [
         'error',
+        ...SWALLOWED_FAILURE_RULES,
         ...ENTITY_API_SELECTORS.map((selector) => ({ selector, message: ENTITY_API_PATH_MESSAGE })),
       ],
+    },
+  },
+  {
+    // The URL builders spell the paths every other module must not.
+    files: ['src/lib/host-path.ts', 'src/lib/project-url.ts', 'src/lib/workspace-scope-url.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', ...SWALLOWED_FAILURE_RULES],
     },
   },
   {

@@ -14,7 +14,9 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import type { Repo } from '@/core/entities/repo-types'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import {
   EMPTY_FOCUSED_WORKSPACE_CONTEXT,
   publishFocusedWorkspaceContext,
@@ -44,7 +46,7 @@ function segment(name: string): HTMLElement {
 
 describe('SidebarModeBar', () => {
   beforeEach(() => {
-    useSidebarStore.setState(getInitialState())
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
     publishFocusedWorkspaceContext(REPO_CTX)
   })
 
@@ -73,7 +75,7 @@ describe('SidebarModeBar', () => {
   it('selecting a segment writes the mode to the store', () => {
     render(<SidebarModeBar />)
     fireEvent.click(segment('Changes'))
-    expect(useSidebarStore.getState().activeTab).toBe('git')
+    expect(treeUiStore.getState().activeTab).toBe('git')
     expect(segment('Changes')).toHaveAttribute('aria-selected', 'true')
     expect(segment('Chats')).toHaveAttribute('aria-selected', 'false')
   })
@@ -96,7 +98,7 @@ describe('SidebarModeBar', () => {
     })
 
     it('shows Chats as selected once the chosen mode becomes unavailable', () => {
-      useSidebarStore.setState({ activeTab: 'git' })
+      treeUiStore.setState({ activeTab: 'git' })
       render(<SidebarModeBar />)
       expect(segment('Changes')).toHaveAttribute('aria-selected', 'true')
 
@@ -144,9 +146,9 @@ function ShellSidebar({ route }: { route: Route }) {
 describe('SidebarModeBar on the empty stage', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
-    useSidebarStore.setState(getInitialState())
-    useSidebarStore.getState().setRepos([REPO])
-    useSidebarStore.setState({ activeTab: 'files' })
+    treeUiStore.setState(treeUiStore.getInitialState(), true)
+    seedRepos([REPO])
+    treeUiStore.setState({ activeTab: 'files' })
   })
 
   it.each([
@@ -174,6 +176,6 @@ describe('SidebarModeBar on the empty stage', () => {
     expect(segment('Files')).toHaveAttribute('aria-disabled', 'true')
     expect(screen.queryByRole('tab', { name: 'Changes' })).not.toBeInTheDocument()
     expect(segment('Chats')).toHaveAttribute('aria-selected', 'true')
-    expect(useSidebarStore.getState().activeTab).toBe('files')
+    expect(treeUiStore.getState().activeTab).toBe('files')
   })
 })

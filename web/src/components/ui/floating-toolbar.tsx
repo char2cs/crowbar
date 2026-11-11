@@ -1,12 +1,6 @@
-// Adapted from the Plate registry (`https://platejs.org/r/floating-toolbar-kit.json`
-// -> `floating-toolbar`). Trimmed: upstream also hides the toolbar while an
-// AI chat panel is open (`usePluginOption({ key: KEYS.aiChat }, 'open')`) —
-// no AI kit is registered here, so that check is dropped (the floating link
-// editor's own `isFloatingLinkOpen` check is kept — LinkKit IS registered).
-// Also dropped the `scrollbar-hide` utility class: it comes from a Tailwind
-// v3-style plugin (`tailwind-scrollbar-hide`) that doesn't fit this app's
-// Tailwind v4 CSS-only config, and this toolbar's button set is short enough
-// to never need horizontal scrolling in the first place.
+// Adapted from the Plate registry (floating-toolbar-kit.json -> `floating-toolbar`), minus the
+// AI-chat hide check (no AI kit) and `scrollbar-hide` (a Tailwind v3 plugin; the short button
+// row never scrolls). The floating-link check stays: LinkKit is registered.
 'use client'
 
 import * as React from 'react'

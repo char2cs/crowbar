@@ -10,30 +10,13 @@ import (
 	"strings"
 )
 
-// EnvAllowedOrigins is the env var holding extra exact-match allowed origins
-// (comma-separated). It is the production safety valve for an app origin that is
-// neither loopback nor the tauri:// scheme, so a platform whose webview origin we
-// did not anticipate can be allowed without a code change.
+// EnvAllowedOrigins is the env var holding extra comma-separated exact-match origins,
+// so an unanticipated webview origin can be allowed without a code change.
 const EnvAllowedOrigins = "CROWBAR_ALLOWED_ORIGINS"
 
-// Allowed reports whether a browser Origin may call the daemon. The daemon's
-// production transport is a unix socket with no remote reach, so this primarily
-// guards the dev TCP path and the in-app webview against a malicious website
-// driving the API through the user's browser (CSRF / cross-origin WS hijack).
-//
-// requestHost is the request's Host header (host[:port]); it enables the
-// same-origin allowance for the case where the daemon serves its own SPA.
-//
-// Allowed:
-//   - empty Origin: non-browser clients (curl, native, the Tauri IPC bridge) send
-//     no Origin and are not subject to the same-origin policy.
-//   - the tauri:// custom scheme, plus localhost and any *.localhost host — the
-//     Tauri v2 webview origin differs by platform (tauri://localhost on macOS,
-//     http://tauri.localhost elsewhere).
-//   - loopback hosts (127.0.0.0/8, ::1), any scheme/port — local dev servers
-//     (Vite) and the daemon serving its own SPA over loopback.
-//   - same-origin: the Origin authority equals the request Host.
-//   - exact matches from CROWBAR_ALLOWED_ORIGINS.
+// Allowed reports whether a browser Origin may call the daemon (CSRF / cross-origin
+// WS hijack guard). It admits no Origin (non-browser clients), tauri:// and *.localhost,
+// loopback hosts, same-origin with requestHost, and CROWBAR_ALLOWED_ORIGINS entries.
 func Allowed(origin, requestHost string) bool {
 	if origin == "" {
 		return true

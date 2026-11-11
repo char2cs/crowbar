@@ -11,8 +11,8 @@ import { useMobileNativeChrome } from '@/features/window/hooks/use-mobile-native
 import { useNativeSidebar } from '@/features/window/hooks/use-native-sidebar'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { hasNativeChrome } from '@/lib/native-chrome'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { selectRepos, useSelect } from '@/core/entities/select'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { NativeAgentsSettingsFeed } from '@/features/settings/components/native-agents-settings-feed'
 import { NativeHostsSettingsFeed } from '@/features/settings/components/native-hosts-settings-feed'
 import { NativeHostPickerFeed } from '@/features/hosts/components/native-host-picker-feed'
@@ -34,10 +34,8 @@ const IDE = {
   onClick: () => useMobileScreenStore.getState().open('ide'),
 }
 
-/**
- * The phone's shell: the focused chat, and its IDE (terminals, branch review) pushed full
- * screen over it with the chat staying mounted beneath. The chat list is native, fed from here.
- */
+/** The phone's shell: the focused chat, and its IDE (terminals, branch review) pushed full
+ *  screen over it with the chat staying mounted beneath. The chat list is native, fed from here. */
 export function MobileShell() {
   const route = useShellRouteState()
   const navigate = useNavigate()
@@ -99,7 +97,7 @@ function AgentsSettingsFeed({ hostId }: { hostId: string }) {
 }
 
 function ImportDialog({ repoRowId, onClose }: { repoRowId: string | null; onClose: () => void }) {
-  const repos = useSidebarStore((s) => s.repos)
+  const repos = useSelect(selectRepos)
   return <RowBranchImportDialog repoRowId={repoRowId} repos={repos} onClose={onClose} />
 }
 
@@ -116,7 +114,7 @@ function useCloseChatListOnNavigation() {
     lastShown.current = shown
     lastChat.current = chatId
     // Leaving a chat that is being removed is not opening another: the list stays up.
-    if (left && useRemovalTrayStore.getState().hiddenIds.has(left)) return
+    if (left && treeUiStore.getState().hiddenIds.has(left)) return
     useMobileScreenStore.getState().setChatListOpen(false)
   }, [shown, chatId])
 }

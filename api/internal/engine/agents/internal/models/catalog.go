@@ -16,9 +16,15 @@ type SlashCatalogItem struct {
 	Description string
 	InsertText  string
 	Source      string
+	// Terminal: running it opens a dialog in the CLI's terminal.
+	Terminal bool
 }
 
-const CatalogItemKindSkill = "skill"
+const (
+	CatalogItemKindSkill   = "skill"
+	CatalogItemKindBuiltin = "builtin"
+	CatalogItemKindCommand = "command"
+)
 
 type ProbeOptions struct {
 	Cwd  string

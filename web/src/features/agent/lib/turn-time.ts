@@ -14,20 +14,14 @@ const dateOtherYear = memoFormat({ month: 'short', day: 'numeric', year: 'numeri
 const timeOfDay = memoFormat({ hour: 'numeric', minute: '2-digit' })
 const fullTitle = memoFormat({ dateStyle: 'medium', timeStyle: 'short' })
 
-/** "Aug 30, 6:36 PM" — the year only when it isn't the current one, since
- *  spelling it out on every turn in an active chat is noise nobody reads. */
+/** "Aug 30, 6:36 PM" — the year only when it isn't the current one. */
 function absoluteLabel(then: number): string {
   const date = new Date(then)
   const sameYear = date.getFullYear() === new Date().getFullYear()
   return `${(sameYear ? dateThisYear : dateOtherYear)(date)}, ${timeOfDay(date)}`
 }
 
-/** A raw duration, rounded to whichever single unit it actually reads as:
- *  minutes under an hour, hours under a day, days beyond that. Floored, not
- *  rounded to nearest — "1h" claiming a FULL hour has passed when only 85
- *  minutes have overclaims exactly as much as "127m" undersells it; the
- *  point is never to imply more precision than a reader needs, not to hide
- *  precision they'd want. */
+/** Floored, never rounded up, so "1h" never claims more time than has passed. */
 function durationLabel(elapsedMs: number): string {
   const elapsed = Math.max(0, elapsedMs)
   if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)}m`
@@ -35,21 +29,14 @@ function durationLabel(elapsedMs: number): string {
   return `${Math.floor(elapsed / DAY_MS)}d`
 }
 
-/** A user prompt's own timestamp — absolute only. There is nothing to time
- *  IT against; "elapsed" only ever means something for the reply that
- *  answers it. */
+/** Absolute only: there is nothing to time a prompt against. */
 export function turnTimestampLabel(at: string): string {
   const then = Date.parse(at)
   if (Number.isNaN(then)) return ''
   return absoluteLabel(then)
 }
 
-/** How long the agent took to answer — the gap between the user's own turn
- *  and this reply, not "how long ago", paired with the absolute time the
- *  reply landed: "3m · Aug 30, 6:36 PM", rounding to hours or days once the
- *  gap is that large. A reply is, definitionally, never older than the
- *  prompt it answers, so this never needs a now-vs-then fallback the way
- *  `turnTimeLabel` does. */
+/** The gap from prompt to reply, not "how long ago": "3m · Aug 30, 6:36 PM". */
 export function turnLatencyLabel(userAt: string, assistantAt: string): string {
   const start = Date.parse(userAt)
   const end = Date.parse(assistantAt)
@@ -57,19 +44,13 @@ export function turnLatencyLabel(userAt: string, assistantAt: string): string {
   return `${durationLabel(end - start)} · ${absoluteLabel(end)}`
 }
 
-/** How long ago a turn happened, AND when — both visible, not one hidden
- *  behind a hover, rounding to hours or days once that long has actually
- *  passed. FALLBACK ONLY, for an assistant message with no preceding user
- *  turn to time itself against (e.g. a harness-injected reply) — every
- *  ordinary reply uses `turnLatencyLabel` instead. */
+/** Fallback for a reply with no preceding user turn to time itself against. */
 export function turnTimeLabel(at: string, now: number = Date.now()): string {
   const then = Date.parse(at)
   if (Number.isNaN(then)) return ''
   return `${durationLabel(now - then)} · ${absoluteLabel(then)}`
 }
 
-/** The full, unambiguous timestamp — on hover, alongside whichever shorthand
- *  is showing inline. */
 export function turnTimeTitle(at: string): string {
   const then = Date.parse(at)
   if (Number.isNaN(then)) return ''

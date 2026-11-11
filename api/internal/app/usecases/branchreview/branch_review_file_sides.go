@@ -5,18 +5,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// GetFileSides returns one file's full old and new text for the same diff GetPatch
-// serves, so the reader can reveal the unchanged lines between hunks. It resolves
-// the ref through resolveScopeRef, which keeps both sides on the diff the outline
-// laid out.
-//
-// oldPath names the file on the old side when it was renamed; empty means path.
-// A file past the engine's size ceiling is ErrUnprocessable, not a truncated read.
+// GetFileSides returns one file's full old and new text on the diff GetPatch serves, so
+// the reader can reveal lines between hunks. oldPath is the pre-rename name ("" = path);
+// a file past the engine's size ceiling is ErrUnprocessable, not a truncated read.
 func (u *branchReviewUsecase) GetFileSides(
 	ctx context.Context,
 	wsID string,
@@ -26,7 +22,7 @@ func (u *branchReviewUsecase) GetFileSides(
 ) (gitdomain.ReviewFileSides, error) {
 	if path == "" {
 		return gitdomain.ReviewFileSides{}, fmt.Errorf(
-			"branch review: file sides: %w: path is required", apperr.ErrInvalidArgument)
+			"branch review: file sides: %w: path is required", problem.ErrInvalidArgument)
 	}
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {
@@ -39,7 +35,7 @@ func (u *branchReviewUsecase) GetFileSides(
 	sides, err := u.git.ReviewFileSides(ctx, ws.WorktreePath, ref, path, oldPath)
 	if errors.Is(err, enginegit.ErrFileTooLarge) {
 		return gitdomain.ReviewFileSides{}, fmt.Errorf(
-			"branch review: file sides: %w: %w", apperr.ErrUnprocessable, err)
+			"branch review: file sides: %w: %w", problem.ErrUnprocessable, err)
 	}
 	if err != nil {
 		return gitdomain.ReviewFileSides{}, fmt.Errorf("branch review: file sides: %w", err)

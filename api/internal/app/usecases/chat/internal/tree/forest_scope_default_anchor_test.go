@@ -10,6 +10,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 // The repo's DEFAULT checkout is locked (an adopted protected branch), so it
@@ -26,13 +27,13 @@ func TestRegression_CreateChat_RepoRootLevelNeverCountsTheDefaultCheckoutAnchor(
 		domain.Chat{ID: "owner", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, OwnsWorkspace: true, CreatedAt: time.Unix(0, 0)},
 		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, ParentID: "owner", CreatedAt: time.Unix(1, 0)},
 	)
-	nodes.Rows = []domain.Node{
-		{ID: workspaceID, Kind: domain.NodeKindWorkspace, ParentID: "", Order: 0},
-		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "owner", Order: 0},
+	nodes.Rows = []dtree.Node{
+		{ID: workspaceID, Kind: dtree.KindWorkspace, ParentID: "", Order: 0},
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "owner", Order: 0},
 	}
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "owner", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+	_, _, err := createChat(context.Background(), uc, workspaceID, "claude", "owner", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	n := nodeRowFor(t, nodes, "c-new")
 	assert.Equal(t, "owner", n.ParentID)
@@ -55,10 +56,10 @@ func TestRegression_PlaceChat_RepoRootDropIndexIsNotShiftedByTheDefaultCheckoutA
 		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, ParentID: "owner", CreatedAt: time.Unix(1, 0)},
 		domain.Chat{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, ParentID: "owner", CreatedAt: time.Unix(2, 0)},
 	)
-	nodes.Rows = []domain.Node{
-		{ID: workspaceID, Kind: domain.NodeKindWorkspace, ParentID: "", Order: 0},
-		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "owner", Order: 1},
-		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "owner", Order: 2},
+	nodes.Rows = []dtree.Node{
+		{ID: workspaceID, Kind: dtree.KindWorkspace, ParentID: "", Order: 0},
+		{ID: "c1", Kind: dtree.KindChat, ParentID: "owner", Order: 1},
+		{ID: "c2", Kind: dtree.KindChat, ParentID: "owner", Order: 2},
 	}
 
 	// Drop c2 "after c1": index 1 among the rendered siblings [c1, c2] minus c2.

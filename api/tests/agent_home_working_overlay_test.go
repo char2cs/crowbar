@@ -16,8 +16,8 @@ import (
 // project-home read can pick up the derived overlay.
 //
 // No polling and no timing: the agent-turn overlay is folded synchronously in the
-// same axAgentChat projection callback that emits the turn_started/turn_stopped
-// chat frames, so once the caller has observed that frame (and Quiesce has drained
+// same axAgentChat projection callback that publishes the chat's working
+// state, so once the caller has observed that row (and Quiesce has drained
 // the event pipeline) the in-memory overlay is already settled and this plain GET
 // is deterministic.
 func requireHomeRESTWorking(
@@ -45,24 +45,22 @@ func requireHomeRESTWorking(
 // A user_prompt hook (→ turn_started) must flip the home read to working=true and
 // a turn_stop hook (→ turn_stopped) must flip it back, so the home workspace's
 // icon keeps its spinner across a refetch exactly like a worktree's does. Both
-// assertions block on real signals — the agent lifecycle WS frame plus Quiesce —
-// never on time.
+// assertions block on real signals — the chat's projects-scope row plus
+// Quiesce — never on time.
 func TestRegression_HomeWorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h) // cat stays alive so the segment is active for the turn
 	projectID := createProjectForHome(t, h)
 	homeBase := "/v0/projects/" + projectID + "/home"
 
-	// Dial the HOME agent lifecycle WS before creating so no frame is missed; its
-	// frames are the turn signals this test blocks on.
-	frames := dialAgentWS(t, h, homeBase+"/chats/ws")
+	feed := recordSidebar(t, h)
 
 	var created struct {
 		ID string `json:"id"`
 	}
 	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
-	waitForChatFrame(t, frames, created.ID, "created")
-	h.Quiesce()
+	feed.awaitListed(created.ID)
+	startChat(t, h, homeBase, created.ID)
 
 	detail := getAgentChat(t, h, homeBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
@@ -72,14 +70,14 @@ func TestRegression_HomeWorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	requireHomeRESTWorking(t, h, projectID, false)
 
 	// user_prompt opens the turn: the home REST read must now report working.
-	postHomeHook(t, h, homeBase, segID, "user_prompt", `{"prompt":"hi"}`)
-	waitForChatFrame(t, frames, created.ID, "turn_started")
+	postHook(t, h, homeBase, "livestub", segID, "user_prompt", `{"prompt":"hi"}`)
+	feed.awaitTurnStart(created.ID)
 	h.Quiesce()
 	requireHomeRESTWorking(t, h, projectID, true)
 
 	// turn_stop closes it: the home REST read must flip back.
-	postHomeHook(t, h, homeBase, segID, "turn_stop", `{"last_assistant_message":"done"}`)
-	waitForChatFrame(t, frames, created.ID, "turn_stopped")
+	postHook(t, h, homeBase, "livestub", segID, "turn_stop", `{"last_assistant_message":"done"}`)
+	feed.awaitTurnEnd(created.ID)
 	h.Quiesce()
 	requireHomeRESTWorking(t, h, projectID, false)
 }

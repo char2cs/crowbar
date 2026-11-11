@@ -1,8 +1,12 @@
 package domain
 
-import "time"
+import (
+	"time"
 
-// ReviewThread is the branch-review comment-thread aggregate (00 §6.3, 09 §3).
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+)
+
+// ReviewThread is the branch-review comment-thread aggregate.
 // Messages are kept inside the aggregate because a thread is bounded.
 type ReviewThread struct {
 	ID         string `json:"id"`
@@ -19,7 +23,7 @@ type ReviewThread struct {
 	CreatedAt time.Time          `json:"createdAt"`
 }
 
-// IsResolved reports whether the thread is resolved (09 §3 read model).
+// IsResolved reports whether the thread is resolved.
 func (t ReviewThread) IsResolved() bool {
 	return t.Status == ReviewThreadStatusResolved
 }
@@ -32,4 +36,10 @@ func (t ReviewThread) NormalizedMessages() ReviewThread {
 		t.Messages = []ReviewMessage{}
 	}
 	return t
+}
+
+// ReviewThreadNotFound is a verb on a thread that does not exist. cause keeps
+// the event store's own refusal in the tree, so it is still not retried.
+func ReviewThreadNotFound(cause error) error {
+	return &problem.Error{Code: problem.NotFound, Message: "review thread not found", Err: cause}
 }

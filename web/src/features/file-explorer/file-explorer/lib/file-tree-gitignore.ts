@@ -31,11 +31,8 @@ export interface FileTreeGitIgnoreRules {
   ruleSets: GitIgnoreRuleSet[]
 }
 
-/**
- * Backend file paths are workspace-relative ('web/src/x.ts'); only the
- * explorer's rootFolderPath (and desktop-heritage trees) use absolute paths.
- * Workspace-relative paths always belong to the active root.
- */
+/** Backend paths are workspace-relative ('web/src/x.ts') and always in the active root; only
+ *  the explorer's rootFolderPath (and desktop-heritage trees) are absolute. */
 export const isWorkspaceRelativePath = (path: string): boolean =>
   !path.startsWith('/') && !path.startsWith('\\') && !/^[A-Za-z]:[\\/]/.test(path)
 
@@ -65,7 +62,7 @@ function addGitIgnoreContent(matcher: IgnoreMatcher, content: string): void {
     try {
       matcher.add(line)
     } catch {
-      // Keep the rest of the file usable if a single malformed pattern is present.
+      continue // a malformed pattern is skipped so the rest of the file still applies
     }
   }
 }
@@ -77,10 +74,8 @@ export function collectGitIgnoreFileReferences(
   if (!rootFolderPath) return []
 
   const references = new Map<string, GitIgnoreFileReference>()
-  // Backend file paths are workspace-relative; rootFolderPath is a synthetic
-  // display prefix. Accept relative paths as in-root — only absolute paths
-  // from another root are filtered. (The old prefix check rejected every real
-  // tree entry, and the synthetic root reference 404'd against the backend.)
+  // Backend paths are workspace-relative and rootFolderPath is a synthetic display prefix, so
+  // relative paths are in-root; only an absolute path from another root is filtered out.
   const isInRoot = (path: string) =>
     !path.startsWith('/') || pathStartsWithRoot(path, rootFolderPath)
   const addReference = (path: string) => {
@@ -107,13 +102,9 @@ export function collectGitIgnoreFileReferences(
 
   walk(files)
 
-  // Reference only the .gitignore files actually present in the loaded tree. We
-  // deliberately do NOT synthesize a conventional root .gitignore: the backend
-  // file tree includes dotfiles, so a real root .gitignore is always surfaced by
-  // the walk above once the root level loads (it loads first). Synthesizing one
-  // when the project root has none — common for the project-home workspace whose
-  // root is the bare project directory — fetched a non-existent file and 404'd on
-  // every load.
+  // Only .gitignore files present in the loaded tree; none is synthesized. The tree includes
+  // dotfiles and loads the root level first, so a real root .gitignore is always found, and a
+  // synthetic one would 404 for roots without one (e.g. a bare project-home directory).
   return [...references.values()].sort(compareIgnoreReferences)
 }
 

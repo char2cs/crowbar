@@ -1,0 +1,7 @@
+{
+  "method": "warning",
+  "params": {
+    "threadId": "01a1b140-1ed9-7b53-ae56-f4a07b033c2a",
+    "message": "This session was recorded with model `gpt-6.1-sol` but is resuming with `gpt-5.6-luna`. Consider switching back to `gpt-6.1-sol` as it may affect Codex performance."
+  }
+}

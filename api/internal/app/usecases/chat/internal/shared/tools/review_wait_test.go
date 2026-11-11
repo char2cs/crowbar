@@ -55,7 +55,6 @@ func waitOn(t *testing.T, threads ...domain.ReviewThread) *waitFixture {
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	f := &waitFixture{
 		changes: reviewthread.NewChanges(),

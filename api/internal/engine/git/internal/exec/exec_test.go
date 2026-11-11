@@ -3,6 +3,7 @@ package exec_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,4 +85,29 @@ func TestGit_ProcessCantStart_ExitCodeOne(
 	ctx := context.Background()
 	r := exec.Git(ctx, "/nonexistent/dir/path/xyz", "status")
 	assert.Equal(t, 1, r.ExitCode)
+}
+
+// A rejected push says why and then how to fix it in hint lines; the user reads
+// git's refusal, without the hints or the blank lines between them.
+func TestGitError_DetailIsGitsRefusalWithoutItsHints(t *testing.T) {
+	ctx := context.Background()
+	origin := t.TempDir()
+	require.Equal(t, 0, exec.Git(ctx, origin, "init", "--bare", "-b", "main").ExitCode)
+	dir := initRepo(t)
+	require.NoError(t, os.WriteFile(dir+"/a.txt", []byte("a\n"), 0o600))
+	require.Equal(t, 0, exec.Git(ctx, dir, "add", "a.txt").ExitCode)
+	require.Equal(t, 0, exec.Git(ctx, dir, "commit", "-m", "a").ExitCode)
+	require.Equal(t, 0, exec.Git(ctx, dir, "push", origin, "main").ExitCode)
+	require.Equal(t, 0, exec.Git(ctx, dir, "commit", "--amend", "-m", "a2").ExitCode)
+
+	r := exec.Git(ctx, dir, "-c", "advice.pushNonFFCurrent=true", "push", origin, "main")
+	require.Contains(t, r.Stderr, "hint:", "precondition: git explains the rejection in hints")
+
+	var gitErr *exec.GitError
+	require.ErrorAs(t, exec.RequireSuccess("push", r), &gitErr)
+	detail := gitErr.Detail()
+	assert.Contains(t, detail, "[rejected]")
+	assert.NotContains(t, detail, "hint:")
+	assert.NotContains(t, detail, "\n\n")
+	assert.Equal(t, strings.TrimSpace(detail), detail)
 }

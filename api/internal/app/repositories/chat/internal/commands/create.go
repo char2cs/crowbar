@@ -7,14 +7,12 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Create seeds a new AgentChat: an identity, a workspace and a clock, and
-// nothing else. It carries no segment, no provider and no terminal session
-// because a chat does not own the process talking to it — the runner does, and
-// it is Started as its own aggregate (agentrunner). A chat can therefore be
-// minted by the reducer (a /clear that lands on an unknown conversation) without
-// any process fact being invented for it.
+// Create seeds a new AgentChat: an identity, a workspace and a clock. It carries
+// no terminal session because a chat does not own the process talking to it:
+// its ledger records each runner_started instead.
 type Create struct {
 	ID          string
 	WorkspaceID string
@@ -27,10 +25,7 @@ type Create struct {
 	// field existed carries.
 	Surface string
 	// ProviderID is the vendor the chat is BORN on — see domain.Chat.ProviderID.
-	// Still not a process fact: the runner is a separate aggregate and this
-	// mint starts nothing. "" is what a chat minted before the field carries,
-	// and what a reducer-minted chat (a /clear landing on an unknown
-	// conversation) carries until its runner's own move restates it.
+	// This mint starts nothing; "" is what a chat minted before the field carries.
 	ProviderID string
 	Now        time.Time
 }
@@ -41,7 +36,7 @@ func (c Create) ShouldSnapshot() bool { return false }
 
 func (c Create) Validate(current *domain.Chat) error {
 	if current != nil {
-		return fmt.Errorf("create agent chat: exists: %w", asynxModels.ErrValidation)
+		return &problem.Error{Code: problem.IDConflict, Message: fmt.Sprintf("chat %s already exists", c.ID)}
 	}
 	if c.ID == "" {
 		return fmt.Errorf("create agent chat: missing ids: %w", asynxModels.ErrValidation)
@@ -52,11 +47,9 @@ func (c Create) Validate(current *domain.Chat) error {
 	return nil
 }
 
-// validChatType no longer accepts ChatTypeFolder (2026-09-08
-// sidebar-placement-unification Task 8) or ChatTypeBranch (Task 9): a folder
-// is a domain.Folder row now, home-scoped or repo-scoped alike, and a
-// workspace's own position is its Node{Kind:workspace} row — neither is ever
-// minted or retyped as a Chat aggregate any more.
+// validChatType refuses ChatTypeFolder and ChatTypeBranch: a folder is a
+// tree.Folder row and a workspace's position is its Node{Kind:workspace} row,
+// so neither is minted or retyped as a Chat aggregate.
 func validChatType(t domain.ChatType) bool {
 	switch t {
 	case domain.ChatTypeChat, domain.ChatTypeWorkflow:
@@ -70,13 +63,12 @@ func validChatType(t domain.ChatType) bool {
 
 func (c Create) EmitEvent(_ *domain.Chat) domain.Chat {
 	return domain.Chat{
-		ID:             c.ID,
-		WorkspaceID:    c.WorkspaceID,
-		RepoID:         c.RepoID,
-		Type:           c.Type,
-		Surface:        c.Surface,
-		ProviderID:     c.ProviderID,
-		CreatedAt:      c.Now,
-		LastActivityAt: c.Now,
+		ID:          c.ID,
+		WorkspaceID: c.WorkspaceID,
+		RepoID:      c.RepoID,
+		Type:        c.Type,
+		Surface:     c.Surface,
+		ProviderID:  c.ProviderID,
+		CreatedAt:   c.Now,
 	}
 }

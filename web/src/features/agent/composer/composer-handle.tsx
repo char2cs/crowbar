@@ -6,37 +6,21 @@ import { handleOffset } from '@/features/agent/composer/lib/handle-geometry'
 import { IS_MOBILE } from '@/utils/platform'
 
 interface ComposerHandleProps {
-  /** The field's measured height, in px. */
   fieldHeight: number
-  /** There is text to send. */
   hasText: boolean
-  /** A turn is in flight. */
   working: boolean
-  /** The provider declares an interrupt Crowbar can send. */
+  /** The running turn can be interrupted, or the prompt being taken up taken back. */
   canStop: boolean
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
   onSend: () => void
   onStop: () => void
-  /** Opens the embedded Excalidraw editor. */
   onOpenExcalidraw: () => void
-  /** Opens the drag-and-drop/click-to-browse file picker. */
   onOpenAttachFile: () => void
 }
 
-/**
- * The circle at the end of the last line.
- *
- * STOP WINS whenever a turn is actually stoppable, text in the box or not.
- * Typing a follow-up while a turn runs is exactly the case "Queue a message…"
- * invites — and a box that hides the only way to interrupt the turn the moment
- * there's a character in it leaves nothing to click: Enter still queues that
- * text regardless of what this button shows, so nothing typed is lost by
- * letting the button read as Stop instead. Between idle and stopping it can
- * also be SENDING: the draft clears the instant a prompt queues, well before
- * the server has proven delivery, and with no distinct look here that gap reads
- * as the click having done nothing.
- */
+/** Stop wins over send whenever the turn is stoppable — Enter still queues typed
+ *  text. Sending gets its own look so the gap before delivery doesn't read as a dead click. */
 export function ComposerHandle({
   fieldHeight,
   hasText,
@@ -49,7 +33,7 @@ export function ComposerHandle({
   onOpenAttachFile,
 }: ComposerHandleProps) {
   // A phone has no Enter to queue with, so typed text makes the button send.
-  const stopping = working && canStop && !(IS_MOBILE && hasText)
+  const stopping = (working || sending) && canStop && !(IS_MOBILE && hasText)
   const sendingVisual = !stopping && !hasText && sending
   const idle = !stopping && !sendingVisual && !hasText
 

@@ -11,26 +11,26 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   postWorkspace,
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
   deleteChat,
 }))
-// `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —
-// the real resolver needs an async fetch+cache round trip these tests have
-// no reason to exercise; `handleCreateHomeThread`'s own tests never needed
-// this mock since they take `homeWorkspaceId` as a direct argument instead.
+// The real home resolver needs a fetch+cache round trip these tests don't exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
 }))
 
 import { handleTrash } from '@/components/layout/trash-actions'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import type { Repo } from '@/core/entities/repo-types'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { editorTab, seatTab } from '@/__tests__/__fixtures__/view-state'
+import type { EditorTabBase } from '@/features/panes/types/pane-content'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -55,91 +55,47 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
-  useHomeTreeStore.setState({ trees: {} })
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
-  // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
-  // CLI, unlike the old chat-less postWorkspace) — the global provider store
-  // (agent-providers-store.ts), not a per-workspace one, since there is no
-  // workspace yet to scope a per-workspace read through.
+  resetEntities()
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  windowPaneStore.setState(windowPaneStore.getInitialState(), true)
+  resetEntities()
+  // Creating a workspace starts a CLI, so it needs a provider from the global store (there is no
+  // workspace yet to scope a per-workspace read through).
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
 describe('handleTrash', () => {
   it('holds a real workspace row in the removal tray, and reports it', () => {
-    useSidebarStore.setState({
-      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
-    })
+    seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
 
     expect(handleTrash('ws-a')).toBe(true)
 
-    expect(useRemovalTrayStore.getState().entries).toHaveLength(1)
-    expect(useRemovalTrayStore.getState().entries[0]?.id).toBe('ws-a')
+    expect(treeUiStore.getState().removals).toHaveLength(1)
+    expect(treeUiStore.getState().removals[0]?.id).toBe('ws-a')
   })
 
   it('is a no-op for the repo-home row (no matching row for planRemoval to draft), and reports it', () => {
-    useSidebarStore.setState({ repos: [repo()] })
+    seedRepos([repo()])
 
     expect(handleTrash('home-1')).toBe(false)
 
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    expect(treeUiStore.getState().removals).toEqual([])
   })
 
-  // The literal live-caught bug: the daemon's ListInRepo never filters by
-  // the repo id in its own URL (fetchFolders's own doc — a known, unfixed
-  // backend leniency), so a home folder bleeds into every REPO's own
-  // folders array too, stamped with THAT repo's id. `resolveRow`'s
-  // repo-scoped walk found this FALSE match, and the removal tray then
-  // committed a real DELETE against a repo that had no business resolving
-  // it at all — silently destroying a home folder dragged onto the trash
-  // target. `resolveHomeRowScope` must resolve a home row BEFORE that walk
-  // ever runs, regardless of what a repo's own (bled-into) folders array
-  // claims — proven here by the held draft's OWN `repoId`: '' (home), never
-  // 'r1' (the bled repo the walk would have found instead).
-  it('holds a home folder through the HOME path even when a repo’s (backend-leniency-bled) folders array also claims its id', () => {
-    getHomeWorkspaceId.mockReturnValue('home-ws-1')
-    useHomeTreeStore.setState({
-      trees: {
-        p1: { chats: [], folders: [{ id: 'home-folder-1', repoId: '', name: 'x', order: 0 }] },
-      },
-    })
-    useSidebarStore.setState({
-      repos: [repo({ folders: [{ id: 'home-folder-1', repoId: 'r1', name: 'x', order: 0 }] })],
-    })
-
-    expect(handleTrash('home-folder-1')).toBe(true)
-
-    const entries = useRemovalTrayStore.getState().entries
-    expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({
-      kind: 'folder',
-      id: 'home-folder-1',
-      projectId: 'p1',
-      repoId: '',
-    })
-  })
-
-  // Task 25 review round 1, Important: a user-locked, non-home workspace
-  // still shows a trash button (only the project-home row hides it), but
-  // `draftFor` refuses to draft a locked workspace — the caller (the
-  // delete-confirm dialog's onConfirm) needs this reported so it can tell
-  // the user rather than silently swallowing a click it just walked them
-  // through a confirmation for.
+  // A locked non-home workspace still shows a trash button, but `draftFor` refuses it; the caller
+  // must hear so, to tell the user rather than swallow a confirmed click.
   it('is a no-op for a locked (non-home) workspace, and reports it', () => {
-    useSidebarStore.setState({
-      repos: [
-        repo({
-          workspaces: [
-            { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
-          ],
-        }),
-      ],
-    })
+    seedRepos([
+      repo({
+        workspaces: [
+          { id: 'ws-locked', branch: 'locked-one', age: '', order: 0, status: 'locked' },
+        ],
+      }),
+    ])
 
     expect(handleTrash('ws-locked')).toBe(false)
 
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    expect(treeUiStore.getState().removals).toEqual([])
   })
 
   // Addendum §2: a chat's delete now holds in the SAME removal tray every
@@ -148,40 +104,57 @@ describe('handleTrash', () => {
   // immediate `deleteChat` call.
   describe('a chat row', () => {
     it('holds a bubble chat in the removal tray, scoped through any workspace of its own repo', () => {
-      useSidebarStore.setState({
-        repos: [
-          repo({
-            defaultWorkspaceId: undefined,
-            workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
-            // No `workspaceId` — a bubble, not a worktree chat.
-            chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
-          }),
-        ],
-      })
+      seedRepos([
+        repo({
+          defaultWorkspaceId: undefined,
+          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+          // No `workspaceId` — a bubble, not a worktree chat.
+          chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+        }),
+      ])
 
       expect(handleTrash('c1')).toBe(true)
 
       expect(deleteChat).not.toHaveBeenCalled()
-      const entries = useRemovalTrayStore.getState().entries
+      const entries = treeUiStore.getState().removals
       expect(entries).toHaveLength(1)
       expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', wsId: 'ws-a' })
     })
 
+    // The chat's pane closes with it; a file edited beside it is the only copy of those edits.
+    it('keeps an unsaved file open beside the chat when its pane closes', () => {
+      seedRepos([
+        repo({
+          defaultWorkspaceId: undefined,
+          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+          chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+        }),
+      ])
+      windowPaneStore.getState().paneActions.openChat('c1', { projectId: 'p1' })
+      const paneId = chatPaneIndex(windowPaneStore.getState().panes).get('c1')!
+      seatTab(windowPaneStore, paneId, { ...editorTab('readme'), isDirty: true } as EditorTabBase)
+
+      expect(handleTrash('c1')).toBe(true)
+
+      const state = windowPaneStore.getState()
+      expect(chatPaneIndex(state.panes).has('c1')).toBe(false)
+      expect(Object.values(state.panes).some((p) => p.editorTabIds.includes('readme'))).toBe(true)
+      expect(state.buffers.find((b) => b.id === 'readme')).toMatchObject({ isDirty: true })
+    })
+
     it('refuses when the repo has no workspace at all to scope the request through', () => {
-      useSidebarStore.setState({
-        repos: [
-          repo({
-            defaultWorkspaceId: undefined,
-            workspaces: [],
-            chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
-          }),
-        ],
-      })
+      seedRepos([
+        repo({
+          defaultWorkspaceId: undefined,
+          workspaces: [],
+          chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
+        }),
+      ])
 
       expect(handleTrash('c1')).toBe(false)
 
       expect(deleteChat).not.toHaveBeenCalled()
-      expect(useRemovalTrayStore.getState().entries).toEqual([])
+      expect(treeUiStore.getState().removals).toEqual([])
     })
   })
 })

@@ -12,6 +12,7 @@ import type { GitDiff } from '@/features/git/types/git-types'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { markViewed } from '@/__tests__/__fixtures__/viewed'
+import { markGitStatusChanged } from '@/features/git/stores/git-refresh'
 
 // Fixtures mirror review-code-view.test.tsx: jsdom has no layout, so the rect
 // stub makes the virtualised surface real, and every render assertion blocks
@@ -199,6 +200,34 @@ describe('review patch window with viewed files', () => {
     expect(root.querySelector('[data-additions-count]')?.textContent).toBe('+1')
     expect(root.querySelector('[data-deletions-count]')?.textContent).toBe('-1')
     expect(screen.getAllByRole('checkbox', { name: /viewed/i })).toHaveLength(3)
+  })
+
+  // A pure addition: +4 -0 over a 3-line context hunk, as the daemon reported a real edit.
+  it('shows the summary counts on a file viewed before its patch was ever fetched', async () => {
+    const { files, outline } = manyFiles(2)
+    files[0] = { ...files[0], additions: 4, deletions: 0 }
+    outline[0] = { ...outline[0], hunks: [{ oldStart: 4, oldLines: 3, newStart: 4, newLines: 7 }] }
+    const { container } = await renderSurface(files, outline, [pathOf(0)])
+    await waitForCode(container, markerOf(1))
+
+    const [host] = container.querySelectorAll('diffs-container')
+    const root = (host as HTMLElement).shadowRoot as ShadowRoot
+    expect(root.querySelector('[data-additions-count]')?.textContent).toBe('+4')
+  })
+
+  it("re-fetches a shown file's patch when the workspace's git status changes", async () => {
+    const { files, outline } = manyFiles(1)
+    const { container } = await renderSurface(files, outline)
+    await waitForCode(container, markerOf(0))
+
+    mocks.getReviewPatch.mockImplementation(async (_scope: unknown, path: string) => ({
+      patch: patchFor(path).replace('"after"', '"edited since"'),
+      truncated: false,
+    }))
+    act(() => markGitStatusChanged('ws-1'))
+
+    await waitForCode(container, 'edited since')
+    expect(fetchedPaths()).toEqual([pathOf(0), pathOf(0)])
   })
 
   it("fetches a file's full text only when a separator is expanded, then reveals the lines", async () => {

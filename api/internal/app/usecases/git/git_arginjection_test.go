@@ -9,14 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/api/libs"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // TestRegression_GitArgInjection_Reset_RejectsBadMode proves that a reset mode
 // outside the {soft,mixed,hard,keep,merge} allowlist is rejected at the usecase
-// boundary with apperr.ErrInvalidArgument and never reaches the engine (where it
+// boundary with problem.ErrInvalidArgument and never reaches the engine (where it
 // would become an arbitrary `--<mode>` git flag → argument injection).
 func TestRegression_GitArgInjection_Reset_RejectsBadMode(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)
@@ -30,8 +29,8 @@ func TestRegression_GitArgInjection_Reset_RejectsBadMode(t *testing.T) {
 	for _, mode := range []string{"evil", "--exec=touch /tmp/pwn", "", "Hard", "soft "} {
 		err := uc.Reset(ctx, "w1", mode, "HEAD", now)
 		require.Error(t, err, "mode %q must be rejected", mode)
-		require.ErrorIs(t, err, apperr.ErrInvalidArgument, "mode %q", mode)
-		status, _ := libs.StatusAndMessage(err)
+		require.ErrorIs(t, err, problem.ErrInvalidArgument, "mode %q", mode)
+		status := problem.CodeOf(err).Status()
 		assert.Equal(t, http.StatusBadRequest, status, "mode %q must map to 400", mode)
 	}
 	assert.False(t, syncer.Synced, "a rejected reset must not resync")
@@ -49,7 +48,7 @@ func TestRegression_GitArgInjection_Reset_RejectsBadCommit(t *testing.T) {
 	}
 
 	err := uc.Reset(ctx, "w1", "hard", "--output=/tmp/pwn", now)
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // TestRegression_GitArgInjection_Reset_AllowsValidModes proves the happy path:
@@ -85,8 +84,8 @@ func TestRegression_GitArgInjection_Merge_RejectsDashBranch(t *testing.T) {
 
 	for _, branch := range []string{"--exec=touch /tmp/pwn", "-X", "--output=/tmp/x"} {
 		err := uc.Merge(ctx, "w1", branch, now)
-		require.ErrorIs(t, err, apperr.ErrInvalidArgument, "branch %q", branch)
-		status, _ := libs.StatusAndMessage(err)
+		require.ErrorIs(t, err, problem.ErrInvalidArgument, "branch %q", branch)
+		status := problem.CodeOf(err).Status()
 		assert.Equal(t, http.StatusBadRequest, status)
 	}
 	assert.False(t, syncer.Synced)
@@ -121,8 +120,8 @@ func TestRegression_GitArgInjection_Rebase_RejectsDashOnto(t *testing.T) {
 
 	for _, onto := range []string{"--exec=touch /tmp/pwn", "--onto=evil", "-i"} {
 		err := uc.Rebase(ctx, "w1", onto, now)
-		require.ErrorIs(t, err, apperr.ErrInvalidArgument, "onto %q", onto)
-		status, _ := libs.StatusAndMessage(err)
+		require.ErrorIs(t, err, problem.ErrInvalidArgument, "onto %q", onto)
+		status := problem.CodeOf(err).Status()
 		assert.Equal(t, http.StatusBadRequest, status)
 	}
 	assert.False(t, syncer.Synced)
@@ -177,7 +176,7 @@ func TestRegression_GitArgInjection_BranchOps_RejectDashOperands(t *testing.T) {
 	}
 	for _, c := range cases {
 		err := c.run()
-		require.ErrorIs(t, err, apperr.ErrInvalidArgument, c.name)
+		require.ErrorIs(t, err, problem.ErrInvalidArgument, c.name)
 	}
 }
 
@@ -194,8 +193,8 @@ func TestRegression_GitArgInjection_CommitDiff_RejectsBadSha(t *testing.T) {
 
 	for _, sha := range []string{"--output=/tmp/pwn", "-O/tmp/x", "HEAD;rm -rf /"} {
 		_, err := uc.CommitDiff(ctx, "w1", sha)
-		require.ErrorIs(t, err, apperr.ErrInvalidArgument, "sha %q", sha)
-		status, _ := libs.StatusAndMessage(err)
+		require.ErrorIs(t, err, problem.ErrInvalidArgument, "sha %q", sha)
+		status := problem.CodeOf(err).Status()
 		assert.Equal(t, http.StatusBadRequest, status)
 	}
 }
@@ -239,7 +238,7 @@ func TestRegression_GitArgInjection_Operand_RejectsMetacharacters(t *testing.T) 
 	}
 	for _, b := range bad {
 		err := uc.Merge(ctx, "w1", b, now)
-		require.ErrorIs(t, err, apperr.ErrInvalidArgument, "operand %q must be rejected", b)
+		require.ErrorIs(t, err, problem.ErrInvalidArgument, "operand %q must be rejected", b)
 	}
 }
 

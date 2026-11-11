@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -82,18 +83,66 @@ func (r *fakeWorktreeResolver) Resolve(
 	return r.ws, r.err
 }
 
+// fakeWorkspaces answers Get from a fixed set of workspaces.
+type fakeWorkspaces map[string]domain.Workspace
+
+func (w fakeWorkspaces) Get(_ context.Context, id string) (domain.Workspace, error) {
+	ws, ok := w[id]
+	if !ok {
+		return domain.Workspace{}, errors.New("workspace not found")
+	}
+	return ws, nil
+}
+
 func buildMetaStore(
 	t *testing.T,
 	worktrees terminal.WorktreeResolver,
 	store *fakeSessionStore,
 	home string,
+	workspaces ...domain.Workspace,
 ) engineterminal.SessionMetaStore {
 	t.Helper()
+	known := fakeWorkspaces{}
+	for _, ws := range workspaces {
+		known[ws.ID] = ws
+	}
 	return terminal.NewSessionMetaStore(
 		worktrees,
+		known,
 		store,
 		func() (string, error) { return home, nil },
 	)
+}
+
+// A project home's terminal is owned by the home workspace, which no chat's worktree is: its
+// session must still persist, under the home's own folder in the Crowbar home.
+func TestSessionMetaStore_HomeTerminalPersists(t *testing.T) {
+	ctx := context.Background()
+	worktrees := &fakeWorktreeResolver{err: worktree.ErrNoWorktreeInAncestry}
+	store := newFakeSessionStore()
+	home := domain.Workspace{ID: "home-ws", ProjectID: "proj-1", Kind: domain.WorkspaceKindHome}
+	ms := buildMetaStore(t, worktrees, store, "/crowbar", home)
+
+	require.NoError(t, ms.Save(ctx, engineterminal.SessionMeta{SessionID: "s", ChatID: "home-ws"}))
+	assert.Equal(t, "proj-1", store.rows["s"].ProjectID)
+
+	dir, err := ms.StorageDir(ctx, "home-ws")
+	require.NoError(t, err)
+	assert.Equal(t, "/crowbar/projects/proj-1/workspaces/home-ws/storages", dir)
+}
+
+func TestSessionMetaStore_UnownedNonHomeIdStillFails(t *testing.T) {
+	ctx := context.Background()
+	worktrees := &fakeWorktreeResolver{err: worktree.ErrNoWorktreeInAncestry}
+	store := newFakeSessionStore()
+	git := domain.Workspace{ID: "ws-git", ProjectID: "p", RepoID: "r", Kind: domain.WorkspaceKindGit}
+	ms := buildMetaStore(t, worktrees, store, "/crowbar", git)
+
+	_, err := ms.StorageDir(ctx, "ws-git")
+	require.ErrorIs(t, err, worktree.ErrNoWorktreeInAncestry)
+	_, err = ms.StorageDir(ctx, "deleted-chat")
+	require.ErrorIs(t, err, worktree.ErrNoWorktreeInAncestry)
+	assert.Error(t, ms.Save(ctx, engineterminal.SessionMeta{SessionID: "s", ChatID: "deleted-chat"}))
 }
 
 func TestSessionMetaStore_Save_UpsertsSetsProjectAndRepo(t *testing.T) {

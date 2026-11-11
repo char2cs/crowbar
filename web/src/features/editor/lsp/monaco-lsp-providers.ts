@@ -1,11 +1,7 @@
-/**
- * Monaco language-feature providers backed by the daemon's /lsp routes: completion, hover,
- * signature help, definition, references, rename, code actions, document symbols, code lens,
- * semantic tokens and document formatting. Monaco owns every widget (suggest, hover, parameter
- * hints, peek, rename box, lightbulb, lenses, outline); this module only answers queries (each
- * through `lsp-query.ts`) and runs the server commands lenses and actions carry.
- */
-import { editor as monacoEditor, languages, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
+// Monaco language-feature providers backed by the daemon's /lsp routes. Monaco owns every widget;
+// this only answers queries (through lsp-query.ts) and runs the server commands lenses and actions
+// carry.
+import { editor as monacoEditor, languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import type {
   CodeAction,
@@ -20,17 +16,14 @@ import type {
   TextEdit,
 } from 'vscode-languageserver-types'
 import { extensionRegistry } from '@/extensions/registry/extension-registry'
-import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
-import { fileUri, uriToFsPath, uriToWorkspaceId } from '../lib/editor-uri'
-import { langForUri } from '../lib/monaco-adapters'
+import { refFromUri } from '../documents/document-ref'
+import { findDocumentBuffer } from '../documents/open-document'
 import { revealInEditor } from '../lib/reveal'
 import { LspClient } from './lsp-client'
-import { modelTarget, query } from './lsp-query'
+import { query } from './lsp-query'
+import { ensurePreviewModels, isOutsideWorkspace, modelFor, toMonacoLocations } from './peek-models'
 import { lspDocumentSemanticTokensProvider } from './semantic-tokens'
 import {
   completionToMonaco,
@@ -47,6 +40,7 @@ import {
   type DaemonWorkspaceEdit,
 } from './lsp-to-monaco'
 import { applyWorkspaceEdit } from './workspace-edit'
+import { report } from '@/lib/errors/report'
 
 /** Monaco language ids the daemon's server registry covers. */
 const LSP_LANGUAGES = ['go', 'typescript', 'javascript', 'python', 'java', 'c', 'cpp']
@@ -54,19 +48,8 @@ const LSP_LANGUAGES = ['go', 'typescript', 'javascript', 'python', 'java', 'c', 
 /** Monaco command running a server command (and any edit it carries) for a lens or action. */
 const RUN_COMMAND = 'crowbar.lsp.runCommand'
 
-function isOutsideWorkspace(path: string): boolean {
-  return /^([A-Za-z]:)?[\\/]/.test(path)
-}
-
-function modelFor(wsId: string, path: string): Monaco.editor.ITextModel | null {
-  return monacoEditor.getModel(Uri.parse(fileUri(wsId, path)))
-}
-
-/**
- * Split a workspace edit into Monaco edits for files that have a model (so
- * they land in the editor's undo stack) and the rest, which is applied to the
- * buffers/disk directly.
- */
+// Split a workspace edit into Monaco edits for files with a model (so they land
+// in the undo stack) and the rest, applied to the buffers/disk directly.
 function splitWorkspaceEdit(
   wsId: string,
   edit: DaemonWorkspaceEdit | null,
@@ -91,10 +74,8 @@ function splitWorkspaceEdit(
   return { monacoEdits, rest }
 }
 
-/**
- * Apply an edit the server produced: files open in Monaco are edited through
- * their models (one undo step each), the rest through the buffers/disk.
- */
+/** Apply a server edit: files open in Monaco are edited through their models (one undo step
+ *  each), the rest through the buffers/disk. */
 async function applyEdit(wsId: string, edit: DaemonWorkspaceEdit): Promise<void> {
   const rest: Record<string, TextEdit[]> = {}
   for (const [path, edits] of workspaceEditByPath(edit)) {
@@ -114,10 +95,8 @@ async function applyEdit(wsId: string, edit: DaemonWorkspaceEdit): Promise<void>
   if (Object.keys(rest).length > 0) await applyWorkspaceEdit({ changes: rest }, wsId)
 }
 
-/**
- * Run a lens's or action's server command: the daemon executes it and hands
- * back the edits the server applied through the editor while it ran.
- */
+/** Run a lens's or action's server command: the daemon executes it and returns the edits the
+ *  server applied through the editor meanwhile. */
 async function runCommand(
   wsId: string,
   path: string,
@@ -157,11 +136,8 @@ function lensCommand(
     : { id: '', title: command.title }
 }
 
-/**
- * An LSP code action as Monaco's: edits to open files go through `edit` (the
- * undo stack); edits to other files and the server command (the daemon only
- * passes on commands the server runs) go through RUN_COMMAND.
- */
+/** An LSP code action as Monaco's: edits to open files go through `edit` (the undo stack);
+ *  other files' edits and the server command go through RUN_COMMAND. */
 function toCodeAction(
   target: { wsId: string; path: string },
   action: Command | CodeAction,
@@ -180,64 +156,15 @@ function toCodeAction(
   }
 }
 
-// Models created only so the references peek can preview files that are not
-// open. The ModelRegistry adopts one if the file is later opened; otherwise
-// it is disposed when the next peek replaces it.
-const peekModels = new Set<Monaco.editor.ITextModel>()
-
-function isHeld(model: Monaco.editor.ITextModel): boolean {
-  const uri = model.uri.toString()
-  const wsId = uriToWorkspaceId(uri)
-  if (wsId && getWorkspaceStore(wsId)?.modelRegistry?.get(uri)) return true
-  return monacoEditor.getEditors().some((e) => e.getModel() === model)
-}
-
-async function ensurePreviewModels(wsId: string, paths: string[]): Promise<void> {
-  for (const model of peekModels) {
-    if (!model.isDisposed() && !isHeld(model)) model.dispose()
-  }
-  peekModels.clear()
-  const missing = [...new Set(paths)].filter((p) => !modelFor(wsId, p))
-  await Promise.all(
-    missing.map(async (path) => {
-      const uri = fileUri(wsId, path)
-      const open = windowPaneStore
-        .getState()
-        .buffers.find((b) => b.type === 'editor' && b.path === path && b.workspaceId === wsId)
-      const text =
-        open && 'content' in open
-          ? open.content
-          : await readWorkspaceFile(wsId, path).catch(() => null)
-      if (text === null || modelFor(wsId, path)) return
-      peekModels.add(monacoEditor.createModel(text, langForUri(uri), Uri.parse(uri)))
-    }),
-  )
-}
-
-function toMonacoLocations(wsId: string, locations: DaemonLocation[]): Monaco.languages.Location[] {
-  const inside: Monaco.languages.Location[] = []
-  for (const loc of locations) {
-    if (isOutsideWorkspace(loc.filePath)) continue
-    inside.push({ uri: Uri.parse(fileUri(wsId, loc.filePath)), range: toMonacoRange(loc.range) })
-  }
-  return inside
-}
-
 function recordJumpFrom(source: Monaco.editor.ICodeEditor): void {
   const model = source.getModel()
-  const target = model ? modelTarget(model) : null
+  const doc = model ? refFromUri(model.uri.toString()) : null
   const position = source.getPosition()
-  if (!model || !target || !position) return
-  const buffer = windowPaneStore
-    .getState()
-    .buffers.find(
-      (b) => b.type === 'editor' && b.path === target.path && b.workspaceId === target.wsId,
-    )
-  if (!buffer) return
+  const buffer = doc ? findDocumentBuffer(doc) : null
+  if (!model || !doc || !position || !buffer) return
   useJumpListStore.getState().actions.pushEntry({
     bufferId: buffer.id,
-    workspaceId: target.wsId,
-    filePath: target.path,
+    doc,
     line: position.lineNumber - 1,
     column: position.column - 1,
     offset: model.getOffsetAt(position),
@@ -259,8 +186,8 @@ function snippetSuggestions(
   model: Monaco.editor.ITextModel,
   position: Monaco.IPosition,
 ): Monaco.languages.CompletionList {
-  const target = modelTarget(model)
-  const languageId = target ? extensionRegistry.getLanguageId(target.path) : null
+  const doc = refFromUri(model.uri.toString())
+  const languageId = doc ? extensionRegistry.getLanguageId(doc.path) : null
   if (!languageId) return { suggestions: [] }
   const word = model.getWordUntilPosition(position)
   const range = {
@@ -301,7 +228,7 @@ export function registerLspProviders(): void {
       command: Command | null,
     ) => {
       void runCommand(wsId, path, edit, command).catch((error: unknown) =>
-        toast.error('Command failed', actionErrorMessage(error, undefined)),
+        report(error, { action: 'Command failed' }),
       )
     },
   )
@@ -309,15 +236,11 @@ export function registerLspProviders(): void {
   // Cross-file navigation (go to definition, peek "open") lands in a tab.
   monacoEditor.registerEditorOpener({
     openCodeEditor(source, resource, selectionOrPosition) {
-      const wsId = uriToWorkspaceId(resource.toString())
-      if (!wsId) return false
+      const doc = refFromUri(resource.toString())
+      if (!doc) return false
       recordJumpFrom(source)
-      void revealInEditor({
-        workspaceId: wsId,
-        path: uriToFsPath(resource.toString()),
-        position: positionOf(selectionOrPosition),
-      }).catch((error: unknown) =>
-        toast.error('Could not open file', actionErrorMessage(error, undefined)),
+      void revealInEditor({ doc, position: positionOf(selectionOrPosition) }).catch(
+        (error: unknown) => report(error, { action: 'Could not open file' }),
       )
       return true
     },
@@ -403,10 +326,7 @@ export function registerLspProviders(): void {
       )
       if (!response?.result) return null
       const locations = toMonacoLocations(response.target.wsId, response.result)
-      await ensurePreviewModels(
-        response.target.wsId,
-        locations.map((l) => uriToFsPath(l.uri.toString())),
-      )
+      await ensurePreviewModels(locations)
       return locations
     },
   })

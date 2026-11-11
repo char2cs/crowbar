@@ -2,6 +2,8 @@
 package handlers
 
 import (
+	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -42,7 +44,11 @@ func (h *Handlers) Peer(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			slog.DebugContext(c.Request.Context(), "browser: close the peer socket", "err", err)
+		}
+	}()
 	conn.SetReadLimit(readLimit)
 
 	p := &peer{conn: conn}
@@ -72,6 +78,11 @@ type peer struct {
 func (p *peer) Send(frame []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	_ = p.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-	return p.conn.WriteMessage(websocket.TextMessage, frame)
+	if err := p.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+		return fmt.Errorf("browser: write deadline: %w", err)
+	}
+	if err := p.conn.WriteMessage(websocket.TextMessage, frame); err != nil {
+		return fmt.Errorf("browser: send: %w", err)
+	}
+	return nil
 }

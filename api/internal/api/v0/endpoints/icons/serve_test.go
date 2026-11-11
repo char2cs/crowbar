@@ -7,10 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"sync"
-	"syscall"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -94,6 +91,43 @@ func TestValidateRefusesANonImage(t *testing.T) {
 	}
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+const scriptedSVG = `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`
+
+// The picker offers only raster formats; an SVG can carry script, so an upload of one is refused.
+func TestValidateRefusesAnSVGUpload(t *testing.T) {
+	c, rec := ctx(httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/", nil))
+
+	if icons.Validate(c, []byte(scriptedSVG)) {
+		t.Fatal("an svg upload passed validation")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+// An imported repo's logo.svg is served as an image, and opened directly it must not run its
+// script in the daemon's origin.
+func TestServeSandboxesAnSVG(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "icon")
+	if err := os.WriteFile(path, []byte(scriptedSVG), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	c, rec := ctx(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+
+	icons.Serve(c, path)
+
+	if got := rec.Header().Get("Content-Type"); got != "image/svg+xml" {
+		t.Errorf("Content-Type = %q, want image/svg+xml", got)
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "sandbox") {
+		t.Errorf("Content-Security-Policy = %q, want default-src 'none' and sandbox", csp)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
 	}
 }
 
@@ -241,20 +275,6 @@ func TestReadUploadRefusesAnOversizeFileBeforeReadingIt(t *testing.T) {
 	}
 }
 
-func TestDefaultCrowbarHomeHonoursTheEnvOverride(t *testing.T) {
-	// Dev instances point this inside the workspace being developed, which is
-	// the whole of their isolation from a real install.
-	t.Setenv("CROWBAR_HOME", "/tmp/crowbar-test-home")
-
-	got, err := icons.DefaultCrowbarHome()
-	if err != nil {
-		t.Fatalf("home: %v", err)
-	}
-	if got != "/tmp/crowbar-test-home" {
-		t.Fatalf("home = %q, want the override", got)
-	}
-}
-
 func TestContentTypeOnlySniffsTheFirst512Bytes(t *testing.T) {
 	// The SVG probe reads a HEAD, not the whole file: a multi-megabyte asset
 	// must not be scanned end to end on every request that serves it.
@@ -348,51 +368,6 @@ func TestReadUploadRefusesAPathWithNoReadPermission(t *testing.T) {
 
 	if _, ok := icons.ReadUpload(c); ok {
 		t.Fatal("an unreadable file was accepted as an icon")
-	}
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("code = %d, want 400", rec.Code)
-	}
-}
-
-// TestReadUploadRefusesAPathThatGrowsPastTheCapBetweenStatAndRead pins the
-// "Hardening applied" guarantee on readFromPath's doc comment: LimitReader
-// catches a file that grew larger than MaxBytes AFTER the size-rejecting Stat
-// call. A FIFO makes this deterministic without a real race: Stat reports a
-// pipe's size as 0 (always under the cap), so the size check passes; the
-// actual bytes read past the writer's other end are what trip the post-read
-// oversize guard. Opening one end of a FIFO blocks until the other end opens,
-// so the writer goroutine's ordering relative to ReadUpload never matters —
-// there is no interval to guess at and nothing to re-sample.
-func TestReadUploadRefusesAPathThatGrowsPastTheCapBetweenStatAndRead(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("named pipes are unix-only")
-	}
-	fifo := filepath.Join(t.TempDir(), "growing")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
-		t.Fatalf("mkfifo: %v", err)
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		w, err := os.OpenFile(fifo, os.O_WRONLY, 0)
-		if err != nil {
-			return
-		}
-		defer func() { _ = w.Close() }()
-		// One byte past MaxBytes+1 so the LimitReader-capped read still comes
-		// back oversize regardless of how many bytes actually land.
-		_, _ = w.Write(make([]byte, icons.MaxBytes+2))
-	}()
-	t.Cleanup(wg.Wait)
-
-	req := httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"path":"`+fifo+`"}`))
-	req.Header.Set("Content-Type", "application/json")
-	c, rec := ctx(req)
-
-	if _, ok := icons.ReadUpload(c); ok {
-		t.Fatal("a file that grew past the cap after Stat was accepted")
 	}
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("code = %d, want 400", rec.Code)

@@ -1,18 +1,19 @@
 import { Skull } from '@phosphor-icons/react'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { confirmAndKillAgent } from '@/features/agent/lib/kill-agent'
-import { useActiveSessionsStore } from '@/lib/store/active-sessions'
+import { useStore } from 'zustand'
+import { selectActiveSession } from '@/core/entities/active-sessions'
+import { entityStore } from '@/core/entities/entity-store'
 
 const DESTRUCTIVE =
   'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20'
 
-/**
- * The menu entry that ends the agent running on `chatId`, or nothing when none
- * is. Closing a chat only detaches from it, so this is the one way to stop it.
- */
+/** The menu entry that ends the agent running on `chatId`, or nothing when none
+ *  is. Closing a chat only detaches from it, so this is the one way to stop it. */
 export function useKillAgentMenuItems(chatId: string | undefined): ContextMenuItem[] {
-  const session = useActiveSessionsStore((s) => (chatId ? s.sessions[chatId] : undefined))
-  const attached = useActiveSessionsStore((s) => (chatId ? (s.attached[chatId]?.count ?? 0) : 0))
+  const session = useStore(entityStore, (s) =>
+    chatId ? selectActiveSession(s, chatId) : undefined,
+  )
   if (!session) return []
   return [
     { id: 'kill-agent-separator', separator: true, label: '', onClick: () => {} },
@@ -21,7 +22,7 @@ export function useKillAgentMenuItems(chatId: string | undefined): ContextMenuIt
       label: 'Kill agent',
       icon: <Skull />,
       className: DESTRUCTIVE,
-      onClick: () => void confirmAndKillAgent({ ...session, attached }),
+      onClick: () => void confirmAndKillAgent(session),
     },
   ]
 }

@@ -10,9 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents"
-
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 	asynxstore "github.com/char2cs/asynx/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,31 +19,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
+	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 var errFake = errors.New("fake error")
-
-func ax[T any](
-	t *testing.T,
-) asynx.Asynx[T] {
-	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	a, err := asynx.New[T]().WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	return a
-}
 
 func newAdapter(
 	t *testing.T,
@@ -56,129 +41,79 @@ func newAdapter(
 	return c
 }
 
-// wsAx builds the singleton workspace asynx over the adapter's per-type event
-// store — the same handle workspace.New/store.New project onto.
-func wsAx(
+func buildAx[T any](
 	t *testing.T,
-	ad *adapter.Container,
-) asynx.Asynx[domain.Workspace] {
+	es asynxModels.Store,
+	subscriber func(*asynx.Builder[T]),
+) asynx.Asynx[T] {
 	t.Helper()
-	a, err := asynx.New[domain.Workspace]().
-		WithEventStore(ad.WorkspaceES()).
+	b := asynx.New[T]().WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	subscriber(b)
+	a, err := b.Build()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
 	return a
 }
 
-// agentChatAx builds the singleton agentchat asynx over the adapter's per-type
-// event store — the same handle agentchat.NewEventSourced/store.New project
-// onto (Task 9, additive).
-func agentChatAx(
-	t *testing.T,
-	ad *adapter.Container,
-) asynx.Asynx[domain.Chat] {
-	t.Helper()
-	a, err := asynx.New[domain.Chat]().
-		WithEventStore(ad.AgentChatES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	return a
+// aggregates are ad's read models and the asynx instances built to deliver to
+// them, as the app layer wires them.
+type aggregates struct {
+	rm        *repositories.ReadModels
+	rt        asynx.Asynx[domain.ReviewThread]
+	ws        asynx.Asynx[domain.Workspace]
+	chat      asynx.Asynx[domain.Chat]
+	placement *repotree.Ports
 }
 
-// agentActivityAx builds the singleton agentactivity asynx over the adapter's
-// per-type event store, mirroring agentChatAx. It must read the SAME log
-// repositories.New hands agentactivity.NewEventSourced, or the repo's projection
-// would be registered on a different instance than the one under test.
-func agentActivityAx(
+func newAggregates(
 	t *testing.T,
 	ad *adapter.Container,
-) asynx.Asynx[domain.ChatActivity] {
+) aggregates {
 	t.Helper()
-	a, err := asynx.New[domain.ChatActivity]().
-		WithEventStore(ad.AgentActivityES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+	rm, err := repositories.OpenReadModels(ad)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	return a
+	es, err := eventsqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	return aggregates{
+		rm:        rm,
+		rt:        buildAx(t, es, reviewthread.Subscriber(rm.ReviewThread)),
+		ws:        buildAx(t, ad.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
+		chat:      buildAx(t, ad.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
+		placement: testutil.Placements(t),
+	}
 }
 
-// agentRunnerAx builds the singleton agentrunner asynx over the adapter's
-// per-type event log, mirroring agentChatAx. It must read the SAME log
-// repositories.New hands agentrunner.NewEventSourced, or the repo's projections
-// would be registered on a different instance than the one under test.
-func agentRunnerAx(
+func newRepos(
 	t *testing.T,
 	ad *adapter.Container,
-) asynx.Asynx[agents.Runner] {
+	publish func(dto.WorkspaceDTO, int64),
+) (*repositories.Container, error) {
 	t.Helper()
-	a, err := asynx.New[agents.Runner]().
-		WithEventStore(ad.AgentRunnerES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	return a
+	a := newAggregates(t, ad)
+	return repositories.New(context.Background(), ad, a.rm, publish, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
 }
 
-// nodeAx builds the singleton node asynx over the adapter's per-type event
-// store, mirroring agentChatAx. It must read the SAME log repositories.New
-// hands node.NewEventSourced, or the repo's projections would be registered on
-// a different instance than the one under test.
-func nodeAx(
-	t *testing.T,
-	ad *adapter.Container,
-) asynx.Asynx[domain.Node] {
-	t.Helper()
-	a, err := asynx.New[domain.Node]().
-		WithEventStore(ad.NodeES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
-	return a
-}
+// noChatWatch is the announcement seam for tests that assert nothing about chat frames.
+func noChatWatch(_ agentchat.ChatEvent)                          {}
+func noGiveUp(context.Context, string, *domain.Workspace, error) {}
 
-// noChatWatch / noRunnerWatch are the agent announcement seams for tests that assert
-// nothing about WS frames. They are non-nil on purpose: agentrunner's store REFUSES a
-// nil watch at construction (a store that silently drops every frame is worse than one
-// that fails to build), so `nil` here would break every container in this file.
-func noChatWatch(_ agentchat.ChatEvent)       {}
-func noRunnerWatch(_ agentrunner.RunnerEvent) {}
-
-// noNodeWatch is node's own announcement seam for tests that assert nothing
-// about live position updates. Unlike agentrunner's store, node's (mirroring
-// agentchat's) tolerates a nil watch — this is spelled out anyway for the same
-// readability reason noChatWatch/noRunnerWatch are.
-func noNodeWatch(_ node.NodeEvent) {}
-
+// captureHub records every workspace row the container publishes.
 type captureHub struct {
-	hub.WebSocketHub
 	mu         sync.Mutex
 	workspaces []dto.WorkspaceDTO
+	revs       []int64
 }
 
-func (h *captureHub) BroadcastWorkspace(
+func (h *captureHub) publish(
 	ws dto.WorkspaceDTO,
+	rev int64,
 ) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.workspaces = append(h.workspaces, ws)
-}
-
-func (h *captureHub) count() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return len(h.workspaces)
+	h.revs = append(h.revs, rev)
 }
 
 func (h *captureHub) lastWorking(
@@ -209,83 +144,56 @@ func (h *captureHub) last(
 
 func newContainer(
 	t *testing.T,
-	h hub.WebSocketHub,
+	h *captureHub,
 ) *repositories.Container {
 	t.Helper()
-	ad := newAdapter(t)
-	c, err := repositories.New(
-		context.Background(),
-		ad,
-		h,
-		ax[domain.ReviewThread](t),
-		wsAx(t, ad),
-		agentChatAx(t, ad),
-		agentActivityAx(t, ad),
-		agentRunnerAx(t, ad),
-		nodeAx(t, ad),
-		nil,
-		noChatWatch,
-		noRunnerWatch,
-		noNodeWatch,
-		nil,
-		nil,
-	)
+	c, err := newRepos(t, newAdapter(t), h.publish)
 	require.NoError(t, err)
 	return c
 }
 
 func TestContainer_New_BuildsRepos(t *testing.T) {
-	c := newContainer(t, hub.NewHub())
+	c := newContainer(t, &captureHub{})
 	assert.NotNil(t, c.Workspace)
 	assert.NotNil(t, c.ReviewThread)
 	assert.NotNil(t, c.AgentChat)
-	assert.NotNil(t, c.AgentRunner)
-	assert.NotNil(t, c.Node)
+	assert.NotNil(t, c.Placement)
 }
 
 func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	ad := newAdapter(t)
+	a := newAggregates(t, ad)
 	_, err := repositories.New(
-		context.Background(),
-		ad,
-		hub.NewHub(),
-		ax[domain.ReviewThread](t),
-		nil, // nil axWorkspace → workspace.New rejects
-		agentChatAx(t, ad),
-		agentActivityAx(t, ad),
-		agentRunnerAx(t, ad),
-		nodeAx(t, ad),
-		nil,
-		noChatWatch,
-		noRunnerWatch,
-		noNodeWatch,
-		nil,
-		nil,
+		context.Background(), ad, a.rm, (&captureHub{}).publish,
+		a.rt, nil /* nil axWorkspace → workspace.New rejects */, a.chat, a.placement,
+		nil, noChatWatch, noGiveUp,
 	)
 	assert.Error(t, err)
 }
 
+// A created workspace is projected and published; each row goes out at a rev
+// above every row read before it, so the hub drops a read another overtook.
 func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	ctx := context.Background()
 	h := &captureHub{}
 	c := newContainer(t, h)
 
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
-		ID:           "w1",
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		Branch:       "b",
-		Provisioning: domain.WorkspacePlaceholder,
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-
+	_, err = c.Workspace.RenameBranch(ctx, "w1", "b2")
+	require.NoError(t, err)
 	c.WaitQuiescent()
+	c.Republish(ctx, "w1")
 
 	list, err := c.Workspace.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "w1", list[0].ID)
-	assert.GreaterOrEqual(t, h.count(), 1)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	assert.Equal(t, []int64{1, 2, 3}, h.revs)
 }
 
 // TestBroadcastWorkspace_WorkingFalse pins the idle baseline of the working
@@ -329,66 +237,11 @@ func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 	assert.False(t, rows[0].Working)
 }
 
-// TestContainer_BeginEndWork_BroadcastsWorkingOverlay pins the real working
-// overlay (00 §4 async mutations): BeginWork immediately re-broadcasts the row
-// with Working=true, event-driven frames emitted while the mutation runs carry
-// Working=true, and EndWork re-broadcasts with Working=false so the client
-// spinner always resolves.
-func TestContainer_BeginEndWork_BroadcastsWorkingOverlay(t *testing.T) {
-	ctx := context.Background()
-	h := &captureHub{}
-	c := newContainer(t, h)
-
-	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
-		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
-		Provisioning: domain.WorkspacePlaceholder,
-	}, time.Unix(1, 0).UTC())
-	require.NoError(t, err)
-	c.WaitQuiescent()
-	_, seen := h.last("w1")
-	require.True(t, seen, "create must broadcast the workspace row")
-
-	c.BeginWork(ctx, "w1")
-	working, ok := h.lastWorking("w1")
-	require.True(t, ok)
-	assert.True(t, working, "BeginWork must broadcast Working=true")
-	assert.True(t, c.IsWorking("w1"))
-
-	c.EndWork(ctx, "w1")
-	working, ok = h.lastWorking("w1")
-	require.True(t, ok)
-	assert.False(t, working, "EndWork must broadcast Working=false")
-	assert.False(t, c.IsWorking("w1"))
-}
-
-// TestContainer_BeginWork_NestsPerWorkspace asserts overlapping background
-// mutations on the same workspace stay Working until the LAST one ends, and
-// that blank ids (a create that has no entity yet) are ignored.
-func TestContainer_BeginWork_NestsPerWorkspace(t *testing.T) {
+// TestWorkingFor_IsTheAgentHalfOnly: a workspace reads working while one of its
+// agent chats is mid-turn; work an operation runs on it is the operation's to show.
+func TestWorkingFor_IsTheAgentHalfOnly(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, &captureHub{})
-
-	c.BeginWork(ctx, "w1")
-	c.BeginWork(ctx, "w1")
-	c.EndWork(ctx, "w1")
-	assert.True(t, c.IsWorking("w1"))
-	c.EndWork(ctx, "w1")
-	assert.False(t, c.IsWorking("w1"))
-
-	c.EndWork(ctx, "w1")
-	assert.False(t, c.IsWorking("w1"), "unbalanced EndWork must not underflow")
-
-	c.BeginWork(ctx, "")
-	assert.False(t, c.IsWorking(""), "blank ids are ignored")
-}
-
-// TestContainer_ListWorkspaces_WorkingOverlay asserts the snapshot source
-// carries the live working overlay, so a client subscribing mid-mutation sees
-// the spinner state without waiting for the next broadcast.
-func TestContainer_ListWorkspaces_WorkingOverlay(t *testing.T) {
-	ctx := context.Background()
-	c := newContainer(t, &captureHub{})
-
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
 		Provisioning: domain.WorkspacePlaceholder,
@@ -396,16 +249,15 @@ func TestContainer_ListWorkspaces_WorkingOverlay(t *testing.T) {
 	require.NoError(t, err)
 	c.WaitQuiescent()
 
-	c.BeginWork(ctx, "w1")
+	c.SetAgentWorking(ctx, "w1", "c1", true)
 	rows, err := c.ListWorkspaces(ctx)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.True(t, rows[0].Working)
+	assert.True(t, c.WorkingFor("w1"))
 
-	c.EndWork(ctx, "w1")
-	rows, err = c.ListWorkspaces(ctx)
-	require.NoError(t, err)
-	assert.False(t, rows[0].Working)
+	c.SetAgentWorking(ctx, "w1", "c1", false)
+	assert.False(t, c.WorkingFor("w1"))
 }
 
 // TestBroadcastWorkspace_ResolvesMergeEligibility pins that the broadcast DTO
@@ -467,17 +319,12 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 	assert.Nil(t, rows)
 }
 
-// TestContainer_WireCallbacks_DeleteCascade pins the cross-aggregate delete
-// cascade wireCallbacks wires (Task 14, spec §3.6): deleting a workspace fires the
-// pure Delete command, and the async delete reactor — gated on the persisted
-// "deleted" tombstone — forgets every review thread anchored to the workspace
-// (their rows vanish), rm -rf's the worktree, and Forgets the workspace aggregate
-// (dropping its read-model row). Before wireCallbacks was wired, Delete only
-// tombstoned the row and nothing purged, so this cascade never converged.
+// Deleting a workspace tombstones it; the delete reactor then forgets its review
+// threads, removes the worktree and forgets the workspace aggregate.
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch, nil, nil)
+	c, err := newRepos(t, ad, (&captureHub{}).publish)
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -486,7 +333,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	// must live under <home>/projects/... like a real crowbar-managed one.
 	// The identity-keyed shape every managed workspace has: the worktree sits in
 	// its own root, which is what makes removing that root safe.
-	worktree := filepath.Join(ad.CrowbarHome(), "projects", "p1", "workspaces", "w1", "worktree")
+	worktree := filepath.Join(ad.Home().Root(), "projects", "p1", "workspaces", "w1", "worktree")
 	require.NoError(t, os.MkdirAll(worktree, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "f"), []byte("x"), 0o600))
 
@@ -531,16 +378,12 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
-// TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout pins the delete-cascade
-// DATA-LOSS guard: an adopted home/main workspace's WorktreePath is the user's REAL
-// checkout (repo.Path/project.Path), which lives OUTSIDE the crowbar home. Deleting
-// it must reap the record while the async reactor's rm — guarded to the crowbar home
-// — leaves the on-disk checkout untouched. An unguarded os.RemoveAll here would
-// os.RemoveAll the user's repository (the regression this guard prevents).
+// An adopted workspace's WorktreePath is the user's real checkout, outside the
+// crowbar home: deleting it reaps the record and leaves the checkout on disk.
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, noChatWatch, noRunnerWatch, noNodeWatch, nil, nil)
+	c, err := newRepos(t, ad, (&captureHub{}).publish)
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
@@ -588,7 +431,7 @@ func createAgentChat(
 		Now:         time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
-	_, err = c.Node.Create(ctx, chatID, domain.NodeKindChat, "", 0)
+	_, err = c.Placement.Create(ctx, chatID, tree.KindChat, "", 0)
 	require.NoError(t, err)
 }
 
@@ -624,14 +467,14 @@ func (p *recordingPurge) all() []string {
 // row go too. A chat of another workspace is untouched.
 func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *testing.T) {
 	ctx := context.Background()
-	c := newContainer(t, hub.NewHub())
+	c := newContainer(t, &captureHub{})
 	purge := &recordingPurge{c: c}
 	c.PurgeChat = purge.purge
 
 	for _, id := range []string{"w1", "w2"} {
 		_, err := c.Workspace.Create(ctx, workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", Branch: id, Provisioning: domain.WorkspacePlaceholder}, time.Unix(1, 0).UTC())
 		require.NoError(t, err)
-		_, err = c.Node.Create(ctx, id, domain.NodeKindWorkspace, "", 0)
+		_, err = c.Placement.Create(ctx, id, tree.KindWorkspace, "", 0)
 		require.NoError(t, err)
 	}
 	createAgentChat(t, ctx, c, "chat1", "w1")
@@ -644,11 +487,11 @@ func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *test
 
 	assert.ElementsMatch(t, []string{"chat1", "chat2"}, purge.all())
 	for _, id := range []string{"chat1", "chat2", "w1"} {
-		_, err := c.Node.GetNode(ctx, id)
+		_, err := c.Placement.GetNode(ctx, id)
 		require.Error(t, err, "%s's Node row must not outlive the delete", id)
 	}
 	for _, id := range []string{"chat-other", "w2"} {
-		_, err := c.Node.GetNode(ctx, id)
+		_, err := c.Placement.GetNode(ctx, id)
 		require.NoError(t, err, "%s belongs to an untouched workspace", id)
 	}
 	_, err := c.AgentChat.GetChat(ctx, "chat-other")
@@ -661,7 +504,7 @@ func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *test
 // that aborts the purge and strands the worktree.
 func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 	ctx := context.Background()
-	c := newContainer(t, hub.NewHub())
+	c := newContainer(t, &captureHub{})
 	c.PurgeChat = func(context.Context, string) error {
 		return fmt.Errorf("agent: purge chat: get: %w", agentchat.ErrNotFound)
 	}
@@ -675,29 +518,4 @@ func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 
 	_, err = c.Workspace.Get(ctx, "w1")
 	assert.Error(t, err, "the workspace is purged regardless")
-}
-
-// TestContainer_New_PlacementWatchHearsChatsAndNodes: the one placement seam
-// is wired into both the chat and the node read models, so a rebind hears a
-// chat re-anchored to a worktree and a folder dragged across owners alike.
-func TestContainer_New_PlacementWatchHearsChatsAndNodes(t *testing.T) {
-	ad := newAdapter(t)
-	heard := make(chan string, 4)
-	c, err := repositories.New(
-		context.Background(), ad, hub.NewHub(),
-		ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad),
-		agentRunnerAx(t, ad), nodeAx(t, ad), nil,
-		noChatWatch, noRunnerWatch, noNodeWatch, nil,
-		func(id string) { heard <- id },
-	)
-	require.NoError(t, err)
-
-	_, err = c.AgentChat.Create(context.Background(), agentchat.CreateInput{
-		ID: "chat-1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC(),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "chat-1", <-heard)
-	_, err = c.Node.Create(context.Background(), "folder-1", domain.NodeKindFolder, "chat-1", 0)
-	require.NoError(t, err)
-	assert.Equal(t, "folder-1", <-heard)
 }

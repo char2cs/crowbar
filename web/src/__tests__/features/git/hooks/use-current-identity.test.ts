@@ -1,5 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { IdentityDTO } from '@/features/git/api/identity-api'
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +15,8 @@ import {
   recordWorkspaceScope,
   setWorkspaceScope,
 } from '@/lib/workspace-scope'
+import { toastManager } from '@/lib/toast-manager'
+import { ApiError } from '@/lib/errors/api-error'
 import {
   loadProjects,
   pairRemoteHost,
@@ -42,6 +44,22 @@ describe('useCurrentIdentity', () => {
     expect(mocks.getIdentity).not.toHaveBeenCalled()
   })
 
+  it('a failed identity read reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    mocks.getIdentity.mockRejectedValueOnce(new ApiError('no token', 500))
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-fail-1', owningChatId: 'chat-1' })
+
+    const { result } = renderHook(() => useCurrentIdentity('ws-fail-1'))
+
+    await waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Load your Git identity', description: 'no token' }),
+      ),
+    )
+    expect(result.current).toBeNull()
+  })
+
   it('fetches identity when the scope already carries an owning chat id', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-ready-1', owningChatId: 'chat-1' })
     mocks.getIdentity.mockResolvedValue(identity('octocat'))
@@ -52,12 +70,8 @@ describe('useCurrentIdentity', () => {
     expect(mocks.getIdentity).toHaveBeenCalledWith('ws-ready-1')
   })
 
-  // Regression: the route records a workspace's scope with NO chat id; only
-  // the sidebar's own async chat-list fetch later attaches owningChatId.
-  // identityBaseForWorkspace throws without one; that throw is caught inside
-  // resolveIdentity (.catch(() => null)) so it never crashes, but the hook's
-  // effect used to fire once per wsId and never re-run — identity stayed null
-  // forever once raced, even after the id arrived moments later.
+  // The route records a scope with no chat id; the sidebar's chat-list fetch attaches it later.
+  // The hook must retry when it arrives rather than stay null.
   it('retries and resolves identity once the owning chat id arrives after mount', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race-2' })
     mocks.getIdentity.mockResolvedValue(identity('mona'))
@@ -87,7 +101,7 @@ describe('useCurrentIdentity', () => {
       wsId: 'ws-error-1',
       owningChatId: 'chat-err',
     })
-    mocks.getIdentity.mockRejectedValue(new Error('502'))
+    mocks.getIdentity.mockRejectedValue(new ApiError('502', 500))
 
     const { result } = renderHook(() => useCurrentIdentity('ws-error-1'))
     await act(async () => {})

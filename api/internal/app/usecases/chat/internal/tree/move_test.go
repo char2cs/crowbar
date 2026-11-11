@@ -2,22 +2,43 @@ package tree_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// newUsecaseWithWork is newUsecase with the in-flight tracker exposed, for the
-// tests below that need to mark a row working.
+// busyChats is the tree's Busy port as the set of chats marked working.
+type busyChats struct {
+	mu  sync.Mutex
+	ids map[string]bool
+}
+
+func newBusyChats() *busyChats { return &busyChats{ids: map[string]bool{}} }
+
+func (b *busyChats) Set(chatID string, busy bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ids[chatID] = busy
+}
+
+func (b *busyChats) ChatBusy(_ context.Context, chatID string) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ids[chatID], nil
+}
+
+// newUsecaseWithWork is newUsecase with the busy set exposed, for the tests
+// below that need to mark a row working.
 func newUsecaseWithWork(
 	t *testing.T,
-) (*mocks.AgentChatPlacements, tree.Usecase, *inflight.Work) {
+) (*mocks.AgentChatPlacements, tree.Usecase, *busyChats) {
 	t.Helper()
 	chats, _, _, uc, work := newUsecaseWithStores(t)
 	return chats, uc, work
@@ -30,7 +51,7 @@ func newUsecaseWithWork(
 // on chats.Rows.
 func newUsecaseWithStores(
 	t *testing.T,
-) (*mocks.AgentChatPlacements, *mocks.FolderStore, *mocks.NodePlacements, tree.Usecase, *inflight.Work) {
+) (*mocks.AgentChatPlacements, *mocks.FolderStore, *mocks.NodePlacements, tree.Usecase, *busyChats) {
 	t.Helper()
 	chats := mocks.NewAgentChatPlacements()
 	folders := mocks.NewFolderStore()
@@ -39,7 +60,7 @@ func newUsecaseWithStores(
 	// AgentChatPlacements.parentOf's own doc) can see a repo-scoped chat's
 	// live Node position too, not just the Chat row's frozen field.
 	chats.Nodes = nodes
-	work := inflight.NewWork()
+	work := newBusyChats()
 	// Every fixture in this file is a single-repo world: workspaceID ("ws-1")
 	// belongs to repoID ("repo-1"), so a folder created/moved under a plain
 	// CHAT parent (which carries workspaceID, not a repo id of its own)
@@ -112,7 +133,7 @@ func TestMove_RefusesAMoveAcrossRepos(t *testing.T) {
 	)
 
 	_, _, err := uc.Move(context.Background(), "root", tree.MoveInput{ParentID: name("other-repo-folder")})
-	assert.ErrorIs(t, err, tree.ErrCrossRepo)
+	assert.ErrorIs(t, err, tree.ErrCrossContext)
 }
 
 // The golden rule's finer grain (checkFolderContextMove): "context", in
@@ -121,7 +142,7 @@ func TestMove_RefusesAMoveAcrossRepos(t *testing.T) {
 // never jump to a different one, even inside the SAME repo. These three
 // tests exercise that boundary directly: refused root -> a branch's own
 // subtree, refused branch -> a DIFFERENT branch's own subtree (same repo,
-// same ErrCrossRepo-passing check, still refused), and allowed within one
+// same ErrCrossContext-passing check, still refused), and allowed within one
 // branch's own subtree. Caught live: dragging a repo-root folder onto a
 // branch (or vice versa) silently reverted with no explanation — this is
 // the check that was missing, not merely the toast that now names it.
@@ -138,7 +159,7 @@ func TestMove_RefusesRootToBranchContext(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedFolderTree(t, chats, uc) // "root", a repo-root folder — its own context
 	seedChat(chats, "branch-1", 1)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "branch-1", Kind: dtree.KindWorkspace})
 
 	_, _, err := uc.Move(context.Background(), "root", tree.MoveInput{ParentID: name("branch-1")})
 	assert.ErrorIs(t, err, tree.ErrCrossContext)
@@ -152,8 +173,8 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 	)
 	nodes := mocks.NewNodePlacements()
 	nodes.Rows = append(nodes.Rows,
-		domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace},
-		domain.Node{ID: "branch-2", Kind: domain.NodeKindWorkspace},
+		dtree.Node{ID: "branch-1", Kind: dtree.KindWorkspace},
+		dtree.Node{ID: "branch-2", Kind: dtree.KindWorkspace},
 	)
 	// Both branches resolve to the SAME repo — isolates the finer context
 	// check from the coarser repo check TestMove_RefusesAMoveAcrossRepos
@@ -161,7 +182,7 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
 	gitStatus.SetRepo("ws-1", repoID)
 	gitStatus.SetRepo("ws-2", repoID)
-	uc2 := tree.New(chats, chats, inflight.NewWork(), gitStatus,
+	uc2 := tree.New(chats, chats, newBusyChats(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
 		mocks.NewFolderStore(), nodes)
 	underBranch1, _, err := uc2.Create(context.Background(), tree.CreateInput{
@@ -176,7 +197,7 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 func TestMove_AllowsAMoveWithinTheSameBranchContext(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedChat(chats, "branch-1", 1)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "branch-1", Kind: dtree.KindWorkspace})
 	underBranch1, _, err := uc.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "branch-1", Name: "notes",
 	})
@@ -264,9 +285,9 @@ func TestPlaceChat_NeverDensifiesAgainstAnyRepoPhantom(t *testing.T) {
 	chats, nodes, gitStatus, uc := newHomeUsecaseWithGitStatus(t)
 	gitStatus.SetRepo(workspaceID, repoID)
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
-	nodes.Rows = []domain.Node{
-		{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0}, // this repo's OWN phantom
-		{ID: "repo-2", Kind: domain.NodeKindRepo, Order: 1}, // an unrelated repo's
+	nodes.Rows = []dtree.Node{
+		{ID: "repo-1", Kind: dtree.KindRepo, Order: 0}, // this repo's OWN phantom
+		{ID: "repo-2", Kind: dtree.KindRepo, Order: 1}, // an unrelated repo's
 	}
 
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{Order: index(0)})
@@ -327,8 +348,8 @@ func TestPlaceChat_SecondMoveOfAChatUnreachableThroughItsBranchParent(t *testing
 	gitStatus.SetRepo("ws-branch-1", repoID)
 	// Already Node-backed from an earlier, successful move — the live state
 	// the SECOND move actually found.
-	nodes.Rows = append(nodes.Rows, domain.Node{
-		ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0,
+	nodes.Rows = append(nodes.Rows, dtree.Node{
+		ID: "fork-chat", Kind: dtree.KindChat, ParentID: "branch-1", Order: 0,
 	})
 
 	_, _, err := uc.PlaceChat(context.Background(), "ws-fork", "fork-chat", tree.PlaceInput{Order: index(0)})
@@ -362,10 +383,10 @@ func TestRegression_PlaceChat_DensifiesAgainstOtherForksUnderTheSameLockedBranch
 	gitStatus.SetRepo("ws-fork-b", repoID)
 	gitStatus.SetRepo("ws-fork-c", repoID)
 	gitStatus.SetRepo("ws-branch-1", repoID)
-	nodes.Rows = []domain.Node{
-		{ID: "fork-a", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0},
-		{ID: "fork-b", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 1},
-		{ID: "fork-c", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 2},
+	nodes.Rows = []dtree.Node{
+		{ID: "fork-a", Kind: dtree.KindChat, ParentID: "branch-1", Order: 0},
+		{ID: "fork-b", Kind: dtree.KindChat, ParentID: "branch-1", Order: 1},
+		{ID: "fork-c", Kind: dtree.KindChat, ParentID: "branch-1", Order: 2},
 	}
 
 	// fork-c's own snapshot is read off ws-fork-c, which names only fork-c —

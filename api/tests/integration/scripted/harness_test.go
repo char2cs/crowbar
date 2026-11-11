@@ -3,8 +3,8 @@
 // Package scripted_test proves the agent session lifecycle end to end against
 // both built-in descriptors, with the vendor CLIs replaced by a scripted
 // emulator of their real wire (fake_*_test.go): the shipped claude.yaml and
-// codex.yaml, a real daemon, real PTYs, the real `crowbar hook` relay over the
-// daemon's unix socket and a real app-server websocket. No credentials and no
+// codex.yaml, a real daemon, real PTYs, real hooks posted to the daemon and a real
+// app-server over its stdio. No credentials and no
 // network — every healthy and faulty behaviour is declared per test.
 package scripted_test
 
@@ -39,9 +39,10 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
+	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/internal/engine"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -69,34 +70,40 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	bin := filepath.Join(dir, "crowbar")
-	build := exec.Command("go", "build", "-tags", "noEmbed", "-o", bin, "./cmd/crowbar")
+	build := exec.CommandContext(context.Background(), "go", "build", "-tags", "noEmbed", "-o", bin, "./cmd/crowbar")
 	build.Dir = apiRoot()
 	if out, err := build.CombinedOutput(); err != nil {
 		panic(fmt.Sprintf("build crowbar: %v\n%s", err, out))
 	}
-	_ = os.Setenv("CROWBAR_HOOK_BIN", bin)
+	crowbarBin = bin
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
+
+// crowbarBin is the crowbar binary TestMain built, which every daemon here
+// hands its CLIs.
+var crowbarBin string
 
 func apiRoot() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..", "..")
 }
 
-// daemon is one boot of the backend, served on the unix socket the hook relay
-// dials. A restart is a second boot over the same home.
+// daemon is one boot of the backend, served on the unix socket the CLI callbacks
+// dial. A restart is a second boot over the same home.
 type daemon struct {
+	t        *testing.T
 	app      *app.Container
 	eng      *engine.Container
 	adapters *adapter.Container
+	session  *migrate.Session
 	ln       net.Listener
 	hooks    *hookLog
 }
 
-// hookLog is every hook the relay delivered to this daemon, with the status
-// it got back — what a failure message needs to show.
+// hookLog is every hook a CLI posted to this daemon, with the status it got
+// back — what a failure message needs to show.
 type hookLog struct {
 	mu      sync.Mutex
 	entries []string
@@ -104,26 +111,21 @@ type hookLog struct {
 
 func (h *hookLog) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.Method != http.MethodPost || !strings.HasSuffix(c.Request.URL.Path, "/hooks") {
+		if c.Request.Method != http.MethodPost || !strings.HasSuffix(c.FullPath(), "/hooks/:provider/:event") {
 			c.Next()
 			return
 		}
 		body, _ := io.ReadAll(c.Request.Body)
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
 		c.Next()
-		var env struct {
-			Segment string `json:"segment_id"`
-			Event   string `json:"event"`
-			Payload string `json:"payload_raw"`
-		}
-		_ = json.Unmarshal(body, &env)
-		if len(env.Payload) > 160 {
-			env.Payload = env.Payload[:160]
+		payload := string(body)
+		if len(payload) > 160 {
+			payload = payload[:160]
 		}
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		h.entries = append(h.entries, fmt.Sprintf("%s %d %s %s %s", time.Now().Format("15:04:05.000"),
-			c.Writer.Status(), env.Segment, env.Event, env.Payload))
+			c.Writer.Status(), c.Param("segid"), c.Param("event"), payload))
 	}
 }
 
@@ -136,11 +138,14 @@ func (h *hookLog) String() string {
 func bootDaemon(t *testing.T, home string) *daemon {
 	t.Helper()
 	ctx := context.Background()
+	session, err := kit.BootHome(ctx, home)
+	require.NoError(t, err)
 	eng, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
+	eng.CrowbarBin = crowbarBin
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
-	container, err := app.New(ctx, eng, adapters)
+	container, err := app.New(ctx, eng, adapters, session, v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 	router := gin.New()
 	hooks := &hookLog{}
@@ -148,17 +153,20 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	v0.New(container, eng, "").Register(router.Group("/v0"))
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err)
-	go func() { _ = http.Serve(ln, router) }() //nolint:gosec // test server on a private unix socket
-	return &daemon{app: container, eng: eng, adapters: adapters, ln: ln, hooks: hooks}
+	go func() { _ = http.Serve(ln, router) }()
+	return &daemon{t: t, app: container, eng: eng, adapters: adapters, session: session, ln: ln, hooks: hooks}
 }
 
 // stop ends the daemon the way a crash does: no graceful drain, and every
-// CLI it spawned dies with it.
+// CLI it spawned dies with it. The home is released last, as the OS would.
 func (d *daemon) stop() {
 	_ = d.ln.Close()
 	d.app.Close()
 	d.eng.Close()
 	_ = d.adapters.Close()
+	if err := d.session.Close(); err != nil {
+		d.t.Logf("scripted daemon: release the home: %v", err)
+	}
 }
 
 // rig is one test's daemon, workspace, fake CLIs and their script and log.
@@ -169,6 +177,8 @@ type rig struct {
 	wsID   string
 	script string
 	log    string
+	// providers is the temp dir the CLIs' own homes live under.
+	providers string
 }
 
 func newRig(t *testing.T) *rig {
@@ -176,9 +186,12 @@ func newRig(t *testing.T) *rig {
 	kit.RequireNoLeakedProcesses(t)
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
-	kit.IsolateProviderHomes(t)
 	scratch := t.TempDir()
-	r := &rig{t: t, home: home, script: filepath.Join(scratch, "script.yaml"), log: filepath.Join(scratch, "cli.log")}
+	kit.PointProviderHomesAt(t, scratch)
+	r := &rig{
+		t: t, home: home, providers: scratch,
+		script: filepath.Join(scratch, "script.yaml"), log: filepath.Join(scratch, "cli.log"),
+	}
 	t.Setenv(envScript, r.script)
 	t.Setenv(envLog, r.log)
 	r.setScript("turn: []\n")
@@ -215,9 +228,9 @@ func installFakes(t *testing.T, home, bin string) {
 func (r *rig) workspace(repoPath string) string {
 	ctx := context.Background()
 	u := r.d.app.Usecases
-	project, err := u.ProjectImport.Create(ctx, "scripted", repoPath)
+	project, err := u.ProjectImport.Create(ctx, "", "scripted", repoPath)
 	require.NoError(r.t, err)
-	repo, err := u.ProjectImport.ImportRepo(ctx, project.ID, "", repoPath)
+	repo, err := u.ProjectImport.ImportRepo(ctx, kit.RepoImport(project.ID, repoPath), kit.RequireBranches(r.t))
 	require.NoError(r.t, err)
 	ws, err := u.Workspace.CreateChild(ctx, workspace.CreateChildInput{
 		RepoID: repo.ID, ProjectID: project.ID, RepoPath: repo.Path, RemoteURL: repo.RemoteURL,
@@ -243,7 +256,10 @@ func (r *rig) runners() agentusecase.RunnerUsecase { return r.d.app.Usecases.Age
 
 func (r *rig) spawn(provider string) string {
 	r.t.Helper()
-	chatID, _, err := r.runners().SpawnChat(context.Background(), r.wsID, provider)
+	ctx := context.Background()
+	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, "", r.wsID, provider, "")
+	require.NoError(r.t, err)
+	_, err = r.runners().StartRunner(ctx, chatID, provider)
 	require.NoError(r.t, err)
 	return chatID
 }
@@ -262,7 +278,7 @@ func (r *rig) snapshot(chatID string) agentusecase.ChatSnapshot {
 
 func (r *rig) live(chatID string) (bool, string) {
 	runner, err := r.runners().LiveRunnerForChat(context.Background(), chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	if errors.Is(err, agentusecase.ErrNoLiveRunner) {
 		return false, ""
 	}
 	require.NoError(r.t, err)
@@ -272,24 +288,46 @@ func (r *rig) live(chatID string) (bool, string) {
 // said reports the ledger's user/assistant texts in order.
 func (r *rig) said(chatID string) []string {
 	r.t.Helper()
-	page, err := r.d.app.Usecases.AgentChat.ReadMessages(context.Background(), chatID, 0, 0, 0)
-	require.NoError(r.t, err)
-	out := make([]string, 0, len(page.Items))
-	for _, m := range page.Items {
+	said := kit.Said(r.rows(chatID))
+	out := make([]string, 0, len(said))
+	for _, m := range said {
 		out = append(out, m.Role+": "+m.Text)
 	}
 	return out
 }
 
+// rows are chatID's ledger rows, as its feed carries them.
+func (r *rig) rows(chatID string) []ledger.Row {
+	r.t.Helper()
+	rows, err := r.d.app.Repositories.ChatLedger.Read(context.Background(), chatID, 0, 0)
+	require.NoError(r.t, err)
+	return rows
+}
+
+// markers are the kinds of chatID's marker rows, in order.
+func (r *rig) markers(chatID string) []string {
+	r.t.Helper()
+	var out []string
+	for _, m := range kit.Bodies[ledger.Marker](r.rows(chatID), ledger.KindMarker) {
+		out = append(out, m.Kind)
+	}
+	return out
+}
+
+// exitReason is how chatID's last runner ended, "" while one is live.
+func (r *rig) exitReason(chatID string) string {
+	r.t.Helper()
+	exit, _ := ledger.Fold(chatID, r.rows(chatID)).LastExit()
+	return exit.Reason
+}
+
 func (r *rig) working(chatID string) bool {
-	return r.snapshot(chatID).Chat.Working
+	return r.snapshot(chatID).Ledger.Busy
 }
 
 func (r *rig) choices(chatID string) []domain.ActivityChoice {
 	r.t.Helper()
-	pending, err := r.d.app.Usecases.AgentTurn.ReadPendingChoices(context.Background(), chatID)
-	require.NoError(r.t, err)
-	return pending
+	return ledger.Fold(chatID, r.rows(chatID)).OpenAsks()
 }
 
 // eventually waits for cond, polling what the test can observe.
@@ -323,16 +361,6 @@ func (r *rig) logged(kind string) []logEntry {
 		}
 	}
 	return out
-}
-
-// prompted reports whether a fake CLI received a prompt containing text.
-func (r *rig) prompted(text string) bool {
-	for _, e := range r.logged("prompt") {
-		if s, _ := e["text"].(string); strings.Contains(s, text) {
-			return true
-		}
-	}
-	return false
 }
 
 // dump is everything the fake CLIs logged, for a failure message.

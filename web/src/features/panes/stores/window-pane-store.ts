@@ -1,4 +1,3 @@
-// web/src/features/panes/stores/window-pane-store.ts
 import { createStore, type StoreApi } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { WindowPaneState } from './window-pane-store.types'
@@ -7,9 +6,11 @@ import { createBufferSlice } from './slices/buffer-slice'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { toPersistedBuffers } from '@/features/panes/utils/persisted-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
+import { releaseDocumentOf } from '@/features/panes/lib/buffer-release'
 
 export type WindowPaneStore = StoreApi<WindowPaneState>
 
+/** @internal Exported for unit tests. */
 export type WindowPaneSnapshot = Partial<
   Pick<
     WindowPaneState,
@@ -28,20 +29,9 @@ export type WindowPaneSnapshot = Partial<
   >
 >
 
-/**
- * Task 26: one pane/buffer store for the whole window — created once, never
- * destroyed on workspace switch or eviction (the trap the model spec names:
- * the OLD per-workspace registry's `destroyWorkspaceStore` used to kill a
- * live pane layout the moment its workspace aged out of keep-alive, or the
- * user left to project home). A `PaneGroup`'s own chat resolves which
- * workspace it belongs to (via the chat's own `workspaceId`, looked up
- * through the owning workspace store — see `workspace-store-registry.ts`), never by which store instance
- * happens to hold it.
- *
- * `createWindowPaneStore` is exported (not just the singleton below) so
- * tests can exercise a fresh, isolated store per test — see
- * `window-pane-store.test.ts`.
- */
+/** The window's pane/buffer store: never destroyed on a workspace switch or eviction, so a live
+ *  layout survives its workspace leaving keep-alive. A pane's workspace comes from its record.
+ *  @internal Exported so tests get a fresh, isolated store. */
 export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPaneStore {
   const store = createStore<WindowPaneState>()(
     immer((set, get, api): WindowPaneState => ({
@@ -116,23 +106,15 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
   return store
 }
 
-/** The one window-level pane/buffer store, created once at module load and
- *  never destroyed. Every consumer that used to read panes/buffers off the
- *  ambient per-workspace `useWorkspaceStoreContext()` now reads this instead
- *  — see `use-pane-store.ts` / `use-buffer-store.ts`. */
+/** The one window-level pane/buffer store, created at module load and never destroyed. */
 export const windowPaneStore = createWindowPaneStore()
 
-/**
- * Test-only reset. `target.setState(createWindowPaneStore().getState())`
- * looks like a valid "reset to defaults" but is NOT: it also overwrites
- * `target`'s own `paneActions`/`bufferActions` with a second, throwaway
- * store's closures — which are bound to THAT store's own internal `set`/
- * `get`, not `target`'s. Every later `target.getState().paneActions.foo()`
- * call then silently mutates the discarded throwaway store, leaving `target`
- * itself frozen at whatever data this reset assigned, forever. This resets
- * only the plain-data fields and leaves `target`'s actions untouched.
- */
+/** Resets data fields only: copying a fresh store's whole state would bind `target`'s actions
+ *  to that throwaway store's set/get, so later calls would mutate it instead.
+ *  @internal Exported for unit tests. */
 export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPaneStore): void {
+  // The buffers go as closing them would, documents included.
+  for (const b of target.getState().buffers) releaseDocumentOf(b)
   const fresh = createWindowPaneStore().getState()
   target.setState({
     panes: fresh.panes,

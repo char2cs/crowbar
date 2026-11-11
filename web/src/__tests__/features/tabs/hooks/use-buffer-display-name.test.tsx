@@ -11,15 +11,13 @@ import type {
 const editorBuffer: EditorContent = {
   id: 'buf-editor',
   type: 'editor',
+  authority: 'workspace',
   path: '/project/foo.ts',
   name: 'foo.ts',
-  content: '',
-  savedContent: '',
   isDirty: false,
   isVirtual: false,
   isPinned: false,
   isPreview: false,
-  tokens: [],
   workspaceId: 'w1',
 }
 
@@ -40,7 +38,7 @@ let renderCount = 0
 
 function Probe({ buffers }: { buffers: PaneContent[] }) {
   renderCount++
-  const getBufferDisplayName = useBufferDisplayName({ buffers, rootFolderPath: undefined })
+  const getBufferDisplayName = useBufferDisplayName({ buffers })
   return <div data-testid="probe">{buffers.map((b) => getBufferDisplayName(b)).join('|')}</div>
 }
 

@@ -1,33 +1,40 @@
-/**
- * The ONE write path for editor buffers: content changes, manual save, Save
- * All and autosave all go through here.
- *
- * Invariants (pinned by __tests__/features/editor/lib/buffer-save.test.ts):
- *  - Autosave is debounced PER BUFFER: editing buffer B never cancels A's
- *    pending autosave.
- *  - A save marks a buffer clean only if the buffer still holds exactly the
- *    content that was written. Edits that land while the write is in flight
- *    keep the buffer dirty (and re-arm autosave).
- *  - Saves of the same buffer are serialized, so an older write can never
- *    finish last and record stale content as "saved".
- *  - Manual save and autosave share every side effect (didSave, git refresh,
- *    own-write echo suppression).
- */
+// The one write path for editor buffers (save, Save All, autosave, dirty flag, drafts). Edits are
+// debounced per document; a save marks clean only if the buffer still holds what was written; saves
+// of one buffer are serialized; manual and auto saves share every side effect.
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
-import { writeWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { workspaceRef, writeDocument, type DocumentRef } from '@/lib/api/documents'
+import {
+  documentName,
+  documentRefOf,
+  documentUri,
+  isUntitledRef,
+} from '@/features/editor/documents/document-ref'
+import {
+  applyExternalText,
+  documentText,
+  markDocumentSaved,
+  readDocumentText,
+  replaceDocumentText,
+  savedDocumentText,
+} from '@/features/editor/documents/document-text'
+import { clearDraft, noteDraftChanged, writeDraft } from '@/features/editor/documents/draft-store'
+import { documentModelOpener, findDocumentBuffer } from '@/features/editor/documents/open-document'
+import { getEditorHost } from '@/features/editor/host/editor-host'
 import { clearBlame } from '@/features/git/stores/git-blame-store'
 import { requestGitRefresh } from '@/features/git/stores/git-refresh'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { useSettingsStore } from '@/features/settings/store'
+import { flagExternalChange } from '@/features/workspace/lib/external-buffer-sync'
 import { toast } from '@/features/window/stores/toast-store'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
+import { report } from '@/lib/errors/report'
+import { problemOf } from '@/lib/errors/problem'
 
-/** Quiet period after the last edit before an autosave write. */
-/** @internal Exported for unit tests. */
-export const AUTOSAVE_DELAY_MS = 1000
+/** Quiet period after the last edit before a dirty document's draft and autosave are written.
+ *  @internal Exported for unit tests. */
+export const QUIET_PERIOD_MS = 1000
 
-const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const quietTimers = new Map<string, ReturnType<typeof setTimeout>>() // by document uri
 const saveChains = new Map<string, Promise<boolean>>()
 
 /** openContent always gives an editor buffer a path; one without is ignored. */
@@ -36,6 +43,13 @@ export type PathedBuffer = EditorContent & { path: string }
 export function findEditorBuffer(bufferId: string): PathedBuffer | null {
   const buffer = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
   return buffer && isEditorContent(buffer) && buffer.path ? (buffer as PathedBuffer) : null
+}
+
+function bufferOfDocument(uri: string): PathedBuffer | null {
+  const buffer = windowPaneStore
+    .getState()
+    .buffers.find((b) => isEditorContent(b) && b.path && documentUri(documentRefOf(b)) === uri)
+  return buffer ? (buffer as PathedBuffer) : null
 }
 
 function patchEditorBuffer(bufferId: string, patch: (b: EditorContent) => EditorContent): void {
@@ -47,161 +61,182 @@ function patchEditorBuffer(bufferId: string, patch: (b: EditorContent) => Editor
 // Surface save failures the user would otherwise never see. A locked workspace
 // (protected/default branch) rejects writes with 409 — explain how to fix it.
 function reportSaveError(error: unknown): void {
-  const message = actionErrorMessage(error, String(error))
-  if (/locked/i.test(message)) {
+  if (/locked/i.test(problemOf(error).message)) {
     toast.error('Workspace is read-only', 'Create or switch to a child workspace to edit files.')
     return
   }
-  toast.error('Failed to save file', message)
+  report(error, { action: 'Failed to save file' })
 }
 
-function canAutosave(buffer: PathedBuffer): boolean {
-  return !buffer.isVirtual && !buffer.path.startsWith('untitled:')
-}
+const isUntitled = (buffer: PathedBuffer) => buffer.isVirtual || isUntitledRef(buffer)
 
-export function cancelAutosave(bufferId: string): void {
-  const timer = autosaveTimers.get(bufferId)
+/** Drops the draft write and autosave waiting on `uri`'s edits to pause. */
+export function cancelPendingWrites(uri: string): void {
+  const timer = quietTimers.get(uri)
   if (timer === undefined) return
   clearTimeout(timer)
-  autosaveTimers.delete(bufferId)
+  quietTimers.delete(uri)
 }
 
-function scheduleAutosave(bufferId: string): void {
-  cancelAutosave(bufferId)
-  autosaveTimers.set(
-    bufferId,
+function whenQuiet(uri: string): void {
+  cancelPendingWrites(uri)
+  quietTimers.set(
+    uri,
     setTimeout(() => {
-      autosaveTimers.delete(bufferId)
-      void saveBuffer(bufferId, { reason: 'auto' })
-    }, AUTOSAVE_DELAY_MS),
+      quietTimers.delete(uri)
+      writeDraft(uri)
+      const buffer = bufferOfDocument(uri)
+      if (buffer && !isUntitled(buffer) && useSettingsStore.getState().settings.autoSave) {
+        void saveBuffer(buffer.id, { reason: 'auto' })
+      }
+    }, QUIET_PERIOD_MS),
   )
 }
 
-/**
- * Record new text for a buffer (from Monaco's content sink or the markdown
- * editor) and arm that buffer's autosave when enabled.
- */
-export function setBufferContent(bufferId: string, content: string): void {
-  const buffer = findEditorBuffer(bufferId)
-  if (!buffer) return
-  if (buffer.content !== content) {
-    patchEditorBuffer(bufferId, (b) => ({ ...b, content, isDirty: content !== b.savedContent }))
+/** The document's dirty flag flipped: its buffer mirrors it, and a first edit keeps a preview. */
+export function setDocumentDirty(uri: string, dirty: boolean): void {
+  const buffer = bufferOfDocument(uri)
+  if (buffer && buffer.isDirty !== dirty)
+    patchEditorBuffer(buffer.id, (b) => ({ ...b, isDirty: dirty }))
+  if (buffer && dirty && buffer.isPreview)
+    windowPaneStore.getState().bufferActions.promotePreview(buffer.id)
+  if (dirty) return
+  cancelPendingWrites(uri)
+  clearDraft(uri)
+}
+
+/** The document's text changed: once edits pause, a dirty one gets its draft and autosave. */
+export function noteDocumentEdited(uri: string): void {
+  if (!getEditorHost()?.documents.isDirty(uri)) return
+  noteDraftChanged(uri)
+  whenQuiet(uri)
+}
+
+/** The text to save once formatted; null when the document closed meanwhile. */
+async function formatBeforeSave(ref: DocumentRef, text: string): Promise<string | null> {
+  const { formatDocumentWithLsp } = await import('@/features/editor/lsp/format-buffer')
+  const formatted = await formatDocumentWithLsp(ref, text)
+  // An edit made while the formatter ran would be dropped by its stale result.
+  if (formatted !== null && documentText(ref) === text) {
+    applyExternalText(ref, formatted, { saved: false })
   }
-  const next = findEditorBuffer(bufferId)
-  if (next?.isDirty && canAutosave(next) && useSettingsStore.getState().settings.autoSave) {
-    scheduleAutosave(bufferId)
+  return documentText(ref)
+}
+
+/** `holder` takes the untitled tab's place, unless both were edited while the write ran: then
+ *  the untitled tab keeps its unsaved text and this is false. */
+function adoptSavedAs(untitled: PathedBuffer, holder: EditorContent, written: string): boolean {
+  const ref = documentRefOf(holder)
+  const typed = documentText(documentRefOf(untitled))
+  const late = typed !== null && typed !== written ? typed : null
+  const text = documentText(ref)
+  if (text === written || text === savedDocumentText(ref)) {
+    applyExternalText(ref, written, { saved: true })
+    // Edits typed into the untitled tab while the write ran stay, unsaved.
+    if (late !== null) replaceDocumentText(ref, late)
+  } else {
+    // Edited during the write: the rule for any disk change under unsaved edits.
+    flagExternalChange(ref)
+    if (late !== null) return false
   }
+  patchEditorBuffer(holder.id, (b) => ({ ...b, isPreview: false }))
+  windowPaneStore.getState().paneActions.replaceEditorTab(untitled.id, holder.id)
+  return true
 }
 
-/** Pull any keystrokes Monaco's content sink is still coalescing into the store. */
-function flushPendingEditorContent(): void {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event('flush-editor-content'))
-}
-
-async function formatBeforeSave(buffer: PathedBuffer): Promise<void> {
-  const { formatBufferWithLsp } = await import('@/features/editor/lsp/format-buffer')
-  const formatted = await formatBufferWithLsp(buffer)
-  if (formatted === null) return
-  // Only apply if nothing changed while the formatter ran — otherwise the
-  // formatted text is based on stale input and would drop those edits.
-  const current = findEditorBuffer(buffer.id)
-  if (!current || current.content !== buffer.content) return
-  patchEditorBuffer(buffer.id, (b) => ({
-    ...b,
-    content: formatted,
-    isDirty: formatted !== b.savedContent,
-  }))
-}
-
-async function saveAsUntitled(buffer: PathedBuffer): Promise<boolean> {
+async function saveAsUntitled(buffer: PathedBuffer, content: string): Promise<boolean> {
   const target = window.prompt('Save as:', buffer.name)
   if (!target) return false
-  const content = buffer.content
   // Buffers are window-level — write to THIS buffer's own workspace, never the
   // merely-active one.
-  await writeWorkspaceFile(buffer.workspaceId, target, content)
-  patchEditorBuffer(buffer.id, (b) => ({
-    ...b,
-    path: target,
-    name: target.split('/').pop() || target,
-    isVirtual: false,
-    savedContent: content,
-    isDirty: b.content !== content,
-  }))
-  return true
-}
-
-async function saveVirtual(buffer: PathedBuffer): Promise<boolean> {
-  if (buffer.path === 'settings://user-settings.json') {
-    const ok = useSettingsStore.getState().updateSettingsFromJSON(buffer.content)
-    if (ok) markSaved(buffer.id, buffer.content)
-    return ok
+  const asked = workspaceRef(buffer.workspaceId, target)
+  const open = findDocumentBuffer(asked)
+  if (open && documentText(asked) !== savedDocumentText(asked)) {
+    toast.error(`Save or discard changes in ${open.name} first`)
+    return false
   }
-  markSaved(buffer.id, buffer.content)
+  // Ready before the write, so nothing can open the target between its write and its rebind.
+  const openModel = await documentModelOpener()
+  let ref: DocumentRef
+  try {
+    ref = await writeDocument(asked, content)
+  } catch (error) {
+    console.error('Error saving file:', error)
+    reportSaveError(error)
+    return false
+  }
+  if (ref.authority === 'workspace') clearBlame(ref.workspaceId, ref.path)
+  // Decided after the write, so an open that landed during it is seen too.
+  const holder = findDocumentBuffer(ref)
+  if (holder) return adoptSavedAs(buffer, holder, content)
+  // The untitled tab becomes the document; text typed during the write stays, unsaved.
+  const untitled = documentUri(documentRefOf(buffer))
+  openModel(ref, documentText(documentRefOf(buffer)) ?? content, content)
+  windowPaneStore.getState().bufferActions.rebindEditorBuffer(buffer.id, ref, documentName(ref))
+  getEditorHost()?.documents.release(untitled)
+  clearDraft(untitled)
+  const uri = documentUri(ref)
+  setDocumentDirty(uri, getEditorHost()?.documents.isDirty(uri) ?? false)
+  noteDocumentEdited(uri)
   return true
-}
-
-/** The buffer is clean only if it still holds exactly what was written. */
-function markSaved(bufferId: string, written: string): void {
-  patchEditorBuffer(bufferId, (b) => ({
-    ...b,
-    savedContent: written,
-    isDirty: b.content !== written,
-    hasExternalChange: b.content === written ? false : b.hasExternalChange,
-  }))
 }
 
 async function writeToDisk(
   bufferId: string,
   { reason }: { reason: 'manual' | 'auto' },
 ): Promise<boolean> {
-  flushPendingEditorContent()
-  let buffer = findEditorBuffer(bufferId)
+  const opened = findEditorBuffer(bufferId)
+  if (!opened) return false
+  if (opened.unavailable) {
+    toast.error(opened.unavailable.title, opened.unavailable.message)
+    return false
+  }
+  const ref = documentRefOf(opened)
+  // A tab whose document is still being restored has no text to write yet.
+  if (!getEditorHost()?.documents.has(documentUri(ref))) return false
+  const text = await readDocumentText(ref)
+  const buffer = findEditorBuffer(bufferId)
   if (!buffer) return false
-  if (buffer.path.startsWith('untitled:')) return reason === 'manual' && saveAsUntitled(buffer)
-  if (buffer.isVirtual) return saveVirtual(buffer)
+  if (isUntitled(buffer)) return reason === 'manual' && saveAsUntitled(buffer, text)
   // An autosave for a buffer a previous save already caught up is a no-op.
   if (reason === 'auto' && !buffer.isDirty) return true
 
-  if (reason === 'manual' && useSettingsStore.getState().settings.formatOnSave) {
-    await formatBeforeSave(buffer)
-    buffer = findEditorBuffer(bufferId)
-    if (!buffer) return false
-  }
+  // A host document has no language server, watcher, git status or blame.
+  const inWorkspace = ref.authority === 'workspace'
+  const formats =
+    inWorkspace && reason === 'manual' && useSettingsStore.getState().settings.formatOnSave
+  const written = formats ? await formatBeforeSave(ref, text) : text
+  if (written === null) return false
 
   const { path, workspaceId } = buffer
-  const written = buffer.content
   try {
-    useFileWatcherStore.getState().markPendingSave(path)
-    await writeWorkspaceFile(workspaceId, path, written)
+    if (inWorkspace) useFileWatcherStore.getState().markPendingSave(path)
+    await writeDocument(ref, written)
   } catch (error) {
     console.error('Error saving file:', error)
     reportSaveError(error)
     return false
   }
-  markSaved(bufferId, written)
-
-  const { LspClient } = await import('@/features/editor/lsp/lsp-client')
-  void LspClient.getInstance().documentSave(workspaceId, path)
-  requestGitRefresh(workspaceId)
-  clearBlame(workspaceId, path)
+  markDocumentSaved(ref, written)
+  if (inWorkspace) {
+    const { LspClient } = await import('@/features/editor/lsp/lsp-client')
+    void LspClient.getInstance().documentSave(workspaceId, path)
+    requestGitRefresh(workspaceId)
+    clearBlame(workspaceId, path)
+  }
 
   // Edits typed during the write keep the buffer dirty; make sure autosave
   // picks them up rather than leaving them waiting for the next keystroke.
-  const after = findEditorBuffer(bufferId)
-  if (after?.isDirty && useSettingsStore.getState().settings.autoSave) scheduleAutosave(bufferId)
+  noteDocumentEdited(documentUri(ref))
   return true
 }
 
-/**
- * Save one buffer. Saves of the same buffer run strictly one after another.
- * Resolves true when the buffer's content reached disk (or its virtual owner).
- */
+/** Save one buffer; saves of the same buffer run strictly in turn. True when its content reached
+ *  disk. */
 export function saveBuffer(
   bufferId: string,
   options: { reason: 'manual' | 'auto' } = { reason: 'manual' },
 ): Promise<boolean> {
-  if (options.reason === 'manual') cancelAutosave(bufferId)
   const previous = saveChains.get(bufferId) ?? Promise.resolve(true)
   const next = previous.then(
     () => writeToDisk(bufferId, options),
@@ -221,11 +256,8 @@ export async function saveActiveBuffer(): Promise<boolean> {
   return saveBuffer(bufferId)
 }
 
-/**
- * Save every dirty editor buffer across all workspaces (buffers are one
- * window-level list; each save writes to its buffer's own workspace).
- * Sequential on purpose: an untitled buffer blocks on a Save-As prompt.
- */
+/** Save every dirty editor buffer, each to its own workspace. Sequential on purpose: an untitled
+ *  buffer blocks on a Save-As prompt. */
 export async function saveAllDirtyBuffers(): Promise<number> {
   const dirtyIds = windowPaneStore
     .getState()

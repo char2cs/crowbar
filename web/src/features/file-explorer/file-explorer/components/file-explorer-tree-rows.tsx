@@ -43,11 +43,8 @@ interface FileExplorerTreeRowsProps {
   >
 }
 
-/**
- * The virtualized rows with their sticky ancestors. Deliberately not memoized:
- * the virtualizer instance is stable, so a scroll re-renders the tree that owns
- * it and this must follow.
- */
+/** The virtualized rows with their sticky ancestors. Not memoized on purpose: the virtualizer
+ *  instance is stable, so a scroll re-renders the owning tree and this must follow. */
 export function FileExplorerTreeRows({
   visibleRows,
   rowVirtualizer,

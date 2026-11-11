@@ -1,8 +1,8 @@
 // Package lsp contains the Crowbar LSP domain DTOs used across the engine and
-// API layers (10 §6).
+// API layers.
 package lsp
 
-// Position is a 0-based line/character coordinate (10 §6).
+// Position is a 0-based line/character coordinate.
 type Position struct {
 	Line      int `json:"line"`
 	Character int `json:"character"`

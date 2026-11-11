@@ -2,6 +2,9 @@ package spec
 
 type Descriptor struct {
 	ID string `yaml:"id"`
+	// SchemaVersion is the descriptor schema the document was written for; any
+	// other than descriptorschema.Current is refused at load.
+	SchemaVersion int `yaml:"schema_version"`
 
 	// --- v3: the event is the unit ------------------------------------------
 	ProtocolVersion *VersionRange       `yaml:"protocol_version"`
@@ -12,24 +15,28 @@ type Descriptor struct {
 
 	DisplayName string `yaml:"display_name"`
 	Icon        string `yaml:"icon"`
+	// SignIn is the shell command that logs the CLI in, for a turn refused for want of one.
+	SignIn string `yaml:"sign_in"`
 
 	Spawn   SpawnSpec   `yaml:"spawn"`
 	Session SessionSpec `yaml:"session"`
 
-	ConfigInjection []InjectStep `yaml:"config_injection"`
+	ConfigInjection InjectSteps `yaml:"config_injection"`
 
-	// HooksInjection wires the provider's hook relay (`crowbar hook <event>`).
-	// It is applied ONLY to a process whose delivery channel is hooks — a PTY
-	// — never to an api-transport `serve` process: a process reports over
-	// exactly one channel, so an event can never arrive twice (sessions spec
-	// §2.3).
-	HooksInjection []InjectStep `yaml:"hooks_injection"`
+	// HooksInjection points the provider's hooks at the daemon's hook server. It is
+	// applied ONLY to a hooks-channel PTY, never an api `serve` process: each process
+	// reports over exactly one channel, so an event never arrives twice.
+	HooksInjection InjectSteps `yaml:"hooks_injection"`
 
-	MCPInject []InjectStep `yaml:"mcp_injection"`
+	MCPInject InjectSteps `yaml:"mcp_injection"`
 
-	ContextInject []InjectStep `yaml:"context_inject"`
+	// AddDirs hands an interactive CLI the directories outside its workspace it may
+	// read without asking: the chat's attachment store ({attachments_dir}).
+	AddDirs InjectSteps `yaml:"add_dirs"`
 
-	ResumeContextInject []InjectStep `yaml:"resume_context_inject"`
+	ContextInject InjectSteps `yaml:"context_inject"`
+
+	ResumeContextInject InjectSteps `yaml:"resume_context_inject"`
 
 	Presentation PresentationSpec `yaml:"presentation"`
 
@@ -49,19 +56,14 @@ type Descriptor struct {
 
 	InjectedPrompts []InjectedPromptSpec `yaml:"injected_prompts"`
 
-	// NotEmitted names canonical in/ask events this provider genuinely never
-	// fires — an absent event otherwise means both "the provider doesn't do
-	// this" and "we forgot", indistinguishably. Enforced (rules.notEmitted):
-	// every in/ask canonical event must be mapped in events: or listed here
-	// (design spec 2.6).
+	// NotEmitted names canonical in/ask events this provider never fires (or that
+	// mapping would misread). rules.notEmitted requires every in/ask event be mapped
+	// or listed here, so "doesn't do this" is distinguishable from "forgot".
 	NotEmitted []string `yaml:"not_emitted"`
 
-	// Surfaces declares which VIEWS this provider offers (chat, terminal) and
-	// which may be launched a brand-new chat directly onto (design spec 2.5).
-	// Keyed by surface name; validated by rules.surfaces against RuntimeSpec/
-	// Hotswap so it cannot silently contradict them. Nil for a descriptor
-	// that has not declared any — every surface then answers false to
-	// SurfaceStartHere, same as every other absent capability.
+	// Surfaces declares which views (chat, terminal) this provider offers and which a
+	// new chat may launch onto, keyed by surface name and validated by rules.surfaces
+	// against the runtime. Nil means every surface answers false to SurfaceStartHere.
 	Surfaces map[string]SurfaceSpec `yaml:"surfaces"`
 }
 
@@ -77,21 +79,23 @@ type SpawnSpec struct {
 
 type SessionSpec struct {
 	Resume *ArgSpec `yaml:"resume"`
-	// Assign hands a fresh CLI the session id Crowbar chose for it, so the
-	// conversation is known without waiting for the CLI's session hook.
+	// Assign launches the CLI on a session id Crowbar minted.
 	Assign *ArgSpec `yaml:"assign"`
-	// Locate is where the provider keeps a session on disk, so a recorded id
-	// is verified before a resume is attempted (the resume ladder's first rung).
-	Locate *SessionLocateSpec `yaml:"locate"`
+	// Refused is how the CLI says it cannot resume a session: the only
+	// evidence that a chat's session is lost.
+	Refused *SessionRefusedSpec `yaml:"refused"`
+	// Persists is when the CLI has written a session it can resume:
+	// "turn_start" (the default) or "turn_end", once a turn on it completes.
+	Persists string `yaml:"persists"`
 }
 
-// SessionLocateSpec finds a session file: Root (overridable by the RootEnv
-// environment variable, "~/" meaning the user's home), then any of Glob, whose
-// {id} is the session id and whose other segments may use shell wildcards.
-type SessionLocateSpec struct {
-	RootEnv string   `yaml:"root_env"`
-	Root    string   `yaml:"root"`
-	Glob    []string `yaml:"glob"`
+// SessionRefusedSpec is a refused resume, by one rule per channel: on the
+// terminal the CLI exits with ExitCode having printed a line containing one of
+// Needles; over the api a call fails with RPCCode and a message containing one.
+type SessionRefusedSpec struct {
+	ExitCode int      `yaml:"exit_code"`
+	RPCCode  int      `yaml:"rpc_code"`
+	Needles  []string `yaml:"needles"`
 }
 
 type ArgSpec struct {

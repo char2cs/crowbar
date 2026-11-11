@@ -7,29 +7,12 @@ import { searchReviewDiff } from '@/features/git/api/review-window-api'
 import type { SearchDiffResult, SearchHit } from '@/features/git/api/review-window-api'
 import { cn } from '@/utils/cn'
 
-// Find-in-diff for the windowed review surface.
-//
-// The client only ever holds a WINDOW of the patch, so there is nothing left to
-// search locally — every query goes to the daemon, which streams the diff and
-// matches a line at a time. That moves two costs onto this component:
-//
-//   1. Each keystroke would otherwise start a fresh whole-diff scan. The
-//      endpoint reads 46 MB in ~700ms when nothing matches, so an undebounced
-//      find box queues one such scan per character. Hence the 200ms debounce.
-//   2. Those scans finish out of order. A slow early query landing after a fast
-//      later one is the classic find-box race, and it shows the reader hits for
-//      a query they no longer have typed. Hence the generation guard.
-//
-// The component owns only its own query and results. Where a hit LANDS — which
-// file to materialise, which line to scroll to — belongs to the review surface,
-// which receives the hit through onSelectHit.
+// Find-in-diff: the client holds only a window, so the daemon searches. Queries are debounced
+// (each can scan the whole diff) and generation-guarded (out-of-order answers would show stale
+// hits). Where a hit lands is the surface's job, via onSelectHit.
 
-/** Delay between the last keystroke and the request it triggers.
- *
- *  Not a taste knob: the /review/search endpoint scans the entire branch diff
- *  when a query matches nothing, which measured ~700ms over 46 MB. Firing per
- *  keystroke queues one of those per character. 200ms is long enough that a
- *  typed word costs one scan and short enough to still feel like find-as-you-type. */
+/** Not a taste knob: a no-match query scans the whole diff (~700ms over 46 MB). 200ms makes a
+ *  typed word cost one scan and still feels like find-as-you-type. */
 export const SEARCH_DEBOUNCE_MS = 200
 
 const EMPTY_RESULT: SearchDiffResult = { hits: [], truncated: false }
@@ -68,18 +51,15 @@ export function ReviewSearchBar({
    *  box is motion sickness, so the first next/prev is what commits to a hit. */
   const [activeIndex, setActiveIndex] = useState(-1)
 
-  // Monotonic request id. Every run of the effect below — a new query, a toggled
-  // option, an unmount — bumps it, which is what makes an older in-flight search
-  // stale: its answer is compared against the id current when IT resolves, not
-  // when it started, so a superseded response is dropped rather than rendered.
+  // Bumped on every run of the effect below (query, option, unmount); a response whose id isn't
+  // current when it resolves is superseded and dropped.
   const generation = useRef(0)
 
   useEffect(() => {
     const gen = ++generation.current
 
-    // An empty box is the state this opens in. The daemon answers it with an
-    // empty result rather than an error, but there is nothing to ask about, so
-    // it costs no request at all.
+    // An empty box is the state this opens in. The daemon answers it with an empty result rather
+    // than an error, but there is nothing to ask about, so it costs no request at all.
     if (query === '') {
       setResult(EMPTY_RESULT)
       setError(null)
@@ -275,11 +255,8 @@ export function ReviewSearchBar({
   )
 }
 
-/** The one line under the box that says what the results actually are.
- *
- *  Truncation is stated rather than implied: the endpoint caps at `limit`
- *  (default 200, hard maximum 1000) and reports having done so, and a capped
- *  list rendered as if it were complete is a claim the reader cannot check. */
+/** The line under the box saying what the results are. Truncation (at `limit`, default 200, max
+ *  1000) is stated: a capped list shown as complete is a claim the reader can't check. */
 function SearchStatus({
   query,
   searching,

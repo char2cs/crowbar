@@ -1,7 +1,5 @@
-// Package registry maps file extensions to language-server commands. It ships
-// defaults for Go (gopls), TypeScript/JavaScript (typescript-language-server),
-// Python (pyright), Java (jdtls), and C/C++ (clangd), and accepts caller
-// overrides to replace or extend any entry (10 §4).
+// Package registry maps file extensions to language-server commands, with defaults for
+// Go, TypeScript/JavaScript, Python, Java and C/C++ that caller overrides replace or extend.
 package registry
 
 import "path/filepath"

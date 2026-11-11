@@ -9,7 +9,7 @@ import (
 )
 
 // UpdateForkPoint resets a kept child's forkPointSha to the parent's post-merge
-// tip after a local merge, for every strategy (07 §3.1).
+// tip after a local merge, for every strategy.
 type UpdateForkPoint struct {
 	ID           string
 	ForkPointSha string

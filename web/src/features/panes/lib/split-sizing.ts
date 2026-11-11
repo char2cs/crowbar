@@ -1,16 +1,8 @@
-/**
- * Pure sizing math for the imperative pixel sash splitter.
- *
- * The authoritative layout stores split ratios as `[firstPct, secondPct]`
- * percentages summing to 100. During a drag we work in pixels for crisp,
- * reflow-free movement, then convert back to percentages on pointer-up.
- */
+// Sizing math for the pixel sash: the layout stores `[firstPct, secondPct]` summing to 100; a
+// drag works in pixels and converts back on pointer-up.
 
-/**
- * Clamp the first pane's pixel size so neither pane drops below `minPx`.
- * If the container is too small to honour both minimums, collapse to the
- * midpoint so the divider stays centered rather than jumping to an edge.
- */
+/** Keeps both panes at least `minPx`; too small for both, the divider centres rather than
+ *  jumping to an edge. */
 export function clampFirstPx(firstPx: number, containerPx: number, minPx: number): number {
   if (containerPx <= 0) return 0
   if (containerPx < minPx * 2) return containerPx / 2
@@ -21,10 +13,7 @@ export function clampFirstPx(firstPx: number, containerPx: number, minPx: number
   return firstPx
 }
 
-/**
- * Convert a dragged first-pane pixel size into `[firstPct, secondPct]`
- * percentages summing to exactly 100, with each pane clamped to `minPx`.
- */
+/** Percentages summing to exactly 100, each pane clamped to `minPx`. */
 export function pxToPercents(
   containerPx: number,
   firstPx: number,
@@ -37,10 +26,7 @@ export function pxToPercents(
   return [firstPct, secondPct]
 }
 
-/**
- * Convert `[firstPct, secondPct]` percentages into pixel sizes that sum to
- * exactly `containerPx` (the second pane absorbs any rounding remainder).
- */
+/** Pixel sizes summing to exactly `containerPx`; the second pane absorbs the rounding. */
 export function percentsToPx(containerPx: number, sizes: [number, number]): [number, number] {
   const total = sizes[0] + sizes[1]
   const firstPct = total > 0 ? sizes[0] / total : 0.5

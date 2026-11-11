@@ -104,18 +104,13 @@ func TestRegression_AnImportedBranchIsOwnedByAChatWithoutARestart(t *testing.T) 
 	const branch = "feature/pricing-rounding"
 	f.pushBranchToOrigin(t, branch, "main", "rounding\n")
 
-	conn := h.dial(f.repoBase() + "/chats/ws")
+	feed := recordSidebar(t, h)
 	_ = h.raw(http.MethodPost, f.repoBase()+"/chats/import-batch",
-		map[string]any{"branches": []string{branch}}, http.StatusAccepted).Body.Close()
-	// No worktree_state frame ever reaches a freshly imported chat: pushChatWorktree
-	// drops it whenever the chat's SetWorkspace event has not yet reached the
-	// AgentChat projection (owningChatIDFor resolves "" and the push is skipped),
-	// which is exactly the moment a create races into. workspace_set is the
-	// reliable signal instead — SpawnChatWithImportedWorktree only fires it once
-	// CreateImportedWorkspace has already materialised the workspace, so its
-	// WorkspaceID is the real one.
-	created := readUntil(t, conn, func(m map[string]any) bool {
-		return m["kind"] == "workspace_set"
+		importBranches(branch), http.StatusAccepted).Body.Close()
+	// The new chat's row names its workspace only once CreateImportedWorkspace
+	// has materialised it, so its WorkspaceID is the real one.
+	created := feed.awaitNewChat(func(chat map[string]any) bool {
+		return chat["workspaceId"] != ""
 	})
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "import must broadcast a workspace for the branch")

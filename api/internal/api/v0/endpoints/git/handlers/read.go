@@ -19,8 +19,7 @@ func (h *Handlers) Status(
 
 	status, err := h.git.Status(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -44,8 +43,7 @@ func (h *Handlers) Diff(
 
 	diffs, err := h.git.Diff(rctx, id, staged)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -76,35 +74,11 @@ func (h *Handlers) Log(
 
 	commits, err := h.git.Log(rctx, id, limit, skip)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
 	libs.WriteQueryOK(ctx, commits)
-}
-
-// Blame GET /v0/chats/:chatId/git/blame?path=<filePath>
-func (h *Handlers) Blame(
-	ctx *gin.Context,
-) {
-	rctx := ctx.Request.Context()
-	id := h.workspaceID(ctx)
-
-	filePath := ctx.Query("path")
-	if filePath == "" {
-		libs.WriteErr(ctx, http.StatusBadRequest, "path query parameter is required")
-		return
-	}
-
-	entries, err := h.git.Blame(rctx, id, filePath)
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
-
-	libs.WriteQueryOK(ctx, entries)
 }
 
 // Branches GET /v0/chats/:chatId/git/branches
@@ -116,8 +90,7 @@ func (h *Handlers) Branches(
 
 	branches, err := h.git.Branches(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -133,8 +106,7 @@ func (h *Handlers) Stashes(
 
 	stashes, err := h.git.Stashes(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -150,8 +122,7 @@ func (h *Handlers) Conflicts(
 
 	files, err := h.git.ConflictedFiles(rctx, id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -173,8 +144,7 @@ func (h *Handlers) ConflictHunks(
 
 	hunks, err := h.git.ConflictHunks(rctx, id, filePath)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 
@@ -196,8 +166,7 @@ func (h *Handlers) CommitDiff(
 
 	diff, err := h.git.CommitDiff(rctx, id, sha)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 

@@ -21,6 +21,8 @@ const LOCAL_STATUS: Record<ConnectionStatus, HostStatus> = {
   idle: 'unknown',
   connected: 'up',
   disconnected: 'down',
+  // It answers but serves nothing until its home is ready.
+  migrating: 'down',
 }
 
 /** Whether `hostId` is reachable, as the app knows it: the one answer every caller reads. */

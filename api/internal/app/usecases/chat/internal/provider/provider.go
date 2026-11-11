@@ -1,14 +1,11 @@
-// Package provider owns the global provider table — which vendor CLIs this
-// machine offers, in what order, and with which of them allowed to call back
-// into Crowbar — and the MCP dispatch those callbacks arrive on.
-//
-// Everything here is per user/machine and never per workspace: the settings PUT
-// that rewrites the table has no workspace to resolve one from, so nothing in
-// this package may depend on there being one.
+// Package provider owns the global provider table — which vendor CLIs this machine
+// offers, in what order, and which may call back into Crowbar — and the MCP dispatch
+// those callbacks arrive on. It is per user/machine, never per workspace.
 package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,9 +13,9 @@ import (
 	"sort"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
@@ -26,7 +23,7 @@ import (
 // ErrProviderDisabled is returned when a request names a provider the user has
 // switched off. It is an invalid argument rather than a not-found: the provider
 // exists, and the user chose not to use it.
-var ErrProviderDisabled = fmt.Errorf("agent: provider disabled: %w", apperr.ErrInvalidArgument)
+var ErrProviderDisabled = fmt.Errorf("agent: provider disabled: %w", problem.ErrInvalidArgument)
 
 var descriptorID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
@@ -37,19 +34,19 @@ func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptor
 	if !report.OK() {
 		for _, finding := range report.Findings {
 			if finding.Severity == descriptorcheck.SeverityError {
-				return report, fmt.Errorf("agent: descriptor line %d: %s: %w", finding.Line, finding.Message, apperr.ErrUnprocessable)
+				return report, fmt.Errorf("agent: descriptor line %d: %s: %w", finding.Line, finding.Message, problem.ErrUnprocessable)
 			}
 		}
 	}
 	if !descriptorID.MatchString(report.ID) {
-		return report, fmt.Errorf("agent: descriptor id must start with a lowercase letter and contain only lowercase letters, digits, underscores or hyphens: %w", apperr.ErrUnprocessable)
+		return report, fmt.Errorf("agent: descriptor id must start with a lowercase letter and contain only lowercase letters, digits, underscores or hyphens: %w", problem.ErrUnprocessable)
 	}
 	home, err := p.home()
 	if err != nil {
 		return report, fmt.Errorf("agent: descriptor home: %w", err)
 	}
 	if home == "" {
-		return report, fmt.Errorf("agent: descriptor home is empty: %w", apperr.ErrUnprocessable)
+		return report, fmt.Errorf("agent: descriptor home is empty: %w", problem.ErrUnprocessable)
 	}
 	sources, err := descriptorcheck.Sources(home)
 	if err != nil {
@@ -57,7 +54,7 @@ func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptor
 	}
 	for _, source := range sources {
 		if source.ID == report.ID {
-			return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, apperr.ErrInvalidArgument)
+			return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, problem.ErrInvalidArgument)
 		}
 	}
 	dir := filepath.Join(home, "descriptors")
@@ -67,19 +64,16 @@ func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptor
 	path := filepath.Join(dir, report.ID+".yaml")
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path is under daemon-owned home and the descriptor id is validated above.
 	if os.IsExist(err) {
-		return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, apperr.ErrInvalidArgument)
+		return report, fmt.Errorf("agent: provider %q already exists: %w", report.ID, problem.ErrInvalidArgument)
 	}
 	if err != nil {
 		return report, fmt.Errorf("agent: create descriptor: %w", err)
 	}
 	if _, err = f.Write(raw); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return report, fmt.Errorf("agent: write descriptor: %w", err)
+		return report, errors.Join(fmt.Errorf("agent: write descriptor: %w", err), f.Close(), os.Remove(path))
 	}
 	if err = f.Close(); err != nil {
-		_ = os.Remove(path)
-		return report, fmt.Errorf("agent: close descriptor: %w", err)
+		return report, errors.Join(fmt.Errorf("agent: close descriptor: %w", err), os.Remove(path))
 	}
 	return report, nil
 }
@@ -92,22 +86,17 @@ type Providers struct {
 	// must not depend on any workspace.
 	home func() (string, error)
 	// installed is the install probe (defaults to Agent.Installed); injectable so
-	// provider-resolution tests never depend on the host having claude/codex.
+	// provider-resolution tests never depend on which vendor CLIs the host has installed.
 	installed func(a engineagents.Agent) bool
-	// prefs is the global priority+enabled table read by ResolveProviders and
-	// rewritten by ReplaceProviderPreferences. It is keyed by provider id; a
-	// provider with no row is enabled and ordered after every preferenced one by
-	// descriptor id.
+	// prefs is the global priority+enabled table, keyed by provider id; a provider with
+	// no row is enabled and ordered after every preferenced one, by descriptor id.
 	prefs store.Store[domain.AgentProviderPreference, string]
 	// minter issues the per-runner token an MCP call is authenticated by. It is
 	// the SAME instance the spawn path hands a runner its token from: a runner's
 	// token must be minted by the same secret DispatchMCP verifies against.
 	minter *agenttools.TokenMinter
-	// tools is the agent-facing capability surface DispatchMCP builds a per-call
-	// ToolSet from. Its self-ports are wired by the caller before this is built;
-	// the one dependency a caller can get wrong is the Resolver — and DispatchMCP
-	// refuses to serve without it rather than quietly advertising an empty tool
-	// list.
+	// tools is the surface DispatchMCP builds a per-call ToolSet from. Without a
+	// Resolver it refuses to serve rather than advertise an empty tool list.
 	tools agenttools.Deps
 	// gate refuses a provider whose descriptor fails static validation.
 	gate *descriptorcheck.Gate
@@ -158,7 +147,7 @@ func (p *Providers) RequireProviderEnabled(
 		return fmt.Errorf("agent: provider %q: home: %w", providerID, err)
 	}
 	if err := p.gate.Require(home, providerID); err != nil {
-		return fmt.Errorf("agent: provider %q: %w: %w", providerID, err, apperr.ErrUnprocessable)
+		return fmt.Errorf("agent: provider %q: %w: %w", providerID, err, problem.ErrUnprocessable)
 	}
 	return nil
 }
@@ -196,6 +185,11 @@ func (p *Providers) ResolveProviders(
 
 	out := make([]domain.AgentProvider, 0, len(descs))
 	for _, d := range descs {
+		// A descriptor the gate refuses can start no chat, so it is not offered;
+		// DescriptorReports still lists it with the file, line and fix.
+		if p.gate.Require(home, d.ID()) != nil {
+			continue
+		}
 		pref := byID[d.ID()]
 		display := d.Display()
 		caps := d.Capabilities()
@@ -203,6 +197,7 @@ func (p *Providers) ResolveProviders(
 			ID:                d.ID(),
 			DisplayName:       display.Name,
 			Icon:              display.Icon,
+			SignIn:            display.SignIn,
 			Connected:         p.installed(d),
 			Enabled:           !pref.Disabled,
 			MCPEnabled:        !pref.MCPDisabled,
@@ -217,6 +212,7 @@ func (p *Providers) ResolveProviders(
 			Models:            d.Models(),
 			DefaultModel:      d.DefaultModel(),
 			Efforts:           resolveEfforts(d),
+			DefaultEfforts:    resolveDefaultEfforts(d),
 			PermissionLevels:  d.PermissionLevels(),
 		})
 	}
@@ -232,6 +228,21 @@ func (p *Providers) ResolveProviders(
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+// DefaultProviderID is the agent a chat nobody picked one for runs on: the first
+// enabled, installed provider in the user's order, "" when none is.
+func (p *Providers) DefaultProviderID(ctx context.Context) (string, error) {
+	providers, err := p.ResolveProviders(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, candidate := range providers {
+		if candidate.Enabled && candidate.Connected {
+			return candidate.ID, nil
+		}
+	}
+	return "", nil
 }
 
 // DescriptorReports validates every descriptor this machine would load. A
@@ -270,7 +281,7 @@ func (p *Providers) ReplaceProviderPreferences(
 	for _, pref := range prefs {
 		if _, ok := known[pref.ProviderID]; !ok {
 			return nil, fmt.Errorf("agent: replace provider preferences: unknown provider %q: %w",
-				pref.ProviderID, apperr.ErrInvalidArgument)
+				pref.ProviderID, problem.ErrInvalidArgument)
 		}
 		submitted[pref.ProviderID] = struct{}{}
 	}
@@ -311,6 +322,23 @@ func resolveEfforts(
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+// resolveDefaultEfforts keys each model's stated default effort by id, nil when no model states one.
+func resolveDefaultEfforts(agent engineagents.Agent) map[string]string {
+	if !agent.Capabilities().EffortSelect {
+		return nil
+	}
+	var out map[string]string
+	for _, model := range agent.Models() {
+		if effort := agent.DefaultEffort(model); effort != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[model] = effort
+		}
 	}
 	return out
 }

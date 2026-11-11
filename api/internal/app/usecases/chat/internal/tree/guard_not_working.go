@@ -1,20 +1,27 @@
 package tree
 
 import (
-	"errors"
-
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"context"
+	"fmt"
 )
 
-var ErrSubtreeWorking = errors.New("tree: a working chat refuses this verb")
+// Busy answers whether a chat is working.
+type Busy interface {
+	ChatBusy(ctx context.Context, chatID string) (bool, error)
+}
 
 func guardNotWorking(
+	ctx context.Context,
 	subtreeIDs []string,
-	work *inflight.Work,
+	busy Busy,
 ) error {
 	for _, id := range subtreeIDs {
-		if working, _, _ := work.Observe(id); working {
-			return ErrSubtreeWorking
+		working, err := busy.ChatBusy(ctx, id)
+		if err != nil {
+			return fmt.Errorf("tree: is %s working: %w", id, err)
+		}
+		if working {
+			return fmt.Errorf("tree: %s is working: %w", id, ErrSubtreeWorking)
 		}
 	}
 	return nil

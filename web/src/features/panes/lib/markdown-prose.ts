@@ -1,22 +1,13 @@
-/**
- * Shared prose styling for rendered markdown across the branch-review feature.
- *
- * Used by BOTH the renderer of a posted comment (review-thread-item, through
- * the app's one read-only markdown renderer) and the comment editor's
- * editable, so what you type is styled identically to what appears once you
- * post it. That equality is the point of a WYSIWYG composer; if the two ever
- * drift, the composer stops being a preview of anything.
- */
+// Prose styling shared by a posted review comment and the comment editor, so what you type
+// looks exactly like what posts — the whole point of a WYSIWYG composer.
 export const MARKDOWN_PROSE_CLASS =
   'prose prose-sm prose-invert max-w-none text-sm text-foreground ' +
   '[&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h1]:mt-3 ' +
   '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-1.5 [&_h2]:mt-3 ' +
   '[&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1 [&_h3]:mt-2 ' +
   '[&_p]:mb-2 [&_p]:leading-relaxed ' +
-  // Markers are explicit because Tailwind's preflight sets `list-style: none`
-  // on every list, so a comment's bullets and numbers were invisible — two
-  // points and three points looked like one paragraph with odd spacing. Task
-  // lists opt back out: their marker is the checkbox.
+  // Explicit markers: Tailwind's preflight sets `list-style: none` on every list. Task lists
+  // opt back out — their marker is the checkbox.
   '[&_ul]:my-1.5 [&_ul]:pl-4 [&_ul]:list-disc [&_li]:my-0.5 ' +
   '[&_ol]:my-1.5 [&_ol]:pl-4 [&_ol]:list-decimal ' +
   '[&_.contains-task-list]:list-none [&_.task-list-item]:list-none ' +

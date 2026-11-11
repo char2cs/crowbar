@@ -1,6 +1,6 @@
 import { act, render, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { NativeAgentsSettings, NativeChromeIntent } from '@/lib/native-chrome'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
@@ -22,8 +22,8 @@ const api = vi.hoisted(() => ({
   getLevel: vi.fn(),
   putLevel: vi.fn(),
 }))
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
+vi.mock('@/features/agent/api/agent-providers-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-providers-api')>()),
   listGlobalProviders: api.list,
   updateProviderPreferences: api.put,
   getDefaultPermissionLevel: api.getLevel,

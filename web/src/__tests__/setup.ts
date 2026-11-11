@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import 'fake-indexeddb/auto'
 import { enableMapSet } from 'immer'
+import { afterEach, vi } from 'vitest'
 
 // main.tsx calls this once at real app boot — stores that keep a Set/Map in
 // Immer state (e.g. file-explorer-tree-store's expandedPathsByWorkspace)
@@ -37,8 +38,15 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 })
 
+// jsdom has no Worker, so Monaco runs its worker code inline; Bun's native one
+// leaks into the environment and fails to load Vite's `?worker` URLs.
+delete (globalThis as { Worker?: unknown }).Worker
+
 // jsdom does not implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = () => {}
+// Nor a Range's rects, which Plate's floating toolbars position themselves from.
+Range.prototype.getBoundingClientRect = () => DOMRect.fromRect()
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList
 
 // jsdom does not implement ResizeObserver. Inert stub: jsdom has no layout engine, so
 // it could never report a real size change anyway — components that observe elements
@@ -210,3 +218,100 @@ if (typeof ShadowRoot !== 'undefined' && !('adoptedStyleSheets' in ShadowRoot.pr
     configurable: true,
   })
 }
+
+// jsdom has no async clipboard, yet its user agent says AppleWebKit, so once Monaco's
+// services exist its WebKit clipboard workaround writes a ClipboardItem on every click.
+// The browser's clipboard.write settles each item's data; these stubs settle it too.
+if (typeof globalThis.ClipboardItem === 'undefined') {
+  class ClipboardItemStub {
+    readonly #data: Record<string, Promise<unknown>>
+    constructor(data: Record<string, unknown>) {
+      this.#data = {}
+      for (const [type, value] of Object.entries(data)) {
+        const settled = Promise.resolve(value)
+        settled.then(undefined, () => undefined)
+        this.#data[type] = settled
+      }
+    }
+    get types(): string[] {
+      return Object.keys(this.#data)
+    }
+    async getType(type: string): Promise<Blob> {
+      const value = await this.#data[type]
+      return value instanceof Blob ? value : new Blob([String(value)], { type })
+    }
+  }
+  globalThis.ClipboardItem = ClipboardItemStub as unknown as typeof ClipboardItem
+}
+if (typeof navigator !== 'undefined' && !navigator.clipboard) {
+  let items: ClipboardItem[] = []
+  const clipboard = {
+    write: async (next: ClipboardItem[]) => void (items = next),
+    read: async () => items,
+    writeText: async (text: string) => void (items = [new ClipboardItem({ 'text/plain': text })]),
+    readText: async () => (items[0] ? (await items[0].getType('text/plain')).text() : ''),
+  }
+  Object.defineProperty(navigator, 'clipboard', {
+    value: clipboard,
+    configurable: true,
+    writable: true,
+  })
+}
+
+// No daemon answers a test: each host's `/v0/stream` is its fake in `__fixtures__/stream-daemon`,
+// which answers every sub with its synced unless the test says otherwise, so a chat's ledger
+// scope replays nothing and shows what the test seeded into chatStore. Every other endpoint keeps
+// the real manager.
+const setupManager = vi.hoisted(() => ({ current: null as unknown }))
+vi.mock('@/lib/ws/manager', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ws/manager')>()
+  const { streamDaemonFor } = await import('@/__tests__/__fixtures__/stream-daemon')
+  const { splitHostPath } = await import('@/lib/host-path')
+  const real = actual.wsManager
+  const daemonOf = (endpoint: string) => {
+    const { hostId, path } = splitHostPath(endpoint)
+    return path === '/v0/stream' ? streamDaemonFor(hostId) : null
+  }
+  const wsManager: typeof real = {
+    subscribe: (endpoint, cb) => {
+      const daemon = daemonOf(endpoint)
+      if (!daemon) return real.subscribe(endpoint, cb)
+      daemon.deliver = cb
+      queueMicrotask(() => cb({ t: 'ready', epoch: 'test' }))
+      return () => {
+        if (daemon.deliver === cb) daemon.deliver = () => {}
+      }
+    },
+    send: (endpoint, data) => {
+      const daemon = daemonOf(endpoint)
+      if (!daemon) return real.send(endpoint, data)
+      const req = data as { op: string; scope: string }
+      daemon.sent.push(req)
+      const frames = daemon.answer(req)
+      queueMicrotask(() => frames.forEach((f) => daemon.deliver(f)))
+    },
+    opened: (endpoint) => (daemonOf(endpoint) ? Promise.resolve() : real.opened(endpoint)),
+    onDrop: (endpoint, listener) => {
+      const daemon = daemonOf(endpoint)
+      if (!daemon) return real.onDrop(endpoint, listener)
+      daemon.drop = listener
+      return () => {}
+    },
+  }
+  setupManager.current = wsManager
+  return { ...actual, wsManager }
+})
+
+// The stream starts when a file first uses it, as main.tsx starts it, unless the file fakes the
+// socket manager itself.
+vi.mock('@/core/stream/stream', async (importOriginal) => {
+  const stream = await importOriginal<typeof import('@/core/stream/stream')>()
+  const { wsManager } = await import('@/lib/ws/manager')
+  if (wsManager === setupManager.current) stream.startStream()
+  return stream
+})
+
+afterEach(async () => {
+  const { resetStreamDaemon } = await import('@/__tests__/__fixtures__/stream-daemon')
+  resetStreamDaemon()
+})

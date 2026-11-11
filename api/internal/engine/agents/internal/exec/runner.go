@@ -97,14 +97,6 @@ func (e *ExitError) Error() string {
 
 func (e *ExitError) Unwrap() error { return ErrCommandFailed }
 
-func ExitCode(err error) (int, bool) {
-	var exitErr *ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.Code, true
-	}
-	return 0, false
-}
-
 type budget struct {
 	mu        sync.Mutex
 	remaining int
@@ -143,7 +135,7 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	}
 	accepted, exceeded := b.budget.consume(len(p))
 	if accepted > 0 {
-		_, _ = b.buf.Write(p[:accepted])
+		b.buf.Write(p[:accepted]) // bytes.Buffer.Write never fails
 	}
 	if exceeded {
 		b.exceeded = true

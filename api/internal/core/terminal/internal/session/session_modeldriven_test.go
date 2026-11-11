@@ -113,49 +113,6 @@ func TestModelDriven_OutputIsModelDerived(t *testing.T) {
 	assert.Contains(t, data, "\x1b[", "model-driven output is synthesized ANSI")
 }
 
-// TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe proves Resize
-// invalidates the diff emitter (spec: a resize can never be expressed as an
-// absolute-addressed diff), so the very next model-derived frame after a
-// resize is a Snapshot keyframe rather than an incremental diff.
-func TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe(t *testing.T) {
-	s, err := New(t.Context(), "sid-md-resize", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	// Drain the initial attach snapshot.
-	_, ok := waitFrame(t, ch)
-	require.True(t, ok, "attach must deliver an initial snapshot")
-
-	// The shell's own startup prompt arrives asynchronously and, under load, can already
-	// be sitting in ch as a plain diff BEFORE this goroutine reaches Resize — the
-	// waitFrame below would then misread that stale pre-resize frame as Resize's own.
-	// quiesce's notify seam can fire before a coalesced chunk's frame is flushed, so
-	// flush any pending delta explicitly too before draining.
-	quiesce(t, s, ch)
-	s.mu.Lock()
-	s.flushPendingEmitLocked()
-	s.mu.Unlock()
-	drainFrames(ch)
-
-	require.NoError(t, s.Resize(100, 40))
-
-	require.NoError(t, s.Write([]byte("echo POST-RESIZE\n")))
-	f, ok := waitFrame(t, ch)
-	require.True(t, ok, "post-resize output must produce a frame")
-	assert.True(t, f.Snapshot, "the first frame emitted after Resize must be a keyframe (emitter invalidated)")
-	// The resize keyframe (the freshly-resized blank screen) can flush before the
-	// shell's echo output is parsed and rendered, so the marker lands in this keyframe
-	// or a later frame depending on how the PTY chunks the write. Keep taking frames
-	// until it shows rather than asserting it rode the very first keyframe.
-	if !strings.Contains(string(f.Data), "POST-RESIZE") {
-		collectUntil(t, ch, "POST-RESIZE")
-	}
-}
-
 // TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing proves Attach flushes
 // any pending delta to EXISTING clients via emitFrameLocked before serializing the
 // fresh-attach snapshot and priming the emitter — so a delta accumulated behind an

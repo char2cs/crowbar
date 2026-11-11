@@ -30,6 +30,20 @@ PreToolUse.json, not a fresh capture. Write's `content` key is unverified.
 a Crowbar dev chat's stored result blob and shortened/scrubbed. The envelope is
 reduced from PostToolUse.json. Write and MultiEdit results were not captured.
 
+## PermissionRequest.ExitPlanMode.json
+
+VERBATIM stdin of a `--settings` PermissionRequest hook on a real `claude`
+**2.1.319** started with `--permission-mode plan`, 2026-11-06, presenting a
+one-step plan. Only the path fields are scrubbed, as below (`planFilePath`
+-> `/h/.claude/plans/...`). It carries no `permission_suggestions`.
+
+## MessageDisplay.json
+
+VERBATIM stdin of a `--settings` MessageDisplay hook on a real `claude`
+**2.1.319**, 2026-11-07: the first of three chunks of a plain three-paragraph
+reply, scrubbed as below. Chunks arrive one per finished paragraph while the
+reply is written, not once at its end.
+
 ## Scrubbing
 
 `transcript_path`, `cwd`, `scratchpad_dir`, `tool_input.file_path`, and
@@ -97,9 +111,24 @@ capture: UserPromptSubmit firing inside a subagent is unverified against real tr
 ## Subagent captures (claude 2.1.289, 2026-10-05)
 
 `SubagentStart.json`, `SubagentStop.json`, `PreToolUse.Subagent.json`,
-`PostToolUse.Subagent.json` and `UserPromptSubmit.AgentMessage.json` are
-VERBATIM from one interactive session with two background subagents, paths
+`PostToolUse.Subagent.json`, `PostToolUse.Agent.json` (the background `Agent` call's
+completion, naming the `agentId` it spawned; byte-identical to
+`api/tests/testdata/hooks/claude-subagent-session/04-PostToolUse.json`) and
+`UserPromptSubmit.AgentMessage.json` are VERBATIM from one interactive session with two background subagents, paths
 scrubbed as above. A subagent's own tool hooks carry `agent_id`/`agent_type`;
 the main agent's never do. The harness hands a subagent's report back through
 UserPromptSubmit wrapped in `<agent-message from=...>` — no `source` field
 distinguishes it from a human prompt.
+
+## Tool and MCP captures (claude 2.1.302, 2026-10-16)
+
+`PreToolUse.{Bash,mcp,TaskUpdate}.json`, `PostToolUse.{Bash,mcp}.json` and
+`PermissionRequest.{mcp,Edit}.json` are VERBATIM from interactive sessions that called Bash,
+an MCP server's tool, the task tools and an Edit. Scrubbed as above, plus
+`session_id`/`prompt_id` replaced by placeholders and the owner name in `ls -la` output by
+`user`. The replay skips the permission field families that resolve against a suggestion,
+question or option sub-object (see fixture_test.go); choice_test.go covers those.
+
+A PostToolUseFailure was captured in the same run but is not replayed: it leaves `scope_id`,
+`mcp_server` and `mcp_tool` unresolved, so `tool_fail` stays unverified until a subagent
+failure and a failed MCP call are recorded. v3_claude_test.go carries the capture verbatim.

@@ -4,25 +4,9 @@ import { viewedMapOf } from '@/__tests__/__fixtures__/viewed'
 import { ChangedFilesTree } from '@/features/git/components/changed-files-tree'
 import type { GitDiff } from '@/features/git/types/git-types'
 
-/**
- * Scale gate for the sidebar changed-files tree, backing
- * docs/superpowers/specs/2026-07-27-diff-subsystem-at-scale-design.md.
- *
- * Cause 1 in that spec: the sidebar mounts every panel permanently
- * (sidebar-body.tsx hides the inactive ones, it never unmounts them), so
- * `GitPanel` renders on every mode.
- * Before Phase 1 `ChangedFilesTree` was unvirtualised, so its DOM cost was
- * O(changed files) whether or not the user could see it: 500 files produced
- * 500 rows and 6,292 DOM nodes.
- *
- * These tests asserted that defect as a tripwire until Phase 1 virtualised the
- * tree; they now assert the TARGET behaviour — the mounted row count is bounded
- * by the virtual window, not by the input. A regression to eager rendering
- * fails here.
- *
- * DOM node count is used rather than wall time deliberately — it is
- * deterministic, so this is a real gate instead of a flaky timing assertion.
- */
+// Scale gate: the sidebar keeps every panel mounted, so the changed-files tree's mounted rows must
+// be bounded by the virtual window, not the input. DOM node count, not wall time, keeps the gate
+// deterministic.
 
 const mocks = vi.hoisted(() => ({
   settingsState: { settings: { compactGitStatusBadges: false, iconTheme: 'default' } },

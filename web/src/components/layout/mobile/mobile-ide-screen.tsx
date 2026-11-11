@@ -1,6 +1,7 @@
 import { useStore } from 'zustand'
 import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-view-content'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { usePaneChatWorkspaceId } from '@/features/panes/hooks/use-pane-workspace'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useRegisteredWorkspaceStore } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
@@ -18,22 +19,13 @@ const back = () => useMobileScreenStore.getState().back()
 const openFiles = () => useMobileScreenStore.getState().setFilesOpen(true)
 const closeFiles = () => useMobileScreenStore.getState().setFilesOpen(false)
 
-/**
- * The phone's IDE: the focused chat's own editor tabs (terminals, branch review) full screen.
- * Kept mounted while hidden, so a terminal keeps its screen between visits.
- */
+/** The phone's IDE: the focused chat's own editor tabs (terminals, branch review) full screen.
+ *  Kept mounted while hidden, so a terminal keeps its screen between visits. */
 export function MobileIdeScreen({ hidden }: { hidden: boolean }) {
   const pane = useStore(windowPaneStore, (s) => s.panes[s.activePaneId] ?? null)
-  if (!pane?.chatId || !pane.workspaceId) return null
-  return (
-    <PaneIde
-      key={pane.id}
-      pane={pane}
-      wsId={pane.workspaceId}
-      chatId={pane.chatId}
-      hidden={hidden}
-    />
-  )
+  const wsId = usePaneChatWorkspaceId(pane)
+  if (!pane?.chatId || !wsId) return null
+  return <PaneIde key={pane.id} pane={pane} wsId={wsId} chatId={pane.chatId} hidden={hidden} />
 }
 
 function PaneIde({

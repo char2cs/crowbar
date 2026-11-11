@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
@@ -43,6 +45,7 @@ type benchDispatcher struct{}
 
 func (d *benchDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent)       {}
 func (d *benchDispatcher) OnGitStatus(_ context.Context, _ string, _ gitdomain.GitStatus) {}
+func (d *benchDispatcher) OnGitStatusUnreadable(_ context.Context, _ string, _ error)     {}
 func (d *benchDispatcher) OnSyncWorkingTreeState(_ context.Context, _ watch.SyncInput)    {}
 
 func BenchmarkFanOut(b *testing.B) {
@@ -55,7 +58,7 @@ func BenchmarkFanOut(b *testing.B) {
 		{"config", "user.name", "Bench"},
 	} {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Run()
+		require.NoError(b, cmd.Run())
 	}
 
 	provider := &benchGitProvider{}
@@ -72,6 +75,6 @@ func BenchmarkFanOut(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		os.WriteFile(benchFile, []byte("x"), 0o600)
+		require.NoError(b, os.WriteFile(benchFile, []byte("x"), 0o600))
 	}
 }

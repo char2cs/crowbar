@@ -22,24 +22,22 @@ events:
   session_start:
     direction: in
     required: [session_id]
-    optional: [model]
+    optional: [model, reason]
 
   user_prompt:
     direction: in
     required: []
-    # subagent_id set means the prompt was fired INSIDE a subagent: not the user's.
-    optional: [session_id, message, subagent_id]
+    # scope_id set means the prompt was fired INSIDE a subagent: not the user's.
+    # turn_id names the turn, so a late close of another turn is told apart.
+    optional: [session_id, message, scope_id, turn_id]
 
   turn_stop:
     direction: in
     required: [message]
-    # turn_id is OPTIONAL and unused by Go's own field-by-field reads — it
-    # exists so a provider whose turn-closing wire event is a sum type (codex:
-    # turn/completed also wraps a compact_start round trip, with no other
-    # field distinguishing the two — confirmed live, see codex.yaml's
-    # compact_pre) can correlate against a turn armed by a DIFFERENT
-    # canonical event and be skipped instead of misread as an ordinary reply.
-    optional: [session_id, async_work, effort, turn_id, turn_status]
+    # turn_id names the turn this closes: a close naming another turn is late
+    # and closes nothing. It also lets a compaction's own turn envelope (codex:
+    # turn/completed wraps a compact_start round trip) be skipped.
+    optional: [session_id, effort, turn_id, turn_status]
     extras: [status_map]
 
   turn_failed:
@@ -47,11 +45,16 @@ events:
     required: [reason]
     optional: [session_id, message, detail, turn_id]
 
+  # tool_title is the agent's own description of the call, mcp_server and mcp_tool name a
+  # call into an MCP server, exit_code and interrupted say how a call ended; cwd is the
+  # session's directory, which a diff names its files from.
   tool_pre:
     direction: in
     required: []
-    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, nested_session_id, subagent_id]
+    optional: [session_id, tool_id, tool_name, tool_kind, tool_target, tool_input, edit_before, edit_after, spawns_scope, addresses_scope, scope_id, tool_title, mcp_server, mcp_tool, exit_code, interrupted, cwd]
     extras: [kind_map, locations, diff_files]
+    # deny: the hook's answer refusing the call before it runs.
+    replies: [deny]
 
   tool_post:
     direction: in
@@ -65,16 +68,20 @@ events:
       - tool_target
       - tool_input
       - tool_result
+      - tool_output
       - tool_status
       - duration_ms
-      # nested_session_id names a WHOLE SECOND conversation this tool call's
-      # own completion references (a provider's own multi-agent tool
-      # reporting the thread id of the agent it just spawned or is
-      # addressing) — never a provider's own vocabulary, just an id. See
-      # turn/ingest.go's nested-session routing.
-      - nested_session_id
-      # subagent_id set means a SUBAGENT made this call: the chat log never records it.
-      - subagent_id
+      # spawns_scope is the subagent this call spawned; addresses_scope one it
+      # only waits on or closes. scope_id set means a SUBAGENT made this call.
+      - spawns_scope
+      - addresses_scope
+      - scope_id
+      - tool_title
+      - mcp_server
+      - mcp_tool
+      - exit_code
+      - interrupted
+      - cwd
 
   # PostToolUseFailure fires INSTEAD OF PostToolUse, not alongside it. Mapping only
   # tool_post left a failed tool in flight until the turn-close sweep abandoned it.
@@ -93,20 +100,51 @@ events:
       - tool_error
       - tool_status
       - duration_ms
-      - nested_session_id
-      - subagent_id
+      - spawns_scope
+      - addresses_scope
+      - scope_id
+      - tool_title
+      - mcp_server
+      - mcp_tool
+      - exit_code
+      - interrupted
+      - cwd
 
+  # status is Crowbar's word (failed, else done) by the event's status_map.
   subagent_pre:
     direction: in
     required: []
-    optional: [session_id, subagent_id, agent_type]
+    optional: [session_id, scope_id, agent_type, title]
 
   subagent_post:
     direction: in
     required: []
-    optional: [session_id, subagent_id, agent_type]
+    optional: [session_id, scope_id, agent_type, title, status, result, usage.tokens, usage.tool_uses, usage.duration]
+    extras: [status_map]
+
+  # A subagent handing its result back: its parent answers it in a turn of its
+  # own, which turn_id names.
+  subagent_result:
+    direction: in
+    required: []
+    optional: [session_id, scope_id, status, result, turn_id, usage.tokens, usage.tool_uses, usage.duration]
+    extras: [status_map]
+
+  # One step of the agent's plan created or changed alone, unlike plan_update's
+  # wholesale restatement. status is Crowbar's word by the event's status_map.
+  plan_step:
+    direction: in
+    required: []
+    optional: [session_id, scope_id, step_id, text, detail, status]
+    extras: [status_map]
 
   notification:
+    direction: in
+    required: []
+    optional: [session_id, message]
+
+  # A warning the CLI prints in its own transcript; notification is an alert.
+  warning:
     direction: in
     required: []
     optional: [session_id, message]
@@ -149,8 +187,7 @@ events:
     optional: [session_id, message_id, turn_id, index, final]
 
   # The agent's own running to-do list for this turn, restated WHOLESALE on every
-  # update rather than as a diff — the newest list is the whole truth, exactly the
-  # way turn_stop's async_work level is, and for the same anti-drift reason.
+  # update rather than as a diff: the newest list is the whole truth.
   #
   # The steps themselves are a structured extra (`steps:`), because a flat field
   # map cannot express a list of {text, status} pairs. Its status_map is where a
@@ -161,6 +198,14 @@ events:
     required: []
     optional: [session_id, turn_id, message]
     extras: [steps]
+
+  # The whole text of one finished assistant message: its record, however much
+  # of its stream arrived. phase is the provider's own word for what the message
+  # is (an answer, a commentary).
+  message_complete:
+    direction: in
+    required: [message_id, text]
+    optional: [session_id, turn_id, phase]
 
   # The newest complete unified diff for the current turn. It is a wholesale
   # replacement, not an append-only delta.
@@ -174,17 +219,9 @@ events:
     required: []
     optional: [session_id, reason]
 
-  # The provider's OWN word that it is doing nothing: no turn running, nothing
-  # waiting on a person. It is not a turn-close event and must never be treated as
-  # one — measured against codex-cli 0.149.1, it arrives IMMEDIATELY BEFORE the
-  # turn-close on a perfectly healthy turn, so acting on it directly would abandon
-  # every turn microseconds before it ended properly.
-  #
-  # What it is good for is the case nothing else can reach: a turn whose close is
-  # never sent at all (codex.yaml records that happening live). The turn-close
-  # clears the latch this arms; a latch still armed when the sweep next looks is a
-  # turn nothing is going to close, and the provider has said so itself. That
-  # replaces a 120s screen-scraping heuristic with an authoritative signal.
+  # The provider's OWN word that it is doing nothing. It ends the running turn at
+  # once, so a provider maps it only where it never precedes that turn's own
+  # close; one that reports idle on the way to its turn-close leaves it unmapped.
   idle:
     direction: in
     required: []
@@ -235,6 +272,7 @@ events:
       - tool_name
       - tool_target
       - tool_input
+      - mcp_server
       - suggestions
       - suggestion_type
       - suggestion_description
@@ -249,7 +287,7 @@ events:
       - option_label
       - option_description
     extras: [answers_into]
-    replies: [allow, deny, answer]
+    replies: [allow, deny, answer, suggestion]
 
   elicitation:
     direction: ask

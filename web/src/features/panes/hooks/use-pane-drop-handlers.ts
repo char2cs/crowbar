@@ -1,9 +1,9 @@
 import { useCallback, useState, type RefObject } from 'react'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useDragStore } from '@/features/panes/stores/drag-store'
-import { openWorkspaceFile } from '@/features/files/lib/file-tree-handlers'
-import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
+import { openDocumentsAtPaths } from '@/features/editor/documents/open-document'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
+import { isTauri } from '@/lib/crowbar-bridge'
 import { ensureBufferInPaneDropTarget } from '@/features/panes/utils/pane-drop-actions'
 import type { DropZone } from '@/features/panes/components/split-drop-overlay'
 
@@ -22,29 +22,9 @@ function readTabPayload(e: React.DragEvent): TabDragPayload | null {
   }
 }
 
-async function openDroppedFiles(
-  paths: readonly string[],
-  paneId: string,
-  wsId: string,
-): Promise<void> {
-  for (const path of paths) {
-    // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open appends to the pane's tab list, so concurrent opens would land tabs out of drop order.
-    await openWorkspaceFile(wsId, path, { paneId })
-  }
-}
-
-/**
- * Everything a pane does with drags: the file-drag ring, the tab-drag split
- * overlay, a sidebar/explorer pointer drag hovering it, and what each drop
- * lands. A tab never crosses a pane boundary and never makes a split (a pane
- * group is a group of chats, never of tabs): only this pane's own tab lands here.
- */
-export function usePaneDropHandlers(
-  paneId: string,
-  /** The pane's own workspace: what a file drop opens belongs to it. */
-  wsId: string,
-  containerRef: RefObject<HTMLElement | null>,
-) {
+/** A pane's drags: file ring, tab split overlay, sidebar/explorer hover, and their drops. A tab
+ *  never crosses panes or makes a split (panes group chats, not tabs): only its own tab lands. */
+export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTMLElement | null>) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [isTabDragOver, setIsTabDragOver] = useState(false)
   // A narrow selector: only the hovered pane re-renders.
@@ -57,10 +37,11 @@ export function usePaneDropHandlers(
     e.stopPropagation()
     const types = e.dataTransfer.types
     const hasTabData = types.includes('application/tab-data')
+    // An OS file drag lands only on the desktop: a browser drop carries no host path.
     const accepts =
       hasTabData ||
       types.includes('text/plain') ||
-      types.includes('Files') ||
+      (types.includes('Files') && isTauri()) ||
       !!useDragStore.getState().file
     if (!accepts) return
     e.dataTransfer.dropEffect = 'move'
@@ -99,22 +80,17 @@ export function usePaneDropHandlers(
     [paneId],
   )
 
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      setIsDragOver(false)
-      setIsTabDragOver(false)
-      // Tab drops are handled by SplitDropOverlay.
-      if (e.dataTransfer.types.includes('application/tab-data')) return
-      await openDroppedFiles(extractDroppedFilePaths(e.dataTransfer), paneId, wsId)
-    },
-    [paneId, wsId],
-  )
+  // Tab drops are handled by SplitDropOverlay; an OS file drop arrives through Tauri.
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    setIsTabDragOver(false)
+  }, [])
 
   const handleTauriFileDrop = useCallback(
-    (paths: string[]) => openDroppedFiles(paths, paneId, wsId),
-    [paneId, wsId],
+    (paths: string[]) => openDocumentsAtPaths(paths, paneId),
+    [paneId],
   )
   useTauriFileDrop(containerRef, handleTauriFileDrop)
 

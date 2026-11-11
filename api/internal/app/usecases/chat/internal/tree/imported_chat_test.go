@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 var errImportBoom = errors.New("import: boom")
@@ -32,7 +33,7 @@ func TestCreateChat_ImportPlacesTheChatBeforeAttachingTheWorktree(t *testing.T) 
 	seedChat(chats, "c1", 1)
 	chats.NextID = "c-new"
 
-	chatID, _, err := uc.CreateChat(context.Background(), "", "claude", "c1",
+	chatID, _, err := createChat(context.Background(), uc, "", "claude", "c1",
 		tree.WorktreeSpec{Mode: tree.WorktreeImport, Import: importSpec("feature/x")}, "")
 
 	require.NoError(t, err)
@@ -54,12 +55,12 @@ func TestCreateChat_ImportPlacesTheChatBeforeAttachingTheWorktree(t *testing.T) 
 // sidebar-placement-unification Task 9) — no chat to resolve through at all.
 func TestImportBranchAsChat_PlacesUnderTheChatOwningTheLineageParent(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "ws-base", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "ws-base", Kind: dtree.KindWorkspace})
 	chats.NextID = "c-new"
 
 	spec := importSpec("feature/x")
 	spec.ParentWorkspaceID = "ws-base"
-	chatID, wsID, err := uc.ImportBranchAsChat(context.Background(), spec)
+	chatID, wsID, err := uc.ImportBranchAsChat(context.Background(), "", spec)
 
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
@@ -76,7 +77,7 @@ func TestImportBranchAsChat_UnownedLineageParentLandsAtTheRoot(t *testing.T) {
 
 	spec := importSpec("main")
 	spec.ParentWorkspaceID = "ws-nobody-owns"
-	chatID, _, err := uc.ImportBranchAsChat(context.Background(), spec)
+	chatID, _, err := uc.ImportBranchAsChat(context.Background(), "", spec)
 
 	require.NoError(t, err)
 	assert.Equal(t, "", chatRow(t, chats, chatID).ParentID)
@@ -88,7 +89,7 @@ func TestImportBranchAsChat_StartsNoRunner(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.ImportBranchAsChat(context.Background(), importSpec("feature/x"))
+	_, _, err := uc.ImportBranchAsChat(context.Background(), "", importSpec("feature/x"))
 
 	require.NoError(t, err)
 	require.Len(t, chats.SpawnedImportedWorktree, 1)
@@ -97,58 +98,55 @@ func TestImportBranchAsChat_StartsNoRunner(t *testing.T) {
 	assert.Empty(t, chats.Started, "and the plain runner path is not taken either")
 }
 
-// A LOCKED import — every protected branch — no longer retypes its chat row
-// at all (2026-09-08 sidebar-placement-unification Task 9 deleted the
-// machinery that used to do it): a workspace's own Node{Kind:workspace} row
-// is what the sidebar draws as a branch now, not a Chat.Type. An unlocked
-// import already never retyped (the next test), so this pins that a LOCKED
-// one no longer does either.
-func TestImportBranchAsChat_NeverRetypesALockedImportsChatRow(t *testing.T) {
+// A batch-imported row is a chat the user will prompt without ever having picked
+// an agent, so it is born on their default one: dormant, but startable.
+func TestImportBranchAsChat_RecordsTheDefaultProvider(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
-	chats.ImportedWorkspace = domain.Workspace{
-		ID: "ws-locked", Status: domain.WorkspaceStatusLocked,
-	}
+	chats.DefaultProvider = "codex"
 
-	_, _, err := uc.ImportBranchAsChat(context.Background(), importSpec("main"))
+	_, _, err := uc.ImportBranchAsChat(context.Background(), "", importSpec("feature/x"))
 
 	require.NoError(t, err)
-	assert.Empty(t, chats.Retyped, "nothing retypes an imported row any more, locked or not")
+	assert.Equal(t, []string{"codex"}, chats.MintedProviders)
+	assert.Empty(t, chats.SpawnedImportedWorktree[0].ProviderID, "recorded, never launched")
 }
 
-func TestImportBranchAsChat_LeavesAnOrdinaryBranchAsAChatRow(t *testing.T) {
+// A batch keeps a failed branch's chat, placed, for its placeholder: purging it
+// and minting again would recreate an id a redelivered Forget then deletes.
+func TestImportBranchAsChat_AFailedAttachKeepsTheChatForThePlaceholder(t *testing.T) {
 	chats, uc := newUsecase(t)
-	chats.NextID = "c-new"
-	chats.ImportedWorkspace = domain.Workspace{ID: "ws-open"}
-
-	_, _, err := uc.ImportBranchAsChat(context.Background(), importSpec("feature/x"))
-
-	require.NoError(t, err)
-	assert.Empty(t, chats.Retyped, "an unlocked worktree owns an ordinary chat row")
-}
-
-// A failed attach must take the chat back out. Leaving it behind would strand a
-// placed, workspace-less row for a create the caller was told had failed.
-func TestImportBranchAsChat_AttachFailureDiscardsTheChat(t *testing.T) {
-	chats, uc := newUsecase(t)
-	chats.NextID = "c-new"
 	chats.SpawnImportedWorktreeErr = errImportBoom
 
-	_, _, err := uc.ImportBranchAsChat(context.Background(), importSpec("feature/x"))
+	chatID, _, err := uc.ImportBranchAsChat(context.Background(), "c-client", importSpec("feature/x"))
 
 	require.ErrorIs(t, err, errImportBoom)
-	assert.Equal(t, []string{"c-new"}, chats.Purged,
-		"a create the caller was told failed must not leave a chat behind")
+	assert.Equal(t, "c-client", chatID, "the chat is minted under the id the caller drew it as")
+	assert.Empty(t, chats.Purged)
+}
+
+// A single create the caller was told failed leaves no chat behind.
+func TestCreateChat_AFailedImportDiscardsTheChat(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.SpawnImportedWorktreeErr = errImportBoom
+
+	_, err := uc.CreateChat(context.Background(), tree.CreateChatInput{
+		ID: "c-client", ProviderID: "claude",
+		Worktree: tree.WorktreeSpec{Mode: tree.WorktreeImport, Import: importSpec("feature/x")},
+	})
+
+	require.ErrorIs(t, err, errImportBoom)
+	assert.Equal(t, []string{"c-client"}, chats.Purged)
 }
 
 // The three-verb primitive the paths that build their own workspace use. The
 // mint has to come FIRST and has to be PLACED, or the row exists in no level.
 func TestMintOwningChat_MintsAndFilesTheRowBeforeAnyWorkspaceExists(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
-	nodes.Rows = append(nodes.Rows, domain.Node{ID: "ws-base", Kind: domain.NodeKindWorkspace})
+	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "ws-base", Kind: dtree.KindWorkspace})
 	chats.NextID = "c-new"
 
-	chatID, err := uc.MintOwningChat(context.Background(), "ws-base")
+	chatID, err := uc.MintOwningChat(context.Background(), "", "ws-base")
 
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
@@ -158,6 +156,22 @@ func TestMintOwningChat_MintsAndFilesTheRowBeforeAnyWorkspaceExists(t *testing.T
 		"placed directly under the parent workspace's own Node row")
 	assert.Empty(t, chatRow(t, chats, "c-new").WorkspaceID,
 		"nothing is owned yet: the workspace does not exist until the caller builds it")
+}
+
+// An owning row a repo import mints runs on the user's default agent; with none
+// installed it records none, and the client asks which to start.
+func TestMintOwningChat_RecordsTheDefaultProvider(t *testing.T) {
+	chats, uc := newUsecase(t)
+	ctx := context.Background()
+
+	chats.NextID, chats.DefaultProvider = "c-a", "claude"
+	_, err := uc.MintOwningChat(ctx, "", "")
+	require.NoError(t, err)
+	chats.NextID, chats.DefaultProvider = "c-b", ""
+	_, err = uc.MintOwningChat(ctx, "", "")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"claude", ""}, chats.MintedProviders)
 }
 
 // Two owning rows minted into the SAME level must not both claim slot 0.
@@ -171,12 +185,12 @@ func TestMintOwningChat_GivesEachRowItsOwnSlotInTheLevel(t *testing.T) {
 	ctx := context.Background()
 
 	chats.NextID = "c-a"
-	first, err := uc.MintOwningChat(ctx, "")
+	first, err := uc.MintOwningChat(ctx, "", "")
 	require.NoError(t, err)
 	require.NoError(t, uc.AttachOwningWorkspace(ctx, first, domain.Workspace{ID: "ws-a"}))
 
 	chats.NextID = "c-b"
-	second, err := uc.MintOwningChat(ctx, "")
+	second, err := uc.MintOwningChat(ctx, "", "")
 	require.NoError(t, err)
 	require.NoError(t, uc.AttachOwningWorkspace(ctx, second, domain.Workspace{ID: "ws-b"}))
 
@@ -184,14 +198,11 @@ func TestMintOwningChat_GivesEachRowItsOwnSlotInTheLevel(t *testing.T) {
 		"two rows in one level must not hold the same index, or the next drop lands on top of one")
 }
 
-// AttachOwningWorkspace points the row at what the caller built. It no longer
-// retypes it (2026-09-08 sidebar-placement-unification Task 9): a locked
-// workspace's own Node{Kind:workspace} row is what the sidebar draws as a
-// branch now, not a Chat.Type this call would rewrite.
-func TestAttachOwningWorkspace_PointsTheRowAtItAndNeverRetypes(t *testing.T) {
+// AttachOwningWorkspace points the row at what the caller built, locked or not.
+func TestAttachOwningWorkspace_PointsTheRowAtIt(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
-	chatID, err := uc.MintOwningChat(context.Background(), "")
+	chatID, err := uc.MintOwningChat(context.Background(), "", "")
 	require.NoError(t, err)
 
 	err = uc.AttachOwningWorkspace(context.Background(), chatID,
@@ -199,7 +210,6 @@ func TestAttachOwningWorkspace_PointsTheRowAtItAndNeverRetypes(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "ws-1", chatRow(t, chats, chatID).WorkspaceID)
-	assert.Empty(t, chats.Retyped, "nothing retypes an attached row any more, locked or not")
 }
 
 // A failed attach is REPORTED, never swallowed: the caller is holding a
@@ -207,7 +217,7 @@ func TestAttachOwningWorkspace_PointsTheRowAtItAndNeverRetypes(t *testing.T) {
 func TestAttachOwningWorkspace_FailureIsReported(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
-	chatID, err := uc.MintOwningChat(context.Background(), "")
+	chatID, err := uc.MintOwningChat(context.Background(), "", "")
 	require.NoError(t, err)
 	chats.AttachWorkspaceErr = errImportBoom
 
@@ -221,7 +231,7 @@ func TestAttachOwningWorkspace_FailureIsReported(t *testing.T) {
 func TestDiscardOwningChat_TakesTheRowBackOut(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
-	chatID, err := uc.MintOwningChat(context.Background(), "")
+	chatID, err := uc.MintOwningChat(context.Background(), "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, uc.DiscardOwningChat(context.Background(), chatID))

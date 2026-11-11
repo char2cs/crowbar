@@ -10,9 +10,6 @@ import {
 } from '@/components/ui/dialog'
 import { CloseIcon } from '@/features/agent/shared/agent-icons'
 
-/** Local open/close state for one image's lightbox — a hook rather than a
- *  bare `useState` call at each use site so the "closed by default" default
- *  and the prop names stay identical everywhere this is wired in. */
 export function useChatImageLightbox() {
   const [open, setOpen] = useState(false)
   return { open, onOpenChange: setOpen, show: () => setOpen(true) }
@@ -25,18 +22,8 @@ interface ChatImageLightboxProps {
   onOpenChange: (open: boolean) => void
 }
 
-/**
- * Click-to-expand full-size view of an already-rendered chat image.
- *
- * Built from the same primitives DialogPopup itself composes from
- * (DialogBackdrop + DialogViewport, both exported from dialog.tsx for
- * exactly this), swapping only the bordered max-w-lg card for a bespoke,
- * borderless `DialogPrimitive.Popup` sized to the image instead of a fixed
- * card width — there is no existing lightbox pattern anywhere else in the
- * app to match, so this one follows house dialog conventions as closely as
- * an edge-to-edge image view can. Backdrop click and Escape both dismiss,
- * for free, the same as every other Dialog in the app.
- */
+/** DialogPopup's own primitives with a borderless popup sized to the image in place
+ *  of its fixed-width card. */
 export function ChatImageLightbox({ src, alt, open, onOpenChange }: ChatImageLightboxProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

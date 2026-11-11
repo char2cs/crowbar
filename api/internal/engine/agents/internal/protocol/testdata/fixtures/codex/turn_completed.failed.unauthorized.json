@@ -1,0 +1,27 @@
+{
+  "method": "turn/completed",
+  "params": {
+    "threadId": "01a1b2f7-14b1-7502-ab1b-2b7aa30f2722",
+    "turn": {
+      "id": "01a1b2f7-173c-75f0-b7c1-5fd572f5f718",
+      "rootTurnId": "01a1b2f7-173c-75f0-b7c1-5fd572f5f718",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "failed",
+      "error": {
+        "message": "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a5678360fab4b516-SCL, request id: req_29b2bd5a9f54455d8ff1b034ec62779f",
+        "codexErrorInfo": {
+          "httpConnectionFailed": {
+            "httpStatusCode": 401
+          }
+        },
+        "additionalDetails": null,
+        "misalignment": null
+      },
+      "startedAt": 1794003900,
+      "completedAt": 1794003917,
+      "durationMs": 16874
+    }
+  },
+  "emittedAtMs": 1794003917234
+}

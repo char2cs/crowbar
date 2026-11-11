@@ -9,23 +9,56 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { FolderOpen } from '@phosphor-icons/react'
-import { toastActionFailure } from '@/features/hosts/lib/host-failure-notice'
 import { useDaemonFolderPicker } from '@/features/hosts/hooks/use-daemon-folder-picker'
 import { useNavigate } from '@tanstack/react-router'
 import { isTauri } from '@/lib/crowbar-bridge'
-import { fetchWorkspaces, postRepo, workspaceDTOFromWorktreeFrame } from '@/lib/api'
-import { useResolvedHost } from '@/lib/host-resolve'
-import { projectBase, repoBase } from '@/lib/project-url'
-import { awaitEntity } from '@/lib/ws/await-entity'
-import { upsertEntity } from '@/lib/persistence/entity-cache'
-import { syncSidebarFromCache } from '@/lib/store/sidebar-sync'
-import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
+import { fetchRepos, fetchWorkspaces, postRepo } from '@/lib/api'
+import { hostIdForProject, useResolvedHost } from '@/lib/host-resolve'
+import { entityKey } from '@/core/stream/host-scope'
+import { placeEntities } from '@/core/entities/entity-store'
+import { runOperation, whenSettled } from '@/core/entities/run-operation'
+import { operationsState, type Operation } from '@/core/entities/operations'
+import { report } from '@/lib/errors/report'
+import { UserFacingError } from '@/lib/errors/user-facing-error'
 
 interface AddRepositoryModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The project the repo lands in — the row's own, never whichever one is open. */
   projectId: string
+}
+
+// A failed branch fails the add as `partial`, but the repo was added: that add
+// opens like a whole one, and the failed branch keeps its row and reason.
+async function settledOrPartial(opId: string): Promise<Operation> {
+  try {
+    return await whenSettled(opId)
+  } catch (err) {
+    const op = operationsState().ops[opId]
+    if (op && addedRepoItem(op)) return op
+    throw err
+  }
+}
+
+function addedRepoItem(op: Operation) {
+  return op.items.find((item) => item.ref.kind === 'repo' && item.state === 'succeeded')
+}
+
+function addedRepoId(op: Operation): string {
+  const item = addedRepoItem(op)
+  if (!item) throw new UserFacingError(`${op.label}: no repository was added`)
+  return item.ref.id
+}
+
+async function readRepoHome(projectId: string, repoId: string) {
+  const [repos, workspaces] = await Promise.all([
+    fetchRepos(projectId),
+    fetchWorkspaces(projectId, repoId),
+  ])
+  const repo = repos.find((r) => r.id === repoId)
+  if (!repo) throw new UserFacingError('The added repository is gone')
+  const live = workspaces.filter((w) => w.status !== 'deleted')
+  return { repo, home: live.find((w) => w.isDefault) ?? live[0] }
 }
 
 export function AddRepositoryModal({ open, onOpenChange, projectId }: AddRepositoryModalProps) {
@@ -63,64 +96,35 @@ export function AddRepositoryModal({ open, onOpenChange, projectId }: AddReposit
           .pop() ?? trimmedPath
       const repoName = name.trim() || fallbackName
 
-      // §3/§4 subscribe-before-POST: postRepo answers 202 with no body. The
-      // daemon imports the repo AND auto-imports its default-branch worktree,
-      // broadcasting the RepoDTO on the repos stream and the worktree on the
-      // repo's CHAT stream (a worktree is held by a chat, so its live updates
-      // ride that feed's `worktree_state` frames). We do NOT post the
-      // default-branch workspace ourselves (that double-create would collide).
-      // Subscribe to the repos stream first, fire the POST, resolve the new repo
-      // by matching its path, then resolve its default WorkspaceDTO and navigate
-      // into the IDE.
-      const repo = await awaitEntity<RepoDTO>({
-        endpoint: `${projectBase(projectId)}/repos`,
-        match: (r) => r.path === trimmedPath,
-        action: () => postRepo(projectId, repoName, trimmedPath),
-      })
+      const op = runOperation(
+        {
+          kind: 'repo.create',
+          subject: { kind: 'project', id: projectId },
+          projectId,
+          label: `Add “${repoName}”`,
+        },
+        (opId) => postRepo(projectId, repoName, trimmedPath, opId),
+      )
+      const repoId = addedRepoId(await settledOrPartial(op.id))
+      const { repo, home } = await readRepoHome(projectId, repoId)
 
-      const ws = await awaitEntity<WorkspaceDTO>({
-        endpoint: `${repoBase(projectId, repo.id)}/chats/ws`,
-        // The frames are chat lifecycle events, not workspace DTOs — pick the
-        // owning row's worktree state out and build the DTO from it. Every
-        // other kind maps to null and is skipped before `match` ever runs.
-        mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repo.id),
-        match: (w) => w.repoId === repo.id && w.status !== 'deleted',
-        action: () => Promise.resolve(),
-        // The default worktree is created as a side effect of the repo POST in
-        // the await ABOVE, so by the time this subscribes it usually already
-        // exists — and the chat lifecycle feed, unlike the workspace stream this
-        // replaced, replays NOTHING on connect. So the row is read once over
-        // REST rather than waited for: without this the common path announces no
-        // frame at all and the import hangs to the 30s timeout.
-        //
-        // The socket stays live alongside it for the other ordering, where the
-        // worktree is still being provisioned when we get here and arrives as a
-        // `worktree_state` frame. acceptExisting keeps that frame eligible: the
-        // row is "pre-existing" from this await's point of view, and banking it
-        // would strand the caller.
-        seed: () => fetchWorkspaces(projectId, repo.id),
-        acceptExisting: true,
-      })
-
-      // Persist the resolved entities and rebuild the sidebar BEFORE navigating.
-      // awaitEntity only resolves the DTOs; the entity cache and sidebar tree are
-      // populated asynchronously by app-sync's streams, which lag this navigate.
-      // Without seeding them here the /ide route guard reads a sidebar that does
-      // not yet contain the new workspace, treats it as unknown, and bounces back
-      // to / (a redirect loop with the landing beforeLoad).
-      await upsertEntity('crowbar_repos', repo)
-      await upsertEntity('crowbar_workspaces', ws)
-      await syncSidebarFromCache()
+      // The /ide guard reads the entity store; the read's answer lands there before the
+      // navigate, so it never bounces back to /.
+      const hostId = hostIdForProject(projectId)
+      placeEntities('repo', { [entityKey(hostId, repo.id)]: repo })
+      if (home) placeEntities('workspace', { [entityKey(hostId, home.id)]: home })
 
       onOpenChange(false)
       setPath('')
       setName('')
-      void navigate({
-        to: '/ide/$projectId/$repoId/$wsId',
-        params: { projectId, repoId: repo.id, wsId: ws.id },
-      })
+      if (home) {
+        void navigate({
+          to: '/ide/$projectId/$repoId/$wsId',
+          params: { projectId, repoId: repo.id, wsId: home.id },
+        })
+      }
     } catch (err) {
-      toastActionFailure(err, 'Failed to add repository')
+      report(err, { action: 'Failed to add repository' })
     } finally {
       setLoading(false)
     }

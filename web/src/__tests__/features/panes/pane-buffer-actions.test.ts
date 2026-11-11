@@ -8,9 +8,7 @@ import { seatTab } from '@/__tests__/__fixtures__/view-state'
 
 describe('pane buffer actions', () => {
   beforeEach(() => {
-    // Task 26: panes/buffers are one window-level singleton now, never
-    // destroyed — reset it to a pristine store (mirroring
-    // createWindowPaneStore's own defaults) before each test.
+    // The window pane store is a never-destroyed singleton; reset it per test.
     resetWindowPaneStoreForTests()
   })
 
@@ -22,13 +20,11 @@ describe('pane buffer actions', () => {
       state.buffers.push({
         id: 'buffer-a',
         type: 'editor',
+        authority: 'workspace',
         path: '/buffer-a.ts',
         name: 'buffer-a.ts',
-        content: '',
-        savedContent: '',
         isDirty: false,
         isVirtual: false,
-        tokens: [],
         isPinned: false,
         isPreview: false,
         workspaceId: 'test-ws',

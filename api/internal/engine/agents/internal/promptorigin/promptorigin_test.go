@@ -58,8 +58,6 @@ func TestMatch_AProviderDeclaringNothingNeverMatches(t *testing.T) {
 	_, ok := promptorigin.Match(&spec.Descriptor{ID: "codex"}, taskNotification)
 
 	assert.False(t, ok)
-	assert.False(t, promptorigin.Declared(&spec.Descriptor{ID: "codex"}))
-	assert.True(t, promptorigin.Declared(declaring()))
 }
 
 func TestMatch_IsPrefixAnchoredAndNotSqueezed(t *testing.T) {

@@ -5,6 +5,7 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
@@ -35,7 +36,10 @@ beforeEach(() => {
     windowPaneStore.getState().paneActions.openChat('c1', { projectId: 'p1', workspaceId: 'ws-1' }),
   )
 })
-afterEach(() => resetWindowPaneStoreForTests())
+afterEach(() => {
+  resetWindowPaneStoreForTests()
+  resetChatStore()
+})
 
 describe('MobileIdeScreen', () => {
   it('greets an empty workspace with what the phone can open', () => {
@@ -74,6 +78,14 @@ describe('MobileIdeScreen', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Back' })[0])
     expect(screen.queryByRole('region', { name: 'Files' })).not.toBeInTheDocument()
     expect(useMobileScreenStore.getState().screen).toBe('ide')
+  })
+
+  // The pane recorded where the chat ran when it opened; a move since is the chat's to say.
+  it('opens a moved chat’s tabs in the worktree it runs in now', () => {
+    act(() => writeChat({ id: 'c1', workspaceId: 'ws-2' }))
+    render(<MobileIdeScreen hidden={false} />)
+    fireEvent.click(screen.getByRole('button', { name: /new terminal/i }))
+    expect(windowPaneStore.getState().buffers.map((b) => b.workspaceId)).toEqual(['ws-2'])
   })
 
   it('renders nothing while no chat is focused', () => {

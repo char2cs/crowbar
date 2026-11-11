@@ -3,6 +3,7 @@
 package agent_test
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -76,16 +78,15 @@ func TestAgent_LiveClaudeRecordsEveryMessageOfATurn(t *testing.T) {
 	assert.Equal(t, 1, countContaining(replies, first),
 		"the mid-turn message must appear exactly once")
 
-	activity, err := h.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-	require.NoError(t, err)
+	calls := toolRuns(t, h, chatID)
 	turnIDs := map[string]bool{}
 	for _, m := range readMessageTurnIDs(t, h, chatID) {
 		turnIDs[m] = true
 	}
-	require.NotEmpty(t, activity.ToolCalls,
+	require.NotEmpty(t, calls,
 		"this test's premise is a turn with WORK between two messages; a turn that ran no tool at all "+
 			"means the model did not follow the script, not that the record is wrong")
-	for _, call := range activity.ToolCalls {
+	for _, call := range calls {
 		assert.Truef(t, turnIDs[call.TurnID],
 			"tool call %q (%s) is attached to turn %q, which is not any recorded message",
 			call.ID, call.Name, call.TurnID)
@@ -104,13 +105,50 @@ func countContaining(replies []string, needle string) int {
 
 func readMessageTurnIDs(t *testing.T, h *harness, chatID string) []string {
 	t.Helper()
-	page, err := h.app.Usecases.AgentChat.ReadMessages(context.Background(), chatID, 0, 0, 200)
-	require.NoError(t, err)
 	var out []string
-	for _, m := range page.Items {
+	for _, m := range kit.Said(chatRows(t, h, chatID)) {
 		if m.Role == "assistant" {
-			out = append(out, m.ID)
+			out = append(out, m.TurnID)
 		}
+	}
+	return out
+}
+
+// chatRows are chatID's ledger rows, as its feed carries them.
+func chatRows(t *testing.T, h *harness, chatID string) []ledger.Row {
+	t.Helper()
+	rows, err := h.app.Repositories.ChatLedger.Read(context.Background(), chatID, 0, 0)
+	require.NoError(t, err, "read chat %s's ledger", chatID)
+	return rows
+}
+
+// toolRun is one tool call of the main agent as its rows tell it.
+type toolRun struct {
+	ID, Name, TurnID string
+	Closed           bool
+}
+
+// toolRuns are the main agent's tool calls in chatID's rows, in call order.
+func toolRuns(t *testing.T, h *harness, chatID string) []toolRun {
+	t.Helper()
+	return runsOf(chatRows(t, h, chatID))
+}
+
+func runsOf(rows []ledger.Row) []toolRun {
+	var out []toolRun
+	at := map[string]int{}
+	for _, r := range rows {
+		call, err := ledger.DecodeBody[ledger.ToolCall](r)
+		if r.Kind != ledger.KindToolCall || r.Scope != "" || err != nil {
+			continue
+		}
+		i, ok := at[call.ToolID]
+		if !ok {
+			i, at[call.ToolID] = len(out), len(out)
+			out = append(out, toolRun{ID: call.ToolID, TurnID: r.TurnID})
+		}
+		out[i].Name = cmp.Or(out[i].Name, call.Name)
+		out[i].Closed = out[i].Closed || call.Phase == ledger.ToolPost || call.Phase == ledger.ToolFail
 	}
 	return out
 }

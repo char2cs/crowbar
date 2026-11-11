@@ -2,13 +2,9 @@ import type { RefObject } from 'react'
 import { usePaneViewPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import type { PaneGroup } from '@/features/panes/types/pane'
 
-/**
- * How a pane arranges its two views (spec §7.2) — the chat view and the editor
- * view (everything `editorTabIds` holds): side by side, stacked, or collapsed
- * to tabs. Geometry comes from `usePaneViewPresentation` (measured on
- * `viewsContainerRef`); the rest is derived from the pane record. Both views
- * stay mounted in every state; this only says which one is hidden.
- */
+/** How a pane arranges chat and editor views (spec §7.2): side by side, stacked or tabs. Geometry
+ *  is measured by usePaneViewPresentation, the rest read off the pane. Both views always stay
+ *  mounted; this only says which is hidden. */
 export function usePanePresentation(
   pane: Pick<PaneGroup, 'chatId' | 'editorOpen' | 'editorTabIds' | 'chatSelected'>,
   sidebarPosition: 'left' | 'right',

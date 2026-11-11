@@ -1,10 +1,9 @@
+import { workspaceRef, writeDocument } from '@/lib/api/documents'
 import { joinPath } from '@/utils/path-helpers'
-import { createFileNode, writeFileContent } from './file-tree-api'
+import { createFileNode } from './file-tree-api'
 
-// Present the OS file picker and return the chosen File objects. Resolves to an
-// empty array when the user cancels. The <input> is not attached to the DOM —
-// modern browsers fire `change`/`cancel` on a detached input clicked
-// synchronously from a user gesture.
+// Show the OS file picker; resolves to [] on cancel. The <input> stays detached from the DOM:
+// browsers fire `change`/`cancel` on a detached input clicked synchronously from a user gesture.
 function pickFiles(): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
@@ -16,10 +15,8 @@ function pickFiles(): Promise<File[]> {
   })
 }
 
-// Read a File's bytes as a base64 string. FileReader.readAsDataURL yields a
-// "data:<mime>;base64,<payload>" URL; we return just the payload. Going through
-// bytes (not file.text()) is what keeps binary uploads byte-faithful — decoding
-// the file as UTF-8 text and re-encoding would mangle any non-UTF-8 byte.
+// A File's bytes as base64 (the payload of readAsDataURL's data: URL). Reading bytes rather than
+// file.text() keeps binary uploads byte-faithful; a UTF-8 round trip mangles non-UTF-8 bytes.
 export function readFileAsBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -37,10 +34,9 @@ export function readFileAsBase64(file: Blob): Promise<string> {
   })
 }
 
-// Upload picked files into `directoryPath` (workspace-relative; '' is the root) of
-// workspace `wsId` via the daemon's create + write-content endpoints. Files are sent base64
-// (encoding: 'base64') so their exact bytes land on disk — text and binary
-// alike survive intact. Returns the workspace-relative paths that were written.
+// Upload picked files into `directoryPath` ('' is the workspace root) via the daemon's create
+// and document-write endpoints, as base64 so the exact bytes land on disk. Returns the
+// workspace-relative paths written.
 export async function pickAndUploadFiles(wsId: string, directoryPath: string): Promise<string[]> {
   const files = await pickFiles()
   const written: string[] = []
@@ -49,7 +45,7 @@ export async function pickAndUploadFiles(wsId: string, directoryPath: string): P
     const content = await readFileAsBase64(file)
     const dest = directoryPath ? joinPath(directoryPath, file.name) : file.name
     await createFileNode(wsId, dest, 'file')
-    await writeFileContent(wsId, dest, content, 'base64')
+    await writeDocument(workspaceRef(wsId, dest), content, { encoding: 'base64' })
     written.push(dest)
   }
   return written

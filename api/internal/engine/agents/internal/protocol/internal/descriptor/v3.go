@@ -3,6 +3,7 @@ package descriptor
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,22 +14,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// ParseV3 unmarshals a v3 descriptor and validates its event table against Crowbar's
-// canonical vocabulary.
-//
-// Validation happens at LOAD so a bad descriptor fails when the daemon starts, never
-// mid-conversation. Everything checked here compiles fine and would otherwise surface
-// as a field that silently maps to nothing.
-func ParseV3(raw []byte) (*spec.Descriptor, error) {
+// ParseV0 is the schema 0 reader: it unmarshals a descriptor and validates its
+// event table against Crowbar's canonical vocabulary at LOAD, so a bad descriptor
+// fails at startup instead of silently mapping a field to nothing mid-conversation.
+func ParseV0(raw []byte) (*spec.Descriptor, error) {
 	var d spec.Descriptor
 	if err := yaml.Unmarshal(raw, &d); err != nil {
 		var glyph *spec.AlternationGlyphError
 		if errors.As(err, &glyph) {
-			// id: precedes events: in the document, but decode order is not a
-			// guarantee worth leaning on — a bare best-effort re-read of just
-			// the id field names the descriptor even if the strict decode
-			// above never got that far.
-			return nil, fmt.Errorf("descriptor %q: %w", probeID(raw), glyph)
+			// Decode order is no guarantee that id: was read before the glyph
+			// failed it, so a bare re-read of the id names the descriptor.
+			id, idErr := probeID(raw)
+			return nil, errors.Join(fmt.Errorf("descriptor %q: %w", id, glyph), idErr)
 		}
 		return nil, fmt.Errorf("descriptor: parse: %w", err)
 	}
@@ -44,12 +41,9 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 		return nil, err
 	}
 
-	// An inbound event's canonical fields are the KEYS of map:. An outbound event has
-	// no map: — its payload is built by send: (or, for one that must first establish
-	// a session, by fresh:/resume:/action:'s own nested send: trees), whose keys are
-	// the PROVIDER's field names and whose values reference canonical names as
-	// {braced} templates. So the direction is inverted and the canonical set has to
-	// be read out of the values.
+	// An inbound event's canonical fields are the KEYS of map:. An outbound event's
+	// send: trees are keyed by PROVIDER field names and reference canonical names as
+	// {braced} templates, so its canonical set is read out of the values.
 	maps := make(map[string]map[string][]string, len(d.Events))
 	for name, e := range d.Events {
 		switch {
@@ -58,13 +52,11 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 		case len(e.Fresh) > 0 || len(e.Resume) > 0 || len(e.Action) > 0:
 			maps[name] = wrapPresence(canonicalRefsFromSteps(e.Fresh, e.Resume, e.Action))
 		case e.HasChannelBlocks():
-			// A channel-scoped event's canonical fields are split across its
-			// api:/hooks: blocks; the vocabulary check needs the UNION so a bad
-			// field name in EITHER channel's map: is caught, not just the one
-			// that happens to run first.
+			// The UNION of the api:/hooks: blocks, so a bad field name in
+			// either channel's map: is caught.
 			maps[name] = mergedChannelFields(e)
 		default:
-			maps[name] = e.Map
+			maps[name] = presence(e.Map)
 		}
 	}
 	if err := vocab.Validate(d.ID, maps); err != nil {
@@ -82,29 +74,31 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 	return &d, nil
 }
 
-// mergedChannelFields unions a channel-scoped event's api: and hooks: field
-// maps into one table, for the vocabulary's required/optional check — which
-// key's PATHS win when both channels map the same canonical name does not
-// matter here, only that the canonical name itself was declared somewhere.
+// mergedChannelFields unions a channel-scoped event's api: and hooks: field maps
+// for the vocabulary check, which reads only which canonical names are declared.
 func mergedChannelFields(e spec.EventSpec) map[string][]string {
 	out := map[string][]string{}
 	if e.API != nil {
-		for k, v := range e.API.Map {
-			out[k] = v
-		}
+		maps.Copy(out, presence(e.API.Map))
 	}
 	if e.Hooks != nil {
-		for k, v := range e.Hooks.Map {
-			out[k] = v
-		}
+		maps.Copy(out, presence(e.Hooks.Map))
 	}
 	return out
 }
 
-// wrapPresence lifts a presence-only field table (an outbound event's
-// canonicalRefs/canonicalRefsFromSteps, whose values are send templates, not
-// mapping paths) into the shape the vocabulary check shares with an inbound
-// event's real FieldMap. Only key presence and non-emptiness are ever read.
+// presence reduces a field table to what the vocabulary check reads: which canonical
+// fields are mapped, and to how many alternatives.
+func presence(fields spec.FieldMap) map[string][]string {
+	out := make(map[string][]string, len(fields))
+	for k, v := range fields {
+		out[k] = make([]string, len(v))
+	}
+	return out
+}
+
+// wrapPresence lifts an outbound event's template refs into the shape the
+// vocabulary check shares with inbound FieldMaps; only key presence is read.
 func wrapPresence(m map[string]string) map[string][]string {
 	out := make(map[string][]string, len(m))
 	for k, v := range m {
@@ -113,21 +107,20 @@ func wrapPresence(m map[string]string) map[string][]string {
 	return out
 }
 
-// probeID best-effort reads just the top-level id: field out of raw, for an error
-// that must name the descriptor even though the strict typed decode already failed.
-func probeID(raw []byte) string {
+// probeID reads just the top-level id: field out of raw, for an error that must
+// name the descriptor even though the strict typed decode already failed.
+func probeID(raw []byte) (string, error) {
 	var probe struct {
 		ID string `yaml:"id"`
 	}
-	_ = yaml.Unmarshal(raw, &probe)
-	return probe.ID
+	if err := yaml.Unmarshal(raw, &probe); err != nil {
+		return "", fmt.Errorf("descriptor: read id: %w", err)
+	}
+	return probe.ID, nil
 }
 
-// checkChannelSplit refuses an event that mixes the legacy flat form
-// (in:/out:/ask:/when:/map: at the event's own level) with the channel-split
-// form (api:/hooks: blocks) — the two are mutually exclusive spellings of
-// where an event's shape lives, and mixing them leaves no rule for which one
-// resolution should read.
+// checkChannelSplit refuses an event mixing the legacy flat form (top-level
+// in:/out:/ask:/when:/map:) with api:/hooks: blocks: no rule says which one wins.
 func checkChannelSplit(providerID, name string, e spec.EventSpec) error {
 	if !e.HasChannelBlocks() {
 		return nil
@@ -164,10 +157,8 @@ func checkChannelSplit(providerID, name string, e spec.EventSpec) error {
 	return nil
 }
 
-// checkByWire refuses a by_wire: entry keyed by a name the block itself does
-// not answer to — a typo here would silently inject nothing and leave the
-// field it was meant to derive unmapped, the same class of invisible gap
-// required:/fixtures: exist to catch elsewhere.
+// checkByWire refuses a by_wire: key the block does not answer to; a typo would
+// otherwise silently inject nothing and leave the field unmapped.
 func checkByWire(providerID, name string, channel spec.Channel, block *spec.ChannelBlock) error {
 	if len(block.ByWire) == 0 {
 		return nil
@@ -194,10 +185,8 @@ func checkByWire(providerID, name string, channel spec.Channel, block *spec.Chan
 func checkEvent(vocab schema.Vocabulary, providerID, name string, e spec.EventSpec) error {
 	rule := vocab.Events[name] // presence already proven by Validate
 
-	// AnyWireEvent, not WireEvent: a channel-scoped event names nothing at
-	// its OWN top level by construction — its wire name lives inside
-	// api:/hooks: — so this must look there too, or every channel-scoped
-	// event would fail load as "names nothing".
+	// AnyWireEvent, not WireEvent: a channel-scoped event's wire name lives
+	// inside api:/hooks:, not at its own top level.
 	wire, direction := e.AnyWireEvent()
 	if wire.Empty() {
 		if len(e.Fresh) == 0 && len(e.Resume) == 0 && len(e.Action) == 0 {
@@ -206,10 +195,8 @@ func checkEvent(vocab schema.Vocabulary, providerID, name string, e spec.EventSp
 				providerID, name,
 			)
 		}
-		// A Fresh/Resume/Action event names several wire calls, not one — the
-		// event as a whole is still an OUTBOUND fact (Crowbar is the one
-		// acting), same as an ordinary out: event, just without a single
-		// name to check the direction table against.
+		// A Fresh/Resume/Action event names several calls but is still OUTBOUND
+		// (Crowbar acts), just without a single name to check.
 		direction = "out"
 	}
 	if direction != rule.Direction {
@@ -234,11 +221,8 @@ func checkEvent(vocab schema.Vocabulary, providerID, name string, e spec.EventSp
 	return nil
 }
 
-// CheckProtocolVersion refuses a provider CLI whose protocol is outside the range the
-// descriptor was written against.
-//
-// A descriptor with no declared range accepts anything, and a provider that reports no
-// version is not gated — neither absence is evidence of a mismatch.
+// CheckProtocolVersion refuses a provider CLI whose protocol is outside the descriptor's
+// range. No declared range, or no reported version, is not evidence of a mismatch.
 func CheckProtocolVersion(d *spec.Descriptor, actual string) error {
 	if d.ProtocolVersion == nil || actual == "" {
 		return nil
@@ -278,10 +262,8 @@ func canonicalRefs(send map[string]string) map[string]string {
 	return out
 }
 
-// canonicalRefsFromSteps is canonicalRefs' counterpart for an event whose
-// outbound payload is a Fresh/Resume/Action sequence rather than a single flat
-// send: — each step's Send is an arbitrary (YAML-shaped) tree, so every string
-// leaf at any depth is walked, not just a flat map's top-level values.
+// canonicalRefsFromSteps is canonicalRefs for Fresh/Resume/Action steps, whose Send
+// is an arbitrary tree, so every string leaf at any depth is walked.
 func canonicalRefsFromSteps(stepLists ...[]spec.CallStep) map[string]string {
 	out := map[string]string{}
 	for _, steps := range stepLists {

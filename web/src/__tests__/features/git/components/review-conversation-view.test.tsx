@@ -6,13 +6,17 @@ import type { ReviewThread } from '@/features/workspace/stores/slices/branch-rev
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { clearReviewThreads, putReviewThread } from '@/__tests__/__fixtures__/review-threads'
 
 const mocks = vi.hoisted(() => ({
   openThread: vi.fn(),
   getIdentity: vi.fn(),
   getReviewPatch: vi.fn(),
 }))
-vi.mock('@/features/git/api/review-api', () => ({ openThread: mocks.openThread }))
+vi.mock('@/features/git/api/review-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/git/api/review-api')>()),
+  openThread: mocks.openThread,
+}))
 vi.mock('@/features/git/api/identity-api', () => ({ getIdentity: mocks.getIdentity }))
 vi.mock('@/features/git/api/review-window-api', () => ({ getReviewPatch: mocks.getReviewPatch }))
 
@@ -57,7 +61,7 @@ function thread(overrides: Partial<ReviewThread>): ReviewThread {
 function renderView(threads: ReviewThread[], description = '') {
   const store = createWorkspaceStore('ws-1')
   store.getState().setBranchReviewDescription(description)
-  for (const t of threads) store.getState().upsertReviewThread(t)
+  for (const t of threads) putReviewThread('ws-1', t)
   const onJumpToLine = vi.fn()
   render(
     <WorkspaceStoreContext.Provider value={store}>
@@ -77,7 +81,10 @@ beforeEach(() => {
   mocks.getReviewPatch.mockResolvedValue({ patch: PATCH, truncated: false })
 })
 
-afterEach(() => __resetWorkspaceScopesForTest())
+afterEach(() => {
+  __resetWorkspaceScopesForTest()
+  clearReviewThreads()
+})
 
 describe('ReviewConversationView', () => {
   it('renders with no threads and no description (a branch with zero changed files)', () => {

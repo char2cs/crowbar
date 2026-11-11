@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,9 +17,9 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func TestMain(
@@ -334,7 +335,7 @@ func TestDeleteThread_BroadcastsTombstone(t *testing.T) {
 // 404. (Note: the real ax.Forget path returns a validation error, not
 // ErrNotFound — see TestThreadMutations_Validation_400 for that production path.)
 func TestDeleteThread_NotFound(t *testing.T) {
-	store := &fakeStore{err: apperr.ErrNotFound}
+	store := &fakeStore{err: problem.ErrNotFound}
 	bc := &fakeBroadcaster{}
 	r := newRouter(store, bc)
 
@@ -342,20 +343,24 @@ func TestDeleteThread_NotFound(t *testing.T) {
 	assert.Empty(t, bc.pushed)
 }
 
-// TestThreadMutations_Validation_400 asserts the production error mapping: a
-// command validation failure (asynx ErrValidation) — e.g. deleting the root via
-// the message route, editing a vanished message, or forgetting a missing thread —
-// maps to 400 and broadcasts nothing. This is the error the real store layer
-// actually returns (ax.Forget and the edit/delete commands wrap ErrValidation).
-func TestThreadMutations_Validation_400(t *testing.T) {
-	store := &fakeStore{err: asynxModels.ErrValidation}
+// TestThreadMutations_ValidationIsUnprocessable asserts the production error
+// mapping: a command validation failure (asynx ErrValidation) — e.g. deleting the
+// root via the message route, editing a vanished message, or forgetting a missing
+// thread — answers 422 with the command's own reason and broadcasts nothing.
+func TestThreadMutations_ValidationIsUnprocessable(t *testing.T) {
+	declared := fmt.Errorf("delete review message: cannot delete root comment: %w", asynxModels.ErrValidation)
+	store := &fakeStore{err: fmt.Errorf("review thread: delete message t1: %w", declared)}
 	bc := &fakeBroadcaster{}
 	r := newRouter(store, bc)
 
-	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodDelete, base+"/t1", nil).Code)
-	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodDelete, base+"/t1/messages/m1", nil).Code)
-	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPatch, base+"/t1/messages/m1",
-		map[string]any{"body": "x"}).Code)
+	for _, rec := range []*httptest.ResponseRecorder{
+		do(r, http.MethodDelete, base+"/t1", nil),
+		do(r, http.MethodDelete, base+"/t1/messages/m1", nil),
+		do(r, http.MethodPatch, base+"/t1/messages/m1", map[string]any{"body": "x"}),
+	} {
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+		assert.JSONEq(t, `{"success":false,"code":"unprocessable","error":"`+declared.Error()+`"}`, rec.Body.String())
+	}
 	assert.Empty(t, bc.pushed)
 }
 

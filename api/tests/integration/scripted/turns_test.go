@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 var providers = []string{"claude", "codex"}
@@ -35,15 +37,14 @@ turn:
 				return slices.Contains(r.said(chatID), "assistant: all done") && !r.working(chatID)
 			}, "the turn never landed and closed")
 			assert.Contains(t, r.said(chatID), "user: do the thing")
-			activity, err := r.d.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
-			require.NoError(t, err)
-			require.NotEmpty(t, activity.ToolCalls, "the tool call was recorded")
-			for _, call := range activity.ToolCalls {
-				assert.NotNil(t, call.EndedAt, "every tool call closes: %+v", call)
+			st := ledger.Fold(chatID, r.rows(chatID))
+			calls := kit.Bodies[ledger.ToolCall](r.rows(chatID), ledger.KindToolCall)
+			require.NotEmpty(t, calls, "the tool call was recorded")
+			for _, call := range calls {
+				assert.True(t, st.HasToolPhase("", call.ToolID, ledger.ToolPost) || st.HasToolPhase("", call.ToolID, ledger.ToolFail),
+					"every tool call closes: %+v", call)
 			}
-			for _, sub := range activity.Subagents {
-				assert.NotNil(t, sub.EndedAt, "every subagent closes: %+v", sub)
-			}
+			assert.Empty(t, st.Subagents(), "every subagent closes")
 			snap := r.snapshot(chatID)
 			assert.Equal(t, "live", snap.Phase)
 		})
@@ -65,22 +66,20 @@ func TestScripted_ASecondMessageContinuesTheSession(t *testing.T) {
 
 			sessions := map[string]bool{}
 			for _, e := range r.logged("prompt") {
-				sessions[e["session"].(string)] = true
+				session, _ := e["session"].(string)
+				sessions[session] = true
 			}
 			assert.Len(t, sessions, 1, "both prompts reached one vendor session")
 			assert.Empty(t, r.logged("refused"))
-			if provider == "claude" {
-				assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung,
-					"claude relaunched on its own session")
-			} else {
+			if provider == "codex" {
 				assert.Len(t, r.logged("start"), 1, "codex kept its one app-server")
 			}
 		})
 	}
 }
 
-// A stopped chat's next message resumes the provider's OWN session — the
-// first rung — on both providers. For codex this needs the thread it announces
+// A stopped chat's next message resumes the provider's OWN session by its id,
+// on both providers. For codex this needs the thread it announces
 // before its runner row commits to be kept, not dropped.
 func TestScripted_ADormantChatResumesItsOwnSession(t *testing.T) {
 	for _, provider := range providers {
@@ -96,7 +95,7 @@ func TestScripted_ADormantChatResumesItsOwnSession(t *testing.T) {
 
 			prompts := r.logged("prompt")
 			assert.Equal(t, first, prompts[len(prompts)-1]["session"], "the same vendor session took the message")
-			assert.Equal(t, domain.AgentRungSession, r.snapshot(chatID).Session.Rung)
+			assert.Empty(t, r.logged("refused"))
 		})
 	}
 }

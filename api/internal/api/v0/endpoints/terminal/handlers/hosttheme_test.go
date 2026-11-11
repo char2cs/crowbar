@@ -33,6 +33,12 @@ func (r *recordingEngine) SetHostTheme(
 	r.bg, r.fg = bg, fg
 }
 
+func (r *recordingEngine) HostTheme() (bg, fg color.Color) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.bg, r.fg
+}
+
 func (r *recordingEngine) snapshot() (calls int, bg, fg color.Color) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -41,8 +47,9 @@ func (r *recordingEngine) snapshot() (calls int, bg, fg color.Color) {
 
 func newHostThemeRouter(eng handlers.TerminalEngine) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(eng, stubProfiles{}, &spyBroadcaster{})
+	h := handlers.New(eng, stubProfiles{})
 	r.Group("/v0").PUT("/settings/terminal/theme", h.SetHostTheme)
+	r.Group("/v0").GET("/settings/terminal/theme", h.HostTheme)
 	return r
 }
 
@@ -120,4 +127,19 @@ func TestSetHostTheme_AcceptsOneParseableChannel(t *testing.T) {
 	require.Equal(t, 1, calls)
 	require.NotNil(t, bg)
 	assert.Nil(t, fg, "an unparseable channel must arrive as nil, not as an invented colour")
+}
+
+// The client pushes only colours the daemon does not already hold, so the held pair is
+// readable, in the form it was pushed in, and empty before any push.
+func TestHostTheme_ReadsBackTheHeldColours(t *testing.T) {
+	r := newHostThemeRouter(&recordingEngine{})
+	rec := doTerminal(r, http.MethodGet, "/v0/settings/terminal/theme", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"success":true,"data":{"bg":"","fg":""}}`, rec.Body.String())
+
+	doTerminal(r, http.MethodPut, "/v0/settings/terminal/theme",
+		map[string]string{"bg": "#FAF9F5", "fg": "#141414"})
+	rec = doTerminal(r, http.MethodGet, "/v0/settings/terminal/theme", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"success":true,"data":{"bg":"#faf9f5","fg":"#141414"}}`, rec.Body.String())
 }

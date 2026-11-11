@@ -17,11 +17,8 @@ const (
 	sensitiveKey = `(?i)token|secret|passw(or)?d|authorization|api[-_]?key|private[-_]?key|bearer|cookie|credential|pairing`
 )
 
-// New returns an empty Ring that retains the newest 5000 records.
-//
-// Each Ring owns its own storage and its own redaction pattern, so two rings
-// never share state and nothing is kept at package level. The returned Ring is
-// safe for concurrent use by any number of loggers and readers.
+// New returns an empty Ring that retains the newest 5000 records. Each Ring owns its
+// storage and redaction pattern, and is safe for concurrent loggers and readers.
 func New() Ring {
 	return &ringBuffer{
 		records:     make([]Record, capacity),

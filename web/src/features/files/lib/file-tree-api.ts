@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { AppFile } from '@/features/file-system/types/app'
 
@@ -10,10 +10,9 @@ export interface FileNodeDTO {
   gitStatus?: string
 }
 
-// Map a backend file node onto the AppFile shape the explorer renders. A
-// directory with no `children` key is "not yet loaded" — represented as
-// `children: undefined` — which the lazy loader uses as its fetch sentinel; an
-// empty loaded directory becomes `children: []`.
+// Map a backend file node onto the explorer's AppFile. A directory without a `children` key is
+// not yet loaded (`children: undefined`, the lazy loader's fetch sentinel); a loaded empty one
+// is `children: []`.
 export function toAppFile(node: FileNodeDTO): AppFile {
   const isDir = node.type === 'directory'
   return {
@@ -36,19 +35,9 @@ export async function fetchFileTree(wsId: string, path?: string): Promise<AppFil
   return nodes.map(toAppFile)
 }
 
-// The file-change WS is the `.../files/ws` leaf of the same base the REST calls
-// above use — a chat-scoped `/v0/chats/:chatId/files/ws` for a worktree-backed
-// workspace, the project's own home leaf for the home one. It is its own route
-// rather than a dual-serve of `/tree`, so the path is a real suffix, not an
-// upgrade on an existing GET.
-export function filesWsEndpoint(wsId: string): string {
-  return `${filesBaseForWorkspace(wsId)}/ws`
-}
-
-// File-tree mutations against the workspace files endpoint. Paths are
-// workspace-relative (the same `path` the tree nodes carry). On success the tree
-// refreshes automatically: the daemon emits a structural FileChangeEvent over the
-// files-WS, which use-workspace-effects reconciles — so callers do NOT refetch.
+// Mutations on the workspace files endpoint; paths are workspace-relative, as on tree nodes.
+// Callers do not refetch: the daemon's structural file_change on the workspace's files: scope
+// is reconciled into the tree by use-workspace-file-tree.
 
 /** Create a file (`type: 'file'`) or directory (`type: 'dir'`) at `path`. */
 export async function createFileNode(
@@ -81,33 +70,9 @@ export async function deleteFileNode(wsId: string, path: string): Promise<void> 
   })
 }
 
-/**
- * Overwrite an existing file's content (the node must already exist). Pass
- * `encoding: 'base64'` with a base64-encoded `content` to write raw bytes
- * byte-faithfully — the daemon decodes it, so binary uploads survive intact (a
- * plain UTF-8 string body corrupts any non-UTF-8 bytes). The default omits the
- * field and writes `content` as UTF-8 text.
- */
-export async function writeFileContent(
-  wsId: string,
-  path: string,
-  content: string,
-  encoding?: 'base64',
-): Promise<void> {
-  await apiFetch(`${filesBaseForWorkspace(wsId)}/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(encoding ? { path, content, encoding } : { path, content }),
-  })
-}
-
-/**
- * Copy `sourcePath` to `destPath` (both workspace-relative) via the daemon's
- * server-side copy verb: byte-faithful (binary files stay intact — a client-side
- * read/write composition would round-trip them through the base64 content read
- * and corrupt them) and recursive for directories. An existing destination is a
- * 409; the daemon's structural FileChangeEvent reconciles the tree.
- */
+/** Copy `sourcePath` to `destPath` with the daemon's server-side copy: recursive, and
+ *  byte-faithful where a client read/write would corrupt binaries through the base64 content
+ *  read. An existing destination is a 409. */
 export async function copyFileNode(
   wsId: string,
   sourcePath: string,

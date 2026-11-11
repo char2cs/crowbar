@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   classesForScopes,
-  onShikiLanguageReady,
   shikiLowlight,
   tokenizeToHast,
 } from '@/components/editor/plugins/shiki-lowlight'
+import { grammarFor, onGrammarReady } from '@/features/editor/lib/shiki-grammars'
 
 describe('classesForScopes', () => {
   it('maps the innermost matching scope onto the hljs class the code block colors', () => {
@@ -58,12 +58,36 @@ describe('tokenizeToHast', () => {
       ],
     })
   })
+
+  // A streaming block grows at its end: the lines before it keep their tokens and state.
+  it('resumes a block that grew from its first changed line, with that line’s state', () => {
+    const tokenizeLine = vi.fn((line: string, prev: unknown) => ({
+      tokens: [{ startIndex: 0, endIndex: line.length, scopes: ['source', 'comment'] }],
+      ruleStack: `after ${line} from ${String(prev)}` as never,
+    }))
+    const fresh = tokenizeToHast({ tokenizeLine }, 'a\nb\ncd\ne')
+    tokenizeToHast({ tokenizeLine }, 'x')
+    tokenizeLine.mockClear()
+
+    const grammar = { tokenizeLine }
+    tokenizeToHast(grammar, 'a\nb\nc')
+    tokenizeLine.mockClear()
+    const grown = tokenizeToHast(grammar, 'a\nb\ncd\ne')
+
+    expect(tokenizeLine.mock.calls.map(([line]) => line)).toEqual(['cd', 'e'])
+    expect(tokenizeLine.mock.calls[0]?.[1]).toBe('after b from after a from null')
+    expect(grown).toEqual(fresh)
+
+    tokenizeLine.mockClear()
+    tokenizeToHast(grammar, 'z\nb\ncd\ne')
+    expect(tokenizeLine.mock.calls.map(([line]) => line)).toEqual(['z', 'b', 'cd', 'e'])
+  })
 })
 
 describe('shikiLowlight', () => {
   it('is plain until the grammar loads, announces it, then highlights with the real grammar', async () => {
     const ready = new Promise<string>((resolve) => {
-      const off = onShikiLanguageReady((lang) => {
+      const off = onGrammarReady((lang) => {
         off()
         resolve(lang)
       })
@@ -81,6 +105,13 @@ describe('shikiLowlight', () => {
     )
     expect(classes).toEqual(expect.arrayContaining(['hljs-keyword', 'hljs-string', 'hljs-comment']))
     expect(shikiLowlight.listLanguages()).toContain('javascript')
+  }, 30_000)
+
+  it('highlights at once a language the editor already loaded', async () => {
+    grammarFor('python')
+    await vi.waitFor(() => expect(grammarFor('python')).not.toBeNull(), { timeout: 10_000 })
+
+    expect(shikiLowlight.highlight('python', 'def probe(): pass').children).not.toEqual([])
   }, 30_000)
 
   it('stays plain for a language shiki has no grammar for', () => {

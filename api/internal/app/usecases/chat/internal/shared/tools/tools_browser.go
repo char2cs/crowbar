@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/mcp"
@@ -100,9 +101,13 @@ func (s browserSpec) schema() json.RawMessage {
 		props = strings.TrimPrefix(tab+","+props, ",")
 		props = strings.TrimSuffix(props, ",")
 	}
-	req, _ := json.Marshal(append([]string{}, s.required...))
+	quoted := make([]string, 0, len(s.required))
+	for _, name := range s.required {
+		quoted = append(quoted, strconv.Quote(name)) // field names are plain identifiers
+	}
 	return json.RawMessage(fmt.Sprintf(
-		`{"type":"object","properties":{%s},"required":%s,"additionalProperties":false}`, props, req))
+		`{"type":"object","properties":{%s},"required":[%s],"additionalProperties":false}`,
+		props, strings.Join(quoted, ",")))
 }
 
 // rejectUnknown enforces the schema's additionalProperties:false, so nothing
@@ -218,9 +223,7 @@ func clampWait(raw json.RawMessage) json.RawMessage {
 	if json.Unmarshal(raw, &ms) != nil || ms <= 0 {
 		ms = defaultWaitMs
 	}
-	ms = min(ms, maxWaitMs)
-	out, _ := json.Marshal(ms)
-	return out
+	return json.RawMessage(strconv.Itoa(min(ms, maxWaitMs)))
 }
 
 // browserText shows a peer's answer to the model: a JSON string as itself,

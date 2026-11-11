@@ -1,21 +1,19 @@
-/**
- * Task 6: per-branch lock choice at import time. `RepoImportDialog` already
- * lists remote branches with a checkbox per row (multi-select — Import posts
- * the whole batch in one call, see the component's own doc comment); this
- * covers the lock toggle added alongside it and what `onImport` receives.
- */
+/** The per-branch lock toggle at import time, and what `onImport` receives for the batch. */
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { RepoImportDialog } from '@/components/layout/repo-import-dialog'
 import * as api from '@/lib/api'
-import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
-import { useProjectDataStore } from '@/lib/store/projects'
+import * as fetchModule from '@/lib/api/fetch'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
-  apiFetch: vi.fn(),
   getRepoPullRequests: vi.fn(),
 }))
 
@@ -28,8 +26,7 @@ const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRec
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  resetHostWorld()
   const rect = {
     top: 0,
     left: 0,
@@ -48,13 +45,16 @@ beforeEach(() => {
 
 afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
+  vi.unstubAllGlobals()
 })
 
 function mockBranches(
   branches: Array<{ name: string; isProtected?: boolean; hasWorkspace?: boolean }>,
 ) {
-  vi.mocked(api.apiFetch).mockResolvedValue(
-    branches.map((b) => ({ isProtected: false, hasWorkspace: false, ...b })),
+  const data = branches.map((b) => ({ isProtected: false, hasWorkspace: false, ...b }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ success: true, data }))),
   )
 }
 
@@ -171,39 +171,31 @@ describe('RepoImportDialog lock choice', () => {
 
 // The branch list is read off the repo's project's own host, once that host is known.
 describe('RepoImportDialog host', () => {
-  const row = (hostId: string) => ({
-    id: 'proj-1',
-    name: 'proj-1',
-    path: '/work/proj-1',
-    lastActivity: new Date(0),
-    hostId,
+  const apiFetch = vi.spyOn(fetchModule, 'apiFetch')
+  const row = (hostId: string) => projectOn('proj-1', hostId)
+  const pairHost2 = () => pairRemoteHost('host-2')
+
+  // The desktop app: the only one that reaches a remote host.
+  beforeEach(() => Object.assign(window, { __TAURI_INTERNALS__: {} }))
+  afterEach(() => {
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   })
-  const pairHost2 = () =>
-    useHostConfigStore.getState().addHost({
-      id: 'host-2',
-      name: 'host-2',
-      endpoint: 'host-2.example:3737',
-      pairedFingerprint: 'SHA256:aaaa',
-      clientId: 'client-host-2',
-    })
 
   it('reads a local repo’s branches from the bare path', async () => {
     mockBranches([{ name: 'feature-a' }])
     renderDialog()
     await waitForRow('feature-a')
-    expect(api.apiFetch).toHaveBeenCalledExactlyOnceWith(
-      '/v0/projects/proj-1/repos/repo-1/branches',
-    )
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith('/v0/projects/proj-1/repos/repo-1/branches')
     expect(api.getRepoPullRequests).toHaveBeenCalledWith('proj-1', 'repo-1')
   })
 
   it('reads a remote repo’s branches from its own host', async () => {
     pairHost2()
-    useProjectDataStore.setState({ data: success([row('host-2')]) })
+    loadProjects(row('host-2'))
     mockBranches([{ name: 'feature-a' }])
     renderDialog()
     await waitForRow('feature-a')
-    expect(api.apiFetch).toHaveBeenCalledExactlyOnceWith(
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith(
       'crowbar://host-2/v0/projects/proj-1/repos/repo-1/branches',
     )
   })
@@ -212,12 +204,12 @@ describe('RepoImportDialog host', () => {
     pairHost2()
     mockBranches([{ name: 'feature-a' }])
     renderDialog()
-    expect(api.apiFetch).not.toHaveBeenCalled()
+    expect(apiFetch).not.toHaveBeenCalled()
     expect(api.getRepoPullRequests).not.toHaveBeenCalled()
 
-    act(() => useProjectDataStore.setState({ data: success([row('host-2')]) }))
+    act(() => loadProjects(row('host-2')))
     await waitForRow('feature-a')
-    expect(api.apiFetch).toHaveBeenCalledExactlyOnceWith(
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith(
       'crowbar://host-2/v0/projects/proj-1/repos/repo-1/branches',
     )
   })

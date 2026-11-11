@@ -1,21 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fileUri } from '@/features/editor/lib/editor-uri'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { workspaceRef } from '@/lib/api/documents'
 
-// DOM-free: mock the light `editor.api.js` entry (what `monaco-adapters.ts`
-// imports instead of the bare `monaco-editor` specifier — see the comment
-// there) so no real editor/DOM is constructed.
-//
-// `langForUri` (under test below) also imports `language-contributions.ts`,
-// which imports the SAME `editor.api.js` specifier for its `languages`
-// namespace (registers the custom diff/gitignore/… Monarch languages and the
-// viewport semantic-tokens provider at module top level) — so the mock
-// needs a minimal `languages` fake too, or that import throws before any test
-// in this file runs. `loadLanguageForPath` itself resolves its per-language
-// loaders via DEEP subpath imports (e.g.
-// `monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution`),
-// which are separate module specifiers this mock does not intercept — those
-// load the real (small, registration-only) contribution modules, same as the
-// dedicated `language-contributions.test.ts` suite.
+// DOM-free: mock the light `editor.api.js` entry `monaco-adapters.ts` imports,
+// so no real editor/DOM is constructed. The languages it registers at import
+// need a minimal `languages` fake.
 vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
   class FakeUri {
     constructor(public value: string) {}
@@ -36,6 +25,7 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
           dispose: vi.fn(),
           getValue: vi.fn(() => text),
           getFullModelRange: vi.fn(() => ({})),
+          pushStackElement: vi.fn(),
           pushEditOperations: vi.fn((_s: unknown, edits: Array<{ text: string }>) => {
             text = edits[0].text
             return null
@@ -43,6 +33,7 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
         }
       }),
       getModel: vi.fn(() => null),
+      getEditors: vi.fn(() => []),
       create: vi.fn(() => ({
         setModel: vi.fn(),
         getModel: vi.fn(() => null),
@@ -61,6 +52,7 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
   }
 })
 
+import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import {
   EDITOR_CREATE_OPTIONS,
   langForUri,
@@ -86,15 +78,9 @@ describe('monaco-adapters', () => {
     expect(EDITOR_CREATE_OPTIONS.automaticLayout).toBe(false)
   })
 
-  // Regression: on Safari/WKWebView, Monaco's own `getExtraEditorClassName()`
-  // adds `enable-user-select` instead of `no-user-select`, leaving
-  // `.view-lines`/`.view-line`/`.lines-content` natively selectable
-  // (viewLines.css). A drag starting on an unrelated, oversized-but-blank hit
-  // area elsewhere in the app (never seen by Monaco's own mousedown guard)
-  // can then sweep a native WebKit selection across the whole visible editor,
-  // including the padded empty space below the last line. Requesting
-  // `no-user-select` ourselves wins for those three elements regardless of
-  // Monaco's own WebKit-specific class (see monaco-adapters.ts comment).
+  // On Safari/WKWebView Monaco adds `enable-user-select`, leaving the view lines natively
+  // selectable, so a drag from an unrelated blank hit area can sweep a WebKit selection across the
+  // editor. Requesting `no-user-select` ourselves wins for those elements.
   it('EDITOR_CREATE_OPTIONS requests no-user-select to close the WKWebView native-selection gap', () => {
     expect(EDITOR_CREATE_OPTIONS.extraEditorClassName).toBe('no-user-select')
   })
@@ -105,17 +91,17 @@ describe('monaco-adapters', () => {
     expect(typeof model.dispose).toBe('function')
   })
 
-  it('setValueIfChanged uses pushEditOperations (preserves undo) only when text differs', () => {
+  it('replaceAll replaces the whole text as an undo step of its own', () => {
     const model = realModelApi().createModel('hello', 'typescript', 'crowbar://editor/x')
-    // No-op when unchanged.
-    model.setValueIfChanged('hello')
-    expect(model.getValue()).toBe('hello')
-    // Applies via edit op when changed.
-    model.setValueIfChanged('world')
+    const raw = vi.mocked(monacoEditor.createModel).mock.results.at(-1)?.value
+
+    model.replaceAll('world', false)
+
     expect(model.getValue()).toBe('world')
+    expect(raw.pushStackElement).toHaveBeenCalledTimes(2)
   })
 
   it('langForUri derives a monaco language id from the file path', () => {
-    expect(langForUri(fileUri('ws-1', '/proj/main.ts'))).toBe('typescript')
+    expect(langForUri(documentUri(workspaceRef('ws-1', '/proj/main.ts')))).toBe('typescript')
   })
 })

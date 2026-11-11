@@ -29,7 +29,8 @@ injected_prompts:
 
 func TestInjectedPromptKinds_HoldsEveryDeclaredConstant(t *testing.T) {
 	assert.Contains(t, spec.InjectedPromptKinds, spec.InjectedPromptTaskNotification)
-	assert.Len(t, spec.InjectedPromptKinds, 1,
+	assert.Contains(t, spec.InjectedPromptKinds, spec.InjectedPromptSubagentResult)
+	assert.Len(t, spec.InjectedPromptKinds, 2,
 		"the set grows only with a payload captured from a real CLI")
 }
 
@@ -39,4 +40,23 @@ func TestInjectedPrompts_AbsentBlockDecodesToNothing(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte("id: probe\n"), &d))
 
 	assert.Empty(t, d.InjectedPrompts)
+}
+
+func TestInjectedPrompts_ASubagentResultReadsItsFieldsOutOfThePrompt(t *testing.T) {
+	var d spec.Descriptor
+	require.NoError(t, yaml.Unmarshal([]byte(`
+id: probe
+injected_prompts:
+  - kind: subagent_result
+    needle: "<agent-message"
+    scope_id: { pattern: 'from="(?P<v>[^"]+)"' }
+`), &d))
+
+	p := d.InjectedPrompts[0]
+	assert.Equal(t, "a-1", p.ScopeID.Find(`<agent-message from="a-1">done</agent-message>`))
+	assert.Empty(t, p.ScopeID.Find("no sender"))
+	assert.Empty(t, p.Result.Find("anything"), "an undeclared field reads nothing")
+
+	err := yaml.Unmarshal([]byte("injected_prompts:\n  - scope_id: { pattern: 'no group' }\n"), &d)
+	assert.Error(t, err, "a pattern keeps its (?P<v>...) group")
 }

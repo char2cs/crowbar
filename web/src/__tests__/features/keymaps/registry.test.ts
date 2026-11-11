@@ -5,6 +5,7 @@ import {
   TAB_NEW,
   TAB_NEW_TERMINAL,
   TAB_NEW_FILE,
+  TAB_OPEN_FILE,
   AGENT_NEW_CHAT,
   AGENT_CYCLE_PROVIDER,
   AGENT_TOGGLE_VIEW_MODE,
@@ -33,6 +34,14 @@ describe('keymap registry — New Tab commands', () => {
     expect(getCommand(TAB_NEW_FILE)?.defaultChord).toBe('mod+shift+n')
   })
 
+  it('binds Open file… to mod+o under Tabs', () => {
+    expect(getCommand(TAB_OPEN_FILE)).toMatchObject({
+      label: 'Open file…',
+      category: 'Tabs',
+      defaultChord: 'mod+o',
+    })
+  })
+
   // Toggles the open chat between its Chat and Terminal surfaces. Registered
   // like every other chord so it is rebindable rather than a hardcoded literal
   // buried in the chat pane.
@@ -51,10 +60,8 @@ describe('keymap registry — New Tab commands', () => {
     expect(getCommand(AGENT_TOGGLE_VIEW_MODE)?.category).toBe('Chats')
   })
 
-  // mod+/ used to belong to Cycle chat provider — it now ships unbound (rather
-  // than reassigned to a different default) so a user who wants it back can
-  // assign their own chord in Settings → Keybindings, instead of two commands
-  // silently fighting over one default.
+  // Unbound rather than given another default, so it never silently fights a second command
+  // for one chord; users assign their own in Settings → Keybindings.
   it('leaves Cycle chat provider unbound by default now that mod+/ toggles the view instead', () => {
     expect(getCommand(AGENT_CYCLE_PROVIDER)?.defaultChord).toBe('')
   })
@@ -62,6 +69,16 @@ describe('keymap registry — New Tab commands', () => {
   // The Keybindings tab renders ONLY the categories listed in CATEGORY_ORDER, so
   // a command in a category missing from it is invisible in settings — bound and
   // working, but unfindable and unrebindable. Every category in use must appear.
+  // Settings lists every command as a shortcut a person can press; nothing mounts a switcher.
+  // A pane groups chats, never tabs, so there is no tab split for a shortcut to run.
+  it('advertises no split shortcut that would do nothing', () => {
+    expect(COMMANDS.filter((c) => /split/i.test(c.label))).toEqual([])
+  })
+
+  it('offers no workspace switcher shortcut', () => {
+    expect(COMMANDS.map((c) => c.label)).not.toContain('Open workspace switcher')
+  })
+
   it('renders every category in use — CATEGORY_ORDER covers them all', () => {
     for (const command of COMMANDS) {
       expect(CATEGORY_ORDER).toContain(command.category)
@@ -70,11 +87,12 @@ describe('keymap registry — New Tab commands', () => {
 
   // Every chord the New Tab surface draws must be rebindable, or the badge
   // it renders can never go out of sync with reality by design.
-  it('makes all six live-editable', () => {
+  it('makes every tab and chat command live-editable', () => {
     for (const id of [
       TAB_NEW,
       TAB_NEW_TERMINAL,
       TAB_NEW_FILE,
+      TAB_OPEN_FILE,
       AGENT_NEW_CHAT,
       AGENT_CYCLE_PROVIDER,
       AGENT_TOGGLE_VIEW_MODE,

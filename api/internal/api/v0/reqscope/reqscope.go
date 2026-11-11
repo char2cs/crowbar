@@ -1,13 +1,6 @@
-// Package reqscope carries the per-request scope a v0 routing middleware
-// resolved, from the middleware that resolved it to the handlers mounted below
-// it.
-//
-// It exists as its own package because the two sides cannot see each other:
-// internal/api/v0 imports every endpoint group (router.go), so an endpoint's
-// handlers importing v0 back to read a context key would be an import cycle.
-// A leaf package both sides may import is the only shape that works, and
-// keeping the key unexported here is what stops a handler from reaching into
-// the gin context with a hand-written string and drifting from the middleware.
+// Package reqscope carries the per-request scope a v0 middleware resolved to the
+// handlers below it. It is a leaf package because v0 imports every endpoint group, so
+// handlers importing v0 would cycle; the unexported key stops hand-written lookups.
 package reqscope
 
 import (
@@ -30,14 +23,9 @@ func SetWorkspace(
 	c.Set(chatWorktreeKey, ws)
 }
 
-// Workspace returns the workspace resolveChatWorktree resolved for this
-// request, and whether one was actually stashed. Every handler mounted under
-// rg.Group("/chats/:chatId") (v0/router.go) calls this rather than resolving
-// the chat's worktree a second time — the resolve is the middleware's job, and
-// doing it twice per request is what mounting it as middleware avoids.
-//
-// A false second return means the handler is mounted somewhere the middleware
-// does not run, which is a wiring bug, not a request the caller can fix.
+// Workspace returns the workspace resolveChatWorktree resolved for this request, so
+// /chats/:chatId handlers never resolve it twice. false means the handler is mounted
+// where the middleware does not run: a wiring bug, not a caller error.
 func Workspace(
 	c *gin.Context,
 ) (domain.Workspace, bool) {

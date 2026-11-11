@@ -2,10 +2,10 @@ package chat_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -16,16 +16,15 @@ import (
 	"golang.org/x/sync/errgroup"
 	gormdb "gorm.io/gorm"
 
-	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat"
-	accmds "github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// captureBroadcast records every (chatID, workspaceID, kind) frame the hub
-// projection fans out, mirroring reviewthread's test capture.
+// captureBroadcast records every (chatID, workspaceID) the hub projection
+// announces, mirroring reviewthread's test capture.
 type captureBroadcast struct {
 	mu   sync.Mutex
 	rows []string
@@ -34,13 +33,13 @@ type captureBroadcast struct {
 // watch adapts the repository's announcement seam onto the frame this fixture's
 // assertions already use, so the change is proven against the existing suite.
 func (c *captureBroadcast) watch(e chat.ChatEvent) {
-	c.push(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
+	c.push(e.ChatID, e.WorkspaceID)
 }
 
-func (c *captureBroadcast) push(chatID, workspaceID, kind string, _ bool) {
+func (c *captureBroadcast) push(chatID, workspaceID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.rows = append(c.rows, chatID+":"+workspaceID+":"+kind)
+	c.rows = append(c.rows, chatID+":"+workspaceID)
 }
 
 func (c *captureBroadcast) count() int {
@@ -56,23 +55,7 @@ func newRepoWithDeps(
 	t *testing.T,
 ) (context.Context, chat.EventStore, *gormdb.DB, *captureBroadcast) {
 	t.Helper()
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-
-	cap := &captureBroadcast{}
-	repo, err := chat.NewEventSourced(ax, es, db, cap.watch)
-	require.NoError(t, err)
-	return context.Background(), repo, db, cap
+	return newRepoOver(t, testutil.Placements(t))
 }
 
 func newRepo(
@@ -112,14 +95,13 @@ func TestAgentChat_CreateAndGetChat(t *testing.T) {
 	assert.Equal(t, "w1", got.WorkspaceID)
 }
 
-func TestAgentChat_Create_ErrorOnDuplicate(t *testing.T) {
+func TestAgentChat_Create_ADuplicateIsAnIDConflict(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0).UTC()
 	createChat(t, ctx, repo, "c1", "w1", now)
 
 	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: now})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, asynxModels.ErrValidation)
+	assert.Equal(t, problem.IDConflict, problem.CodeOf(err))
 }
 
 func TestAgentChat_GetChat_MissingBridgesToPackageErrNotFound(t *testing.T) {
@@ -132,24 +114,7 @@ func TestAgentChat_GetChat_MissingBridgesToPackageErrNotFound(t *testing.T) {
 // The segment lifecycle (EndSegment / OpenSegment / BindSession) and the
 // GetByProviderSession lookup that scanned segments are GONE, along with AgentSegment
 // itself. A chat holds no process state: which CLI is on it, and which conversations it
-// has hosted, are projections of RUNNER events (agentrunner). Their coverage lives
-// there and in the agent usecase's move/eviction tests.
-
-func TestAgentChat_StartStopTurn(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1, 0).UTC()
-	createChat(t, ctx, repo, "c1", "w1", now)
-
-	started, err := repo.StartTurn(ctx, "c1", now.Add(time.Second))
-	require.NoError(t, err)
-	assert.True(t, started.Working)
-	require.NotNil(t, started.CurrentTurnStarted)
-
-	stopped, err := repo.StopTurn(ctx, "c1", now.Add(2*time.Second), 0)
-	require.NoError(t, err)
-	assert.False(t, stopped.Working)
-	assert.Nil(t, stopped.CurrentTurnStarted)
-}
+// has hosted, are chat-ledger rows, covered by the ledger and the chat usecase tests.
 
 func TestAgentChat_SetTitle_UserSourceLocksAgainstAgent(t *testing.T) {
 	ctx, repo := newRepo(t)
@@ -231,20 +196,8 @@ func TestAgentChat_HubBroadcastsChatIDAndKind(t *testing.T) {
 // repeated chances to surface any nondeterminism.
 const concurrentCreateTrials = 10
 
-// TestAgentChat_ConcurrentCreate_OneWins exercises the OCC retry contract (no
-// per-aggregate writeMu) under a REAL race, on the one command that can still collide
-// on a single chat aggregate: two Creates of the SAME id, fired concurrently via
-// errgroup. Exactly one commits; the loser is rejected by Validate ("exists", wrapping
-// asynxModels.ErrValidation) rather than left as an unresolved ErrPipelineFailed.
-//
-// (Its predecessor raced two OpenSegments against the chat's ≤1-active-segment
-// invariant. That invariant — and the segment itself — is gone: a chat holds no process
-// state to conflict over, which is exactly why the torn switch that bricked a chat
-// cannot happen. The OCC contract it proved still matters, so the race is retargeted at
-// the command that still has one.)
-//
-// Run with -race. No sleeps: the goroutines are joined by errgroup.Wait, and the read is
-// preceded by WaitQuiescentForTest (asynx WaitPublish), never a timing guess.
+// Two Creates of the SAME id race: exactly one commits and the loser, run after
+// it, is refused by Validate as an IDConflict, never ErrPipelineFailed.
 func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 	now := time.Unix(1000, 0).UTC()
@@ -270,7 +223,7 @@ func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 				succeeded++
 				continue
 			}
-			require.ErrorIsf(t, e, asynxModels.ErrValidation,
+			require.Equalf(t, problem.IDConflict, problem.CodeOf(e),
 				"trial %d: a losing Create must be rejected by Validate, not left as an unresolved pipeline failure", trial)
 		}
 		require.Equalf(t, 1, succeeded, "trial %d: exactly one racing Create must commit; the other must be rejected", trial)
@@ -282,112 +235,20 @@ func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 	}
 }
 
-// TestAgentChat_OccSendErrorDisposition pins the terminal error-disposition
-// contract against a fake send: ErrPipelineFailed is retried exactly
-// MaxOCCAttempts then surfaced (→ 409); ErrValidation is never retried
-// (→ 422); ErrQueueFull is never retried and is translated to
-// apperr.ErrUnavailable (→ 503). All classified via errors.Is.
-func TestAgentChat_OccSendErrorDisposition(t *testing.T) {
-	ctx := context.Background()
-	cmd := accmds.StartTurn{ChatID: "c1", Now: time.Unix(1, 0)}
-
-	t.Run("ErrPipelineFailed retried then surfaced", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			calls++
-			return asynxModels.Event[domain.Chat]{}, fmt.Errorf("boom: %w", asynxModels.ErrPipelineFailed)
-		}
-		_, err := chat.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
-		assert.Equal(t, chat.MaxOCCAttempts, calls)
-	})
-
-	t.Run("ErrValidation never retried", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			calls++
-			return asynxModels.Event[domain.Chat]{}, fmt.Errorf("nope: %w", asynxModels.ErrValidation)
-		}
-		_, err := chat.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, asynxModels.ErrValidation)
-		assert.Equal(t, 1, calls)
-	})
-
-	t.Run("ErrQueueFull translated to unavailable, never retried", func(t *testing.T) {
-		calls := 0
-		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			calls++
-			return asynxModels.Event[domain.Chat]{}, fmt.Errorf("full: %w", asynxModels.ErrQueueFull)
-		}
-		_, err := chat.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, apperr.ErrUnavailable)
-		assert.Equal(t, 1, calls)
-	})
-
-	t.Run("success returns immediately", func(t *testing.T) {
-		send := func(_ context.Context, c asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			return asynxModels.Event[domain.Chat]{Aggregate: domain.Chat{ID: c.AggregateID()}}, nil
-		}
-		evt, err := chat.OccSend(ctx, send, cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "c1", evt.Aggregate.ID)
-	})
-
-	// An error that is none of the three classified sentinels — a context
-	// cancellation, a driver-level failure, anything occSend was not written to
-	// retry — must fall through the switch's default and be surfaced AS-IS on the
-	// very first attempt, never mistaken for the retryable ErrPipelineFailed case.
-	t.Run("unclassified error surfaced as-is, not retried", func(t *testing.T) {
-		calls := 0
-		sentinel := errors.New("driver: connection reset")
-		send := func(context.Context, asynxModels.Command[domain.Chat]) (asynxModels.Event[domain.Chat], error) {
-			calls++
-			return asynxModels.Event[domain.Chat]{}, sentinel
-		}
-		_, err := chat.OccSend(ctx, send, cmd)
-		require.ErrorIs(t, err, sentinel)
-		assert.Equal(t, 1, calls, "an unclassified error must not be retried")
-	})
-}
-
-func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
+func TestAgentChat_OpenReadModel_ErrorOnBadDB(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = chat.NewEventSourced(ax, es, db, func(chat.ChatEvent) {})
+	_, err = chat.OpenReadModel(db)
 	require.Error(t, err)
 }
 
-// TestLoadChat_AnswersWhileTheProjectionIsStillBehind pins the one property
-// LoadChat exists for, and pins it as a PROPERTY rather than as a race.
-//
-// SetPlacement is deliberately on the async Send path (a single drag renumbers a
-// whole level, and blocking each write on its projection would serialise the drag
-// behind the read model). So between that write returning and the projection
-// folding, agent_chats_read genuinely still holds the placement the chat had
-// BEFORE — and that window is exactly when a create asks what the new chat
-// inherits, microseconds later.
-//
-// Live, the window is too narrow to test against: a spawn that resolved placement
-// from the read model, and therefore threaded nothing, passed about half the time
-// and survived a suite that way. So the window is held open here instead of raced,
-// by writing the pre-placement row back over the folded one. That is not a broken
-// state being simulated — it is the ordinary state of this table for a moment
-// after every placement, made to stand still long enough to assert against.
-func TestLoadChat_AnswersWhileTheProjectionIsStillBehind(t *testing.T) {
+// A placement is read off the Tree, so a read model a moment behind the write
+// (its pre-placement row held in place here) still serves the chat where it is.
+func TestPlacement_IsCurrentWhileTheProjectionIsStillBehind(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 
 	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Type: domain.ChatTypeChat, Now: time.Now()})
@@ -410,23 +271,14 @@ func TestLoadChat_AnswersWhileTheProjectionIsStillBehind(t *testing.T) {
 
 	projected, err := repo.GetChat(ctx, "c2")
 	require.NoError(t, err)
-	require.Empty(t, projected.ParentID,
-		"the fixture only means anything while the read model is behind — this is that state")
-
+	assert.Equal(t, "c1", projected.ParentID, "the projected read")
 	loaded, err := repo.LoadChat(ctx, "c2")
 	require.NoError(t, err)
-	assert.Equal(t, "c1", loaded.ParentID,
-		"LoadChat folds from the event log, so a decision taken on it is never one taken on a stale projection")
-	assert.Equal(t, 0, loaded.Order)
+	assert.Equal(t, "c1", loaded.ParentID, "the read a thread's inheritance decides on")
 }
 
-// TestSetOrder_RenumbersWithoutMoving pins the split at the repository boundary.
-//
-// The two placement writes exist because a drag decides a parent for ONE row and
-// an index for a whole level. This is the second of them, and the guarantee is
-// that it cannot express a parent at all: the aggregate applies it to the chat
-// folded from the log, so the row keeps the parent the log has whatever the
-// caller believed when it planned the renumber.
+// A drag decides a parent for one row and an index for a whole level; SetOrder
+// is the second and cannot express a parent: the row keeps the one the Tree holds.
 func TestSetOrder_RenumbersWithoutMoving(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 
@@ -517,26 +369,10 @@ func TestGetChat_AReadFailureIsNotAMiss(t *testing.T) {
 }
 
 // TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError pins the
-// "agentchat: <verb>: %w" wrap every ordinary async-Send mutation applies around
-// sendWithOCC's result: each command's own Validate refuses a chat that does not
-// exist with asynxModels.ErrValidation (never retried, per the OCC disposition
-// contract), and the repository method must let that error surface rather than
-// swallowing it — the caller needs the 422, not a silent zero-value Chat.
+// "agentchat: <verb>: %w" wrap every async-Send mutation applies: a command's
+// Validate refusal (asynxModels.ErrValidation) surfaces, so the caller gets the 422.
 func TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError(t *testing.T) {
 	ctx, repo := newRepo(t)
-	now := time.Unix(1, 0).UTC()
-
-	t.Run("StartTurn", func(t *testing.T) {
-		_, err := repo.StartTurn(ctx, "no-such-chat", now)
-		require.Error(t, err)
-		assert.ErrorIs(t, err, asynxModels.ErrValidation)
-	})
-
-	t.Run("StopTurn", func(t *testing.T) {
-		_, err := repo.StopTurn(ctx, "no-such-chat", now, 0)
-		require.Error(t, err)
-		assert.ErrorIs(t, err, asynxModels.ErrValidation)
-	})
 
 	t.Run("SetSelection", func(t *testing.T) {
 		_, err := repo.SetSelection(ctx, "no-such-chat", "claude", "high")
@@ -590,73 +426,48 @@ func TestAgentChat_ListReads_PropagateStorageFailure(t *testing.T) {
 	require.Error(t, err, "a read-model failure must not read back as an empty chat list")
 }
 
-// placementLog records, for every placement announcement, the chat id and the
-// workspace and parent the READ MODEL held for it then ("gone" once deleted).
-type placementLog struct {
-	mu   sync.Mutex
-	repo chat.EventStore
-	seen []string
-}
-
-func (p *placementLog) record(id string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	rows, err := p.repo.ListChats(context.Background())
-	if err != nil {
-		p.seen = append(p.seen, id+":error")
-		return
-	}
-	for _, row := range rows {
-		if row.ID == id {
-			p.seen = append(p.seen, id+":"+row.WorkspaceID+":"+row.ParentID)
-			return
+// A seeded permission level is published before the seed returns: a chat an
+// operation mints must not reach a client after the operation settled.
+func TestAgentChat_SeedPermissionLevelReturnsOnceItIsPublished(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		es := asynxstore.New()
+		db, err := storesqlite.OpenDB(":memory:")
+		require.NoError(t, err)
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = sqlDB.Close() })
+		rm, err := chat.OpenReadModel(db)
+		require.NoError(t, err)
+		b := asynx.New[domain.Chat]().WithEventStore(es).WithSnapshotStore(asynxstore.NewSnapshots())
+		chat.Subscriber(rm)(b)
+		ax, err := b.Build()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+		release := make(chan struct{})
+		free := sync.OnceFunc(func() { close(release) })
+		t.Cleanup(free)
+		watch := func(e chat.ChatEvent) {
+			if e.Chat.PermissionLevel == "guarded" {
+				<-release
+			}
 		}
-	}
-	p.seen = append(p.seen, id+":gone")
-}
+		ctx := context.Background()
+		repo, err := chat.NewEventSourced(ctx, ax, es, rm, watch, testutil.Placements(t))
+		require.NoError(t, err)
+		createChat(t, ctx, repo, "c1", "w1", time.Unix(1000, 0))
 
-func (p *placementLog) entries() []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]string(nil), p.seen...)
-}
-
-// TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved: a listener re-reading
-// the read model on the announcement must already see the write, or a rebind
-// triggered by it would resolve the old placement and never be corrected.
-func TestAgentChat_PlacementWatchFiresAfterTheReadModelSaved(t *testing.T) {
-	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	log := &placementLog{}
-	repo, err := chat.NewEventSourced(ax, es, db, nil, chat.WithPlacementWatch(log.record))
-	require.NoError(t, err)
-	log.repo = repo
-	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-
-	// A second row keeps the read model non-empty, so the post-delete read does
-	// not take the replay-heal path.
-	createChat(t, ctx, repo, "c0", "w0", now)
-	createChat(t, ctx, repo, "c1", "", now)
-	_, err = repo.SetWorkspace(ctx, "c1", "w2")
-	require.NoError(t, err)
-	_, err = repo.SetTitle(ctx, "c1", "renamed", "user")
-	require.NoError(t, err)
-	_, err = repo.SetPlacement(ctx, "c1", "parent-p", 0)
-	require.NoError(t, err)
-	ax.WaitPublish()
-	require.NoError(t, repo.Forget(ctx, "c1"))
-	ax.WaitPublish()
-
-	assert.Equal(t, []string{"c0:w0:", "c1::", "c1:w2:", "c1:w2:parent-p", "c1:gone"}, log.entries(),
-		"created, workspace_set, placement_set and the delete announce; a title change does not")
+		returned := make(chan error, 1)
+		go func() {
+			_, err := repo.SeedPermissionLevel(ctx, "c1", "guarded")
+			returned <- err
+		}()
+		synctest.Wait()
+		select {
+		case <-returned:
+			t.Fatal("the seed returned while its chat was still being published")
+		default:
+		}
+		free()
+		require.NoError(t, <-returned)
+	})
 }

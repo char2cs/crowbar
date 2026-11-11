@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"io/fs"
 	"net/http"
 	"time"
@@ -24,19 +23,14 @@ const maxRequestBodyBytes = 64 << 20
 // repo-icon upload, so 8 MiB is ample headroom without a large per-request buffer.
 const maxMultipartMemory = 8 << 20
 
-// Container owns the configured gin engine and the v0 surface. The lazy WS
-// resource lifecycles are owned by the app layer and torn down via
-// app.Container.Close, not here.
+// Container owns the configured gin engine with the v0 surface mounted.
 type Container struct {
 	router *gin.Engine
-	v0     *v0.Container
 }
 
-// New builds the HTTP layer: middleware, the v0 surface (mounted at /v0 and
-// registered as a hub subscriber), and optional embedded static assets.
-// serverFingerprint is the daemon's TLS identity fingerprint, passed through
-// to the pairing routes (see v0.New); preAuthReadTimeout bounds a TLS
-// request's reads until its bearer is verified (middleware.PreAuthReadDeadline).
+// New builds the HTTP layer: middleware, the v0 surface at /v0, and optional static
+// assets. serverFingerprint (the TLS identity) feeds the pairing routes; preAuthReadTimeout
+// bounds a TLS request's reads until its bearer is verified.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
@@ -69,18 +63,7 @@ func New(
 		RegisterStatic(router, staticFS)
 	}
 
-	return &Container{router: router, v0: v0Container}, nil
-}
-
-// ShutdownDetached waits for the work handlers handed off after answering 202;
-// see v0.Container.ShutdownDetached.
-func (c *Container) ShutdownDetached(ctx context.Context) error {
-	return c.v0.ShutdownDetached(ctx)
-}
-
-// Close stops the v0 surface's background workers; see v0.Container.Close.
-func (c *Container) Close() {
-	c.v0.Close()
+	return &Container{router: router}, nil
 }
 
 // Handler returns the underlying http.Handler.

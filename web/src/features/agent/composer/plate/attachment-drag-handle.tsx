@@ -12,24 +12,8 @@ import { type PlateEditor, useComposedRef, useEditorRef } from 'platejs/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-/**
- * Forces a genuinely OPAQUE background on `variant="outline"`'s Button, in
- * every state it defines one for — reported live, three separate times, as
- * "still transparent" until this: `outline`'s own classes (button-variants.ts)
- * are `bg-popover` at rest but `dark:bg-input/32`/`hover:bg-accent/50`/
- * `dark:hover:bg-input/64`/`data-pressed:bg-input/64` everywhere else — ALL
- * partial-alpha mixes. That reads fine for a button sitting on a UNIFORM
- * surface (which is every other place this app uses those tokens), but these
- * buttons sit on top of an attachment's own content — a photo, a busy
- * preview — which is never uniform, so any alpha background shows whatever
- * is underneath right through it. `--popover`/`--card` (styles/theme.css)
- * are the only neutral surface tokens in this theme that resolve to a real
- * solid color (`var(--background)` in dark mode, `var(--color-white)` in
- * light) rather than a `color-mix(..., transparent)` blend — every state
- * gets pinned to that SAME solid tone, deliberately with no hover color
- * shift, since there is no other solid neutral token in this theme to shift
- * to without reintroducing the same transparency.
- */
+/** `outline`'s other states are partial-alpha, which shows a photo through the
+ *  button. `--popover` is the only solid neutral token, hence no hover shift. */
 export const ATTACHMENT_BUTTON_OPAQUE_BG = cn(
   'bg-popover dark:bg-popover',
   'hover:bg-popover dark:hover:bg-popover',
@@ -38,16 +22,12 @@ export const ATTACHMENT_BUTTON_OPAQUE_BG = cn(
 
 export type DropLine = 'top' | 'bottom'
 
-/** What every attachment draggable and drop target registers with dnd-kit:
- *  the editor it lives in and the top-level block it stands for. */
 export interface AttachmentDndData {
   editor: PlateEditor
   element: TElement
 }
 
-/** The drop target under the pointer, and which edge of it the dragged
- *  attachment would land on. Owned by `DndScope` (dnd-scope.tsx), which
- *  recomputes it on every drag move and clears it when the drag ends. */
+/** Owned by `DndScope` (dnd-scope.tsx), which recomputes it on every drag move. */
 export interface AttachmentDropTarget {
   id: UniqueIdentifier
   line: DropLine
@@ -66,11 +46,7 @@ export function canDropAttachmentNode(dragPath: Path, dropPath: Path): boolean {
   return PathApi.equals(PathApi.parent(dragPath), PathApi.parent(dropPath))
 }
 
-/**
- * Where dropping `drag` on the `line` edge of `drop` moves the dragged block —
- * or `null` when the drop is not allowed (another editor, another parent, the
- * block itself) or would leave the block exactly where it already is.
- */
+/** `null` when the drop is not allowed or would leave the block where it is. */
 export function attachmentDropMove(
   drag: AttachmentDndData,
   drop: AttachmentDndData,
@@ -97,17 +73,11 @@ export function attachmentDropMove(
 
 type DragEventLike = Pick<DragMoveEvent, 'active' | 'over' | 'activatorEvent' | 'delta'>
 
-/** The pointer's current y: where the drag started plus how far it moved. */
 function pointerY({ activatorEvent, delta }: DragEventLike): number | undefined {
   const start = activatorEvent as Partial<PointerEvent> | null
   return typeof start?.clientY === 'number' ? start.clientY + delta.y : undefined
 }
 
-/**
- * Resolves a dnd-kit drag event to the drop target to highlight and the move
- * to apply on release. The line is the half of the hovered block the pointer
- * is in.
- */
 export function resolveAttachmentDrop(
   event: DragEventLike,
 ): { target: AttachmentDropTarget; drag: AttachmentDndData; move: AttachmentMove } | null {
@@ -121,7 +91,6 @@ export function resolveAttachmentDrop(
   return move && { target: { id: over.id, line }, drag, move }
 }
 
-/** Applies a resolved drop: selects the dragged block, then moves it. */
 export function applyAttachmentDrop({ editor, element }: AttachmentDndData, move: AttachmentMove) {
   editor.tf.select(element)
   editor.tf.moveNodes(move)
@@ -132,15 +101,8 @@ function useDropLine(id: UniqueIdentifier): DropLine | undefined {
   return target?.id === id ? target.line : undefined
 }
 
-/**
- * The top-level block ancestor of `element` — itself, if `element` already
- * IS one (a fence-based attachment like a code block), otherwise the highest
- * block ancestor above it (a file card's wrapping paragraph:
- * `insertAttachmentMarkdown` inserts each `[filename](ref)` as its own
- * single-child paragraph, so the link itself sits one level below the top).
- * `canDropAttachmentNode` compares parents, so an unresolved nested link
- * could never match a sibling block.
- */
+/** A file card's link sits inside its own paragraph; `canDropAttachmentNode`
+ *  compares parents, so the nested link must resolve to that block. */
 export function resolveDraggableBlockElement(editor: PlateEditor, element: TElement): TElement {
   const path = editor.api.findPath(element)
   if (!path) return element
@@ -152,19 +114,13 @@ export function resolveDraggableBlockElement(editor: PlateEditor, element: TElem
   return ancestor ? ancestor[0] : element
 }
 
-/** What the drag handle spreads onto its button: dnd-kit's activator ref, its
- *  a11y attributes and its pointer listeners. */
 export type AttachmentHandleProps = {
   ref: (node: HTMLElement | null) => void
 } & Partial<DraggableAttributes> &
   Partial<Record<string, unknown>>
 
-/**
- * An attachment block's drag-and-drop: draggable from its handle, and a drop
- * target itself so attachments reorder against each other. Outside a
- * `DndScope` dnd-kit's hooks are inert — no context, no throw — so a message
- * renders the same with or without one.
- */
+/** Outside a `DndScope` dnd-kit's hooks are inert, so a message renders the same
+ *  with or without one. */
 export function useAttachmentDraggable(element: TElement) {
   const editor = useEditorRef()
   const blockElement = resolveDraggableBlockElement(editor, element)
@@ -178,9 +134,7 @@ export function useAttachmentDraggable(element: TElement) {
     ...draggable.attributes,
     ...draggable.listeners,
   }
-  // The SAME resolved block dragging operates on — a file card's `element`
-  // is its nested link, not the paragraph that's actually reorderable/
-  // removable (see `resolveDraggableBlockElement`).
+  // The resolved block, not a file card's nested link.
   const remove = useCallback(() => {
     const path = editor.api.findPath(blockElement)
     if (path) editor.tf.removeNodes({ at: path })
@@ -194,11 +148,7 @@ export function useAttachmentDraggable(element: TElement) {
   }
 }
 
-/**
- * A plain paragraph's half of drag-and-drop: droppable, never draggable, so an
- * attachment can land anywhere in the message, not just next to another
- * attachment.
- */
+/** Droppable, never draggable, so an attachment can land anywhere in the message. */
 export function useAttachmentDropTarget(element: TElement) {
   const editor = useEditorRef()
   const id = useId()
@@ -207,12 +157,8 @@ export function useAttachmentDropTarget(element: TElement) {
   return { nodeRef: setNodeRef, dropLine: useDropLine(id) }
 }
 
-/**
- * `contentEditable={false}` here is load-bearing, not cosmetic: without it
- * this button sits inside the Slate editor's own `contenteditable="true"`
- * region, and WebKit (Tauri's WKWebView) arbitrates a real pointerdown+move
- * there as a text-selection gesture before the drag can start.
- */
+/** `contentEditable={false}`: inside Slate's editable region WebKit treats
+ *  pointerdown+move as a text selection before the drag can start. */
 export function AttachmentDragHandle({
   handleProps,
   onSelect,
@@ -257,11 +203,8 @@ export function AttachmentDeleteButton({ onDelete }: { onDelete: () => void }) {
   )
 }
 
-/** The drag handle and delete button as one floating pair, centered on the
- *  attachment's own x-axis, inset just inside its top edge. Not straddling
- *  the border: a first/only attachment's own top margin is unconditionally
- *  zeroed (`[data-slate-node='element']` in composer.css), so anything
- *  poking above the box gets clipped by `.field`'s `overflow-y: auto`. */
+/** Inset inside the top edge, not straddling it: a first attachment has no top
+ *  margin, so anything above the box is clipped by `.field`'s overflow. */
 export function AttachmentControls({
   handleProps,
   onDelete,

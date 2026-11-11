@@ -3,7 +3,6 @@ import {
   performRenameRow,
   performRenameProject,
   performSetWorkspaceLock,
-  performImportBranches,
   performCreateFolder,
 } from '@/components/sidebar/lib/row-actions'
 import {
@@ -11,40 +10,42 @@ import {
   getHostRuntime,
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
-import { proxyMarkerError } from '@/lib/api/errors'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
-import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
-import { renderedProjectRows } from '@/components/sidebar/lib/drop-actions'
 import { toast } from '@/features/window/stores/toast-store'
-import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
-import * as agentApi from '@/features/agent/api/agent-api'
+import * as agentApi from '@/features/agent/api/agent-chat-commands'
 import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-resolver'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  UNWORDED,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
+import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
 
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof agentApi>()),
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
   renameChat: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
-}))
+vi.spyOn(toast, 'error').mockImplementation(() => '')
+vi.spyOn(toast, 'success').mockImplementation(() => '')
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   renameWorkspaceBranch: vi.fn().mockResolvedValue(undefined),
   renameRepo: vi.fn().mockResolvedValue(undefined),
   setWorkspaceLock: vi.fn().mockResolvedValue(undefined),
-  importBranches: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
@@ -69,43 +70,30 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
   }),
 }))
 
-// `resolveHomeRowScope` needs a resolved home workspace id — real elsewhere
-// in this file's fixtures, but real resolution is an async fetch this file
-// has no business exercising.
-vi.mock('@/features/workspace/lib/home-workspace-resolver', async (importOriginal) => ({
-  ...(await importOriginal<typeof homeWorkspaceResolver>()),
-  getHomeWorkspaceId: () => 'home-ws-1',
-}))
+// Resolving the home workspace is an async fetch this file does not exercise.
+vi.spyOn(homeWorkspaceResolver, 'getHomeWorkspaceId').mockReturnValue('home-ws-1')
 
 describe('row-actions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // The workspace-store registry is MODULE state that outlives a test
-    // (sidebar-drop-policy.test.ts's own beforeEach notes the same hazard):
-    // a live `agentChats.working` map left behind by one promote case would
-    // silently refuse a later one that never set it up.
-    destroyWorkspaceStore('ws-home')
-    useHomeTreeStore.setState({ trees: {} })
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'repo',
-          avatarLabel: 'R',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'ws-home',
-          defaultBranch: 'main',
-          defaultWorking: false,
-          workspaces: [{ id: 'ws-1', branch: 'feature-x', age: '' }],
-          folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
-          chats: [{ id: 'chat-1', repoId: 'repo-1', title: 'Fix the parser', order: 0 }],
-        },
-      ],
-    })
-    useFolderSignalStore.setState({ generations: {} })
-    usePendingCreatesStore.setState(getInitialPendingCreatesState())
+    // A working flag left in the ChatStore would refuse a later promote case.
+    resetChatStore()
+    resetEntities()
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'ws-home',
+        defaultBranch: 'main',
+        defaultWorking: false,
+        workspaces: [{ id: 'ws-1', branch: 'feature-x', age: '' }],
+        folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
+        chats: [{ id: 'chat-1', repoId: 'repo-1', title: 'Fix the parser', order: 0 }],
+      },
+    ])
   })
 
   it('renaming a workspace row calls renameWorkspaceBranch with its repo/project ids', async () => {
@@ -121,21 +109,16 @@ describe('row-actions', () => {
     expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
   })
 
-  // Task 34: folders carry no dedicated push channel any more — the PATCH's
-  // own {folder, shifted} response is applied to the sidebar store directly,
-  // or the rename would never show up anywhere.
+  // Folders have no push channel: the PATCH's own response is the only update.
   it('renaming a folder applies the response to the sidebar store', async () => {
     await performRenameRow('folder-1', 'Fixes')
-    expect(useSidebarStore.getState().repos[0].folders).toEqual([
+    expect(readSelect(selectRepos)[0].folders).toEqual([
       { id: 'folder-1', repoId: 'repo-1', parentId: undefined, name: 'Fixes', order: 0 },
     ])
   })
 
-  // Fix round 1: the project-home row's id is `repo.defaultWorkspaceId`,
-  // never a member of `repo.workspaces` — renaming it has to name the REPO
-  // (matching the deleted repo-section.tsx's "Repo rename stays on the
-  // [repo name], not the branch"), not silently no-op through the
-  // branch-rename path.
+  // The project-home row's id is `defaultWorkspaceId`, in no `repo.workspaces`:
+  // renaming it names the repo rather than no-op through the branch path.
   it('renaming the project-home row calls renameRepo, not renameWorkspaceBranch', async () => {
     await performRenameRow('ws-home', 'renamed-repo')
     expect(api.renameRepo).toHaveBeenCalledWith('proj-1', 'repo-1', 'renamed-repo')
@@ -147,10 +130,8 @@ describe('row-actions', () => {
     expect(api.renameRepo).not.toHaveBeenCalled()
   })
 
-  // A chat is the FOURTH id space `performRenameRow` dispatches over, and the
-  // one whose fall-through was silent: it reached performRenameWorkspaceBranch,
-  // found no workspace by that id, and returned — no request, no error, and the
-  // name the user had just typed simply gone.
+  // A chat id falling through to the branch path found no workspace and
+  // dropped the typed name without a request or an error.
   it('renaming a chat row calls renameChat, not renameWorkspaceBranch', async () => {
     await performRenameRow('chat-1', 'Parser rewrite')
     expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'chat-1', 'Parser rewrite')
@@ -158,61 +139,41 @@ describe('row-actions', () => {
     expect(sidebarPlacement.placeFolder).not.toHaveBeenCalled()
   })
 
-  // The sidebar's copy of a chat row is rebuilt from the `crowbar_chats` cache,
-  // and only a reseed writes that. Without the bump the acting user waits on a
-  // `title_set` frame — which only arrives if a workspace of this repo is
-  // mounted — to see the name they just typed.
-  it('renaming a chat bumps its repo’s tree signal so the row actually reseeds', async () => {
-    await performRenameRow('chat-1', 'Parser rewrite')
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBe(1)
-  })
-
   it('renaming a chat to its current title is a no-op', async () => {
     await performRenameRow('chat-1', 'Fix the parser')
     expect(agentApi.renameChat).not.toHaveBeenCalled()
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
   })
 
-  // The rename dialog seeds its input from the row's LABEL
-  // (`chat.title || UNTITLED_CHAT_LABEL`), never the raw title — so for an
-  // untitled chat, pressing Enter without editing sends the placeholder text
-  // itself. That must stay a no-op the same way re-submitting a real title
-  // does, or a blank chat's title gets permanently locked to "Untitled chat"
-  // and the agent's own auto-title is rejected forever after.
+  // The dialog seeds from the row's label, so Enter on an untitled chat sends the
+  // placeholder; titling it so would lock out the agent's own auto-title.
   it('submitting an untitled chat’s placeholder label unedited is a no-op', async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...useSidebarStore.getState().repos[0],
-          chats: [{ id: 'chat-1', repoId: 'repo-1', title: '', order: 0 }],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...readSelect(selectRepos)[0],
+        chats: [{ id: 'chat-1', repoId: 'repo-1', title: '', order: 0 }],
+      },
+    ])
     await performRenameRow('chat-1', 'Untitled chat')
     expect(agentApi.renameChat).not.toHaveBeenCalled()
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
   })
 
-  // The URL is repo-scoped (Task 17), so any of the REPO's own recorded
-  // workspaces builds it — but never the chat's own `workspaceId`, which spec
-  // §9.2 allows to name a workspace in a different repo entirely.
+  // The URL is repo-scoped, so any of the repo's own recorded workspaces builds it — never the
+  // chat's `workspaceId`, which spec §9.2 lets name a workspace in another repo.
   it('builds the repo-scoped URL from the repo’s own workspace, not the chat’s', async () => {
-    useSidebarStore.setState({
-      repos: [
-        {
-          ...useSidebarStore.getState().repos[0],
-          chats: [
-            {
-              id: 'chat-1',
-              repoId: 'repo-1',
-              title: 'Fix the parser',
-              order: 0,
-              workspaceId: 'ws-in-another-repo',
-            },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        ...readSelect(selectRepos)[0],
+        chats: [
+          {
+            id: 'chat-1',
+            repoId: 'repo-1',
+            title: 'Fix the parser',
+            order: 0,
+            workspaceId: 'ws-in-another-repo',
+          },
+        ],
+      },
+    ])
     await performRenameRow('chat-1', 'Parser rewrite')
     expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'chat-1', 'Parser rewrite')
   })
@@ -222,397 +183,21 @@ describe('row-actions', () => {
     expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', true)
   })
 
-  // A lock is the one mutation that CHANGES WHAT A ROW IS: the daemon mints the
-  // workspace's `branch` row synchronously inside the lock call
-  // (`workspace.go`'s reconcileOwningChat, "so the row exists before the caller
-  // is told the lock succeeded"), and from that instant `rows-from-repo.ts`
-  // identifies the row by that chat. The client only hears about the lock
-  // through `applyWorkspaceDTO`, which writes `status` and nothing else — so
-  // without a reseed the store holds `status: 'locked'` for a workspace whose
-  // `repo.chats` has never seen its branch row, and `rowsFromRepo` THROWS in
-  // render ("workspace <id> owns no branch row"). Nothing wraps
-  // `SidebarTreeSurface` in an ErrorBoundary, so that throw takes the whole
-  // sidebar down with no recovery UI.
-  it('locking a workspace bumps its repo’s tree signal so the new branch row is actually read', async () => {
-    await performSetWorkspaceLock('ws-1', true)
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBe(1)
-  })
-
-  it('a refused lock surfaces a toast and bumps nothing', async () => {
-    vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(new Error('branch is protected'))
+  it('a refused lock reports the daemon’s reason', async () => {
+    const toasts = watchToasts()
+    vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(refusal('branch is protected'))
     await expect(performSetWorkspaceLock('ws-1', true)).resolves.toBeUndefined()
-    expect(toast.error).toHaveBeenCalledWith('branch is protected')
-    expect(useFolderSignalStore.getState().generations['repo-1']).toBeUndefined()
+    expectReported(toasts, 'Failed to update lock', 'branch is protected')
+    vi.mocked(api.setWorkspaceLock).mockRejectedValueOnce(UNWORDED)
+    await performSetWorkspaceLock('ws-1', true)
+    expect(toasts).toHaveBeenLastCalledWith(expect.objectContaining({ description: undefined }))
   })
 
-  it('importing branches fires importBranches for the repo project', async () => {
-    await performImportBranches('repo-1', ['feature-a', 'feature-b'])
-    expect(api.importBranches).toHaveBeenCalledWith('proj-1', 'repo-1', ['feature-a', 'feature-b'])
-  })
-
-  it('importing an empty branch list is a no-op', async () => {
-    await performImportBranches('repo-1', [])
-    expect(api.importBranches).not.toHaveBeenCalled()
-  })
-
-  // Task 6: the import dialog's per-branch lock choice. `importBranches` only
-  // 202s — no workspace id exists to lock yet — so the lock has to wait for the
-  // branch's own workspace to land in the sidebar store (the same WS-driven
-  // cache every other create relies on) before it can fire, and it does so
-  // without any separate action from the caller.
-  describe('locking a branch chosen at import time', () => {
-    it('locks the newly-arrived workspace once its branch lands, with no separate action', async () => {
-      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
-      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
-
-      // Simulate the WS-driven reseed that lands the imported branch's new
-      // workspace — the same store write app-sync-provider.tsx applies for any
-      // create, not a raw WS frame.
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }],
-          },
-        ],
-      })
-
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-new', true)
-    })
-
-    it('does not lock a branch that was imported but not chosen to be locked', async () => {
-      await performImportBranches('repo-1', ['feature-a', 'feature-b'], ['feature-a'])
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [
-              ...repo.workspaces,
-              { id: 'ws-a', branch: 'feature-a', age: '' },
-              { id: 'ws-b', branch: 'feature-b', age: '' },
-            ],
-          },
-        ],
-      })
-      expect(api.setWorkspaceLock).toHaveBeenCalledTimes(1)
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-a', true)
-    })
-
-    it('leaves every workspace unlocked when no branch was chosen to be locked (default import behavior is unchanged)', async () => {
-      await performImportBranches('repo-1', ['feature-a'])
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [...repo.workspaces, { id: 'ws-new', branch: 'feature-a', age: '' }],
-          },
-        ],
-      })
-      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
-    })
-
-    // Lands the real match right after the noise so the watch's `pending` set
-    // reaches zero and it unsubscribes itself before the test ends — a
-    // subscription (or its 30s settle timer) surviving past the test would be
-    // a leak into whatever runs next, not just an assertion gap here.
-    it('an unrelated workspace change does not trigger a lock, and does not stop the watch from later locking the real one', async () => {
-      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [...repo.workspaces, { id: 'ws-other', branch: 'other', age: '' }],
-          },
-        ],
-      })
-      expect(api.setWorkspaceLock).not.toHaveBeenCalled()
-
-      const repoAfterNoise = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repoAfterNoise,
-            workspaces: [
-              ...repoAfterNoise.workspaces,
-              { id: 'ws-new', branch: 'feature-a', age: '' },
-            ],
-          },
-        ],
-      })
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-new', true)
-    })
-
-    // The import POST resolving is not the same moment as the workspace
-    // arriving — the daemon creates it in a detached background goroutine
-    // that races the HTTP round trip. A baseline snapshot taken AFTER
-    // `importBranches` resolves would already see this workspace and treat it
-    // as pre-existing, never locking it — the exact bug this regression test
-    // catches (mirrors reparent-settle.ts's own "frame that beats the
-    // response back" case, and drop-actions.ts's watchReparent(...) call
-    // BEFORE the request it's watching for).
-    it('locks a branch whose workspace lands in the store before the import call resolves', async () => {
-      vi.mocked(api.importBranches).mockImplementationOnce(async () => {
-        const repo = useSidebarStore.getState().repos[0]
-        useSidebarStore.setState({
-          repos: [
-            {
-              ...repo,
-              workspaces: [...repo.workspaces, { id: 'ws-race', branch: 'feature-a', age: '' }],
-            },
-          ],
-        })
-      })
-      await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
-      expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-race', true)
-    })
-  })
-
-  // Live-reported: with no placeholder at all, the user saw a chat/thread-
-  // shaped row appear first, then flip into an unlabeled branch row once the
-  // daemon's two-aggregate mint (owning chat, then workspace) caught up.
-  // `performImportBranches` now drops a `branch`-shaped pending row per
-  // import up front, the same row-in-flight mechanism `handleCreate`'s fork
-  // path already uses (pending-creates.ts).
-  describe('the loading row shown while a branch import is in flight', () => {
-    it('drops a branch-shaped pending row per branch, carrying its real name, before the import call resolves', async () => {
-      let resolveImport: () => void = () => {}
-      vi.mocked(api.importBranches).mockImplementationOnce(
-        () =>
-          new Promise<void>((resolve) => {
-            resolveImport = resolve
-          }),
-      )
-
-      const importPromise = performImportBranches('repo-1', ['feature-a', 'feature-b'])
-
-      const entries = usePendingCreatesStore.getState().entries
-      expect(entries).toHaveLength(2)
-      expect(entries.map((e) => e.label)).toEqual(['feature-a', 'feature-b'])
-      for (const entry of entries) {
-        expect(entry.kind).toBe('branch')
-        expect(entry.status).toBe('creating')
-        expect(entry.workspaceId).toBeNull()
-        expect(entry.ownsWorktree).toBe(true)
-        expect(entry.projectId).toBe('proj-1')
-      }
-
-      resolveImport()
-      await importPromise
-    })
-
-    it('an empty import drops no pending row', async () => {
-      await performImportBranches('repo-1', [])
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(0)
-    })
-
-    it('clears the pending row only once BOTH the branch’s workspace and its owning chat have landed', async () => {
-      await performImportBranches('repo-1', ['feature-a'])
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-      // The workspace alone is not the real row's title/decoration — that
-      // rides its separately-reseeded owning chat (rows-from-repo.ts).
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            workspaces: [
-              ...repo.workspaces,
-              { id: 'ws-new', branch: 'feature-a', age: '', owningChatId: 'chat-new' },
-            ],
-          },
-        ],
-      })
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-      const repoAfterWs = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repoAfterWs,
-            chats: [
-              ...(repoAfterWs.chats ?? []),
-              { id: 'chat-new', repoId: 'repo-1', title: '', order: 5 },
-            ],
-          },
-        ],
-      })
-      // The clear itself runs off a `.then()` one microtask after the
-      // subscriber's synchronous `resolve()` — flush it before asserting,
-      // the same gap a real WS reseed leaves before React's next render (see
-      // `performImportBranches`'s own doc on why that gap is never visible).
-      await Promise.resolve()
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(0)
-    })
-
-    it('marks the pending rows errored, not left spinning, when the import call is refused', async () => {
-      vi.mocked(api.importBranches).mockRejectedValueOnce(new Error('remote unreachable'))
-      await performImportBranches('repo-1', ['feature-a'])
-      expect(usePendingCreatesStore.getState().entries).toMatchObject([
-        { status: 'error', error: 'remote unreachable' },
-      ])
-    })
-
-    // Live-reported: the branch row correctly stays in its loading state, but
-    // mid-import a stray THREAD row popped in at the root, then "converted"
-    // into the chat once the branch finished — the daemon mints the owning
-    // CHAT first, atomically, before its WORKSPACE half (and the
-    // `owningChatId` that folds the two into one branch row) lands, so a
-    // structural reseed can land that bare chat in the tree with nothing to
-    // fold it onto yet. `hideRowsForInFlightCreates` (rows-from-pending.ts)
-    // already exists to hide exactly this kind of stray reseed, but only for
-    // an entry carrying `rowIdsAtClick` — the fork/thread paths
-    // (create-actions.ts) always set it; the import path did not.
-    it('hides a stray owning-chat row that reseeds mid-import, before it folds under the branch', async () => {
-      await performImportBranches('repo-1', ['feature-a'])
-      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-      expect(usePendingCreatesStore.getState().entries[0].rowIdsAtClick).toBeDefined()
-
-      // The owning chat reseeds alone — no `workspaceId`/`ownsWorktree` of its
-      // own yet, and no `Workspace.owningChatId` naming it either (that field
-      // arrives on the WORKSPACE half, still in flight) — so nothing can fold
-      // it under the pending branch. This is `crowbar_chats`'s own structural
-      // reseed landing early, not a hand-built placeholder.
-      const repo = useSidebarStore.getState().repos[0]
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo,
-            chats: [
-              ...(repo.chats ?? []),
-              { id: 'chat-new', repoId: 'repo-1', title: '', order: 5 },
-            ],
-          },
-        ],
-      })
-
-      const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
-      expect(rows.find((r) => r.id === 'chat-new')).toBeUndefined()
-    })
-
-    // The fix above (repo-scoped `hideRowsForInFlightCreates`) has to be
-    // narrow, not just present: a naive fix widened the "known at click"
-    // snapshot to the WHOLE project panel, which made a repo-1 import blank
-    // out every OTHER repo's and project home's freshly-created rows for its
-    // entire provisioning window — this user routinely has several agents
-    // creating chats concurrently, so that regression is worse than the
-    // ghost row it was meant to fix. `repoId` on the pending entry is what
-    // `hideRowsForInFlightCreates` scopes suppression by
-    // (rows-from-pending.ts) — these pin that a repo-2 chat and a
-    // project-home chat both stay visible the whole time repo-1's import is
-    // pending.
-    describe('a row created elsewhere in the project, while the import is still pending', () => {
-      beforeEach(() => {
-        useSidebarStore.setState({
-          repos: [
-            ...useSidebarStore.getState().repos,
-            {
-              id: 'repo-2',
-              projectId: 'proj-1',
-              name: 'repo-two',
-              avatarLabel: 'T',
-              avatarColor: 'bg-emerald-700',
-              defaultWorkspaceId: 'ws2-home',
-              defaultBranch: 'main',
-              defaultWorking: false,
-              workspaces: [],
-              folders: [],
-              chats: [],
-            },
-          ],
-        })
-        useHomeTreeStore.setState({
-          trees: { 'proj-1': { chats: [], folders: [] } },
-        })
-      })
-
-      it('stays visible: a genuine new chat in a different repo of the same project', async () => {
-        await performImportBranches('repo-1', ['feature-a'])
-        expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-        const repo2 = useSidebarStore.getState().repos.find((r) => r.id === 'repo-2')!
-        useSidebarStore.setState({
-          repos: useSidebarStore
-            .getState()
-            .repos.map((r) =>
-              r.id === 'repo-2'
-                ? { ...r, chats: [{ id: 'chat-in-repo-2', repoId: 'repo-2', title: '', order: 0 }] }
-                : r,
-            ),
-        })
-        expect(repo2.chats).toEqual([])
-
-        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
-        expect(rows.find((r) => r.id === 'chat-in-repo-2')).toBeDefined()
-      })
-
-      it('stays visible: a genuine new project-home chat', async () => {
-        await performImportBranches('repo-1', ['feature-a'])
-        expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
-
-        useHomeTreeStore.setState({
-          trees: {
-            'proj-1': {
-              chats: [{ id: 'home-chat-new', repoId: '', title: 'New home chat', order: 0 }],
-              folders: [],
-            },
-          },
-        })
-
-        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
-        expect(rows.find((r) => r.id === 'home-chat-new')).toBeDefined()
-      })
-
-      // Every branch in a batch import gets its OWN pending entry
-      // (`startImportPendingRows`) — all scoped to the SAME repo. A row
-      // elsewhere in the project must stay visible with several of those
-      // entries live at once, and each entry must still suppress ITS OWN
-      // repo's stray reseed.
-      it('multi-branch import: rows elsewhere stay visible, and each branch still hides its own ghost row', async () => {
-        await performImportBranches('repo-1', ['feature-a', 'feature-b'])
-        expect(usePendingCreatesStore.getState().entries).toHaveLength(2)
-
-        useSidebarStore.setState({
-          repos: useSidebarStore.getState().repos.map((r) => {
-            if (r.id === 'repo-1') {
-              return {
-                ...r,
-                chats: [
-                  ...(r.chats ?? []),
-                  { id: 'chat-new-a', repoId: 'repo-1', title: '', order: 5 },
-                  { id: 'chat-new-b', repoId: 'repo-1', title: '', order: 6 },
-                ],
-              }
-            }
-            if (r.id === 'repo-2') {
-              return {
-                ...r,
-                chats: [{ id: 'chat-in-repo-2', repoId: 'repo-2', title: '', order: 0 }],
-              }
-            }
-            return r
-          }),
-        })
-        useHomeTreeStore.setState({
-          trees: {
-            'proj-1': {
-              chats: [{ id: 'home-chat-new', repoId: '', title: 'New home chat', order: 0 }],
-              folders: [],
-            },
-          },
-        })
-
-        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
-        expect(rows.find((r) => r.id === 'chat-new-a')).toBeUndefined()
-        expect(rows.find((r) => r.id === 'chat-new-b')).toBeUndefined()
-        expect(rows.find((r) => r.id === 'chat-in-repo-2')).toBeDefined()
-        expect(rows.find((r) => r.id === 'home-chat-new')).toBeDefined()
-      })
-    })
+  it('a rename refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    const toasts = watchToasts()
+    vi.mocked(api.renameWorkspaceBranch).mockRejectedValueOnce(migratingRefusal())
+    await performRenameRow('ws-1', 'feature-y')
+    expectMigratingShown(toasts)
   })
 
   it('creating a folder under a regular workspace row passes its id straight through', async () => {
@@ -623,9 +208,8 @@ describe('row-actions', () => {
       'New folder',
       'ws-1',
     )
-    // Applied straight to the store — no dedicated push channel exists for
-    // folders any more (Task 34), so this response is the only confirmation.
-    expect(useSidebarStore.getState().repos[0].folders?.map((f) => f.id)).toContain('folder-new')
+    // No push channel exists for folders: this response is the only confirmation.
+    expect(readSelect(selectRepos)[0].folders?.map((f) => f.id)).toContain('folder-new')
   })
 
   it('creating a folder under the project-home row roots it at the repo instead', async () => {
@@ -634,71 +218,58 @@ describe('row-actions', () => {
   })
 })
 
-/**
- * A FIFTH id space, and the one that overlaps a fourth: a `branch` row's id is
- * the id of the CHAT that owns its workspace (`rows-from-repo.ts`). Without
- * translating first, the repo-home row stops matching `defaultWorkspaceId`,
- * falls into the chat branch, and renaming the repo silently retitles a
- * conversation instead — a locked branch's rename must still move the git
- * branch, not retitle its own row as if it were a chat.
- *
- * An ORDINARY (unlocked) fork's row is the one case that changed with rule
- * 6: its label is now its owning chat's title, not its branch, so renaming
- * it retitles the chat — the opposite of what this same row did before every
- * workspace-owning row folded the same way.
- */
+// A branch row's id is its workspace's owning chat id: untranslated, a repo-home
+// or locked-branch rename would retitle a chat. An unlocked fork is labelled by
+// its chat's title, so renaming it does retitle the chat.
 describe('performRenameRow — a branch row is not a chat', () => {
   beforeEach(() => {
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'repo',
-          avatarLabel: 'R',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'ws-home',
-          defaultBranch: 'main',
-          workspaces: [
-            {
-              id: 'ws-locked',
-              branch: 'develop',
-              age: '',
-              status: 'locked',
-              owningChatId: 'locked-row',
-            },
-            { id: 'ws-1', branch: 'feature-x', age: '', owningChatId: 'ws-1-row' },
-          ],
-          chats: [
-            {
-              id: 'home-row',
-              repoId: 'repo-1',
-              ownsWorktree: true,
-              workspaceId: 'ws-home',
-              title: '',
-              order: 0,
-            },
-            {
-              id: 'locked-row',
-              repoId: 'repo-1',
-              ownsWorktree: true,
-              workspaceId: 'ws-locked',
-              title: '',
-              order: 1,
-            },
-            {
-              id: 'ws-1-row',
-              repoId: 'repo-1',
-              type: 'chat',
-              workspaceId: 'ws-1',
-              title: 'Fix the parser',
-              order: 2,
-            },
-          ],
-        },
-      ],
-    })
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'ws-home',
+        defaultBranch: 'main',
+        workspaces: [
+          {
+            id: 'ws-locked',
+            branch: 'develop',
+            age: '',
+            status: 'locked',
+            owningChatId: 'locked-row',
+          },
+          { id: 'ws-1', branch: 'feature-x', age: '', owningChatId: 'ws-1-row' },
+        ],
+        chats: [
+          {
+            id: 'home-row',
+            repoId: 'repo-1',
+            ownsWorktree: true,
+            workspaceId: 'ws-home',
+            title: '',
+            order: 0,
+          },
+          {
+            id: 'locked-row',
+            repoId: 'repo-1',
+            ownsWorktree: true,
+            workspaceId: 'ws-locked',
+            title: '',
+            order: 1,
+          },
+          {
+            id: 'ws-1-row',
+            repoId: 'repo-1',
+            type: 'chat',
+            workspaceId: 'ws-1',
+            title: 'Fix the parser',
+            order: 2,
+          },
+        ],
+      },
+    ])
   })
 
   it('renaming the repo-home row still renames the REPO', async () => {
@@ -708,18 +279,13 @@ describe('performRenameRow — a branch row is not a chat', () => {
   })
 
   it('renaming a LOCKED branch row is still routed as a branch rename, not a chat rename', async () => {
-    // `performRenameWorkspaceBranch` itself refuses a locked workspace before
-    // it ever reaches the API (its own guard, unrelated to this fix) — what
-    // this pins is the ROUTING decision one level up: a locked row's rename
-    // must not fall through to retitling the chat instead.
+    // The branch rename refuses a locked workspace itself; this pins only that
+    // the row is not routed to a chat rename instead.
     await performRenameRow('locked-row', 'feature-y')
     expect(api.renameWorkspaceBranch).not.toHaveBeenCalled()
     expect(agentApi.renameChat).not.toHaveBeenCalled()
   })
 
-  // Rule 6: an ordinary (unlocked) fork's row is now labelled by its owning
-  // chat's title, not its branch — so renaming it retitles the CHAT, the same
-  // as any other chat row, and no longer moves the git branch at all.
   it('renaming an ordinary (unlocked) fork row retitles its CHAT, not the branch', async () => {
     await performRenameRow('ws-1-row', 'New title')
     expect(agentApi.renameChat).toHaveBeenCalledWith('ws-home', 'ws-1-row', 'New title')
@@ -727,56 +293,44 @@ describe('performRenameRow — a branch row is not a chat', () => {
   })
 })
 
-/**
- * The same fifth id space, at the two verbs the first fix round missed.
- *
- * `performRenameRow` was translated; `performSetWorkspaceLock` and
- * `performCreateFolder` were not, and both match a row id against exactly the
- * spaces a branch row is NOT in. Lock/unlock resolved no repo and sent nothing —
- * which, with `DeleteCascade` refusing a locked workspace, made a lock a
- * one-way door — and "New folder" on the repo home or any locked branch fired
- * no request at all.
- */
+// Lock and create-folder translate the owning chat id too: untranslated, an unlock
+// sent nothing (a lock became a one-way door) and "New folder" fired no request.
 describe('a branch row addressed by its owning chat id — lock and create-folder', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useSidebarStore.setState({
-      ...getInitialState(),
-      repos: [
-        {
-          id: 'repo-1',
-          projectId: 'proj-1',
-          name: 'repo',
-          avatarLabel: 'R',
-          avatarColor: 'bg-indigo-700',
-          defaultWorkspaceId: 'ws-home',
-          defaultBranch: 'main',
-          workspaces: [
-            { id: 'ws-1', branch: 'develop', age: '', status: 'locked', owningChatId: 'ws-1-row' },
-          ],
-          folders: [],
-          chats: [
-            {
-              id: 'home-row',
-              repoId: 'repo-1',
-              ownsWorktree: true,
-              workspaceId: 'ws-home',
-              title: '',
-              order: 0,
-            },
-            {
-              id: 'ws-1-row',
-              repoId: 'repo-1',
-              ownsWorktree: true,
-              workspaceId: 'ws-1',
-              title: '',
-              order: 1,
-            },
-          ],
-        },
-      ],
-    })
-    useFolderSignalStore.setState({ generations: {} })
+    seedRepos([
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: 'bg-indigo-700',
+        defaultWorkspaceId: 'ws-home',
+        defaultBranch: 'main',
+        workspaces: [
+          { id: 'ws-1', branch: 'develop', age: '', status: 'locked', owningChatId: 'ws-1-row' },
+        ],
+        folders: [],
+        chats: [
+          {
+            id: 'home-row',
+            repoId: 'repo-1',
+            ownsWorktree: true,
+            workspaceId: 'ws-home',
+            title: '',
+            order: 0,
+          },
+          {
+            id: 'ws-1-row',
+            repoId: 'repo-1',
+            ownsWorktree: true,
+            workspaceId: 'ws-1',
+            title: '',
+            order: 1,
+          },
+        ],
+      },
+    ])
   })
 
   it('unlocking a locked branch row calls setWorkspaceLock for the WORKSPACE it owns', async () => {
@@ -790,11 +344,8 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
   })
 
   it('creating a folder under a locked branch row parents it to that CHAT id, not its workspace', async () => {
-    // The workspace-id translation exists only to find the owning repo and to
-    // detect the repo-home special case below — `POST .../chats/folders`
-    // resolves its `parentId` as a chat (or folder), so the value actually
-    // sent must stay the untranslated row id. Sending the workspace id here
-    // 404s on the daemon ("agentchat: get chat: not found"), caught live.
+    // The translation only finds the repo: the daemon resolves `parentId` as a
+    // chat or folder, so a workspace id there 404s.
     await performCreateFolder('ws-1-row')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith(
       'proj-1',
@@ -804,44 +355,31 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
     )
   })
 
-  // The repo-home row is the same translation with a second step behind it: the
-  // home workspace is not a placement target the daemon knows, so it normalises
-  // to the repo root — which it can only do once the row id has become
-  // `defaultWorkspaceId` again.
+  // The home workspace is no placement target, so once translated it roots at the repo.
   it('creating a folder under the repo-home row roots it at the repo', async () => {
     await performCreateFolder('home-row')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
   })
 })
 
-/**
- * A SIXTH id space `performRenameRow` has to know about: a project-home row
- * lives outside every repo entirely (home rides no repo), so none of the
- * repo-scoped branches above ever match one — renaming a home chat or
- * folder silently no-op'd before this, caught live as "can't rename
- * folders."
- */
+// A project-home row lives outside every repo, so no repo-scoped path matches it.
 describe('performRenameRow — a project-home row', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useSidebarStore.setState({ ...getInitialState(), repos: [] })
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [
-            {
-              id: 'home-branch-chat',
-              repoId: '',
-              ownsWorktree: true,
-              workspaceId: 'home-ws-1',
-              title: '',
-              order: 0,
-            },
-            { id: 'home-chat-1', repoId: '', title: 'Old title', order: 1 },
-          ],
-          folders: [{ id: 'home-folder-1', repoId: '', name: 'Old name', order: 0 }],
+    seedRepos([])
+    seedHomeTree('proj-1', {
+      chats: [
+        {
+          id: 'home-branch-chat',
+          repoId: '',
+          ownsWorktree: true,
+          workspaceId: 'home-ws-1',
+          title: '',
+          order: 0,
         },
-      },
+        { id: 'home-chat-1', repoId: '', title: 'Old title', order: 1 },
+      ],
+      folders: [{ id: 'home-folder-1', repoId: '', name: 'Old name', order: 0 }],
     })
   })
 
@@ -891,33 +429,6 @@ describe('a row action its host fails', () => {
     resetHostWorld()
   })
 
-  it('names a host an import could not reach, on its rows and in the toast, and records it down', async () => {
-    const repo: Repo = {
-      id: 'repo-r',
-      projectId: 'p-remote',
-      name: 'remote',
-      avatarLabel: 'R',
-      avatarColor: '',
-      defaultWorkspaceId: 'ws-r',
-      defaultBranch: 'main',
-      workspaces: [],
-      folders: [],
-    }
-    useSidebarStore.setState({ ...getInitialState(), repos: [repo] })
-    vi.mocked(api.importBranches).mockRejectedValueOnce(proxyMarkerError('host-unreachable', 'h1'))
-
-    await performImportBranches('repo-r', ['feature-a'])
-
-    expect(usePendingCreatesStore.getState().entries).toMatchObject([
-      { status: 'error', error: 'Couldn’t reach Studio Mac' },
-    ])
-    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
-      'Couldn’t reach Studio Mac',
-      'Check that it is online in Settings → Hosts.',
-    )
-    expect(statusOf('h1')).toBe('down')
-  })
-
   it.each([
     [
       'a changed identity',
@@ -934,11 +445,12 @@ describe('a row action its host fails', () => {
         .fn()
         .mockResolvedValue({ ok: false, status, headers: new Headers(headers), json })
       vi.stubGlobal('fetch', fetch)
+      const toasts = watchToasts()
 
       await performRenameProject('p-remote', 'renamed')
 
       expect(fetch).toHaveBeenCalledOnce()
-      expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe(message)
+      expectReported(toasts, 'Failed to rename project', message)
       expect(statusOf('h1')).toBe('needs-repair')
     },
   )
@@ -948,13 +460,11 @@ describe('a row action its host fails', () => {
     pairRemoteHost('h1', 'Studio Mac')
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
+    const toasts = watchToasts()
 
     await performRenameProject('p-remote', 'renamed')
 
-    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
-      'Still loading your projects',
-      'Try again in a moment.',
-    )
+    expectReported(toasts, 'Failed to rename project', 'Still loading your projects')
     expect(fetch).not.toHaveBeenCalled()
   })
 })

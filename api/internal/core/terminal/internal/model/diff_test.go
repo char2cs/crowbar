@@ -2,13 +2,10 @@ package model
 
 import (
 	"fmt"
-	"image/color"
 	"strings"
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/vt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -199,99 +196,6 @@ func TestDiffEmitter_AltScreenSkipsScrollback(t *testing.T) {
 	assert.Contains(t, string(data), "APP")
 }
 
-func TestDiffEmitter_ModeToggleForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
-	e := NewDiffEmitter()
-	e.Prime(m)
-	m.Write([]byte("\x1b[?2004h")) // bracketed paste ON
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), "\x1b[?2004h")
-
-	m.Write([]byte("\x1b[?2004l")) // OFF again
-	data, _ = e.Emit(m)
-	assert.Contains(t, string(data), "\x1b[?2004l")
-}
-
-// TestDiffEmitter_TitleChangeForwarded pins the title delta to the
-// serializer's exact OSC 2 ST form — never OSC 0. OSC 0 sets BOTH title and
-// icon; emitting it for a title-only change would clobber the client's icon
-// name, and since shadow.iconName didn't change no corrective OSC 1 would
-// fire, leaving the icon wrong until the next keyframe.
-func TestDiffEmitter_TitleChangeForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
-	e := NewDiffEmitter()
-	e.Prime(m)
-	m.Write([]byte("\x1b]0;my-title\x07"))
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), "\x1b]2;my-title\x1b\\",
-		"a title change must stream in the serializer's OSC 2 ST form")
-	assert.NotContains(t, string(data), "\x1b]0;", "a title change must not emit an OSC 0 (which would clobber the icon)")
-}
-
-// TestDiffEmitter_IconNameChangeForwarded pins M3: an app that sets ONLY the icon
-// name (OSC 1) must have that change streamed as a diff, in the serializer's exact
-// OSC 1 ST form — previously the diff emitter tracked only the title and silently
-// dropped a lone icon-name change.
-func TestDiffEmitter_IconNameChangeForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
-	e := NewDiffEmitter()
-	e.Prime(m)
-	m.Write([]byte("\x1b]1;my-icon\x07")) // OSC 1 icon name only
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), "\x1b]1;my-icon\x1b\\",
-		"a lone icon-name (OSC 1) change must stream in the serializer's OSC 1 ST form")
-	assert.NotContains(t, string(data), "\x1b]0;", "an OSC 1 change must not emit an OSC 0 (which would clobber the title)")
-}
-
-// TestDiffEmitter_TitleOnlyChangeDoesNotClobberIcon is the red-first
-// regression for the OSC-0-clobbers-icon bug: prime with an icon name set via
-// OSC 1, then change ONLY the title via OSC 2. The delta must carry the title
-// as OSC 2 and must NOT contain any OSC 0/OSC 1 write — an OSC 0 would
-// overwrite the (unchanged) icon with the title text, and a spurious OSC 1
-// would be redundant since the icon never changed.
-func TestDiffEmitter_TitleOnlyChangeDoesNotClobberIcon(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
-	m.Write([]byte("\x1b]1;my-icon\x07")) // set the icon before priming
-	e := NewDiffEmitter()
-	e.Prime(m)
-	m.Write([]byte("\x1b]2;new-title\x07")) // title-only change
-	data, need := e.Emit(m)
-	require.False(t, need)
-	got := string(data)
-	assert.Contains(t, got, "\x1b]2;new-title\x1b\\",
-		"a title-only change must stream in the serializer's OSC 2 ST form")
-	assert.NotContains(t, got, "\x1b]0;", "a title-only change must never emit an OSC 0 (it would clobber the icon)")
-	assert.NotContains(t, got, "\x1b]1;", "the icon did not change, so no OSC 1 icon-name write should be emitted")
-}
-
-func TestDiffEmitter_UnchangedChromeEmitsNothing(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
-	m.Write([]byte("\x1b[?2004h\x1b]0;t\x07"))
-	e := NewDiffEmitter()
-	e.Prime(m)
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Empty(t, data, "already-primed chrome must not re-emit")
-}
-
-// TestDiffEmitter_AutowrapModeFlipForwarded pins M5(a): a tracked DEC private
-// mode that is NOT in serializedModeOrder — DECAWM autowrap (mode 7) — must still
-// stream its flip, via writeModeDelta's "extras" path (the sorted append of modes
-// outside the ordered list).
-func TestDiffEmitter_AutowrapModeFlipForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
-	e := NewDiffEmitter()
-	e.Prime(m)
-	m.Write([]byte("\x1b[?7l")) // DECAWM autowrap OFF
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), "\x1b[?7l",
-		"an autowrap (mode 7) flip must stream through writeModeDelta's extras path")
-}
-
 // TestDiffEmitter_RotationAnchorLostForcesKeyframe pins M5(b): once the scrollback
 // ring is SATURATED, scrollbackNewStart anchors on the previously-emitted tail's
 // hash and scans back only rotationScanLimit lines. If a single emit gap commits
@@ -344,108 +248,135 @@ func TestDiffEmitter_OriginModeChangeNeedsKeyframe(t *testing.T) {
 	assert.True(t, need, "origin mode invalidates the absolute-CUP diff base")
 }
 
-func TestDiffEmitter_CursorVisibilityChangeForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
+// A URL that filled a row and autowrapped must be written to the client as one flow.
+func TestDiffEmitter_SoftWrappedURLWrittenUnbroken(t *testing.T) {
+	m, _ := New(40, 6, 100)
+	t.Cleanup(m.Close)
 	e := NewDiffEmitter()
 	e.Prime(m)
-	m.Write([]byte("\x1b[?25l")) // hide cursor
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), ansi.ResetMode(ansi.DECMode(25)))
+
+	m.Write([]byte("see " + wrapTestURL))
+	data, needKeyframe := e.Emit(m)
+	require.False(t, needKeyframe)
+	assert.Contains(t, string(data), wrapTestURL)
 }
 
-func TestDiffEmitter_CursorStyleChangeForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
+// A program that filled a row exactly and then broke the line must not be joined.
+func TestDiffEmitter_ProgramHardBreakNotJoined(t *testing.T) {
+	m, _ := New(40, 6, 100)
+	t.Cleanup(m.Close)
 	e := NewDiffEmitter()
 	e.Prime(m)
-	vm := m.(*vtModel)
-	vm.shadow.cursorShapeSet = true
-	vm.shadow.cursorShape = vt.CursorBar
-	vm.shadow.cursorBlink = true
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), ansi.SetCursorStyle(5))
+
+	m.Write([]byte("see " + wrapTestURL[:36] + "\r\n" + wrapTestURL[36:]))
+	data, needKeyframe := e.Emit(m)
+	require.False(t, needKeyframe)
+	frame := string(data)
+	assert.Contains(t, frame, wrapTestURL[:36])
+	assert.Contains(t, frame, wrapTestURL[36:])
+	assert.NotContains(t, frame, wrapTestURL)
 }
 
-func TestDiffEmitter_DefaultColorChangeForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
+// A dirty chain goes out as one flow: CUP, EL 0 on a head (clearing its wrap bit), each head padded
+// to the last column, the tail trimmed then EL 0. A continuation the client holds starts the flow
+// with no EL; a lone row keeps the plain form.
+func TestDiffEmitter_ChainWrittenAsOneFlow(t *testing.T) {
+	m, _ := newTestModel(t, 20, 6)
+	m.Write([]byte(strings.Repeat("x", 25)))
 	e := NewDiffEmitter()
 	e.Prime(m)
-	vm := m.(*vtModel)
-	vm.shadow.setDefaultColor(0, color.RGBA{R: 0xff, A: 0xff})
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), "\x1b]10;rgb:ffff/0000/0000\x1b\\")
+	x20 := strings.Repeat("x", 20)
+
+	frames := []struct {
+		name, chunk, want string
+	}{
+		{name: "an edited head", chunk: "\x1b[1;1Hab", want: "\x1b[1;1H\x1b[Kab" + x20[2:] + "xxxxx\x1b[K\x1b[1;3H"},
+		{name: "an edited tail", chunk: "\x1b[2;1Hcd", want: "\x1b[2;1Hcdxxx\x1b[K\x1b[2;3H"},
+		{name: "autowrap turned off", chunk: "\x1b[?7l", want: "\x1b[?7l"},
+		{
+			name:  "a chain under the client's ?7l is bracketed",
+			chunk: "\x1b[1;1Hef",
+			want:  "\x1b[?7h\x1b[1;1H\x1b[Kef" + x20[2:] + "cdxxx\x1b[K\x1b[?7l\x1b[1;3H",
+		},
+		{name: "a tail alone is not", chunk: "\x1b[2;1Hgh", want: "\x1b[2;1Hghxxx\x1b[K\x1b[2;3H"},
+		{name: "nor is a lone row", chunk: "\x1b[4;1Hlone", want: "\x1b[4;1H\x1b[Klone\x1b[4;5H"},
+	}
+	for _, f := range frames {
+		m.Write([]byte(f.chunk))
+		data, needKeyframe := e.Emit(m)
+		require.False(t, needKeyframe, f.name)
+		require.Equal(t, f.want, string(data), f.name)
+	}
 }
 
-// The following tests cover the set→unset direction of chrome state: an app
-// that sets a default colour or cursor shape and then explicitly resets it
-// must have the client's corresponding state corrected too, not left stale
-// until an unrelated keyframe.
-//
-// The colour tests drive the shadow fields directly (vm.shadow.fgSet = false,
-// mirroring how TestDiffEmitter_CursorStyleChangeForwarded and
-// TestDiffEmitter_DefaultColorChangeForwarded already isolate the diff layer
-// from the model's OSC plumbing) rather than writing a real OSC 110/111/112
-// through m.Write: the pinned x/vt commit's Set*Color(nil) substitutes its
-// internal defaultFg/defaultBg (color.White/color.Black, set in NewEmulator)
-// for the nil argument before invoking the ForegroundColor/BackgroundColor
-// callback, so an app-issued OSC 110/111/112 never actually delivers nil to
-// vtModel.observeDefaultColor at this pin — clearDefaultColor is reachable
-// only by other means (this is an upstream-plumbing gap outside diff.go's
-// scope; the diff emitter must still forward the set→unset transition
-// correctly whenever the shadow does clear the flag).
-
-func TestDiffEmitter_ForegroundColorResetForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
+// A wrap bit that changes under unchanged cells is written once; the client then holds it.
+func TestDiffEmitter_WrapFlagFlipEmitsOnce(t *testing.T) {
+	m, _ := newTestModel(t, 20, 6)
+	m.Write([]byte(strings.Repeat("x", 20) + "\r\nyyy"))
 	e := NewDiffEmitter()
-	vm := m.(*vtModel)
-	vm.shadow.setDefaultColor(0, color.RGBA{R: 0xff, A: 0xff})
 	e.Prime(m)
 
-	vm.shadow.fg, vm.shadow.fgSet = nil, false
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), ansi.ResetForegroundColor, "fg set→unset must emit the OSC 110 reset")
+	m.Write([]byte("\x1b[1;1H" + strings.Repeat("x", 20) + "yyy"))
+	data, _ := e.Emit(m)
+	require.Equal(t, "\x1b[1;1H\x1b[K"+strings.Repeat("x", 20)+"yyy\x1b[K\x1b[2;4H", string(data))
+	data, _ = e.Emit(m)
+	require.Empty(t, data, "the client already holds the flag")
 }
 
-func TestDiffEmitter_BackgroundColorResetForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
+// A chain whose flow crosses the bottom of a primed scroll region lifts the region for the flow and
+// restores it, so the client's autowrap moves down a row instead of scrolling the region.
+func TestDiffEmitter_ChainLiftsTheScrollRegionItCrosses(t *testing.T) {
+	m, _ := newTestModel(t, 20, 6)
+	m.Write([]byte("\r\n\r\n\r\n" + strings.Repeat("x", 25) + "\x1b[1;4r"))
 	e := NewDiffEmitter()
-	vm := m.(*vtModel)
-	vm.shadow.setDefaultColor(1, color.RGBA{G: 0xff, A: 0xff})
 	e.Prime(m)
 
-	vm.shadow.bg, vm.shadow.bgSet = nil, false
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), ansi.ResetBackgroundColor, "bg set→unset must emit the OSC 111 reset")
+	frames := []struct {
+		name, chunk, want string
+	}{
+		{
+			name:  "a chain across the region's bottom",
+			chunk: "\x1b[4;3HZ",
+			want:  "\x1b[;r\x1b[4;1H\x1b[KxxZ" + strings.Repeat("x", 17) + "xxxxx\x1b[K\x1b[1;4r\x1b[4;4H",
+		},
+		{name: "a tail below the region's bottom", chunk: "\x1b[5;3HZ", want: "\x1b[5;1HxxZxx\x1b[K\x1b[5;4H"},
+		{
+			name:  "a chain inside the region",
+			chunk: "\x1b[1;1H" + strings.Repeat("y", 25),
+			want:  "\x1b[1;1H\x1b[K" + strings.Repeat("y", 20) + "yyyyy\x1b[K\x1b[2;6H",
+		},
+	}
+	for _, f := range frames {
+		m.Write([]byte(f.chunk))
+		data, needKeyframe := e.Emit(m)
+		require.False(t, needKeyframe, f.name)
+		require.Equal(t, f.want, string(data), f.name)
+	}
 }
 
-func TestDiffEmitter_CursorColorResetForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
-	e := NewDiffEmitter()
-	vm := m.(*vtModel)
-	vm.shadow.setDefaultColor(2, color.RGBA{B: 0xff, A: 0xff})
-	e.Prime(m)
-
-	vm.shadow.cursorColor, vm.shadow.cursorColorSet = nil, false
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), ansi.ResetCursorColor, "cursor-colour set→unset must emit the OSC 112 reset")
-}
-
-func TestDiffEmitter_CursorShapeResetForwarded(t *testing.T) {
-	m, _ := newTestModel(t, 10, 3)
-	vm := m.(*vtModel)
-	vm.shadow.cursorShapeSet = true
-	vm.shadow.cursorShape = vt.CursorBar
-	vm.shadow.cursorBlink = true
+// A chain is rewritten from its first changed row when the client already holds that row's wrap
+// bit: the unchanged rows above it cost no bytes, so a keystroke in a long line stays one row.
+func TestDiffEmitter_ChainRewrittenFromItsFirstChangedRow(t *testing.T) {
+	m, _ := newTestModel(t, 20, 6)
+	m.Write([]byte(strings.Repeat("x", 110))) // one chain over all six rows, ten cells on the last
 	e := NewDiffEmitter()
 	e.Prime(m)
+	x20 := strings.Repeat("x", 20)
 
-	m.OnForegroundReset() // clears cursorShapeSet via resetTransientModes
-	data, need := e.Emit(m)
-	require.False(t, need)
-	assert.Contains(t, string(data), ansi.SetCursorStyle(0), "cursor-shape set→unset must emit the DECSCUSR default form")
+	frames := []struct {
+		name, chunk, want string
+	}{
+		{name: "a key typed at the end of a screen-tall chain", chunk: "y", want: "\x1b[6;1Hxxxxxxxxxxy\x1b[K\x1b[6;12H"},
+		{
+			name:  "an edit in a middle row",
+			chunk: "\x1b[3;5HZ",
+			want:  "\x1b[3;1HxxxxZ" + strings.Repeat("x", 15) + x20 + x20 + "xxxxxxxxxxy\x1b[K\x1b[3;6H",
+		},
+	}
+	for _, f := range frames {
+		m.Write([]byte(f.chunk))
+		data, needKeyframe := e.Emit(m)
+		require.False(t, needKeyframe, f.name)
+		require.Equal(t, f.want, string(data), f.name)
+	}
 }

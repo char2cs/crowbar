@@ -6,18 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
-
-func choices(ids ...string) []domain.ActivityChoice {
-	out := make([]domain.ActivityChoice, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, domain.ActivityChoice{ID: id})
-	}
-	return out
-}
 
 func permission() domain.ActivityChoice {
 	return domain.ActivityChoice{
@@ -34,7 +26,7 @@ func TestDecide_RefusesAnAnswerThatNamesNoOption(t *testing.T) {
 
 	_, err := answerdesk.Decide(permission(), nil, "", nil)
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 func TestDecide_RefusesAnOptionTheChoiceDoesNotOffer(t *testing.T) {
@@ -42,7 +34,7 @@ func TestDecide_RefusesAnOptionTheChoiceDoesNotOffer(t *testing.T) {
 
 	_, err := answerdesk.Decide(permission(), []string{"opt-nonsense"}, "", nil)
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
 // Allow-and-deny is not a decision, and no provider's answer format can carry it.
@@ -61,7 +53,7 @@ func TestDecide_RefusesOptionsOfTwoKinds(t *testing.T) {
 
 	_, err := answerdesk.Decide(choice, []string{"opt-allow", "opt-deny"}, "", nil)
 
-	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 	assert.Contains(t, err.Error(), "one kind")
 }
 
@@ -74,6 +66,39 @@ func TestDecide_CarriesTheKindReasonAndContent(t *testing.T) {
 	assert.Equal(t, domain.ChoiceOptionAllow, decision.Key)
 	assert.Equal(t, "because", decision.Reason)
 	assert.Equal(t, []byte("body"), decision.Content)
+}
+
+// A provider reads an empty deny message as its own hook's refusal and goes looking
+// for a misconfigured hook; a person's deny must read as theirs.
+func TestDecide_ADenyWithNoReasonSaysThePersonDeniedIt(t *testing.T) {
+	t.Parallel()
+
+	decision, err := answerdesk.Decide(permission(), []string{"opt-deny"}, "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ChoiceOptionDeny, decision.Key)
+	assert.Contains(t, decision.Reason, "user denied")
+
+	given, err := answerdesk.Decide(permission(), []string{"opt-deny"}, " not that file ", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "The user denied this request and said: not that file", given.Reason)
+
+	allowed, err := answerdesk.Decide(permission(), []string{"opt-allow"}, "", nil)
+	require.NoError(t, err)
+	assert.Empty(t, allowed.Reason)
+}
+
+// Picking the provider's broader grant names which of its suggestions to apply.
+func TestDecide_ASuggestionNamesTheGrantsPicked(t *testing.T) {
+	t.Parallel()
+	choice := permission()
+	choice.Options = append(choice.Options,
+		domain.ActivityChoiceOption{ID: "suggestion-1", Kind: domain.ChoiceOptionSuggestion, Label: "Always"})
+
+	decision, err := answerdesk.Decide(choice, []string{"suggestion-1"}, "", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.ChoiceOptionSuggestion, decision.Key)
+	assert.Equal(t, []string{"suggestion-1"}, decision.Picked)
 }
 
 // A choice with no options at all is a free-form prompt: the option id IS the

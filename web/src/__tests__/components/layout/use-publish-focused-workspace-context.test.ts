@@ -10,17 +10,15 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import {
-  getOrCreateWorkspaceStore,
-  destroyWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import type { Repo } from '@/core/entities/repo-types'
+import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
   EMPTY_FOCUSED_WORKSPACE_CONTEXT,
   getFocusedWorkspaceContext,
   publishFocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
 import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const HOME_PATH = '/projects/p1'
 
@@ -37,7 +35,7 @@ const repo: Repo = {
 }
 
 function seedHomeChat() {
-  writeChat(getOrCreateWorkspaceStore('ws-home'), {
+  writeChat({
     id: 'home-chat',
     workspaceId: 'ws-home',
     title: 'home',
@@ -65,8 +63,8 @@ function openSplit() {
 }
 
 beforeEach(() => {
-  useSidebarStore.setState(getInitialState())
-  useSidebarStore.getState().setRepos([repo])
+  resetEntities()
+  seedRepos([repo])
   resetWindowPaneStoreForTests()
   publishFocusedWorkspaceContext(EMPTY_FOCUSED_WORKSPACE_CONTEXT)
   seedHomeChat()
@@ -126,7 +124,7 @@ describe('focused workspace context — published where the active workspace is 
   })
 
   it('no split, repo route: context is the routed workspace (repo known from the route alone)', () => {
-    useSidebarStore.getState().setRepos([])
+    seedRepos([])
     windowPaneStore.getState().paneActions.openChat('routed-chat', { workspaceId: 'ws-routed' })
     renderHook(() =>
       useIdeShellWorkspaceRetention(

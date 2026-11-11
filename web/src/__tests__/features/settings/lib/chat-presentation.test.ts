@@ -35,27 +35,11 @@ import {
   persistSettings,
 } from '@/features/settings/lib/settings-persistence'
 import type { Settings } from '@/features/settings/types/settings'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
 import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-
-const CLAUDE: AgentProvider = {
-  id: 'claude',
-  displayName: 'Claude',
-  icon: '<svg></svg>',
-  connected: true,
-  enabled: true,
-  mcpEnabled: true,
-  modelSelect: false,
-  effortSelect: false,
-  compaction: false,
-  hasTerminal: true,
-  hotswap: false,
-  terminalStartHere: false,
-}
 
 /** Every surface the preference can name. There is no third value, and no
  *  absence — which is why turning it off cannot remove a surface. */
@@ -76,39 +60,40 @@ afterEach(() => {
 
 describe('the chat landing-surface preference', () => {
   describe('with nothing stored', () => {
-    it('is off, so a chat lands on Terminal', () => {
-      expect(defaultSettings.chatIsDefaultPresentation).toBe(false)
-      expect(getDefaultChatPresentation()).toBe('terminal')
+    // Crowbar is a chat over the CLI: a new chat lands on it unless the person says otherwise.
+    it('is on, so a chat lands on Chat', () => {
+      expect(defaultSettings.chatIsDefaultPresentation).toBe(true)
+      expect(getDefaultChatPresentation()).toBe('chat')
     })
 
-    it('reads back as off from an empty store', async () => {
+    it('reads back as on from an empty store', async () => {
       const loaded = await loadPersistedSettings()
-      expect(loaded.chatIsDefaultPresentation).toBe(false)
-      expect(selectDefaultChatPresentation({ settings: loaded })).toBe('terminal')
+      expect(loaded.chatIsDefaultPresentation).toBe(true)
+      expect(selectDefaultChatPresentation({ settings: loaded })).toBe('chat')
     })
 
     // An older profile, or a hand-edited export, carries no choice at all here —
-    // which is not the same as choosing Chat.
+    // which is not the same as choosing Terminal.
     it.each([undefined, null, 'terminal', 0])(
-      'treats a stored %p as no choice and stays on Terminal',
+      'treats a stored %p as no choice and stays on Chat',
       (stored) => {
         const settings = {
           ...getDefaultSettingsSnapshot(),
           chatIsDefaultPresentation: stored,
         } as unknown as Settings
 
-        expect(normalizeSettings(settings).chatIsDefaultPresentation).toBe(false)
+        expect(normalizeSettings(settings).chatIsDefaultPresentation).toBe(true)
         expect(
           normalizeSettingValue('chatIsDefaultPresentation', stored as unknown as boolean),
-        ).toBe(false)
+        ).toBe(true)
       },
     )
   })
 
-  describe('once turned on', () => {
-    it('lands the chat on Chat', async () => {
-      await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', true)
-      expect(getDefaultChatPresentation()).toBe('chat')
+  describe('once turned off', () => {
+    it('lands the chat on Terminal', async () => {
+      await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', false)
+      expect(getDefaultChatPresentation()).toBe('terminal')
     })
 
     // The claim under test is that this is a LANDING choice, not a capability
@@ -116,7 +101,7 @@ describe('the chat landing-surface preference', () => {
     // already toggles between, and the write touches nothing else in Settings.
     it('changes the landing surface and nothing else', async () => {
       const before = { ...useSettingsStore.getState().settings }
-      await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', true)
+      await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', false)
       const after = useSettingsStore.getState().settings
 
       const changed = (Object.keys(after) as Array<keyof Settings>).filter(
@@ -126,23 +111,21 @@ describe('the chat landing-surface preference', () => {
       expect(SURFACES).toContain(getDefaultChatPresentation())
     })
 
-    it('is reversible, and Terminal is what it comes back to', async () => {
-      await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', true)
+    it('is reversible, and Chat is what it comes back to', async () => {
+      await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', false)
       await useSettingsStore
         .getState()
         .updateSetting('chatIsDefaultPresentation', defaultSettings.chatIsDefaultPresentation)
-      expect(getDefaultChatPresentation()).toBe('terminal')
+      expect(getDefaultChatPresentation()).toBe('chat')
     })
   })
 
   describe('across a workspace switch', () => {
-    it('survives one, while the per-workspace copy does not', async () => {
-      await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', true)
+    it('survives one', async () => {
+      await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', false)
 
-      const w1 = getOrCreateWorkspaceStore('w1')
+      getOrCreateWorkspaceStore('w1')
       setActiveWorkspaceId('w1')
-      w1.getState().setAgentProviders([CLAUDE])
-      expect(w1.getState().agentChats.providers).toEqual([CLAUDE])
 
       // THE SWITCH, as the app performs it: the outgoing workspace's store is
       // destroyed and the incoming one is built from nothing.
@@ -150,25 +133,21 @@ describe('the chat landing-surface preference', () => {
       setActiveWorkspaceId('w2')
       getOrCreateWorkspaceStore('w2')
 
-      // The control: anything that lived in the registry is gone. Re-entering w1
-      // gets a brand-new store, not the one that held the providers.
-      expect(getOrCreateWorkspaceStore('w1').getState().agentChats.providers).toEqual([])
-
       // The preference is not in the registry, so the switch cannot touch it.
-      expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(true)
-      expect(getDefaultChatPresentation()).toBe('chat')
+      expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(false)
+      expect(getDefaultChatPresentation()).toBe('terminal')
     })
 
-    it('is still on after a reload, not just for this session', async () => {
-      await persistSettings({ chatIsDefaultPresentation: true })
+    it('is still off after a reload, not just for this session', async () => {
+      await persistSettings({ chatIsDefaultPresentation: false })
 
       destroyWorkspaceStore('w1')
       setActiveWorkspaceId('w2')
       getOrCreateWorkspaceStore('w2')
 
       const reloaded = await loadPersistedSettings()
-      expect(reloaded.chatIsDefaultPresentation).toBe(true)
-      expect(selectDefaultChatPresentation({ settings: reloaded })).toBe('chat')
+      expect(reloaded.chatIsDefaultPresentation).toBe(false)
+      expect(selectDefaultChatPresentation({ settings: reloaded })).toBe('terminal')
     })
   })
 })

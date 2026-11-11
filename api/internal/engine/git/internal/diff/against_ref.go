@@ -7,11 +7,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// AgainstRef returns the diff of the working tree against ref, including both
-// committed changes since ref and uncommitted tracked modifications. It runs
-// `git diff -M <ref> --` (two-dot-to-working-tree) and returns a MultiFileDiff.
-// Commit metadata fields are always zero-value. Untracked files are not
-// included (they have no diff against the index); they surface via git status.
+// AgainstRef returns `git diff -M <ref> --`: committed changes since ref plus uncommitted
+// tracked modifications, with zero commit metadata. Untracked files surface via status.
 func AgainstRef(
 	ctx context.Context,
 	repoPath string,

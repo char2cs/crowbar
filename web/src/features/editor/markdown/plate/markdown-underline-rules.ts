@@ -1,26 +1,8 @@
 import type { MdRules } from '@platejs/markdown'
 
-/**
- * @platejs/markdown's own default `underline` rule serializes to an mdast
- * `mdxJsxTextElement` node (`{ name: 'u', type: 'mdxJsxTextElement' }`) —
- * MDX's JSX-in-markdown syntax. Neither this app's `remarkStringifyOptions`
- * nor `remarkPlugins` configures an MDX stringify extension anywhere, and
- * `mdast-util-to-markdown` has no built-in handler for that node type: it
- * throws. Since Plate's `onChange` fires on every op (selection moves
- * included, not just text edits) and re-serializes on each one, any document
- * holding underlined text throws on essentially every keystroke — live-
- * reproduced, not theoretical.
- *
- * Serializing to a plain mdast `html` node instead sidesteps the missing MDX
- * extension entirely: `html` nodes need no extension, remark-stringify emits
- * their `value` VERBATIM (see markdown-html-rules.ts, same technique for raw
- * HTML blocks), and `<u>…</u>` is itself valid, readable markdown-with-HTML
- * for something CommonMark has no native syntax for. `deserialize` is left
- * out on purpose — @platejs/markdown falls back to its own default per KEY
- * per FIELD when a field is omitted from a user rule (verified in
- * @platejs/markdown/dist/index.js's `getDeserializerByKey`), so parsing
- * underline text back out of markdown is untouched by this override.
- */
+// The default `underline` rule serializes to an MDX JSX node no stringify extension here handles,
+// so it throws on every onChange. A raw `html` node (`<u>…</u>`) is emitted verbatim instead;
+// `deserialize` is omitted on purpose, since Plate falls back to its default per field.
 export const underlineMarkdownRules: MdRules = {
   underline: {
     mark: true,

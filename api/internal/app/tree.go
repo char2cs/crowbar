@@ -1,0 +1,106 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+
+	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/migrations"
+	"github.com/char2cs/crowbar/api/internal/app/migratetree"
+	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	repotree "github.com/char2cs/crowbar/api/internal/app/repositories/tree"
+	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	"github.com/char2cs/crowbar/api/internal/domain/tree"
+)
+
+// newPlacement opens the id-keyed placement ports over every project's Tree.
+func newPlacement(
+	ctx context.Context,
+	ax *aggregates,
+	gormStores *GORMStores,
+) (*repotree.Ports, error) {
+	locate := repotree.NewLocator(repotree.LocatorFacts{
+		ChatWorkspace: func(ctx context.Context, chatID string) (string, error) {
+			chat, err := ax.agentChat.Get(ctx, chatID)
+			return chat.WorkspaceID, err
+		},
+		WorkspaceProject: func(ctx context.Context, wsID string) (string, error) {
+			ws, err := ax.workspace.Get(ctx, wsID)
+			return ws.ProjectID, err
+		},
+		RepoProject: func(ctx context.Context, repoID string) (string, error) {
+			repo, err := gormStores.Repositories.FindByKey(ctx, repoID)
+			if err != nil || repo == nil {
+				return "", fmt.Errorf("repo %s: %w", repoID, problem.ErrNotFound)
+			}
+			return repo.ProjectID, nil
+		},
+	})
+	projects, err := gormStores.Projects.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("app: placement: list projects: %w", err)
+	}
+	ids := make([]string, len(projects))
+	for i, p := range projects {
+		ids[i] = p.ID
+	}
+	ports, err := repotree.NewPorts(ctx, repotree.New(ax.tree), locate, ids)
+	if err != nil {
+		return nil, fmt.Errorf("app: placement: %w", err)
+	}
+	return ports, nil
+}
+
+// announcePlacement tells live clients each row a Tree write moved: a chat as
+// its snapshot at the new place (and the workspace it owns, drawn beside it), a
+// workspace or a repo as its republished row, a folder as itself.
+func announcePlacement(
+	ax *aggregates,
+	chatSnapshots *agentusecase.ChatSnapshots,
+	late *lateStream,
+	workspaces *repositories.Container,
+	repoMoved func(ctx context.Context, repoID string),
+) error {
+	moved := func(ctx context.Context, chatID string, p tree.Placement) {
+		chatSnapshots.ApplyPlacement(ctx, chatID, p.ParentID, p.Order)
+		workspaces.RepublishOwnedBy(ctx, chatID, p)
+	}
+	nodeMoved := func(ctx context.Context, n tree.Node) {
+		if n.Kind == tree.KindWorkspace {
+			workspaces.Republish(ctx, n.ID)
+			return
+		}
+		if n.Kind == tree.KindRepo {
+			repoMoved(ctx, n.ID)
+			return
+		}
+		chatSnapshots.ApplyPlacement(ctx, n.ID, n.ParentID, n.Order)
+		workspaces.RepublishOwnedBy(ctx, n.ID, tree.Placement{ParentID: n.ParentID, Order: n.Order})
+	}
+	if err := repotree.Announce(ax.tree, moved, nodeMoved, late.folder); err != nil {
+		return fmt.Errorf("app: placement: %w", err)
+	}
+	return nil
+}
+
+// legacySources are the stores the placement-tree step reads the retired
+// placement records and their facts from.
+func legacySources(
+	adapters *adapter.Container,
+	repos *repositories.Container,
+	gormStores *GORMStores,
+) migratetree.LegacySources {
+	return migratetree.LegacySources{
+		ChatLog:    adapters.AgentChatES(),
+		NodeLog:    filepath.Join(adapters.Home().Events(), migrations.LegacyNodeLog),
+		View:       adapters.GlobalView(),
+		Projects:   gormStores.Projects.FindAll,
+		Workspaces: repos.Workspace.List,
+		Repos: func(ctx context.Context) ([]domain.Repository, error) {
+			return gormStores.Repositories.FindAll(ctx)
+		},
+	}
+}

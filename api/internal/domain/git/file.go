@@ -1,13 +1,13 @@
 package git
 
-// GitFile is a single file entry in a GitStatus (04 §3).
+// GitFile is a single file entry in a GitStatus.
 type GitFile struct {
 	Path   string        `json:"path"`
 	Status GitFileStatus `json:"status"`
 	Staged bool          `json:"staged"`
 }
 
-// GitFileStatus is the per-file status in a workspace's git state (04 §3).
+// GitFileStatus is the per-file status in a workspace's git state.
 type GitFileStatus string
 
 const (

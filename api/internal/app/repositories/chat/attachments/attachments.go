@@ -1,13 +1,6 @@
-// Package attachments is the durable per-chat attachment store: validating,
-// naming, writing and serving the files a chat's composer sends alongside a
-// message — images, PDFs, and anything too large or too binary to inline in
-// the message text itself (chat attachments design spec).
-//
-// It is the storage half of a handler -> usecase -> storage layering that
-// mirrors agentactivity's own Payload seam (ReadToolPayload -> EventStore.Payload
-// -> content store): chat/handlers owns the HTTP ingestion shapes, the chat
-// usecase resolves WHICH directory a chat's attachments live in, and this
-// package owns what happens once both bytes and a destination are known.
+// Package attachments stores the files a chat's composer sends with a message:
+// it validates, names, writes and serves them, once the chat usecase has
+// resolved which directory a chat's attachments live in.
 package attachments
 
 import (
@@ -21,19 +14,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
-// MaxBytes caps a single stored attachment at 25 MiB.
-//
-// Icons cap at 2 MiB (a small avatar) and the tool-call content store caps at
-// 8 MiB (bounded provider output); a chat attachment is neither — it is a
-// user-picked image, PDF or CSV export, and a modern phone photo alone can
-// clear 10-15 MiB before a scanned PDF is even in the picture. 25 MiB matches
-// this codebase's own existing ceiling for a single file read
-// (safepath.ErrFileTooLarge, the workspace file-read cap) rather than
-// inventing a new number — one large-file boundary to reason about, not two.
+// MaxBytes caps a single stored attachment at 25 MiB: a phone photo or scanned PDF
+// can clear 10-15 MiB, and 25 MiB matches the workspace file-read cap
+// (safepath.ErrFileTooLarge), so there is one large-file boundary, not two.
 const MaxBytes = 25 << 20
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -45,12 +32,9 @@ func ValidID(id string) bool { return idPattern.MatchString(id) }
 
 var unsafeFileNameChars = regexp.MustCompile(`[\s()\[\]]+`)
 
-// sanitizeName reduces name to a safe, markdown-safe base filename: no path
-// separators, no "." or "..", and no whitespace/parens/brackets — a stored
-// filename becomes the trailing segment of a ![]()/[]() reference (design
-// spec), so an unescaped paren or a space in the ORIGINAL name would corrupt
-// the very markdown syntax storing it. Collapsed to "_", not rejected: "my
-// photo (1).png" is an entirely ordinary name to refuse outright.
+// sanitizeName reduces name to a base filename with no separators, "." or "..",
+// and whitespace/parens/brackets collapsed to "_": the name ends up inside a
+// markdown ![]()/[]() link, and "my photo (1).png" is too ordinary to refuse.
 func sanitizeName(name string) string {
 	base := filepath.Base(filepath.Clean(name))
 	if base == "" || base == "." || base == ".." || base == string(filepath.Separator) {
@@ -59,32 +43,24 @@ func sanitizeName(name string) string {
 	return unsafeFileNameChars.ReplaceAllString(base, "_")
 }
 
-// Store writes data as a new attachment under dir (a chat's AttachmentsDir),
-// named "<id>-<sanitized originalName>", creating dir if needed.
-//
-// Refuses with apperr.ErrInvalidArgument for an invalid id or a blank
-// original name (a caller with no filename — a clipboard paste — must
-// synthesize one first, see SyntheticName), with safepath.ErrFileTooLarge
-// over MaxBytes, and with apperr.ErrConflict when the target filename
-// already exists: the id is client-generated per attachment, so a collision
-// means the SAME id was submitted twice, and overwriting silently would let
-// a second upload invisibly replace bytes a message may already reference.
+// Store writes data under dir as "<id>-<sanitized originalName>". An existing
+// target is problem.ErrConflict, never overwritten: a message may already
+// reference those bytes. Blank names must come from SyntheticName first.
 func Store(
 	dir, id, originalName string,
 	data []byte,
 ) (fileName, contentType string, err error) {
 	if !ValidID(id) {
-		return "", "", fmt.Errorf("attachments: invalid id: %w", apperr.ErrInvalidArgument)
+		return "", "", fmt.Errorf("attachments: invalid id: %w", problem.ErrInvalidArgument)
 	}
 	base := sanitizeName(originalName)
 	if base == "" {
-		return "", "", fmt.Errorf("attachments: original name required: %w", apperr.ErrInvalidArgument)
+		return "", "", fmt.Errorf("attachments: original name required: %w", problem.ErrInvalidArgument)
 	}
 	if len(data) > MaxBytes {
 		return "", "", fmt.Errorf("attachments: %w", safepath.ErrFileTooLarge)
 	}
 	fileName = id + "-" + base
-	//nolint:gosec // G301: 0o700 matches RunnerDir's own perms for daemon-managed chat state.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", fmt.Errorf("attachments: create directory: %w", err)
 	}
@@ -94,24 +70,21 @@ func Store(
 	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return "", "", fmt.Errorf("attachments: %q already exists: %w", fileName, apperr.ErrConflict)
+			return "", "", fmt.Errorf("attachments: %q already exists: %w", fileName, problem.ErrConflict)
 		}
 		return "", "", fmt.Errorf("attachments: create: %w", err)
 	}
-	defer func() { _ = f.Close() }()
 	if _, err := f.Write(data); err != nil {
-		return "", "", fmt.Errorf("attachments: write: %w", err)
+		return "", "", errors.Join(fmt.Errorf("attachments: write: %w", err), f.Close())
+	}
+	if err := f.Close(); err != nil {
+		return "", "", fmt.Errorf("attachments: close: %w", err)
 	}
 	return fileName, ContentType(data), nil
 }
 
 // SyntheticName builds a fallback filename for an attachment with no original
-// name — a clipboard image paste, which carries raw bytes and a sniffed
-// content type but nothing a browser or OS ever called a "filename". now is
-// injected so the name is deterministic under test. Wired into the upload
-// handler (Task 4) as a defensive fallback for a blank filename — the client
-// should always send a real name where it can, but this closes the gap when
-// it can't.
+// name, such as a clipboard image paste. now is injected for determinism.
 func SyntheticName(contentType string, now func() string) string {
 	return "pasted-image-" + now() + extensionFor(contentType)
 }
@@ -133,11 +106,9 @@ func extensionFor(contentType string) string {
 	}
 }
 
-// ContentType sniffs a Content-Type from data, the same way
-// icons.ContentType does (deliberately re-implemented here rather than
-// imported: icons lives in the API layer, and this repository package must
-// not depend upward on it). http.DetectContentType has no SVG signature —
-// it sniffs SVG as text/* — so SVG is special-cased.
+// ContentType sniffs a Content-Type from data like icons.ContentType, duplicated
+// because a repository must not import the API layer. http.DetectContentType
+// reports SVG as text/*, so SVG is special-cased.
 func ContentType(data []byte) string {
 	ct := http.DetectContentType(data)
 	if strings.HasPrefix(ct, "image/") {
@@ -154,14 +125,11 @@ func ContentType(data []byte) string {
 }
 
 // ErrNotFound reports that no attachment exists at the requested reference.
-var ErrNotFound = errors.New("attachments: not found")
+var ErrNotFound = problem.New(problem.NotFound, "attachments: not found")
 
-// Read returns fileName's bytes and sniffed content type from dir, or
-// ErrNotFound. Stat-rejected and capped exactly like icons.Serve: dir holds
-// files this daemon wrote, but a corrupted or replaced file must never cause
-// an unbounded read. fileName must be a bare filename with no separators —
-// the shape Store produces — so a caller forwarding an unsanitized URL path
-// segment cannot escape dir.
+// Read returns fileName's bytes and sniffed content type from dir, or ErrNotFound.
+// It is size-capped so a replaced file cannot cause an unbounded read, and
+// fileName must be a bare name so an unsanitized URL segment cannot escape dir.
 func Read(
 	dir, fileName string,
 ) (data []byte, contentType string, err error) {
@@ -178,8 +146,10 @@ func Read(
 	if err != nil {
 		return nil, "", ErrNotFound
 	}
-	defer func() { _ = f.Close() }()
 	data, err = io.ReadAll(io.LimitReader(f, MaxBytes+1))
+	if closeErr := f.Close(); closeErr != nil {
+		return nil, "", fmt.Errorf("attachments: close %s: %w", fileName, closeErr)
+	}
 	if err != nil || int64(len(data)) > MaxBytes {
 		return nil, "", ErrNotFound
 	}

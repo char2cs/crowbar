@@ -8,22 +8,9 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// GetOutline returns the hunk geometry of the workspace's branch diff: per
-// changed file, the `@@` shapes of its diff against the fork point and no diff
-// content whatsoever. It resolves the ref through resolveDiffRef, exactly as
-// GetFiles does, so the outline and the file list describe the same diff —
-// a different ref here would lay the review out against one diff and populate
-// it from another.
-//
-// The payload is O(hunks) where Get's read model is O(lines): it describes a
-// million-line branch in about a megabyte, which is what lets the client
-// reserve the right scroll space for every file before fetching a single
-// patch. Producing it still costs a full streamed read of the diff, so the
-// result is cached whenever the key can be made exact — see
-// cacheableOutlineKey.
-//
-// commit scopes the read to one commit against its parent; empty means the
-// branch diff. See resolveScopeRef.
+// GetOutline returns the branch diff's hunk geometry (`@@` shapes, no content), O(hunks), so the client
+// reserves scroll space before fetching patches. It resolves the ref exactly as GetFiles does so both
+// describe one diff, and caches when the key is exact. commit scopes it to one commit; empty = branch.
 func (u *branchReviewUsecase) GetOutline(
 	ctx context.Context,
 	wsID string,
@@ -41,12 +28,8 @@ func (u *branchReviewUsecase) GetOutline(
 	return u.outlineWithKey(ctx, ws, ref, key, cacheable)
 }
 
-// outlineWithKey is the read behind both GetOutline and GetScope's geometry:
-// given an already-resolved ref and whatever cache key its caller could prove,
-// it serves the memoised outline or streams a fresh one. It is factored out so
-// the two callers cannot drift into computing the same geometry two different
-// ways — they must agree, or an anchor validated against one would be refused
-// against the other.
+// outlineWithKey serves the memoised outline or streams a fresh one for a resolved ref. Shared by
+// GetOutline and GetScope so the two cannot compute geometry differently.
 func (u *branchReviewUsecase) outlineWithKey(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -74,23 +57,9 @@ func (u *branchReviewUsecase) readOutline(
 	return files, nil
 }
 
-// cacheableOutlineKey reports the (repoPath, ref, headSHA) key under which this
-// outline may be memoised, and whether it may be memoised at all.
-//
-// The branch outline is taken against the WORKING TREE, so it is only a
-// function of that key while the working tree has nothing of its own to
-// contribute — that is, while `git diff <ref> --` and `git diff <ref> <HEAD> --`
-// are the same diff of two immutable trees. A tree that has moved is therefore
-// refused a key outright rather than cached under one that cannot see the
-// difference, and so is a tree whose state could not be established: an
-// unreadable status or an unresolvable HEAD prove nothing, and a cache entry
-// may only be written on proof.
-//
-// A COMMIT-scoped read skips all of that. Its ref names both ends of the diff,
-// so it is already a function of two immutable trees and the working tree
-// cannot reach it — which means it stays cacheable in exactly the situation the
-// branch outline gives up on, a dirty tree, and that is the situation someone
-// reading history is most often in.
+// cacheableOutlineKey reports the (repoPath, ref, headSHA) memo key and whether one exists. A branch
+// outline is keyed only on a provably clean tree, since it reads the working tree; a commit-scoped read
+// names both ends, so it stays cacheable even on a dirty tree.
 func (u *branchReviewUsecase) cacheableOutlineKey(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -107,13 +76,8 @@ func (u *branchReviewUsecase) cacheableOutlineKey(
 	return u.branchOutlineKey(ctx, ws, ref, !hasTrackedChanges(status))
 }
 
-// branchOutlineKey is the second half of cacheableOutlineKey, split out for the
-// caller that has ALREADY established the working tree's state — GetScope, whose
-// file list is read from a status it took on the way — so that fact does not
-// cost a second `git status` to re-learn.
-//
-// treeClean is a precondition, not a hint: a tree that has moved is refused a key
-// outright rather than cached under one that cannot see the difference.
+// branchOutlineKey is the branch half of cacheableOutlineKey for a caller (GetScope) that already knows
+// the tree's state. treeClean is a precondition: a moved tree gets no key.
 func (u *branchReviewUsecase) branchOutlineKey(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -130,11 +94,8 @@ func (u *branchReviewUsecase) branchOutlineKey(
 	return outlineKey{repoPath: ws.WorktreePath, ref: ref, headSHA: head}, true
 }
 
-// hasTrackedChanges reports whether the working tree differs from HEAD in a way
-// the branch diff can see. Untracked files are excluded because `git diff` does
-// not report them at all: they cannot change a hunk shape, and counting them
-// would disable the cache for any repository carrying so much as a stray
-// .DS_Store.
+// hasTrackedChanges reports whether the working tree differs from HEAD in a way git diff sees.
+// Untracked files cannot change a hunk, and counting them would disable caching over a stray file.
 func hasTrackedChanges(
 	status gitdomain.GitStatus,
 ) bool {

@@ -8,12 +8,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ClearBranch blanks an existing aggregate's Branch to "" and touches nothing
-// else. It is genuinely new capability: no other command mutates Branch
-// (CreateWorkspace sets it once). Used by the consented Detach-holder op when
-// the holder is the repo home, replacing the homeBranch="" blanking the old
-// force-detaching adoptRepoHome did — without a delete-and-recreate that would
-// drop the home aggregate's chats/threads (spec §3.5/§3.7/B6).
+// ClearBranch blanks an aggregate's Branch and touches nothing else. The consented
+// detach of a repo home uses it so the home keeps its chats and threads rather
+// than being deleted and recreated.
 type ClearBranch struct {
 	ID string
 }

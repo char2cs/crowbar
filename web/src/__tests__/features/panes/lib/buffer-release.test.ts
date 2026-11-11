@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
 
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
@@ -25,6 +25,9 @@ import {
 } from '@/features/panes/lib/buffer-release'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { workspaceRef } from '@/lib/api/documents'
+import { toastManager } from '@/lib/toast-manager'
+import { ApiError } from '@/lib/errors/api-error'
 
 /** The PTYs the daemon was told to close, by tab session id. */
 function killed(): string[] {
@@ -54,7 +57,7 @@ function openTerminal(store: WindowPaneStore, sessionId: string): string {
   }))
   return store
     .getState()
-    .bufferActions.openContent({ type: 'terminal', sessionId, workspaceId: 'ws-test' })
+    .bufferActions.openContent({ type: 'terminal', sessionId, workspaceId: 'w' })
 }
 
 describe('buffer ownership (invariant C2)', () => {
@@ -102,15 +105,30 @@ describe('buffer ownership (invariant C2)', () => {
     await vi.waitFor(() => expect(killed()).toEqual(['pty-1']))
   })
 
+  it('a failed terminal stop reports why', async () => {
+    const toastAdd = vi.spyOn(toastManager, 'add')
+    onTestFinished(() => toastAdd.mockRestore())
+    terminalKill.mockRejectedValueOnce(new ApiError('session gone', 500))
+    const { paneActions } = store.getState()
+    paneActions.openChat('chat-a')
+    openTerminal(store, 'pty-2')
+
+    paneActions.closeView(store.getState().activeViewId!)
+
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Stop the closed terminal', description: 'session gone' }),
+      ),
+    )
+  })
+
   it('closing the last pane of a view releases its editor tabs into the reopen history', () => {
     const { paneActions, bufferActions } = store.getState()
     paneActions.openChat('chat-a')
     bufferActions.openContent({
       type: 'editor',
-      path: 'a.ts',
+      doc: workspaceRef('w', 'a.ts'),
       name: 'a.ts',
-      content: '',
-      workspaceId: 'ws-test',
     })
     const paneId = store.getState().activePaneId
 
@@ -142,10 +160,8 @@ describe('buffer ownership (invariant C2)', () => {
     const left = store.getState().activePaneId
     const bufferId = store.getState().bufferActions.openContent({
       type: 'editor',
-      path: 'b.ts',
+      doc: workspaceRef('w', 'b.ts'),
       name: 'b.ts',
-      content: '',
-      workspaceId: 'ws-test',
     })
     const right = paneActions.splitPane(left, 'horizontal', bufferId)!
 
@@ -193,17 +209,15 @@ describe('buffer ownership (invariant C2)', () => {
           s.bufferActions.openContent({
             type: 'terminal',
             sessionId: `pty-${step}`,
-            workspaceId: 'ws-test',
+            workspaceId: 'w',
           })
           break
         case 2:
           s.paneActions.setActivePane(pane)
           s.bufferActions.openContent({
             type: 'editor',
-            workspaceId: 'ws-test',
-            path: `f${rand(4)}.ts`,
+            doc: workspaceRef('w', `f${rand(4)}.ts`),
             name: 'f',
-            content: '',
           })
           break
         case 3:
@@ -238,8 +252,22 @@ describe('releaseUnreferencedBuffers', () => {
     const state: BufferOwnershipState = {
       panes: { a: { editorTabIds: ['keep'] } },
       buffers: [
-        { id: 'keep', type: 'editor', path: 'k', name: 'k', workspaceId: 'w' },
-        { id: 'gone', type: 'editor', path: 'g', name: 'g', workspaceId: 'w' },
+        {
+          id: 'keep',
+          type: 'editor',
+          authority: 'workspace',
+          path: 'k',
+          name: 'k',
+          workspaceId: 'w',
+        },
+        {
+          id: 'gone',
+          type: 'editor',
+          authority: 'workspace',
+          path: 'g',
+          name: 'g',
+          workspaceId: 'w',
+        },
       ] as unknown as PaneContent[],
       closedBuffersHistory: [],
     }

@@ -1,6 +1,7 @@
 package health_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -20,11 +21,16 @@ func TestMain(
 	m.Run()
 }
 
+// noDeadLetters is a chat ingress that has refused nothing.
+type noDeadLetters struct{}
+
+func (noDeadLetters) DeadLetterCount(context.Context) (int, error) { return 0, nil }
+
 func TestRegisterMountsHealthRoute(
 	t *testing.T,
 ) {
 	r := gin.New()
-	health.Register(r.Group("/v0"))
+	health.Register(r.Group("/v0"), noDeadLetters{})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(

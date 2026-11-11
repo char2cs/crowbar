@@ -1,7 +1,9 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NativeChromeIntent, NativeTabs } from '@/lib/native-chrome'
-import { useHomeTreeStore, type HomeTree } from '@/lib/store/home-tree'
+import { workspaceRef } from '@/lib/api/documents'
+import { documentUri } from '@/features/editor/documents/document-ref'
+import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
@@ -22,7 +24,7 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
 
-const { setBufferContent } = await import('@/features/editor/lib/buffer-save')
+const { setDocumentDirty } = await import('@/features/editor/lib/buffer-save')
 const { useNativeTabs } = await import('@/features/window/hooks/use-native-tabs')
 
 const send = (intent: NativeChromeIntent) =>
@@ -38,6 +40,7 @@ beforeEach(() => {
   chrome.pushed.length = 0
   chrome.listeners.clear()
   resetWindowPaneStoreForTests()
+  resetEntities()
   act(() =>
     windowPaneStore.getState().paneActions.openChat('c1', { projectId: 'p1', workspaceId: 'ws-1' }),
   )
@@ -59,12 +62,9 @@ describe('useNativeTabs', () => {
 
   // The desktop's gate: a home chat owns no branch, so + offers no review for it.
   it('offers the branch review only for a chat on a branch', () => {
-    useHomeTreeStore.setState({
-      trees: { p1: { chats: [{ id: 'c1' }], folders: [] } as unknown as HomeTree },
-    })
+    seedHomeTree('p1', { chats: [{ id: 'c1', repoId: '', title: '', order: 0 }] })
     mount()
     expect(last().newTabActions.map((a) => a.id)).toEqual(['terminal'])
-    useHomeTreeStore.setState({ trees: {} })
   })
 
   it('opens what + picks as the active tab, and marks each tab’s kind', () => {
@@ -92,23 +92,19 @@ describe('useNativeTabs', () => {
   it('says which file a file tab holds, and whether it has unsaved edits', () => {
     mount()
     act(() => {
-      windowPaneStore.getState().bufferActions.openContent(
-        {
-          type: 'editor',
-          path: '/r/src/pricing.ts',
-          name: 'pricing.ts',
-          content: 'saved',
-          workspaceId: 'ws-1',
-        },
-        { paneId: pane().id },
-      )
+      windowPaneStore
+        .getState()
+        .bufferActions.openContent(
+          { type: 'editor', doc: workspaceRef('ws-1', 'src/pricing.ts'), name: 'pricing.ts' },
+          { paneId: pane().id },
+        )
     })
-    act(() => setBufferContent(pane().activeEditorTabId!, 'edited'))
+    act(() => setDocumentDirty(documentUri(workspaceRef('ws-1', 'src/pricing.ts')), true))
     expect(last().tabs).toEqual([
       expect.objectContaining({
         title: 'pricing.ts',
         kind: 'file',
-        path: '/r/src/pricing.ts',
+        path: 'src/pricing.ts',
         dirty: true,
       }),
     ])

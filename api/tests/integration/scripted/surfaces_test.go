@@ -21,7 +21,7 @@ import (
 func TestScripted_CodexTerminalSurfaceBootsAndResumes(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, r.wsID, "codex", "terminal")
+	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, "", r.wsID, "codex", "terminal")
 	require.NoError(t, err)
 	_, err = r.runners().StartRunner(ctx, chatID, "codex")
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestScripted_CodexOpenInTerminalAndBack(t *testing.T) {
 	assert.True(t, slices.ContainsFunc(r.logged("rpc"), func(e logEntry) bool { return e["method"] == "thread/resume" }),
 		"coming back re-established the connection on that thread")
 	assert.Equal(t, "live", r.snapshot(chatID).Phase)
-	assert.NotEqual(t, domain.AgentExitResumeFailed, r.snapshot(chatID).Session.ExitReason)
+	assert.NotEqual(t, domain.AgentExitResumeFailed, r.exitReason(chatID))
 }
 
 // Stopping a chat whose native view is open ends the view and the runner,
@@ -130,7 +130,7 @@ func TestScripted_SwitchProviderThenOpenTheTerminal(t *testing.T) {
 	r.firstTurn(chatID)
 	claudeSession := r.lastPrompt()["session"]
 
-	_, err := r.runners().SwitchProvider(ctx, chatID, "codex")
+	_, err := r.runners().SwitchProvider(ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	_, err = r.runners().SwitchToTerminal(ctx, chatID)
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestScripted_SwitchProviderThenOpenTheTerminal(t *testing.T) {
 		"codex's TUI was handed the conversation")
 	r.continues(chatID, "codex in its terminal")
 
-	_, err = r.runners().SwitchProvider(ctx, chatID, "claude")
+	_, err = r.runners().SwitchProvider(ctx, chatID, "claude", "")
 	require.NoError(t, err)
 	r.continues(chatID, "claude again")
 	assert.Equal(t, "claude", r.lastPrompt()["cli"])
@@ -151,7 +151,7 @@ func TestScripted_SwitchProviderThenOpenTheTerminal(t *testing.T) {
 func TestScripted_CodexTerminalChatMovesToTheChat(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, r.wsID, "codex", "terminal")
+	chatID, err := r.d.app.Usecases.AgentChat.MintChat(ctx, "", r.wsID, "codex", "terminal")
 	require.NoError(t, err)
 	_, err = r.runners().StartRunner(ctx, chatID, "codex")
 	require.NoError(t, err)

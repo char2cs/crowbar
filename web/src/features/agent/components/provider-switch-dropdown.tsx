@@ -1,19 +1,15 @@
 import { useRef, useState } from 'react'
 import { CaretUpDown } from '@phosphor-icons/react'
-import { Dropdown, dropdownTriggerClassName } from '@/components/ui/dropdown'
+import { Dropdown } from '@/components/ui/dropdown'
+import { dropdownTriggerClassName } from '@/components/ui/dropdown-styles'
 import { ProviderIcon } from '@/components/ui/provider-icon'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
-// The terminal-strip trigger and menu share one width. The header uses a compact,
-// content-sized trigger while keeping this wider menu for readable provider names.
-//
-// The menu takes it as an inline STYLE, not a class, and that is deliberate. Dropdown
-// locks its measured content width on open (applyLockedWidth) and would overwrite a
-// class-set width with it — the menu silently rendered 4px narrower than the trigger.
-// A style.width is what Dropdown treats as explicit and leaves alone.
+// The terminal strip's trigger and menu share this width; a pane header uses a compact
+// trigger. The menu takes it as an inline style because Dropdown's applyLockedWidth
+// overwrites a class-set width but leaves style alone.
 const SWITCHER_WIDTH_PX = 180
-// Must equal SWITCHER_WIDTH_PX. It cannot be interpolated: Tailwind only generates
-// classes it can see as literals in the source.
+// Must equal SWITCHER_WIDTH_PX; Tailwind only generates literal class names.
 const SWITCHER_WIDTH_CLASS = 'w-[180px]'
 
 export interface ProviderSwitchDropdownProps {
@@ -25,8 +21,6 @@ export interface ProviderSwitchDropdownProps {
   compact?: boolean
 }
 
-// Chat-pane footer control (Task 15 places it): trigger shows the chat's
-// current provider, menu lists the OTHER providers to switch to.
 export function ProviderSwitchDropdown({
   providers,
   currentProviderId,
@@ -37,27 +31,15 @@ export function ProviderSwitchDropdown({
   const [isOpen, setIsOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
 
-  // `current` is looked up across ALL providers, disabled included: disabling a
-  // provider never touches chats already running on it, so this trigger must keep
-  // naming what the chat is actually talking to.
-  //
-  // `others` — the switch TARGETS — drops disabled providers. This menu offers a
-  // provider the same way the New-chat rows do, and switching to a disabled one
-  // would spawn the very CLI the user turned off.
+  // `current` includes disabled providers (disabling never touches running chats);
+  // targets exclude them, or switching would spawn the CLI the user turned off.
   const current = providers.find((p) => p.id === currentProviderId)
   const others = providers.filter((p) => p.id !== currentProviderId && p.enabled)
 
-  // Derived, not stored: a disabled provider closes its menu the instant it goes
-  // disabled, with no render where a disabled trigger still shows an open menu.
-  // isOpen itself stays true underneath (untouched by disabled going false again)
-  // so re-enabling never surprises the user with a menu that silently reappeared.
+  // Derived so the menu closes the same render the trigger goes disabled.
   const open = isOpen && !disabled
 
-  // Both menu shapes below (switch targets, or the nothing-to-switch-to hint)
-  // share these, so the menu can never drift from its trigger. Dropdown's content
-  // props are a discriminated union — `items` and `children` are mutually
-  // exclusive — which is why this is a spread plus one explicit content prop
-  // rather than a single element with a conditional child.
+  // A spread because Dropdown's `items` and `children` are mutually exclusive.
   const menuProps = {
     isOpen: open,
     onClose: () => setIsOpen(false),
@@ -70,18 +52,9 @@ export function ProviderSwitchDropdown({
 
   return (
     <>
-      {/* Ghost: the chat pane is one flat surface, and a filled pill floating beneath
-          the terminal read as a stray button rather than part of the chat.
-          The negative margin is load-bearing, not a nudge. A ghost trigger has no
-          visible box, so its optical edge is its CONTENT, and the content sits behind
-          9px of chrome: 8px padding PLUS the button's 1px transparent border, which
-          renders invisible but still takes space. -mr, not -ml, because the switcher
-          lives at the RIGHT end of the status line now: the edge that has to land on
-          the terminal's last column is the caret's, not the icon's. Measured in the
-          running app. The hover background still covers the full padded width. */}
-      {/* In the terminal strip, the trigger and menu share SWITCHER_WIDTH so the name
-          and caret align to the character grid. In a pane header the trigger is
-          content-sized to leave room for the branch-review action. */}
+      {/* -mr-[9px] (8px padding + 1px border) puts the ghost trigger's caret on the
+          terminal's last column; justify-between because buttonVariants centres. A
+          pane header's compact trigger is content-sized instead. */}
       <button
         ref={anchorRef}
         type="button"
@@ -101,9 +74,6 @@ export function ProviderSwitchDropdown({
         </span>
         <CaretUpDown size={12} className="shrink-0 text-muted-foreground" />
       </button>
-      {/* menuProps carries the positioning and the shared width (anchorAlign="end"
-          keeps the menu on the trigger's column; min-w-0 clears the root's 240px
-          floor so the style width wins). See SWITCHER_WIDTH_PX. */}
       {!disabled && others.length > 0 ? (
         <Dropdown
           {...menuProps}
@@ -116,10 +86,7 @@ export function ProviderSwitchDropdown({
         />
       ) : !disabled ? (
         <Dropdown {...menuProps}>
-          {/* A menu that opens onto nothing is a dead end. Say why it is empty and
-              what a second provider would buy — above all that the conversation
-              carries over, which is the part nobody would guess. Deliberately not a
-              menuitem: there is nothing here to select. */}
+          {/* Not a menuitem: there is nothing here to select. */}
           <p className="ui-font ui-text-xs px-2 py-1.5 text-muted-foreground">
             No other provider is enabled. Turn one on in Settings to switch mid-chat — this
             conversation&apos;s context comes with you.

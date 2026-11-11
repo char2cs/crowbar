@@ -63,7 +63,7 @@ func TestRegression_CommandSessionAnswersOSC11WithHostThemeAtBirth(t *testing.T)
 	out := filepath.Join(t.TempDir(), "reply")
 	exits := make(chan struct{})
 	_, err := e.CreateCommand(context.Background(), "chat1", t.TempDir(),
-		oscQueryScript(out), os.Environ(), func() { close(exits) })
+		oscQueryScript(out), os.Environ(), func(Exit) { close(exits) })
 	require.NoError(t, err)
 
 	// The command exits as soon as it has the reply, so its exit IS the read barrier. No
@@ -90,7 +90,7 @@ func TestCommandSessionWithoutHostTheme_KeepsEmulatorDefault(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "reply")
 	exits := make(chan struct{})
 	_, err := e.CreateCommand(context.Background(), "chat1", t.TempDir(),
-		oscQueryScript(out), os.Environ(), func() { close(exits) })
+		oscQueryScript(out), os.Environ(), func(Exit) { close(exits) })
 	require.NoError(t, err)
 	<-exits
 
@@ -113,7 +113,7 @@ func TestSetHostTheme_LastPushWins(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "reply")
 	exits := make(chan struct{})
 	_, err := e.CreateCommand(context.Background(), "chat1", t.TempDir(),
-		oscQueryScript(out), os.Environ(), func() { close(exits) })
+		oscQueryScript(out), os.Environ(), func(Exit) { close(exits) })
 	require.NoError(t, err)
 	<-exits
 

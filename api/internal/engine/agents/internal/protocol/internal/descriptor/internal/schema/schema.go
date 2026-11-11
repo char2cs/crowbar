@@ -1,11 +1,6 @@
-// Package schema loads Crowbar's canonical conversation vocabulary and validates a
-// provider descriptor's event table against it.
-//
-// The vocabulary is data (vocabulary.yaml, embedded here because go:embed cannot
-// reach a parent directory — this package owns it and descriptor/ reads it through
-// Load) rather than Go constants so that
-// adding a PROVIDER needs no Go. It is closed in the other direction: adding an EVENT
-// is a Crowbar capability change and does need Go on the consuming side.
+// Package schema loads Crowbar's canonical conversation vocabulary and validates a provider
+// descriptor's event table against it. The vocabulary is data (vocabulary.yaml) so adding a
+// provider needs no Go; adding an event is a Crowbar capability change and does.
 package schema
 
 import (
@@ -59,12 +54,9 @@ func Load() (Vocabulary, error) {
 	return v, nil
 }
 
-// Validate checks one provider's event table.
-//
-// A provider may map a SUBSET of the vocabulary — capability is key-presence — but
-// every event it does map must be a known one, must carry that event's required
-// fields, and must not carry a field the event does not declare. The last rule is what
-// turns a typo from "maps silently to nothing" into a startup failure.
+// Validate checks one provider's event table. A provider may map a SUBSET of events,
+// but each must be known, carry its required fields, and carry no undeclared field,
+// which turns a typo into a startup failure.
 func (v Vocabulary) Validate(providerID string, events map[string]map[string][]string) error {
 	for _, name := range sortedKeys(events) {
 		rule, ok := v.Events[name]

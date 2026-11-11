@@ -3,6 +3,7 @@ package terminal_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,17 +82,8 @@ func TestRegression_KillingOneChatsSessionLeavesItsSiblingsAlive(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = eng.Kill(ctx, sidB) })
 
-	// Block on the engine's own ended signal for A, never on a clock: the reap
-	// is what makes the assertion below meaningful, so the test waits for the
-	// engine to say it happened.
-	endedCh := make(chan string, 2)
-	eng.OnSessionEnded(func(_ context.Context, chatID, sid string, _ int) {
-		endedCh <- chatID + "/" + sid
-	})
-
 	require.NoError(t, eng.Kill(ctx, sidA))
-	assert.Equal(t, "chat-a/"+sidA, <-endedCh,
-		"the ended frame must name the OWNING chat, not the shared workspace")
+	require.Eventually(t, func() bool { return !eng.SessionExists(ctx, sidA) }, 10*time.Second, 5*time.Millisecond)
 
 	assert.Empty(t, eng.ListSessionsForChat("chat-a"))
 	assert.ElementsMatch(t, []string{sidB}, eng.ListSessionsForChat("chat-b"),

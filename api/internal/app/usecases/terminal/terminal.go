@@ -79,11 +79,9 @@ type Usecase interface {
 		id string,
 	) error
 
-	// RestorePersistedSessions reloads all durable terminal session rows from
-	// the metastore as PTY-less placeholders in the engine. Orphaned rows
-	// (workspace deleted) are reconciled away. Per-row errors are logged and
-	// skipped; the overall call never fails the daemon startup. Must be called
-	// after both the engine and the metastore are wired.
+	// RestorePersistedSessions reloads durable session rows as PTY-less placeholders,
+	// deleting orphans whose chat no longer resolves to a worktree. Per-row errors are
+	// logged and skipped; only a failure to list the rows is returned.
 	RestorePersistedSessions(
 		ctx context.Context,
 	) error
@@ -113,10 +111,8 @@ func New(
 	}
 }
 
-// CreateSession spawns a PTY session OWNED by chatID, running in the worktree
-// that chat resolves to. The owner and the directory are deliberately two
-// lookups of two different things: siblings share the directory, never the
-// session.
+// CreateSession spawns a PTY session owned by chatID, running in the worktree that
+// chat resolves to: sibling chats share the directory, never the session.
 func (u *terminalUsecase) CreateSession(
 	ctx context.Context,
 	chatID string,
@@ -192,10 +188,7 @@ func (u *terminalUsecase) DeleteProfile(
 	return nil
 }
 
-// RestorePersistedSessions reloads all durable terminal session rows from the
-// metastore as PTY-less placeholders. Orphaned rows (owning chat no longer
-// resolvable to a worktree) are deleted from the store. Per-row errors are logged and
-// skipped; the overall call never returns a fatal error.
+// RestorePersistedSessions implements Usecase. A nil metastore makes it a no-op.
 func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 	if u.metaStore == nil {
 		return nil
@@ -205,10 +198,8 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 		return fmt.Errorf("terminal: restore: list: %w", err)
 	}
 
-	// Most-recent-first so the cap keeps the freshest sessions and discards the
-	// stalest. The engine enforces the same ceiling in-memory; restoring more
-	// than it can hold would just trigger immediate eviction, so we bound here
-	// and also delete the excess .buf/row to keep DISK usage bounded too.
+	// Most-recent-first so the cap keeps the freshest sessions. The engine would evict
+	// the excess anyway; bounding here also deletes its .buf/row to bound disk usage.
 	sort.SliceStable(rows, func(i, j int) bool {
 		return rows[i].LastActiveAt.After(rows[j].LastActiveAt)
 	})

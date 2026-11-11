@@ -1,4 +1,4 @@
-import { lazy, Suspense, useLayoutEffect, type ContextType, type Ref } from 'react'
+import { lazy, Suspense, useLayoutEffect, useState, type ContextType, type Ref } from 'react'
 import { loadedAgentChatPane, preloadAgentChatPane } from '@/features/panes/lib/chat-surface-loader'
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { sidebarSurfaceRoot } from '@/features/panes/lib/sidebar-surface'
@@ -45,7 +45,9 @@ export function PaneChatView({
   isActivePane,
   isVisible,
 }: PaneChatViewProps) {
-  const Surface = loadedAgentChatPane() ?? LazyAgentChatPane
+  // Chosen once: swapping the lazy wrapper for the loaded component is a new
+  // element type, which would remount the chat mid-conversation.
+  const [Surface] = useState(() => loadedAgentChatPane() ?? LazyAgentChatPane)
   // The surface commits later than this wrapper (lazy chunk); AgentChatPane ends the wait.
   useLayoutEffect(() => {
     pendingChatSurfaces.getState().begin(paneId)

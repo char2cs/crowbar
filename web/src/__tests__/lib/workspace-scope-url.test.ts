@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostNotResolvedError } from '@/lib/host-path'
-import { useProjectDataStore } from '@/lib/store/projects'
+import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { idle, success } from '@/lib/loadable'
 import {
   __resetWorkspaceScopesForTest,
   getWorkspaceScope,
@@ -131,7 +130,7 @@ const project = (id: string, hostId: string): Project => ({
 })
 const pair = (...ids: string[]) =>
   ids.forEach((id) => useHostConfigStore.getState().addHost(host(id)))
-const loadProjects = (...rows: Project[]) => useProjectDataStore.setState({ data: success(rows) })
+const loadProjects = (...rows: Project[]) => seedProjects(rows)
 
 function resolution(call: () => unknown): HostNotResolvedError {
   try {
@@ -146,7 +145,7 @@ function resolution(call: () => unknown): HostNotResolvedError {
 beforeEach(() => {
   // addHost sets a persisted one-way bit; a later test must start never-paired.
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
-  useProjectDataStore.setState({ data: idle() })
+  resetEntities()
   __resetWorkspaceScopesForTest()
   recordWorkspaceScope(REPO)
   recordWorkspaceScope(HOME)
@@ -157,7 +156,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe('golden: no remote ever paired (I3) — byte-identical to the pre-host-aware builders', () => {
+describe('golden: no remote ever paired — byte-identical to the pre-host-aware builders', () => {
   it.each(BUILDERS)('$name returns the recorded bare path for a repo workspace', (b) => {
     expect(b.call(urls, REPO_WS)).toBe(b.repo)
   })
@@ -209,7 +208,7 @@ describe.each([
     const scopes = await import('@/lib/workspace-scope')
     scopes.recordWorkspaceScope(REPO)
     scopes.recordWorkspaceScope(HOME)
-    expect((await import('@/lib/api')).API_BASE).toBe(api)
+    expect((await import('@/lib/api/fetch')).apiBaseFor('local')).toBe(api)
     for (const [name, call, bare] of REPO_URLS) expect([name, call(fresh)]).toEqual([name, bare])
     for (const b of BUILDERS) {
       if (b.home !== THROWS) expect([b.name, b.call(fresh, HOME_WS)]).toEqual([b.name, b.home])

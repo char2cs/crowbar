@@ -133,27 +133,9 @@ describe('settleFreshGeneration', () => {
   })
 })
 
-/**
- * REGRESSION, reported live and root-caused in slate's own source: a settled
- * word must not disturb the words still fading beside it.
- *
- * `slate-react` keys every rendered leaf `${textKey}-${i}` where `i` is the
- * POSITIONAL INDEX into the split `Text.decorations` rebuilds from scratch on
- * each render. So dropping one settled range does not just remove its own
- * leaf — it shifts the index of every leaf after it, React sees new keys,
- * unmounts those spans and mounts fresh ones, and a fresh DOM node starts its
- * CSS animation over from zero.
- *
- * While a reply streams, words are settling continuously, so every settle
- * restarted every later still-fading word. Words never got an uninterrupted
- * stretch of real time to finish, and sat at the animation's invisible start
- * state until the stream stopped: literal blank gaps mid-paragraph that
- * healed once the turn ended (many small deltas), or text appearing to pop in
- * with no fade at all (whole-sentence chunks). One mechanism, two symptoms,
- * purely a function of how big the arriving chunks are — so these tests fix
- * the chunk size rather than the provider, and nothing here branches on which
- * provider produced the stream.
- */
+// slate-react keys leaves by POSITION in the decoration split, so dropping a settled range would
+// shift every later leaf's key and remount (restarting) its fade. A settling word must leave its
+// still-fading neighbours' DOM nodes alone, whatever the chunk size or provider.
 describe('a settling word leaves its still-fading neighbours alone', () => {
   const fadeSpans = () => [...document.querySelectorAll<HTMLElement>('.chat-fresh-text')]
   // Word chunks keep their own whitespace (see `splitIntoWords`), so a span
@@ -188,9 +170,8 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
     const before = spanFor('two')
     expect(before).toBeDefined()
 
-    // The first chunk finishes fading for real (`animationend`), then the next
-    // chunk arrives — the ordinary streaming sequence, and exactly when the
-    // reindex used to happen.
+    // The first chunk finishes fading (`animationend`), then the next chunk
+    // arrives: the ordinary streaming sequence, and where a reindex would land.
     await act(async () => {
       settleFreshGeneration(editor, 1)
     })
@@ -267,22 +248,9 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
 })
 
 /**
- * REGRESSION, caught live on a 30-item numbered list and reproduced in Chrome:
- * `.chat-fresh-text` spans climbed monotonically to 314 over a single reply
- * and never fell until the stream stopped.
- *
- * Settling is bookkeeping — it deliberately performs no edit — and a block
- * only recomputes its decorations when something re-renders it. While a list
- * streams, only the LAST item is ever re-rendered, so every finished item kept
- * its animated spans in the DOM for the rest of the turn: each one an element
- * still carrying a running `animation` declaration that `fill-mode: both`
- * keeps alive. The old pre-decoration design never had this because settling
- * unset the marks, which merged the leaves back into plain text and removed
- * the spans outright.
- *
- * Bounded, not zero, is the contract: words that genuinely are still fading
- * keep their spans.
- */
+ /** Settling performs no edit and only the last list item re-renders while a list streams, so
+  * finished items could keep animated spans all turn. Bounded, not zero, is the contract: words
+  * still fading keep their spans. */
 describe('finished fades do not pile up in the DOM', () => {
   const listItem = (i: number) => `${i + 1}. item ${i} of the list here`
 
@@ -335,3 +303,21 @@ function liveGenerations(editor: ReturnType<typeof createPlateEditor>): number[]
   }
   return [...out]
 }
+
+// Every line of a replaced block mounts again, and each code line re-decorates.
+describe('a code fence streaming in', () => {
+  it('keeps the lines it already drew and adds only the new one', () => {
+    const fence = (lines: number) =>
+      ['```ts', ...Array.from({ length: lines }, (_, i) => `const v${i} = ${i}`)].join('\n')
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(fence(3)),
+    })
+    const block = () => editor.children[0] as { children: unknown[] }
+    const drawn = block().children.slice(0, 2)
+    applyStreamedValue(editor, chatMarkdownToValue(fence(4)))
+    expect(block().children.slice(0, 2)).toEqual(drawn)
+    drawn.forEach((line, i) => expect(block().children[i]).toBe(line))
+    expect(withoutIds(editor.children)).toEqual(withoutIds(chatMarkdownToValue(fence(4))))
+  })
+})

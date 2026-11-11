@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dataOf } from '@/lib/loadable'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('@/lib/api', () => ({ apiFetch }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
 
 import {
   blameKey,

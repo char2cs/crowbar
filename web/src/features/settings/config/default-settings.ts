@@ -51,7 +51,7 @@ export const defaultSettings: Settings = {
   uiFontSize: UI_FONT_SIZE_DEFAULT,
   headingFontFamily: DEFAULT_HEADING_FONT_FAMILY,
   // Agents
-  chatIsDefaultPresentation: false,
+  chatIsDefaultPresentation: true,
   chatSplitPresentationEnabled: false,
   // Theme
   theme: 'crowbar',
@@ -74,7 +74,8 @@ export const defaultSettings: Settings = {
     breadcrumbs: true,
   },
   // Advanced
-  showBuildReadout: true,
+  // A developer's diagnostic: a shipped build starts without it.
+  buildReadout: import.meta.env.DEV,
   buildBadgeOverride: 'auto',
   // Other
   maxOpenTabs: 100,

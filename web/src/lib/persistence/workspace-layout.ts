@@ -1,18 +1,14 @@
 import { getDB } from './idb'
 import type { WorkspaceLayout } from './schemas'
 
-/**
- * Task 26: pane/buffer layout is window-level, not per-workspace (panes can
- * now hold chats from different workspaces in the same tree — see
- * window-pane-store.ts), so there is exactly one persisted layout per
- * window/session rather than one per workspace id. The object store's
- * `keyPath` (`workspaceId`, unchanged from before this task) is reused as
- * the key for this one fixed row.
- */
+// Pane/buffer layout is window-level (panes hold chats from different workspaces), so there is one
+// persisted layout per window; the store's `workspaceId` keyPath keys that one fixed row.
 export const WINDOW_SESSION_ID = 'window'
 
-/** 2: every chat pane records its workspace (`PaneGroup.workspaceId`). */
-export const WINDOW_LAYOUT_VERSION = 2
+/** 2: every chat pane records its workspace (`PaneGroup.workspaceId`).
+ *  3: every editor buffer names its document's authority, a preview its source.
+ *  4: editor buffers carry no text; unsaved text lives in `editor-drafts`. */
+export const WINDOW_LAYOUT_VERSION = 4
 
 export async function saveWorkspaceLayout(layout: WorkspaceLayout): Promise<void> {
   const db = await getDB()

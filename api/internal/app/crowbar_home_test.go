@@ -1,0 +1,26 @@
+package app_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/adapter"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
+	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
+)
+
+func TestApp_CrowbarHome_IsTheHomeTheAdapterOpened(t *testing.T) {
+	root := t.TempDir()
+	adapters, err := adapter.New(adapter.WithHomeDir(root))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapters.Close() })
+
+	c, err := app.New(context.Background(), newEng(t), adapters, migratetest.NoPostOpen(), v0.EncodeEntity, v0.NewSidebar)
+	require.NoError(t, err)
+
+	assert.Equal(t, root, c.CrowbarHome())
+}

@@ -17,7 +17,7 @@ import (
 func (h *Handlers) Completion(
 	c *gin.Context,
 ) {
-	worktreePath, req, ok := h.bindPosition(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPositionRequest](h, c)
 	if !ok {
 		return
 	}
@@ -36,7 +36,7 @@ func (h *Handlers) Completion(
 func (h *Handlers) Hover(
 	c *gin.Context,
 ) {
-	worktreePath, req, ok := h.bindPosition(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPositionRequest](h, c)
 	if !ok {
 		return
 	}
@@ -55,7 +55,7 @@ func (h *Handlers) Hover(
 func (h *Handlers) Definition(
 	c *gin.Context,
 ) {
-	worktreePath, req, ok := h.bindPosition(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPositionRequest](h, c)
 	if !ok {
 		return
 	}
@@ -74,7 +74,7 @@ func (h *Handlers) Definition(
 func (h *Handlers) References(
 	c *gin.Context,
 ) {
-	worktreePath, req, ok := h.bindPosition(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPositionRequest](h, c)
 	if !ok {
 		return
 	}
@@ -93,16 +93,8 @@ func (h *Handlers) References(
 func (h *Handlers) Rename(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPRenameRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPRenameRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	edit, err := h.lsp.Rename(
@@ -114,8 +106,7 @@ func (h *Handlers) Rename(
 		req.NewName,
 	)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	libs.WriteQueryOK(c, edit)
@@ -126,16 +117,8 @@ func (h *Handlers) Rename(
 func (h *Handlers) CodeAction(
 	c *gin.Context,
 ) {
-	if !h.requireLSP(c) {
-		return
-	}
-	worktreePath, ok := h.worktreePath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPRangeRequest](h, c)
 	if !ok {
-		return
-	}
-	var req dto.LSPRangeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		libs.WriteErr(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	result, err := h.lsp.CodeAction(
@@ -154,7 +137,7 @@ func (h *Handlers) CodeAction(
 func (h *Handlers) DocumentSymbol(
 	c *gin.Context,
 ) {
-	worktreePath, req, ok := h.bindPath(c)
+	worktreePath, req, ok := bindLSP[dto.LSPPathRequest](h, c)
 	if !ok {
 		return
 	}
@@ -167,10 +150,10 @@ func (h *Handlers) DocumentSymbol(
 	writeRaw(c, result, err)
 }
 
-func (h *Handlers) bindPosition(
-	c *gin.Context,
-) (string, dto.LSPPositionRequest, bool) {
-	var req dto.LSPPositionRequest
+// bindLSP answers the worktree path and the bound request body, having already
+// written the response when the LSP is off, the worktree is unknown or the body is malformed.
+func bindLSP[T any](h *Handlers, c *gin.Context) (string, T, bool) {
+	var req T
 	if !h.requireLSP(c) {
 		return "", req, false
 	}
@@ -191,8 +174,7 @@ func writeRaw(
 	err error,
 ) {
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	if len(raw) == 0 {
@@ -208,8 +190,7 @@ func writeLocations(
 	err error,
 ) {
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+		libs.Fail(c, err)
 		return
 	}
 	if locations == nil {

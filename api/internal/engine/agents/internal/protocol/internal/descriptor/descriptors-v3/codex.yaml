@@ -21,24 +21,26 @@
 # connection over the same session via `resume:` below.
 id: codex
 display_name: Codex
+sign_in: codex login
 icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>'
 
 runtime:
   transport: api
   api:
     protocol: jsonrpc2
-    serve:  [codex, app-server, --listen, "unix://{socket}"]
+    # app-server's default --listen stdio://: one message per line on stdout,
+    # logs on stderr, and it exits 0 once its stdin closes (0.163.0).
+    delivery: stdio
+    format: ndjson
+    serve:  [codex, app-server]
     # Never rendered at spawn (see applyAPITransport's Hotswap gate); only
     # SwitchToTerminal forks this, and only once idle.
     attach: [codex, resume, "{session_id}"]
-    handshake: { call: initialize }
-    # Captured live (0.149.1) from BOTH calls that name a thread id, against a
-    # thread the server no longer has: thread/resume answers "no rollout found
-    # for thread id X" and turn/start answers "thread not found: X" — same code
-    # each time. codex writes no rollout until a turn COMPLETES, so any thread
-    # that never finished one is unresumable the moment its app-server is
-    # replaced, which is why this is reached routinely, not exceptionally.
-    session_lost_codes: [-32600]
+    # app-server answers initialize, then waits for the initialized notification.
+    handshake:
+      call: initialize
+      params: { clientInfo: { name: crowbar, title: Crowbar, version: "0.0.0" } }
+      notify: initialized
   hooks:
     format: json
     delivery: http
@@ -46,9 +48,10 @@ runtime:
   spawn:
     cmd: codex
 
-# codex exposes no Notification event/hook at all (confirmed against its
-# published hook vocabulary) — genuinely never emitted, not forgotten.
-not_emitted: [notification]
+# No Notification hook exists; its idle (thread/status/changed) lands just before
+# turn/completed (0.149.1), so mapped it would end the turn before its answer. Its
+# plan is restated whole (plan_update); a child's result is its own turn_stop.
+not_emitted: [notification, idle, plan_step, subagent_result]
 
 # Both are launchable, and the CHANNEL is what separates them: a chat born on
 # the terminal runs the TUI in a PTY and opens no app-server connection.
@@ -71,9 +74,7 @@ events:
 
   # item/started is a SUM TYPE selected by item.type. tool_id specifically is
   # load-bearing: an unresolved id makes toolID() mint a fresh fallback per
-  # call, so tool_pre/tool_post never match and OpenWork reports the chat as
-  # perpetually mid-turn — confirmed live and by
-  # TestUsecase_OpenWork_ReportsAToolCallTheProviderNeverClosed.
+  # call, so tool_pre/tool_post never match and the tool call never closes.
   user_prompt:
     required: [session_id]
     api:
@@ -82,6 +83,7 @@ events:
       map:
         session_id: threadId
         message:    "item.content[type=text].text"
+        turn_id:    turnId
       fixtures: [item_started.json]
     hooks:
       in: UserPromptSubmit
@@ -120,7 +122,7 @@ events:
         # so (confirmed live: a compaction's turn/completed is byte-for-byte
         # the same shape — items: [], itemsView: "notLoaded", status:
         # "completed" — as a genuinely interrupted real turn's). See
-        # compact_pre below and turn/compaction.go.
+        # compact_pre below and the chat ingress's compactionEnd.
         turn_id:    turn.id
         turn_status: turn.status
       fixtures: [turn_completed.json]
@@ -147,10 +149,11 @@ events:
       map:
         session_id: threadId
         reason:     { first_present: [turn.error.message, turn.status] }
-        detail:     turn.error.additionalDetails
+        # additionalDetails is often null (a 401 when not logged in): the message is then all it says.
+        detail:     { first_present: [turn.error.additionalDetails, turn.error.message] }
         # See turn_stop's own turn_id comment — a compaction can fail too.
         turn_id:    turn.id
-      fixtures: [turn_completed.failed-schema.json]
+      fixtures: [turn_completed.failed-schema.json, turn_completed.failed.unauthorized.json]
 
   # item.type values are codex's ThreadItem variants. webSearch and dynamicToolCall
   # were missing, so a turn that searched the web showed NO activity for that step.
@@ -165,31 +168,26 @@ events:
   # shape every other tool call already has. See subagent_pre below for what this
   # does NOT cover.
   #
-  # tool_target is what the transcript actually renders (`name · target`); with it
-  # unmapped every codex tool call read as the bare word "commandExecution". Each
-  # variant keeps its target in its own field, hence the first_present chain:
-  #   commandExecution -> command       fileChange  -> changes[0].path
-  #   webSearch        -> query         mcpToolCall -> server (its tool is the NAME)
-  #   collabAgentToolCall -> the prompt handed to spawnAgent, or (wait/closeAgent/
-  #     sendInput/resumeAgent, which carry no prompt) the receiving thread's id.
+  # tool_target is what the transcript renders (`name · target`); each variant keeps it in
+  # its own field, hence the first_present chain: commandExecution -> its first command
+  # action's command (the shell wrapper stripped, and that action's type is the kind),
+  # else the raw command line; webSearch -> query, fileChange -> changes[0].path.
+  # A spawn's prompt is its title.
   # changes[0] is an INDEX selector: FileUpdateChange.kind is an object
   # ({"type":"update"}), so no [field=value] selector can address that list.
   # receiverThreadIds[0] is the same INDEX selector, for the same reason: the list
   # holds exactly one id in every shape captured live, and a bare field name cannot
   # select "the first element of a list" any other way this grammar offers.
-  # NO nested_session_id here, deliberately: receiverThreadIds[0] is EMPTY on
-  # spawnAgent's own item/started (confirmed live: the child does not exist
-  # yet — see testdata/fixtures/codex/item_started.collabAgentToolCall.json,
-  # and TestV3Descriptors_ResolveAgainstRecordedTraffic, which fails the
-  # build the moment a mapped field stops resolving against every recorded
-  # variant it could fire on). wait/closeAgent's own item/started PROBABLY
-  # already addresses an existing child the same way their item/completed
-  # does, but no fixture of either exists to prove it — see tool_post below,
-  # where the same field IS proven.
+  # NO spawns_scope here: receiverThreadIds[0] is EMPTY on spawnAgent's own
+  # item/started (item_started.collabAgentToolCall.json); the spawn is bound
+  # on its item/completed. tool_kind joins item.tool so wait/closeAgent are meta.
+  # listFiles is an `ls` it ran, not a search for something.
   tool_pre:
-    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    kind_map: { read: read, listFiles: execute, search: search, unknown: execute, commandExecution: execute,
+      fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent,
+      collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     locations: { items: item.changes, path: path }
-    diff_files: { items: item.changes, path: path, diff: diff }
+    diff_files: { items: item.changes, path: path, diff: diff, kind: kind.type, whole: { add: added, delete: deleted } }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/started
@@ -199,54 +197,51 @@ events:
         session_id:  threadId
         tool_id:     item.id
         tool_name:   { first_present: [item.tool, item.type] }
-        tool_kind:   item.type
-        tool_target: { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
+        tool_kind:   { first_present: ["item.commandActions[0].type", { join: [item.type, item.tool] }] }
+        tool_target: { first_present: ["item.commandActions[0].command", item.query, "item.changes[0].path", item.command] }
+        tool_title:  { first_present: [item.prompt] }
+        mcp_server:  item.server
+        mcp_tool:    item.tool
         tool_input:  item
       fixtures:
         - item_started.commandExecution.json
         - item_started.collabAgentToolCall.json
-        - item_started.fileChange-schema.json
+        - item_started.fileChange.json
+        - item_started.mcpToolCall.json
         - item_started.mcpToolCall-schema.json
         - item_started.webSearch-schema.json
-    # hooks.PreToolUse is wired unconditionally (config_injection below), so
-    # this channel genuinely fires, but no recorded PreToolUse payload exists
-    # in this repo — field names carried over unchanged from the pre-
-    # migration `|| tool_input.file_path` fallback; UNVERIFIED against real
-    # traffic.
+    # hooks.PreToolUse is wired unconditionally (config_injection below). Its tool_name
+    # for an MCP call is mcp__<server>__<tool> with no server field of its own, and a patch's
+    # command is the whole patch, so its target is the first file path in it.
     hooks:
-      unverified: true
       in: PreToolUse
       map:
         session_id:  session_id
         tool_id:     tool_use_id
         tool_name:   tool_name
-        tool_target: tool_input.file_path
+        tool_target: { first_present: [
+          { from: tool_input.command, pattern: '^\s*\*\*\* Begin Patch\n\*\*\* (?:Add|Update|Delete) File: (?P<v>[^\n]+)' },
+          tool_input.command, tool_input.file_path ] }
+        tool_kind:   { from: tool_name, pattern: '^(?P<v>mcp)__' }
+        tool_title:  tool_input.message
+        tool_input:  tool_input
+        mcp_tool:    { from: tool_name, pattern: '^mcp__.+?__(?P<v>.+)$' }
+      fixtures: [PreToolUse.json, PreToolUse.mcp.json, PreToolUse.spawnAgent.json, PreToolUse.applyPatch.json]
+    # Refuses one call before it runs (a write into a folder the chat moved out of); codex
+    # rejects a deny with no reason, so the reason is always set.
+    reply:
+      deny: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":{reason_json}}}'
 
-  # tool_result was `item.content`, which exists on NO codex item — every tool
-  # call completed with an empty result. The real output field differs per
-  # variant: aggregatedOutput (commandExecution), result (mcpToolCall),
-  # changes (fileChange), agentsStates (collabAgentToolCall — the spawned
-  # agent's own status/message map, keyed by the thread id nested_session_id
-  # below also names; item.agentsStates[receiverThreadIds[0]] is addressable
-  # via mapping's dynamic-key selector, but the WHOLE map is mapped here
-  # rather than one value out of it — a reader of this tool call's result
-  # wants everything the parent saw, not a value already surfaced through the
-  # nested subagent this tool call OPENS/refreshes via nested_session_id).
-  #
-  # nested_session_id — CONFIRMED LIVE against testdata/fixtures/codex/
-  # item_completed.collabAgentToolCall.json and .wait.json: receiverThreadIds[0]
-  # is the SAME id agentsStates is keyed by, on both spawnAgent's own
-  # completion (agentsStates[id].status: "pendingInit") and wait's
-  # (agentsStates[id].status: "completed"). See turn/ingest.go's nested-session
-  # routing for what opens/keeps-open a subagent from this field, and
-  # turn/observation.go for what a routed child frame does once one is open —
-  # a child's OWN turn_stop is what CLOSES it, not this field going away (it
-  # never does: closeAgent's own completion still names the same id).
+  # tool_result is per variant: aggregatedOutput, result, changes, agentsStates.
+  # receiverThreadIds[0] is the child thread (item_completed.collabAgentToolCall
+  # and .wait): spawnAgent spawns it, wait/closeAgent address it.
   tool_post:
-    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    kind_map: { read: read, listFiles: execute, search: search, unknown: execute, commandExecution: execute,
+      fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent,
+      collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     status_map: { completed: ok, failed: error, declined: declined }
     locations: { items: item.changes, path: path }
-    diff_files: { items: item.changes, path: path, diff: diff }
+    diff_files: { items: item.changes, path: path, diff: diff, kind: kind.type, whole: { add: added, delete: deleted } }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/completed
@@ -256,17 +251,26 @@ events:
         session_id:        threadId
         tool_id:           item.id
         tool_name:         { first_present: [item.tool, item.type] }
-        tool_kind:         item.type
-        tool_target:       { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
+        tool_kind:         { first_present: ["item.commandActions[0].type", { join: [item.type, item.tool] }] }
+        tool_target:       { first_present: ["item.commandActions[0].command", item.query, "item.changes[0].path", item.command] }
+        tool_title:        { first_present: [item.prompt] }
+        mcp_server:        item.server
+        mcp_tool:          item.tool
+        exit_code:         item.exitCode
         tool_result:       { first_present: [item.aggregatedOutput, item.result, item.changes, item.agentsStates] }
         tool_status:       item.status
         duration_ms:       item.durationMs
-        nested_session_id: item.receiverThreadIds[0]
+        spawns_scope:      item.receiverThreadIds[0]
+        addresses_scope:   item.receiverThreadIds[0]
       fixtures:
         - item_completed.commandExecution.json
+        - item_completed.commandExecution.read.json
         - item_completed.collabAgentToolCall.json
         - item_completed.collabAgentToolCall.wait.json
-        - item_completed.fileChange-schema.json
+        - item_completed.fileChange.json
+        - item_completed.fileChange.delete.json
+        - item_completed.fileChange.move.json
+        - item_completed.mcpToolCall.json
         - item_completed.mcpToolCall-schema.json
         - item_completed.webSearch-schema.json
     # Same fixture gap as tool_pre — hooks.PostToolUse is wired
@@ -276,11 +280,13 @@ events:
       unverified: true
       in: PostToolUse
       map:
-        session_id:  session_id
-        tool_id:     tool_use_id
-        tool_name:   tool_name
-        tool_result: tool_response
-        duration_ms: duration_ms
+        session_id:   session_id
+        tool_id:      tool_use_id
+        tool_name:    tool_name
+        tool_kind:    { first_present: [ { from: tool_name, pattern: '^(?P<v>mcp)__' }, tool_name ] }
+        tool_result:  tool_response
+        duration_ms:  duration_ms
+        spawns_scope: { json: tool_response, path: agent_id }
 
   # Fires on the SAME wire event as tool_post, separated only by item.status.
   # dispatch.Resolve tries candidates in sorted name order, so `tool_fail` is
@@ -295,22 +301,30 @@ events:
   # NO hooks: block — same reason as turn_failed: PostToolUse always names
   # canonical tool_post, never tool_fail.
   tool_fail:
-    kind_map: { commandExecution: execute, fileChange: edit, mcpToolCall: other, webSearch: search, dynamicToolCall: other, collabAgentToolCall: other }
+    kind_map: { read: read, listFiles: execute, search: search, unknown: execute, commandExecution: execute,
+      fileChange: edit, mcpToolCall: mcp, webSearch: search, dynamicToolCall: other, collabAgentToolCall: subagent,
+      collabAgentToolCall/wait: meta, collabAgentToolCall/closeAgent: meta, spawn_agent: subagent }
     status_map: { failed: error, declined: declined }
     locations: { items: item.changes, path: path }
-    diff_files: { items: item.changes, path: path, diff: diff }
+    diff_files: { items: item.changes, path: path, diff: diff, kind: kind.type, whole: { add: added, delete: deleted } }
     required: [session_id, tool_id, tool_name]
     api:
       in: item/completed
       when:
         item.type:   { any_of: [commandExecution, fileChange, mcpToolCall, dynamicToolCall, collabAgentToolCall] }
         item.status: { any_of: [failed, declined] }
+      # No recorded failed spawn carries a prompt, so the title stays unverified.
+      unverified_fields: [tool_title]
       map:
         session_id:  threadId
         tool_id:     item.id
         tool_name:   { first_present: [item.tool, item.type] }
-        tool_kind:   item.type
-        tool_target: { first_present: [item.command, item.query, item.server, "item.changes[0].path", item.prompt, "item.receiverThreadIds[0]"] }
+        tool_kind:   { first_present: ["item.commandActions[0].type", { join: [item.type, item.tool] }] }
+        tool_target: { first_present: ["item.commandActions[0].command", item.query, "item.changes[0].path", item.command] }
+        tool_title:  { first_present: [item.prompt] }
+        mcp_server:  item.server
+        mcp_tool:    item.tool
+        exit_code:   item.exitCode
         tool_result: { first_present: [item.aggregatedOutput, item.result, item.changes, item.agentsStates] }
         # collabAgentToolCall carries no .error field at all (confirmed live and
         # against the published schema) — item.status ("failed") is the only text
@@ -318,14 +332,12 @@ events:
         tool_error:  { first_present: [item.error.message, item.status] }
         tool_status: item.status
         duration_ms: item.durationMs
-        # NO nested_session_id here either, same reason as tool_pre: no
-        # recorded collabAgentToolCall failure exists to prove receiverThreadIds
-        # is still populated on this path. A subagent a failed spawnAgent opened
-        # via tool_post before failing stays open until abandonRunningSubagents'
-        # own sweep reclaims it with the rest of the turn — see StartSubagent's
-        # call site in turn/observation.go.
+        # NO spawns_scope: no recorded failed spawn proves receiverThreadIds is
+        # set here; its starting subagent is abandoned with its turn.
       fixtures:
+        - item_completed.commandExecutionFailed.json
         - item_completed.commandExecutionFailed-schema.json
+        - item_completed.fileChangeDeclined.json
         - item_completed.mcpToolCallFailed-schema.json
 
   # No index: this delta stream is already arrival-ordered.
@@ -336,6 +348,16 @@ events:
   # — see runtime's own top comment on attach-without-hotswap) the user is
   # already watching this stream render there, so ingesting a second copy
   # into a chat surface nobody is looking at is pure waste.
+  # What codex warns its TUI user about (a resumed session's model, a sandbox
+  # problem); configWarning arrives before any thread, so it names none.
+  warning:
+    api:
+      in: [warning, configWarning]
+      map:
+        session_id: threadId
+        message:    { first_present: [message, summary] }
+      fixtures: [warning.json, configWarning.json]
+
   message_delta:
     surfaces: [chat]
     in: item/agentMessage/delta
@@ -344,6 +366,24 @@ events:
       message_id: itemId
       text:       delta
       turn_id:    turnId
+
+  # An agentMessage's completion is its whole text, the message's record. text is
+  # not required: codex completes items with empty text, which say nothing rather
+  # than map wrong (the fixture replay proves the path).
+  message_complete:
+    required: [message_id]
+    api:
+      in: item/completed
+      when:
+        item.type: { any_of: [agentMessage] }
+      map:
+        session_id: threadId
+        turn_id:    turnId
+        message_id: item.id
+        text:       item.text
+        phase:      item.phase
+      fixtures:
+        - item_completed.agentMessage-schema.json
 
   # Codex spends most of a hard turn HERE and emits nothing else while it does
   # (captured live, codex-cli 0.149.1: item/started type reasoning, then
@@ -392,6 +432,10 @@ events:
   # status_map is where codex's words become Crowbar's. Go never learns
   # "inProgress"; a provider that spells it differently changes this map and
   # nothing else.
+  #
+  # thread/goal/* is not a plan: a goal is an objective a client sets
+  # (thread/goal/set), which Crowbar never does; live (0.164.0) every turn
+  # brings only thread/goal/cleared, which says nothing. Left unmapped.
   plan_update:
     in: turn/plan/updated
     # No `message:` — turn/plan/updated carries an `explanation`, but it was null
@@ -468,7 +512,8 @@ events:
   # widen to every later command in the session.
   permission:
     required: [session_id, tool_name]
-    timeout_seconds: 270
+    # A person may take long over an ask: a lapsed hold strands the CLI on it.
+    timeout_seconds: 86340
     # api's own fixtures below ARE genuine live captures (codex-cli 0.149.1,
     # verbatim from dispatch_test.go's commandExecutionApproval/
     # fileChangeApproval consts) and prove session_id/message (threadId/reason)
@@ -490,6 +535,11 @@ events:
         # call instead.
         message:   reason
         tool_name: tool
+        # The decisions this request takes, each a bare word or a one-key object; only a
+        # broader one than Allow and Deny is labelled, so only it is offered.
+        suggestions: availableDecisions
+        suggestion_label.acceptForSession: "Allow for the rest of this session"
+        suggestion_label.acceptWithExecpolicyAmendment: "Always allow commands that start like this"
       fixtures:
         - item_commandExecution_requestApproval.json
         - item_fileChange_requestApproval.json
@@ -510,6 +560,8 @@ events:
     reply:
       allow: '{"decision":"accept"}'
       deny:  '{"decision":"decline"}'
+      # The broader decision picked, sent back as codex offered it.
+      suggestion: '{"decision":{suggestion_json}}'
 
   elicitation:
     # No recorded mcpServer/elicitation/request payload exists in this repo —
@@ -517,7 +569,7 @@ events:
     # question, which no capture session has exercised.
     unverified: true
     ask: mcpServer/elicitation/request
-    timeout_seconds: 270
+    timeout_seconds: 86340
     map:
       message: message
       schema:  requestedSchema
@@ -556,12 +608,15 @@ events:
       # global default reaching an inherited chat — see selection.go) kept
       # resuming under whatever sandbox the thread was ORIGINALLY created
       # with forever, because resume never sent the new choice at all.
+      # excludeTurns: Crowbar's ledger is the transcript; hydrating the thread's
+      # history cost the first prompt after a restart seconds (live, 0.167).
       - call: thread/resume
         send:
           threadId:       "{session_id}"
           cwd:            "{cwd}"
           sandbox:        "{permission.sandbox}"
           approvalPolicy: "{permission.approvalPolicy}"
+          excludeTurns:   true
     action:
       - call: turn/start
         send:
@@ -580,20 +635,6 @@ events:
   interrupt:
     out: turn/interrupt
     send: { threadId: "{session_id}", turnId: "{turn_id}" }
-
-  # Captured live (0.149.1): thread/status/changed fires `active` when a turn
-  # opens and `idle` when it ends — and the idle one lands IMMEDIATELY BEFORE
-  # turn/completed on a perfectly healthy turn. So this can never close a turn
-  # directly; it only ARMS the reconcile that catches the turn whose close never
-  # comes at all (this file's own terminal_notices note records that happening).
-  #
-  # `systemError` and `notLoaded` are deliberately unmapped: neither means the
-  # work is finished, and treating them as idle would close a turn that is merely
-  # broken, or one that has not been loaded yet.
-  idle:
-    in: thread/status/changed
-    when: { status.type: idle }
-    map: { session_id: threadId }
 
   compact_start:
     out: thread/compact/start
@@ -621,9 +662,9 @@ events:
   # live, and confirmed live that NEITHER itemsView nor an empty items list
   # tells it apart from a genuinely interrupted real turn or a real turn
   # that ran a tool and sent no final text (both produce the identical empty
-  # shape). turn_stop/turn_failed's own turn_id mapping plus the latch in
-  # turn/compaction.go is what keeps a compaction from being misread as an
-  # ordinary reply or a failed one.
+  # shape). turn_stop/turn_failed's own turn_id mapping plus the ledger's
+  # compaction marker (the chat ingress's compactionEnd) is what keeps a
+  # compaction from being misread as an ordinary reply or a failed one.
   compact_pre:
     required: [session_id]
     api:
@@ -655,94 +696,30 @@ events:
       in: PostCompact
       map: { session_id: session_id }
 
-  # NEVER FIRE for codex, deliberately: SubagentStart/SubagentStop are a
-  # hooks-transport pair that assumes one flat id with no nesting — codex's
-  # real multi-agent mechanism is architecturally nothing like it. Confirmed
-  # live (codex-cli 0.149.1, `-c features.collab_agents=true`, a prompt that
-  # asks the model to spawn one), and preserved as testdata/fixtures/codex/
-  # item_started.collabAgentToolCall.json, item_completed.collabAgentToolCall.json
-  # and item_completed.collabAgentToolCall.wait.json (real captures, not
-  # schema guesses — see the fixtures dir's own README):
-  #
-  #   1. The model calls its OWN collabAgentToolCall tool (spawnAgent), an
-  #      ORDINARY item/started..completed pair on the PARENT thread — mapped
-  #      as a plain tool call (tool_pre/tool_post/tool_fail's
-  #      collabAgentToolCall branch above), and item/completed's
-  #      receiverThreadIds[0] names the spawned agent's own new thread id.
-  #      CONFIRMED LIVE (the fixture pair above): receiverThreadIds is EMPTY
-  #      on item/started and holds exactly one id on item/completed.
-  #   2. That child thread runs a COMPLETE, independent turn/started ..
-  #      item/* .. turn/completed cycle of its own, pushed over this SAME
-  #      connection despite the client never having called thread/start or
-  #      thread/resume on it — ordinary canonical events (turn_stop,
-  #      tool_pre/post, message_delta, idle...), just carrying the CHILD's
-  #      own threadId as their session_id instead of the parent's. That the
-  #      two ids DIFFER is proven by the fixture above, which names the
-  #      parent (threadId/senderThreadId) and the child
-  #      (receiverThreadIds[0], agentsStates' key) on one frame; that the
-  #      child runs a whole cycle of its own is live-only, recorded in
-  #      namesAnotherConversation's doc (turn/conversation.go) from a real
-  #      bleed-through incident the guard there exists to stop.
-  #   3. The model calls collabAgentToolCall(tool: wait) — another ordinary
-  #      tool call — whose OWN item/completed.agentsStates[childId] carries
-  #      the child's terminal status and result message. CONFIRMED LIVE
-  #      (item_completed.collabAgentToolCall.wait.json): agentsStates is
-  #      keyed by EXACTLY the id receiverThreadIds[0] names on that SAME
-  #      frame — item.agentsStates[receiverThreadIds[0]] (mapping.go's
-  #      dynamic-key selector) resolves correctly against real traffic.
-  #   4. The model calls collabAgentToolCall(tool: closeAgent) to tear the
-  #      child down. No live capture of this call exists; by structural
-  #      symmetry with 1 and 3 its own completion is assumed to keep naming
-  #      the same id in receiverThreadIds, but that assumption is
-  #      UNCONFIRMED — see nested_session_id's own note on tool_fail above.
-  #
-  # subAgentActivity — the OTHER item type the first pass's schema reading
-  # guessed this would ride, with its started|interacted|interrupted kinds —
-  # NEVER appeared, across every live capture taken of this sequence. It is
-  # presumably reserved for codex's OWN internally-spawned subagents
-  # (SubAgentSource's bare review|compact|memory_consolidation variants), not
-  # an explicit model-driven collab tool call. Still UNCONFIRMED.
-  #
-  # None of this is mapped onto subagent_pre/subagent_post — a
-  # StartSubagent/StopSubagent PAIR still cannot express "a whole second
-  # thread," and forcing one to would need Go to know collabAgentToolCall's
-  # own vocabulary to decide when to fire each half, which turn/ingest.go and
-  # turn/observation.go deliberately do not. Built instead, all fully
-  # generic (nested_session_id is declared on tool_post above — see its own
-  # note for why NOT tool_pre/tool_fail too — with zero codex-vocabulary
-  # knowledge in Go):
-  #
-  #   - a tool completion naming a nested_session_id Go has not already seen
-  #     open calls OpenNestedSubagent (turn/observation.go's
-  #     openNestedSubagent) — StartSubagent's OWN turn-safe twin, not
-  #     StartSubagent itself: StartSubagent's ensureTurn would silently mint
-  #     a ghost top-level turn the instant this fires after codex's own turn
-  #     has already closed, which it usually has by then;
-  #   - a frame whose session id names a chat's own currently-open subagent
-  #     is ROUTED into that subagent's nested activity instead of being
-  #     dropped as foreign (turn/ingest.go's routeNestedSubagentEvent) or
-  #     bled into the chat's own top-level turn (the bug
-  #     TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards);
-  #   - within that routing, the child's OWN tool_pre/tool_post/tool_fail
-  #     record its own nested tool calls (InvokeSubagentTool/
-  #     CompleteSubagentTool) and its OWN turn_stop/turn_failed closes the
-  #     subagent and records its final reply (StopSubagent) — see
-  #     turn/nested.go's handleNestedObservation.
-  # Hooks-only (the TUI's PTY): no api: block, so the api driver never
-  # resolves them.
+  # The api channel's subagents: a v1 spawnAgent call (tool_post above) binds the
+  # child thread; on multi-agent v2 a subAgentActivity item announces it, named by
+  # its path's last part, and again on a follow-up. Its own turn_stop ends each run.
   subagent_pre:
-    required: [session_id]  # subagent_id NOT required — see its own comment above
+    required: [session_id]
+    api:
+      in: item/started
+      when: { item.type: subAgentActivity, item.kind: { any_of: [started, interacted] } }
+      map:
+        session_id: threadId
+        scope_id:   item.agentThreadId
+        title:      { from: item.agentPath, pattern: '(?P<v>[^/]+)$' }
+      fixtures: [item_started.subAgentActivity.json, item_started.subAgentActivity.interacted.json]
     hooks:
       unverified: true
       in: SubagentStart
-      map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+      map: { session_id: session_id, scope_id: agent_id, agent_type: agent_type }
 
   subagent_post:
-    required: [session_id]  # subagent_id NOT required — see its own comment above
+    required: [session_id]
     hooks:
       unverified: true
       in: SubagentStop
-      map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
+      map: { session_id: session_id, scope_id: agent_id, agent_type: agent_type }
 
   # A deliberate no-op in Go: a session's end is observed from the process
   # exit. codex's api has no reachable "thread closed" notification to map.
@@ -796,6 +773,11 @@ permission_levels:
       vars:
         sandbox: danger-full-access
         approvalPolicy: never
+      # A moved chat must not write into the folder it left, and app-server at
+      # full-auto has no pre-call hook to refuse it (hook trust lives in
+      # CODEX_HOME). The workspace sandbox keeps it to its new worktree.
+      vars_after_leave:
+        sandbox: workspace-write
 
 catalog:
   models:   { call: model/list }
@@ -836,13 +818,13 @@ spawn:
   args:
     - "--dangerously-bypass-hook-trust"
 session:
-  resume: { arg: "resume {id}" }
-  # Checked before any resume: a thread that never completed a turn has no
-  # rollout, and `resume <id>` then exits 1 (verified on 0.156.1).
-  locate:
-    root_env: CODEX_HOME
-    root: "~/.codex"
-    glob: ["sessions/*/*/*/rollout-*-{id}.jsonl"]
+  resume:  { arg: "resume {id}" }
+  # Captured live (0.149.1) from both api calls that name a thread the server no
+  # longer has: thread/resume answers "no rollout found for thread id X" and
+  # turn/start "thread not found: X", each under -32600, JSON-RPC's generic
+  # invalid request. codex writes no rollout until a turn COMPLETES.
+  refused: { exit_code: 1, rpc_code: -32600, needles: ["no rollout found for thread id", "thread not found"] }
+  persists: turn_end
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -943,14 +925,6 @@ config_injection:
   # workspace-write denies network, and a unix-socket connect IS network on
   # macOS — grants network only, not the filesystem.
   - pass_arg: { arg: "-c", value: 'sandbox_workspace_write.network_access=true' }
-  # Without this, collabAgentToolCall (spawnAgent/wait/closeAgent) never
-  # appears at all — the model has no tool to spawn a subagent with, so
-  # tool_pre/tool_post's own collabAgentToolCall mapping and the
-  # nested_session_id routing it feeds (turn/nested.go) are permanently
-  # inert. Claude's subagent indicator (SubagentShelf) already works off the
-  # same generic activity.subagents feed; this is the one flag that lets
-  # codex actually produce the events that feed it too.
-  - pass_arg: { arg: "-c", value: 'features.collab_agents=true' }
   # Boot modals a launch must never park on (verified on 0.156.1): the
   # per-directory trust prompt (every worktree is a new directory) and the
   # "resume in which cwd?" prompt. Session-layer only — nothing is persisted.
@@ -995,7 +969,8 @@ hooks_injection:
       value: 'hooks.SubagentStop=[{hooks=[{type="command",command="{hook_curl} {hook_url}/subagent_post"}]}]'
   - pass_arg:
       arg: "-c"
-      value: 'hooks.PermissionRequest=[{hooks=[{type="command",command="{hook_curl} {hook_url}/permission"}]}]'
+      # Held while a person decides: its own timeout (seconds) is just past the ask's budget.
+      value: 'hooks.PermissionRequest=[{hooks=[{type="command",command="{hook_curl} {hook_url}/permission",timeout=86400}]}]'
   - pass_arg:
       arg: "-c"
       value: 'hooks.PreCompact=[{hooks=[{type="command",command="{hook_curl} {hook_url}/compact_pre"}]}]'
@@ -1006,14 +981,15 @@ hooks_injection:
       arg: "-c"
       value: 'hooks.SessionEnd=[{hooks=[{type="command",command="{hook_curl} {hook_url}/session_end"}]}]'
 mcp_injection:
+  # The relay's token rides a 0600 file in the runner's tmp dir: argv is readable by ps.
+  - write_file: { path: "{tmp}/mcp.token", content: "{runner_token}" }
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.command="{crowbar}"' }
   - pass_arg:
       arg: "-c"
-      value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token","{runner_token}","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}"]'
-  # codex starts an MCP server with a SCRUBBED environment — CROWBAR_HOME
-  # does not survive it, and that variable is the only thing selecting which
-  # daemon socket a `crowbar` subprocess dials. FORWARDED, not a literal: an
-  # unset CROWBAR_HOME must stay unset in the child.
+      value: 'mcp_servers.crowbar.args=["mcp","--segment","{segid}","--token-file","{tmp}/mcp.token","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]'
+  # codex starts an MCP server with a SCRUBBED environment; --host above names the
+  # daemon, and CROWBAR_HOME is FORWARDED (an unset one stays unset) for the
+  # relay's home, which picks the socket when no host is handed over.
   - pass_arg: { arg: "-c", value: 'mcp_servers.crowbar.env_vars=["CROWBAR_HOME"]' }
   # Without this codex stops on every Crowbar tool call and waits for a
   # human — the shell's own approval policy never covers MCP calls, which
@@ -1029,8 +1005,11 @@ mcp_injection:
 # REPLACES codex's system prompt.
 context_inject:
   - pass_arg: { arg: "-c", value: "developer_instructions={context}" }
-# NO resume_context_inject: a resumed chat-surface session is resumed over
-# the api connection, which delivers {context} via inject: at: context above.
+# A chat-surface resume rides the api connection (inject: at: context above);
+# this is the terminal surface's `codex resume <id> [PROMPT]`, which has no
+# other channel for the gap. The positional is the real gap, never a pointer.
+resume_context_inject:
+  - pass_arg: { positional: "{context}" }
 #
 # UNKINDED, unlike claude's pair: "Press enter to continue" is generic
 # confirmation text, so a match only proves the CLI is blocked, not why.
@@ -1047,10 +1026,14 @@ terminal_prompts:
 # the runner-exit reconcile never fires and the turn stays open indefinitely
 # — `ends_turn: true` is the fix. Only the first line is declared; URLs and
 # reset time are account-specific and captured verbatim off the screen.
+# The anchor is that capture's leading glyph on the raw row ("■ You've hit
+# your usage limit. Upgrade to Pro (…), visit"): a reply or a prompt echo
+# opening with the sentence carries a "•" or "›" there instead.
 #
 # NO idle needle: codex's composer placeholder rotates between sessions and
 # its busy indicator was never measured.
 terminal_notices:
   - kind: usage_limit
+    anchor: "■"
     needle: "You've hit your usage limit"
     ends_turn: true

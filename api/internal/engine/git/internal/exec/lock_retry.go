@@ -20,19 +20,9 @@ var (
 	lockPathRe = regexp.MustCompile(`Unable to create '([^']+\.lock)'`)
 )
 
-// runWithLockRetry runs the git command and, when it fails because another
-// process holds .git/index.lock, retries up to lockRetryAttempts times with a
-// short backoff. Other git processes (user terminals, shell prompt helpers)
-// legitimately hold the lock for brief windows, so a failed first attempt is
-// not an error yet.
-//
-// If every attempt fails and the lock file is older than staleLockMaxAge, the
-// lock is removed once and the command retried one final time. The staleness
-// check is age-only (no liveness probe of the owning process): a real git
-// operation finishes in well under ten seconds, so a lock that old is almost
-// certainly debris from a killed process. The tradeoff is accepted because a
-// genuinely live >10s index lock is far rarer than a stale one wedging every
-// mutation, and losing that race only fails one git command loudly.
+// runWithLockRetry retries a git command failing on a held .git/index.lock up to
+// lockRetryAttempts times, then removes a lock older than staleLockMaxAge and retries
+// once. Age-only staleness is accepted: a live >10s index lock is far rarer than debris.
 func runWithLockRetry(
 	ctx context.Context,
 	run func() Result,

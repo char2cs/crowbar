@@ -1,4 +1,5 @@
 import type { PaneGroup } from '@/features/panes/types/pane'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
 
@@ -11,15 +12,9 @@ function chatIsUp(readPanes: ReadPanes, chatId: string): boolean {
   return Object.values(readPanes()).some((pane) => pane.chatId === chatId)
 }
 
-/**
- * A pane holding `chatId` has CLOSED. That detaches this window from the chat
- * and nothing more: the agent keeps running (only an explicit Kill ends it), so
- * the one thing left to release is the browser's copy.
- *
- * The owning workspace's live store is dropped, but only if that workspace has
- * nothing else on screen. A workspace owns many chats, and closing one view of
- * it says nothing about the others.
- */
+/** A pane holding `chatId` closed. The agent keeps running (only Kill ends it); all that is
+ *  released is the browser's copy — the workspace's live store, only when none of its other
+ *  chats is on screen. */
 export function releaseClosedChat(
   chatId: string,
   workspaceId: string | null,
@@ -29,20 +24,16 @@ export function releaseClosedChat(
   // reveals rather than duplicates, but a persisted layout can still carry
   // two). Closing one of them ends that VIEW, not the chat.
   if (chatIsUp(readPanes, chatId)) return
-  // The workspace was recorded on the pane when the chat was opened (C3).
   if (!workspaceId) return
 
   // The workspace still has a view of its own up — some other chat OF ITS OWN
   // is on screen — so it is in use, not closed.
   for (const pane of Object.values(readPanes())) {
-    if (pane.chatId && pane.workspaceId === workspaceId) return
+    if (paneChatWorkspaceId(pane) === workspaceId) return
   }
 
-  // The ACTIVE workspace is the route: `WorkspaceView` is mounted over its
-  // store and would re-create it the instant it went away, so there is
-  // nothing to gain and a live subtree to break. It stops being active the
-  // moment the user goes anywhere else, and ordinary retention takes it from
-  // there.
+  // The active workspace is the route: WorkspaceView would re-create its store at once. Ordinary
+  // retention takes it once the user navigates away.
   if (workspaceId === getActiveWorkspaceId()) return
 
   requestWorkspaceEviction(workspaceId)

@@ -1,0 +1,235 @@
+// Package runner (file conversation.go) keeps the chat's conversation with each
+// provider in the chat's ledger: what a CLI announces, and the one exit that
+// loses it — the CLI refusing the session it was asked to resume.
+package runner
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+)
+
+// HandleSessionStart applies a CLI's session announcement to its chat; the runner never
+// moves. An unheld session is a change, a move onto this chat, or a conflict that ends
+// the CLI since nothing it does could be recorded (ledger.Announce).
+func (rs *Runners) HandleSessionStart(
+	ctx context.Context,
+	runner engineagents.Runner,
+	ev engineagents.CanonicalEvent,
+) error {
+	if ev.SessionID == "" {
+		return nil
+	}
+	got, err := rs.announceSession(ctx, runner.CurrentChatID, runner.ProviderID, ev.SessionID, ev.Reason == startCleared)
+	if err != nil {
+		return err
+	}
+	switch got {
+	case announcedNothing:
+	case announcedChange:
+		rs.leaveSession(ctx, runner)
+	case announcedConflict:
+		rs.endOffLock(ctx, runner, domain.AgentExitDisplaced)
+		return nil
+	}
+	rs.reportLaunch(ctx, runner.ID, ev.Model, ev.Effort)
+	return nil
+}
+
+// reportLaunch keeps what the CLI said it resolved to, for display; "" leaves
+// that half as it was.
+func (rs *Runners) reportLaunch(ctx context.Context, runnerID, model, effort string) {
+	if model == "" && effort == "" {
+		return
+	}
+	reported, ok := rs.live.update(runnerID, func(r *engineagents.Runner) {
+		r.ReportedModel = cmp.Or(model, r.ReportedModel)
+		r.ReportedEffort = cmp.Or(effort, r.ReportedEffort)
+	})
+	if ok {
+		rs.touch(ctx, reported.CurrentChatID)
+	}
+}
+
+// announced is what a CLI's announcement did to its chat.
+type announced int
+
+const (
+	announcedNothing  announced = iota // bound, or already the chat's
+	announcedChange                    // moved the chat off a session that turned
+	announcedConflict                  // another chat holds it, and this one kept its own
+)
+
+// startCleared is the canonical reason of a session_start the person's clear made.
+const startCleared = "cleared"
+
+// announceSession records that providerID's CLI on chatID is on sessionID, cleared
+// when the person's clear started it. The ledger's session index alone judges a
+// session another chat holds.
+func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sessionID string, cleared bool) (announced, error) {
+	announce := func(st ledger.State) ([]ledger.Row, error) { return ledger.Announce(st, providerID, sessionID, "") }
+	if cleared {
+		announce = func(st ledger.State) ([]ledger.Row, error) { return ledger.AnnounceCleared(st, providerID, sessionID) }
+	}
+	rows, _, err := rs.ledger.Do(ctx, chatID, announce)
+	if errors.Is(err, ledgerstore.ErrSessionClaimed) {
+		rows, err = rs.claimHeld(ctx, chatID, providerID, sessionID)
+	}
+	if err != nil {
+		return announcedNothing, fmt.Errorf("agent: announce session: %w", err)
+	}
+	for _, r := range rows {
+		m, err := ledger.DecodeBody[ledger.Marker](r)
+		switch {
+		case err != nil || r.Kind != ledger.KindMarker:
+		case m.Kind == ledger.MarkerSessionChanged:
+			return announcedChange, nil
+		case m.Kind == ledger.MarkerSessionConflict:
+			return announcedConflict, nil
+		}
+	}
+	return announcedNothing, nil
+}
+
+func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID, owner string) ([]ledger.Row, error) {
+	rows, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Announce(st, providerID, sessionID, owner)
+	})
+	return rows, err
+}
+
+// leaveSession closes what runner left open in the session it moved off: its
+// turn and the prompt it carried belong to that session, so nothing on this
+// chat will ever close or acknowledge them.
+func (rs *Runners) leaveSession(ctx context.Context, runner engineagents.Runner) {
+	chatID := runner.CurrentChatID
+	command := rs.commandOf(ctx, runner)
+	rs.settlePrompts(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		salvaged, err := rs.turns.ExitRows(st, chatID, runner.ID)
+		if err != nil {
+			return nil, err
+		}
+		left, err := ledger.Leave(st, runner.ID, command)
+		return append(salvaged, left...), err
+	})
+	rs.turns.Retire(chatID, runner.ID)
+}
+
+// commandOf is runner's provider's command test; nil (none) when its descriptor
+// cannot be read, which leaves every untaken prompt unacknowledged.
+func (rs *Runners) commandOf(ctx context.Context, runner engineagents.Runner) func(string) bool {
+	crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, runner.WorkspaceID)
+	if err != nil {
+		return nil
+	}
+	agent, err := rs.agents.Get(ctx, crowbarHome, runner.ProviderID)
+	if err != nil {
+		return nil
+	}
+	return agent.PromptIsCommand
+}
+
+// sessionOrigin is told the session an api connection's own driver opened or
+// resumed for chatID, which binds exactly as a CLI's announcement does.
+func (rs *Runners) sessionOrigin(chatID, providerID string) engineagents.APISessionOrigin {
+	return func() func(string) {
+		return func(sessionID string) {
+			if sessionID == "" {
+				return
+			}
+			if _, err := rs.announceSession(context.Background(), chatID, providerID, sessionID, false); err != nil {
+				slog.Warn("agent: api transport: bind the session it opened",
+					"chat_id", chatID, "provider", providerID, "err", err)
+			}
+		}
+	}
+}
+
+// resumeWatch is what a launch that resumed a session needs at its exit to
+// tell the CLI refusing that session from any other exit.
+type resumeWatch struct {
+	chatID, providerID, sessionID string
+	agent                         engineagents.Agent
+}
+
+// runnerExit is how a runner's process ended, kept for the one exit that
+// records its end.
+type runnerExit struct {
+	engineterminal.Exit
+	resume resumeWatch
+}
+
+// loseRefusedSession loses the watched session when exit is the CLI's own
+// refusal of it, and then returns resume_failed. The exit's record runs it
+// first, so what the runner carried is settled as lost, not as an exit.
+func (rs *Runners) loseRefusedSession(ctx context.Context, runnerID string, exit runnerExit) string {
+	w := exit.resume
+	if w.sessionID == "" {
+		return ""
+	}
+	reason, refused := w.agent.RefusedResume(exit.Code, exit.Screen)
+	if !refused || !rs.loseSession(ctx, w.chatID, w.providerID, w.sessionID, reason, runnerID) {
+		return ""
+	}
+	return domain.AgentExitResumeFailed
+}
+
+// loseAPISession loses the session an api connection's provider refused; a
+// runner whose connection is its only process ends with it.
+func (rs *Runners) loseAPISession(ctx context.Context, chatID string, live engineagents.Runner, sessionID string, err error) {
+	if !errors.Is(err, engineagents.ErrAPISessionLost) {
+		return
+	}
+	if rs.loseSession(ctx, chatID, live.ProviderID, sessionID, err.Error(), live.ID) {
+		rs.noteRefusedRunner(chatID, live.ID)
+	}
+	if live.TerminalSession == "" {
+		rs.apiConns.drop(live.ID)
+	}
+}
+
+// loseSession moves sessionID to lost and settles what runnerID carried. It
+// reports whether that lost the session.
+func (rs *Runners) loseSession(ctx context.Context, chatID, providerID, sessionID, reason, runnerID string) bool {
+	rows, _, err := rs.ledger.Do(context.WithoutCancel(ctx), chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Lose(st, providerID, sessionID, reason, runnerID)
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: lose a refused session", "chat_id", chatID, "err", err)
+		return false
+	}
+	if len(rows) == 0 {
+		return false
+	}
+	slog.InfoContext(ctx, "agent: the CLI refused the chat's session",
+		"chat_id", chatID, "provider", providerID, "session_id", sessionID, "reason", reason)
+	return true
+}
+
+// noteRefusedRunner notes resume_failed on a started runner whose connection
+// was its only process. A refusal during a spawn is the spawn's to record.
+func (rs *Runners) noteRefusedRunner(chatID, runnerID string) {
+	if v, ok := rs.live.view(chatID); ok && v.runner.ID == runnerID && v.started && v.runner.TerminalSession == "" {
+		rs.live.noteCause(runnerID, domain.AgentExitResumeFailed)
+	}
+}
+
+// boundSession is chatID's bound session with providerID, "" when there is none.
+func (rs *Runners) boundSession(ctx context.Context, chatID, providerID string) (string, error) {
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: bound session: %w", err)
+	}
+	if c, ok := st.Conversation(providerID); ok && c.State == ledger.ConversationBound {
+		return c.SessionID, nil
+	}
+	return "", nil
+}

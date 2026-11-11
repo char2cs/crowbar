@@ -1,12 +1,5 @@
-// Adapted from the Plate registry (`https://platejs.org/r/block-menu-kit.json`
-// -> `block-context-menu`) — the per-block right-click menu.
-//
-// HAND-ADAPTED: this app's right-click menus are the OS's own native menu
-// (see `@/components/ui/context-menu`'s `ContextMenu`/`useContextMenu`), not a
-// React-rendered popup — a browser has to fake a menu; this app doesn't need
-// to. Upstream renders through `@radix-ui/react-context-menu` directly; that
-// import is gone here in favour of the shared `ContextMenu` API every other
-// right-click menu in this app uses.
+// Adapted from the Plate registry (block-menu-kit.json -> `block-context-menu`): the per-block
+// right-click menu, through the shared native-first `ContextMenu` instead of Radix.
 'use client'
 
 import * as React from 'react'

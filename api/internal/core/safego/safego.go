@@ -1,11 +1,6 @@
-// Package safego runs detached goroutines behind a panic-recovery boundary.
-//
-// Crowbar's daemon is a long-lived sidecar. A panic on a bare goroutine — an
-// async git mutation, the WebSocket broadcaster fan-out, a file watcher, an LSP
-// reader, a terminal pump — is not attributable to any HTTP request, so the
-// runtime would crash the entire process, dropping every connected workspace's
-// streams, terminals, and watchers at once. Every spawned goroutine must instead
-// recover, log with a stack trace, and contain the failure to that unit of work.
+// Package safego runs detached goroutines behind a panic-recovery boundary. A panic
+// on a bare goroutine would crash the long-lived daemon and drop every workspace's
+// streams and terminals, so each one recovers, logs a stack and contains the failure.
 package safego
 
 import (
@@ -36,7 +31,7 @@ func Recover(name string) {
 }
 
 // RecoverFn is like Recover but invokes onPanic with the recovered value after
-// logging, so the caller can surface the failure (e.g. as a workspace lastError)
+// logging, so the caller can surface the failure (e.g. as a failed operation)
 // instead of letting it vanish.
 func RecoverFn(name string, onPanic func(recovered any)) {
 	if r := recover(); r != nil {

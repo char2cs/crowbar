@@ -122,8 +122,8 @@ func newThemeTestSession(t *testing.T, id string) (*Session, *pipeDrainer) {
 func TestSession_SetTheme_NotifiesWhenMode2031Enabled(t *testing.T) {
 	s, d := newThemeTestSession(t, "sid-theme-notify")
 
-	s.PumpChunkForTest([]byte("\x1b[?2031h"))  // app subscribes
-	s.SetTheme(color.White, color.Black, true) // switch to dark
+	s.PumpChunkForTest([]byte("\x1b[?2031h"))                      // app subscribes
+	require.NoError(t, s.SetTheme(color.White, color.Black, true)) // switch to dark
 
 	waitContains(t, d, "\x1b[?997;1n") // dark report
 }
@@ -143,10 +143,10 @@ func TestSession_SetTheme_NotifiesWhenMode2031Enabled(t *testing.T) {
 func TestSession_SetTheme_NoNotifyWhenMode2031Disabled(t *testing.T) {
 	s, d := newThemeTestSession(t, "sid-theme-nonotify")
 
-	s.SetTheme(color.White, color.Black, true) // no ?2031h beforehand: must not notify
+	require.NoError(t, s.SetTheme(color.White, color.Black, true)) // no ?2031h beforehand: must not notify
 
-	s.PumpChunkForTest([]byte("\x1b[?2031h"))  // the app subscribes…
-	s.SetTheme(color.White, color.Black, true) // …so this identical push DOES notify
+	s.PumpChunkForTest([]byte("\x1b[?2031h"))                      // the app subscribes…
+	require.NoError(t, s.SetTheme(color.White, color.Black, true)) // …so this identical push DOES notify
 	waitContains(t, d, "\x1b[?997;1n")
 
 	require.Equal(t, 1, reportCount(d),
@@ -168,14 +168,23 @@ func TestSession_SetTheme_DedupesSamePolarityAndNotifiesOnFlip(t *testing.T) {
 
 	s.PumpChunkForTest([]byte("\x1b[?2031h"))
 
-	s.SetTheme(color.White, color.Black, true) // dark -> notify
+	require.NoError(t, s.SetTheme(color.White, color.Black, true)) // dark -> notify
 	waitContains(t, d, "\x1b[?997;1n")
 
-	s.SetTheme(color.White, color.Black, true)  // dark again -> must be deduped
-	s.SetTheme(color.Black, color.White, false) // light -> notify (the barrier)
+	require.NoError(t, s.SetTheme(color.White, color.Black, true))  // dark again -> must be deduped
+	require.NoError(t, s.SetTheme(color.Black, color.White, false)) // light -> notify (the barrier)
 	waitContains(t, d, "\x1b[?997;2n")
 
 	require.Equal(t, 2, reportCount(d),
 		"want exactly the two flip reports: a same-polarity push must not add a third; got %q",
 		d.snapshot())
+}
+
+// A theme push whose report cannot reach the PTY says so: the session is gone.
+func TestSession_SetTheme_ANotifyWriteFailureIsReturned(t *testing.T) {
+	s, _ := newThemeTestSession(t, "sid-theme-notify-fail")
+	s.PumpChunkForTest([]byte("\x1b[?2031h"))
+	s.Kill()
+
+	require.ErrorContains(t, s.SetTheme(color.White, color.Black, true), "session not live")
 }

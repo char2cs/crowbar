@@ -1,13 +1,13 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
@@ -53,11 +53,23 @@ func (h *Handlers) Search(
 		Exclude:       body.Exclude,
 	})
 	if err != nil {
-		handleSearchError(ctx, err)
+		failSearch(ctx, err)
 		return
 	}
 
 	libs.WriteQueryOK(ctx, resp)
+}
+
+// failSearch answers an uncoded engine failure with a fixed message: it is
+// ripgrep's own output, the paths and files it read, not the client's to see.
+// The access log keeps the whole chain.
+func failSearch(ctx *gin.Context, err error) {
+	if problem.CodeOf(err) != problem.Internal {
+		libs.Fail(ctx, err)
+		return
+	}
+	libs.NoteError(ctx, err)
+	ctx.JSON(http.StatusInternalServerError, libs.Envelope{Success: false, Error: "search failed", Code: problem.Internal})
 }
 
 // Replace handles POST /v0/chats/:chatId/search/replace.
@@ -97,38 +109,9 @@ func (h *Handlers) Replace(
 		Regex:         body.Regex,
 	}, ws.Status == domain.WorkspaceStatusLocked)
 	if err != nil {
-		handleReplaceError(ctx, err)
+		libs.Fail(ctx, err)
 		return
 	}
 
 	ctx.Status(http.StatusOK)
-}
-
-// handleSearchError maps Search errors to appropriate HTTP responses.
-func handleSearchError(
-	ctx *gin.Context,
-	err error,
-) {
-	if errors.Is(err, enginesearch.ErrBadPattern) {
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-		return
-	}
-	libs.WriteErr(ctx, http.StatusInternalServerError, "search failed")
-}
-
-// handleReplaceError maps Replace errors to appropriate HTTP responses.
-func handleReplaceError(
-	ctx *gin.Context,
-	err error,
-) {
-	switch {
-	case errors.Is(err, enginesearch.ErrLocked):
-		libs.WriteErr(ctx, http.StatusForbidden, "workspace is locked")
-	case errors.Is(err, enginesearch.ErrPathOutsideWorkspace):
-		libs.WriteErr(ctx, http.StatusBadRequest, "replace path is outside the workspace")
-	case errors.Is(err, enginesearch.ErrBadPattern):
-		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
-	default:
-		libs.WriteErr(ctx, http.StatusInternalServerError, err.Error())
-	}
 }

@@ -15,7 +15,8 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const repoWithChat = (chatId: string, wsId: string): Repo => ({
   id: 'repo-1',
@@ -30,7 +31,7 @@ afterEach(() => {
   cleanup()
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
   resetWindowPaneStoreForTests()
-  useSidebarStore.setState({ repos: [] })
+  seedRepos([])
   vi.restoreAllMocks()
 })
 
@@ -84,7 +85,7 @@ describe('workspace registry notifications vs. the render path', () => {
       // takes it — together they move the ancestor's answer from null to
       // 'ws-a' with NO store registered for 'ws-a' yet, so the child's own
       // render is what mints it.
-      useSidebarStore.setState({ repos: [repoWithChat('c1', 'ws-a')] })
+      seedRepos([repoWithChat('c1', 'ws-a')])
       windowPaneStore.getState().paneActions.openChat('c1', { workspaceId: 'ws-a' })
     })
 

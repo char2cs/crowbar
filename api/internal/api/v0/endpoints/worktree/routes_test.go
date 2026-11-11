@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -63,9 +64,12 @@ type stubHierarchy struct{}
 func (stubHierarchy) CreateFromImport(
 	_ context.Context,
 	_ workspace.ImportInput,
+	_ workspace.ImportProgress,
 ) error {
 	return nil
 }
+
+func (stubHierarchy) GuardMergeFold(context.Context, string) error { return nil }
 
 func (stubHierarchy) MergeIntoParent(
 	_ context.Context,
@@ -129,22 +133,15 @@ func (stubRepos) FindByKey(
 	return nil, nil
 }
 
-type stubLastErrors struct{}
+type stubOps struct{}
 
-func (stubLastErrors) SetLastError(
+func (stubOps) Start(
 	_ context.Context,
-	id string,
-	message string,
-) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, LastError: message}, nil
+	spec operation.Spec,
+	_ operation.Work,
+) (domain.Operation, error) {
+	return domain.Operation{ID: spec.ID, Kind: spec.Kind}, nil
 }
-
-type stubWork struct{}
-
-func (stubWork) BeginWork(_ context.Context, _ string) {}
-func (stubWork) EndWork(_ context.Context, _ string)   {}
-func (stubWork) IsWorking(_ string) bool               { return false }
-func (stubWork) WorkingFor(_ string) bool              { return false }
 
 func registerOn(
 	r *gin.Engine,
@@ -157,8 +154,8 @@ func registerOn(
 		stubReader{},
 		stubHierarchy{},
 		stubRepos{},
-		stubLastErrors{},
-		stubWork{},
+		stubOps{},
+		nil,
 		nil,
 		stubWorktrees{},
 	)
@@ -243,8 +240,8 @@ func TestRegisterWithoutAResolverMountsOnlyTheImport(
 		stubReader{},
 		stubHierarchy{},
 		stubRepos{},
-		stubLastErrors{},
-		stubWork{},
+		stubOps{},
+		nil,
 		nil,
 		nil,
 	)

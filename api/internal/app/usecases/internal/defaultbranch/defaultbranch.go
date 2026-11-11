@@ -1,5 +1,5 @@
 // Package defaultbranch resolves the default branch of a local git repository
-// without executing real git commands — callers inject a RefRunner (00 §5.2).
+// without executing real git commands — callers inject a RefRunner.
 package defaultbranch
 
 import "strings"
@@ -8,11 +8,8 @@ import "strings"
 // Returns (output, true) on success; ("", false) on any failure.
 type RefRunner func(args ...string) (string, bool)
 
-// Resolve returns the default branch using the 00 §5.2 ordering:
-//  1. symbolic-ref origin/HEAD → last path segment
-//  2. first entry in configList confirmed by rev-parse --verify
-//  3. current HEAD via symbolic-ref HEAD → last path segment
-//  4. never-empty fallback: first configList entry, or "main"
+// Resolve returns the default branch: origin/HEAD, else the first configList entry
+// rev-parse verifies, else the current HEAD, else the first configList entry or "main".
 func Resolve(
 	runner RefRunner,
 	configList []string,

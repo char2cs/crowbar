@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -30,33 +31,18 @@ func TestLifecycleSuite(t *testing.T) {
 	)
 }
 
-// TestLifecycle_WorkspaceCreateBroadcastsOnWS proves the projection → hub
-// broadcast → WS chain still holds under the chat-scoped surface (spec §4/§5):
-// a worktree's state is observable on the repo's chat feed as a worktree_state
-// frame, carrying its branch and repo.
-//
-// It creates through the USECASE (kit.Env.CreateWorkspaceWithChat), not HTTP —
-// spec §8 step 6 deleted POST .../workspaces, the only HTTP surface that could
-// name a branch, and the one HTTP create left (POST .../chats with
-// ownWorktree:true) both auto-derives the branch name AND synchronously spawns
-// a real provider CLI runner (chat/internal/tree/chats.go
-// createOwnWorktreeChat) — this suite's kit.Env registers no stub provider, so
-// that path is not exercisable headless. See kit.Env.CreateWorkspace's own doc.
-//
-// It also can no longer key on the CREATE's own broadcast: pushChatWorktree
-// pushes NOTHING for a workspace with no resolved owning chat (container.go),
-// and a bare create mints none — the boot backfill (or, here,
-// CreateWorkspaceWithChat's own OwningChatID call) is what gives it one, AFTER
-// the create has already committed and been dropped by the push. So this pins
-// the first broadcast a freshly-chatted worktree CAN produce — its own sync —
-// rather than the create event itself.
+// TestLifecycle_WorkspaceCreateBroadcastsOnWS proves the projection → stream
+// chain: a worktree's state reaches a projects-scope holder as its workspace
+// row, carrying its branch and repo. It creates through the usecase
+// (kit.Env.CreateWorkspaceWithChat) because no headless HTTP create names a
+// branch, and keys on the worktree's own sync, a write made after the dial.
 func (s *LifecycleSuite) TestLifecycle_WorkspaceCreateBroadcastsOnWS() {
 	t := s.T()
 
 	imported := s.Env.ImportRepo(t, "lifecycle", "")
 	wsID, chatID := s.Env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/lifecycle", "")
 
-	watcher := s.Env.DialRepoChats(t, imported.ProjectID, imported.RepoID)
+	watcher := s.Env.HoldProjects(t)
 	syncResp := s.Env.POST(t,
 		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/chats/"+chatID+"/sync", nil)
 	kit.RequireStatus(t, syncResp, http.StatusAccepted)
@@ -68,19 +54,20 @@ func (s *LifecycleSuite) TestLifecycle_WorkspaceCreateBroadcastsOnWS() {
 	s.Assert().Equal(imported.RepoID, created["repoId"])
 }
 
-// TestLifecycle_SyncClearsLastError proves a workspace edit → stage → commit →
-// sync flow round-trips: the workspace stays status "new" after committing (per
-// D4 — status is not cleared by HasCommits) and carries no lastError.
-func (s *LifecycleSuite) TestLifecycle_SyncClearsLastError() {
+// TestLifecycle_SyncSucceedsAfterACommit proves a workspace edit → stage →
+// commit → sync flow round-trips: the sync operation succeeds and the workspace
+// stays status "new" (per D4 — status is not cleared by HasCommits).
+func (s *LifecycleSuite) TestLifecycle_SyncSucceedsAfterACommit() {
 	t := s.T()
 
 	imported := s.Env.ImportRepo(t, "lifecycle-sync", "")
 	wsID, chatID := s.Env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/lifecycle-sync", "")
 	chatBase := "/v0/chats/" + chatID
 
-	saveResp := s.Env.PUT(t, chatBase+"/files/content", map[string]any{
-		"path":    "a.txt",
-		"content": "aaa\n",
+	saveResp := s.Env.PUT(t, "/v0/documents/content", map[string]any{
+		"workspaceId": wsID,
+		"path":        "a.txt",
+		"content":     "aaa\n",
 	})
 	kit.RequireStatus(t, saveResp, http.StatusOK)
 	saveResp.Body.Close()
@@ -98,29 +85,16 @@ func (s *LifecycleSuite) TestLifecycle_SyncClearsLastError() {
 	kit.RequireStatus(t, commitResp, http.StatusOK)
 	commitResp.Body.Close()
 
-	watcher := s.Env.DialChat(t, chatID)
+	watcher := s.Env.HoldProjects(t)
 	syncResp := s.Env.POST(t,
 		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/chats/"+chatID+"/sync", nil)
-	kit.RequireStatus(t, syncResp, http.StatusAccepted)
-	syncResp.Body.Close()
-
-	// Per D4 status STAYS "new" after sync with commits; the workspace must carry
-	// no lastError. Wait on the terminal "new" frame and assert lastError empty.
-	msg := kit.WaitForWorkspaceState(t, watcher, wsID, "new", 5*time.Second)
-	le, _ := msg["lastError"].(string)
-	s.Assert().Empty(le, "sync must not set a lastError")
+	s.Equal(domain.OpSucceeded, s.Env.AwaitOperation(t, syncResp, 10*time.Second).State)
+	kit.WaitForWorkspaceState(t, watcher, wsID, "new", 5*time.Second)
 }
 
 // TestLifecycle_MergeEligibilityTrueWhenParentIdle proves that a child whose
 // parent is idle (not locked/deleted) carries canMergeLocally:true and the
-// parent's branch in the WS DTO (spec §10).
-//
-// It reads the freshly created child over REST rather than waiting on a WS
-// frame: a bare create mints no owning chat, and pushChatWorktree pushes
-// NOTHING without one (container.go) — so the create's own broadcast is
-// unobservable by construction, and CreateWorkspaceWithChat's own chat-mint
-// does not retroactively resend it (mintOwningChat writes the CHAT aggregate,
-// never re-committing the workspace).
+// parent's branch in its workspace row (spec §10), read back over REST.
 func (s *LifecycleSuite) TestLifecycle_MergeEligibilityTrueWhenParentIdle() {
 	t := s.T()
 
@@ -188,12 +162,13 @@ func (s *LifecycleSuite) TestLifecycle_GitStageCommitChangesStatus() {
 	t := s.T()
 
 	imported := s.Env.ImportRepo(t, "git-status", "")
-	_, chatID := s.Env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/lifecycle-git", "")
+	wsID, chatID := s.Env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature/lifecycle-git", "")
 	chatBase := "/v0/chats/" + chatID
 
-	saveResp := s.Env.PUT(t, chatBase+"/files/content", map[string]any{
-		"path":    "hello.txt",
-		"content": "Hello, world!\n",
+	saveResp := s.Env.PUT(t, "/v0/documents/content", map[string]any{
+		"workspaceId": wsID,
+		"path":        "hello.txt",
+		"content":     "Hello, world!\n",
 	})
 	kit.RequireStatus(t, saveResp, http.StatusOK)
 	saveResp.Body.Close()

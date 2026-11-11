@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   type CSSProperties,
@@ -13,6 +14,15 @@ import { cn } from '@/lib/utils'
 const HANDLE_TRACK_PX = 1
 const DEFAULT_CONTENT_MIN_RATIO = 0.2
 const KEYBOARD_STEP_PX = 16
+
+// Below 640px there is no room to share: the open sidebar lies over the content as a drawer,
+// so the content keeps its whole width and a tap beside the drawer closes it.
+// Out of flow, the sidebar still fills its grid area, which already holds the clamped track width.
+const NARROW_SIDEBAR =
+  '@max-[640px]/split:absolute @max-[640px]/split:inset-0 @max-[640px]/split:z-40 ' +
+  '@max-[640px]/split:bg-background @max-[640px]/split:shadow-xl'
+// A class, not an inline style, so the narrow variant can widen it to every column.
+const CONTENT_AREA = '[grid-area:content] @max-[640px]/split:[grid-area:1/1/2/-1]'
 
 interface SidebarSplitPaneProps {
   side: 'left' | 'right'
@@ -51,23 +61,14 @@ function widthFromDrag(
   maxWidth: number,
   contentMinRatio: number,
 ): number {
-  // Match the collapsible-panel gesture: the sidebar stays open at its minimum
-  // until the pointer crosses halfway to zero, then closes. The same threshold
-  // makes dragging outward from a closed sidebar deliberate rather than letting
-  // a one-pixel wobble reopen it.
+  // Like a collapsible panel: stay open at the minimum until the pointer passes halfway to zero,
+  // which also stops a one-pixel wobble from reopening a closed sidebar.
   if (width < minWidth / 2) return 0
   return clampOpenWidth(width, containerWidth, minWidth, maxWidth, contentMinRatio)
 }
 
-/**
- * The IDE's outer split, deliberately narrower than a general panel library.
- *
- * Its important contract is negative: while idle it has no document/window
- * pointermove listener and performs no geometry reads. A listener exists only
- * between a primary-button pointerdown on the separator and its matching
- * pointerup/cancel. During that drag the container is measured once; subsequent
- * moves only update one CSS custom property, coalesced to animation frames.
- */
+// The IDE's outer split. Contract: idle it has no pointermove listener and reads no geometry; a
+// drag measures the container once and then writes one CSS property per animation frame.
 export function SidebarSplitPane({
   side,
   open,
@@ -105,6 +106,22 @@ export function SidebarSplitPane({
     },
     [],
   )
+
+  // Over the content (the scrim is shown only in a narrow window) the sidebar is an overlay,
+  // so Esc dismisses it, unless something on top of it already took the key.
+  const scrimRef = useRef<HTMLButtonElement>(null)
+  const dismissOverlay = useEffectEvent(() => onOpenChange(false))
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      const scrim = scrimRef.current
+      if (!scrim || getComputedStyle(scrim).display === 'none') return
+      dismissOverlay()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open])
 
   const commitKeyboardWidth = useCallback(
     (requestedWidth: number) => {
@@ -278,7 +295,7 @@ export function SidebarSplitPane({
       ref={rootRef}
       data-sidebar-split-pane=""
       data-side={side}
-      className="grid h-full w-full min-w-0"
+      className="@container/split relative grid h-full w-full min-w-0"
       style={
         {
           '--sidebar-track-width': `${open ? preferredWidth : 0}px`,
@@ -292,7 +309,7 @@ export function SidebarSplitPane({
         ref={sidebarRef}
         id="crowbar-sidebar-pane"
         data-sidebar-split-panel="sidebar"
-        className="min-h-0 min-w-0 overflow-hidden"
+        className={cn('min-h-0 min-w-0 overflow-hidden', NARROW_SIDEBAR)}
         style={{ gridArea: 'sidebar' }}
       >
         {sidebar}
@@ -315,6 +332,7 @@ export function SidebarSplitPane({
         onPointerDown={handlePointerDown}
         className={cn(
           'relative z-10 h-full w-2 touch-none justify-self-center cursor-col-resize outline-none',
+          '@max-[640px]/split:hidden',
           'after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:transition-colors',
           'hover:after:bg-border/60 focus-visible:after:bg-border focus-visible:ring-1 focus-visible:ring-ring',
         )}
@@ -323,11 +341,21 @@ export function SidebarSplitPane({
 
       <div
         data-sidebar-split-panel="content"
-        className="min-h-0 min-w-0 overflow-visible"
-        style={{ gridArea: 'content' }}
+        className={cn('min-h-0 min-w-0 overflow-visible', CONTENT_AREA)}
       >
         {children}
       </div>
+
+      {open && (
+        <button
+          ref={scrimRef}
+          type="button"
+          tabIndex={-1}
+          aria-label="Close sidebar"
+          className="absolute inset-0 z-30 hidden bg-black/30 @max-[640px]/split:block"
+          onClick={() => onOpenChange(false)}
+        />
+      )}
     </div>
   )
 }

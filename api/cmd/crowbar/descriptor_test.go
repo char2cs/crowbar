@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
 func runDescriptor(t *testing.T, args ...string) (string, error) {
@@ -26,7 +26,7 @@ func runDescriptor(t *testing.T, args ...string) (string, error) {
 }
 
 func TestDescriptorValidate_TheShippedDescriptorsPass(t *testing.T) {
-	t.Setenv(metadata.HomeEnvVar, t.TempDir())
+	t.Setenv(home.EnvVar, t.TempDir())
 
 	out, err := runDescriptor(t, "validate")
 
@@ -48,7 +48,7 @@ func TestDescriptorValidate_ABrokenFileFailsWithItsFindings(t *testing.T) {
 }
 
 func TestDescriptorValidate_PrintsJSON(t *testing.T) {
-	t.Setenv(metadata.HomeEnvVar, t.TempDir())
+	t.Setenv(home.EnvVar, t.TempDir())
 
 	out, err := runDescriptor(t, "validate", "--json")
 
@@ -62,7 +62,7 @@ func TestDescriptorValidate_PrintsJSON(t *testing.T) {
 
 // Without --live, test validates the installed descriptor by provider id.
 func TestDescriptorTest_WithoutLiveValidatesByProviderID(t *testing.T) {
-	t.Setenv(metadata.HomeEnvVar, t.TempDir())
+	t.Setenv(home.EnvVar, t.TempDir())
 
 	out, err := runDescriptor(t, "test", "codex")
 
@@ -71,7 +71,7 @@ func TestDescriptorTest_WithoutLiveValidatesByProviderID(t *testing.T) {
 }
 
 func TestDescriptorTest_AnUnknownProviderIsAnError(t *testing.T) {
-	t.Setenv(metadata.HomeEnvVar, t.TempDir())
+	t.Setenv(home.EnvVar, t.TempDir())
 
 	_, err := runDescriptor(t, "test", "nope")
 

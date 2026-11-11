@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // Deleting a repo from Crowbar must never damage the user's own git repository
@@ -38,23 +40,23 @@ func TestRegression_DeleteRepo_KeepsTheUsersBranchesAndUncommittedWork(t *testin
 	// A branch the user made themselves, which no workspace ever touched.
 	runGit(t, imported.repoPath, "branch", "feature/users-own")
 
-	reposWS := h.dial("/v0/projects/" + imported.projectID + "/repos")
-	h.raw(http.MethodDelete, "/v0/projects/"+imported.projectID+"/repos/"+imported.repoID,
-		nil, http.StatusAccepted).Body.Close()
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == imported.repoID && m["status"] == "deleted"
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	require.NoError(t, h.raw(http.MethodDelete, "/v0/projects/"+imported.projectID+"/repos/"+imported.repoID,
+		nil, http.StatusAccepted).Body.Close())
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 
-	assert.True(t, branchExists(imported.repoPath, "main"), "the default branch must survive its repo's removal")
-	assert.True(t, branchExists(imported.repoPath, "feature/users-own"), "a branch the user made must survive")
-	assert.False(t, branchExists(imported.repoPath, "feature/crowbar-made"),
+	assert.True(t, branchExists(t, imported.repoPath, "main"), "the default branch must survive its repo's removal")
+	assert.True(t, branchExists(t, imported.repoPath, "feature/users-own"), "a branch the user made must survive")
+	assert.False(t, branchExists(t, imported.repoPath, "feature/crowbar-made"),
 		"the branch Crowbar created for its own workspace goes with it")
 	assert.FileExists(t, unsaved, "uncommitted work in a protected worktree must never be destroyed")
 }
 
-func branchExists(repoPath, branch string) bool {
-	//nolint:gosec // G204: test-only git invocation on a temp repo.
-	return exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "--quiet",
+func branchExists(t *testing.T, repoPath, branch string) bool {
+	t.Helper()
+	return exec.CommandContext(t.Context(), "git", "-C", repoPath, "rev-parse", "--verify", "--quiet",
 		"refs/heads/"+branch).Run() == nil
 }

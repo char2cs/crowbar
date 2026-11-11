@@ -1,9 +1,6 @@
-// Package semtok rewrites each language server's semantic-token legend into
-// Crowbar's one canonical legend: Monaco fixes a provider's legend once, and
-// the rewrite only touches the type/modifier slot of each token, so full,
-// range and delta results all translate element-wise. A type with no
-// canonical counterpart gets an out-of-legend index, which Monaco leaves
-// unstyled (the syntax color stays).
+// Package semtok rewrites each language server's semantic-token legend into Crowbar's
+// one canonical legend, since Monaco fixes a provider's legend once. Only the type and
+// modifier slots change; an uncanonical type gets an out-of-legend index, left unstyled.
 package semtok
 
 import (
@@ -13,10 +10,8 @@ import (
 	"sort"
 )
 
-// TokenTypes is the canonical legend's token types: the LSP 3.18 standard set
-// plus the markup types (tag, attribute) the editor's grammar tier emits. The
-// web legend (features/editor/monaco/semantic-tokens-legend.ts) mirrors it
-// index for index; both sides pin the list in a test.
+// TokenTypes is the canonical legend's types: the LSP 3.18 set plus tag and attribute.
+// The web legend (semantic-tokens-legend.ts) mirrors it index for index, pinned by tests.
 var TokenTypes = []string{
 	"namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
 	"parameter", "variable", "property", "enumMember", "event", "function",
@@ -24,10 +19,8 @@ var TokenTypes = []string{
 	"regexp", "operator", "decorator", "label", "tag", "attribute",
 }
 
-// TokenModifiers is the canonical legend's modifiers. readonly comes first on
-// purpose: Monaco styles a token by matching "type.mod1.mod2" (modifiers in
-// legend order) against theme rules by longest dotted prefix, so a
-// "variable.readonly" rule only matches when readonly is the first modifier.
+// TokenModifiers is the canonical legend's modifiers. readonly is first because Monaco
+// matches "type.mod1.mod2" by longest dotted prefix, so "variable.readonly" needs it first.
 var TokenModifiers = []string{
 	"readonly", "declaration", "definition", "static", "deprecated", "abstract",
 	"async", "modification", "documentation", "defaultLibrary",
@@ -255,12 +248,9 @@ func (s Support) remapTokens(
 	s.remapFrom(data, 0)
 }
 
-// remapDelta rewrites every edit's inserted data into the canonical legend in
-// place. An element's slot (type, modifiers, or a position) is its index in the
-// NEW array modulo 5, so each edit's offset is shifted by the net growth of the
-// edits before it. The previous result was already canonical, so the elements
-// the edits keep need no rewrite — unless an earlier edit shifted them off
-// their slot, which ErrMisalignedDelta reports.
+// remapDelta rewrites each edit's inserted data into the canonical legend in place. A
+// slot is its index in the new array mod 5, so offsets shift by earlier edits' growth;
+// kept elements are already canonical unless shifted off slot (ErrMisalignedDelta).
 func (s Support) remapDelta(
 	edits []Edit,
 ) error {

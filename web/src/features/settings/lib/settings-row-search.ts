@@ -1,9 +1,6 @@
 import type { ReactNode } from 'react'
 
-/**
- * Case-insensitive match of the settings search query against a setting row's
- * label and (string) description. An empty/whitespace query matches everything.
- */
+/** Case-insensitive, over label and string description; a blank query matches everything. */
 export function settingRowMatchesQuery(
   query: string,
   label: string,

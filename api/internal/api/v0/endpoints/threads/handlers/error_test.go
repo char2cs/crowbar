@@ -1,18 +1,20 @@
 package handlers_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 // TestThreadHandlers_NotFound asserts a not-found store error maps to 404 on the
 // read and mutation paths that resolve an existing thread.
 func TestThreadHandlers_NotFound(t *testing.T) {
-	store := &fakeStore{err: apperr.ErrNotFound}
+	store := &fakeStore{err: problem.ErrNotFound}
 	bc := &fakeBroadcaster{}
 	r := newRouter(store, bc)
 
@@ -37,9 +39,20 @@ func TestThreadHandlers_InternalError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, base+"/t1", nil).Code)
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPatch, base+"/t1",
 		map[string]any{"isResolved": false}).Code)
-	// OpenThread fail-fast maps store errors to 400 (invalid anchor input).
-	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodPost, base,
+	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPost, base,
 		map[string]any{"filePath": "x.go", "body": "c"}).Code)
+}
+
+// A full dispatch queue is a busy daemon, not a crash, and the reply carries
+// no wrap chain.
+func TestThreadHandlers_AFullQueueIsUnavailable(t *testing.T) {
+	store := &fakeStore{err: fmt.Errorf("review thread: reply t1: %w", fmt.Errorf("dispatch: %w", asynxModels.ErrQueueFull))}
+	r := newRouter(store, &fakeBroadcaster{})
+
+	rec := do(r, http.MethodPost, base+"/t1/replies", map[string]any{"body": "x"})
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.JSONEq(t, `{"success":false,"code":"unavailable","error":"dispatch: asynx: queue full"}`, rec.Body.String())
 }
 
 type assertErr struct{}

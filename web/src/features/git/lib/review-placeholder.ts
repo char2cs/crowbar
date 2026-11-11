@@ -5,11 +5,8 @@ import type { FileOutline, HunkShape } from '@/features/git/api/review-window-ap
 import { PATCH_LINE_CAP } from '@/features/git/lib/patch-window'
 import type { GitDiff } from '@/features/git/types/git-types'
 
-/**
- * Pure layout for the windowed Branch Review surface (review-code-view.tsx):
- * file classification, the content-free placeholder a file occupies before its
- * patch arrives, and patch parsing.
- */
+// Pure layout for the windowed Branch Review: file classification, the content-free placeholder
+// a file occupies before its patch arrives, and patch parsing.
 
 // ── File classification ─────────────────────────────────────────────
 
@@ -25,15 +22,8 @@ export interface ReviewFileEntry {
   outline?: FileOutline
 }
 
-/**
- * Classify every changed file, preserving the summary's order.
- *
- * Binary-ness comes from the OUTLINE (git emits no `@@` headers for a binary
- * file, so the outline reports it directly) rather than from the summary, which
- * only carries counts. Image-ness is then decided by extension: the daemon does
- * not distinguish a PNG from a `.bin`, and the difference is purely about which
- * component can show it.
- */
+/** Classifies files in summary order. Binary-ness comes from the outline (git emits no `@@` for a
+ *  binary); image-ness from the extension, since the daemon doesn't tell a PNG from a `.bin`. */
 export function partitionReviewFiles(
   files: readonly GitDiff[],
   outline: readonly FileOutline[],
@@ -55,30 +45,9 @@ export function partitionReviewFiles(
 
 // ── Placeholder geometry ────────────────────────────────────────────
 
-/**
- * Build the content-free `FileDiffMetadata` a file occupies before its patch
- * arrives.
- *
- * `computeEstimatedDiffHeights` — what CodeView sizes an item with — reads only
- * each hunk's `splitLineCount` / `unifiedLineCount`, never a line of text. So a
- * hunk here carries its rendered row counts and an EMPTY `hunkContent`: the
- * virtualiser reserves the right space and the renderer draws nothing until the
- * real patch replaces it.
- *
- * The row counts need the split between context and changed lines, which a
- * `@@` header does not give — only `oldLines` and `newLines`. The summary's ±
- * counts close that gap exactly: across a whole file, context = Σ oldLines −
- * deletions, and distributing that across hunks (bounded per hunk by
- * `min(oldLines, newLines)`, the most context a hunk can hold) recovers each
- * hunk's shape. Without usable ± counts the estimate falls back to zero context
- * — the upper bound, because over-reserving costs a scrollbar that shrinks
- * while under-reserving costs a scroll that jumps.
- *
- * `isPartial` is always true on a placeholder. It is the library's flag for
- * "these lines are only what the patch showed", which switches off the
- * expand-unchanged machinery that would otherwise index into the (empty) line
- * arrays.
- */
+// CodeView sizes items from hunk row counts alone, so hunks carry counts and empty content. Context
+// per hunk = (Σ oldLines − deletions) spread under min(old, new); no ± counts → zero context, an
+// over-reserve (jumps are worse). isPartial stops expand-unchanged indexing the empty line arrays.
 export function buildPlaceholderFileDiff(
   file: GitDiff,
   outline: FileOutline | undefined,
@@ -86,21 +55,19 @@ export function buildPlaceholderFileDiff(
   const shapes = outline?.hunks ?? []
   const additions = countOf(file.additions)
   const deletions = countOf(file.deletions)
-  const hunks = trimToPatchCap(buildPlaceholderHunks(shapes, distributeContext(shapes, deletions)))
+  const hunks = trimToPatchCap(
+    buildPlaceholderHunks(shapes, distributeContext(shapes, file.deletions)),
+  )
 
-  // A capped outline stops at the server's per-file hunk limit, so its geometry
-  // is a LOWER bound on the file — sizing from it alone under-reserves by
-  // however much the cap cut. Every changed line renders one unified row, so
-  // the summary's ± counts are a floor the outline must be topped up to.
+  // A capped outline is a lower bound on the file; every changed line is one unified row, so
+  // the summary's ± counts are the floor it is topped up to.
   const room = PATCH_LINE_CAP - sumBy(hunks, (h) => h.unifiedLineCount)
   if (outline?.isPartial && room > 0) {
     const missingAdditions = Math.max(0, additions - sumBy(hunks, (h) => h.additionLines))
     const missingDeletions = Math.max(0, deletions - sumBy(hunks, (h) => h.deletionLines))
     if (missingAdditions + missingDeletions > 0) {
-      // The tail carries the TRUE missing counts and reserves only the room
-      // left under the cap. Reserving the full amount is the over-reservation
-      // that collapses on materialisation; reserving nothing makes the
-      // scrollbar lie. See reserveAtMost for why both can be satisfied.
+      // The tail reports the true missing counts but reserves only the room under the cap
+      // (reserveAtMost): more collapses on materialisation, none makes the scrollbar lie.
       hunks.push(reserveAtMost(buildTailHunk(hunks, missingAdditions, missingDeletions), room))
     }
   }
@@ -138,27 +105,8 @@ function changeTypeOf(file: GitDiff): ChangeTypes {
   return 'change'
 }
 
-/**
- * Drop whole hunks past the point where the patch request stops delivering.
- *
- * A placeholder used to reserve height from the file's FULL ± counts — 420,000
- * rows for the fixture's monster — while the patch that replaces it is capped
- * at PATCH_LINE_CAP. Materialising then shrank that item by the difference,
- * every item below it jumped up, and the viewport ended up pointing somewhere
- * unrelated. Repeated during one fast scroll it scrambled the position↔content
- * mapping badly enough that scrolling back to the top still showed a file from
- * deep in the list.
- *
- * Measured per item rather than in total: the monster published a fileDiff of
- * 0 unified rows against a 420,000-row placeholder. The surface's total scroll
- * height is a poor witness here — the renderer paginates it at
- * SCROLL_REBASE_CONTAINER_HEIGHT (12,000,000px), so any branch past that
- * ceiling reports the ceiling whatever its items do.
- *
- * Reserving what will actually be DELIVERED removes the mismatch at its source.
- * This is the same correction the window budget needed: a file costs, and
- * occupies, what it holds — not what its diff contains.
- */
+// Reserve only what the capped patch request will deliver: a placeholder taller than its patch
+// shrinks on materialising and shifts everything below it, scrambling the scroll position.
 function trimToPatchCap(hunks: Hunk[]): Hunk[] {
   const kept: Hunk[] = []
   let unified = 0
@@ -168,27 +116,15 @@ function trimToPatchCap(hunks: Hunk[]): Hunk[] {
     unified += hunk.unifiedLineCount
   }
   if (kept.length > 0) return kept
-  // Dropping is not available when the FIRST hunk already exceeds the cap: a
-  // whole-file rewrite is a single hunk, so there would be nothing left to
-  // reserve and the file would occupy no space at all. Scale it down instead.
+  // A first hunk over the cap (a whole-file rewrite) can't be dropped or the file occupies
+  // nothing; scale it down instead.
   const first = hunks[0]
   return first != null ? [reserveAtMost(first, PATCH_LINE_CAP)] : []
 }
 
-/**
- * Cap the SPACE a hunk reserves without changing what it reports containing.
- *
- * Height is estimated from `unifiedLineCount`/`splitLineCount`; the file
- * header's ± label sums `additionLines`/`deletionLines`. Those are separate
- * fields, which is what lets a file whose patch is capped reserve only the rows
- * that will actually arrive while still telling the reader how much the file
- * really changed. Scaling the ± counts too — an earlier version of this — made
- * the fixture's 420,000-line monster announce itself as "+20000".
- *
- * A placeholder draws nothing (its `hunkContent` is empty), so the two sets of
- * numbers describing different things costs nothing until the real patch
- * replaces the whole record.
- */
+// Caps the space a hunk reserves (row counts) but not its ± (addition/deletion lines), so a
+// capped file still shows how much it really changed. A placeholder draws nothing, so the two
+// disagreeing costs nothing until the real patch replaces it.
 function reserveAtMost(hunk: Hunk, room: number): Hunk {
   if (hunk.unifiedLineCount <= room || room <= 0) return hunk
   const scale = room / hunk.unifiedLineCount
@@ -199,11 +135,11 @@ function reserveAtMost(hunk: Hunk, room: number): Hunk {
   }
 }
 
-/** Per-hunk context-line estimate; see `buildPlaceholderFileDiff`. */
-function distributeContext(shapes: readonly HunkShape[], deletions: number): number[] {
+/** Per-hunk context estimate (see `buildPlaceholderFileDiff`); only an unknown count gives 0. */
+function distributeContext(shapes: readonly HunkShape[], deletions = -1): number[] {
   const caps = shapes.map((s) => Math.min(s.oldLines, s.newLines))
   const capTotal = sumBy(caps, (c) => c)
-  if (capTotal === 0 || deletions === 0) return caps.map(() => 0)
+  if (capTotal === 0 || deletions < 0) return caps.map(() => 0)
 
   const oldTotal = sumBy(shapes, (s) => s.oldLines)
   const contextTotal = Math.min(Math.max(oldTotal - deletions, 0), capTotal)
@@ -234,8 +170,7 @@ function buildPlaceholderHunks(shapes: readonly HunkShape[], context: readonly n
       deletionCount: shape.oldLines,
       deletionLines,
       deletionLineIndex,
-      // Empty on purpose: this is the whole reason a placeholder is cheap. The
-      // row counts below reserve the space; nothing draws until the patch lands.
+      // Empty on purpose: the row counts below reserve the space; nothing draws until the patch.
       hunkContent: [],
       hunkSpecs: `@@ -${shape.oldStart},${shape.oldLines} +${shape.newStart},${shape.newLines} @@`,
       splitLineStart,
@@ -282,25 +217,9 @@ function buildTailHunk(hunks: readonly Hunk[], additions: number, deletions: num
 
 // ── Patch parsing ───────────────────────────────────────────────────
 
-/**
- * Identity for one parsed patch, as the renderer understands identity.
- *
- * `areDiffTargetsEqual` treats two different FileDiffMetadata objects as the
- * SAME target when their cacheKeys match, and a same-target update keeps the
- * cached estimated height rather than recomputing it. So the key has to change
- * whenever the CONTENT does, not merely whenever the file does.
- *
- * Keying on `wsId:path` alone broke "Show all" completely. Expanding a
- * truncated file refetches the same path uncapped, so the key was identical,
- * so the library kept the capped item's height: the 420,000 lines were
- * fetched, parsed and published — `getItem` reported all of them — and the
- * file still occupied exactly the 20,000 rows it had before, showing the same
- * truncated content. The one affordance for reading a large file whole did
- * nothing, silently, after a 13MB download.
- *
- * The patch length distinguishes them and costs nothing: identical text still
- * shares a key, which is what the highlighter cache wants.
- */
+/** Matching cacheKeys make the renderer keep the cached height, so the key must change with the
+ *  content: the length tells a "Show all" refetch from its capped patch, while identical text
+ *  still shares a key for the highlighter cache. */
 export function patchCacheKey(
   wsId: string,
   commit: string | undefined,

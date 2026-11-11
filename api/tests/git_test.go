@@ -26,10 +26,9 @@ func TestGit_StatusDiffStageCommit(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	base := wsBase(imported)
 
-	var saved struct {
-		ID string `json:"id"`
-	}
-	h.put(base+"/files/content", map[string]string{"path": "README.md", "content": "hello\nworld\n"}, &saved)
+	h.put(documentsContent, map[string]string{
+		"workspaceId": imported.workspaceID, "path": "README.md", "content": "hello\nworld\n",
+	}, nil)
 
 	var status gitStatusDTO
 	h.get(base+"/git/status", &status)
@@ -75,18 +74,4 @@ func TestGit_LockedWorkspaceRejectsWrite(t *testing.T) {
 
 	h.postError(base+"/git/commit", map[string]string{"subject": "blocked"}, http.StatusConflict)
 	h.postError(base+"/git/stage", map[string]any{"paths": []string{"README.md"}}, http.StatusConflict)
-}
-
-// TestGit_StatusDualServeWS proves the /git/status route dual-serves: a WebSocket
-// upgrade delivers the GitStatus snapshot on connect.
-func TestGit_StatusDualServeWS(t *testing.T) {
-	h := newHarness(t)
-	imported := importProject(t, h)
-
-	conn := h.dial(wsBase(imported) + "/git/status")
-	got := readUntil(t, conn, func(m map[string]any) bool {
-		_, ok := m["branch"]
-		return ok
-	})
-	assert.Equal(t, "main", got["branch"])
 }

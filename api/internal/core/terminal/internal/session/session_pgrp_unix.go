@@ -8,11 +8,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ptyForegroundPgid reads the PTY master's foreground process-group id via the TIOCGPGRP
-// ioctl. It is a package-level var ONLY so a unit test can substitute a probe that returns
-// an error, driving the otherwise-unreachable ioctl-failure branch in isIdleLocked and
-// checkForegroundResetLocked — a valid live PTY's TIOCGPGRP never fails, so no real input
-// reaches those guards. Production never reassigns it.
+// ptyForegroundPgid reads the PTY master's foreground process group via TIOCGPGRP. It is
+// a var only so a test can drive the ioctl-failure branch a live PTY never hits.
+// Production never reassigns it.
 var ptyForegroundPgid = func(fd uintptr) (int, error) {
 	var fgPgid int32
 	if _, _, errno := unix.Syscall(
@@ -26,8 +24,6 @@ var ptyForegroundPgid = func(fd uintptr) (int, error) {
 	return int(fgPgid), nil
 }
 
-// getpgidFn wraps unix.Getpgid. It is a package-level var ONLY so a unit test can force the
-// getpgid-failure branch (the shell's process having vanished between the ioctl and the
-// getpgid) which no real, still-live session can reproduce deterministically. Production
-// never reassigns it.
+// getpgidFn wraps unix.Getpgid; it is a var only so a test can force the getpgid
+// failure no live session reproduces. Production never reassigns it.
 var getpgidFn = unix.Getpgid

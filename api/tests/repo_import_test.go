@@ -7,16 +7,16 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // homeWorkspaceDTO mirrors the WorkspaceDTO wire fields this suite asserts on
@@ -61,16 +61,7 @@ func gitRepoWithBranches(
 
 func gitCurrentBranch(t *testing.T, dir string) string {
 	t.Helper()
-	out := gitOutput(t, dir, "branch", "--show-current")
-	return strings.TrimSpace(out)
-}
-
-func gitOutput(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
-	return string(out)
+	return strings.TrimSpace(runGitOut(t, dir, "branch", "--show-current"))
 }
 
 // TestRepoImport_ProtectedBranchesGetManagedWorktrees is the end-to-end contract
@@ -95,33 +86,26 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	require.Equal(t, "develop", gitCurrentBranch(t, repoDir), "repo starts checked out on develop")
 
 	// 1. Create the project (lightweight Create — no repo discovery).
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == parent })
+	project := projectsWS.read(t, func(m map[string]any) bool { return m["path"] == parent })
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
 	// 2. Add the repo → ImportRepo runs the new adoption.
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	resp = h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "myrepo", "path": repoDir}, http.StatusAccepted)
-	_ = resp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool { return m["path"] == repoDir })
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "myrepo", "path": repoDir})
+	repo := reposWS.read(t, func(m map[string]any) bool { return m["path"] == repoDir })
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID)
 
 	// 3. Read the repo's workspaces back off the chat list once both protected
 	//    branches have materialised.
 	//
-	//    Join the import's post-commit reactors FIRST: provisioning runs
-	//    asynchronously off the repo POST above. The repo-scoped chat feed that
-	//    replaced the old workspaces WS carries no snapshot (agentChatDef), so a
-	//    live-frame wait dialled here would race the provisioning and could hang
-	//    forever if it lost; reading the settled projection back over REST after
-	//    QuiesceReactors is the deterministic replacement (mirrors importProject's
-	//    own "read back rather than awaited" reasoning).
+	//    Join the import's post-commit reactors first, then read the settled
+	//    projection back over REST.
 	h.QuiesceReactors()
 	byBranch := collectWorkspacesFromChats(t, h, projectID, repoID)
 	_, sawDev := byBranch["develop"]
@@ -197,9 +181,9 @@ func TestRegression_RepoImport_SameFolderCannotBeAddedToASecondProject(t *testin
 	repoDir := filepath.Join(parentA, "shared")
 	gitRepoWithBranches(t, repoDir, "master", "main")
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	projectA := createProject(t, h, projectsWS, parentA, "Alpha")
-	addRepo(t, h, h.dial("/v0/projects/"+projectA+"/repos"), projectA, repoDir)
+	addRepo(t, h, watchEntities(t, h, stream.KindRepo), projectA, repoDir)
 
 	// A second project tries to adopt the same folder.
 	projectB := createProject(t, h, projectsWS, t.TempDir(), "Beta")
@@ -252,9 +236,9 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	// the fixed order main → develop → master.
 	gitRepoWithBranches(t, repoDir, "master", "main")
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	projectID := createProject(t, h, projectsWS, parent, "Alpha")
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	firstRepoID := addRepo(t, h, reposWS, projectID, repoDir)
 
 	h.QuiesceReactors()
@@ -285,8 +269,8 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	resp := h.raw(http.MethodDelete,
 		"/v0/projects/"+projectID+"/repos/"+firstRepoID, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == firstRepoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == firstRepoID && m["gone"] == true
 	})
 	// The tombstone above fires once every workspace of the repo has been
 	// tombstoned; waitWorkspaceGone joins the delete reactor that purges them.
@@ -335,7 +319,7 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 func createProject(
 	t *testing.T,
 	h *harness,
-	projectsWS *websocket.Conn,
+	projectsWS *entities,
 	path string,
 	name string,
 ) string {
@@ -343,7 +327,7 @@ func createProject(
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": name, "path": path}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == path })
+	project := projectsWS.read(t, func(m map[string]any) bool { return m["path"] == path })
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 	return projectID
@@ -356,7 +340,7 @@ func createProject(
 func addRepo(
 	t *testing.T,
 	h *harness,
-	reposWS *websocket.Conn,
+	reposWS *entities,
 	projectID string,
 	repoPath string,
 	skip ...string,
@@ -366,10 +350,8 @@ func addRepo(
 	for _, id := range skip {
 		skipped[id] = true
 	}
-	resp := h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": filepath.Base(repoPath), "path": repoPath}, http.StatusAccepted)
-	_ = resp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool {
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": filepath.Base(repoPath), "path": repoPath})
+	repo := reposWS.read(t, func(m map[string]any) bool {
 		id, _ := m["id"].(string)
 		return m["path"] == repoPath && !skipped[id]
 	})
@@ -427,19 +409,17 @@ func TestRepoImport_UnbornBranchRepo_DegradesGracefully(t *testing.T) {
 	require.NoError(t, os.MkdirAll(repoDir, 0o755))
 	runGit(t, repoDir, "init", "-b", "main") // unborn main, zero commits
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == parent })
+	project := projectsWS.read(t, func(m map[string]any) bool { return m["path"] == parent })
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	resp = h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "empty", "path": repoDir}, http.StatusAccepted)
-	_ = resp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool { return m["path"] == repoDir })
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "empty", "path": repoDir})
+	repo := reposWS.read(t, func(m map[string]any) bool { return m["path"] == repoDir })
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID, "the repo is still imported despite the unborn branch (degrade, not fail)")
 
@@ -465,20 +445,18 @@ func TestRegression_RepoImport_HonorsSuppliedName(t *testing.T) {
 	repoDir := filepath.Join(parent, "widget") // folder base is "widget"
 	gitRepoWithBranches(t, repoDir, "master")
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == parent })
+	project := projectsWS.read(t, func(m map[string]any) bool { return m["path"] == parent })
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	resp = h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "My Custom Name", "path": repoDir}, http.StatusAccepted)
-	_ = resp.Body.Close()
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "My Custom Name", "path": repoDir})
 
-	repo := readUntil(t, reposWS, func(m map[string]any) bool { return m["path"] == repoDir })
+	repo := reposWS.read(t, func(m map[string]any) bool { return m["path"] == repoDir })
 	assert.Equal(t, "My Custom Name", repo["name"],
 		"the repo must be named from the POST body, not filepath.Base(path)")
 	assert.Equal(t, "M", repo["avatarLabel"],
@@ -496,19 +474,17 @@ func TestRegression_RepoRename_UpdatesNameAndBroadcasts(t *testing.T) {
 	repoDir := filepath.Join(parent, "widget")
 	gitRepoWithBranches(t, repoDir, "master")
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == parent })
+	project := projectsWS.read(t, func(m map[string]any) bool { return m["path"] == parent })
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	resp = h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "widget", "path": repoDir}, http.StatusAccepted)
-	_ = resp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool { return m["path"] == repoDir })
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "widget", "path": repoDir})
+	repo := reposWS.read(t, func(m map[string]any) bool { return m["path"] == repoDir })
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID)
 
@@ -516,17 +492,13 @@ func TestRegression_RepoRename_UpdatesNameAndBroadcasts(t *testing.T) {
 		map[string]string{"name": "Renamed Repo"}, http.StatusNoContent)
 	_ = resp.Body.Close()
 
-	renamed := readUntil(t, reposWS, func(m map[string]any) bool { return m["name"] == "Renamed Repo" })
+	renamed := reposWS.read(t, func(m map[string]any) bool { return m["name"] == "Renamed Repo" })
 	assert.Equal(t, repoID, renamed["id"], "the rename frame is for the same repo")
 	assert.Equal(t, "R", renamed["avatarLabel"], "the generated avatar tracks the new name")
 }
 
 // collectWorkspacesFromChats reads the repo's worktree-owning chats back over
-// REST, keyed by branch, and is what a WS wait for provisioned rows was
-// replaced with: the repo-scoped chat feed that replaced the workspaces WS
-// carries no snapshot (agentChatDef), so a live-frame wait dialled after the
-// provisioning it wants to observe can hang forever having already missed it.
-// Callers join the async provisioning with Quiesce/QuiesceReactors FIRST — the
+// REST, keyed by branch. Callers join the async provisioning with Quiesce/QuiesceReactors FIRST — the
 // deterministic barrier — then read the settled projection here.
 func collectWorkspacesFromChats(
 	t *testing.T,
@@ -638,20 +610,18 @@ func TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug(t *testing
 	repoDir := filepath.Join(parent, "widget") // the on-disk identity
 	gitRepoWithBranches(t, repoDir, "master")
 
-	projectsWS := h.dial("/v0/projects")
+	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
 	_ = resp.Body.Close()
-	project := readUntil(t, projectsWS, func(m map[string]any) bool { return m["path"] == parent })
+	project := projectsWS.read(t, func(m map[string]any) bool { return m["path"] == parent })
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
 	// Imported under a display name that has nothing to do with the folder.
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
-	resp = h.raw(http.MethodPost, "/v0/projects/"+projectID+"/repos",
-		map[string]string{"name": "My Custom Name", "path": repoDir}, http.StatusAccepted)
-	_ = resp.Body.Close()
-	repo := readUntil(t, reposWS, func(m map[string]any) bool { return m["path"] == repoDir })
+	reposWS := watchEntities(t, h, stream.KindRepo)
+	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "My Custom Name", "path": repoDir})
+	repo := reposWS.read(t, func(m map[string]any) bool { return m["path"] == repoDir })
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID)
 
@@ -663,7 +633,7 @@ func TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug(t *testing
 	resp = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoID,
 		map[string]string{"name": "Renamed Repo"}, http.StatusNoContent)
 	_ = resp.Body.Close()
-	readUntil(t, reposWS, func(m map[string]any) bool { return m["name"] == "Renamed Repo" })
+	reposWS.read(t, func(m map[string]any) bool { return m["name"] == "Renamed Repo" })
 
 	createWorkspaceOnBranch(t, h, projectID, repoID, "feature/after")
 	require.DirExists(t, filepath.Join(slugDir, "feature", "after", "worktree"),

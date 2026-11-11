@@ -1,7 +1,5 @@
-//! The native "Toggle Console" Window-menu item. macOS consumes Cmd+` (window
-//! cycle) before the webview sees it, so a menu accelerator is the only way the
-//! default chord can fire. The keymap store stays the single owner of the chord:
-//! the web pushes the effective one here and this only mirrors it.
+//! The native "Toggle Console" menu item: macOS consumes Cmd+` before the webview, so
+//! only a menu accelerator can fire it. The keymap store owns the chord; this mirrors it.
 
 #[cfg(target_os = "macos")]
 use tauri::{Emitter, Manager};

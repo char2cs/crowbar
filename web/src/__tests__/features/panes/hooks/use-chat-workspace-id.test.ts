@@ -20,14 +20,12 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 const editorTab = (id: string, wsId: string): EditorContent => ({
   id,
   type: 'editor',
+  authority: 'workspace',
   name: id,
   path: id,
   workspaceId: wsId,
-  content: '',
-  savedContent: '',
   isDirty: false,
   isVirtual: false,
-  tokens: [],
 })
 
 const paneActions = () => windowPaneStore.getState().paneActions
@@ -118,13 +116,8 @@ describe('useViewWorkspaceIds', () => {
   })
 })
 
-// Regression: an editor-only pane (chatId: null, real editorTabIds) names no
-// chat at all, so it was invisible to WorkspaceHost's retention set entirely
-// — planRetention (keep-alive-policy.ts) could evict a workspace still
-// displaying an open file/terminal split the moment its chat (if any)
-// dropped out of Recents, destroying the store (and EditorSurface's
-// editorManager) out from under the still-visible pane. Live-reported as
-// "Editor failed to load. Try closing and reopening this file."
+// An editor-only pane (chatId: null, real editorTabIds) names no chat, yet
+// its workspace's store must stay retained while its tab is on screen.
 describe('usePaneEditorWorkspaceIds', () => {
   it('names the workspace an editor-only pane (no chat) holds a file for', () => {
     act(() => {

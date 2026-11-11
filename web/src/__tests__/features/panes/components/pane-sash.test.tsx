@@ -1,5 +1,5 @@
 /**
- * Tests for PaneSash unmount-mid-drag cleanup (R21).
+ * Tests for PaneSash unmount-mid-drag cleanup.
  *
  * Verifies:
  *   1. Starting a drag then unmounting removes window listeners and clears
@@ -93,14 +93,8 @@ describe('PaneSash className passthrough', () => {
     document.body.innerHTML = ''
   })
 
-  // The chat/editor sash (pane-container.tsx) needs to paint the SAME
-  // translucent fill the chat box beside it does — at rest this sash paints
-  // nothing of its own, which left a visible seam of whatever's behind the
-  // whole pane (now nothing, since the shared pane box stopped painting a
-  // fill for the chat's real vibrancy to work) showing through its own
-  // width. A generic pane-splitting sash (agent-chat-pane's terminal split,
-  // pane-node-renderer's arbitrary pane split) has no such need, so this is
-  // an opt-in className, not a hard-coded default.
+  // The chat/editor sash paints the chat's translucent fill (the pane box paints none) through an
+  // opt-in className; generic pane-splitting sashes don't need it.
   it('merges a caller-supplied className onto the sash element', () => {
     const { container } = renderSash({ className: 'bg-chrome-bg' })
     const sash = container.querySelector('[data-slot="resizable-handle"]')

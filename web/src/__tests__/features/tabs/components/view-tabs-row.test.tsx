@@ -9,7 +9,8 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import type { Repo } from '@/core/entities/repo-types'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const sidebar = vi.hoisted(() => ({ open: true }))
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
@@ -31,24 +32,21 @@ beforeEach(() => {
     state.settings.buildBadgeOverride = 'beta'
     state.settings.sidebarPosition = 'left'
   })
-  useSidebarStore.setState({
-    ...getInitialState(),
-    repos: [
-      {
-        id: 'r1',
-        projectId: 'p1',
-        name: 'crowbar',
-        avatarLabel: 'C',
-        avatarColor: 'bg-indigo-700',
-        workspaces: [],
-        chats: [
-          { id: 'chat-1', repoId: 'r1', title: 'Chat One', order: 0, workspaceId: 'ws-1' },
-          { id: 'chat-2', repoId: 'r1', title: 'Chat Two', order: 1, workspaceId: 'ws-1' },
-          { id: 'chat-3', repoId: 'r1', title: 'Chat Three', order: 2, workspaceId: 'ws-1' },
-        ],
-      },
-    ],
-  })
+  seedRepos([
+    {
+      id: 'r1',
+      projectId: 'p1',
+      name: 'crowbar',
+      avatarLabel: 'C',
+      avatarColor: 'bg-indigo-700',
+      workspaces: [],
+      chats: [
+        { id: 'chat-1', repoId: 'r1', title: 'Chat One', order: 0, workspaceId: 'ws-1' },
+        { id: 'chat-2', repoId: 'r1', title: 'Chat Two', order: 1, workspaceId: 'ws-1' },
+        { id: 'chat-3', repoId: 'r1', title: 'Chat Three', order: 2, workspaceId: 'ws-1' },
+      ],
+    },
+  ] as Repo[])
   resetWindowPaneStoreForTests()
   actions().setActiveProject('p1')
 })
@@ -94,8 +92,25 @@ describe('ViewTabsRow', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     actions().openChat('chat-2', { workspaceId: 'ws-1' })
     render(<ViewTabsRow />)
-    await userEvent.click(within(screen.getByTestId('recents-row-chat-1')).getByRole('treeitem'))
+    await userEvent.click(within(screen.getByTestId('recents-row-chat-1')).getByRole('tab'))
     expect(windowPaneStore.getState().activeViewId).toBe(viewOf('chat-1'))
+  })
+
+  // A strip of views is a tablist: a treeitem outside any tree reads as nothing to a screen reader.
+  it('names each view as a tab of one tablist, the showing one selected', () => {
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    actions().openChat('chat-2', { workspaceId: 'ws-1' })
+    render(<ViewTabsRow />)
+    const strip = screen.getByRole('tablist', { name: 'Open views' })
+    expect(within(strip).getByRole('tab', { name: 'Chat One' })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    )
+    expect(within(strip).getByRole('tab', { name: 'Chat Two' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.queryByRole('treeitem')).not.toBeInTheDocument()
   })
 
   it("a row's × ends that view", async () => {
@@ -181,8 +196,8 @@ describe('ViewTabsRow', () => {
     act(() => actions().closePane(paneOf('chat-2')))
     expect(chatPaneIndex(windowPaneStore.getState().panes).has('chat-2')).toBe(false)
 
-    const grab = within(screen.getByTestId('recents-row-chat-1')).getByRole('treeitem')
-    const target = within(screen.getByTestId('recents-row-chat-3')).getByRole('treeitem')
+    const grab = within(screen.getByTestId('recents-row-chat-1')).getByRole('tab')
+    const target = within(screen.getByTestId('recents-row-chat-3')).getByRole('tab')
     const box = { left: 0, right: 100, top: 0, bottom: 32, width: 100, height: 32 }
     vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(box as DOMRect)
     document.elementsFromPoint = () => [target]

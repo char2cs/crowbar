@@ -1,7 +1,5 @@
-// Package runner (file processes.go) ends a runner's processes. A runner is
-// one channel at a time — its PTY, the native view it was handed over to, or
-// its api connection's serve process — and every path that takes a runner off
-// its chat ends all of them through here, so none is ever leaked.
+// Package runner (file processes.go) ends a runner's processes (PTY, native view, or
+// serve). Every path that takes a runner off its chat goes through here, so none leaks.
 package runner
 
 import (
@@ -13,21 +11,18 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
-// endProcesses ends runner's processes. The PTY goes first and its failure is
-// returned before anything else is touched, so a caller that must not proceed
-// on a still-running CLI (a switch) aborts with nothing changed.
-func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) error {
-	// Noted before the kill, whose exit callback can run inside it: this end
-	// is Crowbar's doing, never the CLI refusing anything.
-	rs.sessions.cause(runner.ID, domain.AgentExitDisplaced)
+// endProcesses ends runner's processes and reports whether the PTY's exit callback
+// will record the end. The PTY goes first, so a failure aborts with nothing changed.
+func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) (bool, error) {
+	ptyExits := false
 	if runner.TerminalSession != "" {
 		err := rs.term.TerminateGraceful(ctx, runner.TerminalSession)
 		if err != nil && !errors.Is(err, engineterminal.ErrSessionNotFound) {
-			return fmt.Errorf("terminate outgoing terminal %s: %w", runner.TerminalSession, err)
+			return false, fmt.Errorf("terminate outgoing terminal %s: %w", runner.TerminalSession, err)
 		}
+		ptyExits = err == nil
 	}
 	if view, ok := rs.attached.get(runner.ID); ok {
 		rs.attached.drop(runner.ID)
@@ -38,48 +33,92 @@ func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) error
 		}
 	}
 	rs.apiConns.drop(runner.ID)
+	return ptyExits, nil
+}
+
+// quitRunner ends runner for cause and returns once its exit is recorded, so
+// a replacement never lands beside it.
+func (rs *Runners) quitRunner(ctx context.Context, runner agents.Runner, cause string) error {
+	exited, err := rs.retire(ctx, runner, cause)
+	if err != nil || exited == nil {
+		return err
+	}
+	select {
+	case <-exited:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("agent: wait for runner %s to exit: %w", runner.ID, ctx.Err())
+	}
+}
+
+// retire marks runner ending and ends its processes without awaiting the exit.
+// The channel closes on the exit's record; nil if runner was gone.
+func (rs *Runners) retire(ctx context.Context, runner agents.Runner, cause string) (<-chan struct{}, error) {
+	exited, ok := rs.markEnding(runner, cause)
+	if !ok {
+		return nil, nil
+	}
+	if err := rs.endMarked(ctx, runner); err != nil {
+		return nil, err
+	}
+	return exited, nil
+}
+
+// endMarked ends the processes of runner, already marked ending: a PTY's exit
+// callback records the exit, and a PTY-less runner's is recorded here. A
+// terminate that fails takes the end back: the process still runs.
+func (rs *Runners) endMarked(ctx context.Context, runner agents.Runner) error {
+	ptyExits, err := rs.endProcesses(ctx, runner)
+	if err != nil {
+		rs.live.keepLive(runner.ID)
+		return err
+	}
+	if !ptyExits {
+		rs.endUnheld(ctx, runner.ID)
+	}
 	return nil
 }
 
-// retire takes runner off its chat for good and ends it. Best-effort: a
-// runner still placed after a failed displace is reconciled by its own exit.
-func (rs *Runners) retire(ctx context.Context, runner agents.Runner) {
-	rs.retireAs(ctx, runner, runner.CurrentChatID, domain.AgentExitDisplaced)
-}
-
-// retireAs is retire noting reason on chatID as the chat's one exit, so a
-// caller with a final reason (a Stop) never announces an intermediate one first.
-func (rs *Runners) retireAs(ctx context.Context, runner agents.Runner, chatID, reason string) {
-	if err := rs.displace(ctx, runner); err != nil {
-		slog.ErrorContext(ctx, "agent: retire runner: displace (best-effort, continuing)",
-			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
-	}
-	if chatID != "" {
-		rs.noteChatExit(ctx, chatID, reason)
-	}
-	if err := rs.endProcesses(ctx, runner); err != nil {
-		slog.WarnContext(ctx, "agent: retire runner (best-effort, continuing)",
-			"runner_id", runner.ID, "err", err)
+// markOutgoingEnding marks chatID's runner ending once its chat was found
+// idle. The caller runs it in the runner's turn order.
+func (rs *Runners) markOutgoingEnding(chatID string) {
+	if live, ok := rs.live.byChat(chatID); ok {
+		rs.live.markExiting(live.ID, domain.AgentExitDisplaced)
 	}
 }
 
 // quitOutgoingCLI ends chatID's live runner so a replacement can take the
-// chat. Unlike retire it aborts on failure: the replacement must never land
-// beside a CLI that is still running and still placed.
+// chat, and aborts on failure: the replacement must never land beside a CLI
+// that is still running.
 func (rs *Runners) quitOutgoingCLI(ctx context.Context, chatID string) error {
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
+	live, ok := rs.live.byChat(chatID)
+	if !ok {
 		return nil // dormant: nothing to quit
 	}
-	if err != nil {
-		return fmt.Errorf("agent: switch provider: live runner: %w", err)
-	}
-	if err := rs.endProcesses(ctx, live); err != nil {
+	if err := rs.quitRunner(ctx, live, domain.AgentExitDisplaced); err != nil {
 		return fmt.Errorf("agent: switch provider: %w", err)
 	}
-	if err := rs.displace(ctx, live); err != nil {
-		return fmt.Errorf("agent: switch provider: %w", err)
-	}
-	rs.noteChatExit(ctx, chatID, domain.AgentExitDisplaced)
 	return nil
+}
+
+// markEnding marks runner's end as under way for cause, in its turn order: no
+// turn opens on it after.
+func (rs *Runners) markEnding(runner agents.Runner, cause string) (exited <-chan struct{}, ok bool) {
+	rs.live.inTurnOrder(runner.CurrentChatID, func() {
+		exited, ok = rs.live.markExiting(runner.ID, cause)
+	})
+	return exited, ok
+}
+
+// claimEnd hands runnerID's exit to its one recorder, in its turn order: no
+// turn opens on it after.
+func (rs *Runners) claimEnd(runnerID string) (claimed liveEntry, ok bool) {
+	runner, ok := rs.live.byRunner(runnerID)
+	if !ok {
+		return liveEntry{}, false
+	}
+	rs.live.inTurnOrder(runner.CurrentChatID, func() {
+		claimed, ok = rs.live.claimExit(runnerID)
+	})
+	return claimed, ok
 }

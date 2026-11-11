@@ -1,15 +1,11 @@
-// Package hookserver is the daemon's loopback listener for the vendor CLIs that
-// post their hooks themselves (Claude's native HTTP hooks) instead of running a
-// relay process per event.
-//
-// It serves exactly one route — the runner-keyed hook route — and nothing else of
-// the daemon's API, which is unauthenticated and so must never be reachable from a
-// TCP port any local process can dial. The hook route authenticates itself with the
-// per-runner token.
+// Package hookserver is the loopback listener for vendor CLIs that post hooks natively over HTTP.
+// It serves only the runner-keyed hook route, authenticated by the per-runner token: the rest of
+// the API is unauthenticated and must never be reachable from a TCP port.
 package hookserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -78,9 +74,14 @@ func (s *Server) Shutdown(
 	return s.server.Shutdown(ctx)
 }
 
-// Close closes the listener and every connection.
+// Close closes the listener and every connection. It closes the listener itself
+// too: until Serve runs, the http.Server does not track it.
 func (s *Server) Close() error {
-	return s.server.Close()
+	err := s.server.Close()
+	if lerr := s.listener.Close(); lerr != nil && !errors.Is(lerr, net.ErrClosed) {
+		err = errors.Join(err, fmt.Errorf("hookserver: close listener: %w", lerr))
+	}
+	return err
 }
 
 func endpointFile(

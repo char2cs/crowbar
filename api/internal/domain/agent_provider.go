@@ -1,24 +1,8 @@
 package domain
 
-// AgentProvider is one registered agent provider as Crowbar resolves it: the
-// descriptor catalog joined with the global preference table and the install
-// probe. It carries the id a client passes back to create/switch a chat, a human
-// display name, and an inline SVG icon (fill="currentColor"). Providers are
-// global — nothing here is workspace-dependent.
-//
-// Connected is whether the provider's spawn.cmd resolves to an installed
-// executable on PATH (install-only, no auth probe). Enabled is !Disabled from the
-// global AgentProviderPreference (a provider with no stored preference defaults to
-// enabled). A resolved list is ordered by priority — priority is implicit in the
-// slice position, preferenced providers first in saved order, unpreferenced ones
-// appended by descriptor id.
-//
-// MCPEnabled is whether Crowbar registers its own tool surface with this
-// provider, and it is a SEPARATE axis from Enabled: a provider with the tools
-// switched off still spawns, still fires its hooks and still holds a normal
-// chat — only the tools are gone. Like Enabled it is the positive reading of a
-// negatively stored flag (see AgentProviderPreference for why the DB stores the
-// negative), so a provider with no row reports true.
+// AgentProvider is one provider as resolved from descriptors, global preferences and the install
+// probe; ordered by priority (slice position). Connected means spawn.cmd is on PATH. MCPEnabled is
+// separate from Enabled: tools off still spawns and chats. Both read negatively stored flags.
 type AgentProvider struct {
 	ID          string
 	DisplayName string
@@ -27,14 +11,11 @@ type AgentProvider struct {
 	Enabled     bool
 	MCPEnabled  bool
 
-	// ModelSelect and EffortSelect are whether this provider's descriptor declares
-	// a model / effort catalogue at all. False means the picker does not exist for
-	// it — absent UI, never a disabled control implying breakage. Both shipped
-	// descriptors declare both today; the flags exist so a third provider that
-	// declares neither renders no picker rather than an empty one.
-	// Compaction is whether the provider declares a gesture Crowbar can use to ask it
-	// to compact its own context. A UI compact control must be gated on this: a
-	// button that appears to work and does not is worse than one that is absent.
+	// SignIn is the descriptor's command that logs the CLI in; "" when it declares none.
+	SignIn string
+
+	// Compaction is whether the provider declares a gesture to compact its own context; a compact
+	// control must be gated on it, since a button that does nothing is worse than none.
 	Compaction bool
 
 	// Hotswap and HasTerminal are engine.Capabilities.Hotswap/.HasTerminal,
@@ -45,15 +26,12 @@ type AgentProvider struct {
 	PromptSteer bool
 	HasTerminal bool
 
-	// TerminalStartHere is engine.Capabilities.TerminalStartHere, carried
-	// through unchanged: whether a brand-new chat may be launched DIRECTLY
-	// onto this provider's terminal surface (design spec 2.5's
-	// `surfaces.terminal.start_here`), as opposed to reached only by
-	// switching to it after spawn. False whenever HasTerminal is false, and
-	// may be false even when HasTerminal is true (codex: has a terminal,
-	// idle-only handoff, never a launch target).
+	// TerminalStartHere is engine.Capabilities.TerminalStartHere: whether a new chat may launch directly
+	// onto the terminal surface rather than switching there after spawn. Implies HasTerminal.
 	TerminalStartHere bool
 
+	// ModelSelect and EffortSelect are whether the descriptor declares a model / effort catalogue;
+	// false means no picker at all, never a disabled control implying breakage.
 	ModelSelect  bool
 	EffortSelect bool
 
@@ -62,33 +40,21 @@ type AgentProvider struct {
 	// these facts without inspecting a provider id.
 	ActivityEvents []string
 
-	// Models is the declared catalogue, in descriptor order.
-	//
-	// Efforts is keyed by model id and ALREADY RESOLVED: every entry in Models has
-	// a key, plus "" for the provider's own default model. The descriptor's
-	// model-independent fallback is applied here rather than at the edge, so a
-	// client picks a model and reads Efforts[model] with no fallback rule to
-	// implement and no provider knowledge to hardcode.
-	//
-	// Both are nil, never empty, for a provider that declares no catalogue: the
-	// wire reading of that is an omitted field, which says "this picker does not
-	// exist" where an empty array would not.
+	// Models is the declared catalogue in descriptor order. Efforts is keyed by model id (plus "" for
+	// the default model) and already resolved, so clients need no fallback rule. Both are nil, not
+	// empty, when undeclared: an omitted field says "no picker" where an empty array would not.
 	Models  []string
 	Efforts map[string][]string
 
-	// DefaultModel is whichever model id the provider's OWN descriptor
-	// states is its default — empty means unknown, a legitimate terminal
-	// state, never a cue to fall back to Models[0]. A provider whose model
-	// list is discovered rather than declared (model.discover:) reports
-	// this only when the live source itself states it (default_when:); one
-	// that states nothing per-model leaves it unknown.
+	// DefaultModel is the default the descriptor (or, for discovered models, the live source) states;
+	// empty means unknown, never a cue to fall back to Models[0].
 	DefaultModel string
 
-	// PermissionLevels is which of Crowbar's own guarded/trusted/full-auto
-	// names this provider's descriptor actually declares (its own
-	// permission_levels.levels keys) — the same "a level not offered is
-	// absent, never clamped" rule SetChatPermissionLevel enforces server-side,
-	// surfaced here so a client can offer only what a write would accept. Nil
-	// for a provider that declares none, same convention as Models/Efforts.
+	// DefaultEfforts is the effort each model runs at when none is chosen, keyed by model id, as the
+	// provider states it. A model stating none is absent: unknown, never a cue to use its first level.
+	DefaultEfforts map[string]string
+
+	// PermissionLevels lists which permission levels the descriptor declares, so a client offers only
+	// what SetChatPermissionLevel would accept (absent, never clamped). Nil when none.
 	PermissionLevels []string
 }

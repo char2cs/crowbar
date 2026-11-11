@@ -1,15 +1,14 @@
+import { useEffect } from 'react'
+import { holdScope } from '@/core/stream/stream'
+import { useResolvedHost } from '@/lib/host-resolve'
 import { isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { useOwningChatId } from '@/lib/workspace-scope'
-import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
 import { useWorkspaceFileTree } from './use-workspace-file-tree'
 import { useWorkspaceGit } from './use-workspace-git'
 
-/**
- * A workspace's data feeds: its file tree, git status and review threads, each
- * written to the workspace's own store. Runs for every retained workspace so a
- * switch only changes which store the UI reads; `active` only gates the first
- * tree/git load.
- */
+/** A workspace's data feeds (file tree, git status, ws: scope review threads). Runs for every
+ *  retained workspace so a switch only changes which store the UI reads; `active` gates the
+ *  first tree/git load. */
 export function useWorkspaceEffects(wsId: string, active: boolean) {
   const owningChatId = useOwningChatId(wsId)
   const homeWorkspace = isHomeWorkspace(wsId)
@@ -17,7 +16,8 @@ export function useWorkspaceEffects(wsId: string, active: boolean) {
   // has recorded one there is nothing a fetch or subscription could address.
   const chatScopeReady = homeWorkspace || owningChatId !== null
 
-  useWorkspaceThreadsStream(wsId)
+  const hostId = useResolvedHost({ wsId })
+  useEffect(() => (hostId ? holdScope(hostId, `ws:${wsId}`) : undefined), [wsId, hostId])
   useWorkspaceFileTree(wsId, active, chatScopeReady)
   useWorkspaceGit(wsId, active, owningChatId, homeWorkspace)
 }

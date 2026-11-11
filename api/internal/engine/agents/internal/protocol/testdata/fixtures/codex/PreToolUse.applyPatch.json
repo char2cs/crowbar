@@ -1,0 +1,14 @@
+{
+  "session_id": "019fb000-0000-7000-8000-000000000001",
+  "turn_id": "019fb000-0000-7000-8000-000000000002",
+  "transcript_path": "/h/.codex/sessions/2026/10/16/rollout-019fb000.jsonl",
+  "cwd": "/ws",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.6-luna",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: /ws/calc.py\n@@\n def add(a, b):\n+    \"\"\"Return the sum of two values.\"\"\"\n     return a + b\n*** End Patch"
+  },
+  "tool_use_id": "exec-9f9daa00-e186-41ad-bc56-0b2bed2231ff"
+}

@@ -6,13 +6,14 @@ vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
 }))
 
-import { closeRecent, focusRecent } from '@/components/sidebar/lib/recents-actions'
+import { closeRecent, closeRecentChat, focusRecent } from '@/components/sidebar/lib/recents-actions'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
-import type { Repo } from '@/lib/store/sidebar'
+import { viewChatIds } from '@/features/panes/lib/view-state'
+import type { Repo } from '@/core/entities/repo-types'
 
 const repos: Repo[] = [
   {
@@ -66,11 +67,24 @@ describe('focusRecent', () => {
   })
 })
 
-describe('closeRecent', () => {
+describe('closeRecent / closeRecentChat', () => {
   it('closeRecent ends the whole view — its row goes in one press', () => {
     const view = viewOf('chat-a')
     closeRecent(view)
     expect(windowPaneStore.getState().viewOrder).not.toContain(view)
     expect(chatPaneIndex(windowPaneStore.getState().panes).has('chat-a')).toBe(false)
+  })
+
+  it('closeRecentChat takes one member out of a group, leaving the rest grouped', () => {
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.openChat('chat-c', { workspaceId: 'ws-1' })
+    const paneA = chatPaneIndex(windowPaneStore.getState().panes).get('chat-a')!
+    paneActions.dropChatOnPane('chat-b', paneA, 'right')
+    paneActions.dropChatOnPane('chat-c', paneA, 'bottom')
+    const group = viewOf('chat-a')
+
+    closeRecentChat('chat-b')
+
+    expect(viewChatIds(windowPaneStore.getState(), group)).toEqual(['chat-a', 'chat-c'])
   })
 })

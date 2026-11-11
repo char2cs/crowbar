@@ -6,14 +6,8 @@ interface BranchReviewShortcutButtonProps {
   onOpen: () => void
 }
 
-/**
- * A shortcut into the SAME "Review this branch" action GitPanel's own button
- * triggers (git-panel.tsx) — branch review's real home stays the git
- * file-explorer card; this is just a faster way to reach it from the IDE
- * sector's own tab row, pinned at the right edge. Same toolbar-button
- * recipe as its row neighbours (icon-sm, rounded-sm, the sidebar hover
- * token).
- */
+/** A shortcut on the IDE sector's tab row to GitPanel's own "Review this branch" action
+ *  (git-panel.tsx), which stays the feature's home. */
 export function BranchReviewShortcutButton({
   isBottomPane,
   onOpen,

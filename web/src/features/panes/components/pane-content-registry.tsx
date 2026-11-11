@@ -28,12 +28,9 @@ const HtmlPreview = lazy(() =>
     default: m.HtmlPreview,
   })),
 )
-const CsvPreview = lazy(() => import('@/extensions/viewers/csv/csv-preview'))
 
-/** A tab whose surface a pane renders on demand. Editors (portaled from
- *  EditorHostRegistry), terminals (kept mounted for their PTY) and browsers
- *  (kept mounted for their webview) are hosted by the pane itself and never
- *  reach this registry. */
+/** A tab a pane renders on demand. Editors (portaled), terminals (PTY) and browsers (webview)
+ *  are kept mounted by the pane itself and never reach this registry. */
 export type RegisteredContent = Exclude<
   PaneContent,
   EditorContent | TerminalContent | BrowserContent
@@ -53,11 +50,8 @@ type Renderers = {
   ) => ReactNode
 }
 
-/**
- * THE content-type registry: one entry per tab type a pane can show. A new
- * content type is one entry here (the mapped type makes a missing one a type
- * error). A diff's `wsId` is the buffer's own workspace, never the ambient one.
- */
+// One entry per tab type a pane can show; the mapped type makes a missing one a type error.
+// A diff's `wsId` is the buffer's own workspace, never the ambient one.
 const RENDERERS: Renderers = {
   commitDiff: (c, { isActivePane }) => (
     <CommitDiffPane sha={c.sha} wsId={c.wsId} isActivePane={isActivePane} />
@@ -73,8 +67,7 @@ const RENDERERS: Renderers = {
     />
   ),
   markdownPreview: (c) => <MarkdownPreview bufferId={c.id} />,
-  htmlPreview: () => <HtmlPreview />,
-  csvPreview: () => <CsvPreview />,
+  htmlPreview: (c) => <HtmlPreview bufferId={c.id} />,
   newTabPage: (c, { paneId, wsId }) => (
     <NewTabView paneId={paneId} wsId={wsId} replaceTabId={c.id} />
   ),

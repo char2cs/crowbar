@@ -2,21 +2,19 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Snapshotter is where a lifecycle change no aggregate event carries is
-// announced: the chat's phase, and a runner's in-memory process state.
+// announced: the chat's phase, and its runner starting, reporting or exiting.
 type Snapshotter interface {
 	Touch(ctx context.Context, chatID string)
 }
 
 // phases is the lifecycle operation each chat is in the middle of, set by the
-// operation holding the chat's spawn gate. Absent means none: the chat's phase
+// user-initiated operation holding the chat. Absent means none: the chat's phase
 // is then derived from placement (live or dormant) by the snapshot owner.
 type phases struct {
 	mu     sync.Mutex
@@ -35,10 +33,9 @@ func (rs *Runners) Phase(chatID string) string {
 	return rs.phases.byChat[chatID]
 }
 
-// enterPhase marks chatID as being in phase for the duration of a gated
-// operation, announces it, and returns the func that ends it (and announces
-// that). Nested entries are not a thing: the spawn gate admits one operation
-// per chat at a time.
+// enterPhase marks chatID as being in phase for the duration of an operation
+// holding the chat, announces it, and returns the func that ends it (and
+// announces that).
 func (rs *Runners) enterPhase(ctx context.Context, chatID, phase string) func() {
 	if rs.phases == nil {
 		return func() {}
@@ -57,8 +54,8 @@ func (rs *Runners) enterPhase(ctx context.Context, chatID, phase string) func() 
 
 // replacementPhase is what replacing chatID's CLI looks like from outside:
 // switching while one is live, starting while the chat is dormant.
-func (rs *Runners) replacementPhase(ctx context.Context, chatID string) string {
-	if _, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID); errors.Is(err, agentrunner.ErrNotFound) {
+func (rs *Runners) replacementPhase(chatID string) string {
+	if _, live := rs.live.byChat(chatID); !live {
 		return snapshot.PhaseStarting
 	}
 	return snapshot.PhaseSwitching

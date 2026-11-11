@@ -1,21 +1,29 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NativeChromeIntent, NativeSidebar } from '@/lib/native-chrome'
-import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import type { Repo } from '@/core/entities/repo-types'
+import type { Operation } from '@/core/entities/operations'
+import { patchEntities } from '@/core/entities/entity-store'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { Project } from '@/lib/types'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { getInitialPendingCreatesState, usePendingCreatesStore } from '@/lib/store/pending-creates'
-import { useActiveSessionsStore } from '@/lib/store/active-sessions'
+import * as api from '@/lib/api'
+import * as placement from '@/lib/api/sidebar-placement'
+import * as killAgent from '@/features/agent/lib/kill-agent'
+import { entityStore } from '@/core/entities/entity-store'
+import { streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 import { useSettingsStore } from '@/features/settings/store'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { projectDTO, seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { resetOperations, streamOperation } from '@/__tests__/__fixtures__/operations'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import * as chatCommands from '@/features/agent/api/agent-chat-commands'
 
 const chrome = vi.hoisted(() => ({
   pushed: [] as NativeSidebar[],
@@ -30,23 +38,17 @@ vi.mock('@/lib/native-chrome', () => ({
   },
   nativePrompt: chrome.prompt,
 }))
-const kill = vi.hoisted(() => vi.fn(async () => true))
-vi.mock('@/features/agent/lib/kill-agent', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/lib/kill-agent')>()),
-  killAgent: kill,
-}))
+const kill = vi.spyOn(killAgent, 'killAgent').mockResolvedValue(true)
+const setWorkspaceLock = vi.spyOn(api, 'setWorkspaceLock').mockResolvedValue()
+const placeWorkspace = vi
+  .spyOn(placement, 'placeWorkspace')
+  .mockResolvedValue({ workspace: { id: 'ws-a', parentId: '', order: 1 }, shifted: [] })
 const navigate = vi.hoisted(() => vi.fn(async () => {}))
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
-  setWorkspaceLock: vi.fn(async () => {}),
-  apiFetch: vi.fn(async () => ({ workspace: { id: 'ws-a', order: 1 }, shifted: [] })),
-}))
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@tanstack/react-router')>()),
   useNavigate: () => navigate,
 }))
 
-const api = await import('@/lib/api')
 const { useNativeSidebar } = await import('@/features/window/hooks/use-native-sidebar')
 
 const repo: Repo = {
@@ -67,7 +69,7 @@ const repo: Repo = {
     { id: 'c-b', repoId: 'r1', ownsWorktree: true, workspaceId: 'ws-b', title: 'Beta', order: 2 },
   ],
 }
-const projects = [{ id: 'p1', name: 'Crowbar Seed', hostId: 'h1' } as Project]
+const projects: Project[] = [projectDTO({ id: 'p1', name: 'Crowbar Seed', hostId: 'h1' })]
 const send = (intent: NativeChromeIntent) =>
   act(() => chrome.listeners.forEach((listener) => listener(intent)))
 const last = () => chrome.pushed.at(-1)!
@@ -76,17 +78,17 @@ beforeEach(() => {
   chrome.pushed.length = 0
   chrome.listeners.clear()
   navigate.mockClear()
-  vi.mocked(api.apiFetch).mockClear()
+  placeWorkspace.mockClear()
   resetWindowPaneStoreForTests()
-  useRemovalTrayStore.setState(getInitialRemovalState())
-  usePendingCreatesStore.setState(getInitialPendingCreatesState())
-  useSidebarStore.setState({ ...getInitialState(), repos: [repo] })
-  useFolderSignalStore.setState({ seededRepoIds: new Set(['r1']) })
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  // Also clears every entity: the seeds below come after it.
+  resetHostWorld()
+  resetOperations()
+  seedProjects(projects)
+  seedRepos([repo])
   useMobileScreenStore.setState({ screen: 'chat', chatListOpen: true })
   useUIState.setState({ isSettingsOpen: false })
-  useActiveSessionsStore.setState({ sessions: {}, attached: {} })
   kill.mockClear()
-  resetHostWorld()
 })
 
 const mount = (onSelectProject = vi.fn()) =>
@@ -116,7 +118,7 @@ describe('useNativeSidebar', () => {
   it('pushes the build readout with each paired host’s net state, or none while it is off', () => {
     useSettingsStore.setState((state) => {
       state.settings.buildBadgeOverride = 'beta'
-      state.settings.showBuildReadout = true
+      state.settings.buildReadout = true
     })
     pairRemoteHost('h1', 'lab')
     const { unmount } = mount()
@@ -124,7 +126,7 @@ describe('useNativeSidebar', () => {
     expect(last().readout?.hosts).toEqual([{ name: 'lab', net: 'idle' }])
     unmount()
     useSettingsStore.setState((state) => {
-      state.settings.showBuildReadout = false
+      state.settings.buildReadout = false
     })
     mount()
     expect(last().readout).toBeNull()
@@ -146,36 +148,35 @@ describe('useNativeSidebar', () => {
     ).toEqual(['c-a'])
   })
 
-  it('draws a create in flight as a spinning row with no menu, until it clears or fails', () => {
+  it('draws a create in flight as a spinning row with no menu, until it fails', () => {
     mount()
-    act(() =>
-      usePendingCreatesStore.getState().addCreating({
-        tempId: 'tmp-1',
-        kind: 'branch',
-        projectId: 'p1',
-        parentId: 'r1',
-        order: 3,
-        workspaceId: null,
-        ownsWorktree: true,
-        label: 'gamma',
-      }),
-    )
-    const pending = last().rows.find((r) => r.id === 'tmp-1')
-    expect(pending?.pending?.status).toBe('creating')
+    const fork = (state: Operation['state']): Operation => ({
+      id: 'op-1',
+      kind: 'branch.import',
+      subject: { kind: 'repo', id: 'r1' },
+      projectId: 'p1',
+      label: 'Import gamma',
+      state,
+      items: [{ ref: { kind: 'chat', id: 'c-gamma' }, label: 'gamma', state }],
+      dismissed: false,
+      version: state === 'failed' ? 2 : 1,
+      createdAt: '2026-10-29T10:00:00Z',
+      updatedAt: '2026-10-29T10:00:01Z',
+    })
+    act(() => streamOperation(fork('running')))
+    const pending = last().rows.find((r) => r.id === 'c-gamma')
+    expect(pending?.operation?.state).toBe('running')
     expect(pending?.working).toBe(true)
-    expect(last().actions['tmp-1']).toEqual([])
+    expect(last().actions['c-gamma']).toEqual([])
 
-    act(() => usePendingCreatesStore.getState().setError('tmp-1', 'boom'))
-    expect(last().rows.some((r) => r.id === 'tmp-1')).toBe(false)
-
-    act(() => usePendingCreatesStore.getState().clear('tmp-1'))
-    expect(last().rows.some((r) => r.pending)).toBe(false)
+    act(() => streamOperation(fork('failed')))
+    expect(last().rows.some((r) => r.id === 'c-gamma')).toBe(false)
   })
 
   it('folds a row the page asks to fold, and says so in the next push', () => {
     mount()
     send({ type: 'toggleFold', id: 'c-home' })
-    expect(useSidebarStore.getState().collapsedChatRows.has('c-home')).toBe(true)
+    expect(treeUiStore.getState().collapsed.has('c-home')).toBe(true)
     expect(last().collapsed).toEqual(['c-home'])
   })
 
@@ -194,7 +195,7 @@ describe('useNativeSidebar', () => {
   it('leaves a container open when its body is picked', () => {
     mount()
     send({ type: 'selectRow', id: 'c-home' })
-    expect(useSidebarStore.getState().collapsedChatRows.has('c-home')).toBe(false)
+    expect(treeUiStore.getState().collapsed.has('c-home')).toBe(false)
   })
 
   it('switches project', () => {
@@ -225,14 +226,14 @@ describe('useNativeSidebar', () => {
     })
 
     it('pushes only the chosen host’s projects', () => {
-      useSidebarStore.setState({ hostFilter: 'h1' })
+      treeUiStore.setState({ hostFilter: 'h1' })
       const { result } = mountSpread('p2')
       expect(result.current.shownHost).toBe('h1')
       expect(last().projects.map((p) => p.id)).toEqual(['p2', 'p3'])
     })
 
     it('shows the host of the active project, wherever it was opened from', () => {
-      useSidebarStore.setState({ hostFilter: 'h1' })
+      treeUiStore.setState({ hostFilter: 'h1' })
       const { result } = mountSpread('p1')
       expect(result.current.shownHost).toBe('local')
       expect(last().projects.map((p) => p.id)).toEqual(['p1'])
@@ -242,7 +243,7 @@ describe('useNativeSidebar', () => {
       const onSelectProject = vi.fn()
       const { rerender } = mountSpread('p1', onSelectProject)
       send({ type: 'selectHost', id: 'h1' })
-      expect(useSidebarStore.getState().hostFilter).toBe('h1')
+      expect(treeUiStore.getState().hostFilter).toBe('h1')
       expect(onSelectProject).toHaveBeenCalledExactlyOnceWith('p3')
       rerender({ active: 'p3' })
       expect(last().projects.map((p) => p.id)).toEqual(['p2', 'p3'])
@@ -295,11 +296,23 @@ describe('useNativeSidebar', () => {
     })
   })
 
+  // A chat waiting to move after its turn can be kept where it is from the phone too.
+  it('offers Cancel move on a chat waiting to move, and withdraws it', () => {
+    const cancel = vi.spyOn(chatCommands, 'cancelChatMove').mockResolvedValue(undefined)
+    mount()
+    const alpha = last().rows.find((r) => r.label === 'Alpha')!
+    expect(last().actions[alpha.id].map((a) => a.id)).not.toContain('cancel-move')
+    act(() => writeChat({ id: alpha.id, pendingMove: { requestId: 'm1' } }))
+    expect(last().actions[alpha.id].map((a) => a.id)).toContain('cancel-move')
+    send({ type: 'rowAction', rowId: alpha.id, actionId: 'cancel-move' })
+    expect(cancel).toHaveBeenCalledWith('ws-a', alpha.id)
+  })
+
   it('carries out a verb picked from a row menu', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
     send({ type: 'rowAction', rowId: alpha.id, actionId: 'lock' })
-    expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-a', true)
+    expect(setWorkspaceLock).toHaveBeenCalledWith('ws-a', true)
   })
 
   // The draft it opens is the chat behind the list, so the list must go or nothing seems to happen.
@@ -311,6 +324,7 @@ describe('useNativeSidebar', () => {
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
   })
 
+  // The phone has no terminal threads: a preferred Terminal must not create a chat there.
   it('asks for a new name natively, starting from the current one', async () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
@@ -324,7 +338,7 @@ describe('useNativeSidebar', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
     send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
-    expect(useRemovalTrayStore.getState().entries.map((e) => e.label)).toContain('alpha')
+    expect(treeUiStore.getState().removals.map((e) => e.label)).toContain('alpha')
   })
 
   // The native confirm already asked, so there is no countdown, no Keep and no pending row.
@@ -334,7 +348,7 @@ describe('useNativeSidebar', () => {
     send({ type: 'rowAction', rowId: alpha.id, actionId: 'remove' })
     expect(last().rows.some((r) => r.id === alpha.id)).toBe(false)
     expect(last().rows.some((r) => r.removal)).toBe(false)
-    const [entry] = useRemovalTrayStore.getState().entries
+    const [entry] = treeUiStore.getState().removals
     expect(entry.deadlineAt).toBeLessThanOrEqual(Date.now())
   })
 
@@ -362,11 +376,27 @@ describe('useNativeSidebar', () => {
   })
 
   describe('running agents', () => {
+    // The daemon's frames: the chat's runner starts, and two connections view it.
     const run = () =>
       act(() => {
-        useActiveSessionsStore.setState({
-          sessions: { 'c-a': { chatId: 'c-a', workspaceId: 'ws-a', title: 'Alpha', scope: 'r1' } },
-          attached: { 'c-a': { scope: 'r1', count: 2 } },
+        const held = entityStore.getState().byKind.chat['c-a']!
+        const data = { ...held.data, liveRunnerId: 'run-a' }
+        streamDaemon.deliver({
+          t: 'entity',
+          scope: 'projects',
+          kind: 'chat',
+          id: 'c-a',
+          v: held.v + 1,
+          data,
+        })
+        const viewers = { viewers: 2 }
+        streamDaemon.deliver({
+          t: 'entity',
+          scope: 'projects',
+          kind: 'presence',
+          id: 'c-a',
+          v: 1,
+          data: viewers,
         })
       })
 
@@ -387,7 +417,12 @@ describe('useNativeSidebar', () => {
       run()
       send({ type: 'rowAction', rowId: 'c-a', actionId: 'kill-agent' })
       expect(kill).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ chatId: 'c-a', workspaceId: 'ws-a', attached: 2 }),
+        expect.objectContaining({
+          hostId: 'local',
+          chatId: 'c-a',
+          workspaceId: 'ws-a',
+          viewers: 2,
+        }),
       )
     })
   })
@@ -415,22 +450,14 @@ describe('useNativeSidebar', () => {
     send({ type: 'dragRow', rowId: alpha.id })
     send({ type: 'moveRow', rowId: alpha.id, targetId: beta.id, position: 'after' })
     expect(last().drop).toBeNull()
-    await waitFor(() =>
-      expect(api.apiFetch).toHaveBeenCalledWith(
-        expect.stringContaining('ws-a/placement'),
-        expect.anything(),
-      ),
-    )
+    await waitFor(() => expect(placeWorkspace).toHaveBeenCalledWith('ws-a', expect.anything()))
   })
 
   it('refuses a drop the desktop’s rules refuse', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
     send({ type: 'moveRow', rowId: alpha.id, targetId: alpha.id, position: 'into' })
-    expect(api.apiFetch).not.toHaveBeenCalledWith(
-      expect.stringContaining('placement'),
-      expect.anything(),
-    )
+    expect(placeWorkspace).not.toHaveBeenCalled()
   })
 
   // The list page has no route to a daemon, so it is handed each icon as data, not as a URL.
@@ -440,10 +467,9 @@ describe('useNativeSidebar', () => {
       'fetch',
       vi.fn(async () => ({ ok: true, blob: async () => png })),
     )
-    useSidebarStore.setState({
-      repos: [{ ...repo, avatarURL: 'crowbar://h1/v0/projects/p1/repos/r1/icon' }],
-    })
-    const withIcon = [{ ...projects[0], avatarUrl: '/v0/projects/p1/icon' }]
+    const withIcon = [{ ...projects[0], hostId: 'local', avatarUrl: '/v0/projects/p1/icon' }]
+    seedProjects(withIcon)
+    patchEntities('repo', { r1: { avatarUrl: '/v0/projects/p1/repos/r1/icon' } })
     renderHook(() =>
       useNativeSidebar({ activeProjectId: 'p1', projects: withIcon, onSelectProject: vi.fn() }),
     )

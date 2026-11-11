@@ -1,8 +1,13 @@
 import {
   PANE_CONTENT_TYPES,
   hasUnsavedEdits,
+  type EditorContent,
   type PaneContent,
 } from '@/features/panes/types/pane-content'
+import { workspaceRef } from '@/lib/api/documents'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import type { EditorDraft } from '@/features/editor/documents/draft-store'
+import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 
 /** A native webview id; Rust names the webview `browser-<id>`. */
 const WEBVIEW_ID = /^[A-Za-z0-9_-]+$/
@@ -12,8 +17,13 @@ function isRestorable(buffer: PaneContent): boolean {
   return buffer.type !== 'browser' || (WEBVIEW_ID.test(buffer.id) && typeof buffer.url === 'string')
 }
 
-/** Strips what only a live webview knows (an in-flight load) from a browser tab. */
+/** Strips what belongs to this session alone: a live webview's in-flight load, and a failed
+ *  read's reason (the boot restore reads the file again). */
 function withoutTransient(buffer: PaneContent): PaneContent {
+  if (buffer.type === 'editor' && buffer.unavailable) {
+    const { unavailable: _reason, ...kept } = buffer
+    return kept
+  }
   if (buffer.type !== 'browser' || !('loading' in buffer)) return buffer
   const rest = { ...buffer }
   delete rest.loading
@@ -44,18 +54,9 @@ interface Adoption {
   keepUnlisted?: boolean
 }
 
-/**
- * Load-time validation of a saved layout's buffers — the only place a
- * persisted buffer is checked.
- *
- * A saved layout outlives the code that wrote it: a buffer whose content type
- * this build no longer has would render blank, so it is dropped (graceful
- * fallback, not migration). Then invariant C2 is established once for what
- * was read: a tab id naming no surviving buffer leaves its pane, and a buffer
- * no pane lists is not restored — unless it holds unsaved edits (the only copy
- * of them), which `adoptInto` takes as a tab instead. From then on the store
- * keeps C2 itself (see `buffer-release.ts`), so nothing is repaired on save.
- */
+/** The only check of persisted buffers: unknown content types are dropped, then C2 is set up once
+ *  — dangling tab ids leave their pane, unlisted buffers are dropped unless they hold unsaved
+ *  edits (`adoptInto` takes those). The store keeps C2 after that. */
 export function validateLoadedBuffers<P extends PersistablePane, T extends Snapshot<P>>(
   snapshot: T,
   { adoptInto, keepUnlisted = false }: Adoption,
@@ -89,4 +90,50 @@ export function validateLoadedBuffers<P extends PersistablePane, T extends Snaps
   }
   const buffers = known.filter((b) => listed.has(b.id))
   return { ...snapshot, buffers, panes }
+}
+
+/** Buffers saved before a buffer named its document: an editor's file and a preview's source
+ *  were always its workspace's. */
+export function upgradeLegacyBuffers(buffers: PaneContent[]): PaneContent[] {
+  return buffers.map((buffer) => {
+    const saved = buffer as unknown as Record<string, unknown>
+    if (saved.type === 'editor' && !saved.authority) return { ...buffer, authority: 'workspace' }
+    if ((saved.type === 'markdownPreview' || saved.type === 'htmlPreview') && !saved.source) {
+      const { sourceFilePath, ...rest } = saved
+      const path = typeof sourceFilePath === 'string' ? sourceFilePath : ''
+      return { ...rest, source: workspaceRef(buffer.workspaceId, path) } as unknown as PaneContent
+    }
+    return buffer
+  })
+}
+
+/** Layouts saved while buffers carried their text: unsaved text becomes a draft and each buffer
+ *  keeps only its identity. Runs after upgradeLegacyBuffers, so every editor names its document. */
+export function splitLegacyEditorContent(layout: WorkspaceLayout): {
+  layout: WorkspaceLayout
+  drafts: EditorDraft[]
+} {
+  if (!layout.buffers) return { layout, drafts: [] }
+  const drafts: EditorDraft[] = []
+  const buffers = layout.buffers.map((buffer) => {
+    if (buffer.type !== 'editor') return buffer
+    const {
+      content,
+      savedContent,
+      tokens: _tokens,
+      fileMissing: _fileMissing,
+      ...kept
+    } = buffer as EditorContent & {
+      content?: unknown
+      savedContent?: unknown
+      tokens?: unknown
+      fileMissing?: unknown
+    }
+    if (typeof content !== 'string' || content === savedContent) return kept
+    const uri = documentUri(documentRefOf(kept))
+    const savedText = typeof savedContent === 'string' ? savedContent : ''
+    drafts.push({ uri, text: content, savedText, updatedAt: layout.updatedAt })
+    return { ...kept, isDirty: true }
+  })
+  return { layout: { ...layout, buffers }, drafts }
 }

@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	gituc "github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 func newGitUsecase(
@@ -90,9 +90,6 @@ func TestGitUsecase_Log_Diff_CommitDiff_Blame_Branches_Stashes_Conflicts(t *test
 	git.CommitDiffFn = func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 		return gitdomain.MultiFileDiff{}, nil
 	}
-	git.BlameFn = func(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
-		return []gitdomain.BlameEntry{{}}, nil
-	}
 	git.BranchesFn = func(_ context.Context, _ string) ([]gitdomain.Branch, error) {
 		return []gitdomain.Branch{{Name: "main"}}, nil
 	}
@@ -116,10 +113,6 @@ func TestGitUsecase_Log_Diff_CommitDiff_Blame_Branches_Stashes_Conflicts(t *test
 
 	_, err = uc.CommitDiff(ctx, "w1", "sha")
 	require.NoError(t, err)
-
-	blame, err := uc.Blame(ctx, "w1", "f")
-	require.NoError(t, err)
-	assert.Len(t, blame, 1)
 
 	branches, err := uc.Branches(ctx, "w1")
 	require.NoError(t, err)
@@ -148,7 +141,6 @@ func TestGitUsecase_ReadErrorsForward(t *testing.T) {
 	git.CommitDiffFn = func(_ context.Context, _, _ string) (gitdomain.MultiFileDiff, error) {
 		return gitdomain.MultiFileDiff{}, boom
 	}
-	git.BlameFn = func(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) { return nil, boom }
 	git.BranchesFn = func(_ context.Context, _ string) ([]gitdomain.Branch, error) { return nil, boom }
 	git.StashesFn = func(_ context.Context, _ string) ([]gitdomain.Stash, error) { return nil, boom }
 	git.ConflictedFilesFn = func(_ context.Context, _ string) ([]string, error) { return nil, boom }
@@ -161,8 +153,6 @@ func TestGitUsecase_ReadErrorsForward(t *testing.T) {
 	_, err = uc.Diff(ctx, "w1", false)
 	assert.Error(t, err)
 	_, err = uc.CommitDiff(ctx, "w1", "s")
-	assert.Error(t, err)
-	_, err = uc.Blame(ctx, "w1", "f")
 	assert.Error(t, err)
 	_, err = uc.Branches(ctx, "w1")
 	assert.Error(t, err)
@@ -256,131 +246,6 @@ func TestGitUsecase_AllWriteOps_TriggerSync(t *testing.T) {
 	}
 }
 
-// After a pull/fetch, the git usecase must cascade the working-tree resync to the
-// pulled workspace's DIRECT children (their sidebar diff is measured against the
-// parent branch's live merge-base, so moving the parent's tip stales them). It
-// must resync the parent itself plus every direct child, skip non-children and the
-// self-loop row, and never touch grandchildren.
-func TestGitUsecase_PullFetch_CascadeResyncsDirectChildren(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		op   func(uc gituc.Usecase, ctx context.Context, now time.Time) error
-	}{
-		{"pull", func(uc gituc.Usecase, ctx context.Context, now time.Time) error {
-			return uc.Pull(ctx, "parent", "merge", now)
-		}},
-		{"fetch", func(uc gituc.Usecase, ctx context.Context, now time.Time) error {
-			return uc.Fetch(ctx, "parent", now)
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			git, syncer, uc := newGitUsecase(t)
-			ctx := context.Background()
-			now := time.Unix(1000, 0)
-			git.AnyWriteOK()
-			syncer.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
-				return []domain.Workspace{
-					{ID: "parent", ParentID: ""},
-					{ID: "childA", ParentID: "parent"},
-					{ID: "childB", ParentID: "parent"},
-					{ID: "grandchild", ParentID: "childA"},
-					{ID: "unrelated", ParentID: "other"},
-					{ID: "selfloop", ParentID: "selfloop"},
-				}, nil
-			}
-
-			require.NoError(t, tc.op(uc, ctx, now))
-
-			// The pulled workspace is resynced by mutate; both direct children by the
-			// cascade. Grandchild, unrelated, and the self-loop are NOT resynced.
-			assert.Equal(t, []string{"parent", "childA", "childB"}, syncer.SyncedIDs)
-		})
-	}
-}
-
-// A List failure while enumerating children must NOT fail the pull the user just
-// completed — the cascade is best-effort. The parent's own resync still stands.
-func TestGitUsecase_Pull_ChildListFailure_DoesNotFailPull(t *testing.T) {
-	git, syncer, uc := newGitUsecase(t)
-	ctx := context.Background()
-	now := time.Unix(1000, 0)
-	git.AnyWriteOK()
-	syncer.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
-		return nil, errors.New("boom")
-	}
-
-	require.NoError(t, uc.Pull(ctx, "parent", "merge", now))
-	assert.Equal(t, []string{"parent"}, syncer.SyncedIDs, "only the parent's own resync ran")
-}
-
-// One child's resync failure must NOT fail the pull nor block a sibling's resync.
-func TestGitUsecase_Pull_ChildSyncFailure_ContinuesSiblings(t *testing.T) {
-	git, syncer, uc := newGitUsecase(t)
-	ctx := context.Background()
-	now := time.Unix(1000, 0)
-	git.AnyWriteOK()
-	syncer.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
-		return []domain.Workspace{
-			{ID: "parent"},
-			{ID: "childA", ParentID: "parent"},
-			{ID: "childB", ParentID: "parent"},
-		}, nil
-	}
-	syncer.SyncFn = func(_ context.Context, id string, _ time.Time) (domain.Workspace, error) {
-		if id == "childA" {
-			return domain.Workspace{}, errors.New("boom")
-		}
-		return domain.Workspace{ID: id}, nil
-	}
-
-	require.NoError(t, uc.Pull(ctx, "parent", "merge", now))
-	assert.Equal(t, []string{"parent", "childA", "childB"}, syncer.SyncedIDs,
-		"a failed child sync must not stop the sibling from syncing")
-}
-
-// A failed pull must NOT cascade: children stay untouched when the pull itself
-// errored (no ref moved).
-func TestGitUsecase_Pull_EngineError_NoCascade(t *testing.T) {
-	git, syncer, uc := newGitUsecase(t)
-	ctx := context.Background()
-	git.PullFn = func(_ context.Context, _, _ string) error { return errors.New("boom") }
-	listed := false
-	syncer.ListFn = func(_ context.Context) ([]domain.Workspace, error) {
-		listed = true
-		return nil, nil
-	}
-
-	err := uc.Pull(ctx, "parent", "merge", time.Now())
-	assert.Error(t, err)
-	assert.False(t, syncer.Synced, "a failed pull must not resync")
-	assert.False(t, listed, "a failed pull must not enumerate children")
-}
-
-func TestGitUsecase_OperationContinue_ClearsStickyConflicts(t *testing.T) {
-	git, syncer, uc := newGitUsecase(t)
-	ctx := context.Background()
-	now := time.Unix(1000, 0)
-	git.AnyWriteOK()
-
-	// A successful continue fully resolves the in-progress operation in this
-	// worktree, so the sticky pr-conflicts status must be cleared.
-	require.NoError(t, uc.OperationContinue(ctx, "w1", now))
-	assert.True(t, syncer.Resolved, "a successful continue must clear sticky pr-conflicts")
-	assert.Equal(t, "w1", syncer.ResolvedID)
-}
-
-func TestGitUsecase_OperationAbort_KeepsConflicts(t *testing.T) {
-	git, syncer, uc := newGitUsecase(t)
-	ctx := context.Background()
-	now := time.Unix(1000, 0)
-	git.AnyWriteOK()
-
-	// Abort discards the resolution attempt; the branch is still conflicting, so
-	// pr-conflicts must NOT be cleared.
-	require.NoError(t, uc.OperationAbort(ctx, "w1", now))
-	assert.False(t, syncer.Resolved, "abort must not clear pr-conflicts")
-}
-
 func TestGitUsecase_Writes_RejectLockedWorkspace(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -390,9 +255,9 @@ func TestGitUsecase_Writes_RejectLockedWorkspace(t *testing.T) {
 	}
 	git.AnyWriteOK()
 
-	require.ErrorIs(t, uc.Commit(ctx, "w1", "m", "b", now), apperr.ErrLocked)
-	require.ErrorIs(t, uc.StageFile(ctx, "w1", "f", now), apperr.ErrLocked)
-	require.ErrorIs(t, uc.Merge(ctx, "w1", "b", now), apperr.ErrLocked)
+	require.ErrorIs(t, uc.Commit(ctx, "w1", "m", "b", now), problem.ErrLocked)
+	require.ErrorIs(t, uc.StageFile(ctx, "w1", "f", now), problem.ErrLocked)
+	require.ErrorIs(t, uc.Merge(ctx, "w1", "b", now), problem.ErrLocked)
 	assert.False(t, syncer.Synced, "locked rejection must not mutate or resync")
 }
 
@@ -445,7 +310,6 @@ func TestGitUsecase_ReadOps_WorkspaceError(t *testing.T) {
 		return gitdomain.MultiFileDiff{}, nil
 	}
 	git.LogFn = func(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, error) { return nil, nil }
-	git.BlameFn = func(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) { return nil, nil }
 	git.BranchesFn = func(_ context.Context, _ string) ([]gitdomain.Branch, error) { return nil, nil }
 	git.StashesFn = func(_ context.Context, _ string) ([]gitdomain.Stash, error) { return nil, nil }
 	git.ConflictedFilesFn = func(_ context.Context, _ string) ([]string, error) { return nil, nil }
@@ -458,8 +322,6 @@ func TestGitUsecase_ReadOps_WorkspaceError(t *testing.T) {
 	_, err = uc.CommitDiff(ctx, "w1", "s")
 	assert.Error(t, err)
 	_, err = uc.Log(ctx, "w1", 1, 0)
-	assert.Error(t, err)
-	_, err = uc.Blame(ctx, "w1", "f")
 	assert.Error(t, err)
 	_, err = uc.Branches(ctx, "w1")
 	assert.Error(t, err)

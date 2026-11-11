@@ -23,43 +23,33 @@ type RepoDTO struct {
 	// AvatarEmoji passes the emoji icon through to the client, which renders it
 	// directly. Empty when the repo uses an on-disk image or a generated avatar.
 	AvatarEmoji string `json:"avatarEmoji,omitempty"`
-	// Status carries the tombstone marker on the Repo broadcast channel: "" for a
-	// live repo, "deleted" for a removal frame so the FE entity cache drops it
-	// (00 §6, one-type-per-channel, mirroring ProjectDTO). Read-path DTOs leave
-	// it empty.
+	// Status is the tombstone marker on the Repo broadcast channel: "deleted" on a
+	// removal frame so the client cache drops it; "" otherwise.
 	Status string `json:"status,omitempty"`
 	// Order is the repository's dense index within its project's sidebar section.
 	Order int `json:"order"`
 	// FolderID is the project-home folder this repo's entry is filed under, ""
 	// for the project's home root.
 	FolderID string `json:"folderId,omitempty"`
-	// LastError is why the last delete attempt stopped: a failed delete keeps
-	// the row and says so here, and boot re-drives it.
-	LastError string `json:"lastError,omitempty"`
 	// Deleting is the recorded delete intent. Announced before the cascade, so
 	// clients stop reading a repo whose chats are about to be tombstoned.
 	Deleting bool `json:"deleting,omitempty"`
 }
 
-// RepoPlacement is a repo's own sidebar position, read off its
-// Node{Kind: NodeKindRepo} row (api/internal/app/repositories/node) rather
-// than domain.Repository itself — see that struct's own doc. The zero value
-// (root, order 0) is what a repo with no Node row yet renders as.
+// RepoPlacement is a repo's sidebar position, read off its Node{Kind: NodeKindRepo}
+// row rather than domain.Repository. The zero value (root, order 0) means no Node row yet.
 type RepoPlacement struct {
 	FolderID string
 	Order    int
 }
 
-// RepoDTOFrom maps a domain Repository plus its own Node-sourced placement
-// onto the wire DTO. Icon precedence is resolved client-side (emoji > on-disk
-// image > generated label/color); this converter only surfaces the proxy URL
-// when an on-disk icon exists and passes the emoji through untouched.
+// RepoDTOFrom maps a repository plus its Node-sourced placement onto the wire DTO.
+// Icon precedence (emoji > on-disk image > generated) is resolved client-side.
 func RepoDTOFrom(r domain.Repository, placement RepoPlacement) RepoDTO {
 	avatarURL := ""
 	if r.AvatarHasIcon {
-		// The ?v=<AvatarVersion> query param cache-busts the otherwise-stable
-		// icon URL: uploads replace the bytes in place, and without a changing
-		// URL the webview's image cache keeps serving the old icon.
+		// ?v=<AvatarVersion> cache-busts the stable icon URL: uploads replace the bytes
+		// in place, and the webview's image cache would keep serving the old icon.
 		avatarURL = "/v0/projects/" + r.ProjectID + "/repos/" + r.ID + "/icon" +
 			"?v=" + strconv.FormatInt(r.AvatarVersion, 10)
 	}
@@ -75,21 +65,13 @@ func RepoDTOFrom(r domain.Repository, placement RepoPlacement) RepoDTO {
 		AvatarEmoji:   r.AvatarEmoji,
 		Order:         placement.Order,
 		FolderID:      placement.FolderID,
-		LastError:     r.LastError,
 		Deleting:      r.Deleting,
 	}
 }
 
-// RepoDTOList converts a slice of domain Repositories into wire DTOs in sidebar
-// order, returning a non-nil empty slice when the input is empty so the envelope
-// carries []. placements supplies each repo's own Node-sourced position by id;
-// a repo with no entry (no Node row yet) renders at the zero value (root,
-// order 0).
-//
-// The sort lives HERE, in the converter both the REST list handler and the WS
-// snapshot go through, because those are the two answers to the same question
-// and a client that got different orders from them would watch its sidebar
-// reshuffle on every reconnect.
+// RepoDTOList converts repos into a non-nil DTO slice in sidebar order, placed by id
+// from placements. The sort lives here because REST and the WS snapshot both use it,
+// and differing orders would reshuffle the sidebar on every reconnect.
 func RepoDTOList(repos []domain.Repository, placements map[string]RepoPlacement) []RepoDTO {
 	dtos := make([]RepoDTO, 0, len(repos))
 	for _, r := range repos {
@@ -99,10 +81,8 @@ func RepoDTOList(repos []domain.Repository, placements map[string]RepoPlacement)
 	return dtos
 }
 
-// compareRepoDTOs orders repositories by their dense index within a project,
-// then by id. Order is only meaningful within one project, so a cross-project
-// list is every project's sequence interleaved; the client groups by projectId
-// and reads each group in this order.
+// compareRepoDTOs orders repositories by dense index, then id. Order is meaningful only
+// within a project, so the client groups a cross-project list by projectId.
 func compareRepoDTOs(
 	a RepoDTO,
 	b RepoDTO,

@@ -1,7 +1,7 @@
 import { GitBranch, GitFork, GitMerge, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { cn } from '@/lib/utils'
-import type { WorkspaceStatus } from '@/lib/store/sidebar'
+import type { WorkspaceStatus } from '@/core/entities/repo-types'
 
 interface WorkspaceBranchIconProps {
   status: WorkspaceStatus
@@ -10,29 +10,13 @@ interface WorkspaceBranchIconProps {
   /** True for a workspace Crowbar could not provision — renders the warning
    *  glyph ahead of the locked→Lock case (spec §3.3). */
   isPlaceholder?: boolean
-  /** Why this row has no worktree (`placeholderReason`), rendered as the
-   *  glyph's `<title>` so the mark is readable on hover. Without it the amber
-   *  triangle stated a problem and named none: an `aria-label` alone reaches
-   *  a screen reader and nobody else. */
+  /** Why this row has no worktree, as the glyph's `<title>` so hover names the problem (an
+   *  `aria-label` alone reaches only screen readers). */
   reason?: string
-  /** Glyph box size, matching `sidebar-row.tsx`'s own `RowGlyph` sizing
-   *  (`size-4` ordinarily, `size-5` for the project-home row's large glyph).
-   *  Every icon below used to hardcode `size-4`, which was exactly right for
-   *  this component's one prior caller (workspace-switcher.tsx) but wrong the
-   *  moment `RowGlyph` started delegating here too. */
+  /** Glyph box size, matching `RowGlyph` (`size-4`; `size-5` for the project-home row). */
   size?: string
-  /** Forwarded from `sidebar-row.tsx`'s own `activeGround` (see that prop's
-   *  doc) — this row's body sits directly on an inverted `ROW_ACTIVE` ground
-   *  (Recents' solo-showing row, or every member of a showing SET). The
-   *  `locked`/`new` cases below hardcode `text-foreground` — correct for the
-   *  ordinary ambient sidebar background this component was originally built
-   *  for (workspace-switcher.tsx), but the wrong theme's color once
-   *  `RowGlyph` started delegating here too and the row can now sit on the
-   *  OTHER theme's inverted surface (live-verified: the branch icon read as
-   *  a barely-visible dark mark on the same dark ground its text was just
-   *  fixed to invert against). The status-colored cases (amber/red/green/
-   *  violet) are untouched — those are fixed brand colors, not an
-   *  ambient-theme token, so they read fine on either ground. */
+  /** The row sits on the inverted TAB_ACTIVE ground (`activeGround`), so the `locked`/`new` glyphs
+   *  invert their foreground; the fixed status colours read on either ground. */
   invertedGround?: boolean
 }
 
@@ -44,8 +28,7 @@ export function WorkspaceBranchIcon({
   size = 'size-4',
   invertedGround,
 }: WorkspaceBranchIconProps) {
-  // `working` is the §5 in-flight flag that replaced the old 'agent-running'
-  // status overlay; it shows the spinner regardless of the underlying status.
+  // `working` is the §5 in-flight flag; it shows the spinner whatever the underlying status.
   if (working) return <WorkspaceAgentSpinner invertedGround={invertedGround} />
 
   // A placeholder is a locked row, but it needs the user's attention rather than

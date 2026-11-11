@@ -1,18 +1,12 @@
-import type { AgentActivity, AgentChoice, AgentTerminalWait } from '@/features/agent/api/agent-api'
-import { pendingChoices } from '@/features/agent/lib/agent-activity'
+import { type AgentTerminalWait, TERMINAL_WAIT_TRUST } from '@/features/agent/api/agent-chat-reads'
+import type { AskItem } from '@/features/agent/stores/lib/transcript-items'
 
-/**
- * What occupies the composer's slot.
- *
- * THE RULE: it is an input when you can talk, and it is the question, the
- * permission, or the reason you cannot, when you cannot. One box, one occupant,
- * never two stacked — a dead input rendered beneath a live question invites
- * someone to type an answer into a field nobody reads.
- */
+/** What occupies the composer's slot: an input when you can talk, else the one
+ *  question or reason you cannot. Never two stacked: a dead input under a live
+ *  question invites an answer nobody reads. */
 export type ComposerState =
   | { kind: 'input' }
-  | { kind: 'choices'; choices: AgentChoice[] }
-  | { kind: 'halted'; message: string; resetsAt?: string }
+  | { kind: 'choices'; asks: AskItem[] }
   | { kind: 'compacting' }
   | { kind: 'signpost'; reason: SignpostReason; message: string }
 
@@ -26,6 +20,8 @@ export type SignpostReason =
   | 'terminal_wait'
   /** The daemon is placing a CLI (a revive, a switch). */
   | 'reviving'
+  /** The pane stopped following the chat's ledger, so an answer would never show. */
+  | 'unfollowed'
   /** The chat's host does not answer: what is shown is the last it said. */
   | 'offline'
 
@@ -37,59 +33,32 @@ export interface ComposerInputs {
   live: boolean
   /** The chat's host is unreachable: nothing can be sent or answered. */
   offline?: boolean
-  revival?: ComposerRevival
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
   compacting: boolean
-  activity: AgentActivity
-  /** The provider's own words about why it stopped, from a `notice` message. */
-  haltedMessage?: string
-  haltedResetsAt?: string
+  /** The asks still pending, oldest first. */
+  asks: AskItem[]
+  /** Why the chat's feed failed, while it has. */
+  feedError?: string
 }
 
-export const TERMINAL_WAIT_TRUST = 'workspace_trust'
-
-/** What to say about a wait Crowbar cannot answer. A kind this build has never
- *  heard of says exactly that and does not guess — a newer daemon minting a new
- *  kind must never make an older client say something wrong. */
+/** What to say about a wait Crowbar cannot answer; an unknown kind is not guessed at. */
 export function describeTerminalWait(wait: AgentTerminalWait): string {
   if (wait.kind === TERMINAL_WAIT_TRUST)
     return 'This provider is waiting for you to trust the workspace'
   return 'This provider is waiting for an answer only its terminal can give'
 }
 
-/**
- * Resolve the bar, in strict precedence order.
- *
- * The order is the contract, and it reads top-down as "what is the ONE thing a
- * person can act on right now":
- *
- *  0. `offline`      — the host does not answer; read-only whatever else is true
- *  1. `dormant`      — nothing can be sent yet (the chat is unknown), refined
- *                      into `reviving` while the daemon places a CLI
- *  2. `unsupported`  — this provider will never take a typed prompt
- *  3. `terminal_wait`— the CLI is blocked where only its terminal can reach
- *  4. `unanswerable` — a question whose answer cannot be delivered from here
- *  5. `choice`       — a question with buttons that work
- *  6. `halted`       — the provider stopped this turn and said why
- *  7. `compacting`   — busy; prompts queue
- *  8. `input`
- *
- * A chat blocked on a trust dialog AND holding a pending choice shows the trust
- * dialog, because that is the one a person can actually do something about.
- */
+/** Resolves the bar in precedence order, the one thing a person can act on
+ *  first: offline, unfollowed, dormant, unsupported, terminal wait, ask, compacting, input.
+ *  A failed turn is not here: its row says why, and the next prompt is the way on. */
 export function resolveComposerState(inputs: ComposerInputs): ComposerState {
-  const { live, revival, submitUnavailable, terminalWait, compacting, activity } = inputs
+  const { live, submitUnavailable, terminalWait, compacting, asks } = inputs
 
-  if (inputs.offline) {
-    return { kind: 'signpost', reason: 'offline', message: 'Offline — read-only' }
-  }
-  if (!live) {
-    if (revival) {
-      return { kind: 'signpost', reason: 'reviving', message: revival.message }
-    }
-    return { kind: 'signpost', reason: 'dormant', message: 'Loading this chat…' }
-  }
+  // The host does not answer: read-only, whatever else is true.
+  if (inputs.offline) return { kind: 'signpost', reason: 'offline', message: 'Offline — read-only' }
+  if (inputs.feedError) return { kind: 'signpost', reason: 'unfollowed', message: inputs.feedError }
+  if (!live) return { kind: 'signpost', reason: 'dormant', message: 'Loading this chat…' }
   if (submitUnavailable) {
     return {
       kind: 'signpost',
@@ -105,25 +74,10 @@ export function resolveComposerState(inputs: ComposerInputs): ComposerState {
     }
   }
 
-  // The OLDEST pending prompt, answerable or not.
-  //
-  // An unanswerable one still occupies the bar rather than becoming a bare
-  // signpost, because the question itself is the thing worth reading: a provider
-  // can report a permission it has no way to receive a reply for — codex is the
-  // shipped case, whose descriptor says so outright — and hiding that behind
-  // "answer in the terminal" is what made a blocked agent look frozen. The
-  // component draws the question either way and the CONTROLS only when they can
-  // reach someone.
-  const choices = pendingChoices(activity)
-  if (choices.length > 0) return { kind: 'choices', choices }
+  // An unanswerable ask still occupies the bar: the question is worth reading
+  // even when only its terminal can answer; the card then draws no controls.
+  if (asks.length > 0) return { kind: 'choices', asks }
 
-  if (inputs.haltedMessage) {
-    return {
-      kind: 'halted',
-      message: inputs.haltedMessage,
-      resetsAt: inputs.haltedResetsAt,
-    }
-  }
   if (compacting) return { kind: 'compacting' }
   return { kind: 'input' }
 }

@@ -12,8 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
 	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/operation"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -36,10 +38,6 @@ func (stubGit) Diff(_ context.Context, _ string, _ bool) ([]gitdomain.FileDiff, 
 }
 
 func (stubGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, error) {
-	return nil, nil
-}
-
-func (stubGit) Blame(_ context.Context, _, _ string) ([]gitdomain.BlameEntry, error) {
 	return nil, nil
 }
 
@@ -121,53 +119,38 @@ func (stubGit) ResolveHunk(
 func (stubGit) OperationContinue(_ context.Context, _ string, _ time.Time) error { return nil }
 func (stubGit) OperationAbort(_ context.Context, _ string, _ time.Time) error    { return nil }
 
-// fakeLastErrors records the workspace error sink calls so the slow-git async
-// failure path can be asserted without a sleep.
-type fakeLastErrors struct {
-	gotID  string
-	gotMsg string
-	called chan struct{}
-}
-
-func (f *fakeLastErrors) SetLastError(
-	_ context.Context,
-	id string,
-	message string,
-) (domain.Workspace, error) {
-	f.gotID = id
-	f.gotMsg = message
-	if f.called != nil {
-		f.called <- struct{}{}
-	}
-	return domain.Workspace{ID: id, LastError: message}, nil
-}
-
 func newRouter() *gin.Engine {
 	return newRouterWith(stubGit{})
 }
 
 func newRouterWith(g handlers.Git) *gin.Engine {
-	return newRouterWithErrors(g, &fakeLastErrors{})
+	return newRouterWithOps(g, newOps(func(domain.Operation) {}))
 }
 
-// noopWork satisfies handlers.WorkSignal for tests that don't assert the
-// working overlay.
-type noopWork struct{}
+// newOps is an operation service over an in-memory store; publish hears every saved row.
+func newOps(publish func(domain.Operation)) *operation.Service {
+	db, err := storesqlite.OpenDB(":memory:")
+	if err != nil {
+		panic(err)
+	}
+	opStore, err := storesqlite.NewFromDB[domain.Operation, string](db)
+	if err != nil {
+		panic(err)
+	}
+	return operation.New(opStore, publish, time.Now)
+}
 
-func (noopWork) BeginWork(_ context.Context, _ string) {}
-func (noopWork) EndWork(_ context.Context, _ string)   {}
-
-// newRouterWithErrors wires the git handlers onto the flat chat-scoped group
+// newRouterWithOps wires the git handlers onto the flat chat-scoped group
 // the way router.go does, with a stand-in for chatScoped's
 // resolveChatWorktree middleware: the resolved workspace's id is the :chatId
 // path param, so the fixed "ws1" segment in the ws const below still names
 // the workspace every existing assertion in this file expects.
-func newRouterWithErrors(
+func newRouterWithOps(
 	g handlers.Git,
-	lastErrors handlers.LastErrorSetter,
+	ops handlers.Operations,
 ) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(g, lastErrors, noopWork{})
+	h := handlers.New(g, ops)
 	rg := r.Group("/v0/chats/:chatId/git")
 	rg.Use(func(c *gin.Context) {
 		reqscope.SetWorkspace(c, domain.Workspace{ID: c.Param("chatId")})
@@ -176,7 +159,6 @@ func newRouterWithErrors(
 	rg.GET("/status", h.Status)
 	rg.GET("/diff", h.Diff)
 	rg.GET("/log", h.Log)
-	rg.GET("/blame", h.Blame)
 	rg.GET("/branches", h.Branches)
 	rg.GET("/stashes", h.Stashes)
 	rg.GET("/conflicts", h.Conflicts)
@@ -234,7 +216,6 @@ func TestGitReadHandlers(
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/status", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/diff", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/log", nil).Code)
-	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/blame?path=main.go", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/branches", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/stashes", nil).Code)
 	assert.Equal(t, http.StatusOK, do(r, http.MethodGet, ws+"/conflicts", nil).Code)
@@ -247,7 +228,6 @@ func TestGitReadHandlers_MissingParams(
 ) {
 	r := newRouter()
 
-	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/blame", nil).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/conflict-hunks", nil).Code)
 	assert.Equal(t, http.StatusBadRequest, do(r, http.MethodGet, ws+"/commit-diff", nil).Code)
 }

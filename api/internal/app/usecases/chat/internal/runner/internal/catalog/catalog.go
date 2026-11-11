@@ -1,13 +1,6 @@
-// Package catalog bounds the deterministic slash-command probes Crowbar runs
-// against a vendor CLI.
-//
-// A probe forks the provider's binary to ask what commands it offers. Two things
-// therefore need bounding: the same chat asking twice (the older probe is
-// pointless the moment a newer one starts) and the daemon as a whole (a panel of
-// eight chats must not fork eight CLIs at once).
-//
-// Results are deliberately never cached. A catalog changes when the user edits
-// their own command files, and a stale list is worse than a slow one.
+// Package catalog bounds the slash-command probes run against a vendor CLI. A probe forks the
+// provider's binary, so a newer one supersedes an older one per chat and the daemon caps how many
+// run. Results are never cached: a stale list (edited command files) is worse than a slow one.
 package catalog
 
 import (
@@ -40,10 +33,8 @@ func New() *Runs {
 	}
 }
 
-// Start opens a probe for chatID, cancelling whichever probe that chat already
-// had. The returned finish func cancels this probe and retires it — but only if
-// it is still the current one, so a probe that has already been superseded does
-// not evict its own replacement.
+// Start opens a probe for chatID, cancelling the chat's previous one. finish cancels
+// and retires this probe only while it is current, so it never evicts its replacement.
 func (r *Runs) Start(parent context.Context, chatID string) (context.Context, func()) {
 	r.mu.Lock()
 	if old, ok := r.runs[chatID]; ok {

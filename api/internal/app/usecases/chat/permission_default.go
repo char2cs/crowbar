@@ -2,10 +2,8 @@ package chat
 
 import "context"
 
-// Crowbar's own guarded/trusted/full-auto names — plain strings, not a
-// dedicated type, matching Model/Effort. What a specific PROVIDER means by
-// each one is that provider's own descriptor's business (permission_levels
-// in its own YAML); Go carries the name through unexamined.
+// Crowbar's guarded/trusted/full-auto names, plain strings like Model/Effort. What a
+// provider means by each is its descriptor's permission_levels; Go carries them unexamined.
 const (
 	PermissionGuarded  = "guarded"
 	PermissionTrusted  = "trusted"

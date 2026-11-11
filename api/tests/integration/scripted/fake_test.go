@@ -3,9 +3,13 @@
 package scripted_test
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -16,6 +20,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // The scripted CLI. The test binary is linked in as `claude` and `codex`;
@@ -49,7 +55,7 @@ type step struct {
 	Hang       bool   `yaml:"hang"`       // stop producing anything, forever
 	Crash      bool   `yaml:"crash"`      // die mid-turn
 	SlowMS     int    `yaml:"slow_ms"`    // stall before the next step
-	Drop       bool   `yaml:"drop"`       // close the api socket (codex app-server)
+	Drop       bool   `yaml:"drop"`       // hang up the api connection (codex app-server)
 	Idle       bool   `yaml:"idle"`       // report idle and never close the turn (codex)
 }
 
@@ -92,13 +98,42 @@ func record(cli, kind string, fields map[string]any) {
 	_, _ = f.Write(append(line, '\n'))
 }
 
-// runHook runs one hook command the way both CLIs do: through the shell, the
-// payload on stdin, waiting for it; its stdout is the hook's verdict.
-func runHook(command string, payload map[string]any) string {
+// hook is one wired hook: a shell command, or an http post the CLI makes itself.
+type hook struct {
+	Type    string            `json:"type"`
+	Command string            `json:"command"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+}
+
+// run fires h the way the CLIs do, waiting for it: a command gets the payload
+// on stdin, an http hook as its body; what it answers is the hook's verdict.
+func (h hook) run(payload map[string]any) string {
 	body, _ := json.Marshal(payload)
-	cmd := exec.Command("sh", "-c", command) //nolint:gosec // the command is the daemon's own hook wiring
+	if h.Type == "http" {
+		return postHook(h, body)
+	}
+	cmd := exec.CommandContext(context.Background(), "sh", "-c", h.Command)
 	cmd.Stdin = strings.NewReader(string(body))
 	out, _ := cmd.Output()
+	return strings.TrimSpace(string(out))
+}
+
+func postHook(h hook, body []byte) string {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, h.URL, bytes.NewReader(body))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range h.Headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	out, _ := io.ReadAll(resp.Body)
 	return strings.TrimSpace(string(out))
 }
 
@@ -108,6 +143,18 @@ func newID() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// providerHome is the vendor home env names. The rig keeps it beside the
+// script, in the test's temp dir; a fake handed any other refuses to run.
+func providerHome(env string) string {
+	dir, err := kit.ProviderHomeIn(env, filepath.Dir(os.Getenv(envScript)))
+	if err != nil {
+		record("fake", "unsafe-home", map[string]any{"err": err.Error()})
+		say(err.Error() + "\n")
+		os.Exit(4)
+	}
+	return dir
 }
 
 func writeSessionFile(path string) {

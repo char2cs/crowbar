@@ -180,7 +180,7 @@ func TestRegression_TopLevelFirstDropLandsWhereIndicated(t *testing.T) {
 	c2 := createHomeChatStub(t, h, p)
 	ctx := context.Background()
 	for _, id := range []string{imported.repoID, c1, c2} {
-		require.NoError(t, h.app.Repositories.Node.SetOrder(ctx, id, 0))
+		require.NoError(t, h.app.Repositories.Placement.SetOrder(ctx, id, 0))
 	}
 	h.Quiesce()
 
@@ -195,7 +195,7 @@ func TestRegression_TopLevelFirstDropLandsWhereIndicated(t *testing.T) {
 	// Tie everything again; displayed [c1, c2, repo]. Drag c1 AFTER the repo
 	// (index 2) through the chat writer.
 	for _, id := range []string{imported.repoID, c1, c2} {
-		require.NoError(t, h.app.Repositories.Node.SetOrder(ctx, id, 0))
+		require.NoError(t, h.app.Repositories.Placement.SetOrder(ctx, id, 0))
 	}
 	h.Quiesce()
 	h.patch("/v0/projects/"+p+"/home/chats/"+c1+"/placement", map[string]any{"parentId": "", "order": 2}, nil)

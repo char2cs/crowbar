@@ -5,13 +5,14 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import type { AgentTelemetry } from '@/features/agent/api/agent-api'
+import { applyEntityFrame } from '@/core/entities/entity-store'
+import { resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 
 const titleBox = () => screen.getByRole('banner').firstElementChild as HTMLElement
 
 beforeEach(() => {
   resetWindowPaneStoreForTests()
+  resetChatStore()
   act(() =>
     windowPaneStore.getState().paneActions.openChat('c1', { projectId: 'p1', workspaceId: 'ws-1' }),
   )
@@ -25,9 +26,18 @@ describe('MobileTopBar', () => {
     expect(titleBox().style.paddingLeft).toBe('68px')
     expect(titleBox().style.paddingRight).toBe('68px')
     act(() =>
-      getOrCreateWorkspaceStore('ws-1')
-        .getState()
-        .setAgentChatTelemetry('c1', { context: { usedPercent: 6 } } as AgentTelemetry),
+      applyEntityFrame('local', {
+        t: 'entity',
+        kind: 'telemetry',
+        id: 'c1',
+        scope: 'chat:c1',
+        v: 1,
+        data: {
+          observedAt: '2026-08-24T12:00:00Z',
+          source: 'callback',
+          context: { usedPercent: 6 },
+        },
+      }),
     )
     expect(titleBox().style.paddingRight).toBe('148px')
   })

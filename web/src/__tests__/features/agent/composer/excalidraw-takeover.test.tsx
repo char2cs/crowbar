@@ -13,6 +13,13 @@ import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeove
 import { INLINE_ATTACHMENT_MAX_BYTES } from '@/features/agent/composer/lib/inline-attachment-cap'
 import { loadExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
+import {
+  expectMigratingShown,
+  expectReported,
+  migratingRefusal,
+  refusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
 
 // The mocked canvas exposes `save()` via the same imperative handle the real
 // one does, invoking `onSave` with whatever this file's `saveResult` holds at
@@ -65,12 +72,11 @@ vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
   })),
 }))
 
-const toastError = vi.fn()
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: (...args: unknown[]) => toastError(...args) },
-}))
+let toastError: ReturnType<typeof watchToasts>
 
 beforeEach(() => {
+  toastError?.mockRestore()
+  toastError = watchToasts()
   localStorage.clear()
   saveResult = {
     sceneJson: '{"elements":[],"appState":{}}',
@@ -146,9 +152,7 @@ describe('ExcalidrawTakeover', () => {
     expect(onInsertMarkdown).not.toHaveBeenCalled()
   })
 
-  // REGRESSION, reported live: a global Escape listener closed the takeover
-  // out from under Excalidraw's OWN use of the same key (deselecting a
-  // shape, leaving text-edit mode) — Escape now does nothing here at all.
+  // Escape belongs to Excalidraw (deselect, leave text edit), so the takeover ignores it.
   it('does nothing on Escape', async () => {
     const { onClose } = await renderOpenTakeover()
     fireEvent.keyDown(window, { key: 'Escape' })
@@ -237,31 +241,29 @@ describe('ExcalidrawTakeover', () => {
     expect(fenceMarkdown).toContain('excalidraw:')
   })
 
-  it('shows a toast and inserts nothing when the upload fails', async () => {
-    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(new Error('daemon unreachable'))
+  it('reports the daemon’s reason and inserts nothing when the upload fails', async () => {
+    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(refusal('attachment too large'))
     const { onInsertMarkdown, onClose } = await renderOpenTakeover()
 
     clickAttach()
 
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
-    expect(toastError.mock.calls[0][1]).toContain('daemon unreachable')
+    expectReported(toastError, "Couldn't save this drawing", 'attachment too large')
     expect(onInsertMarkdown).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  it('stringifies a non-Error rejection for the toast', async () => {
-    vi.mocked(uploadChatAttachment).mockRejectedValueOnce('413')
-    await renderOpenTakeover()
+  it('an upload refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(migratingRefusal())
+    const { onClose } = await renderOpenTakeover()
 
     clickAttach()
 
-    await waitFor(() => expect(toastError).toHaveBeenCalled())
-    expect(toastError.mock.calls[0][1]).toBe('413')
+    await waitFor(() => expectMigratingShown(toastError))
+    expect(onClose).not.toHaveBeenCalled()
   })
 
-  // REGRESSION: this is the actual point of saving locally — the next time
-  // either entry point opens for this chat, it should resume this design
-  // instead of starting blank.
+  // Saving locally is what lets either entry point resume this design next time instead of blank.
   it('saves the scene to this chat’s local design slot on a successful attach', async () => {
     saveResult = {
       sceneJson: '{"elements":["a"],"appState":{}}',
@@ -286,9 +288,7 @@ describe('ExcalidrawTakeover', () => {
     expect(loadExcalidrawDesign('w1', 'c1')).toBeNull()
   })
 
-  // The header replaces a bottom toolbar the canvas used to own (removed —
-  // reported live as space the canvas should have had instead), so the
-  // in-flight guard that used to live there moves here with it.
+  // The in-flight guard lives on the header's Attach button.
   it('disables Attach while a save is in flight, so a fast second click cannot fire it twice', async () => {
     let resolveUpload!: (value: UploadedChatAttachment) => void
     vi.mocked(uploadChatAttachment).mockImplementationOnce(
@@ -314,11 +314,8 @@ describe('ExcalidrawTakeover', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
-  // REGRESSION, reported by review: the canvas's own async init (real,
-  // since it's lazy-loaded) can leave a window where its imperative save()
-  // silently no-ops (no api yet) — a click there looked like a hang, not a
-  // disabled control. Attach must stay disabled until the canvas actually
-  // signals it has something to export.
+  // The lazy-loaded canvas's save() silently no-ops before its api exists, so Attach stays disabled
+  // until the canvas signals it has something to export.
   it('disables Attach until the canvas signals it is ready, so a click cannot silently no-op', async () => {
     mockReady = false
     await renderOpenTakeover()

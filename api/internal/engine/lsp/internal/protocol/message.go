@@ -1,11 +1,6 @@
 // Package protocol implements the minimal LSP JSON-RPC surface Crowbar needs:
-// id-correlated request/response and publishDiagnostics notifications (10 §1).
-//
-// Decision (Task 1): self-implemented — no external JSON-RPC/LSP library.
-// grep of go.mod/go.sum found no existing jsonrpc2/go.lsp.dev dependency.
-// The protocol surface required (request/response by id + publishDiagnostics
-// notifications) is small enough that a thin Content-Length framing codec plus
-// these structs covers it entirely; adding a heavy dependency is unjustified.
+// id-correlated request/response and publishDiagnostics notifications. It is a thin
+// Content-Length codec rather than an external LSP library, as the surface is small.
 package protocol
 
 import "encoding/json"

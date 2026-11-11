@@ -83,12 +83,40 @@ func replacer(
 	raw []byte,
 	decision models.AnswerDecision,
 ) *strings.Replacer {
+	picked := pickedSuggestions(d, canonical, raw, decision.Picked)
 	return strings.NewReplacer(
 		"{answers_json}", encode(decision.Answers, "{}"),
 		"{reason_json}", encode(decision.Reason, `""`),
 		"{content_json}", rawJSON(decision.Content, "{}"),
 		"{tool_input_json}", toolInput(d, event, canonical, raw, decision.Answers),
+		"{suggestions_json}", encode(picked, "[]"),
+		"{suggestion_json}", encode(first(picked), "null"),
 	)
+}
+
+// first is the one suggestion a reply that grants a single one carries.
+func first(picked []any) any {
+	if len(picked) == 0 {
+		return nil
+	}
+	return picked[0]
+}
+
+// pickedSuggestions are the suggestions raw offered that picked names, as offered.
+func pickedSuggestions(d *spec.Descriptor, canonical string, raw []byte, picked []string) []any {
+	out := []any{}
+	_, declared := d.EventFields(canonical)
+	var decoded map[string]any
+	if !declared || len(picked) == 0 || json.Unmarshal(raw, &decoded) != nil {
+		return out
+	}
+	offered := d.EventSuggestions(canonical, decoded)
+	for _, id := range picked {
+		if i, ok := models.SuggestionIndex(id); ok && i < len(offered) {
+			out = append(out, offered[i])
+		}
+	}
+	return out
 }
 
 func toolInput(

@@ -1,355 +1,226 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
+	"os"
+	"path/filepath"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
-	"github.com/char2cs/crowbar/api/internal/domain"
-	"github.com/char2cs/crowbar/api/internal/engine/agents"
-
-	asynxModels "github.com/char2cs/asynx/models"
-
-	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-func (rs *Runners) displace(
-	ctx context.Context,
-	runner agents.Runner,
-) error {
-	vacated := runner.CurrentChatID
-
-	if _, err := rs.runnerStore.Displace(ctx, runner.ID); err != nil {
-		if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, agentrunner.ErrNotFound) {
-			slog.DebugContext(ctx, "agent: displace runner: it had already exited",
-				"runner_id", runner.ID, "chat_id", vacated)
-			rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitExited)
-			return nil
-		}
-		return fmt.Errorf("agent: displace runner: %w", err)
+// exitRows are runner's end as rows: what it streamed that no row holds,
+// then the end itself. They commit together, so a hook recorded meanwhile
+// sees both or neither.
+func (rs *Runners) exitRows(
+	st ledger.State, chatID string, e ledger.RunnerExited, reason string,
+) ([]ledger.Row, error) {
+	salvaged, err := rs.turns.ExitRows(st, chatID, e.RunnerID)
+	if err != nil {
+		return nil, err
 	}
-	// Once displacement commits this runner can no longer deliver a hook into the
-	// vacated chat. Resolve any pending React dispatch from the hook-derived ledger,
-	// or mark it safely retryable when no matching user turn exists.
-	rs.reconcilePromptRunnerDeparture(ctx, runner, vacated)
-
-	// A displaced runner is on NO chat, so handleTurn drops every hook it has left —
-	// including the turn_stop that would have ended a turn it is still mid-way through.
-	// Nothing will ever close that turn where it stood, so anybody waiting on it is
-	// released here or waits for their context to die (inflight.Turns.Complete).
-	rs.inflightTurns.Complete(ctx, runner.ID, domain.AgentExitDisplaced)
-	rs.closeAbandonedTurn(ctx, vacated, runner)
-	return nil
+	ended, err := ledger.Exit(st, e, reason)
+	return append(salvaged, ended...), err
 }
 
-func (rs *Runners) closeAbandonedTurn(
-	ctx context.Context,
-	chatID string,
-	runner agents.Runner,
-) {
-	if chatID == "" {
-		return
-	}
-	// Salvage whatever THIS runner had already streamed — UNCONDITIONALLY, before
-	// the "is its turn still mine to close" guard below. Runner-scoped (see
-	// AbandonMessageForRunner/salvageUnfinished's own runner filter), so this
-	// can never sweep up a successor's turn; it is best-effort, and about
-	// recording text Crowbar already broadcast live via message_delta, not
-	// about the CHAT's current turn state at all. Gating it behind the same
-	// guard as the turn-state abandon below used to mean: whenever a successor
-	// had ALREADY taken the chat by the time this runner's belated exit landed
-	// (a provider switch racing its own outgoing CLI's death — SIGTERM is not
-	// synchronous), the salvage never ran, so that already-streamed text was
-	// recorded nowhere — and with no real message id ever landing in the
-	// ledger for it, the frontend's streaming bubble (matched by the streamed
-	// message's own id, see use-chat-messages.ts) could never be dismissed: a
-	// real, reported duplicate, live 2026-08-31.
-	if rs.turns != nil {
-		if _, err := rs.turns.AbandonMessageForRunner(ctx, chatID, runner); err != nil {
-			slog.WarnContext(ctx, "agent: close abandoned turn: salvage streamed message (best-effort, continuing)",
-				"chat_id", chatID, "runner_id", runner.ID, "err", err)
-		}
-	}
-	if _, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID); err == nil {
-		return // someone else is on this chat now: its TURN STATE is not ours to close
-	}
-	// AbandonTurn, not StopTurn: the CLI is GONE, so it will never restate the level of
-	// async work it last reported outstanding, and a plain StopTurn would leave that
-	// number standing — Working is folded from the turn OR that level, so the chat would
-	// spin forever on work nothing is doing. That is the same wedge this function exists
-	// to prevent, one field over. Nothing a dead CLI announced survives it.
-	//
-	// This is the ONLY thing standing between a killed CLI and a permanently-spinning
-	// chat: measured against claude 2.1.212, a SIGKILL mid-background-work sends no
-	// SessionEnd and no final Stop — the last word is a turn_stop reporting work still
-	// running, and in an event-sourced aggregate that word outlives the restart.
-	// The conversation record is closed FIRST and unconditionally. A dead CLI's
-	// turn is open there too, holding whatever tool calls it had in flight — and
-	// those render as running for as long as the record says so, which is forever.
-	// The next turn's activity would attach to that stale open turn as well.
-	if err := rs.activity.Abandon(ctx, chatID, time.Now()); err != nil {
-		slog.WarnContext(ctx, "agent: close abandoned turn: abandon conversation record",
-			"chat_id", chatID, "err", err)
-	}
-
-	abandoned, err := rs.chats.AbandonTurn(ctx, chatID, time.Now())
-	if err == nil {
-		rs.work.Set(chatID, abandoned.Working)
-		return
-	}
-	if errors.Is(err, asynxModels.ErrValidation) {
-		// The command's authoritative fold says there is nothing to abandon.
-		rs.work.Set(chatID, false)
-		return
-	}
-	slog.WarnContext(ctx, "agent: close abandoned turn: abandon turn", "chat_id", chatID, "err", err)
-}
-
+// ReconcileRunnersOnBoot ends, as daemon_restart, every runner the ledger
+// still holds live: no CLI outlives the daemon that started it. The pending
+// prompt pass runs whatever the runner pass met.
 func (rs *Runners) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
-	runners, err := rs.runnerStore.AllLive(ctx)
+	chats, err := rs.ledger.OpenChats(ctx)
+	var errs []error
 	if err != nil {
-		return fmt.Errorf("agent: boot reconcile: list runners: %w", err)
+		errs = append(errs, fmt.Errorf("agent: boot reconcile: open chats: %w", err))
 	}
-	for _, r := range runners {
-		// SessionLive is the seam that asks "is this PROCESS alive", NOT the engine's
-		// SessionExists, which is also true for a PTY-less suspended placeholder — a session
-		// whose process is already dead and whose only remaining substance is scrollback on
-		// disk. Restoring those placeholders is the boot step immediately before this one, so
-		// asking the registry "do you know this id?" here would answer yes for every single
-		// dead agent CLI and reconcile NOTHING. That is the exact mistake that let a
-		// restart-orphaned chat go on advertising a live agent.
-		if rs.term.SessionLive(ctx, r.TerminalSession) {
-			continue
+	for _, chatID := range chats {
+		if err := rs.reconcileBootRunner(ctx, chatID); err != nil {
+			errs = append(errs, err)
 		}
-		// Read the placement BEFORE the Exit: it is the chat whose turn this CLI abandoned.
-		abandoned := r.CurrentChatID
-
-		// The tmp reap below is intentionally gated on a SUCCESSFUL Exit, even though the
-		// PTY is already known dead at this point and the dir could be reaped regardless.
-		// Coupling them keeps the row and its tmp dir moving together: if Exit fails, the
-		// row is still recorded live, so this same runner reappears in AllLive on the next
-		// boot and both the Exit and the reap are retried then. Reaping now while Exit's
-		// error leaves the row live would desync the two — a "live" row with its config
-		// already gone — for no gain, since the dir holds no credential and an extra boot
-		// of staleness is the same benign wait the surrounding best-effort loop already
-		// accepts everywhere else.
-		if _, err := rs.runnerStore.Exit(ctx, r.ID, time.Now()); err != nil {
-			slog.ErrorContext(ctx, "agent: boot reconcile: exit dead runner (best-effort, continuing)",
-				"runner_id", r.ID, "terminal_session_id", r.TerminalSession, "err", err)
-			continue
-		}
-		rs.reconcilePromptRunnerDeparture(ctx, r, r.CurrentChatID)
-		rs.reapCrashOrphanRunnerTmp(ctx, r)
-		rs.noteChatExit(ctx, abandoned, domain.AgentExitDaemonRestart)
-
-		// Close the turn it died in the middle of. Turn state has never been durable truth
-		// (domain.Chat.Working is documented as reconciled, not authoritative — a CLI
-		// that dies mid-turn never sends the turn_stop hook that would close it), so
-		// repairing it asserts nothing about any process. Without this, a chat that was
-		// working when the daemon died comes back spinning and spins forever, and the
-		// workspace's whole overlay spins with it.
-		//
-		// The Exit above is SendWait, so the "is anyone still on this chat" read inside can
-		// no longer see the runner we have just reaped.
-		rs.closeAbandonedTurn(ctx, abandoned, r)
 	}
-	if err := rs.reconcilePromptJournalsOnBoot(ctx); err != nil {
-		return err
+	return errors.Join(append(errs, rs.reconcilePendingPromptsOnBoot(ctx))...)
+}
+
+func (rs *Runners) reconcileBootRunner(ctx context.Context, chatID string) error {
+	st, err := rs.ledger.State(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: boot reconcile: chat %s: %w", chatID, err)
+	}
+	dead, ok := st.LiveRunner()
+	if !ok {
+		return nil
+	}
+	runner := agents.Runner{ID: dead.RunnerID, ProviderID: dead.Provider, CurrentChatID: chatID}
+	rs.reapCrashOrphanRunnerTmp(ctx, runner)
+	_, _, err = rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		if live, ok := st.LiveRunner(); !ok || live.RunnerID != dead.RunnerID {
+			return nil, nil
+		}
+		return ledger.Exit(st, ledger.RunnerExited{RunnerID: dead.RunnerID, Reason: domain.AgentExitDaemonRestart},
+			ledger.ReasonDaemonRestart)
+	})
+	if err != nil {
+		return fmt.Errorf("agent: boot reconcile: chat %s: %w", chatID, err)
 	}
 	return nil
 }
 
-func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
-	// The echo guard is per-spawn and means nothing once the process is gone.
+// Shutdown notes daemon_restart as how every live runner ends, then kills
+// every api connection, which nothing else on the shutdown path reaches. A
+// connection it detaches is recorded by the next boot.
+func (rs *Runners) Shutdown() {
+	rs.live.exitAll(domain.AgentExitDaemonRestart)
+	rs.background.stop()
+	rs.apiConns.closeAll()
+}
+
+// reconcileRunnerExit records in one ledger commit that runnerID's process is gone,
+// then frees the chat. The first exit signal to claim the runner records it and gets
+// back the reason.
+func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) string {
+	ctx = context.WithoutCancel(ctx)
 	rs.agents.ForgetRunner(runnerID)
-	// Nor does the surface it was on: the mirror is per-runner, and a dead
-	// runner's entry would outlive the daemon's memory of anything else.
 	rs.surfaces.drop(runnerID)
-	// Nor does a prompt it was blocked on. Its hooks may still be ALIVE — they are
-	// spawned detached, so killing a CLI orphans them — so every relay this runner
-	// owned is woken with no verdict, and every question it was asking is closed.
-	// A pending prompt over a process that no longer exists is a banner nothing
-	// else will ever clear.
-	rs.answers.ReleaseRunner(ctx, runnerID)
-	// Nor does an in-flight turn: a CLI that died mid-answer will never send the turn_stop
-	// that closes it, so a provider switch parked on that turn is released by the DEATH
-	// instead — the same real signal that ends the runner, and the reason the wait needs no
-	// timeout to be safe against a CLI that falls over.
-	rs.inflightTurns.Complete(ctx, runnerID, domain.AgentExitExited)
-
-	runner, err := rs.runnerStore.Get(ctx, runnerID)
+	rs.answers.ReleaseRunner(runnerID)
+	entry, ok := rs.claimEnd(runnerID)
+	if !ok {
+		return ""
+	}
+	defer rs.live.remove(runnerID)
+	if !entry.started {
+		return "" // its spawn failed, and records that itself
+	}
+	chatID := entry.runner.CurrentChatID
+	defer rs.touch(ctx, chatID)
+	lost := rs.loseRefusedSession(ctx, runnerID, entry.exit)
+	reason := cmp.Or(entry.cause, lost, domain.AgentExitExited)
+	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		return rs.exitRows(st, chatID, ledger.RunnerExited{RunnerID: runnerID, Reason: reason, ExitCode: entry.exit.Code},
+			ledger.ReasonRunnerExited)
+	})
 	if err != nil {
-		if !errors.Is(err, agentrunner.ErrNotFound) {
-			slog.WarnContext(ctx, "agent: reconcile runner exit: get runner", "runner_id", runnerID, "err", err)
-		}
-		// Already exited (a double exit is not an error — the row is simply gone).
-		rs.sessions.takeCause(runnerID)
-		rs.sessions.failedProbe(runnerID, 0)
-		return
+		slog.ErrorContext(ctx, "agent: record runner exit", "chat_id", chatID, "runner_id", runnerID, "err", err)
 	}
-	// A CLI that refused its resume never read the prompt its launch carried:
-	// that prompt goes to the next rung instead of being written off.
-	// Only an exit nobody asked for: a CLI Crowbar stopped or replaced was
-	// never given the chance to announce anything.
-	window := resumeProbeWindow
-	if rs.sessions.hasCause(runnerID) {
-		window = 0
-	}
-	refused := rs.sessions.failedProbe(runnerID, window)
-	redeliver, again := agentjournal.PromptRequest{}, false
-	if refused {
-		redeliver, again = rs.refusedDelivery(ctx, runner)
-	} else {
-		rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
-	}
-	if _, err := rs.runnerStore.Exit(ctx, runnerID, time.Now()); err != nil {
-		slog.WarnContext(ctx, "agent: reconcile runner exit: exit runner", "runner_id", runnerID, "err", err)
-		return
-	}
-	rs.noteExit(ctx, runner.CurrentChatID, runnerID, refused)
+	rs.turns.Retire(chatID, runnerID)
+	slog.InfoContext(ctx, "agent: runner ended", "component", "runner", "chat", chatID, "reason", reason)
+	return reason
+}
 
-	// Close a turn it left open — unless it had already been DISPLACED, in which case its
-	// chat (if it still had a turn to close) was dealt with at displacement time and
-	// CurrentChatID is now empty, meaning nowhere.
-	rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
-	if again {
-		rs.redeliverRefused(ctx, runner.CurrentChatID, redeliver)
+// endUnheld records runnerID's exit for a path not holding its chat, under the
+// chat's lock: no hook records between its check and its commit.
+func (rs *Runners) endUnheld(ctx context.Context, runnerID string) {
+	ctx = context.WithoutCancel(ctx)
+	runner, ok := rs.live.byRunner(runnerID)
+	if !ok {
+		rs.reconcileRunnerExit(ctx, runnerID) // nothing is left to record, only to forget
+		return
+	}
+	unlock, err := rs.chatLock.Lock(ctx, runner.CurrentChatID)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: record runner exit: hold the chat", "runner_id", runnerID, "err", err)
+		return
+	}
+	defer unlock()
+	rs.reconcileRunnerExit(ctx, runnerID)
+}
+
+// onRunnerExit is a runner process's exit callback.
+func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatch) func(engineterminal.Exit) {
+	return func(exit engineterminal.Exit) {
+		ctx := context.Background()
+		rs.reapRunnerDir(ctx, home, tmpDir)
+		// A dead PTY takes its api connection with it.
+		rs.apiConns.drop(runnerID)
+		rs.live.noteExit(runnerID, runnerExit{Exit: exit, resume: resume})
+		// A process that died before its runner_started committed is recorded by
+		// its spawn, which holds the chat, after that row.
+		if rs.live.exitBeforeStart(runnerID) {
+			return
+		}
+		rs.endUnheld(ctx, runnerID)
 	}
 }
 
+// reapRunnerDir deletes a runner's own directory, then its runners and chats
+// parents once empty, best-effort: a reap that cannot happen leaves disk
+// behind, which must not fail the runner's teardown.
+func (rs *Runners) reapRunnerDir(
+	ctx context.Context,
+	home string,
+	dir string,
+) {
+	rs.runnerDirs.Lock()
+	defer rs.runnerDirs.Unlock()
+	if err := worktreepath.RemoveUnderHome(home, dir); err != nil {
+		slog.WarnContext(ctx, "agent: reap a runner directory (best-effort)", "err", err)
+		return
+	}
+	for _, parent := range []string{filepath.Dir(dir), filepath.Dir(filepath.Dir(dir))} {
+		if !worktreepath.UnderHome(parent, home) || os.Remove(parent) != nil {
+			return
+		}
+	}
+}
+
+// RetireChatRunners records the end of chatID's runner and forgets the chat's
+// memory: it is being erased. The caller runs end after letting the lock go, so
+// a hook queued for the chat on the way down never holds up its terminate.
 func (rs *Runners) RetireChatRunners(
 	ctx context.Context,
 	chatID string,
-) {
-	placed, err := rs.runnerStore.LiveRunnersForChat(ctx, chatID)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: look up runners on chat (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-		return
+) (end func()) {
+	defer rs.turns.ForgetChat(chatID)
+	live, ok := rs.live.byChat(chatID)
+	if !ok {
+		return func() {}
 	}
-	for _, r := range placed {
-		rs.retire(ctx, r)
-	}
-	// The chat is being erased (A7): nothing held in memory for it survives.
-	rs.sessions.forget(chatID)
-	rs.work.Forget(chatID)
-	rs.inflightTurns.Forget(chatID)
-	if rs.turns != nil {
-		rs.turns.ForgetChat(chatID)
+	rs.markEnding(live, domain.AgentExitDisplaced)
+	rs.reconcileRunnerExit(ctx, live.ID)
+	return func() {
+		if _, err := rs.endProcesses(ctx, live); err != nil {
+			slog.WarnContext(ctx, "agent: retire the chat's runner (best-effort, continuing)",
+				"chat_id", chatID, "runner_id", live.ID, "err", err)
+		}
 	}
 }
 
+// reapCrashOrphanRunnerTmp removes the directory of a runner whose exit
+// callback never ran, found where its spawn put it.
 func (rs *Runners) reapCrashOrphanRunnerTmp(
 	ctx context.Context,
 	runner agents.Runner,
 ) {
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, runner.WorkspaceID)
+	chat, err := rs.chats.GetChat(ctx, runner.CurrentChatID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: boot reconcile: reap runner tmp: chat (best-effort, continuing)",
+			"runner_id", runner.ID, "chat_id", runner.CurrentChatID, "err", err)
+		return
+	}
+	workspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: boot reconcile: reap runner tmp: workspace (best-effort, continuing)",
+			"runner_id", runner.ID, "chat_id", chat.ID, "err", err)
+		return
+	}
+	chatsDir, err := rs.ws.AgentChatsDir(ctx, workspaceID)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: boot reconcile: reap runner tmp: chats dir (best-effort, continuing)",
-			"runner_id", runner.ID, "workspace_id", runner.WorkspaceID, "err", err)
+			"runner_id", runner.ID, "workspace_id", workspaceID, "err", err)
 		return
 	}
-	home, _, _, _, err := rs.ws.WorktreeDir(ctx, runner.WorkspaceID)
+	home, _, _, _, err := rs.ws.WorktreeDir(ctx, workspaceID)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: boot reconcile: reap runner tmp: home (best-effort, continuing)",
-			"runner_id", runner.ID, "workspace_id", runner.WorkspaceID, "err", err)
+			"runner_id", runner.ID, "workspace_id", workspaceID, "err", err)
 		return
 	}
-	worktreepath.RemoveUnderHome(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
-}
-
-func (rs *Runners) retireOthersOn(
-	ctx context.Context,
-	chatID string,
-	keepID string,
-) {
-	placed, err := rs.runnerStore.LiveRunnersForChat(ctx, chatID)
-	if err != nil {
-		slog.ErrorContext(ctx, "agent: look up runners placed on chat (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-		return
-	}
-	rs.retireOlderThan(ctx, placed, keepID, "chat", chatID)
-}
-
-func (rs *Runners) evictHolderOf(
-	ctx context.Context,
-	runner agents.Runner,
-	sessionID string,
-) {
-	holders, err := rs.runnerStore.LiveRunnersForSession(ctx, runner.WorkspaceID, sessionID)
-	if err != nil {
-		slog.ErrorContext(ctx, "agent: look up runners holding this conversation (best-effort, continuing)",
-			"session_id", sessionID, "err", err)
-		return
-	}
-	rs.retireOlderThan(ctx, holders, runner.ID, "conversation", sessionID)
-}
-
-func (rs *Runners) retireOlderThan(
-	ctx context.Context,
-	present []agents.Runner,
-	keepID string,
-	whereKind string,
-	whereID string,
-) {
-	me := -1
-	for i, r := range present {
-		if r.ID == keepID {
-			me = i
-			break
-		}
-	}
-	if me < 0 {
-		return
-	}
-	for _, older := range present[me+1:] {
-		slog.WarnContext(ctx, "agent: another CLI was already here; retiring it",
-			whereKind, whereID, "keeping", keepID, "retiring", older.ID)
-		rs.retire(ctx, older)
-	}
-}
-
-func (rs *Runners) requirePlacement(
-	ctx context.Context,
-	runner agents.Runner,
-	chatID string,
-) (bool, error) {
-	if chatID == "" {
-		// Already displaced (we are killing it, and it has not fallen over yet).
-		rs.retire(ctx, runner)
-		return false, nil
-	}
-	_, err := rs.chats.GetChat(ctx, chatID)
-	if err == nil {
-		return true, nil
-	}
-	if !errors.Is(err, agentchat.ErrNotFound) {
-		return false, fmt.Errorf("agent: ingest hook: chat: %w", err)
-	}
-	slog.WarnContext(ctx, "agent: ingest hook: the runner's chat no longer exists; dropping the announcement and retiring the CLI",
-		"runner_id", runner.ID, "chat_id", chatID)
-	rs.retire(ctx, runner)
-	return false, nil
-}
-
-func (rs *Runners) LiveRunnerForChat(
-	ctx context.Context,
-	chatID string,
-) (agents.Runner, error) {
-	return rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-}
-
-func (rs *Runners) ConversationsForChat(
-	ctx context.Context,
-	chatID string,
-) ([]agents.ChatConversation, error) {
-	return rs.runnerStore.ConversationsForChat(ctx, chatID)
+	rs.reapRunnerDir(ctx, home, worktreepath.RunnerDir(chatsDir, runner.ID, runner.ProviderID))
 }

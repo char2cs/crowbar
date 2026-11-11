@@ -1,63 +1,38 @@
-// Package store owns the agentchat read model: the durable, queryable
-// projection of the domain.Chat aggregate at state/store/agent_chat.db.
-// New builds the read model over the read-pool DB and registers TWO distinct
-// projections on the singleton axAgentChat (mirrors reviewthread): the
-// SAVE-ONLY store projection here (store.go) folds evt.Aggregate into the
-// durable read model and, on Forget, deletes the row; the hub projection
-// (hub.go) owns WS fan-out, broadcasting a (chatID, kind) frame per event. The
-// two derive independently from the same event stream and cannot drift.
-//
-// Like reviewthread it does NO eager reconcile on open — a normal boot re-opens
-// the durable read model with zero replay. Read-model repair is lazy: every read
-// heals a lost model on first access via whole-model asynx.Replay, enumerating
-// every id the event log holds. Unlike reviewthread's per-id Get (which bypasses
-// the read model via the repo's direct ax.Get fold), the agentchat repo routes
-// ALL reads — including per-id ones — through this store, so GetChat heals the
-// model exactly like the list reads.
-//
-// There is no session→chat lookup here any more (the retired GetByProviderSession
-// scanned the chat's segments). A conversation belongs to a chat as a projection
-// of RUNNER events, so that question is answered by agentrunner's append-only
-// conversation history — which keeps answering long after the process that opened
-// the conversation is gone, something a scan of live chat state never could.
+// Package store owns the agentchat read model (state/store/agent_chat.db): the save-only durable
+// projection beside the live hub one (hub.go). Boot does no eager reconcile; every read heals a
+// lost model on first access by replaying the event log.
 package store
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"strings"
+	"slices"
+	"sync/atomic"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
-	"github.com/char2cs/crowbar/api/internal/app/repositories/internal/serialize"
+	"github.com/char2cs/crowbar/api/internal/core/readonce"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// eventKeyPrefix is the namespace asynx prepends to an aggregate id when it
-// stores that aggregate's events (its snapshots use "snapshots:"). The crowbar
-// event store's AggregateLister returns the RAW store keys — both "events:<id>"
-// and "snapshots:<id>" — so rebuild must keep only the events keys and strip
-// this prefix to recover the real aggregate id, which asynx.Replay re-prepends
-// itself.
+// eventKeyPrefix is the namespace asynx prepends to an aggregate's event key.
+// AggregateLister returns raw keys (events: and snapshots:), so rebuild keeps
+// only events keys and strips this prefix; asynx.Replay re-prepends it.
 const eventKeyPrefix = "events:"
 
-// ErrNotFound is returned when no read-model row exists for a requested chat or
-// provider session, even after a whole-model rebuild attempt. Defined locally
-// (rather than importing the parent agentchat package's sentinel) because that
-// package imports this store package — importing back would cycle. The parent's
-// event_store.go bridges this sentinel to agentchat.ErrNotFound (mapNotFound).
+// ErrNotFound is returned when no read-model row exists for a chat even after a
+// heal. It is local because the parent package imports this one; the parent
+// maps it to its own ErrNotFound.
 var ErrNotFound = errors.New("agentchat store: not found")
 
 // Store is the AgentChat read model: a projected, queryable view of the
-// aggregate. Every read heals a lost durable model via whole-model lazy Replay
-// (see rebuild) before concluding a chat or session genuinely doesn't exist.
+// aggregate. Every read heals a lost durable model by lazy Replay before
+// concluding a chat does not exist.
 type Store interface {
-	// GetChat returns the chat for id, healing the read model first if it is
-	// empty (spec §3.7).
+	// GetChat returns the chat for id, replaying that id from the event log on a miss.
 	GetChat(
 		ctx context.Context,
 		id string,
@@ -83,51 +58,52 @@ type service struct {
 	storage storage
 	es      asynxModels.Store
 	ax      asynx.Asynx[domain.Chat]
+	// rebuiltFor is the row set the last rebuild left with nothing to read. Rows
+	// alone key it: a new aggregate reaches the model by its live save, not a rebuild.
+	rebuiltFor atomic.Pointer[string]
 }
 
-// New builds the durable read model over db (state/store/agent_chat.db) and
-// registers both read-side projections on ax, once, for the singleton
-// axAgentChat: the save-only store projection (this file) and the hub
-// broadcast projection (hub.go). It performs no reconcile — read-model repair
-// is lazy. es is the same per-type event log ax wraps, retained so reads can
-// reach its serialize.AggregateLister capability for the whole-model rebuild.
-func New(
+// Projection is the read model's write side. It is opened before the asynx
+// instance so it can be that instance's durable subscriber (Subscriber).
+type Projection struct {
+	storage storage
+}
+
+// Open opens the read model over db (state/store/agent_chat.db).
+func Open(
 	db *gormdb.DB,
-	es asynxModels.Store,
-	ax asynx.Asynx[domain.Chat],
-	watch WatchFunc,
-	opts ...Option,
-) (Store, error) {
+) (*Projection, error) {
 	st, err := newStorageStore(db)
 	if err != nil {
 		return nil, fmt.Errorf("agentchat store: %w", err)
 	}
-	p := &storeProjector{storage: st}
-	for _, opt := range opts {
-		opt(p)
-	}
-	if err := registerStoreProjection(p, ax); err != nil {
-		return nil, fmt.Errorf("agentchat store: projections: %w", err)
-	}
+	return &Projection{storage: st}, nil
+}
+
+// New builds the read model over p, whose instance ax was built with
+// Subscriber(p), and registers the hub projection on ax. es is the log ax
+// wraps, kept for the lazy whole-model rebuild.
+func New(
+	p *Projection,
+	es asynxModels.Store,
+	ax asynx.Asynx[domain.Chat],
+	watch WatchFunc,
+) (Store, error) {
 	if err := registerHubProjection(ax, watch); err != nil {
 		return nil, fmt.Errorf("agentchat store: projections: %w", err)
 	}
-	return &service{storage: st, es: es, ax: ax}, nil
+	return &service{storage: p.storage, es: es, ax: ax}, nil
 }
 
-// GetChat returns the chat for id via an O(1) keyed lookup — T10 puts this on
-// the per-hook hot path, so it must not scan and unmarshal every row. A miss
-// triggers one whole-model Replay rebuild and a re-lookup, preserving the lazy
-// self-heal after a read-DB loss; only a miss that survives the rebuild is a
-// genuine ErrNotFound.
+// GetChat returns the chat for id via a keyed lookup, since it is on the per-hook
+// hot path. A miss replays that one id and looks again; only a miss that survives
+// the heal is ErrNotFound.
 func (s *service) GetChat(
 	ctx context.Context,
 	id string,
 ) (domain.Chat, error) {
-	// An empty id is NOWHERE, never a chat — and it must not reach the miss path below,
-	// which heals the read model by REPLAYING THE ENTIRE EVENT LOG. A runner Crowbar has
-	// taken off its chat carries an empty chat id, so an unguarded lookup would replay the
-	// whole log on every hook of every dying CLI.
+	// An empty id is never a chat and must not reach the heal path: a runner taken
+	// off its chat carries an empty id, and every hook of a dying CLI would replay.
 	if id == "" {
 		return domain.Chat{}, fmt.Errorf("agentchat store: get %q: %w", id, ErrNotFound)
 	}
@@ -146,17 +122,11 @@ func (s *service) GetChat(
 	return *chat, nil
 }
 
-// healOne rebuilds a SINGLE chat's read-model row from the event log and returns
-// it, or nil when the id is unknown.
-//
-// One id, not the whole model: asynx.Replay takes a single aggregate, and that is
-// all a keyed GetChat needs. It folds NOTHING when the id is unknown or already
-// Forgotten, so a miss for a deleted chat (or a stale FE request) costs one empty
-// replay instead of folding every OTHER chat's entire history back through the
-// read model on a hook hot path. A genuine whole-model loss still heals lazily,
-// one row per GetChat, plus ListChats rebuilds the lot when the model is empty.
+// healOne rebuilds one chat's read-model row from the event log and returns it,
+// or nil when the id is unknown. One id, not the whole model, so a miss for a
+// deleted chat on the hook hot path costs one empty replay.
 func (s *service) healOne(ctx context.Context, id string) (*domain.Chat, error) {
-	if err := s.ax.Replay(ctx, id, 1, 0, s.foldReplayed); err != nil {
+	if err := errors.Join(s.replay(ctx, id)); err != nil {
 		return nil, fmt.Errorf("agentchat store: heal %q: %w", id, err)
 	}
 	return s.storage.FindByKey(ctx, id)
@@ -191,175 +161,38 @@ func (s *service) ListByWorkspace(
 	return result, nil
 }
 
-// allHealed returns every row in the durable read model, first healing it via
-// whole-model lazy Replay when the model is empty but the event log still holds
-// aggregates (mirrors reviewthread's List/ListOrRebuild). Every exported read
-// funnels through this so a read-DB loss is repaired regardless of which method
-// observes it first.
+// allHealed returns every read-model row, first rebuilding the whole model when
+// it is empty but the event log still holds aggregates.
 func (s *service) allHealed(
 	ctx context.Context,
 ) ([]domain.Chat, error) {
-	rows, err := s.storage.FindAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(rows) > 0 {
-		return rows, nil
-	}
-	if err := s.rebuild(ctx); err != nil {
-		return nil, err
-	}
-	return s.storage.FindAll(ctx)
+	rows, err := readonce.Do(ctx, "agentchat:all", func() ([]domain.Chat, error) { return s.healedRows(ctx) })
+	return slices.Clone(rows), err
 }
 
-// rebuild enumerates every aggregate id in the event log and Replays each into
-// the read model. It is a no-op when the event store cannot enumerate its ids or
-// when the log is empty (nothing to Replay), so an empty model over an empty log
-// stays empty.
-//
-// asynx.Replay rebuilds a SINGLE aggregate id, so a lost read model cannot be
-// healed by one call: rebuild enumerates every id the event log holds via the
-// event store's serialize.AggregateLister capability, then Replays each id back
-// into state/store/agent_chat.db.
-//
-// A single aggregate that fails to Replay — a pre-cutover payload the current
-// reducer cannot fold, or any other corrupt entry in the shared event log — is
-// logged and SKIPPED, not propagated: every other aggregate must still heal.
-// Before this, one bad id emptied the whole read model, because the caller
-// (ListChats/GetChat) has nothing to show while rebuild is erroring.
-func (s *service) rebuild(
+// Subscriber registers p as the instance's durable subscriber: a failed save is
+// retried by asynx, and parks the aggregate, instead of being logged and
+// dropped. The Forget marker deletes the row; a missing row is no error.
+func Subscriber(
+	p *Projection,
+) func(*asynx.Builder[domain.Chat]) {
+	return func(b *asynx.Builder[domain.Chat]) {
+		b.WithSubscriber(asynx.Topic("agentchat.*"), p.handle)
+	}
+}
+
+func (p *Projection) handle(
 	ctx context.Context,
+	evt asynxModels.Event[domain.Chat],
 ) error {
-	lister, ok := s.es.(serialize.AggregateLister)
-	if !ok {
+	if evt.EventName == asynxModels.ForgetEventName {
+		if err := p.storage.Delete(ctx, evt.AggregateID); err != nil {
+			return fmt.Errorf("agentchat store projection: delete %q: %w", evt.AggregateID, err)
+		}
 		return nil
 	}
-	keys, err := lister.AggregateIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("agentchat store: enumerate aggregate ids: %w", err)
-	}
-	for _, key := range keys {
-		id, ok := strings.CutPrefix(key, eventKeyPrefix)
-		if !ok {
-			// A non-event key (e.g. a "snapshots:<id>" row for the same aggregate)
-			// — skip it; the aggregate is rebuilt from its "events:" key.
-			continue
-		}
-		if err := s.ax.Replay(ctx, id, 1, 0, s.foldReplayed); err != nil {
-			slog.ErrorContext(ctx, "agentchat store: replay skipped unreplayable aggregate",
-				"id", id, "err", err)
-			continue
-		}
+	if err := p.storage.Save(ctx, evt.Aggregate); err != nil {
+		return fmt.Errorf("agentchat store projection: save %q: %w", evt.Aggregate.ID, err)
 	}
 	return nil
-}
-
-// foldReplayed persists each replayed aggregate into the read model. Replay
-// folds the event stream, so evt.Aggregate carries the aggregate's state at that
-// version; the final event leaves the current state durable.
-func (s *service) foldReplayed(
-	ctx context.Context,
-	evt asynxModels.Event[domain.Chat],
-) {
-	if err := s.storage.Save(ctx, evt.Aggregate); err != nil {
-		slog.ErrorContext(ctx, "agentchat store: replay fold", "id", evt.Aggregate.ID, "err", err)
-	}
-}
-
-// registerStoreProjection subscribes the SAVE-ONLY read-model projection to
-// every agentchat event on the singleton axAgentChat: it folds evt.Aggregate
-// into the durable read model and, on Forget, deletes the aggregate's row (a
-// cheap, synchronous OnForget row-delete, no fs/git/network io). It does NOT
-// broadcast — Task 8's hub projection owns fan-out. Designed to register ONCE on
-// the singleton.
-func registerStoreProjection(
-	p *storeProjector,
-	ax asynx.Asynx[domain.Chat],
-) error {
-	if _, err := ax.Subscribe(asynx.Topic("agentchat.*"), p.onEvent); err != nil {
-		return fmt.Errorf("agentchat store projection: subscribe: %w", err)
-	}
-	if _, err := ax.OnForget(p.onForget); err != nil {
-		return fmt.Errorf("agentchat store projection: on forget: %w", err)
-	}
-	return nil
-}
-
-type storeProjector struct {
-	storage   storage
-	placement func(chatID string)
-}
-
-// Option configures the store projection.
-type Option func(*storeProjector)
-
-// WithPlacementWatch announces every chat whose parent, workspace or type the
-// projection just saved, or whose row it deleted. It runs after the write, so
-// a listener re-reading the read model sees the new placement.
-func WithPlacementWatch(watch func(chatID string)) Option {
-	return func(p *storeProjector) { p.placement = watch }
-}
-
-func (p *storeProjector) onEvent(
-	ctx context.Context,
-	evt asynxModels.Event[domain.Chat],
-) {
-	if err := p.saveWithRetry(ctx, evt.Aggregate); err != nil {
-		slog.ErrorContext(ctx, "agentchat store projection: save", "id", evt.Aggregate.ID, "err", err)
-		return
-	}
-	if placementChanged(evt.PreviousAggregate, evt.Aggregate) {
-		p.announcePlacement(evt.Aggregate.ID)
-	}
-}
-
-func placementChanged(
-	before domain.Chat,
-	after domain.Chat,
-) bool {
-	return before.ID == "" ||
-		before.ParentID != after.ParentID ||
-		before.WorkspaceID != after.WorkspaceID ||
-		before.Type != after.Type
-}
-
-func (p *storeProjector) announcePlacement(
-	chatID string,
-) {
-	if p.placement != nil {
-		p.placement(chatID)
-	}
-}
-
-func (p *storeProjector) saveWithRetry(
-	ctx context.Context,
-	chat domain.Chat,
-) error {
-	var err error
-	for range 3 {
-		if err = p.storage.Save(ctx, chat); err == nil {
-			return nil
-		}
-		if !isTransientIOError(err) {
-			return err
-		}
-	}
-	return err
-}
-
-func isTransientIOError(
-	err error,
-) bool {
-	return strings.Contains(err.Error(), "disk I/O error")
-}
-
-func (p *storeProjector) onForget(
-	ctx context.Context,
-	evt asynxModels.Event[domain.Chat],
-) {
-	if err := p.storage.Delete(ctx, evt.Aggregate.ID); err != nil {
-		slog.ErrorContext(ctx, "agentchat store projection: delete", "id", evt.Aggregate.ID, "err", err)
-		return
-	}
-	p.announcePlacement(evt.Aggregate.ID)
 }

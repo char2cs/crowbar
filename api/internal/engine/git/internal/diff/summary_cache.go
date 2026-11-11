@@ -2,11 +2,8 @@ package diff
 
 import "sync"
 
-// summaryCacheEntries caps the cache. Keys are exact, so a stale entry is
-// impossible by construction and no TTL is needed — the cap exists only so a
-// long session moving across many workspaces, branches and commits cannot grow
-// the map without bound. Oldest key wins eviction; 32 covers the handful of
-// (workspace, base ref) pairs a session realistically cycles between.
+// summaryCacheEntries caps the cache. Keys are exact, so no TTL is needed; the cap only
+// bounds a long session, and 32 covers the (workspace, base ref) pairs one cycles through.
 const summaryCacheEntries = 32
 
 type summaryKey struct {
@@ -15,26 +12,18 @@ type summaryKey struct {
 	headSHA  string
 }
 
-// summaryCache memoises the committed half of the file-summary counts:
-// `git diff --numstat -M -z <ref> <headSHA> --`, which is O(diff size) and is
-// therefore the single most expensive thing on the branch-review tick path.
-// Both sides of that diff are immutable trees, so the value is a pure function
-// of the key and only a new commit — or a different base ref, or a different
-// repo — can invalidate it. Working-tree churn, which changes on every tick
-// while an agent runs, cannot.
+// summaryCache memoises the committed half of the file-summary counts (`git diff
+// --numstat <ref> <headSHA>`), the costliest step of a review tick. Both sides are
+// immutable trees, so only a new commit, base ref or repo changes the key.
 type summaryCache struct {
 	mu      sync.Mutex
 	entries map[summaryKey]map[string]numCount
 	order   []summaryKey
 }
 
-// get returns the counts for key, calling load exactly once per distinct key
-// that is not already cached. The returned map is shared with every other
-// holder of the same key and must be treated as read-only. load runs outside
-// the mutex: it shells out to git, and holding a process-wide lock across a
-// subprocess would serialise every repo in the daemon behind the slowest one.
-// Two concurrent misses on one key therefore both compute, which costs a
-// duplicate diff and never a wrong answer.
+// get returns key's counts, loading each uncached key once; the shared map is read-only.
+// load runs outside the mutex so one slow repo never serialises the daemon; concurrent
+// misses on one key both compute, costing a duplicate diff, never a wrong answer.
 func (c *summaryCache) get(
 	key summaryKey,
 	load func() (map[string]numCount, error),

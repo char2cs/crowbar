@@ -38,21 +38,23 @@ func Probe(
 	if err != nil {
 		return models.SlashCatalog{}, err
 	}
-	sc := d.Presentation.SlashCatalog
-	adapter, ok := adapters.For(sc.Pipeline.Adapter)
-	if !ok {
-		return models.SlashCatalog{}, ErrMalformedOutput
+	static := staticItems(d.Presentation.SlashCatalog, cwd)
+	probed, err := probeWith(ctx, d, newRunner(d, d.Presentation.SlashCatalog, cwd, opts, acquire))
+	if err != nil && (len(static) == 0 || ctx.Err() != nil) {
+		return models.SlashCatalog{}, err
 	}
-
-	probeCtx, cancel := context.WithTimeout(
-		ctx, time.Duration(sc.EffectiveTimeoutMS())*time.Millisecond,
-	)
-	defer cancel()
-
-	return assemble(ctx, probeCtx, d, sc, adapter, newRunner(d, sc, cwd, opts, acquire))
+	if err != nil {
+		probed = models.SlashCatalog{
+			ProviderID:   d.ID,
+			Completeness: string(d.Presentation.SlashCatalog.Completeness),
+			Warnings:     []string{"Plugin skills could not be listed: " + err.Error()},
+		}
+	}
+	probed.Items = append(static, probed.Items...)
+	return probed, nil
 }
 
-func ProbeWith(
+func probeWith(
 	ctx context.Context,
 	d *spec.Descriptor,
 	runner models.ProbeRunner,

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -94,7 +93,7 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 		waitForMsg(t, c, func(d string) bool { return containsStr(d, liveProbe) })
 	}
 	for _, c := range conns {
-		c.Close()
+		_ = c.Close()
 	}
 	wg.Wait()
 
@@ -121,13 +120,11 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 // TestKill_vs_Suspend_Serialized verifies that concurrent Kill and Suspend on the
 // same idle detached session always produce a CONSISTENT end state:
 //
-//   - Either fully killed (not in registry, OnSessionEnded fired exactly once), or
+//   - Either fully killed (not in registry, no .buf or meta row left), or
 //   - Cleanly suspended (placeholder present, which is then killed).
 //
 // Without FIX 1 the two ops interleave: Suspend's reg.Add(placeholder) can run
-// AFTER Kill's reg.Remove, resurrecting the session. reapOnDone sees
-// suspending==true and skips cleanup → session stays in registry and
-// OnSessionEnded never fires.
+// AFTER Kill's reg.Remove, resurrecting the session, and reapOnDone skips cleanup.
 func TestKill_vs_Suspend_Serialized(t *testing.T) {
 	pinShell(t)
 
@@ -138,11 +135,6 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 		ctx := context.Background()
 		store := newFakeMetaStore(t)
 		eng.SetMetaStore(store)
-
-		var endedCount int64
-		eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) {
-			atomic.AddInt64(&endedCount, 1)
-		})
 
 		// The shell must be at its prompt (hence idle) for Suspend to be eligible — that is
 		// the precondition of the race under test, so it is established by observation.
@@ -180,18 +172,11 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 		assert.False(t, eng.SessionExists(ctx, sid),
 			"round %d: session must not exist after final cleanup", round)
 
-		// reapOnDone fires OnSessionEnded from its own goroutine. Rather than poll for that
-		// fire, JOIN the goroutine: Shutdown drains every outstanding reaper before it
-		// returns, so once it has, the ended count is final and cannot change again.
-		//
-		// That makes the assertion exact in BOTH directions, which an Eventually could never
-		// be: it proves the callback fired, and — because no reaper is still running — that
-		// it fired exactly ONCE. The old Eventually returned the instant the count hit 1 and
-		// would have been blind to a second, duplicate fire arriving a moment later.
+		// Shutdown joins every reaper, so what is on disk afterwards is final.
 		eng.Shutdown()
 
-		assert.Equal(t, int64(1), atomic.LoadInt64(&endedCount),
-			"round %d: OnSessionEnded must fire exactly once", round)
+		assert.False(t, store.hasLiveRow(sid), "round %d: no meta row survives the kill", round)
+		assert.False(t, bufExists(store.dir, sid), "round %d: no .buf survives the kill", round)
 	}
 }
 
@@ -296,7 +281,7 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 				store.arm()
 				// Closing the conn unblocks readPump → Detach → the
 				// detach-bookkeeping persist parks on the gate.
-				conn.Close()
+				_ = conn.Close()
 				close(done) // the Attach goroutine itself is joined separately
 				return done
 			},
@@ -313,13 +298,6 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			ctx := context.Background()
 			store := newGatedMetaStore(t)
 			eng.SetMetaStore(store)
-
-			// reapOnDone fires OnSessionEnded LAST — after reg.Remove, DeleteBuf and
-			// deleteMeta. So this callback is the exact "fully reaped, everything deleted"
-			// signal, and blocking on it below replaces both a registry poll and an
-			// Eventually over the filesystem.
-			reaped := make(chan struct{})
-			eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) { close(reaped) })
 
 			// Block until the shell is at its prompt (drawn, idle, ready for input).
 			sid := newReadyShell(t, eng, "chat-reap", store.dir)
@@ -376,12 +354,11 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			store.releaseGate()
 			<-writerDone
 
-			// Block until reapOnDone has completed its cleanup. OnSessionEnded is its final
-			// act, so when this returns the registry entry is gone and DeleteBuf/deleteMeta
-			// have already run — the two facts asserted below.
-			<-reaped
+			// The writer is done, so the reap's cleanup is the last thing to land; a write
+			// that resurrected the files after it keeps this from ever holding.
+			waitGone(t, eng, store.fakeMetaStore, sid)
 			<-attachDone
-			conn.Close()
+			_ = conn.Close()
 
 			assert.False(t, eng.SessionExists(ctx, sid),
 				"registry must not contain the reaped session")
@@ -415,7 +392,7 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 // gone. Every one of its callers was waiting for a specific event that the engine already
 // signals: the shell reaching its prompt (waitPrompt), a client receiving a frame
 // (waitForMsg), the PTY dying (SessionDoneForTest), a session being fully reaped
-// (OnSessionEnded), a gate being reached (gatedMetaStore.blockedCh). Each now blocks on
+// (waitGone), a gate being reached (gatedMetaStore.blockedCh). Each now blocks on
 // that signal, so none of them can wake early on a stale read or expire under load.
 
 // TestFlush_Serialized_NewestWins verifies that two concurrent cadence-flush

@@ -17,16 +17,8 @@ func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents
 	return sessionArgSteps(arg, sessionID)
 }
 
-// assignInjectionSteps is the argv that gives a fresh CLI the session id
-// Crowbar chose for it; nil for a provider that mints its own.
-func assignInjectionSteps(d engineagents.Agent, sessionID string) []engineagents.InjectStep {
-	arg, ok := d.AssignArg()
-	if !ok {
-		return nil
-	}
-	return sessionArgSteps(arg, sessionID)
-}
-
+// sessionArgSteps splits a session arg template ("<flag> {id}") into one
+// pass_arg per token: exec.Command never splits a string on whitespace.
 func sessionArgSteps(arg, sessionID string) []engineagents.InjectStep {
 	ctx := engineagents.TemplateCtx{ID: sessionID}
 	parts := strings.Fields(engineagents.Expand(arg, ctx))

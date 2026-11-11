@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,8 +15,8 @@ import (
 // processed by the daemon. A project-home workspace resolves an EMPTY repo id, so
 // scope.go builds its callback URLs as /v0/projects/:projectId/home/agent/...
 // (the home branch), and home.Register serves them. This fires the hook + rename
-// callbacks against that home path and asserts the agent lifecycle WS emits the
-// resulting session_bound / turn_started / turn_stopped / title_set frames — the
+// callbacks against that home path and asserts the chat's projects-scope row
+// shows the resulting conversation, turn and title — the
 // live signals the FE working overlay, chat-row spinner, and derived titles rely
 // on. Without BOTH the scope.go home branch (commit 2) AND the home mount
 // (commit 1) these 404, so this is the guard for the spec's CRITICAL "chats work
@@ -27,63 +28,60 @@ func TestRegression_AgentHomeCallbacksReachDaemon(t *testing.T) {
 	imported := importProject(t, h)
 	homeBase := "/v0/projects/" + imported.projectID + "/home"
 
-	// Dial the HOME agent lifecycle WS BEFORE creating so no frame is missed. The
-	// agentChatDef filter keys on the RequireHomeWorkspace-injected :wsId, so this
-	// connection sees exactly the project-home workspace's chats.
-	frames := dialAgentWS(t, h, homeBase+"/chats/ws")
+	feed := recordSidebar(t, h)
 
 	var created struct {
 		ID string `json:"id"`
 	}
 	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
-	waitForChatFrame(t, frames, created.ID, "created")
+	feed.awaitListed(created.ID)
 
-	h.Quiesce()
-	// The runner placed on the chat: its id IS the crowbarSegmentID the in-PTY
-	// `crowbar hook` callbacks carry, which is what these hooks post as segment_id.
+	startChat(t, h, homeBase, created.ID)
+	// The runner placed on the chat: its id is what these hooks are posted as.
 	detail := getAgentChat(t, h, homeBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	segID := detail.LiveRunnerID
 
-	// session_start hook → the provider session binds (session_bound). Proves the
-	// project-home /chats/hooks callback (repo=="" ⇒ home path) reaches the daemon.
-	postHomeHook(t, h, homeBase, segID, "session_start", `{"session_id":"sess-home-1"}`)
-	waitForChatFrame(t, frames, created.ID, "session_bound")
+	// session_start hook → the chat binds the provider session. Proves the
+	// project-home hook route (repo=="" ⇒ home path) reaches the daemon.
+	postHook(t, h, homeBase, "livestub", segID, "session_start", `{"session_id":"sess-home-1"}`)
+	feed.awaitConversation(created.ID, "sess-home-1")
 
 	// user_prompt hook → the turn opens (turn_started): the working overlay + chat
 	// spinner signal, now proven for a PROJECT-HOME workspace.
-	postHomeHook(t, h, homeBase, segID, "user_prompt", `{"prompt":"hi"}`)
-	waitForChatFrame(t, frames, created.ID, "turn_started")
+	postHook(t, h, homeBase, "livestub", segID, "user_prompt", `{"prompt":"hi"}`)
+	feed.awaitTurnStart(created.ID)
 
 	// turn_stop hook → the turn closes (turn_stopped).
-	postHomeHook(t, h, homeBase, segID, "turn_stop", `{"last_assistant_message":"done"}`)
-	waitForChatFrame(t, frames, created.ID, "turn_stopped")
+	postHook(t, h, homeBase, "livestub", segID, "turn_stop", `{"last_assistant_message":"done"}`)
+	feed.awaitTurnEnd(created.ID)
 
 	// Agent rename callback (?source=agent) → title_set: the derived-title path,
 	// which for project-home builds /home/chats/:id/rename via scope.go too.
 	resp := h.raw(http.MethodPost, homeBase+"/chats/"+created.ID+"/rename?source=agent",
-		map[string]string{"title": "Derived home title"}, http.StatusAccepted)
+		map[string]string{"title": "Derived home title"}, http.StatusNoContent)
 	_ = resp.Body.Close()
-	waitForChatFrame(t, frames, created.ID, "title_set")
+	feed.awaitChat(created.ID, "titled", func(chat map[string]any) bool { return chat["title"] == "Derived home title" })
 }
 
-// postHomeHook forwards a raw hook payload to the project-home agent hooks
-// endpoint exactly as the in-PTY `crowbar hook` callback does (body shape from
-// cmd/crowbar/hook.go's runHook), and asserts the daemon accepts it (202). It is
-// the HTTP-level stand-in for the vendor CLI's callback, whose URL scope.go now
-// builds as the home path when the workspace has no repo id.
-func postHomeHook(
-	t *testing.T,
-	h *harness,
-	homeBase, segID, event, payloadRaw string,
-) {
-	t.Helper()
-	resp := h.raw(http.MethodPost, homeBase+"/chats/hooks", map[string]string{
-		"segment_id":  segID,
-		"provider":    "livestub",
-		"event":       event,
-		"payload_raw": payloadRaw,
-	}, http.StatusAccepted)
-	_ = resp.Body.Close()
+// A hook whose runner's chat is gone is refused on the home mount as on the
+// repo one, and is no dead letter: the delete made it expected.
+func TestRegression_AHomeHookFromAnUnknownRunnerIsRefused(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importProject(t, h)
+	homeBase := "/v0/projects/" + imported.projectID + "/home"
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	l := stubLaunch(t, h, "livestub", startChat(t, h, homeBase, created.ID))
+	require.NoError(t, h.raw(http.MethodDelete, homeBase+"/chats/"+created.ID, nil, http.StatusOK).Body.Close())
+	h.QuiesceReactors()
+	before := chatDeadLetters(t, h)
+
+	resp := l.PostHook(t, h.url+homeBase, "livestub", "user_prompt", []byte(`{"prompt":"hi"}`)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	assert.Equal(t, before, chatDeadLetters(t, h))
 }

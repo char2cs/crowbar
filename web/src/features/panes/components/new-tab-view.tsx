@@ -21,15 +21,9 @@ const VARIANTS = {
   },
 } as const
 
-/**
- * What an editor area shows while it holds no tab, and what a New Tab page
- * (`replaceTabId`, which a choice replaces) shows: the Crowbar logo (the one
- * onboarding uses) and, once the pane's workspace is resolved, its actions.
- *
- * The actions need `wsId` because `ensurePaneChatThenOpen` mints a redundant
- * chat for a pane that has not been told its workspace's owning chat yet;
- * until then only the logo is drawn.
- */
+// An empty editor area, and a New Tab page (`replaceTabId`, replaced by the choice): the logo,
+// plus the actions once the pane's workspace resolves — every open names its workspace, so
+// until then only the logo is drawn.
 export function NewTabView({
   paneId,
   wsId,
@@ -44,7 +38,7 @@ export function NewTabView({
     paneId,
     replaceTabId,
   )
-  const canReview = usePaneCanReviewBranch(paneId)
+  const canReview = usePaneCanReviewBranch(paneId, wsId)
   const v = VARIANTS[IS_MOBILE ? 'phone' : 'desktop']
   return (
     // Focusable so a click on the blank area puts focus in the editor area,

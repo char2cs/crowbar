@@ -1,38 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentActivity, AgentChoice } from '@/features/agent/api/agent-api'
+import { askItem } from '@/__tests__/__fixtures__/ledger-rows'
 import {
   acceptsTyping,
   resolveComposerState,
   type ComposerInputs,
 } from '@/features/agent/composer/lib/composer-state'
-import { NO_ACTIVITY } from '@/features/agent/lib/agent-activity'
-
-function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
-  return {
-    id: 'k1',
-    turnId: 'turn-1',
-    seq: 1,
-    kind: 'tool_permission',
-    toolName: 'Bash',
-    options: [{ id: 'allow', kind: 'allow', label: 'Allow' }],
-    pending: true,
-    answerable: true,
-    at: '2026-08-18T12:00:00Z',
-    ...overrides,
-  }
-}
-
-function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
-  return { ...NO_ACTIVITY, ...overrides }
-}
 
 function inputs(overrides: Partial<ComposerInputs> = {}): ComposerInputs {
   return {
     live: true,
     submitUnavailable: false,
     compacting: false,
-    activity: NO_ACTIVITY,
+    asks: [],
     ...overrides,
   }
 }
@@ -42,40 +22,32 @@ describe('resolveComposerState', () => {
     expect(resolveComposerState(inputs())).toEqual({ kind: 'input' })
   })
 
-  it('is a signpost with no runner, whatever else is true', () => {
+  it('says why the chat stopped following its ledger ahead of everything else', () => {
     const state = resolveComposerState(
-      inputs({ live: false, activity: activity({ choices: [choice()] }) }),
-    )
-    expect(state).toMatchObject({ kind: 'signpost', reason: 'dormant' })
-  })
-
-  // `revival` refines "not live" past the plain dormant text — but only while
-  // not live. It must never leak into an otherwise-normal input.
-  it('ignores revival while live', () => {
-    const state = resolveComposerState(
-      inputs({ live: true, revival: { state: 'reviving', message: 'Resuming this chat…' } }),
-    )
-    expect(state).toEqual({ kind: 'input' })
-  })
-
-  it('is a reviving signpost carrying the pane’s own message', () => {
-    const state = resolveComposerState(
-      inputs({ live: false, revival: { state: 'reviving', message: 'Starting Claude…' } }),
-    )
-    expect(state).toEqual({ kind: 'signpost', reason: 'reviving', message: 'Starting Claude…' })
-  })
-
-  // Nothing typed or answered here can reach an unreachable host, so the bar says so
-  // over a pending question as much as over an input.
-  it('is a read-only signpost while the host is unreachable, over a pending question', () => {
-    const state = resolveComposerState(
-      inputs({ offline: true, activity: activity({ choices: [choice()] }) }),
+      inputs({
+        feedError: 'This chat’s history did not line up',
+        asks: [askItem()],
+      }),
     )
     expect(state).toEqual({
       kind: 'signpost',
-      reason: 'offline',
-      message: 'Offline — read-only',
+      reason: 'unfollowed',
+      message: 'This chat’s history did not line up',
     })
+  })
+
+  it('is a signpost with no runner, whatever else is true', () => {
+    const state = resolveComposerState(inputs({ live: false, asks: [askItem()] }))
+    expect(state).toMatchObject({ kind: 'signpost', reason: 'dormant' })
+  })
+
+  // Nothing typed or answered here can reach an unreachable host, so the bar says so
+  // over a feed failure and a pending question as much as over an input.
+  it('is a read-only signpost while the host is unreachable, over everything else', () => {
+    const state = resolveComposerState(
+      inputs({ offline: true, feedError: 'did not line up', asks: [askItem()] }),
+    )
+    expect(state).toEqual({ kind: 'signpost', reason: 'offline', message: 'Offline — read-only' })
     expect(acceptsTyping(state)).toBe(false)
   })
 
@@ -92,7 +64,7 @@ describe('resolveComposerState', () => {
     const state = resolveComposerState(
       inputs({
         terminalWait: { kind: 'workspace_trust' },
-        activity: activity({ choices: [choice()] }),
+        asks: [askItem()],
       }),
     )
     expect(state).toMatchObject({ kind: 'signpost', reason: 'terminal_wait' })
@@ -104,62 +76,15 @@ describe('resolveComposerState', () => {
     expect(state).toMatchObject({ message: expect.stringMatching(/only its terminal can give/i) })
   })
 
-  it('returns every pending choice in stable sequence order', () => {
-    const state = resolveComposerState(
-      inputs({
-        activity: activity({
-          choices: [choice({ id: 'new', seq: 9 }), choice({ id: 'old', seq: 2 })],
-        }),
-      }),
-    )
-    expect(state).toMatchObject({
-      kind: 'choices',
-      choices: [{ id: 'old' }, { id: 'new' }],
-    })
+  it('hands over every pending ask, in the order the fold keeps them', () => {
+    const asks = [askItem({ id: 'old' }), askItem({ id: 'new' })]
+    expect(resolveComposerState(inputs({ asks }))).toEqual({ kind: 'choices', asks })
   })
 
   // Hiding an unanswerable prompt is what made a blocked agent look frozen.
-  it('still surfaces a choice this provider cannot receive an answer for', () => {
-    const state = resolveComposerState(
-      inputs({ activity: activity({ choices: [choice({ answerable: false })] }) }),
-    )
-    expect(state).toMatchObject({ kind: 'choices', choices: [{ answerable: false }] })
-  })
-
-  it('ignores a resolved choice', () => {
-    expect(
-      resolveComposerState(
-        inputs({ activity: activity({ choices: [choice({ pending: false })] }) }),
-      ),
-    ).toEqual({ kind: 'input' })
-  })
-
-  it('puts a pending choice ahead of a halt', () => {
-    const state = resolveComposerState(
-      inputs({ activity: activity({ choices: [choice()] }), haltedMessage: 'limit reached' }),
-    )
-    expect(state.kind).toBe('choices')
-  })
-
-  it('relays the provider’s own stop reason, with the reset when there is one', () => {
-    expect(
-      resolveComposerState(
-        inputs({
-          haltedMessage: "You've hit your usage limit.",
-          haltedResetsAt: '2026-08-24T19:00:00Z',
-        }),
-      ),
-    ).toEqual({
-      kind: 'halted',
-      message: "You've hit your usage limit.",
-      resetsAt: '2026-08-24T19:00:00Z',
-    })
-  })
-
-  it('puts a halt ahead of a compaction', () => {
-    expect(resolveComposerState(inputs({ compacting: true, haltedMessage: 'stopped' })).kind).toBe(
-      'halted',
-    )
+  it('still surfaces an ask this provider cannot receive an answer for', () => {
+    const asks = [askItem({ answerable: false })]
+    expect(resolveComposerState(inputs({ asks }))).toMatchObject({ kind: 'choices' })
   })
 
   it('is compacting when that is all that is true', () => {
@@ -176,7 +101,7 @@ describe('acceptsTyping', () => {
   })
 
   it('refuses typing for everything that is not an input', () => {
-    expect(acceptsTyping({ kind: 'halted', message: 'x' })).toBe(false)
+    expect(acceptsTyping({ kind: 'choices', asks: [askItem()] })).toBe(false)
     expect(acceptsTyping({ kind: 'signpost', reason: 'dormant', message: 'x' })).toBe(false)
   })
 })

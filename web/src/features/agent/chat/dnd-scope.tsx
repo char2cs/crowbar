@@ -1,11 +1,4 @@
-import {
-  type ReactNode,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 import {
   DndContext,
   type DragEndEvent,
@@ -22,8 +15,7 @@ import {
   resolveAttachmentDrop,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
 
-// Pointer-only (no keyboard sensor): the default instructions describe keys
-// that do nothing here.
+// Pointer-only (no keyboard sensor): the default instructions describe keys that do nothing here.
 const ACCESSIBILITY = {
   screenReaderInstructions: { draggable: 'Drag the handle to move this attachment.' },
 }
@@ -36,50 +28,15 @@ function sameTarget(a: AttachmentDropTarget | null, b: AttachmentDropTarget | nu
   return a?.id === b?.id && a?.line === b?.line
 }
 
-/**
- * The drag-and-drop scope for attachment reordering, one per chat view.
- * `AgentChatView` is the common ancestor of every Plate tree that renders an
- * attachment node live: the transcript's streaming `MarkdownMessage` and the
- * composer's `ChatMarkdownEditor`.
- *
- * dnd-kit's `PointerSensor` drives the drag from ordinary pointer events, never
- * the native Drag and Drop API — which Tauri's own OS-file-drop interception
- * (`dragDropEnabled`, see tauri-file-drop.ts) swallows before it reaches the
- * DOM. External file drops keep going through Tauri's `onDragDropEvent`,
- * unrelated to this in-page reordering. The 4px activation distance keeps a
- * click on the handle a click.
- *
- * This component owns the one piece of drag state — the highlighted drop
- * target — and clears it on every end or cancel, so no drop line can outlive
- * the drag that drew it.
- */
-interface Slot {
-  subscribe: (notify: () => void) => () => void
-  get: () => ReactNode
-  set: (node: ReactNode) => void
+const ScopeChildren = createContext<ReactNode>(null)
+
+function ScopeChildrenOutlet() {
+  return useContext(ScopeChildren)
 }
 
-function createSlot(initial: ReactNode): Slot {
-  let node = initial
-  const listeners = new Set<() => void>()
-  return {
-    subscribe: (notify) => {
-      listeners.add(notify)
-      return () => listeners.delete(notify)
-    },
-    get: () => node,
-    set: (next) => {
-      if (next === node) return
-      node = next
-      listeners.forEach((notify) => notify())
-    },
-  }
-}
-
-function SlotOutlet({ slot }: { slot: Slot }) {
-  return useSyncExternalStore(slot.subscribe, slot.get)
-}
-
+// One attachment-reorder scope per chat view (the common ancestor of the transcript's and the
+// composer's Plate trees). PointerSensor, not native DnD, which Tauri's OS file-drop intercepts;
+// the drop-target highlight is cleared on every end/cancel so it cannot outlive the drag.
 export function DndScope({ children }: { children: ReactNode }) {
   const sensors = useSensors(useSensor(PointerSensor, POINTER_SENSOR_OPTIONS))
   const [target, setTarget] = useState<AttachmentDropTarget | null>(null)
@@ -96,14 +53,9 @@ export function DndScope({ children }: { children: ReactNode }) {
   const onDragCancel = useCallback(() => setTarget(null), [])
 
   // `children` is a new element on every render of the chat view, which is every
-  // streamed token. dnd-kit mints fresh context values each time its context
-  // renders, and React then re-checks every consumer under it. The scope's own
-  // element therefore stays the same object and the children reach it through a
-  // slot, so a token re-renders the children and nothing of dnd-kit's.
-  const [slot] = useState(() => createSlot(children))
-  useLayoutEffect(() => slot.set(children), [slot, children])
-
-  return useMemo(
+  // streamed token. Keeping the dnd-kit subtree the same element and handing the
+  // children down by context re-renders only them, in the same commit.
+  const scope = useMemo(
     () => (
       <DndContext
         sensors={sensors}
@@ -115,10 +67,11 @@ export function DndScope({ children }: { children: ReactNode }) {
         onDragCancel={onDragCancel}
       >
         <AttachmentDropTargetContext.Provider value={target}>
-          <SlotOutlet slot={slot} />
+          <ScopeChildrenOutlet />
         </AttachmentDropTargetContext.Provider>
       </DndContext>
     ),
-    [sensors, target, onDragMove, onDragEnd, onDragCancel, slot],
+    [sensors, target, onDragMove, onDragEnd, onDragCancel],
   )
+  return <ScopeChildren.Provider value={children}>{scope}</ScopeChildren.Provider>
 }

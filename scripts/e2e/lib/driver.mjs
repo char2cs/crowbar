@@ -1,11 +1,9 @@
 import { writeFileSync } from 'node:fs'
 import { until } from './wait.mjs'
 
-// The debug build of the app embeds tauri-plugin-mcp-bridge, a WebSocket server
-// on the first free port from 9223 (the same one the Tauri MCP uses). It speaks
-// {id, command, args} -> {id, success, data}. macOS evaluates scripts natively
-// and only for scripts without promises, so every page script is synchronous:
-// anything that must wait is polled from here against a deadline.
+// The debug app embeds tauri-plugin-mcp-bridge, a WebSocket server on the first free port from
+// 9223 speaking {id, command, args} -> {id, success, data}. macOS evaluates only promise-free
+// scripts, so page scripts are synchronous and anything that must wait is polled from here.
 const BASE_PORT = 9223
 const PORT_SPAN = 100
 // The bridge hands scripts containing any of these to a different, IPC-callback

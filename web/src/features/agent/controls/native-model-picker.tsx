@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState } from 'react'
-import type { AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import {
   onNativeChromeIntent,
   setNativeModelPicker,

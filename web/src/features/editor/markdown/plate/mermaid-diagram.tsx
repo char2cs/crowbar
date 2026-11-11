@@ -1,19 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { buildMermaidThemeVariables, useMermaidThemeVersion } from './mermaid-theme'
 
-// Debounced so a diagram doesn't re-run mermaid's parse + dagre layout on
-// every keystroke while the user is mid-edit. Looser than the markdown
-// editor's own SINK_DELAY_MS (150ms in markdown-editor-pane.tsx) because a
-// mermaid layout pass is far heavier than a markdown serialize.
+// Debounced so mermaid's parse and dagre layout don't run per keystroke; looser than the
+// markdown editor's 150 ms sink because a layout pass is far heavier than a serialize.
 const RENDER_DEBOUNCE_MS = 400
 
-// Import `mermaid` ONCE for the whole app and cache the promise. Mermaid is a
-// large lazy dependency (kept out of the entry chunk — see the note below); a
-// per-component `import()` re-fetched it on every mount and, worse, could be
-// torn down mid-flight. Caching the promise at module scope means the first
-// diagram to mount triggers the load and every diagram — this mount or a later
-// one — awaits the same result. `mermaid` is only reachable from here, so the
-// chunk still loads only when a document actually contains a mermaid block.
+// One module-scoped import promise: every diagram awaits the same load, and a remount can't
+// re-fetch or abandon it. Only reachable from here, so the chunk loads only for mermaid blocks.
 let mermaidPromise: Promise<typeof import('mermaid')> | null = null
 function loadMermaid(): Promise<typeof import('mermaid')> {
   return (mermaidPromise ??= import('mermaid'))
@@ -26,23 +19,9 @@ interface MermaidDiagramProps {
   onStateChange: (state: MermaidRenderState) => void
 }
 
-/**
- * Renders mermaid source to an SVG diagram. `mermaid` is dynamically
- * imported here and ONLY here — this component is reached exclusively from
- * a ```mermaid code block actually present in the open document (see
- * mermaid-code-block.tsx / code-block-node.tsx), so opening any other
- * markdown file never pays for the dependency. Do not hoist this import;
- * `bunx vite build` + a grep of the entry chunk for `mermaid` is the
- * standing gate on that (mirrors the katex/platejs gate noted in
- * markdown-plugins.ts).
- *
- * Invalid syntax — or `mermaid` throwing for any other reason — is caught
- * and rendered as a quiet inline message rather than propagating: this
- * component lives deep inside the live Plate tree, past the point the
- * ErrorBoundary in markdown-editor-pane.tsx can catch a render throw (that
- * boundary only guards deserialize/construction), so a bad diagram must
- * never be able to take the whole editor down with it.
- */
+/** Renders mermaid source to SVG. The only importer of `mermaid`, reached only from a mermaid
+ *  code block, so other documents never load it; don't hoist the import. Any mermaid throw shows
+ *  as an inline message: no ErrorBoundary guards this deep in the live Plate tree. */
 export function MermaidDiagram({ code, onStateChange }: MermaidDiagramProps) {
   const reactId = useId()
   // mermaid's `render(id, ...)` uses `id` as a literal SVG element id;
@@ -70,13 +49,8 @@ export function MermaidDiagram({ code, onStateChange }: MermaidDiagramProps) {
 
     onStateChangeRef.current('pending')
     let cancelled = false
-    // Kick the (module-cached) load off SYNCHRONOUSLY, outside the debounce:
-    // the old code only called `import('mermaid')` from inside the 400ms
-    // setTimeout, so any re-render/remount within that window (Plate re-renders
-    // the code block on selection changes; StrictMode double-invokes) cleared
-    // the timer before it fired and the chunk NEVER loaded. Starting the import
-    // here — cached across every instance — makes the load unkillable; only the
-    // (fast, once mermaid is loaded) render pass stays debounced.
+    // Start the cached load synchronously, outside the debounce: re-renders (selection changes,
+    // StrictMode) clear the timer, and a load started inside it might never run.
     const mermaidP = loadMermaid()
     const timer = setTimeout(() => {
       void mermaidP
@@ -85,6 +59,9 @@ export function MermaidDiagram({ code, onStateChange }: MermaidDiagramProps) {
           mermaid.initialize({
             startOnLoad: false,
             securityLevel: 'strict',
+            // Otherwise a failed render leaves mermaid's "Syntax error" graphic
+            // appended to document.body; our own error card below replaces it.
+            suppressErrorRendering: true,
             theme: 'base',
             themeVariables: buildMermaidThemeVariables(),
           })

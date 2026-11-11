@@ -50,18 +50,11 @@ export interface Settings {
   uiFontSize: number
   headingFontFamily: string
   // Agents
-  /**
-   * Whether a chat lands on Chat rather than Terminal when it opens. User-level,
-   * not per-workspace, and it only picks the LANDING surface — both stay
-   * reachable from the chat's own surface switcher whichever way this sits.
-   */
+  /** Whether a chat opens on Chat rather than Terminal; only the landing surface, both stay
+   *  reachable from the chat's switcher. */
   chatIsDefaultPresentation: boolean
-  /**
-   * DEV-ONLY DIAGNOSTIC. Adds a third surface — Split — to a chat's surface
-   * switcher, showing the reconstructed chat and its live TUI side by side so a
-   * discrepancy between the two is visible at a glance. Off by default, and the
-   * switch that turns it on only exists in a development build.
-   */
+  /** Dev-only diagnostic: adds a Split surface (reconstructed chat beside its live TUI). Off by
+   *  default; the switch exists only in development builds. */
   chatSplitPresentationEnabled: boolean
   // Theme
   theme: Theme
@@ -83,7 +76,7 @@ export interface Settings {
   // Features
   coreFeatures: CoreFeaturesState
   // Advanced
-  showBuildReadout: boolean
+  buildReadout: boolean
   /** Sidebar-header build indicator. 'auto' detects dev/nightly/beta/release from the build; any other value forces that state for QA, and 'off' hides it. */
   buildBadgeOverride: 'auto' | 'off' | BuildChannel
   // Other
@@ -99,9 +92,6 @@ export interface Settings {
   showGitStatusInFileTree: boolean
   compactGitStatusBadges: boolean
   //// Git
-  /** Branch Review's diff toolbar toggle (review-diff-tab.tsx) — 'split'
-   *  (side-by-side) or 'unified' (inline). A display preference, not
-   *  per-workspace data, so it lives here like sidebarPosition/theme rather
-   *  than in a workspace store. */
+  /** Branch Review's diff layout; a display preference, so global rather than per-workspace. */
   diffViewMode: 'split' | 'unified'
 }

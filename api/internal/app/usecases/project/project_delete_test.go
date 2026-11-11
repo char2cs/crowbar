@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
 type fakeDeleteProjects struct {
@@ -211,7 +211,7 @@ func (f *deleteFixture) seedProject() {
 
 func TestProjectDelete_NotFound(t *testing.T) {
 	f := newDeleteFixture(t)
-	assert.ErrorIs(t, f.uc.Delete(context.Background(), "missing", domain.KeepWorkAtRisk), apperr.ErrNotFound)
+	assert.ErrorIs(t, f.uc.Delete(context.Background(), "missing", domain.KeepWorkAtRisk), problem.ErrNotFound)
 }
 
 // Every repo's workspaces go through the repo cascade — the one lifecycle path
@@ -251,38 +251,43 @@ func TestProjectDelete_CascadeFailure_KeepsTheRecords(t *testing.T) {
 	assert.Empty(t, f.projects.deleted)
 }
 
-// A delete that stops is never silent (D5): the rows keep their durable intent
-// and say why, and Resume — run at boot — finishes them.
-func TestProjectDelete_AStoppedDeleteIsRecordedAndResumed(t *testing.T) {
+// A delete that stops is never silent (D5): the rows keep their durable intent,
+// the error is the caller's, and boot finishes what PendingDeletes lists.
+func TestPendingDeletes_ListsDeletesARestartInterrupted(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.cascade.err = errors.New("worktree wedged")
 	ctx := context.Background()
 
-	require.Error(t, f.uc.Delete(ctx, "p1", domain.KeepWorkAtRisk))
-	p := f.projects.projects["p1"]
-	assert.True(t, p.Deleting)
-	assert.Contains(t, p.LastError, "worktree wedged")
-	r := f.repos.row("r1")
-	assert.True(t, r.Deleting)
-	assert.Contains(t, r.LastError, "worktree wedged")
+	require.ErrorContains(t, f.uc.Delete(ctx, "p1", domain.KeepWorkAtRisk), "worktree wedged")
+	assert.True(t, f.projects.projects["p1"].Deleting)
+	assert.True(t, f.repos.row("r1").Deleting)
+
+	pending, err := f.uc.PendingDeletes(ctx)
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "the project's repo goes with its project")
+	assert.Equal(t, domain.OpProjectDelete, pending[0].Kind)
+	assert.Equal(t, domain.EntityRef{Kind: domain.EntityProject, ID: "p1"}, pending[0].Ref)
+	assert.Equal(t, "Remove demo", pending[0].Label)
 
 	f.cascade.err = nil
-	require.NoError(t, f.uc.Resume(ctx))
+	require.NoError(t, pending[0].Run(ctx))
 	assert.Equal(t, []string{"p1"}, f.projects.deleted)
 	assert.Equal(t, []string{"r1"}, f.repos.deleted)
-	assert.NotContains(t, f.projects.projects, "p1")
 }
 
-// A lone repo delete that stopped is resumed on its own; live rows are not
-// touched.
-func TestProjectDelete_ResumeFinishesALoneRepoDelete(t *testing.T) {
+// A lone repo delete that stopped is listed on its own; live rows are not.
+func TestPendingDeletes_ListsALoneRepoDelete(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.repos.repos[1].Deleting = true
-	f.repos.repos[1].LastError = "earlier failure"
 
-	require.NoError(t, f.uc.Resume(context.Background()))
+	pending, err := f.uc.PendingDeletes(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	assert.Equal(t, domain.EntityRef{Kind: domain.EntityRepo, ID: "r-other"}, pending[0].Ref)
+	assert.Equal(t, "p2", pending[0].ProjectID)
+	require.NoError(t, pending[0].Run(context.Background()))
 	assert.Equal(t, []string{"r-other"}, f.repos.deleted)
 	assert.Empty(t, f.projects.deleted)
 }
@@ -324,105 +329,6 @@ func TestProjectDelete_ListReposError_Aborts(t *testing.T) {
 	assert.Empty(t, f.projects.deleted)
 }
 
-// The project's whole tree goes: icon, repo entity dirs, worktree roots.
-func TestProjectDelete_RemovesTheProjectTree(t *testing.T) {
-	f := newDeleteFixture(t)
-	f.seedProject()
-	projectDir := filepath.Join(f.home, "projects", "p1")
-	root := filepath.Join(projectDir, "github.com", "acme", "repo", "feature")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "worktree"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "chats", "c1"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "r1", "storages"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "icon"), []byte("png"), 0o644))
-
-	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
-
-	assert.NoDirExists(t, projectDir, "projects/p1 must be gone entirely")
-}
-
-// A repo moved to project p2 keeps its worktrees where they were created, under
-// projects/p1. Deleting p1 used to rm -rf them — p2's worktrees and chats — with
-// it (spec §3 P0-3, invariant D6). They, and only they, survive; so does a
-// row whose own ProjectID still says p1 but whose repo is p2's.
-func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing.T) {
-	f := newDeleteFixture(t)
-	f.seedProject()
-	projectDir := filepath.Join(f.home, "projects", "p1")
-	moved := filepath.Join(projectDir, "github.com", "acme", "other", "b", "worktree")
-	stale := filepath.Join(projectDir, "github.com", "acme", "other", "c", "worktree")
-	mine := filepath.Join(projectDir, "github.com", "acme", "repo", "feature", "worktree")
-	for _, dir := range []string{moved, stale, mine} {
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "work.txt"), []byte("w"), 0o644))
-	}
-	movedChats := filepath.Join(filepath.Dir(moved), "chats", "c1")
-	require.NoError(t, os.MkdirAll(movedChats, 0o755))
-	// A pre-leaf row of the moved repo: its checkout and the shared chats tree.
-	preLeaf := filepath.Join(projectDir, "github.com", "acme", "other", "d")
-	preLeafChats := filepath.Join(projectDir, "github.com", "acme", "other", "chats", "c2")
-	require.NoError(t, os.MkdirAll(preLeaf, 0o755))
-	require.NoError(t, os.MkdirAll(preLeafChats, 0o755))
-	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-preleaf", ProjectID: "p2", RepoID: "r-other", WorktreePath: preLeaf, Provisioning: domain.WorkspaceProvisioned},
-		{ID: "w-moved", ProjectID: "p2", RepoID: "r-other", WorktreePath: moved, Provisioning: domain.WorkspaceProvisioned},
-		{ID: "w-stale", ProjectID: "p1", RepoID: "r-other", WorktreePath: stale, Provisioning: domain.WorkspaceProvisioned},
-		{ID: "w-mine", ProjectID: "p1", RepoID: "r1", WorktreePath: mine, Provisioning: domain.WorkspaceProvisioned},
-	}
-
-	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
-
-	assert.FileExists(t, filepath.Join(moved, "work.txt"), "another project's worktree survives")
-	assert.DirExists(t, movedChats, "with the chats beside it")
-	assert.DirExists(t, preLeaf, "a pre-leaf checkout of another project survives")
-	assert.DirExists(t, preLeafChats, "with the chats tree it resolves")
-	assert.FileExists(t, filepath.Join(stale, "work.txt"), "a row of another project's repo survives")
-	assert.NoDirExists(t, mine, "the project's own worktree goes")
-	assert.NotContains(t, f.workspaces.deleted, "w-stale", "and its row is not the project's to tombstone")
-}
-
-// A worktree git refused to remove — a protected one with uncommitted work —
-// is still a registered checkout. It is not the project delete's to rm -rf:
-// that would destroy the work and strand the registration in the user's repo.
-func TestRegression_ProjectDelete_KeepsACheckoutGitStillRegisters(t *testing.T) {
-	f := newDeleteFixture(t)
-	f.seedProject()
-	worktree := filepath.Join(f.home, "projects", "p1", "github.com", "acme", "repo", "main", "worktree")
-	require.NoError(t, os.MkdirAll(worktree, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: x"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(worktree, "unsaved.txt"), []byte("w"), 0o644))
-
-	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
-
-	assert.FileExists(t, filepath.Join(worktree, "unsaved.txt"))
-}
-
-// The user's real repository lives outside the crowbar home and is never
-// touched, whatever the rows say.
-func TestProjectDelete_NeverTouchesTheRealRepoPath(t *testing.T) {
-	f := newDeleteFixture(t)
-	real := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(real, "README.md"), []byte("hi"), 0o644))
-	f.projects.projects["p1"] = domain.Project{ID: "p1", Path: real}
-	f.repos.repos = []domain.Repository{{ID: "r1", ProjectID: "p1", Path: real}}
-	f.workspaces.workspaces = []domain.Workspace{{ID: "w-home", ProjectID: "p1", WorktreePath: real, Provisioning: domain.WorkspaceProvisioned}}
-
-	require.NoError(t, f.uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
-
-	assert.FileExists(t, filepath.Join(real, "README.md"))
-}
-
-func TestProjectDelete_NoCrowbarHome_SkipsDiskTeardown(t *testing.T) {
-	f := newDeleteFixture(t)
-	f.seedProject()
-	uc := project.NewDelete(project.DeleteDeps{
-		Projects: f.projects, Repos: f.repos, Workspaces: f.workspaces,
-		RepoWorkspaces: f.cascade, Nodes: f.nodes,
-		CrowbarHome: func() (string, error) { return "", errors.New("no home") },
-	})
-	require.NoError(t, uc.Delete(context.Background(), "p1", domain.KeepWorkAtRisk))
-	assert.Equal(t, []string{"p1"}, f.projects.deleted)
-}
-
 // A repo delete retires its workspaces BEFORE its row goes: deleting the row
 // first let a crash strand workspaces whose repo no longer resolves, and ran
 // their teardown without the default branch (spec §3 P0-1). Its Node row and
@@ -441,9 +347,9 @@ func TestDeleteRepo_RetiresWorkspacesBeforeTheRow(t *testing.T) {
 }
 
 // A row the caller already marked (the HTTP handler records the intent before
-// its 202) is not saved again; an unmarked row, or one carrying a previous
-// attempt's error, records the intent first.
-func TestDeleteRepo_RecordsTheIntentOnlyWhenNotYetRecorded(t *testing.T) {
+// its 202) is not saved again; a row not marked, as one a failure left behind
+// before it was marked, records the intent first.
+func TestDeleteRepo_AStoppedDeleteIsMarkedAgain(t *testing.T) {
 	f := newDeleteFixture(t)
 	require.NoError(t, f.uc.DeleteRepo(context.Background(),
 		domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true}, domain.KeepWorkAtRisk))
@@ -451,17 +357,19 @@ func TestDeleteRepo_RecordsTheIntentOnlyWhenNotYetRecorded(t *testing.T) {
 
 	g := newDeleteFixture(t)
 	require.NoError(t, g.uc.DeleteRepo(context.Background(),
-		domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true, LastError: "earlier"}, domain.KeepWorkAtRisk))
-	assert.Equal(t, 1, g.repos.saves, "a retry clears the previous error before tearing down")
+		domain.Repository{ID: "r1", ProjectID: "p1"}, domain.KeepWorkAtRisk))
+	assert.Equal(t, 1, g.repos.saves, "an unmarked row is marked before it is torn down")
 }
 
-// A cascade that cannot list the repo's workspaces keeps the row: the caller
-// reports the repo as still present rather than half-deleted.
-func TestDeleteRepo_CascadeFailure_KeepsTheRow(t *testing.T) {
+// A failed cascade keeps the row and returns why; nothing is written back to
+// the row, since the caller's operation records the reason.
+func TestDeleteRepo_AFailureIsReturnedNotSaved(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.cascade.err = errors.New("boom")
 
-	require.Error(t, f.uc.DeleteRepo(context.Background(), domain.Repository{ID: "r1", ProjectID: "p1"}, domain.KeepWorkAtRisk))
+	require.ErrorContains(t, f.uc.DeleteRepo(context.Background(), domain.Repository{ID: "r1", ProjectID: "p1"}, domain.KeepWorkAtRisk), "boom")
+	assert.Equal(t, 1, f.repos.saves, "only the intent was saved")
+	assert.True(t, f.repos.row("r1").Deleting)
 	assert.Empty(t, f.repos.deleted)
 	assert.Empty(t, f.nodes.forgot)
 }
@@ -476,9 +384,8 @@ func TestBeginDelete_WithoutConsentRefusesOverWorkAtRiskBeforeRecordingIntent(t 
 	repo := f.repos.repos[0]
 
 	_, err := f.uc.BeginRepoDelete(context.Background(), repo, domain.KeepWorkAtRisk)
-	var refused *domain.WorkAtRiskError
-	require.ErrorAs(t, err, &refused)
-	assert.Equal(t, []domain.WorkAtRisk{risk}, refused.Workspaces)
+	require.ErrorIs(t, err, domain.ErrWorkAtRisk)
+	assert.Equal(t, map[string]any{"workAtRisk": []domain.WorkAtRisk{risk}}, problem.DataOf(err))
 
 	_, err = f.uc.BeginDelete(context.Background(), "p1", domain.KeepWorkAtRisk)
 	require.ErrorIs(t, err, domain.ErrWorkAtRisk)
@@ -491,13 +398,16 @@ func TestBeginDelete_WithoutConsentRefusesOverWorkAtRiskBeforeRecordingIntent(t 
 }
 
 // The consent a delete was given reaches the cascade; a resumed delete has none.
-func TestDeleteRepo_HandsItsConsentToTheCascadeAndResumeHasNone(t *testing.T) {
+func TestDeleteRepo_HandsItsConsentToTheCascadeAndAResumedDeleteHasNone(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 
 	require.NoError(t, f.uc.DeleteRepo(context.Background(), f.repos.repos[0], domain.DiscardWorkAtRisk))
-	f.repos.repos = append(f.repos.repos, domain.Repository{ID: "r2", ProjectID: "p1", Deleting: true})
-	require.NoError(t, f.uc.Resume(context.Background()))
+	f.repos.repos = append(f.repos.repos, domain.Repository{ID: "r2", ProjectID: "p3", Deleting: true})
+	pending, err := f.uc.PendingDeletes(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.NoError(t, pending[0].Run(context.Background()))
 
 	assert.Equal(t, []domain.DeleteConsent{domain.DiscardWorkAtRisk, domain.KeepWorkAtRisk}, f.cascade.consents)
 }

@@ -2,16 +2,12 @@ import { qualify } from '@/lib/host-path'
 import { hostIdForChat, hostIdForWorkspace } from '@/lib/host-resolve'
 import { getOwningChatId, getWorkspaceScope } from '@/lib/workspace-scope'
 
-// Builders hand `qualify` BARE `/v0/...` paths (desktop's API_BASE is itself `crowbar://localhost`),
-// and resolve the host before the chat so an unplaceable workspace never reads as "chat not loaded".
+// Builders hand `qualify` bare `/v0/...` paths (desktop's API_BASE is `crowbar://localhost`), and
+// resolve the host before the chat so an unplaceable workspace never reads as "chat not loaded".
 
-/**
- * Thrown by every chat-addressed URL builder below when no owning chat is
- * recorded for the workspace — a scope-recording gap, never a 404 to guess
- * at. The daemon mints an owner on the first read of a workspace that has
- * none, so callers that catch this can say "still loading" (row-actions.ts's
- * chatNotLoadedYet) rather than surface the raw message.
- */
+// Thrown by the chat-addressed builders when `wsId` has no recorded owning chat: a recording gap,
+// never a 404 to guess at. The daemon mints owners on first read, so callers can say "still
+// loading" (chatNotLoadedYet) rather than surface this message.
 export class OwningChatNotRecordedError extends Error {
   constructor(readonly wsId: string) {
     super(`no owning chat recorded for workspace ${wsId}`)
@@ -19,19 +15,16 @@ export class OwningChatNotRecordedError extends Error {
   }
 }
 
-/**
- * Build the flat chat-scoped API/WS base: `/v0/chats/:chatId`.
- *
- * Chat ids are globally unique, so this prefix carries no project/repo nesting
- * (backend spec §7.1). The daemon's chat-scoped middleware resolves the chat to
- * the worktree behind it, which is how a terminal opened here still gets the
- * right CWD without the URL naming a workspace.
- *
- * Its host is the one of the workspace that records `chatId` as its owner; a
- * chat no recorded scope owns (a sibling, say) throws rather than guessing.
- */
+// The flat chat-scoped base `/v0/chats/:chatId`: chat ids are globally unique (spec §7.1) and the
+// daemon resolves the worktree behind the chat. The host is that of the workspace recording
+// `chatId` as owner; a chat no recorded scope owns (a sibling) throws.
 export function chatBase(chatId: string): string {
-  return qualify(hostIdForChat(chatId), chatPath(chatId))
+  return chatBaseOn(hostIdForChat(chatId), chatId)
+}
+
+/** {@link chatBase} for a caller that already knows the chat's host. */
+export function chatBaseOn(hostId: string, chatId: string): string {
+  return qualify(hostId, chatPath(chatId))
 }
 
 function chatPath(chatId: string): string {
@@ -51,154 +44,57 @@ function ownedChatBase(wsId: string, leaf: string): string {
   return qualify(hostId, `${chatPath(chatId)}/${leaf}`)
 }
 
-/**
- * The terminals base for a SPECIFIC chat opened in `wsId` (an agent pane's own
- * PTY). A sibling chat is no workspace's recorded owner, so only `wsId` can place it.
- */
+// The terminals base for a specific chat opened in `wsId` (an agent pane's own PTY); a sibling
+// chat is no workspace's recorded owner, so only `wsId` can place it.
 export function chatTerminalsBaseForWorkspace(wsId: string, chatId: string): string {
   return qualify(hostIdForWorkspace(wsId), `${chatPath(chatId)}/terminals`)
 }
 
-/**
- * The attach socket for a SPECIFIC chat shown in `wsId`: held open for as long
- * as this window displays the chat, so the daemon can count its viewers.
- */
-export function chatAttachPathForWorkspace(wsId: string, chatId: string): string {
-  return qualify(hostIdForWorkspace(wsId), `${chatPath(chatId)}/attach`)
-}
-
-/**
- * The terminals base for the chat that owns `wsId`'s worktree.
- *
- * Terminal sessions are owned by a CHAT, not by a worktree: sibling chats
- * routinely share one worktree and must never see each other's shells. Callers
- * that already hold a chat id (an agent chat pane) should use chatBase directly
- * — this is the bridge for callers that only hold a workspace id.
- *
- * The project HOME keeps its own `/home/terminals` mount (the same exception
- * `filesBaseForWorkspace` makes, for the same reason): a home shell must never
- * depend on the home's owner chat having resolved. Every worktree-backed
- * workspace throws when no owning chat is recorded, matching workspaceBase's
- * fail-loudly-rather-than-404 contract; there is no workspace-scoped terminal
- * route left to fall back to.
- */
+// Terminals for `wsId`'s owning chat: sessions belong to a chat, since sibling chats share a
+// worktree but never each other's shells. The project home keeps its `/home/terminals` mount so a
+// home shell never waits on an owner; every other workspace throws without a recorded owner.
 export function terminalsBaseForWorkspace(wsId: string): string {
   if (isHomeWorkspace(wsId)) return `${workspaceBase(wsId)}/terminals`
   return ownedChatBase(wsId, 'terminals')
 }
 
-/**
- * The editor/LSP base for the chat that owns `wsId`'s worktree: blame, the
- * synchronous LSP feature requests, the document-sync notifications, and the
- * live diagnostics stream all hang off it.
- *
- * Owned like terminalsBaseForWorkspace, not shared like gitBaseForWorkspace:
- * the daemon keys the LSP session itself by the CHAT id in this path, so a
- * sibling chat sharing this worktree opens its OWN session rather than
- * reading or racing this one's open documents.
- *
- * Throws when no owning chat is recorded, for the same reason
- * terminalsBaseForWorkspace does: a missing chat id is a scope-recording bug,
- * and guessing a URL from it would produce a 404 far from the cause. The
- * workspace-scoped editor/LSP routes do still exist on the daemon for now,
- * but they are being retired and are deliberately not a fallback.
- *
- * The project HOME workspace has no worktree and therefore no chat and no LSP
- * surface at all — the daemon never mounted editor/LSP under its /home group,
- * before or after this change — so callers editing a home file must check
- * isHomeWorkspace themselves and skip LSP entirely, the way lsp-client.ts
- * does, rather than calling this and catching the throw.
- */
+// Editor/LSP for `wsId`'s owning chat. Owned like terminals: the daemon keys the LSP session by
+// the chat id, so a sibling opens its own. The project home has no LSP surface — callers check
+// isHomeWorkspace and skip it (as lsp-client.ts does) rather than catch the throw.
 export function lspBaseForWorkspace(wsId: string): string {
   return ownedChatBase(wsId, 'lsp')
 }
 
-/**
- * The git base for the chat that owns `wsId`'s worktree: REST and the live
- * status stream both hang off it.
- *
- * Unlike terminals, git is SHARED state — one worktree, one answer — so every
- * chat holding this worktree reads the same status and sees each other's
- * writes; the daemon fans one push out to all of them. Addressing it through a
- * chat is not about ownership here, it is simply that a chat is the only thing
- * a route may name (backend spec law 1).
- *
- * Throws when no owning chat is recorded, for the same reason
- * terminalsBaseForWorkspace does: a missing chat id is a scope-recording bug,
- * and guessing a URL from it would produce a 404 far from the cause. The
- * workspace-scoped git routes do still exist on the daemon for now, but they
- * are being retired and are deliberately not a fallback.
- */
+// Git for `wsId`'s owning chat. Shared state — every chat on the worktree sees the same status
+// and one fanned-out push; it goes through a chat only because a route may name nothing else
+// (spec law 1). Throws without a recorded owner; workspace-scoped routes are not a fallback.
 export function gitBaseForWorkspace(wsId: string): string {
   return ownedChatBase(wsId, 'git')
 }
 
-/**
- * The review base for the chat that owns `wsId`'s worktree: the branch-review
- * composite read, the windowed diff API (outline/patch/search), and the
- * merge-strategy write.
- *
- * SHARED state like gitBaseForWorkspace — one worktree, one review, regardless
- * of which sibling chat asks — for the same reason: a chat is the only thing a
- * route may name (backend spec law 1). See gitBaseForWorkspace's doc comment
- * for the throw contract and the workspace-scoped-routes-still-exist caveat;
- * both apply identically here.
- */
+// Review (branch-review read, windowed diff, merge strategy) for `wsId`'s owning chat: shared
+// state with the same addressing and throw contract as gitBaseForWorkspace.
 export function reviewBaseForWorkspace(wsId: string): string {
   return ownedChatBase(wsId, 'review')
 }
 
-/**
- * The identity base for the chat that owns `wsId`'s worktree: the current
- * human's GitHub/git identity for the workspace's remote.
- *
- * SHARED state like gitBaseForWorkspace and reviewBaseForWorkspace — one
- * worktree, one identity answer, regardless of which sibling chat asks. See
- * gitBaseForWorkspace's doc comment for the throw contract and the
- * workspace-scoped-routes-still-exist caveat; both apply identically here.
- */
+// The human's GitHub/git identity for `wsId`'s remote: shared state with the same addressing and
+// throw contract as gitBaseForWorkspace.
 export function identityBaseForWorkspace(wsId: string): string {
   return ownedChatBase(wsId, 'identity')
 }
 
-/**
- * The files base for `wsId`: REST (tree, content, create/rename/delete/copy)
- * and the live file-change stream both hang off it.
- *
- * SHARED state like gitBaseForWorkspace — one worktree, one tree, and every
- * sibling chat holding it sees the others' writes; the daemon fans one
- * file-change push out to all of them.
- *
- * This one is NOT a straight chat lookup, and the exception is real rather than
- * defensive. The project HOME workspace has files but no worktree and no chat:
- * it is a project-level row the daemon serves from its own
- * /v0/projects/:projectId/home/files surface, which is a different endpoint
- * group, not the retiring workspace-scoped one. There is no chat that resolves
- * to it, so there is nothing to address it by — asking for one would throw on
- * a workspace that is working correctly. Home keeps its own base; every
- * worktree-backed workspace goes through the chat.
- *
- * For those, it throws when no owning chat is recorded, for the same reason
- * terminalsBaseForWorkspace does: a missing chat id is a scope-recording bug,
- * and guessing a URL from it would produce a 404 far from the cause.
- */
+// Files (REST and the file-change stream) for `wsId`: shared state like git. The project home has
+// files but no worktree or chat, so it keeps its own `/home/files` surface; every other workspace
+// goes through its owning chat and throws without one.
 export function filesBaseForWorkspace(wsId: string): string {
   if (isHomeWorkspace(wsId)) return `${workspaceBase(wsId)}/files`
   return ownedChatBase(wsId, 'files')
 }
 
-/**
- * The repo-scoped chats COLLECTION for `wsId`: `/v0/projects/:p/repos/:r/chats`.
- *
- * Chat lifecycle is the one part of the surface that kept its project/repo
- * nesting (backend spec §7.1: "the only routes that keep the prefix are
- * creation and repo-level listing"), so this is deliberately NOT `chatBase`'s
- * flat `/v0/chats/:chatId` shape.
- *
- * The project HOME has no repo, so it falls back to workspaceBase's `/home`
- * mount — which is also where an unrecorded scope throws, so neither case is
- * re-implemented here.
- */
+// The repo-scoped chats collection `/v0/projects/:p/repos/:r/chats`: chat lifecycle keeps its
+// nesting (spec §7.1), unlike chatBase. The project home has no repo, so it falls back to
+// workspaceBase's `/home` mount, which also throws for an unrecorded scope.
 export function repoChatsBaseForWorkspace(wsId: string): string {
   const scope = getWorkspaceScope(wsId)
   if (!scope || !scope.repoId) return `${workspaceBase(wsId)}/chats`
@@ -207,42 +103,17 @@ export function repoChatsBaseForWorkspace(wsId: string): string {
   return qualify(hostIdForWorkspace(wsId), `/v0/projects/${p}/repos/${r}/chats`)
 }
 
-/**
- * The base for the seven worktree LIFECYCLE verbs — lock, sync,
- * merge-into-parent, reparent, rebase-onto-parent, retry-provision,
- * detach-holder — on the chat that owns `wsId`'s worktree:
- * `/v0/projects/:p/repos/:r/chats/:chatId`.
- *
- * These are verbs on the thing actually being HELD (backend spec §4.3). They
- * sit on the repo-scoped chat prefix rather than the flat `chatBase` one
- * because that is where the chat's own verbs already live — promote, rename,
- * placement — so lock and merge sit beside them instead of in a second,
- * differently-shaped chat surface.
- *
- * Throws when no owning chat is recorded, for the same reason
- * terminalsBaseForWorkspace does: a missing chat id is a scope-recording bug,
- * and guessing a URL from it would produce a 404 far from the cause. The
- * project home has no worktree and so has none of these verbs at all — callers
- * never reach it for one.
- */
+// Base for the seven worktree lifecycle verbs (lock, sync, merge-into-parent, reparent, rebase,
+// retry-provision, detach-holder) on the owning chat, beside the chat's other repo-scoped verbs
+// (spec §4.3). Throws without a recorded owner; the project home has none of these verbs.
 export function worktreeVerbBaseForWorkspace(wsId: string): string {
   const { chatId } = chatAddress(wsId)
   return `${repoChatsBaseForWorkspace(wsId)}/${encodeURIComponent(chatId)}`
 }
 
-// §3/§7: build the hierarchical base for a workspace-scoped API/WS URL. Every
-// files/git/lsp/terminal route nests under the owning project+repo now; callers
-// still pass only a wsId (the identifier they hold), and the project/repo are
-// resolved from the route-recorded scope (see workspace-store-registry). Throws
-// when the scope is unknown so a stale/mis-ordered call fails loudly instead of
-// hitting a missing-segment 404.
-//
-// Also the base a locked branch's own SIDEBAR PLACEMENT is addressed through
-// (sidebar-placement.ts's placeWorkspace, 2026-09-09
-// sidebar-placement-unification) — unlike the seven lifecycle verbs above,
-// which stay on worktreeVerbBaseForWorkspace's chat-addressed route: a
-// branch's own position is a fact about the workspace itself, not about any
-// conversation living inside it.
+// The hierarchical base `/v0/projects/:p/repos/:r/workspaces/:w` (home: `/v0/projects/:p/home`),
+// resolved from the route-recorded scope; throws when it's unknown rather than 404. A branch's
+// own sidebar placement uses it: position is a fact about the workspace, not a chat.
 export function workspaceBase(wsId: string): string {
   const hostId = hostIdForWorkspace(wsId)
   const scope = getWorkspaceScope(wsId)
@@ -255,12 +126,8 @@ export function workspaceBase(wsId: string): string {
   return qualify(hostId, `/v0/projects/${p}/repos/${r}/workspaces/${w}`)
 }
 
-// A home (project-level) workspace has no owning repo: its scope is recorded
-// with an empty repoId (see the .../home route), which is how workspaceBase
-// routes it to /home/... The home workspace deliberately has no git surface on
-// the backend, so callers use this to skip git data/streams (files and threads
-// ARE home capabilities and stay enabled). Returns false when the scope is
-// unknown so non-home workspaces keep their full surface.
+// A home workspace's scope has an empty repoId. Home has no git surface, so callers skip git
+// data and streams (files and threads stay). False for an unknown scope, so others keep theirs.
 export function isHomeWorkspace(wsId: string): boolean {
   return getWorkspaceScope(wsId)?.repoId === ''
 }

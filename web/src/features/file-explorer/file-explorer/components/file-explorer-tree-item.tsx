@@ -149,17 +149,8 @@ function FileExplorerTreeItemComponent({
     if (!file.isEditing && !file.isRenaming) return
     const el = inputRef.current
     if (!el) return
-    // Defer focus by one frame so any cleanup effects from unmounting components
-    // (e.g. @base-ui/react/menu restoring focus on close) settle first. Without
-    // this, the menu cleanup fires after el.focus() and returns focus to body,
-    // which immediately triggers handleBlur → cancelInlineEditing.
-    const timer = setTimeout(() => {
-      if (el.isConnected) {
-        el.focus()
-        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
-      }
-    }, 16)
-    return () => clearTimeout(timer)
+    el.focus()
+    el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
   }, [file.isEditing, file.isRenaming])
 
   if (file.isEditing || file.isRenaming) {

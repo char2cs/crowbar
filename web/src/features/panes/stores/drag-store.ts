@@ -2,15 +2,9 @@ import { create } from 'zustand'
 import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { getPaneDropZoneFromRect, type PaneDropZone } from '@/features/panes/utils/pane-drop-zones'
 
-/**
- * The one drag-state owner for pointer-driven drags that cross surfaces (a
- * file dragged out of the explorer, a sidebar row dragged onto a pane). It
- * replaces the old window-global bus (`window.__fileDragData`, the
- * `__crowbarInternalTabDrag*` globals and the `file-tree-drop-on-pane` /
- * `crowbar-internal-tab-drag-hover` window events): a pane subscribes to
- * whether IT is the hovered target with a narrow selector, and a drop is a
- * direct call naming its pane.
- */
+// The one owner of pointer drags that cross surfaces (an explorer file, a sidebar row onto a
+// pane): a pane subscribes narrowly to whether it is the hovered target, and a drop is a direct
+// call naming its pane — no window globals or events.
 
 export interface DropTarget {
   paneId: string | null

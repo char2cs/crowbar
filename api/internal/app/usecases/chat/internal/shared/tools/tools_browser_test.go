@@ -10,7 +10,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/browserbridge"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -237,7 +236,6 @@ func resolverOnChat(t *testing.T, chatID string) (*tools.Resolver, *tools.TokenM
 	return tools.NewResolver(
 		m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: chatID, WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: chatID, WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()},
 	), m
 }

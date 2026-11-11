@@ -1,8 +1,7 @@
 import { nanoid } from 'nanoid'
-import { chatBase } from '@/features/agent/api/agent-api'
+import { chatBase } from '@/features/agent/api/agent-chat-reads'
 import { LOCAL_HOST } from '@/features/hosts/types'
-import { apiUrl } from '@/lib/api'
-import { ApiError, PROXY_HEADER, proxyMarkerError } from '@/lib/api/errors'
+import { apiFetchRaw } from '@/lib/api/fetch'
 import { encodeMultipart, readDesktopFile } from '@/lib/desktop-file-upload'
 import { splitHostPath } from '@/lib/host-path'
 
@@ -19,21 +18,9 @@ interface UploadAttachmentResponseBody {
   data: { ref: string; fileName: string; size: number; contentType: string }
 }
 
-/**
- * Uploads one chat attachment and returns the durable reference to encode
- * into the message's markdown (`![alt](ref)` / `[name](ref)`).
- *
- * Two request shapes, matching the backend's two ingestion paths: multipart
- * bytes for a `File` (clipboard paste, browser picker — never has a host
- * path), or a JSON `{path, id}` body for a host path from a revived desktop
- * drop (the daemon reads it itself). A remote daemon cannot read the desktop's
- * disk, so a path for a remote chat is read here and sent as multipart bytes.
- *
- * `id` is optional and minted here by default: most callers (drop, Attach
- * File, paste-to-image) don't need to correlate it with anything else. The
- * one exception (the Excalidraw modal) generates its own single id to serve
- * both the fence-tag id and the filename shortid, and passes it through here.
- */
+/** Multipart bytes for a `File`, or JSON `{path, id}` for a desktop drop the daemon reads itself;
+ *  a remote daemon can't read this disk, so a remote chat's path is read here and sent as bytes.
+ *  Pass `id` only when the caller must reuse it. */
 export async function uploadChatAttachment(
   wsId: string,
   chatId: string,
@@ -41,35 +28,17 @@ export async function uploadChatAttachment(
   id: string = nanoid(),
 ): Promise<UploadedChatAttachment> {
   const base = chatBase(wsId)
-  const url = apiUrl(`${base}/${encodeURIComponent(chatId)}/attachments`)
+  const path = `${base}/${encodeURIComponent(chatId)}/attachments`
   const file = 'file' in input ? input.file : await fileForRemoteChat(base, input.path)
   const response = file
-    ? await postMultipartAttachment(url, file, id)
-    : await fetch(url, {
+    ? await postMultipartAttachment(path, file, id)
+    : await apiFetchRaw(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: (input as { path: string }).path, id }),
       })
-
-  if (!response.ok) throw await uploadFailure(response, base)
   const { data } = (await response.json()) as UploadAttachmentResponseBody
   return { ref: data.ref, filename: data.fileName, size: data.size, contentType: data.contentType }
-}
-
-// A remote host's failure is named the way apiFetch names it, so its trouble reads as that
-// host's; the local daemon's reads exactly as it always has.
-async function uploadFailure(response: Response, base: string): Promise<Error> {
-  const { hostId } = splitHostPath(base)
-  if (hostId === LOCAL_HOST.id) {
-    return new Error(`upload chat attachment failed: ${response.status} ${await response.text()}`)
-  }
-  const marked = proxyMarkerError(response.headers.get(PROXY_HEADER), hostId, response.status)
-  if (marked) return marked
-  // As apiFetch reads it: the daemon's own words, else only the status — the proxy's plain
-  // text can name the host by its id.
-  const said = (await response.json().catch(() => null))?.error
-  const reason = typeof said === 'string' ? said : `${response.status} ${response.statusText}`
-  return new ApiError(reason, response.status, undefined, undefined, hostId)
 }
 
 // The daemon's attachments.MaxBytes is the authority on the cap.
@@ -82,7 +51,7 @@ async function fileForRemoteChat(base: string, path: string): Promise<File | nul
   return readDesktopFile(path, ATTACHMENT_LIMIT)
 }
 
-async function postMultipartAttachment(url: string, file: File, id: string): Promise<Response> {
+async function postMultipartAttachment(path: string, file: File, id: string): Promise<Response> {
   const { body, contentType } = await encodeMultipart({ id }, 'file', file)
-  return fetch(url, { method: 'POST', headers: { 'Content-Type': contentType }, body })
+  return apiFetchRaw(path, { method: 'POST', headers: { 'Content-Type': contentType }, body })
 }

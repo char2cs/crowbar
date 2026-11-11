@@ -388,8 +388,7 @@ func TestGetChatLog_IsNotAdvertisedWithoutTheLineagePort(t *testing.T) {
 	require.NoError(t, err)
 	chats := stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}}
 	res := tools.NewResolver(m,
-		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		chats, stubWorkspaces{all: tree()})
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, stubWorkspaces{all: tree()})
 	ts := tools.NewToolSet(tools.Deps{
 		Resolver: res, ChatReads: chats, ChatLogs: &stubChatLogs{},
 	}, "RUN", m.Mint("RUN"))

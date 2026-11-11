@@ -8,7 +8,6 @@ import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/wor
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
-  getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import {
   windowPaneStore,
@@ -20,206 +19,133 @@ import { buildPaneContentStyle } from '@/features/panes/utils/pane-border'
 import { useSettingsStore } from '@/features/settings/store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 
-// Task 9 (sidebar restyle recovery batch 2): lets a test force the sidebar
-// closed without standing up a real SidebarProvider (which drags in
-// useMediaQuery/matchMedia) — pane-container.tsx reads only
-// `useSidebarOptional()?.open`, so overriding that alone is enough to put a
-// pane against a REAL window edge (isWindowEdge's collapsed-sidebar branch),
-// not just the common sidebar-shielded case every other test in this file
-// exercises by default.
-const { sidebarOpenOverride } = vi.hoisted(() => ({ sidebarOpenOverride: { current: true } }))
-vi.mock('@/components/ui/sidebar', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/components/ui/sidebar')>()
-  return {
-    ...actual,
-    useSidebarOptional: (): ReturnType<typeof actual.useSidebarOptional> =>
-      ({ open: sidebarOpenOverride.current }) as ReturnType<typeof actual.useSidebarOptional>,
-  }
-})
+import * as sidebar from '@/components/ui/sidebar'
+import * as terminalPane from '@/features/panes/components/terminal-pane'
+import * as chatPaneGate from '@/features/agent/components/agent-chat-pane-gate'
+import * as editorPane from '@/features/panes/components/editor-pane'
+import * as newTabView from '@/features/panes/components/new-tab-view'
+import * as tabBar from '@/features/tabs/components/tab-bar'
+import * as splitDropOverlay from '@/features/panes/components/split-drop-overlay'
 
-// Fix round 1 (Task 18 review): a mount counter, not just a DOM-identity
-// check, for the "does toggling pane.chatId remount a live terminal" test
-// below — a real PTY-backed surface, stood in for by a marker that counts
-// its own EFFECT-mount (not render) exactly the way TerminalPane's real
-// PTY-attach effect would only fire once per genuine mount.
-const { terminalMountCount } = vi.hoisted(() => ({ terminalMountCount: { current: 0 } }))
-vi.mock('@/features/panes/components/terminal-pane', () => ({
-  TerminalPane: ({
-    sessionId,
-    bufferId,
-    isActive,
-    isVisible,
-  }: {
-    sessionId?: string
-    bufferId: string
-    isActive?: boolean
-    isVisible?: boolean
-  }) => {
+// Forces the sidebar closed without a real SidebarProvider (which needs matchMedia), so a pane
+// can sit against a REAL window edge; pane-container.tsx reads only `useSidebarOptional()?.open`.
+const sidebarOpenOverride = { current: true }
+vi.spyOn(sidebar, 'useSidebarOptional').mockImplementation(
+  () => ({ open: sidebarOpenOverride.current }) as ReturnType<typeof sidebar.useSidebarOptional>,
+)
+
+// This file is about HOSTING: which surface PaneContainer mounts for a pane shape and which
+// pane actions it calls. Each heavy surface (PTY, Monaco/Plate, router) is a passive marker
+// recording the props threaded through; mount counters count EFFECT-mounts, as a PTY attach would.
+const terminalMountCount = { current: 0 }
+vi.spyOn(terminalPane, 'TerminalPane').mockImplementation(
+  ({ sessionId, bufferId, isActive, isVisible }) => {
     useEffect(() => {
       terminalMountCount.current += 1
     }, [])
     return createElement('div', {
       'data-testid': `terminal-marker-${bufferId}`,
       'data-session-id': sessionId ?? '',
-      // xterm gates its render loop on these — a hidden view's terminal must
-      // be told to stop, not merely covered up.
+      // xterm gates its render loop on these: a hidden view's terminal must be told to stop.
       'data-active': String(isActive ?? ''),
       'data-visible': String(isVisible ?? ''),
     })
   },
-}))
+)
 
-// Task 31: PaneContainer migrated off the old bufferIds/activeBufferId/
-// previewBufferId shape onto pane.editorTabIds/activeEditorTabId and the
-// pane's own chatId/runnerId — chat is a first-class pane field now, no
-// longer an 'agentChat' buffer competing with editor tabs for "active".
-//
-// AgentChatPane/EditorPane/NewTabView are heavy surfaces (PTY attach, Monaco/
-// Plate, router+sidebar+keymaps) with their own dedicated tests — this file
-// is about HOSTING: does PaneContainer mount the right sibling(s) for a given
-// pane shape, and does it call the renamed pane-slice actions. Stub each to a
-// passive marker recording the props PaneContainer threads through, mirroring
-// the pattern already used by pane-container-suspense.test.tsx.
-vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
-  AgentChatPaneGate: ({
-    chatId,
-    runnerId,
-    wsId,
-    bufferId,
-    isActivePane,
-    isVisible,
-  }: {
-    chatId: string
-    runnerId: string
-    wsId: string
-    bufferId: string
-    isActivePane: boolean
-    isVisible: boolean
-  }) =>
+vi.spyOn(chatPaneGate, 'AgentChatPaneGate').mockImplementation(
+  ({ chatId, runnerId, wsId, isActivePane, isVisible }) =>
     createElement('div', {
       'data-testid': `chat-${chatId}`,
       'data-runner-id': runnerId,
       'data-ws-id': wsId,
-      'data-buffer-id': bufferId,
       'data-active-pane': String(isActivePane),
       'data-visible': String(isVisible),
     }),
-}))
+)
 
-// Editor-portal fix: a mount counter, same reasoning as terminalMountCount
-// below — proves the retained editor widget survives a switch to a
-// non-editor tab (branch review) and back, not just that its marker div
-// looks the same afterwards.
-const { editorMountCount } = vi.hoisted(() => ({ editorMountCount: { current: 0 } }))
-vi.mock('@/features/panes/components/editor-pane', () => ({
-  EditorPane: ({
-    bufferId,
-    isPreview,
-    isActiveSurface,
-  }: {
-    bufferId: string
-    isPreview: boolean
-    isActiveSurface: boolean
-  }) => {
-    useEffect(() => {
-      editorMountCount.current += 1
-    }, [])
-    return createElement('div', {
-      'data-testid': `editor-marker-${bufferId}`,
-      'data-preview': String(isPreview),
-      'data-active-surface': String(isActiveSurface),
-    })
-  },
-}))
+// Proves the retained editor widget survives a switch to another tab and back, not just that
+// its marker looks the same afterwards.
+const editorMountCount = { current: 0 }
+vi.spyOn(editorPane, 'EditorPane').mockImplementation(({ bufferId, isActiveSurface }) => {
+  useEffect(() => {
+    editorMountCount.current += 1
+  }, [])
+  return createElement('div', {
+    'data-testid': `editor-marker-${bufferId}`,
+    'data-active-surface': String(isActiveSurface),
+  })
+})
 
-// Not exercised directly by this file's tests (BranchReviewPane has its own
-// dedicated coverage) — only needed as a light stand-in so a pane can hold a
-// non-editor tab to switch to, without pulling in its real diff-rendering.
+// A light non-editor tab to switch to; lazily imported by the pane, so replaced at the module.
 vi.mock('@/features/git/components/branch-review-pane', () => ({
   BranchReviewPane: ({ wsId }: { wsId: string }) =>
     createElement('div', { 'data-testid': 'branch-review-marker', 'data-ws-id': wsId }),
 }))
 
-vi.mock('@/features/panes/components/new-tab-view', () => ({
-  NewTabView: ({ paneId, wsId }: { paneId?: string; wsId?: string | null }) =>
-    createElement('div', {
-      'data-testid': 'new-tab-marker',
-      'data-pane-id': paneId ?? '',
-      'data-ws-id': wsId ?? '',
+vi.spyOn(newTabView, 'NewTabView').mockImplementation(({ paneId, wsId }) =>
+  createElement('div', {
+    'data-testid': 'new-tab-marker',
+    'data-pane-id': paneId ?? '',
+    'data-ws-id': wsId ?? '',
+  }),
+)
+
+// A marker, so a test can find WHERE in the tree the identity row lands relative to the content.
+vi.spyOn(tabBar, 'default').mockImplementation(() =>
+  createElement('div', { 'data-testid': 'tab-bar-marker' }),
+)
+
+// Exposes the real onDrop handler (handleSplitDrop) via plain buttons, so a drop test skips the
+// overlay's zone geometry; `centerDropPayload` is set per test for the center zone's source.
+const centerDropPayload = {
+  current: { bufferId: 'existing-tab', paneId: 'phantom-source-pane' },
+}
+vi.spyOn(splitDropOverlay, 'SplitDropOverlay').mockImplementation(({ onDrop }) =>
+  createElement(
+    Fragment,
+    null,
+    createElement('button', {
+      type: 'button',
+      'data-testid': 'split-drop-trigger-right',
+      onClick: () =>
+        onDrop('right', {
+          dataTransfer: {
+            getData: (type: string) =>
+              type === 'application/tab-data'
+                ? JSON.stringify({ bufferId: 'existing-tab', paneId: 'phantom-source-pane' })
+                : '',
+          },
+        } as never),
     }),
-}))
-
-// TabBar drags in SidebarProvider/dnd-kit machinery irrelevant to hosting.
-// Renders a plain marker (rather than null) so Task 9's tests can find WHERE
-// in the tree the identity row lands — specifically, whether it is nested
-// inside the same painted/rounded box as the content, or an unstyled sibling
-// of it.
-vi.mock('@/features/tabs/components/tab-bar', () => ({
-  default: () => createElement('div', { 'data-testid': 'tab-bar-marker' }),
-}))
-
-// Exposes the real onDrop handler PaneContainer wires up (handleSplitDrop) via
-// plain buttons, so a drag-drop test can fire it without simulating HTML5 DnD
-// through the real overlay's own zone-geometry math. `centerDropPayload` is
-// mutated per-test (vi.mock factories are hoisted and only ever instantiated
-// once) so the center-zone button can carry a test-specific source pane/tab.
-const { centerDropPayload } = vi.hoisted(() => ({
-  centerDropPayload: { current: { bufferId: 'existing-tab', paneId: 'phantom-source-pane' } },
-}))
-vi.mock('@/features/panes/components/split-drop-overlay', () => ({
-  SplitDropOverlay: ({ onDrop }: { onDrop: (zone: string, e: unknown) => void }) =>
-    createElement(
-      Fragment,
-      null,
-      createElement('button', {
-        type: 'button',
-        'data-testid': 'split-drop-trigger-right',
-        onClick: () =>
-          onDrop('right', {
-            dataTransfer: {
-              getData: (type: string) =>
-                type === 'application/tab-data'
-                  ? JSON.stringify({ bufferId: 'existing-tab', paneId: 'phantom-source-pane' })
-                  : '',
-            },
-          }),
-      }),
-      createElement('button', {
-        type: 'button',
-        'data-testid': 'split-drop-trigger-center',
-        onClick: () =>
-          onDrop('center', {
-            dataTransfer: {
-              getData: (type: string) =>
-                type === 'application/tab-data' ? JSON.stringify(centerDropPayload.current) : '',
-            },
-          }),
-      }),
-    ),
-}))
+    createElement('button', {
+      type: 'button',
+      'data-testid': 'split-drop-trigger-center',
+      onClick: () =>
+        onDrop('center', {
+          dataTransfer: {
+            getData: (type: string) =>
+              type === 'application/tab-data' ? JSON.stringify(centerDropPayload.current) : '',
+          },
+        } as never),
+    }),
+  ),
+)
 
 import { PaneContainer } from '@/features/panes/components/pane-container'
 import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { EditorHostRegistry } from '@/features/panes/components/editor-host-registry'
 
 function PaneHost({ position, showing }: { position?: PanePosition; showing?: boolean }) {
-  // Task 26: panes are window-level now — read off windowPaneStore, not the
-  // per-workspace WorkspaceStoreContext.
+  // Panes are window-level: read off windowPaneStore, not the workspace store.
   const pane = useStore(windowPaneStore, (s) => s.panes[ROOT_PANE_ID])
   if (!pane) return null
   return createElement(PaneContainer, { pane, position, showing })
 }
 
-// `position` defaults to ROOT_PANE_POSITION (PaneContainer's own default) for
-// every existing caller; Task 9's window-edge/interior-pane tests pass one
-// explicitly to control which of the pane's own edges are real window edges.
-//
-// EditorHostRegistry is rendered as a SIBLING of PaneHost, matching
-// production (WorkspaceLayoutRoot renders it alongside SplitViewRoot, not
-// inside it — see editor-host-registry.tsx's own doc): PaneContainer no
-// longer renders EditorPane directly, only a portal target div, so this is
-// what actually connects the mocked EditorPane back into the tree the
-// `editor-marker-*` assertions below query.
+// `position` picks which of the pane's edges are real window edges (default ROOT_PANE_POSITION).
+// EditorHostRegistry is a SIBLING of PaneHost, as in production: PaneContainer renders only a
+// portal target, and the registry portals the stubbed EditorPane into it.
 async function renderPane(
   store: ReturnType<typeof createWorkspaceStore>,
   position?: PanePosition,
@@ -239,11 +165,8 @@ async function renderPane(
   })
 }
 
-/** Seeds one editor-tab buffer directly (bypassing buffer-slice's own
- *  openContent/addBufferToPane, which is unmigrated and calls a pane action
- *  that no longer exists) and registers it on the pane via the real,
- *  currently-functional addEditorTabToPane — the same pattern
- *  buffer-slice.test.ts/pane-slice.test.ts already use to seed tabs. */
+/** Seeds one editor-tab buffer directly and registers it on the pane via the real
+ *  addEditorTabToPane, as buffer-slice.test.ts/pane-slice.test.ts seed tabs. */
 function seedEditorTab(
   _store: ReturnType<typeof createWorkspaceStore>,
   paneId: string,
@@ -254,14 +177,11 @@ function seedEditorTab(
     state.buffers.push({
       id,
       type: 'editor',
+      authority: 'workspace',
       path: `/${id}.ts`,
       name: `${id}.ts`,
-      content: '',
-      savedContent: '',
       isDirty: false,
       isVirtual: false,
-      tokens: [],
-      isPinned: false,
       isPreview: overrides.isPreview ?? false,
       workspaceId: 'w1',
     })
@@ -275,11 +195,8 @@ function seedEditorTab(
   })
 }
 
-/** A terminal tab — a buffer whose editor-view rendering is a real PTY
- *  attachment in production (stubbed above to a mount-counting marker). Used
- *  by the "does pane.chatId toggling remount the editor view" regression:
- *  an editor tab alone proves DOM survival, but a terminal is what actually
- *  loses live state (its PTY) on a spurious remount. */
+/** A terminal tab: an editor tab alone proves DOM survival, but a terminal is what loses
+ *  live state (its PTY) on a spurious remount. */
 function seedTerminalTab(
   _store: ReturnType<typeof createWorkspaceStore>,
   paneId: string,
@@ -304,9 +221,7 @@ function seedTerminalTab(
   })
 }
 
-/** A branch-review tab — a non-editor buffer type, used by the editor-portal
- *  regression below to switch a pane's active tab AWAY from its editor
- *  buffer and back. */
+/** A branch-review tab: a non-editor buffer to switch a pane's active tab away to. */
 function seedBranchReviewTab(
   _store: ReturnType<typeof createWorkspaceStore>,
   paneId: string,
@@ -331,10 +246,8 @@ function seedBranchReviewTab(
   })
 }
 
-// Task 26: panes/buffers are a window-level singleton now, never destroyed —
-// reset it before every test in this file so one test's seeded panes/tabs
-// never leak into the next (each test used to get this for free from its own
-// isolated createWorkspaceStore() instance).
+// Panes and buffers are a window-level singleton, never destroyed: reset it so one test's
+// seeded panes/tabs never leak into the next.
 beforeEach(() => {
   resetWindowPaneStoreForTests()
 })
@@ -559,37 +472,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(chatAfter).toBe(chatBefore)
   })
 
-  it("reads the active tab's preview styling from its own isPreview field", async () => {
-    const store = createWorkspaceStore('w1')
-    seedEditorTab(store, ROOT_PANE_ID, 'tab-preview', { isPreview: true })
-
-    await renderPane(store)
-
-    expect(await screen.findByTestId('editor-marker-tab-preview')).toHaveAttribute(
-      'data-preview',
-      'true',
-    )
-  })
-
-  it('does not read preview styling off a removed pane-level id', async () => {
-    const store = createWorkspaceStore('w1')
-    seedEditorTab(store, ROOT_PANE_ID, 'tab-plain', { isPreview: false })
-
-    await renderPane(store)
-
-    expect(await screen.findByTestId('editor-marker-tab-plain')).toHaveAttribute(
-      'data-preview',
-      'false',
-    )
-    // PaneGroup no longer carries previewBufferId at all (Task 1) — nothing
-    // in the pane state this test seeded could make the tab preview except
-    // its own isPreview field, which was set to false above.
-    expect(
-      (windowPaneStore.getState().panes[ROOT_PANE_ID] as unknown as Record<string, unknown>)
-        .previewBufferId,
-    ).toBe(undefined)
-  })
-
   it('a split-zone drop of a tab from a DIFFERENT pane is rejected — a tab may never cross a pane boundary via drag', async () => {
     const store = createWorkspaceStore('w1')
     await renderPane(store)
@@ -657,14 +539,11 @@ describe('PaneContainer — chat/editor-view hosting', () => {
       state.buffers.push({
         id: 'moved-tab',
         type: 'editor',
+        authority: 'workspace',
         path: '/moved.ts',
         name: 'moved.ts',
-        content: '',
-        savedContent: '',
         isDirty: false,
         isVirtual: false,
-        tokens: [],
-        isPinned: false,
         isPreview: false,
         workspaceId: 'w1',
       })
@@ -834,14 +713,8 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
   })
 })
 
-// Task 18: usePaneViewPresentation wired into the chat/editor arrangement,
-// replacing Task 31's placeholder sequential stack. usePaneViewPresentation's
-// own geometry math (side-by-side vs. stacked vs. tabs thresholds) has its own
-// dedicated unit tests in use-chat-presentation.test.ts against a plain
-// { clientWidth, clientHeight } double — no real layout needed. This file is
-// about the WIRING: does PaneContainer arrange the two real DOM regions
-// (divider or not, hidden or not, row or column) the way that presentation
-// says to, and do both regions genuinely survive every presentation change.
+// The presentation's geometry math is use-chat-presentation.test.ts's; this is the WIRING: the
+// two DOM regions are arranged as the presentation says and survive every presentation change.
 /**
  * The active-pane ring is drawn by a childless overlay that fades its OPACITY,
  * never by animating a colour on the shared pane box itself.
@@ -1245,12 +1118,8 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
   })
 
-  // Fix round 1: the Critical bug a review caught in the first version of
-  // this wiring — a `pane.chatId ? <A/> : <B/>` top-level branch reindexed
-  // the editor view's own DOM position, so React unmounted/remounted it (and
-  // everything live inside it, e.g. a terminal's PTY) every time
-  // `pane.chatId` toggled. Reachable today: a chat filling a pane that already
-  // holds editor tabs.
+  // A `pane.chatId ? <A/> : <B/>` branch would reindex the editor view's DOM position and
+  // remount it (and a terminal's PTY) whenever a chat fills a pane that holds editor tabs.
   it('does not remount the editor view — including a live terminal — when a chat lands in the pane', async () => {
     terminalMountCount.current = 0
     const store = createWorkspaceStore('w1')
@@ -1261,11 +1130,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     const terminalBefore = await screen.findByTestId('terminal-marker-term-a')
     expect(terminalMountCount.current).toBe(1)
 
-    // pane.chatId: null -> set. This is the exact transition the bug lost —
-    // the editor view (and the terminal buffer inside it) used to live
-    // directly under data-pane-content; once a chat exists it gets
-    // re-parented one level deeper, under viewsContainerRef, alongside the
-    // new chat view and sash.
+    // pane.chatId: null -> set, the transition that moves the editor view beside the chat view.
     await act(async () => {
       windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     })
@@ -1275,17 +1140,9 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(terminalMountCount.current).toBe(1) // still exactly one mount, ever
   })
 
-  // Editor-portal fix: live-reported regression — switching a pane's active
-  // tab from an editor buffer to a non-editor one (branch review) and back
-  // used to fully unmount EditorPane (PaneContainer only ever rendered the
-  // ACTIVE buffer's component), which disposed the pane's retained Monaco
-  // widget and every model it held. Switching back created a brand-new
-  // editor from scratch — occasionally landing blank or throwing, because
-  // Monaco's own internal async work (e.g. its word-highlighter) could still
-  // be in flight against the just-disposed instance. EditorHostRegistry now
-  // owns EditorPane outside PaneContainer's own subtree entirely, so this
-  // tab switch never reaches it — only the portal target's visibility
-  // changes.
+  // Unmounting EditorPane disposes the retained Monaco widget and its models while Monaco's own
+  // async work may still be in flight. EditorHostRegistry owns EditorPane outside PaneContainer,
+  // so a tab switch only toggles the portal target's visibility.
   it('does not remount the retained editor when the active tab switches to a non-editor buffer and back', async () => {
     editorMountCount.current = 0
     const store = createWorkspaceStore('w1')
@@ -1323,15 +1180,9 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   })
 })
 
-// Task 22: the sidebar's drag arm (`useSidebarDrag`) hit-tests a pane by
-// reading `PANE_DROP_ATTR` (`data-pane-drop`) straight off the DOM — every
-// rendered pane has to carry ITS OWN id on that attribute for a chat/row
-// dropped on it to resolve to the right pane and zone (spec §8.1). This
-// replaces the old dwell-to-remove overlay, which published one bare
-// `data-pane-drop=""` flag for the WHOLE content region (ide-shell.tsx) and
-// painted its "release to remove" veil through `editor-removal-overlay.tsx` —
-// both deleted with this task, not migrated.
-describe('PaneContainer — pane drop target (spec §8.1, Task 22)', () => {
+// The sidebar's drag arm (`useSidebarDrag`) hit-tests a pane by reading `PANE_DROP_ATTR` off
+// the DOM, so every pane carries ITS OWN id there for a drop to resolve to the right pane.
+describe('PaneContainer — pane drop target', () => {
   it('publishes its own pane id on PANE_DROP_ATTR, not a bare presence flag', async () => {
     const store = createWorkspaceStore('w1')
     await renderPane(store)
@@ -1367,23 +1218,9 @@ describe('PaneContainer — pane drop target (spec §8.1, Task 22)', () => {
   })
 })
 
-// Task 9 (sidebar restyle recovery batch 2): a follow-up to Task 1
-// (c33a7a58), which fixed the tab styling INSIDE the identity row. The user's
-// own live follow-up on that fix flagged the row's CONTAINER: `data-pane-container`
-// painted no background at all, so the row showed the page body's translucent
-// `--chrome-bg` vibrancy tint through it, while `data-pane-content` directly
-// below painted an explicit opaque `bg-pane-background` fill AND was the only
-// box with rounded top corners — a two-tone "gray header over white rounded
-// content" look. The design canvas's ground truth is one shared background
-// across the row and the content, with rounding/border/shadow enclosing both.
-//
-// These tests extend Task 6's own gutter/rounding coverage (see the
-// `buildPaneContentStyle` describe blocks in pane-border.test.ts, whose
-// fixtures — a full-edge single pane, an interior (no-edge) pane, and a
-// collapsed sidebar — are reused here) up to the DOM: not just "does the pure
-// function return the right style object" but "does the element that ACTUALLY
-// carries that style object now enclose the tab bar too."
-describe("PaneContainer — the identity row shares the pane's background/rounding (Task 9)", () => {
+// The identity row and the content share ONE background, with rounding/border/shadow enclosing
+// both; this lifts pane-border.test.ts's `buildPaneContentStyle` fixtures up to the DOM.
+describe("PaneContainer — the identity row shares the pane's background/rounding", () => {
   afterEach(() => {
     sidebarOpenOverride.current = true
     setActiveWorkspaceStoreForTests(null)
@@ -1568,19 +1405,9 @@ describe('PaneContainer — a pane in a view that is not on screen', () => {
   })
 })
 
-/**
- * WHOSE WORKSPACE a pane's chat belongs to.
- *
- * Panes are window-level (Task 26), so a drop can put ANY workspace's chat in
- * one — but a chat's own state and every chat-scoped URL are still
- * workspace-keyed. This used to read the AMBIENT `WorkspaceStoreContext` (the
- * `WorkspaceView` that happens to be rendering the pane), so a chat from
- * another workspace was resolved against the wrong store: never found, never
- * attached, permanently blank — and, since the pane persists, blank
- * across reload. That is the gap `openChatIntoPane`'s active-workspace
- * refusal stood in for, and closing it is what makes a cross-workspace drag
- * land.
- */
+// Panes are window-level, so a pane can hold ANY workspace's chat, but chat state and URLs are
+// workspace-keyed: the chat resolves against its own workspace's store, never the ambient
+// `WorkspaceStoreContext` (which would leave a cross-workspace chat blank).
 describe('PaneContainer — the chat’s own workspace, not the ambient one', () => {
   afterEach(() => {
     getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
@@ -1602,7 +1429,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   })
 
   it('hands the chat surface the workspace the CHAT belongs to', async () => {
-    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
+    seedChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
@@ -1628,7 +1455,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // AgentChatPane) reads off the exact same resolved `chatStore` — this is
   // the same cross-workspace-title bug class, now checked at its new home.
   it("shows the chat's own title in its header even while a DIFFERENT workspace is ambient", async () => {
-    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
+    seedChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
@@ -1642,7 +1469,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // chat's review. The editor area's actions (Review Branch among them) create
   // data, so they must be handed the chat's own workspace, never the ambient one.
   it("hands the editor area's actions the CHAT's own workspace, not the ambient one", async () => {
-    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
+    seedChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })

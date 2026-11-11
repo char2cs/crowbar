@@ -25,6 +25,7 @@ func All() []Rule {
 		catalogBounds{},
 		catalogCommand{},
 		catalogItemMapping{},
+		catalogStatic{},
 		catalogAdapter{},
 		telemetry{},
 		selectionStrategy{},
@@ -38,6 +39,7 @@ func All() []Rule {
 		terminalNotices{},
 		injectedPrompts{},
 		surfaces{},
+		apiDelivery{},
 		eventSurfaces{},
 		richMappings{},
 	}

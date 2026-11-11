@@ -41,8 +41,8 @@ func TestCreateFromImport_ResolvedPRBaseCreatesMissingAncestor(t *testing.T) {
 
 	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
 		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo", DefaultBranch: "main",
-		Branches: []string{"feature/x"},
-	})
+		Branches: branches("feature/x"),
+	}, &outcomes{})
 	require.NoError(t, err)
 	require.Len(t, created, 2, "the missing ancestor 'develop' must be created too")
 	assert.Equal(t, "develop", created[0].Branch, "ancestors are created before their children")

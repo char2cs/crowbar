@@ -9,105 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
-	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
-	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
+	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
-
-// stubRunnerStoreForAttach answers only LiveRunnerForChat — the one call
-// SwitchToTerminal/SwitchToNative make on their way to the live runner. The
-// embedded nil interface panics on anything else, so a test relying on a
-// second method fails loudly instead of silently zero-valuing.
-type stubRunnerStoreForAttach struct {
-	agentrunner.EventStore
-	runner engineagents.Runner
-	// exited records every Exit. A runner whose process set is empty is now
-	// reconciled from the teardown paths themselves (exitProcesslessRunner),
-	// so these tests need to be able to see that happen.
-	exited chan string
-}
-
-func (s stubRunnerStoreForAttach) LiveRunnerForChat(
-	context.Context, string,
-) (engineagents.Runner, error) {
-	return s.runner, nil
-}
-
-func (s stubRunnerStoreForAttach) Get(
-	_ context.Context, runnerID string,
-) (engineagents.Runner, error) {
-	if s.runner.ID != runnerID {
-		return engineagents.Runner{}, agentrunner.ErrNotFound
-	}
-	return s.runner, nil
-}
-
-func (s stubRunnerStoreForAttach) Exit(
-	_ context.Context, runnerID string, _ time.Time,
-) (engineagents.Runner, error) {
-	if s.exited != nil {
-		s.exited <- runnerID
-	}
-	return s.runner, nil
-}
-
-// stubTurnsForAttach answers only ChatWorking and TurnOpen.
-type stubTurnsForAttach struct {
-	noopTurns
-	working bool
-}
-
-func (s stubTurnsForAttach) ChatWorking(context.Context, string) (bool, error) {
-	return s.working, nil
-}
-
-func (s stubTurnsForAttach) TurnOpen(context.Context, string, string) (bool, error) {
-	return s.working, nil
-}
-
-// stubActivityForAttach answers LastTurnForSession and CountTurns — the calls
-// SwitchToTerminal's guard and resumableConversation's legacy-vs-crash check
-// make. The embedded nil interface panics on anything else. turnCount
-// defaults to zero, which is what every pre-existing test wants (a chat with
-// no other recorded activity), so callers that don't care about it need no
-// changes.
-type stubActivityForAttach struct {
-	agentactivity.EventStore
-	found     bool
-	turnCount int64
-}
-
-func (s stubActivityForAttach) LastTurnForSession(
-	context.Context, string, string, string,
-) (time.Time, bool, error) {
-	return time.Time{}, s.found, nil
-}
-
-func (s stubActivityForAttach) CountTurns(context.Context, string) (int64, error) {
-	return s.turnCount, nil
-}
-
-// stubActivityBySession answers LastTurnForSession by exact sessionID match
-// against wantSession — unlike stubActivityForAttach's session-agnostic
-// canned bool, this lets a test tell apart a call made with the runner row's
-// durable CurrentSession from one made with an apiconn's own tctx.Session.
-type stubActivityBySession struct {
-	agentactivity.EventStore
-	wantSession string
-}
-
-func (s stubActivityBySession) LastTurnForSession(
-	_ context.Context, _, _, sessionID string,
-) (time.Time, bool, error) {
-	return time.Time{}, sessionID == s.wantSession, nil
-}
 
 // fakeTermForAttach is a minimal seam.TerminalCommander: it records every
 // CreateCommand call's argv and lets a test trigger onExit synchronously,
@@ -116,7 +26,7 @@ type fakeTermForAttach struct {
 	mu         sync.Mutex
 	created    []fakeTermCall
 	nextID     int
-	onExit     map[string]func()
+	onExit     map[string]func(engineterminal.Exit)
 	terminated []string
 }
 
@@ -129,7 +39,7 @@ type fakeTermCall struct {
 }
 
 func (f *fakeTermForAttach) CreateCommand(
-	_ context.Context, chatID, cwd string, argv, env []string, onExit func(),
+	_ context.Context, chatID, cwd string, argv, env []string, onExit func(engineterminal.Exit),
 ) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -138,7 +48,7 @@ func (f *fakeTermForAttach) CreateCommand(
 	f.created = append(f.created,
 		fakeTermCall{chatID: chatID, cwd: cwd, argv: argv, env: env, termSessID: id})
 	if f.onExit == nil {
-		f.onExit = map[string]func(){}
+		f.onExit = map[string]func(engineterminal.Exit){}
 	}
 	f.onExit[id] = onExit
 	return id, nil
@@ -146,10 +56,19 @@ func (f *fakeTermForAttach) CreateCommand(
 
 func (f *fakeTermForAttach) Write(context.Context, string, []byte) error { return nil }
 
+// TerminateGraceful records the termination and, as the engine does, runs the
+// exit callback of a session it created before returning; a session it never
+// created is not found.
 func (f *fakeTermForAttach) TerminateGraceful(_ context.Context, sessionID string) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.terminated = append(f.terminated, sessionID)
+	onExit, ok := f.onExit[sessionID]
+	delete(f.onExit, sessionID)
+	f.mu.Unlock()
+	if !ok {
+		return engineterminal.ErrSessionNotFound
+	}
+	onExit(engineterminal.Exit{Code: 143})
 	return nil
 }
 
@@ -199,11 +118,13 @@ runtime:
   transport: api
   api:
     protocol: jsonrpc2
-    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    delivery: stdio
+    format: ndjson
+    serve:  [acme, app-server]
     attach: [acme, resume, "{session_id}"]
-    handshake: { call: initialize }
+    handshake: { call: initialize, notify: initialized }
 config_injection:
-  - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{crowbar_hook} hook turn_stop --segment {segid}"}]}]' }
+  - pass_arg: { arg: "-c", value: 'hooks.Stop=[{hooks=[{type="command",command="{hook_url}/turn_stop"}]}]' }
 `
 
 func attachTestAgent(t *testing.T) engineagents.Agent {
@@ -219,11 +140,11 @@ func attachTestAgent(t *testing.T) engineagents.Agent {
 
 func TestSwitchToTerminal_ReturnsErrNoNativeTerminal_WhenNoLiveAPIConn(t *testing.T) {
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{runner: engineagents.Runner{ID: "runner-1"}},
+		live: liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 	}
 	_, err := rs.SwitchToTerminal(context.Background(), "chat-1")
 	require.ErrorIs(t, err, ErrNoNativeTerminal)
@@ -236,11 +157,11 @@ func TestSwitchToTerminal_ReturnsErrNoNativeTerminal_WhenNoLiveAPIConn(t *testin
 // the failure that error means everywhere else.
 func TestSwitchToTerminal_IsIdempotentOnceAlreadyAttached(t *testing.T) {
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{runner: engineagents.Runner{ID: "runner-1"}},
+		live: liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 	}
 	rs.attached.set("runner-1", attachedView{termSessID: "attach-term-1"})
 
@@ -250,27 +171,26 @@ func TestSwitchToTerminal_IsIdempotentOnceAlreadyAttached(t *testing.T) {
 }
 
 func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{runner: engineagents.Runner{ID: "runner-1"}},
-		turns:       stubTurnsForAttach{working: true},
+		live:   liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
+		turns:  noopTurns{},
+		ledger: runningTestLedger(t),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
 	})
 
 	_, err = rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -284,34 +204,28 @@ func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
 // SAME config_injection hooks wiring a normal spawn gets) is forked as a real
 // terminal session, and the runner is recorded as attached.
 func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{
-				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentSession: "sess-1",
-			},
-		},
-		turns:    stubTurnsForAttach{working: false},
-		activity: stubActivityForAttach{found: true},
-		term:     term,
+		live:   liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
+		turns:  noopTurns{},
+		term:   term,
+		ledger: turnedTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work", Segid: "seg-1", HookBase: "http://h", ProjectID: "p", Provider: "acme"},
 	})
 
 	termSessID, err := rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -328,7 +242,7 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 	require.Equal(t, "/work", call.cwd)
 	require.Equal(t, []string{
 		"acme", "resume", "sess-1",
-		"-c", `hooks.Stop=[{hooks=[{type="command",command="/bin/crowbar hook turn_stop --segment seg-1"}]}]`,
+		"-c", `hooks.Stop=[{hooks=[{type="command",command="http://h/v0/projects/p/home/chats/runners/seg-1/hooks/acme/turn_stop"}]}]`,
 	}, call.argv, "the attached process must carry the same hooks wiring a normal spawn gets")
 
 	view, ok := rs.attached.get("runner-1")
@@ -349,34 +263,28 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 // nothing at all: the exact failure APIAttachArgv's doc says it exists to
 // prevent.
 func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{
-				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentSession: "sess-1",
-			},
-		},
-		turns:    stubTurnsForAttach{working: false},
-		activity: stubActivityForAttach{found: true},
-		term:     term,
+		live:   liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
+		turns:  noopTurns{},
+		term:   term,
+		ledger: turnedTestLedger(t, "attach-test", "sess-1"),
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarBin: "/bin/crowbar"},
 	})
 
 	_, err = rs.SwitchToTerminal(context.Background(), "chat-1")
@@ -386,56 +294,66 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 	require.Subset(t, term.lastCall().env, os.Environ())
 }
 
-// The attach decision reads the runner row's CurrentSession, under which
-// turns are recorded, not the connection's establish-time copy: a session
-// that completed a turn attaches even when the two differ.
-func TestRegression_SwitchToTerminal_ChecksRunnerCurrentSession_NotStaleAPIConnSession(t *testing.T) {
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
-		_, _, _ = conn.ReadMessage()
-	})
+// The attach decision reads the chat's bound session, under which turns are
+// recorded, not the connection's establish-time copy.
+func TestRegression_SwitchToTerminal_ChecksTheBoundSession_NotStaleAPIConnSession(t *testing.T) {
+	for name, turned := range map[string]bool{"turned": true, "never turned": false} {
+		t.Run(name, func(t *testing.T) {
+			l := boundTestLedger(t, "attach-test", "durable-sess")
+			if turned {
+				l = turnedTestLedger(t, "attach-test", "durable-sess")
+			}
+			switchToTerminalOnTheBoundSession(t, l, turned)
+		})
+	}
+}
+
+func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attached bool) {
+	t.Helper()
+	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
+	apiConn, err := agent.StartAPIConn(ctx, stdio, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{
-				ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test",
-				CurrentSession: "durable-sess", // the id turns are actually recorded under
-			},
-		},
-		turns:    stubTurnsForAttach{working: false},
-		activity: stubActivityBySession{wantSession: "durable-sess"},
-		term:     term,
+		live:   liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
+		turns:  noopTurns{},
+		term:   term,
+		ledger: l,
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		// tctx.Session deliberately differs from CurrentSession — the stale,
-		// establish-time copy the pre-fix guard checked instead.
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+		// tctx.Session deliberately differs from the bound session.
+		tctx: engineagents.TemplateCtx{Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarBin: "/bin/crowbar"},
 	})
 
 	termSessID, err := rs.SwitchToTerminal(context.Background(), "chat-1")
+	if !attached {
+		require.ErrorIs(t, err, ErrNoNativeTerminal, "a session that never turned cannot be loaded by the TUI")
+		require.Zero(t, term.callCount())
+		return
+	}
 	require.NoError(t, err)
 	require.NotEmpty(t, termSessID)
 	require.Equal(t, 1, term.callCount(), "the guard's stale-session check must not block a session that has turned")
+	require.Contains(t, term.created[0].argv, "durable-sess")
 }
 
 func TestSwitchToNative_IsANoop_WhenNothingAttached(t *testing.T) {
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{runner: engineagents.Runner{ID: "runner-1"}},
+		live: liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 	}
 	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
 }
@@ -457,25 +375,17 @@ func TestSwitchToNative_IsANoop_WhenNothingAttached(t *testing.T) {
 func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 	agent := attachTestAgent(t)
 	term := &fakeTermForAttach{}
-	exited := make(chan string, 1)
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		// surfaces/chats: the two switch calls now MOVE the chat's current
 		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
-			exited: exited,
-		},
-		turns:         stubTurnsForAttach{working: false},
-		term:          term,
-		agents:        engineagents.New(),
-		answers:       answerdesk.New(answerdesk.DefaultRetention, nil),
-		inflightTurns: inflight.NewTurns(),
-		work:          inflight.NewWork(),
-		activity:      stubActivityForSpawn{},
-		prompts:       agentjournal.NewPromptRequests(),
-		home:          func() (string, error) { return t.TempDir(), nil },
+		live:    liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
+		turns:   noopTurns{},
+		term:    term,
+		agents:  engineagents.New(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
+		ledger:  newTestLedger(t),
 	}
 	// Registered directly, as if SwitchToTerminal had already run and torn the
 	// api connection down — SwitchToNative's own job is reversing that.
@@ -484,18 +394,56 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 		agent:      agent,
 		tctx:       engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
 	})
+	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal) // as attachNativeView leaves it
 
 	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
 
 	require.Contains(t, term.terminated, "attach-term-1")
 	_, stillAttached := rs.attached.get("runner-1")
 	require.False(t, stillAttached, "the attached record must clear regardless of whether reconnecting succeeds")
-	select {
-	case got := <-exited:
-		require.Equal(t, "runner-1", got)
-	default:
-		t.Fatal("the view is dead and no connection replaced it; the runner has no process left to be")
+	_, live := rs.RunnerByID("runner-1")
+	require.False(t, live, "the view is dead and no connection replaced it; the runner has no process left to be")
+	exit, ok := chatState(t, rs.ledger).LastExit()
+	require.True(t, ok)
+	require.Equal(t, "runner-1", exit.RunnerID)
+}
+
+// phaseTouches records the chat's phase at every announcement.
+type phaseTouches struct {
+	rs   *Runners
+	seen []string
+}
+
+func (p *phaseTouches) Touch(_ context.Context, chatID string) {
+	p.seen = append(p.seen, p.rs.Phase(chatID))
+}
+
+// Re-establishing the connection can take as long as the CLI's handshake; the
+// chat reads as switching meanwhile, not as an idle chat that ignores the user.
+func TestRegression_SwitchToNativeReadsAsSwitchingUntilItLands(t *testing.T) {
+	rs := &Runners{
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
+		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(), phases: newPhases(),
+		live:    liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
+		turns:   noopTurns{},
+		term:    &fakeTermForAttach{},
+		agents:  engineagents.New(),
+		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
+		ledger:  newTestLedger(t),
 	}
+	touches := &phaseTouches{rs: rs}
+	rs.snapshots = touches
+	rs.attached.set("runner-1", attachedView{
+		termSessID: "attach-term-1", agent: attachTestAgent(t),
+		tctx: engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
+	})
+	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal)
+
+	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
+
+	require.NotEmpty(t, touches.seen)
+	assert.Equal(t, snapshot.PhaseSwitching, touches.seen[0], "the switch was not announced before it waited")
+	assert.Empty(t, rs.Phase("chat-1"), "the switch never ended")
 }
 
 // TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking: tearing
@@ -504,11 +452,12 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 func TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking(t *testing.T) {
 	term := &fakeTermForAttach{}
 	rs := &Runners{
-		attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
-		runnerStore: stubRunnerStoreForAttach{runner: engineagents.Runner{ID: "runner-1"}},
-		turns:       stubTurnsForAttach{working: true},
-		term:        term,
+		live:   liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
+		turns:  noopTurns{},
+		ledger: runningTestLedger(t),
+		term:   term,
 	}
 	rs.attached.set("runner-1", attachedView{termSessID: "attach-term-1"})
 
@@ -518,111 +467,4 @@ func TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking(t *testin
 	require.Empty(t, term.terminated, "a refused switch must not kill the view")
 	_, stillAttached := rs.attached.get("runner-1")
 	require.True(t, stillAttached)
-}
-
-// spySurfaceChats records every SetSurface write, so a test can assert on the
-// DURABLE surface rather than only on the in-process mirror of it.
-type spySurfaceChats struct {
-	stubChatsForSpawn
-	written chan string
-}
-
-func newSpySurfaceChats() *spySurfaceChats {
-	return &spySurfaceChats{
-		stubChatsForSpawn: stubChatsForSpawn{chat: domain.Chat{ID: "chat-1"}},
-		written:           make(chan string, 4),
-	}
-}
-
-// lastWritten is a NON-BLOCKING read: the write happens inside the call under
-// test and has already returned by the time a test asks, so an empty channel
-// means the write never happened — never that it has not happened yet.
-func (s *spySurfaceChats) lastWritten(t *testing.T) string {
-	t.Helper()
-	select {
-	case surface := <-s.written:
-		return surface
-	default:
-		t.Fatal("nothing wrote the chat's current surface")
-		return ""
-	}
-}
-
-func (s *spySurfaceChats) SetSurface(
-	_ context.Context, _, surface string,
-) (domain.Chat, error) {
-	s.written <- surface
-	return s.chat, nil
-}
-
-// TestRegression_SwitchToTerminalWritesTheChatsCurrentSurface: the switch
-// endpoints are the two moments Crowbar is actually TOLD the user moved, so
-// they are what makes domain.Chat.Surface a current fact instead of a birth
-// record. Without this the chat came back from a daemon restart (or any
-// respawn) believing it was still on the surface it was created on, and
-// rebuilt the wrong transport underneath the view the user was looking at.
-func TestRegression_SwitchToTerminalWritesTheChatsCurrentSurface(t *testing.T) {
-	rs, chats := switchSurfaceFixture(t)
-
-	_, err := rs.SwitchToTerminal(context.Background(), "chat-1")
-	require.NoError(t, err)
-
-	require.Equal(t, domain.SurfaceTerminal, chats.lastWritten(t))
-	require.True(t, rs.ShowingNativeView("runner-1"),
-		"the in-process mirror moves with the durable field, never independently of it")
-}
-
-// TestRegression_SwitchToNativeWritesTheChatsCurrentSurface is the reverse:
-// a chat handed back to Crowbar's own chat must stop reporting a native view.
-func TestRegression_SwitchToNativeWritesTheChatsCurrentSurface(t *testing.T) {
-	rs, chats := switchSurfaceFixture(t)
-
-	_, err := rs.SwitchToTerminal(context.Background(), "chat-1")
-	require.NoError(t, err)
-	require.Equal(t, domain.SurfaceTerminal, chats.lastWritten(t))
-
-	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
-
-	require.Equal(t, domain.SurfaceChat, chats.lastWritten(t))
-	require.False(t, rs.ShowingNativeView("runner-1"))
-}
-
-// switchSurfaceFixture stands up the smallest Runners that can complete a
-// real SwitchToTerminal: a live api connection over this file's in-process
-// server, a completed turn on the runner's own session, and an idle chat.
-func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
-	t.Helper()
-	sockPath := fakeWSServer(t, func(conn *websocket.Conn) { _, _, _ = conn.ReadMessage() })
-	agent := attachTestAgent(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	t.Cleanup(cancel)
-	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = apiConn.Close() })
-
-	chats := newSpySurfaceChats()
-	rs := &Runners{
-		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(),
-		surfaces: newSurfaceRegistry(), spawns: inflight.NewGate(),
-		runnerStore: stubRunnerStoreForAttach{
-			runner: engineagents.Runner{
-				ID: "runner-1", ProviderID: "attach-test", CurrentSession: "sess-1", CurrentChatID: "chat-1",
-			},
-		},
-		turns:         stubTurnsForAttach{working: false},
-		activity:      stubActivityForAttach{found: true},
-		term:          &fakeTermForAttach{},
-		chats:         chats,
-		agents:        engineagents.New(),
-		answers:       answerdesk.New(answerdesk.DefaultRetention, nil),
-		inflightTurns: inflight.NewTurns(),
-		work:          inflight.NewWork(),
-		prompts:       agentjournal.NewPromptRequests(),
-		home:          func() (string, error) { return t.TempDir(), nil },
-	}
-	rs.apiConns.set("runner-1", &apiconn{
-		driver: apiConn, ctx: ctx, agent: agent,
-		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work"},
-	})
-	return rs, chats
 }

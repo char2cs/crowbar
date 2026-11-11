@@ -3,25 +3,9 @@ import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import type { DropMode, RowRect } from '@/components/tree-dnd/drop-core'
 
-/**
- * The reorder signal: a 2px hairline with a circle end-cap, marking the slot a
- * drop would land in.
- *
- * Two signals, never both. This one says "between these rows"; a nest says
- * "inside this one" by filling the row (ROW_NEST_TARGET). Showing a line and a
- * fill at once leaves the user to guess which of two different moves they are
- * about to make.
- *
- * ONE element for the whole drag, positioned in viewport coordinates and MOVED
- * as the pointer crosses boundaries. Drawn inside each target row instead it
- * would mount and unmount per crossing — a mark that blinks from slot to slot
- * where it should travel between them, and a transition that can never run
- * because the element it is on is new every time.
- *
- * Portalled to the body for the same reason the ghost is: rendered inline it
- * would be laid out against the nearest transformed ancestor (the peeked
- * sidebar card is one while it is on screen) rather than the viewport.
- */
+// The reorder hairline ("between these rows"; a nest fills the row instead, never both). ONE
+// element MOVED across slots so it travels rather than blinks and can transition; portalled to
+// body so a transformed ancestor (the peek card) cannot offset it.
 export const DropIndicator = forwardRef<HTMLDivElement>(function DropIndicator(_props, ref) {
   return createPortal(
     <div
@@ -29,10 +13,8 @@ export const DropIndicator = forwardRef<HTMLDivElement>(function DropIndicator(_
       aria-hidden="true"
       data-drop-indicator=""
       className={cn(
-        // Above the ghost (z-50), not below it. The ghost is anchored to the
-        // point the row was grabbed by, so it now sits under the cursor rather
-        // than beside it — and the line marking where the drop lands is the one
-        // thing in a drag that must never be the thing covered up.
+        // Above the ghost (z-50): the ghost sits under the cursor, and the drop line must
+        // never be the thing covered.
         'pointer-events-none fixed z-[60] hidden h-0.5 rounded-full bg-sidebar-drop-line',
         // It slides between slots rather than jumping: the line is the same
         // object throughout a drag, so the move reads as one mark tracking the
@@ -61,25 +43,11 @@ export interface DropLineBox {
   width: number
 }
 
-/**
- * The rect of a row, as the line needs to read it.
- *
- * The shared hit test already measured exactly this to make its decision, so
- * the two are one type rather than two identical ones that could drift — the
- * indicator is drawn from the same numbers the decision was made from.
- */
+/** The hit test's own measured rect, so the line is drawn from the numbers the decision used. */
 export type DropLineRect = RowRect
 
-/**
- * Place the line against the row a drop would land beside.
- *
- * Rows carry their indent on the row element itself, so `rect.left` already
- * encodes depth: insetting from it puts the line at the depth the dropped row
- * will land at, which is the one thing a full-width line could never say.
- *
- * The 1px lift centres the 2px line on the boundary between the two rows rather
- * than hanging it below the edge it marks.
- */
+// Place the line beside the target row. `rect.left` carries the row's indent, so the inset puts
+// the line at the dropped row's depth; the 1px lift centres it on the boundary.
 export function dropLineBox(rect: DropLineRect, position: Exclude<DropMode, 'into'>): DropLineBox {
   return {
     left: rect.left + LINE_INSET_PX,

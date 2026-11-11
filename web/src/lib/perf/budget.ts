@@ -1,9 +1,5 @@
-/**
- * Regression budgets over recorded perf spans (spec: "budgets that fail when
- * a number regresses, not as a report someone reads"). Pure functions —
- * gathering the `measures` this reads is a live-app concern, not this
- * module's.
- */
+// Regression budgets over recorded perf spans ("budgets that fail when a number regresses, not a
+// report someone reads"). Pure: gathering the `measures` is the live app's concern.
 export interface PerfMeasure {
   name: string
   duration: number
@@ -50,10 +46,8 @@ export function summarize(measures: PerfMeasure[]): Map<string, Summary> {
   return out
 }
 
-/** Flags every measure name whose p95 exceeds `budgets[name] * (1 +
- *  toleranceRatio)`. A name absent from `budgets` is not checked — Phase 0/1
- *  only tracks the three spans already instrumented; a later phase adds more
- *  budget entries as it instruments more spans. */
+/** Flags each measure whose p95 exceeds `budgets[name] * (1 + toleranceRatio)`; a name absent
+ *  from `budgets` is not checked. */
 export function checkBudgets(
   measures: PerfMeasure[],
   budgets: Record<string, number>,

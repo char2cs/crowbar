@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/core/metadata"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 func TestStorageDir(t *testing.T) {
@@ -20,23 +20,9 @@ func TestStorageDir(t *testing.T) {
 	)
 }
 
-func TestThreadsStorageDir(t *testing.T) {
-	dir := ThreadsStorageDir("/crow", "proj-1", "repo-1", "ws-abc")
-	assert.Equal(
-		t,
-		"/crow/projects/proj-1/repo-1/workspaces/ws-abc/threads/storages",
-		dir,
-	)
-}
-
 func TestRepoDir(t *testing.T) {
 	dir := RepoDir("/crow", "proj-1", "repo-1")
 	assert.Equal(t, "/crow/projects/proj-1/repo-1", dir)
-}
-
-func TestRepoStorageDir(t *testing.T) {
-	dir := RepoStorageDir("/crow", "proj-1", "repo-1")
-	assert.Equal(t, "/crow/projects/proj-1/repo-1/storages", dir)
 }
 
 func TestRepoIconPath(t *testing.T) {
@@ -49,32 +35,7 @@ func TestProjectDir(t *testing.T) {
 	assert.Equal(t, "/crow/projects/proj-1", dir)
 }
 
-func TestProjectStorageDir(t *testing.T) {
-	dir := ProjectStorageDir("/crow", "proj-1")
-	assert.Equal(t, "/crow/projects/proj-1/storages", dir)
-}
-
-func TestGlobalStateDir(t *testing.T) {
-	dir := GlobalStateDir("/crow")
-	assert.Equal(t, "/crow/state", dir)
-}
-
-func TestDefaultCrowbarHome(t *testing.T) {
-	t.Setenv(metadata.HomeEnvVar, "")
-	t.Setenv("HOME", "/home/tester")
-	home, err := DefaultCrowbarHome()
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/home/tester", ".crowbar"), home)
-}
-
-func TestDefaultCrowbarHome_EnvOverride(t *testing.T) {
-	t.Setenv(metadata.HomeEnvVar, "/tmp/dev-crowbar-home")
-	home, err := DefaultCrowbarHome()
-	require.NoError(t, err)
-	assert.Equal(t, "/tmp/dev-crowbar-home", home)
-}
-
-// --- Human-readable worktree path derivation (Task 3, spec §3.9) ---
+// --- Human-readable worktree path derivation ---
 
 func TestDerive(t *testing.T) {
 	home := "/h"
@@ -241,6 +202,34 @@ func TestLedgerChatsDir_IgnoresWorkspaceEntirely(t *testing.T) {
 	}
 }
 
+// A target that stays on disk comes back with the reason, so a caller can
+// tell a refused or failed removal from one that happened.
+func TestRemoveUnderHome_SaysWhyATargetStays(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	require.Error(t, RemoveUnderHome(home, outside))
+	assert.DirExists(t, outside)
+
+	removed := filepath.Join(home, "removed")
+	require.NoError(t, os.MkdirAll(filepath.Join(removed, "inner"), 0o700))
+	require.NoError(t, RemoveUnderHome(home, removed))
+	assert.NoDirExists(t, removed)
+	require.NoError(t, RemoveUnderHome(home, removed), "an absent target is already removed")
+}
+
+func TestRemoveUnderHome_ReportsARemovalThatFailed(t *testing.T) {
+	testutil.RequirePermissionEnforcement(t)
+	home := t.TempDir()
+	parent := filepath.Join(home, "parent")
+	stuck := filepath.Join(parent, "stuck")
+	require.NoError(t, os.MkdirAll(stuck, 0o700))
+	require.NoError(t, os.Chmod(parent, 0o500))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(parent, 0o700)) })
+
+	require.ErrorIs(t, RemoveUnderHome(home, stuck), os.ErrPermission)
+	assert.DirExists(t, stuck)
+}
+
 // TestUnderHome is the shared predicate the chats-dir seam uses to tell a
 // Crowbar-managed worktree (chats stay beside it) from an adopted checkout at the
 // user's real dir (chats reroot under home). Only a path STRICTLY nested under
@@ -323,25 +312,25 @@ func TestRegression_FreePathBranch_SeesANestedBranch(t *testing.T) {
 // --- Attachment durable store (Task 1) ---
 
 func TestAttachmentsDir(t *testing.T) {
-	dir := AttachmentsDir("/crow/projects/p1/slug/branch/chats", "chat-1")
-	assert.Equal(t, "/crow/projects/p1/slug/branch/chats/chat-1/attachments", dir)
+	dir := AttachmentsDir("/crow", "chat-1")
+	assert.Equal(t, "/crow/chats/chat-1/attachments", dir)
 }
 
 func TestRestoreDurableAttachmentRefs_RewritesAnAbsoluteReferenceBack(t *testing.T) {
-	text := "look ![x](/crow/projects/p1/slug/branch/chats/chat-1/attachments/photo.png) done"
-	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	text := "look ![x](/crow/chats/chat-1/attachments/photo.png) done"
+	out := RestoreDurableAttachmentRefs(text, "/crow", "chat-1")
 	assert.Equal(t, "look ![x](chats/chat-1/attachments/photo.png) done", out)
 }
 
 func TestRestoreDurableAttachmentRefs_LeavesUnrelatedTextUntouched(t *testing.T) {
-	text := "nothing to restore here, and no /crow/projects/p1/slug/branch/chats/OTHER-CHAT/attachments/x.png reference either"
-	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	text := "nothing to restore here, and no /crow/chats/OTHER-CHAT/attachments/x.png reference either"
+	out := RestoreDurableAttachmentRefs(text, "/crow", "chat-1")
 	assert.Equal(t, text, out, "a different chat's durable dir is not this chat's to rewrite")
 }
 
 func TestRestoreDurableAttachmentRefs_MultipleReferences(t *testing.T) {
-	text := "![a](/crow/projects/p1/slug/branch/chats/chat-1/attachments/one.png) and ![b](/crow/projects/p1/slug/branch/chats/chat-1/attachments/two.png)"
-	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
+	text := "![a](/crow/chats/chat-1/attachments/one.png) and ![b](/crow/chats/chat-1/attachments/two.png)"
+	out := RestoreDurableAttachmentRefs(text, "/crow", "chat-1")
 	assert.Equal(t, "![a](chats/chat-1/attachments/one.png) and ![b](chats/chat-1/attachments/two.png)", out)
 }
 

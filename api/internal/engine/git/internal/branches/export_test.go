@@ -18,16 +18,6 @@ func ExportedParseList(output string) []gitdomain.Branch {
 	return parseList(output)
 }
 
-// ExportedParseTrack wraps parseTrack for use in _test packages.
-func ExportedParseTrack(track string, b *gitdomain.Branch) {
-	parseTrack(track, b)
-}
-
-// ExportedParseTrackSegment wraps parseTrackSegment for use in _test packages.
-func ExportedParseTrackSegment(seg string, b *gitdomain.Branch) {
-	parseTrackSegment(seg, b)
-}
-
 // errRunner is a gitRunner replacement that always returns a non-nil error.
 // Used to exercise the err != nil branches that exec.Git itself never triggers.
 func errRunner(

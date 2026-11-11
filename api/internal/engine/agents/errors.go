@@ -22,6 +22,10 @@ var (
 
 	ErrForeignConversation = protocol.ErrForeignPayload
 
+	// ErrHookVariantMismatch is a delivery a declared when: filter routed to
+	// another variant of the same wire hook.
+	ErrHookVariantMismatch = protocol.ErrVariantMismatch
+
 	ErrRequiredFieldMissing = protocol.ErrRequiredFieldMissing
 
 	ErrTelemetryUnsupported = protocol.ErrTelemetryUnsupported
@@ -49,4 +53,8 @@ var (
 	ErrMalformedAnswer = protocol.ErrMalformedAnswer
 
 	ErrAPITransportNotDeclared = errAPITransportNotDeclared
+
+	// ErrAPISessionLost is an api connection's provider refusing the session
+	// it was asked to resume or act on.
+	ErrAPISessionLost = protocol.ErrAPISessionLost
 )

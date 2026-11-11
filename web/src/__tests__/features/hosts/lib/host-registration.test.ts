@@ -52,28 +52,6 @@ describe('hostsRegistered', () => {
     ])
   })
 
-  it('holds a remote project read until the hosts are registered', async () => {
-    let finish!: () => void
-    invoke.mockImplementation(
-      (cmd: string) =>
-        new Promise<void>((resolve) => {
-          if (cmd !== 'register_remote_host') return resolve()
-          finish = resolve
-        }),
-    )
-    const { hostsRegistered } = await boot([host('h1')])
-    void hostsRegistered()
-    const { projectListTransport } = await import('@/lib/api/project-list-transport')
-
-    const read = projectListTransport.read('h1')
-    await vi.waitFor(() => expect(registered()).toHaveLength(1))
-    expect(fetchMock).not.toHaveBeenCalled()
-
-    finish()
-    await read
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['crowbar://h1/v0/projects'])
-  })
-
   it('a host the proxy refuses does not keep the others, or the app, waiting', async () => {
     invoke.mockImplementation(async (cmd: string, args: { hostId: string }) => {
       if (cmd === 'register_remote_host' && args.hostId === 'h1') throw new Error('bad id')

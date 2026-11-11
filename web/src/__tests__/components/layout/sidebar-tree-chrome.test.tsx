@@ -1,14 +1,6 @@
-/**
- * `SidebarTreeChrome` hoists `RepoImportDialog`/`SidebarRowContextMenu` so
- * they mount ONCE at the ide-shell level rather than once per
- * `SpaceScroller` project panel. "New Project" used to live here too, as a
- * tree-foot row; Task 5 relocated it to a trailing `+` mark in
- * `SidebarProjectHeader`'s window-chrome row (spec §4.1) and lifted its
- * modal state up to `IDEShell` — this component no longer owns any of that.
- * `RemovalTray` doesn't either: it mounts once in the IDE shell. Neither does
- * `RenameDialog`: the right-click menu's Rename item now starts the same
- * inline editor double-click does, so there is no modal left to hoist.
- */
+// `SidebarTreeChrome` mounts `RepoImportDialog` and `SidebarRowContextMenu` ONCE at the shell
+// level, not per `SpaceScroller` panel. New Project, RemovalTray and rename are not its concern:
+// they live in the shell, the shell, and the inline editor.
 import { createRef } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -20,19 +12,15 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 import { SidebarTreeChrome } from '@/components/layout/sidebar-tree-chrome'
-import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
-import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import {
-  getInitialInlineRenameState,
-  useSidebarInlineRenameStore,
-} from '@/lib/store/sidebar-inline-rename'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState(getInitialState())
-  useRemovalTrayStore.setState(getInitialRemovalState())
-  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
+  resetEntities()
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
 })
 
 function renderChrome() {
@@ -49,17 +37,12 @@ describe('the leftover "New Project" row is gone', () => {
 
   it('does not mount ImportProjectModal itself', () => {
     renderChrome()
-    expect(screen.queryByText('Import project')).not.toBeInTheDocument()
+    expect(screen.queryByText('Add a space')).not.toBeInTheDocument()
   })
 })
 
-// Task 11: double-click now enters INLINE rename mode (a real input drawn by
-// SidebarRow itself, several components away) rather than opening the modal
-// RenameDialog Task 4 wrongly wired here — SidebarTreeChrome doesn't render
-// any row markup, so it can't draw the input; it only has to start the
-// inline-rename store, which the row this DOM belongs to reads from
-// independently. See sidebar-row.test.tsx's own "inline rename" suite for
-// the input itself.
+// Double-click only starts the inline-rename store; SidebarRow, several components away, draws
+// the input (sidebar-row.test.tsx's "inline rename" suite).
 describe('double-click-to-rename', () => {
   const rows: SidebarRow[] = [
     {
@@ -100,7 +83,7 @@ describe('double-click-to-rename', () => {
     const treeRef = renderChromeWithRows()
     const label = makeRowLabel(treeRef.current, 'chat-1')
     fireEvent.doubleClick(label)
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('chat-1')
+    expect(treeUiStore.getState().renaming).toBe('chat-1')
   })
 
   it('double-clicking does NOT open a rename dialog', () => {
@@ -121,14 +104,14 @@ describe('double-click-to-rename', () => {
     item.appendChild(trash)
     treeRef.current.appendChild(item)
     fireEvent.doubleClick(trash)
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+    expect(treeUiStore.getState().renaming).toBeNull()
   })
 
   it('double-clicking a label for an id not in `rows` is a no-op', () => {
     const treeRef = renderChromeWithRows()
     const label = makeRowLabel(treeRef.current, 'nonexistent')
     fireEvent.doubleClick(label)
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+    expect(treeUiStore.getState().renaming).toBeNull()
   })
 
   // performRenameWorkspaceBranch (row-actions.ts) already refuses a locked
@@ -154,7 +137,7 @@ describe('double-click-to-rename', () => {
     render(<SidebarTreeChrome treeRef={treeRef} rows={lockedRows} repos={[]} />)
     const label = makeRowLabel(treeRef.current, 'branch-1')
     fireEvent.doubleClick(label)
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+    expect(treeUiStore.getState().renaming).toBeNull()
   })
 })
 
@@ -190,7 +173,7 @@ describe('right-click Rename starts the same inline rename as double-click', () 
     render(<SidebarTreeChrome treeRef={treeRef} rows={rows} repos={[]} />)
     rightClick(treeRef.current, 'chat-1')
     fireEvent.click(screen.getByText('Rename'))
-    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('chat-1')
+    expect(treeUiStore.getState().renaming).toBe('chat-1')
   })
 
   it('right-click Rename does not open a dialog', () => {

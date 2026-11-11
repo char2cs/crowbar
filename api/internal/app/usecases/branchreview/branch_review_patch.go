@@ -5,29 +5,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// GetPatch streams ONE file's unified patch from the workspace's branch diff
-// into w, and reports how many patch lines it wrote and whether the patch was
-// cut short at maxLines. It resolves the ref through resolveDiffRef, exactly as
-// GetFiles and GetOutline do, so the patch a reader opens belongs to the same
-// diff the outline laid out.
-//
-// path addresses the file by its NEW name and the bytes go straight from git's
-// stdout to w: neither this usecase nor the engine beneath it ever holds the
-// patch, which is what lets a 420,000-line file be served without a
-// diff-sized allocation anywhere. maxLines <= 0 means unlimited; a positive cap
-// always cuts on a hunk boundary so what reaches the client is a patch its
-// parser can read.
-//
-// An empty path is refused before a subprocess exists. The engine repeats the
-// guard (diff.ErrEmptyPatchPath) because it is not mere input validation:
-// ":(top,literal)" with nothing appended is a valid pathspec matching the top
-// of the tree, so an empty path would quietly turn the one query guaranteed to
-// be O(one file) into a read of the entire branch diff.
-// commit scopes the read to one commit against its parent; empty means the
-// branch diff. See resolveScopeRef.
+// GetPatch streams ONE file's patch (by NEW path) from git straight into w, never holding it, and reports
+// lines written and whether maxLines (<= 0 unlimited, cut on a hunk boundary) truncated it. An empty path
+// is refused: it would match the whole tree. commit scopes the read; see resolveScopeRef.
 func (u *branchReviewUsecase) GetPatch(
 	ctx context.Context,
 	wsID string,
@@ -37,7 +20,7 @@ func (u *branchReviewUsecase) GetPatch(
 	w io.Writer,
 ) (int, bool, error) {
 	if path == "" {
-		return 0, false, fmt.Errorf("branch review: patch: %w: path is required", apperr.ErrInvalidArgument)
+		return 0, false, fmt.Errorf("branch review: patch: %w: path is required", problem.ErrInvalidArgument)
 	}
 	ws, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {

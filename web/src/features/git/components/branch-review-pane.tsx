@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { selectAgentChat, selectWorkspace, useSelect } from '@/core/entities/select'
 import { useHostResolved } from '@/lib/host-resolve'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { useReviewThreads } from '../hooks/use-review-threads'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { Badge } from '@/components/ui/badge'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control'
@@ -36,25 +34,19 @@ export function BranchReviewPane({
   const store = useWorkspaceStore()
   // The Files changed controls render into the tab row; the diff tab keeps their state.
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null)
-  // reviewBaseForWorkspace(wsId) — which getReview below resolves through —
-  // throws without a recorded owning chat id. The sidebar's chat-list fetch
-  // that records one races WorkspaceView's own (often faster) hydration, so on
-  // a workspace whose review tab auto-restores on activation this can still be
-  // null. Subscribing makes the id a piece of React state so `load` below can
-  // wait for it instead of firing early and having its catch set a permanent
-  // 'error' status — same fix as useWorkspaceEffects' useOwningChatId.
+  // getReview throws until the owning chat id is recorded, which can trail a restored review
+  // tab's mount. Subscribing lets `load` wait for it rather than fail into a permanent 'error'.
   const owningChatId = useSyncExternalStore(
     (onChange) => subscribeToWorkspaceScope(wsId, onChange),
     () => getOwningChatId(wsId),
   )
 
   // The title is the owning chat's, the same one the sidebar row shows.
-  const branchHeader = useSidebarStore(
+  const branchHeader = useSelect(
     useShallow((s): { title: string; branch?: string; baseBranch?: string } => {
-      for (const repo of s.repos) {
-        const ws = repo.workspaces.find((w) => w.id === wsId)
-        if (!ws) continue
-        const chatTitle = repo.chats?.find((c) => c.id === ws.owningChatId)?.title
+      const ws = selectWorkspace(s, wsId)
+      if (ws) {
+        const chatTitle = ws.owningChatId ? selectAgentChat(s, ws.owningChatId)?.title : ''
         return {
           title: chatTitle || ws.branch || 'Branch Review',
           branch: ws.branch,
@@ -64,7 +56,7 @@ export function BranchReviewPane({
       return { title: 'Branch Review' }
     }),
   )
-  const threadCount = useWorkspaceStoreContext((s) => s.branchReview.threads.length)
+  const threadCount = useReviewThreads(wsId).length
   const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId)
   // Branch totals from the summary already in the store; -1 marks a binary file.
   const stats = useMemo(() => {
@@ -95,12 +87,8 @@ export function BranchReviewPane({
     setView('files')
   }
 
-  // Load the composite review read model on mount: description, merge strategy
-  // and conversations. The DIFF no longer comes from here — the surface reads
-  // /review/files + /review/outline and fetches patches per file.
-  // Threads are intentionally NOT sourced here — they are seeded and kept live
-  // by useWorkspaceThreadsStream (mounted in useWorkspaceEffects) so optimistic
-  // writes and WS pushes are not clobbered on every pane remount.
+  // The read model gives description, merge strategy and conversations only: the diff surface
+  // reads files/outline/patches itself, and threads stream in on the workspace's ws: scope.
   const load = useCallback(async () => {
     const actions = store.getState()
     actions.setBranchReviewDiffStatus('loading')
@@ -110,9 +98,7 @@ export function BranchReviewPane({
       a.setBranchReviewDescription(review.description)
       a.setBranchReviewMergeStrategy(review.mergeStrategy)
       a.setBranchReviewConversations(review.conversations)
-      // Deliberately NOT storing review.diff. The pane renders from the
-      // files summary + outline now; keeping the composite's line-level diff
-      // would re-import the very payload this phase removed.
+      // review.diff is not stored: holding the line-level diff is what windowing avoids.
     } catch {
       store.getState().setBranchReviewDiffStatus('error')
     }

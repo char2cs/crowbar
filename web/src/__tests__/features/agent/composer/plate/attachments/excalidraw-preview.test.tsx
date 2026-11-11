@@ -7,8 +7,7 @@ import { ChatIdContext } from '@/features/agent/composer/plate/attachments/chat-
 import { MarkdownAssetContext } from '@/features/editor/markdown/plate/markdown-asset'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { useExcalidrawEditRequests } from '@/features/agent/composer/lib/excalidraw-edit-requests'
 
 // The real `@excalidraw/excalidraw` needs Canvas/font-metrics APIs jsdom
 // doesn't implement — mocked so the live-render path is deterministic and
@@ -59,7 +58,6 @@ function deferredAssetResolver() {
   const pending = new Map<string, (data: string | null) => void>()
   const asset = {
     wsId: 'ws1',
-    fileDir: '',
     resolve: (src: string) =>
       new Promise<string | null>((resolve) => {
         pending.set(src, resolve)
@@ -88,10 +86,8 @@ describe('ExcalidrawPreview', () => {
     expect(screen.getByText(/excalidraw diagram/i)).toBeInTheDocument()
   })
 
-  // REGRESSION: this is the actual fix — an agent-authored fence has no
-  // persisted PNG (nothing ever ran the editor to export one), so without a
-  // live render it only ever showed this placeholder text, never the
-  // diagram itself.
+  // An agent-authored fence has no persisted PNG (no editor ever exported one), so the diagram
+  // must render live rather than show the placeholder.
   it('renders the scene live via exportToSvg when there is no PNG ref', async () => {
     exportToSvgMock.mockResolvedValue(fakeSvg())
     render(<ExcalidrawPreview scene={scene} />)
@@ -105,14 +101,8 @@ describe('ExcalidrawPreview', () => {
     )
   })
 
-  // REGRESSION, reported live: the previous approach mounted the exported
-  // svg via `hostRef.current.replaceChildren(svg)` — a DOM mutation outside
-  // React's own rendering — which, since this node sits inside a Slate VOID
-  // element, desynced slate-react's DOM<->node mapping ("Cannot resolve a
-  // DOM node from Slate node", logged live) and broke the composer's own
-  // height-tracking downstream. Rendering through `dangerouslySetInnerHTML`
-  // keeps this subtree inside React's reconciliation on every update,
-  // including a scene change swapping the rendered diagram.
+  // The svg renders through React (`dangerouslySetInnerHTML`), not a DOM mutation: this node sits
+  // in a Slate VOID element, and outside mutations desync slate-react's DOM<->node mapping.
   it('replaces the rendered svg when the scene changes, leaving exactly one in the DOM', async () => {
     exportToSvgMock.mockResolvedValueOnce(fakeSvg())
     const { rerender } = render(<ExcalidrawPreview scene={scene} />)
@@ -155,13 +145,8 @@ describe('ExcalidrawPreview', () => {
   })
 
   it('resolves and shows the persisted PNG once a pngRef and asset context are present', async () => {
-    // A real `new Response(blob)` is avoided here: this repo's jsdom test
-    // environment does not round-trip a jsdom `Blob` through Node/undici's
-    // `Response` body handling (it silently stringifies the Blob instead of
-    // reading its bytes) — see chat-asset-resolver.test.ts for the same note.
-    // A minimal fetch-result stub with a real `blob()` resolver exercises the
-    // same `response.ok` / `await response.blob()` path without hitting that
-    // mismatch.
+    // A stub, not `new Response(blob)`: jsdom's Blob does not survive undici's body
+    // handling (see chat-asset-resolver.test.ts).
     const blob = new Blob(['x'], { type: 'image/png' })
     vi.stubGlobal(
       'fetch',
@@ -177,6 +162,7 @@ describe('ExcalidrawPreview', () => {
     const img = await screen.findByRole('img', { name: /excalidraw diagram/i })
     await waitFor(() => expect(img.getAttribute('src')).toMatch(/^data:image\/png;base64,/))
     expect(screen.queryByText(/2 elements/i)).not.toBeInTheDocument()
+    expect(img.style.filter).toBe('')
     vi.unstubAllGlobals()
   })
 
@@ -210,13 +196,8 @@ describe('ExcalidrawPreview', () => {
     )
   })
 
-  // REGRESSION: exportToSvg renders whatever `scene.elements`/`appState` say
-  // — content an agent or another chat participant can fully control (it's
-  // just attachment JSON) — and the result went straight into
-  // `dangerouslySetInnerHTML` with no sanitization. A `<script>` survives
-  // `.outerHTML` serialization even though the SVG spec doesn't otherwise
-  // execute it there; DOMPurify strips it, matching every other
-  // dangerouslySetInnerHTML sink in this codebase.
+  // Scene JSON is attacker-controllable, and a `<script>` survives `.outerHTML`, so the live SVG
+  // goes through DOMPurify like every other dangerouslySetInnerHTML sink.
   it('sanitizes the live SVG render, stripping a script element the scene JSON could smuggle in', async () => {
     const svg = fakeSvg()
     const script = document.createElementNS('http://www.w3.org/2000/svg', 'script')
@@ -230,25 +211,12 @@ describe('ExcalidrawPreview', () => {
     expect(document.querySelector('script')).not.toBeInTheDocument()
   })
 
-  // Unmount safety is deliberately NOT covered by a separate test. React
-  // invokes the exact same effect-cleanup closure (`cancelled = true`) on
-  // unmount as it does before re-running the effect for a dependency change
-  // — there is no distinct "unmount branch" in the implementation, so the
-  // test above already exercises the guard that protects both triggers.
-  // A black-box unmount test can't independently discriminate guarded from
-  // unguarded behaviour here either way: React 19 removed the "state update
-  // on an unmounted component" warning, and a setState call on an already-
-  // unmounted fiber is a silent no-op with no rerender, no throw, and no
-  // console output regardless of whether `cancelled` was set — so a test
-  // that unmounts, settles the stale promise, and asserts "nothing observable
-  // happened" would pass identically with the guard deleted.
+  // No unmount test: unmount runs the same cleanup the test above covers, and
+  // React 19 makes a set on an unmounted fiber a silent no-op either way.
 })
 
-// REGRESSION: neither the persisted PNG nor a live SVG render ever changed
-// color with the app's theme — both are `@excalidraw/excalidraw` exports,
-// and dark mode there is a CSS filter on its own <canvas>, never baked into
-// what exportToSvg/exportToBlob produce. Reproducing that same filter here
-// is what actually fixes it, for a PNG saved under either theme too.
+// Excalidraw's dark mode is a CSS filter on its own canvas, never baked into exportToSvg /
+// exportToBlob output, so the preview reapplies that filter (to a PNG saved in either theme too).
 describe('ExcalidrawPreview dark mode', () => {
   it('applies the excalidraw dark-mode filter to the persisted PNG when the app is in dark mode', async () => {
     document.documentElement.classList.add('dark')
@@ -269,24 +237,6 @@ describe('ExcalidrawPreview dark mode', () => {
     vi.unstubAllGlobals()
   })
 
-  it('applies no filter to the persisted PNG in light mode', async () => {
-    const blob = new Blob(['x'], { type: 'image/png' })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
-    )
-
-    render(
-      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
-        <ExcalidrawPreview scene={scene} pngRef="chats/c1/attachments/diagram.png" />
-      </ChatMarkdownAssetProvider>,
-    )
-
-    const img = await screen.findByRole('img', { name: /excalidraw diagram/i })
-    expect(img.style.filter).toBe('')
-    vi.unstubAllGlobals()
-  })
-
   it('applies the same dark-mode filter to a live SVG render', async () => {
     document.documentElement.classList.add('dark')
     exportToSvgMock.mockResolvedValue(fakeSvg())
@@ -298,10 +248,8 @@ describe('ExcalidrawPreview dark mode', () => {
   })
 })
 
-// REGRESSION, reported live: a prompted or agent-output diagram took as much
-// vertical space in the transcript as its own content demanded — unbounded,
-// unlike every other attachment kind. A max-height (with the aspect ratio
-// preserved, not cropped) caps it the same way for both render paths.
+// Diagrams are height-capped like every other attachment kind, aspect ratio preserved (not
+// cropped), on both render paths.
 describe('ExcalidrawPreview height cap', () => {
   it('caps the persisted PNG at a maximum height', async () => {
     const blob = new Blob(['x'], { type: 'image/png' })
@@ -332,10 +280,8 @@ describe('ExcalidrawPreview height cap', () => {
   })
 })
 
-// REGRESSION: reservedHeight used to read containerRef.current.clientWidth
-// exactly once, on mount — a resize BEFORE the async render below resolves
-// left the reservation computed from a stale width, reintroducing the exact
-// "scroll bugs out" height-jump this feature exists to prevent.
+// The reservation must follow a resize that lands before the async render resolves; a stale
+// width brings back the height jump the reservation exists to prevent.
 describe('ExcalidrawPreview reservation follows a resize while still loading', () => {
   const tallScene: ParsedExcalidrawScene = {
     elements: [{ type: 'rectangle', x: 0, y: 0, width: 400, height: 200 }],
@@ -405,26 +351,22 @@ describe('ExcalidrawPreview reservation follows a resize while still loading', (
   })
 })
 
-// REGRESSION: an agent's own diagram, or the user's past one, could only ever
-// be looked at in the transcript — this is what actually lets someone iterate
-// on a diagram that already exists rather than always starting a fresh one.
+// The edit button lets someone iterate on an existing diagram (an agent's or their own) instead
+// of always starting fresh.
 describe('ExcalidrawPreview edit button', () => {
+  const requested = (chatId: string) => useExcalidrawEditRequests.getState().requests[chatId]
+  beforeEach(() => useExcalidrawEditRequests.setState({ requests: {} }))
+
   function renderWithChat(chatId: string | null, ui: ReactElement) {
-    const store = createWorkspaceStore('ws1')
-    render(
-      <WorkspaceStoreContext.Provider value={store}>
-        <ChatIdContext.Provider value={chatId}>{ui}</ChatIdContext.Provider>
-      </WorkspaceStoreContext.Provider>,
-    )
-    return store
+    render(<ChatIdContext.Provider value={chatId}>{ui}</ChatIdContext.Provider>)
   }
 
   it('requests opening the takeover with this scene when Edit is clicked', () => {
-    const store = renderWithChat('c1', <ExcalidrawPreview scene={scene} />)
+    renderWithChat('c1', <ExcalidrawPreview scene={scene} />)
 
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
 
-    expect(store.getState().agentChats.excalidrawEditRequests['c1']).toEqual(scene)
+    expect(requested('c1')).toEqual(scene)
   })
 
   it('shows Edit on the persisted-PNG path too, not only the live-render path', async () => {
@@ -433,38 +375,28 @@ describe('ExcalidrawPreview edit button', () => {
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
     )
-    const store = createWorkspaceStore('ws1')
     render(
-      <WorkspaceStoreContext.Provider value={store}>
-        <ChatIdContext.Provider value="c1">
-          <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
-            <ExcalidrawPreview scene={scene} pngRef="chats/c1/attachments/diagram.png" />
-          </ChatMarkdownAssetProvider>
-        </ChatIdContext.Provider>
-      </WorkspaceStoreContext.Provider>,
+      <ChatIdContext.Provider value="c1">
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <ExcalidrawPreview scene={scene} pngRef="chats/c1/attachments/diagram.png" />
+        </ChatMarkdownAssetProvider>
+      </ChatIdContext.Provider>,
     )
     await screen.findByRole('img', { name: /excalidraw diagram/i })
 
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
 
-    expect(store.getState().agentChats.excalidrawEditRequests['c1']).toEqual(scene)
+    expect(requested('c1')).toEqual(scene)
     vi.unstubAllGlobals()
   })
 
-  it('renders no Edit button outside a chat/workspace context', () => {
+  it('renders no Edit button outside a chat context', () => {
     render(<ExcalidrawPreview scene={scene} />)
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
   })
 
-  it('renders no Edit button when there is a workspace store but no chat id', () => {
-    renderWithChat(null, <ExcalidrawPreview scene={scene} />)
-    expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
-  })
-
-  // REGRESSION, reported live: a bordered/backgrounded box around the whole
-  // preview, plus a worded "Edit" button, was more chrome than the image
-  // itself needed — an icon button floating directly over the diagram reads
-  // the same way the drag/delete controls do on every other attachment kind.
+  // An icon button floating over the diagram, no wrap box, matching the drag/delete controls on
+  // every other attachment kind.
   it('is an icon button with no "Edit" text, floating with no wrap box around the diagram', () => {
     renderWithChat('c1', <ExcalidrawPreview scene={scene} />)
     const button = screen.getByRole('button', { name: /edit/i })

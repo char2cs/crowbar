@@ -9,9 +9,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SyncProviderState applies a provider poll result: PR status + protected flag
-// (08 §5). It only ever writes pr-* statuses (never touches "new"; you cannot
-// have a PR without commits) and `locked` (00 §6.1).
+// SyncProviderState applies a provider poll result: PR status + protected flag.
+// It only ever writes pr-* statuses (never touches "new"; you cannot
+// have a PR without commits) and `locked`.
 type SyncProviderState struct {
 	ID             string
 	Protected      bool
@@ -48,8 +48,6 @@ func (c SyncProviderState) EmitEvent(
 	current *domain.Workspace,
 ) domain.Workspace {
 	ws := *current
-	// A successful mutating command clears any stale background error (00 §4).
-	ws.LastError = ""
 	if c.HasPR {
 		ws.PRUrl = c.PRUrl
 		ws.PRTitle = c.PRTitle
@@ -65,12 +63,9 @@ func (c SyncProviderState) EmitEvent(
 	return ws
 }
 
-// nextProviderStatus applies the D4 precedence rules
-// (deleted > locked > pr-conflicts > pr-* > new):
-//   - deleted/pr-conflicts are never clobbered by a provider sync;
-//   - Protected → locked (wins over any incoming pr-* status);
-//   - an existing locked status is preserved unless Protected was cleared;
-//   - otherwise an open/merged/closed PR maps to the matching pr-* status.
+// nextProviderStatus applies the status precedence: deleted and pr-conflicts are
+// never clobbered; a user lock decision, then Protected, yields locked over any
+// pr-*; an existing lock is kept; otherwise a PR maps to its pr-* status.
 func nextProviderStatus(
 	current domain.WorkspaceStatus,
 	lockOverride *bool,
@@ -82,10 +77,8 @@ func nextProviderStatus(
 		current == domain.WorkspaceStatusPRConflicts {
 		return current
 	}
-	// The user's own lock decision outranks the provider's protected flag, in
-	// BOTH directions. Without this branch the poll below would re-lock a branch
-	// the user deliberately unlocked, every minute, forever — and would let an
-	// incoming pr-* status quietly unlock one they deliberately locked.
+	// The user's lock decision outranks the protected flag in both directions, or
+	// every poll would re-lock an unlocked branch or unlock a locked one.
 	if lockOverride != nil {
 		return nextLockStatus(current, lockOverride, protected)
 	}
@@ -101,18 +94,9 @@ func nextProviderStatus(
 	return current
 }
 
-// nextLockStatus resolves a workspace's status against a lock decision.
-//
-// Shared by SetLock (applying the user's choice now) and nextProviderStatus
-// (defending it on every subsequent poll), because those are the same question
-// asked twice and the two drifting apart is precisely how an unlocked branch
-// finds itself locked again.
-//
-// Unlocking has to put SOMETHING in place of `locked`. It cannot leave the
-// status alone — that is the very value being removed — so it falls back to the
-// lifecycle status the branch would have carried had it never been protected:
-// `new`, which is also what create.go seeds an ordinary branch with. The next
-// provider poll refines that into a pr-* status if there is a PR.
+// nextLockStatus resolves a status against a lock decision, shared by SetLock and
+// every poll so the two cannot drift. Unlocking falls back to `new`, the status
+// an unprotected branch is created with; the next poll refines it to pr-*.
 func nextLockStatus(
 	current domain.WorkspaceStatus,
 	lockOverride *bool,

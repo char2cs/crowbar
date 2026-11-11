@@ -1,8 +1,8 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { readWorkspaceDirectory } = vi.hoisted(() => ({ readWorkspaceDirectory: vi.fn() }))
-vi.mock('@/features/file-system/controllers/platform', () => ({ readWorkspaceDirectory }))
+const { readDirectory } = vi.hoisted(() => ({ readDirectory: vi.fn() }))
+vi.mock('@/features/file-system/controllers/platform', () => ({ readDirectory }))
 
 import { useFileExplorerDialogs } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-dialogs'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
@@ -12,7 +12,7 @@ describe('useFileExplorerDialogs — Open All', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setActiveWorkspaceId('ws-in-view')
-    readWorkspaceDirectory.mockResolvedValue([
+    readDirectory.mockResolvedValue([
       { name: 'a.ts', path: 'src/a.ts', is_dir: false, isDirectory: false, isFile: true },
     ])
   })
@@ -36,7 +36,7 @@ describe('useFileExplorerDialogs — Open All', () => {
 
     await act(async () => result.current.openAllFilesInDirectory('src'))
 
-    expect(readWorkspaceDirectory).toHaveBeenCalledExactlyOnceWith('ws-a', 'src')
+    expect(readDirectory).toHaveBeenCalledExactlyOnceWith('ws-a', 'src')
     expect(onFileSelect).toHaveBeenCalledWith('src/a.ts', false)
   })
 
@@ -46,7 +46,7 @@ describe('useFileExplorerDialogs — Open All', () => {
 
     await act(async () => result.current.openAllFilesInDirectory('src'))
 
-    expect(readWorkspaceDirectory).not.toHaveBeenCalled()
+    expect(readDirectory).not.toHaveBeenCalled()
     consoleError.mockRestore()
   })
 })

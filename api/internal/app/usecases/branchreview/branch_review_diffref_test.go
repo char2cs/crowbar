@@ -8,10 +8,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -64,7 +64,7 @@ func newDivergedWorkspaceFixture(
 			case parent.ID:
 				return parent, nil
 			}
-			return domain.Workspace{}, apperr.ErrNotFound
+			return domain.Workspace{}, problem.ErrNotFound
 		},
 	}
 
@@ -109,7 +109,7 @@ func TestGetFiles_UnknownWorkspaceIsNotFound(
 
 	_, err := uc.GetFiles(context.Background(), "nope", "")
 	require.Error(t, err)
-	require.ErrorIs(t, err, apperr.ErrNotFound)
+	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // --- real-git test helpers (testing.T variants of the *_bench helpers above) ---

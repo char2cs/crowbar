@@ -20,9 +20,7 @@ import { MessageRow } from './review-message-row'
 
 export interface ReviewThreadItemProps {
   thread: ReviewThread
-  /** The workspace this thread belongs to — the scope its agent attribution is
-   *  resolved in (providers and chats are per-workspace state) and the one a
-   *  message's originating chat is opened in. */
+  /** The workspace a message's originating chat is opened in. */
   wsId: string
   /** Resolved provider identity, used to show the author's real photo/name. */
   currentIdentity?: IdentityDTO | null
@@ -116,7 +114,7 @@ export function ReviewThreadItem({
       await onEditMessage?.(thread.id, messageId, body)
       setEditingId(null)
     } catch {
-      // Keep the editor open (and the user's text) on failure; the handler toasts.
+      return // the handler toasted; the editor stays open with the user's text
     }
   }
 
@@ -162,12 +160,8 @@ export function ReviewThreadItem({
   return (
     <div
       className={cn(
-        // `ui-font whitespace-normal`: a thread is slotted into the diff's
-        // <pre>, and inherits both its font AND its `white-space: pre`. The
-        // second one is the quieter bug — every newline between the tags a
-        // rendered comment is made of became a visible blank line, so a
-        // two-item list arrived with a gap between the bullets wide enough to
-        // read as separate paragraphs.
+        // A thread sits in the diff's <pre>: without these it inherits the code font and
+        // `white-space: pre`, which turns every newline between rendered tags into a blank line.
         'ui-font whitespace-normal my-1 rounded-lg border border-border',
         header ? 'w-full overflow-hidden bg-card' : 'max-w-xl bg-muted/20',
         thread.isResolved && 'opacity-60',

@@ -1,16 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { getDescriptorReports } from '@/features/agent/api/agent-api'
-import type { DescriptorReport } from '@/features/agent/api/agent-api'
+import { getDescriptorReports } from '@/features/agent/api/agent-providers-api'
+import type { DescriptorReport } from '@/features/agent/api/agent-providers-api'
 
 type Load =
   { state: 'loading' } | { state: 'failed' } | { state: 'ready'; reports: DescriptorReport[] }
 
-/**
- * Each provider descriptor's static validation, as the daemon runs it at boot:
- * an error blocks the provider (it is never enabled), a warning is advice. An
- * override with errors is refused in favour of the shipped descriptor.
- */
+/** The daemon's boot-time validation: an error blocks the provider, a warning is
+ *  advice, and an override with errors falls back to the shipped descriptor. */
 export function DescriptorStatus() {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
 

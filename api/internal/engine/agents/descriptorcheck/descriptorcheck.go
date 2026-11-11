@@ -1,19 +1,16 @@
-// Package descriptorcheck validates a provider descriptor before Crowbar runs
-// it: static rules over the document (Validate) and a live conformance run
-// against the real CLI (Conform). A descriptor with an error-severity finding
-// is never enabled.
+// Package descriptorcheck validates a provider descriptor before Crowbar runs it: static rules
+// over the document (Validate) and a live conformance run against the real CLI (Conform). A
+// descriptor with an error-severity finding is never enabled.
 package descriptorcheck
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"sort"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/descriptorschema"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
 // Severity says whether a finding blocks the descriptor.
@@ -30,7 +27,7 @@ const (
 type Finding struct {
 	Rule     string   `json:"rule"`
 	Severity Severity `json:"severity"`
-	// Path is the YAML path the finding is about, e.g. "session.locate.glob[0]".
+	// Path is the YAML path the finding is about, e.g. "session.refused.needles[0]".
 	Path    string `json:"path"`
 	Line    int    `json:"line"`
 	Message string `json:"message"`
@@ -58,11 +55,15 @@ func (r Report) OK() bool {
 	return true
 }
 
-// Validate runs every static rule over one descriptor document.
+// Validate runs every static rule over one descriptor document of the current
+// schema; one written for another schema is reported as that alone.
 func Validate(raw []byte) Report {
 	var root yaml.Node
 	if err := yaml.Unmarshal(raw, &root); err != nil {
 		return Report{Findings: []Finding{syntaxFinding(err)}}
+	}
+	if err := protocol.CheckDescriptorVersion(raw); err != nil {
+		return Report{ID: probeID(&root), Findings: []Finding{schemaFinding(document{root: &root}, err)}}
 	}
 	doc := document{root: &root}
 	d, failures := protocol.CheckDescriptor(raw)
@@ -77,6 +78,7 @@ func Validate(raw []byte) Report {
 		rep.Findings = append(rep.Findings, channelRules(doc, d)...)
 		rep.Findings = append(rep.Findings, safetyRules(doc, d)...)
 		rep.Findings = append(rep.Findings, lifecycleRules(doc, d)...)
+		rep.Findings = append(rep.Findings, noticeRules(doc, d)...)
 	}
 	sort.SliceStable(rep.Findings, func(i, j int) bool {
 		return rep.Findings[i].Line < rep.Findings[j].Line
@@ -136,6 +138,16 @@ func fallsBack(src Source, rep Report) bool {
 	return ok
 }
 
+func schemaFinding(doc document, err error) Finding {
+	return Finding{
+		Rule: "schema.version", Severity: SeverityError, Path: descriptorschema.VersionKey,
+		Line: doc.line(descriptorschema.VersionKey), Message: err.Error(),
+		Hint: fmt.Sprintf("the descriptor schema is pre-release and changes without migration: rewrite the file "+
+			"in the shape of the shipped descriptors and set %s: %d, or remove it", descriptorschema.VersionKey,
+			descriptorschema.Current),
+	}
+}
+
 func syntaxFinding(err error) Finding {
 	return Finding{
 		Rule: "yaml.syntax", Severity: SeverityError, Line: errorLine(err.Error()),
@@ -146,16 +158,9 @@ func syntaxFinding(err error) Finding {
 // unknownFields decodes strictly: an unknown key is a typo that the lenient
 // load would silently ignore (a misspelt hooks_injection wires no hooks).
 func unknownFields(raw []byte, doc document) []Finding {
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
-	var d spec.Descriptor
-	err := dec.Decode(&d)
-	var typeErr *yaml.TypeError
-	if !errors.As(err, &typeErr) {
-		return nil
-	}
-	out := make([]Finding, 0, len(typeErr.Errors))
-	for _, msg := range typeErr.Errors {
+	keys := protocol.UnknownDescriptorKeys(raw)
+	out := make([]Finding, 0, len(keys))
+	for _, msg := range keys {
 		line := errorLine(msg)
 		out = append(out, Finding{
 			Rule: "yaml.unknown_field", Severity: SeverityError, Line: line,

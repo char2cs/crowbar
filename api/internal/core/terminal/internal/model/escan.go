@@ -6,17 +6,12 @@ import (
 	"strings"
 )
 
-// maxEscanParams bounds the CSI parameter bytes the in-Write scanner buffers for one
-// sequence. DECSTBM carries at most "<top>;<bottom>" (a handful of bytes); anything past
-// the cap is a pathological / non-DECSTBM CSI whose final byte we still consume to return
-// to ground, but whose parameters we stop accumulating.
+// maxEscanParams bounds the CSI parameter bytes buffered per sequence: DECSTBM needs a handful;
+// past the cap the final byte is still consumed but parameters stop accumulating.
 const maxEscanParams = 64
 
-// maxEscanOSCText bounds the OSC 0/1/2 body bytes the in-Write scanner buffers for one
-// title/icon sequence. A real window title is far shorter; the cap bounds growth on a
-// never-terminated OSC (the parameter number lives at the head of the body, so it is never
-// lost to the cap — only the trailing title text is truncated). The serializer independently
-// caps the emitted title at maxOSCTextRunes.
+// maxEscanOSCText bounds the OSC 0/1/2 body buffered per title, limiting growth on a never-terminated
+// OSC; only trailing title text is ever truncated. The serializer caps separately.
 const maxEscanOSCText = 4096
 
 const (
@@ -29,34 +24,9 @@ const (
 	escOSCEsc
 )
 
-// scanCharsetAndRegion runs a minimal, stateful in-Write scanner over p to recover the
-// three pieces of terminal state the pinned x/vt commit does NOT surface through
-// vt.Callbacks (its Callbacks struct has no Charset, LockingShift, or ScrollRegion field):
-//
-//   - SCS charset designation — ESC ( <d> designates G0, ESC ) <d> designates G1, recorded
-//     in shadow.g0/g1 and re-emitted by serialize step 10.
-//   - Locking shift — SI (0x0F) invokes G0 into GL, SO (0x0E) invokes G1 into GL, recorded
-//     in shadow.glLock. A DEC line-drawing TUI commonly invokes G1 via SO; x/vt does NOT
-//     itself resolve SO+G1 into the grid runes (verified at the pin), so without re-emitting
-//     the shift the live post-attach stream mis-renders on the client. Re-emitting fixes only
-//     that FUTURE live output; grid cells already painted via the unresolved G1 path self-heal
-//     on the app's next repaint rather than being reproduced exactly on attach.
-//   - DECSTBM scroll region — CSI <top> ; <bottom> r, recorded in shadow.scrollTop/Bottom/
-//     scrollRegionSet and re-emitted by serialize step 11 (guarded out when full-screen).
-//   - OSC 0/1/2 window title / icon name — ESC ] <0|1|2> ; <text> BEL|ST, recorded in
-//     shadow.title / shadow.iconName. x/vt DOES surface these via its Title/IconName
-//     callbacks, but its OSC-string parser honours the 8-bit C1 ST (0x9C) as a terminator,
-//     and 0x9C is also a valid UTF-8 continuation byte (e.g. the sparkle "✳" U+2733 = E2 9C
-//     B3), so a UTF-8 title carrying that byte is TRUNCATED at the 0x9C by x/vt. This scanner
-//     is UTF-8-transparent — it terminates only on BEL (0x07) or the 7-bit ST (ESC \), never
-//     on any byte >= 0x80 — so it captures the full title where x/vt's callback cannot. Its
-//     value is authoritative: the Title/IconName callbacks are dropped from buildEmu.
-//
-// It is the spec §4.1 contract-note / step-10 fallback for these missing callbacks. It
-// recognises ONLY these sequences (never general escape semantics) and carries its state
-// across Write calls, so a sequence split across PTY chunks is still recognised. The
-// emulator parses the same bytes for its grid in parallel; this scanner only feeds the
-// shadow state the serializer reads.
+// scanCharsetAndRegion recovers the state the pinned x/vt gives no callback for (SCS designation,
+// SI/SO locking shift, DECSTBM) plus OSC 0/1/2 titles, which x/vt truncates at a 0x9C UTF-8 byte.
+// It recognises only these and carries state across Writes, so split sequences still match.
 func (m *vtModel) scanCharsetAndRegion(
 	p []byte,
 ) {
@@ -95,12 +65,8 @@ func (m *vtModel) escanStep(
 	}
 }
 
-// escanFromGround dispatches ground-state bytes. Only the 7-bit ESC introduces a sequence:
-// the 8-bit C1 CSI introducer 0x9B is deliberately NOT honoured, because the emulator is fed
-// a UTF-8 byte stream where 0x9B is a valid continuation byte (e.g. '‛' U+201B = E2 80 9B),
-// and framing it as a CSI start would swallow the following bytes — the identical UTF-8
-// mis-framing class commit 94d2da39 removed from the old partial-input scanner and beginOSC excludes for the
-// sibling 0x9D OSC introducer. Real apps emit the 7-bit ESC[ CSI form.
+// escanFromGround dispatches ground-state bytes. Only the 7-bit ESC starts a sequence: 0x9B is a
+// valid UTF-8 continuation byte, and framing it as CSI would swallow the following text.
 func (m *vtModel) escanFromGround(
 	c byte,
 ) {
@@ -137,26 +103,17 @@ func (m *vtModel) escanFromEsc(
 	}
 }
 
-// applyRIS mirrors x/vt's fullReset (ESC c) for exactly the shadow state x/vt never reports
-// back: it resets the scroll region and the G0/G1 charset designation + active locking shift
-// to hardware defaults. The DEC private modes are NOT touched here — x/vt's resetModes
-// re-applies every default through the EnableMode/DisableMode callbacks, so shadow.modes is
-// already corrected by the time RIS returns. Application-keypad (DEC-66) is likewise corrected
-// by that resetModes callback (DisableMode(66)), so it is deliberately NOT cleared here:
-// clearing it would clobber a DECKPAM (ESC =) that arrives in the SAME Write chunk as the RIS,
-// because escan runs as a second pass AFTER the emulator callbacks have already observed the
-// ESC = (escan does not itself re-observe ESC =). Like the resize reset, this prevents a later
-// Serialize from re-emitting a stale DECSTBM / charset the app has already cleared.
+// applyRIS resets the shadow state x/vt never reports back (scroll region, G0/G1, locking shift) on
+// ESC c. Private modes and keypad are left to x/vt's resetModes callbacks: clearing them here would
+// clobber an ESC = arriving in the same Write, since escan runs after the emulator.
 func (m *vtModel) applyRIS() {
 	m.shadow.scrollRegionSet = false
 	m.shadow.scrollTop, m.shadow.scrollBottom = 0, 0
 	m.shadow.g0, m.shadow.g1, m.shadow.glLock = 'B', 'B', 0
 }
 
-// escanFromSCS records the charset designator for the given slot. Intermediate bytes
-// (0x20-0x2f) of a multi-byte 96-charset designator are skipped; the final byte is recorded
-// as the designator (the common single-byte designators 'B', '0', 'A', '1', '2' land here
-// directly).
+// escanFromSCS records the designator's final byte for the slot, skipping the intermediate bytes
+// (0x20-0x2f) of a multi-byte 96-charset designator.
 func (m *vtModel) escanFromSCS(
 	c byte,
 	slot int,
@@ -214,10 +171,8 @@ func (m *vtModel) finishCSI(
 	m.applyDECSTBM(string(m.escanParams))
 }
 
-// applyDECSTBM updates the shadow scroll region from a DECSTBM parameter string. An empty
-// parameter string (bare CSI r) resets the margins to full screen. A valid "<top>;<bottom>"
-// (or "<top>" with bottom defaulting to the current height) sets a region; top must be
-// >= 1 and strictly less than bottom, or the sequence is ignored (matching VT behavior).
+// applyDECSTBM updates the shadow scroll region: empty params reset to full screen; otherwise top
+// must be >= 1 and below bottom (default: height) or the sequence is ignored, as on a VT.
 func (m *vtModel) applyDECSTBM(
 	params string,
 ) {
@@ -266,21 +221,15 @@ func (m *vtModel) parseDECSTBM(
 	return top, bottom, true
 }
 
-// beginOSC starts accumulating an OSC (Operating System Command) body. Only the 7-bit ESC ]
-// introducer starts an OSC here; the 8-bit C1 OSC introducer (0x9D) is deliberately NOT
-// honoured, because — like the 0x9C ST this scanner exists to survive — 0x9D is a valid
-// UTF-8 continuation byte (e.g. 'Н' U+041D = D0 9D) and honouring it as an introducer would
-// spuriously start an OSC on ordinary text. Real apps emit the 7-bit ESC ] form.
+// beginOSC starts an OSC body. The 8-bit 0x9D introducer is not honoured: it is a valid UTF-8
+// continuation byte and would start an OSC on ordinary text.
 func (m *vtModel) beginOSC() {
 	m.escanState = escOSC
 	m.escanOSC = m.escanOSC[:0]
 }
 
-// escanFromOSC accumulates the OSC body until a UTF-8-safe terminator. BEL (0x07) commits the
-// string; ESC (0x1B) may begin a 7-bit ST (ESC \) so it defers to escanFromOSCEsc; CAN/SUB
-// abort and discard. Every other byte — crucially INCLUDING the 8-bit ST 0x9C and all other
-// bytes >= 0x80 — is title content, appended up to maxEscanOSCText. This is the whole point:
-// x/vt's own OSC parser truncates a UTF-8 title at an embedded 0x9C; this one does not.
+// escanFromOSC accumulates the body until BEL or 7-bit ST (ESC \); CAN/SUB abort. Bytes >= 0x80,
+// including 0x9C, are title content — the reason this scanner exists.
 func (m *vtModel) escanFromOSC(
 	c byte,
 ) {
@@ -314,10 +263,8 @@ func (m *vtModel) escanFromOSCEsc(
 	m.escanFromOSC(c)
 }
 
-// finishOSC parses a completed OSC body of the form "<code>;<text>" and routes the text to the
-// shadow title (code 0/2) and/or icon name (code 1/0). A body with no ';' separator or a
-// non-numeric code is not a title/icon OSC (e.g. OSC 8 hyperlink, OSC 10/11/12 colour, OSC 52
-// clipboard) and is ignored. The stored text is raw UTF-8; the serializer sanitizes it.
+// finishOSC routes a "<code>;<text>" body to the title (0/2) and/or icon name (0/1); any other OSC
+// is ignored. Text stays raw UTF-8; the serializer sanitizes it.
 func (m *vtModel) finishOSC() {
 	i := bytes.IndexByte(m.escanOSC, ';')
 	if i < 0 {

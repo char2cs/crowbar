@@ -36,9 +36,7 @@ pub extern "C" fn crowbar_chrome_dev_url() -> *const c_char {
         .map_or(std::ptr::null(), |url| url.as_ptr())
 }
 
-/// The embedded asset at `path`, or null. The caller frees the bytes and the mime string with
-/// `crowbar_chrome_asset_free`.
-///
+/// The embedded asset at `path`, or null; free it with `crowbar_chrome_asset_free`.
 /// # Safety
 /// `path` is a NUL-terminated string; `len` and `mime` are writable.
 #[no_mangle]

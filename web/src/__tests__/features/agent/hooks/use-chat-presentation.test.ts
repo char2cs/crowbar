@@ -6,9 +6,9 @@
  * this hook) and, generalized here, the pane-level chat-view ⇄ editor-view
  * split spec §7.2 describes, consumed by `pane-container.tsx`.
  *
- * `usePaneViewPresentation` is pure geometry over `editorOpen` (Task 1's
- * `PaneGroup.editorOpen`) — there is nothing to "choose", so unlike
- * `useChatPresentation` it has no `setPresentation`/`chosen` pair to test.
+ * `usePaneViewPresentation` is pure geometry over `PaneGroup.editorOpen` — there is
+ * nothing to "choose", so unlike `useChatPresentation` it has no
+ * `setPresentation`/`chosen` pair to test.
  */
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -75,6 +75,57 @@ describe('useChatPresentation — on the phone', () => {
   })
 })
 
+// A provider without hot-swap has one view; the daemon's, not a pick or a preference.
+describe('useChatPresentation — a view the daemon holds', () => {
+  const withSplit = (enabled: boolean) =>
+    useSettingsStore.setState({
+      settings: { ...getDefaultSettingsSnapshot(), chatSplitPresentationEnabled: enabled },
+    })
+  afterEach(() => {
+    platform.mobile = false
+    resetChatPresentationMemoryForTests()
+    withSplit(false)
+  })
+  const render = (held: 'chat' | 'terminal') =>
+    renderHook(() => useChatPresentation('chat-h', { current: null }, held)).result
+
+  it('shows the terminal it holds over any pick, split included', () => {
+    withSplit(true)
+    presetChatLandingPresentation('chat-h', 'chat')
+    const result = render('terminal')
+    expect(result.current.presentation).toBe('terminal')
+    act(() => result.current.setPresentation('split'))
+    expect(result.current.presentation).toBe('terminal')
+  })
+
+  it('shows the chat it holds over a terminal pick, and a split only while split exists', () => {
+    withSplit(true)
+    presetChatLandingPresentation('chat-h', 'terminal')
+    const result = render('chat')
+    expect(result.current.presentation).toBe('chat')
+    act(() => result.current.setPresentation('split'))
+    expect(result.current.presentation).toBe('split')
+    act(() => withSplit(false))
+    expect(result.current.presentation).toBe('chat')
+  })
+
+  it('leaves the user on the chat it held when a switch moves the chat to a provider that holds none', () => {
+    const { result, rerender } = renderHook(
+      ({ held }: { held: 'chat' | null }) => useChatPresentation('chat-h', { current: null }, held),
+      { initialProps: { held: 'chat' as 'chat' | null } },
+    )
+    expect(result.current.presentation).toBe('chat')
+    rerender({ held: null })
+    expect(result.current.presentation).toBe('chat')
+  })
+
+  // The phone opens on the chat by default, but a chat the daemon holds on its TUI is there.
+  it('shows the terminal it holds on the phone too', () => {
+    platform.mobile = true
+    expect(render('terminal').current.presentation).toBe('terminal')
+  })
+})
+
 function ref(size: { clientWidth?: number; clientHeight?: number }) {
   return { current: size as unknown as HTMLElement }
 }
@@ -94,21 +145,19 @@ describe('useChatPresentation — a chat remembers its own surface', () => {
       ({ chatId }) => useChatPresentation(chatId, container),
       { initialProps: { chatId: 'chat-a' } },
     )
-    expect(result.current.presentation).toBe('terminal') // the global default
+    expect(result.current.presentation).toBe('chat') // the global default
 
-    act(() => result.current.setPresentation('chat'))
-    expect(result.current.presentation).toBe('chat')
-
-    // Switch to a different chat in the same pane — the ordinary re-seed path
-    // (a runner move, or picking another tab) that already ran before this fix.
-    rerender({ chatId: 'chat-b' })
+    act(() => result.current.setPresentation('terminal'))
     expect(result.current.presentation).toBe('terminal')
 
-    // ...and back to chat A. Before this fix `chosen` was thrown away on every
-    // re-seed unless it was 'split', so this landed back on the global default
-    // ('terminal') instead of the 'chat' the user had actually left it on.
-    rerender({ chatId: 'chat-a' })
+    // Switch to a different chat in the same pane — the ordinary re-seed path
+    // (a runner move, or picking another tab).
+    rerender({ chatId: 'chat-b' })
     expect(result.current.presentation).toBe('chat')
+
+    // ...and back to chat A, on the 'terminal' the user left it on, not the default.
+    rerender({ chatId: 'chat-a' })
+    expect(result.current.presentation).toBe('terminal')
   })
 
   it('keeps a chat on its own pick across a real unmount/remount — a Recents row reopening a closed chat', () => {
@@ -165,23 +214,23 @@ describe('presetChatLandingPresentation — choosing a new chat’s surface at c
     useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   })
 
-  it('lands a specific brand-new chat on Chat, with the global default untouched', () => {
-    expect(getDefaultSettingsSnapshot().chatIsDefaultPresentation).toBe(false)
+  it('lands a specific brand-new chat on Terminal, with the global default untouched', () => {
+    expect(getDefaultSettingsSnapshot().chatIsDefaultPresentation).toBe(true)
 
-    presetChatLandingPresentation('new-chat-1', 'chat')
+    presetChatLandingPresentation('new-chat-1', 'terminal')
 
     const container = { current: null }
     const { result } = renderHook(() => useChatPresentation('new-chat-1', container))
-    expect(result.current.presentation).toBe('chat')
+    expect(result.current.presentation).toBe('terminal')
 
     // The preset named exactly one chat — everyone else still lands on
     // whatever the (untouched) global default says.
-    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(false)
+    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(true)
     const otherContainer = { current: null }
     const { result: other } = renderHook(() =>
       useChatPresentation('some-other-chat', otherContainer),
     )
-    expect(other.current.presentation).toBe('terminal')
+    expect(other.current.presentation).toBe('chat')
   })
 
   it('is a one-time seed: an explicit pick made afterward still wins', () => {
@@ -244,16 +293,8 @@ describe('usePaneViewPresentation', () => {
   })
 })
 
-/**
- * The measurement must not turn a pixel-by-pixel resize back into a render per
- * pixel. `usePaneViewPresentation` answers with one of three arrangements, but
- * it used to hold the raw `clientWidth`/`clientHeight` in state — so a pane
- * sash drag, which rewrites flex-basis on every raw pointermove, re-rendered
- * the whole pane subtree (PaneContainer, the transcript's Plate editor, the tab
- * bar, every Tooltip under it) once per pixel for an answer that never changed.
- * Live-measured in the dev app, a ~2s drag committed 157 renders; only the
- * handful that actually cross a threshold are legitimate.
- */
+/** A sash drag rewrites flex-basis on every pointermove; `usePaneViewPresentation` must re-render
+ *  only when one of its three arrangements changes, not once per pixel of the whole pane subtree. */
 describe('usePaneViewPresentation — a resize that does not change the answer does not re-render', () => {
   function withObservedResize(run: (fire: () => void) => void) {
     const callbacks: ResizeObserverCallback[] = []

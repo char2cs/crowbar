@@ -1,9 +1,12 @@
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import { createElement } from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import { nanoid } from 'nanoid'
-import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import {
@@ -13,9 +16,7 @@ import {
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 
 const {
-  getChatFn,
   resumeChatFn,
-  listMessagesFn,
   submitPromptFn,
   slashCatalogFn,
   saveReconnectFn,
@@ -26,9 +27,7 @@ const {
   listProvidersFn,
   listGlobalProvidersFn,
 } = vi.hoisted(() => ({
-  getChatFn: vi.fn(),
   resumeChatFn: vi.fn(),
-  listMessagesFn: vi.fn(),
   submitPromptFn: vi.fn(),
   slashCatalogFn: vi.fn(),
   saveReconnectFn: vi.fn(),
@@ -40,54 +39,49 @@ const {
   listGlobalProvidersFn: vi.fn(),
 }))
 
-vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
-  useEffectiveChordMap: () => ({ 'agent.toggleViewMode': 'mod+/' }),
+import * as useEffectiveKeymapMod from '@/features/keymaps/hooks/use-effective-keymap'
+vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() => ({
+  'agent.toggleViewMode': 'mod+/',
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
-  getChat: (...a: unknown[]) => getChatFn(...a),
-  switchProvider: (...a: unknown[]) => switchProviderFn(...a),
-  resumeChat: (...a: unknown[]) => resumeChatFn(...a),
-  listChatMessages: (...a: unknown[]) => listMessagesFn(...a),
-  submitAgentPrompt: (...a: unknown[]) => submitPromptFn(...a),
-  getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
-  switchToTerminal: (...a: unknown[]) => switchToTerminalFn(...a),
-  switchToNative: (...a: unknown[]) => switchToNativeFn(...a),
-  listProviders: (...a: unknown[]) => listProvidersFn(...a),
-  listGlobalProviders: (...a: unknown[]) => listGlobalProvidersFn(...a),
-}))
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
+vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
+vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(submitPromptFn)
+vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
+vi.spyOn(commandsApi, 'switchToNative').mockImplementation(switchToNativeFn)
+import * as providersApi from '@/features/agent/api/agent-providers-api'
+vi.spyOn(providersApi, 'listProviders').mockImplementation(listProvidersFn)
+vi.spyOn(providersApi, 'listGlobalProviders').mockImplementation(listGlobalProvidersFn)
 
-vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
-  saveReconnect: (...a: unknown[]) => saveReconnectFn(...a),
-}))
+import * as terminalReconnectMapMod from '@/features/terminal/lib/terminal-reconnect-map'
+vi.spyOn(terminalReconnectMapMod, 'saveReconnect').mockImplementation((...a: unknown[]) =>
+  saveReconnectFn(...a),
+)
 
-vi.mock('@/features/window/stores/toast-store', () => ({
-  toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
-}))
+import * as toastStoreMod from '@/features/window/stores/toast-store'
+vi.spyOn(toastStoreMod.toast, 'error').mockImplementation((...a: unknown[]) => toastErrorFn(...a))
 
-vi.mock('@/features/terminal/components/lazy-terminal', () => ({
-  LazyXtermTerminal: ({ sessionId }: { sessionId: string }) =>
+import * as lazyTerminalMod from '@/features/terminal/components/lazy-terminal'
+vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
+  ({ sessionId }: { sessionId: string }) =>
     createElement('div', { 'data-testid': 'xterm', 'data-session-id': sessionId }),
-}))
+)
 
-vi.mock('@/features/agent/composer/plate/chat-markdown-editor', () => ({
-  ChatMarkdownEditor: ({ ariaLabel, placeholder }: { ariaLabel: string; placeholder: string }) =>
-    createElement('textarea', { 'aria-label': ariaLabel, placeholder }),
-}))
+import * as chatMarkdownEditorMod from '@/features/agent/composer/plate/chat-markdown-editor'
+import { TextareaComposerEditor } from '@/__tests__/__fixtures__/composer-editor'
+vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(TextareaComposerEditor)
 
-vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
-  ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
-}))
+import * as providerSwitchDropdownMod from '@/features/agent/components/provider-switch-dropdown'
+vi.spyOn(providerSwitchDropdownMod, 'ProviderSwitchDropdown').mockImplementation(() =>
+  createElement('button', { 'data-testid': 'provider-switch' }),
+)
 
 import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
-import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import {
-  setActiveWorkspaceId,
-  getOrCreateWorkspaceStore,
-  destroyWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
-import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { nextVersion, seedChats, resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 import { useSettingsStore } from '@/features/settings/store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
@@ -148,23 +142,11 @@ function dormantChat(id: string, provider: string): AgentChat {
   }
 }
 
-function detail(chat: AgentChat): AgentChatDetail {
-  return {
-    ...chat,
-    conversations: [{ chatId: chat.id, providerId: 'claude', sessionId: 's1', firstSeenAt: '' }],
-  }
-}
-
-/**
- * A workspace store that exists but was NEVER MOUNTED — exactly what
- * `getOrCreateWorkspaceStore` mints for a workspace whose `WorkspaceView` has
- * not run (a chat opened from Recents, or a pane outliving its workspace's
- * visibility). `seedProviders` lives in that hook, so `agentChats.providers`
- * is `[]` here while the machine-level list is known globally.
- */
+/** A workspace whose `WorkspaceView` never ran: the chat is known, and the
+ *  provider list is whatever the machine-level store holds. */
 function unmountedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
-  seedChats(store, chats)
+  seedChats(chats)
   return store
 }
 
@@ -216,9 +198,7 @@ beforeEach(() => {
   resetWindowPaneStoreForTests()
   paneWorkspace.clear()
   for (const f of [
-    getChatFn,
     resumeChatFn,
-    listMessagesFn,
     submitPromptFn,
     slashCatalogFn,
     saveReconnectFn,
@@ -231,12 +211,8 @@ beforeEach(() => {
   ]) {
     f.mockReset()
   }
-  listMessagesFn.mockResolvedValue({
-    cursor: 1,
-    oldestCursor: 1,
-    hasMore: false,
-    items: [{ id: 'm1', role: 'user', text: 'hi', createdAt: '', cursor: 1 }],
-  })
+  resetChatStore()
+  for (const id of ['c1', 'c2', 'c3']) seedFeed(id, spokenIn(id))
   slashCatalogFn.mockResolvedValue([])
   listProvidersFn.mockResolvedValue(providers)
   useAgentProvidersStore.setState({ providers: [], status: 'idle', remote: {} })
@@ -254,7 +230,6 @@ describe('reopening an already-run conversation', () => {
 
     const chat = dormantChat('c1', 'claude')
     const store = unmountedWorkspace([chat])
-    getChatFn.mockResolvedValue(detail(chat))
 
     const paneId = openChatPane('c1')
     await renderPane(store, paneId)
@@ -273,7 +248,6 @@ describe('reopening an already-run conversation', () => {
     // than render a chat that can never name its own provider.
     const chat = dormantChat('c2', 'claude')
     const store = unmountedWorkspace([chat])
-    getChatFn.mockResolvedValue(detail(chat))
 
     const paneId = openChatPane('c2')
     await renderPane(store, paneId)
@@ -284,49 +258,47 @@ describe('reopening an already-run conversation', () => {
   })
 })
 
-/**
- * The same defect through its REAL entry point, end to end: the production
- * registry, not a hand-built store.
- *
- * `getOrCreateWorkspaceStore` is what a pane pointed at another workspace's
- * chat actually calls, and it mints a store with no providers for a workspace
- * whose `WorkspaceView` has never mounted — the Recents case the user hits.
- * Workspace A is the mounted, seeded one; the pane shows a conversation that
- * belongs to B.
- */
-describe('a pane on a workspace the app never mounted (real registry)', () => {
-  it('still names the provider its conversation ran under', async () => {
-    useAgentProvidersStore.getState().setProviders(providers)
+// A chat imported while no agent was installed records none: its pane says so
+// and how to fix it, instead of sending into a 404.
+describe('a chat that records no agent', () => {
+  async function openUnassigned(list: AgentProvider[]) {
+    useAgentProvidersStore.getState().setProviders(list)
+    listProvidersFn.mockResolvedValue(list)
+    await renderPane(unmountedWorkspace([dormantChat('c3', '')]), openChatPane('c3'))
+    await settle()
+  }
 
-    // A: mounted and seeded, exactly as WorkspaceView leaves it.
-    const mounted = getOrCreateWorkspaceStore('w-mounted')
-    mounted.getState().setAgentProviders(providers)
-    setActiveWorkspaceId('w-mounted')
+  it('says no agent is installed, and a send reaches neither the daemon nor a toast', async () => {
+    await openUnassigned(providers.map((p) => ({ ...p, connected: false })))
 
-    // B: minted on demand by the pane. Nothing ever seeded it.
-    const unmounted = getOrCreateWorkspaceStore('w-unmounted')
-    const chat = { ...dormantChat('c3', 'claude'), workspaceId: 'w-unmounted' }
-    seedChats(unmounted, [chat])
-    expect(unmounted.getState().agentChats.providers).toEqual([])
-
-    getChatFn.mockResolvedValue(detail(chat))
-    const paneId = openChatPane('c3', 'w-unmounted')
-    await renderPane(unmounted as unknown as Store, paneId)
+    expect(screen.getByTestId('agent-session-note')).toHaveTextContent(
+      'No agent is installed. Add one in Settings → Agents to start this chat.',
+    )
+    const input = screen.getByRole('textbox', { name: /message the agent/i })
+    fireEvent.change(input, { target: { value: 'hello' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
     await settle()
 
-    const picker = screen.queryByTestId('agent-selection-picker')
-    expect(picker).not.toBeNull()
-    expect(picker?.getAttribute('aria-label')).toContain('Claude')
+    expect(submitPromptFn).not.toHaveBeenCalled()
+    expect(resumeChatFn).not.toHaveBeenCalled()
+    expect(toastErrorFn).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('pane-resume')).toBeNull()
+  })
 
-    destroyWorkspaceStore('w-mounted')
-    destroyWorkspaceStore('w-unmounted')
+  it('asks for a pick when an agent is installed', async () => {
+    await openUnassigned(providers)
+
+    expect(screen.getByTestId('agent-session-note')).toHaveTextContent(
+      'This chat has no agent yet. Pick one, then send a message to start it.',
+    )
+    expect(screen.getByTestId('agent-selection-picker')).toBeInTheDocument()
   })
 })
 
-// A provider list belongs to a daemon. A pane on a remote host that has no copy of
-// its own must not be handed the local daemon's: its chat could then name, and the
-// user choose, a provider the remote does not have.
-describe('a pane on a remote host with no copy of its own', () => {
+// A provider list belongs to a daemon. A pane on a remote host must not be handed
+// the local daemon's: its chat could then name, and the user choose, a provider the
+// remote does not have.
+describe('a pane on a remote host', () => {
   const codex = providers.filter((p) => p.id === 'codex')
 
   beforeEach(() => {
@@ -342,7 +314,7 @@ describe('a pane on a remote host with no copy of its own', () => {
   it('asks that host for its list rather than offering the local one', async () => {
     const chat = { ...dormantChat('c9', 'codex'), workspaceId: 'w-remote' }
     const store = unmountedWorkspace([chat], 'w-remote')
-    getChatFn.mockResolvedValue(detail(chat))
+    seedFeed('c9', spokenIn('c9'))
     let answer!: (list: AgentProvider[]) => void
     listGlobalProvidersFn.mockReturnValue(new Promise<AgentProvider[]>((r) => (answer = r)))
 
@@ -361,4 +333,19 @@ describe('a pane on a remote host with no copy of its own', () => {
     // ...and the local daemon's list is exactly what it was.
     expect(useAgentProvidersStore.getState().providers).toEqual(providers)
   })
+})
+
+// The chip says what the next message runs as: a switch can land the provider
+// before the pick the daemon moved with it, and the outgoing model is not it.
+it('names the incoming provider’s model after a switch, never the outgoing one’s', async () => {
+  useAgentProvidersStore.getState().setProviders(providers)
+  const on = (provider: string, model: string) => ({ ...dormantChat('c1', provider), model })
+  await renderPane(unmountedWorkspace([on('claude', 'sonnet')]), openChatPane('c1'))
+  await settle()
+  const chip = () => screen.getByTestId('agent-selection-picker').getAttribute('aria-label')
+  expect(chip()).toContain('Claude, model sonnet')
+  await act(async () => seedChats([on('codex', 'sonnet')]))
+  expect(chip()).toContain('Codex, model Default')
+  await act(async () => seedChats([on('codex', 'gpt-5')]))
+  expect(chip()).toContain('Codex, model gpt-5')
 })

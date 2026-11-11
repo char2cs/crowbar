@@ -7,19 +7,10 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// MaxPayloadBytes caps the raw provider payload a prompt may carry into the desk.
-// The payload is held in memory for as long as a person is thinking, and it is
-// handed straight back to the provider to render the answer against, so a prompt
-// bigger than this is left to the provider's own UI instead.
+// MaxPayloadBytes caps the raw provider payload a prompt may carry. It is held in memory while a person
+// decides and handed back to the provider to render the answer, so a bigger prompt is left to the
+// provider's own UI.
 const MaxPayloadBytes = 128 << 10
-
-// PendingAnswer is what a blocked relay is told: which prompt it is parked on,
-// and how long it may wait for a person before it must print nothing and let the
-// provider fall back to its own UI.
-type PendingAnswer struct {
-	ChoiceID string
-	Wait     time.Duration
-}
 
 // HookAnswer is what a relay prints. An empty Stdout means nobody answered in
 // time — the signal to leave the prompt to the provider.
@@ -43,11 +34,8 @@ type Prompt struct {
 	Keys engineagents.AnswerCapability
 }
 
-// Slot is one relay currently BLOCKED on a human decision.
-//
-// It is in memory and can never be otherwise: a slot describes a live hook
-// process holding a live provider gate open, so a slot that survived a restart
-// would be a promise to a process that no longer exists.
+// Slot is one relay currently blocked on a human decision. It is in memory only: it describes a live
+// hook process holding a provider gate open, which cannot outlive a restart.
 type Slot struct {
 	Prompt
 
@@ -62,6 +50,16 @@ type Slot struct {
 	// verdict is impossible however the callers race.
 	spent bool
 	reap  *time.Timer
+	// answering is the answer being recorded that claimed the relay: nothing else
+	// may end the relay's wait until it ends.
+	answering *claim
+}
+
+// claim is an answer being recorded. It owns the relay of its ask, whichever
+// slot holds that relay now, until done is closed.
+type claim struct {
+	slot *Slot
+	done chan struct{}
 }
 
 // Settled is closed once the slot has a verdict or has been given up on. A closed

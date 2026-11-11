@@ -9,6 +9,7 @@ import type {
   ViewRecord,
 } from '@/features/panes/types/pane'
 import { createLeaf, findLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 
 /** The pane slice's structural state; see `view-ops.ts` for the only writers. */
 export interface ViewState {
@@ -137,18 +138,18 @@ export function viewMembers(
   const out: ViewMember[] = []
   for (const id of getAllLeafIds(view.layout)) {
     const pane = state.panes[id]
-    if (pane?.chatId) out.push({ chatId: pane.chatId, workspaceId: pane.workspaceId ?? null })
+    if (pane?.chatId) out.push({ chatId: pane.chatId, workspaceId: paneChatWorkspaceId(pane) })
   }
   return out
 }
 
-/** The workspace recorded for `chatId` by the pane showing it, if any. */
+/** The workspace `chatId` runs in, if a pane shows it. */
 export function chatWorkspaceIn(
   panes: Readonly<Record<string, PaneGroup>>,
   chatId: string,
 ): string | null {
   for (const pane of Object.values(panes)) {
-    if (pane.chatId === chatId) return pane.workspaceId ?? null
+    if (pane.chatId === chatId) return paneChatWorkspaceId(pane)
   }
   return null
 }
@@ -206,12 +207,9 @@ export function nextViewFor(
   return state.viewOrder.find(eligible) ?? null
 }
 
-/**
- * Focus is derived, not maintained: after a write, an `activePaneId` that no
- * longer names a pane on screen (or in the bottom tray) falls back to the most
- * recently focused one that does, else the first leaf showing. Applied once
- * per write by `commitViewWrite` and once per load by `repairViewState`.
- */
+/** Focus is derived: an activePaneId off screen (and out of the bottom tray) falls back to the
+ *  most recent one on screen, else the first showing leaf. Run per write (commitViewWrite)
+ *  and per load (repairViewState). */
 export function settleFocus(state: ViewState): void {
   const showing = getAllLeafIds(showingLayout(state))
   const bottom = getAllLeafIds(state.bottomLayout)

@@ -1,6 +1,6 @@
-import { createRef, memo, StrictMode } from 'react'
+import { createRef, memo, Profiler, StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
@@ -36,22 +36,21 @@ function stubLayout(rects: [Element, number, number][]) {
 
 async function renderDocument() {
   const ref = createRef<ChatMarkdownEditorHandle>()
-  const onChange = vi.fn()
   render(
     <TooltipProvider>
       <DndScope>
         <ChatMarkdownEditor
           ref={ref}
-          initialValue="first paragraph"
           placeholder=""
           ariaLabel="Message the agent"
-          onChange={onChange}
+          onShapeChange={vi.fn()}
           onKeyDown={vi.fn()}
         />
       </DndScope>
     </TooltipProvider>,
   )
   await act(async () => {
+    ref.current?.setMarkdown('first paragraph')
     ref.current?.insertAttachmentMarkdown(FENCE)
     ref.current?.insertAttachmentMarkdown('second paragraph')
   })
@@ -64,15 +63,8 @@ async function renderDocument() {
     [block, 20, 40],
     [second, 60, 20],
   ])
-  return { handle, block, second, onChange }
+  return { handle, block, second, markdown: () => ref.current?.getMarkdown() ?? '' }
 }
-
-// The drop selects the moved block, which opens the floating toolbar; it
-// positions itself off the DOM selection's rect, which jsdom's Range lacks.
-beforeEach(() => {
-  Range.prototype.getBoundingClientRect ??= () => DOMRect.fromRect()
-  Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList
-})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -92,6 +84,24 @@ describe('DndScope', () => {
     expect(dndRenders.count).toBe(mounted)
   })
 
+  // A second commit per render queues behind every keystroke and streamed token;
+  // enough of them back to back is React's "Maximum update depth exceeded".
+  it('commits a change of its children once', () => {
+    let commits = 0
+    const view = (n: number) => (
+      <Profiler id="scope" onRender={() => commits++}>
+        <DndScope>
+          <span>{n}</span>
+        </DndScope>
+      </Profiler>
+    )
+    const { rerender } = render(view(0))
+    commits = 0
+    rerender(view(1))
+    expect(screen.getByText('1')).toBeTruthy()
+    expect(commits).toBe(1)
+  })
+
   it('mounts several scopes at once, under StrictMode, without throwing', () => {
     expect(() =>
       render(
@@ -104,7 +114,7 @@ describe('DndScope', () => {
   })
 
   it('drags an attachment by its handle below a later paragraph: drop line while dragging, moved on release', async () => {
-    const { handle, block, second, onChange } = await renderDocument()
+    const { handle, block, second, markdown } = await renderDocument()
 
     fireEvent.pointerDown(handle, { clientX: 5, clientY: 30, button: 0, isPrimary: true })
     fireEvent.pointerMove(document, { clientX: 5, clientY: 70 })
@@ -116,16 +126,16 @@ describe('DndScope', () => {
     fireEvent.pointerUp(document, { clientX: 5, clientY: 75 })
 
     await waitFor(() => {
-      const markdown = onChange.mock.calls.at(-1)?.[0] as string
-      expect(markdown.indexOf('second paragraph')).toBeLessThan(markdown.indexOf('text-attachment'))
+      const text = markdown()
+      expect(text.indexOf('second paragraph')).toBeLessThan(text.indexOf('text-attachment'))
     })
     expect(document.querySelector('.-top-px, .-bottom-px')).toBeNull()
     expect(document.querySelector('.slate-code_block')?.className).not.toContain('opacity-50')
   })
 
   it('does not move the attachment when released where it already is', async () => {
-    const { handle, second, onChange } = await renderDocument()
-    const calls = onChange.mock.calls.length
+    const { handle, second, markdown } = await renderDocument()
+    const before = markdown()
 
     fireEvent.pointerDown(handle, { clientX: 5, clientY: 30, button: 0, isPrimary: true })
     // Top half of the paragraph right below the attachment: a no-op drop.
@@ -133,7 +143,7 @@ describe('DndScope', () => {
     expect(second.querySelector('.-top-px, .-bottom-px')).toBeNull()
     fireEvent.pointerUp(document, { clientX: 5, clientY: 62 })
 
-    expect(onChange.mock.calls.length).toBe(calls)
+    expect(markdown()).toBe(before)
   })
 
   it('treats a press without movement as a click, not a drag', async () => {

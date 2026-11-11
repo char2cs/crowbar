@@ -20,12 +20,15 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	crowbarapi "github.com/char2cs/crowbar/api/internal/api"
+	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // harness owns the booted server and its base URL. It exposes typed helpers for
@@ -33,6 +36,7 @@ import (
 type harness struct {
 	t         *testing.T
 	server    *httptest.Server
+	handler   http.Handler
 	url       string
 	home      string
 	app       *app.Container
@@ -52,33 +56,35 @@ func newHarness(
 	return newHarnessAt(t, t.TempDir())
 }
 
-// newHarnessAt boots the full backend rooted at an EXPLICIT crowbar home. It
-// backs the daemon-restart suites: shut a harness down (harness.shutdown) and
-// boot a second one over the SAME home to exercise every startup path that
-// reads persisted state (terminal restore, agent boot reconcile) exactly as a
-// real daemon restart does.
+// newHarnessAt boots the full backend rooted at an EXPLICIT crowbar home, so a
+// restart suite can boot a second one over the SAME home and exercise every
+// startup path that reads persisted state, as a real daemon restart does.
 func newHarnessAt(
 	t *testing.T,
 	home string,
 ) *harness {
 	t.Helper()
-	// The lifecycle ctx handed to engine.New/app.New is what the production
-	// daemon (internal.Container.New, then .Run) uses to stop the two
-	// long-running background loops app.New starts at boot: the provider
-	// engine's 5-minute cron sweep and the chat usecase's 2-second
-	// terminal-wait detector (startProviderSweep/startTerminalWaitSweep in
-	// internal/app/container.go). Production cancels that SAME ctx the instant
-	// a shutdown signal arrives — before Run's own drain/Close sequence even
-	// begins — which is what stops both loops.
-	//
-	// A bare context.Background() here never delivers that signal, so every
-	// harness this package ever boots leaked its own copy of both loops for
-	// the rest of the TEST BINARY's life (every test in ./tests shares one
-	// process): dozens of them accumulate over a full package run, each still
-	// ticking its 2s sweep against a torn-down harness while later tests run.
-	// cancelBoot closes that gap on every teardown path (see drainDown and
-	// crashDie below).
+	return bootHarness(t, home, "")
+}
+
+// bootHarness boots the backend at home; a fingerprint makes it network-exposed,
+// so it mints pairing codes.
+func bootHarness(t *testing.T, home, fingerprint string) *harness {
+	t.Helper()
+	// The lifecycle ctx is the one production cancels on a shutdown signal to
+	// stop the background loops app.New starts (provider sweep, terminal-wait
+	// detector); every teardown path below cancels it, or each harness leaks
+	// its loops for the rest of the test binary.
 	ctx, cancelBoot := context.WithCancel(context.Background())
+
+	// The home is held, and its pre-open migrations run, before any store opens,
+	// and released after the stores close on every teardown path below.
+	session, err := kit.BootHome(ctx, home)
+	releaseHome := func() { require.NoError(t, session.Close()) }
+	if session != nil {
+		t.Cleanup(releaseHome) // a boot that fails below still releases the home
+	}
+	require.NoError(t, err)
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
@@ -86,18 +92,19 @@ func newHarnessAt(
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	appContainer, err := app.New(ctx, engines, adapters)
+	appContainer, err := app.New(ctx, engines, adapters, session, v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
 
-	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{}, "", time.Minute)
+	apiContainer, err := crowbarapi.New(appContainer, engines, fstest.MapFS{}, fingerprint, time.Minute)
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(apiContainer.Handler())
 
 	h := &harness{
-		t:    t,
-		home: home,
-		app:  appContainer,
+		t:       t,
+		home:    home,
+		app:     appContainer,
+		handler: apiContainer.Handler(),
 	}
 	h.server = srv
 	h.url = srv.URL
@@ -126,6 +133,7 @@ func newHarnessAt(
 		appContainer.Close()
 		engines.Close()
 		_ = adapters.Close()
+		releaseHome()
 	}
 	// crashDie is the POWER-CUT order, and the inversion is the whole point: the
 	// durable store goes FIRST, so nothing that happens afterwards can be recorded.
@@ -136,6 +144,7 @@ func newHarnessAt(
 		_ = adapters.Close()
 		appContainer.Close()
 		engines.Close()
+		releaseHome()
 	}
 	t.Cleanup(h.shutdown)
 
@@ -342,6 +351,103 @@ func (h *harness) raw(
 	require.NoError(h.t, err)
 	require.Equal(h.t, wantStatus, resp.StatusCode, "%s %s", method, path)
 	return resp
+}
+
+// dial opens a WebSocket to the given /v0 path and registers cleanup.
+func (h *harness) dial(
+	path string,
+) *websocket.Conn {
+	h.t.Helper()
+	wsURL := "ws" + h.url[len("http"):] + path
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.NoError(h.t, err)
+	h.t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
+// readUntil blocks reading JSON frames, skipping control and non-JSON frames,
+// until match returns true for a decoded frame, and returns that frame.
+//
+// It carries NO read deadline, by design. The frame's arrival IS the signal, so
+// the read simply blocks until the daemon produces it. A deadline here would
+// only restate `go test -timeout` — and restate it worse: an expired deadline
+// surfaces as a bare "i/o timeout" on some assertion, telling you nothing about
+// which frame never came, and it is the construct that goes flaky under load.
+//
+// A frame that genuinely never arrives is therefore a HANG, resolved by
+// `go test -timeout` (the suite's only backstop). That is the better failure:
+// the timeout panics with a full goroutine dump in which this read is parked in
+// conn.ReadMessage, and the stack immediately above it names the calling test
+// and the exact readUntil call site — i.e. it points straight at the frame that
+// never came. The only assertion left here is a real one: a read ERROR, meaning
+// the connection broke before the awaited frame arrived.
+func readUntil(
+	t *testing.T,
+	conn *websocket.Conn,
+	match func(map[string]any) bool,
+) map[string]any {
+	t.Helper()
+	// A FAILURE BOUND, not a wait. The awaited frame either arrives promptly or
+	// it is never coming: this helper's whole failure mode is a frame broadcast
+	// BEFORE the caller subscribed, and no amount of further blocking recovers
+	// it. Unbounded, that costs the entire PACKAGE — Go's 4m timeout kills every
+	// other test in ./tests and leaves a goroutine dump as the only evidence of
+	// which one was at fault. Bounded, the test names itself instead.
+	//
+	// 45s, not 30s: TestRegression_DeleteWorkspaceTombstones was seen missing
+	// this bound under CI's constrained CPU with an otherwise clean, leak-free
+	// harness — worst-case scheduling latency against a large legitimate
+	// goroutine footprint, not a hang. Still an order of magnitude under the
+	// package's own 4m ceiling.
+	deadline := time.Now().Add(45 * time.Second)
+	for {
+		require.NoError(t, conn.SetReadDeadline(deadline))
+		mt, raw, err := conn.ReadMessage()
+		require.NoError(t, err, "no matching frame within 30s — it was most "+
+			"likely broadcast before this connection subscribed")
+		if mt != websocket.TextMessage {
+			continue
+		}
+		var got map[string]any
+		if json.Unmarshal(raw, &got) != nil {
+			continue
+		}
+		if match(got) {
+			return got
+		}
+	}
+}
+
+// sentinelFile is the file a test dirties in a watched worktree to push a frame
+// of its OWN through a Git topic. It is the barrier used to prove NEGATIVES on a
+// WS topic without a clock: no fixture ever creates or touches it, so a status
+// frame listing it is unambiguously the test's own, and its arrival proves that
+// every frame the observed window was ever going to produce has already been
+// delivered on that connection.
+const sentinelFile = "crowbar-sentinel.txt"
+
+// statusHasFile reports whether a decoded GitStatus frame lists name among its
+// dirty files. The Git broadcaster filters on wsId but serialises a BARE
+// GitStatus (no wsId on the wire), so a frame's dirty-file set is the only
+// discriminator a WS test has for which workspace produced it.
+func statusHasFile(
+	frame map[string]any,
+	name string,
+) bool {
+	files, ok := frame["files"].([]any)
+	if !ok {
+		return false
+	}
+	for _, f := range files {
+		entry, ok := f.(map[string]any)
+		if ok && entry["path"] == name {
+			return true
+		}
+	}
+	return false
 }
 
 // gitRepoWithCommit creates a real on-disk git repo with one committed file and

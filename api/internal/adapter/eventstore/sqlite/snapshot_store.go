@@ -28,28 +28,15 @@ type snapshotStore struct {
 	db *gorm.DB
 }
 
-// NewSnapshotStore returns a GORM-backed asynx SnapshotStore at path.
-//
-// Location decision: snapshots get their OWN db file (one per aggregate type,
-// e.g. state/events/workspace_snapshots.db), never a table inside the event
-// log's db. The event log is opened single-connection write-pinned (see
-// NewEventStore), so a snapshots table sharing that db would share that one
-// connection — and the workspace-scoped read hot path (workspace.Get ->
-// Reader.Load) issues SnapshotStore.Get FIRST, before touching events. Sharing
-// the connection would serialize that O(1) Get behind any in-flight event
-// Append. asynx already decouples the two writes — the writer appends the event
-// (the durable save point) and then Puts the snapshot as a best-effort,
-// non-rolled-back follow-up — so there is no cross-store transaction to
-// preserve by co-locating them. A separate file gives the read path its own
-// connection (no head-of-line blocking) at the cost of one extra file+handle
-// per type, and it is architecturally honest: a snapshot is a derived cache
-// that can be dropped and rebuilt by replaying events, so it lives apart from
-// the source-of-truth log. Pins to a single connection (serialized upserts),
-// enables WAL with a 5-second busy timeout, and checkpoints the WAL on Close —
-// mirroring NewEventStore.
+// NewSnapshotStore returns a GORM-backed asynx SnapshotStore at path, in its OWN db file: the event
+// log is pinned to one connection, and the read path's O(1) snapshot Get must not queue behind an
+// Append. Snapshots are a rebuildable cache. Single connection, WAL, 5s busy timeout, checkpoint on Close.
 func NewSnapshotStore(
 	path string,
 ) (models.SnapshotStore, error) {
+	if err := storesqlite.OwnerOnly(path); err != nil {
+		return nil, fmt.Errorf("snapshotstore: %w", err)
+	}
 	db, err := gorm.Open(sqlite.Open(storesqlite.DSN(path)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -77,16 +64,8 @@ func NewSnapshotStore(
 	return &snapshotStore{db: db}, nil
 }
 
-// Put upserts the snapshot for aggregateID: the primary key is aggregate_id
-// alone, so exactly one row exists per aggregate at all times. The upsert is
-// guarded by a monotonicity check — ON CONFLICT(aggregate_id) DO UPDATE ...
-// WHERE excluded.version > snapshots.version — so a stale Put (e.g. a slow cold
-// replay racing a newer command write) can never overwrite a newer snapshot
-// with an older one. The guard is optional per the SnapshotStore contract
-// (asynx tolerates last-write-wins, only paying extra replay), but it is cheap
-// and turns an out-of-order write into a no-op rather than a correctness cost.
-// A conflicting Put that fails the guard affects zero rows and returns no
-// error, which matches the contract.
+// Put upserts the one row per aggregate, guarded by WHERE excluded.version > snapshots.version so a
+// stale Put (a slow replay racing a newer write) is a zero-row no-op rather than a regression.
 func (s *snapshotStore) Put(
 	ctx context.Context,
 	aggregateID string,

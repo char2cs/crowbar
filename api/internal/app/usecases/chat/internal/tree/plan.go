@@ -6,34 +6,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Read once, plan the whole change in memory, write only the rows that moved.
-//
-// That is not an optimisation. The chat read model is an asynchronous projection,
-// so a re-read taken between a write and the renumber that follows it can still be
-// serving the pre-write list. Planning from a single snapshot removes the race
-// rather than papering over it with a barrier.
+// Read once, plan the whole change in memory, write only the rows that moved: the chat read model is an
+// async projection, so a re-read between a write and the renumber after it can serve the pre-write list.
 
-// loadChat resolves a chat and refuses one anchored to another workspace. It is
-// a NOT-FOUND rather than a cross-workspace refusal: the caller addressed a row
-// that does not exist in the scope it asked in, and answering otherwise would
-// tell it that a chat it may not touch exists.
-//
-// A folder id can no longer reach this door at all (2026-09-08
-// sidebar-placement-unification Task 8): a folder is a domain.Folder row now,
-// home-scoped or repo-scoped alike, never a Chats.LoadChat result — the
-// chat/folder verb split that used to need a Type check here is now a
-// resolution-door split instead (Rename/Move/Delete resolve through
-// u.folders.FindByKey first, tree.go).
-//
-// It reads the LOG FOLD: the ParentID it hands back is the origin the move is
-// planned against — the level to close up behind the row, and, for a reorder
-// naming no destination, the level being reordered within. A stale origin does
-// not merely misnumber the row, it files it back under the parent it had before
-// the previous write moved it.
+// loadChat resolves a chat from the log fold, with its live Node placement, as the origin a move is planned
+// against; a stale origin would file the row back under its previous parent. A chat of another workspace
+// is NOT-FOUND, so the caller learns nothing about rows outside its scope.
 func (u *chatFolderUsecase) loadChat(
 	ctx context.Context,
 	workspaceID string,
@@ -45,52 +27,15 @@ func (u *chatFolderUsecase) loadChat(
 	}
 	if chat.WorkspaceID != workspaceID {
 		return domain.Chat{}, fmt.Errorf(
-			"agent chat folder: chat %s is not in workspace %s: %w", chatID, workspaceID, apperr.ErrNotFound,
+			"agent chat folder: chat %s is not in workspace %s: %w", chatID, workspaceID, problem.ErrNotFound,
 		)
 	}
 	return u.correctHomePlacement(ctx, chat)
 }
 
-// globalSnapshot reads every row the daemon knows — the whole forest folder CRUD
-// plans against, since a folder carries no workspace of its own to scope a
-// narrower read by.
-func (u *chatFolderUsecase) globalSnapshot(
-	ctx context.Context,
-) (*treeSnapshot, error) {
-	return u.globalSnapshotAround(ctx, domain.Chat{})
-}
-
-// globalSnapshotAround is globalSnapshot with the SUBJECT's row corrected from
-// the log fold the caller already holds — see corrected.
-//
-// Every FOLDER, home (RepoID=="") or repo-scoped (RepoID!="") alike since
-// Task 8, is Node/Folder-backed now — rows beyond the raw ListChats() read
-// are merged in from Node.ListByParent + Folder instead of ChatTypeFolder
-// rows — see mergeForest. includeRepoPhantoms is passed true: a repo's own
-// header row IS a legitimate sibling at project home, the one level folder
-// CRUD's own global read has to plan against alongside home AND repo-scoped
-// folders both.
-//
-// Folder CRUD (Create/Move/Delete) has no workspace, and therefore no project,
-// to resolve a repo scope from — CreateInput/MoveInput carry no project id at
-// all — so this passes mergeForest a nil repoMemberIDs (no filter). A
-// bare-root folder operation can therefore still renumber another project's
-// repo Node row sharing that container; a real, deliberately deferred gap
-// (SDD review fix round 3), unlike PlaceChat's identical risk, which
-// workspaceSnapshotAround below DOES close, because it has a real
-// homeWorkspaceID in hand to resolve a project from.
-//
-// A workspaceAnchorType subject (PlaceWorkspace, 2026-09-09) is Node-backed
-// for exactly the same reason a folder is — see subjectIsNodeBacked. So is an
-// ordinary fork's subject: PlaceWorkspace resolves it to its OWNING CHAT
-// (place_workspace.go's own nodeID doc), a real domain.Chat whose Type is
-// ChatTypeBranch, not the workspaceAnchorType stand-in — omitting it here
-// left writeRow send that chat's reorder through Chat.SetOrder (the legacy
-// field nothing reads any more) while the Node this route actually placed —
-// and every other reader reads back — never moved, caught live: dragging an
-// ordinary fork past a sibling PATCHed 200 and visibly stayed put. Every
-// other caller passes a folder subject or none at all, so this only changes
-// behaviour for PlaceWorkspace's own call.
+// globalSnapshotAround reads every row the daemon knows, merged with the Node forest in subject's scope,
+// with subject's row taken from the caller's log fold (see corrected). Folders, workspace anchors and an
+// ordinary fork's owning chat (ChatTypeBranch) are Node-backed subjects; their writes go to Nodes.
 func (u *chatFolderUsecase) globalSnapshotAround(
 	ctx context.Context,
 	subject domain.Chat,
@@ -123,16 +68,8 @@ func (u *chatFolderUsecase) globalSnapshotIn(
 	return buildHomeSnapshot(f, subject, subjectIsNodeBacked), nil
 }
 
-// workspaceSnapshot reads one workspace's rows, PLUS every folder, as of a
-// single moment — the read chat placement plans against.
-//
-// Folders are read unscoped because they carry no workspace of their own (see
-// the package doc): the two kinds still share one sibling space in the panel,
-// so a chat's densify must see the folders interleaved with it or a folder
-// sitting in that same level goes unrenumbered. Reading every folder in the
-// daemon to renumber one workspace's level is over-broad — the real boundary
-// is stage 3's walk — but the alternative, missing a folder the densify must
-// touch, corrupts the very order this snapshot exists to keep dense.
+// workspaceSnapshot is the snapshot chat placement plans against for workspaceID's level, folders and
+// every other kind interleaved, as of one read.
 func (u *chatFolderUsecase) workspaceSnapshot(
 	ctx context.Context,
 	workspaceID string,
@@ -140,57 +77,17 @@ func (u *chatFolderUsecase) workspaceSnapshot(
 	return u.workspaceSnapshotAround(ctx, workspaceID, domain.Chat{})
 }
 
-// workspaceSnapshotAround is the same read with the SUBJECT's row corrected from
-// the log fold the caller already holds.
-//
-// The rest of the list is read to renumber levels, and the projection is right
-// enough for that. The subject is different in kind: the plan compares its
-// stored container against the destination to decide whether this is a move at
-// all, and either stale answer is damaging — an OLD container turns a reorder
-// into a move back to it, and one that already shows the destination turns a
-// move into a renumber and drops the write.
-//
-// A subject the list does not carry is appended, not skipped: a chat is minted
-// and placed in one breath, long before the projection lists it, and a plan
-// without it would discard the very placement that makes it a thread.
-//
-// The empty workspace is a BUBBLE's own scope (model spec §3.1: a chat with
-// no workspace at all) — the SUBJECT never routes through Node here (a
-// bubble's placement is always Chat-based, ownWorktree's own mid-creation
-// scope), but folder SIBLINGS it densifies against still might: a bubble can
-// be dropped at the panel root alongside a real folder, and once folders
-// left Chat entirely (2026-09-08 sidebar-placement-unification Task 5 for
-// home-scoped, Task 8 for repo-scoped too) they no longer arrive through
-// ListByWorkspace("") at all — mergeForest folds them in the same way it
-// does for every other scope, just without ever marking the bubble ITSELF as
-// Node-backed. includeRepoPhantoms is false: a bubble never densified
-// against a Repository row before this migration either (Repository was
-// never a Chat row), and nothing here changes that.
-//
-// For every OTHER workspace — home (Task 5) AND repo-scoped alike (Task 8)
-// — the folder pass is replaced entirely by mergeForest: every folder is
-// Node/Folder-backed now, not a Chat row, and a chat's own ParentID/Order
-// need the SAME Node correction loadChat already applies (see
-// correctHomePlacement) — a bare ListByWorkspace read alone would serve a
-// chat's stale, write-once-at-creation Chat fields the moment its placement
-// is Node-backed. isHomeWorkspace's answer decides ONLY whether repo
-// phantoms participate (see mergeForest's own doc) — the merge itself runs
-// either way.
-//
-// seeds names containers the walk must reach whether or not anything read
-// already names them — the destination of the placement being planned, so a
-// first placement counts the children already filed there (a fork's
-// owning-chat container is otherwise unreachable from the bubble scope, and
-// an unlocked anchor from any scope) and lands at the next slot, not 0.
+// workspaceSnapshotAround is workspaceSnapshot with subject's row taken from the caller's log fold: a stale
+// container would turn a reorder into a move or drop a move, and a just-minted subject is appended.
+// seeds are containers the walk must reach (the destination), so a first placement lands last, not at 0.
 func (u *chatFolderUsecase) workspaceSnapshotAround(
 	ctx context.Context,
 	workspaceID string,
 	subject domain.Chat,
 	seeds ...string,
 ) (*treeSnapshot, error) {
-	// Every row the daemon knows, not one workspace's: a level is drawn
-	// across workspaces (a repo root holds the default checkout's chats AND
-	// every fork's own row), and the scope decides who counts.
+	// Every row, not one workspace's: a level spans workspaces (a repo root holds the default checkout's
+	// chats and every fork's own row), and the scope decides who counts.
 	rows, err := u.chats.ListChats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: chats: %w", err)
@@ -226,24 +123,9 @@ func corrected(
 	return append(rows, subject)
 }
 
-// persist writes exactly the rows the plan touched and returns the rows no
-// projection announces — folders and workspace anchors, whose write is a
-// Node command — for the caller to broadcast itself. A chat row's write is
-// an aggregate command the hub projection broadcasts on the way through, so
-// a densified chat sibling stays reported through its own channel; a repo
-// phantom is announced by writeHomeNode itself. An anchor is reported as
-// the branch row it draws as, never as the package-private anchor type.
-//
-// A row in snapshot.freshIDs is force-included even when the generic
-// tree.Tree plan reports it as NOT dirty: a home-scoped chat's very first
-// placement (right after MintChat) is already sitting at the exact
-// ParentID/Order its OWN row carried into the snapshot (a zero-value bubble,
-// "" / 0) whenever it happens to land back at the front of an empty or
-// tied level, so SetParent/Reorder record no CHANGE for it — invisible to
-// the plan's own numeric diff, the identical coincidence project.go's
-// forceReparentWrite/finalIndexOf exists to catch for a reparenting repo.
-// Fresh means "no Node row exists yet at all," which owes a Nodes.Create
-// regardless of whether anything about its ParentID/Order actually moved.
+// persist writes the rows the plan touched plus every fresh row (owed a Node Create even when its placement
+// equals the zero value), and returns the folders and anchors (as branch rows) for the caller to broadcast,
+// since no projection announces them; a chat's write is broadcast by the hub projection.
 func (u *chatFolderUsecase) persist(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -284,17 +166,9 @@ func (u *chatFolderUsecase) persist(
 	return written, nil
 }
 
-// writeRow saves one row the plan touched, sending it down whichever command
-// matches what the plan actually decided about it: a re-parented row has its
-// placement written whole, a merely renumbered one has its index written and
-// nothing else. A densify can therefore never restate a parent — and every
-// parent in the snapshot came from the projection, one of them being stale being
-// a routine consequence of the write before this one, not a rare interleaving.
-//
-// A row snapshot.homeIDs marks (2026-09-08 sidebar-placement-unification
-// Task 5 — a home-scoped chat, a home folder, or a repo phantom, see
-// mergeHomeForest) is dispatched to writeHomeNode instead: its POSITION lives
-// on Node now, not Chat.ParentID/.Order.
+// writeRow saves one row: a re-parented row has its whole placement written, a renumbered one only its
+// order, so a densify never restates a parent read from a possibly stale projection. Node-backed rows
+// (snapshot.homeIDs) go to writeHomeNode.
 func (u *chatFolderUsecase) writeRow(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -310,11 +184,9 @@ func (u *chatFolderUsecase) writeRow(
 	if !snapshot.reparented(id) {
 		updated, err := u.chats.SetOrder(ctx, id, row.Order)
 		if err != nil {
-			// A densify plans from one snapshot, but SetOrder lands on the live
-			// aggregate: a concurrent delete can purge this very row between the
-			// two. It needs no order because it no longer exists, so that race is
-			// not this write's failure to report.
-			if errors.Is(err, apperr.ErrNotFound) {
+			// A concurrent delete can purge the row between snapshot and write; a row
+			// that no longer exists needs no order.
+			if errors.Is(err, problem.ErrNotFound) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("agent chat folder: order chat %s: %w", id, err)

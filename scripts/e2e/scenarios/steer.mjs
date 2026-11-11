@@ -1,4 +1,4 @@
-import { createWorkspaceChat, getChat, hookAck } from '../lib/fixture.mjs'
+import { createWorkspaceChat, getChat, hook } from '../lib/fixture.mjs'
 import { liveStubProcesses } from '../lib/stub-provider.mjs'
 import { openChat } from '../lib/ui.mjs'
 import { assertEqual, until } from '../lib/wait.mjs'
@@ -9,6 +9,10 @@ import { assertEqual, until } from '../lib/wait.mjs'
 
 const userBubbles = () =>
   [...document.querySelectorAll('article[data-role="user"]')].map((a) => a.textContent)
+const messages = () =>
+  [...document.querySelectorAll('article[data-role="user"], article[data-role="assistant"]')].map(
+    (a) => [a.dataset.role, a.textContent],
+  )
 
 export default {
   name: 'steer',
@@ -17,7 +21,7 @@ export default {
     await openChat(d, chat.id)
     const processes = liveStubProcesses(inst.runDir)
     const send = (event, payload) =>
-      hookAck(daemon, fx, chat, event, { session_id: 's-steer', ...payload })
+      hook(daemon, fx, chat, event, { session_id: 's-steer', ...payload })
 
     await send('session_start', {})
     await send('user_prompt', { prompt: 'first' })
@@ -34,11 +38,11 @@ export default {
     )
     assertEqual(liveStubProcesses(inst.runDir), processes, 'no process was started or stopped')
 
-    const ack = await send('turn_stop', {
+    const reply = await send('turn_stop', {
       last_assistant_message: 'first done',
     })
     assertEqual(
-      JSON.parse(ack.reply),
+      JSON.parse(reply),
       { decision: 'block', reason: 'STEERED: also check the tests' },
       'the turn-end hook answers with the parked message',
     )
@@ -54,9 +58,15 @@ export default {
       const bubbles = await d.eval(userBubbles)
       return bubbles.filter((t) => t.includes('also check the tests')).length === 1
     })
-    const messages = await daemon.get(`${fx.base}/chats/${chat.id}/messages?limit=50`)
+    await until('the reply to the steered message', async () =>
+      (await d.eval(messages)).some(([, text]) => text.includes('tests checked')),
+    )
+    const said = await d.eval(messages)
+    // Longest first: "first done" also contains "first".
+    const phrases = ['also check the tests', 'tests checked', 'first done', 'first']
+    const label = (text) => phrases.find((w) => text.includes(w)) ?? text
     assertEqual(
-      messages.items.map((m) => `${m.role}:${m.text}`),
+      said.map(([role, text]) => `${role}:${label(text)}`),
       [
         'user:first',
         'assistant:first done',

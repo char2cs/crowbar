@@ -10,20 +10,33 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// onAPIConnLost ends a runner whose api channel is gone. The connection IS
-// the runner's channel, so it is not left running without one: the serve
-// process is killed and its exit watcher reconciles the runner (turn closed,
-// row exited) through the one exit path, with the loss recorded as the cause.
-func (rs *Runners) onAPIConnLost(ctx context.Context, runnerID string) {
+// onAPIConnLost keeps why conn died on its own, then kills its serve process.
+// A runner whose process conn was ends with it, the loss as its cause; one
+// with a PTY, or still being spawned, runs on.
+func (rs *Runners) onAPIConnLost(ctx context.Context, conn *apiconn, runnerID string) {
 	if ctx.Err() != nil {
 		return // deliberate teardown; the caller that dropped it owns the rest
 	}
-	reason := domain.AgentExitConnectionLost
-	if conn, ok := rs.apiConns.get(runnerID); ok && conn.driver.Overflowed() {
-		reason = domain.AgentExitTransportOverflow
-	}
-	slog.WarnContext(context.WithoutCancel(ctx), "agent: api transport: connection lost; ending its runner",
+	reason := conn.lossReason()
+	slog.WarnContext(context.WithoutCancel(ctx), "agent: api transport: connection lost",
 		"runner_id", runnerID, "reason", reason)
-	rs.sessions.cause(runnerID, reason)
+	conn.lost.Store(&reason)
 	rs.apiConns.drop(runnerID)
+}
+
+// lossReason names c dying on its own.
+func (c *apiconn) lossReason() string {
+	if c.driver != nil && c.driver.Overflowed() {
+		return domain.AgentExitTransportOverflow
+	}
+	return domain.AgentExitConnectionLost
+}
+
+// exitCause is why c's serve exited: "" when Crowbar took it down. drop cancels
+// c.ctx before it signals the process, so a live ctx means it died on its own.
+func (c *apiconn) exitCause() string {
+	if c.ctx != nil && c.ctx.Err() == nil {
+		return c.lossReason()
+	}
+	return c.lostReason() // after ctx: onAPIConnLost stores it before it cancels
 }

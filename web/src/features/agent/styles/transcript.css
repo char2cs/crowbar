@@ -1,7 +1,6 @@
-/* The transcript, lifted from the design canvas. Scoped under `.agent-chat`;
- * assistant prose is NOT redefined here — it uses MARKDOWN_PROSE_CLASS, the same
- * styling a rendered markdown file gets, which is the whole point of the empty
- * state being a blank document. */
+/* The transcript, scoped under `.agent-chat`. Assistant prose is NOT styled here: it uses
+ * MARKDOWN_PROSE_CLASS, the styling a rendered markdown file gets, so the empty state reads as
+ * a blank document. */
 
 /* ── the surface's own column ──────────────────────────── */
 /* The transcript takes the slack and the dock keeps its height, so growing the
@@ -11,101 +10,49 @@
   flex-direction: column;
   /* The dock is laid OVER the conversation, so this is its containing block. */
   position: relative;
-  /* `height` and `flex` both, because the surface hosts this in two different
-     parents: a plain block in chat/terminal, a flex row in split. Without the
-     height the block parent leaves the column auto-sized, it grows to the whole
-     transcript, and the dock leaves the pane entirely. */
+  /* Both `height` and `flex`: the parent is a plain block in chat/terminal and a flex row in
+     split; without the height a block parent lets the column grow to the whole transcript. */
   height: 100%;
   flex: 1;
   min-height: 0;
 }
-/* Bottom-anchored: a chat is read from its newest end, so a short conversation
-   sits ON the composer rather than floating at the top of an empty pane. See
-   `.scroll-spacer` below for the mechanism and why it is NOT `margin-top:
-   auto` on `.stream` (which is what this used to be). */
+/* Bottom-anchored: a chat is read from its newest end, so a short conversation sits ON the
+   composer. The mechanism is `.scroll-spacer`, not `margin-top: auto` (see there). */
 .agent-chat .scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  /* The 20px is this column's own top breathing room, unconditional. The
-     overlay chat header (PaneTopRow's `chat-blur overlay` variant) paints no
-     fill and reserves no flex space of its own, so
-     `--agent-transcript-header-clearance` (set on `.agent-chat` by
-     AgentChatView) is on top of that, not instead of it: it only becomes
-     visible once a conversation genuinely overflows and is scrolled to its
-     top, since a short one sits bottom-anchored (`.scroll-spacer`) below all
-     of this regardless.
-
-     This is the header's FULL EdgeDissolve reach (100px Mac / 90px
-     elsewhere — pane-top-row.tsx's ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX), not
-     the narrower `--agent-header-clearance` the banners/composer use (52px /
-     42px — just the header's own clickable row). Text, unlike an opaque
-     banner, is not merely covered by the extra 48px of glass beyond the
-     row's own height — EdgeDissolve's own mask layers still carry heavy
-     blur (16px-64px) well past it, so text left resting in that gap renders
-     visibly out of focus rather than hidden. */
+  /* 20px of top room, plus the overlay header's FULL EdgeDissolve reach
+     (`--agent-transcript-header-clearance`), not the narrower `--agent-header-clearance`: its
+     blur extends well past the row, so text resting there would render out of focus. */
+  /* No browser scroll anchoring: it snaps the view as rows grow and defeats the eased follow.
+     The virtualizer holds rows still; use-transcript-anchor.ts alone follows the bottom. */
+  overflow-anchor: none;
   padding-top: calc(20px + var(--agent-transcript-header-clearance, 0px));
   scroll-padding-top: calc(20px + var(--agent-transcript-header-clearance, 0px));
-  /* Fades in on its own first paint — every mount of this element IS a chat
-     becoming visible, whether that's opening one or (the case this exists
-     for) the empty document handing off to it on a first send. Without this,
-     that handoff was the one moment nothing here was animated: the dock
-     already eases in via playArrival (arrival-animation.ts), and a
-     transcript that just POPS IN beside a bar that's sliding reads as two
-     uncoordinated things happening at once, not one arrival. Same duration
-     and curve as that slide, on purpose — matched here as a literal because
-     CSS cannot import a JS constant (ARRIVAL_SLIDE_MS/ARRIVAL_EASE there).
-     A side effect worth having: useTranscriptAnchor's own instant
-     scroll-to-bottom on this same mount now happens while this is still
-     fully transparent, so that snap is never visible either. */
+  /* Fades in on mount (opening a chat, or the empty document handing off on first send) with
+     the dock's playArrival slide: same duration and curve as ARRIVAL_SLIDE_MS/ARRIVAL_EASE, as a
+     literal since CSS can't import them. It also hides the anchor's instant scroll-to-bottom. */
   opacity: 1;
   transition: opacity 320ms cubic-bezier(0, 0, 0.2, 1);
-  /* THE CONVERSATION RUNS UNDER THE COMPOSER — reserved by `.dock-spacer`
-     (below `.stream`, transcript.css), NOT a `padding-bottom` here. This
-     used to BE that padding, and it is exactly what a live report traced
-     the "no scrollbar, no wheel response" bug to for a chat whose raw
-     content happens to land just under `.scroll`'s own clientHeight: a
-     `padding-bottom` on `.scroll` reserves the SAME visual gap, but it is
-     `.scroll`'s own box, one layer removed from what `.stream`'s natural
-     content height actually measures — and in that borderline case the
-     browser settled on a `scrollHeight` that never counted it, so CSS
-     itself concluded there was nothing to scroll to. `.dock-spacer` is a
-     real, flex-shrink:0 child of `.stream` instead: the reservation is
-     `.stream`'s own measured content now, not a property of its container,
-     so there is no longer a second place for the two numbers to disagree.
-     See `.dock-spacer`'s own comment below `.stream` for the reservation
-     value. */
+  /* The room under the composer is `.dock-spacer` (a child of `.stream`), NOT a padding-bottom
+     here: WebKit can leave a padding out of `scrollHeight` in borderline cases, leaving a chat
+     with nothing to scroll. */
   scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + 32px);
-  /* Text passing under the dock fades by OPACITY, not a colour overlay — see
-     composer.css. The gradient spans the same --agent-dock-h + 24px band as
-     the dissolve's blur layers there, so the two read as one effect instead
-     of opacity finishing before the blur does; it is clear right up to that
-     band and fully gone by the switches line below it, on any background.
-
-     A SECOND mask layer keeps the scrollbar out of the first one's reach.
-     This mask paints the whole element — its own native scrollbar included,
-     unlike `.dissolve` (composer.css), which is a separate sibling the
-     scrollbar simply isn't part of — so the fade was dimming the bar itself
-     as it neared the dock, the one thing on screen that must stay legible.
-     The second gradient is solid across exactly --agent-scrollbar-w at the
-     right edge; `mask-composite`'s default (`add`, i.e. union) between mask
-     layers means that strip stays fully opaque no matter what the first
-     gradient says at that height.
-
-     TRIED moving this to a non-scrolling wrapper ancestor instead (masking
-     the actual `overflow-y: auto` element is a documented WebKit
-     slow-scrolling-region reason) — reverted: it broke `pinTurnToTop`
-     bringing a just-sent prompt to the top of the viewport, reported live,
-     and this repo's own live-verification tooling could not confirm the
-     mask was even the dominant cost of the reported scroll-fps drop before
-     that regression was found, so the risk wasn't worth carrying. If this
-     is revisited, the fix needs to keep `.scroll` itself as the thing
-     `pinTurnToTop`'s caller measures and reserves padding on — not move it
-     behind a second flex layer. */
+  /* Text is gone under the dock and the overlay header, fading in over the 24px band above the
+     dock and over the header's dissolve reach: a webview without backdrop blur still never shows
+     text through either. A second layer keeps the scrollbar strip opaque (masks union). The mask
+     must stay on `.scroll` itself: moving it to a wrapper broke the pin's floor sizing. */
   mask-image:
-    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 24px)),
+    linear-gradient(
+      to top,
+      transparent var(--agent-dock-h, 92px),
+      black calc(var(--agent-dock-h, 92px) + 24px),
+      black calc(100% - var(--agent-transcript-header-clearance, 0px)),
+      transparent calc(100% - var(--agent-header-clearance, 0px))
+    ),
     linear-gradient(
       to left,
       black 0,
@@ -113,7 +60,13 @@
       transparent var(--agent-scrollbar-w, 0px)
     );
   -webkit-mask-image:
-    linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 24px)),
+    linear-gradient(
+      to top,
+      transparent var(--agent-dock-h, 92px),
+      black calc(var(--agent-dock-h, 92px) + 24px),
+      black calc(100% - var(--agent-transcript-header-clearance, 0px)),
+      transparent calc(100% - var(--agent-header-clearance, 0px))
+    ),
     linear-gradient(
       to left,
       black 0,
@@ -129,113 +82,57 @@
   margin: 0 auto;
   padding: 0 24px;
 }
-/* Regression, reported live: a chat whose content genuinely outgrew the pane
-   had NO scrollbar and no wheel response at all — not "short of the true
-   bottom" (that class of bug is use-transcript-anchor.ts's), but the browser
-   itself reporting no scrollable overflow to reach. `margin-top: auto` on a
-   flex item — this used to be exactly that — is a real, currently-live
-   WebKit bug in this app's own Tauri webview: the auto margin's contribution
-   to `.scroll`'s SCROLLABLE overflow is computed from before it collapses,
-   not from the collapsed (0) value actually used to paint the layout, so a
-   conversation taller than the pane still reports `scrollHeight ≈
-   clientHeight` and nothing is reachable no matter how far you scroll. This
-   was ruled out here once already for the same reason on `justify-content:
-   flex-end` (both are auto-alignment on the scroll axis) — the two behave
-   identically once content overflows, which the comment that used to sit
-   here did not anticipate. A `flex: 1 1 auto` SPACER sibling (see
-   `.scroll-spacer` above `.stream` in the JSX) has no such ambiguity: its
-   resolved size — 0 once there is no free space to give it — is the ONE
-   value used for both painting and scrollable-overflow, so the browser's
-   own scroll metrics can never disagree with what is on screen. */
+/* Not `margin-top: auto` / `justify-content: flex-end` on `.stream`: WebKit computes scrollable
+   overflow from the uncollapsed auto margin, so an overflowing chat reports nothing to scroll.
+   A flex spacer's resolved size is the one value used for both paint and overflow. */
 .agent-chat .scroll-spacer {
   flex: 1 1 auto;
   min-height: 0;
 }
-/* PADDING-BOTTOM ONLY. `.stream` shares an element with `.center`, at the same
-   specificity and later in the file, so the `padding` SHORTHAND here silently
-   reset `.center`'s `0 24px` and the conversation rendered 48px wider than the
-   composer under it — the two stopped sharing a measure. The top space is the
-   scroller's, so it cannot reach this element at all.
-
-   `flex-shrink: 0`, for the SAME reason `.virtual-rows` below already has it
-   (see that comment) — but one level up, and the one that actually matters
-   for `.scroll`'s own overflow math. `.stream` is ITSELF a flex item of
-   `.scroll`, sitting beside `.scroll-spacer` above, and without this it was
-   the ONE flex item left holding all the real weight once the spacer's own
-   empty (zero) basis contributed nothing to the shrink distribution — so a
-   long conversation compressed `.stream`'s own box down to fit `.scroll`,
-   not the other way around. Compressing it doesn't clip anything (this box
-   is `overflow: visible`, `.virtual-rows` inside it still paints in full via
-   its own `flex-shrink: 0`) — it silently UNDERSTATES what `.scroll` thinks
-   its scrollable content is, since that math reads `.stream`'s own
-   (now-too-small) laid-out size, not the true rendered extent of what
-   overflowed past it. That is a browser reporting `scrollHeight ≈
-   clientHeight` for a pane that is visibly, unmistakably taller than it —
-   no scrollbar, no wheel response, nothing to scroll TO, which is exactly
-   what a screenshot and a live trackpad both reported the same afternoon
-   this was found. */
+/* PADDING-BOTTOM ONLY: `.stream` shares an element with `.center`, so a `padding` shorthand
+   would reset its `0 24px`. `flex-shrink: 0` so a long `.stream` is never compressed to fit
+   `.scroll`, which would understate its scrollHeight and leave nothing to scroll to. */
 .agent-chat .stream {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   gap: 18px;
 }
+/* A released pin's room slides away: removing it at once drops the reply by
+   the whole blank height in one frame, and an ease-out spends most of it in the
+   first two. Only the release animates, so a new pin's floor is there at once. */
+.agent-chat .stream[data-pin='released'] {
+  transition: min-height 560ms cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-/* THE CONVERSATION RUNS UNDER THE COMPOSER — this is the reservation for
-   that, a real LAST CHILD of `.stream` (agent-transcript.tsx) rather than
-   `.scroll`'s own `padding-bottom` (which is what this used to be; see that
-   rule's own comment in this file for the live bug that came from it).
-   Being actual content means there is exactly one place this measurement
-   lives: `.stream`'s natural height already includes it, so `.scroll`'s
-   `scrollHeight` does too, unconditionally — no flex distribution, no
-   container-vs-content indirection, nothing left for the two to disagree
-   about. Same value as the mask below reads off `--agent-dock-h` for the
-   fade, so the reserved gap and the visible fade band always agree. */
+/* The room the conversation runs under the composer: a real last child of `.stream`, so its
+   height is inside `.scroll`'s scrollHeight unconditionally. Same `--agent-dock-h` value as the
+   fade mask, so the gap and the fade band agree. */
 .agent-chat .dock-spacer {
   flex-shrink: 0;
   height: calc(var(--agent-dock-h, 92px) + 32px);
 }
 
-/* The windowed historical record — one flex child of `.stream` holding every
-   settled message and divider, absolutely positioned by the virtualizer.
-   `position: relative` is what those `top: 0; transform: translateY(...)` rows
-   are positioned against; the element's own height is set inline, from the
-   virtualizer's total size.
-
-   `flex-shrink: 0` because this box is the one child of `.stream` whose height
-   is EXPLICIT rather than content-derived: absolutely-positioned children
-   contribute nothing to an automatic minimum size, so without this a column
-   flex container under pressure could compress the whole transcript instead of
-   letting it scroll.
-
-   `overflow-anchor: none` for the same reason git-history-list.tsx sets it: the
-   browser's own scroll anchoring picks a node, then fights the virtualizer as
-   rows re-measure and shift under it. The transcript's anchoring is measured
-   and explicit (use-transcript-anchor.ts), and it must be the only thing moving
-   scrollTop. The 18px between rows is NOT here — it rides on each row's own
-   padding-bottom, so measureElement counts it (see agent-transcript.tsx). */
+/* The virtualizer's rows, absolutely positioned against this box (height set inline). Explicit
+   height and `flex-shrink: 0`: abs children give no min size, so it could be squeezed instead of
+   scrolling. The 18px row gap rides each row's padding-bottom so measureElement counts it. */
 .agent-chat .stream .virtual-rows {
   position: relative;
   width: 100%;
   flex-shrink: 0;
-  overflow-anchor: none;
 }
 
 .agent-chat .row {
   display: flex;
   width: 100%;
 }
-/* A user row's timestamp reads as a SECOND LINE, not a second column — the
-   message and the <time> after it become two stacked siblings instead of the
-   message alone. Every non-user role stays row-direction, one child, exactly
-   as before; only `user` ever renders that sibling in the first place. */
+/* A user row stacks its <time> as a second line under the message; other roles render one
+   child, so row-direction is unaffected for them. */
 .agent-chat .row.stacked {
   flex-direction: column;
 }
-/* End-aligned for an ordinary bubble. The frozen first turn stays PLAIN
-   `.row.stacked` (no `.me`) — full width, default `align-items: stretch`
-   leaves it alone since it already sets its own width, and its `.turn-time`
-   falls back to sitting at the left, under where the text itself starts. */
+/* End-aligned for an ordinary bubble. The frozen first turn is plain `.row.stacked` (no `.me`):
+   full width, its `.turn-time` at the left under where the text starts. */
 .agent-chat .row.me {
   align-items: flex-end;
 }
@@ -258,17 +155,9 @@
   border-radius: 18px;
   padding: 10px 16px;
 }
-/* A queued prompt is the SAME bubble — same radius/padding rules, same
-   markdown — with its status layered on as a modifier, not a second
-   component. That is what makes the state transition (queued → sent)
-   invisible: nothing about the box's own geometry changes, only the border
-   and background swap out from under it. Dashed because it is not in the
-   record yet; solid + warning once it needs attention.
-   QueuedRow renders <article class="queued"> straight into .stream with
-   .txt/.err/.acts as flat children, not wrapped in .row.me + .bubble — so
-   .txt IS the bubble here (same geometry, state-mutated by the ancestor's
-   .multi/.bad rather than its own classes), and .acts renders as a plain
-   row BELOW it, outside the pill, since actions are controls, not content. */
+/* An unsent prompt is the same bubble with its state as a modifier, so the
+   handover to its row changes only border and background. .txt is the pill
+   and .acts sits below it, outside, since actions are not content. */
 .agent-chat .queued {
   display: flex;
   flex-direction: column;
@@ -309,20 +198,14 @@
   );
   background-size: 6px 6px;
 }
-/* Not shown — the warning-tinted pill + hatch already flags "something's
-   wrong" on sight, and the retry button's own tooltip still carries the
-   why on hover. QueuedRow still renders the span when item.error is set;
-   only its visibility changed here. */
-.agent-chat .queued .err {
-  display: none;
-}
 .agent-chat .queued .acts {
   display: flex;
   gap: 2px;
   margin-top: 6px;
 }
-/* The first turn's own pending state: no pill, no hatch, so the error text
-   this variant otherwise hides has to actually say something on its own. */
+/* Why a prompt did not go through, under it: the failure is a second fact
+   about the prompt, never a replacement for the words. */
+.agent-chat .queued .err,
 .agent-chat .firstq .err {
   display: block;
   margin-top: 6px;
@@ -342,14 +225,9 @@
   line-height: inherit;
 }
 
-/* The chat's very first turn, kept in the empty document's own hand instead of
-   switching to a bubble the instant it is sent — the "it's a document" framing
-   the chat opened with doesn't earn a different shape just because the words
-   moved rows. Only the SHAPE carries over (full-width, no bubble chrome); the
-   type size matches every other turn in the conversation — a reader should
-   never be able to tell where the frozen turn ends by the text getting
-   smaller. Every turn after the first is an ordinary bubble — see
-   agent-transcript.tsx for how "first" is decided. */
+/* The first turn keeps the empty document's shape (full width, no bubble) after sending; its
+   type size matches every other turn so the boundary never shows. agent-transcript.tsx decides
+   which turn is first. */
 .agent-chat .frozen {
   width: 100%;
   font-size: 14px;
@@ -367,10 +245,8 @@
   padding: 4px 0;
 }
 
-/* Text NOBODY in the conversation typed. `harness` is the provider's own
-   machinery talking to its own model; `notice` is Crowbar relaying the
-   provider's words about why a chat stopped. Neither may wear the user's
-   bubble — that would quote a person saying something they never said. */
+/* Text NOBODY in the conversation typed (`harness`: the provider's machinery; `notice`: Crowbar
+   relaying why a chat stopped). Neither wears the user's bubble, which would misquote a person. */
 /* ── an agent's prose ──────────────────────────────────── */
 /* Rendered by Plate, styled here. Unlayered, so it beats the registry's node
    components' Tailwind (which lives in the `utilities` layer) without
@@ -380,11 +256,8 @@
   color: var(--foreground);
   outline: none;
 }
-/* Instrument Serif (Type.dc.html: every rendered Markdown heading, incl. the
-   transcript) ships weight 400 only and has a 22px floor below which it
-   stops reading as a headline — these sizes move up from 14-16px to clear
-   it, still ordered smallest of the three named surfaces since a chat
-   bubble is the densest context using it. */
+/* Instrument Serif ships weight 400 only and stops reading as a headline below ~22px, so these
+   sizes clear it, staying the smallest of the surfaces that use it (a chat is the densest). */
 .agent-chat .agent-prose h1 {
   font-family: var(--font-heading);
   font-size: 24px;
@@ -403,12 +276,9 @@
   font-weight: 400;
   margin: 8px 0 4px;
 }
-/* THE CANVAS SPELLS THESE `p`, `ul`, `ol` AND `li`. Plate renders none of those
-   tags: a paragraph is `div.slate-p`, and a list item is that SAME node carrying
-   a `listStyleType` — there is no list container at all, the indentation is a
-   per-level class. Ported as element selectors they matched nothing, and the
-   rhythm on screen was Tailwind's `m-0 px-0 py-1` instead. `padding` is cleared
-   because that is the utility being replaced; leaving it doubles the gap. */
+/* Plate renders no `p`/`ul`/`ol`/`li`: a paragraph is `div.slate-p`, a list item the same node
+   with a `listStyleType` and a per-level indent class. `padding` is cleared because it replaces
+   Tailwind's `py-1`, which would otherwise double the gap. */
 .agent-chat .agent-prose .slate-p {
   margin: 0 0 8px;
   padding: 0;
@@ -496,12 +366,8 @@
   background: var(--muted);
 }
 
-/* The payload itself: literal machine text, not prose, so it gets the same
-   monospace/muted treatment .agent-prose code uses for markdown code spans —
-   the card and the "not by you" disclaimer above it are untouched. A long
-   payload collapses behind the same <details> pattern ChoiceSchema already
-   uses for a permission card's JSON Schema (composer.css) instead of pushing
-   the rest of the turn down. */
+/* The payload is literal machine text: monospace/muted like markdown code spans, collapsed
+   behind <details> when long (as ChoiceSchema does in composer.css). */
 .agent-chat .harness code {
   display: block;
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -547,10 +413,8 @@
   color: var(--muted-foreground);
 }
 
-/* Whose turn this was, and a way to take it elsewhere — replaces the reported
-   effort under an assistant reply. The provider icon has no padding of its
-   own, so the row needs no correction when it leads — only the copy button
-   does, and only when IT leads (no provider icon known for this message). */
+/* Whose turn this was, and a way to take it elsewhere. The provider icon has no padding, so only
+   the copy button needs a correction, and only when it leads (no provider icon known). */
 .agent-chat .turnbar {
   display: flex;
   align-items: center;
@@ -558,11 +422,8 @@
   margin-top: 2px;
   color: var(--muted-foreground);
 }
-/* Measured: the button's own icon sits 8px in from the button's edge (28px
-   box, 12px icon, minus the design system's -mx-0.5 icon pull). Pulling the
-   BUTTON by that same 8px when it leads brings ITS icon flush with the prose
-   above, matching the provider-icon case exactly instead of double-counting
-   a correction that only applies to whichever element is actually first. */
+/* The copy button's icon sits 8px inside its box; pulling the button by 8px when it leads puts
+   the icon flush with the prose above, as in the provider-icon case. */
 .agent-chat .turnbar > button:first-child {
   margin-left: -8px;
 }
@@ -570,12 +431,9 @@
   font-size: var(--ui-text-xs);
 }
 
-/* When it flags an assistant turn it lives INSIDE `.turnbar`, inheriting
-   that row's own layout and muted colour for free. As a user row's own
-   sibling (outside any bubble) it needs both set itself — and the `>` below
-   matters: without it these would ALSO match the turnbar's own nested
-   `.turn-time`, where `align-self` is a no-op (not `.row`'s direct flex
-   item) but the margin is not, nudging it out of line with its siblings. */
+/* Inside `.turnbar` it inherits that row's layout and colour; as a user row's sibling it sets
+   both itself. The `>` keeps these off the turnbar's nested `.turn-time`, where the margin would
+   still apply and nudge it out of line. */
 .agent-chat .turn-time {
   font-size: var(--ui-text-xs);
   color: var(--muted-foreground);
@@ -744,17 +602,191 @@
 .agent-chat .tools li[data-status='error'] {
   color: var(--destructive);
 }
-.agent-chat .tools li[data-status='declined'] {
-  color: var(--muted-foreground);
-  opacity: 0.72;
-}
+.agent-chat .tools li[data-status='declined'],
 .agent-chat .tools li[data-status='abandoned'] {
-  opacity: 0.6;
+  color: var(--muted-foreground);
 }
 /* A resolved choice (AgentTurnChoices) that was never actually answered
    through Crowbar reads the same muted way an abandoned tool call does. */
 .agent-chat .tools li[data-resolution='abandoned'] {
   opacity: 0.6;
+}
+
+/* A live verb shimmers; a settled one does not. The app-wide reduced-motion
+   switch (index.css) stops the sweep. */
+.agent-chat .tool-call-verb[data-live] {
+  background: linear-gradient(
+      90deg,
+      var(--foreground) 0%,
+      var(--muted-foreground) 50%,
+      var(--foreground) 100%
+    )
+    0 0 / 200% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: tool-verb-shimmer 1.6s linear infinite;
+}
+@keyframes tool-verb-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+/* A zero basis let a long command or error take the whole row and draw over the
+   verb; the label keeps up to 45% of it before it truncates. */
+.agent-chat .tool-call-label {
+  display: inline-flex;
+  min-width: min(45%, max-content);
+  flex: 1 1 auto;
+  overflow: hidden;
+  align-items: center;
+  gap: 6px;
+}
+.agent-chat .tool-glyph {
+  flex: none;
+}
+.agent-chat .tool-call-state,
+.agent-chat .tool-call-stat,
+.agent-chat .tool-call-command {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.agent-chat .tools li[data-status='abandoned'] .tool-call-state {
+  color: var(--warn-text);
+}
+.agent-chat .tool-call-command {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+/* A non-zero exit is not a failure by itself: a neutral chip, not the error colour. */
+.agent-chat .tool-call-exit {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.agent-chat .mcp-server {
+  --mcp-hue: var(--chart-1);
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--mcp-hue) 16%, transparent);
+  color: color-mix(in srgb, var(--mcp-hue) 45%, var(--foreground));
+  font-weight: 500;
+}
+.agent-chat .mcp-server[data-hue='2'] {
+  --mcp-hue: var(--chart-2);
+}
+.agent-chat .mcp-server[data-hue='3'] {
+  --mcp-hue: var(--chart-3);
+}
+.agent-chat .mcp-server[data-hue='4'] {
+  --mcp-hue: var(--chart-4);
+}
+.agent-chat .mcp-server[data-hue='5'] {
+  --mcp-hue: var(--chart-5);
+}
+.agent-chat .tool-run-members {
+  margin: 2px 0 4px 18px;
+}
+
+/* A subagent from spawn to result: its header, what it does now, its own rows. */
+.agent-chat .subagent-card .assistant {
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .subagent-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 26px;
+  color: var(--muted-foreground);
+}
+.agent-chat button.subagent-head {
+  width: 100%;
+  padding: 0 26px 0 0;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-chat button.subagent-head:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.agent-chat .subagent-head:hover .tool-row-toggle {
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .subagent-head[aria-expanded='true'] .tool-row-toggle svg {
+  transform: rotate(90deg);
+}
+.agent-chat .subagent-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-weight: 500;
+}
+.agent-chat .subagent-type,
+.agent-chat .subagent-clock,
+.agent-chat .subagent-usage {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .subagent-type {
+  padding: 0 4px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+}
+.agent-chat .subagent-action,
+.agent-chat .subagent-waiting {
+  margin: 2px 0 0 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+.agent-chat .subagent-work {
+  margin: 6px 0 0 12px;
+}
+.agent-chat .subagent-result {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .reasoning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  cursor: pointer;
+}
+.agent-chat .reasoning-text {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+}
+/* Commentary between tool calls is lighter than the reply. */
+.agent-chat .row[data-phase='commentary'] .agent-prose {
+  color: var(--muted-foreground);
 }
 
 /* The compaction boundary. Everything above it is out of the model's context and
@@ -777,50 +809,21 @@
   background: var(--background);
 }
 
-/* The streaming bubble's fade-in — see chat-fresh-text-plugin.tsx. Opacity
-   only: this text is already fully markdown-parsed and styled (bold, code,
-   ...) by the time this class ever wraps it, so the animation never runs
-   ahead of, or masks, its real formatting.
-
-   `animation-delay` staggers each word (set inline, per leaf) so one large
-   chunk from the transport — a whole sentence, some deltas — cascades in
-   like several small ones would have, instead of appearing all at once.
-   `fill-mode: both`, not `forwards`: a delayed word must stay at the
-   animation's OWN start state (dim) through its wait, not this rule's plain
-   `opacity: 1` — otherwise every delayed word would flash at full
-   brightness and then visibly dim before actually fading in. */
+/* Streaming fade (chat-fresh-text-plugin.tsx): opacity only, on already-formatted text. A per-word
+   inline `animation-delay` cascades a large chunk in; `fill-mode: both` holds delayed words at the
+   start state so they never flash bright first. */
 .agent-chat .agent-prose .chat-fresh-text {
   opacity: 1;
   animation: chat-token-fade 260ms ease-out;
   animation-fill-mode: both;
-  /* PERFORMANCE, and this one line is the whole of it — WebKit only. Without
-     it these spans are ordinary inline boxes, which cannot be composited, so
-     the engine recalculates style and repaints every fading word on every
-     frame. A fast list burst has dozens fading at once and the app dropped to
-     20fps, with 21% of sampled frames under 60. The hint promotes each fading
-     word to a layer, and opacity then animates on the compositor instead.
-     Measured live in the app's WKWebView on a 35-item streamed list: 20fps ->
-     45fps, 21% -> 4% of samples under 60 — matching, and slightly beating,
-     the ceiling measured with the animation disabled outright (40fps / 4%).
-
-     None of this reproduces in Blink, which is why it went unnoticed for so
-     long: profiled in Chrome and in Safari against an isolated bubble, the
-     animation costs nothing measurable either way. Only the real embedding
-     shows it.
-
-     Scoped to exactly the elements that are animating, and they are removed
-     as soon as their fade settles (streaming-value-patch.ts), so the hint
-     never outlives the animation it exists for — which is the one thing that
-     makes `will-change` safe to apply this broadly. */
+  /* WebKit only: promotes each fading inline span to a layer so opacity animates on the compositor
+     (a streamed list went ~20fps -> ~45fps in WKWebView; Blink shows no cost). Safe broadly because
+     the class is removed once a fade settles (streaming-value-patch.ts). */
   will-change: opacity;
 }
 @keyframes chat-token-fade {
-  /* Fully invisible, not merely dim: a chunk lands with its final layout
-     already in place (line-wrapping is instant regardless — opacity is the
-     only lever here), so a merely-dim word still reads as "the whole
-     response appeared, then got restyled" rather than genuinely streaming
-     in. Layout space is still reserved (this is opacity, not display:none),
-     so nothing reflows as words reveal. */
+  /* Fully invisible, not dim: the chunk's layout is already final, so a dim word reads as text
+     restyled rather than streaming in. Opacity keeps layout reserved, so nothing reflows. */
   from {
     opacity: 0;
   }
@@ -828,12 +831,8 @@
     opacity: 1;
   }
 }
-/* Only affects a genuinely NEW `.scroll` connecting to the DOM (a mount, or
-   `display` changing from `none`) — a plain re-render never re-triggers this,
-   so it cannot fire on every streamed token the way the transition above
-   could suggest. Support is close to universal in 2026, and the fallback for
-   anything older is simply no fade-in — `opacity: 1` from the first paint —
-   never a stuck-invisible transcript. */
+/* Fires only when a `.scroll` connects (mount, or leaving `display: none`), never per token.
+   Unsupported browsers just skip the fade; the transcript is never stuck invisible. */
 @starting-style {
   .agent-chat .scroll {
     opacity: 0;
@@ -841,18 +840,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-chat .scroll {
+  .agent-chat .scroll,
+  .agent-chat .stream[data-pin='released'] {
     transition: none;
   }
   .agent-chat .agent-prose .chat-fresh-text {
-    /* The `animation` SHORTHAND, not just `animation-name`, here: the build's
-       CSS minifier was observed (live, in the packaged dev build) silently
-       rewriting a shorthand `animation: none` into `animation: auto` —
-       `auto` is a valid `animation-duration`/`animation-timeline` keyword,
-       and appears to be how this minifier round-trips a fully-reset
-       shorthand, but it reads as "still has a duration" to anyone auditing
-       computed styles. Setting the longhand directly leaves nothing for the
-       shorthand serializer to reinterpret. */
+    /* Longhands, not `animation: none`: the build's minifier rewrites that shorthand to
+       `animation: auto`, which reads as still having a duration. */
     animation-name: none;
     animation-duration: 0s;
     animation-delay: 0s;
@@ -861,4 +855,86 @@
        layer per word, promoted for a fade that never runs. */
     will-change: auto;
   }
+}
+
+/* How an ask on a call was decided, and a call still waiting on one. */
+.agent-chat .tool-call-note {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+}
+.agent-chat .tools li[data-status='awaiting_approval'] .tool-call-state {
+  color: var(--warn-text);
+}
+/* Why a turn failed and the way on, under its pill, in the provider's own words. */
+.agent-chat .marker-failure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.agent-chat .marker-reason,
+.agent-chat .marker-hint {
+  margin: 0;
+  max-width: 100%;
+  font-size: var(--ui-text-xs);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.agent-chat .marker-reason {
+  color: var(--warn-text);
+}
+.agent-chat .marker-hint {
+  color: var(--muted-foreground);
+}
+.agent-chat .marker-hint code {
+  font-family: var(--font-mono);
+}
+/* What a failure or a lost session offers, under its pill. */
+.agent-chat .marker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+.agent-chat .marker-detail {
+  flex-basis: 100%;
+  max-height: 10rem;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  white-space: pre-wrap;
+}
+
+/* Rides the bottom of the view, just above the composer, while a reader is up the page. */
+.agent-chat .stream .jump-latest {
+  position: sticky;
+  bottom: calc(var(--agent-dock-h, 92px) + 12px);
+  align-self: center;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+/* The editor's zero-size caret spacers beside inline code and links: never selected or copied. */
+.agent-chat .agent-prose span[contenteditable='false'] {
+  user-select: none;
+}
+
+/* A finished call's short output, read without opening the call. */
+.agent-chat .tool-call-output {
+  margin: 2px 0 0 20px;
+  max-height: 7.5em;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--muted-foreground);
 }

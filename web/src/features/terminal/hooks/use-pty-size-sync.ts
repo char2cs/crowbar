@@ -9,12 +9,8 @@ interface UsePtySizeSyncOptions {
   fitAddon: FitAddon | null
   container: HTMLElement | null
   connection: TerminalConnection | null
-  /**
-   * Only a visible view owns the PTY's size. A hidden one (a background chat tab
-   * kept alive behind visibility:hidden) still fits xterm to its box, but must
-   * not fight the view the user is looking at for the PTY; it takes ownership
-   * back the moment it is shown.
-   */
+  /** Only a visible view owns the PTY's size; a hidden one still fits xterm but must not fight the
+   *  shown view, and takes ownership back once shown. */
   isVisible: boolean
 }
 
@@ -26,21 +22,9 @@ export function fitToContainer(fitAddon: FitAddon | null, container: HTMLElement
   fitAddon.fit()
 }
 
-/**
- * The ONE owner of the daemon PTY's size for a view.
- *
- * xterm's grid follows its container through a single ResizeObserver (fits are
- * coalesced to one per frame, and deferred while a pane drag is in flight — a
- * per-frame fit + resize is expensive — with one final fit when it settles). The
- * PTY follows xterm's grid: syncPtySize pushes rows/cols whenever they differ
- * from what THIS connection was last told — after a fit, when xterm's grid
- * changes, and when the view (re)attaches or becomes visible — so a no-op fit on
- * a freshly attached PTY still reconciles it, and a redundant fit sends nothing.
- *
- * A resize also makes the daemon's next frame a keyframe, which replaces the
- * junk xterm's client-side reflow deposits in local scrollback — no separate
- * resync round-trip exists.
- */
+// The one owner of a view's PTY size. xterm fits its container (one fit per frame, deferred during
+// a pane drag); the PTY is sent rows/cols whenever they differ from what this connection last told
+// it, so a fresh attach reconciles and a redundant fit sends nothing.
 export function usePtySizeSync({
   terminal,
   fitAddon,

@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -21,37 +23,28 @@ type createFolderRequest struct {
 	ParentID string `json:"parentId"`
 }
 
-// patchFolderRequest is the PATCH .../chats/folders/:folderId body. Every field
-// is optional and a nil field is left as it is, so a rename, a re-parent and a
-// reorder are the same endpoint — which is what a drag that does two of them at
-// once needs.
+// patchFolderRequest is the PATCH .../chats/folders/:folderId body. A nil field is left as is, so one
+// drag that renames and moves at once is a single request.
 type patchFolderRequest struct {
 	Name     *string `json:"name"`
 	ParentID *string `json:"parentId"`
 	Order    *int    `json:"order"`
 }
 
-// placeChatRequest is the PATCH .../chats/:id/placement body. It is the
-// chat half of the same gesture the folder PATCH serves, minus the name: a chat
-// is renamed through its own rename route, which carries the agent/user title
-// precedence this endpoint has no business in.
+// placeChatRequest is the PATCH .../chats/:id/placement body: the folder PATCH minus the name, since a
+// chat renames through its own route with its agent/user title precedence.
 type placeChatRequest struct {
 	ParentID *string `json:"parentId"`
 	Order    *int    `json:"order"`
+	// WorkspaceID, when another than the chat's, moves the chat to run there
+	// from its turn boundary; Label names the destination for its transcript.
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	Label       string `json:"label,omitempty"`
 }
 
-// folderResponse is the body of every chat-folder mutation: the row the caller
-// asked about, plus the OTHER folder rows the dense renumber moved.
-//
-// shifted is not a convenience. Chats and folders share one sibling space, so a
-// single drop renumbers a whole level; a client told only about the row it
-// dragged holds stale orders for every sibling until its next reconnect, and
-// draws them in the wrong sequence in the meantime.
-//
-// Both ride AgentChatDTO now: a folder is a Chat row like any other (Type ==
-// "folder"), so its wire shape is the same one a conversation's placement
-// already carries — see PlaceChat below, which has rendered rows this way all
-// along.
+// folderResponse is the body of every folder mutation: the row asked about plus every other row the
+// dense renumber moved. Chats and folders share one sibling space, so omitting shifted rows would leave
+// a client drawing a whole level out of order until it reconnects.
 type folderResponse struct {
 	Folder  dto.AgentChatDTO   `json:"folder"`
 	Shifted []dto.AgentChatDTO `json:"shifted"`
@@ -64,39 +57,30 @@ type deleteFolderResponse struct {
 	Shifted []dto.AgentChatDTO `json:"shifted"`
 }
 
-// placeChatResponse is the body of PATCH .../chats/:id/placement: the
-// moved chat, and the folder rows the densify shifted. The chats that shifted
-// alongside it are absent on purpose — their write is an aggregate command, so
-// each one has already announced itself on the Chats socket.
+// placeChatResponse is the PATCH .../chats/:id/placement body. Shifted carries only folder rows: the
+// shifted chats' writes are aggregate commands that already announced themselves on the Chats socket.
 type placeChatResponse struct {
 	Chat    dto.AgentChatDTO   `json:"chat"`
 	Shifted []dto.AgentChatDTO `json:"shifted"`
 }
 
-// folderDTOList renders folder-typed Chat rows through the same converter a
-// conversation's placement already uses, with the zero ChatRuntime: a folder
-// never has a runner, so every derived field is honestly empty rather than
-// omitted.
-//
-// The sort lives HERE, in the converter every read goes through, because a
-// client that got one order from the list and another from a reseed would
-// watch its panel reshuffle on every reconnect. Order is only meaningful
-// WITHIN a parent, so the list is not a single ordered sequence — it is every
-// level's sequence, interleaved; the client groups by parentId and reads each
-// group in this order.
-//
-// It resolves the worktree enrichment despite its name, because a SHIFTED row
-// is not always a folder: a densify renumbers every row at the affected level,
-// and those levels interleave folders with worktree-owning chats. Serializing
-// one of those without its git fields would hand a client a complete-looking
-// chat whose branch and diff counts had vanished, on a response about nothing
-// but sort order.
+// folderDTOList renders rows sorted by (order, id) within each parent, the one converter every read
+// uses so lists and reseeds agree. It resolves worktree fields too: a shifted row can be a
+// worktree-owning chat, which must not lose its branch and diff counts.
 func (h *Handlers) folderDTOList(
 	ctx *gin.Context,
 	rows []domain.Chat,
 ) []dto.AgentChatDTO {
-	worktreeFn := h.repoWorktrees(
-		ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"), rows)
+	return h.foldersIn(ctx.Request.Context(), ctx.Param("projectId"), ctx.Param("repoId"), rows)
+}
+
+func (h *Handlers) foldersIn(
+	ctx context.Context,
+	projectID string,
+	repoID string,
+	rows []domain.Chat,
+) []dto.AgentChatDTO {
+	worktreeFn := h.repoWorktrees(ctx, projectID, repoID, rows)
 	out := dto.AgentChatDTOList(rows, nil, worktreeFn)
 	slices.SortFunc(out, compareFolderDTOs)
 	return out
@@ -112,23 +96,23 @@ func compareFolderDTOs(
 	return strings.Compare(a.ID, b.ID)
 }
 
+// listFolders is a repo's folders, or with no repo the home workspace's.
+func (h *Handlers) listFolders(ctx context.Context, repoID, homeID string) ([]domain.Chat, error) {
+	if repoID == "" {
+		return h.folders.ListInHome(ctx, homeID)
+	}
+	return h.folders.ListInRepo(ctx, repoID)
+}
+
 // ListFolders handles GET .../chats/folders, returning the repo's folders in
 // panel order. It is the read a reconnect reseeds from: the Chats socket
 // carries no snapshot, so this list is the only full answer there is.
 func (h *Handlers) ListFolders(
 	ctx *gin.Context,
 ) {
-	repoID := ctx.Param("repoId")
-	var rows []domain.Chat
-	var err error
-	if repoID == "" {
-		rows, err = h.folders.ListInHome(ctx.Request.Context(), ctx.Param("wsId"))
-	} else {
-		rows, err = h.folders.ListInRepo(ctx.Request.Context(), repoID)
-	}
+	rows, err := h.listFolders(ctx.Request.Context(), ctx.Param("repoId"), ctx.Param("wsId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, h.folderDTOList(ctx, rows))
@@ -155,12 +139,9 @@ func (h *Handlers) CreateFolder(
 	}
 	created, shifted, err := h.folders.Create(ctx.Request.Context(), in)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
-	h.announceFolders(wsID, shifted, "folder_updated")
-	h.announceFolders(wsID, []domain.Chat{created}, "folder_created")
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, folderResponse{
 		Folder:  dto.AgentChatDTOFrom(created, dto.ChatRuntime{}, nil),
 		Shifted: h.folderDTOList(ctx, shifted),
@@ -178,32 +159,22 @@ func (h *Handlers) PatchFolder(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	wsID := ctx.Param("wsId")
 	if !h.folderInScope(ctx) {
 		return
 	}
 	updated, shifted, err := h.applyFolderPatch(ctx.Request.Context(), ctx.Param("folderId"), body)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
-	h.announceFolders(wsID, append(shifted, updated), "folder_updated")
 	libs.WriteQueryOK(ctx, folderResponse{
 		Folder:  dto.AgentChatDTOFrom(updated, dto.ChatRuntime{}, nil),
 		Shifted: h.folderDTOList(ctx, shifted),
 	})
 }
 
-// applyFolderPatch runs the rename first and the placement second, so a drag
-// that both renames and moves a folder in one gesture still lands as one
-// answer. A PATCH carrying ONLY a name returns Rename's own row directly
-// instead of falling through to Move: Move's guardNotWorking refuses ANY
-// placement touching a working subtree, which is correct for an actual
-// reparent/reorder but is not what a bare rename is — nothing is being
-// placed. Falling through anyway refused a rename whenever a chat filed
-// under the folder happened to be working, even though what the folder is
-// CALLED has no bearing on any chat inside it (caught live).
+// applyFolderPatch renames first, then places. A name-only PATCH skips Move, whose guardNotWorking
+// would refuse the rename whenever a chat inside the folder is working.
 func (h *Handlers) applyFolderPatch(
 	ctx context.Context,
 	id string,
@@ -221,45 +192,26 @@ func (h *Handlers) applyFolderPatch(
 	return h.folders.Move(ctx, id, agentusecase.MoveInput{ParentID: body.ParentID, Order: body.Order})
 }
 
-// DeleteFolder handles DELETE .../chats/folders/:folderId. What the folder held
-// is PROMOTED to the folder's own parent, never deleted: a folder holds no
-// conversation, so removing the chats filed under it would destroy work the user
-// only meant to unfile. That is the opposite of deleting a CHAT, which does take
-// its subtree — see DeleteChat.
+// DeleteFolder handles DELETE .../chats/folders/:folderId. Its contents are promoted to its parent,
+// never deleted: a folder holds no conversation, so unlike a chat delete it takes no subtree.
 func (h *Handlers) DeleteFolder(
 	ctx *gin.Context,
 ) {
-	wsID := ctx.Param("wsId")
 	id := ctx.Param("folderId")
 	if !h.folderInScope(ctx) {
 		return
 	}
 	promoted, err := h.folders.Delete(ctx.Request.Context(), id)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
-	h.announceFolders(wsID, promoted, "folder_updated")
-	h.broadcastFolder(id, wsID, "folder_deleted")
 	libs.WriteQueryOK(ctx, deleteFolderResponse{Shifted: h.folderDTOList(ctx, promoted)})
 }
 
-// PlaceChat handles PATCH .../chats/:id/placement: where the chat hangs in
-// the tree and where it sits among its siblings.
-//
-// Unlike the sidebar's equivalent this write DOES move lineage, and deliberately.
-// A chat's parent is not a fact about anything on disk — it IS the relationship,
-// and the panel draws no other mark for it — so dragging a chat under another
-// chat makes it a thread that reads that chat's turns, and dragging it back out
-// makes it standalone again.
-//
-// The tree usecase asserts the moved chat still belongs to the workspace it is
-// told, so a request with no :wsId (the repo-scoped mount, Task 17) resolves
-// the chat's OWN current workspace via GetChat first — the assertion then
-// compares the chat against itself, which is what "no workspace named in the
-// URL" has to mean now that WorkspaceID is optional and mutable. The home
-// mount's injected :wsId is used as-is, unchanged from before Task 17.
+// PlaceChat handles PATCH .../chats/:id/placement. Unlike the sidebar's move it changes lineage: a
+// chat's parent is its thread relationship. With no :wsId, the chat's own workspace is used, since the
+// tree usecase asserts the chat belongs to the workspace it is told.
 func (h *Handlers) PlaceChat(
 	ctx *gin.Context,
 ) {
@@ -272,39 +224,22 @@ func (h *Handlers) PlaceChat(
 	if wsID == "" {
 		chat, err := h.chats.GetChat(ctx.Request.Context(), ctx.Param("id"))
 		if err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(ctx, status, msg)
+			libs.Fail(ctx, err)
 			return
 		}
 		wsID = chat.WorkspaceID
 	}
 	placed, shifted, err := h.folders.PlaceChat(ctx.Request.Context(), wsID, ctx.Param("id"),
-		agentusecase.PlaceInput{ParentID: body.ParentID, Order: body.Order})
+		agentusecase.PlaceInput{
+			ParentID: body.ParentID, Order: body.Order, WorkspaceID: body.WorkspaceID, Label: body.Label,
+		})
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
-	h.announceFolders(wsID, shifted, "folder_updated")
-	// The moved row itself, not just its shifted siblings: persist's own doc
-	// ("the CHAT rows still need no such handling... the hub projection
-	// broadcasts each one on the way through") stopped being true the moment
-	// PlaceChat started routing every non-bubble chat through Node instead of
-	// Chat.SetOrder/SetPlacement (2026-09-08 sidebar-placement-unification
-	// Task 5 for home-scoped, Task 8 for repo-scoped) — Node's own hub
-	// projection (node/internal/store/hub.go) is wired to nothing yet
-	// (container.go: "nodeWatch is nil in production until a live-update
-	// consumer is wired"). Without this, a reorder that shifts zero folder
-	// siblings (moving a chat past a branch/repo header, or past another
-	// chat with no folder between them) writes to the daemon successfully
-	// and announces NOTHING, so a live client never reseeds and the row
-	// visibly stays put despite the PATCH returning 200 (caught live: a chat
-	// dragged above a repo's own header row).
-	h.broadcastFolder(placed.ID, wsID, "placement_set")
 	_, rt, err := h.chatSnapshot(ctx.Request.Context(), placed.ID)
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return
 	}
 	libs.WriteQueryOK(ctx, placeChatResponse{
@@ -313,10 +248,41 @@ func (h *Handlers) PlaceChat(
 	})
 }
 
-// folderInScope refuses, as not-found, a :folderId a HOME mount does not
-// own: every project's home mount shares the one RepoID == "" bucket, so a
-// bare id would let project A rename or delete project B's folder. A repo
-// mount stays id-addressed (TestRegression_ChatTreeRefusesCrossWorkspaceParentage).
+// branchOutRequest names the branch a thread made a branch gets; "" generates one.
+type branchOutRequest struct {
+	Branch string `json:"branch"`
+}
+
+// BranchOut handles POST .../chats/:id/branch-out: the thread becomes a branch cut from
+// its folder's own HEAD at its turn boundary. 202: the move is recorded, not yet made.
+func (h *Handlers) BranchOut(
+	ctx *gin.Context,
+) {
+	var body branchOutRequest
+	if err := ctx.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.folders.BranchOut(ctx.Request.Context(), ctx.Param("id"), strings.TrimSpace(body.Branch)); err != nil {
+		libs.Fail(ctx, err)
+		return
+	}
+	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("id"))
+}
+
+// CancelMove handles POST .../chats/:id/move/cancel: the chat stays where it runs.
+func (h *Handlers) CancelMove(
+	ctx *gin.Context,
+) {
+	if err := h.folders.CancelMove(ctx.Request.Context(), ctx.Param("id")); err != nil {
+		libs.Fail(ctx, err)
+		return
+	}
+	libs.WriteMutationOK(ctx, http.StatusOK, ctx.Param("id"))
+}
+
+// folderInScope 404s a :folderId the home mount does not own: every project's home shares the one
+// RepoID == "" bucket, so a bare id would reach another project's folder.
 func (h *Handlers) folderInScope(
 	ctx *gin.Context,
 ) bool {
@@ -325,8 +291,7 @@ func (h *Handlers) folderInScope(
 	}
 	f, err := h.folders.FolderScope(ctx.Request.Context(), ctx.Param("folderId"))
 	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
+		libs.Fail(ctx, err)
 		return false
 	}
 	if !f.InHome(ctx.Param("wsId")) {
@@ -334,18 +299,4 @@ func (h *Handlers) folderInScope(
 		return false
 	}
 	return true
-}
-
-// announceFolders fans one frame per folder row a mutation wrote out on the
-// Chats socket. The collateral matters as much as the subject: a move renumbers
-// the levels it left and joined, and a client told only about the row that was
-// dragged would hold stale orders for its siblings until the next reconnect.
-func (h *Handlers) announceFolders(
-	wsID string,
-	rows []domain.Chat,
-	kind string,
-) {
-	for _, row := range rows {
-		h.broadcastFolder(row.ID, wsID, kind)
-	}
 }

@@ -1,44 +1,21 @@
-import type { AgentTelemetry } from '@/features/agent/api/agent-api'
+import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { cn } from '@/lib/utils'
 
-/** Past this, the bar warns — the point where a compaction is imminent and a
- *  long prompt is about to be a bad idea. */
+/** Past this, a compaction is imminent. */
 const WARN_AT = 85
 
-/**
- * How much of the model's context this chat has spent, and the one gesture
- * that spends less.
- *
- * The BAR renders nothing until the provider reports — a provider that sends
- * no usage gets no gauge rather than an empty one, because "not reported" and
- * "zero" are different facts and a 0% bar over the first is a lie. COMPACTION
- * is a different, unrelated provider capability (AgentChatView's own
- * `onCompact` gate never looks at telemetry) and must not go hostage to a
- * report that has not arrived yet, or one a daemon restart wiped — so it is
- * offered on its own, bar-less, whenever `onCompact` is given and there is no
- * report to show alongside it.
- */
+/** No bar until the provider reports: "not reported" is not 0%. Compaction is an
+ *  unrelated capability, so it is still offered bar-less without a report. */
 export function AgentContextGauge({
   telemetry,
   onCompact,
 }: {
   telemetry: AgentTelemetry | null
-  /**
-   * The one gesture that spends less — offered here because this is the one
-   * control on screen already reporting WHY someone would reach for it.
-   * Absent means exactly what every other optional control in this bar means
-   * (see provider-bar.tsx's own doc): the caller has already decided
-   * compaction cannot be offered right now (the provider declares no
-   * gesture, the chat is not live, or one is already running), so this stays
-   * the plain, non-interactive gauge it always was rather than a disabled
-   * button — the house rule is absence, never a greyed-out control.
-   */
+  /** Absent when compaction can't be offered now: absence, never a disabled button. */
   onCompact?: () => void
 }) {
   const used = telemetry?.context?.usedPercent
   if (used === undefined) {
-    // No usage report — never invent a 0% bar for it — but compaction is
-    // still reachable on its own when the caller has decided to offer it.
     if (!onCompact) return null
     return (
       <button
@@ -77,9 +54,7 @@ export function AgentContextGauge({
       data-testid="agent-context-gauge"
       onClick={onCompact}
     >
-      {/* `.gaction` stacks on the bar itself (composer.css `.gstack`, same
-          grid-cell technique as before) — hidden until hover, then painted
-          on top of the bar, never beside `.gpct` and never widening the row. */}
+      {/* `.gaction` paints over the bar on hover so it never widens the row. */}
       <span className="gstack">
         {bar}
         <span className="gaction">Compact</span>

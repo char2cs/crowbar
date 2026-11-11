@@ -1,25 +1,45 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewMergeBox } from '@/features/git/components/review-merge-box'
 import type { GitStatus } from '@/features/git/types/git-types'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getOrCreateWorkspaceStore,
+  setActiveWorkspaceId,
+} from '@/features/workspace/stores/workspace-store-registry'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Workspace } from '@/lib/store/sidebar'
+import type { Repo, Workspace } from '@/core/entities/repo-types'
+import { operationsState } from '@/core/entities/operations'
+import { forgetEntities } from '@/core/entities/entity-store'
+import { resetOperations, streamOperation } from '@/__tests__/__fixtures__/operations'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { clearReviewThreads, putReviewThread } from '@/__tests__/__fixtures__/review-threads'
+import { seedChats } from '@/__tests__/__fixtures__/agent-chat'
+import { ApiError } from '@/lib/errors/api-error'
+import { onGitRefreshRequested } from '@/features/git/stores/git-refresh'
 
 const mocks = vi.hoisted(() => ({
   setMergeStrategy: vi.fn(),
   mergeIntoParent: vi.fn(),
   navigate: vi.fn(),
+  stopChat: vi.fn(),
 }))
-vi.mock('@/features/git/api/review-api', () => ({
+vi.mock('@/features/git/api/review-api', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   setMergeStrategy: mocks.setMergeStrategy,
   mergeIntoParent: mocks.mergeIntoParent,
 }))
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => mocks.navigate }))
+vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  stopChat: mocks.stopChat,
+}))
 
 const WS = 'ws-merge'
+const PARENT_ROUTE = {
+  to: '/ide/$projectId/$repoId/$wsId',
+  params: { projectId: 'p1', repoId: 'r1', wsId: 'parent-ws' },
+}
 
 function openThread(id: string, isResolved = false): ReviewThread {
   return {
@@ -29,10 +49,17 @@ function openThread(id: string, isResolved = false): ReviewThread {
     startLine: 1,
     endLine: 1,
     side: 'new',
-    messages: [],
+    messages: [{ id: `${id}-root`, author: 'me', isAgent: false, body: 'fix this', createdAt: '' }],
     isResolved,
   }
 }
+
+/** The fold's frame: the merged child leaves the sidebar. */
+function removeTheChild() {
+  forgetEntities('workspace', [WS])
+}
+
+const settledOp = () => Object.values(operationsState().ops)[0]?.state
 
 function setup(opts: {
   ws?: Partial<Workspace>
@@ -49,58 +76,194 @@ function setup(opts: {
     parentBranch: 'develop',
     ...opts.ws,
   }
-  useSidebarStore.setState({
-    repos: [
-      {
-        id: 'r1',
-        projectId: 'p1',
-        workspaces: [{ id: 'parent-ws', branch: 'develop', age: '1m' }, ws],
-      },
-    ],
-  } as never)
+  seedRepos([
+    { id: 'r1', projectId: 'p1', defaultWorkspaceId: 'parent-ws', workspaces: [ws] } as Repo,
+  ])
   const store = getOrCreateWorkspaceStore(WS)
   store.setState({
     gitStatus: { branch: 'feature', ahead: 0, behind: 0, files: [], ...opts.git },
+    reviewFiles: null,
   })
-  store.setState((s) => ({
-    branchReview: { ...s.branchReview, mergeStrategy: 'merge', threads: opts.threads ?? [] },
-  }))
-  render(<ReviewMergeBox wsId={WS} />)
-  return store
+  store.setState((s) => ({ branchReview: { ...s.branchReview, mergeStrategy: 'merge' } }))
+  for (const thread of opts.threads ?? []) putReviewThread(WS, thread)
+  return { store, ...render(<ReviewMergeBox wsId={WS} />) }
 }
 
 const mergeButton = () =>
   screen.getByRole('button', { name: 'Create merge commit' }) as HTMLButtonElement
 
+const DELETE_AFTER = 'Delete this branch and its chats after merging'
+
+/** Merges with delete-after-merge ticked: it is off until the person asks for it. */
+async function mergeDeleting(user = userEvent.setup()) {
+  await user.click(screen.getByText(DELETE_AFTER))
+  await user.click(mergeButton())
+}
+
+/** Merges a child whose fold frame has not arrived yet. */
+async function mergeBeforeTheFold() {
+  mocks.mergeIntoParent.mockResolvedValue({ items: [] })
+  const view = setup({})
+  await mergeDeleting()
+  return view
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  resetOperations()
+  clearReviewThreads()
+  setActiveWorkspaceId(WS)
   mocks.setMergeStrategy.mockResolvedValue('squash')
-  mocks.mergeIntoParent.mockResolvedValue(undefined)
+  mocks.mergeIntoParent.mockImplementation(async () => {
+    removeTheChild()
+    return { items: [] }
+  })
 })
 
 describe('ReviewMergeBox', () => {
-  it('merges only when resolveBranchAction says merge, then leaves for the parent', async () => {
+  it('merges as an operation only when resolveBranchAction says merge, then leaves for the parent', async () => {
     const user = userEvent.setup()
     setup({})
     expect(mergeButton().disabled).toBe(false)
 
-    await user.click(mergeButton())
+    await mergeDeleting(user)
 
-    expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', true)
-    expect(mocks.navigate).toHaveBeenCalledWith({
-      to: '/ide/$projectId/$repoId/$wsId',
-      params: { projectId: 'p1', repoId: 'r1', wsId: 'parent-ws' },
+    const [op] = Object.values(operationsState().ops)
+    expect(op).toMatchObject({
+      kind: 'workspace.merge_into_parent',
+      subject: { kind: 'workspace', id: WS },
     })
+    expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', true, op.id)
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith(PARENT_ROUTE))
   })
 
-  it('keeps the workspace and stays put when delete-after-merge is unticked', async () => {
+  it('a branch with uncommitted changes can be committed right where merge asks for it', () => {
+    setup({ git: { files: [{ path: 'a.ts', status: 'modified', staged: false }] } })
+
+    expect(mergeButton().disabled).toBe(true)
+    expect(screen.getByText('1 uncommitted change — commit them first.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Commit 1 change' })).toBeTruthy()
+  })
+
+  // Merging a branch with no changes merges nothing but would still delete the workspace.
+  it('offers no merge while the branch has no changes against its parent', () => {
+    const { store } = setup({})
+    act(() => store.setState({ reviewFiles: [] }))
+
+    expect(mergeButton().disabled).toBe(true)
+    expect(screen.getByText('Nothing to merge yet — this branch has no changes.')).toBeTruthy()
+  })
+
+  // Deleting a branch and its chats is destructive: the person ticks it, it is never the default.
+  it('keeps the workspace, stays put and refreshes it unless delete-after-merge is ticked', async () => {
+    const refreshed = vi.fn()
+    onGitRefreshRequested(WS, refreshed)
     const user = userEvent.setup()
     setup({})
-    await user.click(screen.getByRole('checkbox'))
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
     await user.click(mergeButton())
 
-    expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', false)
+    expect(mocks.mergeIntoParent).toHaveBeenCalledWith(WS, 'merge', false, expect.any(String))
     expect(mocks.navigate).not.toHaveBeenCalled()
+    await waitFor(() => expect(refreshed).toHaveBeenCalled())
+  })
+
+  it('a merge that kept the child (conflicts) does not redirect', async () => {
+    await mergeBeforeTheFold()
+
+    await waitFor(() => expect(settledOp()).toBe('succeeded'))
+    expect(mocks.navigate).not.toHaveBeenCalled()
+  })
+
+  it('redirects when the fold frame arrives after the operation settled', async () => {
+    await mergeBeforeTheFold()
+    await waitFor(() => expect(settledOp()).toBe('succeeded'))
+
+    act(() => removeTheChild())
+
+    expect(mocks.navigate).toHaveBeenCalledTimes(1)
+  })
+
+  // The fold's frame lands before the terminal one and the route guard moves off
+  // the vanished child at once: the user still lands on the parent, not home.
+  it('lands on the parent when the child leaves while the merge still runs', async () => {
+    let settle: (reply: { items: never[] }) => void = () => undefined
+    mocks.mergeIntoParent.mockImplementation(() => new Promise((resolve) => (settle = resolve)))
+    setup({})
+    await mergeDeleting()
+
+    act(() => removeTheChild())
+    act(() => setActiveWorkspaceId('fallback'))
+    await act(async () => settle({ items: [] }))
+
+    expect(mocks.navigate).toHaveBeenCalledTimes(1)
+    expect(mocks.navigate).toHaveBeenCalledWith(PARENT_ROUTE)
+  })
+
+  it('does not redirect once the user has moved to another workspace', async () => {
+    await mergeBeforeTheFold()
+    await waitFor(() => expect(settledOp()).toBe('succeeded'))
+
+    act(() => setActiveWorkspaceId('elsewhere'))
+    act(() => removeTheChild())
+
+    expect(mocks.navigate).not.toHaveBeenCalled()
+  })
+
+  it('stops waiting for the fold once the box is gone', async () => {
+    const { unmount } = await mergeBeforeTheFold()
+    await waitFor(() => expect(settledOp()).toBe('succeeded'))
+
+    unmount()
+    act(() => removeTheChild())
+
+    expect(mocks.navigate).not.toHaveBeenCalled()
+  })
+
+  it('cannot merge while an operation on the workspace runs', () => {
+    streamOperation({
+      ...{ id: 'busy', kind: 'workspace.sync', subject: { kind: 'workspace', id: WS } },
+      ...{ projectId: 'p1', label: 'Sync', state: 'running', items: [], dismissed: false },
+      ...{ version: 1, createdAt: '', updatedAt: '' },
+    })
+    setup({})
+
+    expect(screen.getByRole('button', { name: 'Merging…' })).toBeDisabled()
+  })
+
+  it('a failed merge does not redirect, and Merge is enabled again', async () => {
+    mocks.mergeIntoParent.mockRejectedValue(new Error('conflict'))
+    const user = userEvent.setup()
+    setup({})
+    await user.click(mergeButton())
+
+    await waitFor(() => expect(settledOp()).toBe('failed'))
+    expect(mocks.navigate).not.toHaveBeenCalled()
+    expect(mergeButton().disabled).toBe(false)
+  })
+
+  it('says why a merge that would delete a working chat was refused, and can stop it and merge', async () => {
+    mocks.stopChat.mockResolvedValue(undefined)
+    mocks.mergeIntoParent.mockRejectedValueOnce(
+      new ApiError('the chat is working: stop it first', 409, 'chat_busy'),
+    )
+    const user = userEvent.setup()
+    setup({})
+    seedChats([
+      { id: 'chat-busy', workspaceId: WS, working: true },
+      { id: 'chat-elsewhere', workspaceId: 'parent-ws', working: true },
+    ])
+    await mergeDeleting(user)
+
+    expect(await screen.findByText('the chat is working: stop it first')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Stop and merge' }))
+
+    await waitFor(() => expect(mocks.mergeIntoParent).toHaveBeenCalledTimes(2))
+    expect(mocks.stopChat.mock.calls).toEqual([[WS, 'chat-busy']])
+    expect(mocks.stopChat.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.mergeIntoParent.mock.invocationCallOrder[1],
+    )
+    expect(mocks.mergeIntoParent.mock.calls[1].slice(0, 3)).toEqual([WS, 'merge', true])
   })
 
   it('is blocked by open threads, but resolved ones do not count', () => {
@@ -138,21 +301,10 @@ describe('ReviewMergeBox', () => {
     expect(screen.queryByRole('button', { name: /merge/i })).toBeNull()
   })
 
-  it('shows the failure and re-enables Merge when the call is rejected', async () => {
-    const user = userEvent.setup()
-    mocks.mergeIntoParent.mockRejectedValue(new Error('500'))
-    setup({})
-
-    await user.click(mergeButton())
-
-    expect(await screen.findByText('Merge failed — check the logs for details')).toBeDefined()
-    expect(mergeButton().disabled).toBe(false)
-  })
-
   it('saves a new strategy optimistically and reverts it when saving fails', async () => {
     const user = userEvent.setup()
     mocks.setMergeStrategy.mockRejectedValue(new Error('500'))
-    const store = setup({})
+    const { store } = setup({})
 
     await user.click(screen.getByRole('combobox', { name: 'Merge strategy' }))
     await user.click(await screen.findByRole('option', { name: 'Squash and merge' }))

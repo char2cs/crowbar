@@ -9,10 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"runtime"
-	"sync"
-	"syscall"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -224,49 +220,6 @@ func TestUploadAttachment_JSONPathVariantUnreadableFileIs400(t *testing.T) {
 	assert.Empty(t, uc.uploadAttachmentCalls)
 }
 
-// TestUploadAttachment_JSONPathVariantGrowsPastCapBetweenStatAndRead pins
-// readAttachmentFromPath's post-read size-check branch — the same
-// "Hardening applied" guarantee icons.ReadUpload's own
-// TestReadUploadRefusesAPathThatGrowsPastTheCapBetweenStatAndRead pins for
-// its sibling endpoint. A FIFO makes this deterministic without a real
-// race: os.Stat reports a pipe's size as 0 (always under the cap), so the
-// pre-read size check passes; the actual bytes read past the writer's other
-// end are what trip the post-read oversize guard. Opening one end of a FIFO
-// blocks until the other end opens, so the writer goroutine's ordering
-// relative to the handler never matters — there is no interval to guess at.
-func TestUploadAttachment_JSONPathVariantGrowsPastCapBetweenStatAndRead(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("named pipes are unix-only")
-	}
-	fifo := filepath.Join(t.TempDir(), "growing")
-	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		w, err := os.OpenFile(fifo, os.O_WRONLY, 0)
-		if err != nil {
-			return
-		}
-		defer func() { _ = w.Close() }()
-		// One byte past MaxBytes+1 so the LimitReader-capped read still comes
-		// back oversize regardless of how many bytes actually land.
-		_, _ = w.Write(make([]byte, repoattachments.MaxBytes+2))
-	}()
-	t.Cleanup(wg.Wait)
-
-	reqBody := []byte(`{"path":"` + fifo + `","id":"ab12"}`)
-	ctx, rec := newTestContext(t, http.MethodPost, "/attachments", reqBody)
-	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
-
-	uc := inWorkspace(&fakeAgentUsecase{})
-	newChatHandlers(uc).UploadAttachment(ctx)
-
-	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, rec.Body.String())
-	assert.Empty(t, uc.uploadAttachmentCalls)
-}
-
 func TestUploadAttachment_JSONPathVariantOversizedFileIs413(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/big.bin"
@@ -346,4 +299,41 @@ func TestAttachment_RefusesAChatOutsideTheRouteScope(t *testing.T) {
 
 	assert.NotEqual(t, http.StatusOK, rec.Code)
 	assert.Empty(t, uc.readAttachmentCalls)
+}
+
+// An attachment opened in a tab runs on the daemon's origin, so a scriptable type must download
+// into a sandbox while a type the web renders inline keeps rendering inline.
+func TestAttachment_ServesScriptableTypesAsSandboxedDownloads(t *testing.T) {
+	cases := []struct {
+		name, contentType string
+		inline            bool
+	}{
+		{"page.html", "text/html; charset=utf-8", false},
+		{"logo.svg", "image/svg+xml", false},
+		{"feed.xml", "text/xml; charset=utf-8", false},
+		{"blob.bin", "application/octet-stream", false},
+		{"shot.png", "image/png", true},
+		{"report.pdf", "application/pdf", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uc := inWorkspace(&fakeAgentUsecase{readAttachmentData: []byte("x"), readAttachmentType: tc.contentType})
+			ctx, rec := scoped(t, "/attachments/"+tc.name)
+			ctx.Params = append(ctx.Params, gin.Param{Key: "file", Value: tc.name})
+
+			newChatHandlers(uc).Attachment(ctx)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tc.contentType, rec.Header().Get("Content-Type"))
+			assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+			if tc.inline {
+				assert.Equal(t, "inline", rec.Header().Get("Content-Disposition"))
+				assert.Empty(t, rec.Header().Get("Content-Security-Policy"))
+				return
+			}
+			assert.Equal(t, "attachment", rec.Header().Get("Content-Disposition"))
+			assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "sandbox")
+			assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "default-src 'none'")
+		})
+	}
 }

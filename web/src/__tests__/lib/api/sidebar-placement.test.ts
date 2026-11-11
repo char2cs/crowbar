@@ -25,17 +25,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-// Task 34: the dedicated `/repos/:repoId/folders` resource was deleted from the
-// backend (11b72c72) — folders are Chat rows now, served only via
-// `.../chats/folders`, and its Create/Patch/Delete respond with `{folder,
-// shifted}` / `{shifted}` (dto.AgentChatDTO rows, title-named), not the old bare
-// `{id}` / void these three functions used to assume.
+// Folders are served via `.../chats/folders`; Create/Patch/Delete answer `{folder, shifted}` /
+// `{shifted}` as title-named rows, reshaped here into FolderDTOs.
 describe('createFolder', () => {
   it('POSTs .../chats/folders and reshapes {folder, shifted} into FolderDTOs', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        folder: { id: 'f9', parentId: '', title: 'New folder', order: 0 },
-        shifted: [{ id: 'f1', parentId: '', title: 'F1', order: 1 }],
+        folder: { id: 'f9', type: 'folder', parentId: '', title: 'New folder', order: 0 },
+        shifted: [{ id: 'f1', type: 'folder', parentId: '', title: 'F1', order: 1 }],
       }),
     )
     const { folder, shifted } = await createFolder('p1', 'r1', 'New folder', '')
@@ -58,7 +55,7 @@ describe('createFolder', () => {
 
   it('defaults shifted to [] when the backend omits the field', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ folder: { id: 'f9', parentId: '', title: 'X', order: 0 } }),
+      jsonResponse({ folder: { id: 'f9', type: 'folder', parentId: '', title: 'X', order: 0 } }),
     )
     const { shifted } = await createFolder('p1', 'r1', 'X', '')
     expect(shifted).toEqual([])
@@ -69,7 +66,7 @@ describe('placeFolder', () => {
   it('PATCHes .../chats/folders/:folderId and reshapes the response', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        folder: { id: 'f1', parentId: 'f2', title: 'Renamed', order: 3 },
+        folder: { id: 'f1', type: 'folder', parentId: 'f2', title: 'Renamed', order: 3 },
         shifted: [],
       }),
     )
@@ -89,7 +86,7 @@ describe('placeFolder', () => {
   it('splits a shifted locked-branch sibling out of the folder rows', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        folder: { id: 'f1', parentId: '', title: 'F1', order: 0 },
+        folder: { id: 'f1', type: 'folder', parentId: '', title: 'F1', order: 0 },
         shifted: [
           { id: 'f2', type: 'folder', parentId: '', title: 'F2', order: 1 },
           { id: 'ws-locked', type: 'branch', parentId: '', title: '', order: 2 },
@@ -105,7 +102,9 @@ describe('placeFolder', () => {
 describe('deleteFolder', () => {
   it('DELETEs .../chats/folders/:folderId and returns the promoted-children shift', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ shifted: [{ id: 'f2', parentId: '', title: 'F2', order: 0 }] }),
+      jsonResponse({
+        shifted: [{ id: 'f2', type: 'folder', parentId: '', title: 'F2', order: 0 }],
+      }),
     )
     const shifted = await deleteFolder('p1', 'r1', 'f1')
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
@@ -116,6 +115,20 @@ describe('deleteFolder', () => {
     ])
   })
 
+  // A promoted child can be a chat: it is never answered as a folder, or it would land as a ghost
+  // folder entity under the chat's id.
+  it('answers only the promoted folders, never a promoted chat', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        shifted: [
+          { id: 'f2', type: 'folder', parentId: '', title: 'F2', order: 0 },
+          { id: 'c1', type: 'chat', parentId: '', title: 'A chat', order: 1 },
+        ],
+      }),
+    )
+    expect((await deleteFolder('p1', 'r1', 'f1')).map((f) => f.id)).toEqual(['f2'])
+  })
+
   it('defaults to [] on a null body', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ success: true, data: null }), { status: 200 }),
@@ -124,13 +137,8 @@ describe('deleteFolder', () => {
   })
 })
 
-// 2026-09-09 sidebar-placement-unification, workspace-placement fix: a
-// locked branch's own row is addressed by the WORKSPACE itself now —
-// `PATCH .../workspaces/:wsId/placement` — never by the chat that owns its
-// worktree. No owningChatId needs recording for this call at all any more;
-// workspaceBase resolves straight off the project/repo scope every
-// workspace already gets recorded with (recordWorkspaceScope, sidebar
-// store), locked branch or not.
+// A locked branch's row is addressed by the workspace (`PATCH .../workspaces/:wsId/placement`),
+// never its owning chat, so no owningChatId need be recorded — only the project/repo scope.
 describe('placeWorkspace', () => {
   beforeEach(() => {
     __resetWorkspaceScopesForTest()
@@ -148,14 +156,13 @@ describe('placeWorkspace', () => {
     expect(init.method).toBe('PATCH')
   })
 
-  // The moved row's decided placement, and every sibling the densify
-  // shifted, is the only confirmation a branch drag gets (no workspace frame
-  // carries a placement) — it used to be thrown away.
+  // The moved row's decided placement and every shifted sibling are the only confirmation a branch
+  // drag gets (no workspace frame carries a placement).
   it('answers the moved row and the shifted siblings, never void', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         workspace: { id: 'ws-1', parentId: 'f-rev', order: 2 },
-        shifted: [{ id: 'f1', parentId: 'f-rev', title: 'F1', order: 3 }],
+        shifted: [{ id: 'f1', type: 'folder', parentId: 'f-rev', title: 'F1', order: 3 }],
       }),
     )
 

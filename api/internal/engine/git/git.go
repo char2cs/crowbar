@@ -4,20 +4,22 @@ package git
 
 import (
 	"context"
-	"io"
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Engine is the full git operation surface (04 §2).
+// Engine is the full git operation surface.
 type Engine interface {
-	// Status computes the current GitStatus for a workspace (04 §3).
+	worktrees
+	reviewReads
+
+	// Status computes the current GitStatus for a workspace.
 	Status(
 		ctx context.Context,
 		repoPath string,
 	) (gitdomain.GitStatus, error)
 
-	// Diff returns the working-tree diff for a workspace (04 §3).
+	// Diff returns the working-tree diff for a workspace.
 	// If staged is true, returns the staged diff (--cached).
 	Diff(
 		ctx context.Context,
@@ -25,14 +27,14 @@ type Engine interface {
 		staged bool,
 	) ([]gitdomain.FileDiff, error)
 
-	// CommitDiff returns the diff for a single commit (04 §3).
+	// CommitDiff returns the diff for a single commit.
 	CommitDiff(
 		ctx context.Context,
 		repoPath string,
 		sha string,
 	) (gitdomain.MultiFileDiff, error)
 
-	// Log returns paginated git log from HEAD (04 §3).
+	// Log returns paginated git log from HEAD.
 	Log(
 		ctx context.Context,
 		repoPath string,
@@ -40,33 +42,33 @@ type Engine interface {
 		skip int,
 	) ([]gitdomain.Commit, error)
 
-	// Blame annotates each line of filePath with its last-changing commit (04 §3).
+	// Blame annotates each line of filePath with its last-changing commit.
 	Blame(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) ([]gitdomain.BlameEntry, error)
 
-	// Branches returns all branches (local + remote) (04 §3).
+	// Branches returns all branches (local + remote).
 	Branches(
 		ctx context.Context,
 		repoPath string,
 	) ([]gitdomain.Branch, error)
 
-	// Stashes returns all stash entries (04 §3).
+	// Stashes returns all stash entries.
 	Stashes(
 		ctx context.Context,
 		repoPath string,
 	) ([]gitdomain.Stash, error)
 
-	// StageFile stages a file (04 §5).
+	// StageFile stages a file.
 	StageFile(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) error
 
-	// StageHunk stages a single hunk identified by hunkID (04 §4, §5).
+	// StageHunk stages a single hunk identified by hunkID.
 	StageHunk(
 		ctx context.Context,
 		repoPath string,
@@ -74,14 +76,14 @@ type Engine interface {
 		hunkID string,
 	) error
 
-	// UnstageFile unstages a file (04 §5).
+	// UnstageFile unstages a file.
 	UnstageFile(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) error
 
-	// UnstageHunk unstages a single hunk identified by hunkID (04 §4, §5).
+	// UnstageHunk unstages a single hunk identified by hunkID.
 	UnstageHunk(
 		ctx context.Context,
 		repoPath string,
@@ -90,14 +92,14 @@ type Engine interface {
 	) error
 
 	// Discard discards changes to a file. Tracked-modified files use
-	// git restore; untracked files are removed (04 §5).
+	// git restore; untracked files are removed.
 	Discard(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) error
 
-	// Commit creates a commit with subject and optional body (04 §5).
+	// Commit creates a commit with subject and optional body.
 	Commit(
 		ctx context.Context,
 		repoPath string,
@@ -105,48 +107,42 @@ type Engine interface {
 		body string,
 	) error
 
-	// Push pushes the current branch (04 §5).
+	// Push pushes the current branch.
 	Push(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// Fetch fetches from the remote (04 §5).
+	// Fetch fetches from the remote.
 	Fetch(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// FetchRef fetches a single branch from the `origin` remote via
-	// `git fetch origin <branch>`, making `origin/<branch>` available locally.
-	// Used by the worktree usecase before checking out a branch that exists on
-	// the remote but not yet locally (07 / Spec §3).
+	// FetchRef fetches one branch from origin, making origin/<branch> available locally before
+	// checking out a branch that exists only on the remote.
 	FetchRef(
 		ctx context.Context,
 		repoPath string,
 		branch string,
 	) error
 
-	// FetchPrune refreshes every refs/remotes/origin/* ref and drops the ones
-	// whose remote branch is gone (`git fetch --prune origin`). It is what makes
-	// a remote-branch listing reflect the remote as it is NOW; it moves no local
-	// branch ref.
+	// FetchPrune refreshes refs/remotes/origin/* and drops gone ones, so a remote-branch listing reflects
+	// the remote now; it moves no local branch ref.
 	FetchPrune(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// FastForwardBranch fetches origin/<branch> and updates the local branch ref
-	// to match via `git fetch origin <branch>:<branch>`. Unlike FetchRef, which
-	// only updates the remote-tracking ref, this ensures the local branch is at
-	// the same commit as origin before being checked out into a worktree.
+	// FastForwardBranch updates the local branch ref to origin/<branch> (`git fetch origin b:b`), unlike
+	// FetchRef, so the branch is at origin's commit before it is checked out.
 	FastForwardBranch(
 		ctx context.Context,
 		repoPath string,
 		branch string,
 	) error
 
-	// Pull runs git pull. mode is "merge" or "rebase" (04 §5).
+	// Pull runs git pull. mode is "merge" or "rebase".
 	Pull(
 		ctx context.Context,
 		repoPath string,
@@ -154,7 +150,7 @@ type Engine interface {
 	) error
 
 	// CreateBranch creates a branch. If switchTo is true, also checks it out.
-	// source is optional (empty = HEAD) (04 §5).
+	// source is optional (empty = HEAD).
 	CreateBranch(
 		ctx context.Context,
 		repoPath string,
@@ -163,7 +159,7 @@ type Engine interface {
 		switchTo bool,
 	) error
 
-	// RenameBranch renames a branch (04 §5).
+	// RenameBranch renames a branch.
 	RenameBranch(
 		ctx context.Context,
 		repoPath string,
@@ -171,56 +167,56 @@ type Engine interface {
 		newName string,
 	) error
 
-	// DeleteBranch deletes a branch with -d (safe) (04 §5).
+	// DeleteBranch deletes a branch with -d (safe).
 	DeleteBranch(
 		ctx context.Context,
 		repoPath string,
 		name string,
 	) error
 
-	// ForceDeleteBranch deletes a branch with -D (workspace teardown) (04 §5).
+	// ForceDeleteBranch deletes a branch with -D (workspace teardown).
 	ForceDeleteBranch(
 		ctx context.Context,
 		repoPath string,
 		name string,
 	) error
 
-	// SwitchBranch checks out an existing branch (04 §5).
+	// SwitchBranch checks out an existing branch.
 	SwitchBranch(
 		ctx context.Context,
 		repoPath string,
 		name string,
 	) error
 
-	// StashPush stashes the current changes. message is optional (04 §5).
+	// StashPush stashes the current changes. message is optional.
 	StashPush(
 		ctx context.Context,
 		repoPath string,
 		message string,
 	) error
 
-	// StashApply applies a stash without removing it (04 §5).
+	// StashApply applies a stash without removing it.
 	StashApply(
 		ctx context.Context,
 		repoPath string,
 		id string,
 	) error
 
-	// StashPop applies and removes a stash (04 §5).
+	// StashPop applies and removes a stash.
 	StashPop(
 		ctx context.Context,
 		repoPath string,
 		id string,
 	) error
 
-	// StashDrop removes a stash without applying (04 §5).
+	// StashDrop removes a stash without applying.
 	StashDrop(
 		ctx context.Context,
 		repoPath string,
 		id string,
 	) error
 
-	// Reset runs git reset with the given mode (soft|mixed|hard) (04 §5).
+	// Reset runs git reset with the given mode (soft|mixed|hard).
 	Reset(
 		ctx context.Context,
 		repoPath string,
@@ -228,34 +224,28 @@ type Engine interface {
 		commit string,
 	) error
 
-	// Merge merges branch into the current branch (04 §5).
-	Merge(
-		ctx context.Context,
-		repoPath string,
-		branch string,
-	) error
+	// Merge merges branch into the current branch; MergeCommit never
+	// fast-forwards, so the current branch always gains a merge commit.
+	Merge(ctx context.Context, repoPath, branch string) error
+	MergeCommit(ctx context.Context, repoPath, branch string) error
 
-	// Rebase rebases the current branch onto onto (04 §5).
-	Rebase(
-		ctx context.Context,
-		repoPath string,
-		onto string,
-	) error
+	// Rebase rebases the current branch onto onto.
+	Rebase(ctx context.Context, repoPath, onto string) error
 
-	// ConflictedFiles returns paths with merge conflicts (04 §6).
+	// ConflictedFiles returns paths with merge conflicts.
 	ConflictedFiles(
 		ctx context.Context,
 		repoPath string,
 	) ([]string, error)
 
-	// ConflictHunks parses three-way conflict view for a file (04 §6).
+	// ConflictHunks parses three-way conflict view for a file.
 	ConflictHunks(
 		ctx context.Context,
 		repoPath string,
 		filePath string,
 	) ([]gitdomain.ConflictHunk, error)
 
-	// ResolveHunk resolves a single conflict hunk (04 §6).
+	// ResolveHunk resolves a single conflict hunk.
 	ResolveHunk(
 		ctx context.Context,
 		repoPath string,
@@ -265,107 +255,24 @@ type Engine interface {
 		resolvedContent string,
 	) error
 
-	// OperationContinue finalizes an in-progress merge/rebase/pull (04 §6.1).
+	// OperationContinue finalizes an in-progress merge/rebase/pull.
 	OperationContinue(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// OperationAbort aborts an in-progress merge/rebase/pull (04 §6.1).
+	// OperationAbort aborts an in-progress merge/rebase/pull.
 	OperationAbort(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// OperationInProgress reports the in-progress git operation at repoPath, if
-	// any: "rebase", "merge", "squash", or "" when the worktree is at rest. It
-	// reads the .git marker files (MERGE_HEAD, rebase-merge/, AUTO_MERGE, …) and
-	// never mutates. The recovery sweep uses it to tell a workspace that is mid
-	// conflict-resolution (markers resolved + staged but the rebase/merge not yet
-	// continued) apart from a truly clean tree, so it doesn't prematurely clear a
-	// real pr-conflicts state.
+	// OperationInProgress reports "rebase", "merge", "squash" or "" from the .git marker files, without
+	// mutating, so recovery does not clear a pr-conflicts state that is mid-resolution.
 	OperationInProgress(
 		ctx context.Context,
 		repoPath string,
 	) (string, error)
-
-	// WorktreeAdd adds a git worktree for branch at path (04 write ops / 07).
-	WorktreeAdd(
-		ctx context.Context,
-		repoPath string,
-		worktreePath string,
-		branch string,
-	) error
-
-	// WorktreeRemove removes a git worktree (04 / 07). force passes --force,
-	// discarding uncommitted changes; without it git refuses a dirty worktree,
-	// which is the only safe way to remove one whose work is not Crowbar's to
-	// throw away (a protected or locked worktree).
-	WorktreeRemove(
-		ctx context.Context,
-		repoPath string,
-		worktreePath string,
-		force bool,
-	) error
-
-	// WorktreeRepair repoints the repo's admin files at a worktree that has
-	// already been relocated on disk (`git worktree repair`). Branch rename moves
-	// a workspace by renaming its whole root — worktree and agent chats together
-	// — then calls this so git follows.
-	WorktreeRepair(
-		ctx context.Context,
-		repoPath string,
-		worktreePath string,
-	) error
-
-	// WorktreePrune reaps worktree registrations whose on-disk directory is gone
-	// (`git worktree prune`). Used by the startup recovery sweep to clean up
-	// orphaned worktrees left behind by a crash mid-teardown (H19).
-	WorktreePrune(
-		ctx context.Context,
-		repoPath string,
-	) error
-
-	// UncommittedFiles counts the paths git status reports in the worktree at
-	// worktreePath — staged, unstaged and untracked, never ignored: exactly what
-	// `git worktree remove --force` would throw away.
-	UncommittedFiles(
-		ctx context.Context,
-		worktreePath string,
-	) (int, error)
-
-	// UnmergedCommits counts the commits reachable from tips that no branch but
-	// dropBranch, no remote-tracking branch and no tag reaches — what is gone for
-	// good once dropBranch is deleted and the tips' worktree removed. Tips
-	// resolve in dir (a worktree's HEAD is its own); missing tips are ignored.
-	UnmergedCommits(
-		ctx context.Context,
-		dir string,
-		tips []string,
-		dropBranch string,
-	) (int, error)
-
-	// WorktreeList lists all git worktrees in a repo (04 / 07).
-	WorktreeList(
-		ctx context.Context,
-		repoPath string,
-	) ([]WorktreeEntry, error)
-
-	// DetachWorktree detaches HEAD of the worktree at worktreePath (keeping its
-	// files), freeing the branch it had checked out so another worktree can take
-	// it (07 — managed-worktree import of the unmanaged main folder's branch).
-	DetachWorktree(
-		ctx context.Context,
-		worktreePath string,
-	) error
-
-	// CheckoutBranch switches the worktree at worktreePath onto branch,
-	// re-attaching a detached HEAD (rollback / restore the main folder).
-	CheckoutBranch(
-		ctx context.Context,
-		worktreePath string,
-		branch string,
-	) error
 
 	// RebaseOnto runs `git rebase --onto newTip forkPoint branch` (04 / 07).
 	RebaseOnto(
@@ -383,28 +290,18 @@ type Engine interface {
 		branch string,
 	) error
 
-	// WorkingTreeSummary returns +N/-N diff stats plus hasConflicts/hasCommits
-	// used by SyncWorkingTreeState (00 §5.3). base is EITHER a base branch name
-	// (e.g. "develop") or a fork-point SHA: the summary diffs against the
-	// merge-base of base's freshest tip and HEAD, so it counts only the branch's
-	// own changes and stays correct as the branch is rebased onto newer base
-	// commits — never a frozen fork point that would also count the base branch's
-	// advancement.
+	// WorkingTreeSummary returns +N/-N stats and conflict/commit flags against the merge-base of base's
+	// freshest tip and HEAD (base is a branch or fork-point SHA), so it counts only the branch's own
+	// changes and stays right across rebases.
 	WorkingTreeSummary(
 		ctx context.Context,
 		repoPath string,
 		base string,
 	) (added, deleted int, hasConflicts, hasCommits bool, err error)
 
-	// ResolveDiffBase resolves base (a branch name or fork-point SHA) to the
-	// commit WorkingTreeSummary diffs against, and whether the branch has commits
-	// beyond it. The result changes only when refs move, so a caller that sees
-	// refs move can reuse it across working-tree changes.
-	ResolveDiffBase(
-		ctx context.Context,
-		repoPath string,
-		base string,
-	) gitdomain.DiffBase
+	// ResolveDiffBase resolves base to the commit WorkingTreeSummary diffs against; it changes only when
+	// refs move, so callers may reuse it across working-tree changes.
+	ResolveDiffBase(ctx context.Context, repoPath, base string) gitdomain.DiffBase
 
 	// DiffStat returns the +N/-N of the working tree against commit, as resolved
 	// by ResolveDiffBase. An empty commit yields 0, 0.
@@ -414,50 +311,18 @@ type Engine interface {
 		commit string,
 	) (added, deleted int, err error)
 
-	// MergeBase returns the best common ancestor of commits a and b, used to seed
-	// the forkPointSha of adopted worktrees on project import (00 §5.7).
-	MergeBase(
-		ctx context.Context,
-		repoPath string,
-		a string,
-		b string,
-	) (string, error)
+	// MergeBase returns the best common ancestor of commits a and b.
+	MergeBase(ctx context.Context, repoPath, a, b string) (string, error)
 
-	// WouldMergeConflicts reports, for each pair, whether a three-way merge of
-	// Theirs into Ours would conflict, computed non-destructively (git merge-tree
-	// --write-tree): the branch tips are read once, verdicts are remembered by
-	// commit, and the rest run concurrently.
+	// WouldMergeConflicts reports per pair whether merging Theirs into Ours would conflict, without
+	// touching the tree (merge-tree --write-tree); verdicts are cached by commit.
 	WouldMergeConflicts(
 		ctx context.Context,
 		repoPath string,
 		pairs []MergePair,
 	) []MergeVerdict
 
-	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
-	// created branch starting at startPoint, returning the resolved start SHA so
-	// callers can record it as forkPointSha (07 §1).
-	WorktreeAddBranch(
-		ctx context.Context,
-		repoPath string,
-		worktreePath string,
-		branch string,
-		startPoint string,
-	) (string, error)
-
-	// WorktreeAddAtRef checks branch out into a fresh worktree at worktreePath
-	// with the branch ref RESET to startRef (`git worktree add -B`), returning
-	// the resolved start SHA. This is the import path's checkout: it guarantees
-	// the worktree holds startRef's commits even when a diverged local branch of
-	// the same name already exists.
-	WorktreeAddAtRef(
-		ctx context.Context,
-		repoPath string,
-		worktreePath string,
-		branch string,
-		startRef string,
-	) (string, error)
-
-	// RevParse resolves rev to a full commit SHA (07 §1 / §3.1).
+	// RevParse resolves rev to a full commit SHA.
 	RevParse(
 		ctx context.Context,
 		repoPath string,
@@ -465,7 +330,7 @@ type Engine interface {
 	) (string, error)
 
 	// MergeSquash runs `git merge --squash branch` then `git commit -m subject`
-	// inside the repo lock (07 §3.1). Returns ErrConflict on conflicts.
+	// inside the repo lock. Returns ErrConflict on conflicts.
 	MergeSquash(
 		ctx context.Context,
 		repoPath string,
@@ -475,7 +340,7 @@ type Engine interface {
 
 	// RebaseThenFFMerge replays childWorktree onto parentBranch then fast-forwards
 	// parentWorktree to childBranch as one locked unit, so the parent cannot advance
-	// between the two steps and break the --ff-only (07 §3.1).
+	// between the two steps and break the --ff-only.
 	RebaseThenFFMerge(
 		ctx context.Context,
 		childWorktree string,
@@ -484,148 +349,34 @@ type Engine interface {
 		childBranch string,
 	) error
 
-	// RemoteBranchExists reports whether branch exists on the `origin` remote
-	// via `git ls-remote --heads origin <branch>` (non-empty output ⇒ true).
-	// Used by the worktree usecase to decide checkout-existing vs create-local
-	// before adding a worktree (07 / Spec §3).
+	// RemoteBranchExists reports whether branch exists on origin (`git ls-remote --heads`), deciding
+	// checkout-existing vs create-local before adding a worktree.
 	RemoteBranchExists(
 		ctx context.Context,
 		repoPath string,
 		branch string,
 	) (bool, error)
 
-	// RemoteTrackingBranchExists reports whether the LOCAL remote-tracking ref
-	// `refs/remotes/origin/<branch>` is present (`git show-ref --verify`). This is
-	// the same universe `git branch -r` reads, so — unlike the live, failure-prone
-	// RemoteBranchExists — it agrees with the branch list the import UI shows. The
-	// worktree usecase consults it first so a live-query hiccup can never downgrade
-	// an existing remote branch into a fresh fork off the default branch.
+	// RemoteTrackingBranchExists reports whether refs/remotes/origin/<branch> is
+	// on disk: unlike the live RemoteBranchExists it agrees with `git branch -r`.
 	RemoteTrackingBranchExists(
 		ctx context.Context,
 		repoPath string,
 		branch string,
 	) (bool, error)
 
-	// SetUpstream links a local branch back to its origin counterpart by setting
-	// branch.<branch>.remote/merge (`git branch --set-upstream-to=origin/<branch>
-	// <branch>`), so the branch is recognised as origin's <branch>. The imported-
-	// branch checkout path uses it to make an existing remote branch a proper
-	// review target on BOTH the origin-reachable and offline-fallback paths: the
-	// reachable path creates the local branch via `git fetch origin <b>:<b>`, which
-	// leaves NO upstream, so `git worktree add <path> <b>` checks out that branch
-	// untracked — while the fallback path DWIMs tracking from origin/<b>. It
-	// operates on the branch by NAME and touches only the shared repo config, so it
-	// works whether or not <branch> is repoPath's currently checked-out branch
-	// (the caller runs it after checking the branch out into a separate worktree).
-	// origin/<branch> must already exist locally as a remote-tracking ref.
+	// LocalBranchExists reports whether refs/heads/<branch> is present.
+	LocalBranchExists(ctx context.Context, repoPath, branch string) (bool, error)
+
+	// CheckBranchName refuses, as invalid_argument, a name git would not take for a new branch.
+	CheckBranchName(ctx context.Context, repoPath, name string) error
+
+	// SetUpstream sets branch.<branch>.remote/merge to origin/<branch>, which must exist locally. An
+	// imported branch created by `git fetch origin b:b` has no upstream, so without this it is checked
+	// out untracked and is not a proper review target. It touches only repo config, by branch name.
 	SetUpstream(
 		ctx context.Context,
 		repoPath string,
 		branch string,
 	) error
-
-	// RangeDiff returns the three-dot diff between base and branch (09 §2).
-	// Uses `git diff -M <base>...<branch>` to show commits reachable from
-	// branch but not from base. Commit metadata fields are always zero-value.
-	RangeDiff(
-		ctx context.Context,
-		repoPath string,
-		base string,
-		branch string,
-	) (gitdomain.MultiFileDiff, error)
-
-	// DiffAgainstRef returns the working-tree-inclusive diff against ref:
-	// committed changes since ref plus uncommitted tracked modifications
-	// (`git diff -M <ref> --`). Used for the blended branch-review diff.
-	DiffAgainstRef(
-		ctx context.Context,
-		repoPath string,
-		ref string,
-	) (gitdomain.MultiFileDiff, error)
-
-	// ReviewFiles returns the files-only summary of DiffAgainstRef's file set —
-	// per-file status + line counts, no hunk content (`git diff --name-status`
-	// + `--numstat`). Backs the sidebar's full changed-files list without ever
-	// fetching line-level diff content (Task 27).
-	//
-	// dirty is the set of paths the caller's git status reports as differing
-	// from HEAD; passing it keeps the counts off the O(diff size) path. nil
-	// means unknown and recomputes every count.
-	ReviewFiles(
-		ctx context.Context,
-		repoPath string,
-		ref string,
-		dirty []string,
-	) ([]gitdomain.ReviewFileSummary, error)
-
-	// ReviewFilePatch streams ONE file's unified patch into w and reports the
-	// number of patch lines written and whether the patch was cut short. It is
-	// the content half of the windowed review API: the outline gives the client
-	// the shape of every file, and this fills in one file at a time, so a
-	// million-line branch diff is never materialised anywhere — not in git's
-	// output, not in the daemon, not in the response.
-	//
-	// path addresses the file by its NEW name. maxLines <= 0 means unlimited;
-	// a positive cap always cuts on a hunk boundary, so what reaches the client
-	// is a patch its parser can read rather than a half-hunk it would render as
-	// garbage. A path with no changes is an empty patch, not an error.
-	ReviewFilePatch(
-		ctx context.Context,
-		repoPath string,
-		ref string,
-		path string,
-		maxLines int,
-		w io.Writer,
-	) (int, bool, error)
-
-	// ReviewFileSides returns one file's full old and new text for the diff
-	// against ref, so a reader can reveal the unchanged lines a patch omits.
-	// oldPath names the old side's file (a rename source); empty means path. A
-	// side past a fixed size ceiling fails with ErrFileTooLarge.
-	ReviewFileSides(
-		ctx context.Context,
-		repoPath string,
-		ref string,
-		path string,
-		oldPath string,
-	) (gitdomain.ReviewFileSides, error)
-
-	// ReviewOutline returns the hunk geometry of ReviewFiles' file set against
-	// ref: per file the `@@` shapes of its diff and no content at all. The diff
-	// is streamed and discarded as it is read, so the result is O(hunks) where
-	// DiffAgainstRef is O(lines) — it describes a million-line diff in about a
-	// megabyte, which is what lets the client reserve scroll space per file
-	// before fetching a single patch.
-	ReviewOutline(
-		ctx context.Context,
-		repoPath string,
-		ref string,
-	) ([]gitdomain.FileOutline, error)
-
-	// ReviewSearch finds query in the CONTENT of the diff against ref and
-	// returns the file and line number of each match, plus whether opts.Limit
-	// cut the results short. It is the server-side replacement for find-in-diff:
-	// once the client only ever holds a window of the patch, it has nothing left
-	// to search locally.
-	//
-	// The diff is streamed and matched a line at a time and the scan stops the
-	// moment the limit fills, so the cost is bounded by the hits asked for
-	// rather than by the size of the diff.
-	ReviewSearch(
-		ctx context.Context,
-		repoPath string,
-		ref string,
-		query string,
-		opts gitdomain.SearchOpts,
-	) ([]gitdomain.SearchHit, bool, error)
-}
-
-// WorktreeEntry is a single worktree from `git worktree list`. Prunable is true
-// when git reports the worktree's working directory as missing (a dangling
-// registration left by a deleted checkout); such entries are not usable.
-type WorktreeEntry struct {
-	Path     string
-	Branch   string
-	Head     string
-	Prunable bool
 }

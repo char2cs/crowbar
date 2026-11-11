@@ -34,9 +34,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	"github.com/char2cs/crowbar/api/internal/perf"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // manyThreads builds n unresolved threads with ids "t-1".."t-n", so a test can
@@ -111,8 +111,7 @@ func TestToolSet_RecordsEveryCallIncludingUnauthorized(t *testing.T) {
 	minter, err := tools.NewTokenMinter()
 	require.NoError(t, err)
 	res := tools.NewResolver(minter,
-		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{}, stubWorkspaces{all: tree()})
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, stubWorkspaces{all: tree()})
 
 	ts := tools.NewToolSet(tools.Deps{
 		Resolver: res,
@@ -128,16 +127,14 @@ func TestToolSet_RecordsEveryCallIncludingUnauthorized(t *testing.T) {
 	require.Equal(t, 1, stat.Failures)
 }
 
-// TestToolSet_RecordsSuccessfulCalls is the counterpart to the unauthorized
-// case above: a call that actually reaches its handler and succeeds must be
-// counted as a call with zero failures, not merely as a non-error return.
+// TestToolSet_RecordsSuccessfulCalls: a call that reaches its handler and
+// succeeds is counted as a call with zero failures, not merely as a non-error return.
 func TestToolSet_RecordsSuccessfulCalls(t *testing.T) {
 	metrics := tools.NewMetrics()
 	minter, err := tools.NewTokenMinter()
 	require.NoError(t, err)
 	res := tools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := minter.Mint("RUN")
 
@@ -167,7 +164,6 @@ func TestToolSet_FoldsUnknownToolNamesIntoOneBucket(t *testing.T) {
 	require.NoError(t, err)
 	res := tools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 
 	ts := tools.NewToolSet(tools.Deps{
@@ -199,7 +195,6 @@ func TestToolSet_FoldsAToolThisSetDidNotRegister(t *testing.T) {
 	require.NoError(t, err)
 	res := tools.NewResolver(minter,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 
 	// Chats only: list_review_threads is a real tool name, but not on this set.
@@ -334,14 +329,7 @@ func (c *countingChats) reset() {
 // inside that window.
 type perfRenamer struct{}
 
-func (perfRenamer) RenameByRunner(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-) error {
-	return nil
-}
+func (perfRenamer) RenameByRunner(context.Context, string, string, string) error { return nil }
 
 // queryCounter counts SELECTs and rows materialised on one GORM handle. It is
 // registered on the chat read model because ListByWorkspace filters in Go after
@@ -374,7 +362,7 @@ type perfStack struct {
 	chatQueries *queryCounter
 	reconciler  *countingReconciler
 	chatStore   agentchat.EventStore
-	runners     agentrunner.EventStore
+	runners     perfRunners
 	repos       store.Store[domain.Repository, string]
 	repoPath    string
 	featurePath string
@@ -413,7 +401,7 @@ func newPerfStack(
 		Register("agenttools_perf:count", chatQueries.record))
 
 	chatStore := newPerfChatStore(b, adapters)
-	runners := newPerfRunnerStore(b, adapters)
+	runners := perfRunners{}
 	chats := &countingChats{chats: chatStore}
 
 	minter, err := tools.NewTokenMinter()
@@ -428,7 +416,7 @@ func newPerfStack(
 	)
 
 	tools := tools.NewToolSet(tools.Deps{
-		Resolver:  tools.NewResolver(minter, runners, chats, workspaces),
+		Resolver:  tools.NewResolver(minter, runners, workspaces),
 		Review:    review,
 		Chats:     perfRenamer{},
 		ChatReads: chats,
@@ -453,20 +441,16 @@ func newPerfWorkspaces(
 	reconciler workspace.ReconcileOnOpener,
 ) *countingWorkspaces {
 	b.Helper()
-	ax, err := asynx.New[domain.Workspace]().
-		WithEventStore(adapters.WorkspaceES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+	rm, err := workspace.OpenReadModel(adapters.WorkspaceView())
+	require.NoError(b, err)
+	axb := asynx.New[domain.Workspace]().
+		WithEventStore(adapters.WorkspaceES()).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	workspace.Subscriber(rm)(axb)
+	ax, err := axb.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	repo, err := workspace.New(
-		ax,
-		adapters.WorkspaceES(),
-		adapters.WorkspaceView(),
-		workspace.WithReconciler(reconciler),
-	)
+	repo, err := workspace.New(ax, adapters.WorkspaceES(), rm, workspace.WithReconciler(reconciler))
 	require.NoError(b, err)
 	return &countingWorkspaces{Workspace: repo}
 }
@@ -478,15 +462,16 @@ func newPerfThreads(
 	b.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(b, err)
-	ax, err := asynx.New[domain.ReviewThread]().
-		WithEventStore(es).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+	rm, err := reviewthread.OpenReadModel(adapters.ReviewThreadView())
+	require.NoError(b, err)
+	axb := asynx.New[domain.ReviewThread]().
+		WithEventStore(es).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	reviewthread.Subscriber(rm)(axb)
+	ax, err := axb.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	threads, err := reviewthread.New(ax, es, adapters.ReviewThreadView(), func(domain.ReviewThread) {})
+	threads, err := reviewthread.New(ax, es, rm, func(domain.ReviewThread) {})
 	require.NoError(b, err)
 	return threads
 }
@@ -496,45 +481,26 @@ func newPerfChatStore(
 	adapters *adapter.Container,
 ) agentchat.EventStore {
 	b.Helper()
-	ax, err := asynx.New[domain.Chat]().
-		WithEventStore(adapters.AgentChatES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
+	rm, err := agentchat.OpenReadModel(adapters.AgentChatReadDB())
+	require.NoError(b, err)
+	axb := asynx.New[domain.Chat]().
+		WithEventStore(adapters.AgentChatES()).WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000})
+	agentchat.Subscriber(rm)(axb)
+	ax, err := axb.Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-
-	store, err := agentchat.NewEventSourced(
-		ax,
-		adapters.AgentChatES(),
-		adapters.AgentChatReadDB(),
-		func(agentchat.ChatEvent) {},
-	)
+	store, err := agentchat.NewEventSourced(context.Background(), ax, adapters.AgentChatES(), rm, func(agentchat.ChatEvent) {}, testutil.Placements(b))
 	require.NoError(b, err)
 	return store
 }
 
-func newPerfRunnerStore(
-	b *testing.B,
-	adapters *adapter.Container,
-) agentrunner.EventStore {
-	b.Helper()
-	ax, err := asynx.New[agents.Runner]().
-		WithEventStore(adapters.AgentRunnerES()).
-		WithSnapshotStore(asynxstore.NewSnapshots()).
-		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		Build()
-	require.NoError(b, err)
-	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+// perfRunners is the live table the benchmark's caller is in.
+type perfRunners map[string]agents.Runner
 
-	store, err := agentrunner.NewEventSourced(
-		ax,
-		adapters.AgentRunnerES(),
-		adapters.AgentRunnerReadDB(),
-		func(agentrunner.RunnerEvent) {},
-	)
-	require.NoError(b, err)
-	return store
+func (p perfRunners) RunnerByID(runnerID string) (agents.Runner, bool) {
+	r, ok := p[runnerID]
+	return r, ok
 }
 
 // perfDiffSpec is the shape of one review fixture. hunks is per file and is
@@ -781,15 +747,10 @@ func seedRunnerOn(
 		Now:         perfNow(),
 	})
 	require.NoError(b, err)
-	_, err = s.runners.Start(ctx, agentrunner.StartInput{
-		RunnerID:        perfRunnerID,
-		WorkspaceID:     wsID,
-		ProviderID:      "perf-provider",
-		TerminalSession: "perf-term",
-		ChatID:          chatID,
-		Now:             perfNow(),
-	})
-	require.NoError(b, err)
+	s.runners[perfRunnerID] = agents.Runner{
+		ID: perfRunnerID, WorkspaceID: wsID, ProviderID: "perf-provider",
+		TerminalSession: "perf-term", CurrentChatID: chatID,
+	}
 }
 
 // perfBucket is one perf-ring sample name's tally: how many samples landed under
@@ -1161,7 +1122,6 @@ func lazyResolverOn(
 	return tools.NewResolver(
 		m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		workspaces,
 	), m
 }
@@ -1186,8 +1146,7 @@ func TestToolSet_OnlyTheToolsThatNeedTheTreeReadIt(t *testing.T) {
 			require.NoError(t, err)
 			chats := stubChats{c: domain.Chat{ID: "other", WorkspaceID: "ws-a1"}}
 			res := tools.NewResolver(m,
-				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-				chats, ws)
+				stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, ws)
 			ts := tools.NewToolSet(tools.Deps{
 				Resolver:  res,
 				Chats:     &spyRenamer{},
@@ -1203,12 +1162,9 @@ func TestToolSet_OnlyTheToolsThatNeedTheTreeReadIt(t *testing.T) {
 	}
 }
 
-type stubRunners struct {
-	r   agents.Runner
-	err error
-}
+type stubRunners struct{ r agents.Runner }
 
-func (s stubRunners) Get(context.Context, string) (agents.Runner, error) { return s.r, s.err }
+func (s stubRunners) RunnerByID(string) (agents.Runner, bool) { return s.r, s.r.ID != "" }
 
 type stubChats struct {
 	c    domain.Chat
@@ -1260,7 +1216,6 @@ func resolverOn(t *testing.T, callerWs string) (*tools.Resolver, *tools.TokenMin
 	return tools.NewResolver(
 		m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()},
 	), m
 }
@@ -1321,7 +1276,6 @@ func listWorkspacesToolsOn(
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	chats := &stubChatsByWorkspace{byWS: byWS}
 	return tools.NewToolSet(tools.Deps{
@@ -1421,8 +1375,7 @@ func chatLogToolsUnder(
 	require.NoError(t, err)
 	chats := stubChats{c: target}
 	res := tools.NewResolver(m,
-		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		chats, stubWorkspaces{all: tree()})
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, stubWorkspaces{all: tree()})
 	return tools.NewToolSet(tools.Deps{
 		Resolver: res, ChatReads: chats, ChatLogs: logs, Lineage: lineage,
 	}, "RUN", m.Mint("RUN"))
@@ -1626,7 +1579,6 @@ func newReplyIdemFixture(
 			WorkspaceID:   callerWs,
 			ProviderID:    callerProviderID,
 		}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	return &replyFixture{
 		ts: tools.NewToolSet(tools.Deps{
@@ -1934,7 +1886,6 @@ func reviewToolsetOn(
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
 	deps := tools.Deps{
@@ -2004,7 +1955,6 @@ func newPostFixture(
 			WorkspaceID:   callerWs,
 			ProviderID:    callerProviderID,
 		}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	review := &stubReviewReader{outline: outline}
 	deps := tools.Deps{
@@ -2099,7 +2049,6 @@ func reviewToolsOn(t *testing.T, threads *spyThreads) *tools.ToolSet {
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	return tools.NewToolSet(tools.Deps{
 		Resolver:        res,
@@ -2125,7 +2074,6 @@ func newReplyResolveFixture(t *testing.T, callerWs string, thread domain.ReviewT
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: callerWs}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: callerWs}},
 		stubWorkspaces{all: tree()})
 	threads := &spyThreads{thread: thread}
 	broadcast := &spyThreadBroadcast{}
@@ -2200,7 +2148,6 @@ func attributedReviewToolsOn(
 			WorkspaceID:   "ws-a",
 			ProviderID:    providerID,
 		}},
-		stubChats{c: domain.Chat{ID: chatID, WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	return tools.NewToolSet(tools.Deps{
 		Resolver:        res,
@@ -2246,7 +2193,6 @@ func toolsetOn(t *testing.T, renamer tools.ChatRenamer) (*tools.ToolSet, string)
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	tok := m.Mint("RUN")
 	// EVERY port is wired here (with empty-returning stubs) so the shared toolset
@@ -2341,8 +2287,7 @@ func TestToolSet_BadTokenCannotReachAnyTool(t *testing.T) {
 	m, err := tools.NewTokenMinter()
 	require.NoError(t, err)
 	res := tools.NewResolver(m,
-		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},
-		stubChats{}, stubWorkspaces{all: tree()})
+		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}}, stubWorkspaces{all: tree()})
 	ts := tools.NewToolSet(tools.Deps{Resolver: res, Chats: spy}, "RUN", "forged")
 
 	_, err = ts.Call(context.Background(), "set_chat_title", json.RawMessage(`{"title":"x"}`))
@@ -2366,7 +2311,6 @@ func toolsetGatedOn(
 		stubRunners{r: agents.Runner{
 			ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a", ProviderID: "codex",
 		}},
-		stubChats{c: domain.Chat{ID: "CHAT", WorkspaceID: "ws-a"}},
 		stubWorkspaces{all: tree()})
 	asked := &[]string{}
 	deps := tools.Deps{

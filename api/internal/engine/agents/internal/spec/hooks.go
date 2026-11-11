@@ -9,11 +9,13 @@ const (
 	HookSubagentPre  = "subagent_pre"
 	HookSubagentPost = "subagent_post"
 	HookNotification = "notification"
-	HookPermission   = "permission"
-	HookCompactPre   = "compact_pre"
-	HookCompactPost  = "compact_post"
-	HookSessionEnd   = "session_end"
-	HookTelemetry    = "telemetry"
+	// HookWarning is a warning the CLI prints in its own transcript.
+	HookWarning     = "warning"
+	HookPermission  = "permission"
+	HookCompactPre  = "compact_pre"
+	HookCompactPost = "compact_post"
+	HookSessionEnd  = "session_end"
+	HookTelemetry   = "telemetry"
 
 	HookToolFail = "tool_fail"
 
@@ -32,13 +34,23 @@ const (
 
 	HookTurnFailed = "turn_failed"
 
-	// HookIdle is the provider reporting that it is doing nothing. It is NOT a
-	// turn close — it routinely precedes one — and only ever arms a reconcile.
+	// HookIdle is the provider reporting that it is doing nothing; it ends the
+	// running turn, so a descriptor maps it only where no turn-close follows it.
 	HookIdle = "idle"
 
 	// HookPlanUpdate is the agent restating its own to-do list for this turn.
 	HookPlanUpdate = "plan_update"
 
+	// HookPlanStep is one step of that list created or changed alone.
+	HookPlanStep = "plan_step"
+
+	// HookSubagentResult is a subagent handing its result back to its parent,
+	// which the parent then answers in a turn of its own.
+	HookSubagentResult = "subagent_result"
+
 	// HookDiffUpdate is the newest complete unified diff for the current turn.
 	HookDiffUpdate = "diff_update"
+
+	// HookMessageComplete is the whole text of one finished assistant message.
+	HookMessageComplete = "message_complete"
 )

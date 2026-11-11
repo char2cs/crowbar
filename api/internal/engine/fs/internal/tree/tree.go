@@ -1,4 +1,4 @@
-// Package tree provides a lazy one-level file tree walker with git decorations (05 §2).
+// Package tree provides a lazy one-level file tree walker with git decorations.
 package tree
 
 import (

@@ -9,10 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
 const (
@@ -27,10 +28,8 @@ var errNoLog = errors.New("log unavailable")
 // Create verb every other test's fixtures go through, scoped to the module's
 // single-repo fixture (repoID, "repo-1") — every test in this file that
 // nests folders inside one another lives in that one repo's world. A folder
-// is a domain.Folder+domain.Node pair now (2026-09-08
-// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
-// repo-scoped too), never a Chat row — this is why seeding it now has to run
-// through the usecase rather than appending straight onto chats.Rows.
+// is a dtree.Folder+dtree.Node pair, never a Chat row, so seeding it runs
+// through the usecase rather than appending onto chats.Rows.
 func seedFolder(
 	t *testing.T,
 	uc tree.Usecase,
@@ -132,8 +131,8 @@ func seedThread(
 }
 
 // folderRow reads id's current Chat-shaped view back through the public
-// ListInRepo(repoID) — a folder's identity/position live on domain.Folder/
-// domain.Node now, never on chats.Rows, so this is the one door left to read
+// ListInRepo(repoID) — a folder's identity/position live on dtree.Folder/
+// dtree.Node now, never on chats.Rows, so this is the one door left to read
 // it through.
 func folderRow(
 	t *testing.T,
@@ -243,7 +242,7 @@ func TestCreate_RefusesAParentThatDoesNotExist(t *testing.T) {
 	_, _, err := uc.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "nowhere", Name: "spikes",
 	})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // Stage 3 (the folder-scoping golden rule) has landed: a chat parent in
@@ -261,7 +260,7 @@ func TestCreate_RefusesAChatParentFromAnotherRepo(t *testing.T) {
 	_, _, err := uc.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "c-other", Name: "spikes",
 	})
-	assert.ErrorIs(t, err, tree.ErrCrossRepo)
+	assert.ErrorIs(t, err, tree.ErrCrossContext)
 }
 
 // The same chat parent, now in a workspace the fixture's own repo actually
@@ -313,7 +312,7 @@ func TestCreate_SurfacesAParentLookupFailure(t *testing.T) {
 
 // A folder's identity is a single Folders.Save now — its own equivalent of
 // the OLD two-step mint-then-name (Chats.Create then SetTitle) collapses
-// into one write, since domain.Folder carries the name directly. Both
+// into one write, since dtree.Folder carries the name directly. Both
 // halves of that OLD two-step failure surface (TestCreate_SurfacesACreateFailure/
 // TestCreate_SurfacesATitleFailure) now cover the SAME call — kept as two
 // tests, mirroring the old suite's own shape, rather than merged into one.
@@ -384,7 +383,7 @@ func TestListInRepo_ReturnsOnlyFolderTypedRows(t *testing.T) {
 // every folder across every repo AND home): a folder that belongs to a
 // DIFFERENT repo, or to project-home ("" — a distinct scope of its own,
 // never a wildcard), never bleeds into another repo's list. Caught live as a
-// folder left "on top of" the wrong repo. A folder is a domain.Folder row
+// folder left "on top of" the wrong repo. A folder is a dtree.Folder row
 // now (2026-09-08 sidebar-placement-unification Task 5 for home-scoped,
 // Task 8 for repo-scoped too), never a ChatTypeFolder Chat row — seeded here
 // through Folders.Save directly (the OTHER repo's folder never goes through
@@ -393,7 +392,7 @@ func TestListInRepo_IsolatesByRepo(t *testing.T) {
 	_, folders, _, uc, _ := newUsecaseWithStores(t)
 	seedFolder(t, uc, "f-this-repo", "")
 	require.NoError(t, folders.Save(context.Background(),
-		domain.Folder{ID: "f-other-repo", Name: "theirs", RepoID: "repo-2"}))
+		dtree.Folder{ID: "f-other-repo", Name: "theirs", RepoID: "repo-2"}))
 
 	rows, err := uc.ListInRepo(context.Background(), repoID)
 	require.NoError(t, err)
@@ -432,14 +431,14 @@ func TestRename_RefusesAChatTypedID(t *testing.T) {
 	seedChat(chats, "c1", 1)
 
 	_, err := uc.Rename(context.Background(), "c1", "new")
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestRename_RefusesAnUnknownID(t *testing.T) {
 	_, uc := newUsecase(t)
 
 	_, err := uc.Rename(context.Background(), "nowhere", "new")
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // Rename resolves id through the Folders store now, not Chats.LoadChat — a
@@ -559,7 +558,7 @@ func TestMove_RefusesAnUnknownID(t *testing.T) {
 	_, uc := newUsecase(t)
 
 	_, _, err := uc.Move(context.Background(), "nowhere", tree.MoveInput{})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestMove_SurfacesASnapshotFailure(t *testing.T) {
@@ -580,7 +579,7 @@ func TestMove_RefusesAParentThatDoesNotExist(t *testing.T) {
 	require.NoError(t, err)
 
 	_, _, err = uc.Move(ctx, created.ID, tree.MoveInput{ParentID: name("nowhere")})
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 // A same-level reorder writes only indices, never a parent, so the failure it
@@ -666,7 +665,7 @@ func TestDelete_RefusesAnUnknownID(t *testing.T) {
 	_, uc := newUsecase(t)
 
 	_, err := uc.Delete(context.Background(), "nowhere")
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestDelete_SurfacesASnapshotFailure(t *testing.T) {
@@ -680,10 +679,7 @@ func TestDelete_SurfacesASnapshotFailure(t *testing.T) {
 	assert.ErrorContains(t, err, "chats down")
 }
 
-// A folder's identity row lives in Folders now (2026-09-08
-// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
-// repo-scoped too), so the failure this test injects is folders.DeleteErr,
-// not chats.ForgetErr.
+// A folder's identity row lives in Folders, so the failure injected is the folder store's.
 func TestDelete_SurfacesARemovalFailure(t *testing.T) {
 	_, folders, _, uc, _ := newUsecaseWithStores(t)
 	ctx := context.Background()
@@ -772,7 +768,7 @@ func TestDeleteChat_RefusesWorkingSubtree(t *testing.T) {
 }
 
 // The most literal reading of "unconditional": the chat NAMED by the delete
-// is itself working, with no descendants at all. subtreeIDsOf's walk has to
+// is itself working, with no descendants at all. The subtree walk has to
 // include the root it is handed, or a leaf chat with a live turn could be
 // erased out from under it.
 func TestDeleteChat_RefusesTheNamedChatItselfWhenWorking(t *testing.T) {
@@ -805,7 +801,7 @@ func TestDeleteChat_RefusesAnUnknownChat(t *testing.T) {
 	_, uc := newUsecase(t)
 
 	_, err := uc.DeleteChat(context.Background(), "nowhere", domain.KeepWorkAtRisk)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
 func TestDeleteChat_SurfacesASnapshotFailure(t *testing.T) {
@@ -831,7 +827,7 @@ func TestDeleteChat_SurfacesAPurgeFailure(t *testing.T) {
 // that had children. Root cause: a child can be real at the TREE level (it
 // has a parent, an order, it renders) while never having minted a
 // conversation aggregate at all — a thread whose create never got past
-// placement — so purging it answers apperr.ErrNotFound. purgeAll used to
+// placement — so purging it answers problem.ErrNotFound. purgeAll used to
 // fail the WHOLE cascade on that single not-found, deleting nothing at all,
 // parent included. It must tolerate a not-found the same way the sibling
 // worktree-reaping walk already tolerates one on DiscardChildWorkspace, and

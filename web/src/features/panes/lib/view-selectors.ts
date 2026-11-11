@@ -25,11 +25,8 @@ const bandCache = new WeakMap<
   Map<string, { order: string[]; ids: string[] }>
 >()
 
-/**
- * The band's rows for `projectId`: its record ids in `viewOrder`. Memoized on
- * `views` + `viewOrder` identity, and returns the previous array when the ids
- * did not change, so a subscriber re-renders only when rows come, go or move.
- */
+/** `projectId`'s band rows (record ids in viewOrder), memoized and returning the previous array
+ *  when unchanged, so subscribers re-render only when rows come, go or move. */
 export function selectProjectViewIds(state: BandInput, projectId: string): string[] {
   let perProject = bandCache.get(state.views)
   if (!perProject) {

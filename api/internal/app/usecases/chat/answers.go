@@ -2,58 +2,39 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
-	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	ledgerstore "github.com/char2cs/crowbar/api/internal/adapter/store/ledger"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/ingress"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// AnswerUsecase is the human-in-the-loop half of a provider prompt: the hook
-// relay that is BLOCKED waiting for a person, and the Crowbar-side act of
-// deciding for it.
-//
-// Its whole state is a desk of live relays (see answerDesk), which is why it
-// holds no durable store of its own beyond the activity ledger it records the
-// verdict in.
+// AnswerUsecase is the human half of a provider prompt: the relay blocked on a
+// person, and deciding for it. Its state is a desk of live relays; the verdict
+// is recorded in the chat's ledger.
 type AnswerUsecase interface {
-	// PendingAnswer reports the prompt a hook delivery is parked on, and how long
-	// the relay may wait for a person before it must print nothing and let the
-	// provider fall back to its own UI.
-	PendingAnswer(
-		deliveryID string,
-	) (PendingAnswer, bool)
+	// HoldsAnswer reports whether askID is on the desk: still open, or decided with a
+	// verdict its hook has not collected yet; either way the hook must be held.
+	HoldsAnswer(
+		askID string,
+	) bool
 
-	// AwaitAnswer blocks the relay of deliveryID until a person answers, its
-	// declared budget expires, or ctx is cancelled. It returns the stdout the
-	// relay must print — empty when nobody answered in time, which is the signal
-	// to leave the prompt to the provider's own UI.
-	//
-	// A verdict is claimed by EXACTLY ONE relay: a retried delivery that arrives
-	// after the answer was already claimed gets nothing rather than replaying it.
+	// AwaitAnswer blocks the relay held on askID until a person answers, its budget
+	// expires, or ctx is cancelled. Empty stdout leaves the prompt to the provider's
+	// own UI; a verdict is claimed by EXACTLY ONE relay, never replayed.
 	AwaitAnswer(
 		ctx context.Context,
-		deliveryID string,
+		askID string,
 	) (HookAnswer, error)
 
-	// AbandonAnswer retires the relay of deliveryID without printing. When no
-	// verdict had been reached it also closes the ledger's question as proceeded,
-	// because the provider is about to resolve the prompt through its own UI.
-	AbandonAnswer(
-		ctx context.Context,
-		deliveryID string,
-	) error
-
-	// AnswerChoice decides a pending prompt from Crowbar: it renders the picked
-	// options into the provider's own answer format and hands that to the relay
-	// holding the prompt open.
-	//
-	// Returns apperr.ErrConflict when no relay is still holding the prompt — a
-	// prompt whose CLI has moved on can no longer be answered from Crowbar — and
-	// apperr.ErrInvalidArgument when the provider cannot express the decision.
+	// AnswerChoice renders the picked options in the provider's answer format for the
+	// relay holding the prompt. ErrNoLongerWaiting (a problem.ErrConflict) when no relay
+	// still holds it; problem.ErrInvalidArgument when the provider cannot express it.
 	AnswerChoice(
 		ctx context.Context,
 		chatID string,
@@ -64,26 +45,17 @@ type AnswerUsecase interface {
 	) error
 
 	// AnswerTerminalWait types the descriptor-declared reply answerID into the
-	// terminal prompt chatID's CLI is parked on. Returns apperr.ErrConflict when
-	// the prompt has gone and apperr.ErrInvalidArgument for an unknown answer.
+	// terminal prompt chatID's CLI is parked on: problem.ErrConflict when the
+	// prompt has gone, problem.ErrInvalidArgument for an unknown answer.
 	AnswerTerminalWait(
 		ctx context.Context,
 		chatID string,
 		answerID string,
 	) error
 
-	// AnswerableChoiceIDs filters choices down to the ones a relay of chatID is
-	// still blocked on, which is what makes a pending question actionable in the
-	// UI rather than merely visible.
-	AnswerableChoiceIDs(
-		chatID string,
-		choices []domain.ActivityChoice,
-	) []string
-
-	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its
-	// lifetime, independent of the global default (see
-	// ProviderUsecase.DefaultPermissionLevel). Refuses a level the chat's
-	// current provider does not declare, with apperr.ErrInvalidArgument.
+	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its lifetime,
+	// independent of the global default. Refuses a level the chat's current provider
+	// does not declare, with problem.ErrInvalidArgument.
 	SetChatPermissionLevel(
 		ctx context.Context,
 		chatID string,
@@ -93,59 +65,42 @@ type AnswerUsecase interface {
 
 var _ AnswerUsecase = (*Usecase)(nil)
 
-// PendingAnswer is what a blocked hook relay is told: which prompt it is parked
-// on, and how long it may wait for a person before it must print nothing and let
-// the provider fall back to its own UI.
-type PendingAnswer = answerdesk.PendingAnswer
+// ErrNoLongerWaiting refuses an answer to a prompt whose relay stopped waiting
+// first, so the answer would reach no CLI.
+var ErrNoLongerWaiting = answerdesk.ErrNotWaiting
 
 // HookAnswer is what a relay prints. An empty Stdout means nobody answered in
 // time.
 type HookAnswer = answerdesk.HookAnswer
 
-// The human in the loop: a provider prompt that blocks its hook relay until
-// somebody decides, and the Crowbar-side act of deciding for it.
-//
-// The desk holding those relays is in memory and can never be otherwise: a slot
-// describes a live hook process holding a live provider gate open, so one that
-// survived a restart would be a promise to a process that no longer exists.
+// The answer desk is in memory by necessity: a slot is a live hook process holding a
+// provider gate open, so one surviving a restart would promise a process that is gone.
 
-// PendingAnswer reports the prompt a hook delivery is parked on, and how long the
-// relay may wait for a person before it must print nothing.
-func (u *Usecase) PendingAnswer(
-	deliveryID string,
-) (PendingAnswer, bool) {
-	return u.answers.Pending(deliveryID)
+// HoldsAnswer reports whether askID is on the desk: still open, or decided with a
+// verdict its hook has not collected yet; either way the hook must be held.
+func (u *Usecase) HoldsAnswer(
+	askID string,
+) bool {
+	return u.answers.Holds(askID)
 }
 
-// AwaitAnswer blocks the relay of deliveryID until a person answers, its declared
-// budget expires, or ctx is cancelled. A verdict is claimed by exactly one relay.
+// AwaitAnswer blocks the relay held on askID until a person answers, its declared
+// budget expires, or ctx is cancelled. A verdict is claimed by exactly one relay,
+// and a relay that hangs up or runs out prints nothing: its CLI asks it itself.
 func (u *Usecase) AwaitAnswer(
 	ctx context.Context,
-	deliveryID string,
+	askID string,
 ) (HookAnswer, error) {
-	return u.answers.Await(ctx, deliveryID)
+	answer, err := u.answers.Await(ctx, askID, domain.ChoiceResolutionProceeded)
+	if err != nil && ctx.Err() != nil {
+		u.answers.Abandon(context.WithoutCancel(ctx), askID)
+	}
+	return answer, err
 }
 
-// AbandonAnswer retires the relay of deliveryID without printing, closing the
-// ledger's question as proceeded when nobody had decided it.
-func (u *Usecase) AbandonAnswer(
-	ctx context.Context,
-	deliveryID string,
-) error {
-	u.answers.Abandon(ctx, deliveryID)
-	return nil
-}
-
-// AnswerChoice decides a pending prompt from Crowbar: it renders the picked
-// options into the provider's OWN answer format and hands that to the relay
-// holding the prompt open.
-//
-// The order is load-bearing. Everything that can refuse — the chat, the relay, the
-// question still being pending, the decision being expressible, the provider being
-// resolvable, the render itself — is settled BEFORE the ledger is written and
-// before the relay is released. A verdict recorded for an answer the provider
-// could not express would leave the user looking at a decided question and the
-// CLI still waiting on its own prompt.
+// AnswerChoice renders the picked options in the CLI's own answer format and
+// hands them to the relay holding the prompt. Everything that can refuse runs
+// first; the answer is written only while that relay is claimed and waiting.
 func (u *Usecase) AnswerChoice(
 	ctx context.Context,
 	chatID string,
@@ -159,15 +114,14 @@ func (u *Usecase) AnswerChoice(
 	}
 	slot, held := u.answers.ByChoiceID(choiceID)
 	if !held || slot.ChatID != chatID {
-		return fmt.Errorf("%w: this prompt can no longer be answered from Crowbar",
-			apperr.ErrConflict)
+		return ErrNoLongerWaiting
 	}
 	choice, found, err := u.pendingChoice(ctx, chatID, choiceID)
 	if err != nil {
 		return err
 	}
 	if !found {
-		return fmt.Errorf("%w: this prompt is no longer pending", apperr.ErrConflict)
+		return fmt.Errorf("%w: this prompt is no longer pending", problem.ErrConflict)
 	}
 
 	decision, err := answerdesk.Decide(choice, optionIDs, reason, content)
@@ -175,7 +129,7 @@ func (u *Usecase) AnswerChoice(
 		return err
 	}
 	if !slot.Keys.Accepts(decision.Key) {
-		return fmt.Errorf("%w: this provider cannot express that answer", apperr.ErrInvalidArgument)
+		return fmt.Errorf("%w: this provider cannot express that answer", problem.ErrInvalidArgument)
 	}
 	agent, err := u.agentForChat(ctx, chatID)
 	if err != nil {
@@ -187,47 +141,56 @@ func (u *Usecase) AnswerChoice(
 		return fmt.Errorf("agent: answer choice: render: %w", err)
 	}
 
-	if err := u.activity.AnswerChoice(ctx, chatID, choiceID, optionIDs, false, time.Now()); err != nil {
+	answered, err := u.answers.Answer(ctx, slot, stdout, func(ctx context.Context, waiting func() bool) (bool, error) {
+		return u.asks.resolve(ctx, chatID, choiceID, ledger.ResolutionAnswered, optionIDs, waiting)
+	})
+	switch {
+	case errors.Is(err, ErrNoLongerWaiting):
+		return err
+	case err != nil:
 		return fmt.Errorf("agent: answer choice: %w", err)
+	case !answered:
+		return fmt.Errorf("%w: this prompt is no longer pending", problem.ErrConflict)
 	}
-	// Scoped by the HOOK the relay arrived on, not the choice's own kind:
-	// AskUserQuestion arrives on HookPermission too (a tool call, not a
-	// separate event) and shares the exact same interruption id scheme, so
-	// answering one must close it here same as a plain tool_permission
-	// choice does. An elicitation's own interruption pairs under this same
-	// scheme too — handleObservation mints it the identical way — but this
-	// scope (HookPermission-only) leaves it unresolved by an answer: a
-	// pre-existing gap, unrelated to any pairing defect, that this chain
-	// never set out to close. answerdesk.Desk.record scopes itself the
-	// identical way, for the identical reason.
-	if slot.Event == engineagents.HookPermission {
-		u.resolvePermissionInterruption(ctx, chatID, choiceID)
-	}
-	u.answers.Resolve(slot, stdout)
 	return nil
 }
 
-// resolvePermissionInterruption mirrors turn.Turns' own auto-approve path
-// (see its doc comment): closes the notification banner a permission choice
-// opened, so a long turn's human-decided prompts don't count against
-// MaxOpenPerTurn any longer than the choice itself does. Best-effort — the
-// banner is cosmetic, and a failure here must never turn a successful
-// decision into an error the person answering never asked for.
-func (u *Usecase) resolvePermissionInterruption(
-	ctx context.Context,
-	chatID string,
-	choiceID string,
-) {
-	id := answerdesk.PermissionInterruptionID(choiceID)
-	if id == "" {
-		return
+// askResolver closes a chat's asks: the outcome a relay reached, or a person's
+// answer.
+type askResolver struct{ writes ingress.Writer }
+
+func (r askResolver) ResolveAsk(ctx context.Context, chatID, askID, resolution string) error {
+	if _, err := r.resolve(ctx, chatID, askID, resolution, nil, always); err != nil {
+		return fmt.Errorf("agent: resolve ask: %w", err)
 	}
-	if err := u.activity.ResolveInterruption(
-		ctx, chatID, id, engineagents.InterruptPermission, "", time.Now(),
-	); err != nil {
-		slog.WarnContext(ctx, "agent: answer choice: permission interruption resolved",
-			"err", err, "choice_id", choiceID)
+	return nil
+}
+
+func always() bool { return true }
+
+// resolve closes askID as resolution if it is still open and, at its turn at
+// the chat's lock, may still be closed, and reports whether it did.
+func (r askResolver) resolve(
+	ctx context.Context, chatID, askID, resolution string, optionIDs []string, may func() bool,
+) (bool, error) {
+	rows, err := r.writes.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
+		if !may() {
+			return nil, nil
+		}
+		return ledger.ResolveAsk(st, askID, resolution, optionIDs)
+	})
+	return len(rows) > 0, err
+}
+
+// openAsks are each chat's open questions, read off its ledger.
+type openAsks struct{ ledger *ledgerstore.Store }
+
+func (o openAsks) PendingChoices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error) {
+	st, err := o.ledger.State(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agent: open asks: %w", err)
 	}
+	return st.OpenAsks(), nil
 }
 
 // pendingChoice finds the still-open question by id. A prompt the CLI has already
@@ -238,7 +201,7 @@ func (u *Usecase) pendingChoice(
 	chatID string,
 	choiceID string,
 ) (domain.ActivityChoice, bool, error) {
-	choices, err := u.activity.PendingChoices(ctx, chatID)
+	choices, err := openAsks{ledger: u.ledger}.PendingChoices(ctx, chatID)
 	if err != nil {
 		return domain.ActivityChoice{}, false, fmt.Errorf("agent: answer choice: pending: %w", err)
 	}
@@ -257,7 +220,7 @@ func (u *Usecase) agentForChat(
 	ctx context.Context,
 	chatID string,
 ) (engineagents.Agent, error) {
-	runner, err := u.runnerStore.LiveRunnerForChat(ctx, chatID)
+	runner, err := u.runners.LiveRunnerForChat(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("agent: answer choice: runner: %w", err)
 	}
@@ -270,15 +233,6 @@ func (u *Usecase) agentForChat(
 		return nil, fmt.Errorf("agent: answer choice: descriptor: %w", err)
 	}
 	return agent, nil
-}
-
-// AnswerableChoiceIDs filters choices down to the ones a relay of chatID is still
-// blocked on — what makes a pending question actionable rather than merely visible.
-func (u *Usecase) AnswerableChoiceIDs(
-	chatID string,
-	choices []domain.ActivityChoice,
-) []string {
-	return u.answers.AnswerableIDs(chatID, choices)
 }
 
 // AnswerTerminalWait types the reply into the chat's terminal prompt; the sweep

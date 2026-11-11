@@ -4,11 +4,14 @@ package walk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -21,16 +24,12 @@ type Ignorer interface {
 	ShouldIgnore(absPath string) bool
 }
 
-// Walk returns a channel that receives absolute file paths from repoPath.
-//
-// Paths are filtered by:
-//  1. The ignoreStack (gitignore hierarchy + .git skipping).
-//  2. includeGlobs — if non-empty, only paths matching at least one glob pass.
-//  3. excludeGlobs — paths matching any glob are dropped.
-//
-// Globs are matched against the path relative to repoPath using doublestar
-// semantics. The channel is closed when the walk completes or ctx is cancelled.
-// An error is returned immediately if repoPath is inaccessible.
+// ErrBadGlob is an include or exclude glob that is not a valid pattern.
+var ErrBadGlob = errors.New("walk: bad glob")
+
+// Walk streams absolute file paths under repoPath that pass the ignore stack, match an
+// includeGlob (if any) and no excludeGlob, globs being doublestar against the relative
+// path. The channel closes on completion or cancel; an inaccessible repoPath errors.
 func Walk(
 	ctx context.Context,
 	repoPath string,
@@ -41,6 +40,9 @@ func Walk(
 	if _, err := os.Lstat(repoPath); err != nil {
 		return nil, fmt.Errorf("walk: root inaccessible %s: %w", repoPath, err)
 	}
+	if err := checkGlobs(slices.Concat(includeGlobs, excludeGlobs)); err != nil {
+		return nil, err
+	}
 
 	out := make(chan string, runtime.GOMAXPROCS(0)*4)
 
@@ -50,7 +52,7 @@ func Walk(
 	go func() {
 		defer safego.Recover("search.walk.producer")
 		defer close(raw)
-		_ = filepath.WalkDir(repoPath, func(
+		err := filepath.WalkDir(repoPath, func(
 			path string,
 			d fs.DirEntry,
 			err error,
@@ -77,6 +79,10 @@ func Walk(
 			}
 			return nil
 		})
+		// The callback returns only nil or Skip*, so this guards a future callback error.
+		if err != nil {
+			slog.Warn("search: walk: producer stopped early", "repo", repoPath, "err", err)
+		}
 	}()
 
 	// Fan-out to a worker pool.
@@ -110,6 +116,19 @@ func Walk(
 	return out, nil
 }
 
+// checkGlobs refuses the first glob that is not a valid pattern, so matching
+// needs no error of its own.
+func checkGlobs(
+	globs []string,
+) error {
+	for _, g := range globs {
+		if !doublestar.ValidatePattern(g) {
+			return fmt.Errorf("walk: %q: %w", g, ErrBadGlob)
+		}
+	}
+	return nil
+}
+
 // passesGlobs reports whether path satisfies the include/exclude glob filters.
 func passesGlobs(
 	repoPath string,
@@ -124,7 +143,7 @@ func passesGlobs(
 	rel = filepath.ToSlash(rel)
 
 	for _, g := range excludeGlobs {
-		if matched, _ := doublestar.Match(g, rel); matched {
+		if doublestar.MatchUnvalidated(g, rel) {
 			return false
 		}
 	}
@@ -134,7 +153,7 @@ func passesGlobs(
 	}
 
 	for _, g := range includeGlobs {
-		if matched, _ := doublestar.Match(g, rel); matched {
+		if doublestar.MatchUnvalidated(g, rel) {
 			return true
 		}
 	}

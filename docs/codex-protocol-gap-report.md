@@ -215,11 +215,16 @@ the real connection.
 ## B2. "We lose track of whether codex is working" — three separate desyncs
 
 Reported as the single most annoying bug. It is not one defect but three, and
-codex hits all three hardest for the same structural reason: **codex reports no
-async-work level of its own**, so Crowbar's own recount of the tool calls and
-subagents in its activity ledger is the *only* thing that ever darkens a codex
-chat once its top-level turn has ended with work still open. Claude restates its
-own `background_tasks` level and is largely self-healing; codex has nothing.
+codex hit all three hardest for the same structural reason: **codex reported no
+background-work level of its own**, so Crowbar's own recount of the tool calls
+and subagents in its activity ledger was the *only* thing that ever darkened a
+codex chat once its top-level turn had ended with work still open. Claude
+restated its own `background_tasks` level; codex had nothing.
+
+Current state: no provider's level is read any more. A chat is busy while its
+chat ledger holds an open main-scope turn or a `subagent` row still starting or
+running (`ledger.State.Busy`), so both providers derive working from the same
+rows, and the activity read model below no longer exists.
 
 ### B2.1 The activity ledger was read back before it had been written
 
@@ -243,7 +248,7 @@ After the fix: **0/25**.
 
 ### B2.2 The recount decided its own preconditions on projected state
 
-`restateAsyncWork` asked both of its preconditions — that no turn is currently
+`restateAsyncWork` (deleted with the background-work level) asked both of its preconditions — that no turn is currently
 open, and that the level actually changed — out in the caller, off `domain.Chat`
 read back through `GetChat`. That read model is folded by an asynchronous
 projection, so a `turn_stop` already durable in the log could still read as open:

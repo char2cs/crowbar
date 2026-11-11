@@ -1,7 +1,5 @@
-// Generated from the Plate registry (`https://platejs.org/r/block-menu-kit.json`
-// -> `use-is-touch-device`), copied verbatim — no primitive collision, no
-// trimming needed. Used by BlockContextMenu to skip the right-click menu on
-// touch devices (long-press semantics differ; out of scope here).
+// Copied verbatim from the Plate registry (block-menu-kit -> use-is-touch-device). BlockContextMenu
+// uses it to skip the right-click menu on touch devices.
 'use client'
 
 import * as React from 'react'

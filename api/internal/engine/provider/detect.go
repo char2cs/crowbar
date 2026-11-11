@@ -167,10 +167,8 @@ func cliAuthed(
 		return false
 	}
 
-	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal
-	// PATH, which misses Homebrew's /opt/homebrew/bin where gh/glab usually
-	// live — without this, detection marks the provider disabled and PR
-	// statuses never sync in the packaged app.
+	// binpath.Resolve: a launchd daemon's minimal PATH misses Homebrew, where gh/glab live,
+	// and detection would mark the provider disabled.
 	cmd := execFn(ctx, binpath.Resolve(cli), "auth", "status")
 	var out bytes.Buffer
 	cmd.Stdout = &out

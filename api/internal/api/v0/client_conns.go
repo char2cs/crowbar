@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 
@@ -34,7 +35,9 @@ func (r *clientConns) Disconnect(
 	delete(r.conns, clientID)
 	r.mu.Unlock()
 	for conn := range held {
-		_ = conn.Close()
+		if err := conn.Close(); err != nil {
+			slog.Debug("v0: disconnect a revoked client's stream", "client", clientID, "err", err)
+		}
 	}
 }
 
@@ -102,6 +105,5 @@ func (w *revocableWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if err == nil && client != nil {
 		return tracked, rw, nil
 	}
-	_ = tracked.Close()
-	return nil, nil, errors.Join(errClientRevoked, err)
+	return nil, nil, errors.Join(errClientRevoked, err, tracked.Close())
 }

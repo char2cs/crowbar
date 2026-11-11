@@ -4,8 +4,8 @@ import { useEventListener } from '@/hooks/use-event-listener'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { fileOpenBenchmark } from '@/features/editor/utils/file-open-benchmark'
 import type { FileEntry } from '@/features/file-system/types/app'
-import { useSidebarStore } from '@/lib/store/sidebar'
-import { isWorkspaceLockedInSidebar } from '@/lib/store/repo-tree'
+import { selectRepos, useSelect } from '@/core/entities/select'
+import { isWorkspaceLockedInSidebar } from '@/core/entities/repo-queries'
 import { SidebarEmptyActionState } from '@/components/ui/sidebar'
 import { cn } from '@/utils/cn'
 import { useFileExplorerContextMenu } from '../hooks/use-file-explorer-context-menu'
@@ -95,11 +95,12 @@ function FileExplorerTreeComponent({
   const containerRef = useRef<HTMLDivElement>(null)
   const documentRef = useRef<Document>(document)
 
-  // A locked (protected-branch) worktree refuses every daemon write (409
-  // "workspace locked"), so the context menu must not offer mutations there.
-  // isWorkspaceLockedInSidebar checks tree rows AND the default (main-worktree)
-  // workspace. Returns a boolean, so the selector stays referentially stable.
-  const isWorkspaceLocked = useSidebarStore((s) => isWorkspaceLockedInSidebar(s.repos, workspaceId))
+  // A locked (protected-branch) worktree refuses every daemon write (409), so the menu offers no
+  // mutations there. The check covers tree rows and the default workspace and returns a boolean,
+  // so the selector stays referentially stable.
+  const isWorkspaceLocked = useSelect((s) =>
+    isWorkspaceLockedInSidebar(selectRepos(s), workspaceId),
+  )
 
   const handleAutoExpandDirectory = useCallback(
     (path: string) => {
@@ -185,7 +186,7 @@ function FileExplorerTreeComponent({
       showAlertDialog,
     })
 
-  const { setContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
+  const { closeContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
     useFileExplorerContextMenu({
       workspaceId,
       rootFolderPath,
@@ -200,10 +201,8 @@ function FileExplorerTreeComponent({
       onRevealInFinder,
       onUploadFile,
       onDuplicatePath,
-      // Only the actual workspace root hides Rename/Delete. workspaceRootPaths
-      // lists every top-level folder (a multi-root-workspace notion that doesn't
-      // apply to Crowbar's single worktree); using it here wrongly treated every
-      // top-level folder as a root, so Delete/Rename never appeared on them.
+      // Only the workspace root itself hides Rename/Delete. workspaceRootPaths lists every
+      // top-level folder (a multi-root notion), so testing it would hide them on all of those.
       isWorkspaceRootPath: (path) => path === rootFolderPath,
       canRemoveWorkspaceRootPath: (path) =>
         path !== rootFolderPath && workspaceRootPaths.includes(path),
@@ -215,7 +214,7 @@ function FileExplorerTreeComponent({
   useEventListener(
     'keydown',
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContextMenu(null)
+      if (e.key === 'Escape') closeContextMenu()
     },
     documentRef,
   )
@@ -223,7 +222,6 @@ function FileExplorerTreeComponent({
   useEventListener('dragover', (e: DragEvent) => e.preventDefault(), documentRef)
 
   const openSearch = useCallback(() => setSearchOpen(true), [setSearchOpen])
-  const closeContextMenu = useCallback(() => setContextMenu(null), [setContextMenu])
   const containerEvents = useTreeContainerEvents({
     workspaceId,
     rootFolderPath,
@@ -344,27 +342,9 @@ function FileExplorerTreeComponent({
   )
 }
 
-/**
- * `useFileExplorerSync` as a LEAF, not as a call in the tree's own body.
- *
- * That hook returns nothing — it is two `useEffect`s that point the explorer at
- * whatever file the active pane is showing — but it subscribes to the WINDOW's
- * `activeEditorTabId`, which moves every time focus crosses between a pane
- * holding an editor tab and one that doesn't (clicking between tiled chats in a
- * single workspace view does exactly that). Called inside
- * `FileExplorerTreeComponent`, each of those clicks re-rendered this whole
- * virtualized tree — ~365 fibers, every visible row, its git decorations and
- * its dropdowns — to produce identical output, because the thing that changed
- * was never rendered here in the first place. It is the same defect
- * `NavigationHistoryRecorder` (ide-shell.tsx) isolates one level up, and it was
- * hidden underneath it until that one was fixed: the tree sits inside
- * `IDEShell`, so it was being re-rendered from above anyway.
- *
- * Rendering it as a childless leaf keeps both effects, their timing and their
- * props exactly as they were while confining the re-render to one fiber. It
- * emits no DOM, so sitting inside the `role="tree"` container changes neither
- * layout nor the accessibility tree.
- */
+/** `useFileExplorerSync` as a childless leaf: it subscribes to the window's `activeEditorTabId`,
+ *  which moves whenever focus crosses panes, and in the tree's body that re-rendered every visible
+ *  row for identical output. It emits no DOM, so layout and the a11y tree are unchanged. */
 function FileExplorerSync(props: {
   activePath?: string
   updateActivePath?: (path: string) => void

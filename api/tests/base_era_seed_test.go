@@ -5,16 +5,14 @@ package tests
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -37,9 +35,9 @@ func openBaseEra(
 	home string,
 ) *baseEra {
 	t.Helper()
-	// Base kept no record of upgrade steps; the harness boot that set the
-	// install up did, so they are taken back out.
-	require.NoError(t, os.RemoveAll(filepath.Join(worktreepath.GlobalStateDir(home), "upgrades")))
+	// Base kept no record of migrations; the harness boot that set the
+	// install up did, so it is taken back out.
+	forgetMigrations(t, home)
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	return &baseEra{t: t, adapters: adapters}
@@ -75,12 +73,39 @@ func (b *baseEra) unreplayableWorkspace(
 		"INSERT OR REPLACE INTO read_workspaces (id, data) VALUES (?, ?)", ws.ID, data).Error)
 }
 
-// chat writes c as base did; base's chat JSON has the current shape.
+// baseChat is a chat in base's shape: the current one, plus the placement the
+// chat document carried before the Tree held it.
+type baseChat struct {
+	domain.Chat
+	ParentID string `json:"parentId,omitempty"`
+	Order    int    `json:"order"`
+}
+
+func inBaseShape(c domain.Chat) baseChat {
+	return baseChat{Chat: c, ParentID: c.ParentID, Order: c.Order}
+}
+
+// chat writes c as base did.
 func (b *baseEra) chat(
 	c domain.Chat,
 ) {
 	b.t.Helper()
-	data := b.appendEvent(b.adapters.AgentChatES(), "agentchat.created."+c.ID, c.ID, 1, c)
+	data := b.appendEvent(b.adapters.AgentChatES(), "agentchat.created."+c.ID, c.ID, 1, inBaseShape(c))
+	require.NoError(b.t, b.adapters.AgentChatReadDB().Exec(
+		"INSERT OR REPLACE INTO agent_chats_read (id, workspace_id, data) VALUES (?, ?, ?)",
+		c.ID, c.WorkspaceID, data).Error)
+}
+
+// unreplayableChat writes c's read-model row over a history whose one event
+// cannot be applied, so every command on the chat fails its replay.
+func (b *baseEra) unreplayableChat(
+	c domain.Chat,
+) {
+	b.t.Helper()
+	ops := []map[string]any{{"op": "remove", "path": "/no-such-field"}}
+	b.appendPatch(b.adapters.AgentChatES(), "agentchat.created."+c.ID, c.ID, 1, ops)
+	data, err := json.Marshal(inBaseShape(c))
+	require.NoError(b.t, err)
 	require.NoError(b.t, b.adapters.AgentChatReadDB().Exec(
 		"INSERT OR REPLACE INTO agent_chats_read (id, workspace_id, data) VALUES (?, ?, ?)",
 		c.ID, c.WorkspaceID, data).Error)
@@ -152,11 +177,10 @@ func (b *baseEra) appendPatch(
 		"patches":        json.RawMessage(patches),
 	})
 	require.NoError(b.t, err)
-	require.NoError(b.t, es.Append(ctx, "events:"+id, version, evt))
+	require.NoError(b.t, es.Atomically(ctx, func(tx asynxModels.Tx) error {
+		return tx.Append(ctx, "events:"+id, version, evt)
+	}))
 }
 
-// eventLog is the part of an asynx event store the seed writes through.
-type eventLog interface {
-	Append(ctx context.Context, aggregateID string, version int64, data []byte) error
-	ReadFrom(ctx context.Context, aggregateID string, fromVersion int64) ([][]byte, error)
-}
+// eventLog is the asynx event store the seed writes through.
+type eventLog = asynxModels.Store

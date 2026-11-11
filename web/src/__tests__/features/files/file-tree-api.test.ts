@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+vi.mock('@/lib/api/fetch', () => ({ apiFetch: vi.fn() }))
 
-import { apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
 import {
   fetchFileTree,
-  filesWsEndpoint,
   findNode,
   mergeChildren,
   toAppFile,
@@ -49,12 +48,6 @@ describe('fetchFileTree', () => {
     ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([])
     await fetchFileTree('ws-1', 'src/utils')
     expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-1/files/tree?path=src%2Futils')
-  })
-})
-
-describe('filesWsEndpoint', () => {
-  it('builds the files topic for the chat holding the worktree', () => {
-    expect(filesWsEndpoint('ws-9')).toBe('/v0/chats/chat-9/files/ws')
   })
 })
 

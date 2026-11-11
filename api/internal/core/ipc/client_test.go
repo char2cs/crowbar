@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
@@ -17,38 +18,57 @@ func TestClient_PostJSON_OverUnixSocket(t *testing.T) {
 	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cs.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	_ = os.MkdirAll(tmpDir, 0o755)
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/v0/chats/hooks", r.URL.Path)
+		assert.Equal(t, "/v0/chats/c1/prompts", r.URL.Path)
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"success":true}`))
 	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 
 	c, err := ipc.NewClient("unix://" + sock)
 	require.NoError(t, err)
-	status, body, err := c.PostJSON(context.Background(), "/v0/chats/hooks", map[string]string{"event": "session_start"})
+	status, body, err := c.PostJSON(context.Background(), "/v0/chats/c1/prompts", map[string]string{"event": "session_start"})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusAccepted, status)
 	require.Contains(t, string(body), "success")
 	_ = os.Remove(sock)
 }
 
+// A daemon serving on TCP (a container's `serve --host tcp://...`) is dialled there.
+func TestClient_PostJSON_OverTCP(t *testing.T) {
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v0/chats/c1/prompts", r.URL.Path)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	c, err := ipc.NewClient("tcp://" + ln.Addr().String())
+	require.NoError(t, err)
+	status, body, err := c.PostJSON(context.Background(), "/v0/chats/c1/prompts", map[string]string{"event": "x"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Contains(t, string(body), "success")
+}
+
 func TestClient_PatchJSON_OverUnixSocket(t *testing.T) {
 	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cp.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	_ = os.MkdirAll(tmpDir, 0o755)
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPatch, r.Method)
@@ -56,8 +76,8 @@ func TestClient_PatchJSON_OverUnixSocket(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"success":true,"data":{"id":"c1"}}`))
 	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 
 	c, err := ipc.NewClient("unix://" + sock)
 	require.NoError(t, err)
@@ -72,11 +92,11 @@ func TestClient_Get_OverUnixSocket(t *testing.T) {
 	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cg.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	_ = os.MkdirAll(tmpDir, 0o755)
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
@@ -84,8 +104,8 @@ func TestClient_Get_OverUnixSocket(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"success":true,"data":{"handoff":"X"}}`))
 	})}
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 
 	c, err := ipc.NewClient("unix://" + sock)
 	require.NoError(t, err)

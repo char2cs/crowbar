@@ -1,15 +1,8 @@
 package domain
 
-// ResolveOwningChat picks the chat that owns a workspace from its candidate
-// rows — typically everything ListChatsByWorkspace(workspaceID) returns. A
-// worktree is many-chats-to-one (every conversation started inside a workspace
-// carries its id), so the owner is the row that RECORDS ownership: the chat
-// the chat-first create minted and attached (Chat.OwnsWorkspace), which the
-// boot reconcile guarantees every live workspace has (invariant D4).
-//
-// Should more than one row ever record it, the earliest wins, so every surface
-// names the same owner. No row recording ownership means no owner: there is no
-// heuristic fallback any more — all data is on the recorded model (spec §6.3).
+// ResolveOwningChat picks a workspace's owner from its candidate chat rows: the row
+// recording Chat.OwnsWorkspace, the earliest if several do, so every surface agrees.
+// No recording row means no owner; there is no heuristic fallback.
 func ResolveOwningChat(
 	rows []Chat,
 ) (Chat, bool) {

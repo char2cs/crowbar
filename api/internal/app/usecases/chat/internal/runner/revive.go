@@ -1,35 +1,64 @@
-// Package runner (file revive.go) is the server-owned revive: sending to a
-// dormant chat brings its provider back through the resume ladder, in the same
-// spawn-gate hold as the delivery. The client only ever sends; it never
-// orchestrates a revive of its own.
+// Package runner (file revive.go) is the server-owned revive: sending to a dormant chat
+// brings its provider back in the same hold as the delivery. The client only sends.
 package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// reviveForDelivery puts a CLI on chatID if it has none. park is the gate's
-// park context, so a Stop preempting this revive abandons it cleanly.
-func (rs *Runners) reviveForDelivery(ctx, park context.Context, chatID string) error {
-	_, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if err == nil {
-		return nil
+// deliveryLaunch is the provider a send launches itself: the one staged with it
+// when that is not the chat's own (a chat no CLI ever ran on has none), else a
+// dormant chat's. launches=false leaves a live chat's CLI to the ordinary delivery.
+func (rs *Runners) deliveryLaunch(ctx context.Context, chat domain.Chat, staged string) (string, bool, error) {
+	live, isLive := rs.live.byChat(chat.ID)
+	current := chat.ProviderID
+	if isLive {
+		current = live.ProviderID
 	}
-	if !errors.Is(err, agentrunner.ErrNotFound) {
-		return fmt.Errorf("agent: submit prompt: live runner: %w", err)
+	if staged != "" && staged != current {
+		return staged, true, nil
 	}
-	providerID, err := rs.lastActiveProviderID(ctx, chatID)
+	if isLive {
+		return "", false, nil
+	}
+	providerID, err := rs.lastActiveProviderID(ctx, chat.ID)
 	if err != nil {
-		return fmt.Errorf("agent: submit prompt: revive: %w", err)
+		return "", false, fmt.Errorf("agent: submit prompt: revive: %w", err)
 	}
-	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
-	if _, err := rs.switchProviderLocked(ctx, park, chatID, providerID); err != nil {
-		return fmt.Errorf("agent: submit prompt: revive: %w", err)
+	return providerID, true, nil
+}
+
+// launchForDelivery launches providerID carrying requestID and the pick staged
+// with it, in place of the chat's CLI if it has one: the send's one launch.
+func (rs *Runners) launchForDelivery(
+	ctx context.Context, h *hold, chat domain.Chat, providerID, requestID, text string,
+	selection *domain.ChatSelection,
+) (domain.AgentPromptSubmission, error) {
+	defer rs.enterPhase(ctx, chat.ID, rs.replacementPhase(chat.ID))()
+	delivery, err := rs.planCarrying(ctx, chat, providerID)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, err
 	}
-	return nil
+	delivery.selection = selection
+	return rs.launchCarrying(ctx, h, chat, requestID, text, delivery)
+}
+
+// planCarrying refuses a disabled provider or a working chat before anything
+// is recorded, then plans providerID's launch in place of the chat's CLI, if any.
+func (rs *Runners) planCarrying(ctx context.Context, chat domain.Chat, providerID string) (promptDelivery, error) {
+	if err := rs.providers.RequireProviderEnabled(ctx, providerID); err != nil {
+		return promptDelivery{}, err
+	}
+	if err := rs.requireNotBusy(ctx, chat.ID); err != nil {
+		return promptDelivery{}, err
+	}
+	descriptor, _, err := rs.promptAgent(ctx, chat, providerID)
+	if err != nil {
+		return promptDelivery{}, err
+	}
+	live, _ := rs.live.byChat(chat.ID)
+	return rs.resolvePromptDelivery(ctx, chat.ID, providerID, live, descriptor)
 }

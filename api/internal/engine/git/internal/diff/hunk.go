@@ -118,7 +118,7 @@ func parseHunkHeader(
 	if end < 0 {
 		end = len(rest)
 	}
-	oldStart, _ := strconv.Atoi(rest[:end])
+	oldStart := hunkStart(rest[:end])
 
 	plusIdx := strings.Index(header, "+")
 	if plusIdx < 0 {
@@ -129,9 +129,21 @@ func parseHunkHeader(
 	if end2 < 0 {
 		end2 = len(rest2)
 	}
-	newStart, _ := strconv.Atoi(rest2[:end2])
+	newStart := hunkStart(rest2[:end2])
 
 	return oldStart, newStart
+}
+
+// hunkStart reads one side's start line; one that does not parse is 1, as a
+// side the header leaves out is.
+func hunkStart(
+	field string,
+) int {
+	n, err := strconv.Atoi(field)
+	if err != nil {
+		return 1
+	}
+	return n
 }
 
 func buildHunks(

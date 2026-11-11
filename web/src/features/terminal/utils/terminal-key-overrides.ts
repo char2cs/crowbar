@@ -1,24 +1,6 @@
-/**
- * The ONLY key→sequence overrides this terminal injects manually.
- *
- * xterm.js has a complete, correct keyboard model (Ctrl+U → \x15, Shift+Tab →
- * \x1b[Z, Backspace, arrows, and Option word-nav via macOptionIsMeta, …). The app
- * must NOT re-implement those — emitting them again from a key handler sends every
- * such key twice (the double-fire bug). So this file deliberately contains almost
- * nothing.
- *
- * The one genuine exception is modifier+Enter. TUIs like Claude Code use the kitty
- * keyboard protocol (CSI > 1 u) to tell Shift+Enter / Alt+Enter apart from a plain
- * Enter (newline-in-input vs. submit). xterm.js 5.5.0 does NOT implement that
- * protocol, so it emits a bare CR and the app cannot distinguish them. We emit the
- * CSI-u "fixterms" form ourselves — and the caller SUPPRESSES xterm's default CR
- * (returns false from the customKeyEventHandler) so it is sent exactly once.
- *
- * Remove this entirely if/when xterm.js gains kitty-protocol support.
- *
- * Returns the sequence to send (and a signal to suppress xterm's default), or null
- * to let xterm handle the key normally.
- */
+// xterm's keyboard model is complete, and re-emitting a key sends it twice, so the only override is
+// modifier+Enter: xterm lacks the kitty protocol TUIs use to tell it from Enter, so we send the
+// CSI-u form and the caller suppresses xterm's CR. null lets xterm handle the key.
 export function resolveKeyOverride(event: KeyboardEvent): string | null {
   // Only on keydown, and never when Cmd/Ctrl is held (those are app/terminal
   // shortcuts, not text input).

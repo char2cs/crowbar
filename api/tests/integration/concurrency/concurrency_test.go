@@ -41,13 +41,8 @@ func TestConcurrencySuite(t *testing.T) {
 // spec §8 step 6 deleted POST .../workspaces entirely: the only live creation
 // path is CreateWorkspaceWithChat (mirroring the atomic fork+chat create the
 // product surface now uses), so that is what n goroutines drive concurrently.
-// The old assertion read completion off the repo-scoped Workspaces WS stream;
-// that stream is gone, and its chat-feed replacement carries NO snapshot and
-// silently drops any frame for a workspace with no owning chat yet
-// (container.go's pushChatWorktree: "a workspace with no resolved owning chat
-// pushes nothing") — so there is no reliable WS signal to drain here even with
-// a chat wired up per create. Consistency is instead checked against the real
-// read model, GET .../chats, which is what a client actually reads.
+// Consistency is checked against the real read model, GET .../chats, which is
+// what a client actually reads.
 func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesAreConsistent() {
 	t := s.T()
 	const n = 20
@@ -141,12 +136,8 @@ func (s *ConcurrencySuite) httpGitStatusClean(
 }
 
 // TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroadcaster verifies that
-// concurrent creates — which each trigger an internal hub broadcast onto the
-// chat feed once their owning chat exists (container.go's pushChatWorktree) —
-// do not race on the broadcaster's subscriber slice (race detector is the
-// assertion). CreateWorkspaceWithChat, not the bare CreateWorkspace, is what's
-// needed here: a workspace with no owning chat never reaches the broadcaster's
-// Push at all, so a bare create would not exercise this path.
+// concurrent creates — each publishing its workspace and owning chat to the
+// projects scope — do not race the stream (race detector is the assertion).
 func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroadcaster() {
 	t := s.T()
 	const n = 30
@@ -170,17 +161,17 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroa
 	s.Env.Quiesce()
 }
 
-// TestConcurrency_ParallelWsBroadcastsDoNotPanic ensures concurrent broadcasts
-// with registered WS clients on the repo-scoped chat prefix do not race the
-// broadcaster's subscriber slice.
+// TestConcurrency_ParallelWsBroadcastsDoNotPanic ensures concurrent publishes
+// with connections holding the projects scope do not race the stream's
+// holder set.
 func (s *ConcurrencySuite) TestConcurrency_ParallelWsBroadcastsDoNotPanic() {
 	t := s.T()
 	const n = 10
 
-	// Dial N repo-scoped WS clients so the broadcaster's subscriber slice is
-	// non-empty under concurrent writes.
+	// Hold projects on N connections so the holder set is non-empty under
+	// concurrent writes.
 	for range n {
-		s.Env.DialRepoChats(t, s.imported.ProjectID, s.imported.RepoID)
+		s.Env.HoldProjects(t)
 	}
 
 	var wg sync.WaitGroup

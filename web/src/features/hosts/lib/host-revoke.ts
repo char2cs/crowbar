@@ -4,8 +4,9 @@ import { actionErrorMessage, carriesOnlyStatus } from '@/features/hosts/lib/host
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import type { Host } from '@/features/hosts/types'
 import { forgetHostToken, unregisterRemoteHost } from '@/lib/crowbar-bridge'
-import { apiFetch } from '@/lib/api'
-import { ApiError } from '@/lib/api/errors'
+import { apiFetch } from '@/lib/api/fetch'
+import { ApiError } from '@/lib/errors/api-error'
+import { userWords } from '@/lib/errors/report'
 import { toast } from '@/features/window/stores/toast-store'
 
 // The host's own DELETE (over its channel, never Local's) goes first: cleaning up here first
@@ -110,7 +111,7 @@ async function removeHere(host: Host): Promise<void> {
     const [first] = failures
     toast.error(
       `Removed ${host.name}, but couldn’t clear everything this app kept for it`,
-      first instanceof Error ? first.message : String(first),
+      userWords(first, String(first)),
     )
   }
   // Its rows, status, streams and provider list follow the removal (onHostRemoved).

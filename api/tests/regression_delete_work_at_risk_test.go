@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
 // A delete never destroys work that exists nowhere else unless the user saw it
@@ -40,7 +42,7 @@ func deleteResponse(t *testing.T, h *harness, path string, discard bool, wantSta
 	return resp
 }
 
-// deleteAccepted issues a DELETE the daemon must accept.
+// deleteAccepted issues a repo or project DELETE the daemon must accept.
 func deleteAccepted(t *testing.T, h *harness, path string, discard bool) {
 	t.Helper()
 	require.NoError(t, deleteResponse(t, h, path, discard, http.StatusAccepted).Body.Close())
@@ -92,22 +94,22 @@ func TestRegression_DeleteRepo_KeepsUnmergedAndUncommittedWorkUnlessConfirmed(t 
 	assert.Equal(t, 1, risks[0].UnmergedCommits)
 	assert.Equal(t, 1, risks[0].UncommittedFiles)
 	h.QuiesceReactors()
-	assert.True(t, branchExists(imported.repoPath, "feature/pricing-rounding"), "the branch is kept")
-	assert.True(t, branchExists(imported.repoPath, "feature/merged"), "a refused delete touches nothing")
+	assert.True(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"), "the branch is kept")
+	assert.True(t, branchExists(t, imported.repoPath, "feature/merged"), "a refused delete touches nothing")
 	assert.FileExists(t, filepath.Join(worktree, "notes.txt"), "the uncommitted edit is kept")
 	require.Len(t, listRepos(t, h, imported.projectID), 1, "the repo stays")
 
-	reposWS := h.dial("/v0/projects/" + imported.projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	deleteAccepted(t, h, repoPath, true)
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == imported.repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 
-	assert.False(t, branchExists(imported.repoPath, "feature/pricing-rounding"), "confirmed: the branch goes")
-	assert.False(t, branchExists(imported.repoPath, "feature/merged"))
+	assert.False(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"), "confirmed: the branch goes")
+	assert.False(t, branchExists(t, imported.repoPath, "feature/merged"))
 	assert.NoDirExists(t, worktree, "confirmed: the worktree goes")
-	assert.True(t, branchExists(imported.repoPath, "main"))
+	assert.True(t, branchExists(t, imported.repoPath, "main"))
 	assert.FileExists(t, users, "the main checkout is the user's, and is left as it was")
 	assert.DirExists(t, filepath.Join(imported.repoPath, ".git"))
 }
@@ -121,14 +123,14 @@ func TestRegression_DeleteRepo_WithoutConsentStillTakesAMergedCrowbarBranch(t *t
 	ws, err := h.app.Repositories.Workspace.Get(context.Background(), wsID)
 	require.NoError(t, err)
 
-	reposWS := h.dial("/v0/projects/" + imported.projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	deleteAccepted(t, h, "/v0/projects/"+imported.projectID+"/repos/"+imported.repoID, false)
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == imported.repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == imported.repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 
-	assert.False(t, branchExists(imported.repoPath, "feature/merged"))
+	assert.False(t, branchExists(t, imported.repoPath, "feature/merged"))
 	assert.NoDirExists(t, ws.WorktreePath)
 }
 
@@ -145,13 +147,13 @@ func TestRegression_DeleteWorkspace_KeepsUnmergedAndUncommittedWorkUnlessConfirm
 		WorkspaceID: risks[0].WorkspaceID, Branch: "feature/pricing-rounding",
 		UncommittedFiles: 1, UnmergedCommits: 1,
 	}, risks[0])
-	assert.True(t, branchExists(imported.repoPath, "feature/pricing-rounding"))
+	assert.True(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"))
 	assert.FileExists(t, filepath.Join(worktree, "notes.txt"))
 
-	deleteAccepted(t, h, chatPath, true)
+	require.NoError(t, deleteResponse(t, h, chatPath, true, http.StatusOK).Body.Close())
 	h.QuiesceReactors()
 
-	assert.False(t, branchExists(imported.repoPath, "feature/pricing-rounding"))
+	assert.False(t, branchExists(t, imported.repoPath, "feature/pricing-rounding"))
 	assert.NoDirExists(t, worktree)
 }
 
@@ -167,14 +169,14 @@ func TestRegression_DeleteRepo_NeverRemovesACheckoutCrowbarDidNotCreate(t *testi
 	projectID, repoID := createProjectAndRepo(t, h, linked)
 	h.Quiesce()
 
-	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
+	reposWS := watchEntities(t, h, stream.KindRepo)
 	deleteAccepted(t, h, "/v0/projects/"+projectID+"/repos/"+repoID, true)
-	readUntil(t, reposWS, func(m map[string]any) bool {
-		return m["id"] == repoID && m["status"] == "deleted"
+	reposWS.read(t, func(m map[string]any) bool {
+		return m["id"] == repoID && m["gone"] == true
 	})
 	h.QuiesceReactors()
 
 	assert.FileExists(t, filepath.Join(linked, ".git"), "the user's own checkout survives, still a checkout")
 	assert.FileExists(t, filepath.Join(linked, "README.md"))
-	assert.True(t, branchExists(main, "feature/users-own"))
+	assert.True(t, branchExists(t, main, "feature/users-own"))
 }

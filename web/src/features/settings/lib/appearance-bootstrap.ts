@@ -8,6 +8,7 @@ import {
 import { normalizeConfiguredFontFamily } from './font-family-resolution'
 import { MARKDOWN_FONT_SIZE_DEFAULT, normalizeMarkdownFontSize } from './markdown-font-size'
 import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from './ui-font-size'
+import { readLocal, writeLocal } from '@/lib/local-storage'
 
 export const APPEARANCE_BOOTSTRAP_CACHE_KEY = 'crowbar.bootstrap.appearance.v2'
 
@@ -111,9 +112,9 @@ function parseBootstrapCache(raw: unknown): AppearanceBootstrapCache | null {
 export function readAppearanceBootstrapCache(): AppearanceBootstrapCache | null {
   if (typeof window === 'undefined') return null
 
+  const raw = readLocal(APPEARANCE_BOOTSTRAP_CACHE_KEY)
+  if (!raw) return null
   try {
-    const raw = window.localStorage.getItem(APPEARANCE_BOOTSTRAP_CACHE_KEY)
-    if (!raw) return null
     return parseBootstrapCache(JSON.parse(raw))
   } catch {
     return null
@@ -123,11 +124,7 @@ export function readAppearanceBootstrapCache(): AppearanceBootstrapCache | null 
 export function writeAppearanceBootstrapCache(cache: AppearanceBootstrapCache): void {
   if (typeof window === 'undefined') return
 
-  try {
-    window.localStorage.setItem(APPEARANCE_BOOTSTRAP_CACHE_KEY, JSON.stringify(cache))
-  } catch {
-    // Ignore localStorage failures (private mode, quota limits, etc.)
-  }
+  writeLocal(APPEARANCE_BOOTSTRAP_CACHE_KEY, JSON.stringify(cache))
 }
 
 export function applyBootstrapAppearance(cache: AppearanceBootstrapCache): void {

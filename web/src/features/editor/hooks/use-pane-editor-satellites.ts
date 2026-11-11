@@ -1,20 +1,6 @@
-/**
- * usePaneEditorSatellites — everything bound to a pane's retained Monaco
- * widget besides the model swap itself (usePaneEditorController owns that):
- *
- *  - theme + settings-driven options (use-editor-appearance.ts),
- *  - the model's language/indentation after each swap,
- *  - store → model sync for genuine external changes (disk reload,
- *    format-on-save),
- *  - the LSP document lifecycle and diagnostics markers
- *    (use-lsp-document-sync.ts),
- *  - current-line git blame (use-inline-blame.ts),
- *  - focus on swap.
- *
- * The retained editor + current model come from the pane's active-editor
- * registry, which the controller publishes on every swap.
- */
-import type React from 'react'
+// Everything bound to a pane's retained widget besides the model swap (usePaneEditorController):
+// appearance, the model's language/indentation, inline blame, focus on swap. The editor and model
+// come from the active-editor registry, which the controller publishes on every swap.
 import { useEffect, useState } from 'react'
 import { KeyCode, KeyMod } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
@@ -23,91 +9,63 @@ import type {
   ActiveEditorContext,
   ActiveEditorRegistry,
 } from '@/features/editor/lib/active-editor-context'
-import type { EditorManager } from '@/features/editor/lib/editor-manager'
-import { fileUri } from '@/features/editor/lib/editor-uri'
-import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
+import { documentRefOf, documentUri, refFromUri } from '@/features/editor/documents/document-ref'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { isEditorContent, type PaneContent } from '@/features/panes/types/pane-content'
-import { getLanguageIdFromPath } from '../utils/language-id'
+import { isEditorContent } from '@/features/panes/types/pane-content'
 import { useEditorOptions, useEditorTheme, useModelOptions } from './use-editor-appearance'
 import { useInlineBlame } from './use-inline-blame'
-import { useLspDocumentSync } from './use-lsp-document-sync'
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
 export interface PaneEditorSatelliteDeps {
-  /**
-   * The active-editor registry and Monaco manager for the BUFFER'S OWN
-   * workspace — the values EditorSurface resolved from its `workspaceId`
-   * prop, not the ambient (pane chat's) workspace: a pane can hold a chat
-   * from one workspace and a file from another.
-   */
   registry: ActiveEditorRegistry
-  editorManager: EditorManager
-  /** Same workspace as `editorManager` — half of the model uri. */
-  workspaceId: string
   readOnly?: boolean
   scrollable?: boolean
   isActiveSurface?: boolean
-  /**
-   * Latch the surface's content-write seam reads to ignore the model-change
-   * event a GENUINE external edit (applied here) re-fires, so it does not
-   * bounce back to the buffer store. Set to the applied text just before.
-   */
-  externalApplyRef?: React.MutableRefObject<string | null>
 }
 
 interface BoundEditor {
   editor: StandaloneEditor | null
   model: Monaco.editor.ITextModel | null
+  uri: string
   filePath: string
 }
 
-const UNBOUND: BoundEditor = { editor: null, model: null, filePath: '' }
+const UNBOUND: BoundEditor = { editor: null, model: null, uri: '', filePath: '' }
 
 function toBound(ctx: ActiveEditorContext | undefined): BoundEditor {
   if (!ctx) return UNBOUND
   return {
     editor: (ctx.editor as StandaloneEditor | undefined) ?? null,
     model: (ctx.model as Monaco.editor.ITextModel | undefined) ?? null,
+    uri: ctx.uri,
     filePath: ctx.filePath,
   }
 }
 
-function activeEditorBuffer(
-  state: { panes: Record<string, { activeEditorTabId?: string | null }>; buffers: PaneContent[] },
-  paneId: string,
-) {
-  const id = state.panes[paneId]?.activeEditorTabId ?? null
-  const buffer = id ? state.buffers.find((b) => b.id === id) : null
-  return buffer && isEditorContent(buffer) ? buffer : null
-}
-
 export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatelliteDeps): void {
-  const {
-    registry,
-    editorManager,
-    workspaceId,
-    readOnly = false,
-    scrollable = true,
-    isActiveSurface = true,
-    externalApplyRef,
-  } = deps
+  const { registry, readOnly = false, scrollable = true, isActiveSurface = true } = deps
 
   const [bound, setBound] = useState<BoundEditor>(() => toBound(registry.get(paneId)))
   useEffect(() => registry.subscribe(paneId, (ctx) => setBound(toBound(ctx))), [paneId, registry])
-  const { editor, model, filePath } = bound
+  const { editor, model, uri, filePath } = bound
+  // The model uri names the buffer's own document, whatever pane shows it; a
+  // host document belongs to no workspace's git.
+  const doc = refFromUri(uri)
+  const workspaceId = doc?.authority === 'workspace' ? doc.workspaceId : null
 
-  const languageOverride = useStore(
-    windowPaneStore,
-    (state) => activeEditorBuffer(state, paneId)?.languageOverride,
-  )
-  const languageId = languageOverride ?? getLanguageIdFromPath(filePath) ?? 'plaintext'
+  // The bound model's own buffer, untitled ones included, never the active tab:
+  // the two differ while a swap is in flight.
+  const languageOverride = useStore(windowPaneStore, (state) => {
+    const own = state.buffers.find(
+      (b) => isEditorContent(b) && documentUri(documentRefOf(b)) === uri,
+    )
+    return own && isEditorContent(own) ? own.languageOverride : undefined
+  })
 
   useEditorTheme(editor)
   useEditorOptions(editor, { readOnly, scrollable })
   useModelOptions(model, filePath, languageOverride)
-  useLspDocumentSync(model, filePath, languageId, workspaceId)
   useInlineBlame(editor, model, workspaceId, filePath)
 
   // Cmd/Ctrl+A selects the whole model even when an app-level shortcut would
@@ -119,31 +77,6 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       if (m) editor.setSelection(m.getFullModelRange())
     })
   }, [editor])
-
-  // ── Store → model: genuine external changes only ──────────────────────────
-  // Local typing flows model → sink → store, so by the time the store fires
-  // the model already holds that text and nothing is applied.
-  useEffect(() => {
-    if (!editor || !model || !filePath) return
-    const apply = (content: string) => {
-      if (model.isDisposed() || model.getValue() === content) return
-      const selection = editor.getSelection()
-      if (externalApplyRef) externalApplyRef.current = content
-      editorManager.applyExternalEdit(paneId, fileUri(workspaceId, filePath), content)
-      if (selection) editor.setSelection(selection)
-    }
-    // On (re)bind the store is authoritative only for a CLEAN buffer: a dirty
-    // one's model is ahead of the store with un-flushed keystrokes (I2).
-    const initial = activeEditorBuffer(windowPaneStore.getState(), paneId)
-    if (initial && shouldReconcileModelFromStore(initial)) apply(initial.content)
-    let previous = initial?.content
-    return windowPaneStore.subscribe((state) => {
-      const buffer = activeEditorBuffer(state, paneId)
-      if (!buffer || buffer.path !== filePath || buffer.content === previous) return
-      previous = buffer.content
-      apply(buffer.content)
-    })
-  }, [editor, model, filePath, editorManager, externalApplyRef, paneId, workspaceId])
 
   // ── Focus the editor when it shows a new model on the active surface ──────
   useEffect(() => {
