@@ -7,6 +7,9 @@ import WebKit
 final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
   private weak var webview: WKWebView?
   private var up = false
+  /// Runs inside the keyboard's animation, once the webview has its new height: whatever is
+  /// placed from the webview's bottom edge follows the page up and down with it.
+  var fitted: () -> Void = {}
 
   init(webview: WKWebView) {
     self.webview = webview
@@ -56,6 +59,7 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
       let height = host.bounds.height - overlap
       webview.bounds.size.height = height
       webview.center.y = height / 2
+      self.fitted()
     }
   }
 }

@@ -138,6 +138,7 @@ final class ChromeOverlays {
       sidebar.intercept = { type, body, _ in menu.take(type, body) }
       rowMenu = menu
       keyboard = KeyboardFit(webview: webview)
+      keyboard?.fitted = { [weak self] in self?.placeJumpButton() }
       paintSurface(under: webview, host: host)
       FormAccessory.hide(in: webview)
       let filesPage = SecondaryPage.make(
@@ -200,24 +201,25 @@ final class ChromeOverlays {
     attachSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
   }
 
-  /// A native glass circle inside the webview, so the keyboard shrinking the page carries it
-  /// (autoresizing keeps its distance from the bottom) and the card's slide moves it along.
+  /// A native glass circle inside the webview, so the card's slide moves it along; the keyboard
+  /// shrinking the page re-places it (`KeyboardFit.fitted`).
   func applyJumpToLatest(_ state: JumpToLatestState) {
-    guard let view = jumpButton, let webview else { return }
-    let size = GlassCircle.diameter
+    guard let view = jumpButton else { return }
+    if state.visible { jumpOwner = state.owner }
+    // A stale owner's clear must not take down the button its successor raised.
+    if !state.visible && state.owner != jumpOwner { return }
     if state.visible {
       model.jumpLabel = state.label
-      let center = CGPoint(
-        x: webview.bounds.midX, y: webview.bounds.height - CGFloat(state.bottom) - size / 2)
+      jumpBottom = CGFloat(state.bottom)
       if view.isHidden || view.alpha == 0 {
-        view.center = center
+        placeJumpButton()
         view.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
         view.isHidden = false
       }
       UIView.animate(
         withDuration: 0.2, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]
       ) {
-        view.center = center
+        self.placeJumpButton()
         view.alpha = 1
         view.transform = .identity
       }
@@ -232,6 +234,17 @@ final class ChromeOverlays {
       completion: { _ in view.isHidden = view.alpha == 0 })
   }
 
+  private var jumpBottom: CGFloat = 0
+  private var jumpOwner = ""
+
+  /// The circle's distance above the webview's bottom edge, which the keyboard moves.
+  private func placeJumpButton() {
+    guard let view = jumpButton, let webview else { return }
+    view.center = CGPoint(
+      x: webview.bounds.midX,
+      y: webview.bounds.height - jumpBottom - GlassCircle.diameter / 2)
+  }
+
   private lazy var jumpButton: UIView? = {
     guard let webview else { return nil }
     let controller = UIHostingController(
@@ -239,7 +252,6 @@ final class ChromeOverlays {
     controller.view.backgroundColor = .clear
     let size = GlassCircle.diameter
     controller.view.frame = CGRect(x: 0, y: 0, width: size, height: size)
-    controller.view.autoresizingMask = [.flexibleTopMargin, .flexibleLeftMargin, .flexibleRightMargin]
     controller.view.alpha = 0
     controller.view.isHidden = true
     webview.addSubview(controller.view)

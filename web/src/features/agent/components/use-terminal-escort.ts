@@ -57,11 +57,12 @@ export function useTerminalEscort(options: EscortOptions) {
     )
   }
 
-  // The phone shows only the chat, so opening there a hot-swap chat recorded on its TUI brings
-  // the chat's asks and compact back to the view the phone has. Only on opening: never a tug-of-war.
+  // A phone opens on the chat, so a hot-swap chat recorded on its TUI is brought back to it, for
+  // the daemon's asks and compact. Only on opening, and never from a terminal the person chose.
   const recordedKnown = options.recordedSurface !== null
   const takeChatOnPhone = useEffectEvent(() => {
-    if (IS_MOBILE && options.isVisible && options.recordedSurface === 'terminal') {
+    const chosen = presentation === 'terminal'
+    if (IS_MOBILE && options.isVisible && options.recordedSurface === 'terminal' && !chosen) {
       void showHotswap('chat')
     }
   })

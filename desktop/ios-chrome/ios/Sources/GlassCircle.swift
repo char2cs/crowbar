@@ -37,16 +37,15 @@ struct GlassCircle: View {
   }
 }
 
-/// The transcript's way back to the newest rows: the down arrow, in the brand colour.
+/// The transcript's way back to the newest rows: a neutral down arrow.
 @available(iOS 26.0, *)
 struct JumpToLatestButton: View {
   @ObservedObject var model: ChromeModel
-  @Environment(\.colorScheme) private var scheme
 
   var body: some View {
     GlassCircle(
       icon: "ArrowDown", label: model.jumpLabel,
-      tint: model.palette?.brand(scheme) ?? model.accent
+      tint: model.palette?.text
     ) {
       model.send(.of("jumpToLatest"))
     }

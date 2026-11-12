@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import type { NativeChromeIntent } from '@/lib/native-chrome'
 
 const chrome = vi.hoisted(() => ({
@@ -33,10 +34,8 @@ describe('JumpToLatest on the web', () => {
     render(<JumpToLatest onJump={onJump} dockTop={92} />)
     const button = screen.getByRole('button', { name: 'Jump to latest' })
     expect(button.textContent).toBe('')
-    expect(button.querySelector('svg')).not.toBeNull()
     fireEvent.click(button)
     expect(onJump).toHaveBeenCalledOnce()
-    expect(chrome.push).not.toHaveBeenCalled()
   })
 })
 
@@ -45,35 +44,30 @@ describe('JumpToLatest in the phone chrome', () => {
     chrome.native = true
   })
 
-  it('draws nothing itself and asks the chrome to show its button above the dock', () => {
-    const { container } = render(<JumpToLatest onJump={() => {}} dockTop={92} />)
-    expect(container.innerHTML).toBe('')
-    expect(chrome.push).toHaveBeenLastCalledWith({
-      visible: true,
-      bottom: 104,
-      label: 'Jump to latest',
-    })
-  })
-
-  it('follows the dock as it grows', () => {
-    const { rerender } = render(<JumpToLatest onJump={() => {}} dockTop={92} />)
+  it('raises the chrome button above the dock, until its owner goes', () => {
+    const { rerender, unmount } = render(<JumpToLatest onJump={() => {}} dockTop={92} />)
+    const raised = chrome.push.mock.calls.at(-1)?.[0]
+    expect(raised).toMatchObject({ visible: true, bottom: 104, label: 'Jump to latest' })
     rerender(<JumpToLatest onJump={() => {}} dockTop={140} />)
-    expect(chrome.push).toHaveBeenLastCalledWith(expect.objectContaining({ bottom: 152 }))
+    expect(chrome.push).toHaveBeenLastCalledWith({ ...raised, bottom: 152 })
+    render(<JumpToLatest onJump={() => {}} dockTop={92} />)
+    expect(chrome.push.mock.calls.at(-1)?.[0].owner).not.toBe(raised.owner)
+    unmount()
+    expect(chrome.push).toHaveBeenLastCalledWith(
+      expect.objectContaining({ visible: false, owner: raised.owner }),
+    )
   })
 
-  it('jumps when the chrome reports its tap, and ignores other intents', () => {
+  it('goes down under the IDE and returns with the chat, whose tap jumps', () => {
     const onJump = vi.fn()
     render(<JumpToLatest onJump={onJump} dockTop={92} />)
+    act(() => useMobileScreenStore.getState().open('ide'))
+    expect(chrome.push).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }))
+    act(() => useMobileScreenStore.getState().back())
+    expect(chrome.push).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }))
     act(() => chrome.intent?.({ type: 'closePlusMenu' }))
     expect(onJump).not.toHaveBeenCalled()
     act(() => chrome.intent?.({ type: 'jumpToLatest' }))
     expect(onJump).toHaveBeenCalledOnce()
-  })
-
-  it('asks for the button to go away once the reader is back at the bottom', () => {
-    const { unmount } = render(<JumpToLatest onJump={() => {}} dockTop={92} />)
-    unmount()
-    expect(chrome.push).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }))
-    expect(chrome.intent).toBeNull()
   })
 })

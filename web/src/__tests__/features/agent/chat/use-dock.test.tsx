@@ -25,11 +25,9 @@ describe('useDock', () => {
     Object.defineProperty(window, 'innerHeight', { value: 850, configurable: true })
     const { result } = renderHook(() => useDock())
     act(() => result.current.dockRef(node))
-    // 34 of the viewport below the dock is the safe area: not part of the dock's own height.
     expect(result.current.dockHeight).toBe(120)
     expect(result.current.dockTop).toBe(150)
 
-    // The keyboard shrinks the viewport and the page's layout moves the dock up with it.
     Object.defineProperty(window, 'innerHeight', { value: 500, configurable: true })
     node.getBoundingClientRect = () => ({ top: 350 }) as DOMRect
     act(() => {

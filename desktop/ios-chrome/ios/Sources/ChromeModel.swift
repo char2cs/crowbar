@@ -135,6 +135,8 @@ enum Reveal: String, Decodable {
 
 /// The transcript's Jump to latest button: `bottom` points above the webview's bottom edge.
 struct JumpToLatestState: Decodable, Equatable {
+  /// The web component that raised it: only the latest raiser may take it down.
+  let owner: String
   let visible: Bool
   let bottom: Double
   let label: String

@@ -1,25 +1,26 @@
-import { useEffect, useEffectEvent } from 'react'
+import { useEffect, useEffectEvent, useId } from 'react'
 import { ArrowDownIcon } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
+import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { hasNativeChrome, onNativeChromeIntent, setNativeJumpToLatest } from '@/lib/native-chrome'
 
 const LABEL = 'Jump to latest'
-/** The gap above the dock's top edge, as `.jump-latest` leaves it on the web. */
-const GAP = 12
 
 interface JumpToLatestProps {
   onJump: () => void
-  /** Where the dock's top edge sits above the viewport's bottom. */
   dockTop: number
 }
 
-/** The phone's native chrome draws this button; the web only says when it is up and how high. */
+const push = (owner: string, bottom: number | null) =>
+  setNativeJumpToLatest({ owner, visible: bottom !== null, bottom: bottom ?? 0, label: LABEL })
+
+/** The phone's chrome draws this button; the web says when it is up, how high, and never under the IDE. */
 function NativeJumpToLatest({ onJump, dockTop }: JumpToLatestProps) {
-  const bottom = dockTop + GAP
-  useEffect(() => {
-    setNativeJumpToLatest({ visible: true, bottom, label: LABEL })
-  }, [bottom])
-  useEffect(() => () => setNativeJumpToLatest({ visible: false, bottom: 0, label: LABEL }), [])
+  const onChat = useMobileScreenStore((s) => s.screen === 'chat')
+  const bottom = onChat ? dockTop + 12 : null
+  const owner = useId()
+  useEffect(() => push(owner, bottom), [owner, bottom])
+  useEffect(() => () => push(owner, null), [owner])
   const jump = useEffectEvent(onJump)
   useEffect(
     () =>
@@ -31,7 +32,6 @@ function NativeJumpToLatest({ onJump, dockTop }: JumpToLatestProps) {
   return null
 }
 
-/** Back to the newest rows, for a reader up the page while the chat goes on below. */
 export function JumpToLatest(props: JumpToLatestProps) {
   if (hasNativeChrome()) return <NativeJumpToLatest {...props} />
   return (

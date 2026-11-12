@@ -3,10 +3,9 @@ import { layoutHeight } from '@/lib/layout-size'
 import { playArrival } from '@/features/agent/chat/lib/arrival-animation'
 import { measureScrollbarWidth } from '@/features/agent/chat/lib/scrollbar-width'
 
-/** The dock's height and the scrollbar's width, published to CSS, and where its top edge sits
- *  above the viewport's bottom (what floats above the dock, such as Jump to latest, follows): the transcript
- *  runs under the dock and must reserve exactly its room, and the dissolve stops
- *  at the scrollbar track. A first send slides the dock in from the empty document. */
+/** The dock's height and the scrollbar's width, published to CSS, plus its top edge above the
+ *  viewport's bottom (Jump to latest floats there): the transcript runs under the dock and must
+ *  reserve its room, and the dissolve stops at the scrollbar track. A first send slides it in. */
 export function useDock() {
   const [dockHeight, setDockHeight] = useState(0)
   const [dockTop, setDockTop] = useState(0)

@@ -397,14 +397,9 @@ export function setNativeAttachSheet(sheet: NativeAttachSheet): void {
   void invoke(`plugin:${PLUGIN}|set_attach_sheet`, sheet)
 }
 
-/** The transcript's floating down-arrow: shown while a reader is up the page, `bottom` points
- *  above the webview's bottom edge (the dock plus a gap), so the keyboard moves it with the page. */
+/** The transcript's floating down-arrow; `bottom` is its distance above the webview's bottom edge. */
 // A type, not an interface: invoke's args need the index signature only a type alias gets.
-export type NativeJumpToLatest = {
-  visible: boolean
-  bottom: number
-  label: string
-}
+export type NativeJumpToLatest = { owner: string; visible: boolean; bottom: number; label: string }
 
 /** Replaces the Jump to latest button's state. */
 export function setNativeJumpToLatest(state: NativeJumpToLatest): void {
