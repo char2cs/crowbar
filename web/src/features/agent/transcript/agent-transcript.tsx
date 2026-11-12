@@ -76,8 +76,6 @@ interface AgentTranscriptProps {
   headerClearancePx?: number
 }
 
-type Key = VirtualItem['key']
-
 const OVERSCAN = 12
 /** Notice cards read as a stack, closer than prose rows. */
 const NOTICE_GAP = 10
@@ -85,29 +83,19 @@ const NOTICE_GAP = 10
 /** `.dock-spacer`'s height past the dock's own (transcript-layout.css). */
 const DOCK_ROOM = IS_MOBILE ? 14 : 32
 
-/** Whole pixels: `resizeItem` treats any float drift as a real resize. */
-function measureRowHeight(el: Element): number {
-  return Math.round(layoutHeight(el))
+/** Whole pixels (`resizeItem` reads float drift as a resize). A `display:none` workspace reports 0
+ *  for every row: the cached height is the honest answer, else the total collapses. */
+function measureRow(
+  el: HTMLDivElement,
+  _entry: ResizeObserverEntry | undefined,
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+): number {
+  const height = Math.round(layoutHeight(el))
+  return height > 0
+    ? height
+    : (instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(el))) ??
+        height)
 }
-
-/** A `display:none` workspace reports 0 for every row; the cached height is the
- *  honest answer, else the total collapses and the restored offset clamps.
- *  `measured` records which rows have a real height, not an estimate. */
-const measureRowInto =
-  (measured: Map<Key, number>) =>
-  (
-    el: HTMLDivElement,
-    _entry: ResizeObserverEntry | undefined,
-    instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
-  ): number => {
-    const height = measureRowHeight(el)
-    const key = instance.options.getItemKey(instance.indexFromElement(el))
-    if (height > 0) {
-      measured.set(key, height)
-      return height
-    }
-    return instance.itemSizeCache.get(key) ?? height
-  }
 
 /** Tool, ask and marker rows of one run sit flush; prose gets the gap. */
 const compact = (id: string, item: TranscriptItem | undefined) =>
@@ -264,7 +252,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const refusal = useFeedError(chatId)
   const items = useChatItems(chatId)
   const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
-  const [measured] = useState(() => new Map<Key, number>())
   const [pinnedId, setPinnedId] = useState<string | null>(null)
   // The pin's turn is over once its prompt left `pending` and nothing runs.
   const pinnedState = useChatStore((s) =>
@@ -285,10 +272,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   })
   const { afterCommit, notifyReflow, noteScrollWrite, stick, holdsBottom, scrollRef } = anchor
   const holding = useSyncExternalStore(anchor.subscribe, holdsBottom)
+  const away = useSyncExternalStore(anchor.subscribe, anchor.awayFromEnd)
   const releaseFor = turnOver ? (holding ? pinnedId : releasedId) : null
   if (releaseFor !== releasedId) setReleasedId(releaseFor)
   const released = turnOver && releaseFor === pinnedId
-  const [measureRow] = useState(() => measureRowInto(measured))
   const [observeElementRect] = useState(() => observeScrollRectFor(notifyReflow))
   const [observeOffset] = useState(() =>
     observeScrollOffsetFor((report) => {
@@ -369,7 +356,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const getItemKey = useCallback((index: number) => rows[index] ?? index, [rows])
   const sizeOf = (index: number) => {
     const id = rows[index] ?? ''
-    return measured.get(id) ?? estimateRowHeight(id, itemOf(id))
+    return (
+      rowVirtualizer.itemSizeCache.get(id) ??
+      estimateRowHeight(id, itemOf(id), rowVirtualizer.scrollRect?.width)
+    )
   }
   const rangeExtractor = reachRange(sizeOf, OVERSCAN)
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
@@ -394,7 +384,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = keepsRowsStill(holdsBottom)
   }, [rowVirtualizer, holdsBottom])
   const virtualItems = rowVirtualizer.getVirtualItems()
-  const measuring = virtualItems.some((row) => !measured.has(row.key))
+  const measuring = virtualItems.some((row) => !rowVirtualizer.itemSizeCache.has(row.key))
   useOlderTurns(chatId, virtualItems[0]?.index, scrollRef, anchor.keepPlace)
   useLayoutEffect(() => afterCommit(measuring))
 
@@ -487,7 +477,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           </div>
         )}
         {props.tail}
-        {!holding && !empty && props.visible !== false && (
+        {away && !empty && props.visible !== false && (
           <JumpToLatest onJump={jumpToLatest} dockTop={props.dockTop || props.dockHeight || 92} />
         )}
         <div className="dock-spacer" aria-hidden="true" />

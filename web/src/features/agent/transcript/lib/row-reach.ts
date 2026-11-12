@@ -4,19 +4,28 @@ import type { TranscriptItem } from '@/features/agent/stores/lib/transcript-item
 /** `.stream`'s 18px gap, baked into each virtual row so the offsets count it. */
 export const ROW_GAP = 18
 
-const ESTIMATED_ROW_HEIGHT = 96
-/** A call, or a run of them, is one line: estimating it as a card overstates the list ~3x. */
-const ESTIMATED_CALL_HEIGHT = 30
-const ROW_CHROME = 8 + 30 + ROW_GAP
-const ROW_LINE_HEIGHT = 23
-const CHARS_PER_LINE = 88
+/** Markdown by its blocks: a paragraph wraps by the column (7.5px a glyph), a fence is its lines. */
+function textHeight(text: string, column: number): number {
+  const perLine = Math.floor(column / 7.5)
+  let height = 0
+  let fenced = false
+  for (const line of text.split('\n')) {
+    const fence = line.startsWith('```')
+    fenced = fenced !== fence
+    if (fence) height += 12
+    else if (fenced) height += 19
+    else height += line ? Math.ceil(line.length / perLine) * 23 : 14
+  }
+  return height
+}
 
-/** Scaled by the text so a long reply's first guess is close to its height. */
-export function estimateRowHeight(id: string, item: TranscriptItem | undefined): number {
-  if (id.startsWith('g:') || item?.kind === 'tool') return ESTIMATED_CALL_HEIGHT
-  if (item?.kind !== 'text' && item?.kind !== 'user') return ESTIMATED_ROW_HEIGHT
-  const lines = Math.max(1, Math.ceil(item.text.length / CHARS_PER_LINE))
-  return Math.max(ESTIMATED_ROW_HEIGHT, ROW_CHROME + lines * ROW_LINE_HEIGHT)
+/** By text and box, so a first guess is near the height: 26px around a reply, 35 a prompt. */
+export function estimateRowHeight(id: string, item: TranscriptItem | undefined, box = 768): number {
+  if (id.startsWith('g:') || item?.kind === 'tool') return 30 // a call, or a run of them, is one line: a card's height overstates the list ~3x
+  const column = Math.min(box, 768) - 44
+  if (item?.kind === 'user') return 35 + textHeight(item.text, column * 0.8)
+  if (item?.kind === 'text') return 26 + textHeight(item.text, column)
+  return 96
 }
 
 /** Pixels of rows kept drawn past each edge of the view: a fling covers this in a frame or two,
@@ -27,15 +36,16 @@ const REACH_PX = 800
 export const reachRange =
   (sizeOf: (index: number) => number, overscan: number) =>
   (range: Range): number[] => {
-    let first = Math.max(range.startIndex - overscan, 0)
-    for (let reach = 0, i = range.startIndex; i > 0 && reach < REACH_PX; i--) {
-      reach += sizeOf(i - 1)
-      first = Math.min(first, i - 1)
+    const last = range.count - 1
+    const reached = (from: number, step: 1 | -1) => {
+      let i = from
+      for (let reach = 0; i + step >= 0 && i + step <= last && reach < REACH_PX;) {
+        i += step
+        reach += sizeOf(i)
+      }
+      return i
     }
-    let last = Math.min(range.endIndex + overscan, range.count - 1)
-    for (let reach = 0, i = range.endIndex; i < range.count - 1 && reach < REACH_PX; i++) {
-      reach += sizeOf(i + 1)
-      last = Math.max(last, i + 1)
-    }
-    return Array.from({ length: last - first + 1 }, (_, k) => first + k)
+    const first = Math.min(Math.max(range.startIndex - overscan, 0), reached(range.startIndex, -1))
+    const end = Math.max(Math.min(range.endIndex + overscan, last), reached(range.endIndex, 1))
+    return Array.from({ length: end - first + 1 }, (_, k) => first + k)
   }

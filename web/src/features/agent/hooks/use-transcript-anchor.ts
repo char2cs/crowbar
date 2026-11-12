@@ -1,9 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/lib/follow-scroll'
 
-/** How close to the bottom still counts as reading the newest end: about one
- *  row, so a burst that outruns one scroll frame is not read as scrolling away. */
+/** How close to the bottom still counts as the newest end: about one row. */
 const STICK_SLACK = 96
+
+/** Viewports from the end before the reader is away (Jump to latest), well past STICK_SLACK. */
+const AWAY_VIEWPORTS = 1 / 3
 
 /** Where the reader left a chat, for its next mount this session. */
 export interface TranscriptScrollPosition {
@@ -21,20 +23,16 @@ interface UseTranscriptAnchorOptions {
   onPositionChange?: (position: TranscriptScrollPosition) => void
   /** A background tab stays mounted behind visibility:hidden, which changes no geometry. */
   visible?: boolean
-  /** A turn runs or a sent prompt waits for one: only then does growth ease.
-   *  With nothing arriving, a change (a late row layout, the dock) lands at once. */
+  /** A turn runs or a prompt waits for one: only then does growth ease; else a change lands at once. */
   arriving?: boolean
-  /** Each write the anchor makes, as it makes it: the virtualizer otherwise
-   *  hears of it from the scroll event, a frame after painting the old window. */
+  /** Each write the anchor makes, as it makes it: the scroll event reaches the virtualizer a frame late. */
   onWrite?: (top: number) => void
 }
 
 export interface TranscriptAnchor {
   scrollRef: React.RefObject<HTMLDivElement | null>
   onScroll: () => void
-  /** Call from a layout effect after every commit of the list: any of them may
-   *  have moved its bottom. `measuring` is true while a row on screen still has
-   *  its estimated height, so the next change corrects an estimate. */
+  /** After every commit of the list; `measuring` while a row on screen has its estimated height. */
   afterCommit: (measuring: boolean) => void
   /** The viewport's box changed: a resize, or a display:none workspace coming back. */
   notifyReflow: () => void
@@ -48,7 +46,9 @@ export interface TranscriptAnchor {
   intent: ReaderIntent
   /** The view is held to the bottom: a row resizing above it is the anchor's to answer. */
   holdsBottom: () => boolean
-  /** Hears `holdsBottom` change, for a render that depends on it. */
+  /** Meaningfully away from the end; never turns on while rows are still being measured. */
+  awayFromEnd: () => boolean
+  /** Hears `holdsBottom` or `awayFromEnd` change. */
   subscribe: (listener: () => void) => () => void
 }
 
@@ -106,14 +106,25 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   const touchY = useRef<number | null>(null)
   const wasMeasuring = useRef(false)
   const shown = useRef(options.visible ?? true)
+  const away = useRef(false)
   const [listeners] = useState(() => new Set<() => void>())
+  const judgeAway = useCallback(() => {
+    const el = scrollRef.current
+    if (!el || el.clientHeight === 0) return
+    const room = el.scrollHeight - el.scrollTop - el.clientHeight
+    const next = !stuck.current && room > el.clientHeight * AWAY_VIEWPORTS
+    if (next === away.current || (next && wasMeasuring.current)) return
+    away.current = next
+    for (const listener of listeners) listener()
+  }, [listeners])
   const setStuck = useCallback(
     (next: boolean) => {
       if (stuck.current === next) return
       stuck.current = next
       for (const listener of listeners) listener()
+      judgeAway()
     },
-    [listeners],
+    [listeners, judgeAway],
   )
   const optionsRef = useRef(options)
   optionsRef.current = options
@@ -217,8 +228,9 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       const correcting = wasMeasuring.current
       wasMeasuring.current = measuring
       resync(correcting)
+      judgeAway()
     },
-    [resync],
+    [resync, judgeAway],
   )
 
   // Coming to the front changes no geometry, so nothing else would land the view.
@@ -271,7 +283,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (reading.current && rising) return
     setStuck(el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK)
     if (stuck.current) reading.current = false
-  }, [setStuck])
+    judgeAway()
+  }, [setStuck, judgeAway])
 
   const letGo = useCallback(() => {
     if (!stuck.current) return
@@ -314,6 +327,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     stick,
     keepPlace,
     holdsBottom,
+    awayFromEnd: () => away.current,
     subscribe,
   }
 }

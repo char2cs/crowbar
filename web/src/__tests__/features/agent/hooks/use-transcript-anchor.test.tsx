@@ -59,7 +59,6 @@ function mount(props: HostProps = {}) {
   let current = { ...props, rev: 0 }
   const view = render(<Host {...current} />)
   const scroller = view.getByTestId('scroller')
-  /** The list commits, as it does after every virtualizer re-measure. */
   const commit = (next: Partial<HostProps> = {}) => {
     current = { ...current, ...next, rev: current.rev + 1 }
     view.rerender(<Host {...current} />)
@@ -142,19 +141,17 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(1400)
   })
 
-  it("a scroll within a row of the bottom is not pulled down by the list's own commit", () => {
-    const { scroller, commit } = mount()
-    readerScrollsTo(scroller, 600 - 96)
+  it.each([
+    [96, 900],
+    [97, 503],
+  ])("a scroll %i from the bottom isn't pulled down by a commit, and ends at %i", (gone, end) => {
+    const { scroller, grow, commit } = mount()
+    readerScrollsTo(scroller, 600 - gone)
     commit()
-    expect(scroller.scrollTop).toBe(504)
-  })
-
-  it('a scroll just past a row from the bottom stops following', () => {
-    const { scroller, grow } = mount()
-    readerScrollsTo(scroller, 600 - 97)
+    expect(scroller.scrollTop).toBe(600 - gone)
     grow(1300)
     frames(1500)
-    expect(scroller.scrollTop).toBe(503)
+    expect(scroller.scrollTop).toBe(end)
   })
 
   it('lets go on a wheel up, before the view has moved', () => {

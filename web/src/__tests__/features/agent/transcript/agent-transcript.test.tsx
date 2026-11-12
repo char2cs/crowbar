@@ -371,6 +371,9 @@ describe('AgentTranscript', () => {
     const { list, box } = layList(3000, 800)
     redraw({ tail: 'a' })
     expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
+    list.scrollTop = 2000 // a few rows back is still the end: inside the grace
+    fireEvent.scroll(list)
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
     list.scrollTop = 500
     fireEvent.scroll(list)
     box.scrollHeight = 3400
