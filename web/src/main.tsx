@@ -1,4 +1,3 @@
-import './zz-scroll-probe'
 import './index.css'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
 

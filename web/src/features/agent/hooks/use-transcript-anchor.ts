@@ -44,11 +44,9 @@ export interface TranscriptAnchor {
   stick: () => void
   /** Rows land above the reader: the next commit keeps their distance from the bottom. */
   keepPlace: () => void
-  /** The reader's hand on the scroller, passive: a wheel, drag or key up lets go
-   *  of the bottom before the view has moved, which position alone cannot see. */
+  /** The reader's hand on the scroller: a wheel, drag or key up lets go before the view moves. */
   intent: ReaderIntent
-  /** The view is held to the bottom: a row resizing above it is the anchor's to
-   *  answer, not the virtualizer's (its shift paints a frame before the total). */
+  /** The view is held to the bottom: a row resizing above it is the anchor's to answer. */
   holdsBottom: () => boolean
   /** Hears `holdsBottom` change, for a render that depends on it. */
   subscribe: (listener: () => void) => () => void
@@ -86,8 +84,7 @@ const readsUp = (event: React.KeyboardEvent) =>
   READ_UP_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey)
 
 // Keeps a transcript on its newest line while the reader is there, out of their way once they
-// scroll up. Growth eases (follow-scroll), anything else lands in one write; a sub-row scroll
-// (STICK_SLACK) mid-stream is pulled back on purpose, since a burst outruns a frame.
+// scroll up. Growth eases (follow-scroll); anything else lands in one write.
 export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): TranscriptAnchor {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stuck = useRef(options.initialPosition?.stuck ?? true)
@@ -99,6 +96,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // Where the current catch-up began, so a staircase of corrections is one gap.
   const easeFrom = useRef<number | null>(null)
   const landNext = useRef(true)
+  const bottom = useRef<number | null>(null)
   // A landing waits for rows still at their estimated heights: `fromBottom` is held, not read.
   const holding = useRef(false)
   // The reader let go on purpose: their own climb back within STICK_SLACK
@@ -138,8 +136,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     (correcting = false) => {
       const el = scrollRef.current
       if (!el) return
-      // A display:none box measures 0; the report that hid it asked for a landing
-      // (notifyReflow), which waits here until the box is back.
+      // A display:none box measures 0: a landing (notifyReflow) waits here for the box.
       if (el.clientHeight === 0) return
       const land = landNext.current
       landNext.current = false
@@ -161,10 +158,13 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       }
       // The ceiling, not scrollHeight: an unreachable target overshoots on the first frame.
       const target = el.scrollHeight - el.clientHeight
+      // A reader's own scroll re-commits the list too; a write then cancels their momentum.
+      const moved = target !== bottom.current
+      bottom.current = target
+      if (!moved && !land) return
       const gap = target - el.scrollTop
       if (gap <= 1) easeFrom.current = null
-      // From the lower of where the catch-up began and where the view is now: a
-      // view moved up since (a clamp, a virtualizer write) widens the gap.
+      // From the lower of where the catch-up began and the view now: a clamp or write widens the gap.
       const from = Math.min(easeFrom.current ?? el.scrollTop, el.scrollTop)
       // A gap over a viewport is a reposition, and easing it sweeps the whole transcript.
       const reposition =
@@ -174,7 +174,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
         target - from > el.clientHeight ||
         (correcting && easeFrom.current === null)
       if (reposition) {
-        if (el.scrollTop !== target) write(el, target)
+        if (el.scrollTop < target) write(el, target)
         easeFrom.current = null
       } else if (gap > 1) {
         easeFrom.current = from
@@ -190,11 +190,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (!el) return
     const build = () => createFollowScroll(el, wrote)
     follow.current = build()
-    // An unfocused webview freezes rAF and never runs a request made meanwhile,
-    // so the follow is rebuilt rather than re-targeted when focus returns.
+    // An unfocused webview freezes rAF: the follow is rebuilt, not re-targeted, on return.
     const onFocus = () => {
       follow.current?.stop()
       follow.current = build()
+      bottom.current = null
       resync()
     }
     window.addEventListener('focus', onFocus)

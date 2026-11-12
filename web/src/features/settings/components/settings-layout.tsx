@@ -107,7 +107,7 @@ export function SettingsPanels({
         aria-labelledby={`settings-tab-${activeTab}`}
         data-settings-content=""
         tabIndex={-1}
-        className="min-w-0 flex-1 overflow-y-auto p-3 [--app-ui-control-font-size:var(--ui-text-sm)] [overscroll-behavior:contain] max-[720px]:p-2"
+        className="min-w-0 flex-1 overflow-y-auto p-3 [--app-ui-control-font-size:var(--ui-text-sm)] max-[720px]:p-2"
       >
         {children}
       </div>

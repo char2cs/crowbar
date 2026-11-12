@@ -39,7 +39,7 @@ export function MobileSettingsPage() {
     <main className="flex h-dvh flex-col overflow-hidden bg-background pb-[env(safe-area-inset-bottom)] text-foreground [--settings-section-title:var(--ui-text-lg)]">
       <div
         data-settings-content=""
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-3 [--app-ui-control-font-size:var(--ui-text-sm)] [overscroll-behavior:contain]"
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-3 [--app-ui-control-font-size:var(--ui-text-sm)]"
       >
         {tab && <PhoneTabContent tab={tab} />}
       </div>

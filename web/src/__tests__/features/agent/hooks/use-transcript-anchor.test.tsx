@@ -142,12 +142,11 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBe(1400)
   })
 
-  it('a scroll within a row of the bottom keeps following', () => {
-    const { scroller, grow } = mount()
+  it("a scroll within a row of the bottom is not pulled down by the list's own commit", () => {
+    const { scroller, commit } = mount()
     readerScrollsTo(scroller, 600 - 96)
-    grow(1300)
-    frames(1500)
-    expect(scroller.scrollTop).toBe(900)
+    commit()
+    expect(scroller.scrollTop).toBe(504)
   })
 
   it('a scroll just past a row from the bottom stops following', () => {

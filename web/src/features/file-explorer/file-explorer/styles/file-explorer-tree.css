@@ -4,8 +4,6 @@
   overflow-x: auto !important;
   height: 100% !important;
   position: relative !important;
-  overscroll-behavior: none !important;
-  -webkit-overflow-scrolling: auto !important;
   scroll-behavior: auto !important;
   pointer-events: auto !important;
   /* The sticky-ancestor stack's reserved space (file-explorer-tree.tsx's

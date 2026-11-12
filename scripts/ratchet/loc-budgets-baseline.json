@@ -22,14 +22,14 @@
   "web.core": 7503,
   "web.editor": 11419,
   "web.extensions": 582,
-  "web.files": 5114,
+  "web.files": 5113,
   "web.git-review": 5807,
   "web.hosts": 2498,
   "web.kit-ui": 9649,
   "web.settings": 6049,
   "web.sidebar": 14052,
   "web.terminal": 3927,
-  "web.tests": 126455,
-  "web.total": 104270,
+  "web.tests": 126454,
+  "web.total": 104269,
   "web.workspace-panes": 13218
 }
