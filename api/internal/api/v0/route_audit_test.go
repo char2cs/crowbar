@@ -405,6 +405,10 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/attachments",
 		"GET " + repo + "/chats/:id/attachments/:file",
 		"HEAD " + repo + "/chats/:id/attachments/:file",
+		"POST " + repo + "/chats/:id/attachments/uploads",
+		"PUT " + repo + "/chats/:id/attachments/uploads/:uploadId",
+		"POST " + repo + "/chats/:id/attachments/uploads/:uploadId/complete",
+		"DELETE " + repo + "/chats/:id/attachments/uploads/:uploadId",
 		"GET " + repo + "/chats/:id/telemetry",
 		// The provider's own slash-command list, so the composer can autocomplete
 		// commands the CLI itself defines.
@@ -526,6 +530,10 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/attachments",
 		"GET " + home + "/chats/:id/attachments/:file",
 		"HEAD " + home + "/chats/:id/attachments/:file",
+		"POST " + home + "/chats/:id/attachments/uploads",
+		"PUT " + home + "/chats/:id/attachments/uploads/:uploadId",
+		"POST " + home + "/chats/:id/attachments/uploads/:uploadId/complete",
+		"DELETE " + home + "/chats/:id/attachments/uploads/:uploadId",
 		"GET " + home + "/chats/:id/slash-catalog",
 		"PATCH " + home + "/chats/:id/selection",
 		"PUT " + home + "/chats/:id/permission-level",
