@@ -210,7 +210,7 @@ func TestReviewThread_ListByWorkspace_FiltersWsID(t *testing.T) {
 	require.NoError(t, err)
 	_, err = repo.Open(ctx, reviewthread.OpenInput{ID: "t2", WsID: "w2", MessageID: "m2"}, now)
 	require.NoError(t, err)
-
+	reviewthread.WaitQuiescentForTest(repo)
 	list, err := repo.ListByWorkspace(ctx, "w1")
 	require.NoError(t, err)
 	assert.Len(t, list, 1)

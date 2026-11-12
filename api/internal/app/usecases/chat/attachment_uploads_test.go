@@ -58,11 +58,11 @@ func TestAttachmentUpload_LookupFailuresAreWrapped(t *testing.T) {
 	chatID, _ := f.spawn(t, "claude")
 	cs.failGetChat = fmt.Errorf("boom: get chat")
 	_, err := f.usecase.BeginAttachmentUpload(f.ctx, chatID, "ab12", "a.bin", 4)
-	require.ErrorContains(t, err, "attachment upload: chat")
+	require.ErrorContains(t, err, "attachments: chat")
 
 	f2 := newFixture(t)
 	chat2, _ := f2.spawn(t, "claude")
 	*f2.homeErr = fmt.Errorf("boom: no home")
 	err = f2.usecase.AbortAttachmentUpload(f2.ctx, chat2, "ab12")
-	require.ErrorContains(t, err, "attachment upload: home")
+	require.ErrorContains(t, err, "attachments: home")
 }

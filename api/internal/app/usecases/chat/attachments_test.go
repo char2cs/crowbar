@@ -47,7 +47,7 @@ func TestUploadAttachment_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
 		ID: "ab12", OriginalName: "photo.png", Data: pngBytes(),
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "upload attachment: chat")
+	assert.Contains(t, err.Error(), "attachments: chat")
 }
 
 func TestUploadAttachment_HomeLookupFailure_ReturnsWrappedError(t *testing.T) {
@@ -59,7 +59,7 @@ func TestUploadAttachment_HomeLookupFailure_ReturnsWrappedError(t *testing.T) {
 		ID: "ab12", OriginalName: "photo.png", Data: pngBytes(),
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "upload attachment: home")
+	assert.Contains(t, err.Error(), "attachments: home")
 }
 
 func TestUploadAttachment_StoreFailure_ReturnsWrappedError(t *testing.T) {
@@ -104,7 +104,7 @@ func TestReadAttachment_ChatLookupFailure_ReturnsWrappedError(t *testing.T) {
 	cs.failGetChat = fmt.Errorf("boom: get chat")
 	_, _, err := f.usecase.ReadAttachment(f.ctx, chatID, "no-such-file.png")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read attachment: chat")
+	assert.Contains(t, err.Error(), "attachments: chat")
 }
 
 func TestReadAttachment_HomeLookupFailure_ReturnsWrappedError(t *testing.T) {
@@ -114,5 +114,5 @@ func TestReadAttachment_HomeLookupFailure_ReturnsWrappedError(t *testing.T) {
 	*f.homeErr = fmt.Errorf("boom: no home")
 	_, _, err := f.usecase.ReadAttachment(f.ctx, chatID, "no-such-file.png")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read attachment: home")
+	assert.Contains(t, err.Error(), "attachments: home")
 }

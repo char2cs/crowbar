@@ -25,9 +25,9 @@ function NativeJumpToLatest({ onJump, dockTop }: JumpToLatestProps) {
   useEffect(
     () =>
       onNativeChromeIntent((intent) => {
-        if (intent.type === 'jumpToLatest') jump()
+        if (intent.type === 'jumpToLatest' && intent.owner === owner) jump()
       }),
-    [],
+    [owner],
   )
   return null
 }

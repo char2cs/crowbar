@@ -47,7 +47,7 @@ struct JumpToLatestButton: View {
       icon: "ArrowDown", label: model.jumpLabel,
       tint: model.palette?.text
     ) {
-      model.send(.of("jumpToLatest"))
+      model.send(.of("jumpToLatest", ["owner": model.jumpOwner]))
     }
   }
 }

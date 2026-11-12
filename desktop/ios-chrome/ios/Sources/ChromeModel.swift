@@ -172,6 +172,8 @@ final class ChromeModel: ObservableObject {
   @Published var hostStatus = "unknown"
   @Published var welcome: WelcomeState?
   @Published var jumpLabel = ""
+  /// The web component whose Jump to latest button is up; a tap names it so only its transcript jumps.
+  var jumpOwner = ""
   // Kept after the web closes the sheet, so it slides away showing what it showed.
   @Published var connect: ConnectState?
   @Published var headers = ChromeHeaders(chat: [], ide: [])

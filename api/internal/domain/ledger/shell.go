@@ -5,10 +5,9 @@ import (
 	"strings"
 )
 
-// KindShell records a command the main agent left running in the background,
-// or a monitor it set watching: its start, what it says while it runs, then its
-// end however it came about. It is not the chat's work, so a live shell keeps
-// no chat busy.
+// KindShell records a command the main agent left running, or a monitor it set
+// watching: its start, what it says, then its end. It is not the chat's work,
+// so a live shell keeps no chat busy.
 const KindShell Kind = "shell"
 
 // The phases of a shell row, and the words its end says.
@@ -16,16 +15,14 @@ const (
 	ShellStart = "start"
 	ShellNote  = "note"
 	ShellEnd   = "end"
-	// ShellStopping says the agent was asked to end the shell; only its end
-	// settles it.
+	// ShellStopping says the agent was asked to end the shell; only its end settles it.
 	ShellStopping = "stopping"
 
 	ShellFinished = "finished"
 	ShellFailed   = "failed"
 	ShellStopped  = "stopped"
 
-	// A shell with no kind is a shell; a monitor is a command whose output lines
-	// the agent is told of as they come.
+	// A monitor is a command whose output lines the agent is told of as they come.
 	ShellKindShell   = "shell"
 	ShellKindMonitor = "monitor"
 
@@ -33,10 +30,8 @@ const (
 	ShellTailBytes = 2048
 )
 
-// ShellBody is the body of a shell row. A start names the command, the agent's
-// own words for it and what the provider says of where and how it runs; a note
-// is the newest thing it printed; an end says how it ended. Ref is the
-// provider's handle on the process, which is not necessarily an OS pid.
+// ShellBody is the body of a shell row: a start names the command and where it runs, a note is
+// its newest output line, an end says how it ended. Ref is the provider's handle on the process.
 type ShellBody struct {
 	Phase      string `json:"phase"`
 	ShellID    string `json:"shellId"`
@@ -78,8 +73,7 @@ func ShellTail(out string) string {
 
 // Shell is one background command of the chat; Status is "" while it runs.
 type Shell struct {
-	ID, Command, Label, Status string
-	TurnID                     string
+	Status, TurnID string
 	// Stopping is set once the agent was asked to end the shell, until it does.
 	Stopping bool
 }
@@ -122,7 +116,7 @@ func (s *State) applyShell(r Row) {
 		if s.shells == nil {
 			s.shells = map[string]Shell{}
 		}
-		s.shells[body.ShellID] = Shell{ID: body.ShellID, Command: body.Command, Label: body.Label, TurnID: r.TurnID}
+		s.shells[body.ShellID] = Shell{TurnID: r.TurnID}
 	case body.Phase == ShellStopping && seen && known.Live():
 		known.Stopping = true
 		s.shells[body.ShellID] = known

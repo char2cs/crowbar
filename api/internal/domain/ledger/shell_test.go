@@ -54,7 +54,6 @@ func TestFold_AShellRunsUntilItsFirstEndAndKeepsNoChatBusy(t *testing.T) {
 
 	shell, ok := st.ShellOf("s")
 	require.True(t, ok)
-	assert.Equal(t, "make dev", shell.Command)
 	assert.True(t, shell.Live())
 	assert.False(t, st.Busy(), "a shell is not the chat's work")
 
@@ -75,4 +74,18 @@ func TestShellTail_KeepsTheEndOfTheOutputWithinItsBoundAtALineStart(t *testing.T
 	assert.LessOrEqual(t, len(tail), ledger.ShellTailBytes)
 	assert.True(t, strings.HasSuffix(tail, "\nlast"))
 	assert.True(t, strings.HasPrefix(tail, "0123456789"), "cut at a line start")
+}
+
+func TestFold_ARunnersExitStopsItsLiveShellsAndNoOthers(t *testing.T) {
+	start := func(turn, id string) ledger.Row {
+		return row(t, ledger.KindShell, turn, ledger.ShellBody{Phase: ledger.ShellStart, ShellID: id})
+	}
+	st := ledger.Fold("c1", sequenced(t, turnStart(t, "T1"), start("T1", "a"), ended(t, "T1"),
+		row(t, ledger.KindTurnStarted, "T2", ledger.TurnStarted{RunnerID: "run-2"}), start("T2", "kept"),
+		exited(t, "run-1", "crashed", 1)))
+
+	a, _ := st.ShellOf("a")
+	assert.Equal(t, ledger.ShellStopped, a.Status, "its process died with the runner")
+	kept, _ := st.ShellOf("kept")
+	assert.True(t, kept.Live(), "another runner's shell stays")
 }

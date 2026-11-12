@@ -205,9 +205,9 @@ final class ChromeOverlays {
   /// shrinking the page re-places it (`KeyboardFit.fitted`).
   func applyJumpToLatest(_ state: JumpToLatestState) {
     guard let view = jumpButton else { return }
-    if state.visible { jumpOwner = state.owner }
+    if state.visible { model.jumpOwner = state.owner }
     // A stale owner's clear must not take down the button its successor raised.
-    if !state.visible && state.owner != jumpOwner { return }
+    if !state.visible && state.owner != model.jumpOwner { return }
     if state.visible {
       model.jumpLabel = state.label
       jumpBottom = CGFloat(state.bottom)
@@ -235,7 +235,6 @@ final class ChromeOverlays {
   }
 
   private var jumpBottom: CGFloat = 0
-  private var jumpOwner = ""
 
   /// The circle's distance above the webview's bottom edge, which the keyboard moves.
   private func placeJumpButton() {

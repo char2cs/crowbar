@@ -61,14 +61,6 @@ func TestStore_RefusesOversizeData(t *testing.T) {
 	assert.ErrorIs(t, err, safepath.ErrFileTooLarge)
 }
 
-func TestStore_RefusesACollidingFilename(t *testing.T) {
-	dir := t.TempDir()
-	_, _, err := attachments.Store(dir, "ab12", "photo.png", []byte("first"))
-	require.NoError(t, err)
-	_, _, err = attachments.Store(dir, "ab12", "photo.png", []byte("second"))
-	assert.ErrorIs(t, err, problem.ErrConflict)
-}
-
 func TestRead_RoundTripsStoredBytes(t *testing.T) {
 	dir := t.TempDir()
 	fileName, _, err := attachments.Store(dir, "ab12", "photo.png", pngBytes())

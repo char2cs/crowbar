@@ -43,44 +43,24 @@ func sanitizeName(name string) string {
 	return unsafeFileNameChars.ReplaceAllString(base, "_")
 }
 
-// Store writes data under dir as "<id>-<sanitized originalName>". An existing
-// target is problem.ErrConflict, never overwritten: a message may already
-// reference those bytes. Blank names must come from SyntheticName first.
+// Store writes data under dir as "<id>-<sanitized originalName>" through the staged upload, so it
+// is never seen half-written, and never replaces an attachment a message may already reference.
+// Blank names must come from SyntheticName first.
 func Store(
 	dir, id, originalName string,
 	data []byte,
 ) (fileName, contentType string, err error) {
-	if !ValidID(id) {
-		return "", "", fmt.Errorf("attachments: invalid id: %w", problem.ErrInvalidArgument)
-	}
-	base := sanitizeName(originalName)
-	if base == "" {
-		return "", "", fmt.Errorf("attachments: original name required: %w", problem.ErrInvalidArgument)
-	}
 	if len(data) > MaxBytes {
 		return "", "", fmt.Errorf("attachments: %w", safepath.ErrFileTooLarge)
 	}
-	fileName = id + "-" + base
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", "", fmt.Errorf("attachments: create directory: %w", err)
+	size := int64(len(data))
+	if _, err := BeginUpload(dir, id, originalName, size); err != nil {
+		return "", "", err
 	}
-	dest := filepath.Join(dir, fileName)
-	//nolint:gosec // G304: dir is chat-scoped and already resolved by the caller; fileName is validated above to carry no separators.
-	// O_EXCL makes this atomic: both create and exclusive-exist check happen in one syscall, preventing TOCTOU races.
-	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return "", "", fmt.Errorf("attachments: %q already exists: %w", fileName, problem.ErrConflict)
-		}
-		return "", "", fmt.Errorf("attachments: create: %w", err)
+	if _, err := AppendUpload(dir, id, 0, bytes.NewReader(data)); err != nil && !errors.Is(err, ErrNotFound) {
+		return "", "", err
 	}
-	if _, err := f.Write(data); err != nil {
-		return "", "", errors.Join(fmt.Errorf("attachments: write: %w", err), f.Close())
-	}
-	if err := f.Close(); err != nil {
-		return "", "", fmt.Errorf("attachments: close: %w", err)
-	}
-	return fileName, ContentType(data), nil
+	return CompleteUpload(dir, id, originalName, size)
 }
 
 // SyntheticName builds a fallback filename for an attachment with no original

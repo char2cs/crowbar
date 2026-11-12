@@ -6,16 +6,15 @@ import type { NativeChromeIntent } from '@/lib/native-chrome'
 const chrome = vi.hoisted(() => ({
   native: false,
   push: vi.fn(),
-  intent: null as ((intent: NativeChromeIntent) => void) | null,
+  listeners: new Set<(intent: NativeChromeIntent) => void>(),
+  intent: (intent: NativeChromeIntent) => chrome.listeners.forEach((listener) => listener(intent)),
 }))
 vi.mock('@/lib/native-chrome', () => ({
   hasNativeChrome: () => chrome.native,
   setNativeJumpToLatest: chrome.push,
   onNativeChromeIntent: (cb: (intent: NativeChromeIntent) => void) => {
-    chrome.intent = cb
-    return () => {
-      chrome.intent = null
-    }
+    chrome.listeners.add(cb)
+    return () => chrome.listeners.delete(cb)
   },
 }))
 
@@ -24,7 +23,6 @@ import { JumpToLatest } from '@/features/agent/transcript/jump-to-latest'
 beforeEach(() => {
   chrome.native = false
   chrome.push.mockClear()
-  chrome.intent = null
 })
 afterEach(cleanup)
 
@@ -58,16 +56,18 @@ describe('JumpToLatest in the phone chrome', () => {
     )
   })
 
-  it('goes down under the IDE and returns with the chat, whose tap jumps', () => {
+  it('goes down under the IDE and returns with the chat, whose tap jumps its own', () => {
     const onJump = vi.fn()
     render(<JumpToLatest onJump={onJump} dockTop={92} />)
     act(() => useMobileScreenStore.getState().open('ide'))
     expect(chrome.push).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }))
     act(() => useMobileScreenStore.getState().back())
     expect(chrome.push).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }))
-    act(() => chrome.intent?.({ type: 'closePlusMenu' }))
-    expect(onJump).not.toHaveBeenCalled()
-    act(() => chrome.intent?.({ type: 'jumpToLatest' }))
+    const { owner } = chrome.push.mock.lastCall![0] as { owner: string }
+    const splitPane = vi.fn()
+    render(<JumpToLatest onJump={splitPane} dockTop={92} />)
+    act(() => chrome.intent({ type: 'jumpToLatest', owner }))
     expect(onJump).toHaveBeenCalledOnce()
+    expect(splitPane).not.toHaveBeenCalled()
   })
 })

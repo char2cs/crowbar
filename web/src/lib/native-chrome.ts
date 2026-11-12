@@ -325,7 +325,7 @@ export type NativeChromeIntent =
   | { type: 'retryAttachFile'; id: string }
   | { type: 'attachFiles' }
   | { type: 'closeAttachSheet' }
-  | { type: 'jumpToLatest' }
+  | { type: 'jumpToLatest'; owner: string }
   | { type: 'rowAction'; rowId: string; actionId: string }
   | { type: 'dragRow'; rowId: string | null }
   | { type: 'moveRow'; rowId: string; targetId: string; position: DropMode }
