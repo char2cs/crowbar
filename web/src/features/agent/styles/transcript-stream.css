@@ -164,3 +164,16 @@
 .agent-chat .subagent-head .tool-call-state {
   margin-left: 8px;
 }
+/* A phone's header has no width for title and metadata on one line: the title keeps most of a
+   line and the metadata wraps under it instead of crushing it to an ellipsis. */
+.agent-chat-pane[data-touch] .agent-chat .subagent-head {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.agent-chat-pane[data-touch] .agent-chat .subagent-title {
+  flex: 1 1 60%;
+}
+/* Two boundaries in a row read as two lines, not one pill stack. */
+.agent-chat-pane[data-touch] .agent-chat .divider {
+  padding: 10px 0;
+}

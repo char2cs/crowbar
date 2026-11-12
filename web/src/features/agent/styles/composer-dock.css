@@ -44,16 +44,26 @@
 .agent-chat-pane[data-touch] .agent-chat .dock {
   padding-inline: 12px;
 }
-/* An attachment's controls reach 44pt a piece: clear of the card's top edge (the field clips
-   above it) and of each other. */
+/* On touch there is no hover to reveal an attachment's controls, so they stay drawn: 32px to the
+   eye, 44pt to the finger, over a preview held to a compact height. */
+.agent-chat-pane[data-touch] .markdown-image {
+  max-height: 128px;
+}
 .agent-chat-pane[data-touch] .attachment-controls {
-  top: 10px;
-  gap: 16px;
+  top: 6px;
+  gap: 12px;
+  opacity: 1;
+}
+.agent-chat-pane[data-touch] .attachment-controls button {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
 }
 .agent-chat-pane[data-touch] .attachment-controls button::after {
   content: '';
   position: absolute;
-  inset: -8px;
+  inset: -6px;
 }
 /* Status and error lines about the composer read centred on the input box. */
 .agent-chat .composer-note {

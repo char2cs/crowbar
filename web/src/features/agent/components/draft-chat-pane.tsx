@@ -104,6 +104,8 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
               providers={providers}
               model={pick.model}
               effort={pick.effort}
+              // No session has reported a model yet: the provider's first, which the catalogue ranks.
+              reportedModel={provider?.models?.[0]}
               switchDisabled={sending}
               permission={{
                 wsId,

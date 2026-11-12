@@ -6,6 +6,10 @@ struct AppearanceCards: View {
   let mode: String
   let palette: ChromePalette?
   let choose: (String) -> Void
+  @Environment(\.colorScheme) private var scheme
+
+  /// The brand green, not the system blue, outlines the chosen card.
+  private var ring: Color { palette?.brand(scheme) ?? .accentColor }
 
   private static let modes: [(id: String, label: String)] = [
     ("light", "Light"), ("dark", "Dark"), ("system", "System"),
@@ -23,14 +27,14 @@ struct AppearanceCards: View {
               .clipShape(.rect(cornerRadius: 10))
               .overlay {
                 RoundedRectangle(cornerRadius: 10)
-                  .strokeBorder(selected ? Color.accentColor : Color.secondary.opacity(0.3),
+                  .strokeBorder(selected ? ring : Color.secondary.opacity(0.3),
                     lineWidth: selected ? 2.5 : 1)
               }
             Text(item.label)
               .crowbarUI(.footnote)
               .lineLimit(1)
               .minimumScaleFactor(0.8)
-              .foregroundStyle(selected ? Color.accentColor : palette?.secondaryText ?? .secondary)
+              .foregroundStyle(selected ? ring : palette?.secondaryText ?? .secondary)
           }
           .contentShape(.rect)
         }

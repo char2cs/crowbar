@@ -55,9 +55,15 @@ final class ChromeOverlays {
   } onUserDismiss: { [model] in
     model.send(.of("closePlusMenu"))
   }
-  private lazy var attachSheet = SheetPresenter(undimmed: false, detents: [.medium(), .large()]) {
-    [attach, model] in
-    UIHostingController(rootView: AttachSheet(model: attach, chrome: model))
+  private lazy var attachSheet: SheetPresenter = SheetPresenter(
+    undimmed: false, detents: [.medium(), .large()]
+  ) { [attach, model, weak self] in
+    UIHostingController(
+      rootView: AttachSheet(
+        model: attach, chrome: model,
+        pick: { id in
+          self?.attachSheet.closeThen { model.send(.of("pickAttachSource", ["id": id])) }
+        }))
   } onUserDismiss: { [model] in
     model.send(.of("closeAttachSheet"))
   }

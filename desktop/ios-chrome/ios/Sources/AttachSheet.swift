@@ -42,8 +42,15 @@ final class AttachSheetModel: ObservableObject {
 struct AttachSheet: View {
   @ObservedObject var model: AttachSheetModel
   @ObservedObject var chrome: ChromeModel
+  /// Dismisses the sheet, then reports the source: the system picker cannot present over a
+  /// sheet that is still leaving.
+  let pick: (String) -> Void
+
+  @Environment(\.colorScheme) private var scheme
 
   private var state: AttachSheetState { model.state }
+  /// The brand green in the mode the sheet is drawn in; `chrome.accent` is only set for some pages.
+  private var accent: Color? { palette?.brand(scheme) ?? chrome.accent }
   private var palette: ChromePalette? { chrome.palette }
   private var text: Color { palette?.text ?? .primary }
   private var secondaryText: Color { palette?.secondaryText ?? .secondary }
@@ -79,7 +86,7 @@ struct AttachSheet: View {
         ForEach(state.sources) { source in
           Button {
             Haptics.select()
-            chrome.send(.of("pickAttachSource", ["id": source.id]))
+            pick(source.id)
           } label: {
             HStack(spacing: 6) {
               if let icon = CrowbarIcon(named: source.icon) { PhosphorIcon(icon, size: 18) }
@@ -95,6 +102,7 @@ struct AttachSheet: View {
       }
     }
     .listRowBackground(Color.clear)
+    .listRowSeparator(.hidden)
     .listRowInsets(EdgeInsets())
   }
 
@@ -124,7 +132,7 @@ struct AttachSheet: View {
         Haptics.select()
         chrome.send(.of("removeAttachFile", ["id": file.id]))
       } label: {
-        PhosphorIcon(.x, size: 16, emphasis: 0.5)
+        PhosphorIcon(.x, size: 18, emphasis: 0.7)
           .foregroundStyle(secondaryText)
           .frame(width: 44, height: 44)
           .contentShape(.rect)
@@ -138,9 +146,9 @@ struct AttachSheet: View {
   @ViewBuilder
   private func progress(_ percent: Int?) -> some View {
     if let percent {
-      ProgressView(value: Double(percent), total: 100).tint(chrome.accent)
+      ProgressView(value: Double(percent), total: 100).tint(accent)
     } else {
-      ProgressView().progressViewStyle(.linear).tint(chrome.accent)
+      ProgressView().progressViewStyle(.linear).tint(accent)
     }
   }
 
@@ -167,7 +175,7 @@ struct AttachSheet: View {
             Text(state.attachLabel).frame(maxWidth: .infinity)
           }
           .buttonStyle(.glassProminent)
-          .tint(chrome.accent)
+          .tint(accent)
           .disabled(!state.canAttach)
         }
         .buttonBorderShape(.capsule)
