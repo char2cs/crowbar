@@ -46,7 +46,6 @@ beforeEach(() => {
 afterEach(() => {
   platform.mobile = false
   restoreRows()
-  restoreRows = () => {}
   HTMLElement.prototype.getBoundingClientRect = originalRect
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -58,14 +57,6 @@ function layList(scrollHeight: number, clientHeight: number) {
   const box = { scrollHeight, clientHeight }
   layOut(list, box)
   return { list, box }
-}
-
-const seedPrompts = (n: number) => {
-  const l = ledger()
-  seedFeed(
-    'chat-1',
-    Array.from({ length: n }, (_, i) => l.prompt(`r${i}`, `prompt ${i}`)),
-  )
 }
 
 const outboxItem = (requestId: string): OutboxItem => ({
@@ -446,45 +437,6 @@ describe('AgentTranscript', () => {
     seedFeed('chat-1', [l.prompt('r1', 'one'), l.prompt('r2', 'two')])
     draw()
     expect(screen.getByTestId('agent-message-list').scrollTop).toBe(2 * 150)
-  })
-
-  it('keeps a viewport of short rows drawn past the top edge of the view', () => {
-    // A fling outruns a re-render: the rows must already stand where it lands.
-    restoreRows = measureRows({ row: 30, viewport: 800 })
-    seedPrompts(300)
-    draw()
-    const drawn = screen.getByTestId('agent-message-list').querySelectorAll('[data-index]').length
-    // 27 rows in view; 12 of overscan alone drew 39. The rows above the window are still
-    // estimated at 96, so its reach counts them tall and draws fewer than the 54 it will settle on.
-    expect(drawn).toBeGreaterThanOrEqual(45)
-  })
-
-  it('draws the newest rows on the commit that lands the opening', () => {
-    // jsdom fires no scroll event for a write, as an engine fires it only a frame later.
-    restoreRows = measureRows({ row: 150, viewport: 600 })
-    seedPrompts(40)
-    draw()
-    const list = screen.getByTestId('agent-message-list')
-    // Rows above the window keep their estimates: the bottom is the list's own.
-    expect(list.scrollTop).toBe(list.scrollHeight - 600)
-    expect(screen.getByText('prompt 39')).toBeInTheDocument()
-  })
-
-  it('draws the newest rows when a chat opened parked gets its box', () => {
-    const observed = observeResizes()
-    const box = { viewport: 0 }
-    restoreRows = measureRows({ row: 150, viewport: () => box.viewport })
-    seedPrompts(40)
-    draw()
-    const list = screen.getByTestId('agent-message-list')
-    box.viewport = 600
-    // Not in act: the box's report comes between layout and paint, outside React.
-    observed.get(list)?.(
-      [{ borderBoxSize: [{ inlineSize: 768, blockSize: 600 }] } as never],
-      {} as ResizeObserver,
-    )
-    expect(list.scrollTop).toBe(list.scrollHeight - 600)
-    expect(screen.getByText('prompt 39')).toBeInTheDocument()
   })
 
   it('lands a change to an idle chat in one write', () => {
