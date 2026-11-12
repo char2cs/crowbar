@@ -200,6 +200,53 @@ final class ChromeOverlays {
     attachSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
   }
 
+  /// A native glass circle inside the webview, so the keyboard shrinking the page carries it
+  /// (autoresizing keeps its distance from the bottom) and the card's slide moves it along.
+  func applyJumpToLatest(_ state: JumpToLatestState) {
+    guard let view = jumpButton, let webview else { return }
+    let size = GlassCircle.diameter
+    if state.visible {
+      model.jumpLabel = state.label
+      let center = CGPoint(
+        x: webview.bounds.midX, y: webview.bounds.height - CGFloat(state.bottom) - size / 2)
+      if view.isHidden || view.alpha == 0 {
+        view.center = center
+        view.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        view.isHidden = false
+      }
+      UIView.animate(
+        withDuration: 0.2, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]
+      ) {
+        view.center = center
+        view.alpha = 1
+        view.transform = .identity
+      }
+      return
+    }
+    UIView.animate(
+      withDuration: 0.2, delay: 0, options: [.curveEaseIn, .beginFromCurrentState],
+      animations: {
+        view.alpha = 0
+        view.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+      },
+      completion: { _ in view.isHidden = view.alpha == 0 })
+  }
+
+  private lazy var jumpButton: UIView? = {
+    guard let webview else { return nil }
+    let controller = UIHostingController(
+      rootView: JumpToLatestButton(model: model))
+    controller.view.backgroundColor = .clear
+    let size = GlassCircle.diameter
+    controller.view.frame = CGRect(x: 0, y: 0, width: size, height: size)
+    controller.view.autoresizingMask = [.flexibleTopMargin, .flexibleLeftMargin, .flexibleRightMargin]
+    controller.view.alpha = 0
+    controller.view.isHidden = true
+    webview.addSubview(controller.view)
+    hosted.append(controller)
+    return controller.view
+  }()
+
   func applyHostPicker(_ state: HostPickerState) {
     hostPicker.state = state
     hostSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)

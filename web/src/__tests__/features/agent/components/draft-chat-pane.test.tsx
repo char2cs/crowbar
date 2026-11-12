@@ -21,9 +21,10 @@ const claude: AgentProvider = {
   compaction: false,
   hasTerminal: true,
   hotswap: false,
-  terminalStartHere: false,
+  terminalStartHere: true,
 }
 
+vi.mock('@/utils/platform', () => ({ IS_MOBILE: true }))
 vi.mock('@/features/agent/hooks/use-pane-providers', () => ({ usePaneProviders: () => [claude] }))
 // The document itself is the chat's own; only the controls the pane hands it matter here.
 vi.mock('@/features/agent/chat/agent-empty-document', () => ({
@@ -73,5 +74,25 @@ describe('DraftChatPane', () => {
     await act(async () => refuse())
 
     expect(boxText()).toBe('# fix the bug\n\n# and add a test')
+  })
+
+  it('opens the new chat on its terminal from the strip, keeping the box as the chat’s draft', async () => {
+    const spy = vi.spyOn(promote, 'promoteDraftThread').mockResolvedValue()
+    spy.mockClear()
+    render(
+      <PlateController>
+        <DraftChatPane paneId="p1" wsId="w1" hostId="local" belowOverlayHeader={false} />
+        <GrabEditor />
+      </PlateController>,
+    )
+    await act(async () => grabbed.editor!.tf.insertText('fix the bug'))
+    expect(screen.getByRole('tab', { name: 'Chat' }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.click(screen.getByRole('tab', { name: 'Terminal' }))
+
+    expect(spy).toHaveBeenCalledOnce()
+    const [paneId, prompt, typedSince] = spy.mock.calls[0]!
+    expect(paneId).toBe('p1')
+    expect(prompt).toMatchObject({ presentation: 'terminal', text: '' })
+    expect(typedSince()).toContain('fix the bug')
   })
 })

@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "set_model_picker",
     "set_plus_menu",
     "set_attach_sheet",
+    "set_jump_to_latest",
     "confirm",
     "prompt",
     "register_listener",

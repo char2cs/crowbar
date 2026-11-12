@@ -13,6 +13,7 @@ struct GlassCircle: View {
 
   /// From the screen edge to the circle.
   static let edgeInset: CGFloat = 16
+  static let diameter: CGFloat = 44
 
   var body: some View {
     Button {
@@ -23,7 +24,7 @@ struct GlassCircle: View {
         if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon, emphasis: 0.5) }
       }
       .foregroundStyle(tint ?? .primary)
-      .frame(width: 44, height: 44)
+      .frame(width: Self.diameter, height: Self.diameter)
         .contentShape(.circle)
         .glassEffect(.regular.interactive(), in: .circle)
     }
@@ -33,5 +34,21 @@ struct GlassCircle: View {
     .accessibilityLabel(label)
     // Glyphs grow with the text size, up to what still fits the fixed circle.
     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+  }
+}
+
+/// The transcript's way back to the newest rows: the down arrow, in the brand colour.
+@available(iOS 26.0, *)
+struct JumpToLatestButton: View {
+  @ObservedObject var model: ChromeModel
+  @Environment(\.colorScheme) private var scheme
+
+  var body: some View {
+    GlassCircle(
+      icon: "ArrowDown", label: model.jumpLabel,
+      tint: model.palette?.brand(scheme) ?? model.accent
+    ) {
+      model.send(.of("jumpToLatest"))
+    }
   }
 }

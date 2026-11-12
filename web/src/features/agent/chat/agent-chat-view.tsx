@@ -338,6 +338,7 @@ export function AgentChatView({
       onOpenTerminal={onOpenTerminal}
       promptActions={rowActions}
       dockHeight={dock.dockHeight}
+      dockTop={dock.dockTop}
       visible={visible}
       initialScrollPosition={initialScrollPosition}
       onScrollPositionChange={(position) => setScrollPosition(chatId, position)}

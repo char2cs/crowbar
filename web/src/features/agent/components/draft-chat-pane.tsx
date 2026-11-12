@@ -39,7 +39,6 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
     effort: string
     permissionLevel: PermissionLevel | ''
   }>({ provider: '', model: '', effort: '', permissionLevel: '' })
-  const [presentation, setPresentation] = useState<'chat' | 'terminal'>('chat')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const provider = providers.find((p) => p.id === pick.provider) ?? providers.find((p) => p.enabled)
@@ -61,14 +60,25 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
     const draftId = draftOfPane(paneId)?.draftId
     editor?.clear()
     const typedSince = () => editor?.getMarkdown() ?? ''
-    void promoteDraftThread(paneId, { ...pick, presentation, text: prompt }, typedSince).finally(
-      () => {
-        setSending(false)
-        if (draftOfPane(paneId)?.draftId !== draftId) return
-        const rest = typedSince().trim()
-        editor?.setMarkdown(rest ? `${prompt}\n\n${rest}` : prompt)
-      },
-    )
+    void promoteDraftThread(paneId, { ...pick, text: prompt }, typedSince).finally(() => {
+      setSending(false)
+      if (draftOfPane(paneId)?.draftId !== draftId) return
+      const rest = typedSince().trim()
+      editor?.setMarkdown(rest ? `${prompt}\n\n${rest}` : prompt)
+    })
+  }
+
+  // A draft is always on Chat; Terminal makes the chat in its terminal, where the box's text
+  // stays as the draft. The segment then belongs to that chat, never to the draft.
+  const openTerminal = () => {
+    if (sending) return
+    setSending(true)
+    const editor = editorRef.current
+    void promoteDraftThread(
+      paneId,
+      { ...pick, presentation: 'terminal', text: '' },
+      () => editor?.getMarkdown() ?? '',
+    ).finally(() => setSending(false))
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => {
@@ -129,9 +139,9 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
               />
               {IS_MOBILE && providerCanStartOnTerminal(provider) && provider?.hasTerminal && (
                 <FooterViewSwitch
-                  presentation={presentation}
+                  presentation="chat"
                   handoverBlocked={sending}
-                  onSelect={(next) => setPresentation(next === 'terminal' ? 'terminal' : 'chat')}
+                  onSelect={(next) => next === 'terminal' && openTerminal()}
                 />
               )}
             </>

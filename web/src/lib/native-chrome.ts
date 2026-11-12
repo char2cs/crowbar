@@ -325,6 +325,7 @@ export type NativeChromeIntent =
   | { type: 'retryAttachFile'; id: string }
   | { type: 'attachFiles' }
   | { type: 'closeAttachSheet' }
+  | { type: 'jumpToLatest' }
   | { type: 'rowAction'; rowId: string; actionId: string }
   | { type: 'dragRow'; rowId: string | null }
   | { type: 'moveRow'; rowId: string; targetId: string; position: DropMode }
@@ -394,6 +395,21 @@ export function setNativePlusMenu(menu: NativePlusMenu): void {
 export function setNativeAttachSheet(sheet: NativeAttachSheet): void {
   if (!hasNativeChrome()) return
   void invoke(`plugin:${PLUGIN}|set_attach_sheet`, sheet)
+}
+
+/** The transcript's floating down-arrow: shown while a reader is up the page, `bottom` points
+ *  above the webview's bottom edge (the dock plus a gap), so the keyboard moves it with the page. */
+// A type, not an interface: invoke's args need the index signature only a type alias gets.
+export type NativeJumpToLatest = {
+  visible: boolean
+  bottom: number
+  label: string
+}
+
+/** Replaces the Jump to latest button's state. */
+export function setNativeJumpToLatest(state: NativeJumpToLatest): void {
+  if (!hasNativeChrome()) return
+  void invoke(`plugin:${PLUGIN}|set_jump_to_latest`, state)
 }
 
 /** Asks a native yes/no question over whatever is on screen; no without the phone's chrome. */

@@ -80,6 +80,14 @@ class ChromePlugin: Plugin {
     }
   }
 
+  @objc public func setJumpToLatest(_ invoke: Invoke) throws {
+    let state = try invoke.parseArgs(JumpToLatestState.self)
+    DispatchQueue.main.async {
+      if #available(iOS 26.0, *) { self.mounted()?.applyJumpToLatest(state) }
+      invoke.resolve()
+    }
+  }
+
   @objc public func setHostPicker(_ invoke: Invoke) throws {
     let state = try invoke.parseArgs(HostPickerState.self)
     DispatchQueue.main.async {

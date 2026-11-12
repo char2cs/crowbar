@@ -46,6 +46,7 @@ import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider
 import { JumpToLatest } from '@/features/agent/transcript/jump-to-latest'
 import { isNotice } from '@/features/agent/transcript/rows/marker-row'
 import { copyWithoutAnchors } from '@/features/agent/transcript/lib/plain-copy'
+import { ROW_GAP, estimateRowHeight, reachRange } from '@/features/agent/transcript/lib/row-reach'
 import {
   TranscriptRow,
   type RowActions,
@@ -65,6 +66,8 @@ interface AgentTranscriptProps {
   /** The dock overlays the transcript by padding, so its height changes reach
    *  the anchor only through this. */
   dockHeight?: number
+  /** The dock's top edge above the viewport's bottom, measured: what Jump to latest sits above. */
+  dockTop?: number
   /** A background tab stays mounted behind visibility:hidden. */
   visible?: boolean
   initialScrollPosition?: TranscriptScrollPosition | null
@@ -75,8 +78,7 @@ interface AgentTranscriptProps {
 
 type Key = VirtualItem['key']
 
-/** `.stream`'s 18px gap, baked into each virtual row so the offsets count it. */
-const ROW_GAP = 18
+const OVERSCAN = 12
 /** Notice cards read as a stack, closer than prose rows. */
 const NOTICE_GAP = 10
 
@@ -92,7 +94,7 @@ function measureRowHeight(el: Element): number {
  *  honest answer, else the total collapses and the restored offset clamps.
  *  `measured` records which rows have a real height, not an estimate. */
 const measureRowInto =
-  (measured: Set<Key>) =>
+  (measured: Map<Key, number>) =>
   (
     el: HTMLDivElement,
     _entry: ResizeObserverEntry | undefined,
@@ -101,23 +103,11 @@ const measureRowInto =
     const height = measureRowHeight(el)
     const key = instance.options.getItemKey(instance.indexFromElement(el))
     if (height > 0) {
-      measured.add(key)
+      measured.set(key, height)
       return height
     }
     return instance.itemSizeCache.get(key) ?? height
   }
-
-const ESTIMATED_ROW_HEIGHT = 96
-const ROW_CHROME = 8 + 30 + ROW_GAP
-const ROW_LINE_HEIGHT = 23
-const CHARS_PER_LINE = 88
-
-/** Scaled by the text so a long reply's first guess is close to its height. */
-function estimateRowHeight(item: TranscriptItem | undefined): number {
-  if (item?.kind !== 'text' && item?.kind !== 'user') return ESTIMATED_ROW_HEIGHT
-  const lines = Math.max(1, Math.ceil(item.text.length / CHARS_PER_LINE))
-  return Math.max(ESTIMATED_ROW_HEIGHT, ROW_CHROME + lines * ROW_LINE_HEIGHT)
-}
 
 /** Tool, ask and marker rows of one run sit flush; prose gets the gap. */
 const compact = (id: string, item: TranscriptItem | undefined) =>
@@ -274,7 +264,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const refusal = useFeedError(chatId)
   const items = useChatItems(chatId)
   const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
-  const [measured] = useState(() => new Set<Key>())
+  const [measured] = useState(() => new Map<Key, number>())
   const [pinnedId, setPinnedId] = useState<string | null>(null)
   // The pin's turn is over once its prompt left `pending` and nothing runs.
   const pinnedState = useChatStore((s) =>
@@ -377,11 +367,17 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   useLayoutEffect(() => onOutboxChange(), [newestUnsent, newestSending])
 
   const getItemKey = useCallback((index: number) => rows[index] ?? index, [rows])
+  const sizeOf = (index: number) => {
+    const id = rows[index] ?? ''
+    return measured.get(id) ?? estimateRowHeight(id, itemOf(id))
+  }
+  const rangeExtractor = reachRange(sizeOf, OVERSCAN)
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (index) => estimateRowHeight(itemOf(rows[index] ?? '')),
-    overscan: 12,
+    estimateSize: sizeOf,
+    overscan: OVERSCAN,
+    rangeExtractor,
     measureElement: measureRow,
     getItemKey,
     observeElementRect,
@@ -491,7 +487,9 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           </div>
         )}
         {props.tail}
-        {!holding && !empty && <JumpToLatest onJump={jumpToLatest} />}
+        {!holding && !empty && props.visible !== false && (
+          <JumpToLatest onJump={jumpToLatest} dockTop={props.dockTop || props.dockHeight || 92} />
+        )}
         <div className="dock-spacer" aria-hidden="true" />
       </div>
     </div>

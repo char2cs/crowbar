@@ -1,6 +1,7 @@
 {
   "phosphor": [
     ["ArrowClockwise", "regular"],
+    ["ArrowDown", "regular"],
     ["ArrowElbowDownRight", "regular"],
     ["At", "regular"],
     ["Camera", "regular"],

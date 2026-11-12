@@ -24,7 +24,7 @@ export interface DraftPrompt {
   effort: string
   /** The level the chat starts at; empty keeps the host's default. */
   permissionLevel?: PermissionLevel | ''
-  /** Where the chat opens; Terminal keeps the text as the chat's unsent draft. Defaults to Chat. */
+  /** Where the chat opens; on Terminal nothing is sent and the box stays the chat's draft. Defaults to Chat. */
   presentation?: LandingChatPresentation
 }
 
@@ -80,11 +80,7 @@ export function finishDraftThread(
   }
   const { panes, paneActions } = windowPaneStore.getState()
   if (panes[draft.paneId]?.chatId !== draft.draftId) return
-  // On the terminal the prompt is not sent: it stays the chat's draft, ahead of what was typed since.
-  const unsent =
-    presentation === 'terminal'
-      ? [message.text, typedSince()].filter(Boolean).join('\n\n')
-      : typedSince()
-  saveDraft(chatId, unsent)
+  // On the terminal nothing is sent: the whole box is the chat's draft, which Chat restores.
+  saveDraft(chatId, typedSince())
   paneActions.retargetPane(draft.paneId, chatId, null)
 }

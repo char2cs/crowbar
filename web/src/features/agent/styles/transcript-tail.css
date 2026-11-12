@@ -4,6 +4,10 @@
   bottom: calc(var(--agent-dock-h, 92px) + 12px);
   align-self: center;
   z-index: 2;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9999px;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
 }
 

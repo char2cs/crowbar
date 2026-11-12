@@ -448,6 +448,17 @@ describe('AgentTranscript', () => {
     expect(screen.getByTestId('agent-message-list').scrollTop).toBe(2 * 150)
   })
 
+  it('keeps a viewport of short rows drawn past the top edge of the view', () => {
+    // A fling outruns a re-render: the rows must already stand where it lands.
+    restoreRows = measureRows({ row: 30, viewport: 800 })
+    seedPrompts(300)
+    draw()
+    const drawn = screen.getByTestId('agent-message-list').querySelectorAll('[data-index]').length
+    // 27 rows in view; 12 of overscan alone drew 39. The rows above the window are still
+    // estimated at 96, so its reach counts them tall and draws fewer than the 54 it will settle on.
+    expect(drawn).toBeGreaterThanOrEqual(45)
+  })
+
   it('draws the newest rows on the commit that lands the opening', () => {
     // jsdom fires no scroll event for a write, as an engine fires it only a frame later.
     restoreRows = measureRows({ row: 150, viewport: 600 })
