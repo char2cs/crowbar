@@ -60,6 +60,15 @@
 .agent-chat .doc [data-slate-placeholder] {
   opacity: 0.42 !important;
 }
+/* The typed title is the same serif first line; the editor keeps the first block an h1. */
+.agent-chat .doc .blk > h1:first-child {
+  font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
+  font-size: 34px;
+  line-height: 40px;
+  letter-spacing: -0.005em;
+  margin: 0 0 0.45em;
+  padding: 0;
+}
 /* The document's editable. Plate owns the blocks inside it; this is only the
    column they sit in. */
 .agent-chat .doc .blk {
@@ -149,23 +158,24 @@
 /* The empty document's bar is the same capsule: as tall as the one-line pill. */
 .agent-chat .dochandle[data-touch] .grp {
   height: calc(var(--touch-line) + 2 * var(--touch-pad-y) + 2px);
-  padding: 0 4px;
+  /* The send circle sits where the pill's does: 9px from the edge, border included. */
+  padding: 0 8px 0 4px;
 }
 .agent-chat .dochandle[data-touch] .side:last-child {
   gap: var(--touch-gap);
 }
 .agent-chat .dochandle[data-touch] .inner {
-  /* The board's capsule: 20px from the edge, the text inside it 14px further. */
-  --pad: 20px;
+  /* The dock's capsule: 12px from the edge, the text 17px further, as in the input pill. */
+  --pad: 12px;
 }
 .agent-chat .dochandle[data-touch] .ghosts {
-  --pad: 34px;
+  --pad: 29px;
   --inset: 0px;
   padding-top: 14px;
   padding-bottom: 26px;
 }
 .agent-chat .doc:has(+ .dochandle[data-touch]) {
-  --pad: 34px;
+  --pad: 29px;
   --inset: 0px;
   font-size: var(--touch-text);
   padding-top: calc(30px + var(--agent-header-clearance, 0px));
@@ -180,6 +190,10 @@
   font-size: 32px;
   line-height: 38px;
   letter-spacing: -0.005em;
+}
+.agent-chat .doc:has(+ .dochandle[data-touch]) .blk > h1:first-child {
+  font-size: 32px;
+  line-height: 38px;
 }
 .agent-chat .doc:has(+ .dochandle[data-touch]) [data-slate-placeholder] {
   opacity: 0.42 !important;

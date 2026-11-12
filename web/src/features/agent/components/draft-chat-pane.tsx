@@ -1,4 +1,5 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { promoteDraftThread } from '@/components/layout/draft-promote'
 import { draftOfPane } from '@/components/layout/draft-thread'
 import { AgentEmptyDocument } from '@/features/agent/chat/agent-empty-document'
@@ -7,7 +8,7 @@ import {
   ChatMarkdownEditor,
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
-import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
+import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
 import { refusal } from '@/features/agent/stores/lib/outbox'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
@@ -29,7 +30,12 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
   const [hasText, setHasText] = useState(false)
   // Re-renders the document so its handle rides the last line as the box grows.
   const [, setFieldHeight] = useState(0)
-  const [pick, setPick] = useState({ provider: '', model: '', effort: '' })
+  const [pick, setPick] = useState<{
+    provider: string
+    model: string
+    effort: string
+    permissionLevel: PermissionLevel | ''
+  }>({ provider: '', model: '', effort: '', permissionLevel: '' })
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const provider = providers.find((p) => p.id === pick.provider) ?? providers.find((p) => p.enabled)
@@ -80,6 +86,7 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
             placeholder="Describe the change…"
             ariaLabel="Describe the change"
             autoFocus
+            document
             onShapeChange={(shape) => setHasText(!shape.empty)}
             onKeyDown={handleKeyDown}
             onHeightChange={setFieldHeight}
@@ -92,19 +99,26 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
           onSubmit={() => send(editorRef.current?.getMarkdown() ?? '')}
           attach={null}
           controls={
-            <span className="selpos">
-              <AgentSelectionPicker
-                provider={provider}
-                providers={providers}
-                model={pick.model}
-                effort={pick.effort}
-                disabled={sending}
-                onSelectionChange={(next, model, effort) =>
-                  setPick({ provider: next, model, effort })
-                }
-                unsetLabel="Default"
-              />
-            </span>
+            <SelectionCluster
+              provider={provider}
+              providers={providers}
+              model={pick.model}
+              effort={pick.effort}
+              switchDisabled={sending}
+              permission={{
+                wsId,
+                chatId: '',
+                levels: provider?.permissionLevels,
+                draft: {
+                  hostId,
+                  level: pick.permissionLevel,
+                  onPick: (permissionLevel) => setPick((was) => ({ ...was, permissionLevel })),
+                },
+              }}
+              onSelectionChange={(next, model, effort) =>
+                setPick((was) => ({ ...was, provider: next, model, effort }))
+              }
+            />
           }
           sending={sending}
           headerClearancePx={headerClearancePx}

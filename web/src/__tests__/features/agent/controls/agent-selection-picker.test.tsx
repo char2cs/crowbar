@@ -457,6 +457,19 @@ describe('AgentSelectionPicker', () => {
       })
     })
 
+    it('stages a draft pick instead of writing it', async () => {
+      chrome.on = true
+      platform.mobile = true
+      const onPick = vi.fn()
+      const draft = { hostId: 'local', level: 'guarded' as const, onPick }
+      draw({ permission: { wsId: 'w1', chatId: '', levels: ['guarded', 'trusted'], draft } })
+      openMenu()
+      await waitFor(() => expect(chrome.pushed.at(-1)?.permission?.level).toBe('guarded'))
+      send({ type: 'setPermissionLevel', level: 'trusted' })
+      expect(onPick).toHaveBeenCalledWith('trusted')
+      expect(setLevel).not.toHaveBeenCalled()
+    })
+
     it('writes a level picked natively and keeps the sheet open', async () => {
       chrome.on = true
       platform.mobile = true

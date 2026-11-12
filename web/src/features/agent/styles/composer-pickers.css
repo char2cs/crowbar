@@ -524,7 +524,7 @@
 .attach-sheet .attach-btn {
   height: 44px;
   padding: 0 14px;
-  border-radius: 12px;
+  border-radius: 9999px;
   font-size: 15px;
 }
 .attach-sheet .attach-foot .attach-btn {

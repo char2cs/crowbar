@@ -79,5 +79,7 @@ struct PlusMenuSheet: View {
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
+    // The row's own 44pt is the whole height: the list's default insets would add 27pt to it.
+    .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
   }
 }

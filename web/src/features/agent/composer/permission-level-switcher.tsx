@@ -14,8 +14,7 @@ import { useChatHost } from '@/lib/host-resolve'
 import { Dropdown } from '@/components/ui/dropdown'
 
 /** The default level of the chat's host while the chat pins none; null until it is known. */
-function useInheritedLevel(chatId: string, inherits: boolean): PermissionLevel | null {
-  const hostId = useChatHost(chatId)
+function useInheritedLevel(hostId: string | null, inherits: boolean): PermissionLevel | null {
   const [known, setKnown] = useState<{ hostId: string; level: PermissionLevel } | null>(null)
   useEffect(() => {
     if (!inherits || hostId === null) return
@@ -44,6 +43,9 @@ export interface PermissionTarget {
   chatId: string
   /** The levels the provider declares; absent or empty offers none. */
   levels?: PermissionLevel[]
+  /** A draft has no chat to write to: its host and the level it will start with, held by the
+   *  draft until the chat exists. */
+  draft?: { hostId: string; level: PermissionLevel | ''; onPick: (level: PermissionLevel) => void }
 }
 
 /** The level the chat runs at and the write that changes it, for every surface offering the
@@ -51,16 +53,23 @@ export interface PermissionTarget {
 export function usePermissionLevel(target: PermissionTarget | null) {
   const wsId = target?.wsId ?? ''
   const chatId = target?.chatId ?? ''
-  const pinned = useChatField<PermissionLevel | ''>(chatId, (c) => c?.permissionLevel ?? '')
+  const chatPinned = useChatField<PermissionLevel | ''>(chatId, (c) => c?.permissionLevel ?? '')
+  const chatHost = useChatHost(chatId)
+  const draft = target?.draft
+  const pinned = draft ? draft.level : chatPinned
   // The person's pick shows from the moment it is made; a failed one falls back.
   const [picked, setPicked] = useState<PermissionLevel | null>(null)
-  const inherited = useInheritedLevel(chatId, target !== null && !picked && !pinned)
+  const inherited = useInheritedLevel(
+    draft?.hostId ?? chatHost,
+    target !== null && !picked && !pinned,
+  )
   // A late settlement from an earlier pick must not roll back over a later one.
   const writeGeneration = useRef(0)
 
   const setLevel = useCallback(
     (value: PermissionLevel | '' | null) => {
       if (!value) return
+      if (draft) return draft.onPick(value)
       const generation = ++writeGeneration.current
       setPicked(value)
       setChatPermissionLevel(wsId, chatId, value).catch((err: unknown) => {
@@ -73,7 +82,7 @@ export function usePermissionLevel(target: PermissionTarget | null) {
         )
       })
     },
-    [wsId, chatId],
+    [wsId, chatId, draft],
   )
 
   const options = PERMISSION_LEVEL_OPTIONS.filter((opt) => target?.levels?.includes(opt.value))

@@ -72,6 +72,6 @@ describe('DraftChatPane', () => {
     await act(async () => grabbed.editor!.tf.insertText('and add a test'))
     await act(async () => refuse())
 
-    expect(boxText()).toBe('fix the bug\n\nand add a test')
+    expect(boxText()).toBe('# fix the bug\n\n# and add a test')
   })
 })

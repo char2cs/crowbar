@@ -109,3 +109,50 @@ export const chatComposerStructurePlugin = createPlatePlugin({
     },
   },
 }))
+
+const TITLE = 'h1'
+
+/** The blank chat's document opens with a title: its first block is an h1 as soon as it holds
+ *  text, a plain line again when emptied, and a break inside it starts body text. A leading
+ *  `/` is a command, not a title. Inert while `isDocument()` is false. */
+export function createDocumentTitlePlugin(isDocument: () => boolean) {
+  return createPlatePlugin({ key: 'agent-chat-title' }).overrideEditor(
+    ({ editor, tf: { insertBreak, normalizeNode } }) => ({
+      transforms: {
+        insertBreak() {
+          const inTitle =
+            isDocument() &&
+            editor.selection?.anchor.path[0] === 0 &&
+            editor.children[0]?.type === TITLE
+          // The box always ends in a line, so the title's end already has one under it.
+          const next = editor.children[1]
+          if (inTitle && next?.type === LINE && editor.api.isEnd(editor.selection!.anchor, [0])) {
+            editor.tf.select(editor.api.start([1])!)
+            return
+          }
+          insertBreak()
+          if (inTitle && editor.children[1]?.type === TITLE) {
+            editor.tf.setNodes({ type: LINE }, { at: [1] })
+          }
+        },
+        normalizeNode(entry) {
+          const first = editor.children[0]
+          if (entry[1].length === 0 && isDocument() && first) {
+            const text = NodeApi.string(first)
+            const retype =
+              first.type === LINE && text.trim() !== '' && !text.startsWith('/')
+                ? TITLE
+                : first.type === TITLE && text === ''
+                  ? LINE
+                  : null
+            if (retype) {
+              editor.tf.setNodes({ type: retype }, { at: [0] })
+              return
+            }
+          }
+          normalizeNode(entry)
+        },
+      },
+    }),
+  )
+}

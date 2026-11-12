@@ -1,3 +1,6 @@
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
+import { setChatPermissionLevel } from '@/features/agent/api/agent-chat-commands'
+import { report, UNREACHED } from '@/lib/errors/report'
 import { saveDraft } from '@/features/agent/composer/lib/draft-persistence'
 import { sendPrompt } from '@/features/agent/stores/chat-outbox'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -19,6 +22,8 @@ export interface DraftPrompt {
   provider: string
   model: string
   effort: string
+  /** The level the chat starts at; empty keeps the host's default. */
+  permissionLevel?: PermissionLevel | ''
 }
 
 /** The draft a pane holds, or null when it holds none (or has been closed). */
@@ -56,7 +61,17 @@ export function finishDraftThread(
   prompt: DraftPrompt,
   typedSince: () => string,
 ): void {
-  sendPrompt(draft.workspaceId, chatId, { ...prompt, steer: false })
+  const { permissionLevel, ...message } = prompt
+  if (permissionLevel) {
+    // The level lands before the first message can start the agent.
+    void setChatPermissionLevel(draft.workspaceId, chatId, permissionLevel)
+      .catch((err: unknown) =>
+        report(err, { action: 'Could not set permission level', fallback: UNREACHED }),
+      )
+      .finally(() => sendPrompt(draft.workspaceId, chatId, { ...message, steer: false }))
+  } else {
+    sendPrompt(draft.workspaceId, chatId, { ...message, steer: false })
+  }
   const { panes, paneActions } = windowPaneStore.getState()
   if (panes[draft.paneId]?.chatId !== draft.draftId) return
   saveDraft(chatId, typedSince())

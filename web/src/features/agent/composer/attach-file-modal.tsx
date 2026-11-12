@@ -1,32 +1,14 @@
 import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react'
 import { useCallback, useRef, useState } from 'react'
 import { XIcon } from '@phosphor-icons/react'
-import { nanoid } from 'nanoid'
 import { Dialog, DialogPopup, DialogTitle } from '@/components/ui/dialog'
-import type { UploadChatAttachmentInput } from '@/features/agent/api/upload-chat-attachment'
-import { uploadAttachmentMarkdown } from '@/features/agent/composer/lib/attachment-upload'
+import { AttachFileList } from '@/features/agent/composer/attach-file-list'
+import { useStagedUploads } from '@/features/agent/composer/lib/use-staged-uploads'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
-import { UNREACHED, userWords } from '@/lib/errors/report'
+import { NativeAttachSheetView, useOnCancel } from '@/features/agent/composer/native-attach-sheet'
+import { attachSheetFiles, LIMIT_MB, summarize } from '@/features/agent/composer/lib/attach-staged'
+import { hasNativeChrome, type NativeChromeIntent } from '@/lib/native-chrome'
 import { IS_MOBILE } from '@/utils/platform'
-
-/** The daemon's attachments.MaxBytes (see upload-chat-attachment.ts). */
-const LIMIT_MB = 25
-
-type Status = 'uploading' | 'done' | 'bad'
-
-interface Staged {
-  id: number
-  name: string
-  /** Unknown for a path the desktop hands over: the daemon reads it. */
-  bytes: number | null
-  status: Status
-  /** What a Retry sends again, under the same upload id so the daemon resumes. */
-  retry?: () => void
-  /** Bytes sent so far; stays 0 for a path the daemon reads itself. */
-  loaded?: number
-  markdown?: string
-  problem?: string
-}
 
 interface AttachFileModalProps {
   wsId: string
@@ -35,24 +17,6 @@ interface AttachFileModalProps {
   onClose: () => void
   onInsertMarkdown: (markdown: string) => void
 }
-
-function sizeLabel(bytes: number | null): string {
-  if (bytes === null) return ''
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB`
-}
-
-function rowNote(item: Staged): string {
-  const size = sizeLabel(item.bytes)
-  if (item.status === 'uploading' && item.bytes && item.loaded !== undefined) {
-    return `${sizeLabel(item.loaded)} of ${size} · Uploading…`
-  }
-  const note =
-    item.status === 'done' ? 'Uploaded' : item.status === 'uploading' ? 'Uploading…' : item.problem
-  return [size, note].filter(Boolean).join(' · ')
-}
-
-const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path
 
 /** Files are uploaded as they are chosen and listed with their state; "Attach" puts the finished
  *  ones into the message. A modal, not inline: the pill has no room to grow a picker. */
@@ -63,56 +27,15 @@ export function AttachFileModal({
   onClose,
   onInsertMarkdown,
 }: AttachFileModalProps) {
-  const [items, setItems] = useState<Staged[]>([])
   const [dropTarget, setDropTarget] = useState(false)
+  // The native sheet steps aside while the system picker is up and returns when it answers.
+  const [picking, setPicking] = useState(false)
   const dropzoneRef = useRef<HTMLDivElement>(null)
   const filesRef = useRef<HTMLInputElement>(null)
   const photosRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
-  const nextId = useRef(0)
-  const uploads = useRef(new Map<number, AbortController>())
 
-  const settle = useCallback((id: number, patch: Partial<Staged>) => {
-    // A removed row's upload may still land: it finds nothing to update.
-    setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
-  }, [])
-
-  const stage = useCallback(
-    (input: UploadChatAttachmentInput) => {
-      const id = nextId.current++
-      const name = 'file' in input ? input.file.name : baseName(input.path)
-      const bytes = 'file' in input ? input.file.size : null
-      if (bytes !== null && bytes > LIMIT_MB * 1024 * 1024) {
-        const problem = `too large, the limit is ${LIMIT_MB} MB`
-        setItems((current) => [...current, { id, name, bytes, status: 'bad', problem }])
-        return
-      }
-      setItems((current) => [...current, { id, name, bytes, status: 'uploading' }])
-      const uploadId = nanoid()
-      const send = () => {
-        const controller = new AbortController()
-        uploads.current.set(id, controller)
-        settle(id, { status: 'uploading', loaded: undefined, problem: undefined, retry: undefined })
-        uploadAttachmentMarkdown(wsId, chatId, input, {
-          id: uploadId,
-          signal: controller.signal,
-          onProgress: (loaded) => settle(id, { loaded }),
-        }).then(
-          (markdown) => settle(id, { status: 'done', markdown }),
-          (err: unknown) => {
-            if (controller.signal.aborted) return
-            settle(id, {
-              status: 'bad',
-              problem: userWords(err, UNREACHED) ?? UNREACHED,
-              retry: send,
-            })
-          },
-        )
-      }
-      send()
-    },
-    [wsId, chatId, settle],
-  )
+  const { items, stage, remove, abortAll } = useStagedUploads(wsId, chatId)
 
   // Memoized: `useTauriFileDrop` re-subscribes its IPC channel on a new `onDrop`,
   // and every dragOver/dragLeave re-renders this modal.
@@ -144,23 +67,17 @@ export function AttachFileModal({
   )
 
   const handleBrowse = (e: ChangeEvent<HTMLInputElement>) => {
+    setPicking(false)
     for (const file of Array.from(e.target.files ?? [])) stage({ file })
     e.target.value = ''
   }
 
-  const done = items.filter((item) => item.status === 'done')
-  const worth = items.filter((item) => item.status !== 'bad')
-  const uploading = worth.length > done.length
-  const ready = done.length > 0 && !uploading
-
-  const attachLabel =
-    worth.length === 0
-      ? 'Attach files'
-      : `Attach ${worth.length} ${worth.length === 1 ? 'file' : 'files'}`
+  const { ready, attachLabel, hint } = summarize(items)
 
   const attach = () => {
     if (!ready) return
-    for (const item of done) if (item.markdown) onInsertMarkdown(item.markdown)
+    for (const item of items)
+      if (item.status === 'done' && item.markdown) onInsertMarkdown(item.markdown)
     onClose()
   }
 
@@ -170,71 +87,17 @@ export function AttachFileModal({
     attach()
   }
 
-  const remove = (id: number) => {
-    uploads.current.get(id)?.abort()
-    uploads.current.delete(id)
-    setItems((current) => current.filter((item) => item.id !== id))
-  }
-
   // Closing without attaching abandons what is still on its way.
   const cancel = () => {
-    for (const controller of uploads.current.values()) controller.abort()
-    uploads.current.clear()
+    abortAll()
     onClose()
   }
 
   const chosen = (
     <>
-      {items.length > 0 && (
-        <div className="attach-files" data-testid="attach-file-list">
-          {items.map((item) => {
-            const percent =
-              item.bytes && item.loaded !== undefined
-                ? Math.round((item.loaded / item.bytes) * 100)
-                : undefined
-            return (
-              <div key={item.id} className="attach-file" data-status={item.status}>
-                <div className="attach-file-text">
-                  <div className="attach-file-name">{item.name}</div>
-                  <div className="attach-file-note">
-                    {rowNote(item)}
-                    {item.retry && (
-                      <button type="button" className="attach-retry" onClick={item.retry}>
-                        Retry
-                      </button>
-                    )}
-                  </div>
-                  {item.status === 'uploading' && (
-                    <div
-                      className="attach-bar"
-                      role="progressbar"
-                      aria-label={`Uploading ${item.name}`}
-                      aria-valuenow={percent}
-                      data-determinate={percent === undefined ? undefined : ''}
-                    >
-                      <i style={percent === undefined ? undefined : { width: `${percent}%` }} />
-                    </div>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="attach-x"
-                  aria-label={`Remove ${item.name}`}
-                  onClick={() => remove(item.id)}
-                >
-                  <XIcon size={13} />
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      <AttachFileList items={items} onRemove={remove} />
       <div className="attach-foot">
-        {uploading && (
-          <span className="attach-hint">
-            Uploading {done.length} of {worth.length}…
-          </span>
-        )}
+        {hint && <span className="attach-hint">{hint}</span>}
         <span className="attach-grow" />
         <button type="button" className="attach-btn" onClick={cancel}>
           Cancel
@@ -253,6 +116,76 @@ export function AttachFileModal({
       </div>
     </>
   )
+
+  const sources = [
+    { id: 'photos', title: 'Photos', icon: 'Images', input: photosRef },
+    { id: 'camera', title: 'Camera', icon: 'Camera', input: cameraRef },
+    { id: 'files', title: 'Files', icon: 'Folder', input: filesRef },
+  ]
+  const onNativeIntent = (intent: NativeChromeIntent) => {
+    if (intent.type === 'pickAttachSource') {
+      setPicking(true)
+      sources.find((source) => source.id === intent.id)?.input.current?.click()
+    }
+    if (intent.type === 'removeAttachFile') remove(Number(intent.id))
+    if (intent.type === 'retryAttachFile') {
+      items.find((item) => String(item.id) === intent.id)?.retry?.()
+    }
+    if (intent.type === 'attachFiles') attach()
+    if (intent.type === 'closeAttachSheet') cancel()
+  }
+
+  // A dismissed system picker reports `cancel`, not `change`.
+  const back = useCallback(() => setPicking(false), [])
+  useOnCancel(photosRef, picking, back)
+  useOnCancel(cameraRef, picking, back)
+  useOnCancel(filesRef, picking, back)
+
+  if (hasNativeChrome()) {
+    return (
+      <>
+        <NativeAttachSheetView
+          open={open && !picking}
+          sheet={{
+            title: 'Attach files',
+            note: `Images, PDFs, text and code, up to ${LIMIT_MB} MB each.`,
+            sources: sources.map(({ id, title, icon }) => ({ id, title, icon })),
+            files: attachSheetFiles(items),
+            hint,
+            attachLabel,
+            canAttach: ready,
+          }}
+          onIntent={onNativeIntent}
+        />
+        <input
+          ref={photosRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          aria-label="Photos"
+          onChange={handleBrowse}
+        />
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+          aria-label="Camera"
+          onChange={handleBrowse}
+        />
+        <input
+          ref={filesRef}
+          type="file"
+          multiple
+          hidden
+          aria-label="Choose files"
+          onChange={handleBrowse}
+        />
+      </>
+    )
+  }
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && cancel()}>

@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { Dropdown } from '@/components/ui/dropdown'
+import { NativePlusMenuSheet } from '@/features/agent/composer/native-plus-menu'
+import { hasNativeChrome } from '@/lib/native-chrome'
 import { IS_MOBILE } from '@/utils/platform'
 
 /** Past this, a compaction is imminent. */
@@ -57,14 +59,35 @@ export function AgentContextGauge({
       >
         {body}
       </button>
-      <Dropdown
-        isOpen={open}
-        onClose={close}
-        anchorRef={anchorRef}
-        anchorSide="top"
-        anchorAlign="end"
-        items={[{ id: 'compact', label: 'Compact conversation', onClick: onCompact }]}
-      />
+      {hasNativeChrome() ? (
+        <NativePlusMenuSheet
+          open={open}
+          title="Context"
+          items={[
+            {
+              id: 'compact',
+              title: 'Compact conversation',
+              icon: 'ArrowClockwise',
+              hint: null,
+              divider: false,
+            },
+          ]}
+          onPick={() => {
+            close()
+            onCompact()
+          }}
+          onClose={close}
+        />
+      ) : (
+        <Dropdown
+          isOpen={open}
+          onClose={close}
+          anchorRef={anchorRef}
+          anchorSide="top"
+          anchorAlign="end"
+          items={[{ id: 'compact', label: 'Compact conversation', onClick: onCompact }]}
+        />
+      )}
     </>
   )
 }

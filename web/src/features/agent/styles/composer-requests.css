@@ -547,6 +547,13 @@
   .agent-chat .rq-pos {
     padding: 0 2px;
   }
+  /* The pager sits on the title's line, not centred on a title that has a subtitle under it. */
+  .agent-chat .rq-head:has(.rq-step) {
+    align-items: flex-start;
+  }
+  .agent-chat .rq-head .rq-step {
+    margin-top: -3px;
+  }
   .agent-chat .choice-request-code {
     padding: 11px 12px;
     font-size: 13px;
@@ -634,7 +641,7 @@
   .agent-chat .rq-answers > button {
     height: 44px;
     padding: 0 14px;
-    border-radius: 12px;
+    border-radius: 9999px;
     font-size: 15px;
     flex: 1 1 0;
   }

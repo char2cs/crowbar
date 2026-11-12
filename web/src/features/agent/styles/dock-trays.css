@@ -268,7 +268,7 @@
     color: var(--foreground);
   }
 }
-/* The phone: 44px header, 36px rows (two lines: 50px), 15px text, 44px targets. */
+/* The phone: 32px header, 36px rows (two lines: 50px), 15px text, 44px targets. */
 .agent-chat .dock:has(.pill[data-touch]) .tray-remove {
   width: 44px;
   height: 44px;
@@ -277,8 +277,16 @@
   margin-right: -10px;
 }
 .agent-chat .dock:has(.pill[data-touch]) .tray-head {
+  position: relative;
+  min-height: 32px;
   padding: 0 16px 0 18px;
   font-size: 13px;
+}
+/* The 32px header keeps a 44pt target: the hit area reaches past its edges. */
+.agent-chat .dock:has(.pill[data-touch]) button.tray-head::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
 }
 .agent-chat .dock:has(.pill[data-touch]) .tray-list {
   padding: 2px 8px 10px;
@@ -353,8 +361,8 @@
   color: var(--destructive);
 }
 .agent-chat .dock:has(.pill[data-touch]) [data-testid='agent-resolved-tray'] .tray-head {
-  font-size: 14px;
+  font-size: 13px;
 }
 .agent-chat .dock:has(.pill[data-touch]) .tray-toggle {
-  font-size: 13.5px;
+  font-size: 12.5px;
 }

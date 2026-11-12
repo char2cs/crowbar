@@ -1,6 +1,6 @@
 import { createRef } from 'react'
-import { act, cleanup, render } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ComposerField } from '@/features/agent/composer/composer-field'
 import type { ChatMarkdownEditorHandle } from '@/features/agent/composer/plate/chat-markdown-editor'
 
@@ -8,17 +8,21 @@ const ref = createRef<ChatMarkdownEditorHandle>()
 
 const onShapeChange = vi.fn()
 
-function drawField(chatId: string) {
+function drawField(
+  chatId: string,
+  placement: 'document' | 'dock' = 'dock',
+  onKeyDown: () => void = vi.fn(),
+) {
   render(
     <ComposerField
       ref={ref}
       wsId="w1"
       chatId={chatId}
-      placement="dock"
+      placement={placement}
       placeholder=""
       expanded={false}
       onShapeChange={onShapeChange}
-      onKeyDown={vi.fn()}
+      onKeyDown={onKeyDown}
       onHeightChange={vi.fn()}
     />,
   )
@@ -100,5 +104,49 @@ describe('ComposerField — a command', () => {
     act(() => ref.current?.completeCommand('/help '))
 
     expect(ref.current?.getMarkdown().trim()).toBe('/help\n\nfix the rounding')
+  })
+})
+
+describe('ComposerField — Enter', () => {
+  afterEach(cleanup)
+
+  const enter = (init: { metaKey?: boolean; ctrlKey?: boolean } = {}) => {
+    const box = screen.getByRole('textbox')
+    // jsdom does not implement contentEditable; Slate checks it before dispatching a key.
+    Object.defineProperty(box, 'isContentEditable', { value: true, configurable: true })
+    act(() => box.focus())
+    fireEvent.keyDown(box, { key: 'Enter', ...init })
+  }
+
+  it('goes to the chat in the pill, which sends on it', () => {
+    const onKeyDown = vi.fn()
+    drawField('e1', 'dock', onKeyDown)
+    enter()
+    expect(onKeyDown).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a new line in the document: the chat never sees it', () => {
+    const onKeyDown = vi.fn()
+    drawField('e2', 'document', onKeyDown)
+    enter()
+    expect(onKeyDown).not.toHaveBeenCalled()
+  })
+
+  it.each([{ metaKey: true }, { ctrlKey: true }])(
+    'sends from the document on %o + Enter',
+    (mod) => {
+      const onKeyDown = vi.fn()
+      drawField('e3', 'document', onKeyDown)
+      enter(mod)
+      expect(onKeyDown).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('hands an open command to the picker even in the document', () => {
+    const onKeyDown = vi.fn()
+    drawField('e4', 'document', onKeyDown)
+    act(() => ref.current?.startCommand())
+    enter()
+    expect(onKeyDown).toHaveBeenCalledTimes(1)
   })
 })

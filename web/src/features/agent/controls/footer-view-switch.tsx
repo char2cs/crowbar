@@ -24,20 +24,23 @@ export function FooterViewSwitch({
       onValueChange={(next) => onSelect(next as ChatPresentation)}
       className="footer-viewswitch gap-0"
     >
-      <SegmentedControl render={<TabsPrimitive.List aria-label="View" activateOnFocus />}>
+      <SegmentedControl
+        className="rounded-full"
+        render={<TabsPrimitive.List aria-label="View" activateOnFocus />}
+      >
         <SegmentedControlItem
           render={<TabsPrimitive.Tab value="chat" aria-label="Chat" />}
-          className="h-9 w-11 px-0 sm:h-9"
+          className="h-7 w-10 rounded-full px-0 sm:h-7"
         >
-          <ChatCircleIcon size={20} />
+          <ChatCircleIcon size={18} />
         </SegmentedControlItem>
         <SegmentedControlItem
           render={
             <TabsPrimitive.Tab value="terminal" aria-label="Terminal" disabled={handoverBlocked} />
           }
-          className="h-9 w-11 px-0 sm:h-9"
+          className="h-7 w-10 rounded-full px-0 sm:h-7"
         >
-          <TerminalWindowIcon size={20} />
+          <TerminalWindowIcon size={18} />
         </SegmentedControlItem>
       </SegmentedControl>
     </Tabs>

@@ -148,14 +148,17 @@
 .agent-chat .underbar[data-touch] > .right {
   justify-self: end;
 }
-/* 36pt to the eye, 44pt to the finger. */
+/* 32pt to the eye, 44pt to the finger; the sliding indicator is as round as the pill. */
+.footer-viewswitch [data-slot='segmented-control-indicator'] {
+  border-radius: 9999px;
+}
 .footer-viewswitch [role='tab'] {
   position: relative;
 }
 .footer-viewswitch [role='tab']::before {
   content: '';
   position: absolute;
-  inset: -4px 0;
+  inset: -8px 0;
 }
 /* The phone's footer is a row of 44px targets: the model chip at the left, the pill at the right. */
 .agent-chat .underbar[data-touch] {
@@ -163,10 +166,18 @@
   font-size: 13px;
 }
 .agent-chat .underbar[data-touch] .chip {
-  height: 44px;
-  padding: 0 6px;
+  position: relative;
+  height: 32px;
+  padding: 0 8px;
   gap: 5px;
+  border-radius: 9999px;
   font-size: 13px;
+}
+/* 32px to the eye like the context pill, 44pt to the finger. */
+.agent-chat .underbar[data-touch] .chip::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
 }
 .agent-chat .underbar[data-touch] .chip [data-provider-icon],
 .agent-chat .underbar[data-touch] .chip [data-provider-icon] svg {

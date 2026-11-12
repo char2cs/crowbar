@@ -14,6 +14,7 @@ import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-compos
 import {
   blankParagraph,
   chatComposerStructurePlugin,
+  createDocumentTitlePlugin,
 } from '@/features/agent/composer/plate/chat-composer-structure'
 import {
   chatMarkdownToValue,
@@ -133,6 +134,9 @@ export interface ChatMarkdownEditorProps {
   ref?: Ref<ChatMarkdownEditorHandle>
   /** The chat whose unsent draft this box keeps across a reload or a remount. */
   persistAs?: string
+  /** The blank chat's document, not the conversation's pill: its first block is a title, and
+   *  plain Enter is a new line (Cmd/Ctrl+Enter or the send button sends). */
+  document?: boolean
 }
 
 // The rich-markdown prompt box, shared by the conversation's pill and the blank chat's document.
@@ -153,7 +157,12 @@ export function ChatMarkdownEditor({
   style,
   ref,
   persistAs,
+  document,
 }: ChatMarkdownEditorProps) {
+  // Read through a ref like the key handler: the same editor moves from document to dock.
+  const documentRef = useRef(!!document)
+  documentRef.current = !!document
+  const titlePlugin = useMemo(() => createDocumentTitlePlugin(() => documentRef.current), [])
   // A plugin, not the `onKeyDown` DOM prop: the prop runs after Slate's own handling, so Enter
   // would split the block instead of sending. Read through a ref so the editor is built once
   // while the handler stays current.
@@ -179,6 +188,17 @@ export function ChatMarkdownEditor({
                 event.preventDefault()
                 current.tf.select({ anchor: docStart, focus: docEnd })
               }
+              return
+            }
+            // The document's Enter is Slate's own new block, unless a picker is open to take it.
+            if (
+              documentRef.current &&
+              event.key === 'Enter' &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              shapeOf(current).slashQuery === null &&
+              shapeOf(current).mentionQuery === null
+            ) {
               return
             }
             const { selection } = current
@@ -232,6 +252,7 @@ export function ChatMarkdownEditor({
       ? [
           ...chatComposerPlugins,
           chatComposerStructurePlugin,
+          titlePlugin,
           ChatComposerChipPlugin,
           keyPlugin,
           dropGuardPlugin,
@@ -240,6 +261,7 @@ export function ChatMarkdownEditor({
       : [
           ...chatComposerPlugins,
           chatComposerStructurePlugin,
+          titlePlugin,
           ChatComposerChipPlugin,
           keyPlugin,
           dropGuardPlugin,

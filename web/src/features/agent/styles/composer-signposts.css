@@ -30,6 +30,7 @@
 }
 .agent-chat .pill.halted > button {
   flex: none;
+  border-radius: 9999px;
 }
 .agent-chat .pill.halted[data-touch] > button {
   min-height: 44px;

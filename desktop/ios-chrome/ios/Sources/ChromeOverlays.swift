@@ -13,6 +13,7 @@ final class ChromeOverlays {
   private let picker = ModelPickerModel()
   private let hostPicker = HostPickerModel()
   private let plus = PlusMenuModel()
+  private let attach = AttachSheetModel()
   private let settingsModel = SettingsModel()
   private var rowMenu: RowMenu?
   private weak var webview: WKWebView?
@@ -53,6 +54,12 @@ final class ChromeOverlays {
         close: { model.send(.of("closePlusMenu")) }))
   } onUserDismiss: { [model] in
     model.send(.of("closePlusMenu"))
+  }
+  private lazy var attachSheet = SheetPresenter(undimmed: false, detents: [.medium(), .large()]) {
+    [attach, model] in
+    UIHostingController(rootView: AttachSheet(model: attach, chrome: model))
+  } onUserDismiss: { [model] in
+    model.send(.of("closeAttachSheet"))
   }
   private lazy var hostSheet = SheetPresenter(undimmed: false, detents: [.large()]) {
     [hostPicker, model] in
@@ -179,6 +186,12 @@ final class ChromeOverlays {
     // A closing push is empty: the sheet keeps its rows while it animates away.
     if state.open { plus.state = state }
     plusSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
+  }
+
+  func applyAttachSheet(_ state: AttachSheetState) {
+    // A closing push repeats the last content: the sheet keeps its rows while it animates away.
+    if state.open { attach.state = state }
+    attachSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
   }
 
   func applyHostPicker(_ state: HostPickerState) {

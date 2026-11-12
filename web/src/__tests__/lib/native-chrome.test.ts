@@ -25,6 +25,7 @@ import {
   onNativeChromeIntent,
   setNativeChrome,
   setNativeHostPicker,
+  setNativeAttachSheet,
   setNativePlusMenu,
   setNativeModelPicker,
   setNativeSidebar,
@@ -117,6 +118,32 @@ describe('setNativePlusMenu', () => {
     const menu = { open: true, title: 'Add', items: [] }
     setNativePlusMenu(menu)
     expect(host.invoke).toHaveBeenCalledWith('plugin:crowbar-chrome|set_plus_menu', menu)
+  })
+})
+
+describe('setNativeAttachSheet', () => {
+  const sheet = {
+    open: true,
+    title: 'Attach files',
+    note: 'Up to 25 MB each.',
+    sources: [],
+    files: [],
+    hint: null,
+    attachLabel: 'Attach files',
+    canAttach: false,
+  }
+
+  it('hands the whole sheet to the plugin', () => {
+    setNativeAttachSheet(sheet)
+    expect(host.invoke).toHaveBeenCalledWith('plugin:crowbar-chrome|set_attach_sheet', sheet)
+  })
+
+  it('does nothing without the phone chrome', () => {
+    host.invoke.mockClear()
+    host.mobile = false
+    setNativeAttachSheet(sheet)
+    expect(host.invoke).not.toHaveBeenCalled()
+    host.mobile = true
   })
 })
 

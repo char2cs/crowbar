@@ -289,6 +289,7 @@ export function AgentChatView({
         stashOrRestore: composer.stashOrRestore,
         selectSlashItem,
         send: enqueueDraft,
+        enterSends: !blank,
         recall: load,
       },
       event,

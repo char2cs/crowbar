@@ -56,8 +56,8 @@ async function type(text: string, name = COMPOSER) {
   await focusBox(name)
   await act(async () => grabbed.editor!.tf.insertText(text))
 }
-async function press(key: string, name = COMPOSER) {
-  fireEvent.keyDown(await focusBox(name), { key })
+async function press(key: string, name = COMPOSER, modifiers: { metaKey?: boolean } = {}) {
+  fireEvent.keyDown(await focusBox(name), { key, ...modifiers })
 }
 const markdown = () => serialization.chatValueToMarkdown(grabbed.editor!.children as Value)
 
@@ -211,13 +211,14 @@ describe('AgentChatView', () => {
         grabbed.editor!.tf.insertText(line)
       }),
     )
-    await press('Enter', DOCUMENT)
+    await press('Enter', DOCUMENT, { metaKey: true })
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     const requestId = String(submit.mock.calls[0]?.[3])
     act(() => seedFeed('c1', [l.prompt(requestId, long), l.start('turn-1', requestId)]))
     act(() => seedFeed('c1', [l.text('turn-1', 'm1', 0, '1\n2\n3', true), l.end('turn-1')]))
 
-    expect(submit.mock.calls[0]?.[2]).toBe(long)
+    // The document's first line is its title, so the prompt leaves as `# title`.
+    expect(submit.mock.calls[0]?.[2]).toBe(`# ${long}`)
     expect(await screen.findByText(/line 60 of the count/)).toBeInTheDocument()
     expect(String(consoleError.mock.calls)).not.toMatch(/Maximum update depth/)
   })
@@ -265,10 +266,12 @@ describe('AgentChatView one composer', () => {
     expect(screen.getAllByRole('textbox')).toEqual([editable])
 
     await type('add a flag', DOCUMENT)
-    await press('Enter', DOCUMENT)
+    await press('Enter', DOCUMENT, { metaKey: true })
 
     expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('add a flag')
-    await waitFor(() => expect(submit).toHaveBeenCalledWith('w1', 'c1', ...plainSend('add a flag')))
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith('w1', 'c1', ...plainSend('# add a flag')),
+    )
     expect(screen.getAllByRole('textbox')).toEqual([box()])
     expect(box()).toBe(editable)
     expect(markdown()).toBe('')

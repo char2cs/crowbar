@@ -55,29 +55,36 @@
 }
 .agent-chat .dock:has(.pill[data-touch]) .failure-notice {
   flex-wrap: wrap;
-  gap: 10px 12px;
-  padding: 12px 12px 12px 14px;
+  gap: 6px 10px;
+  padding: 8px 12px 8px 14px;
 }
 .agent-chat .dock:has(.pill[data-touch]) .failure-notice-text {
   flex: 1 1 200px;
 }
 .agent-chat .dock:has(.pill[data-touch]) .failure-notice-headline {
-  font-size: 16px;
-  line-height: 21px;
+  font-size: 14px;
+  line-height: 19px;
 }
 .agent-chat .dock:has(.pill[data-touch]) .failure-notice-hint {
-  font-size: 14.5px;
-  line-height: 19px;
+  font-size: 12.5px;
+  line-height: 17px;
 }
 .agent-chat .dock:has(.pill[data-touch]) .failure-notice-actions {
   flex: 1 1 100%;
 }
+/* 32px to the eye, 44pt to the finger; a pill like the capsule it sits in. */
 .agent-chat .dock:has(.pill[data-touch]) .failure-notice-actions [data-slot='button'] {
+  position: relative;
   flex: 1 1 0;
-  height: 44px;
-  padding: 0 16px;
-  border-radius: 12px;
-  font-size: 15px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .failure-notice-actions [data-slot='button']::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
 }
 
 /* A boundary told in one line of its own (a provider's warning, a moved session). */

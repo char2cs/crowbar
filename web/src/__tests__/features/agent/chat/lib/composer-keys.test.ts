@@ -12,6 +12,7 @@ function targets(searchOlder: (query: string) => string | undefined) {
     stashOrRestore: vi.fn(),
     selectSlashItem: vi.fn(),
     send: vi.fn(),
+    enterSends: true,
     recall: vi.fn(),
   }
 }
@@ -44,5 +45,40 @@ describe('handleComposerKey', () => {
 
     expect(event.preventDefault).toHaveBeenCalled()
     expect(t.recall).toHaveBeenCalledWith('run the tests')
+  })
+
+  describe('Enter in the blank chat document (enterSends off)', () => {
+    const enter = (init: Partial<KeyboardEvent<HTMLDivElement>> = {}) =>
+      key({ key: 'Enter', nativeEvent: { isComposing: false }, ...init } as never)
+    const press = (t: ReturnType<typeof targets>, event: KeyboardEvent<HTMLDivElement>) =>
+      handleComposerKey(
+        t,
+        event,
+        () => 'draft',
+        { atStart: false, atEnd: true },
+        { empty: false, slashQuery: 'co', mentionQuery: null },
+      )
+
+    it('never sends on plain Enter, leaving it as a new line', () => {
+      const t = { ...targets(() => undefined), enterSends: false }
+      const event = enter()
+      press(t, event)
+      expect(t.send).not.toHaveBeenCalled()
+      expect(event.preventDefault).not.toHaveBeenCalled()
+    })
+
+    it('still accepts the highlighted picker item', () => {
+      const item = { id: 'compact' } as never
+      const t = { ...targets(() => undefined), enterSends: false }
+      t.slash = { ...t.slash, highlighted: item } as never
+      press(t, enter())
+      expect(t.selectSlashItem).toHaveBeenCalledWith(item)
+    })
+
+    it('sends on Cmd+Enter', () => {
+      const t = { ...targets(() => undefined), enterSends: false }
+      press(t, enter({ metaKey: true }))
+      expect(t.send).toHaveBeenCalledWith('draft')
+    })
   })
 })

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
@@ -11,8 +11,25 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
     return platform.mobile
   },
 }))
+const chrome = vi.hoisted(() => ({
+  native: false,
+  show: vi.fn(),
+  listener: null as null | ((intent: { type: string; id?: string }) => void),
+}))
+vi.mock('@/lib/native-chrome', () => ({
+  hasNativeChrome: () => chrome.native,
+  setNativePlusMenu: chrome.show,
+  onNativeChromeIntent: (cb: typeof chrome.listener) => {
+    chrome.listener = cb
+    return () => {
+      chrome.listener = null
+    }
+  },
+}))
 afterEach(() => {
   platform.mobile = false
+  chrome.native = false
+  chrome.show.mockClear()
 })
 
 function telemetry(overrides: Partial<AgentTelemetry> = {}): AgentTelemetry {
@@ -126,6 +143,31 @@ describe('AgentContextGauge', () => {
       expect(pill.querySelector('.ctx-ring')).toHaveAttribute('data-unknown')
       fireEvent.click(pill)
       expect(onCompact).toHaveBeenCalledTimes(1)
+    })
+
+    it('opens the native sheet on the phone instead of a web menu, and Compact runs it', () => {
+      chrome.native = true
+      const onCompact = vi.fn()
+      render(<AgentContextGauge telemetry={reported(61)} onCompact={onCompact} />)
+      fireEvent.click(screen.getByTestId('agent-context-gauge'))
+
+      expect(screen.queryByRole('menuitem')).toBeNull()
+      expect(chrome.show).toHaveBeenLastCalledWith({
+        open: true,
+        title: 'Context',
+        items: [
+          {
+            id: 'compact',
+            title: 'Compact conversation',
+            icon: 'ArrowClockwise',
+            hint: null,
+            divider: false,
+          },
+        ],
+      })
+      act(() => chrome.listener?.({ type: 'pickPlusItem', id: 'compact' }))
+      expect(onCompact).toHaveBeenCalledTimes(1)
+      expect(chrome.listener).toBeNull()
     })
   })
 })

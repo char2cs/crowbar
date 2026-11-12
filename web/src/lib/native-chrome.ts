@@ -243,6 +243,29 @@ export type NativePlusMenu = {
   }[]
 }
 
+/** The composer's Attach sheet, drawn as a native sheet; the web keeps every upload's logic. */
+export type NativeAttachSheet = {
+  open: boolean
+  title: string
+  /** The limits line under the sources. */
+  note: string
+  sources: { id: string; title: string; icon: string }[]
+  files: {
+    id: string
+    name: string
+    /** Size and state, e.g. "1.2 MB · Uploaded". */
+    detail: string
+    status: 'uploading' | 'done' | 'bad'
+    /** 0-100 once the upload reports bytes, null while it is indeterminate. */
+    percent: number | null
+    canRetry: boolean
+  }[]
+  /** "Uploading 1 of 3…" while any file is on its way. */
+  hint: string | null
+  attachLabel: string
+  canAttach: boolean
+}
+
 // Types, not interfaces, for invoke's args (see NativeSidebar).
 type ConfirmOptions = {
   title: string
@@ -297,6 +320,11 @@ export type NativeChromeIntent =
   | { type: 'closeModelPicker' }
   | { type: 'pickPlusItem'; id: string }
   | { type: 'closePlusMenu' }
+  | { type: 'pickAttachSource'; id: string }
+  | { type: 'removeAttachFile'; id: string }
+  | { type: 'retryAttachFile'; id: string }
+  | { type: 'attachFiles' }
+  | { type: 'closeAttachSheet' }
   | { type: 'rowAction'; rowId: string; actionId: string }
   | { type: 'dragRow'; rowId: string | null }
   | { type: 'moveRow'; rowId: string; targetId: string; position: DropMode }
@@ -360,6 +388,12 @@ export function setNativeModelPicker(picker: NativeModelPicker): void {
 export function setNativePlusMenu(menu: NativePlusMenu): void {
   if (!hasNativeChrome()) return
   void invoke(`plugin:${PLUGIN}|set_plus_menu`, menu)
+}
+
+/** Replaces the Attach sheet's content. */
+export function setNativeAttachSheet(sheet: NativeAttachSheet): void {
+  if (!hasNativeChrome()) return
+  void invoke(`plugin:${PLUGIN}|set_attach_sheet`, sheet)
 }
 
 /** Asks a native yes/no question over whatever is on screen; no without the phone's chrome. */

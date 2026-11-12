@@ -28,6 +28,8 @@ interface ComposerKeyTargets {
   stashOrRestore: (markdown: string) => void
   selectSlashItem: (item: PickerItem) => void
   send: (markdown: string) => void
+  /** False in the blank chat's document: plain Enter is a new line there, Cmd/Ctrl+Enter sends. */
+  enterSends: boolean
   recall: (text: string) => void
 }
 
@@ -66,7 +68,8 @@ export function handleComposerKey(
     targets.selectSlashItem(slash.highlighted)
     return
   }
-  if (isSendKey(event)) {
+  const plainEnter = !event.metaKey && !event.ctrlKey
+  if (isSendKey(event) && (targets.enterSends || !plainEnter || slash.highlighted)) {
     event.preventDefault()
     // Enter completes when there is a completion, else sends: the catalogue is
     // incomplete by declaration, so a built-in like /compact matches nothing.
