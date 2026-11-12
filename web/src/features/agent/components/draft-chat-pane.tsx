@@ -8,6 +8,9 @@ import {
   ChatMarkdownEditor,
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
+import { FooterViewSwitch } from '@/features/agent/controls/footer-view-switch'
+import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers-api'
+import { IS_MOBILE } from '@/utils/platform'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
 import { refusal } from '@/features/agent/stores/lib/outbox'
@@ -36,6 +39,7 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
     effort: string
     permissionLevel: PermissionLevel | ''
   }>({ provider: '', model: '', effort: '', permissionLevel: '' })
+  const [presentation, setPresentation] = useState<'chat' | 'terminal'>('chat')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const provider = providers.find((p) => p.id === pick.provider) ?? providers.find((p) => p.enabled)
@@ -57,12 +61,14 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
     const draftId = draftOfPane(paneId)?.draftId
     editor?.clear()
     const typedSince = () => editor?.getMarkdown() ?? ''
-    void promoteDraftThread(paneId, { ...pick, text: prompt }, typedSince).finally(() => {
-      setSending(false)
-      if (draftOfPane(paneId)?.draftId !== draftId) return
-      const rest = typedSince().trim()
-      editor?.setMarkdown(rest ? `${prompt}\n\n${rest}` : prompt)
-    })
+    void promoteDraftThread(paneId, { ...pick, presentation, text: prompt }, typedSince).finally(
+      () => {
+        setSending(false)
+        if (draftOfPane(paneId)?.draftId !== draftId) return
+        const rest = typedSince().trim()
+        editor?.setMarkdown(rest ? `${prompt}\n\n${rest}` : prompt)
+      },
+    )
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => {
@@ -99,28 +105,36 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
           onSubmit={() => send(editorRef.current?.getMarkdown() ?? '')}
           attach={null}
           controls={
-            <SelectionCluster
-              provider={provider}
-              providers={providers}
-              model={pick.model}
-              effort={pick.effort}
-              // No session has reported a model yet: the provider's first, which the catalogue ranks.
-              reportedModel={provider?.models?.[0]}
-              switchDisabled={sending}
-              permission={{
-                wsId,
-                chatId: '',
-                levels: provider?.permissionLevels,
-                draft: {
-                  hostId,
-                  level: pick.permissionLevel,
-                  onPick: (permissionLevel) => setPick((was) => ({ ...was, permissionLevel })),
-                },
-              }}
-              onSelectionChange={(next, model, effort) =>
-                setPick((was) => ({ ...was, provider: next, model, effort }))
-              }
-            />
+            <>
+              <SelectionCluster
+                provider={provider}
+                providers={providers}
+                model={pick.model}
+                effort={pick.effort}
+                reportedModel={provider?.defaultModel}
+                switchDisabled={sending}
+                permission={{
+                  wsId,
+                  chatId: '',
+                  levels: provider?.permissionLevels,
+                  draft: {
+                    hostId,
+                    level: pick.permissionLevel,
+                    onPick: (permissionLevel) => setPick((was) => ({ ...was, permissionLevel })),
+                  },
+                }}
+                onSelectionChange={(next, model, effort) =>
+                  setPick((was) => ({ ...was, provider: next, model, effort }))
+                }
+              />
+              {IS_MOBILE && providerCanStartOnTerminal(provider) && provider?.hasTerminal && (
+                <FooterViewSwitch
+                  presentation={presentation}
+                  handoverBlocked={sending}
+                  onSelect={(next) => setPresentation(next === 'terminal' ? 'terminal' : 'chat')}
+                />
+              )}
+            </>
           }
           sending={sending}
           headerClearancePx={headerClearancePx}

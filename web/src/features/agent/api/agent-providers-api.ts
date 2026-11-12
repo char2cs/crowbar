@@ -44,6 +44,8 @@ export interface AgentProvider {
   signIn?: string
   /** Never re-sorted: descriptor order is the provider's own ranking. */
   models?: string[]
+  /** The provider's own stated default; absent when it states none, never inferred from `models`. */
+  defaultModel?: string
   /** Resolved server-side, fallbacks included: read `efforts[model]` with '' for
    *  no selection. A model with no levels is absent, meaning no effort picker. */
   efforts?: Record<string, string[]>

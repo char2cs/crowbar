@@ -38,6 +38,8 @@ export interface AgentSelectionPickerProps {
   /** Display text for an unset `model`/`effort` only. Values stay raw elsewhere:
    *  `pickEffort` echoes `model` back out, and a label must never become a value. */
   unsetLabel?: string
+  /** Names a model nobody has stated; defaults to `unsetLabel`. */
+  modelUnsetLabel?: string
   /** The model the last turn reported, shown beside an unset label. Display only:
    *  substituting it for `model` would break the `efforts['']` lookup. */
   reportedModel?: string
@@ -297,11 +299,12 @@ export function AgentSelectionPicker({
   hot,
   onSelectionChange,
   unsetLabel = 'unset',
+  modelUnsetLabel = unsetLabel,
   reportedModel,
   permission,
 }: AgentSelectionPickerProps) {
   // Unpicked, the chip names the model the provider reported, never a 'Default (…)' wrapper.
-  const modelLabel = model || reportedModel || unsetLabel
+  const modelLabel = model || reportedModel || modelUnsetLabel
   const effortLabelText = effort || unsetLabel
   const [isOpen, setOpen] = useModelPickerOpen(permission?.chatId)
   const [query, setQuery] = useState('')

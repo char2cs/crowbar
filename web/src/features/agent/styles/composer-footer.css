@@ -135,22 +135,26 @@
   font-weight: 600;
   color: var(--primary);
 }
-/* The footer's centre is the row's true centre: equal 1fr sides, so the switch never drifts with
-   the chips' widths. The sides shrink and clip before the switch does. */
-.agent-chat .underbar[data-touch]:has(> .mid) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-}
+/* The switch sits centred BETWEEN the model chip and the context pill: `space-between` splits the
+   free room into two equal gaps, so a wide chip pushes it right instead of leaving it off-centre.
+   The chip side shrinks and clips before the switch or the pill do. */
 .agent-chat .underbar[data-touch] > .mid {
   display: flex;
+  flex: none;
   justify-content: center;
 }
 .agent-chat .underbar[data-touch] > .right {
-  justify-self: end;
+  margin-left: 0;
 }
 /* 32pt to the eye, 44pt to the finger; the sliding indicator is as round as the pill. */
 .footer-viewswitch [data-slot='segmented-control-indicator'] {
   border-radius: 9999px;
+  /* An equal 2px inset on every side, from the list's own box: the Tabs vertical variables put
+     the indicator off-centre once the segments carry hit-area pseudo-elements. */
+  top: 2px;
+  bottom: auto;
+  height: calc(100% - 4px);
+  translate: var(--active-tab-left) 0;
 }
 .footer-viewswitch [role='tab'] {
   position: relative;

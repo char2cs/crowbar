@@ -161,6 +161,11 @@
   /* The send circle sits where the pill's does: 9px from the edge, border included. */
   padding: 0 8px 0 4px;
 }
+/* Chip, switch and send are the strip's three items, so `space-between` centres the switch in the
+   gap between the chip and the send controls. */
+.agent-chat .dochandle[data-touch] .side:first-child {
+  display: contents;
+}
 .agent-chat .dochandle[data-touch] .side:last-child {
   gap: var(--touch-gap);
 }

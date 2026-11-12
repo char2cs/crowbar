@@ -48,6 +48,8 @@ export function SelectionCluster({
         onSelectionChange={onSelectionChange}
         // Display only: `model`/`effort` stay '' when unset.
         unsetLabel="Default"
+        // Nothing is guessed: a model the provider has not stated reads as a neutral 'Model'.
+        modelUnsetLabel="Model"
       />
       {!IS_MOBILE && permission && <PermissionLevelChip target={permission} />}
     </span>

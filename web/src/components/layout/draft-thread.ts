@@ -24,6 +24,8 @@ export interface DraftPrompt {
   effort: string
   /** The level the chat starts at; empty keeps the host's default. */
   permissionLevel?: PermissionLevel | ''
+  /** Where the chat opens; Terminal keeps the text as the chat's unsent draft. Defaults to Chat. */
+  presentation?: LandingChatPresentation
 }
 
 /** The draft a pane holds, or null when it holds none (or has been closed). */
@@ -48,7 +50,7 @@ export function draftLanding(prompt: DraftPrompt): {
   presentation: LandingChatPresentation
   providerId: string
 } {
-  return { presentation: 'chat', providerId: prompt.provider }
+  return { presentation: prompt.presentation ?? 'chat', providerId: prompt.provider }
 }
 
 /** The draft became a chat: its first prompt goes to that chat's outbox, which
@@ -61,19 +63,28 @@ export function finishDraftThread(
   prompt: DraftPrompt,
   typedSince: () => string,
 ): void {
-  const { permissionLevel, ...message } = prompt
+  const { permissionLevel, presentation, ...message } = prompt
+  const send = () => {
+    if (presentation !== 'terminal')
+      sendPrompt(draft.workspaceId, chatId, { ...message, steer: false })
+  }
   if (permissionLevel) {
     // The level lands before the first message can start the agent.
     void setChatPermissionLevel(draft.workspaceId, chatId, permissionLevel)
       .catch((err: unknown) =>
         report(err, { action: 'Could not set permission level', fallback: UNREACHED }),
       )
-      .finally(() => sendPrompt(draft.workspaceId, chatId, { ...message, steer: false }))
+      .finally(send)
   } else {
-    sendPrompt(draft.workspaceId, chatId, { ...message, steer: false })
+    send()
   }
   const { panes, paneActions } = windowPaneStore.getState()
   if (panes[draft.paneId]?.chatId !== draft.draftId) return
-  saveDraft(chatId, typedSince())
+  // On the terminal the prompt is not sent: it stays the chat's draft, ahead of what was typed since.
+  const unsent =
+    presentation === 'terminal'
+      ? [message.text, typedSince()].filter(Boolean).join('\n\n')
+      : typedSince()
+  saveDraft(chatId, unsent)
   paneActions.retargetPane(draft.paneId, chatId, null)
 }

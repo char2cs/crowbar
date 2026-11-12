@@ -7,7 +7,7 @@ const { sendPrompt, setChatPermissionLevel } = vi.hoisted(() => ({
 vi.mock('@/features/agent/stores/chat-outbox', () => ({ sendPrompt }))
 vi.mock('@/features/agent/api/agent-chat-commands', () => ({ setChatPermissionLevel }))
 
-import { finishDraftThread, type DraftSpec } from '@/components/layout/draft-thread'
+import { draftLanding, finishDraftThread, type DraftSpec } from '@/components/layout/draft-thread'
 
 const draft: DraftSpec = {
   paneId: 'p-gone',
@@ -36,5 +36,14 @@ describe('finishDraftThread', () => {
     await vi.waitFor(() =>
       expect(sendPrompt).toHaveBeenCalledWith('w1', 'c1', { ...prompt, steer: false }),
     )
+  })
+
+  it('opens on the terminal without sending when the draft chose it', () => {
+    sendPrompt.mockClear()
+    const terminal = { ...prompt, presentation: 'terminal' as const }
+    finishDraftThread(draft, 'c1', terminal, () => '')
+    expect(sendPrompt).not.toHaveBeenCalled()
+    expect(draftLanding(terminal).presentation).toBe('terminal')
+    expect(draftLanding(prompt).presentation).toBe('chat')
   })
 })

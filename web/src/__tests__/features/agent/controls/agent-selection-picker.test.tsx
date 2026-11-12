@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { NativeChromeIntent, NativeModelPicker } from '@/lib/native-chrome'
@@ -83,8 +83,7 @@ function openMenu() {
 }
 
 describe('AgentSelectionPicker', () => {
-  // The open state is shared by chat id, so a test that leaves the menu open would toggle it shut
-  // for the next one.
+  // The open state is shared by chat id: a test leaving the menu open would toggle it shut next.
   afterEach(() => {
     const trigger = screen.queryByRole('button', { name: /Agent:/ })
     if (trigger?.getAttribute('aria-expanded') === 'true') fireEvent.click(trigger)
@@ -108,16 +107,19 @@ describe('AgentSelectionPicker', () => {
     expect(trigger).toHaveTextContent('High')
   })
 
-  // A blank draft has neither: "Default · Default" said the same word twice.
-  it('names an unpicked model and effort once', () => {
-    draw({ providers: [claude], model: '', effort: '', unsetLabel: 'Default' })
-    const trigger = screen.getByRole('button', { name: /Agent:/ })
-    expect(trigger).toHaveTextContent(/^Default$/)
-  })
-
-  it('still names the effort when only the model is unpicked', () => {
-    draw({ providers: [claude], model: '', effort: 'low', unsetLabel: 'Default' })
-    expect(screen.getByRole('button', { name: /Agent:/ })).toHaveTextContent('DefaultLow')
+  it('names an unpicked model once, as a neutral label', () => {
+    const blank = {
+      providers: [claude],
+      model: '',
+      unsetLabel: 'Default',
+      modelUnsetLabel: 'Model',
+    }
+    draw({ ...blank, effort: '' })
+    const label = () => screen.getByRole('button', { name: /Agent:/ }).textContent
+    expect(label()).toBe('Model')
+    cleanup()
+    draw({ ...blank, effort: 'low' })
+    expect(label()).toBe('ModelLow')
   })
 
   it('groups models under their own provider section, one section per offered provider', () => {
