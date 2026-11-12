@@ -389,19 +389,13 @@ func extraRoutes() []string {
 		//   permission) from the chat instead of the terminal.
 		"POST " + repo + "/chats/:id/terminal-wait/answer",
 		"POST " + repo + "/chats/:id/compact",
-		// Asks the agent to end one of its background shells; the provider has no
-		// outside handle on them.
+		// Asks the agent to end one of its background shells (no outside handle).
 		"POST " + repo + "/chats/:id/shells/:shellId/stop",
-		// Two more ways a session on a chat can end without the chat itself
-		// going anywhere: forcing the CLI into (or back out of) the host
-		// terminal rather than the chat's own pane.
+		// Force the CLI into (or back out of) the host terminal instead of the chat's pane.
 		"POST " + repo + "/chats/:id/switch-to-terminal",
 		"POST " + repo + "/chats/:id/switch-to-native",
-		// Chat attachments: an uploaded file (image, CSV, text) a message
-		// references. GET serves the stored bytes; HEAD the same response's
-		// headers alone (the composer's own file-card size lookup) — the
-		// handler never checks the request method, so registering both against
-		// it is enough.
+		// Chat attachments: GET serves the bytes, HEAD the headers alone (one handler,
+		// both methods registered); the uploads routes are the chunked, resumable path.
 		"POST " + repo + "/chats/:id/attachments",
 		"GET " + repo + "/chats/:id/attachments/:file",
 		"HEAD " + repo + "/chats/:id/attachments/:file",
@@ -525,8 +519,6 @@ func extraRoutes() []string {
 		// The same read, slash-catalog, selection, answer and prompt routes: a
 		// chat in the project home behaves like a chat anywhere else.
 		"GET " + home + "/chats/:id/telemetry",
-		// Same attachments pair as the workspace group above, mounted on home
-		// for the same reason as the rest of this block.
 		"POST " + home + "/chats/:id/attachments",
 		"GET " + home + "/chats/:id/attachments/:file",
 		"HEAD " + home + "/chats/:id/attachments/:file",
