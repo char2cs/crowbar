@@ -343,7 +343,10 @@ events:
     # (TemplateCtx.PermissionVars) — a FAMILY, not fixed names, because what
     # a level needs to say is each provider's own business (codex's sandbox/
     # approvalPolicy; a future provider's own words for the same idea).
-    optional: [session_id, cwd, context, "permission.*"]
+    #
+    # model.* is the chat's composed model id taken back apart (ModelSpec.IDSplit),
+    # for a session call that takes its parts as separate fields.
+    optional: [session_id, cwd, context, "permission.*", "model.*"]
 
   interrupt:
     direction: out

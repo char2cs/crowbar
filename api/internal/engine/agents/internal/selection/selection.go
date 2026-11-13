@@ -2,6 +2,7 @@ package selection
 
 import (
 	"maps"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
@@ -15,6 +16,20 @@ func Models(
 		return nil
 	}
 	return append([]string(nil), d.Model.Available...)
+}
+
+// ModelParts is id cut into its descriptor-declared named parts, nil for a
+// provider whose ids are not composed or an id that is not.
+func ModelParts(d *spec.Descriptor, id string) map[string]string {
+	if d == nil || d.Model == nil || d.Model.IDSplit == nil {
+		return nil
+	}
+	split := d.Model.IDSplit
+	head, tail, ok := strings.Cut(id, split.Sep)
+	if !ok || len(split.Names) < 2 {
+		return nil
+	}
+	return map[string]string{split.Names[0]: head, split.Names[1]: tail}
 }
 
 func Efforts(

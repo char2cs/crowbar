@@ -188,3 +188,12 @@ func TestPermissionVars_AfterLeaveValuesReplaceOnlyTheirOwnKeys(t *testing.T) {
 		"a level with nothing to narrow is the same after a move")
 	assert.Equal(t, "open", d.PermissionLevels.Levels["full-auto"].Vars["sandbox"], "the descriptor is not written")
 }
+
+func TestModelParts_SplitsOnTheFirstSeparatorOnly(t *testing.T) {
+	d := &spec.Descriptor{Model: &spec.ModelSpec{IDSplit: &spec.ModelIDSplit{Sep: ":", Names: []string{"group", "name"}}}}
+
+	assert.Equal(t, map[string]string{"group": "alpha", "name": "m1:free"}, selection.ModelParts(d, "alpha:m1:free"))
+	assert.Nil(t, selection.ModelParts(d, "bare"), "an id with no separator names no group")
+	assert.Nil(t, selection.ModelParts(d, ""))
+	assert.Nil(t, selection.ModelParts(declaring(), "sonnet:x"), "a single-id provider never splits")
+}

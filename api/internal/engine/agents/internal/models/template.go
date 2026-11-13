@@ -59,6 +59,9 @@ type TemplateCtx struct {
 	// referenced as {permission.<key>}, for transports that set permissions in a
 	// request field rather than an argv flag.
 	PermissionVars map[string]string
+	// ModelParts is Model cut into the descriptor's named parts, sent to an api
+	// session call as model.<name>.
+	ModelParts map[string]string
 	// PermissionLevel is the chat's resolved level, which a forked view's argv
 	// renders through permission_levels.<level>.apply.
 	PermissionLevel string

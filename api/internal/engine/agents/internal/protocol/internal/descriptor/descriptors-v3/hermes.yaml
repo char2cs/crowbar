@@ -215,7 +215,9 @@ events:
   prompt:
     fresh:
       - call: session.create
-        send: { source: tui, cwd: "{cwd}" }
+        send: { source: tui, cwd: "{cwd}", model: "{model.name}", provider: "{model.provider}" }
+        # The chat's pick is absent, not empty, so an unchosen model inherits the profile's.
+        optional: [model, provider]
         capture: { session_id: session_id, execution_generation: execution_generation }
     resume:
       - call: session.resume
@@ -230,6 +232,25 @@ events:
   interrupt:
     out: session.interrupt
     send: { session_id: "{session_id}", execution_generation: "{execution_generation}" }
+
+# model.options lists every provider row with its models as bare ids; only rows the
+# profile is authenticated for are kept. Unverified: the shape comes from the typed contract
+# and an unauthenticated profile, no authenticated catalogue was read. The chosen id is
+# "<provider>:<model>" because session.create takes the two separately; model and provider
+# are session-create-only, so a change needs a new session (restart_tui is the closest strategy).
+model:
+  discover:
+    api: { call: model.options }
+    adapter: json
+    items_path: "providers[]"
+    keep_when: { field: "authenticated", equals: true }
+    item:
+      each: "models[]"
+      id: "{parent.slug}:{value}"
+      label: "{value}"
+    timeout_ms: 10000
+  id_split: { sep: ":", names: [provider, name] }
+  strategy: restart_tui
 
 spawn:
   cmd: hermes

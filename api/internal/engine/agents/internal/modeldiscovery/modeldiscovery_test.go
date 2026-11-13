@@ -2,6 +2,8 @@ package modeldiscovery_test
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/modeldiscovery"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 // codexShapedDescriptor mirrors codex.yaml's own model.discover block, over
@@ -177,4 +180,77 @@ func TestProbe_RowsMissingIDOrLabelAreDropped(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "a", got[0].ID)
+}
+
+// apiCatalogDescriptor is a websocket provider whose catalogue is one named call, over
+// a fake endpoint that records every method it is asked and answers from replies.
+func apiCatalogDescriptor(t *testing.T, replies map[string]string) (*spec.Descriptor, <-chan string) {
+	t.Helper()
+	ws := kit.NewFakeWS(t)
+	endpoint := filepath.Join(t.TempDir(), "endpoint.json")
+	body := `{"url":"` + ws.URL(ws.NewTicket()) + `"}`
+	require.NoError(t, os.WriteFile(endpoint, []byte(body), 0o600))
+
+	methods := make(chan string, 16)
+	go func() {
+		for frame := range ws.Frames {
+			var req struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+			}
+			if json.Unmarshal(frame, &req) != nil {
+				continue
+			}
+			methods <- req.Method
+			result := replies[req.Method]
+			if result == "" {
+				result = "{}"
+			}
+			_ = ws.Send([]byte(`{"jsonrpc":"2.0","id":` + string(req.ID) + `,"result":` + result + `}`))
+		}
+	}()
+
+	d := &spec.Descriptor{ID: "api-shaped"}
+	d.Runtime.Transport = "api"
+	d.Runtime.API = spec.APISpec{
+		Delivery: spec.APIDeliveryWebsocket, Connect: []string{"cat", endpoint},
+		ConnectMap: spec.ConnectMap{URL: "url"}, Handshake: spec.HandshakeSpec{Call: "hello"},
+	}
+	d.Spawn.Cmd = "cat"
+	d.Model = &spec.ModelSpec{Discover: &spec.ModelDiscoverSpec{
+		API:       &spec.ModelDiscoverAPI{Call: "catalog.list", Params: map[string]any{"fresh": true}},
+		Adapter:   spec.ModelDiscoverAdapterJSON,
+		ItemsPath: "groups[]",
+		KeepWhen:  &spec.ModelFieldMatch{Field: "ready", Equals: true},
+		Item:      spec.ModelItemMapping{Each: "items[]", ID: "{parent.key}:{value}", Label: "{value}"},
+	}}
+	return d, methods
+}
+
+func TestProbe_APICallMapsNestedRowsUnderTheirParent(t *testing.T) {
+	d, methods := apiCatalogDescriptor(t, map[string]string{
+		"catalog.list": `{"groups":[{"key":"alpha","ready":true,"items":["m1","m2"]},` +
+			`{"key":"beta","ready":false,"items":["m3"]}]}`,
+	})
+
+	got, err := modeldiscovery.Probe(context.Background(), d, models.ProbeOptions{Cwd: t.TempDir()}, nil)
+
+	require.NoError(t, err)
+	ids := make([]string, len(got))
+	for i, m := range got {
+		ids[i] = m.ID
+	}
+	assert.Equal(t, []string{"alpha:m1", "alpha:m2"}, ids, "the not-ready group is dropped, ids carry the parent key")
+	assert.Equal(t, "hello", <-methods, "the handshake runs first")
+	assert.Equal(t, "catalog.list", <-methods)
+	assert.Empty(t, methods, "the handshake and the one call are the only traffic: no session is opened")
+}
+
+func TestProbe_APICallFailureIsReported(t *testing.T) {
+	d, _ := apiCatalogDescriptor(t, nil)
+	d.Runtime.API.Connect = []string{"cat", filepath.Join(t.TempDir(), "missing.json")}
+
+	_, err := modeldiscovery.Probe(context.Background(), d, models.ProbeOptions{Cwd: t.TempDir()}, nil)
+
+	assert.Error(t, err)
 }

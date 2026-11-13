@@ -3,6 +3,7 @@ package protocol
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -56,6 +57,21 @@ func StartAPIEndpoint(ctx context.Context, d *spec.Descriptor, ep Endpoint, orig
 
 func startWebsocket(ctx context.Context, d *spec.Descriptor, ep Endpoint, origin APISessionOrigin) (*apidriver.Driver, error) {
 	api := d.Runtime.API
+	rc := apidriver.Reconnect{Max: api.Reconnect.Max, Backoff: time.Duration(api.Reconnect.BackoffMS) * time.Millisecond}
+	return apidriver.StartDial(ctx, d, websocketDialer(d, ep), rc, origin)
+}
+
+// CallOnce reaches a websocket descriptor, runs its handshake, makes the one named
+// call and hangs up. It never creates a session.
+func CallOnce(ctx context.Context, d *spec.Descriptor, ep Endpoint, method string, params map[string]any) (json.RawMessage, error) {
+	if d.Runtime.API.Delivery != spec.APIDeliveryWebsocket {
+		return nil, fmt.Errorf("protocol: %s: delivery %q cannot make a one-off call", d.ID, d.Runtime.API.Delivery)
+	}
+	return apidriver.CallOnce(ctx, d, websocketDialer(d, ep), method, params)
+}
+
+func websocketDialer(d *spec.Descriptor, ep Endpoint) func(context.Context) (jsonrpc.Transport, error) {
+	api := d.Runtime.API
 	resolve := func(ctx context.Context) (connect.Endpoint, error) {
 		if len(api.Connect) == 0 {
 			return connect.Endpoint{URL: api.StaticURL, Header: http.Header{}}, nil
@@ -66,15 +82,13 @@ func startWebsocket(ctx context.Context, d *spec.Descriptor, ep Endpoint, origin
 		}
 		return connect.Resolve(ctx, ep.Run, ep.Argv, ep.Env, fields, allowedHeaders(api.ConnectMap.Headers))
 	}
-	dial := func(ctx context.Context) (jsonrpc.Transport, error) {
+	return func(ctx context.Context) (jsonrpc.Transport, error) {
 		c, err := wsconn.Dial(ctx, resolve)
 		if err != nil {
 			return nil, err
 		}
 		return c, nil
 	}
-	rc := apidriver.Reconnect{Max: api.Reconnect.Max, Backoff: time.Duration(api.Reconnect.BackoffMS) * time.Millisecond}
-	return apidriver.StartDial(ctx, d, dial, rc, origin)
 }
 
 func allowedHeaders(declared map[string]string) []string {

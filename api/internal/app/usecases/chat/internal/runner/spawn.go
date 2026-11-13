@@ -144,6 +144,7 @@ func (rs *Runners) spawnRunner(
 		resuming:        in.resuming,
 		selection:       sel,
 		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel, pre.left),
+		modelParts:      descriptor.ModelParts(sel.Model),
 	})
 
 	// Register an ACTUALLY injected document before the CLI runs, so its echo through
@@ -292,6 +293,7 @@ type spawnContext struct {
 	// (see spec.PermissionLevelSpec's own doc comment) — nil for a provider
 	// that declares none.
 	permissionVars map[string]string
+	modelParts     map[string]string
 
 	// launchSessionID is the bound session to resume, if any — the SAME id the
 	// resume argv carries, and what tells an api connection's EstablishSession

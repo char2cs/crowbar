@@ -208,6 +208,8 @@ type CallStep struct {
 	Call    string            `yaml:"call"`
 	Send    map[string]any    `yaml:"send"`
 	Capture map[string]string `yaml:"capture"`
+	// Optional names send keys left out of the call while their value renders empty.
+	Optional []string `yaml:"optional"`
 }
 
 // StepsSpec maps a provider's plan array onto Crowbar's step vocabulary. StatusMap

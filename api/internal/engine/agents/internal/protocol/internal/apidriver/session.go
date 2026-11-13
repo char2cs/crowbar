@@ -242,6 +242,11 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 		literals := maps.Clone(drv.literals)
 		drv.mu.Unlock()
 		payload, _ := outbound.ExpandTree(step.Send, values, literals).(map[string]any)
+		for _, key := range step.Optional {
+			if payload[key] == "" {
+				delete(payload, key)
+			}
+		}
 		result, err := drv.current().Call(ctx, step.Call, payload)
 		if err != nil {
 			return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)

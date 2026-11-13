@@ -82,6 +82,8 @@ type Agent interface {
 	// PermissionVars is level's named values for a transport that takes them as request data rather
 	// than an argv flag, narrowed for a chat that left a folder; empty for an undeclared level.
 	PermissionVars(level string, left bool) map[string]string
+	// ModelParts is a composed model id's named parts, nil for any other id.
+	ModelParts(model string) map[string]string
 
 	SelectionSteps(sel Selection) []InjectStep
 
@@ -273,6 +275,10 @@ func (a *agent) DefaultEffort(model string) string {
 
 func (a *agent) PermissionLevels() []string {
 	return selection.PermissionLevels(a.spec)
+}
+
+func (a *agent) ModelParts(model string) map[string]string {
+	return selection.ModelParts(a.spec, model)
 }
 
 func (a *agent) PermissionVars(level string, left bool) map[string]string {

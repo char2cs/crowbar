@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,10 +20,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/exec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/pathselect"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-const maxStderrBytes = 256 << 10
+// connectOutputLimit bounds what a connect command may print: one small JSON object.
+const (
+	maxStderrBytes     = 256 << 10
+	connectOutputLimit = 64 << 10
+)
 
 var (
 	ErrUnsupported     = errors.New("agents: provider declares no model discovery")
@@ -62,8 +69,7 @@ func Probe(
 	)
 	defer cancel()
 
-	runner := newRunner(d, disc, cwd, opts, acquire)
-	raw, err := runner.Run(probeCtx, disc.Command)
+	raw, err := fetch(probeCtx, d, disc, cwd, opts, acquire)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +84,39 @@ func Probe(
 	}), nil
 }
 
+// fetch is the raw catalogue: the descriptor's api call over its own connection, or
+// its command's stdout.
+func fetch(
+	ctx context.Context,
+	d *spec.Descriptor,
+	disc *spec.ModelDiscoverSpec,
+	cwd string,
+	opts models.ProbeOptions,
+	acquire exec.Acquire,
+) ([]byte, error) {
+	if disc.API == nil {
+		return newRunner(d, disc, cwd, opts, acquire).Run(ctx, disc.Command)
+	}
+	ep := protocol.Endpoint{
+		Argv: d.Runtime.API.Connect,
+		Env:  probeEnv(d, cwd, opts),
+		Run: func(ctx context.Context, argv, environ []string) ([]byte, error) {
+			return exec.New(exec.Options{
+				Executable: exec.Executable(argv[0], environ), Cwd: cwd, Env: environ,
+				MaxStdout: connectOutputLimit, MaxStderr: maxStderrBytes, Acquire: acquire,
+			}).Run(ctx, argv[1:])
+		},
+	}
+	raw, err := protocol.CallOnce(ctx, d, ep, disc.API.Call, disc.API.Params)
+	if err != nil {
+		return nil, fmt.Errorf("modeldiscovery: %s: %w", d.ID, err)
+	}
+	if len(raw) > disc.EffectiveMaxStdoutBytes() {
+		return nil, ErrMalformedOutput
+	}
+	return raw, nil
+}
+
 func newRunner(
 	d *spec.Descriptor,
 	disc *spec.ModelDiscoverSpec,
@@ -85,20 +124,25 @@ func newRunner(
 	opts models.ProbeOptions,
 	acquire exec.Acquire,
 ) *exec.Runner {
-	baseEnv := opts.Env
-	if baseEnv == nil {
-		baseEnv = os.Environ()
-	}
-	probeEnv := env.Clear(baseEnv, d.Spawn.Env.Clear)
-	probeEnv = env.Replace(probeEnv, "PWD", cwd)
 	return exec.New(exec.Options{
-		Executable: exec.Executable(d.Spawn.Cmd, baseEnv),
+		Executable: exec.Executable(d.Spawn.Cmd, baseEnvOf(opts)),
 		Cwd:        cwd,
-		Env:        probeEnv,
+		Env:        probeEnv(d, cwd, opts),
 		MaxStdout:  disc.EffectiveMaxStdoutBytes(),
 		MaxStderr:  maxStderrBytes,
 		Acquire:    acquire,
 	})
+}
+
+func baseEnvOf(opts models.ProbeOptions) []string {
+	if opts.Env == nil {
+		return os.Environ()
+	}
+	return opts.Env
+}
+
+func probeEnv(d *spec.Descriptor, cwd string, opts models.ProbeOptions) []string {
+	return env.Replace(env.Clear(baseEnvOf(opts), d.Spawn.Env.Clear), "PWD", cwd)
 }
 
 func validWorkdir(dir string) (string, error) {
@@ -145,13 +189,37 @@ func mapModels(rows []any, m itemMapping) []Model {
 
 	out := make([]Model, 0, len(kept))
 	for _, c := range kept {
-		rendered, ok := renderModel(c.row, m)
-		if !ok {
-			continue
+		for _, row := range subRows(c.row, m.Item.Each) {
+			if rendered, ok := renderModel(row, m); ok {
+				out = append(out, rendered)
+			}
 		}
-		out = append(out, rendered)
 	}
 	return out
+}
+
+// subRows is row itself, or with each declared one row per element at that path,
+// carrying row as "parent" so a child can name the group it belongs to.
+func subRows(row map[string]any, each string) []map[string]any {
+	if each == "" {
+		return []map[string]any{row}
+	}
+	var out []map[string]any
+	for _, v := range pathselect.Select([]any{row}, each) {
+		child, ok := v.(map[string]any)
+		if !ok {
+			child = map[string]any{"value": v}
+		}
+		out = append(out, mergedRow(child, row))
+	}
+	return out
+}
+
+func mergedRow(child, parent map[string]any) map[string]any {
+	merged := make(map[string]any, len(child)+1)
+	maps.Copy(merged, child)
+	merged["parent"] = parent
+	return merged
 }
 
 // fieldMatches reports whether m's field equals its value on row — true for

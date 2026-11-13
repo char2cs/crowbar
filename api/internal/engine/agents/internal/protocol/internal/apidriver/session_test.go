@@ -51,3 +51,35 @@ events:
 
 	require.JSONEq(t, `{"session":"12345","fence":7,"live":true,"tag":"g7","retries":2}`, (*seen)[2])
 }
+
+func TestEstablishSession_AnOptionalSendKeyIsOmittedWhileEmpty(t *testing.T) {
+	d := loadCodexAPIDescriptor(t)
+	fresh := &d.Events["prompt"].Fresh[0]
+	fresh.Send["pick"] = "{model.name}"
+	fresh.Optional = []string{"pick"}
+
+	for name, tc := range map[string]struct {
+		values map[string]string
+		want   string
+	}{
+		"empty":   {map[string]string{"cwd": "/work"}, ""},
+		"present": {map[string]string{"cwd": "/work", "model.name": "m1"}, `"pick":"m1"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stdio, seen := scriptedServer(t, []scriptedCall{{method: "thread/start", result: `{"thread":{"id":"t-1"}}`}})
+			ctx := t.Context()
+			drv, err := apidriver.Start(ctx, d, stdio, nil)
+			require.NoError(t, err)
+			defer func() { _ = drv.Close() }()
+
+			_, err = drv.EstablishSession(ctx, "prompt", tc.values)
+
+			require.NoError(t, err)
+			if tc.want == "" {
+				require.NotContains(t, (*seen)[0], `"pick"`)
+				return
+			}
+			require.Contains(t, (*seen)[0], tc.want)
+		})
+	}
+}

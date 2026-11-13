@@ -263,6 +263,9 @@ func (rs *Runners) establishAPISession(
 	for k, v := range tctx.PermissionVars {
 		values["permission."+k] = v
 	}
+	for k, v := range tctx.ModelParts {
+		values["model."+k] = v
+	}
 	established, err := conn.driver.EstablishSession(ctx, "prompt", values)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)

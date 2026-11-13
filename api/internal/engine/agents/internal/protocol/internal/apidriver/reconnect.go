@@ -35,6 +35,32 @@ func StartDial(
 	return newDriver(ctx, d, jsonrpc.NewTransport(t), dial, rc, origin)
 }
 
+// CallOnce dials, handshakes, makes the one call and closes, so a catalogue read
+// leaves no session behind.
+func CallOnce(
+	ctx context.Context, d *spec.Descriptor, dial func(context.Context) (jsonrpc.Transport, error),
+	method string, params map[string]any,
+) (json.RawMessage, error) {
+	t, err := dial(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("apidriver: %s dial: %w", d.ID, err)
+	}
+	conn := jsonrpc.NewTransport(t)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			slog.WarnContext(ctx, "apidriver: close one-off call", "provider", d.ID, "err", err)
+		}
+	}()
+	if err := handshake(ctx, d, conn); err != nil {
+		return nil, err
+	}
+	raw, err := conn.Call(ctx, method, params)
+	if err != nil {
+		return nil, fmt.Errorf("apidriver: %s: %s: %w", d.ID, method, err)
+	}
+	return raw, nil
+}
+
 func (drv *Driver) setInflight(v bool) {
 	drv.mu.Lock()
 	drv.inflight = v
