@@ -3,7 +3,6 @@ package connect_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -69,7 +68,7 @@ func TestResolveErrorsNameCommandAndFieldNeverValues(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "mytool")
 			require.Contains(t, err.Error(), tc.want)
-			require.False(t, strings.Contains(err.Error(), "SECRET"), err.Error())
+			require.NotContains(t, err.Error(), "SECRET")
 		})
 	}
 }

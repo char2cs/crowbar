@@ -18,8 +18,11 @@ func unifiedHunks(diff string) []models.PatchHunk {
 	var out []models.PatchHunk
 	for _, line := range strings.Split(diff, "\n") {
 		if m := hunkHeader.FindStringSubmatch(line); m != nil {
-			oldStart, _ := strconv.Atoi(m[1])
-			newStart, _ := strconv.Atoi(m[2])
+			oldStart, oldErr := strconv.Atoi(m[1])
+			newStart, newErr := strconv.Atoi(m[2])
+			if oldErr != nil || newErr != nil {
+				continue // a start beyond int range is not a usable hunk header
+			}
 			out = append(out, models.PatchHunk{OldStart: oldStart, NewStart: newStart})
 			continue
 		}

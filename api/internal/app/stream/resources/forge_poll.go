@@ -74,7 +74,7 @@ func (m *ForgePoll) Start(
 	ctx, cancel := context.WithCancel(m.root)
 	m.cancels[wsID] = cancel
 	m.runners.Add(1)
-	go m.run(ctx, wsID)
+	go m.run(ctx, cancel, wsID)
 	return nil
 }
 
@@ -110,9 +110,11 @@ func (m *ForgePoll) Close() {
 // per-connection context is cancelled, which also cancels a poll in flight.
 func (m *ForgePoll) run(
 	ctx context.Context,
+	cancel context.CancelFunc,
 	wsID string,
 ) {
 	defer m.runners.Done()
+	defer cancel()
 	defer safego.Recover("resources.forgePoll.run")
 	// Poll once immediately on Start so a freshly viewed
 	// workspace's PR status (and sidebar icon) updates within ~1s instead of after

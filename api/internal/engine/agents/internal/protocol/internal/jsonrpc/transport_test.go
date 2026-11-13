@@ -21,6 +21,7 @@ type fakeTransport struct {
 }
 
 func newFake(t *testing.T) *fakeTransport {
+	t.Helper()
 	f := &fakeTransport{in: make(chan []byte, 8), out: make(chan []byte, 8), done: make(chan struct{})}
 	t.Cleanup(func() { _ = f.Close() })
 	return f
@@ -56,6 +57,7 @@ func (f *fakeTransport) Close() error {
 }
 
 func overTransport(t *testing.T, f *fakeTransport) *jsonrpc.Conn {
+	t.Helper()
 	conn := jsonrpc.NewTransport(f)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn

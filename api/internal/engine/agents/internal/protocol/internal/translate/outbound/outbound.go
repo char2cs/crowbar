@@ -29,7 +29,10 @@ func Resolve(
 			send[field] = text
 			continue
 		}
-		raw, _ := json.Marshal(v) // a leaf decoded from YAML always marshals
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return "", nil, false
+		}
 		send[field] = string(raw)
 	}
 	return wireEvent, send, true

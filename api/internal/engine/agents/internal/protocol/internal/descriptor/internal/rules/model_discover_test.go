@@ -10,8 +10,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-func withAPIDiscover(d *spec.Descriptor) *spec.Descriptor {
-	d = withAPITransport(withModelDiscover(valid()))
+func withAPIDiscover() *spec.Descriptor {
+	d := withAPITransport(withModelDiscover(valid()))
 	d.Runtime.API = spec.APISpec{
 		Protocol: "jsonrpc2", Delivery: spec.APIDeliveryWebsocket, Format: spec.APIFormatJSONRPCText,
 		Connect: []string{"probe", "attach"}, ConnectMap: spec.ConnectMap{URL: "url"},
@@ -26,7 +26,7 @@ func withAPIDiscover(d *spec.Descriptor) *spec.Descriptor {
 }
 
 func TestModelDiscover_AcceptsAnAPICallOnADialedProvider(t *testing.T) {
-	require.NoError(t, rules.Apply(withAPIDiscover(valid())))
+	require.NoError(t, rules.Apply(withAPIDiscover()))
 }
 
 func TestModelDiscover_RejectsTheBrokenAPIShapes(t *testing.T) {
@@ -44,7 +44,7 @@ func TestModelDiscover_RejectsTheBrokenAPIShapes(t *testing.T) {
 		"selection unsent":  {func(d *spec.Descriptor) { d.Events = nil }, "no step sends {model}"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			d := withAPIDiscover(valid())
+			d := withAPIDiscover()
 			tc.mutate(d)
 			err := rules.Apply(d)
 			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
@@ -60,14 +60,14 @@ func TestModelCatalog_RejectsABrokenIDSplit(t *testing.T) {
 		"repeated":     {Sep: ":", Names: []string{"a", "a"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			d := withAPIDiscover(valid())
+			d := withAPIDiscover()
 			d.Model.IDSplit = split
 			err := rules.Apply(d)
 			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
 			assert.Contains(t, err.Error(), "model.id_split")
 		})
 	}
-	d := withAPIDiscover(valid())
+	d := withAPIDiscover()
 	d.Model.IDSplit = &spec.ModelIDSplit{Sep: ":", Names: []string{"a", "b"}}
 	require.NoError(t, rules.Apply(d))
 }

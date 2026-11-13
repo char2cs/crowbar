@@ -18,6 +18,34 @@ import (
 // event table against Crowbar's canonical vocabulary at LOAD, so a bad descriptor
 // fails at startup instead of silently mapping a field to nothing mid-conversation.
 func ParseV0(raw []byte) (*spec.Descriptor, error) {
+	d, err := decodeDescriptor(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	vocab, err := schema.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	maps := eventFieldPresence(d.Events)
+	if err := vocab.Validate(d.ID, maps); err != nil {
+		return nil, fmt.Errorf("descriptor: %w", err)
+	}
+
+	for _, name := range sortedEventNames(d.Events) {
+		if err := checkChannelSplit(d.ID, name, d.Events[name]); err != nil {
+			return nil, err
+		}
+		if err := checkEvent(vocab, d.ID, name, d.Events[name]); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
+}
+
+// decodeDescriptor unmarshals raw and rejects a descriptor with no id.
+func decodeDescriptor(raw []byte) (*spec.Descriptor, error) {
 	var d spec.Descriptor
 	if err := yaml.Unmarshal(raw, &d); err != nil {
 		var glyph *spec.AlternationGlyphError
@@ -35,19 +63,18 @@ func ParseV0(raw []byte) (*spec.Descriptor, error) {
 		// id is the former.
 		return nil, fmt.Errorf("%w: missing id", ErrInvalid)
 	}
+	return &d, nil
+}
 
-	vocab, err := schema.Load()
-	if err != nil {
-		return nil, err
-	}
-
+// eventFieldPresence reads, per event, which canonical fields its descriptor declares.
+func eventFieldPresence(events map[string]spec.EventSpec) map[string]map[string][]string {
 	// An inbound event's canonical fields are the KEYS of map:. An outbound event's
 	// send: trees are keyed by PROVIDER field names and reference canonical names as
 	// {braced} templates, so its canonical set is read out of the values. A name some
 	// step captures is the descriptor's own variable, not a vocabulary slot.
-	captured := capturedNames(d.Events)
-	maps := make(map[string]map[string][]string, len(d.Events))
-	for name, e := range d.Events {
+	captured := capturedNames(events)
+	out := make(map[string]map[string][]string, len(events))
+	for name, e := range events {
 		switch {
 		case !e.Out.Empty():
 			refs := map[string]string{}
@@ -57,30 +84,18 @@ func ParseV0(raw []byte) (*spec.Descriptor, error) {
 					delete(refs, ref)
 				}
 			}
-			maps[name] = wrapPresence(refs)
+			out[name] = wrapPresence(refs)
 		case len(e.Fresh) > 0 || len(e.Resume) > 0 || len(e.Action) > 0:
-			maps[name] = wrapPresence(canonicalRefsFromSteps(e.Fresh, e.Resume, e.Action))
+			out[name] = wrapPresence(canonicalRefsFromSteps(e.Fresh, e.Resume, e.Action))
 		case e.HasChannelBlocks():
 			// The UNION of the api:/hooks: blocks, so a bad field name in
 			// either channel's map: is caught.
-			maps[name] = mergedChannelFields(e)
+			out[name] = mergedChannelFields(e)
 		default:
-			maps[name] = presence(e.Map)
+			out[name] = presence(e.Map)
 		}
 	}
-	if err := vocab.Validate(d.ID, maps); err != nil {
-		return nil, fmt.Errorf("descriptor: %w", err)
-	}
-
-	for _, name := range sortedEventNames(d.Events) {
-		if err := checkChannelSplit(d.ID, name, d.Events[name]); err != nil {
-			return nil, err
-		}
-		if err := checkEvent(vocab, d.ID, name, d.Events[name]); err != nil {
-			return nil, err
-		}
-	}
-	return &d, nil
+	return out
 }
 
 // capturedNames is every value a Fresh/Resume/Action step captures from a response.

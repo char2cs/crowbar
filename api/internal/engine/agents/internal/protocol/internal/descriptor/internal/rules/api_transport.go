@@ -63,6 +63,12 @@ func checkEndpoint(d *spec.Descriptor, format string) error {
 	if api.Format != format {
 		return invalid(d.ID, "runtime.api.format must be %q, got %q", format, api.Format)
 	}
+	return checkConnect(d)
+}
+
+// checkConnect validates how the endpoint is named: connect argv or a static URL.
+func checkConnect(d *spec.Descriptor) error {
+	api := d.Runtime.API
 	if len(api.Connect) == 0 && api.StaticURL == "" {
 		return invalid(d.ID, "runtime.api needs connect or static_url to name an endpoint")
 	}
@@ -75,6 +81,11 @@ func checkEndpoint(d *spec.Descriptor, format string) error {
 	if len(api.Connect) == 0 && (api.ConnectMap.URL != "" || api.ConnectMap.Protocols != "" || api.ConnectMap.Credential != "" || len(api.ConnectMap.Headers) > 0) {
 		return invalid(d.ID, "runtime.api.connect_map has no connect output to read")
 	}
+	return checkConnectHeaders(d)
+}
+
+func checkConnectHeaders(d *spec.Descriptor) error {
+	api := d.Runtime.API
 	for name, path := range api.ConnectMap.Headers {
 		if !headerNameRE.MatchString(name) || !pathRE.MatchString(path) {
 			return invalid(d.ID, "runtime.api.connect_map.headers[%q]: invalid header name or path %q", name, path)
