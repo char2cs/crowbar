@@ -54,3 +54,25 @@ func Substitute(tmpl string, values map[string]string) string {
 		rest = rest[closeIdx+1:]
 	}
 }
+
+// ExpandTree substitutes {placeholder} at every string leaf of a nested payload.
+func ExpandTree(node any, values map[string]string) any {
+	switch v := node.(type) {
+	case string:
+		return Substitute(v, values)
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, val := range v {
+			out[k] = ExpandTree(val, values)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, val := range v {
+			out[i] = ExpandTree(val, values)
+		}
+		return out
+	default:
+		return v
+	}
+}

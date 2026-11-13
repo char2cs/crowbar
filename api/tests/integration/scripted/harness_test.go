@@ -181,7 +181,10 @@ type rig struct {
 	providers string
 }
 
-func newRig(t *testing.T) *rig {
+func newRig(t *testing.T) *rig { return newRigWith(t, installFakes) }
+
+// newRigWith boots a rig whose providers install writes under home.
+func newRigWith(t *testing.T, install func(t *testing.T, home, bin string)) *rig {
 	t.Helper()
 	kit.RequireNoLeakedProcesses(t)
 	home := t.TempDir()
@@ -195,7 +198,7 @@ func newRig(t *testing.T) *rig {
 	t.Setenv(envScript, r.script)
 	t.Setenv(envLog, r.log)
 	r.setScript("turn: []\n")
-	installFakes(t, home, filepath.Join(scratch, "bin"))
+	install(t, home, filepath.Join(scratch, "bin"))
 	r.d = bootDaemon(t, home)
 	t.Cleanup(func() { r.d.stop() })
 	repo := kit.InitRepo(t)

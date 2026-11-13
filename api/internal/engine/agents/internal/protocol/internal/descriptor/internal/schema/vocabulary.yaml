@@ -292,6 +292,8 @@ events:
     optional:
       - prompt_id
       - session_id
+      # What an http ask is answered by: the {ask_id} of its reply_request.
+      - ask_id
       - message
       - tool_name
       - tool_target
@@ -316,7 +318,7 @@ events:
   elicitation:
     direction: ask
     required: []
-    optional: [session_id, prompt_id, message, mode, schema, mcp_server]
+    optional: [session_id, prompt_id, ask_id, message, mode, schema, mcp_server]
     replies: [accept, decline, cancel]
 
   # --- outbound: Crowbar drives the CLI ---------------------------------------

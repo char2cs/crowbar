@@ -51,27 +51,6 @@ func (c *Client) expandPath(tmpl string, values map[string]string) (string, erro
 	return strings.TrimRight(c.cfg.BaseURL, "/") + outbound.Substitute(tmpl, escaped), nil
 }
 
-func expandTree(node any, values map[string]string) any {
-	switch v := node.(type) {
-	case string:
-		return outbound.Substitute(v, values)
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, val := range v {
-			out[k] = expandTree(val, values)
-		}
-		return out
-	case []any:
-		out := make([]any, len(v))
-		for i, val := range v {
-			out[i] = expandTree(val, values)
-		}
-		return out
-	default:
-		return v
-	}
-}
-
 // paramValues flattens a JSON object's scalar members into template values.
 func paramValues(raw json.RawMessage) (map[string]string, error) {
 	values := map[string]string{}
@@ -110,7 +89,7 @@ func (c *Client) do(ctx context.Context, name string, params map[string]string) 
 	}
 	var body io.Reader
 	if req.Body != nil {
-		raw, err := json.Marshal(expandTree(req.Body, values))
+		raw, err := json.Marshal(outbound.ExpandTree(req.Body, values))
 		if err != nil {
 			return nil, fmt.Errorf("httpdriver: %s: encode body: %w", name, err)
 		}

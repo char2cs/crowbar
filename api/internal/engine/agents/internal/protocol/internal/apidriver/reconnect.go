@@ -43,7 +43,7 @@ func (drv *Driver) setInflight(v bool) {
 
 // reconnect replaces a dropped conn. A turn in flight is failed visibly first
 // and never replayed; false ends the driver (no dial, Close, or retries spent).
-func (drv *Driver) reconnect(dead *jsonrpc.Conn) (*jsonrpc.Conn, bool) {
+func (drv *Driver) reconnect(dead wire) (wire, bool) {
 	if drv.dial == nil || dead.Overflowed() || drv.ctx.Err() != nil {
 		return nil, false
 	}
@@ -86,7 +86,7 @@ func (drv *Driver) sleep(d time.Duration) error {
 
 // redial dials, handshakes and installs a new conn, then re-enters the session
 // the dead one had. A conn that cannot be fully set up is closed again.
-func (drv *Driver) redial(sessionID, lastEvent string) (*jsonrpc.Conn, error) {
+func (drv *Driver) redial(sessionID, lastEvent string) (wire, error) {
 	t, err := drv.dial(drv.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)

@@ -215,7 +215,7 @@ func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]st
 		merged[k] = v
 	}
 
-	payload, _ := expandTree(step.Send, merged).(map[string]any)
+	payload, _ := outbound.ExpandTree(step.Send, merged).(map[string]any)
 	if _, err := drv.current().Call(ctx, step.Call, payload); err != nil {
 		return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)
 	}
@@ -234,7 +234,7 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 			}
 			drv.mu.Unlock()
 		}
-		payload, _ := expandTree(step.Send, values).(map[string]any)
+		payload, _ := outbound.ExpandTree(step.Send, values).(map[string]any)
 		result, err := drv.current().Call(ctx, step.Call, payload)
 		if err != nil {
 			return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)
@@ -256,29 +256,6 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 		}
 	}
 	return nil
-}
-
-// expandTree substitutes {placeholder} at every string leaf of a Send tree via
-// outbound.Substitute, so nested payloads share the flat path's grammar.
-func expandTree(node any, values map[string]string) any {
-	switch v := node.(type) {
-	case string:
-		return outbound.Substitute(v, values)
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, val := range v {
-			out[k] = expandTree(val, values)
-		}
-		return out
-	case []any:
-		out := make([]any, len(v))
-		for i, val := range v {
-			out[i] = expandTree(val, values)
-		}
-		return out
-	default:
-		return v
-	}
 }
 
 func cloneValues(values map[string]string) map[string]string {

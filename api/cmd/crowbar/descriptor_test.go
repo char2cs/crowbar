@@ -47,6 +47,49 @@ func TestDescriptorValidate_ABrokenFileFailsWithItsFindings(t *testing.T) {
 	assert.Contains(t, out, "hint:")
 }
 
+const socketDescriptor = `schema_version: 0
+id: socketed
+display_name: Socketed
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    delivery: websocket
+    format: jsonrpc_text
+    static_url: wss://host.example/rpc
+    handshake: { call: hello }
+spawn:
+  cmd: socketed
+  interactive_required: true
+surfaces:
+  chat: { channel: api, start_here: true }
+events:
+  session_start:
+    required: [session_id]
+    api: { in: session/started, map: { session_id: session_id } }
+  user_prompt:
+    required: [session_id]
+    api: { in: item/user, map: { session_id: session_id, message: text } }
+  turn_stop:
+    required: [session_id]
+    api: { in: turn/done, map: { session_id: session_id, message: text } }
+  prompt:
+    fresh: [{ call: session/new, capture: { session_id: id } }]
+    resume: [{ call: session/resume, send: { id: "{session_id}" } }]
+    action: [{ call: turn/send, send: { id: "{session_id}", text: "{text}" } }]
+`
+
+// A descriptor that reaches its server by websocket needs no serve.
+func TestDescriptorValidate_AServelessEndpointDescriptorPasses(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "socketed.yaml")
+	require.NoError(t, os.WriteFile(file, []byte(socketDescriptor), 0o600))
+
+	out, err := runDescriptor(t, "validate", file)
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "socketed ("+file+"): ok")
+}
+
 func TestDescriptorValidate_PrintsJSON(t *testing.T) {
 	t.Setenv(home.EnvVar, t.TempDir())
 

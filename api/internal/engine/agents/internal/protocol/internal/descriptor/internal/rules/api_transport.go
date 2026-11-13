@@ -20,8 +20,9 @@ var (
 	pathRE       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\[\]]*$`)
 	headerNameRE = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 	placeholder  = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_.]*)\}`)
-	// Values Crowbar itself supplies to a request body or path.
-	requestInputs = []string{"prompt", "message", "session_id", "cwd", "model", "effort"}
+	// Values Crowbar itself supplies to a request body or path; text and ask_id are
+	// the prompt's and the asked event's own.
+	requestInputs = []string{"prompt", "message", "text", "session_id", "cwd", "model", "effort", "ask_id"}
 )
 
 func (apiTransport) Check(d *spec.Descriptor) error {
@@ -109,8 +110,22 @@ func checkHTTP(d *spec.Descriptor) error {
 			captured[name] = true
 		}
 	}
+	for _, e := range d.Events {
+		for _, steps := range [][]spec.CallStep{e.Fresh, e.Resume, e.Action} {
+			for _, s := range steps {
+				for name := range s.Send {
+					captured[name] = true
+				}
+			}
+		}
+	}
+	replies := map[string]bool{}
+	for _, e := range d.Events {
+		replies[e.ReplyRequest] = true
+	}
 	for name, r := range api.Requests {
-		if err := checkRequest(d, name, r, captured); err != nil {
+		// A reply request is filled from the rendered decision's own members.
+		if err := checkRequest(d, name, r, captured, replies[name]); err != nil {
 			return err
 		}
 	}
@@ -134,7 +149,7 @@ func checkAuth(d *spec.Descriptor) error {
 	return nil
 }
 
-func checkRequest(d *spec.Descriptor, name string, r spec.RequestSpec, captured map[string]bool) error {
+func checkRequest(d *spec.Descriptor, name string, r spec.RequestSpec, captured map[string]bool, free bool) error {
 	if !slices.Contains([]string{"GET", "POST", "PUT", "PATCH", "DELETE"}, r.Method) {
 		return invalid(d.ID, "runtime.api.requests[%s].method %q is not an http method", name, r.Method)
 	}
@@ -145,6 +160,9 @@ func checkRequest(d *spec.Descriptor, name string, r spec.RequestSpec, captured 
 		if code < http.StatusOK || code > 599 {
 			return invalid(d.ID, "runtime.api.requests[%s].ok_status %d is not an http status", name, code)
 		}
+	}
+	if free {
+		return nil
 	}
 	if err := checkPlaceholders(d, "requests["+name+"].path", r.Path, captured); err != nil {
 		return err

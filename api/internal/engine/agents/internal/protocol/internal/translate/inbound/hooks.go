@@ -75,7 +75,7 @@ func (e *RequiredFieldError) Unwrap() error { return ErrRequiredFieldMissing }
 // map of the channel the delivery ACTUALLY arrived on: a dual-shape event's shape
 // is per message, not per declaration.
 func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel) (models.CanonicalEvent, error) {
-	decoded, err := decode(d, raw)
+	decoded, err := decode(d, raw, channel)
 	if err != nil {
 		return models.CanonicalEvent{}, err
 	}
@@ -171,8 +171,10 @@ func endedShell(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEv
 	return ev
 }
 
-func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
-	if format := d.HookFormat(); format != "json" {
+// decode reads raw as JSON. Only a hook delivery declares its format; an api frame
+// is JSON by its transport, so a descriptor with no hooks block still parses.
+func decode(d *spec.Descriptor, raw []byte, channel spec.Channel) (map[string]any, error) {
+	if format := d.HookFormat(); format != "json" && channel != spec.ChannelAPI {
 		return nil, fmt.Errorf("%w %q on %q", ErrUnsupportedFormat, format, d.ID)
 	}
 	if len(raw) == 0 {

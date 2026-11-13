@@ -146,6 +146,12 @@ type Agent interface {
 	// origin (nil-able) learns the sessions the conn produces.
 	StartAPIConn(ctx context.Context, stdio APIStdio, origin APISessionOrigin) (*APIConn, error)
 
+	// APIDialed is whether runtime.api reaches its server by dialing (delivery
+	// websocket or http) instead of by a serve process; StartAPIEndpoint then
+	// connects it, with the same refusal and cleanup as StartAPIConn.
+	APIDialed() bool
+	StartAPIEndpoint(ctx context.Context, tctx TemplateCtx, origin APISessionOrigin) (*APIConn, error)
+
 	// APIServeArgv and APIAttachArgv are runtime.api.serve / .attach, already
 	// template-expanded against ctx, mirroring PromptSteps's (x, bool) shape: ok
 	// is false when this descriptor declares no such field.

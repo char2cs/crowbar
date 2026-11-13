@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/pathselect"
 )
@@ -25,6 +26,7 @@ type Fields struct {
 	Protocols  string
 	Headers    map[string]string // header name -> path
 	Credential string            // sent as "Authorization: Bearer <value>"
+	Schemes    []string          // the URL schemes accepted; ws and wss when empty
 }
 
 // Endpoint is everything a dial needs.
@@ -75,8 +77,12 @@ func decodeOne(out []byte) (map[string]any, error) {
 
 func mapFields(doc map[string]any, f Fields) (Endpoint, error) {
 	raw, ok := pathselect.Field(doc, f.URL).(string)
-	if u, perr := url.Parse(raw); !ok || perr != nil || (u.Scheme != "ws" && u.Scheme != "wss") {
-		return Endpoint{}, fmt.Errorf("field %q: want a ws or wss URL string", f.URL)
+	schemes := f.Schemes
+	if len(schemes) == 0 {
+		schemes = []string{"ws", "wss"}
+	}
+	if u, perr := url.Parse(raw); !ok || perr != nil || !slices.Contains(schemes, u.Scheme) {
+		return Endpoint{}, fmt.Errorf("field %q: want a %s URL string", f.URL, strings.Join(schemes, " or "))
 	}
 	ep := Endpoint{URL: raw, Header: http.Header{}}
 	if f.Protocols != "" {

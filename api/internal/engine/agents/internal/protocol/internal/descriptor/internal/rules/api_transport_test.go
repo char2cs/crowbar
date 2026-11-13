@@ -134,3 +134,23 @@ func TestAPITransport_EventRequestReferencesMustExist(t *testing.T) {
 	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
 	assert.Contains(t, err.Error(), "missing")
 }
+
+// A request may name what a step sends, and a reply request what its decision renders.
+func TestAPITransport_RequestPlaceholdersComeFromStepsAndReplies(t *testing.T) {
+	d := withHTTP(valid())
+	d.Events["user_prompt"] = spec.EventSpec{
+		Out: spec.WireRef{"send"}, Transport: "api",
+		Action: []spec.CallStep{{Call: "say", Send: map[string]any{"text": "{text}"}}},
+	}
+	d.Runtime.API.Requests["say"] = spec.RequestSpec{Method: "POST", Path: "/runs/{run_id}/say", Body: map[string]any{"t": "{text}"}}
+	require.NoError(t, rules.Apply(d))
+
+	d.Events["permission"] = spec.EventSpec{Ask: spec.WireRef{"approval"}, ReplyRequest: "answer"}
+	d.Runtime.API.Requests["answer"] = spec.RequestSpec{
+		Method: "POST", Path: "/answers/{ask_id}", Body: map[string]any{"decision": "{decision}"},
+	}
+	require.NoError(t, rules.Apply(d))
+
+	d.Runtime.API.Requests["say"].Body["u"] = "{nowhere}"
+	require.ErrorContains(t, rules.Apply(d), "{nowhere}")
+}

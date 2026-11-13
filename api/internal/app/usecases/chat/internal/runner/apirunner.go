@@ -139,20 +139,28 @@ func (rs *Runners) watchAPIConnExit(runnerID, home, tmpDir string) bool {
 	})
 }
 
-// watchExit arms onExit (also on deliberate teardown) against runnerID's `serve`, the
-// liveness a PTY-less runner has, and reaps it from one goroutine so it never lingers
+// watchExit arms onExit (also on deliberate teardown) against runnerID's `serve` (or, with
+// none, its dialed connection), the liveness a PTY-less runner has, and reaps it from one goroutine so it never lingers
 // as a zombie. false means no connection: the spawn has no liveness and must not record.
 func (r *apiConnRegistry) watchExit(runnerID string, onExit func(lost string)) bool {
 	c, ok := r.get(runnerID)
-	if !ok || c.serve == nil {
+	if !ok || c.ended() == nil {
 		return false
 	}
 	go func() {
-		<-c.serve.exited
+		<-c.ended()
 		if c.detached.Load() {
 			return // not the runner's exit — see apiconn.detached
 		}
 		onExit(c.exitCause())
 	}()
 	return true
+}
+
+// ended closes when c's process is gone, or when a dialed c is dropped; nil when it has neither.
+func (c *apiconn) ended() <-chan struct{} {
+	if c.serve != nil {
+		return c.serve.exited
+	}
+	return c.gone
 }

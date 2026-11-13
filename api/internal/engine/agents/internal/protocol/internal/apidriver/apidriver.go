@@ -33,6 +33,17 @@ type SessionOrigin func() func(sessionID string)
 // it with another.
 var ErrSessionLost = errors.New("apidriver: the provider no longer has the session")
 
+// wire is a connection as the driver uses it: a JSON-RPC conn, or an http client
+// adapted to the same calls (httpwire.go).
+type wire interface {
+	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
+	Notify(method string, params any) error
+	Reply(id, result json.RawMessage) error
+	Frames() <-chan jsonrpc.Frame
+	Overflowed() bool
+	Close() error
+}
+
 type Driver struct {
 	d      *spec.Descriptor
 	out    chan Event
@@ -40,7 +51,7 @@ type Driver struct {
 
 	// conn is replaced by a reconnect; cmu guards the swap against its readers.
 	cmu  sync.RWMutex
-	conn *jsonrpc.Conn
+	conn wire
 
 	// dial is nil for a stdio driver, which never reconnects.
 	dial   func(context.Context) (jsonrpc.Transport, error)
@@ -71,7 +82,7 @@ func Start(
 }
 
 func newDriver(
-	ctx context.Context, d *spec.Descriptor, conn *jsonrpc.Conn,
+	ctx context.Context, d *spec.Descriptor, conn wire,
 	dial func(context.Context) (jsonrpc.Transport, error), rc Reconnect, origin SessionOrigin,
 ) (*Driver, error) {
 	if err := handshake(ctx, d, conn); err != nil {
@@ -88,7 +99,10 @@ func newDriver(
 }
 
 // handshake runs the descriptor's opening call on a fresh connection.
-func handshake(ctx context.Context, d *spec.Descriptor, conn *jsonrpc.Conn) error {
+func handshake(ctx context.Context, d *spec.Descriptor, conn wire) error {
+	if d.Runtime.API.Delivery == spec.APIDeliveryHTTP {
+		return nil // requests carry no connection to open
+	}
 	hs := d.Runtime.API.Handshake
 	if hs.Call == "" {
 		return fmt.Errorf("apidriver: descriptor %s declares no handshake call", d.ID)
@@ -108,7 +122,7 @@ func handshake(ctx context.Context, d *spec.Descriptor, conn *jsonrpc.Conn) erro
 	return nil
 }
 
-func (drv *Driver) current() *jsonrpc.Conn {
+func (drv *Driver) current() wire {
 	drv.cmu.RLock()
 	defer drv.cmu.RUnlock()
 	return drv.conn
@@ -125,7 +139,7 @@ func (drv *Driver) originate() func(string) {
 }
 
 // translateLoop pumps conn until it ends, then redials when this driver may.
-func (drv *Driver) translateLoop(conn *jsonrpc.Conn) {
+func (drv *Driver) translateLoop(conn wire) {
 	defer close(drv.out)
 	for {
 		drv.pump(conn)
@@ -136,7 +150,7 @@ func (drv *Driver) translateLoop(conn *jsonrpc.Conn) {
 	}
 }
 
-func (drv *Driver) pump(conn *jsonrpc.Conn) {
+func (drv *Driver) pump(conn wire) {
 	for frame := range conn.Frames() {
 		var params map[string]any
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
@@ -157,7 +171,11 @@ func (drv *Driver) pump(conn *jsonrpc.Conn) {
 				raw = merged
 			}
 		}
-		drv.out <- Event{Canonical: canonical, Raw: raw, AskID: frame.ID}
+		askID := frame.ID
+		if askID == nil {
+			askID = drv.httpAskID(canonical, params)
+		}
+		drv.out <- Event{Canonical: canonical, Raw: raw, AskID: askID}
 	}
 }
 

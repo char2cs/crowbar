@@ -19,7 +19,9 @@ import (
 )
 
 type apiconn struct {
+	// serve is nil for a dialed connection (websocket, http), whose end is gone closing.
 	serve  *serveProcess
+	gone   chan struct{}
 	driver *engineagents.APIConn
 	// ctx/cancel are the connection's OWN lifetime, never a request's: a reply can
 	// arrive minutes after the triggering HTTP call returned. drop cancels it, where
@@ -98,6 +100,9 @@ func (r *apiConnRegistry) drop(runnerID string) {
 		}
 	}
 	c.serve.kill()
+	if c.gone != nil {
+		close(c.gone)
+	}
 }
 
 // closeAll detaches and drops every connection at daemon shutdown — the only path that
@@ -128,6 +133,9 @@ func (rs *Runners) startAPIConn(
 	if rs.noAPITransport {
 		return nil, false
 	}
+	if agent.APIDialed() {
+		return rs.dialAPIConn(ctx, runnerID, agent, tctx)
+	}
 	serveArgv, ok := agent.APIServeArgv(tctx)
 	if !ok {
 		return nil, false
@@ -145,10 +153,29 @@ func (rs *Runners) startAPIConn(
 		rs.noteNoConnection(ctx, tctx.ChatID, agent, err)
 		return nil, false
 	}
+	return rs.registerAPIConn(runnerID, serve, driver), true
+}
+
+// dialAPIConn connects a websocket or http descriptor, which has no process to
+// fork. A failure is told to the chat, like a refused serve handshake.
+func (rs *Runners) dialAPIConn(
+	ctx context.Context, runnerID string, agent engineagents.Agent, tctx engineagents.TemplateCtx,
+) (*apiconn, bool) {
+	//nolint:contextcheck // the driver announces long after this request; its values must not reach the binding.
+	driver, err := agent.StartAPIEndpoint(ctx, tctx, rs.sessionOrigin(tctx.ChatID, agent.ID()))
+	if err != nil {
+		slog.WarnContext(ctx, "agent: api transport: connect", "err", err, "runner_id", runnerID)
+		rs.noteNoConnection(ctx, tctx.ChatID, agent, err)
+		return nil, false
+	}
+	return rs.registerAPIConn(runnerID, nil, driver), true
+}
+
+func (rs *Runners) registerAPIConn(runnerID string, serve *serveProcess, driver *engineagents.APIConn) *apiconn {
 	connCtx, cancel := context.WithCancel(context.Background())
-	conn := &apiconn{serve: serve, driver: driver, ctx: connCtx, cancel: cancel}
+	conn := &apiconn{serve: serve, gone: make(chan struct{}), driver: driver, ctx: connCtx, cancel: cancel}
 	rs.apiConns.set(runnerID, conn)
-	return conn, true
+	return conn
 }
 
 // applyAPITransport connects an api-transport descriptor and establishes its
