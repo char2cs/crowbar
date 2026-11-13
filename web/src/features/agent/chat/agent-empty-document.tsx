@@ -63,6 +63,8 @@ export interface AgentEmptyDocumentProps {
    *  row, when this chat has a reason it cannot be typed into yet. There is only
    *  ever one thing in this slot. `undefined` renders the normal row. */
   banner?: ReactNode
+  /** Why the prompt cannot be sent yet: shown over the controls, and marks send as blocked. */
+  notice?: string
   ref?: Ref<AgentEmptyDocumentHandle>
 }
 
@@ -80,6 +82,7 @@ export function AgentEmptyDocument({
   onStop,
   headerClearancePx = 0,
   banner,
+  notice,
   ref,
 }: AgentEmptyDocumentProps) {
   const handleRef = useRef<HTMLDivElement>(null)
@@ -133,19 +136,27 @@ export function AgentEmptyDocument({
         {banner ? (
           <div className="banner">{banner}</div>
         ) : (
-          <div className="grp">
-            <span className="side">{controls}</span>
-            <span className="side">
-              {attach}
-              <ComposerActionButton
-                hasText={hasText}
-                working={working}
-                canStop={canStop}
-                sending={sending}
-                onSend={onSubmit}
-                onStop={onStop}
-              />
-            </span>
+          <div className="stack">
+            {notice && (
+              <p className="notice" role="status">
+                {notice}
+              </p>
+            )}
+            <div className="grp">
+              <span className="side">{controls}</span>
+              <span className="side">
+                {attach}
+                <ComposerActionButton
+                  hasText={hasText}
+                  working={working}
+                  canStop={canStop}
+                  sending={sending}
+                  onSend={onSubmit}
+                  blockedReason={notice}
+                  onStop={onStop}
+                />
+              </span>
+            </div>
           </div>
         )}
       </div>

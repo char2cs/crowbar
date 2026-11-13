@@ -11,10 +11,13 @@ import {
 import { ViewSwitch } from '@/features/agent/controls/view-switch'
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers-api'
 import { IS_MOBILE } from '@/utils/platform'
+import { openModelPicker } from '@/features/agent/controls/model-picker-open'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
 import { refusal } from '@/features/agent/stores/lib/outbox'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
+
+const MODEL_REQUIRED = 'Choose a model to start'
 
 interface DraftChatPaneProps {
   paneId: string
@@ -47,7 +50,11 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
 
   const send = (raw: string) => {
     const prompt = raw.trim()
-    if (!prompt || sending || needsModel) return
+    if (!prompt || sending) return
+    if (needsModel) {
+      openModelPicker('')
+      return
+    }
     const refused = refusal(prompt)
     if (refused) {
       setError(refused)
@@ -148,12 +155,13 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
             </>
           }
           sending={sending}
+          notice={needsModel ? MODEL_REQUIRED : undefined}
           headerClearancePx={headerClearancePx}
         />
       </div>
-      {(needsModel || error) && (
+      {error && (
         <p className="meta composer-note" role="alert">
-          {needsModel ? 'Choose a model to start' : error}
+          {error}
         </p>
       )}
     </section>

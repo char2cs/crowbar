@@ -10,6 +10,9 @@ interface ComposerActionButtonProps {
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
   onSend: () => void
+  /** Why a send goes nowhere yet. The button looks blocked but still takes the click, so the
+   *  caller can show what is missing. */
+  blockedReason?: string
   onStop?: () => void
 }
 
@@ -22,6 +25,7 @@ export function ComposerActionButton({
   canStop,
   sending,
   onSend,
+  blockedReason,
   onStop,
 }: ComposerActionButtonProps) {
   const stopping = (working || sending) && canStop && !hasText
@@ -29,6 +33,7 @@ export function ComposerActionButton({
   const sendingVisual = !stopping && !hasText && sending
   const idle = !stopping && !sendingVisual && !hasText
   const inert = idle || sendingVisual
+  const blocked = blockedReason !== undefined && !inert && !stopping
 
   const label = stopping
     ? 'Stop this turn'
@@ -48,10 +53,12 @@ export function ComposerActionButton({
   return (
     <button
       type="button"
-      className={cn('send', stopping && 'halt', queueing && 'queue', inert && 'off')}
+      className={cn('send', stopping && 'halt', queueing && 'queue', (inert || blocked) && 'off')}
       disabled={inert}
+      aria-disabled={blocked || undefined}
+      aria-description={blocked ? blockedReason : undefined}
       aria-label={label}
-      title={title}
+      title={blocked ? blockedReason : title}
       // Keeps the editor focused, so tapping send does not drop the keyboard.
       onMouseDown={(e) => e.preventDefault()}
       onClick={stopping ? onStop : onSend}

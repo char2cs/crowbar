@@ -126,6 +126,28 @@
   pointer-events: auto;
 }
 
+.agent-chat .dochandle .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+/* The reason send is blocked, warning-tinted like a signpost, right above the pill. */
+.agent-chat .dochandle .notice {
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in oklch, var(--warning) 45%, transparent);
+  background: color-mix(in oklch, var(--warning) 10%, var(--background));
+  color: var(--warn-text);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: auto;
+}
+.dark .agent-chat .dochandle .notice {
+  color: var(--warning);
+}
+
 /* Ghost prompts: what a first instruction covers, under the line and above the pill. */
 .agent-chat .dochandle .ghosts {
   --pad: max(22px, calc((100% - 720px) / 2));
