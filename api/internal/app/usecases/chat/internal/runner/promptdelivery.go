@@ -100,15 +100,23 @@ func (rs *Runners) resolvePromptDelivery(
 	}
 	resuming, nativeSessionID := launch.resumeID != "", launch.resumeID
 
-	promptSteps, err := descriptor.PromptSteps(resuming)
+	// The connection resumes the session and carries the prompt, so there is no
+	// argv mapping or restart to judge.
+	apiOnly := descriptor.APIOnlyPrompts()
+	var promptSteps []engineagents.InjectStep
+	if !apiOnly {
+		promptSteps, err = descriptor.PromptSteps(resuming)
+	}
 	if err != nil {
 		if errors.Is(err, engineagents.ErrPromptSubmitUnsupported) {
 			return promptDelivery{}, ErrPromptUnsupported
 		}
 		return promptDelivery{}, fmt.Errorf("agent: submit prompt: render prompt mapping: %w", err)
 	}
-	if err := rs.RequirePromptRestart(ctx, chatID, live, descriptor); err != nil {
-		return promptDelivery{}, err
+	if !apiOnly {
+		if err := rs.RequirePromptRestart(ctx, chatID, live, descriptor); err != nil {
+			return promptDelivery{}, err
+		}
 	}
 
 	// Only a session that turned is resumed, so a resumed one has history of its
@@ -140,7 +148,7 @@ func (rs *Runners) resolvePromptDelivery(
 		out.conversation = conversation
 		out.contextResuming = everTurned
 	}
-	if !resuming {
+	if !resuming || apiOnly {
 		return out, nil
 	}
 	// Unsupported is judged against the FULL native mapping: only a provider with no

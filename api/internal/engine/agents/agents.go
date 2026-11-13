@@ -152,6 +152,9 @@ type Agent interface {
 	// websocket or http) instead of by a serve process; StartAPIEndpoint then
 	// connects it, with the same refusal and cleanup as StartAPIConn.
 	APIDialed() bool
+	// APIOnlyPrompts is a descriptor whose connection is the only carrier of a
+	// prompt: it declares no prompt_submit argv to restart a CLI with.
+	APIOnlyPrompts() bool
 	StartAPIEndpoint(ctx context.Context, tctx TemplateCtx, origin APISessionOrigin) (*APIConn, error)
 
 	// APIServeArgv and APIAttachArgv are runtime.api.serve / .attach, already
@@ -307,6 +310,10 @@ func (a *agent) PromptSteps(resume bool) ([]InjectStep, error) {
 		return nil, errPromptSubmitUnsupported
 	}
 	return steps, nil
+}
+
+func (a *agent) APIOnlyPrompts() bool {
+	return a.spec.Runtime.Transport == "api" && a.spec.Presentation.PromptSubmit == nil
 }
 
 func (a *agent) PromptLeadingSigils() ([]string, string) {

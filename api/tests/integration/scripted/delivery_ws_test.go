@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
@@ -41,16 +44,10 @@ spawn:
   cmd: cat
   interactive_required: true
 session:
-  resume: { arg: "resume {id}" }
   refused: { exit_code: 1, rpc_code: -32600, needles: ["no such session"] }
   persists: turn_end
 surfaces:
   chat: { channel: api, start_here: true }
-presentation:
-  prompt_submit:
-    strategy: restart_tui
-    fresh: [{ pass_arg: { positional: "{message}" } }]
-    resume: [{ pass_arg: { positional: "{message}" } }]
 events:
   session_start:
     required: [session_id]
@@ -99,6 +96,7 @@ type socketRig struct {
 	ws       *kit.FakeWS
 	endpoint string
 	calls    chan wireMsg
+	reject   sync.Map // method -> error message the socket answers it with
 }
 
 // wireMsg is one message the daemon wrote to the socket.
@@ -144,6 +142,10 @@ func (s *socketRig) answer(ctx context.Context) {
 			}
 			s.calls <- f
 			if f.Method == "" || len(f.ID) == 0 {
+				continue
+			}
+			if msg, ok := s.reject.Load(f.Method); ok {
+				_ = s.ws.Send(fmt.Appendf(nil, `{"jsonrpc":"2.0","id":%s,"error":{"code":4001,"message":%q}}`, f.ID, msg))
 				continue
 			}
 			result, ok := results[f.Method]
@@ -255,4 +257,43 @@ func TestRegression_WebsocketDropFailsTheTurnAndResumesTheSession(t *testing.T) 
 	s.push(t, `{"method":"turn/done","params":{"session_id":"sess-1","text":"ok"}}`)
 	s.eventually(func() bool { return slices.Contains(s.said(chatID), "assistant: ok") && !s.working(chatID) },
 		"the resumed session never answered")
+}
+
+// A chat whose only channel is the socket has no argv to carry a prompt or a
+// session: after its connection is gone, a send redials, resumes the bound
+// session by the descriptor's own step, and delivers over the new connection.
+func TestRegression_WebsocketDormantChatResumesItsSessionToDeliverAPrompt(t *testing.T) {
+	s := newSocketRig(t)
+	chatID := s.spawn(wsProvider)
+	require.NoError(t, s.send(chatID, "first"))
+	s.nextMethod(t, "turn/send")
+	s.push(t, `{"method":"item/user","params":{"session_id":"sess-1","text":"first"}}`)
+	s.push(t, `{"method":"turn/done","params":{"session_id":"sess-1","text":"one"}}`)
+	s.eventually(func() bool { return slices.Contains(s.said(chatID), "assistant: one") && !s.working(chatID) },
+		"the first turn never closed")
+
+	require.NoError(t, s.runners().StopChat(context.Background(), chatID))
+	s.offerEndpoint(t)
+
+	require.NoError(t, s.send(chatID, "second"))
+	s.nextMethod(t, "hello")
+	assert.JSONEq(t, `{"id":"sess-1"}`, string(s.nextMethod(t, "session/resume").Params))
+	send := s.nextMethod(t, "turn/send")
+	assert.JSONEq(t, `{"id":"sess-1","text":"second"}`, string(send.Params))
+}
+
+// A provider that refuses to open the session tells the chat why, in the chat's
+// own feed, instead of leaving the send to fail as an unsupported prompt.
+func TestRegression_WebsocketRefusedSessionTellsTheChatWhy(t *testing.T) {
+	s := newSocketRig(t)
+	s.reject.Store("session/new", "storage unavailable")
+	chatID := s.spawn(wsProvider)
+
+	err := s.send(chatID, "hello")
+	assert.NotErrorIs(t, err, problem.ErrUnprocessable, "a failed connection is not an unsupported prompt")
+	var details []string
+	for _, m := range kit.Bodies[ledger.Marker](s.rows(chatID), ledger.KindMarker) {
+		details = append(details, m.Detail)
+	}
+	assert.Contains(t, strings.Join(details, "\n"), "storage unavailable")
 }
