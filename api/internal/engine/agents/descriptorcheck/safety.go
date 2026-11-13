@@ -80,6 +80,9 @@ func shellCommandRules(doc document, d *spec.Descriptor) []Finding {
 	if len(d.Runtime.API.Serve) > 0 {
 		commands["runtime.api.serve[0]"] = d.Runtime.API.Serve[0]
 	}
+	if len(d.Runtime.API.Connect) > 0 {
+		commands["runtime.api.connect[0]"] = d.Runtime.API.Connect[0]
+	}
 	if len(d.Runtime.API.Attach) > 0 {
 		commands["runtime.api.attach[0]"] = d.Runtime.API.Attach[0]
 	}
