@@ -27,8 +27,8 @@ type RuntimeSpec struct {
 
 type APISpec struct {
 	Protocol string `yaml:"protocol"`
-	// Delivery and Format are how Protocol reaches serve: the only pair is
-	// stdio + ndjson, one message per line on serve's own stdin and stdout.
+	// Delivery and Format are how Protocol reaches the server: stdio+ndjson on
+	// serve's own pipes, websocket+jsonrpc_text, or http+sse.
 	Delivery string `yaml:"delivery"`
 	Format   string `yaml:"format"`
 	// Serve starts the server Crowbar speaks to.
@@ -37,6 +37,54 @@ type APISpec struct {
 	// structured protocol and the terminal pane with no screen scraping.
 	Attach    []string      `yaml:"attach"`
 	Handshake HandshakeSpec `yaml:"handshake"`
+
+	// Connect prints one JSON object naming a remote endpoint, re-run on every
+	// (re)connect; ConnectMap picks the endpoint's parts out of it, StaticURL
+	// stands in when nothing is printed.
+	Connect    []string   `yaml:"connect"`
+	ConnectMap ConnectMap `yaml:"connect_map"`
+	StaticURL  string     `yaml:"static_url"`
+	Auth       AuthSpec   `yaml:"auth"`
+	// Requests are the named http calls events reference by CallStep.Call.
+	Requests  map[string]RequestSpec `yaml:"requests"`
+	Stream    StreamSpec             `yaml:"stream"`
+	Reconnect ReconnectSpec          `yaml:"reconnect"`
+}
+
+// ConnectMap holds paths into the connect JSON. Headers maps a header name to
+// the path of its value.
+type ConnectMap struct {
+	URL        string            `yaml:"url"`
+	Protocols  string            `yaml:"protocols"`
+	Headers    map[string]string `yaml:"headers"`
+	Credential string            `yaml:"credential"`
+}
+
+// AuthSpec names where an http bearer token comes from; never the token.
+type AuthSpec struct {
+	BearerEnv  string `yaml:"bearer_env"`
+	BearerPath string `yaml:"bearer_path"`
+}
+
+// RequestSpec is one http call. Body is a tree whose string leaves are
+// {placeholder} templates; Capture is CallStep.Capture's grammar.
+type RequestSpec struct {
+	Method   string            `yaml:"method"`
+	Path     string            `yaml:"path"`
+	Body     map[string]any    `yaml:"body"`
+	Capture  map[string]string `yaml:"capture"`
+	OKStatus []int             `yaml:"ok_status"`
+}
+
+// StreamSpec is the SSE feed: each frame's event name is the method and its
+// JSON data the params.
+type StreamSpec struct {
+	Path string `yaml:"path"`
+}
+
+type ReconnectSpec struct {
+	Max       int `yaml:"max"`
+	BackoffMS int `yaml:"backoff_ms"`
 }
 
 // HandshakeSpec is what opens a connection: Call with Params, answered, then
@@ -48,8 +96,12 @@ type HandshakeSpec struct {
 }
 
 const (
-	APIDeliveryStdio = "stdio"
-	APIFormatNDJSON  = "ndjson"
+	APIDeliveryStdio     = "stdio"
+	APIDeliveryWebsocket = "websocket"
+	APIDeliveryHTTP      = "http"
+	APIFormatNDJSON      = "ndjson"
+	APIFormatJSONRPCText = "jsonrpc_text"
+	APIFormatSSE         = "sse"
 )
 
 type HooksWire struct {
@@ -103,6 +155,8 @@ type EventSpec struct {
 	Send map[string]string `yaml:"send"`
 	// Reply holds one template per decision the event accepts.
 	Reply map[string]string `yaml:"reply"`
+	// ReplyRequest names the api.requests entry that answers an http ask.
+	ReplyRequest string `yaml:"reply_request"`
 	// Answerable false marks an ask: Crowbar can SEE but not answer (the human uses the
 	// terminal). Declared, not inferred from an empty reply, which could be a bug.
 	Answerable *bool `yaml:"answerable"`

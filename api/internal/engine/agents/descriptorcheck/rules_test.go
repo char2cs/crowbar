@@ -109,6 +109,18 @@ func TestValidate_AnAPIProviderNeedsAServeArgv(t *testing.T) {
 	assert.Equal(t, 7, f.Line)
 }
 
+func TestValidate_AnEndpointDeliveryNeedsNoServe(t *testing.T) {
+	ws := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n  api:\n" +
+		"    protocol: jsonrpc\n    delivery: websocket\n    format: jsonrpc_text\n    connect: [agent-cli, ws-ticket, --json]\n" +
+		"    connect_map: { url: url }\n    handshake: { call: hello }\n"
+	for _, f := range descriptorcheck.Validate([]byte(ws)).Findings {
+		assert.NotEqual(t, "runtime.api_serve", f.Rule)
+		assert.NotEqual(t, "load.api_transport", f.Rule)
+	}
+	rep := descriptorcheck.Validate([]byte(ws + "    serve: [agent-cli, serve]\n"))
+	assert.Equal(t, "load.api_transport", findingFor(t, rep, "load.api_transport").Rule)
+}
+
 func TestValidate_AnAPIProviderDeclaresItsHandshake(t *testing.T) {
 	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n  api:\n" +
 		"    protocol: jsonrpc2\n    serve: [api, serve]\n"
