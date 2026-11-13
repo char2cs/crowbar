@@ -4,6 +4,8 @@ package apidriver
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -234,6 +236,7 @@ func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 func (drv *Driver) Send(ctx context.Context, canonical string, values map[string]string) error {
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
+	merged[callIDKey] = newCallID()
 	literals := maps.Clone(drv.literals)
 	drv.mu.Unlock()
 	for k, v := range values {
@@ -250,6 +253,15 @@ func (drv *Driver) Send(ctx context.Context, canonical string, values map[string
 		return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, wire, err)
 	}
 	return nil
+}
+
+const callIDKey = "call_id"
+
+// newCallID is a fresh 32-hex id per call, so a re-sent call is never mistaken for a repeat.
+func newCallID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:]) // crypto/rand never fails on supported platforms
+	return hex.EncodeToString(b[:])
 }
 
 // Overflowed reports whether the connection closed because its consumer fell

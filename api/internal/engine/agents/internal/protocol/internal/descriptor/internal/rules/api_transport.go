@@ -21,8 +21,8 @@ var (
 	headerNameRE = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 	placeholder  = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_.]*)\}`)
 	// Values Crowbar itself supplies to a request body or path; text and ask_id are
-	// the prompt's and the asked event's own.
-	requestInputs = []string{"prompt", "message", "text", "session_id", "cwd", "model", "effort", "ask_id"}
+	// the prompt's and the asked event's own; call_id is a fresh id minted per call.
+	requestInputs = []string{"prompt", "message", "text", "session_id", "cwd", "model", "effort", "ask_id", "call_id"}
 )
 
 func (apiTransport) Check(d *spec.Descriptor) error {

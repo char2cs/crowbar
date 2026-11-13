@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,8 +84,9 @@ type wireFrame struct {
 }
 
 type wireError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 // CallError is the error response the server returned to one of OUR OWN Calls,
@@ -94,10 +96,44 @@ type CallError struct {
 	Method  string
 	Code    int
 	Message string
+	// Detail is the server's own reason and field names, never its echoed values.
+	Detail string
 }
 
 func (e *CallError) Error() string {
-	return fmt.Sprintf("jsonrpc: %s: %s (code %d)", e.Method, e.Message, e.Code)
+	if e.Detail == "" {
+		return fmt.Sprintf("jsonrpc: %s: %s (code %d)", e.Method, e.Message, e.Code)
+	}
+	return fmt.Sprintf("jsonrpc: %s: %s (code %d): %s", e.Method, e.Message, e.Code, e.Detail)
+}
+
+const maxDetail = 200
+
+// errorDetail summarises an error's data as "reason; fields: a, b", bounded.
+// A data of any other shape yields nothing, so an echoed payload cannot leak.
+func errorDetail(raw json.RawMessage) string {
+	var data struct {
+		Reason string   `json:"reason"`
+		Fields []string `json:"fields"`
+	}
+	if json.Unmarshal(raw, &data) != nil {
+		return ""
+	}
+	parts := []string{}
+	if data.Reason != "" {
+		parts = append(parts, data.Reason)
+	}
+	if len(data.Fields) > 0 {
+		parts = append(parts, "fields: "+strings.Join(data.Fields, ", "))
+	}
+	return truncate(strings.Join(parts, "; "), maxDetail)
+}
+
+func truncate(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }
 
 // New speaks JSON-RPC over stdio until either side closes it. The child is
@@ -263,7 +299,7 @@ func (c *Conn) await(ctx context.Context, method string, id int64, ch chan wireF
 // callResult converts a dispatched response frame into Call's return values.
 func callResult(method string, f wireFrame) (json.RawMessage, error) {
 	if f.Error != nil {
-		return nil, &CallError{Method: method, Code: f.Error.Code, Message: f.Error.Message}
+		return nil, &CallError{Method: method, Code: f.Error.Code, Message: f.Error.Message, Detail: errorDetail(f.Error.Data)}
 	}
 	return f.Result, nil
 }
@@ -302,7 +338,7 @@ func (c *Conn) ReplyError(id json.RawMessage, code int, message string) error {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`
 		Error   wireError       `json:"error"`
-	}{"2.0", id, wireError{code, message}})
+	}{"2.0", id, wireError{Code: code, Message: message}})
 	if err != nil {
 		return fmt.Errorf("jsonrpc: marshal error reply: %w", err)
 	}

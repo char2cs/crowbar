@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -84,11 +85,26 @@ events:
     resume:
       - { call: session/resume, send: { id: "{session_id}" } }
     action:
-      - { call: turn/send, send: { id: "{session_id}", text: "{text}" }, capture: { turn_id: turn } }
+      - { call: turn/send, send: { id: "{session_id}", text: "{text}", call: "{call_id}" }, capture: { turn_id: turn } }
   interrupt:
     out: turn/cancel
     send: { id: "{session_id}", turn: "{turn_id}" }
 `
+
+var callIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// withoutCallID returns a turn/send's params minus its per-call id, which it checks is fresh-looking.
+func withoutCallID(t *testing.T, params json.RawMessage) string {
+	t.Helper()
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(params, &m))
+	id, _ := m["call"].(string)
+	assert.Regexp(t, callIDRE, id)
+	delete(m, "call")
+	out, err := json.Marshal(m)
+	require.NoError(t, err)
+	return string(out)
+}
 
 // socketRig is a daemon whose only provider dials a fake socket.
 type socketRig struct {
@@ -194,7 +210,7 @@ func TestRegression_WebsocketDeliveryRunsAChatTurn(t *testing.T) {
 
 	require.NoError(t, s.send(chatID, "hi there"))
 	send := s.nextMethod(t, "turn/send")
-	assert.JSONEq(t, `{"id":"sess-1","text":"hi there"}`, string(send.Params))
+	assert.JSONEq(t, `{"id":"sess-1","text":"hi there"}`, withoutCallID(t, send.Params))
 
 	s.push(t, `{"method":"session/started","params":{"session_id":"sess-1"}}`)
 	s.push(t, `{"method":"item/user","params":{"session_id":"sess-1","text":"hi there"}}`)
@@ -252,7 +268,7 @@ func TestRegression_WebsocketDropFailsTheTurnAndResumesTheSession(t *testing.T) 
 
 	require.NoError(t, s.send(chatID, "second"))
 	send := s.nextMethod(t, "turn/send")
-	assert.JSONEq(t, `{"id":"sess-1","text":"second"}`, string(send.Params), "the first prompt was not replayed")
+	assert.JSONEq(t, `{"id":"sess-1","text":"second"}`, withoutCallID(t, send.Params), "the first prompt was not replayed")
 	s.push(t, `{"method":"item/user","params":{"session_id":"sess-1","text":"second"}}`)
 	s.push(t, `{"method":"turn/done","params":{"session_id":"sess-1","text":"ok"}}`)
 	s.eventually(func() bool { return slices.Contains(s.said(chatID), "assistant: ok") && !s.working(chatID) },
@@ -279,7 +295,7 @@ func TestRegression_WebsocketDormantChatResumesItsSessionToDeliverAPrompt(t *tes
 	s.nextMethod(t, "hello")
 	assert.JSONEq(t, `{"id":"sess-1"}`, string(s.nextMethod(t, "session/resume").Params))
 	send := s.nextMethod(t, "turn/send")
-	assert.JSONEq(t, `{"id":"sess-1","text":"second"}`, string(send.Params))
+	assert.JSONEq(t, `{"id":"sess-1","text":"second"}`, withoutCallID(t, send.Params))
 }
 
 // A provider that refuses to open the session tells the chat why, in the chat's
@@ -296,4 +312,46 @@ func TestRegression_WebsocketRefusedSessionTellsTheChatWhy(t *testing.T) {
 		details = append(details, m.Detail)
 	}
 	assert.Contains(t, strings.Join(details, "\n"), "storage unavailable")
+}
+
+// Every prompt delivery mints its own {call_id}, so a re-send never reuses an id the
+// provider already admitted.
+func TestRegression_WebsocketEachPromptCarriesAFreshCallID(t *testing.T) {
+	s := newSocketRig(t)
+	chatID := s.spawn(wsProvider)
+	var ids []string
+	for _, text := range []string{"one", "two"} {
+		require.NoError(t, s.send(chatID, text))
+		var m map[string]any
+		require.NoError(t, json.Unmarshal(s.nextMethod(t, "turn/send").Params, &m))
+		id, _ := m["call"].(string)
+		ids = append(ids, id)
+		s.push(t, fmt.Sprintf(`{"method":"item/user","params":{"session_id":"sess-1","text":%q}}`, text))
+		s.push(t, `{"method":"turn/done","params":{"session_id":"sess-1","text":"done-`+text+`"}}`)
+		s.eventually(func() bool { return slices.Contains(s.said(chatID), "assistant: done-"+text) && !s.working(chatID) },
+			"the turn never closed")
+	}
+	assert.Regexp(t, callIDRE, ids[0])
+	assert.Regexp(t, callIDRE, ids[1])
+	assert.NotEqual(t, ids[0], ids[1])
+}
+
+// A prompt the provider refuses leaves the chat's stop notice carrying the provider's own
+// reason, not a guess about its CLI.
+func TestRegression_WebsocketRefusedPromptRecordsItsReasonOnTheExit(t *testing.T) {
+	s := newSocketRig(t)
+	chatID := s.spawn(wsProvider)
+	require.NoError(t, s.runners().StopChat(context.Background(), chatID))
+	s.offerEndpoint(t)
+	s.reject.Store("turn/send", "message too long")
+	_ = s.send(chatID, "hello")
+
+	s.eventually(func() bool {
+		for _, e := range kit.Bodies[ledger.RunnerExited](s.rows(chatID), ledger.KindRunnerExited) {
+			if strings.Contains(e.Detail, "message too long") {
+				return true
+			}
+		}
+		return false
+	}, "no exit row carried the provider's reason")
 }

@@ -361,7 +361,8 @@ const applyRunnerExited: Apply<'runner_exited'> = (fold, row) => {
   interruptSubagents(fold, row)
   stopShells(fold, row)
   // Only a CLI that never started needs a word; any other exit is continued by the next send.
-  if (!row.scope && reason === 'spawn_failed') marker(fold, row, 'runner_exited', undefined, reason)
+  if (!row.scope && reason === 'spawn_failed')
+    marker(fold, row, 'runner_exited', row.body.detail, reason)
 }
 
 const applySessionLost: Apply<'session_lost'> = (fold, row) => {

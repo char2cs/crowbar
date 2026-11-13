@@ -212,6 +212,7 @@ func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]st
 
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
+	merged[callIDKey] = newCallID()
 	literals := maps.Clone(drv.literals)
 	drv.mu.Unlock()
 	for k, v := range values {
@@ -241,7 +242,9 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 		drv.mu.Lock()
 		literals := maps.Clone(drv.literals)
 		drv.mu.Unlock()
-		payload, _ := outbound.ExpandTree(step.Send, values, literals).(map[string]any)
+		expand := maps.Clone(values)
+		expand[callIDKey] = newCallID()
+		payload, _ := outbound.ExpandTree(step.Send, expand, literals).(map[string]any)
 		for _, key := range step.Optional {
 			if payload[key] == "" {
 				delete(payload, key)

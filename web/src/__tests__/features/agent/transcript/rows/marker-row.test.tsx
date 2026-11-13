@@ -131,6 +131,20 @@ describe('MarkerRow', () => {
     )
   })
 
+  it("says why a spawn failed when the daemon recorded the provider's reason", () => {
+    const feed = seed([
+      ledger().row('runner_exited', {
+        runnerId: 'r3',
+        reason: 'spawn_failed',
+        exitCode: 0,
+        detail: 'message too long',
+      }),
+    ])
+    draw(markerOf(feed)!)
+    expect(screen.getByTestId('agent-exit-divider')).toHaveTextContent('message too long')
+    expect(screen.queryByText(/CLI is installed/)).toBeNull()
+  })
+
   it('reads a switch of provider, model and effort as one divider', () => {
     const l = ledger()
     const feed = seed([

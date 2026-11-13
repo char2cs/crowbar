@@ -225,7 +225,7 @@ events:
         capture: { execution_generation: execution_generation }
     action:
       - call: prompt.submit
-        send: { session_id: "{session_id}", text: "{text}" }
+        send: { session_id: "{session_id}", text: "{text}", submission_id: "{call_id}" }
         capture: { execution_generation: execution_generation }
 
   # interrupt is fenced on execution_generation, a number captured from every admission receipt.

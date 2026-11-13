@@ -121,6 +121,29 @@ func TestCall_ServerErrorSurfacesAsAGoError(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid request")
 }
 
+func TestCall_ErrorDataNamesTheRejectedFields(t *testing.T) {
+	conn := serve(t, func(peer *testutil.LinePeer) {
+		req, err := readRequest(peer)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.NoError(t, peer.WriteJSON(map[string]any{
+			"id": req.ID, "error": map[string]any{
+				"code": 4001, "message": "invalid_params",
+				"data": map[string]any{"reason": "missing", "fields": []string{"submission_id"}, "echo": "secret"},
+			},
+		}))
+	})
+
+	_, err := conn.Call(t.Context(), "prompt.submit", map[string]any{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid_params (code 4001)")
+	assert.Contains(t, err.Error(), "missing")
+	assert.Contains(t, err.Error(), "submission_id")
+	assert.NotContains(t, err.Error(), "secret")
+}
+
 func TestFrames_DeliversNotificationsAndAsksButNotOwnCallResponses(t *testing.T) {
 	conn, peer := open(t)
 	require.NoError(t, peer.WriteJSON(map[string]any{"method": "thread/started", "params": map[string]string{"threadId": "t1"}}))

@@ -346,7 +346,7 @@ events:
     #
     # model.* is the chat's composed model id taken back apart (ModelSpec.IDSplit),
     # for a session call that takes its parts as separate fields.
-    optional: [session_id, cwd, context, "permission.*", "model.*"]
+    optional: [session_id, cwd, context, call_id, "permission.*", "model.*"]
 
   interrupt:
     direction: out
@@ -355,7 +355,7 @@ events:
     # descriptor's interrupt, if it declares any, has nowhere to source it from),
     # while an rpc-transport provider whose cancel call is scoped to a specific
     # turn — not just the thread — needs it. codex does; see codex.yaml.
-    optional: [session_id, turn_id]
+    optional: [session_id, turn_id, call_id]
 
   # Crowbar asks for compaction. Codex exposes thread/compact/start; claude has no API
   # for it, so its descriptor injects the /compact slash command over the prompt
@@ -364,7 +364,7 @@ events:
   compact_start:
     direction: out
     required: []
-    optional: [session_id]
+    optional: [session_id, call_id]
 
   # Crowbar asks the agent to end one of its background shells (shell_id). The
   # provider has no operation to end a shell from outside, so the request goes to
@@ -373,4 +373,4 @@ events:
   shell_stop:
     direction: out
     required: []
-    optional: [session_id, shell_id]
+    optional: [session_id, shell_id, call_id]
