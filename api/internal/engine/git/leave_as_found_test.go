@@ -33,9 +33,11 @@ func stackedWorktree(t *testing.T) (string, string) {
 }
 
 // withoutIdentity makes every commit in repo fail the way a container with no
-// git identity does.
+// git identity does; the user's global identity must not fill the gap.
 func withoutIdentity(t *testing.T, repo string) {
 	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	gitRun(t, repo, "config", "--unset", "user.email")
 	gitRun(t, repo, "config", "--unset", "user.name")
 	gitRun(t, repo, "config", "user.useConfigOnly", "true")

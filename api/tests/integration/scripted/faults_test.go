@@ -105,7 +105,9 @@ func TestScripted_HangThenStop(t *testing.T) {
 
 // A slow CLI holds its turn open without losing anything: a message sent
 // meanwhile is refused as busy, not swallowed, and goes through afterwards.
+// A provider that steers takes it into the running turn instead.
 func TestScripted_SlowHook(t *testing.T) {
+	steers := map[string]bool{"claude": true}
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			r := newRig(t)
@@ -114,7 +116,11 @@ func TestScripted_SlowHook(t *testing.T) {
 			require.NoError(t, r.send(chatID, "take your time"))
 			r.eventually(func() bool { return r.working(chatID) }, "the turn never opened")
 
-			require.ErrorIs(t, r.send(chatID, "are you done?"), agentusecase.ErrPromptBusy)
+			if steers[provider] {
+				require.NoError(t, r.send(chatID, "are you done?"))
+			} else {
+				require.ErrorIs(t, r.send(chatID, "are you done?"), agentusecase.ErrPromptBusy)
+			}
 
 			r.eventually(func() bool {
 				return slices.Contains(r.said(chatID), "assistant: slowly") && !r.working(chatID)
@@ -239,7 +245,7 @@ func allowOption(c domain.ActivityChoice) string {
 }
 
 // A vendor session the provider no longer has is refused by its CLI: the chat
-// loses it, and the next message starts a fresh session with no transcript.
+// loses it, and the next message starts a fresh session handed Crowbar's record.
 func TestScripted_MissingSessionFileIsLost(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -273,8 +279,8 @@ func TestScripted_RefusedResumeIsLost(t *testing.T) {
 }
 
 // lostThenFresh sends text to chatID, whose session its CLI refuses: the
-// message is not taken, and the next one starts a fresh session handed no
-// transcript of the conversation.
+// message is not taken, and the next one starts a fresh session handed Crowbar's
+// record of the conversation.
 func (r *rig) lostThenFresh(chatID, provider, text string) {
 	r.t.Helper()
 	first := r.logged("prompt")[0]["session"]
@@ -285,7 +291,8 @@ func (r *rig) lostThenFresh(chatID, provider, text string) {
 
 	prompts := r.logged("prompt")
 	assert.NotEqual(r.t, first, prompts[len(prompts)-1]["session"], "the refused session is never resumed again")
-	assert.False(r.t, r.transcriptReached("PELICAN"), "a lost session's replacement is handed no transcript\n%s", r.dump())
+	assert.True(r.t, r.transcriptReached("PELICAN"), "a lost session's replacement is handed Crowbar's record\n%s", r.dump())
+	assert.Equal(r.t, []string{ledger.MarkerFromRecord}, r.markers(chatID), "the transcript says so, once")
 	assert.Equal(r.t, 1, r.lostSessions(chatID), "the fresh session is not lost")
 }
 
