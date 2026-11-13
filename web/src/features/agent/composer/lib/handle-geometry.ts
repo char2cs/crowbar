@@ -10,10 +10,10 @@ export function handleOffset(fieldHeight: number): number {
   return Math.max(0, Math.round(fieldHeight - COMPOSER_LINE_HEIGHT))
 }
 
-/** A third line turns the pill into a rounded rectangle; two still read as a pill. 6px of slack:
- *  fractional font-metric heights make a bare `> 2 * LINE` flicker. */
+/** A second line turns the pill into a rounded rectangle. 6px of slack: fractional font-metric
+ *  heights make a bare `> LINE` flicker. */
 export function isMultiline(fieldHeight: number): boolean {
-  return fieldHeight > 2 * COMPOSER_LINE_HEIGHT + 6
+  return fieldHeight > COMPOSER_LINE_HEIGHT + 6
 }
 
 /** One inset for every edge: `right` must match the vertical overhang or the

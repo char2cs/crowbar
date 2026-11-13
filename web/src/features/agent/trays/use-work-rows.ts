@@ -33,9 +33,9 @@ function words(card: SubagentItem, ended: string, fallback: string): [string, st
   return [card.type || card.title, detail]
 }
 
-/** The work the agent has going, for the bottom tray: the turn's subagents, running ones first
- *  and the ended ones kept beside them while any still runs, then its background shells and
- *  monitors, running ones first. */
+/** The work the agent has going, for the bottom tray: the turn's subagents, running ones first,
+ *  then its background shells and monitors, running ones first. Ended rows stay beside what
+ *  still runs; when nothing runs the list is empty. */
 export function useWorkRows(chatId: string): TrayRow[] {
   // Flat strings, so the selector's shallow compare holds while unrelated rows stream in.
   const flat = useChatStore(
@@ -94,6 +94,8 @@ export function useWorkRows(chatId: string): TrayRow[] {
     }
     const running = (row: TrayRow) => row.status === 'running'
     const tracked = shells.map(shellRow)
-    return [...rows, ...tracked.filter(running), ...tracked.filter((row) => !running(row))]
+    const all = [...rows, ...tracked.filter(running), ...tracked.filter((row) => !running(row))]
+    // Ended work is kept beside what still runs; once nothing runs the tray is done.
+    return all.some(running) ? all : []
   }, [flat, shells])
 }

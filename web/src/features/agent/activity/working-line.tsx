@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { reasoningHeadline } from '@/features/agent/activity/lib/reasoning-headline'
-import { useTextClock } from '@/features/agent/activity/lib/text-clock'
-import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
+import { formatClock, useTextClock } from '@/features/agent/activity/lib/text-clock'
 import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
 
 export interface WorkingLineProps {
@@ -28,7 +27,7 @@ export interface WorkingLineProps {
   connecting?: string
 }
 
-const clockText = (seconds: number) => (seconds > 0 ? ` · ${formatElapsed(seconds)}` : '')
+const clockText = (seconds: number) => (seconds > 0 ? ` · ${formatClock(seconds)}` : '')
 
 /** The most specific true thing the turn is doing, never a guess, beside its clock. */
 function headingOf(p: WorkingLineProps, thought: string | undefined): string {

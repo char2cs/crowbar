@@ -36,9 +36,9 @@ describe('isMultiline', () => {
     expect(isMultiline(24.5)).toBe(false)
   })
 
-  // Two lines are still a full pill with plus beside send; the rounded rectangle starts at three.
-  it('stays a pill through two lines and wraps at the third', () => {
-    expect(isMultiline(40)).toBe(false)
+  // The rounded rectangle starts the moment the text wraps, so two lines already read as a box.
+  it('turns into the rounded rectangle as soon as a second line appears', () => {
+    expect(isMultiline(40)).toBe(true)
     expect(isMultiline(60)).toBe(true)
   })
 })

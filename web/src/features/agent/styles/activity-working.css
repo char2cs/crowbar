@@ -23,6 +23,9 @@
 .agent-chat .activity .hd .dim {
   flex: none;
   white-space: pre;
+  /* The same clock face as the tray rows. */
+  font-family: var(--editor-font-family, ui-monospace, monospace);
+  font-size: 11.5px;
 }
 .agent-chat .activity .verb {
   min-width: 0;

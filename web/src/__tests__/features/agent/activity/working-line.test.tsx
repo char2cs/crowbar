@@ -9,18 +9,18 @@ describe('WorkingLine', () => {
     vi.useRealTimers()
   })
 
-  it('reads the live elapsed clock as m:ss, not a bare second count', () => {
+  it('reads the live elapsed clock in the same format as the tray rows', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-18T12:01:05Z'))
     render(<WorkingLine working since="2026-08-18T12:00:00Z" />)
-    expect(screen.getByText('· 1:05')).toBeInTheDocument()
+    expect(screen.getByText('· 1m 05s')).toBeInTheDocument()
   })
 
-  it('pads a single-digit second under a minute the same stopwatch way', () => {
+  it('writes under a minute as plain seconds', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-18T12:00:08Z'))
     render(<WorkingLine working since="2026-08-18T12:00:00Z" />)
-    expect(screen.getByText('· 0:08')).toBeInTheDocument()
+    expect(screen.getByText('· 8s')).toBeInTheDocument()
   })
 
   it('renders nothing at all when the chat is idle', () => {

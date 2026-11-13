@@ -145,7 +145,7 @@ describe('useWorkRows shells and monitors', () => {
     expect(result.current[1]?.hint).toContain('in /work')
   })
 
-  it('keeps an ended one with how it ended, behind the running ones', () => {
+  it('keeps an ended one with how it ended while another still runs, and clears once none does', () => {
     const l = ledger()
     const { result } = renderHook(() => useWorkRows('chat-1'))
     push(l.start('turn-1'))
@@ -164,9 +164,6 @@ describe('useWorkRows shells and monitors', () => {
       ['make test', 'failed', 'Exit 2 · boom'],
     ])
     push(l.row('shell', { phase: 'end', shellId: 'sh-2', status: 'stopped' }, { turnId: 'turn-1' }))
-    expect(result.current.map((row) => [row.status, row.detail])).toEqual([
-      ['failed', 'Exit 2 · boom'],
-      ['stopped', 'Stopped'],
-    ])
+    expect(result.current).toEqual([])
   })
 })
