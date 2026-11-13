@@ -400,3 +400,33 @@ func TestResolve_NoThreadStatusIsMapped(t *testing.T) {
 		assert.False(t, ok, "%s does not mean the work is done", status)
 	}
 }
+
+// A frame that finishes a tool and carries its diff is one wire method for two
+// facts: the declared rider fires beside the frame's own event, never instead.
+func TestRiders_AFrameDeclaredAlsoCarriesItsDiff(t *testing.T) {
+	d, err := descriptor.ParseV0([]byte(`
+id: acme
+display_name: Acme
+runtime:
+  transport: api
+  api: { protocol: jsonrpc2, serve: [acme, serve] }
+  spawn: { cmd: acme }
+events:
+  tool_post:
+    in: tool/done
+    map: { tool_id: id }
+  diff_update:
+    in: tool/done
+    also: true
+    map: { text: diff }
+`))
+	require.NoError(t, err)
+	params := map[string]any{"id": "t1", "diff": "--- a/f\n+++ b/f\n"}
+
+	primary, ok := dispatch.Resolve(d, "tool/done", params)
+
+	require.True(t, ok)
+	assert.Equal(t, "tool_post", primary, "a rider is never the frame's own event")
+	assert.Equal(t, []string{"diff_update"}, dispatch.Riders(d, "tool/done", params))
+	assert.Empty(t, dispatch.Riders(d, "tool/other", params))
+}

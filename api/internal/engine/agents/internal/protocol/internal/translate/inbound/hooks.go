@@ -450,23 +450,6 @@ func hunkCount(n int) string {
 	return fmt.Sprintf(",%d", n)
 }
 
-func buildPatch(patch *spec.PatchSpec, decoded map[string]any) []models.PatchHunk {
-	if patch == nil {
-		return nil
-	}
-	var out []models.PatchHunk
-	for _, row := range mapping.Objects(decoded, mapping.Paths(patch.Items)) {
-		oldStart, _ := mapping.Int(row, mapping.Paths(patch.OldStart))
-		newStart, _ := mapping.Int(row, mapping.Paths(patch.NewStart))
-		lines := mapping.Strings(row, mapping.Paths(patch.Lines))
-		if len(lines) == 0 {
-			continue
-		}
-		out = append(out, models.PatchHunk{OldStart: oldStart, NewStart: newStart, Lines: lines})
-	}
-	return out
-}
-
 func buildLocations(specification *spec.LocationsSpec, decoded map[string]any) []models.ToolLocation {
 	if specification == nil || specification.Items == "" || specification.Path == "" {
 		return nil

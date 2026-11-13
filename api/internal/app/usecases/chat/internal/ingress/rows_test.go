@@ -176,6 +176,31 @@ func TestMap_TypedWordsOfACrowbarPromptStartItsTurn(t *testing.T) {
 	assert.Equal(t, "req-1", bodyOf[ledger.TurnStarted](t, rows[0]).RequestID)
 }
 
+// A turn start that echoes no words claims the oldest pending prompt of its
+// runner; with none pending it opens a turn and invents no empty user row.
+func TestMap_AWordlessTurnStartClaimsTheOldestPendingPrompt(t *testing.T) {
+	c := liveChatRows(t)
+	c.commit(crowbarPrompt(t, "req-1", "first", ledger.DeliveryRestart), crowbarPrompt(t, "req-2", "second", ledger.DeliveryRestart))
+	s := hooksSource()
+	s.Prompt = Prompt{Origin: ledger.OriginProvider}
+
+	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, TurnID: "pt-1"}, s)
+
+	require.Equal(t, []ledger.Kind{ledger.KindTurnStarted}, kinds(rows))
+	assert.Equal(t, "T-req-1", rows[0].TurnID)
+	assert.Equal(t, "req-1", bodyOf[ledger.TurnStarted](t, rows[0]).RequestID)
+}
+
+func TestMap_AWordlessTurnStartWithNothingPendingOpensNoEmptyRow(t *testing.T) {
+	c := liveChatRows(t)
+	s := hooksSource()
+	s.Prompt = Prompt{Origin: ledger.OriginProvider}
+
+	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, TurnID: "pt-1"}, s)
+
+	assert.Equal(t, []ledger.Kind{ledger.KindTurnStarted}, kinds(rows))
+}
+
 // Words matching a prompt another runner carries are the live CLI's own: the
 // other runner's prompt is not started here.
 func TestMap_TypedWordsOfAnotherRunnersPromptAreItsOwn(t *testing.T) {
