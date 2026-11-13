@@ -65,9 +65,15 @@ func (s *State) applyRunnerExited(r Row) {
 	s.lastExit = RunnerExit{RunnerID: body.RunnerID, Reason: body.Reason, ExitCode: body.ExitCode, At: r.At}
 	s.hasExit = true
 	// What the gone process was asking, nothing will answer; its subagents
-	// are interrupted (SubagentBook). Another runner's asks stay its own.
+	// are interrupted (SubagentBook), its shells stopped with it. Another runner's asks stay its own.
 	ran := func(runnerID string) bool { return runnerID == "" || runnerID == body.RunnerID }
 	s.abandonAsks(func(a PendingAsk) bool { return ran(s.keys.runnerOf(a.TurnID)) })
+	for id, sh := range s.shells {
+		if sh.Live() && ran(s.keys.runnerOf(sh.TurnID)) {
+			sh.Status = ShellStopped
+			s.shells[id] = sh
+		}
+	}
 }
 
 // Exit is a runner's end as rows: the turn it was running interrupted, its

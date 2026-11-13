@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
 // UploadAttachmentInput is one attachment's identity and bytes, already
@@ -37,23 +36,22 @@ func (u *Usecase) UploadAttachment(
 	chatID string,
 	in UploadAttachmentInput,
 ) (StoredAttachment, error) {
-	chat, err := u.chats.GetChat(ctx, chatID)
+	dir, err := u.attachmentsDir(ctx, chatID)
 	if err != nil {
-		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: chat: %w", err)
+		return StoredAttachment{}, err
 	}
-	home, err := u.home()
-	if err != nil {
-		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: home: %w", err)
-	}
-	dir := worktreepath.AttachmentsDir(home, chat.ID)
 	fileName, contentType, err := repoattachments.Store(dir, in.ID, in.OriginalName, in.Data)
 	if err != nil {
 		return StoredAttachment{}, fmt.Errorf("agent: upload attachment: %w", err)
 	}
+	return storedAttachment(chatID, fileName, contentType, len(in.Data)), nil
+}
+
+func storedAttachment(chatID, fileName, contentType string, size int) StoredAttachment {
 	return StoredAttachment{
 		Ref: "chats/" + chatID + "/attachments/" + fileName, FileName: fileName,
-		Size: len(in.Data), ContentType: contentType,
-	}, nil
+		Size: size, ContentType: contentType,
+	}
 }
 
 // ReadAttachment resolves chatID's stored attachment fileName to bytes and a
@@ -62,15 +60,11 @@ func (u *Usecase) ReadAttachment(
 	ctx context.Context,
 	chatID, fileName string,
 ) ([]byte, string, error) {
-	chat, err := u.chats.GetChat(ctx, chatID)
+	dir, err := u.attachmentsDir(ctx, chatID)
 	if err != nil {
-		return nil, "", fmt.Errorf("agent: read attachment: chat: %w", err)
+		return nil, "", err
 	}
-	home, err := u.home()
-	if err != nil {
-		return nil, "", fmt.Errorf("agent: read attachment: home: %w", err)
-	}
-	data, contentType, err := repoattachments.Read(worktreepath.AttachmentsDir(home, chat.ID), fileName)
+	data, contentType, err := repoattachments.Read(dir, fileName)
 	if err != nil {
 		return nil, "", fmt.Errorf("agent: read attachment: %w", err)
 	}

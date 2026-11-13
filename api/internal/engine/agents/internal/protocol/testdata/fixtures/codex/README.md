@@ -99,3 +99,7 @@ app-server captures off Crowbar's own connection, paths mapped to `/ws` (a file 
 the workspace to `/`), thread and turn ids replaced by placeholders. They replace the
 `-schema` fileChange twins, which claimed an added file's `diff` is null: live, it is the
 file's whole content, and a deleted file's is its old content.
+
+`item_commandExecution_terminalInteraction.schema.json` is the TerminalInteractionNotification of the
+generated schema (threadId, turnId, itemId, processId, stdin): no live capture of a command that outlived
+its call exists yet. Re-capture it live and drop the `-schema` suffix.

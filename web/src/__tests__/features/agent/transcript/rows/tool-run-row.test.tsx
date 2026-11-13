@@ -51,6 +51,8 @@ describe('ToolRunRow', () => {
     expect(run).toHaveTextContent('Read 1 file, ran 1 search')
     expect(screen.queryByTestId('agent-tool-run-ticker')).toBeNull()
     expect(screen.queryByTestId('agent-activity-tool')).toBeNull()
+    expect(run.querySelector('.tool-glyph')).toBeNull()
+    expect(run.querySelector('[data-flicker-spinner]')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Show the run’s tool calls' }))
     expect(screen.getAllByTestId('agent-activity-tool')).toHaveLength(2)
@@ -108,7 +110,7 @@ describe('ToolRunRow with an ask on a member', () => {
     for (const row of fetches(l)) push(row)
     draw()
     expect(statusOf('f2')).toBe('awaiting_approval')
-    expect(screen.getByText('Waiting for your approval')).toBeInTheDocument()
+    expect(screen.getByText('Needs your answer')).toBeInTheDocument()
 
     push(deny(l))
     expect(statusOf('f2')).toBe('declined')

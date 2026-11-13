@@ -62,7 +62,7 @@ function draw(overrides: Partial<AgentComposerProps> = {}, { dnd = false } = {})
     wsId: 'w1',
     chatId: 'c1',
     asks: [],
-    providerLabel: 'Claude',
+    providerLabel: 'Provider A',
     live: true,
     working: false,
     compacting: false,
@@ -128,7 +128,7 @@ describe('AgentComposer', () => {
     const { load } = draw()
     await load('hi')
 
-    const user = await openPlus(/excalidraw/i)
+    const user = await openPlus(/new drawing/i)
     expect(await screen.findByTestId('excalidraw-takeover')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Close' }))
 
@@ -142,8 +142,7 @@ describe('AgentComposer', () => {
     document.body.appendChild(container)
     const { container: composerRoot } = draw({ takeoverContainer: container })
 
-    await openPlus(/excalidraw/i)
-
+    await openPlus(/new drawing/i)
     await waitFor(() =>
       expect(container.querySelector('[data-testid="excalidraw-takeover"]')).not.toBeNull(),
     )
@@ -155,18 +154,16 @@ describe('AgentComposer', () => {
     saveExcalidrawDesign('w1', 'c1', '{"elements":[{"id":"saved"}],"appState":{}}')
     draw()
 
-    await openPlus(/excalidraw/i)
+    await openPlus(/new drawing/i)
     await screen.findByTestId('excalidraw-canvas-mock')
-
     expect(latestExcalidrawInitialScene).toEqual({ elements: [{ id: 'saved' }], appState: {} })
   })
 
   it('opens blank when there is no previously saved local design', async () => {
     draw()
 
-    await openPlus(/excalidraw/i)
+    await openPlus(/new drawing/i)
     await screen.findByTestId('excalidraw-canvas-mock')
-
     expect(latestExcalidrawInitialScene).toBeUndefined()
   })
 
@@ -197,10 +194,12 @@ describe('AgentComposer', () => {
     )
     const { markdown } = draw()
 
-    await openPlus(/attach file/i)
-    fireEvent.change(screen.getByLabelText(/choose a file/i), {
+    await openPlus(/attach files/i)
+    fireEvent.change(screen.getByLabelText('Choose files'), {
       target: { files: [new File(['hi'], 'notes.txt', { type: 'text/plain' })] },
     })
+    await screen.findByText(/Uploaded/)
+    fireEvent.click(screen.getByRole('button', { name: /^Attach 1 file/ }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     await waitFor(() =>
@@ -215,7 +214,7 @@ describe('AgentComposer', () => {
     )
     const { markdown } = draw({}, { dnd: true })
 
-    await openPlus(/excalidraw/i)
+    await openPlus(/new drawing/i)
     await screen.findByTestId('excalidraw-canvas-mock')
     const pngFile = new File(['x'], 'diagram.png', { type: 'image/png' })
     await act(async () => {
@@ -267,9 +266,9 @@ describe('AgentComposer', () => {
     expect(screen.getByRole('textbox', { name: 'Message the agent' })).toBeInTheDocument()
   })
 
-  it('marks the pill multiline once the field grows past one line', () => {
+  it('marks the pill multiline once the field grows past two lines', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      height: 40,
+      height: 60,
       width: 0,
     } as DOMRect)
     const { pill } = draw()

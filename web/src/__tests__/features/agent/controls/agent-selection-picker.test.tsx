@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { NativeChromeIntent, NativeModelPicker } from '@/lib/native-chrome'
+import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const chrome = vi.hoisted(() => ({
   on: false,
@@ -17,7 +18,18 @@ vi.mock('@/lib/native-chrome', () => ({
   },
 }))
 
+const platform = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/utils/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/platform')>()),
+  get IS_MOBILE() {
+    return platform.mobile
+  },
+}))
+const setLevel = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+vi.mock('@/features/agent/api/agent-chat-commands', () => ({ setChatPermissionLevel: setLevel }))
+
 const { AgentSelectionPicker } = await import('@/features/agent/controls/agent-selection-picker')
+const { openModelPicker } = await import('@/features/agent/controls/model-picker-open')
 
 const claude: AgentProvider = {
   id: 'claude',
@@ -71,6 +83,12 @@ function openMenu() {
 }
 
 describe('AgentSelectionPicker', () => {
+  // The open state is shared by chat id: a test leaving the menu open would toggle it shut next.
+  afterEach(() => {
+    const trigger = screen.queryByRole('button', { name: /Agent:/ })
+    if (trigger?.getAttribute('aria-expanded') === 'true') fireEvent.click(trigger)
+  })
+
   it('renders nothing when no offered provider declares a model catalogue', () => {
     const noCatalogue: AgentProvider = { ...claude, modelSelect: false, models: [] }
     const { container } = draw({
@@ -89,16 +107,19 @@ describe('AgentSelectionPicker', () => {
     expect(trigger).toHaveTextContent('High')
   })
 
-  // A blank draft has neither: "Default · Default" said the same word twice.
-  it('names an unpicked model and effort once', () => {
-    draw({ providers: [claude], model: '', effort: '', unsetLabel: 'Default' })
-    const trigger = screen.getByRole('button', { name: /Agent:/ })
-    expect(trigger).toHaveTextContent(/^Default$/)
-  })
-
-  it('still names the effort when only the model is unpicked', () => {
-    draw({ providers: [claude], model: '', effort: 'low', unsetLabel: 'Default' })
-    expect(screen.getByRole('button', { name: /Agent:/ })).toHaveTextContent('Default·Low')
+  it('names an unpicked model once, as a neutral label', () => {
+    const blank = {
+      providers: [claude],
+      model: '',
+      unsetLabel: 'Default',
+      modelUnsetLabel: 'Model',
+    }
+    draw({ ...blank, effort: '' })
+    const label = () => screen.getByRole('button', { name: /Agent:/ }).textContent
+    expect(label()).toBe('Model')
+    cleanup()
+    draw({ ...blank, effort: 'low' })
+    expect(label()).toBe('ModelLow')
   })
 
   it('groups models under their own provider section, one section per offered provider', () => {
@@ -289,14 +310,12 @@ describe('AgentSelectionPicker', () => {
   })
 
   // `reportedModel` names which model answered; it is display-only, never the selection.
-  it('shows the provider-reported model next to the unset label when nothing is explicitly picked', () => {
+  it('names the provider-reported model, not the unset label, when nothing is explicitly picked', () => {
     draw({ model: '', effort: '', reportedModel: 'Claude Sonnet 4.5' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
-    expect(trigger).toHaveTextContent('unset')
-    expect(trigger).toHaveTextContent('(Claude Sonnet 4.5)')
-    expect(trigger).toHaveAccessibleName(
-      'Agent: Claude, model unset (reported Claude Sonnet 4.5), effort unset',
-    )
+    expect(trigger).toHaveTextContent('Claude Sonnet 4.5')
+    expect(trigger).not.toHaveTextContent('(')
+    expect(trigger).toHaveAccessibleName('Agent: Claude, model Claude Sonnet 4.5, effort unset')
   })
 
   it('an explicit model selection ignores a reported model entirely', () => {
@@ -330,6 +349,20 @@ describe('AgentSelectionPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Medium' }))
     expect(onSelectionChange).toHaveBeenCalledWith('claude', '', 'medium')
+  })
+
+  it('lights the chip when told the way on is another model, and the menu not at all', () => {
+    draw({ hot: true })
+    expect(screen.getByRole('button', { name: /Agent:/ })).toHaveAttribute('data-hot', 'true')
+    openMenu()
+    expect(document.querySelector('[role="menu"] [data-hot]')).toBeNull()
+  })
+
+  it('opens from outside for its chat, as a notice’s Switch model does', () => {
+    draw({ permission: { wsId: 'w1', chatId: 'c-open', levels: ['guarded'] } })
+    act(() => openModelPicker('c-open'))
+    expect(screen.getByRole('button', { name: /Agent:/ })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByRole('button', { name: /Agent:/ }))
   })
 
   describe('on the phone', () => {
@@ -380,6 +413,88 @@ describe('AgentSelectionPicker', () => {
       send({ type: 'setEffort', effort: 'high' })
       expect(onSelectionChange).toHaveBeenCalledWith('claude', 'sonnet', 'high')
       expect(last().open).toBe(true)
+    })
+  })
+
+  describe('permission level on the phone', () => {
+    const permission = {
+      wsId: 'w1',
+      chatId: 'c1',
+      levels: ['guarded' as const, 'trusted' as const],
+    }
+    const send = (intent: NativeChromeIntent) =>
+      act(() => chrome.listeners.forEach((listener) => listener(intent)))
+    beforeEach(() => {
+      resetChatStore()
+      writeChat({ id: 'c1', permissionLevel: 'trusted' })
+      setLevel.mockClear()
+    })
+    afterEach(() => {
+      chrome.on = false
+      platform.mobile = false
+      chrome.pushed.length = 0
+      chrome.listeners.clear()
+    })
+
+    it('hands the native sheet the declared levels and the current one', async () => {
+      chrome.on = true
+      platform.mobile = true
+      draw({ permission })
+      openMenu()
+      await waitFor(() => expect(chrome.pushed.at(-1)?.open).toBe(true))
+      expect(chrome.pushed.at(-1)?.permission).toEqual({
+        levels: [
+          {
+            value: 'guarded',
+            label: 'Guarded',
+            description: 'Asks before edits, commands and tools.',
+          },
+          {
+            value: 'trusted',
+            label: 'Trusted',
+            description: 'Edits files freely. Asks before commands.',
+          },
+        ],
+        level: 'trusted',
+      })
+    })
+
+    it('stages a draft pick instead of writing it', async () => {
+      chrome.on = true
+      platform.mobile = true
+      const onPick = vi.fn()
+      const draft = { hostId: 'local', level: 'guarded' as const, onPick }
+      draw({ permission: { wsId: 'w1', chatId: '', levels: ['guarded', 'trusted'], draft } })
+      openMenu()
+      await waitFor(() => expect(chrome.pushed.at(-1)?.permission?.level).toBe('guarded'))
+      send({ type: 'setPermissionLevel', level: 'trusted' })
+      expect(onPick).toHaveBeenCalledWith('trusted')
+      expect(setLevel).not.toHaveBeenCalled()
+    })
+
+    it('writes a level picked natively and keeps the sheet open', async () => {
+      chrome.on = true
+      platform.mobile = true
+      draw({ permission })
+      openMenu()
+      await waitFor(() => expect(chrome.pushed.at(-1)?.open).toBe(true))
+      send({ type: 'setPermissionLevel', level: 'guarded' })
+      expect(setLevel).toHaveBeenCalledWith('w1', 'c1', 'guarded')
+      expect(chrome.pushed.at(-1)?.open).toBe(true)
+    })
+
+    it('offers the same choice in the web menu where there is no native sheet', () => {
+      platform.mobile = true
+      draw({ permission })
+      openMenu()
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Guarded' }))
+      expect(setLevel).toHaveBeenCalledWith('w1', 'c1', 'guarded')
+    })
+
+    it('offers none on the desktop, where the footer chip owns it', () => {
+      draw({ permission })
+      openMenu()
+      expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
     })
   })
 })

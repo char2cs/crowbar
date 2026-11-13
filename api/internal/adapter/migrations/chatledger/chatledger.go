@@ -80,6 +80,13 @@ func nothingRead(in LegacyChat) bool {
 		len(in.Choices)+len(in.Prompts)+len(in.Runners) == 0
 }
 
+// maxNamedRecords bounds the records one marker names; the count in its words is complete.
+const maxNamedRecords = 20
+
+func leftOutNamed(skipped []string) []string {
+	return slices.Clone(skipped[:min(len(skipped), maxNamedRecords)])
+}
+
 // markLeftOut shows, after the chat's history, how many of its legacy records
 // were left out: unreadable, or naming nothing the chat holds.
 func (c *conversion) markLeftOut() {
@@ -95,7 +102,7 @@ func (c *conversion) markLeftOut() {
 	case c.partial > 0:
 		what += fmt.Sprintf(", and %d more only in part", c.partial)
 	}
-	c.emit(ruleMarker, c.latest.Add(time.Microsecond), 0, ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: what})
+	c.emit(ruleMarker, c.latest.Add(time.Microsecond), 0, ledger.KindMarker, "", "", ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: what, Records: leftOutNamed(c.skipped)})
 }
 
 // inWords is n legacy records, in words.

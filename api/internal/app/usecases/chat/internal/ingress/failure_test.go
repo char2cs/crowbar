@@ -16,7 +16,7 @@ func TestMap_AFailureKeepsItsReasonAndItsReply(t *testing.T) {
 
 	rows, fx := c.mapped(engineagents.CanonicalEvent{
 		Kind: engineagents.HookTurnFailed, Message: "I could not",
-		Failure: &engineagents.TurnFailure{Reason: "usage_limit", Detail: "out of credit"},
+		Failure: &engineagents.TurnFailure{Reason: "usage_limit", Detail: "out of credit", Kind: "limit"},
 	}, hooksSource())
 
 	require.Equal(t, []ledger.Kind{ledger.KindAssistantText, ledger.KindTurnFailed}, kinds(rows))
@@ -24,6 +24,7 @@ func TestMap_AFailureKeepsItsReasonAndItsReply(t *testing.T) {
 	failed := bodyOf[ledger.TurnFailed](t, rows[1])
 	assert.Equal(t, "usage_limit", failed.Reason)
 	assert.Equal(t, "out of credit", failed.Detail)
+	assert.Equal(t, "limit", failed.Kind)
 	assert.NotEmpty(t, fx.Ended)
 
 	c2 := liveChatRows(t)
@@ -81,5 +82,6 @@ func TestNoticeRows_FailTheRunningTurnOrTheCarriedPrompts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []ledger.Kind{ledger.KindTurnFailed, ledger.KindPromptSettled}, kinds(rows))
 	assert.Equal(t, "out of credit", bodyOf[ledger.TurnFailed](t, rows[0]).Detail)
+	assert.Equal(t, "limit", bodyOf[ledger.TurnFailed](t, rows[0]).Kind, "a usage-limit notice is the limit kind")
 	assert.Equal(t, "usage_limit", bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
 }

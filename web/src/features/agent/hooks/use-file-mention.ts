@@ -7,6 +7,10 @@ export interface MentionItem {
   id: string
   insertText: string
   description: string
+  name: string
+  /** The folder it is in, with its trailing slash; empty at the root. */
+  dir: string
+  isDir: boolean
 }
 
 const MAX_ITEMS = 50
@@ -24,6 +28,9 @@ const itemOf = (file: AppFile): MentionItem => ({
   // A folder stays a path to go on typing; a file ends the mention.
   insertText: file.isDir ? `@${file.path}/` : `@${file.path} `,
   description: file.isDir ? 'Folder' : '',
+  name: file.name,
+  dir: file.path.slice(0, file.path.length - file.name.length),
+  isDir: file.isDir === true,
 })
 
 /** The composer's @ file picker. The tree endpoint lists one folder per call, so it
@@ -81,12 +88,12 @@ export function useFileMention(wsId: string) {
   )
   const close = useCallback(() => setOpen(false), [])
   /** Accept an item: the caller puts `insertText` in place of the @ path. */
-  const accept = useCallback((item: MentionItem) => {
+  const accept = useCallback((item: Pick<MentionItem, 'insertText'>) => {
     setOpen(item.insertText.endsWith('/'))
     setSelected(0)
     return item.insertText
   }, [])
 
   const highlighted = open ? items[shown] : undefined
-  return { open, items, selected: shown, highlighted, noteQuery, close, move, accept }
+  return { open, items, selected: shown, highlighted, query: name, noteQuery, close, move, accept }
 }

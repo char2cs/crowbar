@@ -389,19 +389,20 @@ func extraRoutes() []string {
 		//   permission) from the chat instead of the terminal.
 		"POST " + repo + "/chats/:id/terminal-wait/answer",
 		"POST " + repo + "/chats/:id/compact",
-		// Two more ways a session on a chat can end without the chat itself
-		// going anywhere: forcing the CLI into (or back out of) the host
-		// terminal rather than the chat's own pane.
+		// Asks the agent to end one of its background shells (no outside handle).
+		"POST " + repo + "/chats/:id/shells/:shellId/stop",
+		// Force the CLI into (or back out of) the host terminal instead of the chat's pane.
 		"POST " + repo + "/chats/:id/switch-to-terminal",
 		"POST " + repo + "/chats/:id/switch-to-native",
-		// Chat attachments: an uploaded file (image, CSV, text) a message
-		// references. GET serves the stored bytes; HEAD the same response's
-		// headers alone (the composer's own file-card size lookup) — the
-		// handler never checks the request method, so registering both against
-		// it is enough.
+		// Chat attachments: GET serves the bytes, HEAD the headers alone (one handler,
+		// both methods registered); the uploads routes are the chunked, resumable path.
 		"POST " + repo + "/chats/:id/attachments",
 		"GET " + repo + "/chats/:id/attachments/:file",
 		"HEAD " + repo + "/chats/:id/attachments/:file",
+		"POST " + repo + "/chats/:id/attachments/uploads",
+		"PUT " + repo + "/chats/:id/attachments/uploads/:uploadId",
+		"POST " + repo + "/chats/:id/attachments/uploads/:uploadId/complete",
+		"DELETE " + repo + "/chats/:id/attachments/uploads/:uploadId",
 		"GET " + repo + "/chats/:id/telemetry",
 		// The provider's own slash-command list, so the composer can autocomplete
 		// commands the CLI itself defines.
@@ -501,6 +502,7 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/stop",
 		"POST " + home + "/chats/:id/terminal-wait/answer",
 		"POST " + home + "/chats/:id/compact",
+		"POST " + home + "/chats/:id/shells/:shellId/stop",
 		// Placement and chat FOLDERS re-mounted on the home group. This is the
 		// mount that matters most: the project home accumulates more chats than any
 		// worktree workspace, so the surface that most needs somewhere to put them
@@ -517,11 +519,13 @@ func extraRoutes() []string {
 		// The same read, slash-catalog, selection, answer and prompt routes: a
 		// chat in the project home behaves like a chat anywhere else.
 		"GET " + home + "/chats/:id/telemetry",
-		// Same attachments pair as the workspace group above, mounted on home
-		// for the same reason as the rest of this block.
 		"POST " + home + "/chats/:id/attachments",
 		"GET " + home + "/chats/:id/attachments/:file",
 		"HEAD " + home + "/chats/:id/attachments/:file",
+		"POST " + home + "/chats/:id/attachments/uploads",
+		"PUT " + home + "/chats/:id/attachments/uploads/:uploadId",
+		"POST " + home + "/chats/:id/attachments/uploads/:uploadId/complete",
+		"DELETE " + home + "/chats/:id/attachments/uploads/:uploadId",
 		"GET " + home + "/chats/:id/slash-catalog",
 		"PATCH " + home + "/chats/:id/selection",
 		"PUT " + home + "/chats/:id/permission-level",

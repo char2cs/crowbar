@@ -31,6 +31,7 @@ type (
 	SubagentEvent  = models.SubagentEvent
 	SubagentUsage  = models.SubagentUsage
 	PlanStepEvent  = models.PlanStepEvent
+	ShellEvent     = models.ShellEvent
 	InterruptEvent = models.InterruptEvent
 	ChoicePrompt   = models.ChoicePrompt
 	PromptQuestion = models.PromptQuestion
@@ -101,6 +102,8 @@ const (
 	HookMessageDelta    = spec.HookMessageDelta
 	HookReasoningDelta  = spec.HookReasoningDelta
 	HookTurnFailed      = spec.HookTurnFailed
+	HookTerminalInput   = spec.HookTerminalInput
+	FailureLimit        = spec.FailureLimit
 	HookIdle            = spec.HookIdle
 	HookToolOutputDelta = spec.HookToolOutputDelta
 	HookPlanUpdate      = spec.HookPlanUpdate

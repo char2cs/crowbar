@@ -122,7 +122,8 @@ var checks = map[Kind]func(Row) error{
 	KindPlan: func(r Row) error {
 		return checkNamed(r, func(b Plan) bool { return b.Op == PlanReplace || b.Op == PlanUpsert })
 	},
-	KindMove: checkMove,
+	KindMove:  checkMove,
+	KindShell: checkShell,
 }
 
 // Check refuses only malformed rows: an unknown kind, a turn-scoped kind

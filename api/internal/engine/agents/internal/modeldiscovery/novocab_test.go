@@ -1,6 +1,7 @@
 package modeldiscovery_test
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -69,6 +70,28 @@ func TestRegression_ModelDiscoveryGoSourceCarriesNoProviderWireVocabulary(t *tes
 			}
 		})
 	}
+}
+
+// A provider's name is data in its descriptor, never a word in the daemon's own Go source.
+func TestRegression_NoGoSourceNamesAProvider(t *testing.T) {
+	root := apiModuleRoot(t)
+	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		lower := strings.ToLower(string(data))
+		for _, word := range []string{"claude", "codex", "anthropic", "openai"} {
+			if strings.Contains(lower, word) {
+				t.Errorf("%s names the provider %q: that belongs in its descriptor", path, word)
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 // apiModuleRoot walks up from this test file's own directory to the api

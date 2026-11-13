@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Shield } from '@phosphor-icons/react'
 import {
   getDefaultPermissionLevel,
   PERMISSION_LEVEL_OPTIONS,
@@ -6,20 +7,14 @@ import {
 } from '@/features/agent/api/agent-providers-api'
 import { setChatPermissionLevel } from '@/features/agent/api/agent-chat-commands'
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
+import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { useChatHost } from '@/lib/host-resolve'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Dropdown } from '@/components/ui/dropdown'
 
 /** The default level of the chat's host while the chat pins none; null until it is known. */
-function useInheritedLevel(chatId: string, inherits: boolean): PermissionLevel | null {
-  const hostId = useChatHost(chatId)
+function useInheritedLevel(hostId: string | null, inherits: boolean): PermissionLevel | null {
   const [known, setKnown] = useState<{ hostId: string; level: PermissionLevel } | null>(null)
   useEffect(() => {
     if (!inherits || hostId === null) return
@@ -43,27 +38,38 @@ function offeredLevel(wanted: PermissionLevel, offered: PermissionLevel[]): Perm
   return order.slice(order.indexOf(wanted)).find((l) => offers.has(l)) ?? offered.at(-1) ?? wanted
 }
 
-/** Shows the level the chat is pinned to (or inherits), and offers only levels the provider
- *  declares — the server rejects the rest. */
-export function PermissionLevelSwitcher({
-  wsId,
-  chatId,
-  availableLevels,
-}: {
+export interface PermissionTarget {
   wsId: string
   chatId: string
-  availableLevels?: PermissionLevel[]
-}) {
-  const pinned = useChatField<PermissionLevel | ''>(chatId, (c) => c?.permissionLevel ?? '')
+  /** The levels the provider declares; absent or empty offers none. */
+  levels?: PermissionLevel[]
+  /** A draft has no chat to write to: its host and the level it will start with, held by the
+   *  draft until the chat exists. */
+  draft?: { hostId: string; level: PermissionLevel | ''; onPick: (level: PermissionLevel) => void }
+}
+
+/** The level the chat runs at and the write that changes it, for every surface offering the
+ *  choice. A null `target` is inert, so a closed picker fetches nothing. */
+export function usePermissionLevel(target: PermissionTarget | null) {
+  const wsId = target?.wsId ?? ''
+  const chatId = target?.chatId ?? ''
+  const chatPinned = useChatField<PermissionLevel | ''>(chatId, (c) => c?.permissionLevel ?? '')
+  const chatHost = useChatHost(chatId)
+  const draft = target?.draft
+  const pinned = draft ? draft.level : chatPinned
   // The person's pick shows from the moment it is made; a failed one falls back.
   const [picked, setPicked] = useState<PermissionLevel | null>(null)
-  const inherited = useInheritedLevel(chatId, !picked && !pinned)
+  const inherited = useInheritedLevel(
+    draft?.hostId ?? chatHost,
+    target !== null && !picked && !pinned,
+  )
   // A late settlement from an earlier pick must not roll back over a later one.
   const writeGeneration = useRef(0)
 
-  const handleChange = useCallback(
+  const setLevel = useCallback(
     (value: PermissionLevel | '' | null) => {
       if (!value) return
+      if (draft) return draft.onPick(value)
       const generation = ++writeGeneration.current
       setPicked(value)
       setChatPermissionLevel(wsId, chatId, value).catch((err: unknown) => {
@@ -76,36 +82,74 @@ export function PermissionLevelSwitcher({
         )
       })
     },
-    [wsId, chatId],
+    [wsId, chatId, draft],
   )
 
-  const options = PERMISSION_LEVEL_OPTIONS.filter((opt) => availableLevels?.includes(opt.value))
-  if (options.length === 0) return null
+  const options = PERMISSION_LEVEL_OPTIONS.filter((opt) => target?.levels?.includes(opt.value))
   const offered = options.map((opt) => opt.value)
   const level: PermissionLevel | '' =
-    picked ?? (pinned || (inherited ? offeredLevel(inherited, offered) : ''))
+    picked ?? (pinned || (inherited && offered.length > 0 ? offeredLevel(inherited, offered) : ''))
+  return { options, level, setLevel }
+}
+
+/** The footer's permission chip: the current level, opening the choice as a menu. */
+export function PermissionLevelChip({ target }: { target: PermissionTarget }) {
+  const { options, level, setLevel } = usePermissionLevel(target)
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const close = useCallback(() => setOpen(false), [])
+  if (options.length === 0) return null
+  const current = options.find((opt) => opt.value === level)
 
   return (
-    <Select items={options} value={level} onValueChange={handleChange}>
-      <SelectTrigger
-        data-testid="chat-permission-level-trigger"
-        size="sm"
-        aria-label="Permission level for this chat"
-        className="w-32 max-w-full"
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        className="chip"
+        data-testid="chat-permission-level-chip"
+        title="What the agent may do without asking"
+        aria-label={`Permission level for this chat: ${current?.label ?? 'not set'}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
       >
-        <SelectValue placeholder="Permission level" />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((opt) => (
-          <SelectItem
-            key={opt.value}
-            value={opt.value}
-            data-testid={`chat-permission-level-option-${opt.value}`}
-          >
-            {opt.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+        <Shield size={14} />
+        <span>{current?.label ?? 'Permission'}</span>
+        <UpDownIcon size={12} className="opacity-55" />
+      </button>
+      <Dropdown
+        isOpen={open}
+        onClose={close}
+        anchorRef={anchorRef}
+        anchorSide="top"
+        anchorAlign="start"
+        style={{ width: 332 }}
+      >
+        <div role="menu" aria-label="Permission level" className="p-1">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={opt.value === level}
+              className="lvl-row"
+              data-selected={opt.value === level || undefined}
+              data-risk={opt.value === 'full-auto' || undefined}
+              onClick={() => {
+                setLevel(opt.value)
+                close()
+              }}
+            >
+              <span>
+                <b>{opt.label}</b>
+                <small>{opt.description}</small>
+              </span>
+              {opt.value === level && <CheckIcon size={12} className="lvl-check" />}
+            </button>
+          ))}
+        </div>
+      </Dropdown>
+    </>
   )
 }

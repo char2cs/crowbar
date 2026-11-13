@@ -1,0 +1,38 @@
+/* A signpost REPLACES the input: the pill's exact box (--pill-h, radius, padding, shadow) so
+   swapping them moves nothing. The message stays on one line; the full text is its title. */
+.agent-chat .pill.halted {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  height: var(--pill-h);
+  padding-block: 0;
+  border-color: color-mix(in oklch, var(--warning) 45%, transparent);
+  background: color-mix(in oklch, var(--warning) 10%, var(--background));
+  cursor: default;
+}
+.agent-chat .pill.halted .msg {
+  flex: 1 1 auto;
+  font-size: 14px;
+  line-height: var(--pill-line);
+  color: var(--warn-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .pill.halted[data-touch] .msg {
+  font-size: var(--touch-text);
+}
+/* Dark's --warning-foreground is the ink for a solid warning fill, not for text on this tint. */
+.dark .agent-chat .pill.halted .msg {
+  color: var(--warning);
+}
+.agent-chat .pill.halted > button {
+  flex: none;
+  border-radius: 9999px;
+}
+.agent-chat .pill.halted[data-touch] > button {
+  min-height: 44px;
+  min-width: 44px;
+}

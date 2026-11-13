@@ -130,6 +130,16 @@ func (h *Handlers) Compact(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("id"))
 }
 
+// StopShell handles POST .../chats/:id/shells/:shellId/stop: ask the agent to end one of
+// its background shells. Accepted, not done: the shell shows stopping until it really ends.
+func (h *Handlers) StopShell(ctx *gin.Context) {
+	if err := h.runners.StopShell(ctx.Request.Context(), ctx.Param("id"), ctx.Param("shellId")); err != nil {
+		libs.Fail(ctx, err)
+		return
+	}
+	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("shellId"))
+}
+
 // SwitchToTerminal handles POST .../chats/:id/switch-to-terminal: moves the chat onto its provider's
 // TUI and responds with that terminal session ("" for a dormant chat, which only records the move).
 func (h *Handlers) SwitchToTerminal(ctx *gin.Context) {

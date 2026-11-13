@@ -45,7 +45,7 @@ func TestAnnounceSession_ASessionAnotherChatHoldsIsAConflict(t *testing.T) {
 	require.NoError(t, err)
 	last, err := ledger.DecodeBody[ledger.Marker](rows[len(rows)-1])
 	require.NoError(t, err)
-	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerSessionConflict, Detail: "S2"}, last)
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerSessionConflict, Detail: "S2", Owner: "chat-2"}, last)
 }
 
 // A session the person's clear started is a change the conversation starts over at.

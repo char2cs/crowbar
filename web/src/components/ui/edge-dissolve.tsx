@@ -5,12 +5,12 @@ interface DissolveLayerSpec {
   /** px blur radius for THIS layer's backdrop-filter. */
   blur: number
   /** Mask stops as fractions of the zone (0 = far edge, 1 = near): transparent→black, then
-   *  →black→ transparent for mid layers; the last two run to the near edge. From composer.css's
+   *  →black→ transparent for mid layers; the last two run to the near edge. From composer-dock.css's
    *  `.dissolve-layer`: stacked masked layers fake a ramping blur one backdrop-filter can't. */
   stops: number[]
 }
 
-// composer.css's 7-layer `.dissolve-layer` recipe, as data rather than `:nth-child` rules tied
+// composer-dock.css's 7-layer `.dissolve-layer` recipe, as data rather than `:nth-child` rules tied
 // to one zone height, so it runs at whatever height the caller implies.
 const LAYERS: DissolveLayerSpec[] = [
   { blur: 1, stops: [0, 0.1, 0.3, 0.4] },

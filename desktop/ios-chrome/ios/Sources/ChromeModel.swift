@@ -133,6 +133,15 @@ enum Reveal: String, Decodable {
   case none, chatList, ide, files
 }
 
+/// The transcript's Jump to latest button: `bottom` points above the webview's bottom edge.
+struct JumpToLatestState: Decodable, Equatable {
+  /// The web component that raised it: only the latest raiser may take it down.
+  let owner: String
+  let visible: Bool
+  let bottom: Double
+  let label: String
+}
+
 /// What the user asked for, reported to the web as `{ type, ...fields }`; the web decides.
 struct ChromeIntent {
   let payload: JSObject
@@ -162,10 +171,12 @@ final class ChromeModel: ObservableObject {
   @Published var hostPlace = "remote"
   @Published var hostStatus = "unknown"
   @Published var welcome: WelcomeState?
+  @Published var jumpLabel = ""
+  /// The web component whose Jump to latest button is up; a tap names it so only its transcript jumps.
+  var jumpOwner = ""
   // Kept after the web closes the sheet, so it slides away showing what it showed.
   @Published var connect: ConnectState?
   @Published var headers = ChromeHeaders(chat: [], ide: [])
-  @Published var context: ContextState?
   var send: (ChromeIntent) -> Void = { _ in }
   /// Shows a native dialog over whatever is up.
   var present: (UIViewController) -> Void = { _ in }

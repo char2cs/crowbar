@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 import { useTerminalEscort } from '@/features/agent/components/use-terminal-escort'
 import {
+  presetChatLandingPresentation,
   resetChatPresentationMemoryForTests,
   useChatPresentation,
 } from '@/features/agent/hooks/use-chat-presentation'
@@ -144,6 +145,13 @@ describe('useTerminalEscort — on the phone, which shows only the chat', () => 
     rerender({ recorded: 'terminal' })
 
     expect(records).toEqual(['chat'])
+  })
+
+  it('keeps a chat the user opened on its terminal there when its record lands', () => {
+    presetChatLandingPresentation('c1', 'terminal')
+    const { result, rerender } = renderPane({ recorded: null })
+    rerender({ recorded: 'terminal' })
+    expect([result.current.presentation, records]).toEqual(['terminal', []])
   })
 
   it('records nothing for a chat already on the chat, nor when another device moves it later', () => {

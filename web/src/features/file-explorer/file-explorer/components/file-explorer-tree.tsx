@@ -262,7 +262,6 @@ function FileExplorerTreeComponent({
           'border-2! border-dashed! border-secondary! bg-secondary! bg-opacity-10!',
       )}
       ref={containerRef}
-      style={{ scrollBehavior: 'auto', overscrollBehavior: 'contain' }}
       role="tree"
       aria-label="File Explorer"
       aria-activedescendant={highlightedPath ? getFileTreeRowId(highlightedPath) : undefined}

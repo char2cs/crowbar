@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState } from 'react'
-import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import type { AgentProvider, PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import {
   onNativeChromeIntent,
   setNativeModelPicker,
@@ -53,6 +53,12 @@ interface NativeModelPickerProps {
   provider: AgentProvider | undefined
   model: string
   effort: string
+  /** The chat's level choice, drawn as a section of the sheet; absent hides it. */
+  permission?: {
+    options: { value: PermissionLevel; label: string; description: string }[]
+    level: PermissionLevel | ''
+    onPick: (level: PermissionLevel) => void
+  }
   onSelectionChange: (provider: string, model: string, effort: string) => void
   onClose: () => void
 }
@@ -65,6 +71,7 @@ export function NativeModelPicker({
   provider,
   model,
   effort,
+  permission,
   onSelectionChange,
   onClose,
 }: NativeModelPickerProps) {
@@ -79,13 +86,17 @@ export function NativeModelPicker({
         name: p.displayName,
         icon: icons[p.id] ?? null,
         fallbackIcon: 'Robot',
-        models: (p.models ?? []).map((m) => ({ id: m, name: m, detail: null })),
+        models: (p.models ?? []).map((m) => ({ id: m, name: m })),
       })),
       selected: provider && model ? { providerId: provider.id, modelId: model } : null,
       efforts: effortLevelsFor(provider, model),
       effort: effort || null,
+      permission:
+        permission && permission.options.length > 0
+          ? { levels: permission.options, level: permission.level }
+          : null,
     })
-  }, [open, providers, icons, provider, model, effort])
+  }, [open, providers, icons, provider, model, effort, permission])
 
   // Only the open picker speaks: a closed one says so once, and never again.
   useEffect(() => {
@@ -101,6 +112,7 @@ export function NativeModelPicker({
       onClose()
     }
     if (intent.type === 'setEffort') onSelectionChange(provider?.id ?? '', model, intent.effort)
+    if (intent.type === 'setPermissionLevel') permission?.onPick(intent.level)
     if (intent.type === 'closeModelPicker') onClose()
   })
   useEffect(() => {
@@ -110,4 +122,11 @@ export function NativeModelPicker({
   return null
 }
 
-const CLOSED = { open: false, providers: [], selected: null, efforts: [], effort: null }
+const CLOSED = {
+  open: false,
+  providers: [],
+  selected: null,
+  efforts: [],
+  effort: null,
+  permission: null,
+}

@@ -1,7 +1,10 @@
 {
   "phosphor": [
     ["ArrowClockwise", "regular"],
+    ["ArrowDown", "regular"],
     ["ArrowElbowDownRight", "regular"],
+    ["At", "regular"],
+    ["Camera", "regular"],
     ["CaretLeft", "regular"],
     ["CaretRight", "regular"],
     ["Check", "regular"],
@@ -21,10 +24,12 @@
     ["GitBranch", "regular"],
     ["GitPullRequest", "regular"],
     ["Globe", "regular"],
+    ["Images", "regular"],
     ["LinkBreak", "regular"],
     ["Lock", "regular"],
     ["LockOpen", "regular"],
     ["PaintBrush", "regular"],
+    ["Paperclip", "regular"],
     ["Palette", "regular"],
     ["PencilSimpleLine", "regular"],
     ["Plus", "regular"],

@@ -53,7 +53,7 @@ func decodeRows(t *testing.T, rows []ledger.Row) []string {
 		case ledger.KindUserMessage, ledger.KindTurnStarted, ledger.KindPromptSettled,
 			ledger.KindRunnerStarted, ledger.KindRunnerExited, ledger.KindTurnEnded, ledger.KindTurnFailed,
 			ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk,
-			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove:
+			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove, ledger.KindShell:
 			out = append(out, string(r.Kind))
 		}
 	}

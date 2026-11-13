@@ -123,11 +123,11 @@ type fakeAgentUsecase struct {
 	uploadAttachmentCalls []uploadAttachmentCall
 	uploadAttachmentOut   agentusecase.StoredAttachment
 	uploadAttachmentErr   error
-
-	readAttachmentCalls []readAttachmentCall
-	readAttachmentData  []byte
-	readAttachmentType  string
-	readAttachmentErr   error
+	chunks                chunkedUploadFake
+	readAttachmentCalls   []readAttachmentCall
+	readAttachmentData    []byte
+	readAttachmentType    string
+	readAttachmentErr     error
 
 	answerCalls []answerCall
 	answerErr   error
@@ -291,6 +291,8 @@ func (f *fakeAgentUsecase) ResumeChat(
 	}
 	return f.resumeSegID, nil
 }
+
+func (f *fakeAgentUsecase) StopShell(context.Context, string, string) error { return nil }
 
 func (f *fakeAgentUsecase) Compact(
 	_ context.Context,

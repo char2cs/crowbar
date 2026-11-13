@@ -111,9 +111,9 @@ export interface RowBodies {
     effort?: string
     diff?: string
   }
-  turn_failed: { reason: string; detail?: string }
+  turn_failed: { reason: string; detail?: string; kind?: string }
   session_bound: { provider: string; sessionId: string; cause: string }
-  session_lost: { provider: string; sessionId: string; reason: string }
+  session_lost: { provider: string; sessionId: string; reason: string; movedTo?: string }
   runner_started: {
     runnerId: string
     provider: string
@@ -134,7 +134,7 @@ export interface RowBodies {
     reply?: string
   }
   reasoning: { messageId?: string; text: string }
-  marker: { kind: MarkerKind; detail?: string }
+  marker: { kind: MarkerKind; detail?: string; owner?: string; records?: string[] }
   tool_call: ToolCallBody
   ask: AskBody
   ask_resolved: {
@@ -152,6 +152,25 @@ export interface RowBodies {
     usage?: { tokens?: number; toolUses?: number; durationMs?: number }
   }
   plan: { op: 'replace' | 'upsert'; items: PlanItem[] }
+  /** A command the main agent left running in the background. */
+  shell: {
+    phase: 'start' | 'note' | 'stopping' | 'end'
+    shellId: string
+    /** Absent for a plain shell. */
+    kind?: 'shell' | 'monitor'
+    command?: string
+    label?: string
+    cwd?: string
+    /** The provider's handle on the process; not necessarily an OS pid. */
+    ref?: string
+    persistent?: boolean
+    timeoutMs?: number
+    status?: 'finished' | 'failed' | 'stopped'
+    exitCode?: number
+    /** The end of its output (an end) or its newest line (a note). */
+    tail?: string
+    summary?: string
+  }
   /** The chat changing the folder its CLI runs in (api/internal/domain/ledger/move.go). */
   move: MoveBody
 }

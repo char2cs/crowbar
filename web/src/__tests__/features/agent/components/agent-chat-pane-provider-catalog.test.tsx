@@ -345,7 +345,7 @@ it('names the incoming provider’s model after a switch, never the outgoing one
   const chip = () => screen.getByTestId('agent-selection-picker').getAttribute('aria-label')
   expect(chip()).toContain('Claude, model sonnet')
   await act(async () => seedChats([on('codex', 'sonnet')]))
-  expect(chip()).toContain('Codex, model Default')
+  expect(chip()).toContain('Codex, model Model')
   await act(async () => seedChats([on('codex', 'gpt-5')]))
   expect(chip()).toContain('Codex, model gpt-5')
 })

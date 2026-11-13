@@ -1,8 +1,9 @@
+import type { ReactNode } from 'react'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import type { AgentTelemetry } from '@/features/agent/api/agent-chat-reads'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
-import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+import type { PermissionTarget } from '@/features/agent/composer/permission-level-switcher'
 import { IS_MOBILE } from '@/utils/platform'
 
 interface ProviderBarProps {
@@ -14,21 +15,21 @@ interface ProviderBarProps {
   effort: string
   reportedModel?: string
   telemetry: AgentTelemetry | null
-  presentation: ChatPresentation
-  splitEnabled: boolean
-  handoverBlocked?: boolean
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  onSelectPresentation: (next: ChatPresentation) => void
-  /** Exactly one switcher per pane: both surfaces stay mounted, so an
-   *  unconditional one would linger hidden behind the terminal. */
-  showSwitcher?: boolean
-  /** Prompts waiting behind the running turn. 0 draws nothing. */
-  queued?: number
+  /** The chat's permission level and the levels its provider offers: a chip on the desktop,
+   *  a section of the model picker sheet on the phone. */
+  permission?: PermissionTarget
+  /** The conversation is being folded: named before the pill. The input stays usable. */
+  compacting?: boolean
+  /** A stop another model gets past: the model chip is lit. */
+  modelHot?: boolean
   onCompact?: () => void
+  /** The phone's chat/terminal switch, centred between the model chip and the pill. */
+  viewSwitch?: ReactNode
 }
 
-/** Every control renders nothing when the provider declares nothing — never a
- *  disabled control. `.underbar .left`'s negative margin aligns it to the composer. */
+/** The footer line under the pill. Every control renders nothing when the provider declares
+ *  nothing — never a disabled control. */
 export function ProviderBar({
   provider,
   providers,
@@ -37,14 +38,12 @@ export function ProviderBar({
   effort,
   reportedModel,
   telemetry,
-  presentation,
-  splitEnabled,
-  handoverBlocked,
   onSelectionChange,
-  onSelectPresentation,
-  showSwitcher,
-  queued = 0,
+  permission,
+  compacting,
+  modelHot,
   onCompact,
+  viewSwitch,
 }: ProviderBarProps) {
   return (
     <div className="underbar" data-touch={IS_MOBILE || undefined}>
@@ -55,19 +54,16 @@ export function ProviderBar({
           model={model}
           effort={effort}
           reportedModel={reportedModel}
-          presentation={presentation}
-          splitEnabled={splitEnabled}
-          showSwitcher={showSwitcher}
-          handoverBlocked={handoverBlocked}
           switchDisabled={switchDisabled}
+          permission={permission}
+          hot={modelHot}
           onSelectionChange={onSelectionChange}
-          onSelectPresentation={onSelectPresentation}
         />
       </div>
+      {viewSwitch && <div className="mid">{viewSwitch}</div>}
       <div className="right">
-        {queued > 0 && <span>{queued} queued</span>}
-        {/* The phone draws its meter natively, beside the IDE button (use-native-context). */}
-        {!IS_MOBILE && <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />}
+        {compacting && <span className="ctx-compacting">Compacting…</span>}
+        <AgentContextGauge telemetry={telemetry} compacting={compacting} onCompact={onCompact} />
       </div>
     </div>
   )

@@ -143,12 +143,16 @@ events:
   # occur.
   turn_failed:
     required: [session_id, reason]
+    status_map: { '401': auth, '403': auth, unauthorized: auth, '429': limit, usageLimitExceeded: limit,
+      '529': overloaded, serverOverloaded: overloaded }
     api:
       in: turn/completed
       when: { turn.status: failed }
       map:
         session_id: threadId
         reason:     { first_present: [turn.error.message, turn.status] }
+        # codexErrorInfo is a named error or an object around the HTTP status that failed.
+        failure_kind: { first_present: [turn.error.codexErrorInfo.httpConnectionFailed.httpStatusCode, turn.error.codexErrorInfo] }
         # additionalDetails is often null (a 401 when not logged in): the message is then all it says.
         detail:     { first_present: [turn.error.additionalDetails, turn.error.message] }
         # See turn_stop's own turn_id comment — a compaction can fail too.
@@ -203,6 +207,10 @@ events:
         mcp_server:  item.server
         mcp_tool:    item.tool
         tool_input:  item
+        # processId is the PTY process's handle, not an OS pid; a command that is
+        # still running after its call returned is told by it (terminal_input).
+        shell_ref:   item.processId
+        cwd:         item.cwd
       fixtures:
         - item_started.commandExecution.json
         - item_started.collabAgentToolCall.json
@@ -260,6 +268,7 @@ events:
         tool_result:       { first_present: [item.aggregatedOutput, item.result, item.changes, item.agentsStates] }
         tool_status:       item.status
         duration_ms:       item.durationMs
+        tool_output:       item.aggregatedOutput
         spawns_scope:      item.receiverThreadIds[0]
         addresses_scope:   item.receiverThreadIds[0]
       fixtures:
@@ -326,6 +335,7 @@ events:
         mcp_tool:    item.tool
         exit_code:   item.exitCode
         tool_result: { first_present: [item.aggregatedOutput, item.result, item.changes, item.agentsStates] }
+        tool_output: item.aggregatedOutput
         # collabAgentToolCall carries no .error field at all (confirmed live and
         # against the published schema) — item.status ("failed") is the only text
         # this variant has to fall back to, same as every other tool_error here.
@@ -424,6 +434,18 @@ events:
       message_id: itemId
       text:       delta
       turn_id:    turnId
+
+  # Input written to a command's process after its call returned (stdin may be empty: a
+  # poll). Only a command that outlived the call gets any, which is what makes it a shell.
+  # The text is not mapped: it may be a secret, and the row says only that it still runs.
+  terminal_input:
+    in: item/commandExecution/terminalInteraction
+    map:
+      session_id: threadId
+      tool_id:    itemId
+      shell_ref:  processId
+      turn_id:    turnId
+    fixtures: [item_commandExecution_terminalInteraction.schema.json]
 
   # The agent's own to-do list for the turn, restated wholesale on each update.
   # Captured live: codex emits four of these across a three-step task, each

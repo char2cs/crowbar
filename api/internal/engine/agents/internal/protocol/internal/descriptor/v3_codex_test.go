@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -73,5 +74,52 @@ func TestCodexDescriptor_AHooksToolCallCarriesItsInput(t *testing.T) {
 		if json.Unmarshal(payload.ToolInput, &want) != nil || json.Unmarshal(tool.Input, &got) != nil || !reflect.DeepEqual(want, got) {
 			t.Errorf("%s: input = %s, want %s", file, tool.Input, payload.ToolInput)
 		}
+	}
+}
+
+// A command names its process and directory when it starts, its output when it ends,
+// and input written to the process later names the same call.
+func TestCodexDescriptor_ACommandNamesItsProcessAndWhereItRan(t *testing.T) {
+	d := loadDescriptor(t, "codex")
+
+	started := parseRecorded(t, d, "tool_pre", "item_started.commandExecution.json", spec.ChannelAPI)
+	expectEq(t, "ref", started.ShellRef, "10527")
+	expectEq(t, "cwd", started.Cwd, "/tmp/codex_probe_ws")
+
+	done := parseRecorded(t, d, "tool_post", "item_completed.commandExecution.json", spec.ChannelAPI)
+	expectEq(t, "output", done.Output, "total 0\ndrwxr-xr-x@   2 char2cs  wheel    64 Sep  8 12:41 .\ndrwxrwxrwt  304 root     wheel  9728 Sep  8 12:41 ..\n")
+	failed := parseRecorded(t, d, "tool_fail", "item_completed.commandExecutionFailed.json", spec.ChannelAPI)
+	expectEq(t, "failed output", failed.Output != "", true)
+
+	raw, err := os.ReadFile(fixtureRoot + "/codex/item_commandExecution_terminalInteraction.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frame struct{ Params json.RawMessage }
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatal(err)
+	}
+	input := parseRaw(t, d, "terminal_input", frame.Params, spec.ChannelAPI)
+	expectEq(t, "input names the call", input.ID, "call_PQbUMzNNrlEGDg3Y4zc7JwNW")
+	expectEq(t, "input names the process", input.ShellRef, "10527")
+}
+
+// A failed turn is classified by the descriptor, from the status code or the named error it reports.
+func TestCodexDescriptor_ATurnFailureCarriesItsNeutralKind(t *testing.T) {
+	d := loadDescriptor(t, "codex")
+	for name, tc := range map[string]struct{ info, want string }{
+		"http status": {`{"httpConnectionFailed":{"httpStatusCode":401}}`, spec.FailureAuth},
+		"rate status": {`{"httpConnectionFailed":{"httpStatusCode":429}}`, spec.FailureLimit},
+		"named limit": {`"usageLimitExceeded"`, spec.FailureLimit},
+		"named busy":  {`"serverOverloaded"`, spec.FailureOverloaded},
+		"unmapped":    {`"badRequest"`, ""},
+		"none":        {`null`, ""},
+	} {
+		raw := []byte(`{"threadId":"t","turn":{"id":"u","status":"failed","error":{"message":"m","codexErrorInfo":` + tc.info + `}}}`)
+		ev, err := inbound.Parse(d, spec.HookTurnFailed, raw, spec.ChannelAPI)
+		if err != nil || ev.Failure == nil {
+			t.Fatalf("%s: failure %v, err %v", name, ev.Failure, err)
+		}
+		expectEq(t, name+" kind", ev.Failure.Kind, tc.want)
 	}
 }

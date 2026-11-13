@@ -105,8 +105,17 @@ export interface MarkerItem extends ItemBase {
   marker: MarkerName
   detail?: string
   reason?: string
+  /** A turn_failed boundary's trouble as the provider's descriptor classified it (auth, limit,
+   *  overloaded); absent on a row recorded before the daemon classified. */
+  failureKind?: string
+  /** The other chat the boundary names: who holds a conflicting session, or took a lost one. */
+  chat?: string
+  /** A legacy_unreadable boundary's left-out records, each in its own words. */
+  records?: string[]
   /** A launch's switches (provider, model, effort) drawn as this one divider. */
   parts?: { marker: MarkerName; detail?: string }[]
+  /** The slash command this boundary ran, drawn beside its words. */
+  command?: string
   /** A 'move' marker's newest phase, over what its request named (where to, under what). */
   move?: MoveBody
 }
@@ -131,6 +140,33 @@ export interface SubagentItem extends ItemBase {
   endedAt?: string
 }
 
+type ShellStatus = 'running' | 'finished' | 'failed' | 'stopped'
+
+/** A background command of the main agent; kept in the items but never placed
+ *  in the transcript order, since the tray lists it. */
+export interface ShellItem extends ItemBase {
+  kind: 'shell'
+  /** The provider's id for the task, which a notification names. */
+  shellId: string
+  /** A monitor reports the lines its command prints; a shell just runs. */
+  shellKind: 'shell' | 'monitor'
+  command: string
+  label: string
+  cwd?: string
+  ref?: string
+  persistent?: boolean
+  timeoutMs?: number
+  status: ShellStatus
+  /** The agent was asked to end it; only its own end settles the row. */
+  stopping?: boolean
+  exitCode?: number
+  /** The newest line while it runs, the end of its output once it ended. */
+  tail?: string
+  summary?: string
+  startedAt: string
+  endedAt?: string
+}
+
 export interface ReasoningItem extends ItemBase {
   kind: 'reasoning'
   text: string
@@ -151,6 +187,7 @@ export type TranscriptItem =
   | AskItem
   | MarkerItem
   | SubagentItem
+  | ShellItem
   | ReasoningItem
   | PlanSnapshotItem
 
@@ -172,15 +209,18 @@ export interface TurnFacts {
   prompts: Record<string, PromptFact>
   compacting: boolean
   openAsks: string[]
+  /** Asks decided since the person last spoke; a call's ask has no row of its own to find them by. */
+  decidedAsks: string[]
   /** Subagent cards still starting or running. */
   liveSubagents: string[]
+  /** Every background shell of the chat, in the order they started. */
+  shells: string[]
   /** scope → the card bound to it. */
   subagentScopes: Record<string, string>
   /** A subagent that announced its scope while a spawn it may be is unbound. */
   pendingScopes: Record<string, { type?: string; title?: string }>
   /** By scope, latest. */
   plan: Record<string, PlanItem[]>
-  lastExit: { runnerId: string; reason: string; exitCode?: number; seq: number } | null
   /** The turn Stop was pressed on; it reads as stopping only while it runs. */
   stopping: string | null
   /** Turn ids that produced text or a tool. */
@@ -234,6 +274,7 @@ export const toolItemId = (toolId: string) => `t:${toolId}`
 export const askItemId = (askId: string) => `a:${askId}`
 export const markerItemId = (seq: number) => `k:${seq}`
 export const moveItemId = (requestId: string) => `m:${requestId}`
+export const shellItemId = (shellId: string) => `h:${shellId}`
 export const subagentItemId = (key: string) => `s:${key}`
 export const planItemId = (turnId: string) => `l:${turnId}`
 export const liveKey = (stream: string, id: string) => `${stream}:${id}`

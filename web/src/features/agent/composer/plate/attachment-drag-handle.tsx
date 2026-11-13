@@ -215,7 +215,7 @@ export function AttachmentControls({
   return (
     <div
       contentEditable={false}
-      className="-translate-x-1/2 absolute top-1 left-1/2 z-51 flex flex-row items-center gap-1 opacity-0 transition-opacity duration-100 group-hover/attachment:opacity-100"
+      className="attachment-controls -translate-x-1/2 absolute top-1 left-1/2 z-51 flex flex-row items-center gap-1 opacity-0 transition-opacity duration-100 group-hover/attachment:opacity-100"
     >
       <AttachmentDragHandle handleProps={handleProps} />
       <AttachmentDeleteButton onDelete={onDelete} />

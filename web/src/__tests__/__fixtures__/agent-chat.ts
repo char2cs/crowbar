@@ -110,7 +110,7 @@ export function slashCatalog(
     ...{ insertText: `/${name} `, source: '', terminal: true },
   }))
   return {
-    providerId: 'codex',
+    providerId: 'provider-b',
     completeness: 'model_visible',
     items: [...items, ...builtins],
     warnings: [],

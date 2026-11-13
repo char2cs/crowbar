@@ -8,6 +8,12 @@ import { ApiError } from '@/lib/errors/api-error'
 
 const SLASH_DEBOUNCE_MS = 150
 
+/** Commands, then the ones that only run in the terminal, then skills: the picker's groups. */
+export function commandGroup(item: Partial<Pick<SlashCatalogItem, 'kind' | 'terminal'>>): number {
+  if (item.kind === 'skill') return 2
+  return item.terminal ? 1 : 0
+}
+
 type SlashCatalogState =
   | { state: 'closed' }
   | { state: 'ready'; catalog: SlashCatalog }
@@ -119,7 +125,7 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
 
   // A command named by what was typed leads, as in the CLI's own menu; a match in
   // its description or source still shows, below.
-  const items = useMemo(() => {
+  const ranked = useMemo(() => {
     if (state.state !== 'ready') return []
     if (!query) return state.catalog.items
     const named = (item: SlashCatalogItem) =>
@@ -131,6 +137,12 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     const all = state.catalog.items
     return [...all.filter(named), ...all.filter((item) => !named(item) && mentions(item))]
   }, [state, query])
+  // Grouped as the picker draws them, so its flat index is the list's own order.
+  const items = useMemo(
+    () => [...ranked].sort((a, b) => commandGroup(a) - commandGroup(b)),
+    [ranked],
+  )
+  const total = state.state === 'ready' ? state.catalog.items.length : 0
 
   useEffect(() => {
     if (selected >= items.length) setSelected(Math.max(0, items.length - 1))
@@ -154,5 +166,18 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
   // open over an empty result for every command the probe cannot see.
   const highlighted = open ? items[selected] : undefined
 
-  return { state, open, items, selected, highlighted, noteQuery, close, reset, move, accept }
+  return {
+    state,
+    open,
+    items,
+    total,
+    query,
+    selected,
+    highlighted,
+    noteQuery,
+    close,
+    reset,
+    move,
+    accept,
+  }
 }

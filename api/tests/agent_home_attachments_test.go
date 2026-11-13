@@ -3,10 +3,12 @@
 package tests
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,4 +153,55 @@ func TestAttachmentScriptableTypesDoNotRunOnTheAppOrigin(t *testing.T) {
 		assert.Equal(t, "attachment", resp.Header.Get("Content-Disposition"), name)
 		assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "sandbox", name)
 	}
+}
+
+// TestRegression_ChunkedAttachmentUploadReachesTheHomeMount proves a chat attachment can be sent in
+// acknowledged chunks (begin, PUT at an offset, complete) and read back, and that an abort leaves
+// no staged bytes: the desktop webview reports no upload progress, so the client sends chunks.
+func TestRegression_ChunkedAttachmentUploadReachesTheHomeMount(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importProject(t, h)
+	homeBase := "/v0/projects/" + imported.projectID + "/home"
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.post(homeBase+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.Quiesce()
+	uploads := homeBase + "/chats/" + created.ID + "/attachments/uploads"
+
+	const want = "chunked hello"
+	var begun struct {
+		Received int64 `json:"received"`
+	}
+	h.post(uploads, map[string]any{"id": "ck1", "fileName": "n.txt", "size": len(want)}, http.StatusOK, &begun)
+	assert.Zero(t, begun.Received)
+	for _, c := range []struct {
+		offset int
+		part   string
+	}{{0, want[:6]}, {6, want[6:]}} {
+		offset, part := c.offset, c.part
+		req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s%s/ck1?offset=%d", h.url, uploads, offset), strings.NewReader(part))
+		require.NoError(t, err)
+		resp, err := h.server.Client().Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	}
+	var done struct {
+		FileName string `json:"fileName"`
+		Size     int    `json:"size"`
+	}
+	h.post(uploads+"/ck1/complete", map[string]any{"fileName": "n.txt", "size": len(want)}, http.StatusCreated, &done)
+	assert.Equal(t, "ck1-n.txt", done.FileName)
+
+	resp := h.raw(http.MethodGet, homeBase+"/chats/"+created.ID+"/attachments/"+done.FileName, nil, http.StatusOK)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, want, string(body))
+
+	h.post(uploads, map[string]any{"id": "ck2", "fileName": "n.txt", "size": 4}, http.StatusOK, &begun)
+	h.del(uploads+"/ck2", nil, http.StatusNoContent, nil)
+	h.del(uploads+"/ck2", nil, http.StatusNoContent, nil)
 }

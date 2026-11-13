@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+const native = vi.hoisted(() => ({ on: false, confirm: vi.fn(async (): Promise<boolean> => true) }))
+vi.mock('@/lib/native-chrome', () => ({
+  hasNativeChrome: () => native.on,
+  nativeConfirm: native.confirm,
+}))
 vi.mock('@/lib/api/workspace', () => ({ detachHolder: vi.fn().mockResolvedValue({ items: [] }) }))
 
 import { detachHolder } from '@/lib/api/workspace'
@@ -12,6 +17,7 @@ import { operationsState } from '@/core/entities/operations'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  native.on = false
   useDetachModalStore.setState({ target: null })
   resetOperations()
 })
@@ -43,5 +49,37 @@ describe('DetachHolderModal', () => {
     })
     expect(detachHolder).toHaveBeenCalledWith('w1', op.id)
     await waitFor(() => expect(useDetachModalStore.getState().target).toBeNull())
+  })
+
+  describe('on the phone', () => {
+    const target = { wsId: 'w1', branch: 'develop', heldByPath: '/repo' }
+
+    it('asks in a native alert instead of drawing a dialog, and detaches on yes', async () => {
+      native.on = true
+      useDetachModalStore.setState({ target })
+      render(<DetachHolderModal />)
+      expect(screen.queryByRole('dialog')).toBeNull()
+      await waitFor(() =>
+        expect(native.confirm).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: 'Detach to manage develop',
+            confirmLabel: 'Detach',
+            cancelLabel: 'Cancel',
+            destructive: false,
+          }),
+        ),
+      )
+      await waitFor(() => expect(detachHolder).toHaveBeenCalledWith('w1', expect.any(String)))
+      expect(useDetachModalStore.getState().target).toBeNull()
+    })
+
+    it('only closes on no', async () => {
+      native.on = true
+      native.confirm.mockResolvedValueOnce(false)
+      useDetachModalStore.setState({ target })
+      render(<DetachHolderModal />)
+      await waitFor(() => expect(useDetachModalStore.getState().target).toBeNull())
+      expect(detachHolder).not.toHaveBeenCalled()
+    })
   })
 })

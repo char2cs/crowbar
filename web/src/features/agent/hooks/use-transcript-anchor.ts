@@ -1,9 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/lib/follow-scroll'
 
-/** How close to the bottom still counts as reading the newest end: about one
- *  row, so a burst that outruns one scroll frame is not read as scrolling away. */
+/** How close to the bottom still counts as the newest end: about one row. */
 const STICK_SLACK = 96
+
+/** Viewports from the end before the reader is away (Jump to latest), well past STICK_SLACK. */
+const AWAY_VIEWPORTS = 1 / 3
 
 /** Where the reader left a chat, for its next mount this session. */
 export interface TranscriptScrollPosition {
@@ -21,20 +23,16 @@ interface UseTranscriptAnchorOptions {
   onPositionChange?: (position: TranscriptScrollPosition) => void
   /** A background tab stays mounted behind visibility:hidden, which changes no geometry. */
   visible?: boolean
-  /** A turn runs or a sent prompt waits for one: only then does growth ease.
-   *  With nothing arriving, a change (a late row layout, the dock) lands at once. */
+  /** A turn runs or a prompt waits for one: only then does growth ease; else a change lands at once. */
   arriving?: boolean
-  /** Each write the anchor makes, as it makes it: the virtualizer otherwise
-   *  hears of it from the scroll event, a frame after painting the old window. */
+  /** Each write the anchor makes, as it makes it: the scroll event reaches the virtualizer a frame late. */
   onWrite?: (top: number) => void
 }
 
 export interface TranscriptAnchor {
   scrollRef: React.RefObject<HTMLDivElement | null>
   onScroll: () => void
-  /** Call from a layout effect after every commit of the list: any of them may
-   *  have moved its bottom. `measuring` is true while a row on screen still has
-   *  its estimated height, so the next change corrects an estimate. */
+  /** After every commit of the list; `measuring` while a row on screen has its estimated height. */
   afterCommit: (measuring: boolean) => void
   /** The viewport's box changed: a resize, or a display:none workspace coming back. */
   notifyReflow: () => void
@@ -44,13 +42,13 @@ export interface TranscriptAnchor {
   stick: () => void
   /** Rows land above the reader: the next commit keeps their distance from the bottom. */
   keepPlace: () => void
-  /** The reader's hand on the scroller, passive: a wheel, drag or key up lets go
-   *  of the bottom before the view has moved, which position alone cannot see. */
+  /** The reader's hand on the scroller: a wheel, drag or key up lets go before the view moves. */
   intent: ReaderIntent
-  /** The view is held to the bottom: a row resizing above it is the anchor's to
-   *  answer, not the virtualizer's (its shift paints a frame before the total). */
+  /** The view is held to the bottom: a row resizing above it is the anchor's to answer. */
   holdsBottom: () => boolean
-  /** Hears `holdsBottom` change, for a render that depends on it. */
+  /** Meaningfully away from the end; never turns on while rows are still being measured. */
+  awayFromEnd: () => boolean
+  /** Hears `holdsBottom` or `awayFromEnd` change. */
   subscribe: (listener: () => void) => () => void
 }
 
@@ -86,8 +84,7 @@ const readsUp = (event: React.KeyboardEvent) =>
   READ_UP_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey)
 
 // Keeps a transcript on its newest line while the reader is there, out of their way once they
-// scroll up. Growth eases (follow-scroll), anything else lands in one write; a sub-row scroll
-// (STICK_SLACK) mid-stream is pulled back on purpose, since a burst outruns a frame.
+// scroll up. Growth eases (follow-scroll); anything else lands in one write.
 export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): TranscriptAnchor {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stuck = useRef(options.initialPosition?.stuck ?? true)
@@ -99,6 +96,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // Where the current catch-up began, so a staircase of corrections is one gap.
   const easeFrom = useRef<number | null>(null)
   const landNext = useRef(true)
+  const bottom = useRef<number | null>(null)
   // A landing waits for rows still at their estimated heights: `fromBottom` is held, not read.
   const holding = useRef(false)
   // The reader let go on purpose: their own climb back within STICK_SLACK
@@ -108,14 +106,25 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   const touchY = useRef<number | null>(null)
   const wasMeasuring = useRef(false)
   const shown = useRef(options.visible ?? true)
+  const away = useRef(false)
   const [listeners] = useState(() => new Set<() => void>())
+  const judgeAway = useCallback(() => {
+    const el = scrollRef.current
+    if (!el || el.clientHeight === 0) return
+    const room = el.scrollHeight - el.scrollTop - el.clientHeight
+    const next = !stuck.current && room > el.clientHeight * AWAY_VIEWPORTS
+    if (next === away.current || (next && wasMeasuring.current)) return
+    away.current = next
+    for (const listener of listeners) listener()
+  }, [listeners])
   const setStuck = useCallback(
     (next: boolean) => {
       if (stuck.current === next) return
       stuck.current = next
       for (const listener of listeners) listener()
+      judgeAway()
     },
-    [listeners],
+    [listeners, judgeAway],
   )
   const optionsRef = useRef(options)
   optionsRef.current = options
@@ -138,8 +147,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     (correcting = false) => {
       const el = scrollRef.current
       if (!el) return
-      // A display:none box measures 0; the report that hid it asked for a landing
-      // (notifyReflow), which waits here until the box is back.
+      // A display:none box measures 0: a landing (notifyReflow) waits here for the box.
       if (el.clientHeight === 0) return
       const land = landNext.current
       landNext.current = false
@@ -161,10 +169,13 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       }
       // The ceiling, not scrollHeight: an unreachable target overshoots on the first frame.
       const target = el.scrollHeight - el.clientHeight
+      // A reader's own scroll re-commits the list too; a write then cancels their momentum.
+      const moved = target !== bottom.current
+      bottom.current = target
+      if (!moved && !land) return
       const gap = target - el.scrollTop
       if (gap <= 1) easeFrom.current = null
-      // From the lower of where the catch-up began and where the view is now: a
-      // view moved up since (a clamp, a virtualizer write) widens the gap.
+      // From the lower of where the catch-up began and the view now: a clamp or write widens the gap.
       const from = Math.min(easeFrom.current ?? el.scrollTop, el.scrollTop)
       // A gap over a viewport is a reposition, and easing it sweeps the whole transcript.
       const reposition =
@@ -174,7 +185,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
         target - from > el.clientHeight ||
         (correcting && easeFrom.current === null)
       if (reposition) {
-        if (el.scrollTop !== target) write(el, target)
+        if (el.scrollTop < target) write(el, target)
         easeFrom.current = null
       } else if (gap > 1) {
         easeFrom.current = from
@@ -190,11 +201,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (!el) return
     const build = () => createFollowScroll(el, wrote)
     follow.current = build()
-    // An unfocused webview freezes rAF and never runs a request made meanwhile,
-    // so the follow is rebuilt rather than re-targeted when focus returns.
+    // An unfocused webview freezes rAF: the follow is rebuilt, not re-targeted, on return.
     const onFocus = () => {
       follow.current?.stop()
       follow.current = build()
+      bottom.current = null
       resync()
     }
     window.addEventListener('focus', onFocus)
@@ -217,8 +228,9 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       const correcting = wasMeasuring.current
       wasMeasuring.current = measuring
       resync(correcting)
+      judgeAway()
     },
-    [resync],
+    [resync, judgeAway],
   )
 
   // Coming to the front changes no geometry, so nothing else would land the view.
@@ -271,7 +283,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (reading.current && rising) return
     setStuck(el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK)
     if (stuck.current) reading.current = false
-  }, [setStuck])
+    judgeAway()
+  }, [setStuck, judgeAway])
 
   const letGo = useCallback(() => {
     if (!stuck.current) return
@@ -314,6 +327,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     stick,
     keepPlace,
     holdsBottom,
+    awayFromEnd: () => away.current,
     subscribe,
   }
 }

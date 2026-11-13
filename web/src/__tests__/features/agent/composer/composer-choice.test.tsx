@@ -1,287 +1,74 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ComponentProps } from 'react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
-import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
-import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 import { ApiError } from '@/lib/errors/api-error'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { showChoice as show } from '@/__tests__/__fixtures__/agent-choice'
 
-const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
-  answerChoiceFn: vi.fn(),
-  setChatPermissionLevelFn: vi.fn(),
-}))
+const { answerChoiceFn } = vi.hoisted(() => ({ answerChoiceFn: vi.fn() }))
 
 vi.mock('@/features/agent/api/agent-chat-commands', () => ({
   answerChoice: (...args: unknown[]) => answerChoiceFn(...args),
-  setChatPermissionLevel: (...args: unknown[]) => setChatPermissionLevelFn(...args),
 }))
-vi.mock('@/features/agent/api/agent-providers-api', async (real) => ({
-  ...(await real<object>()),
-  getDefaultPermissionLevel: () => Promise.resolve('guarded'),
-}))
-
-// jsdom has no PointerEvent, which base-ui's Select opens and commits with.
-if (typeof window.PointerEvent !== 'function') {
-  class PointerEventShim extends MouseEvent {}
-  // @ts-expect-error install the shim onto the jsdom window
-  window.PointerEvent = PointerEventShim
-}
 
 beforeEach(() => {
   answerChoiceFn.mockReset()
   answerChoiceFn.mockResolvedValue(undefined)
-  setChatPermissionLevelFn.mockReset()
-  setChatPermissionLevelFn.mockResolvedValue(undefined)
 })
 
-function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
-  return {
-    id: 'k1',
-    turnId: 'turn-1',
-    seq: 1,
-    kind: 'tool_permission',
-    toolName: 'Bash',
-    options: [
-      { id: 'allow', kind: 'allow', label: 'Allow' },
-      { id: 'deny', kind: 'deny', label: 'Deny', reason: true },
-    ],
-    pending: true,
-    answerable: true,
-    at: '2026-08-18T12:00:00Z',
-    ...overrides,
-  }
-}
-
-type ChoiceProps = Partial<ComponentProps<typeof ComposerChoice>>
-
-function show(overrides: Partial<AgentChoice> = {}, props: ChoiceProps = {}) {
-  return render(
-    <ComposerChoice
-      wsId="w1"
-      chatId="c1"
-      pending={1}
-      choice={choice(overrides)}
-      providerLabel="Claude"
-      {...props}
-    />,
-  )
-}
-
-/** A permission's target comes from the fold: the ask's own, else its tool call's. */
-function draw(overrides: Partial<AgentChoice> = {}, detail = '') {
-  const subject = choice(overrides)
-  return render(
-    <ComposerChoice
-      wsId="w1"
-      chatId="c1"
-      pending={1}
-      choice={subject}
-      toolTarget={detail}
-      providerLabel="Claude"
-      permissionLevels={['guarded', 'trusted', 'full-auto']}
-    />,
-  )
-}
-
-describe('ComposerChoice that can be answered', () => {
-  it('offers the options as controls and sends the one that is picked', async () => {
-    draw()
+describe('ComposerChoice permission card', () => {
+  it('sends the option that is picked and waits for the server to confirm it', async () => {
+    show()
 
     expect(screen.getByTestId('agent-choice-prompt').dataset.answerable).toBe('true')
     expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
 
-    await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['allow'] }),
-    )
-  })
-
-  // Sent is not resolved: the card stays until the server says how the prompt ended.
-  it('sends a Deny with its reason and waits for the server to confirm it', async () => {
-    draw()
-    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
-    fireEvent.change(reason, { target: { value: 'name it b.txt' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
-
     await waitFor(() => expect(screen.getByTestId('agent-choice-sent')).toBeInTheDocument())
-    const sent = { optionIds: ['deny'], reason: 'name it b.txt' }
-    expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', sent)
+    expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['allow'] })
     expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
   })
 
-  // codex's approval reply has no field for a reason: a box there would drop what is typed.
-  it('offers no reason box when the Deny cannot carry one', () => {
-    draw({
+  it('has no text field and no send button: it is the request, not an input', () => {
+    show()
+
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: /send/i })).toBeNull()
+    expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
+  })
+
+  it('puts Deny at the left and the primary Allow at the right', () => {
+    show({
       options: [
-        { id: 'allow', kind: 'allow', label: 'Allow' },
+        { id: 'allow', kind: 'allow', label: 'Allow once' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Allow for session' },
         { id: 'deny', kind: 'deny', label: 'Deny' },
       ],
     })
 
-    expect(screen.getByRole('button', { name: 'Deny' })).toBeInTheDocument()
-    expect(screen.queryByRole('textbox', { name: 'Reason, sent with Deny' })).toBeNull()
+    const labels = screen
+      .getAllByRole('button')
+      .map((button) => button.textContent?.replace(/\d$/, ''))
+    expect(labels).toEqual(['Deny', 'Allow for session', 'Allow once'])
   })
 
-  it('sends EVERY ticked option of a multi-select question in one answer', async () => {
-    draw({
-      kind: 'question',
-      questions: [
-        {
-          id: 'q0',
-          text: 'Which do you want?',
-          multi: true,
-          options: [
-            { id: 'q0-answer-0', kind: 'answer', label: 'Option A', description: 'the first' },
-            { id: 'q0-answer-1', kind: 'answer', label: 'Option B' },
-            { id: 'q0-answer-2', kind: 'answer', label: 'Option C' },
-          ],
-        },
+  it('names the plain allow "Allow once" when a broader grant sits beside it', () => {
+    show({
+      options: [
+        { id: 'allow', kind: 'allow', label: 'Allow' },
+        { id: 'suggestion-0', kind: 'suggestion', label: 'Allow for session' },
+        { id: 'deny', kind: 'deny', label: 'Deny' },
       ],
-      options: [],
     })
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Option A' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Option C' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
-
-    await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', {
-        optionIds: ['q0-answer-0', 'q0-answer-2'],
-      }),
-    )
-  })
-
-  it('will not send an empty multi-select answer', () => {
-    draw({
-      kind: 'question',
-      questions: [
-        {
-          id: 'q0',
-          text: 'Which do you want?',
-          multi: true,
-          options: [{ id: 'q0-answer-0', kind: 'answer', label: 'Option A' }],
-        },
-      ],
-      options: [],
-    })
-
-    expect(screen.getByRole('button', { name: 'Send answer' })).toBeDisabled()
-    expect(answerChoiceFn).not.toHaveBeenCalled()
-  })
-})
-
-describe('ComposerChoice that cannot be answered from here', () => {
-  // Asked at the CLI's own terminal: drawn in full, with nothing pressable.
-  it('draws the whole question read-only, with no action when there is nowhere to send it', () => {
-    draw({ answerable: false })
-
-    expect(screen.getByTestId('agent-choice-prompt').dataset.answerable).toBe('false')
-    expect(screen.getByText('Run Bash?')).toBeInTheDocument()
-    expect(screen.getByTestId('agent-choice-options-readonly')).toHaveTextContent('Allow')
-    expect(screen.queryByTestId('agent-choice-terminal-note')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
-    expect(screen.queryByTestId('agent-choice-options')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
-  })
-
-  it('offers the terminal when the chat can open one', () => {
-    const onOpenTerminal = vi.fn()
-    show({ answerable: false }, { onOpenTerminal })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
-    expect(onOpenTerminal).toHaveBeenCalled()
-  })
-
-  // An unanswerable prompt with nothing to list draws nothing, not an empty box.
-  it('renders nothing above the bar when there is nothing to list', () => {
-    draw({ kind: 'elicitation', options: [], answerable: false })
-
-    expect(screen.queryByTestId('agent-choice-options-readonly')).toBeNull()
-  })
-})
-
-describe('ComposerChoice failures', () => {
-  // A 400 would only repeat, so the controls come down for the place an answer can land.
-  it('takes the controls down on an unsupported shape, offering the terminal instead', async () => {
-    answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
-    const onOpenTerminal = vi.fn()
-    show({}, { onOpenTerminal })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
-
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument(),
-    )
-    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
-    expect(screen.queryByTestId('agent-choice-error')).toBeNull()
-    // The prompt is still open — the CLI never got an answer.
-    expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
-  })
-
-  it('leaves no action at all after an unsupported shape with nowhere to redirect to', async () => {
-    answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
-    draw()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
-
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull())
-    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
-    expect(screen.queryByTestId('agent-choice-error')).toBeNull()
-  })
-
-  // 409: the relay let go between poll and click, so the controls come down at once.
-  it('takes the controls down when the gate has already closed', async () => {
-    answerChoiceFn.mockRejectedValue(new ApiError('no longer answerable', 409))
-    const onOpenTerminal = vi.fn()
-    show({}, { onOpenTerminal })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
-
-    await waitFor(() =>
-      expect(screen.getByTestId('agent-choice-options-readonly')).toBeInTheDocument(),
-    )
-    expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
-    expect(screen.queryByTestId('agent-choice-error')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Allow once' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
   })
 
-  // Any other failure stays on screen in the server's words; retrying might work.
-  it('still surfaces a failure that isn’t a closed gate or an unsupported shape', async () => {
-    answerChoiceFn.mockRejectedValue(new Error('network blip'))
-    draw()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
-
-    await waitFor(() =>
-      expect(screen.getByTestId('agent-choice-error')).toHaveTextContent('network blip'),
-    )
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
-  })
-
-  it('names the remote host an answer could not reach', async () => {
-    pairRemoteHost('h1', 'Studio Mac')
-    answerChoiceFn.mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
-    draw()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
-
-    await waitFor(() =>
-      expect(screen.getByTestId('agent-choice-error')).toHaveTextContent(
-        'Couldn’t reach Studio Mac',
-      ),
-    )
-    destroyHostRuntime('h1')
-    resetHostWorld()
-  })
-})
-
-describe('ComposerChoice suggestions', () => {
-  // A broader grant is an answer of its own: it allows this call and applies the grant.
   it('offers each suggestion as a button that grants it', async () => {
-    draw({
+    show({
       options: [
         { id: 'allow', kind: 'allow', label: 'Allow' },
         { id: 'deny', kind: 'deny', label: 'Deny' },
@@ -292,272 +79,25 @@ describe('ComposerChoice suggestions', () => {
     fireEvent.click(screen.getByRole('button', { name: /Allow edits this session/ }))
 
     await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', expect.any(String), {
+      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', {
         optionIds: ['suggestion-0'],
       }),
     )
   })
 
-  it('needs no terminal for a permission it can answer whole', () => {
+  it('shows only the command for a command request', () => {
     show(
+      {},
       {
-        options: [
-          { id: 'allow', kind: 'allow', label: 'Allow' },
-          { id: 'suggestion-0', kind: 'suggestion', label: 'Add a permanent rule for this' },
-        ],
+        request: { toolName: 'Bash', toolInput: { command: 'rm -rf dist', description: 'Clean' } },
       },
-      { onOpenTerminal: vi.fn() },
     )
 
-    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
-    expect(screen.getByRole('button', { name: /Add a permanent rule for this/ })).toBeEnabled()
-  })
-})
-
-// One ask can carry several questions; drawing only the first left answers unsendable.
-describe('ComposerChoice with several questions', () => {
-  const threeQuestions = {
-    kind: 'question',
-    toolName: 'AskUserQuestion',
-    options: [],
-    questions: [
-      {
-        id: 'q0',
-        text: 'Which language?',
-        multi: false,
-        options: [
-          { id: 'q0-answer-0', kind: 'answer', label: 'Go' },
-          { id: 'q0-answer-1', kind: 'answer', label: 'TypeScript' },
-        ],
-      },
-      {
-        id: 'q1',
-        text: 'Which databases?',
-        multi: true,
-        options: [
-          { id: 'q1-answer-0', kind: 'answer', label: 'SQLite' },
-          { id: 'q1-answer-1', kind: 'answer', label: 'Postgres' },
-          { id: 'q1-answer-2', kind: 'answer', label: 'Redis' },
-        ],
-      },
-      {
-        id: 'q2',
-        text: 'Deploy where?',
-        multi: false,
-        options: [
-          { id: 'q2-answer-0', kind: 'answer', label: 'Local' },
-          { id: 'q2-answer-1', kind: 'answer', label: 'Cloud' },
-        ],
-      },
-    ],
-  } satisfies Partial<AgentChoice>
-
-  it('draws a group for every question, single- or multi-select per its own flag', () => {
-    draw(threeQuestions)
-
-    expect(screen.getAllByTestId('agent-choice-question')).toHaveLength(3)
-    expect(screen.getByText('The agent has 3 questions')).toBeInTheDocument()
-    // Single- vs multi-answer is per question, so one card holds both control shapes.
-    expect(screen.getByRole('radio', { name: 'Go' })).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: 'SQLite' })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: 'Cloud' })).toBeInTheDocument()
+    const body = screen.getByTestId('agent-choice-request')
+    expect(body).toHaveTextContent('rm -rf dist')
+    expect(body).not.toHaveTextContent('Clean')
   })
 
-  it('will not send until EVERY question has an answer', () => {
-    draw(threeQuestions)
-    const send = () => screen.getByRole('button', { name: 'Send answers' })
-
-    expect(send()).toBeDisabled()
-    fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
-    expect(send()).toBeDisabled()
-    fireEvent.click(screen.getByRole('checkbox', { name: 'SQLite' }))
-    expect(send()).toBeDisabled()
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Cloud' }))
-    expect(send()).toBeEnabled()
-    expect(answerChoiceFn).not.toHaveBeenCalled()
-  })
-
-  it('sends every pick of every question in ONE call', async () => {
-    draw(threeQuestions)
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'SQLite' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Redis' }))
-    fireEvent.click(screen.getByRole('radio', { name: 'Cloud' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }))
-
-    await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', {
-        optionIds: ['q0-answer-0', 'q1-answer-0', 'q1-answer-2', 'q2-answer-1'],
-      }),
-    )
-    expect(answerChoiceFn).toHaveBeenCalledTimes(1)
-  })
-
-  // The backend refuses two answers to a single-answer question, so a pick replaces.
-  it('replaces the pick on a single-answer question', async () => {
-    draw(threeQuestions)
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
-    fireEvent.click(screen.getByRole('radio', { name: 'TypeScript' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'SQLite' }))
-    fireEvent.click(screen.getByRole('radio', { name: 'Local' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }))
-
-    await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', {
-        optionIds: ['q0-answer-1', 'q1-answer-0', 'q2-answer-0'],
-      }),
-    )
-  })
-
-  // A retained pane can get another prompt; old picks would name options it never offered.
-  it('starts empty when a different prompt is rendered into the same card', () => {
-    const { rerender } = draw(threeQuestions)
-    fireEvent.click(screen.getByRole('radio', { name: 'Go' }))
-    expect(screen.getByRole('radio', { name: 'Go' })).toBeChecked()
-
-    rerender(
-      <ComposerChoice
-        wsId="w1"
-        chatId="c1"
-        choice={choice({ ...threeQuestions, id: 'k2' })}
-        pending={1}
-        providerLabel="Claude"
-      />,
-    )
-
-    expect(screen.getByRole('radio', { name: 'Go' })).not.toBeChecked()
-    expect(screen.getByRole('button', { name: 'Send answers' })).toBeDisabled()
-  })
-
-  // Asked at the CLI's own terminal: every option is readable and none is pressable.
-  it('reads out every question’s options when it cannot be answered here', () => {
-    draw({ ...threeQuestions, answerable: false })
-
-    const listed = screen.getByTestId('agent-choice-options-readonly')
-    expect(listed).toHaveTextContent('Go')
-    expect(listed).toHaveTextContent('Redis')
-    expect(listed).toHaveTextContent('Cloud')
-    expect(screen.queryByRole('radio', { name: 'Go' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Send answers' })).toBeNull()
-  })
-})
-
-// A prompt recorded before questions were modelled is one question: its text and options.
-describe('ComposerChoice for a prompt recorded before questions existed', () => {
-  it('draws the prompt-level question as a question of one', async () => {
-    draw({
-      kind: 'question',
-      question: 'Which do you want?',
-      multi: false,
-      options: [
-        { id: 'answer-0', kind: 'answer', label: 'Option A' },
-        { id: 'answer-1', kind: 'answer', label: 'Option B' },
-      ],
-    })
-
-    expect(screen.getAllByTestId('agent-choice-question')).toHaveLength(1)
-    fireEvent.click(screen.getByRole('radio', { name: 'Option B' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
-
-    await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['answer-1'] }),
-    )
-  })
-})
-
-describe('ComposerChoice elicitation', () => {
-  const elicitation = {
-    kind: 'elicitation',
-    toolName: '',
-    question: 'What is the deploy target?',
-    title: 'deploy-mcp',
-    options: [],
-    schema: '{"type":"object","properties":{"target":{"type":"string"}}}',
-  } satisfies Partial<AgentChoice>
-
-  // Accept needs a form Crowbar cannot fill, so only the verbs it can mean are offered.
-  it('offers decline and cancel only, with no accept button for a form Crowbar cannot fill', () => {
-    draw(elicitation)
-
-    expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
-    expect(screen.queryByTestId('agent-choice-form-note')).toBeNull()
-    // No handler was given to open one, so nothing offers to.
-    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
-  })
-
-  it('offers a terminal button alongside decline and cancel when the chat can open one', () => {
-    const onOpenTerminal = vi.fn()
-    show(elicitation, { onOpenTerminal })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
-    expect(onOpenTerminal).toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Decline' })).toBeEnabled()
-  })
-
-  // With no options the provider's own verb answers: its id is the decision key.
-  it('sends the provider’s verb as the option id', async () => {
-    draw(elicitation)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Decline' }))
-
-    await waitFor(() =>
-      expect(answerChoiceFn).toHaveBeenCalledWith('w1', 'c1', 'k1', { optionIds: ['decline'] }),
-    )
-  })
-
-  it('shows the requested schema verbatim rather than guessing at a form', () => {
-    draw(elicitation)
-
-    expect(screen.getByTestId('agent-choice-schema')).toHaveTextContent('"target"')
-  })
-})
-
-// The per-chat permission-level dial sits beside whatever answer controls show.
-describe('ComposerChoice permission-level switcher', () => {
-  it('sits beside the answer controls on a real, answerable prompt', () => {
-    draw()
-
-    expect(screen.getByTestId('chat-permission-level-trigger')).toBeInTheDocument()
-  })
-
-  // terminalOnly needs a real `onOpenTerminal`, or this passes for the wrong reason.
-  it('does not appear when the prompt cannot be answered from here', () => {
-    const onOpenTerminal = vi.fn()
-    show({ answerable: false }, { onOpenTerminal })
-
-    expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
-    expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
-  })
-
-  // Absent capability, absent UI: a level the provider does not declare would 400.
-  it('does not appear for a provider whose descriptor declares no levels', () => {
-    render(
-      <ComposerChoice wsId="w1" chatId="c1" choice={choice()} pending={1} providerLabel="Claude" />,
-    )
-
-    expect(screen.queryByTestId('chat-permission-level-trigger')).toBeNull()
-  })
-})
-
-// The oldest pending choice is shown; a second (a parallel subagent's) is signalled.
-describe('ComposerChoice in a stack of pending asks', () => {
-  it('counts pending asks as i of n', () => {
-    show({}, { pending: 3, position: 2 })
-    expect(screen.getByTestId('agent-choice-position')).toHaveTextContent('2/3')
-  })
-
-  it('says nothing when it is the only one', () => {
-    show()
-    expect(screen.queryByTestId('agent-choice-position')).toBeNull()
-  })
-})
-
-describe('ComposerChoice with a long request', () => {
   it('says how many lines are not shown, beside the answer, until shown', () => {
     const command = Array.from({ length: 20 }, (_, i) => `step ${i}`).join('\n')
     show({}, { request: { toolName: 'Bash', toolInput: { command } } })
@@ -573,6 +113,104 @@ describe('ComposerChoice with a long request', () => {
     // The unfolded request scrolls by keyboard: its keys are not answers.
     fireEvent.keyDown(body.querySelector('pre')!, { key: '1' })
     expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+})
+
+describe('ComposerChoice that cannot be answered from here', () => {
+  it('draws the whole question read-only, with no action when there is nowhere to send it', () => {
+    show({ answerable: false })
+
+    expect(screen.getByTestId('agent-choice-prompt').dataset.answerable).toBe('false')
+    expect(screen.getByText('Run Bash')).toBeInTheDocument()
+    expect(screen.getByText('Answer this in the terminal. It offers:')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-choice-options-readonly')).toHaveTextContent('Allow')
+    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
+    expect(screen.queryByTestId('agent-choice-options')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
+  })
+
+  it('offers the terminal when the chat can open one', () => {
+    const onOpenTerminal = vi.fn()
+    show({ answerable: false }, { onOpenTerminal })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+    expect(onOpenTerminal).toHaveBeenCalled()
+  })
+
+  it('lists nothing for a prompt with nothing to list', () => {
+    show({ kind: 'elicitation', options: [], answerable: false })
+
+    expect(screen.queryByTestId('agent-choice-options-readonly')).toBeNull()
+  })
+})
+
+describe('ComposerChoice failures', () => {
+  // A 400 would only repeat, so the controls come down for the place an answer can land.
+  it('takes the controls down on an unsupported shape, offering the terminal instead', async () => {
+    answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
+    show({}, { onOpenTerminal: vi.fn() })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
+    expect(screen.queryByTestId('agent-choice-error')).toBeNull()
+    expect(screen.getByTestId('agent-choice-prompt')).toBeInTheDocument()
+  })
+
+  it('leaves no action at all after an unsupported shape with nowhere to redirect to', async () => {
+    answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
+    show()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
+    expect(screen.queryByTestId('agent-choice-error')).toBeNull()
+  })
+
+  // 409: the relay let go between poll and click, so the controls come down at once.
+  it('takes the controls down when the gate has already closed', async () => {
+    answerChoiceFn.mockRejectedValue(new ApiError('no longer answerable', 409))
+    show({}, { onOpenTerminal: vi.fn() })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-choice-options-readonly')).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
+  })
+
+  it('still surfaces a failure that isn’t a closed gate or an unsupported shape', async () => {
+    answerChoiceFn.mockRejectedValue(new Error('network blip'))
+    show()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-choice-error')).toHaveTextContent('network blip'),
+    )
+    expect(screen.getByRole('button', { name: 'Allow' })).toBeEnabled()
+  })
+
+  it('names the remote host an answer could not reach', async () => {
+    pairRemoteHost('h1', 'Studio Mac')
+    answerChoiceFn.mockRejectedValue(proxyMarkerError('host-unreachable', 'h1'))
+    show()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-choice-error')).toHaveTextContent(
+        'Couldn’t reach Studio Mac',
+      ),
+    )
+    destroyHostRuntime('h1')
+    resetHostWorld()
   })
 })
 
@@ -596,8 +234,7 @@ describe('ComposerChoice keys', () => {
   })
 
   it('answers nothing for a key pressed on a control inside the card', () => {
-    draw()
-    fireEvent.keyDown(screen.getByTestId('chat-permission-level-trigger'), { key: '1' })
+    show()
     fireEvent.keyDown(screen.getByRole('button', { name: /Deny/ }), { key: '2' })
     const hint = screen.getByRole('button', { name: /Allow/ }).querySelector('kbd')!
     fireEvent.keyDown(hint, { key: '1' })
@@ -628,10 +265,10 @@ describe('ComposerChoice keys', () => {
     show()
     const field = document.createElement('input')
     document.body.append(field)
+    onTestFinished(() => field.remove())
     field.focus()
     fireEvent.keyDown(field, { key: '1' })
     expect(answerChoiceFn).not.toHaveBeenCalled()
-    field.remove()
   })
 
   it('shows which digit answers with which option', () => {
@@ -640,22 +277,10 @@ describe('ComposerChoice keys', () => {
     expect(screen.getByRole('button', { name: /Deny/ })).toHaveTextContent('2')
   })
 
-  // It replaces the composer just sent from; on the page, number keys answer nothing.
   it('takes focus when it appears and nothing else holds it', () => {
     ;(document.activeElement as HTMLElement | null)?.blur()
     show()
     expect(screen.getByTestId('agent-choice-prompt')).toHaveFocus()
-  })
-
-  it('lets a digit typed into its reason field be text, not an answer', () => {
-    ;(document.activeElement as HTMLElement | null)?.blur()
-    show()
-    const reason = screen.getByRole('textbox', { name: 'Reason, sent with Deny' })
-    reason.focus()
-    fireEvent.keyDown(reason, { key: '1' })
-    fireEvent.change(reason, { target: { value: '1' } })
-    expect(answerChoiceFn).not.toHaveBeenCalled()
-    expect(reason).toHaveValue('1')
   })
 
   it('leaves focus where it is when something else holds it', () => {
@@ -670,6 +295,13 @@ describe('ComposerChoice keys', () => {
   it('answers nothing by key while it cannot be answered here', () => {
     show({ answerable: false })
     fireEvent.keyDown(screen.getByTestId('agent-choice-prompt'), { key: '1' })
+    expect(answerChoiceFn).not.toHaveBeenCalled()
+  })
+
+  it('answers nothing by key while it is set aside in a carousel', () => {
+    show({}, { active: false })
+    fireEvent.keyDown(window, { key: '1' })
+    fireEvent.keyDown(document.body, { key: '1' })
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 })

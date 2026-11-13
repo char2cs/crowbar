@@ -1,0 +1,179 @@
+/* A subagent from spawn to result: its header, what it does now, its own rows. */
+.agent-chat .subagent-card .assistant {
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .subagent-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 26px;
+  color: var(--muted-foreground);
+}
+.agent-chat button.subagent-head {
+  width: 100%;
+  padding: 0 26px 0 0;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-chat button.subagent-head:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.agent-chat .subagent-head:hover .tool-row-toggle {
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .subagent-head[aria-expanded='true'] .tool-row-toggle svg {
+  transform: rotate(90deg);
+}
+.agent-chat .subagent-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-weight: 500;
+}
+.agent-chat .subagent-type,
+.agent-chat .subagent-clock,
+.agent-chat .subagent-usage {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .subagent-type {
+  padding: 0 4px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+}
+.agent-chat .subagent-action,
+.agent-chat .subagent-waiting {
+  margin: 2px 0 0 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+.agent-chat .subagent-work {
+  margin: 6px 0 0 12px;
+}
+.agent-chat .subagent-result {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .reasoning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  cursor: pointer;
+}
+.agent-chat .reasoning-text {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+}
+/* Commentary between tool calls is lighter than the reply. */
+.agent-chat .row[data-phase='commentary'] .agent-prose {
+  color: var(--muted-foreground);
+}
+
+/* The compaction boundary. Everything above it is out of the model's context and
+   still in the transcript — this line is the only thing that says so. */
+.agent-chat .divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+}
+.agent-chat .divider .tag-result {
+  margin-left: 8px;
+}
+.agent-chat .divider .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  padding: 2px 9px;
+  background: var(--background);
+}
+
+/* Streaming fade (chat-fresh-text-plugin.tsx): opacity only, on already-formatted text. A per-word
+   inline `animation-delay` cascades a large chunk in; `fill-mode: both` holds delayed words at the
+   start state so they never flash bright first. */
+.agent-chat .agent-prose .chat-fresh-text {
+  opacity: 1;
+  animation: chat-token-fade 260ms ease-out;
+  animation-fill-mode: both;
+  /* WebKit only: promotes each fading inline span to a layer so opacity animates on the compositor
+     (a streamed list went ~20fps -> ~45fps in WKWebView; Blink shows no cost). Safe broadly because
+     the class is removed once a fade settles (streaming-value-patch.ts). */
+  will-change: opacity;
+}
+@keyframes chat-token-fade {
+  /* Fully invisible, not dim: the chunk's layout is already final, so a dim word reads as text
+     restyled rather than streaming in. Opacity keeps layout reserved, so nothing reflows. */
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Fires only when a `.scroll` connects (mount, or leaving `display: none`), never per token.
+   Unsupported browsers just skip the fade; the transcript is never stuck invisible. */
+@starting-style {
+  .agent-chat .scroll {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat .scroll,
+  .agent-chat .stream[data-pin='released'] {
+    transition: none;
+  }
+  .agent-chat .agent-prose .chat-fresh-text {
+    /* Longhands, not `animation: none`: the build's minifier rewrites that shorthand to
+       `animation: auto`, which reads as still having a duration. */
+    animation-name: none;
+    animation-duration: 0s;
+    animation-delay: 0s;
+    opacity: 1;
+    /* Nothing animates here, so the compositor hint above is pure cost — a
+       layer per word, promoted for a fade that never runs. */
+    will-change: auto;
+  }
+}
+/* On a subagent's header the outcome sits beside the title, as on the board. */
+.agent-chat .subagent-head .tool-call-state {
+  margin-left: 8px;
+}
+/* A phone's header has no width for title and metadata on one line: the title keeps most of a
+   line and the metadata wraps under it instead of crushing it to an ellipsis. */
+.agent-chat-pane[data-touch] .agent-chat .subagent-head {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.agent-chat-pane[data-touch] .agent-chat .subagent-title {
+  flex: 1 1 60%;
+}
+/* Two boundaries in a row read as two lines, not one pill stack. */
+.agent-chat-pane[data-touch] .agent-chat .divider {
+  padding: 10px 0;
+}

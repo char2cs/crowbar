@@ -1,37 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
-import { report } from '@/lib/errors/report'
-import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resumeChat } from '@/features/agent/api/agent-chat-commands'
 import { offeredCompact } from '@/features/agent/chat/lib/offered-compact'
+import { offeredStopShell } from '@/features/agent/chat/lib/offered-stop-shell'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
 import { declaredModel } from '@/features/agent/lib/staged-selection'
-import { stopTurn } from '@/features/agent/stores/chat-outbox'
 import type { RowActions } from '@/features/agent/transcript/rows/transcript-row'
 import type { AgentTerminalAnswer } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
-import { TodoStrip } from '@/features/agent/activity/todo-strip'
-import { AgentComposer } from '@/features/agent/composer/agent-composer'
 import { acceptsTyping, resolveComposerState } from '@/features/agent/composer/lib/composer-state'
 import {
   ComposerSlashPicker,
   type PickerItem,
 } from '@/features/agent/composer/composer-slash-picker'
+import { useChatPlace } from '@/features/tabs/hooks/use-chat-branch-header-model'
 import { ComposerStashPicker } from '@/features/agent/composer/composer-stash-picker'
-import { stashPrompt } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import type {
   CaretEdges,
   ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
-import { ProviderBar } from '@/features/agent/controls/provider-bar'
+import { ViewSwitch } from '@/features/agent/controls/view-switch'
+import { IS_MOBILE } from '@/utils/platform'
+import { ChatViewSwitch } from '@/features/agent/controls/chat-view-switch'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import type { AgentEmptyDocumentHandle } from '@/features/agent/chat/agent-empty-document'
 import { handleComposerKey } from '@/features/agent/chat/lib/composer-keys'
 import { useChatSend } from '@/features/agent/chat/use-chat-send'
+import { ChatDock } from '@/features/agent/chat/chat-dock'
+import { DockDissolve } from '@/features/agent/chat/dock-stack'
+import { useChatOpenMark } from '@/features/agent/chat/use-chat-open-mark'
+import { usePromptTakeBack } from '@/features/agent/chat/use-prompt-take-back'
 import { useConfirmedModel } from '@/features/agent/chat/use-confirmed-model'
 import { useComposerDraft } from '@/features/agent/chat/use-composer-draft'
 import { ChatWorkingLine } from '@/features/agent/chat/chat-working-line'
@@ -40,7 +43,6 @@ import { useDock } from '@/features/agent/chat/use-dock'
 import { useTypeToFocus } from '@/features/agent/chat/use-type-to-focus'
 import { useChatFeed, useFeedError } from '@/features/agent/hooks/use-chat-feed'
 import { useChatTelemetry } from '@/features/agent/hooks/use-chat-entity'
-import { useNativeContext } from '@/features/agent/hooks/use-native-context'
 import {
   getScrollPosition,
   setScrollPosition,
@@ -48,14 +50,8 @@ import {
 import { usePromptHistory } from '@/features/agent/hooks/use-prompt-history'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
-import '@/features/agent/styles/composer.css'
-import '@/features/agent/styles/transcript.css'
-import '@/features/agent/styles/activity.css'
+import '@/features/agent/styles/agent-chat.css'
 import { chatPromptToSend } from '@/features/agent/composer/plate/chat-prompt-send'
-import { UserFacingError } from '@/lib/errors/user-facing-error'
-
-/** One entry per progressive-blur layer in the dock's dissolve — see composer.css. */
-const DISSOLVE_LAYERS = [0, 1, 2, 3, 4, 5, 6]
 
 export interface AgentChatViewProps {
   wsId: string
@@ -72,8 +68,6 @@ export interface AgentChatViewProps {
   canSend: boolean
   /** The chat's host does not answer: the composer is read-only. */
   offline?: boolean
-  /** How the conversation continues (why it is dormant, or from what). */
-  sessionNote?: string
   /** The CLI the chat is moving onto is still connecting. */
   connecting?: string
   active: boolean
@@ -118,7 +112,6 @@ export function AgentChatView({
   live,
   canSend,
   offline = false,
-  sessionNote,
   connecting,
   active,
   visible,
@@ -158,13 +151,7 @@ export function AgentChatView({
   const emptyDocRef = useRef<AgentEmptyDocumentHandle>(null)
   const confirmedModel = useConfirmedModel(`${chatId}:${providerId}`, live, launchModel)
 
-  useEffect(() => markStart('chat.open'), [])
-  const opened = facts.status !== undefined && facts.status !== 'connecting'
-  useEffect(() => {
-    if (!opened) return
-    const raf = requestAnimationFrame(() => markEnd('chat.open'))
-    return () => cancelAnimationFrame(raf)
-  }, [opened])
+  useChatOpenMark(facts.status !== undefined && facts.status !== 'connecting')
 
   const readPrompts = useCallback(() => promptTexts(chatId), [chatId])
   const history = usePromptHistory(readPrompts)
@@ -186,6 +173,7 @@ export function AgentChatView({
     [load, setError, resetHistory],
   )
   const steer = providers.find((candidate) => candidate.id === providerId)?.promptSteer === true
+  const place = useChatPlace(chatId, wsId)
   const prompts = useChatSend(wsId, chatId, steer, editPrompt)
 
   // An empty chat is a writing surface, not an empty transcript; it stops being
@@ -199,17 +187,6 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
-  const rowActions = useMemo<RowActions>(
-    () => ({
-      ...prompts.actions,
-      openTerminal: onOpenTerminal,
-      newConversation: () =>
-        void resumeChat(wsId, chatId).catch((err: unknown) =>
-          toastSpawnFailure(err, providerLabel, 'start'),
-        ),
-    }),
-    [prompts.actions, wsId, chatId, onOpenTerminal, providerLabel],
-  )
   // The picker shows a staged pick at once; labels and the catalogue stay on the live CLI.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
   // The person's pick first, then what the last turn reported running at.
@@ -223,8 +200,28 @@ export function AgentChatView({
   const shownModel =
     declaredModel(effectiveProvider, model) || (reportedModel ? '' : confirmedModel)
   const idle = !!provider?.compaction && live && !compacting && !working && !onTerminalSurface
-  const onCompact = offeredCompact(wsId, chatId, idle)
-  useNativeContext({ visible, telemetry, compacting, onCompact })
+  const onStopShell = useMemo(
+    () => offeredStopShell(wsId, chatId, !!provider?.shellStop && live && !onTerminalSurface),
+    [wsId, chatId, provider?.shellStop, live, onTerminalSurface],
+  )
+  const onCompact = useMemo(() => offeredCompact(wsId, chatId, idle), [wsId, chatId, idle])
+  const rowActions = useMemo<RowActions>(
+    () => ({
+      ...prompts.actions,
+      openTerminal: onOpenTerminal,
+      compact: onCompact,
+      openChat: (target: string) =>
+        windowPaneStore.getState().paneActions.openChat(target, {
+          projectId: resolveChatProjectId(target, wsId) ?? undefined,
+          workspaceId: wsId,
+        }),
+      newConversation: () =>
+        void resumeChat(wsId, chatId).catch((err: unknown) =>
+          toastSpawnFailure(err, providerLabel, 'start'),
+        ),
+    }),
+    [prompts.actions, wsId, chatId, onOpenTerminal, onCompact, providerLabel],
+  )
 
   // A chat recording no agent cannot start; it says what would let it.
   const agentNote =
@@ -233,7 +230,7 @@ export function AgentChatView({
       : providers.some((p) => p.connected && p.enabled)
         ? 'This chat has no agent yet. Pick one, then send a message to start it.'
         : 'No agent is installed. Add one in Settings → Agents to start this chat.'
-  const note = providerId ? (blank ? undefined : sessionNote) : agentNote
+  const note = providerId ? undefined : agentNote
 
   // The one serialization of a prompt: the key handler's read, or the box's on a click.
   const enqueueDraft = (text?: string) => {
@@ -260,37 +257,21 @@ export function AgentChatView({
   // Before its turn begins a prompt is stopped by taking it back, so Stop shows while it is
   // taken up (a provider switch can hold that for seconds), not only once the CLI runs it.
   const canStop = working ? live : prompts.sending
-  const handleStop = () =>
-    working ? void stopTurn(wsId, chatId) : void putBack(prompts.withdraw())
+  const { stop: handleStop, retract } = usePromptTakeBack({
+    wsId,
+    chatId,
+    working,
+    putBackInComposer: composer.putBack,
+    withdraw: prompts.withdraw,
+    retract: prompts.retract,
+  })
 
   // An open @ path picker takes the keys before the skill picker: it completes in place.
   const picker = mention.open ? mention : slash
   const selectSlashItem = (item: PickerItem) =>
-    mention.open ? composer.completeMention(mention.accept(item)) : load(slash.accept(item))
-
-  // Esc takes the newest prompt back; its text returns to this chat's composer,
-  // or to the chat's stashes once that composer is gone.
-  const shownChat = useRef<string | null>(null)
-  useEffect(() => {
-    shownChat.current = chatId
-    return () => {
-      shownChat.current = null
-    }
-  }, [chatId])
-  const putBack = (taken: Promise<string | null> | null) => {
-    const asked = chatId
-    void taken?.then((text) => {
-      if (text === null) return
-      if (shownChat.current === asked && composer.putBack(text)) return
-      if (!stashPrompt(wsId, asked, text)) {
-        report(new UserFacingError('The saved prompts are full or unavailable.'), {
-          action: 'Couldn’t keep the prompt you took back',
-        })
-      }
-    })
-    return taken !== null
-  }
-  const retract = () => putBack(prompts.retract())
+    mention.open
+      ? composer.completeMention(mention.accept(item))
+      : composer.completeCommand(slash.accept(item))
 
   const handleKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
@@ -308,6 +289,7 @@ export function AgentChatView({
         stashOrRestore: composer.stashOrRestore,
         selectSlashItem,
         send: enqueueDraft,
+        enterSends: !blank,
         recall: load,
       },
       event,
@@ -334,16 +316,14 @@ export function AgentChatView({
   })
 
   // The empty document's cluster and the dock's bar offer the same controls.
+  const permissionTarget = { wsId, chatId, levels: provider?.permissionLevels }
   const selection = {
     provider: effectiveProvider,
     providers,
     effort: effectiveEffort,
     reportedModel,
-    presentation,
-    splitEnabled: splitEnabled && provider?.hotswap === true,
-    showSwitcher: presentation !== 'terminal' && provider?.hasTerminal !== false,
-    handoverBlocked: !provider?.hotswap && working,
     switchDisabled,
+    permission: permissionTarget,
     onSelectionChange,
     onSelectPresentation,
   }
@@ -358,7 +338,8 @@ export function AgentChatView({
       onOpenTerminal={onOpenTerminal}
       promptActions={rowActions}
       dockHeight={dock.dockHeight}
-      visible={visible}
+      dockTop={dock.dockTop}
+      visible={visible && active}
       initialScrollPosition={initialScrollPosition}
       onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
       headerClearancePx={transcriptHeaderClearancePx}
@@ -374,9 +355,12 @@ export function AgentChatView({
 
   const slashPicker = (mention.open || slash.open) && (
     <ComposerSlashPicker
-      label={mention.open ? 'Files' : 'Commands'}
+      variant={mention.open ? 'files' : 'commands'}
+      scope={place.route?.kind === 'project' ? place.route.name : place.route?.repoName}
       items={picker.items}
       selected={picker.selected}
+      query={picker.query}
+      total={slash.total}
       onSelect={selectSlashItem}
     />
   )
@@ -385,6 +369,15 @@ export function AgentChatView({
       items={composer.stashes}
       onSelect={composer.restoreStash}
       onClose={composer.closeStashPicker}
+    />
+  )
+
+  // The phone's switch sits in the footer, or beside the model chip while the chat is blank.
+  const viewSwitch = IS_MOBILE && presentation === 'chat' && provider?.hasTerminal !== false && (
+    <ViewSwitch
+      presentation={presentation}
+      handoverBlocked={!provider?.hotswap && working}
+      onSelect={onSelectPresentation}
     />
   )
 
@@ -405,71 +398,75 @@ export function AgentChatView({
             } as CSSProperties
           }
         >
+          <ChatViewSwitch
+            presentation={presentation}
+            splitEnabled={splitEnabled && provider?.hotswap === true}
+            handoverBlocked={!provider?.hotswap && working}
+            hasTerminal={provider?.hasTerminal !== false}
+            onSelect={onSelectPresentation}
+          />
           {!blank && transcript}
-          {!blank && !settling && (
-            <div className="dissolve" aria-hidden="true">
-              {DISSOLVE_LAYERS.map((_, i) => (
-                <div key={i} className="dissolve-layer" />
-              ))}
-            </div>
-          )}
+          {!blank && !settling && <DockDissolve />}
           {blank && stashPicker && <div className="blank-picker">{stashPicker}</div>}
           {blank && slashPicker && <div className="blank-picker">{slashPicker}</div>}
           {!settling && (
-            <div ref={blank ? undefined : dock.dockRef} className={blank ? 'docframe' : 'dock'}>
-              {!blank && <TodoStrip plan={facts.plan} />}
-              {!blank && <SubagentShelf chatId={chatId} />}
-              {!blank && stashPicker}
-              {!blank && slashPicker}
-              {note && (
-                <p className="meta composer-note" data-testid="agent-session-note">
-                  {note}
-                </p>
-              )}
-              <AgentComposer
-                wsId={wsId}
-                chatId={chatId}
-                placement={blank ? 'document' : 'dock'}
-                editorRef={composer.editorRef}
-                asks={facts.asks}
-                providerLabel={providerLabel}
-                permissionLevels={provider?.permissionLevels}
-                live={canSend}
-                offline={offline}
-                working={working}
-                compacting={compacting}
-                sending={prompts.sending}
-                submitUnavailable={prompts.unsupported}
-                terminalWait={terminalWait}
-                feedError={unfollowed}
-                canStop={canStop}
-                slashOpen={picker.highlighted !== undefined}
-                onShapeChange={composer.noteShape}
-                onKeyDown={handleKeyDown}
-                onSend={() => enqueueDraft()}
-                onStop={handleStop}
-                onOpenTerminal={onOpenTerminal}
-                takeoverContainer={chatSurfaceEl}
-                controls={<SelectionCluster {...selection} model={shownModel} />}
-                banner={blankSignpost}
-                headerClearancePx={headerClearancePx}
-                documentRef={emptyDocRef}
-              />
-              {!blank && (
-                <ProviderBar
-                  {...selection}
-                  model={shownModel}
-                  telemetry={telemetry}
-                  queued={prompts.waiting}
-                  onCompact={onCompact}
-                />
-              )}
-              {composer.error && (
-                <p className="meta composer-note" role="alert">
-                  {composer.error}
-                </p>
-              )}
-            </div>
+            <ChatDock
+              wsId={wsId}
+              chatId={chatId}
+              blank={blank}
+              dockRef={dock.dockRef}
+              plan={facts.plan}
+              providers={providers}
+              failureActions={rowActions}
+              onStopShell={onStopShell}
+              onEditPrompt={editPrompt}
+              pickers={
+                <>
+                  {stashPicker}
+                  {slashPicker}
+                </>
+              }
+              note={note}
+              error={composer.error}
+              composer={{
+                editorRef: composer.editorRef,
+                asks: facts.asks,
+                providerLabel,
+                live: canSend,
+                offline,
+                working,
+                compacting,
+                sending: prompts.sending,
+                submitUnavailable: prompts.unsupported,
+                terminalWait,
+                feedError: unfollowed,
+                canStop,
+                slashOpen: picker.highlighted !== undefined,
+                onShapeChange: composer.noteShape,
+                onKeyDown: handleKeyDown,
+                onSend: () => enqueueDraft(),
+                onStop: handleStop,
+                onOpenTerminal,
+                takeoverContainer: chatSurfaceEl,
+                controls: (
+                  <>
+                    <SelectionCluster {...selection} model={shownModel} />
+                    {viewSwitch}
+                  </>
+                ),
+                banner: blankSignpost,
+                headerClearancePx,
+                documentRef: emptyDocRef,
+              }}
+              footer={{
+                ...selection,
+                model: shownModel,
+                telemetry,
+                compacting,
+                onCompact,
+                viewSwitch,
+              }}
+            />
           )}
         </section>
       </ChatMarkdownAssetProvider>

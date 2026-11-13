@@ -1,30 +1,22 @@
 import type { ToolFamily } from '@/features/agent/transcript/lib/tool-family'
-import { useEffect, useEffectEvent, useRef, useState, type KeyboardEvent } from 'react'
-import { TerminalIcon } from '@/features/agent/shared/agent-icons'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { answerChoice } from '@/features/agent/api/agent-chat-commands'
-import type {
-  AgentChoice,
-  AgentChoiceOption,
-  AgentChoiceQuestion,
-} from '@/features/agent/api/agent-chat-activity'
-import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
+import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
+import { choiceDetail, describeChoice } from '@/features/agent/composer/lib/ask-labels'
 import {
-  choiceDetail,
-  choiceQuestions,
-  describeChoice,
-} from '@/features/agent/composer/lib/ask-labels'
-import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
-import { ApiError } from '@/lib/errors/api-error'
-import { actionErrorMessage } from '@/features/hosts/lib/host-failure-notice'
-import {
-  ChoiceQuestions,
   ChoiceButtons,
+  ChoiceQuestion,
   ChoiceReadOnly,
-  ChoiceSchema,
 } from '@/features/agent/composer/composer-choice-controls'
-import { ChoiceRequest } from '@/features/agent/composer/composer-choice-request'
+import { useChoiceCard } from '@/features/agent/composer/use-choice-card'
+import { ChoiceForm } from '@/features/agent/composer/composer-choice-form'
+import { ChoiceRequest, ChoiceRequestHead } from '@/features/agent/composer/composer-choice-request'
+import {
+  ChoicePeeks,
+  ChoiceStepper,
+  type StepPosition,
+} from '@/features/agent/composer/composer-choice-stepper'
+import { formContent } from '@/features/agent/composer/lib/ask-form'
 import {
   foldCode,
   foldedCue,
@@ -32,180 +24,110 @@ import {
   type AskRequest,
 } from '@/features/agent/composer/lib/ask-request'
 
-// MCP's own elicitation verbs, sent as `optionIds` since such a prompt has no options to read.
-// No `accept`: it must carry a filled-in form Crowbar can't build, so a button would send it empty.
-const ELICITATION_VERBS = [
-  { id: 'decline', label: 'Decline' },
-  { id: 'cancel', label: 'Cancel' },
-] as const
-
-type CardState = {
-  choiceId: string
-  /** Picks for a prompt whose controls are one flat row (a permission, an elicitation). */
-  picked: string[]
-  /** Picks for a question prompt, keyed by question id. */
-  byQuestion: Record<string, string[]>
-  sending: boolean
-  sent: boolean
-  error: string
-  /** A 409: the relay let go after the poll said "answerable". The view is stale, so the
-   *  controls come down now rather than at the next poll. */
-  gateClosed: boolean
-  /** A 400: the relay refuses this shape of answer, so retrying cannot help; only the
-   *  terminal can answer it. */
-  unsupportedHere: boolean
-  /** What a Deny tells the CLI: why, or what to do instead. */
-  reason: string
-}
-
-function freshCard(choiceId: string): CardState {
-  return {
-    choiceId,
-    picked: [],
-    byQuestion: {},
-    sending: false,
-    sent: false,
-    error: '',
-    gateClosed: false,
-    unsupportedHere: false,
-    reason: '',
-  }
-}
-
-// A question the provider CLI is waiting on. Pending-but-not-answerable is drawn without
-// controls; a sent answer stays "sent" until the server resolves it (the terminal may race);
-// every question needs a pick before send; terminal-only answers get a Terminal button.
+// The request the CLI is waiting on, drawn as the input box itself. Pending-but-not-answerable
+// has no controls; a sent answer stays "sent" until the server resolves it (the terminal may
+// race); terminal-only answers get a Terminal button.
 export function ComposerChoice({
   wsId,
   chatId,
-  pending,
   choice,
   toolTarget,
   providerLabel,
-  permissionLevels,
   onOpenTerminal,
-  position = 1,
   request,
   family,
+  active = true,
+  position,
 }: {
   wsId: string
   chatId: string
-  /** How many asks are pending, this one included. */
-  pending: number
   choice: AgentChoice
   /** What a permission is about to touch, from the call it gates. */
   toolTarget?: string
   providerLabel: string
-  /** This chat's current provider's own declared levels — see
-   *  PermissionLevelSwitcher's own doc for why an absent/empty list hides it. */
-  permissionLevels?: PermissionLevel[]
   onOpenTerminal?: () => void
-  /** Where this ask stands among the pending ones, from 1. */
-  position?: number
   /** What a permission would let run, from the ask's own copy of the call. */
   request?: AskRequest
   /** The gated call's family, which names what the permission is for. */
   family?: ToolFamily
+  /** False while another card of the carousel is the one on screen: it stays mounted, with its
+   *  picks, but answers no key. */
+  active?: boolean
+  /** Where this card is among the requests waiting; absent when it is the only one. */
+  position?: StepPosition
 }) {
-  const detail = choiceDetail(choice, toolTarget)
-  const [stored, setStored] = useState<CardState>(() => freshCard(choice.id))
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   // The card replaces the composer the person sent from; with that focus gone to the page, the
   // card takes it so its number keys answer. Focus held anywhere else is left alone.
   useEffect(() => {
-    if (!document.activeElement || document.activeElement === document.body)
+    if (active && (!document.activeElement || document.activeElement === document.body))
       cardRef.current?.focus({ preventScroll: true })
-  }, [choice.id])
+  }, [choice.id, active])
   const expanded = expandedId === choice.id
   const view = request && choice.kind === 'tool_permission' ? requestView(request) : null
   const hiddenCue = view && !expanded ? foldedCue(foldCode(view.code)) : ''
-  // Read through the stamp rather than resetting in an effect: an effect runs AFTER the paint, so
-  // there would be one frame in which the previous prompt's picks were on screen and pressable.
-  const card = stored.choiceId === choice.id ? stored : freshCard(choice.id)
-  const update = (patch: Partial<CardState>) =>
-    setStored((current) => ({
-      ...(current.choiceId === choice.id ? current : freshCard(choice.id)),
-      ...patch,
-      choiceId: choice.id,
-    }))
+  const {
+    card,
+    update,
+    answerable,
+    questions,
+    fields,
+    values,
+    formError,
+    controls,
+    canAnswerHere,
+    terminalOnly,
+    needsTerminal,
+    busy,
+    flat,
+    send,
+    onKeyDown,
+    step,
+    lastStep,
+    question,
+    picks,
+    answered,
+    allPicks,
+  } = useChoiceCard({ wsId, chatId, choice, active })
+  const detail = choiceDetail(choice, toolTarget)
+  const elicitation = choice.kind === 'elicitation'
+  const title = choice.kind === 'question' ? 'Question' : describeChoice(choice, family)
+  // One prompt's several questions step like requests do, unless requests already do.
+  const ownPosition: StepPosition | undefined =
+    questions.length > 1 && !position
+      ? {
+          index: step,
+          total: questions.length,
+          noun: 'question',
+          onPrev: () => update({ step: step - 1 }),
+          onNext: () => update({ step: step + 1 }),
+        }
+      : undefined
+  const stepping = position ?? ownPosition
+  const ahead = stepping ? Math.min(2, stepping.total - 1 - stepping.index) : 0
+  const skip = ownPosition
+    ? step < questions.length - 1
+      ? ownPosition.onNext
+      : undefined
+    : position && position.index < position.total - 1
+      ? position.onNext
+      : undefined
+  const subtitle = view
+    ? ''
+    : questions.length > 1 && position
+      ? `${step + 1} of ${questions.length} questions`
+      : elicitation
+        ? ''
+        : detail
 
-  const answerable = choice.answerable && !card.gateClosed
-  const questions = choiceQuestions(choice)
-  const isForm = choice.options.length === 0 && choice.kind === 'elicitation'
-  // The flat row is what is left once questions are their own groups: a
-  // permission's allow, deny and broader grants, or an elicitation's verbs.
-  const controls: AgentChoiceOption[] = isForm
-    ? ELICITATION_VERBS.map((verb) => ({ id: verb.id, kind: verb.id, label: verb.label }))
-    : choice.options
-  // Answerable is necessary and not sufficient: a relay can be holding the gate
-  // for a prompt whose only options are ones Crowbar declines to send, and an
-  // empty row of buttons would be a control surface that answers nothing.
-  const canAnswerHere = answerable && (questions.length > 0 || controls.length > 0)
-  // Unanswerable for any reason, or answerable but just 400'd on the shape sent —
-  // either way the normal controls would only repeat the same dead end, so the
-  // bar shows nothing but the one thing that still works.
-  const terminalOnly = !canAnswerHere || card.unsupportedHere
-  // Answerable, but with something the terminal covers and this card cannot: a
-  // form Crowbar can't compose.
-  const needsTerminal = isForm
-  const busy = card.sending || card.sent
-  const flat = canAnswerHere && !card.unsupportedHere && questions.length === 0
-
-  const send = async (optionIds: string[]) => {
-    update({ error: '', sending: true })
-    try {
-      const reason = optionIds.includes('deny') ? card.reason.trim() : ''
-      await answerChoice(wsId, chatId, choice.id, reason ? { optionIds, reason } : { optionIds })
-      // Deliberately NOT removed here. The card lives until the server says the
-      // prompt stopped pending, so an answer that raced a terminal keystroke
-      // resolves to whatever actually reached the CLI.
-      update({ sent: true, sending: false })
-    } catch (failure) {
-      update({
-        sending: false,
-        // A 409 or 400 shows as a Terminal button (gateClosed/unsupportedHere), never as this text.
-        error: actionErrorMessage(failure, String(failure)),
-        gateClosed: failure instanceof ApiError && failure.status === 409,
-        unsupportedHere: failure instanceof ApiError && failure.status === 400,
-      })
-    }
-  }
-
-  // A digit picks that option; Enter allows once, only from the card itself so
-  // an Enter meant for the composer never grants a permission.
-  const pickByKey = (event: globalThis.KeyboardEvent, enter: boolean) => {
-    if (event.repeat || event.isComposing || !flat || busy) return
-    if (event.metaKey || event.ctrlKey || event.altKey || (!enter && event.key === 'Enter')) return
-    const picked = keyedOption(controls, event.key)
-    if (!picked) return
-    event.preventDefault()
-    void send([picked.id])
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // Only from the card itself: a key on a control inside it is that control's.
-    if (event.target === event.currentTarget) pickByKey(event.nativeEvent, true)
-  }
-  // The composer gives way to the card and focus falls to the page: a digit typed
-  // then is for the card. Not an Enter, which may be the end of a message.
-  const onPageKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
-    if (event.target === document.body && document.activeElement === document.body)
-      pickByKey(event, false)
-  })
-  useEffect(() => {
-    window.addEventListener('keydown', onPageKey)
-    return () => window.removeEventListener('keydown', onPageKey)
-  }, [])
-
-  // WHAT IS ASKED goes above the bar; the bar is the QUESTION and its controls.
-  // Options are a list to read down, and folding them into a 38px row turns them
-  // into a column squeezed against the sentence that introduces them.
   return (
     <div
       ref={cardRef}
-      className="asks"
+      className="request"
       role="group"
       aria-label={`${providerLabel} is waiting for your answer`}
+      hidden={!active}
       data-testid="agent-choice-prompt"
       data-choice-id={choice.id}
       data-choice-kind={choice.kind}
@@ -213,127 +135,174 @@ export function ComposerChoice({
       tabIndex={0}
       onKeyDown={onKeyDown}
     >
-      {/* ── above the bar: everything there is to read ── */}
-      {choice.schema && <ChoiceSchema schema={choice.schema} />}
-      {view && (
-        <ChoiceRequest view={view} expanded={expanded} onExpand={() => setExpandedId(choice.id)} />
-      )}
-      {flat && controls.some((option) => option.kind === 'deny' && option.reason) && (
-        <Input
-          size="sm"
-          aria-label="Reason, sent with Deny"
-          placeholder={`Or tell ${providerLabel} what to do instead, then Deny`}
-          value={card.reason}
-          disabled={busy}
-          onChange={(event) => update({ reason: event.target.value })}
-        />
-      )}
-      {canAnswerHere && questions.length > 0 && (
-        <ChoiceQuestions
-          questions={questions}
-          picked={card.byQuestion}
-          busy={busy}
-          onPick={(questionId, optionIds) =>
-            update({ byQuestion: { ...card.byQuestion, [questionId]: optionIds } })
-          }
-        />
-      )}
-      {!canAnswerHere && <ChoiceReadOnly options={choice.options} questions={questions} />}
+      <ChoicePeeks ahead={ahead} />
+      <div className="rq-box">
+        <div className="rq-head">
+          <div className="rq-titles">
+            {/* `alert`, like the interruption banner: it appears unasked and will not move until
+              they act. */}
+            <span className={elicitation ? 'rq-msg' : 'rq-title'} role="alert">
+              {elicitation ? describeChoice(choice, family) : title}
+            </span>
+            {view && <ChoiceRequestHead view={view} />}
+            {subtitle && (
+              <span className="rq-sub" data-testid="agent-choice-detail">
+                {subtitle}
+              </span>
+            )}
+          </div>
+          {stepping && <ChoiceStepper {...stepping} />}
+        </div>
 
-      {/* ── the bar itself ── */}
-      <div className="pill asking">
-        <span className="q">
-          {/* Not "working…": waiting on a person is its own state. `alert`, like the
-              interruption banner: it appears unasked and will not move until they act. */}
-          <span role="alert">{describeChoice(choice, family)}</span>
-          {detail && (
-            <span className="sub" data-testid="agent-choice-detail">
-              {detail}
-            </span>
+        <div className="rq-body">
+          {view && (
+            <ChoiceRequest
+              view={view}
+              expanded={expanded}
+              onExpand={() => setExpandedId(choice.id)}
+            />
           )}
-          {card.sent && (
-            <span className="sub" data-testid="agent-choice-sent">
-              Answer sent. Waiting for {providerLabel} to confirm it.
-            </span>
+          {canAnswerHere && question && (
+            <ChoiceQuestion
+              key={question.id}
+              question={question}
+              picked={picks}
+              busy={busy}
+              onPick={(optionIds) =>
+                update({ byQuestion: { ...card.byQuestion, [question.id]: optionIds } })
+              }
+            />
           )}
-          {hiddenCue && (
-            <span className="sub choice-hidden-lines" data-testid="agent-choice-hidden-lines">
-              {hiddenCue}
-            </span>
+          {canAnswerHere && fields && !card.unsupportedHere && (
+            <ChoiceForm
+              fields={fields}
+              values={values}
+              shown={new Set(card.shown)}
+              busy={busy}
+              onChange={(key, value) => update({ values: { ...values, [key]: value } })}
+              onLeave={(key) => update({ shown: [...new Set([...card.shown, key])] })}
+            />
           )}
-          {pending > 1 && (
-            <span className="sub" data-testid="agent-choice-position">
-              {position}/{pending}
-            </span>
+          {needsTerminal && canAnswerHere && !card.unsupportedHere && (
+            <p className="rq-note">This form can only be filled in the terminal.</p>
           )}
-        </span>
+          {!canAnswerHere && <ChoiceReadOnly options={choice.options} questions={questions} />}
+        </div>
+
+        {hiddenCue && (
+          <span className="rq-hint warn" data-testid="agent-choice-hidden-lines">
+            {hiddenCue}
+          </span>
+        )}
+        {card.sent && (
+          <span className="rq-hint" data-testid="agent-choice-sent">
+            Answer sent. Waiting for {providerLabel} to confirm it.
+          </span>
+        )}
+        {card.error && !terminalOnly && (
+          <p className="rq-error" role="alert" data-testid="agent-choice-error">
+            {card.error}
+          </p>
+        )}
+
         {(onOpenTerminal || !terminalOnly) && (
-          <span className="acts">
+          <div className="rq-acts">
             {terminalOnly ? (
               onOpenTerminal && <TerminalLink onOpenTerminal={onOpenTerminal} />
-            ) : (
+            ) : question ? (
               <>
-                {needsTerminal && onOpenTerminal && (
-                  <TerminalLink onOpenTerminal={onOpenTerminal} />
-                )}
-                {questions.length > 0 ? (
+                {!ownPosition && step > 0 ? (
                   <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={
-                      busy ||
-                      !questions.every(
-                        (question) => (card.byQuestion[question.id] ?? []).length > 0,
-                      )
-                    }
-                    onClick={() => void send(flatPicks(questions, card.byQuestion))}
+                    variant="outline"
+                    className="bg-background"
+                    disabled={busy}
+                    onClick={() => update({ step: step - 1 })}
                   >
+                    Back
+                  </Button>
+                ) : (
+                  skip && (
+                    <Button
+                      variant="outline"
+                      className="bg-background"
+                      disabled={busy}
+                      onClick={skip}
+                    >
+                      Skip
+                    </Button>
+                  )
+                )}
+                <span className="rq-grow" />
+                {lastStep ? (
+                  <Button disabled={busy || !answered} onClick={() => void send(allPicks)}>
                     {questions.length > 1 ? 'Send answers' : 'Send answer'}
                   </Button>
                 ) : (
-                  <ChoiceButtons
-                    options={controls}
-                    keyed={flat}
-                    busy={busy}
-                    onPick={(option) => void send([option.id])}
-                  />
+                  <Button
+                    disabled={busy || picks.length === 0}
+                    onClick={() => update({ step: step + 1 })}
+                  >
+                    Next
+                    <kbd className="choice-key" aria-hidden="true">
+                      ↵
+                    </kbd>
+                  </Button>
                 )}
-                <PermissionLevelSwitcher
-                  wsId={wsId}
-                  chatId={chatId}
-                  availableLevels={permissionLevels}
-                />
+              </>
+            ) : (
+              <>
+                {fields ? (
+                  <>
+                    <Button
+                      data-role="refuse"
+                      variant="outline"
+                      className="bg-background"
+                      disabled={busy}
+                      onClick={() => void send(['decline'])}
+                    >
+                      Decline
+                      <kbd className="choice-key" aria-hidden="true">
+                        esc
+                      </kbd>
+                    </Button>
+                    <span className="rq-grow" />
+                    {formError && <span className="rq-field-error">{formError}</span>}
+                    <Button
+                      disabled={busy || formError !== ''}
+                      onClick={() => void send(['accept'], formContent(fields, values))}
+                    >
+                      Submit
+                      <kbd className="choice-key" aria-hidden="true">
+                        ↵
+                      </kbd>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <ChoiceButtons
+                      options={controls}
+                      keyed={flat}
+                      busy={busy}
+                      onPick={(option) => void send([option.id])}
+                    />
+                    {needsTerminal && onOpenTerminal && (
+                      <TerminalLink onOpenTerminal={onOpenTerminal} />
+                    )}
+                  </>
+                )}
               </>
             )}
-          </span>
+          </div>
         )}
       </div>
-
-      {card.error && !terminalOnly && (
-        <p className="text-destructive text-xs" role="alert" data-testid="agent-choice-error">
-          {card.error}
-        </p>
-      )}
     </div>
   )
 }
 
-/** The option a key names: a digit its place, Enter allowing once. */
-function keyedOption(controls: AgentChoiceOption[], key: string) {
-  if (key === 'Enter') return controls.find((option) => option.kind === 'allow')
-  return /^[1-9]$/.test(key) ? controls[Number(key) - 1] : undefined
-}
-
 function TerminalLink({ onOpenTerminal }: { onOpenTerminal: () => void }) {
   return (
-    <Button size="sm" variant="outline" onClick={onOpenTerminal}>
-      <TerminalIcon /> Terminal
+    <Button variant="outline" className="bg-background" onClick={onOpenTerminal}>
+      Terminal
     </Button>
   )
-}
-
-/** Every question's picks as the one list the answer endpoint takes. Read off the questions,
- *  not the pick map, so a pick for a question gone from the prompt is never sent. */
-function flatPicks(questions: AgentChoiceQuestion[], picked: Record<string, string[]>): string[] {
-  return questions.flatMap((question) => picked[question.id] ?? [])
 }

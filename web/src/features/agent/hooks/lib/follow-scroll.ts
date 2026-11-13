@@ -1,6 +1,5 @@
 export interface FollowScroll {
-  /** Arms or re-targets the loop. Safe every frame: mid-flight it changes what the next tick
-   *  converges toward instead of restarting the approach. */
+  /** Arms or re-targets the loop; safe every frame, mid-flight it only moves the goal. */
   setTarget(target: number): void
   /** Permanently stops the loop, for unmount. A gesture interrupting mid-flight only pauses it
    *  (see `step`). */
@@ -13,13 +12,10 @@ export interface FollowScroll {
 const TAU_MS = 100
 const SETTLE_PX = 0.5
 
-// The longest gap one frame smooths over. A late frame would otherwise close most of the distance
-// at once and the transcript would teleport; capped, a janky stretch reads as catching up.
-// Never binds at a steady 60fps.
+// The longest gap one frame smooths over: a late frame would otherwise teleport the transcript.
 const MAX_FRAME_MS = 32
 
-// A write that moved less than this hit the element's scrollable edge (the content shrank under
-// the target), so the loop stops instead of rewriting the same pixel forever.
+// A write that moved less than this hit the scrollable edge: stop rather than rewrite one pixel forever.
 const MIN_STEP_PX = 0.05
 
 // Eases scrollTop toward a target that moves as the transcript grows. Not a restarted tween, whose
@@ -46,30 +42,19 @@ export function createFollowScroll(
     lastTime = now
     const from = el.scrollTop
     const distance = target - from
-    if (Math.abs(distance) <= SETTLE_PX) {
-      el.scrollTop = target
-      // Read back here too: even the final write is clamped if the target is
-      // past the container's edge.
-      lastWritten = el.scrollTop
-      onTick?.(lastWritten)
-      return
-    }
-    const closed = 1 - Math.exp(-dt / TAU_MS)
-    el.scrollTop = from + distance * closed
-    // Read back what the container took: it clamps when content shrinks. `onTick` hands this to
-    // use-transcript-anchor, which compares the next scroll event against it to tell our writes
-    // from a gesture, so a position never taken would read as the reader grabbing the scrollbar.
+    let landed = Math.abs(distance) <= SETTLE_PX
+    el.scrollTop = landed ? target : from + distance * (1 - Math.exp(-dt / TAU_MS))
+    // Read back what the container took: it clamps when content shrinks, and `onTick` hands this
+    // to use-transcript-anchor to tell our writes from a gesture.
     lastWritten = el.scrollTop
-    if (Math.abs(lastWritten - from) < MIN_STEP_PX) {
-      // An engine that keeps whole pixels drops a sub-pixel step, so the last
-      // few pixels are written at once; at the edge this write is a no-op.
+    if (!landed && Math.abs(lastWritten - from) < MIN_STEP_PX) {
+      // An engine that keeps whole pixels drops a sub-pixel step: write the last pixels at once.
       el.scrollTop = target
       lastWritten = el.scrollTop
-      onTick?.(lastWritten)
-      return
+      landed = true
     }
     onTick?.(lastWritten)
-    raf = requestAnimationFrame(step)
+    if (!landed) raf = requestAnimationFrame(step)
   }
 
   return {

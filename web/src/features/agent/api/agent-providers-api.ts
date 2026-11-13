@@ -26,6 +26,9 @@ export interface AgentProvider {
   /** Without a declared `compact_start` there is no compact control, and
    *  `POST /compact` answers 404. */
   compaction: boolean
+  /** The descriptor declares how to ask the agent to end a background shell; without it
+   *  a shell row has no stop control and `POST /shells/:id/stop` answers 404. */
+  shellStop?: boolean
   /** Structural, not a capability the descriptor opts into. */
   hasTerminal: boolean
   /** Chat and terminal faces can be live at once; when false the user finishes
@@ -41,6 +44,8 @@ export interface AgentProvider {
   signIn?: string
   /** Never re-sorted: descriptor order is the provider's own ranking. */
   models?: string[]
+  /** The provider's own stated default; absent when it states none, never inferred from `models`. */
+  defaultModel?: string
   /** Resolved server-side, fallbacks included: read `efforts[model]` with '' for
    *  no selection. A model with no levels is absent, meaning no effort picker. */
   efforts?: Record<string, string[]>
@@ -139,10 +144,15 @@ export type PermissionLevel = 'guarded' | 'trusted' | 'full-auto'
 export const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{
   value: PermissionLevel
   label: string
+  description: string
 }> = [
-  { value: 'guarded', label: 'Guarded' },
-  { value: 'trusted', label: 'Trusted' },
-  { value: 'full-auto', label: 'Full Auto' },
+  { value: 'guarded', label: 'Guarded', description: 'Asks before edits, commands and tools.' },
+  { value: 'trusted', label: 'Trusted', description: 'Edits files freely. Asks before commands.' },
+  {
+    value: 'full-auto',
+    label: 'Full Auto',
+    description: 'Never asks. Runs every command and tool.',
+  },
 ]
 
 interface DescriptorFinding {

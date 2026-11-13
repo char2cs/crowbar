@@ -7,15 +7,21 @@ import {
   useRef,
 } from 'react'
 import type { ReactNode, Ref, RefObject } from 'react'
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { ComposerActionButton } from '@/features/agent/composer/composer-action-button'
 import { IS_MOBILE } from '@/utils/platform'
-import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
-import { cn } from '@/lib/utils'
 
-// An empty doc has no line to measure, so the handle sits at `.doc`'s 48px padding plus one
-// 14px x 1.7 line, plus `--agent-header-clearance`, which the caret is padded down by too.
+// What a good first instruction covers, shown as ghost text until the first character is typed.
+const GHOST_PROMPTS = [
+  ['GOAL', 'What is different when this is finished.'],
+  ['WHERE', 'Files, screens or branches involved. Type @ to point at one.'],
+  ['KEEP', 'What must not change, and how you will check the result.'],
+] as const
+
+// An empty doc has no line to measure, so the handle sits at `.doc`'s top padding plus one line
+// (the serif placeholder: 40px on desktop, 38px on the phone), plus `--agent-header-clearance`,
+// which the caret is padded down by too.
 function firstLineTop(headerClearancePx: number): number {
-  return 48 + headerClearancePx + 23.8
+  return IS_MOBILE ? 30 + headerClearancePx + 38 : 48 + headerClearancePx + 40
 }
 /** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4
@@ -111,15 +117,18 @@ export function AgentEmptyDocument({
     return () => document.removeEventListener('selectionchange', onSelectionChange)
   }, [])
 
-  const empty = !hasText
-  // Stopping wins even with text in the document: a turn already running must
-  // keep its only way to be interrupted while the person writes.
-  const stopping = (working || sending) && canStop
-  const sendingVisual = !stopping && empty && sending
-  const idle = !stopping && !sendingVisual && empty
-
   return (
     <div ref={handleRef} className="dochandle" data-touch={IS_MOBILE || undefined}>
+      {!hasText && (
+        <dl className="ghosts">
+          {GHOST_PROMPTS.map(([label, hint]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{hint}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       <div className="inner">
         {banner ? (
           <div className="banner">{banner}</div>
@@ -128,24 +137,14 @@ export function AgentEmptyDocument({
             <span className="side">{controls}</span>
             <span className="side">
               {attach}
-              <button
-                type="button"
-                className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
-                disabled={idle || sendingVisual}
-                aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
-                title={
-                  stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'
-                }
-                onClick={stopping ? onStop : onSubmit}
-              >
-                {stopping ? (
-                  <StopIcon size={16} />
-                ) : sendingVisual ? (
-                  <FlickerSpinner className="size-4" />
-                ) : (
-                  <UpIcon size={16} />
-                )}
-              </button>
+              <ComposerActionButton
+                hasText={hasText}
+                working={working}
+                canStop={canStop}
+                sending={sending}
+                onSend={onSubmit}
+                onStop={onStop}
+              />
             </span>
           </div>
         )}

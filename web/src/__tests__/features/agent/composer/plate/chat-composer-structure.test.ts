@@ -3,7 +3,10 @@ import { NodeApi, type Value } from 'platejs'
 import { createPlateEditor } from 'platejs/react'
 import type { PlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
-import { chatComposerStructurePlugin } from '@/features/agent/composer/plate/chat-composer-structure'
+import {
+  chatComposerStructurePlugin,
+  createDocumentTitlePlugin,
+} from '@/features/agent/composer/plate/chat-composer-structure'
 import {
   chatMarkdownToValue,
   chatValueToMarkdown,
@@ -274,5 +277,81 @@ describe('Tab in the composer', () => {
     const editor = composer('- one\n- two')
     expect(editor.tf.tab({ reverse: false })).toBe(true)
     expect(chatValueToMarkdown(editor.children as Value)).toMatch(/- one\n\s+- two/)
+  })
+
+  describe('a box with nothing in it', () => {
+    it('is one empty line however the blank lines got there', () => {
+      const editor = composer()
+      editor.tf.insertBreak()
+      editor.tf.insertBreak()
+      expect(editor.children).toHaveLength(1)
+      expect(NodeApi.string(editor.children[0]!)).toBe('')
+    })
+
+    it('holds no text at all when only soft breaks or spaces were typed', () => {
+      const editor = composer()
+      editor.tf.insertText('\n\n \n')
+      expect(editor.children).toHaveLength(1)
+      expect(NodeApi.string(editor.children[0]!)).toBe('')
+    })
+
+    it('keeps blank lines that sit between text', () => {
+      const editor = composer('a')
+      editor.tf.insertBreak()
+      editor.tf.insertBreak()
+      expect(editor.children.length).toBeGreaterThan(1)
+    })
+  })
+})
+
+describe('the blank chat document title', () => {
+  function document(markdown = '', isDocument = true): PlateEditor {
+    return createPlateEditor({
+      plugins: [
+        ...chatComposerPlugins,
+        chatComposerStructurePlugin,
+        createDocumentTitlePlugin(() => isDocument),
+      ],
+      value: chatMarkdownToValue(markdown),
+      autoSelect: 'end',
+    })
+  }
+
+  it('makes the first typed line a title and keeps it one while typing on', () => {
+    const editor = document()
+    editor.tf.insertText('F')
+    expect(types(editor)[0]).toBe('h1')
+    editor.tf.insertText('ix it')
+    expect(types(editor)[0]).toBe('h1')
+    expect(chatValueToMarkdown(editor.children as Value)).toBe('# Fix it')
+  })
+
+  it('starts body text after a break in the title', () => {
+    const editor = document()
+    editor.tf.insertText('Fix it')
+    editor.tf.insertBreak()
+    editor.tf.insertText('details')
+    expect(types(editor)).toEqual(['h1', 'p'])
+    expect(chatValueToMarkdown(editor.children as Value)).toBe('# Fix it\n\ndetails')
+  })
+
+  it('is one empty line again when the title is deleted', () => {
+    const editor = document()
+    editor.tf.insertText('a')
+    editor.tf.deleteBackward('character')
+    expect(types(editor)).toEqual(['p'])
+    expect(NodeApi.string(editor.children[0]!)).toBe('')
+  })
+
+  it('leaves a leading slash command as a plain line', () => {
+    const editor = document()
+    editor.tf.insertText('/compact')
+    expect(types(editor)[0]).toBe('p')
+  })
+
+  it('does nothing outside the document', () => {
+    const editor = document('', false)
+    editor.tf.insertText('hello')
+    expect(types(editor)[0]).toBe('p')
   })
 })

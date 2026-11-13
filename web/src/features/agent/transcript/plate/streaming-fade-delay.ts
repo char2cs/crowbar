@@ -5,7 +5,7 @@ import {
   CHAT_FRESH_MARK,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
 
-// How long `chat-token-fade` itself runs — keep in step with transcript.css.
+// How long `chat-token-fade` itself runs — keep in step with transcript-stream.css.
 const FADE_DURATION_MS = 260
 
 // One frame, the resolution `resumedFadeDelay` measures a run's age in.

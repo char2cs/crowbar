@@ -1,6 +1,7 @@
 package descriptor_test
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -140,4 +141,104 @@ func TestClaudeDescriptor_ATaskUpdateIsAPlanStep(t *testing.T) {
 		t.Fatalf("step %v, err %v", renamed.Step, err)
 	}
 	expectEq(t, "a rename says no status", *renamed.Step, models.PlanStepEvent{StepID: "1", Text: "renamed"})
+}
+
+// UNVERIFIED shapes: no claude login was available to record a background call, so these
+// follow the documented tool_response fields (backgroundTaskId, taskId, task_id).
+const backgroundBash = `{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash",
+	"tool_input":{"command":"npm run dev","description":"Dev server","run_in_background":true},
+	"tool_response":{"stdout":"","stderr":"","interrupted":false,"backgroundTaskId":"bg1a2b3c4"},
+	"tool_use_id":"toolu_bg"}`
+
+func TestClaudeDescriptor_ABackgroundedCommandNamesTheShellItStarted(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+
+	bash := parseRaw(t, d, "tool_post", []byte(backgroundBash), spec.ChannelHooks)
+	expectEq(t, "bash shell", bash.SpawnsShell, "bg1a2b3c4")
+	expectEq(t, "bash kind", bash.Kind, "execute")
+	expectEq(t, "bash command", bash.Target, "npm run dev")
+
+	monitor := parseRaw(t, d, "tool_post", []byte(`{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Monitor",
+		"tool_input":{"command":"tail -f app.log","description":"Watch the log","timeout_ms":300000},
+		"tool_response":{"taskId":"mon9z8y7","timeoutMs":300000},"tool_use_id":"toolu_mon"}`), spec.ChannelHooks)
+	expectEq(t, "monitor shell", monitor.SpawnsShell, "mon9z8y7")
+	expectEq(t, "monitor kind", monitor.Kind, "execute")
+	expectEq(t, "monitor is a monitor", monitor.ShellKind, "monitor")
+	expectEq(t, "monitor timeout", monitor.ShellTimeoutMS, 300000)
+	expectEq(t, "bash is a shell", bash.ShellKind, "shell")
+
+	persistent := parseRaw(t, d, "tool_post", []byte(`{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Monitor",
+		"cwd":"/work","tool_input":{"command":"tail -f app.log","persistent":true},
+		"tool_response":{"taskId":"mon1"},"tool_use_id":"toolu_mon2"}`), spec.ChannelHooks)
+	expectEq(t, "persistent", persistent.ShellPersistent, true)
+	expectEq(t, "cwd", persistent.Cwd, "/work")
+
+	plain := parseRecorded(t, d, "tool_post", "PostToolUse.Bash.json", spec.ChannelHooks)
+	expectEq(t, "a foreground command starts none", plain.SpawnsShell, "")
+}
+
+func TestClaudeDescriptor_AStopCallNamesTheShellItStopped(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+
+	stop := parseRaw(t, d, "tool_post", []byte(`{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"TaskStop",
+		"tool_input":{"task_id":"bg1a2b3c4"},"tool_response":{"message":"Stopped","task_id":"bg1a2b3c4","task_type":"shell"},
+		"tool_use_id":"toolu_stop"}`), spec.ChannelHooks)
+	expectEq(t, "stopped", stop.StopsShell, "bg1a2b3c4")
+	expectEq(t, "spawns", stop.SpawnsShell, "")
+}
+
+func TestClaudeDescriptor_ATaskNotificationNamesTheShellItEnds(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	for status, want := range map[string]string{"completed": "finished", "failed": "failed", "stopped": "stopped"} {
+		prompt := "<task-notification>\n<task-id>bg1a2b3c4</task-id>\n<tool-use-id>toolu_bg</tool-use-id>\n" +
+			"<output-file>/tmp/out</output-file>\n<status>" + status + "</status>\n<summary>Background command finished</summary>\n</task-notification>"
+		raw, err := json.Marshal(map[string]any{"session_id": "s", "hook_event_name": "UserPromptSubmit", "prompt": prompt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ev, err := inbound.Parse(d, spec.HookUserPrompt, raw, spec.ChannelHooks)
+		if err != nil || ev.Shell == nil {
+			t.Fatalf("shell %v, err %v", ev.Shell, err)
+		}
+		expectEq(t, "kind", ev.Kind, spec.HookUserPrompt)
+		expectEq(t, "shell", *ev.Shell, models.ShellEvent{ID: "bg1a2b3c4", Status: want, Summary: "Background command finished"})
+	}
+
+	event := "<task-notification>\n<task-id>mon9z8y7</task-id>\n<summary>Monitor event</summary>\n<event>ERROR: db down\nretrying</event>\n</task-notification>"
+	raw, err := json.Marshal(map[string]any{"session_id": "s", "hook_event_name": "UserPromptSubmit", "prompt": event})
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := inbound.Parse(d, spec.HookUserPrompt, raw, spec.ChannelHooks)
+	if err != nil || line.Shell == nil {
+		t.Fatalf("shell %v, err %v", line.Shell, err)
+	}
+	expectEq(t, "a monitor's line ends nothing", *line.Shell, models.ShellEvent{
+		ID: "mon9z8y7", Summary: "Monitor event", Note: "ERROR: db down\nretrying",
+	})
+
+	typed, err := inbound.Parse(d, spec.HookUserPrompt, []byte(`{"session_id":"s","prompt":"hello"}`), spec.ChannelHooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectEq(t, "a typed prompt ends none", typed.Shell == nil, true)
+}
+
+// A failed turn is classified by the descriptor, so nothing downstream reads the provider's words.
+func TestClaudeDescriptor_ATurnFailureCarriesItsNeutralKind(t *testing.T) {
+	d := loadDescriptor(t, "claude")
+	for stopped, want := range map[string]string{
+		"authentication_failed": spec.FailureAuth,
+		"rate_limit":            spec.FailureLimit,
+		"server_error":          spec.FailureOverloaded,
+		"invalid_request":       "",
+	} {
+		raw := []byte(`{"session_id":"s","hook_event_name":"StopFailure","error":"` + stopped + `"}`)
+		ev, err := inbound.Parse(d, spec.HookTurnFailed, raw, spec.ChannelHooks)
+		if err != nil || ev.Failure == nil {
+			t.Fatalf("%s: failure %v, err %v", stopped, ev.Failure, err)
+		}
+		expectEq(t, stopped+" kind", ev.Failure.Kind, want)
+		expectEq(t, stopped+" reason", ev.Failure.Reason, stopped)
+	}
 }

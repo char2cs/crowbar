@@ -5,7 +5,7 @@ import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
 import { useChatHeaderSlotElement } from '@/features/agent/hooks/chat-header-slot'
-import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
+import { ViewSwitch } from '@/features/agent/controls/view-switch'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { LazyXtermTerminal } from '@/features/terminal/components/lazy-terminal'
 import type { TerminalFocusHandle } from '@/features/terminal/components/terminal'
@@ -14,12 +14,12 @@ import { cn } from '@/lib/utils'
 import { IS_MOBILE } from '@/utils/platform'
 
 /** `pending` is not idle: offering Resume there would spawn a second CLI. A null
- *  sessionId is a live runner with no terminal (codex), not dormancy. */
+ *  sessionId is a live runner with no terminal (a provider with no terminal), not dormancy. */
 export type TerminalAttachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string | null }
   | { state: 'reviving'; message: string }
-  | { state: 'idle'; message: string }
+  | { state: 'idle' }
 
 export interface AgentTerminalSurfaceProps {
   wsId: string
@@ -93,7 +93,7 @@ export function AgentTerminalSurface({
   const controls = (
     <>
       {presentation === 'terminal' && provider?.hasTerminal !== false && (
-        <ViewSwitcher
+        <ViewSwitch
           presentation={presentation}
           splitEnabled={splitEnabled && provider?.hotswap === true}
           handoverBlocked={!provider?.hotswap && working}
@@ -155,7 +155,7 @@ export function AgentTerminalSurface({
         )}
 
       {presentation !== 'chat' && attachment.state === 'attached' && !attachment.sessionId && (
-        // A live runner with nothing attached (codex): no Resume, nothing to restart.
+        // A live runner with nothing attached (a provider with no terminal): no Resume, nothing to restart.
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
           <p className="max-w-sm text-center text-muted-foreground text-sm">
             This agent has no terminal view attached right now.
@@ -172,9 +172,11 @@ export function AgentTerminalSurface({
 
       {presentation !== 'chat' && attachment.state === 'idle' && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-          <p className="max-w-sm text-center text-muted-foreground text-sm">
-            {offline ? 'Offline — a session can start once the host is back.' : attachment.message}
-          </p>
+          {offline && (
+            <p className="max-w-sm text-center text-muted-foreground text-sm">
+              Offline — a session can start once the host is back.
+            </p>
+          )}
           <Button
             type="button"
             variant="secondary"

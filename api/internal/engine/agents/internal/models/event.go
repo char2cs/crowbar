@@ -40,6 +40,9 @@ type CanonicalEvent struct {
 	// Step is one step of the plan, changed alone (plan_step).
 	Step *PlanStepEvent
 
+	// Shell is the background command a harness-injected prompt reports ended.
+	Shell *ShellEvent
+
 	Raw map[string]any
 }
 
@@ -68,6 +71,10 @@ type MessageComplete struct {
 
 type TurnFailure struct {
 	Reason string
+
+	// Kind is the trouble in Crowbar's words (auth, limit, overloaded), by the
+	// event's status_map; empty when the descriptor names none.
+	Kind string
 
 	Detail string
 }
@@ -120,6 +127,19 @@ type ToolEvent struct {
 	// waits on or closes; a subagent's events are recorded in its scope.
 	SpawnsScope    string
 	AddressesScope string
+
+	// SpawnsShell names the background command this call left running, StopsShell
+	// one it stopped.
+	SpawnsShell string
+	StopsShell  string
+	// ShellKind is Crowbar's word (shell, monitor) for what SpawnsShell started;
+	// ShellPersistent and ShellTimeoutMS say how long a monitor was set to run.
+	ShellKind       string
+	ShellPersistent bool
+	ShellTimeoutMS  int
+	// ShellRef is the provider's handle on the call's process, which the call
+	// names before it is known to have outlived the call.
+	ShellRef string
 }
 
 type ToolLocation struct {
@@ -137,6 +157,14 @@ type SubagentEvent struct {
 // SubagentUsage is what a subagent spent; nil fields were not reported.
 type SubagentUsage struct {
 	Tokens, ToolUses, DurationMs int64
+}
+
+// ShellEvent is what a harness-injected prompt reports of a background command:
+// Status is Crowbar's word (finished, failed, stopped) by the injected prompt's
+// status_map, empty for a report that is not an end; Summary is the provider's
+// account of it and Note a line the command printed.
+type ShellEvent struct {
+	ID, Status, Summary, Note string
 }
 
 // PlanStepEvent is one step of a plan changed alone, in the scope that keeps it.

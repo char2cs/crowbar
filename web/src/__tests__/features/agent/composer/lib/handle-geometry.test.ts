@@ -36,21 +36,23 @@ describe('isMultiline', () => {
     expect(isMultiline(24.5)).toBe(false)
   })
 
-  it('is true once a second line lands', () => {
-    expect(isMultiline(40)).toBe(true)
+  // Two lines are still a full pill with plus beside send; the rounded rectangle starts at three.
+  it('stays a pill through two lines and wraps at the third', () => {
+    expect(isMultiline(40)).toBe(false)
+    expect(isMultiline(60)).toBe(true)
   })
 })
 
 describe('sendInset', () => {
   // THE TWO ARE ONE NUMBER: change the diameter or the padding and the button
   // stops being centred in the box it is nested in.
-  it('insets the shipped button by 4px on every side', () => {
-    expect(sendInset()).toBe(4)
+  it('insets the shipped 30px button by 5px on every side', () => {
+    expect(sendInset()).toBe(5)
   })
 
   it('follows the diameter', () => {
-    expect(sendInset(24)).toBe(6)
-    expect(sendInset(SEND_DIAMETER, 20, 10)).toBe(6)
+    expect(sendInset(24)).toBe(8)
+    expect(sendInset(SEND_DIAMETER, 20, 8)).toBe(3)
   })
 })
 
@@ -69,14 +71,14 @@ describe('handleClusterWidth', () => {
 })
 
 describe('fieldRightPadding', () => {
-  // THE TWO ARE ONE NUMBER, same as sendInset: this must equal the literal
-  // `padding-right` composer.css already ships on `.pill .field`.
-  it('matches the shipped field padding-right exactly, for two occupants', () => {
-    expect(fieldRightPadding()).toBe(62)
+  // The handle's reach from the padding edge; the field's `padding-right` is this less the
+  // pill's side padding, plus the gap before the handle.
+  it('reaches 67px in for two occupants', () => {
+    expect(fieldRightPadding()).toBe(67)
   })
 
   it('shrinks to the single-occupant reservation', () => {
-    expect(fieldRightPadding(sendInset(), 1)).toBe(32)
+    expect(fieldRightPadding(sendInset(), 1)).toBe(35)
   })
 
   it('follows HANDLE_GAP', () => {
@@ -84,11 +86,11 @@ describe('fieldRightPadding', () => {
   })
 })
 
-// The phone's capsule: desktop's 20px line, 11px padding, 32pt circles (hit-slop makes them 44).
+// The phone's capsule: 20px line, 16px padding, 34pt circles (hit-slop makes them 44).
 describe('the phone capsule', () => {
-  // composer.css's touch `.field` padding-right and `.handle` right inset.
-  it('insets its 32pt circles by 5px and reserves 71px for them', () => {
-    expect(sendInset(32, 20, 11)).toBe(5)
-    expect(fieldRightPadding(5, 2, 32)).toBe(71)
+  // composer-pill.css touch `.field` padding-right and `.handle` right inset.
+  it('insets its 34pt circles by 9px and reaches 87px in for them, 10px apart', () => {
+    expect(sendInset(34, 20, 16)).toBe(9)
+    expect(fieldRightPadding(9, 2, 34, 10)).toBe(87)
   })
 })

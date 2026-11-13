@@ -88,7 +88,7 @@ describe('lastLineTop', () => {
   })
 
   it('falls back to the first-line position on a genuinely empty document', () => {
-    expect(lastLineTop(docWithParagraphs([]))).toBeCloseTo(48 + 23.8)
+    expect(lastLineTop(docWithParagraphs([]))).toBeCloseTo(48 + 40)
   })
 
   it('falls back to the first-line position when the editor holds no text at all', () => {
@@ -99,13 +99,13 @@ describe('lastLineTop', () => {
     editable.appendChild(document.createElement('p')) // present, but empty
     doc.appendChild(editable)
 
-    expect(lastLineTop(doc)).toBeCloseTo(48 + 23.8)
+    expect(lastLineTop(doc)).toBeCloseTo(48 + 40)
   })
 
   // The overlay chat header takes no flex space, so an empty document's fallback position adds
   // the same clearance as `.doc`'s top padding (`--agent-header-clearance`).
   it('adds headerClearancePx to the fallback position on a genuinely empty document', () => {
-    expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 23.8)
+    expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 40)
   })
 
   it('ignores headerClearancePx once there is a real last line to measure', () => {
@@ -137,23 +137,23 @@ describe('AgentEmptyDocument header clearance', () => {
     const { container } = draw({ headerClearancePx: 52 })
 
     const handle = container.querySelector('.dochandle') as HTMLElement
-    // 48 (doc's own top padding) + 52 (header clearance) + 23.8 (one line at
-    // 14px/1.7) + 4 (HANDLE_LEAD), rounded — see firstLineTop/HANDLE_LEAD.
-    expect(handle.style.transform).toBe('translateY(128px)')
+    // 48 (doc's own top padding) + 52 (header clearance) + 40 (one line of the serif placeholder at
+    // 34px serif) + 4 (HANDLE_LEAD), rounded — see firstLineTop/HANDLE_LEAD.
+    expect(handle.style.transform).toBe('translateY(144px)')
   })
 
   it('matches the pre-existing placement when no overlay header is present', () => {
     const { container } = draw()
 
     const handle = container.querySelector('.dochandle') as HTMLElement
-    expect(handle.style.transform).toBe('translateY(76px)')
+    expect(handle.style.transform).toBe('translateY(92px)')
   })
 })
 
 // `selectionchange` is a document event that Monaco fires ~120/s during a drag-select; each
 // `place()` forces a layout, so the listener must ignore selections outside THIS document.
 describe('AgentEmptyDocument selectionchange gating', () => {
-  const FALLBACK_TRANSFORM = 'translateY(76px)' // 48 + 23.8 + HANDLE_LEAD, rounded
+  const FALLBACK_TRANSFORM = 'translateY(92px)' // 48 + 40 + HANDLE_LEAD, rounded
 
   /**
    * Give the rendered `.doc` a measurable last line, so a `place()` that runs
@@ -222,16 +222,21 @@ describe('AgentEmptyDocument selectionchange gating', () => {
 })
 
 describe('AgentEmptyDocument stop control', () => {
-  // This surface duplicates composer-handle.tsx's send/stop button; Stop must not depend on the
-  // document being empty, since a background handoff can start a turn before anything is typed.
-  it('stops a running turn even with text already in the document', () => {
+  // Same Stop / Queue rule as the dock composer: text typed into a running turn queues.
+  it('queues the document while a turn runs, and stops when it is empty', () => {
+    const onSubmit = vi.fn()
     const onStop = vi.fn()
-    draw({ hasText: true, working: true, canStop: true, onStop })
+    const typed = draw({ hasText: true, working: true, canStop: true, onSubmit, onStop })
 
-    const button = screen.getByRole('button', { name: 'Stop this turn' })
-    expect(button).toBeEnabled()
-    expect(button.className).toMatch(/\bhalt\b/)
-    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: 'Queue this message' }))
+    expect(onSubmit).toHaveBeenCalled()
+    expect(onStop).not.toHaveBeenCalled()
+    typed.unmount()
+
+    draw({ working: true, canStop: true, onStop })
+    const stop = screen.getByRole('button', { name: 'Stop this turn' })
+    expect(stop.className).toMatch(/\bhalt\b/)
+    fireEvent.click(stop)
     expect(onStop).toHaveBeenCalled()
   })
 
@@ -322,5 +327,24 @@ describe('AgentEmptyDocument sending state', () => {
 
     expect(screen.getByRole('button', { name: 'Stop this turn' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).toBeNull()
+  })
+})
+
+describe('AgentEmptyDocument ghost prompts', () => {
+  it('guides the first instruction with GOAL, WHERE and KEEP until text is written', () => {
+    const empty = draw()
+    for (const label of ['GOAL', 'WHERE', 'KEEP']) expect(screen.getByText(label)).toBeVisible()
+    empty.unmount()
+
+    draw({ hasText: true })
+    expect(screen.queryByText('GOAL')).toBeNull()
+  })
+
+  it('puts plus next to send in the one pill', () => {
+    draw({ attach: createElement('button', { 'aria-label': 'Add to this message' }) })
+
+    const plus = screen.getByRole('button', { name: 'Add to this message' })
+    const send = screen.getByRole('button', { name: 'Send prompt' })
+    expect(plus.nextElementSibling).toBe(send)
   })
 })

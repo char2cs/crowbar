@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LedgerRow } from '@/features/agent/api/chat-rows'
+import type { LedgerRow, ToolCallBody } from '@/features/agent/api/chat-rows'
 import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { TranscriptRow } from '@/features/agent/transcript/rows/transcript-row'
 
-import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
+import { ledger } from '@/__tests__/__fixtures__/ledger-rows'
 import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
 const actions = noRowActions
@@ -17,13 +17,14 @@ function seed(rows: LedgerRow[]) {
 
 const draw = (id: string) =>
   render(<TranscriptRow actions={actions} chatId="chat-1" id={id} providers={[]} />)
+const push = (row: LedgerRow) => act(() => void applyFeedFrame('chat-1', { type: 'row', row }))
 const status = () => document.querySelector('[data-status]')?.getAttribute('data-status')
 
 beforeEach(() => chatStore.setState({ feeds: {} }))
 afterEach(() => vi.restoreAllMocks())
 
 describe('ToolRow', () => {
-  it('reads as running with its live output, then as done', () => {
+  it('reads as running, then as done, with no output or duration on the line', () => {
     const l = ledger()
     seed([
       l.start('turn-1'),
@@ -40,14 +41,6 @@ describe('ToolRow', () => {
     act(
       () =>
         void applyFeedFrame('chat-1', {
-          type: 'delta',
-          delta: delta('tool-1', 1, 'ok  pkg/one\n**PASS**', { stream: 'tool_output' }),
-        }),
-    )
-    expect(screen.getByTestId('agent-tool-output')).toHaveTextContent('ok pkg/one PASS')
-    act(
-      () =>
-        void applyFeedFrame('chat-1', {
           type: 'row',
           row: l.row(
             'tool_call',
@@ -58,8 +51,64 @@ describe('ToolRow', () => {
     )
     expect(status()).toBe('ok')
     expect(screen.getByText('Ran')).toBeInTheDocument()
-    expect(screen.getByText('1.5s')).toBeInTheDocument()
-    expect(screen.queryByTestId('agent-tool-output')).toBeNull()
+    expect(screen.queryByText('1.5s')).toBeNull()
+    expect(screen.getByTestId('agent-tool-label').closest('[title]')).toHaveAttribute(
+      'title',
+      '1.5s',
+    )
+  })
+
+  // Each outcome reads differently at a glance; a call that went well is a quiet check.
+  it('gives running a spinner, ok a check, and each failure its own outcome', () => {
+    const l = ledger()
+    const call = (toolId: string, extra: Pick<ToolCallBody, 'phase'> & Partial<ToolCallBody>) =>
+      l.row(
+        'tool_call',
+        { toolId, name: 'Bash', kind: 'execute', target: 'ls', ...extra },
+        { turnId: 'turn-1' },
+      )
+    seed([
+      l.start('turn-1'),
+      call('run', { phase: 'pre' }),
+      call('ok', { phase: 'post' }),
+      call('bad', { phase: 'fail', error: 'boom' }),
+      call('cut', { phase: 'fail', interrupted: true }),
+      call('lost', { phase: 'pre' }),
+    ])
+    push(l.end('turn-1'))
+    const row = (id: string) => {
+      const view = render(
+        <TranscriptRow actions={actions} chatId="chat-1" id={`t:${id}`} providers={[]} />,
+      )
+      const el = view.container
+      return {
+        spinner: el.querySelector('[data-flicker-spinner]'),
+        glyph: el.querySelector('.tool-glyph'),
+        outcome: el.querySelector('[data-outcome]')?.getAttribute('data-outcome'),
+        text: el.querySelector('[data-outcome]')?.textContent,
+      }
+    }
+    expect(row('ok')).toMatchObject({ spinner: null, outcome: undefined })
+    expect(row('ok').glyph).not.toBeNull()
+    expect(row('bad')).toMatchObject({ outcome: 'failed', text: 'Failed' })
+    expect(row('cut')).toMatchObject({ outcome: 'stopped', text: 'Stopped' })
+    expect(row('lost')).toMatchObject({ outcome: 'unavailable', text: 'Result unavailable' })
+  })
+
+  it('shows a live spinner only while the call runs', () => {
+    const l = ledger()
+    seed([
+      l.start('turn-1'),
+      l.row(
+        'tool_call',
+        { toolId: 'tool-1', phase: 'pre', name: 'Bash', kind: 'execute', target: 'ls' },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    const { container } = draw('t:tool-1')
+    expect(container.querySelector('[data-flicker-spinner]')).not.toBeNull()
+    push(l.end('turn-1'))
+    expect(container.querySelector('[data-flicker-spinner]')).toBeNull()
   })
 
   it('says a path outside the workspace whole, the tooltip with its line', () => {
@@ -98,33 +147,28 @@ describe('ToolRow', () => {
   })
   const lines = (count: number) => Array.from({ length: count }, (_, i) => `+line ${i}`).join('\n')
 
-  it('opens an edit diff by default when it changes 12 lines or fewer', () => {
+  it('keeps an edit’s diff and its +/− count off the line until it is opened', () => {
     const l = ledger()
-    seed([l.row('tool_call', edit(`@@ -0,0 +1,12 @@\n${lines(12)}`), { turnId: 'turn-1' })])
-    draw('t:tool-1')
-    expect(screen.getByTestId('agent-tool-diff')).toBeInTheDocument()
-    expect(screen.getByText('+12 −0')).toBeInTheDocument()
-  })
-
-  it('keeps a larger edit diff closed until it is opened', () => {
-    const l = ledger()
-    seed([l.row('tool_call', edit(`@@ -0,0 +1,13 @@\n${lines(13)}`), { turnId: 'turn-1' })])
+    seed([l.row('tool_call', edit(`@@ -0,0 +1,2 @@\n${lines(2)}`), { turnId: 'turn-1' })])
     draw('t:tool-1')
     expect(screen.queryByTestId('agent-tool-diff')).toBeNull()
+    expect(screen.queryByText('+2 −0')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
     expect(screen.getByTestId('agent-tool-diff')).toBeInTheDocument()
   })
 
-  it('shows a finished call’s short output without opening it, colour codes stripped', () => {
+  it('keeps a finished call’s output behind its chevron, colour codes stripped', () => {
     const l = ledger()
     const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'ls' }
     const output = 'one\n\u001b[32mtwo\u001b[0m'
     seed([l.row('tool_call', { ...call, phase: 'post', output }, { turnId: 'turn-1' })])
     draw('t:tool-1')
+    expect(screen.queryByTestId('agent-tool-short-output')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
     expect(screen.getByTestId('agent-tool-short-output').textContent).toBe('one\ntwo')
   })
 
-  it('shows the first error line of a failed tool inline', () => {
+  it('keeps a failed tool’s error behind its chevron, the pill saying Failed', () => {
     const l = ledger()
     const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'cat missing.txt' }
     seed([
@@ -136,11 +180,13 @@ describe('ToolRow', () => {
     ])
     draw('t:tool-1')
     expect(status()).toBe('error')
-    expect(screen.getByText('cat: missing.txt: No such file')).toBeInTheDocument()
-    expect(screen.queryByText(/exit status 1/)).toBeNull()
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.queryByText(/No such file|exit status/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show tool details' }))
+    expect(screen.getByText(/No such file/)).toBeInTheDocument()
   })
 
-  it('shows a neutral exit chip for a non-zero exit with output', () => {
+  it('shows no exit chip or command line for a non-zero exit', () => {
     const l = ledger()
     const call = {
       toolId: 'tool-1',
@@ -158,8 +204,8 @@ describe('ToolRow', () => {
     ])
     draw('t:tool-1')
     expect(status()).toBe('ok')
-    expect(screen.getByText('exit 1')).toBeInTheDocument()
-    expect(screen.getByText('$ grep x y')).toBeInTheDocument()
+    expect(screen.queryByText('exit 1')).toBeNull()
+    expect(screen.queryByText('$ grep x y')).toBeNull()
   })
 
   it('reads Stopped for a tool an interrupt cut off', () => {
@@ -184,12 +230,22 @@ describe('ToolRow', () => {
   // follows: the answer to its ask is the only record of what happened.
   // `refused` is the daemon answering on the person's behalf (an auto-deny).
   const denials = {
-    'denied by the person': { resolution: 'answered', optionIds: ['deny'], note: 'Denied' },
-    'refused by the daemon': { resolution: 'refused', optionIds: [], note: 'No answer in time' },
+    'denied by the person': {
+      resolution: 'answered',
+      optionIds: ['deny'],
+      note: 'Denied',
+      look: 'denied',
+    },
+    'refused by the daemon': {
+      resolution: 'refused',
+      optionIds: [],
+      note: 'Timed out',
+      look: 'unavailable',
+    },
   } as const
   it.each(Object.entries(denials))(
     'reads a tool %s as denied, not ran',
-    (_, { note, ...answer }) => {
+    (_, { note, look, ...answer }) => {
       const l = ledger()
       const call = { toolId: 'tool-1', name: 'Bash', kind: 'execute', target: 'echo deny' }
       seed([
@@ -216,7 +272,8 @@ describe('ToolRow', () => {
       draw('t:tool-1')
       expect(status()).toBe('declined')
       expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent(note)
-      expect(screen.getAllByText(/Denied|No answer in time/)).toHaveLength(1)
+      expect(screen.getAllByText(/Denied|Timed out/)).toHaveLength(1)
+      expect(document.querySelector(`[data-outcome="${look}"]`)).not.toBeNull()
       expect(screen.queryByText('Ran')).toBeNull()
     },
   )
@@ -247,7 +304,8 @@ describe('ToolRow', () => {
     expect(chatStore.getState().feeds['chat-1']?.order).toEqual(['t:tool-1'])
     draw('t:tool-1')
     expect(status()).toBe('awaiting_approval')
-    expect(screen.getByText('Waiting for your approval')).toBeInTheDocument()
+    expect(screen.getByText('Needs your answer')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-tool-label')).toHaveTextContent(/^Running/)
     expect(reveal).toHaveBeenCalled()
     act(
       () =>
@@ -257,7 +315,7 @@ describe('ToolRow', () => {
         }),
     )
     expect(status()).toBe('running')
-    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Allowed · Allow once')
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent(/^Allowed$/)
     expect(chatStore.getState().feeds['chat-1']?.order).toEqual(['t:tool-1'])
   })
 
@@ -284,7 +342,7 @@ describe('ToolRow', () => {
       l.row('ask_resolved', { askId: 'q1', resolution: 'refused', optionIds: [] }),
     ])
     draw('t:tool-1')
-    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('No answer in time')
+    expect(screen.getByTestId('agent-tool-ask-note')).toHaveTextContent('Timed out')
   })
 
   it('reads a stopped turn’s running call as stopped, an ended one’s as unavailable', () => {
@@ -435,13 +493,8 @@ describe('AskRow', () => {
     ])
     const { container } = draw('a:q1')
     expect(container).toBeEmptyDOMElement()
-    act(
-      () =>
-        void applyFeedFrame('chat-1', {
-          type: 'row',
-          row: l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['y'] }),
-        }),
-    )
+    const row = l.row('ask_resolved', { askId: 'q1', resolution: 'answered', optionIds: ['y'] })
+    act(() => void applyFeedFrame('chat-1', { type: 'row', row }))
     expect(screen.getByTestId('agent-turn-choices')).toHaveTextContent('Bash · Allow')
   })
 })

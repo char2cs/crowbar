@@ -1,0 +1,166 @@
+/* How an ask on a call was decided, and a call still waiting on one. */
+.agent-chat .tool-call-note {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+}
+/* The failure notice, the tray above the input box: what happened in at most two plain
+   lines, its way on at the right. No icon. A phone stacks the buttons full width. */
+.failure-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px 11px 14px;
+}
+.agent-chat .tray-top:has(> .failure-notice[data-tone='warn']) {
+  border-color: color-mix(in oklch, var(--warning) 50%, var(--border));
+  background: color-mix(in oklch, var(--warning) 9%, var(--background));
+}
+.agent-chat .tray-top:has(> .failure-notice[data-tone='danger']) {
+  border-color: color-mix(in oklch, var(--destructive) 32%, var(--border));
+  background: color-mix(in oklch, var(--destructive) 5%, var(--background));
+}
+.failure-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.failure-notice-headline,
+.failure-notice-hint {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.failure-notice-headline {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 19px;
+  color: var(--foreground);
+}
+.failure-notice-hint {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--muted-foreground);
+}
+.failure-notice-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.failure-notice-actions [data-slot='button'] {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+}
+.agent-chat .dock:has(.pill[data-touch]) .failure-notice {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 12px 8px 14px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .failure-notice-text {
+  flex: 1 1 200px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .failure-notice-headline {
+  font-size: 14px;
+  line-height: 19px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .failure-notice-hint {
+  font-size: 12.5px;
+  line-height: 17px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .failure-notice-actions {
+  flex: 1 1 100%;
+}
+/* 32px to the eye, 44pt to the finger; a pill like the capsule it sits in. */
+.agent-chat .dock:has(.pill[data-touch]) .failure-notice-actions [data-slot='button'] {
+  position: relative;
+  flex: 1 1 0;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .failure-notice-actions [data-slot='button']::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
+
+/* A boundary told in one line of its own (a provider's warning, a moved session). */
+.agent-chat .marker-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid color-mix(in oklch, var(--warning) 50%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--warning) 8%, var(--background));
+  font-size: 13px;
+  line-height: 18px;
+  flex-wrap: wrap;
+}
+.agent-chat .marker-notice .notice-action {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.agent-chat .marker-notice-records {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 0 0 0 16px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+/* Basis 0: the words wrap beside the action; only the record list takes a row. */
+.agent-chat .marker-notice .tx {
+  flex: 1 1 0;
+  min-width: 0;
+}
+@media (pointer: coarse) {
+  .agent-chat .marker-notice {
+    gap: 8px;
+  }
+  .agent-chat .marker-notice .tx {
+    flex: 1 1 100%;
+  }
+  .agent-chat .marker-notice .notice-action {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
+    position: relative;
+  }
+  /* 44pt to the finger, 36pt to the eye. */
+  .agent-chat .marker-notice .notice-action::after {
+    content: '';
+    position: absolute;
+    inset: -5px 0;
+  }
+}
+.agent-chat .marker-notice b {
+  font-weight: 600;
+}
+.agent-chat .marker-notice .s {
+  color: var(--muted-foreground);
+}
+
+/* What a failed move offers, under its pill. */
+.agent-chat .marker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+/* The board's primary buttons carry one soft drop shadow, not the library's inset highlight. */
+.agent-chat :is(.failure-notice, .rq-box) button.bg-primary:not(:disabled) {
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--primary) 30%, transparent);
+}

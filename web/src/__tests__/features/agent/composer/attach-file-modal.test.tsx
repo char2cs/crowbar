@@ -32,14 +32,11 @@ vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
   useTauriFileDrop: vi.fn(),
 }))
 
-let toastError: ReturnType<typeof reports.watchToasts>
-
 afterEach(cleanup)
 
 beforeEach(() => {
   vi.mocked(uploadChatAttachment).mockClear()
   vi.mocked(useTauriFileDrop).mockClear()
-  toastError = reports.watchToasts()
 })
 
 function draw(overrides: Partial<Parameters<typeof AttachFileModal>[0]> = {}) {
@@ -54,302 +51,326 @@ function draw(overrides: Partial<Parameters<typeof AttachFileModal>[0]> = {}) {
   return { ...render(<AttachFileModal {...props} />), props }
 }
 
+const browse = (...files: File[]) =>
+  fireEvent.change(screen.getByLabelText('Choose files'), { target: { files } })
+
+const attachButton = () => screen.getByRole('button', { name: /^Attach( \d+)? files?/ })
+
 describe('AttachFileModal', () => {
-  it('uploads a browsed file and inserts a file-link markdown node', async () => {
-    const onInsertMarkdown = vi.fn()
-    draw({ onInsertMarkdown })
-    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    const file = new File(['hello'], 'notes.txt', { type: 'text/plain' })
-    fireEvent.change(input, { target: { files: [file] } })
+  it('lists a browsed file as uploaded, and Attach puts its markdown in the message', async () => {
+    const { props } = draw()
+    browse(new File(['hello'], 'notes.txt', { type: 'text/plain' }))
 
-    await waitFor(() =>
-      expect(onInsertMarkdown).toHaveBeenCalledWith(
-        '[notes.txt](chats/c1/attachments/x-notes.txt)',
-      ),
+    expect(await screen.findByText(/Uploaded/)).toBeInTheDocument()
+    expect(props.onInsertMarkdown).not.toHaveBeenCalled()
+    fireEvent.click(attachButton())
+
+    expect(props.onInsertMarkdown).toHaveBeenCalledWith(
+      '[notes.txt](chats/c1/attachments/x-notes.txt)',
     )
+    expect(props.onClose).toHaveBeenCalledTimes(1)
   })
 
-  // A browsed CSV that resolves cleanly as a small table is
-  // inlined directly as a markdown table — never uploaded at all.
-  it('resolves a small, well-formed browsed CSV inline as a markdown table, without uploading', async () => {
-    const onInsertMarkdown = vi.fn()
-    draw({ onInsertMarkdown })
-    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    const file = new File(['name,age\nAda,36\n'], 'people.csv', { type: 'text/csv' })
+  it('attaches every finished file in the order chosen, an image as an image node', async () => {
+    const { props } = draw()
+    browse(
+      new File(['x'], 'shot.png', { type: 'image/png' }),
+      new File(['y'], 'spec.pdf', { type: 'application/pdf' }),
+    )
+    await waitFor(() => expect(screen.getAllByText(/Uploaded/)).toHaveLength(2))
+    expect(attachButton()).toHaveTextContent('Attach 2 files')
+    fireEvent.click(attachButton())
 
-    fireEvent.change(input, { target: { files: [file] } })
+    expect(vi.mocked(props.onInsertMarkdown).mock.calls.map(([md]) => md)).toEqual([
+      '![shot.png](chats/c1/attachments/x-shot.png)',
+      '[spec.pdf](chats/c1/attachments/x-spec.pdf)',
+    ])
+  })
 
-    await waitFor(() =>
-      expect(onInsertMarkdown).toHaveBeenCalledWith('| name | age |\n| --- | --- |\n| Ada | 36 |'),
+  // A small, well-formed CSV inlines as a table without touching the network.
+  it('inlines a small browsed CSV as a markdown table, without uploading', async () => {
+    const { props } = draw()
+    browse(new File(['name,age\nAda,36\n'], 'people.csv', { type: 'text/csv' }))
+    await screen.findByText(/Uploaded/)
+    fireEvent.click(attachButton())
+
+    expect(props.onInsertMarkdown).toHaveBeenCalledWith(
+      '| name | age |\n| --- | --- |\n| Ada | 36 |',
     )
     expect(uploadChatAttachment).not.toHaveBeenCalled()
   })
 
-  // The fallback half of the same finding: a CSV too malformed to inline
-  // still uploads exactly like any other file.
-  it('falls through to uploading a dropped CSV that is too malformed to inline', async () => {
-    const onInsertMarkdown = vi.fn()
-    draw({ onInsertMarkdown })
-    const zone = screen.getByTestId('attach-file-dropzone')
-    // Ragged rows -> resolveCsv rejects it as { kind: 'file' }.
-    const file = new File(['a,b\n1\n'], 'ragged.csv', { type: 'text/csv' })
-
-    fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
-
-    await waitFor(() =>
-      expect(onInsertMarkdown).toHaveBeenCalledWith(
-        '[ragged.csv](chats/c1/attachments/x-ragged.csv)',
-      ),
-    )
-    expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', { file })
-  })
-
-  it('inserts an image node for an image file', async () => {
-    const onInsertMarkdown = vi.fn()
-    draw({ onInsertMarkdown })
-    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    const file = new File(['x'], 'shot.png', { type: 'image/png' })
-    fireEvent.change(input, { target: { files: [file] } })
-
-    await waitFor(() =>
-      expect(onInsertMarkdown).toHaveBeenCalledWith('![shot.png](chats/c1/attachments/x-shot.png)'),
-    )
-  })
-
-  // Successful uploads close the modal — both browse and drop insert THEN
-  // close, since nothing left to do once the markdown is handed back.
-  it('closes the modal once the browsed upload resolves', async () => {
-    const onClose = vi.fn()
-    draw({ onClose })
-    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    fireEvent.change(input, { target: { files: [new File(['x'], 'a.txt')] } })
-
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
-  })
-
-  it('opens the native file picker when the Choose a file button is clicked', () => {
-    draw()
-    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    const clickSpy = vi.spyOn(input, 'click')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Choose a file' }))
-
-    expect(clickSpy).toHaveBeenCalledTimes(1)
-  })
-
-  // Defensive fallback: a real `<input type="file">` always reports at least
-  // an empty FileList, but the type is `FileList | null` — this proves the
-  // `?? []` guard rather than leaving it an unexercised assumption.
-  it('does nothing when the browse input reports no FileList at all', () => {
-    const onInsertMarkdown = vi.fn()
-    draw({ onInsertMarkdown })
-    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    Object.defineProperty(input, 'files', { value: null, configurable: true })
-
-    fireEvent.change(input)
-
-    expect(uploadChatAttachment).not.toHaveBeenCalled()
-    expect(onInsertMarkdown).not.toHaveBeenCalled()
-  })
-
-  it('shows the uploading state while an upload is in flight and disables the browse button', async () => {
-    let resolveUpload: ((value: UploadedChatAttachment) => void) | undefined
+  it('shows a loading bar and a progress hint while an upload is in flight, Attach waiting', async () => {
+    let finish: ((value: UploadedChatAttachment) => void) | undefined
     vi.mocked(uploadChatAttachment).mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveUpload = resolve
-        }),
+      () => new Promise((resolve) => (finish = resolve)),
     )
     draw()
-    const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-    fireEvent.change(input, {
-      target: { files: [new File(['x'], 'a.png', { type: 'image/png' })] },
-    })
+    browse(new File(['x'], 'a.png', { type: 'image/png' }))
 
-    expect(await screen.findByText('Uploading…')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Choose a file' })).toBeDisabled()
-    expect(input).toBeDisabled()
+    const bar = await screen.findByRole('progressbar', { name: 'Uploading a.png' })
+    expect(bar).not.toHaveAttribute('aria-valuenow')
+    expect(screen.getByText('Uploading 0 of 1…')).toBeInTheDocument()
+    expect(attachButton()).toBeDisabled()
 
     await act(async () => {
-      resolveUpload?.({
+      finish?.({
         ref: 'chats/c1/attachments/x-a.png',
         filename: 'a.png',
         size: 10,
         contentType: 'image/png',
       })
     })
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(attachButton()).toBeEnabled()
+  })
+
+  it('fills the bar and says how much of the file has gone, from the upload progress', async () => {
+    vi.mocked(uploadChatAttachment).mockImplementationOnce(
+      (_ws, _chat, _input, _id, options) =>
+        new Promise(() => options?.onProgress?.(512 * 1024, 2 * 1024 * 1024)),
+    )
+    draw()
+    browse(new File([new Uint8Array(2 * 1024 * 1024)], 'big.png', { type: 'image/png' }))
+
+    const bar = await screen.findByRole('progressbar', { name: 'Uploading big.png' })
+    await waitFor(() => expect(bar).toHaveAttribute('aria-valuenow', '25'))
+    expect(screen.getByText('512 KB of 2 MB · Uploading…')).toBeInTheDocument()
+  })
+
+  it('advances the bar with each acknowledged chunk until the file is uploaded', async () => {
+    let report: ((loaded: number, total: number) => void) | undefined
+    let finish: ((value: UploadedChatAttachment) => void) | undefined
+    vi.mocked(uploadChatAttachment).mockImplementationOnce((_ws, _chat, _input, _id, options) => {
+      report = (loaded, total) => options?.onProgress?.(loaded, total)
+      return new Promise((resolve) => (finish = resolve))
+    })
+    draw()
+    const total = 4 * 1024 * 1024
+    browse(new File([new Uint8Array(total)], 'big.bin'))
+    const bar = await screen.findByRole('progressbar', { name: 'Uploading big.bin' })
+    expect(bar).not.toHaveAttribute('aria-valuenow')
+
+    for (const [loaded, percent, note] of [
+      [1024 * 1024, '25', '1 MB of 4 MB · Uploading…'],
+      [3 * 1024 * 1024, '75', '3 MB of 4 MB · Uploading…'],
+    ] as const) {
+      act(() => report?.(loaded, total))
+      await waitFor(() => expect(bar).toHaveAttribute('aria-valuenow', percent))
+      expect(screen.getByText(note)).toBeInTheDocument()
+    }
+
+    await act(async () => {
+      finish?.({ ref: 'r', filename: 'big.bin', size: total, contentType: 't' })
+    })
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.getByText('4 MB · Uploaded')).toBeInTheDocument()
+  })
+
+  it('offers Retry on a failed upload and sends it again under the same upload id', async () => {
+    const ids: Array<string | undefined> = []
+    vi.mocked(uploadChatAttachment).mockImplementationOnce(async (_ws, _chat, _input, id) => {
+      ids.push(id)
+      throw new Error('boom')
+    })
+    vi.mocked(uploadChatAttachment).mockImplementationOnce(async (_ws, _chat, input, id) => {
+      ids.push(id)
+      const name = 'file' in input ? input.file.name : input.path
+      return { ref: `r/${name}`, filename: name, size: 1, contentType: 't' }
+    })
+    draw()
+    browse(new File(['x'], 'a.bin'))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText(/Uploaded/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(ids).toHaveLength(2)
+    expect(ids[0]).toBeTruthy()
+    expect(ids[1]).toBe(ids[0])
+  })
+
+  it('aborts an upload still on its way when its row is removed or the dialog is cancelled', async () => {
+    const signals: AbortSignal[] = []
+    const hang = (
+      _ws: string,
+      _chat: string,
+      _input: unknown,
+      _id?: string,
+      options?: { signal?: AbortSignal },
+    ) => {
+      if (options?.signal) signals.push(options.signal)
+      return new Promise<never>(() => {})
+    }
+    vi.mocked(uploadChatAttachment).mockImplementationOnce(hang).mockImplementationOnce(hang)
+    const { props } = draw()
+    browse(new File(['x'], 'a.png', { type: 'image/png' }), new File(['y'], 'b.png'))
+    await screen.findByText('b.png')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove a.png' }))
+    expect(signals.map((signal) => signal.aborted)).toEqual([true, false])
+    fireEvent.click(screen.getByRole('button', { name: /^Cancel/ }))
+    expect(signals[1]?.aborted).toBe(true)
+    expect(props.onClose).toHaveBeenCalled()
+  })
+
+  it('refuses a file over the daemon limit on the row, without uploading it', () => {
+    draw()
+    const big = new File(['x'], 'cart-recording.mov')
+    Object.defineProperty(big, 'size', { value: 64 * 1024 * 1024 })
+    browse(big)
+
+    expect(screen.getByText('cart-recording.mov')).toBeInTheDocument()
+    expect(screen.getByText('64 MB · too large, the limit is 25 MB')).toBeInTheDocument()
+    expect(uploadChatAttachment).not.toHaveBeenCalled()
+    expect(attachButton()).toBeDisabled()
+  })
+
+  it('says why an upload failed on its row, and still attaches the files that went through', async () => {
+    vi.mocked(uploadChatAttachment).mockRejectedValueOnce(reports.refusal('disk full'))
+    const { props } = draw()
+    browse(new File(['x'], 'bad.png', { type: 'image/png' }), new File(['y'], 'ok.txt'))
+
+    expect(await screen.findByText(/disk full/)).toBeInTheDocument()
+    await screen.findByText(/Uploaded/)
+    fireEvent.click(attachButton())
+    expect(props.onInsertMarkdown).toHaveBeenCalledTimes(1)
+    expect(props.onInsertMarkdown).toHaveBeenCalledWith('[ok.txt](chats/c1/attachments/x-ok.txt)')
+  })
+
+  it('drops a removed row from what Attach inserts', async () => {
+    const { props } = draw()
+    browse(new File(['x'], 'a.txt'), new File(['y'], 'b.txt'))
+    await waitFor(() => expect(screen.getAllByText(/Uploaded/)).toHaveLength(2))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove a.txt' }))
+    fireEvent.click(attachButton())
+
+    expect(props.onInsertMarkdown).toHaveBeenCalledTimes(1)
+    expect(props.onInsertMarkdown).toHaveBeenCalledWith('[b.txt](chats/c1/attachments/x-b.txt)')
+  })
+
+  it('Cancel closes without inserting anything', async () => {
+    const { props } = draw()
+    browse(new File(['x'], 'a.txt'))
+    await screen.findByText(/Uploaded/)
+
+    fireEvent.click(screen.getByRole('button', { name: /^Cancel/ }))
+
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+    expect(props.onInsertMarkdown).not.toHaveBeenCalled()
+  })
+
+  it('Enter attaches what is ready', async () => {
+    const { props } = draw()
+    browse(new File(['x'], 'a.txt'))
+    await screen.findByText(/Uploaded/)
+
+    fireEvent.keyDown(screen.getByTestId('attach-file-dropzone'), { key: 'Enter' })
+
+    expect(props.onInsertMarkdown).toHaveBeenCalledWith('[a.txt](chats/c1/attachments/x-a.txt)')
+  })
+
+  it('opens the native picker from the "choose from your computer" link', () => {
+    draw()
+    const input = screen.getByLabelText('Choose files') as HTMLInputElement
+    const click = vi.spyOn(input, 'click')
+
+    fireEvent.click(screen.getByRole('button', { name: 'choose from your computer' }))
+
+    expect(click).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing when the browse input reports no FileList at all', () => {
+    draw()
+    const input = screen.getByLabelText('Choose files') as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: null, configurable: true })
+
+    fireEvent.change(input)
+
+    expect(screen.queryByTestId('attach-file-list')).toBeNull()
   })
 
   describe('drag and drop onto the dropzone', () => {
-    it('shows a drag-over state while a file is dragged over the zone, clearing on drag-leave', () => {
+    it('marks the zone while files are dragged over it, and clears on leave', () => {
       draw()
       const zone = screen.getByTestId('attach-file-dropzone')
 
       fireEvent.dragOver(zone, { dataTransfer: { types: ['Files'] } })
-      expect(zone).toHaveClass('border-ring')
+      expect(zone).toHaveAttribute('data-drop-target')
 
       fireEvent.dragLeave(zone)
-      expect(zone).not.toHaveClass('border-ring')
+      expect(zone).not.toHaveAttribute('data-drop-target')
     })
 
-    it('ignores a drag-over that carries no files', () => {
+    it('ignores a drag-over or a drop that carries no files', () => {
       draw()
       const zone = screen.getByTestId('attach-file-dropzone')
 
       fireEvent.dragOver(zone, { dataTransfer: { types: ['text/plain'] } })
+      fireEvent.drop(zone, { dataTransfer: { types: ['text/plain'], files: [] } })
 
-      expect(zone).not.toHaveClass('border-ring')
+      expect(zone).not.toHaveAttribute('data-drop-target')
+      expect(uploadChatAttachment).not.toHaveBeenCalled()
     })
 
-    it('uploads a dropped image and inserts image markdown, clearing the drag-over state', async () => {
-      const onInsertMarkdown = vi.fn()
-      draw({ onInsertMarkdown })
+    it('lists a dropped file and clears the drag-over state', async () => {
+      draw()
       const zone = screen.getByTestId('attach-file-dropzone')
       const file = new File(['bytes'], 'a.png', { type: 'image/png' })
 
       fireEvent.dragOver(zone, { dataTransfer: { types: ['Files'] } })
       fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
 
-      expect(zone).not.toHaveClass('border-ring')
-      await waitFor(() =>
-        expect(onInsertMarkdown).toHaveBeenCalledWith('![a.png](chats/c1/attachments/x-a.png)'),
+      expect(zone).not.toHaveAttribute('data-drop-target')
+      expect(await screen.findByText(/Uploaded/)).toBeInTheDocument()
+      expect(uploadChatAttachment).toHaveBeenCalledWith(
+        'w1',
+        'c1',
+        { file },
+        expect.any(String),
+        expect.anything(),
       )
-    })
-
-    it('uploads a dropped non-image file and inserts link markdown', async () => {
-      const onInsertMarkdown = vi.fn()
-      draw({ onInsertMarkdown })
-      const zone = screen.getByTestId('attach-file-dropzone')
-      const file = new File(['bytes'], 'notes.pdf', { type: 'application/pdf' })
-
-      fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
-
-      await waitFor(() =>
-        expect(onInsertMarkdown).toHaveBeenCalledWith(
-          '[notes.pdf](chats/c1/attachments/x-notes.pdf)',
-        ),
-      )
-      expect(onInsertMarkdown).not.toHaveBeenCalledWith(expect.stringMatching(/^!/))
-    })
-
-    it('ignores a drop that carries no files', () => {
-      const onInsertMarkdown = vi.fn()
-      draw({ onInsertMarkdown })
-      const zone = screen.getByTestId('attach-file-dropzone')
-
-      fireEvent.drop(zone, { dataTransfer: { types: ['text/plain'], files: [] } })
-
-      expect(uploadChatAttachment).not.toHaveBeenCalled()
-      expect(onInsertMarkdown).not.toHaveBeenCalled()
     })
   })
 
-  // The desktop path: a native OS drop never reaches the DOM as a `drop` event, only as this
-  // hook's callback, exercised through the stub above.
+  // A native OS drop never reaches the DOM as a `drop` event, only as this hook's callback.
   describe('the Tauri host-path drop channel', () => {
-    it('uploads each Tauri-reported host path, clears the drag-over state, and closes', async () => {
-      const onInsertMarkdown = vi.fn()
-      const onClose = vi.fn()
-      draw({ onInsertMarkdown, onClose })
+    it('stages each reported host path by its file name and clears the drag-over state', async () => {
+      const { props } = draw()
       const zone = screen.getByTestId('attach-file-dropzone')
-
       fireEvent.dragOver(zone, { dataTransfer: { types: ['Files'] } })
-      expect(zone).toHaveClass('border-ring')
 
       const onDrop = vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]
-      expect(onDrop).toBeTypeOf('function')
       await act(async () => {
         onDrop?.(['/Users/me/report.csv'])
       })
 
-      expect(zone).not.toHaveClass('border-ring')
-      expect(uploadChatAttachment).toHaveBeenCalledWith('w1', 'c1', {
-        path: '/Users/me/report.csv',
-      })
-      await waitFor(() =>
-        expect(onInsertMarkdown).toHaveBeenCalledWith(
-          '[/Users/me/report.csv](chats/c1/attachments/x-/Users/me/report.csv)',
-        ),
+      expect(zone).not.toHaveAttribute('data-drop-target')
+      expect(uploadChatAttachment).toHaveBeenCalledWith(
+        'w1',
+        'c1',
+        { path: '/Users/me/report.csv' },
+        expect.any(String),
+        expect.anything(),
       )
-      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(await screen.findByText('report.csv')).toBeInTheDocument()
+      fireEvent.click(attachButton())
+      expect(props.onInsertMarkdown).toHaveBeenCalledWith(
+        '[/Users/me/report.csv](chats/c1/attachments/x-/Users/me/report.csv)',
+      )
     })
 
-    // The proactive fix this task called out: an inline arrow passed to
-    // `useTauriFileDrop` would get a fresh identity on every dragOver/
-    // dragLeave re-render (each toggles `dropTarget`, a state update), tearing
-    // down and re-establishing Tauri's `onDragDropEvent` IPC subscription
-    // continuously for the whole span of an active drag. Proven directly
-    // against the stubbed hook rather than inferred from the fix.
-    it('passes the same onDrop identity to useTauriFileDrop across a dragOver/dragLeave re-render', () => {
+    // A fresh onDrop per dragOver/dragLeave render would re-subscribe Tauri's IPC mid-drag.
+    it('keeps the same onDrop across a dragOver/dragLeave re-render', () => {
       draw()
       const zone = screen.getByTestId('attach-file-dropzone')
-      const callsBefore = vi.mocked(useTauriFileDrop).mock.calls.length
       const firstOnDrop = vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]
-      expect(firstOnDrop).toBeTypeOf('function')
 
       fireEvent.dragOver(zone, { dataTransfer: { types: ['Files'] } })
       fireEvent.dragLeave(zone)
 
-      expect(vi.mocked(useTauriFileDrop).mock.calls.length).toBeGreaterThan(callsBefore)
-      const lastOnDrop = vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]
-      expect(lastOnDrop).toBe(firstOnDrop)
-    })
-  })
-
-  describe('a failed upload', () => {
-    it('surfaces a failed upload as a toast, without inserting or closing', async () => {
-      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(
-        reports.refusal('413 Payload Too Large'),
-      )
-      const onInsertMarkdown = vi.fn()
-      const onClose = vi.fn()
-      draw({ onInsertMarkdown, onClose })
-      const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-      const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
-
-      fireEvent.change(input, { target: { files: [file] } })
-
-      await waitFor(() =>
-        reports.expectReported(toastError, 'Could not attach that file', '413 Payload Too Large'),
-      )
-      expect(onInsertMarkdown).not.toHaveBeenCalled()
-      expect(onClose).not.toHaveBeenCalled()
-    })
-
-    it('an upload refused while the daemon migrates shows the migrating state', async () => {
-      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(reports.migratingRefusal())
-      draw()
-      const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-      fireEvent.change(input, { target: { files: [new File(['x'], 'huge.png')] } })
-
-      await waitFor(() => reports.expectMigratingShown(toastError))
-    })
-
-    // The upload state must clear on failure too, or the picker would stay
-    // permanently disabled after one rejected upload.
-    it('clears the uploading state after a failed upload', async () => {
-      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(new Error('offline'))
-      draw()
-      const input = screen.getByLabelText(/choose a file/i) as HTMLInputElement
-      fireEvent.change(input, {
-        target: { files: [new File(['x'], 'a.png', { type: 'image/png' })] },
-      })
-
-      await waitFor(() => expect(toastError).toHaveBeenCalled())
-      expect(screen.getByRole('button', { name: 'Choose a file' })).not.toBeDisabled()
-    })
-
-    it('surfaces a failed dropped upload the same way', async () => {
-      vi.mocked(uploadChatAttachment).mockRejectedValueOnce(reports.refusal('disk full'))
-      draw()
-      const zone = screen.getByTestId('attach-file-dropzone')
-      const file = new File(['bytes'], 'huge.png', { type: 'image/png' })
-
-      fireEvent.drop(zone, { dataTransfer: { types: ['Files'], files: [file] } })
-
-      await waitFor(() =>
-        reports.expectReported(toastError, 'Could not attach that file', 'disk full'),
-      )
+      expect(vi.mocked(useTauriFileDrop).mock.calls.at(-1)?.[1]).toBe(firstOnDrop)
     })
   })
 
@@ -358,14 +379,12 @@ describe('AttachFileModal', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  // Base UI closes a dialog on Escape by firing onOpenChange(false) — same
-  // precedent as primitive-dialog-service.test.tsx's own pressEscape().
+  // Base UI closes a dialog on Escape by firing onOpenChange(false).
   it('calls onClose when the dialog requests dismissal', async () => {
-    const onClose = vi.fn()
-    draw({ onClose })
+    const { props } = draw()
 
     fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape', code: 'Escape' })
 
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(props.onClose).toHaveBeenCalledTimes(1))
   })
 })

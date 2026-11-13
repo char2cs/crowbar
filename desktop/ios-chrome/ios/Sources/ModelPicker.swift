@@ -4,7 +4,6 @@ import UIKit
 struct PickerModel: Decodable, Identifiable, Equatable {
   let id: String
   let name: String
-  let detail: String?
 }
 
 struct PickerProvider: Decodable, Identifiable, Equatable {
@@ -21,6 +20,20 @@ struct PickerSelection: Decodable, Equatable {
   let modelId: String
 }
 
+struct PickerPermissionLevel: Decodable, Identifiable, Equatable {
+  let value: String
+  let label: String
+  let description: String
+  var id: String { value }
+}
+
+/// The chat's permission level and the levels its provider offers.
+struct PickerPermission: Decodable, Equatable {
+  let levels: [PickerPermissionLevel]
+  /// Empty while the chat's level is not known yet.
+  let level: String
+}
+
 /// The composer's model and effort picker, as `set_model_picker` hands it over.
 struct ModelPickerState: Decodable, Equatable {
   let open: Bool
@@ -28,12 +41,13 @@ struct ModelPickerState: Decodable, Equatable {
   let selected: PickerSelection?
   let efforts: [String]
   let effort: String?
+  let permission: PickerPermission?
 }
 
 /// What the web last handed the picker, with each provider's icon decoded once.
 final class ModelPickerModel: ObservableObject {
   @Published var state = ModelPickerState(
-    open: false, providers: [], selected: nil, efforts: [], effort: nil)
+    open: false, providers: [], selected: nil, efforts: [], effort: nil, permission: nil)
   private(set) var icons: [String: UIImage] = [:]
   var send: (ChromeIntent) -> Void = { _ in }
 
@@ -67,6 +81,9 @@ struct ModelPickerSheet: View {
     NavigationStack {
       List {
         if !model.state.efforts.isEmpty { effort }
+        if let permission = model.state.permission, !permission.levels.isEmpty {
+          permissionSection(permission)
+        }
         ForEach(matches) { provider in
           Section {
             ForEach(provider.models) { item in row(item, of: provider) }
@@ -127,6 +144,32 @@ struct ModelPickerSheet: View {
     .listRowBackground(palette?.raised)
   }
 
+  private func permissionSection(_ permission: PickerPermission) -> some View {
+    Section {
+      ForEach(permission.levels) { item in
+        Button {
+          Haptics.select()
+          model.send(.of("setPermissionLevel", ["level": item.value]))
+        } label: {
+          HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(item.label).foregroundStyle(item.value == "full-auto" ? Color.orange : text)
+              Text(item.description).font(.footnote).foregroundStyle(secondaryText)
+            }
+            Spacer()
+            if item.value == permission.level { PhosphorIcon(.check, size: 18) }
+          }
+          .contentShape(.rect)
+        }
+        .tint(text)
+        .accessibilityAddTraits(item.value == permission.level ? .isSelected : [])
+      }
+    } header: {
+      Text("Permission").foregroundStyle(secondaryText)
+    }
+    .listRowBackground(palette?.raised)
+  }
+
   private func row(_ item: PickerModel, of provider: PickerProvider) -> some View {
     let selected = model.state.selected == PickerSelection(providerId: provider.id, modelId: item.id)
     return Button {
@@ -134,12 +177,7 @@ struct ModelPickerSheet: View {
       model.send(.of("selectModel", ["providerId": provider.id, "modelId": item.id]))
     } label: {
       HStack {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(item.name).foregroundStyle(text)
-          if let detail = item.detail {
-            Text(detail).font(.footnote).foregroundStyle(secondaryText)
-          }
-        }
+        Text(item.name).foregroundStyle(text)
         Spacer()
         if selected { PhosphorIcon(.check, size: 18) }
       }

@@ -63,6 +63,9 @@ type TurnEnded struct {
 type TurnFailed struct {
 	Reason string `json:"reason"`
 	Detail string `json:"detail,omitempty"`
+	// Kind is the trouble in Crowbar's words (auth, limit, overloaded), as the
+	// provider's descriptor classified it; empty when it named none.
+	Kind string `json:"kind,omitempty"`
 }
 
 // Turn is the chat's newest main-scope turn as the ledger has folded it.

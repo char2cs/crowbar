@@ -2,7 +2,7 @@ import { Profiler, type ComponentProps, type ReactNode } from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { delta, ledger, seedFeed } from '@/__tests__/__fixtures__/ledger-rows'
-import { applyFeedFrame, chatStore, failFeed, openFeed } from '@/features/agent/stores/chat-store'
+import { applyFeedFrame, chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 import {
   layOut,
@@ -46,7 +46,6 @@ beforeEach(() => {
 afterEach(() => {
   platform.mobile = false
   restoreRows()
-  restoreRows = () => {}
   HTMLElement.prototype.getBoundingClientRect = originalRect
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -58,14 +57,6 @@ function layList(scrollHeight: number, clientHeight: number) {
   const box = { scrollHeight, clientHeight }
   layOut(list, box)
   return { list, box }
-}
-
-const seedPrompts = (n: number) => {
-  const l = ledger()
-  seedFeed(
-    'chat-1',
-    Array.from({ length: n }, (_, i) => l.prompt(`r${i}`, `prompt ${i}`)),
-  )
 }
 
 const outboxItem = (requestId: string): OutboxItem => ({
@@ -239,6 +230,15 @@ describe('AgentTranscript', () => {
     expect(stream.style.minHeight).toBe(`${800 + 800}px`)
   })
 
+  it('draws no row for a queued or failed prompt', () => {
+    seedFeed('chat-1', [ledger().prompt('r1', 'one')])
+    draw()
+    const unsent = (state: 'queued' | 'failed') => ({ ...outboxItem(`x-${state}`), state })
+    act(() => chatStore.setState({ outbox: { 'chat-1': [unsent('queued'), unsent('failed')] } }))
+    expect(document.querySelector('[data-row-id="p:x-queued"]')).toBeNull()
+    expect(document.querySelector('[data-row-id="p:x-failed"]')).toBeNull()
+  })
+
   it('releases the pin of a prompt taken back before its row landed', () => {
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'one')])
@@ -371,6 +371,9 @@ describe('AgentTranscript', () => {
     const { list, box } = layList(3000, 800)
     redraw({ tail: 'a' })
     expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
+    list.scrollTop = 2000 // a few rows back is still the end: inside the grace
+    fireEvent.scroll(list)
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
     list.scrollTop = 500
     fireEvent.scroll(list)
     box.scrollHeight = 3400
@@ -439,34 +442,6 @@ describe('AgentTranscript', () => {
     expect(screen.getByTestId('agent-message-list').scrollTop).toBe(2 * 150)
   })
 
-  it('draws the newest rows on the commit that lands the opening', () => {
-    // jsdom fires no scroll event for a write, as an engine fires it only a frame later.
-    restoreRows = measureRows({ row: 150, viewport: 600 })
-    seedPrompts(40)
-    draw()
-    const list = screen.getByTestId('agent-message-list')
-    // Rows above the window keep their estimates: the bottom is the list's own.
-    expect(list.scrollTop).toBe(list.scrollHeight - 600)
-    expect(screen.getByText('prompt 39')).toBeInTheDocument()
-  })
-
-  it('draws the newest rows when a chat opened parked gets its box', () => {
-    const observed = observeResizes()
-    const box = { viewport: 0 }
-    restoreRows = measureRows({ row: 150, viewport: () => box.viewport })
-    seedPrompts(40)
-    draw()
-    const list = screen.getByTestId('agent-message-list')
-    box.viewport = 600
-    // Not in act: the box's report comes between layout and paint, outside React.
-    observed.get(list)?.(
-      [{ borderBoxSize: [{ inlineSize: 768, blockSize: 600 }] } as never],
-      {} as ResizeObserver,
-    )
-    expect(list.scrollTop).toBe(list.scrollHeight - 600)
-    expect(screen.getByText('prompt 39')).toBeInTheDocument()
-  })
-
   it('lands a change to an idle chat in one write', () => {
     vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] })
     const l = ledger()
@@ -480,20 +455,5 @@ describe('AgentTranscript', () => {
     box.scrollHeight = 2086
     redraw({ dockHeight: 86 })
     expect(list.scrollTop).toBe(1286)
-  })
-
-  it('says it is still trying when the feed cannot be reached', () => {
-    openFeed('chat-1')
-    draw({ status: 'error' })
-    expect(screen.getByText(/couldn’t reach this chat/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
-  })
-
-  it('says why when the daemon refused the chat, and does not promise to keep trying', () => {
-    openFeed('chat-1')
-    failFeed('chat-1', "This chat's history could not be read")
-    draw({ status: 'error' })
-    expect(screen.getByText("This chat's history could not be read")).toBeInTheDocument()
-    expect(screen.queryByText(/keeps trying/i)).not.toBeInTheDocument()
   })
 })

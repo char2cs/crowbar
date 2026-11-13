@@ -26,7 +26,7 @@ vi.spyOn(commandsApi, 'switchToNative').mockResolvedValue()
 // implies it.
 const handed = vi.hoisted(() => new Set<unknown>())
 vi.mock('@/features/agent/chat/agent-chat-view', async () => {
-  const { ViewSwitcher } = await import('@/features/agent/controls/view-switcher')
+  const { ViewSwitch } = await import('@/features/agent/controls/view-switch')
   return {
     AgentChatView: ({
       active,
@@ -59,7 +59,7 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
         // The real switcher: it is a pane control, and this file is its contract.
         presentation === 'terminal'
           ? null
-          : createElement(ViewSwitcher, {
+          : createElement(ViewSwitch, {
               presentation,
               splitEnabled,
               onSelect: onSelectPresentation,

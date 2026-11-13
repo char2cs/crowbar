@@ -203,16 +203,6 @@ export type NativeTabs = {
   newTabActions: { id: string; title: string; icon: string }[]
 }
 
-/** The visible chat's context meter, drawn beside the IDE button. `percent` null hides it: the
- *  provider has not reported usage, which is not the same as 0%. */
-// A type, not an interface, for invoke's args (see NativeSidebar).
-export type NativeContext = {
-  percent: number | null
-  usedLabel: string
-  canCompact: boolean
-  compacting: boolean
-}
-
 /** The composer's model and effort picker, drawn as a native sheet. */
 // A type, not an interface, for invoke's args (see NativeSidebar).
 export type NativeModelPicker = {
@@ -223,12 +213,57 @@ export type NativeModelPicker = {
     /** A PNG data URL of the provider's icon; `fallbackIcon` (a Phosphor name) stands in without one. */
     icon: string | null
     fallbackIcon: string
-    models: { id: string; name: string; detail: string | null }[]
+    models: { id: string; name: string }[]
   }[]
   selected: { providerId: string; modelId: string } | null
   /** The selected model's effort levels, in order; empty hides the effort control. */
   efforts: string[]
   effort: string | null
+  /** The chat's permission level and the levels its provider offers; null hides the section. */
+  permission: {
+    levels: { value: PermissionLevel; label: string; description: string }[]
+    level: PermissionLevel | ''
+  } | null
+}
+
+/** The composer's plus menu, drawn as a native sheet; the web keeps what each row does. */
+// A type, not an interface, for invoke's args (see NativeSidebar).
+export type NativePlusMenu = {
+  open: boolean
+  title: string
+  items: {
+    id: string
+    title: string
+    /** A Phosphor icon name. */
+    icon: string
+    /** The character a row types into the composer, shown trailing. */
+    hint: string | null
+    /** Starts the group after a divider. */
+    divider: boolean
+  }[]
+}
+
+/** The composer's Attach sheet, drawn as a native sheet; the web keeps every upload's logic. */
+export type NativeAttachSheet = {
+  open: boolean
+  title: string
+  /** The limits line under the sources. */
+  note: string
+  sources: { id: string; title: string; icon: string }[]
+  files: {
+    id: string
+    name: string
+    /** Size and state, e.g. "1.2 MB · Uploaded". */
+    detail: string
+    status: 'uploading' | 'done' | 'bad'
+    /** 0-100 once the upload reports bytes, null while it is indeterminate. */
+    percent: number | null
+    canRetry: boolean
+  }[]
+  /** "Uploading 1 of 3…" while any file is on its way. */
+  hint: string | null
+  attachLabel: string
+  canAttach: boolean
 }
 
 // Types, not interfaces, for invoke's args (see NativeSidebar).
@@ -279,10 +314,18 @@ export type NativeChromeIntent =
   | { type: 'selectTab'; id: string }
   | { type: 'closeTab'; id: string }
   | { type: 'newTab'; actionId: string }
-  | { type: 'compact' }
   | { type: 'selectModel'; providerId: string; modelId: string }
   | { type: 'setEffort'; effort: string }
+  | { type: 'setPermissionLevel'; level: PermissionLevel }
   | { type: 'closeModelPicker' }
+  | { type: 'pickPlusItem'; id: string }
+  | { type: 'closePlusMenu' }
+  | { type: 'pickAttachSource'; id: string }
+  | { type: 'removeAttachFile'; id: string }
+  | { type: 'retryAttachFile'; id: string }
+  | { type: 'attachFiles' }
+  | { type: 'closeAttachSheet' }
+  | { type: 'jumpToLatest'; owner: string }
   | { type: 'rowAction'; rowId: string; actionId: string }
   | { type: 'dragRow'; rowId: string | null }
   | { type: 'moveRow'; rowId: string; targetId: string; position: DropMode }
@@ -336,16 +379,32 @@ export function setNativeTabs(tabs: NativeTabs): void {
   void invoke(`plugin:${PLUGIN}|set_tabs`, tabs)
 }
 
-/** Replaces the context meter's content. */
-export function setNativeContext(context: NativeContext): void {
-  if (!hasNativeChrome()) return
-  void invoke(`plugin:${PLUGIN}|set_context`, context)
-}
-
 /** Replaces the model picker's content. */
 export function setNativeModelPicker(picker: NativeModelPicker): void {
   if (!hasNativeChrome()) return
   void invoke(`plugin:${PLUGIN}|set_model_picker`, picker)
+}
+
+/** Replaces the plus menu's content. */
+export function setNativePlusMenu(menu: NativePlusMenu): void {
+  if (!hasNativeChrome()) return
+  void invoke(`plugin:${PLUGIN}|set_plus_menu`, menu)
+}
+
+/** Replaces the Attach sheet's content. */
+export function setNativeAttachSheet(sheet: NativeAttachSheet): void {
+  if (!hasNativeChrome()) return
+  void invoke(`plugin:${PLUGIN}|set_attach_sheet`, sheet)
+}
+
+/** The transcript's floating down-arrow; `bottom` is its distance above the webview's bottom edge. */
+// A type, not an interface: invoke's args need the index signature only a type alias gets.
+export type NativeJumpToLatest = { owner: string; visible: boolean; bottom: number; label: string }
+
+/** Replaces the Jump to latest button's state. */
+export function setNativeJumpToLatest(state: NativeJumpToLatest): void {
+  if (!hasNativeChrome()) return
+  void invoke(`plugin:${PLUGIN}|set_jump_to_latest`, state)
 }
 
 /** Asks a native yes/no question over whatever is on screen; no without the phone's chrome. */

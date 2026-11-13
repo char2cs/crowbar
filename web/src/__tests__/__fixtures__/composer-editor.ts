@@ -43,6 +43,12 @@ export function TextareaComposerEditor({
         typed().replace(/@[^\s@]*$/, () => text),
         true,
       ),
+    insertTrigger: (trigger: '@') =>
+      write(`${box.current?.value ?? ''}${/\S$/.test(typed()) ? ` ${trigger}` : trigger}`, true),
+    startCommand: () =>
+      write(typed().startsWith('/') ? typed() : `/\n\n${typed()}`.trimEnd(), true),
+    completeCommand: (text: string) =>
+      write(`${text}${typed().includes('\n') ? typed().slice(typed().indexOf('\n')) : ''}`, true),
     appendMarkdown: (text: string) => (typed() ? write(`${typed()}\n\n${text}`, true) : load(text)),
     focus: () => box.current?.focus(),
     clear: () => load(''),

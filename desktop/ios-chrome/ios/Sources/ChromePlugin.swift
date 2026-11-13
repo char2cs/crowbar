@@ -64,18 +64,34 @@ class ChromePlugin: Plugin {
     }
   }
 
-  @objc public func setHostPicker(_ invoke: Invoke) throws {
-    let state = try invoke.parseArgs(HostPickerState.self)
+  @objc public func setPlusMenu(_ invoke: Invoke) throws {
+    let state = try invoke.parseArgs(PlusMenuState.self)
     DispatchQueue.main.async {
-      if #available(iOS 26.0, *) { self.mounted()?.applyHostPicker(state) }
+      if #available(iOS 26.0, *) { self.mounted()?.applyPlusMenu(state) }
       invoke.resolve()
     }
   }
 
-  @objc public func setContext(_ invoke: Invoke) throws {
-    let state = try invoke.parseArgs(ContextState.self)
+  @objc public func setAttachSheet(_ invoke: Invoke) throws {
+    let state = try invoke.parseArgs(AttachSheetState.self)
     DispatchQueue.main.async {
-      if #available(iOS 26.0, *) { self.mounted()?.applyContext(state) }
+      if #available(iOS 26.0, *) { self.mounted()?.applyAttachSheet(state) }
+      invoke.resolve()
+    }
+  }
+
+  @objc public func setJumpToLatest(_ invoke: Invoke) throws {
+    let state = try invoke.parseArgs(JumpToLatestState.self)
+    DispatchQueue.main.async {
+      if #available(iOS 26.0, *) { self.mounted()?.applyJumpToLatest(state) }
+      invoke.resolve()
+    }
+  }
+
+  @objc public func setHostPicker(_ invoke: Invoke) throws {
+    let state = try invoke.parseArgs(HostPickerState.self)
+    DispatchQueue.main.async {
+      if #available(iOS 26.0, *) { self.mounted()?.applyHostPicker(state) }
       invoke.resolve()
     }
   }

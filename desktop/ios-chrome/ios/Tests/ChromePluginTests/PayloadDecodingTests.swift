@@ -48,6 +48,37 @@ final class PayloadDecodingTests: XCTestCase {
     XCTAssertEqual(state.list.shownHost, "h1")
   }
 
+  func testPlusMenuStateSplitsGroupsAtTheDivider() throws {
+    let state = try decode(
+      PlusMenuState.self,
+      """
+      {"open":true,"title":"Add","items":[
+        {"id":"photos","title":"Photo library","icon":"Images","hint":null,"divider":false},
+        {"id":"drawing","title":"New drawing","icon":"PencilSimpleLine","hint":null,"divider":false},
+        {"id":"mention","title":"Mention a file","icon":"At","hint":"@","divider":true},
+        {"id":"command","title":"Run a command","icon":"TerminalWindow","hint":"/","divider":false}]}
+      """)
+    XCTAssertEqual(state.groups.map { $0.map(\.id) }, [["photos", "drawing"], ["mention", "command"]])
+    for item in state.items { XCTAssertNotNil(CrowbarIcon(named: item.icon), item.icon) }
+  }
+
+  func testAttachSheetState() throws {
+    let state = try decode(
+      AttachSheetState.self,
+      """
+      {"open":true,"title":"Attach files","note":"Up to 25 MB each.",
+       "sources":[{"id":"photos","title":"Photos","icon":"Images"},
+         {"id":"camera","title":"Camera","icon":"Camera"},{"id":"files","title":"Files","icon":"Folder"}],
+       "files":[{"id":"0","name":"a.png","detail":"1 KB · Uploading…","status":"uploading",
+         "percent":40,"canRetry":false},
+         {"id":"1","name":"b.pdf","detail":"2 MB · offline","status":"bad","percent":null,"canRetry":true}],
+       "hint":"Uploading 0 of 1…","attachLabel":"Attach 1 file","canAttach":false}
+      """)
+    XCTAssertEqual(state.files.map(\.percent), [40, nil])
+    XCTAssertTrue(state.files[1].canRetry)
+    for source in state.sources { XCTAssertNotNil(CrowbarIcon(named: source.icon), source.icon) }
+  }
+
   func testHostListStateIsTheSettingsHostsSnapshot() throws {
     let list = try decode(
       HostListState.self,
@@ -133,20 +164,26 @@ final class PayloadDecodingTests: XCTestCase {
     let state = try decode(
       ModelPickerState.self,
       """
-      {"open":true,"providers":[{"id":"claude","name":"Claude","fallbackIcon":"Robot",
+      {"open":true,"providers":[{"id":"provider-a","name":"Provider A","fallbackIcon":"Robot",
         "models":[{"id":"m1","name":"Model 1"}]}],
-       "selected":{"providerId":"claude","modelId":"m1"},"efforts":["low","high"],"effort":null}
+       "selected":{"providerId":"provider-a","modelId":"m1"},"efforts":["low","high"],"effort":null}
       """)
     XCTAssertNil(state.providers[0].icon)
-    XCTAssertNil(state.providers[0].models[0].detail)
-    XCTAssertEqual(state.selected, PickerSelection(providerId: "claude", modelId: "m1"))
+    XCTAssertEqual(state.providers[0].models[0].name, "Model 1")
+    XCTAssertEqual(state.selected, PickerSelection(providerId: "provider-a", modelId: "m1"))
     XCTAssertEqual(state.efforts, ["low", "high"])
   }
 
-  func testContextStateHidesMeterWithoutPercent() throws {
+  func testModelPickerStateCarriesThePermissionSection() throws {
     let state = try decode(
-      ContextState.self, #"{"usedLabel":"1k","canCompact":false,"compacting":false}"#)
-    XCTAssertNil(state.percent)
+      ModelPickerState.self,
+      """
+      {"open":true,"providers":[],"selected":null,"efforts":[],"effort":null,
+       "permission":{"levels":[{"value":"guarded","label":"Guarded","description":"Asks first."}],"level":"guarded"}}
+      """)
+    XCTAssertEqual(state.permission?.levels.map(\.label), ["Guarded"])
+    XCTAssertEqual(state.permission?.levels.map(\.description), ["Asks first."])
+    XCTAssertEqual(state.permission?.level, "guarded")
   }
 
   func testDialogOptions() throws {

@@ -44,7 +44,9 @@ import type {
 } from '@/features/agent/stores/lib/transcript-items'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
 import { JumpToLatest } from '@/features/agent/transcript/jump-to-latest'
+import { isNotice } from '@/features/agent/transcript/rows/marker-row'
 import { copyWithoutAnchors } from '@/features/agent/transcript/lib/plain-copy'
+import { ROW_GAP, estimateRowHeight, reachRange } from '@/features/agent/transcript/lib/row-reach'
 import {
   TranscriptRow,
   type RowActions,
@@ -64,6 +66,8 @@ interface AgentTranscriptProps {
   /** The dock overlays the transcript by padding, so its height changes reach
    *  the anchor only through this. */
   dockHeight?: number
+  /** The dock's top edge above the viewport's bottom, measured: what Jump to latest sits above. */
+  dockTop?: number
   /** A background tab stays mounted behind visibility:hidden. */
   visible?: boolean
   initialScrollPosition?: TranscriptScrollPosition | null
@@ -72,53 +76,33 @@ interface AgentTranscriptProps {
   headerClearancePx?: number
 }
 
-type Key = VirtualItem['key']
+const OVERSCAN = 12
+/** Notice cards read as a stack, closer than prose rows. */
+const NOTICE_GAP = 10
 
-/** `.stream`'s 18px gap, baked into each virtual row so the offsets count it. */
-const ROW_GAP = 18
+/** `.dock-spacer`'s height past the dock's own (transcript-layout.css). */
+const DOCK_ROOM = IS_MOBILE ? 14 : 32
 
-/** `.dock-spacer`'s height past the dock's own (transcript.css). */
-const DOCK_ROOM = 32
-
-/** Whole pixels: `resizeItem` treats any float drift as a real resize. */
-function measureRowHeight(el: Element): number {
-  return Math.round(layoutHeight(el))
-}
-
-/** A `display:none` workspace reports 0 for every row; the cached height is the
- *  honest answer, else the total collapses and the restored offset clamps.
- *  `measured` records which rows have a real height, not an estimate. */
-const measureRowInto =
-  (measured: Set<Key>) =>
-  (
-    el: HTMLDivElement,
-    _entry: ResizeObserverEntry | undefined,
-    instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
-  ): number => {
-    const height = measureRowHeight(el)
-    const key = instance.options.getItemKey(instance.indexFromElement(el))
-    if (height > 0) {
-      measured.add(key)
-      return height
-    }
-    return instance.itemSizeCache.get(key) ?? height
-  }
-
-const ESTIMATED_ROW_HEIGHT = 96
-const ROW_CHROME = 8 + 30 + ROW_GAP
-const ROW_LINE_HEIGHT = 23
-const CHARS_PER_LINE = 88
-
-/** Scaled by the text so a long reply's first guess is close to its height. */
-function estimateRowHeight(item: TranscriptItem | undefined): number {
-  if (item?.kind !== 'text' && item?.kind !== 'user') return ESTIMATED_ROW_HEIGHT
-  const lines = Math.max(1, Math.ceil(item.text.length / CHARS_PER_LINE))
-  return Math.max(ESTIMATED_ROW_HEIGHT, ROW_CHROME + lines * ROW_LINE_HEIGHT)
+/** Whole pixels (`resizeItem` reads float drift as a resize). A `display:none` workspace reports 0
+ *  for every row: the cached height is the honest answer, else the total collapses. */
+function measureRow(
+  el: HTMLDivElement,
+  _entry: ResizeObserverEntry | undefined,
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+): number {
+  const height = Math.round(layoutHeight(el))
+  return height > 0
+    ? height
+    : (instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(el))) ??
+        height)
 }
 
 /** Tool, ask and marker rows of one run sit flush; prose gets the gap. */
 const compact = (id: string, item: TranscriptItem | undefined) =>
-  id.startsWith('g:') || item?.kind === 'tool' || item?.kind === 'ask' || item?.kind === 'marker'
+  id.startsWith('g:') ||
+  item?.kind === 'tool' ||
+  item?.kind === 'ask' ||
+  (item?.kind === 'marker' && !isNotice(item))
 
 /** tanstack's `observeElementRect`, held back while a pane is dragged and never
  *  reporting a parked (0×0) view, which would unmount every row. The anchor hears
@@ -205,14 +189,9 @@ const pinFloor = (start: number, viewport: number, header: number) =>
   Math.max(0, start + viewport - header)
 
 const samePlace = (a: RowPlace | undefined, b: RowPlace) =>
-  !!a &&
-  a.firstTurn === b.firstTurn &&
-  a.firstReply === b.firstReply &&
-  a.turnbar === b.turnbar &&
-  a.precedingUserAt === b.precedingUserAt
+  !!a && a.firstTurn === b.firstTurn && a.firstReply === b.firstReply && a.turnbar === b.turnbar
 
-/** Each row's place: the first turn and reply keep the document hand, a reply is timed from its
- *  prompt, and only the reply that hands control back (none after it before the next prompt) gets
+/** Each row's place: the first turn and reply keep the document hand, and only the reply that hands control back (none after it before the next prompt) gets
  *  a turnbar; the newest run hands it back only once nothing runs. */
 function placesOf(
   ids: string[],
@@ -225,7 +204,6 @@ function placesOf(
   const first = fromStart ? itemOf(ids[0] ?? '') : undefined
   const firstTurn = first?.kind === 'user' ? first.id : undefined
   let firstReply: string | undefined
-  let lastUserAt: string | undefined
   let lastText: string | undefined
   const closeRun = (handedBack: boolean) => {
     const place = lastText ? places.get(lastText) : undefined
@@ -237,12 +215,11 @@ function placesOf(
     if (item?.kind === 'user') {
       if (item.origin === 'harness' || item.origin === 'note') continue
       closeRun(true)
-      lastUserAt = item.at
       places.set(id, { firstTurn: id === firstTurn })
     } else if (item?.kind === 'text') {
       if (firstTurn && !firstReply) firstReply = id
       lastText = id
-      places.set(id, { firstReply: id === firstReply, turnbar: false, precedingUserAt: lastUserAt })
+      places.set(id, { firstReply: id === firstReply, turnbar: false })
     } else if (item?.kind !== 'marker') {
       // A call (or run of them) after the words: those words did not hand back.
       lastText = undefined
@@ -275,7 +252,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const refusal = useFeedError(chatId)
   const items = useChatItems(chatId)
   const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
-  const [measured] = useState(() => new Set<Key>())
   const [pinnedId, setPinnedId] = useState<string | null>(null)
   // The pin's turn is over once its prompt left `pending` and nothing runs.
   const pinnedState = useChatStore((s) =>
@@ -296,10 +272,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   })
   const { afterCommit, notifyReflow, noteScrollWrite, stick, holdsBottom, scrollRef } = anchor
   const holding = useSyncExternalStore(anchor.subscribe, holdsBottom)
+  const away = useSyncExternalStore(anchor.subscribe, anchor.awayFromEnd)
   const releaseFor = turnOver ? (holding ? pinnedId : releasedId) : null
   if (releaseFor !== releasedId) setReleasedId(releaseFor)
   const released = turnOver && releaseFor === pinnedId
-  const [measureRow] = useState(() => measureRowInto(measured))
   const [observeElementRect] = useState(() => observeScrollRectFor(notifyReflow))
   const [observeOffset] = useState(() =>
     observeScrollOffsetFor((report) => {
@@ -307,10 +283,12 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     }),
   )
 
-  // An outbox prompt whose row landed is the rows' from then on, under the same key.
+  // A sending prompt whose row landed is the rows' from then on, under the same key.
   const unsent = useMemo(() => {
     const byId = new Map<string, UserItem>()
     for (const item of outbox) {
+      // Queued and failed prompts are the top tray's until they are really sent.
+      if (item.state !== 'sending') continue
       const id = `p:${item.requestId}`
       if (!items?.has(id)) byId.set(id, asUser(item))
     }
@@ -376,11 +354,20 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   useLayoutEffect(() => onOutboxChange(), [newestUnsent, newestSending])
 
   const getItemKey = useCallback((index: number) => rows[index] ?? index, [rows])
+  const sizeOf = (index: number) => {
+    const id = rows[index] ?? ''
+    return (
+      rowVirtualizer.itemSizeCache.get(id) ??
+      estimateRowHeight(id, itemOf(id), rowVirtualizer.scrollRect?.width)
+    )
+  }
+  const rangeExtractor = reachRange(sizeOf, OVERSCAN)
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (index) => estimateRowHeight(itemOf(rows[index] ?? '')),
-    overscan: 12,
+    estimateSize: sizeOf,
+    overscan: OVERSCAN,
+    rangeExtractor,
     measureElement: measureRow,
     getItemKey,
     observeElementRect,
@@ -397,13 +384,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = keepsRowsStill(holdsBottom)
   }, [rowVirtualizer, holdsBottom])
   const virtualItems = rowVirtualizer.getVirtualItems()
-  const measuring = virtualItems.some((row) => !measured.has(row.key))
-  useOlderTurns(chatId, virtualItems[0]?.index, scrollRef, anchor.keepPlace)
+  const measuring = virtualItems.some((row) => !rowVirtualizer.itemSizeCache.has(row.key))
+  useOlderTurns(chatId, scrollRef, anchor.keepPlace)
   useLayoutEffect(() => afterCommit(measuring))
 
   const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1
   const pinStart = pinIndex < 0 ? undefined : rowVirtualizer.measurementsCache[pinIndex]?.start
-  // A released pin's room slides (transcript.css) down to the rows' own height,
+  // A released pin's room slides (transcript-layout.css) down to the rows' own height,
   // which the floor must reach exactly, else the slide spends itself above or below it.
   const floor =
     pinStart === undefined
@@ -459,6 +446,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
               if (!id) return null
               const next = rows[virtualRow.index + 1]
               const flush = !next || (compact(id, itemOf(id)) && compact(next, itemOf(next)))
+              const noticeRun = !!next && isNotice(itemOf(id)) && isNotice(itemOf(next))
               const firstTurn = places.get(id)?.firstTurn === true
               return (
                 <div
@@ -471,7 +459,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     left: 0,
                     width: '100%',
                     transform: `translateY(${virtualRow.start}px)`,
-                    paddingBottom: flush || firstTurn ? 0 : ROW_GAP,
+                    paddingBottom: flush || firstTurn ? 0 : noticeRun ? NOTICE_GAP : ROW_GAP,
                   }}
                 >
                   <TranscriptRow
@@ -489,7 +477,9 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           </div>
         )}
         {props.tail}
-        {!holding && !empty && <JumpToLatest onJump={jumpToLatest} />}
+        {away && !empty && props.visible !== false && (
+          <JumpToLatest onJump={jumpToLatest} dockTop={props.dockTop || props.dockHeight || 92} />
+        )}
         <div className="dock-spacer" aria-hidden="true" />
       </div>
     </div>

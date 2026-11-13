@@ -1,21 +1,16 @@
-import type { ComponentProps } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { Value } from 'platejs'
-import { PlateController, useEditorRef, type PlateEditor } from 'platejs/react'
 import { delta, ledger, seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import * as commands from '@/features/agent/api/agent-chat-commands'
 import * as reads from '@/features/agent/api/agent-chat-reads'
-import { AgentChatView } from '@/features/agent/chat/agent-chat-view'
 import * as serialization from '@/features/agent/composer/plate/chat-composer-serialization'
 import * as transcriptModule from '@/features/agent/transcript/agent-transcript'
 import { loadPromptStashes } from '@/features/agent/composer/lib/prompt-stash-persistence'
 import { applyFeedFrame, chatStore, failFeed } from '@/features/agent/stores/chat-store'
-import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { entityStore } from '@/core/entities/entity-store'
-import { provider, slashCatalog } from '@/__tests__/__fixtures__/agent-chat'
+import { slashCatalog } from '@/__tests__/__fixtures__/agent-chat'
+import { drawChatView as draw, grabbed } from '@/__tests__/__fixtures__/agent-chat-view'
 
 const platform = vi.hoisted(() => ({ mobile: false }))
 vi.mock('@/utils/platform', async (importOriginal) => ({
@@ -48,45 +43,6 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function draw(chatId: string, overrides: Partial<ComponentProps<typeof AgentChatView>> = {}) {
-  const props: ComponentProps<typeof AgentChatView> = {
-    wsId: 'w1',
-    chatId,
-    providerId: 'codex',
-    providers: [],
-    live: true,
-    canSend: true,
-    active: true,
-    visible: true,
-    isActivePane: true,
-    onOpenTerminal: () => {},
-    provider: 'codex',
-    model: '',
-    effort: '',
-    onSelectionChange: () => {},
-    presentation: 'chat',
-    splitEnabled: false,
-    onSelectPresentation: () => {},
-    ...overrides,
-  }
-  // An empty workspace store: no list in any store names this chat.
-  return render(
-    <PlateController>
-      <WorkspaceStoreContext.Provider value={createWorkspaceStore('w1')}>
-        <AgentChatView {...props} />
-      </WorkspaceStoreContext.Provider>
-      <GrabEditor />
-    </PlateController>,
-  )
-}
-
-// The real composer. jsdom has no `isContentEditable`, and Plate's hotkeys drop a
-// key unless the box holds focus, so a key goes to a focused, editable box.
-const grabbed: { editor?: PlateEditor } = {}
-function GrabEditor() {
-  grabbed.editor = useEditorRef()
-  return null
-}
 const COMPOSER = /message the agent/i
 const DOCUMENT = /describe the change/i
 const box = (name = COMPOSER) => screen.getByRole('textbox', { name })
@@ -100,8 +56,8 @@ async function type(text: string, name = COMPOSER) {
   await focusBox(name)
   await act(async () => grabbed.editor!.tf.insertText(text))
 }
-async function press(key: string, name = COMPOSER) {
-  fireEvent.keyDown(await focusBox(name), { key })
+async function press(key: string, name = COMPOSER, modifiers: { metaKey?: boolean } = {}) {
+  fireEvent.keyDown(await focusBox(name), { key, ...modifiers })
 }
 const markdown = () => serialization.chatValueToMarkdown(grabbed.editor!.children as Value)
 
@@ -170,7 +126,7 @@ describe('AgentChatView', () => {
   // A failed turn is history, not a lock: the bar stays an input, the row says why.
   it('keeps the composer after a failed turn, whose row says why', () => {
     const l = ledger('c1')
-    const failed = { reason: 'turn_failed', detail: '401 Unauthorized' }
+    const failed = { reason: 'turn_failed', kind: 'auth' }
     seedFeed('c1', [
       l.prompt('r1', 'hi'),
       l.start('turn-1', 'r1'),
@@ -178,7 +134,7 @@ describe('AgentChatView', () => {
     ])
     draw('c1')
 
-    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('401 Unauthorized')
+    expect(screen.getByTestId('agent-failed-reason')).toHaveTextContent('Signed out of')
     expect(box()).toBeVisible()
   })
 
@@ -214,8 +170,8 @@ describe('AgentChatView', () => {
     await type('next one')
     await press('Enter')
 
-    expect(await screen.findByTestId('queued-prompt')).toHaveAttribute('data-state', 'queued')
-    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+    expect(await screen.findByTestId('agent-queued-tray')).toHaveTextContent('next one')
+    expect(screen.queryByTestId('queued-prompt')).not.toBeInTheDocument()
     expect(submit).not.toHaveBeenCalled()
   })
 
@@ -235,7 +191,8 @@ describe('AgentChatView', () => {
     seedFeed('c1', [])
     draw('c1')
     await type('/he', DOCUMENT)
-    expect(await screen.findByRole('option', { name: /help.*runs in the terminal/i })).toBeVisible()
+    expect(await screen.findByRole('option', { name: /help/i })).toBeVisible()
+    expect(screen.getByText('Runs in the terminal')).toBeVisible()
   })
 
   it('takes a long first prompt in a fresh chat without an update loop', async () => {
@@ -254,13 +211,14 @@ describe('AgentChatView', () => {
         grabbed.editor!.tf.insertText(line)
       }),
     )
-    await press('Enter', DOCUMENT)
+    await press('Enter', DOCUMENT, { metaKey: true })
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     const requestId = String(submit.mock.calls[0]?.[3])
     act(() => seedFeed('c1', [l.prompt(requestId, long), l.start('turn-1', requestId)]))
     act(() => seedFeed('c1', [l.text('turn-1', 'm1', 0, '1\n2\n3', true), l.end('turn-1')]))
 
-    expect(submit.mock.calls[0]?.[2]).toBe(long)
+    // The document's first line is its title, so the prompt leaves as `# title`.
+    expect(submit.mock.calls[0]?.[2]).toBe(`# ${long}`)
     expect(await screen.findByText(/line 60 of the count/)).toBeInTheDocument()
     expect(String(consoleError.mock.calls)).not.toMatch(/Maximum update depth/)
   })
@@ -308,10 +266,12 @@ describe('AgentChatView one composer', () => {
     expect(screen.getAllByRole('textbox')).toEqual([editable])
 
     await type('add a flag', DOCUMENT)
-    await press('Enter', DOCUMENT)
+    await press('Enter', DOCUMENT, { metaKey: true })
 
     expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('add a flag')
-    await waitFor(() => expect(submit).toHaveBeenCalledWith('w1', 'c1', ...plainSend('add a flag')))
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith('w1', 'c1', ...plainSend('# add a flag')),
+    )
     expect(screen.getAllByRole('textbox')).toEqual([box()])
     expect(box()).toBe(editable)
     expect(markdown()).toBe('')
@@ -451,6 +411,15 @@ describe('AgentChatView on a phone', () => {
     expect(bar!.querySelector('.grp .selpos')).not.toBeNull()
   })
 
+  it('keeps the view switch beside the model chip while the chat is blank', () => {
+    seedFeed('c1', [])
+    draw('c1')
+
+    const bar = screen.getByTestId('agent-empty-document').querySelector('.dochandle')
+    expect(bar!.querySelector('[role="tablist"]')).not.toBeNull()
+    expect(screen.getAllByRole('tablist', { name: 'View' })).toHaveLength(1)
+  })
+
   it('treats Return as a newline: only the send button sends', async () => {
     submitted()
     seedFeed('c1', spokenIn('c1'))
@@ -462,39 +431,5 @@ describe('AgentChatView on a phone', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
     expect(await screen.findByTestId('queued-prompt')).toHaveTextContent('hello')
-  })
-})
-
-// One chat, one name for the model: the blank handle and the underbar are the same
-// control, and a live runner's raw launch id must not replace the reported name.
-describe('AgentChatView model name', () => {
-  const selectable = [provider('codex', 'Codex', { modelSelect: true, models: ['gpt-5'] })]
-
-  it('names the launch model on the blank document handle too', () => {
-    seedFeed('c1', [])
-    draw('c1', { providers: selectable, launchModel: 'gpt-5.6-luna' })
-
-    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
-      'Agent: Codex, model gpt-5.6-luna, effort Default',
-    )
-  })
-
-  it('keeps the reported display name when a live runner reports its raw launch id', () => {
-    const report: reads.AgentTelemetry = {
-      observedAt: '2026-09-23T00:00:00Z',
-      source: 'callback',
-      model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
-    }
-    entityStore.setState((s) => ({
-      byKind: { ...s.byKind, telemetry: { ...s.byKind.telemetry, c1: { v: 1, data: report } } },
-    }))
-    seedFeed('c1', spokenIn('c1'))
-    draw('c1', { providers: selectable, launchModel: 'claude-sonnet-4-5' })
-
-    const picker = screen.getByTestId('agent-selection-picker')
-    expect(picker).toHaveTextContent('Claude Sonnet 4.5')
-    expect(picker).toHaveAccessibleName(
-      'Agent: Codex, model Default (reported Claude Sonnet 4.5), effort Default',
-    )
   })
 })

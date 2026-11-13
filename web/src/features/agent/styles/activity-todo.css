@@ -1,0 +1,145 @@
+.agent-chat .turn-diff {
+  max-width: 100%;
+}
+
+.agent-chat .turn-diff summary {
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.agent-chat .turn-diff .turn-diff-code-view {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.agent-chat .turn-diff .turn-diff-raw {
+  max-height: 240px;
+  margin: 6px 0 0;
+  overflow: auto;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  white-space: pre;
+}
+
+.agent-chat .turn-diff-unavailable {
+  margin: 6px 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.agent-chat .activity-component-row[data-nested] {
+  padding-left: 24px;
+}
+
+.agent-chat .historical-activity {
+  min-width: 0;
+  width: 100%;
+}
+
+.agent-chat .historical-activity .thinking {
+  padding-left: 22px;
+}
+
+.agent-chat .activity-turn-diff {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+.agent-chat .activity-card {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+}
+
+.agent-chat .activity-inline-card,
+.agent-chat .activity-component-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.agent-chat .activity-inline-card > span:not(.activity-component-status),
+.agent-chat .activity-inline-card > a {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-chat .activity-inline-card > a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+.agent-chat .activity-component-heading b {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.agent-chat .activity-component-status {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agent-chat .activity-component-status[data-status='failed'],
+.agent-chat .activity-component-status[data-status='declined'],
+.agent-chat .activity-component-status[data-status='interrupted'],
+.agent-chat .activity-component-status[data-status='abandoned'] {
+  color: var(--destructive);
+}
+
+.agent-chat .activity-component-empty {
+  margin: 5px 0 0;
+  color: var(--muted-foreground);
+}
+
+.agent-chat .activity-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-chat .activity-plan li::before {
+  content: '○';
+  display: inline-block;
+  width: 18px;
+}
+
+.agent-chat .activity-plan li[data-status='active'] {
+  color: var(--foreground);
+}
+
+.agent-chat .activity-plan li[data-status='active']::before {
+  content: '◍';
+}
+
+.agent-chat .activity-plan li[data-status='done'],
+.agent-chat .activity-plan li[data-status='completed'] {
+  opacity: 0.65;
+  text-decoration: line-through;
+}
+
+.agent-chat .activity-plan li[data-status='done']::before,
+.agent-chat .activity-plan li[data-status='completed']::before {
+  content: '●';
+}

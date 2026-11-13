@@ -12,6 +12,8 @@ final class ChromeOverlays {
   private let files: PageChannel
   private let picker = ModelPickerModel()
   private let hostPicker = HostPickerModel()
+  private let plus = PlusMenuModel()
+  private let attach = AttachSheetModel()
   private let settingsModel = SettingsModel()
   private var rowMenu: RowMenu?
   private weak var webview: WKWebView?
@@ -39,6 +41,31 @@ final class ChromeOverlays {
     UIHostingController(rootView: ModelPickerSheet(model: picker, chrome: model))
   } onUserDismiss: { [picker] in
     picker.send(.of("closeModelPicker"))
+  }
+  private lazy var plusSheet: SheetPresenter = SheetPresenter(
+    undimmed: false, detents: [.medium(), .large()]
+  ) { [plus, model, weak self] in
+    UIHostingController(
+      rootView: PlusMenuSheet(
+        model: plus, chrome: model,
+        pick: { id in
+          self?.plusSheet.closeThen { model.send(.of("pickPlusItem", ["id": id])) }
+        },
+        close: { model.send(.of("closePlusMenu")) }))
+  } onUserDismiss: { [model] in
+    model.send(.of("closePlusMenu"))
+  }
+  private lazy var attachSheet: SheetPresenter = SheetPresenter(
+    undimmed: false, detents: [.medium(), .large()]
+  ) { [attach, model, weak self] in
+    UIHostingController(
+      rootView: AttachSheet(
+        model: attach, chrome: model,
+        pick: { id in
+          self?.attachSheet.closeThen { model.send(.of("pickAttachSource", ["id": id])) }
+        }))
+  } onUserDismiss: { [model] in
+    model.send(.of("closeAttachSheet"))
   }
   private lazy var hostSheet = SheetPresenter(undimmed: false, detents: [.large()]) {
     [hostPicker, model] in
@@ -111,6 +138,7 @@ final class ChromeOverlays {
       sidebar.intercept = { type, body, _ in menu.take(type, body) }
       rowMenu = menu
       keyboard = KeyboardFit(webview: webview)
+      keyboard?.fitted = { [weak self] in self?.placeJumpButton() }
       paintSurface(under: webview, host: host)
       FormAccessory.hide(in: webview)
       let filesPage = SecondaryPage.make(
@@ -150,10 +178,6 @@ final class ChromeOverlays {
     settingsModel.applyHosts(snapshot)
   }
 
-  func applyContext(_ state: ContextState) {
-    model.context = state
-  }
-
   func applyTabs(_ state: TabsState) {
     tabs.state = state
     // With no tab open the IDE greets with its own page; the strip is the IDE header's alone.
@@ -164,6 +188,75 @@ final class ChromeOverlays {
     picker.apply(state)
     pickerSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
   }
+
+  func applyPlusMenu(_ state: PlusMenuState) {
+    // A closing push is empty: the sheet keeps its rows while it animates away.
+    if state.open { plus.state = state }
+    plusSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
+  }
+
+  func applyAttachSheet(_ state: AttachSheetState) {
+    // A closing push repeats the last content: the sheet keeps its rows while it animates away.
+    if state.open { attach.state = state }
+    attachSheet.update(open: state.open, busy: false, over: webview?.window?.rootViewController)
+  }
+
+  /// A native glass circle inside the webview, so the card's slide moves it along; the keyboard
+  /// shrinking the page re-places it (`KeyboardFit.fitted`).
+  func applyJumpToLatest(_ state: JumpToLatestState) {
+    guard let view = jumpButton else { return }
+    if state.visible { model.jumpOwner = state.owner }
+    // A stale owner's clear must not take down the button its successor raised.
+    if !state.visible && state.owner != model.jumpOwner { return }
+    if state.visible {
+      model.jumpLabel = state.label
+      jumpBottom = CGFloat(state.bottom)
+      if view.isHidden || view.alpha == 0 {
+        placeJumpButton()
+        view.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        view.isHidden = false
+      }
+      UIView.animate(
+        withDuration: 0.2, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]
+      ) {
+        self.placeJumpButton()
+        view.alpha = 1
+        view.transform = .identity
+      }
+      return
+    }
+    UIView.animate(
+      withDuration: 0.2, delay: 0, options: [.curveEaseIn, .beginFromCurrentState],
+      animations: {
+        view.alpha = 0
+        view.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+      },
+      completion: { _ in view.isHidden = view.alpha == 0 })
+  }
+
+  private var jumpBottom: CGFloat = 0
+
+  /// The circle's distance above the webview's bottom edge, which the keyboard moves.
+  private func placeJumpButton() {
+    guard let view = jumpButton, let webview else { return }
+    view.center = CGPoint(
+      x: webview.bounds.midX,
+      y: webview.bounds.height - jumpBottom - GlassCircle.diameter / 2)
+  }
+
+  private lazy var jumpButton: UIView? = {
+    guard let webview else { return nil }
+    let controller = UIHostingController(
+      rootView: JumpToLatestButton(model: model))
+    controller.view.backgroundColor = .clear
+    let size = GlassCircle.diameter
+    controller.view.frame = CGRect(x: 0, y: 0, width: size, height: size)
+    controller.view.alpha = 0
+    controller.view.isHidden = true
+    webview.addSubview(controller.view)
+    hosted.append(controller)
+    return controller.view
+  }()
 
   func applyHostPicker(_ state: HostPickerState) {
     hostPicker.state = state

@@ -2,11 +2,11 @@ import type { DragEvent, KeyboardEvent, ReactNode, Ref, RefObject } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { AgentTerminalWait } from '@/features/agent/api/agent-chat-reads'
-import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { useAnswerTerminalWait } from '@/features/agent/hooks/use-answer-terminal-wait'
 import { AttachFileModal } from '@/features/agent/composer/attach-file-modal'
-import { ComposerChoice } from '@/features/agent/composer/composer-choice'
+import { ComposerChoiceCarousel } from '@/features/agent/composer/composer-choice-carousel'
 import { ComposerField } from '@/features/agent/composer/composer-field'
+import { CompactionRain } from '@/features/agent/composer/compaction-rain'
 import { ComposerHandle } from '@/features/agent/composer/composer-handle'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
@@ -30,6 +30,7 @@ import {
   AgentEmptyDocument,
   type AgentEmptyDocumentHandle,
 } from '@/features/agent/chat/agent-empty-document'
+import { isAttachShortcut } from '@/features/agent/composer/lib/plus-menu'
 import { isMultiline } from '@/features/agent/composer/lib/handle-geometry'
 import { IS_MOBILE } from '@/utils/platform'
 import { useAttachmentUpload } from '@/features/agent/composer/lib/use-attachment-upload'
@@ -47,10 +48,6 @@ interface AgentComposerProps {
   /** The asks still pending, oldest first. */
   asks: AskItem[]
   providerLabel: string
-  /** This chat's current provider's own declared levels, for the permission
-   *  switcher a permission choice offers. Undefined/empty hides the switcher. */
-  permissionLevels?: PermissionLevel[]
-
   live: boolean
   /** The chat's host does not answer: the bar is a read-only signpost. */
   offline?: boolean
@@ -180,6 +177,17 @@ export function AgentComposer(props: AgentComposerProps) {
     [uploadAndInsert],
   )
 
+  const attachFiles = (files: File[]) => {
+    for (const file of files) void uploadAndInsert({ file })
+  }
+
+  // The chord the plus menu's first row advertises.
+  const handlePillKeyDown = (e: KeyboardEvent) => {
+    if (!isAttachShortcut(e)) return
+    e.preventDefault()
+    setModal('attach-file')
+  }
+
   const openExcalidraw = () => {
     const saved = loadExcalidrawDesign(props.wsId, props.chatId)
     setExcalidrawInitialScene((saved ? parseExcalidrawScene(saved) : null) ?? undefined)
@@ -209,15 +217,24 @@ export function AgentComposer(props: AgentComposerProps) {
     if (returned && (!active || active === window.document.body)) editorRef.current?.focus()
   }, [input, editorRef])
 
-  // Compaction does not take the box away: it queues what is typed, as a busy
-  // turn does, so only the placeholder differs.
+  // A compaction is only a visual: the box invites a prompt as usual, and the footer says it compacts.
   const placeholder = document
     ? 'Describe the change…'
-    : state.kind === 'compacting'
-      ? 'Compacting… your message will be queued'
-      : props.working
-        ? 'Queue a message…'
-        : 'Message the agent…'
+    : props.working || props.sending
+      ? 'Queue a follow-up…'
+      : IS_MOBILE
+        ? 'Ask for a change…'
+        : 'Ask for a change, or type / for commands'
+
+  const plusButton = (
+    <ComposerPlusButton
+      onOpenExcalidraw={openExcalidraw}
+      onOpenAttachFile={() => setModal('attach-file')}
+      onFiles={attachFiles}
+      onMentionFile={() => editorRef.current?.insertTrigger('@')}
+      onStartCommand={() => editorRef.current?.startCommand()}
+    />
+  )
 
   const takeover = modal === 'excalidraw' && (
     <ExcalidrawTakeover
@@ -240,7 +257,6 @@ export function AgentComposer(props: AgentComposerProps) {
           wsId={props.wsId}
           chatId={props.chatId}
           providerLabel={props.providerLabel}
-          permissionLevels={props.permissionLevels}
           terminalWait={props.terminalWait}
           onOpenTerminal={props.onOpenTerminal}
           onStop={(props.working || props.sending) && props.canStop ? props.onStop : undefined}
@@ -256,10 +272,12 @@ export function AgentComposer(props: AgentComposerProps) {
           dropTarget && 'drop-target',
         )}
         data-touch={IS_MOBILE || undefined}
+        onKeyDown={handlePillKeyDown}
         onDragOver={handlePillDragOver}
         onDragLeave={handlePillDragLeave}
         onDrop={handlePillDrop}
       >
+        {!document && props.compacting && <CompactionRain width={IS_MOBILE ? 330 : 720} />}
         <div ref={docRef} className={document ? 'doc' : undefined}>
           <ComposerField
             ref={editorRef}
@@ -280,12 +298,7 @@ export function AgentComposer(props: AgentComposerProps) {
             docRef={docRef}
             hasText={!empty}
             controls={props.controls}
-            attach={
-              <ComposerPlusButton
-                onOpenExcalidraw={openExcalidraw}
-                onOpenAttachFile={() => setModal('attach-file')}
-              />
-            }
+            attach={plusButton}
             working={props.working}
             canStop={props.canStop}
             sending={props.sending}
@@ -303,8 +316,7 @@ export function AgentComposer(props: AgentComposerProps) {
             sending={props.sending}
             onSend={props.onSend}
             onStop={props.onStop}
-            onOpenExcalidraw={openExcalidraw}
-            onOpenAttachFile={() => setModal('attach-file')}
+            attach={plusButton}
           />
         )}
       </div>
@@ -329,7 +341,6 @@ interface ComposerOccupantProps {
   wsId: string
   chatId: string
   providerLabel: string
-  permissionLevels?: PermissionLevel[]
   terminalWait?: AgentTerminalWait
   onOpenTerminal: () => void
   onStop?: () => void
@@ -352,31 +363,13 @@ function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
       )
     case 'choices':
       return (
-        <div className="choice-stack" data-testid="agent-choice-stack">
-          {state.asks.map((ask, i) => (
-            <ComposerChoice
-              key={ask.id}
-              wsId={props.wsId}
-              chatId={props.chatId}
-              pending={state.asks.length}
-              choice={ask.choice}
-              toolTarget={ask.toolTarget}
-              providerLabel={props.providerLabel}
-              permissionLevels={props.permissionLevels}
-              onOpenTerminal={props.onOpenTerminal}
-              position={i + 1}
-              family={ask.family}
-              request={{
-                toolName: ask.choice.toolName,
-                toolTarget: ask.toolTarget,
-                toolInput: ask.toolInput,
-                truncated: ask.toolInputTruncated,
-                mcpServer: ask.mcpServer,
-                why: ask.detail,
-              }}
-            />
-          ))}
-        </div>
+        <ComposerChoiceCarousel
+          asks={state.asks}
+          wsId={props.wsId}
+          chatId={props.chatId}
+          providerLabel={props.providerLabel}
+          onOpenTerminal={props.onOpenTerminal}
+        />
       )
     default:
       return null

@@ -1,3 +1,5 @@
+import { IS_MOBILE } from '@/utils/platform'
+import { cn } from '@/lib/utils'
 import { createContext, use, useMemo, useState, type ReactNode } from 'react'
 
 interface ChatHeaderSlot {
@@ -18,7 +20,12 @@ export function ChatHeaderSlotProvider({ children }: { children: ReactNode }) {
 /** Where a header row lets the chat surface draw its own controls. */
 export function ChatHeaderSlot() {
   const slot = use(ChatHeaderSlotContext)
-  return <div ref={slot?.setElement} className="flex shrink-0 items-center gap-2" />
+  return (
+    <div
+      ref={slot?.setElement}
+      className={cn('flex shrink-0 items-center gap-2', IS_MOBILE && 'empty:hidden')}
+    />
+  )
 }
 
 /** The mounted header slot, or null when this pane has no header row to host one. */

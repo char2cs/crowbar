@@ -34,15 +34,12 @@ describe('WorkingLine', () => {
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 
-  it('keeps working during compaction, with a fixed verb instead of the rotating list', () => {
-    render(<WorkingLine working compacting />)
-    expect(screen.getByText('Compacting…')).toBeInTheDocument()
-  })
-
-  // A /compact opens no turn, so `working` stays false the whole way through.
-  it('shows Compacting even when no turn is running', () => {
-    render(<WorkingLine working={false} compacting />)
-    expect(screen.getByText('Compacting…')).toBeInTheDocument()
+  // The label under the input box says it, so the line stays out of the transcript.
+  it('draws nothing while compacting, with or without a turn', () => {
+    const { container, rerender } = render(<WorkingLine working compacting />)
+    expect(container).toBeEmptyDOMElement()
+    rerender(<WorkingLine working={false} compacting />)
+    expect(container).toBeEmptyDOMElement()
   })
 
   it("headlines the agent's own words instead of a flavour verb", () => {
@@ -76,46 +73,30 @@ describe('WorkingLine', () => {
     expect(verb()).toHaveTextContent(/…$/)
   })
 
-  // A stale thought from the turn before must not sit under "Compacting…".
-  it('hides the thought while compacting', () => {
-    render(<WorkingLine working reasoning="old thought" compacting />)
-    expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
+  // Each of these is already on screen as a card, a row, the plan or the streaming text.
+  it.each([
+    ['a pending request', { asking: true }],
+    ['a running tool', { toolLabel: 'Running npm test' }],
+    ['the active plan step', { activeTodo: 'Survey docs' }],
+    ['streaming answer text', { streaming: true }],
+    ['a thought', { asking: true, reasoning: 'Hmm' }],
+  ])('draws nothing for %s, which the pane already shows', (_, facts) => {
+    const { container } = render(<WorkingLine working {...facts} />)
+    expect(container).toBeEmptyDOMElement()
   })
 
-  it('symptom 8: names the active todo while a turn runs', () => {
-    render(
-      <WorkingLine working activeTodo="Survey docs" toolLabel="Reading a.ts" reasoning="Hmm" />,
-    )
-    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Survey docs')
+  it('draws nothing for subagents alone', () => {
+    render(<WorkingLine working agents={2} />)
+    expect(screen.queryByTestId('agent-activity-strip')).toBeNull()
   })
 
-  it('prefers a pending approval over every other state', () => {
-    render(<WorkingLine working asking compacting activeTodo="Survey docs" agents={2} />)
-    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Waiting for your answer')
-    expect(screen.queryByRole('status')).toBeNull()
-  })
-
-  it('names the running tool, then the agents it waits on, before any thought', () => {
-    const { rerender } = render(
-      <WorkingLine working toolLabel="Running npm test" agents={2} reasoning="Hmm" />,
-    )
-    const heading = () => screen.getByTestId('agent-working-heading')
-    expect(heading()).toHaveTextContent('Running npm test')
-    rerender(<WorkingLine working agents={2} reasoning="Hmm" />)
-    expect(heading()).toHaveTextContent('Waiting for 2 agents')
-    rerender(<WorkingLine working agents={1} reasoning="Hmm" />)
-    expect(heading()).toHaveTextContent('Waiting for 1 agent')
-  })
-
-  it('says Writing while answer text streams, and a running tool over it', () => {
-    const { rerender } = render(<WorkingLine working streaming since="2026-08-18T12:00:00Z" />)
-    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Writing…')
-    rerender(<WorkingLine working streaming toolLabel="Running npm test" />)
-    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Running npm test')
+  it('still says Stopping… while a request is pending', () => {
+    render(<WorkingLine working asking stopping />)
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Stopping…')
   })
 
   it('announces its heading politely, never the clock', () => {
-    render(<WorkingLine working toolLabel="Reading a.ts" since="2026-08-18T12:00:00Z" />)
+    render(<WorkingLine working reasoning="Reading a.ts" since="2026-08-18T12:00:00Z" />)
     const live = screen.getByTestId('agent-working-heading')
     expect(live).toHaveAttribute('aria-live', 'polite')
     expect(live).toHaveTextContent('Reading a.ts')
@@ -136,7 +117,9 @@ describe('WorkingLine', () => {
   })
 
   it('names the connection the chat is waiting on while no turn runs', () => {
-    render(<WorkingLine working={false} connecting="Connecting to Codex…" />)
-    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent('Connecting to Codex…')
+    render(<WorkingLine working={false} connecting="Connecting to Provider B…" />)
+    expect(screen.getByTestId('agent-working-heading')).toHaveTextContent(
+      'Connecting to Provider B…',
+    )
   })
 })

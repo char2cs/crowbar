@@ -42,3 +42,5 @@ api/docs/superpowers/
 desktop/src-tauri/icons/Assets.car
 desktop/src-tauri/icons/crowbar.icns
 desktop/icons-compiler/.build/
+desktop/ios-chrome/.build/
+desktop/ios-chrome/ios/.build/

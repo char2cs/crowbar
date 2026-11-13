@@ -41,6 +41,10 @@ type Capabilities struct {
 	// descriptor declares compact_start. Without it the UI shows no compact control.
 	Compaction bool
 
+	// ShellStop reports whether Crowbar can ASK this provider's agent to end one of
+	// its background shells: the descriptor declares shell_stop.
+	ShellStop bool
+
 	// Hotswap is RuntimeSpec.Hotswap, carried through unchanged: whether both of
 	// this provider's faces can be live at once.
 	Hotswap bool

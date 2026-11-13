@@ -60,3 +60,22 @@ injected_prompts:
 	err := yaml.Unmarshal([]byte("injected_prompts:\n  - scope_id: { pattern: 'no group' }\n"), &d)
 	assert.Error(t, err, "a pattern keeps its (?P<v>...) group")
 }
+
+func TestInjectedPrompts_ATaskNotificationReadsItsTaskAndStatusOutOfThePrompt(t *testing.T) {
+	var d spec.Descriptor
+	require.NoError(t, yaml.Unmarshal([]byte(`
+id: probe
+injected_prompts:
+  - kind: task_notification
+    needle: "<task-notification>"
+    task_id: { pattern: '<task-id>(?P<v>[^<]+)</task-id>' }
+    status:  { pattern: '<status>(?P<v>[^<]+)</status>' }
+    status_map: { completed: finished }
+`), &d))
+
+	p := d.InjectedPrompts[0]
+	prompt := "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n</task-notification>"
+	assert.Equal(t, "t1", p.TaskID.Find(prompt))
+	assert.Equal(t, "completed", p.Status.Find(prompt))
+	assert.Equal(t, map[string]string{"completed": "finished"}, p.StatusMap)
+}

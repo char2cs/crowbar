@@ -3,11 +3,18 @@ import { MagnifyingGlass as Search } from '@phosphor-icons/react'
 import { Dropdown } from '@/components/ui/dropdown'
 import { Input } from '@/components/ui/input'
 import { ProviderIcon } from '@/components/ui/provider-icon'
-import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import type { AgentProvider, PermissionLevel } from '@/features/agent/api/agent-providers-api'
+import {
+  usePermissionLevel,
+  type PermissionTarget,
+} from '@/features/agent/composer/permission-level-switcher'
+import { useModelPickerOpen } from '@/features/agent/controls/model-picker-open'
 import { CheckIcon, UpDownIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 import { hasNativeChrome } from '@/lib/native-chrome'
+import { IS_MOBILE } from '@/utils/platform'
 import { effortLevelsFor, resolveEffort } from './agent-selection-efforts'
+import { fuzzyScore } from './agent-selection-search'
 import { NativeModelPicker } from './native-model-picker'
 
 // Fits the longest model id unwrapped. An inline style because Dropdown locks
@@ -23,15 +30,21 @@ export interface AgentSelectionPickerProps {
   effort: string
   /** A turn is in flight, or a switch is already running. */
   disabled?: boolean
+  /** Lit, as the board's chip while the way on is another model. */
+  hot?: boolean
   /** Local staging only, provider included: nothing is written or switched
    *  until the next message sends, so a row click never tears down the live CLI. */
   onSelectionChange: (provider: string, model: string, effort: string) => void
   /** Display text for an unset `model`/`effort` only. Values stay raw elsewhere:
    *  `pickEffort` echoes `model` back out, and a label must never become a value. */
   unsetLabel?: string
+  /** Names a model nobody has stated; defaults to `unsetLabel`. */
+  modelUnsetLabel?: string
   /** The model the last turn reported, shown beside an unset label. Display only:
    *  substituting it for `model` would break the `efforts['']` lookup. */
   reportedModel?: string
+  /** On the phone the chat's permission level is chosen inside this picker, not in the footer. */
+  permission?: PermissionTarget
 }
 
 interface ModelRow {
@@ -43,27 +56,6 @@ interface ModelRow {
 interface ProviderSection {
   provider: AgentProvider
   rows: ModelRow[]
-}
-
-// Cheap subsequence fuzzy score: every query char must appear in order;
-// contiguous runs score higher so "hgh" ranks "high" over "haiku".
-function fuzzyScore(query: string, text: string): number {
-  if (!query) return 1
-  const q = query.toLowerCase()
-  const t = text.toLowerCase()
-  let qi = 0
-  let score = 0
-  let streak = 0
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) {
-      qi++
-      streak++
-      score += streak
-    } else {
-      streak = 0
-    }
-  }
-  return qi === q.length ? score + 1 : 0
 }
 
 function effortLabel(level: string): string {
@@ -261,6 +253,40 @@ function EffortSlider({
   )
 }
 
+/** The phone's web fallback for the native sheet's level section. */
+function PermissionRadios({
+  options,
+  level,
+  onPick,
+}: {
+  options: { value: PermissionLevel; label: string; description: string }[]
+  level: PermissionLevel | ''
+  onPick: (level: PermissionLevel) => void
+}) {
+  return (
+    <div role="group" aria-label="Permission level" className="border-border/60 border-t p-1">
+      <div className="ui-font ui-text-sm px-2.5 py-1 text-muted-foreground">Permission</div>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          role="menuitemradio"
+          aria-checked={opt.value === level}
+          onClick={() => onPick(opt.value)}
+          className="ui-font ui-text-sm flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-foreground hover:bg-muted"
+        >
+          {opt.value === level ? (
+            <CheckIcon size={12} className="shrink-0" />
+          ) : (
+            <span className="inline-block size-3 shrink-0" />
+          )}
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** One menu: picking a model picks its provider (providers are sections), and
  *  effort sits at the foot as a property of the current model. A provider with
  *  no catalogue contributes nothing — never a disabled control. */
@@ -270,18 +296,24 @@ export function AgentSelectionPicker({
   model,
   effort,
   disabled,
+  hot,
   onSelectionChange,
   unsetLabel = 'unset',
+  modelUnsetLabel = unsetLabel,
   reportedModel,
+  permission,
 }: AgentSelectionPickerProps) {
-  const modelLabel = model || unsetLabel
+  // Unpicked, the chip names the model the provider reported, never a 'Default (…)' wrapper.
+  const modelLabel = model || reportedModel || modelUnsetLabel
   const effortLabelText = effort || unsetLabel
-  const showsReport = !model && Boolean(reportedModel)
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setOpen] = useModelPickerOpen(permission?.chatId)
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const anchorRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const level = usePermissionLevel(IS_MOBILE && isOpen && permission ? permission : null)
+  const permissionChoice =
+    level.options.length > 0 ? { ...level, onPick: level.setLevel } : undefined
 
   // An uninstalled CLI cannot spawn; a disabled one the user asked not to see.
   const offered = useMemo(
@@ -324,13 +356,16 @@ export function AgentSelectionPicker({
 
   useEffect(() => {
     if (!isOpen) return
-    setQuery('')
-    setHighlight(0)
     const frame = window.requestAnimationFrame(() => searchRef.current?.focus())
-    return () => window.cancelAnimationFrame(frame)
+    // A search belongs to one opening of the menu: closing it lets the query go.
+    return () => {
+      window.cancelAnimationFrame(frame)
+      setQuery('')
+      setHighlight(0)
+    }
   }, [isOpen])
 
-  const close = useCallback(() => setIsOpen(false), [])
+  const close = useCallback(() => setOpen(false), [setOpen])
 
   // Stages the provider alongside the model — never a live switch.
   const pickModel = useCallback(
@@ -379,23 +414,16 @@ export function AgentSelectionPicker({
         disabled={disabled}
         data-testid="agent-selection-picker"
         title={`${provider?.displayName ?? 'Agent'} — provider, model and effort.`}
-        aria-label={`Agent: ${provider?.displayName ?? 'none'}, model ${modelLabel}${showsReport ? ` (reported ${reportedModel})` : ''}, effort ${effortLabelText}`}
+        aria-label={`Agent: ${provider?.displayName ?? 'none'}, model ${modelLabel}, effort ${effortLabelText}`}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        onClick={() => setIsOpen((open) => !open)}
-        className={cn('chip max-w-56', (provider || model) && 'set')}
+        onClick={() => setOpen(!isOpen)}
+        className="chip max-w-56"
+        data-hot={hot || undefined}
       >
-        {provider && <ProviderIcon svg={provider.icon} className="size-3" />}
+        {provider && <ProviderIcon svg={provider.icon} className="size-[13px]" />}
         <b className="font-semibold text-foreground">{modelLabel}</b>
-        {showsReport && (
-          <span className="truncate text-[11px] text-muted-foreground">({reportedModel})</span>
-        )}
-        {(model || effort) && (
-          <>
-            <span className="opacity-50">&middot;</span>
-            <span className="truncate">{effortLabel(effortLabelText)}</span>
-          </>
-        )}
+        {(model || effort) && <span className="truncate">{effortLabel(effortLabelText)}</span>}
         <UpDownIcon size={12} className="opacity-55" />
       </button>
       {hasNativeChrome() ? (
@@ -405,6 +433,7 @@ export function AgentSelectionPicker({
           provider={provider}
           model={model}
           effort={effort}
+          permission={permissionChoice}
           onSelectionChange={onSelectionChange}
           onClose={close}
         />
@@ -448,6 +477,13 @@ export function AgentSelectionPicker({
               defaultEffort={provider?.defaultEfforts?.[model] ?? ''}
               onPick={pickEffort}
             />
+            {permissionChoice && (
+              <PermissionRadios
+                options={permissionChoice.options}
+                level={permissionChoice.level}
+                onPick={permissionChoice.onPick}
+              />
+            )}
           </div>
         </Dropdown>
       )}

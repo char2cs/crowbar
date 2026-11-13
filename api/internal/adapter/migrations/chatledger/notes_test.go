@@ -140,7 +140,7 @@ func TestConvertChat_WhatCouldNotBeReadIsCountedInOneMarker(t *testing.T) {
 	res := convert(t, in, nobody)
 
 	markers := bodies[ledger.Marker](t, res, ledger.KindMarker)
-	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "3 legacy records could not be converted"}, markers[len(markers)-1])
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "3 legacy records could not be converted", Records: res.Skipped}, markers[len(markers)-1])
 	assert.Contains(t, res.Skipped, "choice ch-1: options unreadable")
 	assert.Contains(t, res.Skipped, "choice ch-1: schema unreadable")
 	for _, m := range bodies[ledger.Marker](t, convert(t, chatA(), nobody), ledger.KindMarker) {
@@ -163,7 +163,7 @@ func TestConvertChat_EveryRecordLeftOutIsCounted(t *testing.T) {
 	res := convert(t, in, nobody)
 
 	markers := bodies[ledger.Marker](t, res, ledger.KindMarker)
-	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "6 legacy records could not be converted"}, markers[len(markers)-1])
+	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerUnreadable, Detail: "6 legacy records could not be converted", Records: res.Skipped}, markers[len(markers)-1])
 	assert.Equal(t, 6, res.LeftOut)
 	assert.Len(t, res.Skipped, res.LeftOut, "each record named is one the marker counts")
 }

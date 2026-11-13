@@ -1,0 +1,214 @@
+/* ── the row under the pill ────────────────────────────── */
+/* Never wraps: a wrapped `.right` (compaction label, context pill) lands at or past the
+   dock's bottom edge at narrow widths. `.right` holds the row; `.left` shrinks and clips. */
+.agent-chat .underbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 12px;
+  min-height: 34px;
+  padding: 2px 10px 0 12px;
+  overflow: hidden;
+  font-size: var(--ui-text-sm);
+  color: var(--muted-foreground);
+}
+.agent-chat .underbar .left,
+.agent-chat .underbar .right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  /* Never break "NN% context" mid-word — a group that doesn't
+     fit moves to the next line whole, it doesn't fold in place. */
+  white-space: nowrap;
+}
+/* `.left` gives: it already shrinks (`min-width: 0`), and clipping its overflow keeps a wide
+   cluster from pushing `.right` or growing the row. */
+.agent-chat .underbar .left {
+  overflow: hidden;
+}
+/* `.right` keeps its natural width and never shrinks or wraps; the margin pins it right. */
+.agent-chat .underbar .right {
+  flex: none;
+  margin-left: auto;
+}
+/* Only in the underbar does the identity cluster compete for its row, so here it shrinks and
+   wraps internally: the view switcher (last, least essential) drops a line instead of the
+   cluster spilling past the dock. Elsewhere `.selpos` stays `flex: none`. */
+.agent-chat .underbar .selpos {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* The selection cluster: model, effort and the view switcher read as ONE
+   control group, which is why they sit closer to each other (2px) than the
+   group does to anything else in the row (10px). */
+.agent-chat-pane .selpos {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+/* The underbar's chip. Lower contrast than a Button by design: this row reports what the chat IS,
+   so only the model's name is in the foreground colour. */
+.agent-chat-pane .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: var(--ui-text-sm);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .agent-chat-pane .chip:hover:not(:disabled) {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+}
+.agent-chat-pane .chip[data-hot] {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--foreground);
+}
+.agent-chat-pane .chip:disabled {
+  cursor: default;
+}
+
+/* The context pill at the right end of the line: a conic ring and the percentage. At 85% the ring
+   turns to the warning colour. A plain span reports; a button opens the Compact menu. */
+.agent-chat .ctx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: none;
+  font-family: inherit;
+  font-size: var(--ui-text-sm);
+  line-height: 1;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.agent-chat button.ctx-pill {
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .agent-chat button.ctx-pill:hover {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+}
+.agent-chat .ctx-pill b {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.agent-chat .ctx-ring {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--primary) calc(var(--p) * 1%),
+    color-mix(in oklch, var(--foreground) 14%, transparent) 0
+  );
+  mask-image: radial-gradient(circle, transparent 4px, #000 4.5px);
+}
+.agent-chat .ctx-pill[data-level='warn'] .ctx-ring {
+  background: conic-gradient(
+    var(--warning) calc(var(--p) * 1%),
+    color-mix(in oklch, var(--foreground) 14%, transparent) 0
+  );
+}
+.agent-chat .ctx-compacting {
+  padding: 0 8px;
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+  color: var(--primary);
+}
+/* The switch sits centred BETWEEN the model chip and the context pill: `space-between` splits the
+   free room into two equal gaps, so a wide chip pushes it right instead of leaving it off-centre.
+   The chip side shrinks and clips before the switch or the pill do. */
+.agent-chat .underbar[data-touch] > .mid {
+  display: flex;
+  flex: none;
+  justify-content: center;
+}
+.agent-chat .underbar[data-touch] > .right {
+  margin-left: 0;
+}
+/* 32pt to the eye, 44pt to the finger; the sliding indicator is as round as the pill. */
+.viewswitch [data-slot='segmented-control-indicator'] {
+  border-radius: 9999px;
+  /* An equal 2px inset on every side, from the list's own box: the Tabs vertical variables put
+     the indicator off-centre once the segments carry hit-area pseudo-elements. */
+  top: 2px;
+  bottom: auto;
+  height: calc(100% - 4px);
+  translate: var(--active-tab-left) 0;
+}
+.viewswitch [role='tab'] {
+  position: relative;
+}
+.viewswitch [role='tab']::before {
+  content: '';
+  position: absolute;
+  inset: -8px 0;
+}
+/* The phone's footer is a row of 44px targets: the model chip at the left, the pill at the right. */
+.agent-chat .underbar[data-touch] {
+  min-height: 44px;
+  font-size: 13px;
+}
+.agent-chat .underbar[data-touch] .chip {
+  position: relative;
+  height: 32px;
+  padding: 0 8px;
+  gap: 5px;
+  border-radius: 9999px;
+  font-size: 13px;
+}
+/* 32px to the eye like the context pill, 44pt to the finger. */
+.agent-chat .underbar[data-touch] .chip::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
+.agent-chat .underbar[data-touch] .chip [data-provider-icon],
+.agent-chat .underbar[data-touch] .chip [data-provider-icon] svg {
+  width: 15px;
+  height: 15px;
+}
+.agent-chat .underbar[data-touch] .ctx-pill {
+  height: 32px;
+  padding: 0 11px 0 8px;
+  font-size: 13px;
+  gap: 7px;
+}
+/* 44pt to the finger, 32pt to the eye. */
+.agent-chat .underbar[data-touch] button.ctx-pill {
+  position: relative;
+}
+.agent-chat .underbar[data-touch] button.ctx-pill::before {
+  content: '';
+  position: absolute;
+  inset: -6px -4px;
+}
+.agent-chat .underbar[data-touch] .ctx-ring {
+  width: 15px;
+  height: 15px;
+  mask-image: radial-gradient(circle, transparent 5px, #000 5.5px);
+}
+.agent-chat .underbar[data-touch] .ctx-compacting {
+  padding: 0 4px;
+  font-size: 13px;
+}

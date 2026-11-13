@@ -1,7 +1,10 @@
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
-import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
-import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
+import {
+  PermissionLevelChip,
+  type PermissionTarget,
+} from '@/features/agent/composer/permission-level-switcher'
+import { IS_MOBILE } from '@/utils/platform'
 
 export interface SelectionClusterProps {
   provider?: AgentProvider
@@ -9,33 +12,27 @@ export interface SelectionClusterProps {
   model: string
   effort: string
   reportedModel?: string
-  presentation: ChatPresentation
-  splitEnabled: boolean
-  /** Draw the surface switcher. Exactly one exists on a pane. */
-  showSwitcher?: boolean
-  handoverBlocked?: boolean
   switchDisabled?: boolean
+  /** The model chip is lit: the way on is a different model. */
+  hot?: boolean
+  /** A chip after the picker on the desktop, a section of the model picker's sheet on the phone. */
+  permission?: PermissionTarget
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  onSelectPresentation: (next: ChatPresentation) => void
 }
 
-/** Shared by the underbar and the blank document's handle so a chat never names
- *  its model differently in the two. */
+/** Shared by the underbar and the blank document's handle so a chat never names its model or
+ *  permission level differently in the two. */
 export function SelectionCluster({
   provider,
   providers,
   model,
   effort,
   reportedModel,
-  presentation,
-  splitEnabled,
-  showSwitcher,
-  handoverBlocked,
   switchDisabled,
+  hot,
+  permission,
   onSelectionChange,
-  onSelectPresentation,
 }: SelectionClusterProps) {
-  const switcher = showSwitcher
   return (
     <span className="selpos">
       {/* One merged control: picking a model already picks its provider. */}
@@ -46,19 +43,15 @@ export function SelectionCluster({
         effort={effort}
         reportedModel={reportedModel}
         disabled={switchDisabled}
+        hot={hot}
+        permission={permission}
         onSelectionChange={onSelectionChange}
         // Display only: `model`/`effort` stay '' when unset.
         unsetLabel="Default"
+        // Nothing is guessed: a model the provider has not stated reads as a neutral 'Model'.
+        modelUnsetLabel="Model"
       />
-      {switcher && <span className="sep" />}
-      {switcher && (
-        <ViewSwitcher
-          presentation={presentation}
-          splitEnabled={splitEnabled}
-          handoverBlocked={handoverBlocked}
-          onSelect={onSelectPresentation}
-        />
-      )}
+      {!IS_MOBILE && permission && <PermissionLevelChip target={permission} />}
     </span>
   )
 }

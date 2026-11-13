@@ -1,9 +1,6 @@
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { ComposerPlusButton } from '@/features/agent/composer/composer-plus-button'
-import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
-import { cn } from '@/lib/utils'
+import type { ReactNode } from 'react'
+import { ComposerActionButton } from '@/features/agent/composer/composer-action-button'
 import { handleOffset } from '@/features/agent/composer/lib/handle-geometry'
-import { IS_MOBILE } from '@/utils/platform'
 
 interface ComposerHandleProps {
   fieldHeight: number
@@ -15,12 +12,11 @@ interface ComposerHandleProps {
   sending: boolean
   onSend: () => void
   onStop: () => void
-  onOpenExcalidraw: () => void
-  onOpenAttachFile: () => void
+  /** The plus button, built by whoever knows what it can reach. */
+  attach: ReactNode
 }
 
-/** Stop wins over send whenever the turn is stoppable — Enter still queues typed
- *  text. Sending gets its own look so the gap before delivery doesn't read as a dead click. */
+/** Plus and the action circle, side by side at the right end of the pill, riding the last line. */
 export function ComposerHandle({
   fieldHeight,
   hasText,
@@ -29,35 +25,19 @@ export function ComposerHandle({
   sending,
   onSend,
   onStop,
-  onOpenExcalidraw,
-  onOpenAttachFile,
+  attach,
 }: ComposerHandleProps) {
-  // A phone has no Enter to queue with, so typed text makes the button send.
-  const stopping = (working || sending) && canStop && !(IS_MOBILE && hasText)
-  const sendingVisual = !stopping && !hasText && sending
-  const idle = !stopping && !sendingVisual && !hasText
-
   return (
     <div className="handle" style={{ transform: `translateY(${handleOffset(fieldHeight)}px)` }}>
-      <ComposerPlusButton onOpenExcalidraw={onOpenExcalidraw} onOpenAttachFile={onOpenAttachFile} />
-      <button
-        type="button"
-        className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
-        disabled={idle || sendingVisual}
-        aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
-        title={stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'}
-        // Keeps the editor focused, so tapping send does not drop the keyboard.
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={stopping ? onStop : onSend}
-      >
-        {stopping ? (
-          <StopIcon size={16} />
-        ) : sendingVisual ? (
-          <FlickerSpinner className="size-4" />
-        ) : (
-          <UpIcon size={16} />
-        )}
-      </button>
+      {attach}
+      <ComposerActionButton
+        hasText={hasText}
+        working={working}
+        canStop={canStop}
+        sending={sending}
+        onSend={onSend}
+        onStop={onStop}
+      />
     </div>
   )
 }

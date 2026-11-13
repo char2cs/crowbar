@@ -23,7 +23,7 @@ export async function answerChoice(
   wsId: string,
   chatId: string,
   choiceId: string,
-  answer: { optionIds: string[]; reason?: string; content?: unknown },
+  answer: { optionIds: string[]; content?: unknown },
 ): Promise<void> {
   await apiFetch<unknown>(
     `${chatBase(wsId)}/${encodeURIComponent(chatId)}` +
@@ -31,11 +31,10 @@ export async function answerChoice(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // An omitted reason/content is omitted on the wire, not sent as null: the
+      // An omitted content is omitted on the wire, not sent as null: the
       // backend reads content as raw JSON and "absent" is its own answer there.
       body: JSON.stringify({
         optionIds: answer.optionIds,
-        reason: answer.reason,
         content: answer.content,
       }),
     },
@@ -130,6 +129,15 @@ export async function compactChat(wsId: string, id: string): Promise<void> {
   await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/compact`, {
     method: 'POST',
   })
+}
+
+// stopShell asks the chat's agent to end one of its background shells. The shell closes
+// only when the agent's own end arrives; gate the control on the provider's `shellStop`.
+export async function stopShell(wsId: string, id: string, shellId: string): Promise<void> {
+  await apiFetch<unknown>(
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/shells/${encodeURIComponent(shellId)}/stop`,
+    { method: 'POST' },
+  )
 }
 
 /** Type the descriptor-declared reply into the prompt a chat's CLI is parked on.

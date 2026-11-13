@@ -26,12 +26,13 @@ export function choiceQuestions(choice: AgentChoice): AgentChoiceQuestion[] {
 // A permission's headline by the gated call's family: a provider's internal tool
 // name ("commandExecution") is not words a person reads.
 const ASKED: Partial<Record<ToolFamily, string>> = {
-  execute: 'Run a command?',
-  edit: 'Edit files?',
-  read: 'Read a file?',
-  fetch: 'Fetch a web page?',
-  search: 'Search?',
-  plan: 'Approve this plan?',
+  execute: 'Run a command',
+  edit: 'Edit a file',
+  read: 'Read a file',
+  fetch: 'Fetch a web page',
+  search: 'Search',
+  plan: 'Approve this plan',
+  mcp: 'Use a tool',
 }
 
 /** The headline of a prompt; a kind this build does not know falls through to
@@ -40,7 +41,7 @@ export function describeChoice(choice: AgentChoice, family?: ToolFamily): string
   switch (choice.kind) {
     case 'tool_permission':
       if (family && ASKED[family]) return ASKED[family]
-      return choice.toolName ? `Run ${choice.toolName}?` : 'The agent is asking for permission'
+      return choice.toolName ? `Run ${choice.toolName}` : 'The agent is asking for permission'
     case 'question': {
       if (choice.question || choice.title) return choice.question || choice.title || ''
       // Naming one of several questions as the headline would be a lie a reader could act on.
@@ -97,15 +98,15 @@ export function describeResolvedChoice(choice: AgentChoice): string {
 
 /** How an ask on a tool call was decided, said on that call's row. */
 export function askNote(choice: AgentChoice): string {
-  if (choice.resolution === 'proceeded') return 'Answered at the terminal'
-  if (choice.resolution === 'refused') return 'No answer in time'
-  if (choice.resolution === 'abandoned') return 'Left unanswered'
+  if (choice.resolution === 'proceeded') return 'Allowed in terminal'
+  if (choice.resolution === 'refused') return 'Timed out'
+  if (choice.resolution === 'abandoned') return 'Not answered'
   const ids = new Set(choice.answeredOptionIds)
   const picked = choice.options.filter((option) => ids.has(option.id))
   if (picked.some((option) => option.kind === 'deny')) return 'Denied'
   const allowed = picked.find((option) => option.kind === 'allow')
-  // A label that is only the kind's own word ("Allow") would say the verdict twice.
-  const extra = allowed?.label && allowed.label.toLowerCase() !== allowed.kind ? allowed.label : ''
+  // "Allow" / "Allow once" say the verdict twice; a broader grant ("Allow for session") adds to it.
+  const extra = allowed?.label && !/^allow( once)?$/i.test(allowed.label) ? allowed.label : ''
   if (allowed) return extra ? `Allowed · ${extra}` : 'Allowed'
   const labels = pickedOptionLabels(choice)
   return labels.length > 0 ? labels.join(', ') : 'Answered'

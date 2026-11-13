@@ -20,8 +20,8 @@ beforeEach(() => {
 afterEach(() => resetWindowPaneStoreForTests())
 
 describe('MobileTopBar', () => {
-  // The title sits beside the chat-list button and stops short of the native context meter.
-  it('keeps the title clear of the context meter while the focused chat reports usage', () => {
+  // The context pill lives in the dock footer, so usage never shortens the title.
+  it('runs the title up to the trailing button whether or not the chat reports usage', () => {
     render(<MobileTopBar />)
     expect(titleBox().style.paddingLeft).toBe('68px')
     expect(titleBox().style.paddingRight).toBe('68px')
@@ -39,6 +39,6 @@ describe('MobileTopBar', () => {
         },
       }),
     )
-    expect(titleBox().style.paddingRight).toBe('148px')
+    expect(titleBox().style.paddingRight).toBe('68px')
   })
 })

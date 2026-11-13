@@ -1,12 +1,18 @@
 import { memo, useCallback, useState } from 'react'
-import { CaretRightIcon } from '@phosphor-icons/react'
+import {
+  CaretRightIcon,
+  CheckIcon,
+  CircleDashedIcon,
+  ProhibitIcon,
+  StopIcon,
+  XIcon,
+} from '@phosphor-icons/react'
+import type { Icon } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { TurnDiffPreview } from '@/features/agent/activity/turn-diff-preview'
 import { useLiveText } from '@/features/agent/hooks/use-chat-feed'
 import { describeResolvedChoice } from '@/features/agent/composer/lib/ask-labels'
 import {
-  CheckIcon,
-  CloseIcon,
   FetchIcon,
   FileIcon,
   PencilIcon,
@@ -17,22 +23,14 @@ import {
 } from '@/features/agent/shared/agent-icons'
 import type { AskItem, ToolItem } from '@/features/agent/stores/lib/transcript-items'
 import {
-  commandProgramName,
   diffStat,
   formatDuration,
   labelText,
-  tailOf,
   toolLabel,
 } from '@/features/agent/transcript/lib/tool-label'
 import { McpServerBadge } from '@/features/agent/transcript/rows/mcp-server-badge'
 import { ToolPayload } from '@/features/agent/transcript/rows/tool-payload'
 import { plain } from '@/features/agent/transcript/lib/payload-text'
-
-/** A running tool's output is a progress signal, not a log: one line's worth. */
-const TOOL_OUTPUT_LIMIT = 120
-
-/** An edit this small reads at a glance, so its diff starts open. */
-const OPEN_DIFF_LINES = 12
 
 const FAMILY_ICONS: Partial<Record<ToolItem['family'], typeof ToolIcon>> = {
   read: FileIcon,
@@ -43,22 +41,54 @@ const FAMILY_ICONS: Partial<Record<ToolItem['family'], typeof ToolIcon>> = {
   subagent: SubagentIcon,
 }
 
-/** What a call that never finished says in place of a result. */
-const STATE_TEXT: Partial<Record<ToolItem['status'], string>> = {
-  declined: 'Denied',
-  interrupted: 'Stopped',
-  abandoned: 'Result unavailable',
+/** A call's outcome when it is not simply "went well": each reads differently at a glance. */
+interface Outcome {
+  kind: 'failed' | 'denied' | 'stopped' | 'unavailable' | 'awaiting'
+  text: string
+  Glyph: Icon
 }
 
-function StatusGlyph({ status }: { status: ToolItem['status'] }) {
+const OUTCOMES: Partial<Record<ToolItem['status'], Outcome>> = {
+  error: { kind: 'failed', text: 'Failed', Glyph: XIcon },
+  declined: { kind: 'denied', text: 'Denied', Glyph: ProhibitIcon },
+  interrupted: { kind: 'stopped', text: 'Stopped', Glyph: StopIcon },
+  abandoned: { kind: 'unavailable', text: 'Result unavailable', Glyph: CircleDashedIcon },
+}
+
+/** How an ask was decided, as the look its pill takes: a yes is quiet, a no is the
+ *  warning tone, an answer that never came is dashed. */
+function noteKind(note: string): string {
+  if (note.startsWith('Denied')) return 'denied'
+  if (note === 'Timed out' || note === 'Not answered') return 'unavailable'
+  return 'allowed'
+}
+
+const AWAITING: Outcome = {
+  kind: 'awaiting',
+  text: 'Needs your answer',
+  Glyph: CircleDashedIcon,
+}
+
+/** Running spins, a call that went well is checked, every other outcome has its own glyph. */
+function StatusGlyph({ status, outcome }: { status: ToolItem['status']; outcome?: Outcome }) {
+  if (outcome) {
+    const { Glyph } = outcome
+    return (
+      <Glyph
+        size={12}
+        weight={outcome.kind === 'stopped' ? 'fill' : 'regular'}
+        className="tool-glyph"
+      />
+    )
+  }
   if (status === 'running') return <FlickerSpinner className="size-3" />
-  if (status === 'ok') return <CheckIcon size={12} className="tool-glyph" />
-  return <CloseIcon size={12} className="tool-glyph" />
+  return status === 'ok' ? <CheckIcon size={12} className="tool-glyph" /> : null
 }
 
-function Label({ item }: { item: ToolItem }) {
-  const { verb, subject } = toolLabel(item)
-  const live = item.status === 'running' ? '' : undefined
+function Label({ item, waiting }: { item: ToolItem; waiting: boolean }) {
+  // A call waiting on the person reads with the live verb, as the boards draw it.
+  const { verb, subject } = toolLabel(waiting ? { ...item, status: 'running' } : item)
+  const live = item.status === 'running' && !waiting ? '' : undefined
   if (item.family === 'mcp') {
     return (
       <span className="tool-call-label" data-testid="agent-tool-label">
@@ -84,31 +114,22 @@ function Label({ item }: { item: ToolItem }) {
   )
 }
 
-/** The command itself, when the label named it by something else. */
-function commandLine(item: ToolItem): string {
-  const target = item.body.target?.trim() ?? ''
-  if (item.family !== 'execute' || !target) return ''
-  const shown = item.body.title || commandProgramName(target)
-  return shown === target ? '' : (target.split('\n')[0] ?? '')
-}
-
 function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
-  const [toggled, setToggled] = useState<boolean | null>(null)
+  const [open, setOpen] = useState(false)
   const { body, status, family } = item
-  const running = status === 'running'
-  const output = useLiveText(chatId, item.toolId, 'tool_output')
   const liveDiff = useLiveText(chatId, item.toolId, 'diff')
   const patch = family === 'edit' ? body.diff || liveDiff || '' : ''
   const stat = patch ? diffStat(patch) : null
-  const showDiff = toggled ?? (stat !== null && stat.added + stat.removed <= OPEN_DIFF_LINES)
-  const expandable = Boolean(body.inputRef || body.resultRef || patch)
+  const expandable = Boolean(body.inputRef || body.resultRef || body.output || body.error || patch)
   const Icon = FAMILY_ICONS[family] ?? ToolIcon
-  const errorLine = status === 'error' ? body.error?.split('\n')[0] : undefined
-  const exit =
-    body.exitCode && (body.resultRef || output) ? (
-      <span className="tool-call-exit">exit {body.exitCode}</span>
-    ) : null
-  const command = commandLine(item)
+  const outcome = item.askId !== undefined ? AWAITING : OUTCOMES[status]
+  // What a call cost is on hover, never on the line.
+  const cost = [
+    stat && `+${stat.added} −${stat.removed}`,
+    body.durationMs !== undefined && formatDuration(body.durationMs),
+  ]
+    .filter(Boolean)
+    .join(' · ')
   // The call waiting on the person is brought into view while it waits.
   const awaiting = item.askId !== undefined
   const reveal = useCallback(
@@ -118,39 +139,27 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
     [awaiting],
   )
   const summary = (
-    <span className="tool-call-summary">
-      <StatusGlyph status={status} />
+    <span className="tool-call-summary" title={cost || undefined}>
+      <StatusGlyph status={status} outcome={outcome} />
       <span className="kind" data-tool-kind={body.kind}>
         <Icon size={12} />
       </span>
-      <Label item={item} />
-      {item.askId ? (
-        <span className="tool-call-state">Waiting for your approval</span>
-      ) : (
-        // How its ask was decided says why it did not run; the state would repeat it.
-        STATE_TEXT[status] &&
-        !item.askNote && <span className="tool-call-state">{STATE_TEXT[status]}</span>
-      )}
-      {item.askNote && (
-        <span className="tool-call-note" data-testid="agent-tool-ask-note">
+      <Label item={item} waiting={awaiting} />
+      {/* How its ask was decided says why it did not run; the outcome would repeat it. */}
+      {item.askNote ? (
+        <span
+          className="tool-call-note"
+          data-outcome={noteKind(item.askNote)}
+          data-testid="agent-tool-ask-note"
+        >
           {item.askNote}
         </span>
-      )}
-      {stat && (
-        <span className="tool-call-stat">
-          +{stat.added} −{stat.removed}
-        </span>
-      )}
-      {exit}
-      {errorLine && <span className="err">{errorLine}</span>}
-      {command && <span className="tool-call-command">$ {command}</span>}
-      {body.durationMs !== undefined && (
-        <span className="tool-call-duration">{formatDuration(body.durationMs)}</span>
-      )}
-      {running && output && (
-        <span className="out" data-testid="agent-tool-output">
-          {tailOf(output, TOOL_OUTPUT_LIMIT)}
-        </span>
+      ) : (
+        outcome && (
+          <span className="tool-call-state" data-outcome={outcome.kind}>
+            {outcome.text}
+          </span>
+        )
       )}
     </span>
   )
@@ -173,25 +182,25 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
                   type="button"
                   className="tool-row-toggle"
                   aria-label="Show tool details"
-                  aria-expanded={toggled ?? showDiff}
-                  onClick={() => setToggled(!(toggled ?? showDiff))}
+                  aria-expanded={open}
+                  onClick={() => setOpen((o) => !o)}
                 >
                   <CaretRightIcon size={12} />
                 </button>
               )}
             </div>
-            {patch && showDiff && (
+            {open && patch && (
               <div className="turn-diff tool-turn-diff" data-testid="agent-tool-diff">
                 <TurnDiffPreview diff={patch} turnId={item.toolId} target={body.target} />
               </div>
             )}
-            {body.output && !running && !toggled && (
+            {open && (body.output || body.error) && (
               <pre className="tool-call-output" data-testid="agent-tool-short-output">
-                {plain(body.output)}
+                {plain(body.output || body.error || '')}
               </pre>
             )}
             {/* The blobs are read only once someone asks for them. */}
-            {toggled && (body.inputRef || body.resultRef) && (
+            {open && (body.inputRef || body.resultRef) && (
               <ToolPayload chatId={chatId} inputRef={body.inputRef} resultRef={body.resultRef} />
             )}
           </li>

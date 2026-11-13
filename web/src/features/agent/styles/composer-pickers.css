@@ -1,0 +1,577 @@
+/* ── the slash and file pickers ────────────────────────── */
+.agent-chat .slash {
+  margin-bottom: 8px;
+  /* Never taller than the room above the dock, or it climbs under the header and the view
+     switcher: 300px is the header, the switcher, the pill and the footer. */
+  max-height: min(360px, calc(100dvh - 300px));
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--popover);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 16px 36px -14px oklch(0 0 0 / 0.32);
+}
+.agent-chat .slash .gh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: color-mix(in oklch, var(--foreground) 46%, transparent);
+}
+.agent-chat .slash .list {
+  padding: 4px 6px 6px;
+}
+.agent-chat .slash .row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-chat .slash .row.on {
+  background: var(--accent);
+}
+.agent-chat .slash .c {
+  flex: 0 0 172px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .slash .c.wide {
+  flex-basis: 292px;
+}
+.agent-chat .slash u {
+  text-decoration: none;
+  box-shadow: inset 0 -1.5px 0 var(--primary);
+}
+.agent-chat .slash .c .ns {
+  font-weight: 400;
+  color: color-mix(in oklch, var(--primary) 62%, var(--background));
+}
+.agent-chat .slash .d {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .slash .k {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: color-mix(in oklch, var(--foreground) 46%, transparent);
+}
+.agent-chat .slash .fi {
+  color: var(--muted-foreground);
+}
+.agent-chat .slash .fn {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.agent-chat .slash .fn u {
+  box-shadow: none;
+  font-weight: 600;
+  color: var(--primary);
+}
+.agent-chat .slash .fp {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: color-mix(in oklch, var(--foreground) 46%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .slash .tag {
+  font-size: 11px;
+  color: color-mix(in oklch, var(--foreground) 46%, transparent);
+}
+.agent-chat .slash .pf {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+}
+.agent-chat .slash .grow {
+  flex: 1;
+}
+.agent-chat .slash .pf kbd {
+  margin-right: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--foreground);
+}
+@media (pointer: coarse) {
+  .agent-chat .slash .gh {
+    padding: 10px 14px 4px;
+    font-size: 11.5px;
+  }
+  .agent-chat .slash .row {
+    gap: 10px;
+    min-height: 46px;
+    padding: 6px 10px;
+    font-size: 15px;
+  }
+  .agent-chat .slash .row.two {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+  }
+  .agent-chat .slash .c,
+  .agent-chat .slash .c.wide {
+    flex: 0 0 auto;
+    max-width: 100%;
+    font-size: 14.5px;
+  }
+  .agent-chat .slash .row.two .d {
+    width: 100%;
+    font-size: 13px;
+    line-height: 17px;
+  }
+  .agent-chat .slash .fp {
+    font-size: 12.5px;
+  }
+  .agent-chat .slash .k,
+  .agent-chat .slash .pf {
+    display: none;
+  }
+}
+
+/* ── prompt stash picker ───────────────────────────────── */
+.agent-chat .stash-picker {
+  width: min(100%, 440px);
+  max-height: min(280px, calc(100dvh - 300px));
+  overflow-y: auto;
+  margin: 0 0 8px auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--popover);
+  box-shadow: 0 16px 40px -12px oklch(0 0 0 / 0.5);
+}
+.agent-chat .stash-picker-title {
+  padding: 4px 8px 6px;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  font-weight: 500;
+}
+.agent-chat .stash-picker-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-chat .stash-picker-item:hover,
+.agent-chat .stash-picker-item:focus-visible {
+  outline: none;
+  background: var(--accent);
+}
+.agent-chat .stash-picker-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.agent-chat .stash-picker-time {
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .blank-picker {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 24px;
+  width: min(calc(100% - 48px), 720px);
+  transform: translateX(-50%);
+}
+.agent-chat .blank-picker .stash-picker {
+  margin-left: auto;
+}
+
+/* ── the plus menu (a popover; the phone's is native) and the attach dialog ──
+   Portaled out of `.agent-chat`, so unscoped. Unlayered, so they beat the shared components'
+   utilities. */
+.plus-menu {
+  width: 216px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--popover);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 16px 36px -14px oklch(0 0 0 / 0.32);
+}
+.plus-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--foreground);
+  font-size: 13px;
+  text-align: left;
+}
+.plus-item:is(:hover, [data-highlighted]) {
+  background: var(--accent);
+}
+.plus-item:disabled,
+.plus-item[data-disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.plus-item svg {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.plus-label {
+  font-weight: 500;
+}
+.plus-hint {
+  margin-left: auto;
+  font-family: var(--editor-font-family, 'Geist Mono Variable', ui-monospace, monospace);
+  font-size: 11px;
+  color: color-mix(in oklch, var(--foreground) 46%, transparent);
+}
+.plus-rule {
+  height: 1px;
+  margin: 5px 4px;
+  border: 0;
+  background: var(--border);
+}
+.plus-grab {
+  display: block;
+  width: 36px;
+  height: 5px;
+  margin: 8px auto 4px;
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--foreground) 20%, transparent);
+}
+.attach-sheet.attach-sheet {
+  padding: 0 10px 22px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 22px 22px 0 0;
+  background: var(--popover);
+  box-shadow: 0 -12px 40px -16px oklch(0 0 0 / 0.4);
+}
+.attach-sheet .attach-title {
+  margin: 6px 8px 6px;
+  font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
+  font-size: 25px;
+  font-weight: 400;
+  line-height: 30px;
+}
+
+.attach-dlg.attach-dlg {
+  position: relative;
+  width: 468px;
+  max-width: 468px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--popover);
+  box-shadow:
+    0 24px 60px -20px oklch(0 0 0 / 0.45),
+    0 1px 2px oklch(0 0 0 / 0.08);
+}
+.attach-title {
+  margin: 0;
+  font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 28px;
+}
+.attach-close,
+.attach-x {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted-foreground);
+}
+/* The phone sheet's remove control: 24px to the eye, 44pt to the finger. */
+.attach-sheet .attach-x {
+  position: relative;
+}
+.attach-sheet .attach-x::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+.attach-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+.attach-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 26px 16px;
+  border: 1.5px dashed color-mix(in oklch, var(--foreground) 26%, transparent);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  text-align: center;
+}
+.attach-drop[data-drop-target] {
+  border-color: var(--ring);
+  background: color-mix(in oklch, var(--primary) 9%, var(--background));
+}
+.attach-drop-big {
+  font-size: 14px;
+  font-weight: 500;
+}
+.attach-drop-sm {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.attach-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.attach-sources {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 8px 4px 0;
+}
+.attach-help {
+  margin: 8px 6px 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.attach-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.attach-sheet .attach-files {
+  margin: 12px 4px 0;
+}
+.attach-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 13px;
+}
+.attach-file[data-status='bad'] {
+  border-color: color-mix(in oklch, var(--destructive) 50%, transparent);
+}
+.attach-file-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.attach-file-name {
+  overflow: hidden;
+  font-weight: 500;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-file-note {
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--muted-foreground);
+}
+.attach-file[data-status='bad'] .attach-file-note {
+  color: var(--destructive);
+}
+.attach-retry {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-decoration: underline;
+}
+.attach-sheet .attach-retry {
+  padding: 10px 6px;
+  margin: -10px 0 -10px 2px;
+}
+.attach-bar {
+  height: 3px;
+  margin: 5px 0 2px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+.attach-bar i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  animation: attach-bar 1.1s ease-in-out infinite alternate;
+}
+/* A file the page sends as bytes reports real progress; a host path the daemon reads does not. */
+.attach-bar[data-determinate] i {
+  animation: none;
+  transition: width 0.15s linear;
+}
+@keyframes attach-bar {
+  to {
+    transform: translateX(150%);
+  }
+}
+.attach-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.attach-sheet .attach-foot {
+  margin: 16px 4px 0;
+}
+.attach-grow {
+  flex: 1;
+}
+.attach-hint {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.attach-btn[data-primary] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--primary) 30%, transparent);
+}
+.attach-btn:disabled {
+  background: var(--muted);
+  color: color-mix(in oklch, var(--foreground) 46%, transparent);
+}
+.attach-btn kbd {
+  font-family: var(--editor-font-family, 'Geist Mono Variable', ui-monospace, monospace);
+  font-size: 10.5px;
+  font-weight: 400;
+  opacity: 0.62;
+  letter-spacing: 0.02em;
+}
+.attach-sheet .attach-btn {
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  font-size: 15px;
+}
+.attach-sheet .attach-foot .attach-btn {
+  flex: 1 1 0;
+}
+
+/* ── the permission-level menu (portaled, so unscoped) ── */
+.lvl-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--foreground);
+  font-size: 13px;
+  text-align: left;
+}
+.lvl-row:is(:hover, [data-highlighted]) {
+  background: var(--accent);
+}
+.lvl-row[data-selected] {
+  background: var(--accent);
+}
+.lvl-row[data-risk] {
+  color: var(--warning-foreground);
+}
+.dark .lvl-row[data-risk] {
+  color: var(--warning);
+}
+.lvl-row[data-risk][data-selected] {
+  background: color-mix(in oklch, var(--warning) 14%, transparent);
+}
+.lvl-row b {
+  display: block;
+  font-weight: 500;
+}
+.lvl-row small {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.lvl-row .lvl-check {
+  margin: 2px 0 0 auto;
+  color: var(--primary);
+}

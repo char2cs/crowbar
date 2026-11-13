@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCallBody } from '@/features/agent/api/chat-rows'
 import {
-  commandProgramName,
   diffStat,
   formatDuration,
   labelText,
@@ -35,10 +34,11 @@ describe('tool labels', () => {
   })
 
   it('unwraps shells, sudo and env assignments to the program', () => {
-    expect(commandProgramName("bash -lc 'npm test'")).toBe('npm test')
-    expect(commandProgramName('sudo -E env CI=1 /usr/bin/make check')).toBe('make check')
-    expect(commandProgramName('sh -c "go vet ./..."\nsecond line')).toBe('go vet ./...')
-    expect(commandProgramName('')).toBe('')
+    const named = (target: string) =>
+      labelText({ ...tool({ kind: 'execute', target }), status: 'ok' })
+    expect(named("bash -lc 'npm test'")).toBe('Ran npm test')
+    expect(named('sudo -E env CI=1 /usr/bin/make check')).toBe('Ran make check')
+    expect(named('sh -c "go vet ./..."\nsecond line')).toBe('Ran go vet ./...')
   })
 
   it('names an edit that writes a new file a create, whatever became of it', () => {
@@ -55,10 +55,10 @@ describe('tool labels', () => {
   })
 
   // The daemon names a file inside the workspace from there, so an absolute one lies outside it:
-  // its tail alone (".claude/plans/p.md") would read as a file in the workspace.
+  // its tail alone (".cache/plans/p.md") would read as a file in the workspace.
   it('says a path outside the workspace whole, with its leading slash', () => {
-    const write = tool({ kind: 'edit', target: '/home/me/.claude/plans/p.md' }, 'ok')
-    expect(labelText(write)).toBe('Edited /home/me/.claude/plans/p.md')
+    const write = tool({ kind: 'edit', target: '/home/me/.cache/plans/p.md' }, 'ok')
+    expect(labelText(write)).toBe('Edited /home/me/.cache/plans/p.md')
     expect(labelText(tool({ kind: 'edit', target: 'src/a.go' }, 'ok'))).toBe('Edited src/a.go')
   })
 
@@ -96,6 +96,13 @@ describe('tool labels', () => {
   it('falls back to the humanized name when a tool names no target', () => {
     expect(labelText(tool({ name: 'NotebookRead' }, 'ok'))).toBe('Notebook read')
     expect(labelText(tool({}, 'ok'))).toBe('Tool')
+  })
+
+  it('labels a subagent call as a subagent, never as a bare "Tool"', () => {
+    const call = { kind: 'subagent', name: 'Task', target: 'Audit billing' }
+    expect(labelText(tool(call, 'running'))).toBe('Running subagent Audit billing')
+    expect(labelText(tool(call, 'ok'))).toBe('Ran subagent Audit billing')
+    expect(labelText(tool({ kind: 'subagent' }, 'ok'))).toBe('Ran subagent')
   })
 
   it('symptom 8: names the MCP server and summarizes the first two scalar args', () => {

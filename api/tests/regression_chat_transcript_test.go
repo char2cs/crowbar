@@ -286,6 +286,17 @@ func TestRegression_ATurnFailureReasonStaysVisible(t *testing.T) {
 	assert.Contains(t, cmp.Or(failures[0].Detail, failures[0].Reason), "usage limit")
 }
 
+func TestRegression_ATurnFailureCarriesTheKindItsDescriptorClassified(t *testing.T) {
+	c := newTurnChat(t, newHarness(t))
+	c.startTurn(t, c.launch, "A")
+
+	c.hook(t, c.launch, "turn_failed", map[string]any{"prompt_id": "A", "error": "rate_limit"})
+
+	failures := rowsOf(t, c.feedRows(t), ledger.KindTurnFailed, func(ledger.TurnFailed) bool { return true })
+	require.Len(t, failures, 1)
+	assert.Equal(t, "limit", failures[0].Kind)
+}
+
 // A turn_stop that beat its own final delta: whichever lands first, the reply
 // is one message.
 func TestRegression_Symptom3_AReplyIsOneMessageWhicheverOfItsHooksLandsFirst(t *testing.T) {

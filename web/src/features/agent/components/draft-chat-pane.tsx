@@ -1,4 +1,5 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import type { PermissionLevel } from '@/features/agent/api/agent-providers-api'
 import { promoteDraftThread } from '@/components/layout/draft-promote'
 import { draftOfPane } from '@/components/layout/draft-thread'
 import { AgentEmptyDocument } from '@/features/agent/chat/agent-empty-document'
@@ -7,7 +8,10 @@ import {
   ChatMarkdownEditor,
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
-import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
+import { ViewSwitch } from '@/features/agent/controls/view-switch'
+import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers-api'
+import { IS_MOBILE } from '@/utils/platform'
+import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { usePaneProviders } from '@/features/agent/hooks/use-pane-providers'
 import { refusal } from '@/features/agent/stores/lib/outbox'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
@@ -29,7 +33,12 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
   const [hasText, setHasText] = useState(false)
   // Re-renders the document so its handle rides the last line as the box grows.
   const [, setFieldHeight] = useState(0)
-  const [pick, setPick] = useState({ provider: '', model: '', effort: '' })
+  const [pick, setPick] = useState<{
+    provider: string
+    model: string
+    effort: string
+    permissionLevel: PermissionLevel | ''
+  }>({ provider: '', model: '', effort: '', permissionLevel: '' })
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const provider = providers.find((p) => p.id === pick.provider) ?? providers.find((p) => p.enabled)
@@ -59,6 +68,19 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
     })
   }
 
+  // A draft is always on Chat; Terminal makes the chat in its terminal, where the box's text
+  // stays as the draft. The segment then belongs to that chat, never to the draft.
+  const openTerminal = () => {
+    if (sending) return
+    setSending(true)
+    const editor = editorRef.current
+    void promoteDraftThread(
+      paneId,
+      { ...pick, presentation: 'terminal', text: '' },
+      () => editor?.getMarkdown() ?? '',
+    ).finally(() => setSending(false))
+  }
+
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>, readMarkdown: () => string) => {
     if (!isSendKey(event)) return
     event.preventDefault()
@@ -80,6 +102,7 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
             placeholder="Describe the change…"
             ariaLabel="Describe the change"
             autoFocus
+            document
             onShapeChange={(shape) => setHasText(!shape.empty)}
             onKeyDown={handleKeyDown}
             onHeightChange={setFieldHeight}
@@ -92,19 +115,36 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
           onSubmit={() => send(editorRef.current?.getMarkdown() ?? '')}
           attach={null}
           controls={
-            <span className="selpos">
-              <AgentSelectionPicker
+            <>
+              <SelectionCluster
                 provider={provider}
                 providers={providers}
                 model={pick.model}
                 effort={pick.effort}
-                disabled={sending}
+                reportedModel={provider?.defaultModel}
+                switchDisabled={sending}
+                permission={{
+                  wsId,
+                  chatId: '',
+                  levels: provider?.permissionLevels,
+                  draft: {
+                    hostId,
+                    level: pick.permissionLevel,
+                    onPick: (permissionLevel) => setPick((was) => ({ ...was, permissionLevel })),
+                  },
+                }}
                 onSelectionChange={(next, model, effort) =>
-                  setPick({ provider: next, model, effort })
+                  setPick((was) => ({ ...was, provider: next, model, effort }))
                 }
-                unsetLabel="Default"
               />
-            </span>
+              {IS_MOBILE && providerCanStartOnTerminal(provider) && provider?.hasTerminal && (
+                <ViewSwitch
+                  presentation="chat"
+                  handoverBlocked={sending}
+                  onSelect={(next) => next === 'terminal' && openTerminal()}
+                />
+              )}
+            </>
           }
           sending={sending}
           headerClearancePx={headerClearancePx}

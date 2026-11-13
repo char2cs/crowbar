@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import { layoutHeight } from '@/lib/layout-size'
 import type { CSSProperties, KeyboardEvent, Ref } from 'react'
-import { NodeApi, PointApi, RangeApi, type Descendant, type Value } from 'platejs'
+import { NodeApi, PointApi, RangeApi, type Value } from 'platejs'
 import type { PlateEditor } from 'platejs/react'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import {
@@ -9,8 +9,13 @@ import {
   insertPendingImageInto,
   settlePendingImageInto,
 } from '@/features/agent/composer/plate/chat-attachment-insert'
+import { ChatComposerChipPlugin } from '@/features/agent/composer/plate/chat-composer-chips'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
-import { chatComposerStructurePlugin } from '@/features/agent/composer/plate/chat-composer-structure'
+import {
+  blankParagraph,
+  chatComposerStructurePlugin,
+  createDocumentTitlePlugin,
+} from '@/features/agent/composer/plate/chat-composer-structure'
 import {
   chatMarkdownToValue,
   chatValueToMarkdown,
@@ -48,6 +53,12 @@ export interface ChatMarkdownEditorHandle {
   appendMarkdown(markdown: string): void
   /** Replaces the `@path` before the caret with `text`. */
   completeMention(text: string): void
+  /** Types the `@` that opens the file picker, after a space. */
+  insertTrigger(trigger: '@'): void
+  /** Opens the command picker: a `/` line above whatever is typed, which stays below it. */
+  startCommand(): void
+  /** Replaces the command line, the first, with `text`; the lines below stay. */
+  completeCommand(text: string): void
   focus(): void
   clear(): void
 }
@@ -61,19 +72,16 @@ export interface ComposerShape {
   mentionQuery: string | null
 }
 
-// A list or quote paragraph is text-bearing markdown even when it has no letters;
-// a block id is the editor's bookkeeping, not markdown.
-function blankParagraph(node: Descendant): boolean {
-  const markup = Object.keys(node).filter((key) => key !== 'id' && key !== 'children')
-  if (!('type' in node) || node.type !== 'p' || markup.length > 1) return false
-  return NodeApi.string(node).trim() === ''
+function textBeforeCaret(editor: PlateEditor): string {
+  const { selection } = editor
+  if (!selection || !RangeApi.isCollapsed(selection)) return ''
+  const leaf = NodeApi.get(editor, selection.anchor.path)
+  return leaf && 'text' in leaf ? String(leaf.text).slice(0, selection.anchor.offset) : ''
 }
 
 function mentionBefore(editor: PlateEditor): string | null {
-  const { selection } = editor
-  if (!selection || !RangeApi.isCollapsed(selection)) return null
-  const leaf = NodeApi.get(editor, selection.anchor.path)
-  const before = leaf && 'text' in leaf ? String(leaf.text).slice(0, selection.anchor.offset) : ''
+  const before = textBeforeCaret(editor)
+  if (!editor.selection || !RangeApi.isCollapsed(editor.selection)) return null
   return /(?:^|\s)@([^\s@]*)$/.exec(before)?.[1] ?? null
 }
 
@@ -126,6 +134,9 @@ export interface ChatMarkdownEditorProps {
   ref?: Ref<ChatMarkdownEditorHandle>
   /** The chat whose unsent draft this box keeps across a reload or a remount. */
   persistAs?: string
+  /** The blank chat's document, not the conversation's pill: its first block is a title, and
+   *  plain Enter is a new line (Cmd/Ctrl+Enter or the send button sends). */
+  document?: boolean
 }
 
 // The rich-markdown prompt box, shared by the conversation's pill and the blank chat's document.
@@ -146,7 +157,12 @@ export function ChatMarkdownEditor({
   style,
   ref,
   persistAs,
+  document,
 }: ChatMarkdownEditorProps) {
+  // Read through a ref like the key handler: the same editor moves from document to dock.
+  const documentRef = useRef(!!document)
+  documentRef.current = !!document
+  const titlePlugin = useMemo(() => createDocumentTitlePlugin(() => documentRef.current), [])
   // A plugin, not the `onKeyDown` DOM prop: the prop runs after Slate's own handling, so Enter
   // would split the block instead of sending. Read through a ref so the editor is built once
   // while the handler stays current.
@@ -172,6 +188,17 @@ export function ChatMarkdownEditor({
                 event.preventDefault()
                 current.tf.select({ anchor: docStart, focus: docEnd })
               }
+              return
+            }
+            // The document's Enter is Slate's own new block, unless a picker is open to take it.
+            if (
+              documentRef.current &&
+              event.key === 'Enter' &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              shapeOf(current).slashQuery === null &&
+              shapeOf(current).mentionQuery === null
+            ) {
               return
             }
             const { selection } = current
@@ -225,11 +252,20 @@ export function ChatMarkdownEditor({
       ? [
           ...chatComposerPlugins,
           chatComposerStructurePlugin,
+          titlePlugin,
+          ChatComposerChipPlugin,
           keyPlugin,
           dropGuardPlugin,
           pastePlugin,
         ]
-      : [...chatComposerPlugins, chatComposerStructurePlugin, keyPlugin, dropGuardPlugin],
+      : [
+          ...chatComposerPlugins,
+          chatComposerStructurePlugin,
+          titlePlugin,
+          ChatComposerChipPlugin,
+          keyPlugin,
+          dropGuardPlugin,
+        ],
     autoSelect: 'end',
     // Unused here, and it re-subscribes every edited block to the editor store on
     // each keystroke: one more render queued behind every key typed.
@@ -300,6 +336,29 @@ export function ChatMarkdownEditor({
         const typed = mentionBefore(editor)
         if (typed === null) return
         editor.tf.delete({ distance: typed.length + 1, unit: 'character', reverse: true })
+        editor.tf.insertText(text)
+        focusAndReport()
+      },
+      insertTrigger: (trigger: '@') => {
+        editor.tf.focus()
+        editor.tf.insertText(/\S$/.test(textBeforeCaret(editor)) ? ` ${trigger}` : trigger)
+        report()
+      },
+      startCommand: () => {
+        const first = editor.children[0]
+        const commandFirst = first && 'type' in first && NodeApi.string(first).startsWith('/')
+        if (!commandFirst) {
+          if (shapeOf(editor).empty) load('/')
+          else editor.tf.insertNodes({ type: 'p', children: [{ text: '/' }] }, { at: [0] })
+        }
+        editor.tf.select(editor.api.end([0])!)
+        editor.tf.focus()
+        report()
+      },
+      completeCommand: (text: string) => {
+        const [start, end] = [editor.api.start([0]), editor.api.end([0])]
+        if (!start || !end) return
+        editor.tf.select({ anchor: start, focus: end })
         editor.tf.insertText(text)
         focusAndReport()
       },

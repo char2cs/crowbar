@@ -1,0 +1,215 @@
+/* ── the blank chat's document ─────────────────────────── */
+/* The blank chat's frame for the one composer: the dock's own node, laid out
+   as if absent, so the document fills the pane until the first send. */
+.agent-chat .docframe {
+  display: contents;
+}
+.agent-chat .docwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  /* The wrap scrolls, not `.doc`: the send handle is a sibling of `.doc` and must
+     scroll with the text it rides under. Both sides of `lastLineTop` move together,
+     so it still measures correctly. */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+/* `.pill.drop-target`'s affordance as an inset ring: the document has no edge to recolour, and a
+   ring reads as "drop here" without implying the writing area gained a border. */
+.agent-chat .docwrap.drop-target::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 18px;
+  border: 1px dashed color-mix(in oklch, var(--ring) 60%, transparent);
+  background: color-mix(in oklch, var(--ring) 4%, transparent);
+  pointer-events: none;
+}
+/* Its own 720px measure, but the transcript's 14px/1.7 type (`.agent-prose`): a draft and the
+   turn it becomes are one text, so the type must not resize when the first turn lands. */
+.agent-chat .doc {
+  --pad: max(22px, calc((100% - 720px) / 2));
+  /* 200px under the last line: room for the ghost prompts and the pill beneath them. */
+  padding: 48px calc(var(--pad) + var(--inset, 18px)) 200px;
+  /* The document is top-anchored, so the floating chat header would cover its first line;
+     `--agent-header-clearance` comes from agent-chat-pane.tsx. agent-empty-document.tsx's
+     `firstLineTop` fallback must agree with this offset. */
+  padding-top: calc(48px + var(--agent-header-clearance, 0px));
+  font-size: 14px;
+  line-height: 1.7;
+  outline: none;
+  color: var(--foreground);
+  /* Content wider than the measure (an unwrapped long line, a code fence)
+     scrolls instead of clipping. */
+  overflow-x: auto;
+  /* The empty state: the page is the writing surface, anchored above the box's controls. */
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+/* The invitation is the canvas's serif first line, not body type; its block takes the
+   placeholder's line so the caret and the handle under it agree (`firstLineTop`). */
+.agent-chat .doc [data-slate-node='element']:has([data-slate-placeholder]) {
+  font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
+  font-size: 34px;
+  line-height: 40px;
+  letter-spacing: -0.005em;
+}
+.agent-chat .doc [data-slate-placeholder] {
+  opacity: 0.42 !important;
+}
+/* The typed title is the same serif first line; the editor keeps the first block an h1. */
+.agent-chat .doc .blk > h1:first-child {
+  font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
+  font-size: 34px;
+  line-height: 40px;
+  letter-spacing: -0.005em;
+  margin: 0 0 0.45em;
+  padding: 0;
+}
+/* The document's editable. Plate owns the blocks inside it; this is only the
+   column they sit in. */
+.agent-chat .doc .blk {
+  outline: none;
+}
+/* Rides one line below the caret, instantly (like `.handle`). Pointer events are off everywhere
+   but the bar, so the document under it stays clickable for its whole width. */
+.agent-chat .dochandle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  pointer-events: none;
+}
+.agent-chat .dochandle .inner {
+  --pad: max(22px, calc((100% - 720px) / 2));
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--pad);
+  pointer-events: none;
+}
+.agent-chat .dochandle .side {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.agent-chat .dochandle .grp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 42px;
+  padding: 0 5px;
+  border-radius: 9999px;
+  border: 1px solid var(--input);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 8px 28px -18px oklch(0 0 0 / 0.55),
+    inset 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
+  pointer-events: auto;
+}
+.agent-chat .dochandle .chip {
+  font-size: 13px;
+}
+/* As `.handle .send`: `.side`'s flex `gap: 2px` is the only spacing between the two circles. */
+.agent-chat .dochandle .send {
+  margin-left: 0;
+}
+/* The reviving/idle/trust-wait signpost takes `.grp`'s slot instead of it, never both, so it
+   restores pointer events past `.inner` the same way. */
+.agent-chat .dochandle .banner {
+  width: 100%;
+  pointer-events: auto;
+}
+
+/* Ghost prompts: what a first instruction covers, under the line and above the pill. */
+.agent-chat .dochandle .ghosts {
+  --pad: max(22px, calc((100% - 720px) / 2));
+  margin: 0;
+  padding: 11.5px calc(var(--pad) + var(--inset, 18px)) 25.5px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.agent-chat .dochandle .ghosts > div {
+  display: flex;
+  align-items: baseline;
+  padding: 4.5px 0;
+}
+.agent-chat .dochandle .ghosts dt {
+  flex: none;
+  width: 76px;
+  font-family: var(--editor-font-family, ui-monospace, monospace);
+  font-size: 11.5px;
+  line-height: 20px;
+  letter-spacing: 0.02em;
+  opacity: 0.62;
+}
+.agent-chat .dochandle .ghosts dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  opacity: 0.62;
+}
+
+/* The empty document's bar is the same capsule: as tall as the one-line pill. */
+.agent-chat .dochandle[data-touch] .grp {
+  height: calc(var(--touch-line) + 2 * var(--touch-pad-y) + 2px);
+  /* The send circle sits where the pill's does: 9px from the edge, border included. */
+  padding: 0 8px 0 4px;
+}
+/* Chip, switch and send are the strip's three items, so `space-between` centres the switch in the
+   gap between the chip and the send controls. */
+.agent-chat .dochandle[data-touch] .side:first-child {
+  display: contents;
+}
+.agent-chat .dochandle[data-touch] .side:last-child {
+  gap: var(--touch-gap);
+}
+.agent-chat .dochandle[data-touch] .inner {
+  /* The dock's capsule: 12px from the edge, the text 17px further, as in the input pill. */
+  --pad: 12px;
+}
+.agent-chat .dochandle[data-touch] .ghosts {
+  --pad: 29px;
+  --inset: 0px;
+  padding-top: 14px;
+  padding-bottom: 26px;
+}
+.agent-chat .doc:has(+ .dochandle[data-touch]) {
+  --pad: 29px;
+  --inset: 0px;
+  font-size: var(--touch-text);
+  padding-top: calc(30px + var(--agent-header-clearance, 0px));
+}
+/* The phone's empty page: the invitation is the canvas's serif first line, not body type. Its
+   block takes the placeholder's line so the caret and the handle under it agree with it
+   (`firstLineTop` in agent-empty-document.tsx). */
+.agent-chat
+  .doc:has(+ .dochandle[data-touch])
+  [data-slate-node='element']:has([data-slate-placeholder]) {
+  font-family: var(--app-heading-font-family, 'Instrument Serif', serif);
+  font-size: 32px;
+  line-height: 38px;
+  letter-spacing: -0.005em;
+}
+.agent-chat .doc:has(+ .dochandle[data-touch]) .blk > h1:first-child {
+  font-size: 32px;
+  line-height: 38px;
+}
+.agent-chat .doc:has(+ .dochandle[data-touch]) [data-slate-placeholder] {
+  opacity: 0.42 !important;
+}
+/* On the phone each hint's label stacks over its text. */
+.agent-chat .dochandle[data-touch] .ghosts > div {
+  flex-direction: column;
+  padding: 0;
+  margin-top: 10px;
+}
+.agent-chat .dochandle[data-touch] .ghosts dd {
+  font-size: 15.5px;
+  line-height: 21px;
+}

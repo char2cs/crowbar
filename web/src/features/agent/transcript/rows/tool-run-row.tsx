@@ -2,7 +2,6 @@ import { memo, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
 import { useShallow } from 'zustand/react/shallow'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { CheckIcon } from '@/features/agent/shared/agent-icons'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import type { ToolItem } from '@/features/agent/stores/lib/transcript-items'
 import { liveLabel } from '@/features/agent/transcript/lib/tool-label'
@@ -28,11 +27,7 @@ function FoldedRun({ chatId, id, tools }: { chatId: string; id: string; tools: T
           <li data-status={live ? 'running' : 'ok'} data-testid="agent-tool-run">
             <div className="tool-row">
               <span className="tool-call-summary">
-                {live ? (
-                  <FlickerSpinner className="size-3" />
-                ) : (
-                  <CheckIcon size={12} className="tool-glyph" />
-                )}
+                {live && <FlickerSpinner className="size-3" />}
                 <span className="tool-call-verb" data-live={live ? '' : undefined}>
                   {runSentence(tools, live)}
                 </span>

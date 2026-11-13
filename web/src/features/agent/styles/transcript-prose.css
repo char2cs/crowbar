@@ -1,0 +1,223 @@
+/* ── an agent's prose ──────────────────────────────────── */
+/* Rendered by Plate, styled here. Unlayered, so it beats the registry's node
+   components' Tailwind (which lives in the `utilities` layer) without
+   `!important` — the same cascade trick markdown-editor.css uses. */
+.agent-chat .agent-prose {
+  font-size: 14px;
+  color: var(--foreground);
+  outline: none;
+}
+/* Instrument Serif ships weight 400 only and stops reading as a headline below ~22px, so these
+   sizes clear it, staying the smallest of the surfaces that use it (a chat is the densest). */
+.agent-chat .agent-prose h1 {
+  font-family: var(--font-heading);
+  font-size: 24px;
+  font-weight: 400;
+  margin: 12px 0 8px;
+}
+.agent-chat .agent-prose h2 {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 400;
+  margin: 12px 0 6px;
+}
+.agent-chat .agent-prose h3 {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  font-weight: 400;
+  margin: 8px 0 4px;
+}
+/* Plate renders no `p`/`ul`/`ol`/`li`: a paragraph is `div.slate-p`, a list item the same node
+   with a `listStyleType` and a per-level indent class. `padding` is cleared because it replaces
+   Tailwind's `py-1`, which would otherwise double the gap. */
+.agent-chat .agent-prose .slate-p {
+  margin: 0 0 8px;
+  padding: 0;
+  line-height: 1.625;
+}
+.agent-chat .agent-prose [class*='slate-listStyleType-'] {
+  margin: 2px 0;
+  padding: 0;
+  line-height: 1.625;
+}
+.agent-chat .agent-prose [class*='slate-listStyleType-']::marker {
+  color: var(--muted-foreground);
+}
+/* A cell's paragraph is the cell. The canvas's 8px belongs between blocks. */
+.agent-chat .agent-prose th .slate-p,
+.agent-chat .agent-prose td .slate-p {
+  margin: 0;
+}
+/* AFTER the block rules and tied with them on specificity, which is what makes
+   these win. The outer edges of a message have no gap to give — without this the
+   last paragraph pads the bottom of every bubble by 8px. */
+.agent-chat .agent-prose > :is(:first-child) {
+  margin-top: 0;
+}
+.agent-chat .agent-prose > :is(:last-child) {
+  margin-bottom: 0;
+}
+.agent-chat .agent-prose code {
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  padding: 2px 4px;
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.agent-chat .agent-prose pre {
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  padding: 12px;
+  font-size: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+  line-height: 1.6;
+}
+.agent-chat .agent-prose pre code {
+  background: transparent;
+  padding: 0;
+}
+.agent-chat .agent-prose strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.agent-chat .agent-prose em {
+  font-style: italic;
+}
+.agent-chat .agent-prose blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+  color: var(--muted-foreground);
+  margin: 8px 0;
+}
+.agent-chat .agent-prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+.agent-chat .agent-prose a {
+  color: var(--md-link, var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.agent-chat .agent-prose table {
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0;
+  width: 100%;
+}
+.agent-chat .agent-prose th,
+.agent-chat .agent-prose td {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+}
+.agent-chat .agent-prose th {
+  font-weight: 600;
+  background: var(--muted);
+}
+
+/* The payload is literal machine text: monospace/muted like markdown code spans, collapsed
+   behind <details> when long (as ChoiceSchema does in composer-requests.css). */
+.agent-chat .harness code {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.agent-chat .harness summary {
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.agent-chat .harness details pre {
+  margin-top: 4px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+  padding: 8px;
+}
+.agent-chat .harness details pre code {
+  background: none;
+}
+
+.agent-chat .harness,
+.agent-chat .notice {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 40%, transparent);
+  padding: 8px 12px;
+  font-size: 14px;
+}
+.agent-chat .notice {
+  border-color: color-mix(in oklch, var(--warning) 40%, transparent);
+  background: color-mix(in oklch, var(--warning) 10%, transparent);
+}
+
+.agent-chat .meta {
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+
+/* One message that failed to render: its text as written, scoped to it alone. */
+.agent-chat .message-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px 9px 14px;
+  border: 1px dashed color-mix(in oklch, var(--destructive) 40%, var(--border));
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.agent-chat .message-error .tx {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.agent-chat .message-error b {
+  font-weight: 600;
+}
+.agent-chat .message-error .s {
+  color: var(--muted-foreground);
+}
+.agent-chat .message-error-action {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.agent-chat .message-error-text {
+  flex-basis: 100%;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .agent-chat .message-error-action {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
+    position: relative;
+  }
+  /* 44pt to the finger, 36pt to the eye. */
+  .agent-chat .message-error-action::after {
+    content: '';
+    position: absolute;
+    inset: -5px 0;
+  }
+}

@@ -55,6 +55,21 @@ describe('subagent cards', () => {
     expect(feed.facts.liveSubagents).toEqual(['s:call-1'])
   })
 
+  it('does not draw a tool row for the end of a spawn that names no kind', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      spawn(l, 'call-1', 'pre'),
+      l.row(
+        'tool_call',
+        { toolId: 'call-1', phase: 'post', status: 'ok', durationMs: 61000 },
+        { turnId: 'turn-1' },
+      ),
+    ])
+    expect(feed.order).toEqual(['s:call-1'])
+    expect(feed.items.get('t:call-1')).toBeUndefined()
+  })
+
   it('attaches child rows that precede their card bind', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
@@ -78,7 +93,7 @@ describe('subagent cards', () => {
     expect(feed.order).toEqual(['s:call-1'])
   })
 
-  // The rows claude 2.1.319 recorded for "say ALPHA, launch two agents, say
+  // The rows a provider recorded for "say ALPHA, launch two agents, say
   // BRAVO": it reports ALPHA only once both spawns had started.
   it('draws spawns where they were said, live and on reload, and finishes them in place', () => {
     const l = ledger()
@@ -138,6 +153,20 @@ describe('subagent cards', () => {
     ])
     expect(feed.items.get('s:call-1')).toMatchObject({ status: 'interrupted' })
     expect(feed.items.get('s:sub-2')).toMatchObject({ status: 'interrupted' })
+    expect(feed.facts.liveSubagents).toEqual([])
+  })
+
+  // A daemon restart kills the CLI without recording its exit; the next CLI has none of the
+  // old one's subagents, so the tray must not count them up for hours.
+  it('interrupts what an earlier CLI left running when a new CLI starts', () => {
+    const l = ledger()
+    const feed = applyRows(emptyFeed(), [
+      l.runner('r1'),
+      l.start('turn-1'),
+      l.row('subagent', { phase: 'start', type: 'plan' }, { turnId: 'turn-1', scope: 'sub-1' }),
+      l.runner('r2'),
+    ])
+    expect(feed.items.get('s:sub-1')).toMatchObject({ status: 'interrupted' })
     expect(feed.facts.liveSubagents).toEqual([])
   })
 

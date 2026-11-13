@@ -7,8 +7,6 @@ export interface AgentChoiceOption {
   kind: string
   label?: string
   description?: string
-  /** Answering with it sends the person's reason to the agent. */
-  reason?: boolean
 }
 
 /** One question inside a prompt. `multi` is per question because the provider

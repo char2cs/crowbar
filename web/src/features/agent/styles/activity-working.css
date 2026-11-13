@@ -1,0 +1,74 @@
+/* What the agent is doing right now. Scoped under `.agent-chat`. */
+
+.agent-chat .activity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+  font-size: 14px;
+  color: var(--muted-foreground);
+  /* Glued to the line before it (sent text or streamed reply) instead of a full 18px `.stream`
+     gap below; leaves ~4px before this element's own padding. */
+  margin-top: -14px;
+}
+.agent-chat .activity .hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-chat .activity .hd > span {
+  display: flex;
+  min-width: 0;
+}
+.agent-chat .activity .hd .dim {
+  flex: none;
+  white-space: pre;
+}
+.agent-chat .activity .verb {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+.agent-chat .activity .dim {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+/* Live reasoning sits directly below the working verb as a quiet subtitle. */
+.agent-chat .activity .reasoning-subtitle {
+  margin: 0;
+  padding-left: 24px;
+  max-height: 5.5em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--ui-text-xs);
+  line-height: 1.35;
+  color: var(--muted-foreground);
+}
+/* Historical reasoning has no working indicator and keeps its own disclosure. */
+.agent-chat .historical-activity .thinking {
+  margin: 0;
+  padding: 0 0 0 24px;
+  font-size: var(--ui-text-xs);
+  font-style: italic;
+  color: var(--muted-foreground);
+  opacity: 0.85;
+  contain: layout;
+}
+.agent-chat .activity .thinking > summary,
+.agent-chat .historical-activity .thinking > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.agent-chat .activity .thinking-body,
+.agent-chat .historical-activity .thinking-body {
+  max-height: min(30vh, 20rem);
+  margin-top: 2px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

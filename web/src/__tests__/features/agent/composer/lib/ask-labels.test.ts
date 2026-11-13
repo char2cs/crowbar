@@ -30,20 +30,20 @@ function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
 
 describe('describeChoice', () => {
   it('names the tool a permission gates', () => {
-    expect(describeChoice(choice())).toBe('Run Bash?')
+    expect(describeChoice(choice())).toBe('Run Bash')
     expect(describeChoice(choice({ toolName: '' }))).toBe('The agent is asking for permission')
   })
 
   // A provider's internal tool name ("commandExecution") is not words; the call's kind is.
   it('names the kind of call a permission gates when its call is known', () => {
     const run = choice({ toolName: 'commandExecution' })
-    expect(describeChoice(run, 'execute')).toBe('Run a command?')
-    expect(describeChoice(choice({ toolName: 'fileChange' }), 'edit')).toBe('Edit files?')
-    expect(describeChoice(run, 'other')).toBe('Run commandExecution?')
+    expect(describeChoice(run, 'execute')).toBe('Run a command')
+    expect(describeChoice(choice({ toolName: 'fileChange' }), 'edit')).toBe('Edit a file')
+    expect(describeChoice(run, 'other')).toBe('Run commandExecution')
   })
 
   it('asks to approve a plan when the gated call is a plan’s', () => {
-    expect(describeChoice(choice({ toolName: 'ExitPlanMode' }), 'plan')).toBe('Approve this plan?')
+    expect(describeChoice(choice({ toolName: 'ExitPlanMode' }), 'plan')).toBe('Approve this plan')
   })
 
   it('asks a question in the provider’s own words', () => {
@@ -218,6 +218,13 @@ describe('choiceDetail', () => {
 describe('askNote', () => {
   it('says an allow once, not again in the option’s own word', () => {
     expect(askNote(choice({ pending: false, answeredOptionIds: ['allow'] }))).toBe('Allowed')
+  })
+
+  it('says an "Allow once" label once', () => {
+    const options = [{ id: 'once', kind: 'allow', label: 'Allow once' }]
+    expect(askNote(choice({ options, pending: false, answeredOptionIds: ['once'] }))).toBe(
+      'Allowed',
+    )
   })
 
   it('keeps an allow option’s label when it says more than allow', () => {

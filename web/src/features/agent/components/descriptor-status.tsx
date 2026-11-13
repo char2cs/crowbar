@@ -71,7 +71,11 @@ function DescriptorReportRow({ report }: { report: DescriptorReport }) {
               key={`${f.rule}:${f.path}:${f.line}`}
               className="ui-font ui-text-xs text-muted-foreground"
             >
-              <span className={f.severity === 'error' ? 'text-destructive-foreground' : ''}>
+              <span
+                className={
+                  f.severity === 'error' ? 'text-destructive-foreground dark:text-destructive' : ''
+                }
+              >
                 {f.severity}
               </span>{' '}
               <code>{f.rule}</code> at <code>{f.path || '(document)'}</code>

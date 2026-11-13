@@ -1,0 +1,368 @@
+/* The trays tucked behind the pill: same surface as the pill, inset from its edges, rows 36px
+   (44px on a phone). `.tray-top` sits above the pill, `.tray-bottom` below it. */
+.agent-chat .tray-top,
+.agent-chat .tray-bottom {
+  --tray-tuck: 22px;
+  --tray-inset: 14px;
+  --tray-radius: 12px;
+  --tray-row-h: 36px;
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+}
+.agent-chat .dock:has(.pill[data-touch]) :is(.tray-top, .tray-bottom) {
+  --tray-tuck: 27px;
+  --tray-inset: 18px;
+  --tray-radius: 16px;
+  --tray-row-h: 44px;
+  /* With the keyboard up the viewport is short: the tray scrolls inside itself so the pill stays
+     on screen. The 330px is the pill, the model row and the pane's header. */
+  max-height: calc(100dvh - 330px);
+  overflow: hidden auto;
+}
+.agent-chat .tray-top {
+  margin: 0 var(--tray-inset) calc(var(--tray-tuck) * -1);
+  padding-bottom: var(--tray-tuck);
+  border-bottom: 0;
+  border-radius: var(--tray-radius) var(--tray-radius) 0 0;
+}
+.agent-chat .tray-bottom {
+  margin: calc(var(--tray-tuck) * -1) var(--tray-inset) 0;
+  padding-top: var(--tray-tuck);
+  border-top: 0;
+  border-radius: 0 0 var(--tray-radius) var(--tray-radius);
+}
+/* Sections of the top tray stack inside one surface, divided by a hairline. */
+.agent-chat .tray-section + .tray-section,
+.agent-chat .tray-top > :not(.tray-section) + .tray-section {
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.agent-chat .tray-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: var(--tray-row-h);
+  margin: 0;
+  padding: 0 14px 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 12px;
+  text-align: start;
+}
+.agent-chat button.tray-head {
+  cursor: pointer;
+}
+.agent-chat .tray-head b {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.agent-chat .tray-head svg {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.agent-chat .tray-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .tray-pips {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+.agent-chat .tray-pips i {
+  width: 5px;
+  height: 10px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--foreground) 14%, transparent);
+}
+.agent-chat .tray-pips i[data-on] {
+  background: var(--primary);
+}
+.agent-chat .tray-gap {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+.agent-chat .tray-list {
+  margin: 0;
+  padding: 2px 8px 8px;
+  list-style: none;
+}
+.agent-chat .tray-section > .tray-head + .tray-list {
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.agent-chat .tray-section > .tray-head + .tray-list > li:first-child {
+  margin-top: 6px;
+}
+/* One waiting message is a row of its own, the header's size. */
+.agent-chat .tray-top .tray-list[data-flat] {
+  padding: 0;
+}
+.agent-chat .tray-list[data-flat] li {
+  min-height: var(--tray-row-h);
+  padding: 0 14px 0 16px;
+  gap: 9px;
+  font-size: 12px;
+  border-radius: 0;
+}
+.agent-chat .tray-bottom .tray-list {
+  padding: 4px 8px 6px;
+}
+.agent-chat .tray-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  padding: 0 6px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+.agent-chat .tray-list li > span:not([role='status']) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat ol.tray-list li[data-status='done'] {
+  color: var(--muted-foreground);
+}
+.agent-chat ol.tray-list li[data-status='done'] > span {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 25%, transparent);
+}
+.agent-chat ol.tray-list li[data-status='active'] {
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+  font-weight: 500;
+}
+.agent-chat ol.tray-list li[data-status='pending'] {
+  color: color-mix(in oklch, var(--foreground) 72%, transparent);
+}
+.agent-chat .tray-list li i {
+  font-style: normal;
+}
+/* Subagents, shells and monitors: the name and its action on one line, the clock at the end;
+   shells and monitors are named by their command, in the mono face. */
+.agent-chat .tray-lines {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 10px;
+}
+.agent-chat .tray-who {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.agent-chat .tray-list li[data-kind='shell'] .tray-who,
+.agent-chat .tray-list li[data-kind='monitor'] .tray-who {
+  font-family: var(--editor-font-family, ui-monospace, monospace);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.agent-chat .tray-list li:not([data-status='running']) .tray-who {
+  font-weight: 500;
+}
+.agent-chat .tray-what {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .tray-list li[data-status='failed'] .tray-what {
+  color: var(--destructive);
+}
+.agent-chat .tray-list li > svg {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.agent-chat .tray-clock {
+  font-family: var(--editor-font-family, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The end-this-shell control: 24px, 44px on a phone. */
+.agent-chat .tray-stop {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: -4px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+}
+@media (hover: hover) {
+  .agent-chat .tray-stop:hover {
+    background: color-mix(in oklch, var(--foreground) 8%, transparent);
+    color: var(--foreground);
+  }
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-stop {
+  width: 44px;
+  height: 44px;
+  margin-right: -10px;
+}
+/* A rule above each group after the first, the group's name beneath it. */
+.agent-chat li.tray-group {
+  min-height: 22px;
+  margin-top: 2px;
+  padding-top: 4px;
+  border-radius: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+.agent-chat li.tray-group:not(:first-child) {
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.agent-chat li.tray-more {
+  padding: 0 6px;
+}
+.agent-chat .tray-more button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  cursor: pointer;
+}
+.agent-chat .tray-label {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.agent-chat .tray-text {
+  flex: 1;
+}
+.agent-chat .tray-remove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .agent-chat .tray-remove:hover {
+    background: color-mix(in oklch, var(--foreground) 8%, transparent);
+    color: var(--foreground);
+  }
+}
+/* The phone: 32px header, 36px rows (two lines: 50px), 15px text, 44px targets. */
+.agent-chat .dock:has(.pill[data-touch]) .tray-remove {
+  width: 44px;
+  height: 44px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list[data-flat] .tray-remove {
+  margin-right: -10px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-head {
+  position: relative;
+  min-height: 32px;
+  padding: 0 16px 0 18px;
+  font-size: 13px;
+}
+/* The 32px header keeps a 44pt target: the hit area reaches past its edges. */
+.agent-chat .dock:has(.pill[data-touch]) button.tray-head::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list {
+  padding: 2px 8px 10px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list li {
+  min-height: 36px;
+  font-size: 15px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list[data-flat] {
+  padding: 0;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list[data-flat] li {
+  min-height: 44px;
+  font-size: 13px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list li[data-kind] {
+  min-height: 50px;
+  gap: 11px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-lines {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  line-height: 19px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-lines > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-what {
+  font-size: 13px;
+  line-height: 17px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-clock {
+  font-size: 12.5px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-more button {
+  min-height: 44px;
+  font-size: 13px;
+}
+/* The folded phone tray is one quiet line: a 32px row whose 44pt hit area reaches past its edges. */
+.agent-chat .dock:has(.pill[data-touch]) .tray-bottom .tray-list:has(> li.tray-summary) {
+  padding: 0 8px 2px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-list li.tray-summary {
+  min-height: 0;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-summary button {
+  position: relative;
+  min-height: 32px;
+  text-align: left;
+}
+.agent-chat .tray-summary button::after {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
+.agent-chat .tray-summary-counts {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The answered requests' "Show"/"Hide" at the header's right, beside its chevron. */
+.agent-chat .tray-toggle {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.agent-chat .tray-list li[data-verdict='denied'] {
+  color: var(--destructive);
+}
+.agent-chat .dock:has(.pill[data-touch]) [data-testid='agent-resolved-tray'] .tray-head {
+  font-size: 13px;
+}
+.agent-chat .dock:has(.pill[data-touch]) .tray-toggle {
+  font-size: 12.5px;
+}

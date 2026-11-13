@@ -1,0 +1,336 @@
+/* Copy and when, out of the way until the reply is hovered or focused; a touch screen shows no
+   footer under the reply (the board has none): the OS selection menu copies. */
+.agent-chat .turnbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity 0.15s;
+  /* Out of flow: the board's replies carry no footer, so it floats under the reply on hover. */
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+}
+.agent-chat .row:hover .turnbar,
+.agent-chat .turnbar:hover,
+.agent-chat .turnbar:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .agent-chat .turnbar {
+    display: none;
+  }
+}
+.agent-chat .turn-effort {
+  font-size: var(--ui-text-xs);
+}
+
+.agent-chat .turn-time {
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+
+.agent-chat .tools {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--ui-text-xs);
+  color: var(--muted-foreground);
+}
+.agent-chat .tools li {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.5;
+}
+.agent-chat .row[data-nested] {
+  margin-inline-start: 22px;
+}
+.agent-chat .tool-turn-diff {
+  width: 100%;
+  margin: 5px 0 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+}
+.agent-chat .tools li > .tool-row {
+  position: relative;
+}
+.agent-chat .tool-row .tool-call-summary {
+  padding-right: 26px;
+}
+.agent-chat .tool-row-toggle {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.agent-chat .tool-row-toggle svg {
+  transition: transform 120ms ease;
+}
+.agent-chat .tool-row-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.agent-chat .tool-row-toggle:hover,
+.agent-chat .tool-row-toggle:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: var(--foreground);
+}
+.agent-chat .tool-call-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 3px;
+}
+.agent-chat .tool-call-verb {
+  flex: none;
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted-foreground));
+}
+.agent-chat .tool-call-subject {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.agent-chat .tools .kind {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted-foreground);
+  flex: none;
+}
+/* `AgentToolCall.error` (turn-tools.tsx) — a short caption for a failed call,
+   shown next to its name rather than only inferred from the row's colour. */
+.agent-chat .tools .err {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A running call's newest output, on the same row as the call it belongs to.
+   One line — it is a sign of progress, not a log, and the full output is on the
+   call once it finishes. */
+.agent-chat .tools .out {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+.agent-chat .tools .payload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 6px 22px;
+  width: calc(100% - 22px);
+}
+.agent-chat .tools .payload-label {
+  margin: 0;
+  font-weight: 500;
+}
+.agent-chat .tools .payload-status {
+  margin: 0;
+  font-style: italic;
+}
+.agent-chat .tools .payload pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+}
+/* A call still in flight, in the live list. It carries a spinner instead of a
+   duration (turn-tools.tsx), and full-strength text is what tells it apart from
+   the finished rows above it at a glance. */
+.agent-chat .tools li[data-status='running'] {
+  color: var(--foreground);
+}
+/* `AgentToolCall.status` (turn-tools.tsx) is `ok`, `error` or `abandoned` —
+   without this, all three rendered pixel-identical, so a failed tool call
+   read as a successful one with nothing on screen to say otherwise. */
+.agent-chat .tools li[data-status='error'] {
+  color: var(--destructive);
+}
+.agent-chat .tools li[data-status='declined'],
+.agent-chat .tools li[data-status='abandoned'] {
+  color: var(--muted-foreground);
+}
+/* A resolved choice (AgentTurnChoices) that was never actually answered
+   through Crowbar reads the same muted way an abandoned tool call does. */
+.agent-chat .tools li[data-resolution='abandoned'] {
+  opacity: 0.6;
+}
+
+/* A live verb shimmers; a settled one does not. The app-wide reduced-motion
+   switch (index.css) stops the sweep. */
+.agent-chat .tool-call-verb[data-live] {
+  background: linear-gradient(
+      90deg,
+      var(--foreground) 0%,
+      var(--muted-foreground) 50%,
+      var(--foreground) 100%
+    )
+    0 0 / 200% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: tool-verb-shimmer 1.6s linear infinite;
+}
+@keyframes tool-verb-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+/* A zero basis let a long command or error take the whole row and draw over the
+   verb; the label keeps up to 45% of it before it truncates. */
+.agent-chat .tool-call-label {
+  display: inline-flex;
+  min-width: min(45%, max-content);
+  flex: 1 1 auto;
+  overflow: hidden;
+  align-items: center;
+  gap: 6px;
+}
+.agent-chat .tool-glyph {
+  flex: none;
+}
+.agent-chat .tool-call-state,
+.agent-chat .tool-call-note {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+/* Each outcome has its own look: failed is the error tone, denied the warning tone, stopped
+   a solid chip, and a result that never came a dashed, empty one. */
+.agent-chat .tool-call-state[data-outcome],
+.agent-chat .tool-call-note[data-outcome] {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  font-family: var(--app-font-family, inherit);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+/* Zero specificity, so each outcome below can recolour it. */
+:where(.agent-chat .tool-call-state[data-outcome], .agent-chat .tool-call-note[data-outcome]) {
+  border: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+}
+[data-outcome='failed'] {
+  border-color: color-mix(in oklch, var(--destructive) 36%, var(--border));
+  background: color-mix(in oklch, var(--destructive) 8%, var(--background));
+  color: var(--destructive);
+}
+[data-outcome='denied'] {
+  border-color: color-mix(in oklch, var(--warning) 55%, var(--border));
+  background: color-mix(in oklch, var(--warning) 13%, var(--background));
+  color: var(--warn-text);
+}
+[data-outcome='stopped'] {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+}
+.agent-chat .tool-call-note[data-outcome='allowed'] {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+[data-outcome='unavailable'],
+[data-outcome='awaiting'] {
+  border-style: dashed;
+  background: none;
+  color: var(--muted-foreground);
+}
+.agent-chat .tools li[data-status='error'] .tool-glyph {
+  color: var(--destructive);
+}
+.agent-chat .tools li[data-status='declined'] .tool-glyph {
+  color: var(--warn-text);
+}
+/* A denied command never ran: its text says so. */
+.agent-chat .tools li[data-status='declined'] .tool-call-subject {
+  text-decoration: line-through;
+}
+.agent-chat .mcp-server {
+  --mcp-hue: var(--chart-1);
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--mcp-hue) 16%, transparent);
+  color: color-mix(in srgb, var(--mcp-hue) 45%, var(--foreground));
+  font-weight: 500;
+}
+.agent-chat .mcp-server[data-hue='2'] {
+  --mcp-hue: var(--chart-2);
+}
+.agent-chat .mcp-server[data-hue='3'] {
+  --mcp-hue: var(--chart-3);
+}
+.agent-chat .mcp-server[data-hue='4'] {
+  --mcp-hue: var(--chart-4);
+}
+.agent-chat .mcp-server[data-hue='5'] {
+  --mcp-hue: var(--chart-5);
+}
+.agent-chat .tool-run-members {
+  margin: 2px 0 4px 18px;
+}
+
+/* Targets past their drawn size on a phone: the card head and "Thought" reach 44pt; a tool row's
+   caret takes the whole row's width but only its 29pt pitch, or its neighbours' targets overlap. */
+.agent-chat-pane[data-touch] .agent-chat :is(.reasoning-toggle, button.subagent-head) {
+  position: relative;
+}
+.agent-chat-pane[data-touch]
+  .agent-chat
+  :is(.reasoning-toggle, button.subagent-head, .tool-row-toggle)::after {
+  content: '';
+  position: absolute;
+}
+.agent-chat-pane[data-touch] .agent-chat .reasoning-toggle::after {
+  inset: -14px -12px;
+}
+.agent-chat-pane[data-touch] .agent-chat button.subagent-head::after {
+  inset: -14px 0;
+}
+.agent-chat-pane[data-touch] .agent-chat .tool-row-toggle::after {
+  inset: -4px -2px -4px -330px;
+}

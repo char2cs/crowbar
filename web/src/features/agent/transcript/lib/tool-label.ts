@@ -8,12 +8,13 @@ const VERBS: Partial<Record<ToolItem['family'], [string, string, string]>> = {
   execute: ['Running', 'Ran', 'Run'],
   search: ['Searching for', 'Searched', 'Search'],
   fetch: ['Fetching', 'Fetched', 'Fetch'],
+  subagent: ['Running subagent', 'Ran subagent', 'Subagent'],
 }
 
 const CREATE: [string, string, string] = ['Creating', 'Created', 'Create']
 
 /** An edit writes a new file when its diff has no old side, or its one hunk starts
- *  from nothing (how claude's Write reports a file that was not there). */
+ *  from nothing (how a provider reports a file that was not there). */
 const writesNewFile = (diff = '') => {
   if (diff.startsWith('--- /dev/null\n')) return true
   const hunks = diff.match(/^@@ .*$/gm) ?? []
@@ -41,7 +42,7 @@ const basename = (word: string) => word.split('/').pop() ?? word
 
 /** A command as a reader names it: wrapping shells, sudo and env assignments
  *  peeled off, the program by its basename, first line only. */
-export function commandProgramName(cmd: string): string {
+function commandProgramName(cmd: string): string {
   const line = cmd.trim().split('\n')[0] ?? ''
   const words = [...line.matchAll(WORDS)].map((m) => m[1] ?? m[2] ?? m[3] ?? '')
   let i = 0
@@ -134,17 +135,6 @@ export function diffStat(diff: string): { added: number; removed: number } {
     else if (line.startsWith('-') && !line.startsWith('---')) removed++
   }
   return { added, removed }
-}
-
-/** The newest `limit` characters of live text on one line, emphasis runs
- *  stripped: the newest words say what is happening now. */
-export function tailOf(text: string, limit: number): string {
-  const flat = text
-    .replace(/\*{1,3}/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (flat.length <= limit) return flat
-  return `…${flat.slice(flat.length - limit)}`
 }
 
 /** A duration read at a glance; sub-second work in ms, since "0s" reads as nothing. */

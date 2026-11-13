@@ -24,6 +24,7 @@ const rowKinds: Record<RowKind, true> = {
   subagent: true,
   plan: true,
   move: true,
+  shell: true,
 }
 
 describe('LedgerRow', () => {

@@ -158,6 +158,7 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 		Locations: toolLocations(tool), InputRef: refs.Input, ResultRef: refs.Result,
 		Error: caption(tool.Error), DurationMS: tool.DurationMS, ExitCode: tool.ExitCode, Interrupted: tool.Interrupted,
 	}
+	runOf(&body, tool)
 	scopeOf(&body, tool)
 	if !st.HasToolInput(scope, id) {
 		// A call is keyed once: its first input is the one an ask names it by.
@@ -181,6 +182,11 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	if err != nil || phase == ledger.ToolPre {
 		return rows, err
 	}
+	shells, err := toolShellRows(st, ev, scope, turnID)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, shells...)
 	for _, askID := range st.AsksOfTool(scope, id) {
 		resolved, err := ledger.ResolveAsk(st, askID, ledger.ResolutionProceeded, nil)
 		if err != nil {

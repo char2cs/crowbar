@@ -455,7 +455,7 @@ func assertTurnsStartOnTheLiveRunner(t *testing.T, f testFixture, chatID string,
 		case ledger.KindUserMessage, ledger.KindPromptSettled, ledger.KindSessionBound,
 			ledger.KindSessionLost, ledger.KindMarker, ledger.KindTurnEnded, ledger.KindTurnFailed,
 			ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk,
-			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove: // no runner starts or ends, no turn starts
+			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove, ledger.KindShell: // no runner starts or ends, no turn starts
 		}
 	}
 }
