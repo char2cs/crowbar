@@ -244,6 +244,8 @@ model:
     adapter: json
     items_path: "providers[]"
     keep_when: { field: "authenticated", equals: true }
+    # The reply's own top-level selection; both empty in a profile with no default.
+    current_id: "{provider}:{model}"
     item:
       each: "models[]"
       id: "{parent.slug}:{value}"

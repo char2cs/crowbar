@@ -42,11 +42,12 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const provider = providers.find((p) => p.id === pick.provider) ?? providers.find((p) => p.enabled)
+  const needsModel = provider?.modelRequired === true && !pick.model
   const headerClearancePx = belowOverlayHeader ? CHROME_ROW_HEIGHT_PX + 8 : 8
 
   const send = (raw: string) => {
     const prompt = raw.trim()
-    if (!prompt || sending) return
+    if (!prompt || sending || needsModel) return
     const refused = refusal(prompt)
     if (refused) {
       setError(refused)
@@ -150,9 +151,9 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
           headerClearancePx={headerClearancePx}
         />
       </div>
-      {error && (
+      {(needsModel || error) && (
         <p className="meta composer-note" role="alert">
-          {error}
+          {needsModel ? 'Choose a model to start' : error}
         </p>
       )}
     </section>

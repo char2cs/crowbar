@@ -79,9 +79,25 @@ func Probe(
 		return nil, ErrMalformedOutput
 	}
 	rows := pathselect.Select([]any{doc}, disc.ItemsPath)
-	return mapModels(rows, itemMapping{
+	found := mapModels(rows, itemMapping{
 		KeepWhen: disc.KeepWhen, OrderBy: disc.OrderBy, DefaultWhen: disc.DefaultWhen, Item: disc.Item,
-	}), nil
+	})
+	if root, ok := doc.(map[string]any); ok {
+		flagCurrent(found, disc.CurrentID, root)
+	}
+	return found, nil
+}
+
+// flagCurrent marks the row whose id is the reply's own selection; a selection no
+// row offers is not a pickable default, so it stays unknown.
+func flagCurrent(found []Model, template string, reply map[string]any) {
+	id, ok := expandAll(template, reply)
+	if !ok {
+		return
+	}
+	for i := range found {
+		found[i].Default = found[i].ID == id
+	}
 }
 
 // fetch is the raw catalogue: the descriptor's api call over its own connection, or
@@ -266,6 +282,18 @@ func expand(template string, row map[string]any) string {
 		}
 		return v
 	})
+}
+
+// expandAll is expand, but reports false unless the template names a field and every
+// field it names has a value, so a composed id never carries a blank half.
+func expandAll(template string, row map[string]any) (string, bool) {
+	complete := template != ""
+	out := placeholder.ReplaceAllStringFunc(template, func(m string) string {
+		v, ok := scalarString(pathselect.Field(row, m[1:len(m)-1]))
+		complete = complete && ok && v != ""
+		return v
+	})
+	return out, complete
 }
 
 func scalarString(v any) (string, bool) {

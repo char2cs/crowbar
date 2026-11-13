@@ -76,6 +76,9 @@ func checkDiscoverMapping(d *spec.Descriptor, disc *spec.ModelDiscoverSpec) erro
 	if disc.DefaultWhen != nil && disc.DefaultWhen.Field == "" {
 		return invalid(d.ID, "model.discover.default_when.field is required")
 	}
+	if disc.CurrentID != "" && disc.DefaultWhen != nil {
+		return invalid(d.ID, "model.discover.current_id and default_when are exclusive")
+	}
 	return nil
 }
 

@@ -6,6 +6,7 @@ package protocol
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/exec"
@@ -40,6 +41,19 @@ var (
 
 	ErrAPISessionLost = apidriver.ErrSessionLost
 )
+
+// APIFailureReason is the provider's own words for a call it refused, false when err
+// is not such a refusal.
+func APIFailureReason(err error) (string, bool) {
+	var call *jsonrpc.CallError
+	if !errors.As(err, &call) {
+		return "", false
+	}
+	if call.Detail == "" {
+		return call.Message, true
+	}
+	return call.Message + ": " + call.Detail, true
+}
 
 // ForeignPayloadError reports which required field was absent, i.e. why the payload
 // was judged to describe another CLI's conversation.

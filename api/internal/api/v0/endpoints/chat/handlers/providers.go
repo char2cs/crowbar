@@ -120,6 +120,7 @@ func providerDTOs(in []domain.AgentProvider) []dto.AgentProviderDTO {
 			ActivityEvents:    p.ActivityEvents,
 			Models:            p.Models,
 			DefaultModel:      p.DefaultModel,
+			ModelRequired:     p.ModelRequired,
 			Efforts:           p.Efforts,
 			DefaultEfforts:    p.DefaultEfforts,
 			PermissionLevels:  p.PermissionLevels,

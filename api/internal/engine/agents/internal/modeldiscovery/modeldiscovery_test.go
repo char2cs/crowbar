@@ -254,3 +254,32 @@ func TestProbe_APICallFailureIsReported(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+func TestProbe_CurrentIDFlagsTheRepliesOwnSelection(t *testing.T) {
+	reply := `{"cur":"alpha","sel":"m2","groups":[{"key":"alpha","ready":true,"items":["m1","m2"]}]}`
+	cases := map[string]struct {
+		reply string
+		want  string
+	}{
+		"the composed id matching a row": {reply, "alpha:m2"},
+		"a reply stating no selection":   {`{"cur":"","sel":"","groups":[{"key":"alpha","ready":true,"items":["m1"]}]}`, ""},
+		"a selection no row offers":      {`{"cur":"alpha","sel":"gone","groups":[{"key":"alpha","ready":true,"items":["m1"]}]}`, ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			d, _ := apiCatalogDescriptor(t, map[string]string{"catalog.list": tc.reply})
+			d.Model.Discover.CurrentID = "{cur}:{sel}"
+
+			got, err := modeldiscovery.Probe(context.Background(), d, models.ProbeOptions{Cwd: t.TempDir()}, nil)
+
+			require.NoError(t, err)
+			current := ""
+			for _, m := range got {
+				if m.Default {
+					current = m.ID
+				}
+			}
+			assert.Equal(t, tc.want, current)
+		})
+	}
+}

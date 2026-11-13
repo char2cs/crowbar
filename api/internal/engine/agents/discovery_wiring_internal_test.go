@@ -58,3 +58,26 @@ func TestAgent_Capabilities_ModelDiscoveryReflectsTheDiscoverBlock(t *testing.T)
 	static := &agent{spec: &spec.Descriptor{ID: "static", Model: &spec.ModelSpec{Available: []string{"opus"}}}}
 	assert.False(t, static.Capabilities().ModelDiscovery)
 }
+
+func TestAgent_ModelRequiredWhenTheProviderReportsItsSelectionAndHasNone(t *testing.T) {
+	cases := map[string]struct {
+		currentID string
+		found     []modeldiscovery.Model
+		want      bool
+	}{
+		"reports a selection, states none": {"{a}", []modeldiscovery.Model{{ID: "m1"}}, true},
+		"reports a selection, states one":  {"{a}", []modeldiscovery.Model{{ID: "m1", Default: true}}, false},
+		"never reports a selection":        {"", []modeldiscovery.Model{{ID: "m1"}}, false},
+		"catalogue not resolved yet":       {"{a}", nil, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			d := discoveringDescriptor()
+			d.Model.Discover.CurrentID = tc.currentID
+			cache := modeldiscovery.NewCache(context.Background())
+			cache.Store("probe", tc.found)
+
+			assert.Equal(t, tc.want, (&agent{spec: d, discovery: cache}).ModelRequired())
+		})
+	}
+}

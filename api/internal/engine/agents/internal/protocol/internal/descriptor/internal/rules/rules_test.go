@@ -788,6 +788,14 @@ func TestModelDiscover_RejectsTheBrokenShapes(t *testing.T) {
 			"default_when.field is required",
 		},
 		{
+			"current_id alongside default_when",
+			func(d *spec.Descriptor) {
+				d.Model.Discover.CurrentID = "{a}:{b}"
+				d.Model.Discover.DefaultWhen = &spec.ModelFieldMatch{Field: "x", Equals: true}
+			},
+			"current_id and default_when are exclusive",
+		},
+		{
 			"timeout above the ceiling",
 			func(d *spec.Descriptor) { d.Model.Discover.TimeoutMS = spec.MaxModelDiscoverTimeoutMS + 1 },
 			"timeout_ms must be between",

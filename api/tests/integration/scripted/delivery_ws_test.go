@@ -298,20 +298,25 @@ func TestRegression_WebsocketDormantChatResumesItsSessionToDeliverAPrompt(t *tes
 	assert.JSONEq(t, `{"id":"sess-1","text":"second"}`, withoutCallID(t, send.Params))
 }
 
-// A provider that refuses to open the session tells the chat why, in the chat's
-// own feed, instead of leaving the send to fail as an unsupported prompt.
-func TestRegression_WebsocketRefusedSessionTellsTheChatWhy(t *testing.T) {
+// A connection-only provider that refuses to open the session fails the spawn: the
+// prompt is settled, nothing is left working, and the exit carries the provider's own
+// reason rather than the wrapped spawn chain.
+func TestRegression_WebsocketRefusedSessionFailsTheSpawnWithTheProvidersReason(t *testing.T) {
 	s := newSocketRig(t)
 	s.reject.Store("session/new", "storage unavailable")
-	chatID := s.spawn(wsProvider)
+	chatID, err := s.d.app.Usecases.AgentChat.MintChat(context.Background(), "", s.wsID, wsProvider, "")
+	require.NoError(t, err)
 
-	err := s.send(chatID, "hello")
+	err = s.send(chatID, "hello")
+
+	require.Error(t, err)
 	assert.NotErrorIs(t, err, problem.ErrUnprocessable, "a failed connection is not an unsupported prompt")
-	var details []string
-	for _, m := range kit.Bodies[ledger.Marker](s.rows(chatID), ledger.KindMarker) {
-		details = append(details, m.Detail)
-	}
-	assert.Contains(t, strings.Join(details, "\n"), "storage unavailable")
+	exits := kit.Bodies[ledger.RunnerExited](s.rows(chatID), ledger.KindRunnerExited)
+	require.Len(t, exits, 1)
+	assert.Equal(t, domain.AgentExitSpawnFailed, exits[0].Reason)
+	assert.Contains(t, exits[0].Detail, "storage unavailable")
+	assert.NotContains(t, exits[0].Detail, "spawn runner")
+	assert.False(t, s.working(chatID), "the prompt that could not be carried is settled")
 }
 
 // Every prompt delivery mints its own {call_id}, so a re-send never reuses an id the
@@ -349,7 +354,7 @@ func TestRegression_WebsocketRefusedPromptRecordsItsReasonOnTheExit(t *testing.T
 	s.eventually(func() bool {
 		for _, e := range kit.Bodies[ledger.RunnerExited](s.rows(chatID), ledger.KindRunnerExited) {
 			if strings.Contains(e.Detail, "message too long") {
-				return true
+				return !strings.Contains(e.Detail, "spawn runner")
 			}
 		}
 		return false

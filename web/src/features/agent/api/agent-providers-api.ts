@@ -46,6 +46,8 @@ export interface AgentProvider {
   models?: string[]
   /** The provider's own stated default; absent when it states none, never inferred from `models`. */
   defaultModel?: string
+  /** A chat with no model pick cannot start: the provider reports its own selection and has none. */
+  modelRequired?: boolean
   /** Resolved server-side, fallbacks included: read `efforts[model]` with '' for
    *  no selection. A model with no levels is absent, meaning no effort picker. */
   efforts?: Record<string, string[]>

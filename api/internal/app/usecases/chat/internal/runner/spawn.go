@@ -179,7 +179,10 @@ func (rs *Runners) spawnRunner(
 	if refused != nil {
 		// The plan resumes the session the provider just refused.
 		rs.abandonUnforked(ctx, runnerID, paths)
-		return "", fmt.Errorf("%w: %w", ErrSpawnSessionRefused, refused)
+		if errors.Is(refused, engineagents.ErrAPISessionLost) {
+			return "", fmt.Errorf("%w: %w", ErrSpawnSessionRefused, refused)
+		}
+		return "", refused
 	}
 	steps := buildSpawnSteps(
 		descriptor, in.resuming, inject, sel, sessionSteps, in.finalSteps,

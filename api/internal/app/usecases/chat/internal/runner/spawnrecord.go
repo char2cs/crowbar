@@ -82,7 +82,7 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 	if _, live := rs.live.byChat(chatID); live {
 		return
 	}
-	reason, detail := domain.AgentExitSpawnFailed, (*err).Error()
+	reason, detail := domain.AgentExitSpawnFailed, failureDetail(*err)
 	if errors.Is(*err, engineagents.ErrAPISessionLost) {
 		reason, detail = domain.AgentExitResumeFailed, ""
 	}

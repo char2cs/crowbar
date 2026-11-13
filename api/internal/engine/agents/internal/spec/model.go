@@ -74,7 +74,11 @@ type ModelDiscoverSpec struct {
 	OrderBy   string            `yaml:"order_by"`
 	// DefaultWhen flags the row that IS the provider's default model (not an effort
 	// default). Absent, or matching no row, the default is UNKNOWN, never positional.
-	DefaultWhen    *ModelFieldMatch `yaml:"default_when"`
+	DefaultWhen *ModelFieldMatch `yaml:"default_when"`
+	// CurrentID is a template over the whole reply naming the model the provider
+	// itself has selected; the row with that id is the default. Any empty field
+	// means none is selected. Exclusive with DefaultWhen.
+	CurrentID      string           `yaml:"current_id"`
 	Item           ModelItemMapping `yaml:"item"`
 	TimeoutMS      int              `yaml:"timeout_ms"`
 	MaxStdoutBytes int              `yaml:"max_stdout_bytes"`
