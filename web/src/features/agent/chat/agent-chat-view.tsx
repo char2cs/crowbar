@@ -23,7 +23,7 @@ import type {
   ComposerShape,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
-import { FooterViewSwitch } from '@/features/agent/controls/footer-view-switch'
+import { ViewSwitch } from '@/features/agent/controls/view-switch'
 import { IS_MOBILE } from '@/utils/platform'
 import { ChatViewSwitch } from '@/features/agent/controls/chat-view-switch'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
@@ -374,7 +374,7 @@ export function AgentChatView({
 
   // The phone's switch sits in the footer, or beside the model chip while the chat is blank.
   const viewSwitch = IS_MOBILE && presentation === 'chat' && provider?.hasTerminal !== false && (
-    <FooterViewSwitch
+    <ViewSwitch
       presentation={presentation}
       handoverBlocked={!provider?.hotswap && working}
       onSelect={onSelectPresentation}

@@ -35,11 +35,6 @@ function icon(path: React.ReactNode, displayName: string) {
   return AgentIcon
 }
 
-export const ChatIcon = icon(
-  <path d="M6 4.5h12A1.5 1.5 0 0 1 19.5 6v8a1.5 1.5 0 0 1-1.5 1.5h-7.2L6.5 19.5V15.5H6A1.5 1.5 0 0 1 4.5 14V6A1.5 1.5 0 0 1 6 4.5Z" />,
-  'ChatIcon',
-)
-
 export const TerminalIcon = icon(
   <>
     <path d="M4 5h16v14H4z" />
@@ -47,17 +42,6 @@ export const TerminalIcon = icon(
     <path d="M13 15h4" />
   </>,
   'TerminalIcon',
-)
-
-/* Two panes side by side. The canvas switcher has no third segment — Split is a
-   development instrument Crowbar adds — so this is drawn to the same grid and
-   weight as its two neighbours rather than borrowed from another set. */
-export const SplitIcon = icon(
-  <>
-    <path d="M4 5h16v14H4z" />
-    <path d="M12 5v14" />
-  </>,
-  'SplitIcon',
 )
 
 export const UpIcon = icon(

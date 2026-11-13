@@ -8,7 +8,7 @@ import {
   ChatMarkdownEditor,
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
-import { FooterViewSwitch } from '@/features/agent/controls/footer-view-switch'
+import { ViewSwitch } from '@/features/agent/controls/view-switch'
 import { providerCanStartOnTerminal } from '@/features/agent/api/agent-providers-api'
 import { IS_MOBILE } from '@/utils/platform'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
@@ -138,7 +138,7 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
                 }
               />
               {IS_MOBILE && providerCanStartOnTerminal(provider) && provider?.hasTerminal && (
-                <FooterViewSwitch
+                <ViewSwitch
                   presentation="chat"
                   handoverBlocked={sending}
                   onSelect={(next) => next === 'terminal' && openTerminal()}

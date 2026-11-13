@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import { useChatHeaderSlotElement } from '@/features/agent/hooks/chat-header-slot'
-import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
+import { ViewSwitch } from '@/features/agent/controls/view-switch'
 import { IS_MOBILE } from '@/utils/platform'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
@@ -26,7 +26,7 @@ export function ChatViewSwitch({
   // The phone's switch lives in the dock footer.
   if (IS_MOBILE || presentation === 'terminal' || !hasTerminal) return null
   const switcher = (
-    <ViewSwitcher
+    <ViewSwitch
       presentation={presentation}
       splitEnabled={splitEnabled}
       handoverBlocked={handoverBlocked}

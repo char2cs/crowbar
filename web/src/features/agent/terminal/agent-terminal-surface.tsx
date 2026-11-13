@@ -5,7 +5,7 @@ import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
 import { useChatHeaderSlotElement } from '@/features/agent/hooks/chat-header-slot'
-import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
+import { ViewSwitch } from '@/features/agent/controls/view-switch'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { LazyXtermTerminal } from '@/features/terminal/components/lazy-terminal'
 import type { TerminalFocusHandle } from '@/features/terminal/components/terminal'
@@ -93,7 +93,7 @@ export function AgentTerminalSurface({
   const controls = (
     <>
       {presentation === 'terminal' && provider?.hasTerminal !== false && (
-        <ViewSwitcher
+        <ViewSwitch
           presentation={presentation}
           splitEnabled={splitEnabled && provider?.hotswap === true}
           handoverBlocked={!provider?.hotswap && working}

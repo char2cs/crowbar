@@ -31,7 +31,7 @@ vi.mock(
 )
 
 describe('AgentChatPane view toggle', () => {
-  // ── ⌘/ toggles the chat/terminal view, like the ViewSwitcher tabs ─────
+  // ── ⌘/ toggles the chat/terminal view, like the view switch tabs ─────
   describe('toggle chat/terminal view chord', () => {
     const pressToggle = async () => {
       await act(async () => {
