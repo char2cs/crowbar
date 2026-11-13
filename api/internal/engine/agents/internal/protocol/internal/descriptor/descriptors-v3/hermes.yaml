@@ -19,7 +19,7 @@ runtime:
 
 # The wire has no turn.* events, no failure flag on tool.complete, no typed todo item,
 # and compaction (status.update) has no end frame to pair with.
-not_emitted: [notification, idle, plan_step, plan_update, tool_fail, tool_output_delta, subagent_result, compact_pre, compact_post, terminal_input, session_end]
+not_emitted: [notification, idle, plan_step, plan_update, tool_fail, tool_output_delta, subagent_result, compact_pre, compact_post, diff_update, terminal_input, session_end]
 
 surfaces:
   chat: { channel: api, start_here: true }
