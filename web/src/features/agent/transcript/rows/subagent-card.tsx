@@ -2,10 +2,9 @@ import { memo, useMemo, useState } from 'react'
 import { CaretRightIcon, CheckIcon, CircleDashedIcon, StopIcon, XIcon } from '@phosphor-icons/react'
 import type { Icon } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
-import { useTextClock } from '@/features/agent/activity/lib/text-clock'
+import { formatClock, useTextClock } from '@/features/agent/activity/lib/text-clock'
 import { useChatItem, useChatItems } from '@/features/agent/hooks/use-chat-feed'
 import { useSubagentAction } from '@/features/agent/hooks/use-subagent-action'
-import { formatTrayClock } from '@/features/agent/trays/lib/tray-rows'
 import { SubagentIcon } from '@/features/agent/shared/agent-icons'
 import { useChatStore } from '@/features/agent/stores/chat-store'
 import { ItemMap } from '@/features/agent/stores/lib/item-map'
@@ -41,7 +40,7 @@ function took(card: SubagentItem): string {
   const ms =
     card.usage?.durationMs ??
     (card.endedAt ? Date.parse(card.endedAt) - Date.parse(card.startedAt) : 0)
-  return ms > 0 ? formatTrayClock(Math.round(ms / 1000)) : ''
+  return ms > 0 ? formatClock(Math.round(ms / 1000)) : ''
 }
 
 /** The subagent's own rows, by the same components as the main transcript. */
@@ -86,7 +85,7 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
   const [open, setOpen] = useState(false)
   const action = useSubagentAction(chatId, card?.scope)
   const live = card?.status === 'starting' || card?.status === 'running'
-  const clockRef = useTextClock(live ? card?.startedAt : undefined, formatTrayClock)
+  const clockRef = useTextClock(live ? card?.startedAt : undefined, formatClock)
   if (card?.kind !== 'subagent') return null
   const usage = live ? '' : spent(card)
   const outcome = OUTCOMES[card.status]
