@@ -291,3 +291,26 @@ func TestStart_StdioDropStillClosesEvents(t *testing.T) {
 		t.Fatal("events never closed")
 	}
 }
+
+func TestCallOnce_HandshakesMakesTheOneCallAndHangsUp(t *testing.T) {
+	l := newLink()
+
+	raw, err := apidriver.CallOnce(t.Context(), reconnectDescriptor(), dialer(l), "open", map[string]any{})
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"id":"s1"}`, string(raw))
+	for _, want := range []string{"hello:", "ready:", "open:"} {
+		l.next(t, want)
+	}
+	select {
+	case <-l.done:
+	case <-time.After(waitFor):
+		t.Fatal("the one-off connection was left open")
+	}
+}
+
+func TestCallOnce_ADialFailureNamesTheProvider(t *testing.T) {
+	_, err := apidriver.CallOnce(t.Context(), reconnectDescriptor(), dialer(nil), "open", nil)
+
+	require.ErrorContains(t, err, "fake dial")
+}

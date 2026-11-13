@@ -3,6 +3,8 @@ package protocol_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/jsonrpc"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
@@ -146,4 +149,20 @@ func TestCheckVersion_DelegatesToTheDescriptorsDeclaredRange(t *testing.T) {
 	assert.NoError(t, protocol.CheckVersion(d, "1.5"))
 	assert.Error(t, protocol.CheckVersion(d, "2.0"),
 		"a version outside the descriptor's declared range must be refused")
+}
+
+func TestAPIFailureReason_QuotesTheProvidersOwnRefusalThroughAnyWrapping(t *testing.T) {
+	refused := fmt.Errorf("turn: %w", &jsonrpc.CallError{Method: "turn/start", Message: "rate limited"})
+	detailed := &jsonrpc.CallError{Method: "turn/start", Message: "invalid params", Detail: "field model"}
+
+	reason, ok := protocol.APIFailureReason(refused)
+	assert.True(t, ok)
+	assert.Equal(t, "rate limited", reason)
+
+	reason, ok = protocol.APIFailureReason(detailed)
+	assert.True(t, ok)
+	assert.Equal(t, "invalid params: field model", reason)
+
+	_, ok = protocol.APIFailureReason(errors.New("connection reset"))
+	assert.False(t, ok, "a transport failure is not the provider's refusal")
 }

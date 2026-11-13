@@ -792,3 +792,125 @@ func TestParse_AChannelScopedEventReadsItsOwnBlocksWhen(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "s1", ev.SessionID)
 }
+
+func TestParse_ARefusalNamesTheDescriptorEventAndFieldInItsMessage(t *testing.T) {
+	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
+		spec.HookUserPrompt: {
+			Required: []string{"session_id"}, In: spec.WireRef{spec.HookUserPrompt},
+			Map: spec.FieldMap{"session_id": mapping.Paths("session_id")},
+		},
+	}}
+	d.Runtime.Hooks.Format = "json"
+	d.Runtime.Hooks.RequirePayloadFields = []string{"session_id"}
+
+	_, missing := parse(d, spec.HookUserPrompt, []byte(`{"prompt":"hi"}`))
+	_, foreign := parse(d, spec.HookUserPrompt, []byte(`{"session_id":""}`))
+	_, mismatch := parse(idleVariantDescriptor(), spec.HookIdle, []byte(`{"session_id":"s1","message":"other"}`))
+
+	require.ErrorContains(t, missing, `descriptor "probe" event "user_prompt"`)
+	require.ErrorContains(t, missing, `field "session_id"`)
+	require.ErrorContains(t, foreign, `missing "session_id"`)
+	require.ErrorContains(t, mismatch, `event "idle"`)
+}
+
+func TestParse_BuildsAPlanStepWithItsStatusInCrowbarsWords(t *testing.T) {
+	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
+		spec.HookPlanStep: {
+			In: spec.WireRef{"step"}, StatusMap: map[string]string{"running": "in_progress"},
+			Map: fieldMap(map[string]string{
+				"scope_id": "scope", "step_id": "id", "text": "title", "detail": "note", "status": "state",
+			}),
+		},
+	}}
+	d.Runtime.Hooks.Format = "json"
+
+	ev, err := parse(d, spec.HookPlanStep, []byte(`{"scope":"sub-1","id":"2","title":"Write","note":"n","state":"running"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Step)
+	assert.Equal(t, "2", ev.Step.StepID)
+	assert.Equal(t, "Write", ev.Step.Text)
+	assert.Equal(t, "n", ev.Step.Detail)
+	assert.Equal(t, "in_progress", ev.Step.Status)
+	require.NotNil(t, ev.Subagent)
+	assert.Equal(t, "sub-1", ev.Subagent.ID, "a step run under a scope belongs to that subagent")
+}
+
+func TestParse_ADeltaIsSequencedOnlyWhenTheDescriptorMapsAnIndex(t *testing.T) {
+	plain := descriptor(map[string]map[string]string{spec.HookMessageDelta: {"text": "t", "message_id": "m"}})
+	indexed := descriptor(map[string]map[string]string{
+		spec.HookMessageDelta: {"text": "t", "index": "i", "final": "done"},
+	})
+
+	a, err := parse(plain, spec.HookMessageDelta, []byte(`{"t":"he","m":"m1"}`))
+	require.NoError(t, err)
+	b, err := parse(indexed, spec.HookMessageDelta, []byte(`{"t":"llo","i":3,"done":true}`))
+	require.NoError(t, err)
+
+	assert.False(t, a.Delta.Sequenced)
+	assert.Equal(t, "m1", a.Delta.MessageID)
+	assert.True(t, b.Delta.Sequenced)
+	assert.Equal(t, 3, b.Delta.Index)
+	assert.True(t, b.Delta.Final)
+}
+
+func TestParse_APlanUpdateReadsTheWholeListSkippingTextlessRows(t *testing.T) {
+	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
+		spec.HookPlanUpdate: {
+			In: spec.WireRef{"plan"},
+			Steps: &spec.StepsSpec{
+				Items: "plan", Text: "step", Status: "status", StatusMap: map[string]string{"done": "completed"},
+			},
+		},
+	}}
+	d.Runtime.Hooks.Format = "json"
+
+	ev, err := parse(d, spec.HookPlanUpdate, []byte(
+		`{"plan":[{"step":"a","status":"done"},{"step":"","status":"x"},{"step":"b","status":"weird"}]}`))
+	require.NoError(t, err)
+	none, err := parse(d, spec.HookPlanUpdate, []byte(`{"plan":[{"step":""}]}`))
+	require.NoError(t, err)
+
+	assert.Equal(t, []models.PlanStep{{Text: "a", Status: "completed"}, {Text: "b", Status: "weird"}}, ev.Plan)
+	assert.Nil(t, none.Plan)
+}
+
+func TestParse_AToolCarriesItsChangedFilesAsOneUnifiedDiff(t *testing.T) {
+	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
+		spec.HookToolPost: {
+			In: spec.WireRef{"tool"},
+			DiffFiles: &spec.DiffFilesSpec{
+				Items: "changes", Path: "path", Diff: "diff", Kind: "kind",
+				Whole: map[string]string{"create": spec.DiffAdded, "remove": spec.DiffDeleted},
+			},
+		},
+	}}
+	d.Runtime.Hooks.Format = "json"
+	payload := `{"changes":[
+		{"path":"/new.txt","kind":"create","diff":"one\ntwo\n"},
+		{"path":"/gone.txt","kind":"remove","diff":"bye"},
+		{"path":"/edit.txt","kind":"update","diff":"@@ -1 +1 @@\n-a\n+b"},
+		{"path":"","kind":"update","diff":"skipped"}]}`
+
+	ev, err := parse(d, spec.HookToolPost, []byte(payload))
+
+	require.NoError(t, err)
+	assert.Equal(t, "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+one\n+two\n\n"+
+		"--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-bye\n\n"+
+		"--- a/edit.txt\n+++ b/edit.txt\n@@ -1 +1 @@\n-a\n+b\n", ev.Tool.Diff)
+}
+
+func TestParse_AToolCarriesTheLocationsItTouched(t *testing.T) {
+	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
+		spec.HookToolPre: {
+			In:        spec.WireRef{"tool"},
+			Locations: &spec.LocationsSpec{Items: "locs", Path: "file", Line: "line"},
+		},
+	}}
+	d.Runtime.Hooks.Format = "json"
+
+	ev, err := parse(d, spec.HookToolPre, []byte(`{"locs":[{"file":"a.go","line":7},{"file":""},{"file":"b.go"}]}`))
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.ToolLocation{{Path: "a.go", Line: 7}, {Path: "b.go"}}, ev.Tool.Locations)
+}

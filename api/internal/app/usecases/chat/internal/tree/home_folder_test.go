@@ -16,6 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/domain/problem"
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
@@ -430,4 +431,89 @@ func TestListInRepo_Home_IsolatesFromRepoScoped(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Equal(t, created.ID, rows[0].ID)
 	assert.Equal(t, "home", rows[0].Title)
+}
+
+func TestListInHome_ListsOnlyTheFoldersOfThatHome(t *testing.T) {
+	_, _, _, uc := newHomeUsecase(t)
+	ctx := context.Background()
+	mine, _, err := uc.Create(ctx, tree.CreateInput{ID: "f-mine", Name: "mine", HomeID: "home-a"})
+	require.NoError(t, err)
+	_, _, err = uc.Create(ctx, tree.CreateInput{ID: "f-theirs", Name: "theirs", HomeID: "home-b"})
+	require.NoError(t, err)
+
+	rows, err := uc.ListInHome(ctx, "home-a")
+
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, mine.ID, rows[0].ID)
+}
+
+// A home folder written before HomeID existed belongs to one home, not to
+// whichever lists it: the home its member chat runs in wins over the lister.
+func TestListInHome_AdoptsALegacyFolderByTheHomeItsMemberChatRunsIn(t *testing.T) {
+	chats, folders, nodes, uc := newHomeUsecase(t)
+	ctx := context.Background()
+	folders.Saved = append(folders.Saved, dtree.Folder{ID: "f-legacy", Name: "old"})
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", WorkspaceID: "home-b"})
+	nodes.Rows = append(nodes.Rows,
+		dtree.Node{ID: "f-legacy", Kind: dtree.KindFolder},
+		dtree.Node{ID: "c1", Kind: dtree.KindChat, ParentID: "f-legacy"})
+
+	elsewhere, err := uc.ListInHome(ctx, "home-a")
+	require.NoError(t, err)
+	assert.Empty(t, elsewhere, "the lister is not the owner")
+	owned, err := uc.ListInHome(ctx, "home-b")
+	require.NoError(t, err)
+
+	require.Len(t, owned, 1)
+	assert.Equal(t, "f-legacy", owned[0].ID)
+	scope, err := uc.FolderScope(ctx, "f-legacy")
+	require.NoError(t, err)
+	assert.Equal(t, "home-b", scope.HomeID, "the adoption is persisted")
+}
+
+// With nothing around it to say, the first home that lists a legacy folder owns it.
+func TestListInHome_AFolderNothingAttributesGoesToTheFirstHomeThatListsIt(t *testing.T) {
+	_, folders, _, uc := newHomeUsecase(t)
+	ctx := context.Background()
+	folders.Saved = append(folders.Saved, dtree.Folder{ID: "f-legacy", Name: "old"})
+
+	first, err := uc.ListInHome(ctx, "home-a")
+	require.NoError(t, err)
+	second, err := uc.ListInHome(ctx, "home-b")
+	require.NoError(t, err)
+
+	assert.Len(t, first, 1)
+	assert.Empty(t, second)
+}
+
+func TestFolderScope_AnUnknownFolderIsNotFound(t *testing.T) {
+	_, _, _, uc := newHomeUsecase(t)
+
+	_, err := uc.FolderScope(context.Background(), "nope")
+
+	require.ErrorIs(t, err, problem.ErrNotFound)
+}
+
+func TestListInHome_ALegacyFolderTakesTheHomeOfAFolderAroundIt(t *testing.T) {
+	_, folders, nodes, uc := newHomeUsecase(t)
+	ctx := context.Background()
+	folders.Saved = append(folders.Saved,
+		dtree.Folder{ID: "f-outer", Name: "outer"},
+		dtree.Folder{ID: "f-inner", Name: "inner", HomeID: "home-c"},
+		dtree.Folder{ID: "f-deep", Name: "deep"})
+	nodes.Rows = append(nodes.Rows,
+		dtree.Node{ID: "f-outer", Kind: dtree.KindFolder},
+		dtree.Node{ID: "f-inner", Kind: dtree.KindFolder, ParentID: "f-outer"},
+		dtree.Node{ID: "f-deep", Kind: dtree.KindFolder, ParentID: "f-inner"})
+
+	rows, err := uc.ListInHome(ctx, "home-a")
+	require.NoError(t, err)
+	assert.Empty(t, rows, "neither legacy folder is home-a's")
+
+	for _, id := range []string{"f-outer", "f-deep"} {
+		scope, err := uc.FolderScope(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "home-c", scope.HomeID, id)
+	}
 }

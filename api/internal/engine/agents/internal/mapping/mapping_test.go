@@ -3,6 +3,7 @@ package mapping_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 )
@@ -439,5 +440,65 @@ func TestString_DynamicKeySelectorComposesWithAlternation(t *testing.T) {
 		"item.agentsStates[missing].status", "item.agentsStates[receiverThreadIds[0]].message"))
 	if got != "done" {
 		t.Fatalf("got %q, want the fallback branch to resolve", got)
+	}
+}
+
+func TestIsNull_SeparatesAnExplicitNullFromAMissingKeyAndAValue(t *testing.T) {
+	d := map[string]any{"nil": nil, "empty": "", "x": "v"}
+	for path, want := range map[string]bool{"nil": true, "empty": false, "x": false, "absent": false} {
+		if got := mapping.IsNull(d, p(path)); got != want {
+			t.Errorf("IsNull(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestTime_ReadsEpochSecondsOrRFC3339AndNothingElse(t *testing.T) {
+	d := map[string]any{"epoch": float64(1700000000), "iso": "2026-01-02T03:04:05Z", "bad": "yesterday", "empty": ""}
+	if got, ok := mapping.Time(d, p("epoch")); !ok || !got.Equal(time.Unix(1700000000, 0)) {
+		t.Errorf("epoch = %v, %v", got, ok)
+	}
+	if got, ok := mapping.Time(d, p("iso")); !ok || !got.Equal(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)) {
+		t.Errorf("iso = %v, %v", got, ok)
+	}
+	for _, path := range []string{"bad", "empty", "absent"} {
+		if _, ok := mapping.Time(d, p(path)); ok {
+			t.Errorf("Time(%q) reported a value", path)
+		}
+	}
+}
+
+func TestListAndStrings_ReadArraysAndTolerateEverythingElse(t *testing.T) {
+	d := map[string]any{"mixed": []any{"a", float64(2), "b"}, "scalar": "x"}
+	if got := mapping.List(d, p("mixed")); len(got) != 3 {
+		t.Errorf("List = %v", got)
+	}
+	if got := mapping.Strings(d, p("mixed")); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("Strings = %v", got)
+	}
+	for _, path := range []string{"scalar", "absent"} {
+		if mapping.List(d, p(path)) != nil || mapping.Strings(d, p(path)) != nil {
+			t.Errorf("%q: a non-array must read as nil", path)
+		}
+	}
+}
+
+func TestCaptured_FlagsNumbersAndBoolsAsLiterals(t *testing.T) {
+	d := map[string]any{"s": "text", "n": float64(3), "b": true, "obj": map[string]any{}}
+	for _, tc := range []struct {
+		path    string
+		text    string
+		literal bool
+		ok      bool
+	}{
+		{"s", "text", false, true},
+		{"n", "3", true, true},
+		{"b", "true", true, true},
+		{"obj", "", false, false},
+		{"absent", "", false, false},
+	} {
+		text, literal, ok := mapping.Captured(d, p(tc.path))
+		if text != tc.text || literal != tc.literal || ok != tc.ok {
+			t.Errorf("Captured(%q) = (%q,%v,%v), want (%q,%v,%v)", tc.path, text, literal, ok, tc.text, tc.literal, tc.ok)
+		}
 	}
 }

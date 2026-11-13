@@ -290,3 +290,84 @@ func TestRoutes_RefuseBadBodiesAndMapUsecaseFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestCompact_IsAcceptedNotDone(t *testing.T) {
+	uc := &fakeAgentUsecase{}
+	h := newChatHandlers(uc)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/compact", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Compact(ctx)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, []string{"chat-1"}, uc.compactCalls)
+}
+
+func TestCompact_AProviderWithNoCompactionIsRefused(t *testing.T) {
+	uc := &fakeAgentUsecase{compactErr: problem.New(problem.NotFound, "no compaction gesture")}
+	h := newChatHandlers(uc)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/compact", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.Compact(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestStopShell_IsAcceptedAndNamesTheShell(t *testing.T) {
+	h := newChatHandlers(&fakeAgentUsecase{})
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/shells/sh-1/stop", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}, {Key: "shellId", Value: "sh-1"}}
+
+	h.StopShell(ctx)
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Contains(t, rec.Body.String(), "sh-1")
+}
+
+func TestSwitchToTerminal_AnswersWithTheTerminalSession(t *testing.T) {
+	uc := &fakeAgentUsecase{switchToTerminalSessID: "term-7"}
+	h := newChatHandlers(uc)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch-to-terminal", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.SwitchToTerminal(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "term-7")
+	assert.Equal(t, []string{"chat-1"}, uc.switchToTerminalCalls)
+}
+
+func TestSwitchToTerminal_ARefusedSwitchIsTheUsecasesError(t *testing.T) {
+	uc := &fakeAgentUsecase{switchToTerminalErr: agentusecase.ErrPromptBusy}
+	h := newChatHandlers(uc)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch-to-terminal", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.SwitchToTerminal(ctx)
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestSwitchToNative_HasNoBodyOnSuccess(t *testing.T) {
+	uc := &fakeAgentUsecase{}
+	h := newChatHandlers(uc)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch-to-native", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.SwitchToNative(ctx)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, []string{"chat-1"}, uc.switchToNativeCalls)
+}
+
+func TestSwitchToNative_ARefusedSwitchIsTheUsecasesError(t *testing.T) {
+	uc := &fakeAgentUsecase{switchToNativeErr: agentusecase.ErrPromptBusy}
+	h := newChatHandlers(uc)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/chats/chat-1/switch-to-native", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "chat-1"}}
+
+	h.SwitchToNative(ctx)
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+}
