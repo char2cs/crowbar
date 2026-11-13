@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -81,14 +82,14 @@ events:
       deny: '{"decision":"decline"}'
   prompt:
     fresh:
-      - { call: session/new, send: { cwd: "{cwd}" }, capture: { session_id: id } }
+      - { call: session/new, send: { cwd: "{cwd}" }, capture: { session_id: id, gen: generation } }
     resume:
       - { call: session/resume, send: { id: "{session_id}" } }
     action:
-      - { call: turn/send, send: { id: "{session_id}", text: "{text}", call: "{call_id}" }, capture: { turn_id: turn } }
+      - { call: turn/send, send: { id: "{session_id}", text: "{text}", call: "{call_id}" }, capture: { turn_id: turn, gen: generation } }
   interrupt:
     out: turn/cancel
-    send: { id: "{session_id}", turn: "{turn_id}" }
+    send: { id: "{session_id}", turn: "{turn_id}", gen: "{gen}" }
 `
 
 var callIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -113,6 +114,7 @@ type socketRig struct {
 	endpoint string
 	calls    chan wireMsg
 	reject   sync.Map // method -> error message the socket answers it with
+	results  sync.Map // method -> result JSON the socket answers it with, over the default
 }
 
 // wireMsg is one message the daemon wrote to the socket.
@@ -167,6 +169,9 @@ func (s *socketRig) answer(ctx context.Context) {
 			result, ok := results[f.Method]
 			if !ok {
 				result = `{}`
+			}
+			if v, set := s.results.Load(f.Method); set {
+				result, _ = v.(string)
 			}
 			_ = s.ws.Send(fmt.Appendf(nil, `{"jsonrpc":"2.0","id":%s,"result":%s}`, f.ID, result))
 		}
@@ -359,4 +364,39 @@ func TestRegression_WebsocketRefusedPromptRecordsItsReasonOnTheExit(t *testing.T
 		}
 		return false
 	}, "no exit row carried the provider's reason")
+}
+
+// interruptParams drives a turn to the point a retract interrupts it and returns the
+// params of the cancel the daemon sends.
+func (s *socketRig) interruptParams(t *testing.T, chatID, text string) map[string]any {
+	t.Helper()
+	requestID := uuid.NewString()
+	_, err := s.runners().SubmitPrompt(context.Background(), chatID, text, requestID, "", nil)
+	require.NoError(t, err)
+	s.nextMethod(t, "turn/send")
+	s.push(t, fmt.Sprintf(`{"method":"item/user","params":{"session_id":"sess-1","text":%q}}`, text))
+	s.eventually(func() bool { return s.working(chatID) }, "the turn never opened")
+	_, err = s.runners().Retract(context.Background(), chatID, requestID)
+	require.NoError(t, err)
+	var params map[string]any
+	require.NoError(t, json.Unmarshal(s.nextMethod(t, "turn/cancel").Params, &params))
+	return params
+}
+
+// A receipt whose generation is null (queued admission) says nothing new, so the
+// interrupt still names the last number the provider gave; a later number replaces it.
+func TestRegression_WebsocketNullGenerationKeepsTheLastKnownOne(t *testing.T) {
+	s := newSocketRig(t)
+	s.results.Store("session/new", `{"id":"sess-1","generation":3}`)
+	s.results.Store("turn/send", `{"turn":"turn-1","generation":null}`)
+	chatID := s.spawn(wsProvider)
+
+	params := s.interruptParams(t, chatID, "one")
+	assert.EqualValues(t, 3, params["gen"], "the remembered generation, as a JSON number")
+	s.push(t, `{"method":"turn/done","params":{"session_id":"sess-1","text":"x"}}`)
+	s.eventually(func() bool { return !s.working(chatID) }, "the turn never closed")
+
+	s.results.Store("turn/send", `{"turn":"turn-2","generation":4}`)
+	params = s.interruptParams(t, chatID, "two")
+	assert.EqualValues(t, 4, params["gen"], "a numeric receipt replaces the remembered one")
 }

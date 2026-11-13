@@ -227,18 +227,12 @@ func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]st
 }
 
 // runSteps runs one Fresh/Resume/Action list in order, folding each Capture
-// into values. A field about to be recaptured is dropped from remembered first:
-// a racing Send then fails on an empty id rather than naming a finished turn.
+// into values. A field about to be recaptured is dropped from remembered while the
+// call is in flight, so a racing Send fails on an empty id rather than naming a
+// finished turn; a null or absent reply puts the previous value back.
 func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values map[string]string) error {
 	for _, step := range steps {
-		if len(step.Capture) > 0 {
-			drv.mu.Lock()
-			for field := range step.Capture {
-				delete(drv.remembered, field)
-				delete(drv.literals, field)
-			}
-			drv.mu.Unlock()
-		}
+		prior := drv.withdraw(step.Capture)
 		drv.mu.Lock()
 		literals := maps.Clone(drv.literals)
 		drv.mu.Unlock()
@@ -262,18 +256,47 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 			return fmt.Errorf("apidriver: %s: %s: parse response: %w", drv.d.ID, step.Call, err)
 		}
 		for field, path := range step.Capture {
-			if v, literal, ok := mapping.Captured(decoded, mapping.Paths(path)); ok {
+			v, literal, ok := mapping.Captured(decoded, mapping.Paths(path))
+			drv.mu.Lock()
+			switch {
+			case ok:
 				values[field] = v
-				drv.mu.Lock()
 				drv.remembered[field] = v
 				if literal {
 					drv.literals[field] = true
 				}
-				drv.mu.Unlock()
+			case prior[field].held:
+				drv.remembered[field] = prior[field].value
+				drv.literals[field] = prior[field].literal
 			}
+			drv.mu.Unlock()
 		}
 	}
 	return nil
+}
+
+// heldValue is a remembered capture set aside while its step is in flight.
+type heldValue struct {
+	value         string
+	literal, held bool
+}
+
+// withdraw removes the fields a step will recapture from remembered, returning what
+// they held.
+func (drv *Driver) withdraw(capture map[string]string) map[string]heldValue {
+	if len(capture) == 0 {
+		return nil
+	}
+	drv.mu.Lock()
+	defer drv.mu.Unlock()
+	prior := make(map[string]heldValue, len(capture))
+	for field := range capture {
+		v, held := drv.remembered[field]
+		prior[field] = heldValue{value: v, literal: drv.literals[field], held: held}
+		delete(drv.remembered, field)
+		delete(drv.literals, field)
+	}
+	return prior
 }
 
 func cloneValues(values map[string]string) map[string]string {
