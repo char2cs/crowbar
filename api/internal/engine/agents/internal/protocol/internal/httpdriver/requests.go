@@ -89,7 +89,7 @@ func (c *Client) do(ctx context.Context, name string, params map[string]string) 
 	}
 	var body io.Reader
 	if req.Body != nil {
-		raw, err := json.Marshal(outbound.ExpandTree(req.Body, values))
+		raw, err := json.Marshal(outbound.ExpandTree(req.Body, values, nil))
 		if err != nil {
 			return nil, fmt.Errorf("httpdriver: %s: encode body: %w", name, err)
 		}

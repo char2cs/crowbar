@@ -287,3 +287,27 @@ func TestDispatchResponse_NonNumericID_IsDroppedNotFatal(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"ok":"yes"}`, string(result))
 }
+
+func TestReplyError_AnswersAnAskWithAnErrorResponse(t *testing.T) {
+	conn, peer := open(t)
+	require.NoError(t, peer.WriteJSON(map[string]any{"id": 41, "method": "unknown/ask", "params": map[string]string{}}))
+	ask := <-conn.Frames()
+
+	require.NoError(t, conn.ReplyError(ask.ID, -32601, "method not found"))
+
+	msg, err := peer.Read()
+	require.NoError(t, err)
+	var reply struct {
+		ID    int `json:"id"`
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Result json.RawMessage `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(msg, &reply))
+	require.Equal(t, 41, reply.ID)
+	require.Equal(t, -32601, reply.Error.Code)
+	require.Equal(t, "method not found", reply.Error.Message)
+	require.Empty(t, reply.Result, "an error response carries no result")
+}

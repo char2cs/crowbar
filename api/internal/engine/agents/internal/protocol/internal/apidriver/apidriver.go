@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/dispatch"
@@ -39,6 +40,7 @@ type wire interface {
 	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
 	Notify(method string, params any) error
 	Reply(id, result json.RawMessage) error
+	ReplyError(id json.RawMessage, code int, message string) error
 	Frames() <-chan jsonrpc.Frame
 	Overflowed() bool
 	Close() error
@@ -61,12 +63,14 @@ type Driver struct {
 
 	// mu guards the rest. established: this connection ran an event's Fresh or
 	// Resume steps (only reopen clears it). remembered: every value a step's
-	// capture: pulled out, for a later Send. birth: the first establish's values.
+	// capture: pulled out, for a later Send; literals names those that were a JSON
+	// number or bool, which a template sends back as such. birth: the first establish's values.
 	// inflight: a turn was started and neither stopped nor failed yet; lastEvent
 	// is the event a reconnect resumes the session through.
 	mu          sync.Mutex
 	established bool
 	remembered  map[string]string
+	literals    map[string]bool
 	birth       map[string]string
 	inflight    bool
 	lastEvent   string
@@ -90,7 +94,7 @@ func newDriver(
 	}
 	drv := &Driver{
 		conn: conn, d: d, out: make(chan Event, 64), origin: origin,
-		remembered: map[string]string{}, dial: dial, rc: rc,
+		remembered: map[string]string{}, literals: map[string]bool{}, dial: dial, rc: rc,
 	}
 	// Detached from ctx: a caller's start deadline must not end a long-lived link.
 	drv.ctx, drv.cancel = context.WithCancel(context.Background())
@@ -158,7 +162,8 @@ func (drv *Driver) pump(conn wire) {
 		}
 		canonical, ok := dispatch.Resolve(drv.d, frame.Method, params)
 		if !ok {
-			continue // this provider's descriptor does not map this wire method
+			drv.refuseUnmapped(conn, frame)
+			continue
 		}
 		if canonical == spec.HookTurnStop || canonical == spec.HookTurnFailed {
 			drv.setInflight(false)
@@ -218,18 +223,16 @@ func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 func (drv *Driver) Send(ctx context.Context, canonical string, values map[string]string) error {
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
+	literals := maps.Clone(drv.literals)
 	drv.mu.Unlock()
 	for k, v := range values {
 		merged[k] = v
+		delete(literals, k) // a caller's value is text, whatever an earlier capture was
 	}
 
-	wire, payload, ok := outbound.Resolve(drv.d, canonical, merged)
+	wire, params, ok := outbound.ResolveTyped(drv.d, canonical, merged, literals)
 	if !ok {
 		return fmt.Errorf("apidriver: %s does not declare outbound event %q", drv.d.ID, canonical)
-	}
-	params := make(map[string]any, len(payload))
-	for k, v := range payload {
-		params[k] = v
 	}
 	_, err := drv.current().Call(ctx, wire, params)
 	if err != nil {

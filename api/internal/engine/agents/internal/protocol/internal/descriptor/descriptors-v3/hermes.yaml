@@ -172,7 +172,7 @@ events:
         cost.total_usd:          payload.usage.cost_usd
         model.id:                payload.usage.model
 
-  # approval answers {choice}; clarify answers {answers} keyed by Hermes's own question ids.
+  # approval answers {choice}; clarify answers {answers} keyed by its own question ids.
   permission:
     timeout_seconds: 86340
     api:
@@ -188,8 +188,9 @@ events:
         suggestion_label.session: "Allow for the rest of this session"
         suggestion_label.always:  "Always allow this"
         questions:        questions
+        question_id:      id
         question_text:    question
-        question_options: choices
+        question_choices: choices
         question_multi:   multi_select
     reply:
       allow:      '{"choice":"once"}'
@@ -214,21 +215,20 @@ events:
     fresh:
       - call: session.create
         send: { source: tui, cwd: "{cwd}" }
-        capture: { session_id: session_id, turn_id: execution_generation }
+        capture: { session_id: session_id, execution_generation: execution_generation }
     resume:
       - call: session.resume
         send: { session_id: "{session_id}", omit_messages: true }
-        capture: { turn_id: execution_generation }
+        capture: { execution_generation: execution_generation }
     action:
       - call: prompt.submit
         send: { session_id: "{session_id}", text: "{text}" }
-        capture: { turn_id: execution_generation }
+        capture: { execution_generation: execution_generation }
 
-  # interrupt is fenced on the session's execution_generation, which the vocabulary can only
-  # carry as turn_id; it is captured from every admission receipt.
+  # interrupt is fenced on execution_generation, a number captured from every admission receipt.
   interrupt:
     out: session.interrupt
-    send: { session_id: "{session_id}", execution_generation: "{turn_id}" }
+    send: { session_id: "{session_id}", execution_generation: "{execution_generation}" }
 
 spawn:
   cmd: hermes

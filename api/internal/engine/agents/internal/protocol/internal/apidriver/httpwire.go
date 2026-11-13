@@ -70,6 +70,11 @@ func (w *httpWire) Reply(id, result json.RawMessage) error {
 	return w.c.Reply(w.ctx, ask.Request, ask.ID, result)
 }
 
+// ReplyError is never reached: an http frame carries no id, so none is a request.
+func (*httpWire) ReplyError(json.RawMessage, int, string) error {
+	return errors.New("apidriver: http delivery has no server requests to refuse")
+}
+
 func (w *httpWire) Frames() <-chan jsonrpc.Frame { return w.frames }
 
 func (*httpWire) Overflowed() bool { return false }

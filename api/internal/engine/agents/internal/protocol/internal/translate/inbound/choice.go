@@ -110,23 +110,30 @@ func choiceQuestion(
 	index int,
 ) models.PromptQuestion {
 	multi, _ := mapping.Bool(question, fields["question_multi"])
-	id := "q" + strconv.Itoa(index)
+	id := mapping.String(question, fields["question_id"])
+	if id == "" {
+		id = "q" + strconv.Itoa(index)
+	}
 	out := models.PromptQuestion{
 		ID:    id,
 		Title: mapping.String(question, fields["question_title"]),
 		Text:  mapping.String(question, fields["question_text"]),
 		Multi: multi,
 	}
-	for i, option := range mapping.Objects(question, fields["question_options"]) {
-		if len(out.Options) >= maxChoiceOptions {
-			break
-		}
-		out.Options = append(out.Options, models.ChoiceOption{
-			ID:          id + "-answer-" + strconv.Itoa(i),
-			Kind:        models.ChoiceOptionAnswer,
+	// Options are objects (question_options) or bare strings (question_choices).
+	options := make([]models.ChoiceOption, 0)
+	for _, option := range mapping.Objects(question, fields["question_options"]) {
+		options = append(options, models.ChoiceOption{
 			Label:       mapping.String(option, fields["option_label"]),
 			Description: mapping.String(option, fields["option_description"]),
 		})
+	}
+	for _, label := range mapping.Strings(question, fields["question_choices"]) {
+		options = append(options, models.ChoiceOption{Label: label})
+	}
+	for i, option := range options[:min(len(options), maxChoiceOptions)] {
+		option.ID, option.Kind = id+"-answer-"+strconv.Itoa(i), models.ChoiceOptionAnswer
+		out.Options = append(out.Options, option)
 	}
 	return out
 }

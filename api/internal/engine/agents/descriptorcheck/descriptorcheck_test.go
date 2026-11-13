@@ -24,7 +24,13 @@ func TestValidateAll_TheShippedDescriptorsAreClean(t *testing.T) {
 		assert.Empty(t, rep.Findings, "%s", rep.ID)
 		assert.True(t, rep.OK(), rep.ID)
 	}
-	assert.Equal(t, []string{"claude", "codex"}, ids)
+	shipped, err := agents.New().List(context.Background(), "")
+	require.NoError(t, err)
+	want := make([]string, 0, len(shipped))
+	for _, a := range shipped {
+		want = append(want, a.ID())
+	}
+	assert.ElementsMatch(t, want, ids)
 }
 
 func TestValidateAll_AnOverrideShadowsTheShippedDescriptor(t *testing.T) {

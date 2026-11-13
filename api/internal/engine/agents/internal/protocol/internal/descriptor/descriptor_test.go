@@ -244,8 +244,7 @@ func TestAll_EnumeratesTheEmbeddedSetSortedByID(t *testing.T) {
 	list, err := descriptor.All(context.Background(), "", nil)
 
 	require.NoError(t, err)
-	ids := idsOf(list)
-	assert.Equal(t, []string{"claude", "codex"}, ids)
+	assert.Equal(t, descriptor.ShippedIDs(t), idsOf(list))
 }
 
 func TestAll_UnionsOnDiskIDsWithTheEmbeddedSet(t *testing.T) {
@@ -255,7 +254,7 @@ func TestAll_UnionsOnDiskIDsWithTheEmbeddedSet(t *testing.T) {
 	list, err := descriptor.All(context.Background(), home, nil)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"claude", "codex", "zeta"}, idsOf(list))
+	assert.Equal(t, append(descriptor.ShippedIDs(t), "zeta"), idsOf(list))
 }
 
 func TestAll_ABrokenOverrideOmitsOneEntryNotTheList(t *testing.T) {
@@ -265,7 +264,7 @@ func TestAll_ABrokenOverrideOmitsOneEntryNotTheList(t *testing.T) {
 	list, err := descriptor.All(context.Background(), home, nil)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"claude", "codex"}, idsOf(list))
+	assert.Equal(t, descriptor.ShippedIDs(t), idsOf(list))
 }
 
 func TestAll_IgnoresNonYAMLAndDirectories(t *testing.T) {
@@ -277,7 +276,7 @@ func TestAll_IgnoresNonYAMLAndDirectories(t *testing.T) {
 	list, err := descriptor.All(context.Background(), home, nil)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"claude", "codex"}, idsOf(list))
+	assert.Equal(t, descriptor.ShippedIDs(t), idsOf(list))
 }
 
 func TestAll_RespectsACancelledContext(t *testing.T) {

@@ -164,6 +164,13 @@ func isEmpty(v any) bool {
 	}
 }
 
+// IsNull reports whether paths resolve to an explicit JSON null, as opposed to a
+// missing key or a value.
+func IsNull(doc map[string]any, paths Expr) bool {
+	v, ok := resolve(doc, paths)
+	return ok && v == nil
+}
+
 // Present reports whether any of paths exists in doc, even as JSON null. It tells
 // "this payload never carries the concept" apart from "carries it empty", which the
 // scalar accessors collapse into the same zero value.
@@ -332,6 +339,21 @@ func Scalar(doc map[string]any, paths Expr) (string, bool) {
 		return "", false
 	}
 	return scalarOf(v)
+}
+
+// Captured is Scalar plus whether the value was a JSON number or bool, the kinds a
+// template sends back as themselves rather than as text.
+func Captured(doc map[string]any, paths Expr) (text string, literal, ok bool) {
+	v, found := resolve(doc, paths)
+	if !found {
+		return "", false, false
+	}
+	text, ok = scalarOf(v)
+	switch v.(type) {
+	case bool, float32, float64, int, int64, json.Number:
+		literal = true
+	}
+	return text, literal, ok
 }
 
 func scalarOf(v any) (string, bool) {

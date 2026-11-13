@@ -100,7 +100,10 @@ func TestDescriptorValidate_PrintsJSON(t *testing.T) {
 		ID string `json:"id"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &reports))
-	assert.Len(t, reports, 2)
+	require.NotEmpty(t, reports, "the shipped set is reported")
+	for _, r := range reports {
+		assert.NotEmpty(t, r.ID)
+	}
 }
 
 // Without --live, test validates the installed descriptor by provider id.

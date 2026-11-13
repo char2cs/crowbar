@@ -307,8 +307,11 @@ events:
       - suggestion_label.*
       - questions
       - question_title
+      - question_id
       - question_text
       - question_options
+      # Plain-string options, for a provider whose choices are not objects.
+      - question_choices
       - question_multi
       - option_label
       - option_description

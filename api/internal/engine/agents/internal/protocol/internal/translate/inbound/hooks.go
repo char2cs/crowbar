@@ -103,14 +103,8 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 			Descriptor: d.ID, Event: canonical, Channel: string(channel), When: when,
 		}
 	}
-	// A required: field resolving to nothing is a named error. It reads the same
-	// fields/decoded pair build() uses, so the check cannot disagree with it.
-	for _, req := range d.EventRequired(canonical) {
-		if mapping.String(decoded, fields[req]) == "" {
-			return models.CanonicalEvent{}, &RequiredFieldError{
-				Descriptor: d.ID, Event: canonical, Channel: string(channel), Field: req,
-			}
-		}
+	if err := checkRequired(d, canonical, channel, fields, decoded); err != nil {
+		return models.CanonicalEvent{}, err
 	}
 	tool := toolSpecs{
 		status: d.EventStatusMap(canonical), kinds: d.EventKindMap(canonical), shellKinds: d.EventShellKindMap(canonical),

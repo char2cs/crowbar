@@ -43,12 +43,21 @@ func ParseV0(raw []byte) (*spec.Descriptor, error) {
 
 	// An inbound event's canonical fields are the KEYS of map:. An outbound event's
 	// send: trees are keyed by PROVIDER field names and reference canonical names as
-	// {braced} templates, so its canonical set is read out of the values.
+	// {braced} templates, so its canonical set is read out of the values. A name some
+	// step captures is the descriptor's own variable, not a vocabulary slot.
+	captured := capturedNames(d.Events)
 	maps := make(map[string]map[string][]string, len(d.Events))
 	for name, e := range d.Events {
 		switch {
 		case !e.Out.Empty():
-			maps[name] = wrapPresence(canonicalRefs(e.Send))
+			refs := map[string]string{}
+			collectCanonicalRefs(e.Send, refs)
+			for ref := range refs {
+				if captured[ref] {
+					delete(refs, ref)
+				}
+			}
+			maps[name] = wrapPresence(refs)
 		case len(e.Fresh) > 0 || len(e.Resume) > 0 || len(e.Action) > 0:
 			maps[name] = wrapPresence(canonicalRefsFromSteps(e.Fresh, e.Resume, e.Action))
 		case e.HasChannelBlocks():
@@ -72,6 +81,21 @@ func ParseV0(raw []byte) (*spec.Descriptor, error) {
 		}
 	}
 	return &d, nil
+}
+
+// capturedNames is every value a Fresh/Resume/Action step captures from a response.
+func capturedNames(events map[string]spec.EventSpec) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range events {
+		for _, steps := range [][]spec.CallStep{e.Fresh, e.Resume, e.Action} {
+			for _, step := range steps {
+				for name := range step.Capture {
+					out[name] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 // mergedChannelFields unions a channel-scoped event's api: and hooks: field maps
@@ -237,33 +261,8 @@ func CheckProtocolVersion(d *spec.Descriptor, actual string) error {
 	return nil
 }
 
-// canonicalRefs pulls the {braced} canonical names an outbound event's send templates
-// reference, so the same required/optional table validates both directions.
-func canonicalRefs(send map[string]string) map[string]string {
-	out := map[string]string{}
-	for _, tmpl := range send {
-		rest := tmpl
-		for {
-			open := strings.IndexByte(rest, '{')
-			if open < 0 {
-				break
-			}
-			rest = rest[open+1:]
-			close := strings.IndexByte(rest, '}')
-			if close < 0 {
-				break
-			}
-			if name := rest[:close]; name != "" {
-				out[name] = tmpl
-			}
-			rest = rest[close+1:]
-		}
-	}
-	return out
-}
-
-// canonicalRefsFromSteps is canonicalRefs for Fresh/Resume/Action steps, whose Send
-// is an arbitrary tree, so every string leaf at any depth is walked.
+// canonicalRefsFromSteps pulls the {braced} canonical names a Fresh/Resume/Action
+// step list references; Send is an arbitrary tree, so every string leaf is walked.
 func canonicalRefsFromSteps(stepLists ...[]spec.CallStep) map[string]string {
 	out := map[string]string{}
 	for _, steps := range stepLists {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 
@@ -104,6 +105,7 @@ func (drv *Driver) reopen(values map[string]string) map[string]string {
 	out := cloneValues(drv.birth)
 	drv.established = false
 	drv.remembered = map[string]string{}
+	drv.literals = map[string]bool{}
 	drv.mu.Unlock()
 
 	for k, v := range values {
@@ -210,12 +212,13 @@ func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]st
 
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
+	literals := maps.Clone(drv.literals)
 	drv.mu.Unlock()
 	for k, v := range values {
 		merged[k] = v
 	}
 
-	payload, _ := outbound.ExpandTree(step.Send, merged).(map[string]any)
+	payload, _ := outbound.ExpandTree(step.Send, merged, literals).(map[string]any)
 	if _, err := drv.current().Call(ctx, step.Call, payload); err != nil {
 		return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)
 	}
@@ -231,10 +234,14 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 			drv.mu.Lock()
 			for field := range step.Capture {
 				delete(drv.remembered, field)
+				delete(drv.literals, field)
 			}
 			drv.mu.Unlock()
 		}
-		payload, _ := outbound.ExpandTree(step.Send, values).(map[string]any)
+		drv.mu.Lock()
+		literals := maps.Clone(drv.literals)
+		drv.mu.Unlock()
+		payload, _ := outbound.ExpandTree(step.Send, values, literals).(map[string]any)
 		result, err := drv.current().Call(ctx, step.Call, payload)
 		if err != nil {
 			return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)
@@ -247,10 +254,13 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 			return fmt.Errorf("apidriver: %s: %s: parse response: %w", drv.d.ID, step.Call, err)
 		}
 		for field, path := range step.Capture {
-			if v, ok := mapping.Scalar(decoded, mapping.Paths(path)); ok {
+			if v, literal, ok := mapping.Captured(decoded, mapping.Paths(path)); ok {
 				values[field] = v
 				drv.mu.Lock()
 				drv.remembered[field] = v
+				if literal {
+					drv.literals[field] = true
+				}
 				drv.mu.Unlock()
 			}
 		}

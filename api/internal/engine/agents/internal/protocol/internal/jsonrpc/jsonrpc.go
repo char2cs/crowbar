@@ -295,6 +295,20 @@ func (c *Conn) Reply(id, result json.RawMessage) error {
 	return c.write(msg)
 }
 
+// ReplyError answers a server-initiated ask with a JSON-RPC error response, so
+// the asker fails at once instead of waiting out its own timeout.
+func (c *Conn) ReplyError(id json.RawMessage, code int, message string) error {
+	msg, err := json.Marshal(struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Error   wireError       `json:"error"`
+	}{"2.0", id, wireError{code, message}})
+	if err != nil {
+		return fmt.Errorf("jsonrpc: marshal error reply: %w", err)
+	}
+	return c.write(msg)
+}
+
 func (c *Conn) write(msg []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()

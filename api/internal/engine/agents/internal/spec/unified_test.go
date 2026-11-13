@@ -25,7 +25,7 @@ func v3() *spec.Descriptor {
 				Reply: map[string]string{"allow": "{}"},
 			},
 			"observed_only": {Ask: spec.WireRef{"Watched"}, Answerable: &no, Map: spec.FieldMap{}},
-			"compact_start": {Out: spec.WireRef{"prompt"}, Send: map[string]string{"text": "/compact"}},
+			"compact_start": {Out: spec.WireRef{"prompt"}, Send: map[string]any{"text": "/compact"}},
 		},
 	}
 }

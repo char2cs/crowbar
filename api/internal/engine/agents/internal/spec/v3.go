@@ -151,8 +151,8 @@ type EventSpec struct {
 	// on every channel; mixing the two forms is refused at load.
 	API   *ChannelBlock `yaml:"api"`
 	Hooks *ChannelBlock `yaml:"hooks"`
-	// Send builds an outbound payload.
-	Send map[string]string `yaml:"send"`
+	// Send builds an outbound payload; a number or bool literal is sent as one.
+	Send map[string]any `yaml:"send"`
 	// Reply holds one template per decision the event accepts.
 	Reply map[string]string `yaml:"reply"`
 	// ReplyRequest names the api.requests entry that answers an http ask.
