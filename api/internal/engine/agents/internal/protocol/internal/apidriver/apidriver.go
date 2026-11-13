@@ -156,27 +156,37 @@ func (drv *Driver) pump(conn wire) {
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			continue // a malformed params object is dropped, never fatal
 		}
-		canonical, ok := dispatch.Resolve(drv.d, frame.Method, params)
-		if !ok {
-			continue // this provider's descriptor does not map this wire method
+		canonicals := dispatch.Riders(drv.d, frame.Method, params)
+		if canonical, ok := dispatch.Resolve(drv.d, frame.Method, params); ok {
+			canonicals = append([]string{canonical}, canonicals...)
 		}
-		if canonical == spec.HookTurnStop || canonical == spec.HookTurnFailed {
-			drv.setInflight(false)
+		// An ask is answered once, so only its own event rides the reply id.
+		if frame.ID != nil && len(canonicals) > 1 {
+			canonicals = canonicals[:1]
 		}
-		raw := frame.Params
-		// by_wire: literals are merged here because this is the only place the
-		// matched wire method is known; downstream sees them as provider fields.
-		if overlay := byWireOverlay(drv.d, canonical, frame.Method); len(overlay) > 0 {
-			if merged, err := withOverlay(params, overlay); err == nil {
-				raw = merged
-			}
+		for _, canonical := range canonicals {
+			drv.deliver(frame, params, canonical)
 		}
-		askID := frame.ID
-		if askID == nil {
-			askID = drv.httpAskID(canonical, params)
-		}
-		drv.out <- Event{Canonical: canonical, Raw: raw, AskID: askID}
 	}
+}
+
+func (drv *Driver) deliver(frame jsonrpc.Frame, params map[string]any, canonical string) {
+	if canonical == spec.HookTurnStop || canonical == spec.HookTurnFailed {
+		drv.setInflight(false)
+	}
+	raw := frame.Params
+	// by_wire: literals are merged here because this is the only place the
+	// matched wire method is known; downstream sees them as provider fields.
+	if overlay := byWireOverlay(drv.d, canonical, frame.Method); len(overlay) > 0 {
+		if merged, err := withOverlay(params, overlay); err == nil {
+			raw = merged
+		}
+	}
+	askID := frame.ID
+	if askID == nil {
+		askID = drv.httpAskID(canonical, params)
+	}
+	drv.out <- Event{Canonical: canonical, Raw: raw, AskID: askID}
 }
 
 // byWireOverlay is the literal fields this event's api: block declares for

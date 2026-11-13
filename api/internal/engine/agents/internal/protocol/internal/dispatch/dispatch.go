@@ -14,14 +14,32 @@ import (
 // when: (if any) matches params. Candidates are tried in sorted-name order so an
 // ambiguous descriptor still resolves reproducibly.
 func Resolve(d *spec.Descriptor, wireMethod string, params map[string]any) (string, bool) {
+	names := candidates(d, wireMethod, params, false)
+	if len(names) == 0 {
+		return "", false
+	}
+	return names[0], true
+}
+
+// Riders are the events declared also: whose in: names wireMethod and whose when:
+// matches params, in sorted-name order. They fire beside Resolve's event.
+func Riders(d *spec.Descriptor, wireMethod string, params map[string]any) []string {
+	return candidates(d, wireMethod, params, true)
+}
+
+func candidates(d *spec.Descriptor, wireMethod string, params map[string]any, riders bool) []string {
 	names := make([]string, 0, len(d.Events))
 	for name := range d.Events {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
+	var out []string
 	for _, name := range names {
 		ev := d.Events[name]
+		if ev.Also != riders {
+			continue
+		}
 		if !ev.HasChannelBlocks() && d.TransportFor(name) == string(spec.ChannelHooks) {
 			continue // a flat event declared on the hook relay never arrives here
 		}
@@ -33,7 +51,7 @@ func Resolve(d *spec.Descriptor, wireMethod string, params map[string]any) (stri
 		if !mapping.Match(params, ev.WhenFor(spec.ChannelAPI)) {
 			continue
 		}
-		return name, true
+		out = append(out, name)
 	}
-	return "", false
+	return out
 }

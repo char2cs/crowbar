@@ -44,7 +44,15 @@ func checkRichEvent(id, name string, event spec.EventSpec, kinds, statuses map[s
 	if err := checkDiffFiles(id, name, event.DiffFiles); err != nil {
 		return err
 	}
-	if p := event.Patch; p != nil && (p.Items == "" || p.OldStart == "" || p.NewStart == "" || p.Lines == "") {
+	return checkPatch(id, name, event.Patch)
+}
+
+func checkPatch(id, name string, p *spec.PatchSpec) error {
+	hunks := p != nil && (p.Items != "" || p.OldStart != "" || p.NewStart != "" || p.Lines != "")
+	if p != nil && p.Unified != "" && hunks {
+		return invalid(id, "events[%s].patch: unified excludes items, old_start, new_start and lines", name)
+	}
+	if p != nil && p.Unified == "" && (p.Items == "" || p.OldStart == "" || p.NewStart == "" || p.Lines == "") {
 		return invalid(id, "events[%s].patch: items, old_start, new_start and lines are required", name)
 	}
 	return nil

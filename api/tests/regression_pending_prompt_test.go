@@ -200,3 +200,31 @@ func TestRegression_APromptTheProviderNeverAcknowledgesSettlesOnIdle(t *testing.
 	assert.Equal(t, http.StatusOK, postPrompt(t, h, imported, chatID, "and now?", uuid.NewString()),
 		"a settled prompt no longer holds the chat busy")
 }
+
+// wordlessStubYAML is the prompt-submit stub whose turn start carries only a
+// turn id: nothing in the hook echoes the user's words.
+var wordlessStubYAML = strings.Replace(livestubPromptSubmitYAML, "message: prompt", "turn_id: turn_id", 1)
+
+func TestRegression_ATurnStartThatEchoesNoWordsBindsToTheSentPrompt(t *testing.T) {
+	h := newHarness(t)
+	writeProviderDescriptor(t, h, "livestub", wordlessStubYAML)
+	imported := importWritableWorkspace(t, h)
+	chatID, _ := createLiveStubChat(t, h, imported)
+	base := repoBase(imported)
+
+	for _, text := range []string{"first words", "second words"} {
+		requestID := uuid.NewString()
+		require.Equal(t, http.StatusOK, postPrompt(t, h, imported, chatID, text, requestID), text)
+		h.QuiesceReactors()
+		runnerID := getAgentChat(t, h, base, chatID).LiveRunnerID
+		postHook(t, h, base, "livestub", runnerID, "user_prompt", `{"turn_id":"t-`+requestID+`"}`)
+		postHook(t, h, base, "livestub", runnerID, "turn_stop", `{"last_assistant_message":"done"}`)
+	}
+
+	rows := chatRows(t, h, chatID)
+	users := rowsOf(t, rows, ledger.KindUserMessage, func(ledger.UserMessage) bool { return true })
+	require.Len(t, users, 2, "one user row per sent prompt, no empty duplicate")
+	assert.Equal(t, "first words", users[0].Text)
+	assert.Equal(t, "second words", users[1].Text)
+	assert.Empty(t, chatState(t, h, chatID).PendingPrompts(), "both prompts were taken by their turns")
+}

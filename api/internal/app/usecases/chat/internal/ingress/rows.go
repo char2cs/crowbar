@@ -244,20 +244,24 @@ func openProviderTurn(st ledger.State, providerTurnID string, src Source) ([]led
 }
 
 // openRows start the turn the prompt opens: on the oldest pending Crowbar
-// prompt its runner carries when the words are that prompt's.
+// prompt its runner carries when the words are that prompt's, or when the
+// provider echoed none.
 func openRows(st ledger.State, started ledger.TurnStarted, src Source) ([]ledger.Row, error) {
+	wordless := src.Prompt.Text == ""
 	switch src.Prompt.Origin {
 	case "":
-		row, err := ledger.NewRow(ledger.KindTurnStarted, uuid.NewString(), "", started)
-		return []ledger.Row{row}, err
+		return bareTurn(started)
 	case ledger.OriginProvider:
 		for _, p := range st.PendingPrompts() {
-			if p.Text != src.Prompt.Text || (p.RunnerID != "" && p.RunnerID != src.RunnerID) {
+			if (!wordless && p.Text != src.Prompt.Text) || (p.RunnerID != "" && p.RunnerID != src.RunnerID) {
 				continue
 			}
 			started.RequestID = p.RequestID
 			row, err := ledger.NewRow(ledger.KindTurnStarted, p.TurnID, "", started)
 			return []ledger.Row{row}, err
+		}
+		if wordless {
+			return bareTurn(started)
 		}
 	}
 	turnID := uuid.NewString()
@@ -268,6 +272,11 @@ func openRows(st ledger.State, started ledger.TurnStarted, src Source) ([]ledger
 	}
 	row, err := ledger.NewRow(ledger.KindTurnStarted, turnID, "", started)
 	return []ledger.Row{msg, row}, err
+}
+
+func bareTurn(started ledger.TurnStarted) ([]ledger.Row, error) {
+	row, err := ledger.NewRow(ledger.KindTurnStarted, uuid.NewString(), "", started)
+	return []ledger.Row{row}, err
 }
 
 // stopStatus is how a turn_stop's provider status ended its turn: anything but

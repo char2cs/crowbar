@@ -131,6 +131,10 @@ type EventSpec struct {
 	// event whose payload is a sum type can serve several canonical events.
 	When WhenMap `yaml:"when"`
 
+	// Also makes the event a rider: it fires beside the event its frame resolves
+	// to, so one wire frame can report two facts.
+	Also bool `yaml:"also"`
+
 	// Map pulls canonical fields out of an inbound payload.
 	Map FieldMap `yaml:"map"`
 
@@ -242,8 +246,10 @@ const (
 
 // PatchSpec maps a provider's hunk array onto Crowbar's unified-diff vocabulary.
 // Items is the path to the array; the rest are paths WITHIN one hunk, where
-// Lines holds unified-diff lines (" ctx", "-del", "+add").
+// Lines holds unified-diff lines (" ctx", "-del", "+add"). Unified instead names
+// one string holding the whole unified diff, and excludes the rest.
 type PatchSpec struct {
+	Unified  string `yaml:"unified"`
 	Items    string `yaml:"items"`
 	OldStart string `yaml:"old_start"`
 	NewStart string `yaml:"new_start"`
