@@ -121,6 +121,29 @@ func TestCall_ServerErrorSurfacesAsAGoError(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid request")
 }
 
+func TestCall_ErrorDataNamesTheRejectedFields(t *testing.T) {
+	conn := serve(t, func(peer *testutil.LinePeer) {
+		req, err := readRequest(peer)
+		if !assert.NoError(t, err) {
+			return
+		}
+		assert.NoError(t, peer.WriteJSON(map[string]any{
+			"id": req.ID, "error": map[string]any{
+				"code": 4001, "message": "invalid_params",
+				"data": map[string]any{"reason": "missing", "fields": []string{"submission_id"}, "echo": "secret"},
+			},
+		}))
+	})
+
+	_, err := conn.Call(t.Context(), "prompt.submit", map[string]any{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid_params (code 4001)")
+	assert.Contains(t, err.Error(), "missing")
+	assert.Contains(t, err.Error(), "submission_id")
+	assert.NotContains(t, err.Error(), "secret")
+}
+
 func TestFrames_DeliversNotificationsAndAsksButNotOwnCallResponses(t *testing.T) {
 	conn, peer := open(t)
 	require.NoError(t, peer.WriteJSON(map[string]any{"method": "thread/started", "params": map[string]string{"threadId": "t1"}}))
@@ -286,4 +309,28 @@ func TestDispatchResponse_NonNumericID_IsDroppedNotFatal(t *testing.T) {
 
 	require.NoError(t, err)
 	require.JSONEq(t, `{"ok":"yes"}`, string(result))
+}
+
+func TestReplyError_AnswersAnAskWithAnErrorResponse(t *testing.T) {
+	conn, peer := open(t)
+	require.NoError(t, peer.WriteJSON(map[string]any{"id": 41, "method": "unknown/ask", "params": map[string]string{}}))
+	ask := <-conn.Frames()
+
+	require.NoError(t, conn.ReplyError(ask.ID, -32601, "method not found"))
+
+	msg, err := peer.Read()
+	require.NoError(t, err)
+	var reply struct {
+		ID    int `json:"id"`
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Result json.RawMessage `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(msg, &reply))
+	require.Equal(t, 41, reply.ID)
+	require.Equal(t, -32601, reply.Error.Code)
+	require.Equal(t, "method not found", reply.Error.Message)
+	require.Empty(t, reply.Result, "an error response carries no result")
 }

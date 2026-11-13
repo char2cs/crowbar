@@ -27,8 +27,8 @@ type RuntimeSpec struct {
 
 type APISpec struct {
 	Protocol string `yaml:"protocol"`
-	// Delivery and Format are how Protocol reaches serve: the only pair is
-	// stdio + ndjson, one message per line on serve's own stdin and stdout.
+	// Delivery and Format are how Protocol reaches the server: stdio+ndjson on
+	// serve's own pipes, websocket+jsonrpc_text, or http+sse.
 	Delivery string `yaml:"delivery"`
 	Format   string `yaml:"format"`
 	// Serve starts the server Crowbar speaks to.
@@ -37,6 +37,54 @@ type APISpec struct {
 	// structured protocol and the terminal pane with no screen scraping.
 	Attach    []string      `yaml:"attach"`
 	Handshake HandshakeSpec `yaml:"handshake"`
+
+	// Connect prints one JSON object naming a remote endpoint, re-run on every
+	// (re)connect; ConnectMap picks the endpoint's parts out of it, StaticURL
+	// stands in when nothing is printed.
+	Connect    []string   `yaml:"connect"`
+	ConnectMap ConnectMap `yaml:"connect_map"`
+	StaticURL  string     `yaml:"static_url"`
+	Auth       AuthSpec   `yaml:"auth"`
+	// Requests are the named http calls events reference by CallStep.Call.
+	Requests  map[string]RequestSpec `yaml:"requests"`
+	Stream    StreamSpec             `yaml:"stream"`
+	Reconnect ReconnectSpec          `yaml:"reconnect"`
+}
+
+// ConnectMap holds paths into the connect JSON. Headers maps a header name to
+// the path of its value.
+type ConnectMap struct {
+	URL        string            `yaml:"url"`
+	Protocols  string            `yaml:"protocols"`
+	Headers    map[string]string `yaml:"headers"`
+	Credential string            `yaml:"credential"`
+}
+
+// AuthSpec names where an http bearer token comes from; never the token.
+type AuthSpec struct {
+	BearerEnv  string `yaml:"bearer_env"`
+	BearerPath string `yaml:"bearer_path"`
+}
+
+// RequestSpec is one http call. Body is a tree whose string leaves are
+// {placeholder} templates; Capture is CallStep.Capture's grammar.
+type RequestSpec struct {
+	Method   string            `yaml:"method"`
+	Path     string            `yaml:"path"`
+	Body     map[string]any    `yaml:"body"`
+	Capture  map[string]string `yaml:"capture"`
+	OKStatus []int             `yaml:"ok_status"`
+}
+
+// StreamSpec is the SSE feed: each frame's event name is the method and its
+// JSON data the params.
+type StreamSpec struct {
+	Path string `yaml:"path"`
+}
+
+type ReconnectSpec struct {
+	Max       int `yaml:"max"`
+	BackoffMS int `yaml:"backoff_ms"`
 }
 
 // HandshakeSpec is what opens a connection: Call with Params, answered, then
@@ -48,8 +96,12 @@ type HandshakeSpec struct {
 }
 
 const (
-	APIDeliveryStdio = "stdio"
-	APIFormatNDJSON  = "ndjson"
+	APIDeliveryStdio     = "stdio"
+	APIDeliveryWebsocket = "websocket"
+	APIDeliveryHTTP      = "http"
+	APIFormatNDJSON      = "ndjson"
+	APIFormatJSONRPCText = "jsonrpc_text"
+	APIFormatSSE         = "sse"
 )
 
 type HooksWire struct {
@@ -79,6 +131,10 @@ type EventSpec struct {
 	// event whose payload is a sum type can serve several canonical events.
 	When WhenMap `yaml:"when"`
 
+	// Also makes the event a rider: it fires beside the event its frame resolves
+	// to, so one wire frame can report two facts.
+	Also bool `yaml:"also"`
+
 	// Map pulls canonical fields out of an inbound payload.
 	Map FieldMap `yaml:"map"`
 
@@ -99,10 +155,12 @@ type EventSpec struct {
 	// on every channel; mixing the two forms is refused at load.
 	API   *ChannelBlock `yaml:"api"`
 	Hooks *ChannelBlock `yaml:"hooks"`
-	// Send builds an outbound payload.
-	Send map[string]string `yaml:"send"`
+	// Send builds an outbound payload; a number or bool literal is sent as one.
+	Send map[string]any `yaml:"send"`
 	// Reply holds one template per decision the event accepts.
 	Reply map[string]string `yaml:"reply"`
+	// ReplyRequest names the api.requests entry that answers an http ask.
+	ReplyRequest string `yaml:"reply_request"`
 	// Answerable false marks an ask: Crowbar can SEE but not answer (the human uses the
 	// terminal). Declared, not inferred from an empty reply, which could be a bug.
 	Answerable *bool `yaml:"answerable"`
@@ -150,6 +208,8 @@ type CallStep struct {
 	Call    string            `yaml:"call"`
 	Send    map[string]any    `yaml:"send"`
 	Capture map[string]string `yaml:"capture"`
+	// Optional names send keys left out of the call while their value renders empty.
+	Optional []string `yaml:"optional"`
 }
 
 // StepsSpec maps a provider's plan array onto Crowbar's step vocabulary. StatusMap
@@ -188,8 +248,10 @@ const (
 
 // PatchSpec maps a provider's hunk array onto Crowbar's unified-diff vocabulary.
 // Items is the path to the array; the rest are paths WITHIN one hunk, where
-// Lines holds unified-diff lines (" ctx", "-del", "+add").
+// Lines holds unified-diff lines (" ctx", "-del", "+add"). Unified instead names
+// one string holding the whole unified diff, and excludes the rest.
 type PatchSpec struct {
+	Unified  string `yaml:"unified"`
 	Items    string `yaml:"items"`
 	OldStart string `yaml:"old_start"`
 	NewStart string `yaml:"new_start"`

@@ -19,7 +19,9 @@ import (
 )
 
 type apiconn struct {
+	// serve is nil for a dialed connection (websocket, http), whose end is gone closing.
 	serve  *serveProcess
+	gone   chan struct{}
 	driver *engineagents.APIConn
 	// ctx/cancel are the connection's OWN lifetime, never a request's: a reply can
 	// arrive minutes after the triggering HTTP call returned. drop cancels it, where
@@ -98,6 +100,9 @@ func (r *apiConnRegistry) drop(runnerID string) {
 		}
 	}
 	c.serve.kill()
+	if c.gone != nil {
+		close(c.gone)
+	}
 }
 
 // closeAll detaches and drops every connection at daemon shutdown — the only path that
@@ -117,52 +122,76 @@ func (r *apiConnRegistry) closeAll() {
 }
 
 // startAPIConn forks `serve` for an api-transport descriptor, ready once it answers
-// the handshake. Any failure (or a hooks descriptor) is ok=false, never an error:
-// the spawn must still succeed over hooks alone.
+// the handshake. A descriptor with no connection to start is a nil conn and nil error;
+// a connection that would not come up is its error.
 func (rs *Runners) startAPIConn(
 	ctx context.Context,
 	runnerID string,
 	agent engineagents.Agent,
 	tctx engineagents.TemplateCtx,
-) (*apiconn, bool) {
+) (*apiconn, error) {
 	if rs.noAPITransport {
-		return nil, false
+		return nil, nil
+	}
+	if agent.APIDialed() {
+		return rs.dialAPIConn(ctx, runnerID, agent, tctx)
 	}
 	serveArgv, ok := agent.APIServeArgv(tctx)
 	if !ok {
-		return nil, false
+		return nil, nil
 	}
 	serve, stdio, err := forkServeProcess(serveArgv)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: start serve", "err", err, "runner_id", runnerID)
-		return nil, false
+		return nil, err
 	}
 	//nolint:contextcheck // the driver announces long after this request; its values must not reach the binding.
 	driver, err := agent.StartAPIConn(ctx, stdio, rs.sessionOrigin(tctx.ChatID, agent.ID()))
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: handshake", "err", err, "runner_id", runnerID)
 		serve.kill()
-		rs.noteNoConnection(ctx, tctx.ChatID, agent, err)
-		return nil, false
+		return nil, err
 	}
+	return rs.registerAPIConn(runnerID, serve, driver), nil
+}
+
+// dialAPIConn connects a websocket or http descriptor, which has no process to fork.
+func (rs *Runners) dialAPIConn(
+	ctx context.Context, runnerID string, agent engineagents.Agent, tctx engineagents.TemplateCtx,
+) (*apiconn, error) {
+	//nolint:contextcheck // the driver announces long after this request; its values must not reach the binding.
+	driver, err := agent.StartAPIEndpoint(ctx, tctx, rs.sessionOrigin(tctx.ChatID, agent.ID()))
+	if err != nil {
+		slog.WarnContext(ctx, "agent: api transport: connect", "err", err, "runner_id", runnerID)
+		return nil, err
+	}
+	return rs.registerAPIConn(runnerID, nil, driver), nil
+}
+
+func (rs *Runners) registerAPIConn(runnerID string, serve *serveProcess, driver *engineagents.APIConn) *apiconn {
 	connCtx, cancel := context.WithCancel(context.Background())
-	conn := &apiconn{serve: serve, driver: driver, ctx: connCtx, cancel: cancel}
+	conn := &apiconn{serve: serve, gone: make(chan struct{}), driver: driver, ctx: connCtx, cancel: cancel}
 	rs.apiConns.set(runnerID, conn)
-	return conn, true
+	return conn
 }
 
 // applyAPITransport connects an api-transport descriptor and establishes its
 // session first, so a hotswap attach argv names the session prompts act on. It
-// returns the provider's refusal of that session; any other failure degrades to hooks.
+// returns the provider's refusal of that session. Any other failure degrades to hooks,
+// unless the connection is the chat's only channel (connectionOnly): then it is the error.
 func (rs *Runners) applyAPITransport(
 	ctx context.Context,
 	runnerID, providerID string,
 	agent engineagents.Agent,
 	tctx engineagents.TemplateCtx,
 	resumeContext string,
+	connectionOnly bool,
 ) ([]string, error) {
-	conn, ok := rs.startAPIConn(ctx, runnerID, agent, tctx)
-	if !ok {
+	conn, err := rs.startAPIConn(ctx, runnerID, agent, tctx)
+	if err != nil {
+		return nil, rs.noConnection(ctx, tctx.ChatID, agent, err, connectionOnly)
+	}
+	if conn == nil {
 		return nil, nil
 	}
 	session, err := rs.establishAPISession(ctx, conn, runnerID, providerID, tctx)
@@ -170,8 +199,7 @@ func (rs *Runners) applyAPITransport(
 		if refused := refusedSession(err); refused != nil {
 			return nil, refused
 		}
-		rs.noteNoConnection(ctx, tctx.ChatID, agent, err)
-		return nil, nil
+		return nil, rs.noConnection(ctx, tctx.ChatID, agent, err, connectionOnly)
 	}
 	tctx.Session = session
 	// The only channel that reaches an already-resumed session with the gap
@@ -197,6 +225,18 @@ func (rs *Runners) applyAPITransport(
 	}
 	rs.pumpAPIConn(runnerID, providerID, agent, conn)
 	return attach, nil
+}
+
+// noConnection is the outcome of a connection that never came up: the spawn's failure
+// when no other channel exists, else a note and a degrade to hooks.
+func (rs *Runners) noConnection(
+	ctx context.Context, chatID string, agent engineagents.Agent, err error, connectionOnly bool,
+) error {
+	if connectionOnly {
+		return &connectFailure{err: err}
+	}
+	rs.noteNoConnection(ctx, chatID, agent, err)
+	return nil
 }
 
 // noteNoConnection tells the chat its CLI's connection never came up, so the
@@ -235,6 +275,9 @@ func (rs *Runners) establishAPISession(
 	// restart_tui spawn's argv does, or it launches with none.
 	for k, v := range tctx.PermissionVars {
 		values["permission."+k] = v
+	}
+	for k, v := range tctx.ModelParts {
+		values["model."+k] = v
 	}
 	established, err := conn.driver.EstablishSession(ctx, "prompt", values)
 	if err != nil {

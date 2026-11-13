@@ -90,8 +90,8 @@ export function markerFailure(
       return {
         tone: 'danger',
         headline,
-        hint: 'Check that its CLI is installed.',
-        tag: `Stopped · ${headline}`,
+        hint: item.detail ?? 'Check that its CLI is installed.',
+        tag: `Stopped · ${headline}${item.detail ? `: ${item.detail}` : ''}`,
         way: 'none',
       }
     }

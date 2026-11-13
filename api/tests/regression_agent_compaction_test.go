@@ -72,3 +72,28 @@ func TestRegression_CompactPreAndPostAreRecordedOnTheFeed(t *testing.T) {
 	assert.Less(t, started, ended)
 	assert.Less(t, ended, turn, "compact_post leaves nothing wedged for the turn after it")
 }
+
+// A compaction the provider starts inside a turn never posts when it gives
+// up; the turn's end is then the compaction's, so the feed is not left compacting.
+func TestRegression_CompactionOpenedInATurnEndsWithTheTurn(t *testing.T) {
+	h := newHarness(t)
+	writeProviderDescriptor(t, h, "compactablestub", compactableStubProviderDescriptorYAML)
+	imported := importWritableWorkspace(t, h)
+	chatID, runnerID := createStubChat(t, h, imported, "compactablestub")
+
+	post := func(event, payload string) {
+		postHook(t, h, repoBase(imported), "compactablestub", runnerID, event, payload)
+	}
+	post("session_start", `{"session_id":"sess-1"}`)
+	post("user_prompt", `{"session_id":"sess-1","prompt":"hello"}`)
+	post("compact_pre", `{"session_id":"sess-1","trigger":"auto"}`)
+	post("turn_stop", `{"session_id":"sess-1","last_assistant_message":"done"}`)
+
+	rows := chatRows(t, h, chatID)
+	isKind := func(kind string) func(ledger.Marker) bool {
+		return func(b ledger.Marker) bool { return b.Kind == kind }
+	}
+	started := seqOf(t, rows, ledger.KindMarker, isKind(ledger.MarkerCompactionStarted))
+	ended := seqOf(t, rows, ledger.KindMarker, isKind(ledger.MarkerCompactionEnded))
+	assert.Less(t, started, ended)
+}

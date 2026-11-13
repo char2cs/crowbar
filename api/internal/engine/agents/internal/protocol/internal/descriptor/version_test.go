@@ -50,3 +50,32 @@ func TestParse_AVersionWithNoReaderIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, descriptor.ErrInvalid)
 	assert.Contains(t, err.Error(), "written for schema 7 (line 1), this build reads 0")
 }
+
+const httpDelivery = `id: probe
+spawn: { cmd: probe-cli, interactive_required: true }
+runtime:
+  transport: api
+  api:
+    delivery: http
+    format: sse
+    connect: [agent-cli, endpoint]
+    connect_map: { url: base, credential: token, headers: { X-Trace: trace } }
+    auth: { bearer_path: credential }
+    requests:
+      create: { method: POST, path: /runs, body: { input: "{prompt}" }, capture: { run_id: id }, ok_status: [200, 201] }
+      stop: { method: POST, path: "/runs/{run_id}/stop" }
+    stream: { path: "/runs/{run_id}/events" }
+    reconnect: { max: 3, backoff_ms: 500 }
+`
+
+func TestLoad_ReadsAnHTTPDeliveryAndRefusesAnInvalidOne(t *testing.T) {
+	d, err := descriptor.Load([]byte(httpDelivery))
+	require.NoError(t, err)
+	assert.Equal(t, "/runs/{run_id}/events", d.Runtime.API.Stream.Path)
+	assert.Equal(t, "id", d.Runtime.API.Requests["create"].Capture["run_id"])
+	assert.Equal(t, 500, d.Runtime.API.Reconnect.BackoffMS)
+
+	_, err = descriptor.Load([]byte(strings.Replace(httpDelivery, "format: sse", "format: ndjson", 1)))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runtime.api.format")
+}

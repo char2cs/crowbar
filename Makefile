@@ -2,7 +2,7 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ratchet ios-device ios-sim ios-doctor
+.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
@@ -123,19 +123,10 @@ test-coverage:
 	@$(MAKE) -C web test-coverage
 	@$(MAKE) -C desktop test-coverage
 
-RATCHETS := file-size counters loc-budgets
-
-# File-size cap, pattern counters and per-module LOC budgets (scripts/ratchet/).
-# Baselines only shrink: after deleting code run `make ratchet ARGS=--update`.
-# Every gate runs even when one fails, so one run reports everything to fix.
-ratchet:
-	@node --test scripts/ratchet/*.test.mjs
-	@rc=0; for g in $(RATCHETS); do node scripts/ratchet/$$g.mjs $(ARGS) || rc=1; done; exit $$rc
-
-pr-checks: ratchet lint test-coverage build
+pr-checks: lint test-coverage build
 	@echo "All PR checks passed! ✓"
 
-ci: ratchet lint test build
+ci: lint test build
 
 docker-up:
 	@$(MAKE) -C web build

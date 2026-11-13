@@ -76,6 +76,16 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 	reg.drop("runner-1")
 }
 
+// A dialed connection has no process: dropping it still ends its runner.
+func TestAPIConnRegistry_DropOfADialedConnectionIsItsExit(t *testing.T) {
+	reg := newAPIConnRegistry()
+	exited := make(chan struct{}, 1)
+	reg.set("runner-1", &apiconn{gone: make(chan struct{})})
+	require.True(t, reg.watchExit("runner-1", func(string) { exited <- struct{}{} }))
+	reg.drop("runner-1")
+	<-exited
+}
+
 // A daemon shutting down kills its own serve processes; that is not the
 // runner exiting. Its row stays live, so the next boot records the real
 // reason (daemon_restart) — an exit reconciled here raced the store's close.

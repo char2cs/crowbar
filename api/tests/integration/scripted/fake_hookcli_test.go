@@ -103,7 +103,22 @@ func (c *hookCLI) turn(prompt string) {
 	for i, st := range s.Turn {
 		c.step(i, st)
 	}
-	c.fire("Stop", map[string]any{"last_assistant_message": s.reply(), "background_tasks": []any{}})
+	c.stop(s.reply())
+}
+
+// stop fires Stop; a block reply is a message steered into the turn, which the
+// CLI takes as its next prompt and stops again.
+func (c *hookCLI) stop(reply string) {
+	out := c.fire("Stop", map[string]any{"last_assistant_message": reply, "background_tasks": []any{}})
+	var verdict struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if json.Unmarshal([]byte(out), &verdict) != nil || verdict.Decision != "block" {
+		return
+	}
+	record(c.name, "prompt", map[string]any{"text": verdict.Reason, "session": c.session})
+	c.stop(reply)
 }
 
 func (c *hookCLI) step(i int, st step) {

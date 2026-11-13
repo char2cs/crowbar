@@ -37,6 +37,11 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 		return nil, Effects{}, err
 	}
 	rows = append(rows, failed)
+	compacted, err := compactionEndedWith(st, failed.TurnID)
+	if err != nil {
+		return nil, Effects{}, err
+	}
+	rows = append(rows, compacted...)
 	if closes {
 		settled, err := settleSteer(st, src.RunnerID, ledger.ReasonTurnFailed)
 		if err != nil {

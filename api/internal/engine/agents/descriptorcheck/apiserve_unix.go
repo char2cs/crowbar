@@ -21,6 +21,9 @@ func (l *live) apiServe(ctx context.Context) Step {
 	if l.d.Runtime.Transport != string(spec.ChannelAPI) {
 		return skip("api_serve", "not an api-transport provider")
 	}
+	if l.agent.APIDialed() {
+		return l.apiDial(ctx)
+	}
 	argv, ok := l.agent.APIServeArgv(l.templateCtx(filepath.Join(l.scratch, "serve")))
 	if !ok {
 		return skip("api_serve", "the descriptor declares no runtime.api.serve")
@@ -44,6 +47,24 @@ func (l *live) apiServe(ctx context.Context) Step {
 		return fail("api_serve", "close: "+err.Error())
 	}
 	return pass("api_serve", l.d.Runtime.API.Handshake.Call+" answered over the stdio of "+strings.Join(argv, " "))
+}
+
+// apiDial runs runtime.api.connect and the handshake of a websocket descriptor. An
+// http one opens nothing before its first request, so there is nothing to answer.
+func (l *live) apiDial(ctx context.Context) Step {
+	if l.d.Runtime.API.Delivery == spec.APIDeliveryHTTP {
+		return skip("api_serve", "http delivery opens no connection before its first request")
+	}
+	ctx, cancel := context.WithTimeout(ctx, l.opts.ServeWindow)
+	defer cancel()
+	conn, err := l.agent.StartAPIEndpoint(ctx, l.templateCtx(filepath.Join(l.scratch, "serve")), nil)
+	if err != nil {
+		return fail("api_serve", err.Error())
+	}
+	if err := conn.Close(); err != nil {
+		return fail("api_serve", "close: "+err.Error())
+	}
+	return pass("api_serve", l.d.Runtime.API.Handshake.Call+" answered over the endpoint runtime.api.connect names")
 }
 
 // endServe kills serve's process group and reaps it. Nobody awaits this, so a

@@ -11,6 +11,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/core/home"
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
+	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
 // TestNewClient_BadHost_ReturnsError forces transports.SocketPath's default
@@ -88,7 +89,7 @@ func TestClient_PostJSON_MarshalFailure_ReturnsError(t *testing.T) {
 // TestClient_ATruncatedBodyIsReturned has the daemon promise more bytes than it
 // sends: a reply cut short is a transport failure, never a short answer.
 func TestClient_ATruncatedBodyIsReturned(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "t.sock")
+	sock := testutil.ShortSocket(t)
 	var lc net.ListenConfig
 	ln, err := lc.Listen(t.Context(), "unix", sock)
 	require.NoError(t, err)

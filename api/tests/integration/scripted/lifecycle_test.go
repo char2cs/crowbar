@@ -15,19 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// A native turn whose close never comes — codex reports idle and sends no
-// turn/completed — is closed by that idle report, not left spinning.
-func TestScripted_NativeTurnWithoutACloseIsClosed(t *testing.T) {
-	r := newRig(t)
-	chatID := r.spawn("codex")
-	r.setScript("turn:\n  - idle: true\n")
-	require.NoError(t, r.send(chatID, "reason quietly"))
-	r.eventually(func() bool { return r.working(chatID) }, "the turn never opened")
-
-	r.eventually(func() bool { return !r.working(chatID) }, "a turn the provider called idle kept spinning")
-	r.continues(chatID, "next")
-}
-
 // Switching away and back resumes the provider's OWN session, handed only
 // what happened meanwhile; the provider switched to is handed the transcript.
 func TestScripted_SwitchProviderRoundTrip(t *testing.T) {

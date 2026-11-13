@@ -75,7 +75,7 @@ func (e *RequiredFieldError) Unwrap() error { return ErrRequiredFieldMissing }
 // map of the channel the delivery ACTUALLY arrived on: a dual-shape event's shape
 // is per message, not per declaration.
 func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel) (models.CanonicalEvent, error) {
-	decoded, err := decode(d, raw)
+	decoded, err := decode(d, raw, channel)
 	if err != nil {
 		return models.CanonicalEvent{}, err
 	}
@@ -103,14 +103,8 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 			Descriptor: d.ID, Event: canonical, Channel: string(channel), When: when,
 		}
 	}
-	// A required: field resolving to nothing is a named error. It reads the same
-	// fields/decoded pair build() uses, so the check cannot disagree with it.
-	for _, req := range d.EventRequired(canonical) {
-		if mapping.String(decoded, fields[req]) == "" {
-			return models.CanonicalEvent{}, &RequiredFieldError{
-				Descriptor: d.ID, Event: canonical, Channel: string(channel), Field: req,
-			}
-		}
+	if err := checkRequired(d, canonical, channel, fields, decoded); err != nil {
+		return models.CanonicalEvent{}, err
 	}
 	tool := toolSpecs{
 		status: d.EventStatusMap(canonical), kinds: d.EventKindMap(canonical), shellKinds: d.EventShellKindMap(canonical),
@@ -171,8 +165,10 @@ func endedShell(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEv
 	return ev
 }
 
-func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
-	if format := d.HookFormat(); format != "json" {
+// decode reads raw as JSON. Only a hook delivery declares its format; an api frame
+// is JSON by its transport, so a descriptor with no hooks block still parses.
+func decode(d *spec.Descriptor, raw []byte, channel spec.Channel) (map[string]any, error) {
+	if format := d.HookFormat(); format != "json" && channel != spec.ChannelAPI {
 		return nil, fmt.Errorf("%w %q on %q", ErrUnsupportedFormat, format, d.ID)
 	}
 	if len(raw) == 0 {
@@ -452,23 +448,6 @@ func hunkCount(n int) string {
 		return ""
 	}
 	return fmt.Sprintf(",%d", n)
-}
-
-func buildPatch(patch *spec.PatchSpec, decoded map[string]any) []models.PatchHunk {
-	if patch == nil {
-		return nil
-	}
-	var out []models.PatchHunk
-	for _, row := range mapping.Objects(decoded, mapping.Paths(patch.Items)) {
-		oldStart, _ := mapping.Int(row, mapping.Paths(patch.OldStart))
-		newStart, _ := mapping.Int(row, mapping.Paths(patch.NewStart))
-		lines := mapping.Strings(row, mapping.Paths(patch.Lines))
-		if len(lines) == 0 {
-			continue
-		}
-		out = append(out, models.PatchHunk{OldStart: oldStart, NewStart: newStart, Lines: lines})
-	}
-	return out
 }
 
 func buildLocations(specification *spec.LocationsSpec, decoded map[string]any) []models.ToolLocation {

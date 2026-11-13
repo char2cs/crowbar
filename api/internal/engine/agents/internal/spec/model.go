@@ -4,7 +4,7 @@ const (
 	ModelDiscoverAdapterJSON = "json"
 
 	DefaultModelDiscoverTimeoutMS      = 10_000
-	MaxModelDiscoverTimeoutMS          = 10_000
+	MaxModelDiscoverTimeoutMS          = 30_000
 	DefaultModelDiscoverMaxStdoutBytes = 4 << 20
 	MaxModelDiscoverMaxStdoutBytes     = 4 << 20
 
@@ -24,6 +24,15 @@ type ModelSpec struct {
 	// descriptor needs both (rules.selectionAPICarrier).
 	Apply    InjectSteps `yaml:"apply"`
 	APIApply InjectSteps `yaml:"api_apply"`
+	// IDSplit takes a selected id back apart into the named values a session call
+	// sends separately ({model.<name>}), for an id composed of several fields.
+	IDSplit *ModelIDSplit `yaml:"id_split"`
+}
+
+// ModelIDSplit cuts an id at the first Sep into Names, in order.
+type ModelIDSplit struct {
+	Sep   string   `yaml:"sep"`
+	Names []string `yaml:"names"`
 }
 
 // ModelManifestSpec resolves a model catalogue from a JSON document (fetched, cached,
@@ -56,17 +65,30 @@ func (s *ModelManifestSpec) EffectiveTTLMS() int {
 // hand-maintained list drifts. Every field name is DATA (a template or a path into
 // the command's JSON); rules.modelCatalog allows only one catalogue source.
 type ModelDiscoverSpec struct {
-	Command   []string         `yaml:"command"`
-	Adapter   string           `yaml:"adapter"`
-	ItemsPath string           `yaml:"items_path"`
-	KeepWhen  *ModelFieldMatch `yaml:"keep_when"`
-	OrderBy   string           `yaml:"order_by"`
+	Command []string `yaml:"command"`
+	// API asks a dialed provider over its own connection instead of forking Command.
+	API       *ModelDiscoverAPI `yaml:"api"`
+	Adapter   string            `yaml:"adapter"`
+	ItemsPath string            `yaml:"items_path"`
+	KeepWhen  *ModelFieldMatch  `yaml:"keep_when"`
+	OrderBy   string            `yaml:"order_by"`
 	// DefaultWhen flags the row that IS the provider's default model (not an effort
 	// default). Absent, or matching no row, the default is UNKNOWN, never positional.
-	DefaultWhen    *ModelFieldMatch `yaml:"default_when"`
+	DefaultWhen *ModelFieldMatch `yaml:"default_when"`
+	// CurrentID is a template over the whole reply naming the model the provider
+	// itself has selected; the row with that id is the default. Any empty field
+	// means none is selected. Exclusive with DefaultWhen.
+	CurrentID      string           `yaml:"current_id"`
 	Item           ModelItemMapping `yaml:"item"`
 	TimeoutMS      int              `yaml:"timeout_ms"`
 	MaxStdoutBytes int              `yaml:"max_stdout_bytes"`
+}
+
+// ModelDiscoverAPI is the one call (after the handshake, opening no session) whose
+// result is the catalogue; Params is its fixed request body.
+type ModelDiscoverAPI struct {
+	Call   string         `yaml:"call"`
+	Params map[string]any `yaml:"params"`
 }
 
 // ModelFieldMatch is one field/value equality test on a discovered row (keep_when,
@@ -80,6 +102,9 @@ type ModelFieldMatch struct {
 // are `{field}` templates; Efforts is a pathselect expression (typically
 // ending "[].effort") yielding that row's own effort list.
 type ModelItemMapping struct {
+	// Each expands every kept row into its own sub-rows: a scalar becomes {value},
+	// and the row it came from stays readable as {parent.<field>}.
+	Each          string `yaml:"each"`
 	ID            string `yaml:"id"`
 	Label         string `yaml:"label"`
 	Efforts       string `yaml:"efforts"`

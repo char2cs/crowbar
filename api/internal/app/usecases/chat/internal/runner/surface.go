@@ -44,7 +44,19 @@ func (rs *Runners) apiTransportForSurface(
 	if !apiTransportDrivesSurface(descriptor, surfaceForSpawn(descriptor, storedSurface)) {
 		return nil, nil
 	}
-	return rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, resumeContext)
+	return rs.applyAPITransport(
+		ctx, runnerID, providerID, descriptor, tctx, resumeContext, apiIsOnlyChannel(descriptor, storedSurface),
+	)
+}
+
+// apiIsOnlyChannel reports whether the chat's surface declares the api as its channel,
+// so no hooks-fed PTY exists to fall back on. An unset surface lands on the chat.
+func apiIsOnlyChannel(descriptor engineagents.Agent, stored string) bool {
+	surface := surfaceForSpawn(descriptor, stored)
+	if surface == "" {
+		surface = engineagents.SurfaceChat
+	}
+	return descriptor.SurfaceChannel(surface) == string(engineagents.ChannelAPI)
 }
 
 // surfaceRegistry mirrors domain.Chat.Surface per runner, written with it at

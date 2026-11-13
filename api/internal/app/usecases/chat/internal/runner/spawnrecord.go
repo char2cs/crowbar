@@ -82,12 +82,12 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 	if _, live := rs.live.byChat(chatID); live {
 		return
 	}
-	reason := domain.AgentExitSpawnFailed
+	reason, detail := domain.AgentExitSpawnFailed, failureDetail(*err)
 	if errors.Is(*err, engineagents.ErrAPISessionLost) {
-		reason = domain.AgentExitResumeFailed
+		reason, detail = domain.AgentExitResumeFailed, ""
 	}
 	_, _, recErr := rs.ledger.Do(context.WithoutCancel(ctx), chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Exit(st, ledger.RunnerExited{RunnerID: runnerID, Reason: reason}, ledger.ReasonDeliveryFailed)
+		return ledger.Exit(st, ledger.RunnerExited{RunnerID: runnerID, Reason: reason, Detail: detail}, ledger.ReasonDeliveryFailed)
 	})
 	if recErr != nil {
 		slog.ErrorContext(ctx, "agent: record a failed spawn", "chat_id", chatID, "runner_id", runnerID, "err", recErr)

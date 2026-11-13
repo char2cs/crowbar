@@ -4,15 +4,14 @@ package apidriver
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
-	"slices"
-	"strings"
+	"maps"
 	"sync"
 
-	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/dispatch"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/jsonrpc"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
@@ -37,19 +36,46 @@ type SessionOrigin func() func(sessionID string)
 // it with another.
 var ErrSessionLost = errors.New("apidriver: the provider no longer has the session")
 
+// wire is a connection as the driver uses it: a JSON-RPC conn, or an http client
+// adapted to the same calls (httpwire.go).
+type wire interface {
+	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
+	Notify(method string, params any) error
+	Reply(id, result json.RawMessage) error
+	ReplyError(id json.RawMessage, code int, message string) error
+	Frames() <-chan jsonrpc.Frame
+	Overflowed() bool
+	Close() error
+}
+
 type Driver struct {
-	conn   *jsonrpc.Conn
 	d      *spec.Descriptor
 	out    chan Event
 	origin SessionOrigin
 
+	// conn is replaced by a reconnect; cmu guards the swap against its readers.
+	cmu  sync.RWMutex
+	conn wire
+
+	// dial is nil for a stdio driver, which never reconnects.
+	dial   func(context.Context) (jsonrpc.Transport, error)
+	rc     Reconnect
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	// mu guards the rest. established: this connection ran an event's Fresh or
 	// Resume steps (only reopen clears it). remembered: every value a step's
-	// capture: pulled out, for a later Send. birth: the first establish's values.
+	// capture: pulled out, for a later Send; literals names those that were a JSON
+	// number or bool, which a template sends back as such. birth: the first establish's values.
+	// inflight: a turn was started and neither stopped nor failed yet; lastEvent
+	// is the event a reconnect resumes the session through.
 	mu          sync.Mutex
 	established bool
 	remembered  map[string]string
+	literals    map[string]bool
 	birth       map[string]string
+	inflight    bool
+	lastEvent   string
 }
 
 // Start runs the descriptor's handshake over serve's stdio and starts
@@ -58,30 +84,54 @@ type Driver struct {
 func Start(
 	ctx context.Context, d *spec.Descriptor, stdio jsonrpc.Stdio, origin SessionOrigin,
 ) (*Driver, error) {
+	return newDriver(ctx, d, jsonrpc.New(stdio), nil, Reconnect{}, origin)
+}
+
+func newDriver(
+	ctx context.Context, d *spec.Descriptor, conn wire,
+	dial func(context.Context) (jsonrpc.Transport, error), rc Reconnect, origin SessionOrigin,
+) (*Driver, error) {
+	if err := handshake(ctx, d, conn); err != nil {
+		return nil, errors.Join(err, conn.Close())
+	}
+	drv := &Driver{
+		conn: conn, d: d, out: make(chan Event, 64), origin: origin,
+		remembered: map[string]string{}, literals: map[string]bool{}, dial: dial, rc: rc,
+	}
+	// Detached from ctx: a caller's start deadline must not end a long-lived link.
+	drv.ctx, drv.cancel = context.WithCancel(context.Background())
+	go drv.translateLoop(conn)
+	return drv, nil
+}
+
+// handshake runs the descriptor's opening call on a fresh connection.
+func handshake(ctx context.Context, d *spec.Descriptor, conn wire) error {
+	if d.Runtime.API.Delivery == spec.APIDeliveryHTTP {
+		return nil // requests carry no connection to open
+	}
 	hs := d.Runtime.API.Handshake
 	if hs.Call == "" {
-		return nil, errors.Join(fmt.Errorf("apidriver: descriptor %s declares no handshake call", d.ID), stdio.Close())
+		return fmt.Errorf("apidriver: descriptor %s declares no handshake call", d.ID)
 	}
-	conn := jsonrpc.New(stdio)
 	params := hs.Params
 	if params == nil {
 		params = map[string]any{}
 	}
 	if _, err := conn.Call(ctx, hs.Call, params); err != nil {
-		return nil, errors.Join(fmt.Errorf("apidriver: %s handshake: %w", d.ID, err), conn.Close())
+		return fmt.Errorf("apidriver: %s handshake: %w", d.ID, err)
 	}
 	if hs.Notify != "" {
 		if err := conn.Notify(hs.Notify, map[string]any{}); err != nil {
-			return nil, errors.Join(fmt.Errorf("apidriver: %s %s: %w", d.ID, hs.Notify, err), conn.Close())
+			return fmt.Errorf("apidriver: %s %s: %w", d.ID, hs.Notify, err)
 		}
 	}
+	return nil
+}
 
-	drv := &Driver{
-		conn: conn, d: d, out: make(chan Event, 64), origin: origin,
-		remembered: map[string]string{},
-	}
-	go drv.translateLoop()
-	return drv, nil
+func (drv *Driver) current() wire {
+	drv.cmu.RLock()
+	defer drv.cmu.RUnlock()
+	return drv.conn
 }
 
 // originate claims that this connection is about to produce a session and returns
@@ -94,27 +144,57 @@ func (drv *Driver) originate() func(string) {
 	return drv.origin()
 }
 
-func (drv *Driver) translateLoop() {
+// translateLoop pumps conn until it ends, then redials when this driver may.
+func (drv *Driver) translateLoop(conn wire) {
 	defer close(drv.out)
-	for frame := range drv.conn.Frames() {
+	for {
+		drv.pump(conn)
+		var ok bool
+		if conn, ok = drv.reconnect(conn); !ok {
+			return
+		}
+	}
+}
+
+func (drv *Driver) pump(conn wire) {
+	for frame := range conn.Frames() {
 		var params map[string]any
 		if err := json.Unmarshal(frame.Params, &params); err != nil {
 			continue // a malformed params object is dropped, never fatal
 		}
-		canonical, ok := dispatch.Resolve(drv.d, frame.Method, params)
+		primary, ok := dispatch.Resolve(drv.d, frame.Method, params)
 		if !ok {
-			continue // this provider's descriptor does not map this wire method
+			drv.refuseUnmapped(conn, frame)
+			continue
 		}
-		raw := frame.Params
-		// by_wire: literals are merged here because this is the only place the
-		// matched wire method is known; downstream sees them as provider fields.
-		if overlay := byWireOverlay(drv.d, canonical, frame.Method); len(overlay) > 0 {
-			if merged, err := withOverlay(params, overlay); err == nil {
-				raw = merged
-			}
+		canonicals := append([]string{primary}, dispatch.Riders(drv.d, frame.Method, params)...)
+		// An ask is answered once, so only its own event rides the reply id.
+		if frame.ID != nil && len(canonicals) > 1 {
+			canonicals = canonicals[:1]
 		}
-		drv.out <- Event{Canonical: canonical, Raw: raw, AskID: frame.ID}
+		for _, canonical := range canonicals {
+			drv.deliver(frame, params, canonical)
+		}
 	}
+}
+
+func (drv *Driver) deliver(frame jsonrpc.Frame, params map[string]any, canonical string) {
+	if canonical == spec.HookTurnStop || canonical == spec.HookTurnFailed {
+		drv.setInflight(false)
+	}
+	raw := frame.Params
+	// by_wire: literals are merged here because this is the only place the
+	// matched wire method is known; downstream sees them as provider fields.
+	if overlay := byWireOverlay(drv.d, canonical, frame.Method); len(overlay) > 0 {
+		if merged, err := withOverlay(params, overlay); err == nil {
+			raw = merged
+		}
+	}
+	askID := frame.ID
+	if askID == nil {
+		askID = drv.httpAskID(canonical, params)
+	}
+	drv.out <- Event{Canonical: canonical, Raw: raw, AskID: askID}
 }
 
 // byWireOverlay is the literal fields this event's api: block declares for
@@ -147,7 +227,7 @@ func (drv *Driver) Events() <-chan Event { return drv.out }
 // Reply answers an ask (an Event whose AskID is non-nil) with bytes the caller
 // already rendered, keeping per-event rendering out of this package.
 func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
-	return drv.conn.Reply(askID, json.RawMessage(rendered))
+	return drv.current().Reply(askID, json.RawMessage(rendered))
 }
 
 // Send calls an outbound canonical event (interrupt, compact_start) resolved via
@@ -156,300 +236,39 @@ func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 func (drv *Driver) Send(ctx context.Context, canonical string, values map[string]string) error {
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
+	merged[callIDKey] = newCallID()
+	literals := maps.Clone(drv.literals)
 	drv.mu.Unlock()
 	for k, v := range values {
 		merged[k] = v
+		delete(literals, k) // a caller's value is text, whatever an earlier capture was
 	}
 
-	wire, payload, ok := outbound.Resolve(drv.d, canonical, merged)
+	wire, params, ok := outbound.ResolveTyped(drv.d, canonical, merged, literals)
 	if !ok {
 		return fmt.Errorf("apidriver: %s does not declare outbound event %q", drv.d.ID, canonical)
 	}
-	params := make(map[string]any, len(payload))
-	for k, v := range payload {
-		params[k] = v
-	}
-	_, err := drv.conn.Call(ctx, wire, params)
+	_, err := drv.current().Call(ctx, wire, params)
 	if err != nil {
 		return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, wire, err)
 	}
 	return nil
 }
 
-// EstablishSession runs canonical's Fresh (no session id) or Resume steps once per
-// connection and returns values merged with the captures. It is separate from
-// Dispatch so an attach argv can name the session before anything is said on it.
-func (drv *Driver) EstablishSession(
-	ctx context.Context, canonical string, values map[string]string,
-) (map[string]string, error) {
-	ev, declared := drv.d.Events[canonical]
-	if !declared {
-		return nil, fmt.Errorf("apidriver: %s does not declare event %q", drv.d.ID, canonical)
-	}
-	out := cloneValues(values)
+const callIDKey = "call_id"
 
-	drv.mu.Lock()
-	already := drv.established
-	remembered := cloneValues(drv.remembered)
-	drv.mu.Unlock()
-	if already {
-		// A later caller may pass blank values (a pure api resume announces no
-		// session), so blanks are filled from what this connection established;
-		// its own session wins over whatever the caller named.
-		out = fillBlanksFromRemembered(out, remembered)
-		if id := remembered["session_id"]; id != "" {
-			out["session_id"] = id
-		}
-		return out, nil
-	}
-
-	drv.mu.Lock()
-	if drv.birth == nil {
-		drv.birth = cloneValues(values)
-	}
-	drv.mu.Unlock()
-
-	resuming := out["session_id"] != ""
-	steps := ev.Resume
-	if !resuming {
-		steps = ev.Fresh
-	}
-	// Every session this connection opens is reported, so the chat binds the
-	// one its ingress filters against.
-	settle := drv.originate()
-	if err := drv.runSteps(ctx, steps, out); err != nil {
-		settle("")
-		if resuming && drv.sessionLost(err) {
-			return nil, fmt.Errorf("%w: %s: %w", ErrSessionLost, out["session_id"], err)
-		}
-		return nil, err
-	}
-	drv.markEstablished(out)
-	settle(out["session_id"])
-	return out, nil
-}
-
-// markEstablished latches this connection as established and remembers its
-// session id. Resume captures none, so the id is kept from its input, or a later
-// blank caller (EstablishSession's established branch) has nothing to fall back to.
-func (drv *Driver) markEstablished(out map[string]string) {
-	if out["session_id"] == "" {
-		return
-	}
-	drv.mu.Lock()
-	defer drv.mu.Unlock()
-	drv.established = true
-	drv.remembered["session_id"] = out["session_id"]
-}
-
-// sessionLost reports whether err is the provider saying it does not have the
-// session we named: the descriptor's session.refused code AND one of its lines,
-// since a code alone is often the protocol's generic "invalid request".
-func (drv *Driver) sessionLost(err error) bool {
-	var callErr *jsonrpc.CallError
-	r := drv.d.Session.Refused
-	if !errors.As(err, &callErr) || r == nil || r.RPCCode == 0 || callErr.Code != r.RPCCode {
-		return false
-	}
-	return slices.ContainsFunc(r.Needles, func(needle string) bool {
-		return needle != "" && strings.Contains(callErr.Message, needle)
-	})
-}
-
-// reopen is the value set a re-establish runs with: the session's birth values
-// overlaid with the caller's. It clears established and all of remembered (a
-// turn_id among them), which belong to the session being left.
-func (drv *Driver) reopen(values map[string]string) map[string]string {
-	drv.mu.Lock()
-	out := cloneValues(drv.birth)
-	drv.established = false
-	drv.remembered = map[string]string{}
-	drv.mu.Unlock()
-
-	for k, v := range values {
-		out[k] = v
-	}
-	return out
-}
-
-// reestablish re-enters, via the event's Resume steps, a session the provider
-// paged out of memory and now refuses.
-func (drv *Driver) reestablish(
-	ctx context.Context, ev spec.EventSpec, values map[string]string, sessionID string,
-) (map[string]string, error) {
-	settle := drv.originate()
-	out := drv.reopen(values)
-	out["session_id"] = sessionID
-	if err := drv.runSteps(ctx, ev.Resume, out); err != nil {
-		settle("")
-		return nil, fmt.Errorf("apidriver: %s: re-enter session: %w", drv.d.ID, err)
-	}
-	drv.markEstablished(out)
-	settle(out["session_id"])
-	return out, nil
-}
-
-// recoverLostSession answers an Action the provider refused because it does not
-// have the session: re-enter it and re-run the Action, so the message still
-// lands. A session the provider refuses to resume as well is lost.
-func (drv *Driver) recoverLostSession(
-	ctx context.Context, ev spec.EventSpec, values map[string]string, lostSessionID string,
-) (map[string]string, error) {
-	if lostSessionID == "" || len(ev.Resume) == 0 {
-		return nil, fmt.Errorf("%w: %s: no declared resume path", ErrSessionLost, lostSessionID)
-	}
-	out, err := drv.reestablish(ctx, ev, values, lostSessionID)
-	if err != nil {
-		if drv.sessionLost(err) {
-			return nil, fmt.Errorf("%w: %s: %w", ErrSessionLost, lostSessionID, err)
-		}
-		return nil, err
-	}
-	return out, drv.runSteps(ctx, ev.Action, out)
-}
-
-// fillBlanksFromRemembered fills every blank value in out from what this
-// connection remembered at establish; a blank caller value never overwrites it.
-func fillBlanksFromRemembered(out, remembered map[string]string) map[string]string {
-	for k, v := range out {
-		if v != "" {
-			continue
-		}
-		if rv, ok := remembered[k]; ok {
-			out[k] = rv
-		}
-	}
-	return out
-}
-
-// Dispatch establishes canonical's session if this connection has not, then runs
-// its Action steps. The established latch never clears itself, so an Action
-// refused because the session is gone is recovered once (recoverLostSession).
-func (drv *Driver) Dispatch(
-	ctx context.Context, canonical string, values map[string]string,
-) (map[string]string, error) {
-	out, err := drv.EstablishSession(ctx, canonical, values)
-	if err != nil {
-		return nil, err
-	}
-	ev := drv.d.Events[canonical]
-	err = drv.runSteps(ctx, ev.Action, out)
-	if err == nil {
-		return out, nil
-	}
-	if !drv.sessionLost(err) {
-		return nil, err
-	}
-	slog.WarnContext(ctx, "apidriver: session is gone under an established connection; recovering",
-		"provider", drv.d.ID, "event", canonical, "lost_session_id", out["session_id"], "err", err)
-
-	recovered, recoverErr := drv.recoverLostSession(ctx, ev, values, out["session_id"])
-	if recoverErr != nil {
-		return nil, fmt.Errorf("%w (after %v)", recoverErr, err)
-	}
-	return recovered, nil
-}
-
-// InjectAt runs the inject step declared for lifecycle moment at, if any. A
-// context inject runs once, right after a resume loads a session that existed
-// before this connection: a fresh one's creating call already carries it.
-func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]string) error {
-	var step *spec.InjectSpec
-	for i := range drv.d.Inject {
-		if drv.d.Inject[i].At == at {
-			step = &drv.d.Inject[i]
-			break
-		}
-	}
-	if step == nil || step.Call == "" {
-		return nil
-	}
-
-	drv.mu.Lock()
-	merged := cloneValues(drv.remembered)
-	drv.mu.Unlock()
-	for k, v := range values {
-		merged[k] = v
-	}
-
-	payload, _ := expandTree(step.Send, merged).(map[string]any)
-	if _, err := drv.conn.Call(ctx, step.Call, payload); err != nil {
-		return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)
-	}
-	return nil
-}
-
-// runSteps runs one Fresh/Resume/Action list in order, folding each Capture
-// into values. A field about to be recaptured is dropped from remembered first:
-// a racing Send then fails on an empty id rather than naming a finished turn.
-func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values map[string]string) error {
-	for _, step := range steps {
-		if len(step.Capture) > 0 {
-			drv.mu.Lock()
-			for field := range step.Capture {
-				delete(drv.remembered, field)
-			}
-			drv.mu.Unlock()
-		}
-		payload, _ := expandTree(step.Send, values).(map[string]any)
-		result, err := drv.conn.Call(ctx, step.Call, payload)
-		if err != nil {
-			return fmt.Errorf("apidriver: %s: %s: %w", drv.d.ID, step.Call, err)
-		}
-		if len(step.Capture) == 0 {
-			continue
-		}
-		var decoded map[string]any
-		if err := json.Unmarshal(result, &decoded); err != nil {
-			return fmt.Errorf("apidriver: %s: %s: parse response: %w", drv.d.ID, step.Call, err)
-		}
-		for field, path := range step.Capture {
-			if v, ok := mapping.Scalar(decoded, mapping.Paths(path)); ok {
-				values[field] = v
-				drv.mu.Lock()
-				drv.remembered[field] = v
-				drv.mu.Unlock()
-			}
-		}
-	}
-	return nil
-}
-
-// expandTree substitutes {placeholder} at every string leaf of a Send tree via
-// outbound.Substitute, so nested payloads share the flat path's grammar.
-func expandTree(node any, values map[string]string) any {
-	switch v := node.(type) {
-	case string:
-		return outbound.Substitute(v, values)
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, val := range v {
-			out[k] = expandTree(val, values)
-		}
-		return out
-	case []any:
-		out := make([]any, len(v))
-		for i, val := range v {
-			out[i] = expandTree(val, values)
-		}
-		return out
-	default:
-		return v
-	}
-}
-
-func cloneValues(values map[string]string) map[string]string {
-	out := make(map[string]string, len(values))
-	for k, v := range values {
-		out[k] = v
-	}
-	return out
+// newCallID is a fresh 32-hex id per call, so a re-sent call is never mistaken for a repeat.
+func newCallID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:]) // crypto/rand never fails on supported platforms
+	return hex.EncodeToString(b[:])
 }
 
 // Overflowed reports whether the connection closed because its consumer fell
 // too far behind.
-func (drv *Driver) Overflowed() bool { return drv.conn.Overflowed() }
+func (drv *Driver) Overflowed() bool { return drv.current().Overflowed() }
 
 func (drv *Driver) Close() error {
-	return drv.conn.Close()
+	drv.cancel()
+	return drv.current().Close()
 }

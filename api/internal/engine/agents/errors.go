@@ -58,3 +58,7 @@ var (
 	// it was asked to resume or act on.
 	ErrAPISessionLost = protocol.ErrAPISessionLost
 )
+
+// APIFailureReason is the provider's own words for an api call it refused, false when
+// err is not such a refusal.
+func APIFailureReason(err error) (string, bool) { return protocol.APIFailureReason(err) }

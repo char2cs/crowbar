@@ -20,6 +20,8 @@ type RunnerExited struct {
 	RunnerID string `json:"runnerId"`
 	Reason   string `json:"reason"`
 	ExitCode int    `json:"exitCode"`
+	// Detail is why a spawn failed, in the provider's words; empty for any other exit.
+	Detail string `json:"detail,omitempty"`
 }
 
 // RunnerExit is how the chat's last runner ended.

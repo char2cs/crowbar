@@ -4,6 +4,7 @@ package descriptorcheck_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
+	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
 type run struct {
@@ -187,4 +189,57 @@ func TestConform_TheAppServerMustAnswerInitialize(t *testing.T) {
 			assert.Equal(t, want, s.Status, s.Detail)
 		})
 	}
+}
+
+func TestConform_ADialedProviderIsCheckedThroughItsConnectCommand(t *testing.T) {
+	dialed := func(delivery, extra string) func(string) string {
+		return func(s string) string {
+			s = strings.Replace(s, "delivery: stdio", "delivery: "+delivery, 1)
+			s = strings.Replace(s, "format: ndjson", "format: "+map[string]string{"websocket": "jsonrpc_text", "http": "sse"}[delivery], 1)
+			lines := strings.Split(s, "\n")
+			for i, l := range lines {
+				if strings.HasPrefix(l, "    serve: ") {
+					lines[i] = strings.TrimSuffix(extra, "\n")
+				}
+			}
+			return strings.Join(lines, "\n")
+		}
+	}
+	t.Run("websocket whose connect command fails", func(t *testing.T) {
+		rep := conform(t, run{descriptor: "serve.yaml", transcript: "serve_answers", edit: dialed(
+			"websocket", "    connect: [/bin/sh, -c, 'exit 4']\n    connect_map: { url: url }\n")})
+
+		s := step(t, rep, "api_serve")
+		assert.Equal(t, descriptorcheck.StatusFail, s.Status, s.Detail)
+		assert.Contains(t, s.Detail, "connect")
+	})
+	t.Run("websocket that answers the handshake", func(t *testing.T) {
+		ws := kit.NewFakeWS(t)
+		go func() {
+			for frame := range ws.Frames {
+				var req struct {
+					ID json.RawMessage `json:"id"`
+				}
+				if json.Unmarshal(frame, &req) != nil || len(req.ID) == 0 {
+					continue
+				}
+				if ws.Send([]byte(`{"id":`+string(req.ID)+`,"result":{}}`)) != nil {
+					return
+				}
+			}
+		}()
+
+		rep := conform(t, run{descriptor: "serve.yaml", transcript: "serve_answers", edit: dialed(
+			"websocket", "    static_url: "+ws.URL(ws.NewTicket())+"\n")})
+
+		s := step(t, rep, "api_serve")
+		assert.Equal(t, descriptorcheck.StatusPass, s.Status, s.Detail)
+	})
+	t.Run("http opens nothing before its first request", func(t *testing.T) {
+		rep := conform(t, run{descriptor: "serve.yaml", transcript: "serve_answers", edit: dialed(
+			"http", "    static_url: http://127.0.0.1:1\n    requests:\n      create: { method: POST, path: /runs }\n    stream: { path: /events }\n")})
+
+		s := step(t, rep, "api_serve")
+		assert.Equal(t, descriptorcheck.StatusSkip, s.Status, s.Detail)
+	})
 }

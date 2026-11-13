@@ -169,3 +169,23 @@ func TestMoveChat_RefusesAContainerOfAnotherWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, waiting)
 }
+
+// A move still waiting for its turn boundary can be withdrawn; the thread then
+// stays where it was when the boundary arrives.
+func TestCancelMove_AWithdrawnMoveNeverRuns(t *testing.T) {
+	chats, uc := rebindWorld(t)
+	chats.SetBusy("c1", true)
+	parent := "b"
+	_, _, err := uc.PlaceChat(context.Background(), "ws-a", "c1",
+		tree.PlaceInput{ParentID: &parent, WorkspaceID: "ws-b"})
+	require.NoError(t, err)
+
+	require.NoError(t, uc.CancelMove(context.Background(), "c1"))
+	chats.SetBusy("c1", false)
+	uc.MoveWhenReady(context.Background(), "c1")
+
+	waiting, err := chats.MovesWaiting(context.Background())
+	require.NoError(t, err)
+	assert.NotContains(t, waiting, "c1")
+	assert.Equal(t, "ws-a", rowOf(chats, "c1").WorkspaceID)
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -103,7 +104,9 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	list := decodeProviderList(t, rec)
-	require.Equal(t, []string{"claude", "codex"}, providerIDsFromDTO(list))
+	require.Equal(t, slices.Sorted(slices.Values(providerIDsFromDTO(list))), providerIDsFromDTO(list))
+	require.Subset(t, providerIDsFromDTO(list), []string{"claude", "codex"})
+	rest := slices.DeleteFunc(providerIDsFromDTO(list), func(id string) bool { return id == "claude" || id == "codex" })
 	assert.True(t, list[0].Enabled, "providers default to enabled")
 	assert.True(t, list[1].Enabled)
 	assert.False(t, list[0].Connected, "claude probe returns false")
@@ -117,7 +120,7 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resolved := decodeProviderList(t, rec)
-	require.Equal(t, []string{"codex", "claude"}, providerIDsFromDTO(resolved))
+	require.Equal(t, append([]string{"codex", "claude"}, rest...), providerIDsFromDTO(resolved))
 	assert.True(t, resolved[0].Enabled, "codex enabled")
 	assert.False(t, resolved[1].Enabled, "claude disabled")
 
@@ -127,7 +130,7 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)
 	r.ServeHTTP(rec, req)
 	afterGet := decodeProviderList(t, rec)
-	require.Equal(t, []string{"codex", "claude"}, providerIDsFromDTO(afterGet))
+	require.Equal(t, append([]string{"codex", "claude"}, rest...), providerIDsFromDTO(afterGet))
 	assert.False(t, afterGet[1].Enabled)
 
 	// Unknown id => 400, and nothing is applied.
@@ -149,7 +152,9 @@ func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet,
 		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)
 	r.ServeHTTP(rec, req)
-	for _, p := range decodeProviderList(t, rec) {
+	shipped := decodeProviderList(t, rec)
+	rest := slices.DeleteFunc(providerIDsFromDTO(shipped), func(id string) bool { return id == "claude" || id == "codex" })
+	for _, p := range shipped {
 		assert.True(t, p.MCPEnabled, "%s must default to having its tool surface on", p.ID)
 	}
 
@@ -172,7 +177,7 @@ func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
 	}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	resolved := decodeProviderList(t, rec)
-	require.Equal(t, []string{"claude", "codex"}, providerIDsFromDTO(resolved))
+	require.Equal(t, append([]string{"claude", "codex"}, rest...), providerIDsFromDTO(resolved))
 	assert.False(t, resolved[0].MCPEnabled, "claude's tool surface must be off")
 	assert.True(t, resolved[0].Enabled, "switching the tools off must not disable the provider")
 	assert.True(t, resolved[1].MCPEnabled, "codex's tool surface must be untouched")

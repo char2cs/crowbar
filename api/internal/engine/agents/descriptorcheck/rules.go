@@ -117,6 +117,7 @@ func argvFields(d *spec.Descriptor) []argvField {
 	}
 	list("spawn.args", d.Spawn.Args)
 	list("runtime.api.serve", d.Runtime.API.Serve)
+	list("runtime.api.connect", d.Runtime.API.Connect)
 	list("runtime.api.attach", d.Runtime.API.Attach)
 	if d.Session.Resume != nil {
 		out = append(out, argvField{"session.resume.arg", d.Session.Resume.Arg})
@@ -176,11 +177,14 @@ func channelRules(doc document, d *spec.Descriptor) []Finding {
 				"move hook wiring to hooks_injection, which is applied to a PTY only"))
 		}
 	}
-	if d.Runtime.Transport == string(spec.ChannelAPI) && len(d.Runtime.API.Serve) == 0 {
+	endpoint := d.Runtime.API.Delivery == spec.APIDeliveryWebsocket || d.Runtime.API.Delivery == spec.APIDeliveryHTTP
+	if d.Runtime.Transport == string(spec.ChannelAPI) && len(d.Runtime.API.Serve) == 0 && !endpoint {
 		out = append(out, doc.finding("runtime.api_serve", SeverityError, "runtime.api",
 			"runtime.transport is api but runtime.api.serve is empty", "declare the argv that starts the provider's api serve process"))
 	}
-	if d.Runtime.Transport == string(spec.ChannelAPI) && d.Runtime.API.Handshake.Call == "" {
+	// http opens no connection: its first request is the handshake.
+	if d.Runtime.Transport == string(spec.ChannelAPI) && d.Runtime.API.Handshake.Call == "" &&
+		d.Runtime.API.Delivery != spec.APIDeliveryHTTP {
 		out = append(out, doc.finding("runtime.api_handshake", SeverityError, "runtime.api",
 			"runtime.transport is api but runtime.api.handshake names no call: no connection is ever opened",
 			"declare runtime.api.handshake: the call that opens the connection, its params, and the notification that follows its answer"))

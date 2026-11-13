@@ -1,10 +1,13 @@
 package modeldiscovery
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -90,6 +93,25 @@ func TestAttemptRefresh_AFailedProbeKeepsThePreviousCatalogue(t *testing.T) {
 	c.attemptRefresh(discoverDescriptor(), t.TempDir())
 
 	assert.Equal(t, []string{"m1"}, c.Models("probe"), "a failed refresh must not blank a working catalogue")
+}
+
+func TestAttemptRefresh_AFailedProbeLogsOnceNamingTheProvider(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	c := NewCache(context.Background())
+	c.probe = func(context.Context, *spec.Descriptor, models.ProbeOptions, exec.Acquire) ([]Model, error) {
+		return nil, context.DeadlineExceeded
+	}
+	d := discoverDescriptor()
+
+	c.attemptRefresh(d, t.TempDir())
+	c.attemptRefresh(d, t.TempDir())
+
+	assert.Equal(t, 1, strings.Count(buf.String(), "level=WARN"), "one warning per failed attempt, none for the skipped one")
+	assert.Contains(t, buf.String(), "provider="+d.ID)
+	assert.Contains(t, buf.String(), "deadline exceeded")
 }
 
 // TestAttemptRefresh_SuccessWritesTheDiskCache proves a successful probe

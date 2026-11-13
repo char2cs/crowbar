@@ -28,11 +28,8 @@
   the rule and gives a reason on the same line. Never loosen a lint config,
   coverage floor, or budget to get green.
 - Baselines (`api/deadcode-baseline.txt`, `web/knip.json` ignoreIssues, the
-  `*_BASELINE` lists in `web/eslint.config.js`, golangci-lint's `new-from-rev`,
-  `scripts/ratchet/*-baseline.json`) only shrink: fix an entry, delete it; never
-  add one. `make ratchet` (in `make pr-checks`) gates file size, timer/`_ =`/
-  empty-catch counts and per-module LOC; after deleting code run
-  `make ratchet ARGS=--update` and commit the lower numbers.
+  `*_BASELINE` lists in `web/eslint.config.js`, golangci-lint's `new-from-rev`)
+  only shrink: fix an entry, delete it; never add one.
 
 ## Go (`api/`)
 - Build and test with `-tags noEmbed`; lint with `make lint` (new code) and

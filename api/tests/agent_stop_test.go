@@ -40,10 +40,11 @@ func TestRegression_AgentStopKeepsChatDormantAndResumable(t *testing.T) {
 	postHook(t, h, repoBase(imported), "livestub", runnerID, "turn_stop", `{"session_id":"sess-stop-1","last_assistant_message":"hello"}`)
 	h.Quiesce()
 
-	// Close the tab: stop the CLI, keep the chat.
+	// Close the tab: stop the CLI, keep the chat. Its exit lands after the 204.
+	feed := recordSidebar(t, h)
 	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusNoContent)
 	_ = resp.Body.Close()
-	h.Quiesce()
+	feed.awaitRunnerGone(chatID, runnerID)
 
 	// The chat is DORMANT — its CLI was terminated and no runner points at it — but it
 	// is STILL THERE (a 200, not the Delete route's 404), with its bound conversation

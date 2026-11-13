@@ -70,6 +70,9 @@ func providerIDs(
 func TestResolveProviders_OrdersByPreferenceThenAppendsNewEnabled(t *testing.T) {
 	f := newFixture(t)
 	writeGeminiDescriptor(t, f.ws.home)
+	all, err := f.usecase.ResolveProviders(f.ctx)
+	require.NoError(t, err)
+	rest := slices.DeleteFunc(providerIDs(all), func(id string) bool { return id == "codex" || id == "claude" })
 
 	f.setPrefs(t,
 		domain.AgentProviderPreference{ProviderID: "codex", Priority: 0, Disabled: false},
@@ -80,14 +83,15 @@ func TestResolveProviders_OrdersByPreferenceThenAppendsNewEnabled(t *testing.T) 
 	got, err := f.usecase.ResolveProviders(f.ctx)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"codex", "claude", "gemini"}, providerIDs(got),
+	assert.Equal(t, append([]string{"codex", "claude"}, rest...), providerIDs(got),
 		"preferenced first in priority order, unpreferenced appended by id")
 	assert.True(t, got[0].Enabled, "codex enabled")
 	assert.True(t, got[0].Connected, "codex installed")
 	assert.False(t, got[1].Enabled, "claude disabled")
 	assert.False(t, got[1].Connected, "claude not installed")
-	assert.True(t, got[2].Enabled, "gemini defaults to enabled")
-	assert.True(t, got[2].Connected, "gemini installed")
+	gemini := got[slices.Index(providerIDs(got), "gemini")]
+	assert.True(t, gemini.Enabled, "gemini defaults to enabled")
+	assert.True(t, gemini.Connected, "gemini installed")
 }
 
 // TestResolveProviders_NoPreferences_OrdersByDescriptorID proves the empty-store
@@ -100,7 +104,8 @@ func TestResolveProviders_NoPreferences_OrdersByDescriptorID(t *testing.T) {
 	got, err := f.usecase.ResolveProviders(f.ctx)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"claude", "codex"}, providerIDs(got))
+	assert.True(t, slices.IsSorted(providerIDs(got)), "ordered by descriptor id")
+	assert.Subset(t, providerIDs(got), []string{"claude", "codex"})
 	for _, p := range got {
 		assert.True(t, p.Enabled, "%s defaults to enabled", p.ID)
 	}

@@ -123,7 +123,7 @@ export interface RowBodies {
     launchPermissionLevel: string
     resumeSessionId: string
   }
-  runner_exited: { runnerId: string; reason: string; exitCode: number }
+  runner_exited: { runnerId: string; reason: string; exitCode: number; detail?: string }
   /** index -1: the message's complete text; reply: the reply this message joins. */
   assistant_text: {
     messageId: string

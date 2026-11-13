@@ -1,10 +1,12 @@
 package runner
 
 import (
+	"errors"
 	"fmt"
 
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 var (
@@ -99,3 +101,24 @@ var (
 	// submission, not this error.
 	ErrPromptSessionUnavailable = &problem.Error{Code: problem.LiveTUIRequired, Message: "agent: chat has no live provider TUI for prompt submission", Err: problem.ErrUnprocessable}
 )
+
+// connectFailure is a spawn whose connection-only provider never came up. It is the
+// chain in the logs and, to the user, only the provider's own reason.
+type connectFailure struct{ err error }
+
+func (e *connectFailure) Error() string { return "agent: spawn runner: api connect: " + e.err.Error() }
+
+func (e *connectFailure) Unwrap() error { return e.err }
+
+// failureDetail is what a failed spawn tells the user: the provider's own words when it
+// gave any, so the wrapped chain stays in the logs.
+func failureDetail(err error) string {
+	if reason, ok := engineagents.APIFailureReason(err); ok {
+		return reason
+	}
+	var cf *connectFailure
+	if errors.As(err, &cf) {
+		return cf.err.Error()
+	}
+	return err.Error()
+}

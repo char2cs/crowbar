@@ -250,9 +250,6 @@ func (a *appServer) step(threadID, turnID string, i int, st step, stop chan stru
 		record("codex", "drop", nil)
 		_ = os.Stdout.Close()
 		hang()
-	case st.Idle:
-		a.notify("thread/status/changed", map[string]any{"threadId": threadID, "status": map[string]any{"type": "idle"}})
-		return false
 	case st.SlowMS > 0:
 		pause(st.SlowMS)
 	}

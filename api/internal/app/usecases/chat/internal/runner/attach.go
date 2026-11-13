@@ -339,7 +339,7 @@ func (rs *Runners) detachNativeView(
 	// No resume context: this switches views on one live session; the spawn's
 	// original context would only be replayed on every toggle. A refusal has
 	// already lost the session.
-	if _, err := rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, ""); err != nil {
+	if _, err := rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, "", false); err != nil {
 		slog.WarnContext(ctx, "agent: switch to native: re-establish the api session", "runner_id", live.ID, "err", err)
 	}
 	// The view is gone, so the surface moves first: a runner still on the terminal

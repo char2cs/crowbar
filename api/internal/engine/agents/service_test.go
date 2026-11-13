@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +24,13 @@ func TestList_EnumeratesTheShippedAgents(t *testing.T) {
 	for _, a := range list {
 		ids = append(ids, a.ID())
 	}
-	assert.Equal(t, []string{"claude", "codex"}, ids)
+	matches, err := filepath.Glob("internal/protocol/internal/descriptor/descriptors-v3/*.yaml")
+	require.NoError(t, err)
+	want := make([]string, 0, len(matches))
+	for _, m := range matches {
+		want = append(want, strings.TrimSuffix(filepath.Base(m), ".yaml"))
+	}
+	assert.ElementsMatch(t, want, ids)
 }
 
 func TestGet_UnknownAgentIsReported(t *testing.T) {

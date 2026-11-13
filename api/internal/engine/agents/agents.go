@@ -82,6 +82,8 @@ type Agent interface {
 	// PermissionVars is level's named values for a transport that takes them as request data rather
 	// than an argv flag, narrowed for a chat that left a folder; empty for an undeclared level.
 	PermissionVars(level string, left bool) map[string]string
+	// ModelParts is a composed model id's named parts, nil for any other id.
+	ModelParts(model string) map[string]string
 
 	SelectionSteps(sel Selection) []InjectStep
 
@@ -145,6 +147,15 @@ type Agent interface {
 	// it on any error; ErrAPITransportNotDeclared for a hooks-only descriptor.
 	// origin (nil-able) learns the sessions the conn produces.
 	StartAPIConn(ctx context.Context, stdio APIStdio, origin APISessionOrigin) (*APIConn, error)
+
+	// APIDialed is whether runtime.api reaches its server by dialing (delivery
+	// websocket or http) instead of by a serve process; StartAPIEndpoint then
+	// connects it, with the same refusal and cleanup as StartAPIConn.
+	APIDialed() bool
+	// APIOnlyPrompts is a descriptor whose connection is the only carrier of a
+	// prompt: it declares no prompt_submit argv to restart a CLI with.
+	APIOnlyPrompts() bool
+	StartAPIEndpoint(ctx context.Context, tctx TemplateCtx, origin APISessionOrigin) (*APIConn, error)
 
 	// APIServeArgv and APIAttachArgv are runtime.api.serve / .attach, already
 	// template-expanded against ctx, mirroring PromptSteps's (x, bool) shape: ok
@@ -269,6 +280,10 @@ func (a *agent) PermissionLevels() []string {
 	return selection.PermissionLevels(a.spec)
 }
 
+func (a *agent) ModelParts(model string) map[string]string {
+	return selection.ModelParts(a.spec, model)
+}
+
 func (a *agent) PermissionVars(level string, left bool) map[string]string {
 	return selection.PermissionVars(a.spec, level, left)
 }
@@ -295,6 +310,10 @@ func (a *agent) PromptSteps(resume bool) ([]InjectStep, error) {
 		return nil, errPromptSubmitUnsupported
 	}
 	return steps, nil
+}
+
+func (a *agent) APIOnlyPrompts() bool {
+	return a.spec.Runtime.Transport == "api" && a.spec.Presentation.PromptSubmit == nil
 }
 
 func (a *agent) PromptLeadingSigils() ([]string, string) {

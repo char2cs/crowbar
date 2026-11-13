@@ -469,3 +469,24 @@ func TestParse_ASuggestionsExactGrantReadsInWords(t *testing.T) {
 	assert.Equal(t, "Accept every edit for the rest of this session", ev.Choice.Options[3].Label)
 	assert.Empty(t, ev.Choice.Options[3].Description)
 }
+
+// A descriptor may declare the question's own id and plain-string choices, so the
+// answer is keyed by the id the provider will look up; undeclared, q<index> stays.
+func TestParse_AQuestionKeepsItsDeclaredIDAndStringChoices(t *testing.T) {
+	fields := fieldMap(map[string]string{
+		"prompt_id": "request_id", "questions": "questions", "question_text": "text",
+		"question_id": "key", "question_choices": "options",
+	})
+	payload := []byte(`{"request_id":"r1","questions":[
+		{"key":"lang","text":"Which?","options":["Go","Rust"]}, {"text":"Where?","options":["Here"]}]}`)
+
+	ev, err := parse(descriptorWithFields(spec.HookPermission, fields), spec.HookPermission, payload)
+
+	require.NoError(t, err)
+	qs := ev.Choice.Questions
+	require.Len(t, qs, 2)
+	assert.Equal(t, "lang", qs[0].ID)
+	require.Len(t, qs[0].Options, 2)
+	assert.Equal(t, "Rust", qs[0].Options[1].Label)
+	assert.Equal(t, "q1", qs[1].ID, "an undeclared or empty id falls back to the index")
+}

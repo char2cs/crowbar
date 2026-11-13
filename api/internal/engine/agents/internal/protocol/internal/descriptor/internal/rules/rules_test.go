@@ -737,6 +737,13 @@ func TestModelDiscover_AcceptsAWellFormedBlock(t *testing.T) {
 	require.NoError(t, rules.Apply(withModelDiscover(valid())))
 }
 
+func TestModelDiscover_AdmitsABudgetCoveringAServerColdStart(t *testing.T) {
+	d := withModelDiscover(valid())
+	d.Model.Discover.TimeoutMS = 30_000
+
+	require.NoError(t, rules.Apply(d))
+}
+
 func TestModelDiscover_RejectsAvailableAndDiscoverTogether(t *testing.T) {
 	d := withModelDiscover(valid())
 	d.Model.Available = []string{"gpt-6-astra"}
@@ -779,6 +786,14 @@ func TestModelDiscover_RejectsTheBrokenShapes(t *testing.T) {
 			"default_when with no field",
 			func(d *spec.Descriptor) { d.Model.Discover.DefaultWhen = &spec.ModelFieldMatch{Equals: true} },
 			"default_when.field is required",
+		},
+		{
+			"current_id alongside default_when",
+			func(d *spec.Descriptor) {
+				d.Model.Discover.CurrentID = "{a}:{b}"
+				d.Model.Discover.DefaultWhen = &spec.ModelFieldMatch{Field: "x", Equals: true}
+			},
+			"current_id and default_when are exclusive",
 		},
 		{
 			"timeout above the ceiling",

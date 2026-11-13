@@ -103,7 +103,7 @@ func (m *OriginSync) Start(
 	ctx, cancel := context.WithCancel(m.root)
 	m.cancels[wsID] = cancel
 	m.runners.Add(1)
-	go m.run(ctx, wsID)
+	go m.run(ctx, cancel, wsID)
 	return nil
 }
 
@@ -141,9 +141,11 @@ func (m *OriginSync) Close() {
 // so Stop and Close cancel a fetch in flight instead of waiting it out.
 func (m *OriginSync) run(
 	ctx context.Context,
+	cancel context.CancelFunc,
 	wsID string,
 ) {
 	defer m.runners.Done()
+	defer cancel()
 	defer safego.Recover("resources.originSync.run")
 	// Sync once immediately on Start so a freshly viewed protected workspace's
 	// ahead/behind updates within ~1s instead of after a full interval. Skip it

@@ -18,6 +18,34 @@ import (
 // event table against Crowbar's canonical vocabulary at LOAD, so a bad descriptor
 // fails at startup instead of silently mapping a field to nothing mid-conversation.
 func ParseV0(raw []byte) (*spec.Descriptor, error) {
+	d, err := decodeDescriptor(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	vocab, err := schema.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	maps := eventFieldPresence(d.Events)
+	if err := vocab.Validate(d.ID, maps); err != nil {
+		return nil, fmt.Errorf("descriptor: %w", err)
+	}
+
+	for _, name := range sortedEventNames(d.Events) {
+		if err := checkChannelSplit(d.ID, name, d.Events[name]); err != nil {
+			return nil, err
+		}
+		if err := checkEvent(vocab, d.ID, name, d.Events[name]); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
+}
+
+// decodeDescriptor unmarshals raw and rejects a descriptor with no id.
+func decodeDescriptor(raw []byte) (*spec.Descriptor, error) {
 	var d spec.Descriptor
 	if err := yaml.Unmarshal(raw, &d); err != nil {
 		var glyph *spec.AlternationGlyphError
@@ -35,43 +63,54 @@ func ParseV0(raw []byte) (*spec.Descriptor, error) {
 		// id is the former.
 		return nil, fmt.Errorf("%w: missing id", ErrInvalid)
 	}
+	return &d, nil
+}
 
-	vocab, err := schema.Load()
-	if err != nil {
-		return nil, err
-	}
-
+// eventFieldPresence reads, per event, which canonical fields its descriptor declares.
+func eventFieldPresence(events map[string]spec.EventSpec) map[string]map[string][]string {
 	// An inbound event's canonical fields are the KEYS of map:. An outbound event's
 	// send: trees are keyed by PROVIDER field names and reference canonical names as
-	// {braced} templates, so its canonical set is read out of the values.
-	maps := make(map[string]map[string][]string, len(d.Events))
-	for name, e := range d.Events {
+	// {braced} templates, so its canonical set is read out of the values. A name some
+	// step captures is the descriptor's own variable, not a vocabulary slot.
+	captured := capturedNames(events)
+	out := make(map[string]map[string][]string, len(events))
+	for name, e := range events {
 		switch {
 		case !e.Out.Empty():
-			maps[name] = wrapPresence(canonicalRefs(e.Send))
+			refs := map[string]string{}
+			collectCanonicalRefs(e.Send, refs)
+			for ref := range refs {
+				if captured[ref] {
+					delete(refs, ref)
+				}
+			}
+			out[name] = wrapPresence(refs)
 		case len(e.Fresh) > 0 || len(e.Resume) > 0 || len(e.Action) > 0:
-			maps[name] = wrapPresence(canonicalRefsFromSteps(e.Fresh, e.Resume, e.Action))
+			out[name] = wrapPresence(canonicalRefsFromSteps(e.Fresh, e.Resume, e.Action))
 		case e.HasChannelBlocks():
 			// The UNION of the api:/hooks: blocks, so a bad field name in
 			// either channel's map: is caught.
-			maps[name] = mergedChannelFields(e)
+			out[name] = mergedChannelFields(e)
 		default:
-			maps[name] = presence(e.Map)
+			out[name] = presence(e.Map)
 		}
 	}
-	if err := vocab.Validate(d.ID, maps); err != nil {
-		return nil, fmt.Errorf("descriptor: %w", err)
-	}
+	return out
+}
 
-	for _, name := range sortedEventNames(d.Events) {
-		if err := checkChannelSplit(d.ID, name, d.Events[name]); err != nil {
-			return nil, err
-		}
-		if err := checkEvent(vocab, d.ID, name, d.Events[name]); err != nil {
-			return nil, err
+// capturedNames is every value a Fresh/Resume/Action step captures from a response.
+func capturedNames(events map[string]spec.EventSpec) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range events {
+		for _, steps := range [][]spec.CallStep{e.Fresh, e.Resume, e.Action} {
+			for _, step := range steps {
+				for name := range step.Capture {
+					out[name] = true
+				}
+			}
 		}
 	}
-	return &d, nil
+	return out
 }
 
 // mergedChannelFields unions a channel-scoped event's api: and hooks: field maps
@@ -237,33 +276,8 @@ func CheckProtocolVersion(d *spec.Descriptor, actual string) error {
 	return nil
 }
 
-// canonicalRefs pulls the {braced} canonical names an outbound event's send templates
-// reference, so the same required/optional table validates both directions.
-func canonicalRefs(send map[string]string) map[string]string {
-	out := map[string]string{}
-	for _, tmpl := range send {
-		rest := tmpl
-		for {
-			open := strings.IndexByte(rest, '{')
-			if open < 0 {
-				break
-			}
-			rest = rest[open+1:]
-			close := strings.IndexByte(rest, '}')
-			if close < 0 {
-				break
-			}
-			if name := rest[:close]; name != "" {
-				out[name] = tmpl
-			}
-			rest = rest[close+1:]
-		}
-	}
-	return out
-}
-
-// canonicalRefsFromSteps is canonicalRefs for Fresh/Resume/Action steps, whose Send
-// is an arbitrary tree, so every string leaf at any depth is walked.
+// canonicalRefsFromSteps pulls the {braced} canonical names a Fresh/Resume/Action
+// step list references; Send is an arbitrary tree, so every string leaf is walked.
 func canonicalRefsFromSteps(stepLists ...[]spec.CallStep) map[string]string {
 	out := map[string]string{}
 	for _, steps := range stepLists {

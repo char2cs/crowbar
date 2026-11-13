@@ -292,6 +292,8 @@ events:
     optional:
       - prompt_id
       - session_id
+      # What an http ask is answered by: the {ask_id} of its reply_request.
+      - ask_id
       - message
       - tool_name
       - tool_target
@@ -305,8 +307,11 @@ events:
       - suggestion_label.*
       - questions
       - question_title
+      - question_id
       - question_text
       - question_options
+      # Plain-string options, for a provider whose choices are not objects.
+      - question_choices
       - question_multi
       - option_label
       - option_description
@@ -316,7 +321,7 @@ events:
   elicitation:
     direction: ask
     required: []
-    optional: [session_id, prompt_id, message, mode, schema, mcp_server]
+    optional: [session_id, prompt_id, ask_id, message, mode, schema, mcp_server]
     replies: [accept, decline, cancel]
 
   # --- outbound: Crowbar drives the CLI ---------------------------------------
@@ -338,7 +343,10 @@ events:
     # (TemplateCtx.PermissionVars) — a FAMILY, not fixed names, because what
     # a level needs to say is each provider's own business (codex's sandbox/
     # approvalPolicy; a future provider's own words for the same idea).
-    optional: [session_id, cwd, context, "permission.*"]
+    #
+    # model.* is the chat's composed model id taken back apart (ModelSpec.IDSplit),
+    # for a session call that takes its parts as separate fields.
+    optional: [session_id, cwd, context, call_id, "permission.*", "model.*"]
 
   interrupt:
     direction: out
@@ -347,7 +355,7 @@ events:
     # descriptor's interrupt, if it declares any, has nowhere to source it from),
     # while an rpc-transport provider whose cancel call is scoped to a specific
     # turn — not just the thread — needs it. codex does; see codex.yaml.
-    optional: [session_id, turn_id]
+    optional: [session_id, turn_id, call_id]
 
   # Crowbar asks for compaction. Codex exposes thread/compact/start; claude has no API
   # for it, so its descriptor injects the /compact slash command over the prompt
@@ -356,7 +364,7 @@ events:
   compact_start:
     direction: out
     required: []
-    optional: [session_id]
+    optional: [session_id, call_id]
 
   # Crowbar asks the agent to end one of its background shells (shell_id). The
   # provider has no operation to end a shell from outside, so the request goes to
@@ -365,4 +373,4 @@ events:
   shell_stop:
     direction: out
     required: []
-    optional: [session_id, shell_id]
+    optional: [session_id, shell_id, call_id]

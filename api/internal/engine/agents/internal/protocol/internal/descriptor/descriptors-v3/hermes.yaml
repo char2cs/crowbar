@@ -1,0 +1,260 @@
+id: hermes
+display_name: Hermes
+sign_in: hermes setup
+icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12.27 1l-.43 .02l-.91 .12l-1.52 .34l-1.15 .39l-1.18 .54l-.61 .33l-.58 .38l-.95 .71l-.47 .44l-.36 .4l-.49 .71l-.53 1.1l-.25 .8l-.15 .85l.01 .96l.12 .53l.2 .47l.19 .29l.4 .41l.26 .2l.39 .21l.42 .14l.14 .02l-.26-.2l-.17-.21l-.27-.53l-.09-.25l.01-.06l.22 .36l.21 .25l.27 .26l.33 .25l-.19 2.14l-.2 1.84l-.12 .82l-.18 .93l-.2 .51l-.19 .26l-.17 .13l-.17 .07h-.46l-.31-.14l-.25-.26l-.09-.16l-.1-.3l-.04-.43l.05-.45l.2-.49l-.39 .46l-.13 .21l-.09 .22l-.09 .44l.02 .73l.08 .31l.13 .27l.14 .22l.22 .24l.18 .13l.3 .14l.29 .06l.23 .01l.35-.05l.17-.06l.32-.15l.26-.18l.43-.41l.17-.25l.23-.41l.02-.02l.01 .03l-.08 .4l-.09 .26l-.19 .36l-.23 .3l-.29 .27l-.28 .19l-.32 .11l-.34 .02l-.23-.03l-.45-.15l-.37-.21l-.27-.23l-.19-.24l-.17-.3l-.1-.35l-.09-.46v.65l.06 .36l.1 .33l.25 .49l.22 .26l.24 .21l.57 .35l.69 .24l.1 .44l.16 .3l.24 .24l.31 .18l.28 .08l.22 .02l.35-.01l.31-.09l.31-.18l.22-.19l.19-.22l.23-.36l-.14 .64l-.26 .67l-.34 .54l-.45 .47h2.54l.62-.31l.04 .03l-.23 .28h.09l.19-.27l.2-.04l.01 .04l-.1 .27h.36l.22-.35l.32-.39l.24-.26l.15-.09v.08l-.17 .28l-.66 .73h.61l.82-.93l.3-.25l.09-.04v.07l-.14 .29l2.68-1.59l.28-.1h.08l-.02 .03l-.89 .88l-.65 .83l-.78 .81h.55l.3-.65l.28-.51l.26-.34l.39-.39l.45-.32l.5-.25l.52-.19l.72-.17l-.35 .1l-.52 .26l-.46 .33l-.47 .43l-.52 .65l-.29 .54l-.19 .51h.52l.17-.51l.31-.46l.53-.56l.48-.39l.35-.22l.45-.22l.28-.09l.59-.06l.6 .05l.61 .13l.33 .13l.31 .17l.29 .22l.26 .26l.23 .28l.19 .32l.15 .33l.14 .62h.26l-.17-.71l-.18-.42l-.24-.38l-.28-.34l-.34-.29l-.37-.25l-.41-.19l-.51-.15l-.57-.09l-.03-.02l.05-.01l.62 .04l.59 .1l.42 .17l.5 .34l.4 .41l.36 .57l.19 .52l.14 .7h.2v-.4l.09-.22l.13-.16l.48-.39l.32-.31l.19-.27l.17-.34l.17-.51l.12-.55l.06-.77v-.58l-.12-1.11l-.28-1.38l-.86-3.19l-.64-2.78l-.43-2.21l-.37-1.23l-.54-1.35l-.57-1.08l-.32-.44l-.41-.49l-.83-.74l-.51-.35l-.46-.27l-.52-.24l-.55-.21l-.7-.2l-.76-.16l-.47-.06zM10.45 1.43l.43 .01l.43 .07l.45 .12l.46 .2l.28 .16l.48 .34l.72 .71l.48 .61l.3 .48l.4 .79l.19 .49l.27 .82l.15 .71l-.03 .15l-.16 .09l-.07 .08v.13l.08 .08l.29 .14l.35 .2l.16 .15l.04 .07l-.86-.42l-.12-.1l-.07-.19l-.01-.15l.25-.18v-.18l-.07-.18l-.16-.02l-.68 .1l-.09 .04l-.08 .08l-.02 .18l.04 .12l.06 .04l.17 .01l.05 .05l-.01 .33l-.12 .24l-.42 .44l.12-.26l.29-.34l.04-.16l-.07-.11l-.21-.08l-.07-.12l-.23-1.04l-.34-1l-.37-.76l-.32-.5l-.64-.71l-.56-.48l-.44-.29l-.41-.21l-.75-.24l-.52-.07l-.33-.01l-.51 .05l-.62 .11l.36-.16l1.02-.31l.56-.11zM17.56 3.32l.48 .53l.32 .43l.25 .43l.24 .48l.34 .81l.2 .58l.26 .87l.12 .49l-.01 .13l-.42-1.45l-.44-1.16l-.42-.84l-.46-.64l.13 .28l-.02 .6l.05 .17l-.04-.01l-.17-.21l-.02 .01l.44 .92l.15 .4l-.36-.67l-.32-.5l-.02-.01l.01 .05l.1 .35l-.19-.23l-.01 .17l.07 .28l.47 1.22l-.57-1.15l-.38-.52l-.02 .03l.48 1.12l.26 .71l-.88-1.81l-.23 .22l-.07 .03l-.89-.33l.57 1.19l.5 1.23l.46 1.4l.98 3.24l.15 .59l.23 1.14l.16 1.13l.05 .47l-.01 .1l-.2-1.28l-.39-1.78l-1.18-3.94l-.51-1.49l-.47-1.11l-.32-.49l.09 .4l-.24-.3l-.26-.24l-.3-.11l-.16 .04l-.11-.26l.01-.02h.15l.43 .07l-.02-.42l-.1-.36l.38 .6l.67 .15h.11l.25-.28l-.39-.66l.41 .47l.05-.17l.36 .03l-.06-.16l-.47-.67l.83 .83l-.07-.15l-.36-.51l.02-.04l.56 .73v-.66l-.24-.46zM12.12 3.69l.33 .31l.2 .25l.4 .71l.16-.07h.09l.04 .03l.22 .53l-.37-.16l-.02 .13l-.36-.62l-.35-.48l-.11 .35l.17 .49l-.24-.23l.17 .62l-.17-.3l-.12-.12l-.02 .13l-.09-.12l-.12 .05l.01 .33l-.18-.28l-.48-.02l-.22-.38l.29-.38l-.23-.44l.22 .26l.3-.06l-.13-.45l.01-.02l.37 .42l.36-.25zM10.29 4.03l.25 .25l.36 .49l.22 .4l.25 .54l.14 .42l-.3-.27l.08 .8l-.32-.84l-.03 .66l-.39-.63l.09 .74l-.16-.5l-.04-.06l-.27 .11l.02 .29l-.09-.19l-.06-.06l-.25-.12l-.35-.09l-.04-.05l-.08-.38l.52-.24v-.23l.15 .34l.28-.26l-.12-.54l.16 .35l.04 .04l.09-.05l.07 .26l-.01-.5zM6.85 4.2l-.59 1.34l-.38 1.13l-.02-.51l-.07 .07l-.01-.02l.04-.22l-.36 .16l-.12 .25l-.33-.01l.32-.68l.54-.86l.04-.04l-.02 .06l-.35 .67l-.16 .37v.05l.26-.15l.25-.23l.51-.79zM5 4.24l-.48 .58l-.47 .71l-.28 .57l-.57 1.29l.08-.37l.29-.79l-.15 .11l.06-.24l-.07 .07l-.01-.05l.26-.6l.88-.88zM7.93 4.6l.02 1.12l.05 .61l-.2-.41v.34l-.17-.32l-.52 .16l-.07 .23l-.02-.24l-.54 .09l-.07-.03l-.18-.22l.22-.62l.09 .02l.53 .24l.26-.86l-.17 .92l.44-.12l.06-.09zM5.06 4.69l-.43 .69l.2 .04l.54-.71l-.56 .99l.39-.05l.13-.21v.06l-.35 .77l-.25 .65l.04-.45l-.04-.01l-.18 .21l-.04-.28l-.02-.02l-.07 .05l.05-.31l-.03-.02l-.29 .63l-.28 .82l.12-.56l.23-.7l-.09 .07l-.38-.02l.12-.35l.25-.5l.12-.16l.3 .02l.35-.49zM9.01 4.92l.23 .81l.09 .55l-.16-.28l-.06-.05l-.73-.02l-.08-.09l-.03 .24l-.19-.56l-.03-.41l.91 .11l.06-.06zM18.59 6.24l.01 .04l-.03-.01zM8.18 6.52l.44 1.23l.41 .83l.23 .37l.01 .07l-.31 .03l-.3-.6l-.3-.92l-.13-.62zM6.12 8.37l.44 .62l.3 .3l.28 .21l.1 .01l.82-.19l-.28 .34l-.08 .23l.23-.09l.41-.28l.28-.14l.7-.25l.07 .02l.26 .32l.86-.03l.78 .01l.04-.06l.02-.47l.17 .54l.65 .11l.2 .07l.03 .3v.93l-.05 .77l-.63 3.64l-.16 1.29l-.01 .84l.08 .59l-.54 .49l-.32-.53l-.31-.43l-.33-.36l-.25-.18l-.27-.04l-1.07 .15l-.64 .05l-.44-.04l-.33-.14l-.18-.17l-.15-.23l-.81-1.49l-.28-.64l-.21-.82v-.72l.06-.5l.14 .36l.42 .44l.09 .16v.21l-.16 .3l-.01 .09l.09 .27l.22 .33l-.03 .02l-.08-.05v.05l.09 .35l.16 .2l.25 .19l.03-.04l-.1-.1l.21-.05l.2-.11l-.3 .04l-.27-.03l-.09-.11l-.01-.11l.07-.11l.08-.05l.43-.07l.51 .07l.1 .03l-.01 .02l-.19 .08l-.05 .06l.56-.18v-.11l-.06-.06l-.09 .04l-.17-.04l-.72-.38l-.2-.05l-.27 .06l-.21-.29l.11-.26v-.22l-.1-.16l-.36-.37l-.16-.31l-.02-.12l.02-.14l.54-.49l.21-.35l.11-.33v-.27l-.06-.18l-.13-.2l-.22-.21l-.26-.14l-.11-.03l-.03 .04l.47 .27l.15 .18l-.24-.09l-.24-.05l-.2 .03l-.14 .08l.14-.05l.2-.01l.48 .12l.1 .13l.03 .21l-.33-.28l-.2-.08l-.23-.01l-.28 .08l-.13-.2l-.08-.23l.08-.09l.24-.1l.22-.01l.25 .03l-.04-.07l-.21-.13l.01-.02l.44-.15l.43-.1l-.34-.63zM9.12 9.61l-.27 .01l-.29 .06l-.13 .05l-.09 .08l-.2 .22l-.05 .12l.26-.08l.12-.1l.07-.01l-.22 .17l-.08 .12l.08-.02l.02 .02l-.18 .13l.19-.05l-.15 .24l.15-.08l-.02 .13l.03 .06l.15-.26l.34-.27l-.1 .4l.03 .09l.12 .07l-.08 .08l.2 .26l.13 .1l.09 .03l.25-.02l.26-.21l.11-.18l-.1-.13l.15-.1l-.04-.14l.45 .25l-.02 .11l-.09 .18l-.14 .12l-.21 .11l-.35 .12h-.58l-.5-.14l-.11 .01l-.07 .07l.18-.03l.16 .08l-.02 .12l.18-.05l.01 .1l.09-.07l.05 .1l.09-.08l.06 .09l.13-.08l.08 .1l.08-.1l.14 .08l.04-.07l.08-.01l.17 .07l-.03-.09l.07-.04l.23 .05l-.07-.12h.31l-.14-.12l.27-.05l-.14-.05v-.03l.29-.05l-.15-.05l.01-.02h.23l-.01-.04l-.19-.03l.31-.1l-.16-.05l.44-.2l-.33-.03l.19-.13l-.28 .07l-.14-.04l-.03-.04h.11l-.07-.06l-.8-.39l-.27-.09l-.45-.07v-.02l.23-.02l.26 .03l.7 .27l-.48-.24l-.3-.1zM8.41 9.8l.02 .01l-.03 .02zM8.57 9.83l.01 .02l-.04 .01zM8.37 9.83l.01 .03l-.06 .02zM8.51 9.86l-.01 .03l-.03-.01zM8.44 9.88l.01 .04l-.27 .17l.03-.06zM15.45 10.28l.22 .03l.19 .08l.19 .13l.1 .12l.01 .04l-.29 .03l-.29-.11l-.34-.02l-.45 .11l-.21-.08l.12-.14l.26-.14l.22-.04zM8.37 10.81l-.02 .08l.03 .04l.02-.05zM5.78 10.86h.04l.01 .26l.12 .1l-.06 .07l.03 .13l.1 .18l.1 .11l-.15 .08l-.15 .02l-.08-.1l-.06-.17l-.04-.54l.05-.11zM5.65 11.9l.08 .1l.09-.05l.04 .02l-.25 .22l-.01-.12zM6.36 12.76l-.03 .01l.17 .1l.24 .21l-.02-.13l-.08-.09l-.11-.07zM17.66 13.82l.06 .35l.02 .78l-.02 .41l-.08 .46l.05-.98zM6.18 13.92l.16 .28l-.15-.15zM6.62 14.1l.26 .08l.11 .07l-.32 .03l-.12-.03l-.09-.08zM6.57 14.32l.05 .02l-.07 .01zM6.72 14.38l-.03 .08l-.08 .02v-.05zM14.02 14.46l.14 1.7l-.92 .59zM19.97 14.48l.34 1.85l.1 .9v.54l-.03 .43l-.1 .69l-.09 .37l.1-.96l.03-.58l-.01-.53l-.04-.49l-.26-1.77zM6.71 14.69l-.1 .15l.06 .11l.11-.2zM16.99 16.08l-.07 .39l-.14 .39zM14.24 16.8l.17 .85l-.3 .31l-.25 .14l-.23 .04l-.23-.04l-.13-.11l-.08-.14l-.06-.17v-.14l.19-.19zM6.43 18.45l-.07 .58l-.17 .65l-.22 .5l-.28 .38l-.27 .22l-.31 .12l-.5-.01l-.14-.06l-.15-.12l-.14-.21l.56-.02l.34-.07l.32-.14l.25-.22l.21-.27l.22-.36zM11.81 18.52l.26 .52l.28 .32l.65 .51l.54 .3l-1.01 .69l-1.35 .64l-.27 .1l-.2-.51l-.7-1.11l-.11-.22l.42-.04l.39-.16l.76-.74z"/></svg>'
+
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    delivery: websocket
+    format: jsonrpc_text
+    connect: [hermes, gateway, attach, --json, --recover]
+    connect_map: { url: url, protocols: protocols }
+    reconnect: { max: 5, backoff_ms: 500 }
+    # Without server_requests the gateway withdraws approvals instead of sending them.
+    handshake: { call: client.capabilities, params: { server_requests: true } }
+  spawn:
+    cmd: hermes
+
+# The wire has no turn.* events, no failure flag on tool.complete, no typed todo item,
+# and compaction (status.update) has no end frame to pair with.
+not_emitted: [notification, idle, plan_step, plan_update, tool_fail, tool_output_delta, subagent_result, compact_pre, compact_post, diff_update, terminal_input, session_end]
+
+surfaces:
+  chat: { channel: api, start_here: true }
+
+events:
+  # No session-scoped frame was seen on create; session.info is its contract-only announcement.
+  session_start:
+    required: [session_id]
+    api:
+      in: event
+      when: { type: session.info }
+      unverified: true
+      map: { session_id: session_id, model: payload.model }
+
+  # message.start carries text only for automation turns; ordinary prompts arrive empty.
+  user_prompt:
+    required: [session_id]
+    api:
+      in: event
+      when: { type: message.start }
+      unverified: true
+      map: { session_id: session_id, message: payload.text, turn_id: payload.turn_id }
+
+  # turn_failed is offered first (sorted names); any other status closes here.
+  turn_stop:
+    required: [session_id, message]
+    status_map: { complete: completed, interrupted: interrupted }
+    api:
+      in: event
+      when: { type: message.complete }
+      unverified: true
+      map: { session_id: session_id, message: payload.text, turn_status: payload.status }
+
+  turn_failed:
+    required: [session_id, reason]
+    api:
+      in: event
+      when: { type: message.complete, payload.status: error }
+      unverified: true
+      map:
+        session_id:   session_id
+        reason:       { first_present: [payload.error, payload.failure_reason, payload.status] }
+        detail:       { first_present: [payload.failure_reason, payload.error] }
+        failure_kind: payload.error_surface.code
+
+  warning:
+    api:
+      in: event
+      when: { type: { any_of: [error, notice] } }
+      unverified: true
+      map: { session_id: session_id, message: payload.message }
+
+  message_delta:
+    surfaces: [chat]
+    required: [session_id, message_id, text]
+    api:
+      in: event
+      when: { type: message.delta }
+      unverified: true
+      map:
+        session_id: session_id
+        message_id: { first_present: [{ join: [payload.turn_id, payload.segment] }, session_id] }
+        text:       payload.text
+        turn_id:    payload.turn_id
+
+  # Interim commentary only: the final text rides turn_stop.
+  message_complete:
+    required: [session_id, message_id, text]
+    api:
+      in: event
+      when: { type: message.interim }
+      unverified: true
+      map:
+        session_id: session_id
+        message_id: { join: [payload.turn_id, payload.segment] }
+        text:       payload.text
+        turn_id:    payload.turn_id
+
+  reasoning_delta:
+    surfaces: [chat]
+    required: [session_id, text]
+    api:
+      in: event
+      when: { type: reasoning.delta }
+      unverified: true
+      map: { session_id: session_id, text: payload.text }
+
+  tool_pre:
+    required: [session_id, tool_id, tool_name]
+    api:
+      in: event
+      when: { type: tool.start }
+      unverified: true
+      map:
+        session_id:  session_id
+        tool_id:     payload.tool_id
+        tool_name:   payload.name
+        tool_target: { first_present: [payload.context, payload.preview] }
+        tool_input:  payload.args
+
+  tool_post:
+    required: [session_id, tool_id, tool_name]
+    api:
+      in: event
+      when: { type: tool.complete }
+      unverified: true
+      map:
+        session_id:  session_id
+        tool_id:     payload.tool_id
+        tool_name:   payload.name
+        tool_title:  payload.summary
+        tool_result: { first_present: [payload.result_text, payload.result] }
+        tool_output: payload.result_text
+    patch: { unified: payload.inline_diff }
+
+  subagent_pre:
+    required: [session_id]
+    api:
+      in: event
+      when: { type: subagent.start }
+      unverified: true
+      map: { session_id: session_id, scope_id: payload.subagent_id, title: payload.goal }
+
+  subagent_post:
+    required: [session_id]
+    status_map: { completed: done, failed: failed, error: failed, timeout: failed, interrupted: interrupted }
+    api:
+      in: event
+      when: { type: subagent.complete }
+      unverified: true
+      map:
+        session_id:      session_id
+        scope_id:        payload.subagent_id
+        title:           payload.goal
+        status:          payload.status
+        result:          payload.summary
+        usage.tool_uses: payload.tool_count
+
+  telemetry:
+    api:
+      in: event
+      when: { type: session.usage }
+      unverified: true
+      map:
+        session_id:              session_id
+        input_tokens:            payload.usage.input
+        output_tokens:           payload.usage.output
+        context.used_tokens:     payload.usage.context_used
+        context.capacity_tokens: payload.usage.context_max
+        context.used_percent:    payload.usage.context_percent
+        cost.total_usd:          payload.usage.cost_usd
+        model.id:                payload.usage.model
+
+  # approval answers {choice}; clarify answers {answers} keyed by its own question ids.
+  permission:
+    timeout_seconds: 86340
+    api:
+      ask: [approval, clarify]
+      unverified: true
+      map:
+        session_id:  session_id
+        prompt_id:   request_id
+        message:     description
+        tool_name:   tool_name
+        tool_target: command
+        suggestions: choices
+        suggestion_label.session: "Allow for the rest of this session"
+        suggestion_label.always:  "Always allow this"
+        questions:        questions
+        question_id:      id
+        question_text:    question
+        question_choices: choices
+        question_multi:   multi_select
+    reply:
+      allow:      '{"choice":"once"}'
+      deny:       '{"choice":"deny"}'
+      suggestion: '{"choice":{suggestion_json}}'
+      answer:     '{"answers":{answers_json}}'
+
+  # Masked one-string prompts: only a decline is expressible, as an empty value.
+  elicitation:
+    timeout_seconds: 86340
+    api:
+      ask: [sudo, secret, vault.unlock_prompt, vault.code, vault.save_login]
+      unverified: true
+      map:
+        session_id: session_id
+        message:    { first_present: [prompt, command, display_name, hint, site] }
+    reply:
+      decline: '{"value":""}'
+      cancel:  '{"value":""}'
+
+  prompt:
+    fresh:
+      - call: session.create
+        send: { source: tui, cwd: "{cwd}", model: "{model.name}", provider: "{model.provider}" }
+        # The chat's pick is absent, not empty, so an unchosen model inherits the profile's.
+        optional: [model, provider]
+        capture: { session_id: session_id, execution_generation: execution_generation }
+    resume:
+      - call: session.resume
+        send: { session_id: "{session_id}", omit_messages: true }
+        capture: { execution_generation: execution_generation }
+    action:
+      - call: prompt.submit
+        send: { session_id: "{session_id}", text: "{text}", submission_id: "{call_id}" }
+        capture: { execution_generation: execution_generation }
+
+  # interrupt is fenced on execution_generation, a number captured from every admission receipt.
+  interrupt:
+    out: session.interrupt
+    send: { session_id: "{session_id}", execution_generation: "{execution_generation}" }
+
+# model.options lists every provider row with its models as bare ids; only rows the
+# profile is authenticated for are kept. Unverified: the shape comes from the typed contract
+# and an unauthenticated profile, no authenticated catalogue was read. The chosen id is
+# "<provider>:<model>" because session.create takes the two separately; model and provider
+# are session-create-only, so a change needs a new session (restart_tui is the closest strategy).
+model:
+  discover:
+    api: { call: model.options }
+    adapter: json
+    items_path: "providers[]"
+    keep_when: { field: "authenticated", equals: true }
+    # The reply's own top-level selection; both empty in a profile with no default.
+    current_id: "{provider}:{model}"
+    item:
+      each: "models[]"
+      id: "{parent.slug}:{value}"
+      label: "{value}"
+    # A cold gateway start takes ~16s before the call can even connect.
+    timeout_ms: 30000
+  id_split: { sep: ":", names: [provider, name] }
+  strategy: restart_tui
+
+spawn:
+  cmd: hermes
+  interactive_required: true

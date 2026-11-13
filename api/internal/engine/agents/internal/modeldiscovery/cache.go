@@ -214,6 +214,7 @@ func (c *Cache) attemptRefresh(d *spec.Descriptor, home string) {
 	// ctx.Err() is checked even on a nil err: a cancelled lifecycle never writes,
 	// even if the probe raced past cancellation and returned a result.
 	if err != nil || ctx.Err() != nil {
+		warnFailed(c.lifecycle, d.ID, err)
 		c.markAttempted(d.ID, fp)
 		return
 	}
@@ -274,10 +275,20 @@ func (c *Cache) attemptManifestRefresh(d *spec.Descriptor, home string, embedded
 
 	found, err := c.manifest(ctx, man, embedded, home, fetchEnabled)
 	if err != nil || ctx.Err() != nil {
+		warnFailed(c.lifecycle, d.ID, err)
 		c.markAttempted(d.ID, fp)
 		return
 	}
 	c.store(d.ID, found, fp)
+}
+
+// warnFailed makes a failed refresh visible, since the catalogue otherwise just stays
+// empty until the next ttl. A shutdown cancel is not a failure.
+func warnFailed(lifecycle context.Context, id string, err error) {
+	if err == nil || lifecycle.Err() != nil {
+		return
+	}
+	slog.Warn("modeldiscovery: catalogue refresh failed", "provider", id, "err", err)
 }
 
 func manifestFingerprint(url string, fetchEnabled bool) string {

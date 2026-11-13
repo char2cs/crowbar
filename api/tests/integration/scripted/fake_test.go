@@ -56,7 +56,6 @@ type step struct {
 	Crash      bool   `yaml:"crash"`      // die mid-turn
 	SlowMS     int    `yaml:"slow_ms"`    // stall before the next step
 	Drop       bool   `yaml:"drop"`       // hang up the api connection (codex app-server)
-	Idle       bool   `yaml:"idle"`       // report idle and never close the turn (codex)
 }
 
 func loadScript() script {

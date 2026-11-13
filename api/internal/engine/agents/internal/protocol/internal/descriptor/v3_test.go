@@ -423,3 +423,28 @@ func expectEq[T comparable](t *testing.T, what string, got, want T) {
 		t.Errorf("%s = %v, want %v", what, got, want)
 	}
 }
+
+const capturedFence = `
+  prompt:
+    action:
+      - call: turn/start
+        send: { text: "{text}" }
+        capture: { fence: turn.generation }
+  interrupt:
+    out: turn/cancel
+    send: { generation: "{fence}" }
+`
+
+// An outbound send may name any value a step captures; a name nothing captures is
+// still a typo the closed vocabulary rejects.
+func TestParseV0_AnOutboundSendMayReferenceACapturedValue(t *testing.T) {
+	d := mustParse(t, minimalV3+capturedFence)
+	if got := d.Events["interrupt"].Send["generation"]; got != "{fence}" {
+		t.Errorf("interrupt.send.generation = %v", got)
+	}
+
+	_, err := descriptor.ParseV0([]byte(minimalV3 + strings.Replace(capturedFence, "capture: { fence: turn.generation }", "", 1)))
+	if err == nil || !strings.Contains(err.Error(), `"fence"`) {
+		t.Fatalf("an uncaptured {fence} must be rejected by name, got: %v", err)
+	}
+}

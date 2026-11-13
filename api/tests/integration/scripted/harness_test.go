@@ -39,6 +39,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
+	"github.com/char2cs/crowbar/api/internal/core/hookserver"
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -99,6 +100,7 @@ type daemon struct {
 	adapters *adapter.Container
 	session  *migrate.Session
 	ln       net.Listener
+	hookSrv  *hookserver.Server
 	hooks    *hookLog
 }
 
@@ -154,12 +156,18 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err)
 	go func() { _ = http.Serve(ln, router) }()
-	return &daemon{t: t, app: container, eng: eng, adapters: adapters, session: session, ln: ln, hooks: hooks}
+	// Published before anything can spawn a CLI, as the daemon does.
+	hookSrv, err := hookserver.Listen(ctx, router)
+	require.NoError(t, err)
+	require.NoError(t, hookserver.Publish(home, hookSrv.URL()))
+	go func() { _ = hookSrv.Serve() }()
+	return &daemon{t: t, app: container, eng: eng, adapters: adapters, session: session, ln: ln, hookSrv: hookSrv, hooks: hooks}
 }
 
 // stop ends the daemon the way a crash does: no graceful drain, and every
 // CLI it spawned dies with it. The home is released last, as the OS would.
 func (d *daemon) stop() {
+	_ = d.hookSrv.Close()
 	_ = d.ln.Close()
 	d.app.Close()
 	d.eng.Close()
@@ -181,7 +189,10 @@ type rig struct {
 	providers string
 }
 
-func newRig(t *testing.T) *rig {
+func newRig(t *testing.T) *rig { return newRigWith(t, installFakes) }
+
+// newRigWith boots a rig whose providers install writes under home.
+func newRigWith(t *testing.T, install func(t *testing.T, home, bin string)) *rig {
 	t.Helper()
 	kit.RequireNoLeakedProcesses(t)
 	home := t.TempDir()
@@ -195,7 +206,7 @@ func newRig(t *testing.T) *rig {
 	t.Setenv(envScript, r.script)
 	t.Setenv(envLog, r.log)
 	r.setScript("turn: []\n")
-	installFakes(t, home, filepath.Join(scratch, "bin"))
+	install(t, home, filepath.Join(scratch, "bin"))
 	r.d = bootDaemon(t, home)
 	t.Cleanup(func() { r.d.stop() })
 	repo := kit.InitRepo(t)
@@ -219,7 +230,8 @@ func installFakes(t *testing.T, home, bin string) {
 		require.NoError(t, err)
 		doc := regexp.MustCompile(`(?m)^(\s*)cmd: `+id+`$`).ReplaceAllString(string(raw), "${1}cmd: "+filepath.Join(bin, id))
 		doc = strings.ReplaceAll(doc, "["+id+", ", "["+filepath.Join(bin, id)+", ")
-		doc = strings.ReplaceAll(doc, "timeout_seconds: 270", fmt.Sprintf("timeout_seconds: %d", askTimeoutSeconds))
+		doc = regexp.MustCompile(`timeout_seconds: \d+`).ReplaceAllString(doc, fmt.Sprintf("timeout_seconds: %d", askTimeoutSeconds))
+		require.Contains(t, doc, fmt.Sprintf("timeout_seconds: %d", askTimeoutSeconds), "the ask budget must be shortened")
 		require.NotContains(t, doc, "cmd: "+id+"\n", "every launch must reach the fake")
 		require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", id+".yaml"), []byte(doc), 0o600))
 	}

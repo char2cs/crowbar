@@ -25,7 +25,29 @@ func (modelDiscover) Check(d *spec.Descriptor) error {
 	return checkDiscoverBounds(d, disc)
 }
 
+func checkDiscoverAPI(d *spec.Descriptor, disc *spec.ModelDiscoverSpec) error {
+	if len(disc.Command) > 0 {
+		return invalid(d.ID, "model.discover takes exactly one of command or api")
+	}
+	if disc.API.Call == "" {
+		return invalid(d.ID, "model.discover.api.call is required")
+	}
+	if d.Runtime.API.Delivery != spec.APIDeliveryWebsocket {
+		return invalid(d.ID, "model.discover.api needs websocket delivery")
+	}
+	if len(d.Runtime.API.Connect) == 0 && d.Runtime.API.StaticURL == "" {
+		return invalid(d.ID, "model.discover.api needs runtime.api.connect or static_url")
+	}
+	if strings.ContainsAny(strings.Join(d.Runtime.API.Connect, ""), "{}") {
+		return invalid(d.ID, "model.discover.api needs a fixed connect argv")
+	}
+	return nil
+}
+
 func checkDiscoverCommand(d *spec.Descriptor, disc *spec.ModelDiscoverSpec) error {
+	if disc.API != nil {
+		return checkDiscoverAPI(d, disc)
+	}
 	if len(disc.Command) == 0 || hasEmptyArg(disc.Command) {
 		return invalid(d.ID, "model.discover.command must be fixed non-empty argv")
 	}
@@ -53,6 +75,9 @@ func checkDiscoverMapping(d *spec.Descriptor, disc *spec.ModelDiscoverSpec) erro
 	}
 	if disc.DefaultWhen != nil && disc.DefaultWhen.Field == "" {
 		return invalid(d.ID, "model.discover.default_when.field is required")
+	}
+	if disc.CurrentID != "" && disc.DefaultWhen != nil {
+		return invalid(d.ID, "model.discover.current_id and default_when are exclusive")
 	}
 	return nil
 }

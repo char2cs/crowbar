@@ -132,7 +132,8 @@ func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T)
 	for _, r := range reports {
 		byID[r.ID] = r.OK()
 	}
-	assert.Equal(t, map[string]bool{"claude": true, "codex": false}, byID)
+	assert.False(t, byID["codex"], "the broken override is reported")
+	assert.True(t, byID["claude"], "the other shipped descriptors still load")
 
 	providers, err := table.ResolveProviders(t.Context())
 	require.NoError(t, err)

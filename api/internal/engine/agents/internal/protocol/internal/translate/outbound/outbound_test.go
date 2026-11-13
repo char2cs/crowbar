@@ -1,6 +1,7 @@
 package outbound_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
@@ -12,11 +13,11 @@ func desc() *spec.Descriptor {
 	return &spec.Descriptor{
 		ID: "acme",
 		Events: map[string]spec.EventSpec{
-			"compact_start": {Out: spec.WireRef{"prompt"}, Send: map[string]string{"text": "/compact"}},
-			"interrupt":     {Out: spec.WireRef{"turn/interrupt"}, Send: map[string]string{"threadId": "{session_id}"}},
+			"compact_start": {Out: spec.WireRef{"prompt"}, Send: map[string]any{"text": "/compact"}},
+			"interrupt":     {Out: spec.WireRef{"turn/interrupt"}, Send: map[string]any{"threadId": "{session_id}"}},
 			"prompt": {
 				Out:  spec.WireRef{"turn/start"},
-				Send: map[string]string{"threadId": "{session_id}", "input": "{text}"},
+				Send: map[string]any{"threadId": "{session_id}", "input": "{text}"},
 			},
 			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": mapping.Paths("session_id")}},
 		},
@@ -81,5 +82,42 @@ func TestResolve_SubstitutesEveryOccurrence(t *testing.T) {
 	})
 	if send["threadId"] != "s-9" || send["input"] != "hello" {
 		t.Fatalf("got %+v", send)
+	}
+}
+
+// A leaf that is exactly one {name} keeps a captured number or bool as that JSON type;
+// anything mixed, a string capture, or a caller-supplied value stays a string.
+func TestResolveTyped_AnExactPlaceholderKeepsTheCapturedJSONType(t *testing.T) {
+	d := &spec.Descriptor{ID: "acme", Events: map[string]spec.EventSpec{
+		"interrupt": {Out: spec.WireRef{"cancel"}, Send: map[string]any{
+			"generation": "{gen}", "flag": "{on}", "id": "{session_id}",
+			"label": "g{gen}", "retries": 3, "fenced": true,
+		}},
+	}}
+	values := map[string]string{"gen": "7", "on": "true", "session_id": "12345"}
+
+	wire, send, ok := outbound.ResolveTyped(d, "interrupt", values, map[string]bool{"gen": true, "on": true})
+
+	if !ok || wire != "cancel" {
+		t.Fatalf("got (%q,%v)", wire, ok)
+	}
+	got, err := json.Marshal(send)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"fenced":true,"flag":true,"generation":7,"id":"12345","label":"g7","retries":3}`
+	if string(got) != want {
+		t.Fatalf("payload = %s, want %s", got, want)
+	}
+}
+
+// The string-only view (hooks transports) renders typed leaves as their text.
+func TestResolve_ATypedLiteralRendersAsText(t *testing.T) {
+	d := &spec.Descriptor{ID: "acme", Events: map[string]spec.EventSpec{
+		"interrupt": {Out: spec.WireRef{"cancel"}, Send: map[string]any{"retries": 3}},
+	}}
+	_, send, _ := outbound.Resolve(d, "interrupt", nil)
+	if send["retries"] != "3" {
+		t.Fatalf("retries = %q", send["retries"])
 	}
 }
