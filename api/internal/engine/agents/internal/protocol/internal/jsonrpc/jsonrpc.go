@@ -1,11 +1,10 @@
-// Package jsonrpc is a descriptor-agnostic JSON-RPC2 client over a child's stdio, one message per
-// line. Nothing blocks the read loop: responses route inline, notifications go to a bounded
-// mailbox, every write has a deadline and every call a timeout.
+// Package jsonrpc is a descriptor-agnostic JSON-RPC2 client over a message Transport (a child's
+// stdio, one message per line, by default). Nothing blocks the read loop: responses route inline,
+// notifications go to a bounded mailbox, every call has a timeout.
 package jsonrpc
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -56,9 +55,9 @@ type Frame struct {
 
 // Conn is one client connection.
 type Conn struct {
-	stdio Stdio
+	t Transport
 
-	wmu sync.Mutex // serialises writes: one message per line, never interleaved
+	wmu sync.Mutex // serialises sends: messages never interleave
 
 	nextID  int64
 	pmu     sync.Mutex
@@ -104,8 +103,13 @@ func (e *CallError) Error() string {
 // New speaks JSON-RPC over stdio until either side closes it. The child is
 // ready when it answers a Call; nothing here waits for it before that.
 func New(stdio Stdio, opts ...Option) *Conn {
+	return NewTransport(&stdioTransport{Stdio: stdio, lines: bufio.NewReader(stdio.Out)}, opts...)
+}
+
+// NewTransport speaks JSON-RPC over any message transport.
+func NewTransport(t Transport, opts ...Option) *Conn {
 	c := &Conn{
-		stdio:       stdio,
+		t:           t,
 		pending:     make(map[int64]chan wireFrame),
 		mailbox:     newMailbox(),
 		closed:      make(chan struct{}),
@@ -121,24 +125,23 @@ func New(stdio Stdio, opts ...Option) *Conn {
 
 func (c *Conn) readLoop() {
 	defer c.teardown()
-	lines := bufio.NewReader(c.stdio.Out)
 	for {
-		line, err := lines.ReadBytes('\n')
-		if !c.route(bytes.TrimSpace(line)) {
-			return
-		}
+		msg, err := c.t.Recv()
 		if err != nil {
 			c.mailbox.finish()
+			return
+		}
+		if !c.route(msg) {
 			return
 		}
 	}
 }
 
-// route handles one line, reporting false once the connection must close.
-func (c *Conn) route(line []byte) bool {
+// route handles one message, reporting false once the connection must close.
+func (c *Conn) route(msg []byte) bool {
 	var f wireFrame
-	if len(line) == 0 || json.Unmarshal(line, &f) != nil {
-		return true // a blank or malformed line is dropped, never fatal to the connection
+	if json.Unmarshal(msg, &f) != nil {
+		return true // a malformed message is dropped, never fatal to the connection
 	}
 	if f.Method == "" && f.ID != nil {
 		c.dispatchResponse(f)
@@ -148,7 +151,7 @@ func (c *Conn) route(line []byte) bool {
 		return true
 	}
 	// Overflowed: the consumer is wedged. Nobody awaits this close, so it is logged.
-	if err := c.stdio.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+	if err := c.t.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 		slog.Warn("jsonrpc: close after mailbox overflow", "err", err)
 	}
 	return false
@@ -292,24 +295,17 @@ func (c *Conn) Reply(id, result json.RawMessage) error {
 	return c.write(msg)
 }
 
-// write sends msg as one line; json.Marshal never emits a raw newline.
 func (c *Conn) write(msg []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	if err := c.stdio.In.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		return fmt.Errorf("jsonrpc: write deadline: %w", err)
-	}
-	if _, err := c.stdio.In.Write(append(msg, '\n')); err != nil {
-		return fmt.Errorf("jsonrpc: write: %w", err)
-	}
-	return nil
+	return c.t.Send(msg)
 }
 
 // Close tears down the connection, unblocks every pending Call with an error
 // and drops whatever the mailbox still held. Idempotent.
 func (c *Conn) Close() error {
 	c.mailbox.abandon()
-	err := c.stdio.Close()
+	err := c.t.Close()
 	c.teardown()
 	return err
 }
