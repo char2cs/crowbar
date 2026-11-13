@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { PlateController, useEditorRef, type PlateEditor } from 'platejs/react'
 import * as promote from '@/components/layout/draft-promote'
@@ -24,8 +25,17 @@ const claude: AgentProvider = {
 }
 
 vi.mock('@/utils/platform', () => ({ IS_MOBILE: true }))
-let offered: AgentProvider[] = [claude]
-vi.mock('@/features/agent/hooks/use-pane-providers', () => ({ usePaneProviders: () => offered }))
+vi.mock('@/features/agent/hooks/use-pane-providers', () => ({ usePaneProviders: () => [claude] }))
+// The document itself is the chat's own; only the controls the pane hands it matter here.
+vi.mock('@/features/agent/chat/agent-empty-document', () => ({
+  AgentEmptyDocument: ({ controls, onSubmit }: { controls: ReactNode; onSubmit: () => void }) => (
+    <div>
+      {controls}
+      <button onClick={onSubmit}>Send</button>
+    </div>
+  ),
+}))
+
 const grabbed: { editor?: PlateEditor } = {}
 function GrabEditor() {
   grabbed.editor = useEditorRef()
@@ -57,7 +67,7 @@ describe('DraftChatPane', () => {
       </PlateController>,
     )
     await act(async () => grabbed.editor!.tf.insertText('fix the bug'))
-    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     expect(boxText()).toBe('')
 
     await act(async () => grabbed.editor!.tf.insertText('and add a test'))
@@ -84,51 +94,5 @@ describe('DraftChatPane', () => {
     expect(paneId).toBe('p1')
     expect(prompt).toMatchObject({ presentation: 'terminal', text: '' })
     expect(typedSince()).toContain('fix the bug')
-  })
-
-  describe('when the provider needs a model chosen first', () => {
-    const typeAndSend = async () => {
-      await act(async () => grabbed.editor!.tf.insertText('fix the bug'))
-      fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
-    }
-    const mount = () =>
-      render(
-        <PlateController>
-          <DraftChatPane paneId="p1" wsId="w1" hostId="local" belowOverlayHeader={false} />
-          <GrabEditor />
-        </PlateController>,
-      )
-
-    it('opens the model picker instead of sending, and says why beside the composer', async () => {
-      offered = [{ ...claude, models: ['m1', 'm2'], modelRequired: true }]
-      const spy = vi.spyOn(promote, 'promoteDraftThread').mockResolvedValue()
-      spy.mockClear()
-      mount()
-      await act(async () => grabbed.editor!.tf.insertText('fix the bug'))
-      const send = screen.getByRole('button', { name: 'Send prompt' })
-      const notice = screen.getByRole('status')
-      expect(notice.textContent).toBe('Choose a model to start')
-      expect(notice.closest('.dochandle')).not.toBeNull()
-      expect(send.getAttribute('aria-disabled')).toBe('true')
-      expect(send.getAttribute('aria-description')).toBe('Choose a model to start')
-      expect(screen.queryByRole('menuitem', { name: 'm1' })).toBeNull()
-
-      fireEvent.click(send)
-
-      expect(await screen.findByRole('menuitem', { name: 'm1' })).toBeTruthy()
-      expect(spy).not.toHaveBeenCalled()
-      offered = [claude]
-    })
-
-    it('sends with no notice once the provider has a model to start on', async () => {
-      offered = [{ ...claude, models: ['m1'], modelRequired: false }]
-      const spy = vi.spyOn(promote, 'promoteDraftThread').mockResolvedValue()
-      spy.mockClear()
-      mount()
-      expect(screen.queryByRole('status')).toBeNull()
-      await typeAndSend()
-      expect(spy).toHaveBeenCalledOnce()
-      offered = [claude]
-    })
   })
 })

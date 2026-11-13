@@ -70,10 +70,6 @@ type Agent interface {
 	// or nothing has resolved yet; never inferred from Models()'s order.
 	DefaultModel() string
 
-	// ModelRequired is true when the provider reports its own selected model and reports
-	// none: a chat started with no pick would have nothing to run.
-	ModelRequired() bool
-
 	// DefaultEffort is the effort model runs at when none is chosen, as the provider states it; empty
 	// when it states none.
 	DefaultEffort(model string) string
@@ -271,13 +267,6 @@ func (a *agent) DefaultModel() string {
 		return a.discovery.DefaultModel(a.spec.ID)
 	}
 	return ""
-}
-
-func (a *agent) ModelRequired() bool {
-	if !a.discoversModels() || a.spec.Model.Discover == nil || a.spec.Model.Discover.CurrentID == "" {
-		return false
-	}
-	return len(a.Models()) > 0 && a.DefaultModel() == ""
 }
 
 func (a *agent) DefaultEffort(model string) string {

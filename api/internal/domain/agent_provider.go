@@ -54,10 +54,6 @@ type AgentProvider struct {
 	// empty means unknown, never a cue to fall back to Models[0].
 	DefaultModel string
 
-	// ModelRequired says a chat with no model pick cannot start: the provider reports its
-	// own selected model and has none.
-	ModelRequired bool
-
 	// DefaultEfforts is the effort each model runs at when none is chosen, keyed by model id, as the
 	// provider states it. A model stating none is absent: unknown, never a cue to use its first level.
 	DefaultEfforts map[string]string

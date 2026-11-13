@@ -49,10 +49,8 @@ type AgentProviderDTO struct {
 	Models            []string `json:"models,omitempty"`
 	// DefaultModel is the provider's own stated default, omitted when unknown so a
 	// client can't misread "" as a fact.
-	DefaultModel string `json:"defaultModel,omitempty"`
-	// ModelRequired says a chat with no model pick cannot start, so the client asks first.
-	ModelRequired bool                `json:"modelRequired,omitempty"`
-	Efforts       map[string][]string `json:"efforts,omitempty"`
+	DefaultModel string              `json:"defaultModel,omitempty"`
+	Efforts      map[string][]string `json:"efforts,omitempty"`
 	// DefaultEfforts is each model's stated default effort, absent for a model stating none.
 	DefaultEfforts map[string]string `json:"defaultEfforts,omitempty"`
 

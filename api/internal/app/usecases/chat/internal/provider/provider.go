@@ -212,7 +212,6 @@ func (p *Providers) ResolveProviders(
 			TerminalStartHere: caps.TerminalStartHere,
 			Models:            d.Models(),
 			DefaultModel:      d.DefaultModel(),
-			ModelRequired:     d.ModelRequired(),
 			Efforts:           resolveEfforts(d),
 			DefaultEfforts:    resolveDefaultEfforts(d),
 			PermissionLevels:  d.PermissionLevels(),
