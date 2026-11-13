@@ -38,11 +38,17 @@ type Marker struct {
 	ProviderTurnID string `json:"providerTurnId,omitempty"`
 }
 
-// compaction is the chat's compaction in flight, and the provider turn whose
-// end closes it.
+// compaction is the chat's compaction in flight, the provider turn whose end
+// closes it, and the turn it began inside, whose end closes it too.
 type compaction struct {
 	open           bool
 	providerTurnID string
+	turnID         string
+}
+
+// CompactionIn reports whether an open compaction began inside turnID.
+func (s State) CompactionIn(turnID string) bool {
+	return s.keys.compaction.open && turnID != "" && s.keys.compaction.turnID == turnID
 }
 
 // Compaction reports whether a compaction is open, and the provider turn id
@@ -58,7 +64,7 @@ func (s *State) applyMarker(r Row) {
 	}
 	switch body.Kind {
 	case MarkerCompactionStarted:
-		s.keys.compaction = compaction{open: true, providerTurnID: body.ProviderTurnID}
+		s.keys.compaction = compaction{open: true, providerTurnID: body.ProviderTurnID, turnID: r.TurnID}
 	case MarkerCompactionEnded:
 		s.keys.compaction.open = false
 		if body.ProviderTurnID != "" && body.ProviderTurnID == s.keys.compaction.providerTurnID {

@@ -291,6 +291,16 @@ func compactionEnd(st ledger.State, providerTurnID string) ([]ledger.Row, bool, 
 	return []ledger.Row{row}, true, err
 }
 
+// compactionEndedWith closes the compaction that began inside turnID: a turn's
+// end is its compaction's, whether or not the provider posted one.
+func compactionEndedWith(st ledger.State, turnID string) ([]ledger.Row, error) {
+	if !st.CompactionIn(turnID) {
+		return nil, nil
+	}
+	row, err := ledger.NewRow(ledger.KindMarker, turnID, "", ledger.Marker{Kind: ledger.MarkerCompactionEnded})
+	return []ledger.Row{row}, err
+}
+
 func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, Effects, error) {
 	if rows, ok, err := compactionEnd(st, ev.TurnID); ok || err != nil {
 		return rows, Effects{}, err
@@ -308,6 +318,11 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 		return nil, Effects{}, err
 	}
 	rows = append(rows, ended...)
+	compacted, err := compactionEndedWith(st, turnID)
+	if err != nil {
+		return nil, Effects{}, err
+	}
+	rows = append(rows, compacted...)
 	fx := Effects{Ended: turnID}
 	if !closes {
 		return rows, fx, nil
