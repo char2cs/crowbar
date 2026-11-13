@@ -737,6 +737,13 @@ func TestModelDiscover_AcceptsAWellFormedBlock(t *testing.T) {
 	require.NoError(t, rules.Apply(withModelDiscover(valid())))
 }
 
+func TestModelDiscover_AdmitsABudgetCoveringAServerColdStart(t *testing.T) {
+	d := withModelDiscover(valid())
+	d.Model.Discover.TimeoutMS = 30_000
+
+	require.NoError(t, rules.Apply(d))
+}
+
 func TestModelDiscover_RejectsAvailableAndDiscoverTogether(t *testing.T) {
 	d := withModelDiscover(valid())
 	d.Model.Available = []string{"gpt-6-astra"}

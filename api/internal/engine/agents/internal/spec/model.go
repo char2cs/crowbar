@@ -4,7 +4,7 @@ const (
 	ModelDiscoverAdapterJSON = "json"
 
 	DefaultModelDiscoverTimeoutMS      = 10_000
-	MaxModelDiscoverTimeoutMS          = 10_000
+	MaxModelDiscoverTimeoutMS          = 30_000
 	DefaultModelDiscoverMaxStdoutBytes = 4 << 20
 	MaxModelDiscoverMaxStdoutBytes     = 4 << 20
 

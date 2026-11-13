@@ -248,7 +248,8 @@ model:
       each: "models[]"
       id: "{parent.slug}:{value}"
       label: "{value}"
-    timeout_ms: 10000
+    # A cold gateway start takes ~16s before the call can even connect.
+    timeout_ms: 30000
   id_split: { sep: ":", names: [provider, name] }
   strategy: restart_tui
 
