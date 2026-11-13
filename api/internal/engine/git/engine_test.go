@@ -34,7 +34,24 @@ func initRepo(
 	gitRun(t, dir, "init", "-b", "main")
 	gitRun(t, dir, "config", "user.email", "test@test.com")
 	gitRun(t, dir, "config", "user.name", "Test User")
+	gitRun(t, dir, "config", "maintenance.auto", "false")
 	return dir
+}
+
+// A commit must not leave a detached `git maintenance` running: it writes into
+// .git after the test returns and fails TempDir cleanup.
+func TestInitRepo_CommitsSpawnNoDetachedMaintenance(t *testing.T) {
+	repo := initRepo(t)
+	trace := filepath.Join(t.TempDir(), "trace")
+	cmd := osexec.CommandContext(t.Context(), "git", "commit", "--allow-empty", "-m", "x")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "GIT_TRACE2_PERF="+trace)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", out)
+
+	got, err := os.ReadFile(trace)
+	require.NoError(t, err)
+	assert.NotContains(t, string(got), "maintenance")
 }
 
 func makeCommit(
