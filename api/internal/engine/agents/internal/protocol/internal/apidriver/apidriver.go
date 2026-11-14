@@ -225,7 +225,7 @@ func byWireOverlay(d *spec.Descriptor, canonical, wireMethod string) map[string]
 
 // withOverlay merges overlay into a copy of decoded and re-marshals; decoded is
 // never mutated, so when: matching keeps seeing only what the provider sent.
-func withOverlay(decoded map[string]any, overlay map[string]any) (json.RawMessage, error) {
+func withOverlay(decoded, overlay map[string]any) (json.RawMessage, error) {
 	merged := make(map[string]any, len(decoded)+len(overlay))
 	for k, v := range decoded {
 		merged[k] = v
