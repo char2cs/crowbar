@@ -495,3 +495,87 @@ func TestPumpAPIConn_KeepsPlacingAfterAnEventIsRefused(t *testing.T) {
 	require.Eventually(t, func() bool { return len(spy.snapshot()) == 2 }, 3*time.Second, 10*time.Millisecond,
 		"the event behind a refused one must still be placed")
 }
+
+const relayVarsDescriptor = `
+id: relay-vars
+spawn:
+  cmd: acme
+  interactive_required: true
+events:
+  prompt:
+    fresh:
+      - call: thread/start
+        send: { relay: { crowbar: "{crowbar}", segid: "{segid}" } }
+        capture: { session_id: thread.id }
+    resume:
+      - call: thread/resume
+        send: { threadId: "{session_id}", relay: { crowbar: "{crowbar}", segid: "{segid}" } }
+    action:
+      - call: turn/start
+        send: { threadId: "{session_id}", text: "{text}" }
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
+    serve: [acme, serve]
+    handshake: { call: initialize, notify: initialized }
+`
+
+// establishedParams is the params of the one session call tctx makes on a fake server.
+func establishedParams(t *testing.T, tctx engineagents.TemplateCtx) map[string]any {
+	t.Helper()
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "relay-vars.yaml"),
+		[]byte(relayVarsDescriptor), 0o600))
+	agent, err := engineagents.New().Get(t.Context(), home, "relay-vars")
+	require.NoError(t, err)
+	got := make(chan map[string]any, 1)
+	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Params map[string]any  `json:"params"`
+		}
+		if conn.ReadJSON(&req) != nil {
+			return
+		}
+		got <- req.Params
+		_ = conn.WriteJSON(map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]any{"id": "T1"}}})
+	})
+	rs := &Runners{ledger: newTestLedger(t), apiConns: newAPIConnRegistry(), live: newLiveTable()}
+	driver, err := agent.StartAPIConn(t.Context(), stdio, nil)
+	require.NoError(t, err)
+	conn := &apiconn{driver: driver, ctx: t.Context()}
+	rs.apiConns.set("runner-1", conn)
+	t.Cleanup(func() { rs.apiConns.drop("runner-1") })
+
+	_, err = rs.establishAPISession(t.Context(), conn, "runner-1", "relay-vars", tctx)
+	require.NoError(t, err)
+	return <-got
+}
+
+// The relay vars reach a session call's body so a descriptor can hand the provider Crowbar's
+// MCP server; the token is file-only, since bodies are logged.
+func TestEstablishAPISession_RendersTheRelayVarsOfTheSpawnIntoFreshAndResume(t *testing.T) {
+	tctx := engineagents.TemplateCtx{
+		ChatID: "chat-1", CrowbarBin: "/bin/crowbar", Segid: "seg-1", RunnerToken: "s3cret-token",
+	}
+	relay := func(params map[string]any) map[string]any {
+		got, ok := params["relay"].(map[string]any)
+		require.True(t, ok, "no relay in %v", params)
+		return got
+	}
+
+	fresh := establishedParams(t, tctx)
+	assert.Equal(t, "/bin/crowbar", relay(fresh)["crowbar"])
+	assert.Equal(t, "seg-1", relay(fresh)["segid"])
+	assert.NotContains(t, fmt.Sprint(fresh), "s3cret-token")
+
+	tctx.Session = "S1"
+	resumed := establishedParams(t, tctx)
+	assert.Equal(t, "/bin/crowbar", relay(resumed)["crowbar"])
+	assert.Equal(t, "seg-1", relay(resumed)["segid"])
+	assert.NotContains(t, fmt.Sprint(resumed), "s3cret-token")
+}

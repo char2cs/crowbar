@@ -79,6 +79,20 @@ func InjectServe(
 	return inject(d, ctx, plan, extra, false)
 }
 
+// WriteMCPFiles runs only the write_file steps of mcp_injection. A dialed server takes no
+// argv, but its MCP relay still reads the runner token from a file.
+func WriteMCPFiles(d *spec.Descriptor, ctx models.TemplateCtx) error {
+	for _, step := range d.MCPInject {
+		if step.Verb != "write_file" {
+			continue
+		}
+		if err := verbs.Apply(step, ctx, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func inject(
 	d *spec.Descriptor,
 	ctx models.TemplateCtx,

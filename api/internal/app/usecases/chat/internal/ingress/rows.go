@@ -367,13 +367,11 @@ func closingRows(st ledger.State, turnID, reply string, src Source, outlived boo
 		}
 		rows = append(rows, row)
 	}
-	if thought := lastText(src.Live.Reasoning, turnID); thought != "" {
-		row, err := ledger.NewRow(ledger.KindReasoning, turnID, "", ledger.Reasoning{MessageID: last, Text: thought})
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
+	thoughts, err := thoughtRows(turnID, last, said, src.Live.Reasoning)
+	if err != nil {
+		return nil, err
 	}
+	rows = append(rows, thoughts...)
 	abandoned, err := abandonAsks(st, turnID, outlived)
 	return append(rows, abandoned...), err
 }

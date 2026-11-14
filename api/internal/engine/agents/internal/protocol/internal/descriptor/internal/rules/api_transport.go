@@ -17,6 +17,7 @@ func (apiTransport) Name() string { return "api_transport" }
 
 var (
 	envNameRE    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	nameRE       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	pathRE       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\[\]]*$`)
 	headerNameRE = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 	placeholder  = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_.]*)\}`)
@@ -27,6 +28,9 @@ var (
 
 func (apiTransport) Check(d *spec.Descriptor) error {
 	api := d.Runtime.API
+	if err := checkRemember(d); err != nil {
+		return err
+	}
 	if len(api.Serve) == 0 && api.Delivery == "" && api.Format == "" && len(api.Connect) == 0 && api.StaticURL == "" {
 		return nil
 	}
@@ -229,6 +233,25 @@ func checkRequestRefs(d *spec.Descriptor) error {
 				if _, ok := reqs[s.Call]; !ok {
 					return invalid(d.ID, "events[%s]: step call %q is not in runtime.api.requests", name, s.Call)
 				}
+			}
+		}
+	}
+	return nil
+}
+
+// checkRemember makes every remember entry pick a frame and name the values a later
+// event's map reads as captured.NAME.
+func checkRemember(d *spec.Descriptor) error {
+	for i, r := range d.Runtime.API.Remember {
+		if r.In.Empty() {
+			return invalid(d.ID, "runtime.api.remember[%d].in names no frame", i)
+		}
+		if len(r.Capture) == 0 {
+			return invalid(d.ID, "runtime.api.remember[%d].capture names no value", i)
+		}
+		for name, path := range r.Capture {
+			if !nameRE.MatchString(name) || !pathRE.MatchString(path) {
+				return invalid(d.ID, "runtime.api.remember[%d].capture[%q]: needs a plain name and a path, got %q", i, name, path)
 			}
 		}
 	}

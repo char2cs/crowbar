@@ -154,3 +154,33 @@ func TestAPITransport_RequestPlaceholdersComeFromStepsAndReplies(t *testing.T) {
 	d.Runtime.API.Requests["say"].Body["u"] = "{nowhere}"
 	require.ErrorContains(t, rules.Apply(d), "{nowhere}")
 }
+
+func TestAPITransport_RememberNeedsAFramePickedAndAValueNamed(t *testing.T) {
+	step := func(mutate func(*spec.FrameCapture)) *spec.Descriptor {
+		d := withWebsocket(valid())
+		c := spec.FrameCapture{In: spec.WireRef{"event"}, When: spec.WhenMap{"type": {"agent.step"}}, Capture: map[string]string{"step": "payload.iteration"}}
+		mutate(&c)
+		d.Runtime.API.Remember = []spec.FrameCapture{c}
+		return d
+	}
+	require.NoError(t, rules.Apply(step(func(*spec.FrameCapture) {})))
+
+	for name, tc := range map[string]struct {
+		mutate  func(*spec.FrameCapture)
+		wantMsg string
+	}{
+		"no frame":      {func(c *spec.FrameCapture) { c.In = nil }, "remember[0].in"},
+		"no capture":    {func(c *spec.FrameCapture) { c.Capture = nil }, "remember[0].capture"},
+		"a blank name":  {func(c *spec.FrameCapture) { c.Capture = map[string]string{" ": "payload.n"} }, "remember[0].capture"},
+		"a blank path":  {func(c *spec.FrameCapture) { c.Capture = map[string]string{"step": ""} }, "remember[0].capture"},
+		"a bad path":    {func(c *spec.FrameCapture) { c.Capture = map[string]string{"step": "payload n"} }, "remember[0].capture"},
+		"a dotted name": {func(c *spec.FrameCapture) { c.Capture = map[string]string{"a.b": "payload.n"} }, "remember[0].capture"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := rules.Apply(step(tc.mutate))
+
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}

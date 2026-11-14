@@ -3,11 +3,13 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/env"
 	agentexec "github.com/char2cs/crowbar/api/internal/engine/agents/internal/exec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spawn"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -21,8 +23,12 @@ func (a *agent) APIDialed() bool {
 
 // StartAPIEndpoint connects a websocket or http descriptor: runtime.api.connect
 // (when declared) runs with the env a PTY spawn gets, and its stdout is parsed and
-// never logged, as it carries the endpoint's credential.
+// never logged, as it carries the endpoint's credential. mcp_injection's files are
+// written first, once per connection, so a fresh and a resumed session both find them.
 func (a *agent) StartAPIEndpoint(ctx context.Context, tctx TemplateCtx, origin APISessionOrigin) (*APIConn, error) {
+	if err := spawn.WriteMCPFiles(a.spec, tctx); err != nil {
+		return nil, fmt.Errorf("agents: write the mcp files: %w", err)
+	}
 	ep := protocol.Endpoint{
 		Argv: expandArgv(a.spec.Runtime.API.Connect, tctx),
 		Env:  env.Clear(os.Environ(), a.spec.Spawn.Env.Clear),
