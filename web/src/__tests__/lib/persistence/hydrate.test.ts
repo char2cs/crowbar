@@ -21,10 +21,8 @@ import {
   loadWindowPaneLayout,
 } from '@/lib/persistence/workspace-layout'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { IDBFactory } from 'fake-indexeddb'

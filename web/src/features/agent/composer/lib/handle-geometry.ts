@@ -1,7 +1,7 @@
 export const COMPOSER_LINE_HEIGHT = 20
 
 /** The pill's vertical padding, per side. */
-export const COMPOSER_PADDING_Y = 10
+const COMPOSER_PADDING_Y = 10
 
 export const SEND_DIAMETER = 30
 
@@ -26,9 +26,6 @@ export function sendInset(
   return (lineHeight + 2 * paddingY - diameter) / 2
 }
 
-/** The same circle as send, so the two read as one control family. */
-export const PLUS_DIAMETER = SEND_DIAMETER
-
 export const HANDLE_GAP = 2
 
 /** The field reserves exactly `sendInset() + this`, so a third control must widen
@@ -39,16 +36,4 @@ export function handleClusterWidth(
   gap: number = HANDLE_GAP,
 ): number {
   return occupants * diameter + Math.max(0, occupants - 1) * gap
-}
-
-/** How far in from the pill's padding edge the handle reaches: the field's `padding-right`
- *  (57px) is this less the pill's 18px side padding, plus the 8px between text and handle. No
- *  `margin-left` on `.handle .send` on top of the flex gap, or the two would double-count. */
-export function fieldRightPadding(
-  rightInset: number = sendInset(),
-  occupants: number = 2,
-  diameter: number = SEND_DIAMETER,
-  gap: number = HANDLE_GAP,
-): number {
-  return rightInset + handleClusterWidth(occupants, diameter, gap)
 }

@@ -57,7 +57,7 @@ const TabContextMenu = ({
   if (!buffer) return null
 
   // openContent always sets a real path (file path, or a synthetic scheme for
-  // terminal/commitDiff/branchReview) — narrow once rather than per item below.
+  // terminal/branchReview) — narrow once rather than per item below.
   const path = buffer.path ?? ''
 
   const items: ContextMenuItem[] = [

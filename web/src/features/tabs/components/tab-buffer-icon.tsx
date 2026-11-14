@@ -1,5 +1,4 @@
 import {
-  GitBranch,
   Globe,
   GitPullRequest,
   Package,
@@ -16,8 +15,6 @@ export function TabBufferIcon({ buffer }: { buffer: PaneContent }) {
   switch (buffer.type) {
     case 'branchReview':
       return <GitPullRequest className="text-muted-foreground" />
-    case 'commitDiff':
-      return <GitBranch className="text-muted-foreground" />
     case 'terminal':
       return <Terminal className="text-muted-foreground" />
     case 'browser':

@@ -6,10 +6,8 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
 }))
 
 import { useIdeShellWorkspaceRetention } from '@/components/layout/use-ide-shell-workspace-retention'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { Repo } from '@/core/entities/repo-types'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {

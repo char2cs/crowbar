@@ -4,11 +4,9 @@ import {
   flattenForRender,
   getAdjacentLeafId,
   normalizeLayout,
-  resizeFlattenedLayout,
   splitLayout,
   createLeaf,
   createSplit,
-  findSplit,
 } from '@/features/panes/utils/pane-layout'
 import type { LayoutNode, LayoutSplit } from '@/features/panes/types/pane'
 
@@ -68,20 +66,6 @@ describe('flattened layout', () => {
     const entries = flattenForRender(row)
     expect(entries.map((e) => e.node.id)).toEqual(['left', 'middle', 'right'])
     expect(entries.map((e) => e.size)).toEqual([50, 25, 25])
-  })
-
-  it('resizes adjacent flattened entries and writes nested split sizes once', () => {
-    const nestedSplit = createSplit('horizontal', leaf('middle'), leaf('right'), [50, 50])
-    const rowSplit = createSplit('horizontal', leaf('left'), nestedSplit, [50, 50])
-
-    const resized = resizeFlattenedLayout(rowSplit, rowSplit.id, 0, [50, 50])
-
-    expect(resized.type).toBe('split')
-    if (resized.type !== 'split') return
-    const nested = findSplit(resized, nestedSplit.id)
-    expect(nested).not.toBeNull()
-    expect(resized.sizes[0] + resized.sizes[1]).toBeCloseTo(100)
-    if (nested) expect(nested.sizes[0] + nested.sizes[1]).toBeCloseTo(100)
   })
 
   it('distributes entries evenly across nested same-direction splits', () => {

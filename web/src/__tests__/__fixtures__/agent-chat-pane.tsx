@@ -7,10 +7,8 @@ import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import { platform } from '@/__tests__/__fixtures__/pane-platform'

@@ -7,7 +7,7 @@ const MAX_ENTRIES = 20_000
 
 export type InputTapeKind = 'dom' | 'write' | 'send'
 
-export interface InputTapeEntry {
+interface InputTapeEntry {
   /** ms since page load (performance.now), rounded — enough to spot bursts. */
   t: number
   kind: InputTapeKind

@@ -4,10 +4,8 @@ import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
 import { chatStore, openFeed } from '@/features/agent/stores/chat-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import {

@@ -20,7 +20,7 @@ import {
 } from '@/features/editor/documents/document-text'
 import { findDocumentBuffer, openDocument } from '@/features/editor/documents/open-document'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
-import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 // The documents live in Monaco models: the first load is the slow part, not the tests.
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)

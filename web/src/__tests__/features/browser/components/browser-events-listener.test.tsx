@@ -1,10 +1,8 @@
 import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BrowserEventsListener } from '@/features/browser/components/browser-events-listener'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 const events = vi.hoisted(() => ['onNavigated', 'onTitle', 'onLoading', 'onNewWindow'])
 const api = vi.hoisted(() => Object.fromEntries(events.map((on) => [on, vi.fn()])))

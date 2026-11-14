@@ -18,10 +18,8 @@ import {
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { subscribeWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 let evicted: string[]

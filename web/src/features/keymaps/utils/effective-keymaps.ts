@@ -17,7 +17,7 @@ export interface ResolveOptions {
 }
 
 /** Resolve the effective binding for a single command. */
-export function resolveBinding(command: Command, opts: ResolveOptions): EffectiveBinding {
+function resolveBinding(command: Command, opts: ResolveOptions): EffectiveBinding {
   const userChord = opts.overrides[command.id]
   if (userChord != null) {
     return { commandId: command.id, chord: normalizeChord(userChord), source: 'user' }

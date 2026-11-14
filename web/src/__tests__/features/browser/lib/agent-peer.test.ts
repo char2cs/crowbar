@@ -2,10 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useBrowserAgentStore } from '@/features/browser/lib/agent-activity-store'
 import { attachBrowserAgentPeer } from '@/features/browser/lib/agent-peer'
 import { registerWebview } from '@/features/browser/lib/webview-registry'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 const ws = vi.hoisted(() => ({
   subscribe: vi.fn(),

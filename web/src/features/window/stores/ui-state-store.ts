@@ -5,11 +5,6 @@ import type { SidebarView } from '@/features/layout/utils/sidebar-pane-utils'
 const _terminalFocusRegistry = new Map<string, () => void>()
 const _registrationOrder: string[] = [] // tracks insertion order for recency
 
-export function _resetTerminalFocusRegistryForTests(): void {
-  _terminalFocusRegistry.clear()
-  _registrationOrder.length = 0
-}
-
 export type SettingsTab =
   | 'editor'
   | 'appearance'

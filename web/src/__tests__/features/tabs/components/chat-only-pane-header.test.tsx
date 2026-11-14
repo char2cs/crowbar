@@ -5,10 +5,8 @@ import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
 import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-header'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import type { PaneGroup } from '@/features/panes/types/pane'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'

@@ -9,7 +9,7 @@ import { createPlatePlugin } from 'platejs/react'
 
 import { BlockSelection } from '@/components/ui/block-selection'
 
-export const hasSelectableClass = ({
+const hasSelectableClass = ({
   attributes,
   className,
 }: {

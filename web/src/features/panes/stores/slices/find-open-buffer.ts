@@ -17,7 +17,6 @@ export function specWorkspaceId(spec: OpenEditorTabSpec): string {
     case 'markdownPreview':
     case 'htmlPreview':
       return ownerOf(spec.source)
-    case 'commitDiff':
     case 'branchReview':
       return spec.wsId
     default:
@@ -45,10 +44,6 @@ export function findOpenBuffer(
       )
     case 'branchReview':
       return buffers.find((b) => b.type === 'branchReview' && b.wsId === spec.wsId)
-    case 'commitDiff':
-      return buffers.find(
-        (b) => b.type === 'commitDiff' && b.wsId === spec.wsId && b.sha === spec.sha,
-      )
     case 'terminal':
       if (!spec.sessionId) return undefined
       return buffers.find((b) => b.type === 'terminal' && b.sessionId === spec.sessionId)

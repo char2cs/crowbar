@@ -9,14 +9,14 @@ export interface ClipboardEntry {
   is_dir: boolean
 }
 
-export interface FileClipboardState {
+interface FileClipboardState {
   entries: ClipboardEntry[]
   operation: 'copy' | 'cut'
   /** The workspace the entry paths are relative to: they name other files anywhere else. */
   wsId: string | null
 }
 
-export interface PastedEntry {
+interface PastedEntry {
   source_path: string
   destination_path: string
   is_dir: boolean

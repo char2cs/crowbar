@@ -1,14 +1,12 @@
 import { render } from '@testing-library/react'
 import type { Value } from 'platejs'
 import type { AnyPlatePlugin } from 'platejs/react'
-import { Plate, PlateContent, ParagraphPlugin, usePlateEditor } from 'platejs/react'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { createStaticEditor, PlateStatic } from 'platejs/static'
 import { describe, expect, it } from 'vitest'
 
 import { CalloutKit } from '@/components/editor/plugins/callout-kit'
 import { CalloutKitStatic } from '@/components/editor/plugins/callout-kit-static'
-import { LinkKit, LinkKitStatic } from '@/components/editor/plugins/link-kit'
-import { ParagraphElement } from '@/components/ui/paragraph-node'
 
 /** Parity between the interactive editor (mounted as MarkdownMessage mounts it) and the PlateStatic
  *  read path. Both share one node component, so a divergence is a real bug, not a fixture issue. */
@@ -38,45 +36,5 @@ describe('CalloutKitStatic', () => {
     expect(staticRender.container.querySelector('[data-slate-node]')?.textContent).toContain(
       'Careful with this one.',
     )
-  })
-})
-
-describe('LinkKitStatic', () => {
-  it('renders the same visible content, including href, as the interactive link', () => {
-    const plugins = [ParagraphPlugin.withComponent(ParagraphElement), ...LinkKit]
-    const staticPlugins = [ParagraphPlugin.withComponent(ParagraphElement), ...LinkKitStatic]
-    const value: Value = [
-      {
-        type: 'p',
-        children: [
-          { text: 'Go to ' },
-          { type: 'a', url: 'https://example.com', children: [{ text: 'the site' }] },
-          { text: '.' },
-        ],
-      },
-    ]
-
-    const interactive = render(<InteractiveHarness plugins={plugins} value={value} />)
-    const staticEditor = createStaticEditor({ plugins: staticPlugins, value })
-    const staticRender = render(<PlateStatic editor={staticEditor} />)
-
-    expect(staticRender.container.textContent).toBe(interactive.container.textContent)
-
-    const staticAnchor = staticRender.container.querySelector('a')
-    const interactiveAnchor = interactive.container.querySelector('a')
-    // sanitizeUrl normalizes the bare origin with a trailing slash — assert
-    // parity against the interactive render rather than a hand-typed literal.
-    expect(staticAnchor?.getAttribute('href')).toContain('example.com')
-    expect(staticAnchor?.getAttribute('href')).toBe(interactiveAnchor?.getAttribute('href'))
-
-    // The one thing LinkKitStatic must NOT carry is the interactive-only
-    // floating toolbar: LinkFloatingToolbar calls Plate hooks, which are invalid
-    // on the static read path. It renders nothing while idle, so its absence
-    // is checked on the plugins as each editor resolves them.
-    const interactiveLink = createStaticEditor({ plugins, value }).getPlugin({ key: 'a' })
-    const staticLink = staticEditor.getPlugin({ key: 'a' })
-    expect(interactiveLink.render.afterEditable).toBeDefined()
-    expect(staticLink.render.afterEditable).toBeUndefined()
-    expect(staticLink.render.node).toBe(interactiveLink.render.node)
   })
 })

@@ -1,9 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { useTerminalBufferCount } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { workspaceRef } from '@/lib/api/documents'

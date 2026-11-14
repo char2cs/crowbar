@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listTabs, runAgentOp, type AgentLimits } from '@/features/browser/lib/agent-ops'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 const api = vi.hoisted(() => ({
   open: vi.fn().mockResolvedValue(undefined),

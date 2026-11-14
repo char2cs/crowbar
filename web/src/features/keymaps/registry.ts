@@ -23,8 +23,8 @@ export const AGENT_ZOOM_IN = 'agent.zoomIn'
 export const AGENT_ZOOM_OUT = 'agent.zoomOut'
 export const AGENT_ZOOM_RESET = 'agent.zoomReset'
 
-export const EDITOR_SAVE = 'editor.save'
-export const EDITOR_SAVE_ALL = 'editor.saveAll'
+const EDITOR_SAVE = 'editor.save'
+const EDITOR_SAVE_ALL = 'editor.saveAll'
 
 export const TOGGLE_CONSOLE = 'navigation.toggleConsole'
 

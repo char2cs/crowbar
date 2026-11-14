@@ -8,10 +8,8 @@ import {
   resolveChatWorkspaceId,
   resolveOnscreenPaneForWorkspace,
 } from '@/features/panes/lib/pane-chat-workspace'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'

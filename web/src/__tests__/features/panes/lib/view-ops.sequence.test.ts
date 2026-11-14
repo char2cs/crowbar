@@ -2,7 +2,6 @@
 // plus every non-row event. After each step the invariants hold, and the set
 // of rows moved only if the step was a row action.
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { assertViewIntegrity } from '@/features/panes/lib/view-integrity'
 import { viewChatIds, type ViewState } from '@/features/panes/lib/view-state'
 import { restoreWindowPaneState } from '@/lib/persistence/hydrate'
 import {
@@ -10,7 +9,11 @@ import {
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import { editorTab, makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
+import {
+  assertViewIntegrity,
+  editorTab,
+  makePaneOnlyStore,
+} from '@/__tests__/__fixtures__/view-state'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({

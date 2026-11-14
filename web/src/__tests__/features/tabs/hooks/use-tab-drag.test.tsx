@@ -3,10 +3,8 @@ import { act, renderHook } from '@testing-library/react'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useTabDrag } from '@/features/tabs/hooks/use-tab-drag'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { EditorContent, PaneContent } from '@/features/panes/types/pane-content'
 
 /**

@@ -19,7 +19,7 @@ function rememberScroll(key: string, scrollTop: number): void {
 }
 
 /** Remembered offset for `key`, or 0 when nothing was recorded. */
-export function getPreservedScroll(key: string): number {
+function getPreservedScroll(key: string): number {
   return scrollOffsets.get(key) ?? 0
 }
 

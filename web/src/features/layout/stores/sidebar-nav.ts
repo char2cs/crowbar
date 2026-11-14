@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { create } from 'zustand'
 
-export interface SidebarScreen {
+interface SidebarScreen {
   id: string
   title: string
   component: ReactNode

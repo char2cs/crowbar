@@ -7,10 +7,8 @@ vi.mock('@/features/panes/lib/release-closed-chat', () => ({
 }))
 
 import { closeRecent, closeRecentChat, focusRecent } from '@/components/sidebar/lib/recents-actions'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
 import type { Repo } from '@/core/entities/repo-types'

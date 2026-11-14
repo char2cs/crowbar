@@ -3,10 +3,8 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { NewTabView } from '@/features/panes/components/new-tab-view'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import * as openDocumentModule from '@/features/editor/documents/open-document'
 import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 import type { Chat } from '@/core/entities/repo-types'

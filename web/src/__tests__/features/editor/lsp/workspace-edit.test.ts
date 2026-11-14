@@ -15,14 +15,12 @@ import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { documentText } from '@/features/editor/documents/document-text'
 import { findDocumentBuffer, openDocument } from '@/features/editor/documents/open-document'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
-import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import {
   applyTextEditsToContent,
   applyWorkspaceEdit,
   collectWorkspaceTextEdits,
   filePathFromUri,
-  isWorkspaceEdit,
-  offsetFromPosition,
 } from '@/features/editor/lsp/workspace-edit'
 
 describe('workspace edit utilities', () => {
@@ -30,14 +28,31 @@ describe('workspace edit utilities', () => {
     expect(filePathFromUri('file:///tmp/hello%20world.ts')).toBe('/tmp/hello world.ts')
   })
 
+  const editAt = (
+    start: { line: number; character: number },
+    end: { line: number; character: number },
+    newText: string,
+  ) => ({ range: { start, end }, newText })
+
   it('converts LSP positions into string offsets', () => {
-    expect(offsetFromPosition('one\ntwo\nthree', { line: 1, character: 2 })).toBe(6)
+    expect(
+      applyTextEditsToContent('one\ntwo\nthree', [
+        editAt({ line: 1, character: 2 }, { line: 1, character: 3 }, 'X'),
+      ]),
+    ).toBe('one\ntwX\nthree')
   })
 
-  it('clamps LSP positions without rebuilding line arrays', () => {
-    expect(offsetFromPosition('one\ntwo', { line: 10, character: 5 })).toBe(7)
-    expect(offsetFromPosition('one\ntwo', { line: 1, character: 50 })).toBe(7)
-    expect(offsetFromPosition('one\ntwo', { line: -1, character: -3 })).toBe(0)
+  it('clamps LSP positions into the document', () => {
+    expect(
+      applyTextEditsToContent('one\ntwo', [
+        editAt({ line: 1, character: 50 }, { line: 10, character: 5 }, '!'),
+      ]),
+    ).toBe('one\ntwo!')
+    expect(
+      applyTextEditsToContent('one\ntwo', [
+        editAt({ line: -1, character: -3 }, { line: -1, character: -3 }, '>'),
+      ]),
+    ).toBe('>one\ntwo')
   })
 
   it('applies text edits from bottom to top', () => {
@@ -111,7 +126,6 @@ describe('workspace edit utilities', () => {
       ],
     }
 
-    expect(isWorkspaceEdit(edit)).toBe(true)
     expect(collectWorkspaceTextEdits(edit).get('/tmp/a.ts')).toHaveLength(2)
   })
 })

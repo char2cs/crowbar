@@ -7,10 +7,8 @@ import {
   publishFocusedWorkspaceContext,
   type FocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { BranchReviewContent } from '@/features/panes/types/pane-content'
 import type { Repo } from '@/core/entities/repo-types'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'

@@ -7,9 +7,7 @@ import {
   sendInset,
   SEND_DIAMETER,
   handleClusterWidth,
-  fieldRightPadding,
   HANDLE_GAP,
-  PLUS_DIAMETER,
 } from '@/features/agent/composer/lib/handle-geometry'
 
 describe('handleOffset', () => {
@@ -64,33 +62,12 @@ describe('handleClusterWidth', () => {
   it('adds one diameter and one gap for the second occupant', () => {
     expect(handleClusterWidth(2)).toBe(2 * SEND_DIAMETER + HANDLE_GAP)
   })
-
-  it('the plus button matches the send button diameter', () => {
-    expect(PLUS_DIAMETER).toBe(SEND_DIAMETER)
-  })
-})
-
-describe('fieldRightPadding', () => {
-  // The handle's reach from the padding edge; the field's `padding-right` is this less the
-  // pill's side padding, plus the gap before the handle.
-  it('reaches 67px in for two occupants', () => {
-    expect(fieldRightPadding()).toBe(67)
-  })
-
-  it('shrinks to the single-occupant reservation', () => {
-    expect(fieldRightPadding(sendInset(), 1)).toBe(35)
-  })
-
-  it('follows HANDLE_GAP', () => {
-    expect(fieldRightPadding(4, 2, 28, 3)).toBe(4 + 28 + 3 + 28)
-  })
 })
 
 // The phone's capsule: 20px line, 16px padding, 34pt circles (hit-slop makes them 44).
 describe('the phone capsule', () => {
   // composer-pill.css touch `.field` padding-right and `.handle` right inset.
-  it('insets its 34pt circles by 9px and reaches 87px in for them, 10px apart', () => {
+  it('insets its 34pt circles by 9px', () => {
     expect(sendInset(34, 20, 16)).toBe(9)
-    expect(fieldRightPadding(9, 2, 34, 10)).toBe(87)
   })
 })

@@ -37,7 +37,7 @@ function repoAvatarColor(name: string): string {
 
 // Status passes straight through (locked, pr-conflicts and deleted are WorkspaceStatus values);
 // `working` is a separate in-progress flag, not a status.
-export function toSidebarStatus(ws: WorkspaceDTO): WorkspaceStatus {
+function toSidebarStatus(ws: WorkspaceDTO): WorkspaceStatus {
   return ws.status as WorkspaceStatus
 }
 
@@ -114,7 +114,7 @@ const NO_ORDER = Number.MAX_SAFE_INTEGER
 /** The daemon's sibling sort (tree/node.go compareNodes: order, createdAt, id),
  *  so an undragged level is drawn in the sequence a drop index is counted in —
  *  the cache yields by key, and an arrival tiebreak would draw it in id order. */
-export function compareByPlacement(
+function compareByPlacement(
   a: { id: string; order?: number; createdAt?: string },
   b: { id: string; order?: number; createdAt?: string },
 ): number {

@@ -1,23 +1,3 @@
-// web/src/lib/types.ts
-export interface WorkspacePayload {
-  id: string
-  projectId: string
-  repoId: string
-  branch: string
-}
-
-export interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  authorName: string
-  authorInitials: string
-  modelName?: string
-  timestamp: string
-  toolCalls?: number
-  durationSec?: number
-}
-
 export interface Project {
   id: string
   name: string
@@ -48,7 +28,7 @@ export interface Prerequisites {
 // Canonical DTOs (§5): camelCase mirrors of Go's `api/v0/dto`, as cached and as read.
 // ---------------------------------------------------------------------------
 
-export type WorkspaceStatusDTO =
+type WorkspaceStatusDTO =
   'new' | 'locked' | 'pr-conflicts' | 'deleted' | 'pr-merged' | 'pr-open' | 'pr-closed'
 
 export interface WorkspaceDTO {

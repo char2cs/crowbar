@@ -6,10 +6,8 @@ import type { Operation } from '@/core/entities/operations'
 import { patchEntities } from '@/core/entities/entity-store'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { useUIState } from '@/features/window/stores/ui-state-store'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { Project } from '@/lib/types'
 import * as api from '@/lib/api'

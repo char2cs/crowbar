@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   getHomeOwningChatId,
   getHomeWorkspaceId,
-  getHomeWorkspacePath,
   getKnownHomeWorkspaceIds,
   useHomeWorkspaceState,
   useHomeWorkspaceStates,
@@ -41,7 +40,6 @@ describe('the home workspace resolver', () => {
     })
     expect(getHomeWorkspaceId('p1')).toBe('ws-home')
     expect(getHomeOwningChatId('p1')).toBe('chat-home')
-    expect(getHomeWorkspacePath('p1')).toBe('/p1')
   })
 
   it('reports a synced project without a home as missing', () => {

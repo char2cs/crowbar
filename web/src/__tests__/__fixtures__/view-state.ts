@@ -1,7 +1,7 @@
 import { createStore } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { initialViewState, makePane, type ViewState } from '@/features/panes/lib/view-state'
-import { assertViewIntegrity } from '@/features/panes/lib/view-integrity'
+import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { createPaneSlice, type PaneSlice } from '@/features/panes/stores/slices/pane-slice'
 import type { EditorTabBase } from '@/features/panes/types/pane-content'
 import type { LayoutNode, PaneGroup } from '@/features/panes/types/pane'
@@ -102,6 +102,12 @@ export function makePaneOnlyStore<E extends object = object>(extra?: E) {
   )
   store.subscribe((state) => assertViewIntegrity(state))
   return store
+}
+
+/** Throws when `state` breaks the view invariants, so a bad transition fails at its own step. */
+export function assertViewIntegrity(state: ViewState): void {
+  const violations = viewIntegrityViolations(state)
+  if (violations.length > 0) throw new Error(`view integrity: ${violations.join('; ')}`)
 }
 
 export function editorTab(id: string, type: 'editor' | 'terminal' = 'editor'): EditorTabBase {

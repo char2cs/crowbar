@@ -5,7 +5,7 @@ import type { BranchReviewSlice } from './slices/branch-review-slice'
 import type { FileTreeSlice } from './slices/file-tree-slice'
 import type { GitSlice } from './slices/git-slice'
 
-export interface WorkspaceBaseState {
+interface WorkspaceBaseState {
   workspaceId: string
 }
 

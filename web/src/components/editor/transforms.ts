@@ -171,7 +171,7 @@ export const setBlockType = (editor: PlateEditor, type: string, { at }: { at?: P
   })
 }
 
-export const getBlockType = (block: TElement) => {
+const getBlockType = (block: TElement) => {
   if (block[KEYS.listType]) {
     if (block[KEYS.listType] === KEYS.ol) {
       return KEYS.ol

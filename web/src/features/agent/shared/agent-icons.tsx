@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 // The chat surface's own icons (24-unit grid, stroke 1.6, round caps): phosphor's heavier weight
 // reads as another family beside them, so do not mix. Sizes are the canvas's three steps:
 // 12 for a chip's affordance, 14 default, 16 for a control the hand aims at.
-export type AgentIconSize = 12 | 14 | 16
+type AgentIconSize = 12 | 14 | 16
 
 interface AgentIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
   size?: AgentIconSize

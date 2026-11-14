@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import type { LayoutLeaf, LayoutNode, LayoutSplit } from '@/features/panes/types/pane'
+import type { LayoutLeaf } from '@/features/panes/types/pane'
 import {
-  appendLeaf,
   createLeaf,
   createSplit,
   splitLayout,
@@ -10,7 +9,6 @@ import {
   findSplit,
   getAllLeafIds,
   flattenForRender,
-  resizeFlattenedLayout,
   updateSplitSizes,
   getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
@@ -75,47 +73,6 @@ describe('splitLayout', () => {
   })
 })
 
-/**
- * The "one more view in this window" primitive (spec §8.4's click), as
- * distinct from `splitLayout`'s "subdivide THIS pane" (§8.1's drop). The
- * distinction is the whole point: routing a click through `splitLayout` on
- * the active pane is what made repeated clicks cascade 50/25/12.5 nested
- * inside the first pane, reading as "appended to the view you were in".
- */
-describe('appendLeaf', () => {
-  it('joins at the top level, not inside the pane that happened to be active', () => {
-    const { layout, newPaneId } = appendLeaf(createLeaf('a'), 'horizontal')
-    expect(getAllLeafIds(layout)).toEqual(['a', newPaneId])
-  })
-
-  it('gives every peer in the flattened row an equal share', () => {
-    let layout: LayoutNode = createLeaf('a')
-    const ids = ['a']
-    for (let i = 0; i < 3; i++) {
-      const next = appendLeaf(layout, 'horizontal')
-      layout = next.layout
-      ids.push(next.newPaneId)
-    }
-
-    expect(getAllLeafIds(layout)).toEqual(ids)
-    // `splitLayout` on the active pane would have produced 50/25/12.5/12.5.
-    const entries = flattenForRender(layout as LayoutSplit)
-    expect(entries).toHaveLength(4)
-    entries.forEach((entry) => expect(entry.size).toBeCloseTo(25))
-  })
-
-  it('treats a cross-direction split as ONE peer and leaves its internal sizes alone', () => {
-    const stacked = createSplit('vertical', createLeaf('a'), createLeaf('b'), [70, 30])
-    const { layout, newPaneId } = appendLeaf(stacked, 'horizontal')
-
-    const entries = flattenForRender(layout as LayoutSplit)
-    expect(entries).toHaveLength(2)
-    expect(entries.map((e) => e.size)).toEqual([50, 50])
-    expect(getAllLeafIds(layout)).toEqual(['a', 'b', newPaneId])
-    expect(findSplit(layout, stacked.id)?.sizes).toEqual([70, 30])
-  })
-})
-
 describe('closeLayout', () => {
   it('returns null when closing only leaf', () => {
     expect(closeLayout(createLeaf('a'), 'a')).toBeNull()
@@ -145,18 +102,6 @@ describe('flattenForRender', () => {
     const entries = flattenForRender(outer)
     expect(entries).toHaveLength(2)
     expect(entries[1].node.type).toBe('split')
-  })
-})
-
-describe('resizeFlattenedLayout', () => {
-  it('updates sizes on resize', () => {
-    const a = createLeaf('a')
-    const b = createLeaf('b')
-    const split = createSplit('horizontal', a, b, [50, 50])
-    const result = resizeFlattenedLayout(split, split.id, 0, [70, 30])
-    const updated = findSplit(result, split.id)!
-    expect(updated.sizes[0]).toBeGreaterThan(60)
-    expect(updated.sizes[0] + updated.sizes[1]).toBeCloseTo(100)
   })
 })
 

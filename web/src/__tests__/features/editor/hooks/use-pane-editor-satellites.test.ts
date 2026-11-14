@@ -9,10 +9,8 @@ import { openUntitledDocument } from '@/features/editor/documents/open-document'
 import { workspaceRef } from '@/lib/api/documents'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
 import { usePaneEditorSatellites } from '@/features/editor/hooks/use-pane-editor-satellites'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 // It talks to the daemon and never touches the model text under test.
 vi.mock('@/features/editor/hooks/use-inline-blame', () => ({ useInlineBlame: () => {} }))

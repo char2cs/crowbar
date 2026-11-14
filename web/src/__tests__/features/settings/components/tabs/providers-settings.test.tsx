@@ -72,7 +72,6 @@ import {
   getOrCreateWorkspaceStore,
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
@@ -119,7 +118,7 @@ function seedProviders(providers: AgentProvider[]) {
 
 function inWorkspace() {
   act(() => {
-    setActiveWorkspaceStoreForTests(store())
+    store()
     setActiveWorkspaceId('w1')
   })
 }
@@ -128,7 +127,6 @@ function inWorkspace() {
  *  moment between two workspaces. Settings is still openable from all of them. */
 function withoutActiveWorkspace() {
   act(() => {
-    setActiveWorkspaceStoreForTests(null)
     setActiveWorkspaceId('')
   })
 }
@@ -164,7 +162,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   act(() => {
-    setActiveWorkspaceStoreForTests(null)
     setActiveWorkspaceId('')
   })
   useAgentProvidersStore.setState({ providers: [], status: 'idle' })
@@ -534,7 +531,7 @@ describe('ProvidersSettings', () => {
       const inflight = deferred<AgentProvider[]>()
       listGlobalProvidersFn.mockReturnValue(inflight.promise)
       act(() => {
-        setActiveWorkspaceStoreForTests(store())
+        store()
         setActiveWorkspaceId('w1')
         useAgentProvidersStore.setState({ providers, status: 'ready' })
       })
@@ -824,7 +821,7 @@ describe('ProvidersSettings with a remote workspace in view', () => {
       useAgentProvidersStore
         .getState()
         .setHostProviders('host-1', [provider('codex', 'Codex', true, true)])
-      setActiveWorkspaceStoreForTests(getOrCreateWorkspaceStore('w-remote'))
+      getOrCreateWorkspaceStore('w-remote')
       setActiveWorkspaceId('w-remote')
     })
     listGlobalProvidersFn.mockResolvedValue([provider('claude', 'Claude', true, true)])

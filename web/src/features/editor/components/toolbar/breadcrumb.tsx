@@ -7,8 +7,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { documentRefOf } from '@/features/editor/documents/document-ref'
 import { documentText } from '@/features/editor/documents/document-text'
-import { useExtensionActions } from '@/extensions/ui/hooks/use-extension-actions'
-import { ExtensionToolbarAction } from '@/extensions/ui/components/extension-toolbar-action'
 import { useSettingsStore } from '@/features/settings/store'
 import { Button } from '@/components/ui/button'
 import { FilePathBreadcrumb } from './file-path-breadcrumb'
@@ -67,7 +65,6 @@ export default function Breadcrumb({
     }),
   )
   const showBreadcrumbPath = useSettingsStore((state) => state.settings.coreFeatures.breadcrumbs)
-  const extensionActions = useExtensionActions()
 
   const isMarkdownFile = () => {
     if (!activeBuffer || !activeBuffer.path) return false
@@ -149,18 +146,12 @@ export default function Breadcrumb({
               interactive={interactive}
             />
           ) : null}
-          {extensionActions.left.map((action) => (
-            <ExtensionToolbarAction key={action.id} action={action} />
-          ))}
           {extraLeftContent}
         </div>
         <div className="flex items-center gap-1">
           {defaultActions}
           {defaultActions && rightContent ? <div className="mx-1 h-3.5 w-px bg-border/70" /> : null}
           {rightContent}
-          {extensionActions.right.map((action) => (
-            <ExtensionToolbarAction key={action.id} action={action} />
-          ))}
         </div>
       </div>
     </>

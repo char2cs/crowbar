@@ -13,10 +13,8 @@ import {
   setDocumentDirty,
 } from '@/features/editor/lib/buffer-save'
 import { EDITOR_CREATE_OPTIONS, realModelApi } from '@/features/editor/lib/monaco-adapters'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { workspaceRef } from '@/lib/api/documents'
 
 const DOC = workspaceRef('ws-reg', 'src/doc.ts')

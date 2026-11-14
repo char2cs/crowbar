@@ -3,7 +3,6 @@ import {
   formatUiFontSize,
   getUiFontScale,
   normalizeUiFontSize,
-  shiftUiFontSize,
   UI_FONT_SIZE_DEFAULT,
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
@@ -20,16 +19,6 @@ describe('ui-font-size helpers', () => {
     expect(normalizeUiFontSize(14.26)).toBe(14.5)
     expect(normalizeUiFontSize(9.2)).toBe(UI_FONT_SIZE_MIN)
     expect(normalizeUiFontSize(99)).toBe(UI_FONT_SIZE_MAX)
-  })
-
-  it('increments and decrements by one step', () => {
-    expect(shiftUiFontSize(14, 1)).toBe(14.5)
-    expect(shiftUiFontSize(14, -1)).toBe(13.5)
-  })
-
-  it('does not move outside min and max bounds', () => {
-    expect(shiftUiFontSize(UI_FONT_SIZE_MIN, -1)).toBe(UI_FONT_SIZE_MIN)
-    expect(shiftUiFontSize(UI_FONT_SIZE_MAX, 1)).toBe(UI_FONT_SIZE_MAX)
   })
 
   it('formats values with two decimals and exposes stable scale', () => {

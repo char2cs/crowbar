@@ -28,7 +28,6 @@ export const currentPlatform: Platform = detectPlatform()
 
 export const IS_MAC: boolean = currentPlatform === 'macos'
 export const IS_WINDOWS: boolean = currentPlatform === 'windows'
-export const IS_LINUX: boolean = currentPlatform === 'linux'
 /** The phone app: a thin client of remote daemons, with no local daemon or desktop window. */
 export const IS_MOBILE: boolean = currentPlatform === 'ios'
 /** Command is the primary modifier, shown as ⌘⇧⌥: a Mac, and an iPhone's hardware keyboard. */

@@ -34,15 +34,10 @@ function nameNewFolder(folderId: string): void {
   treeUiStore.getState().startRenaming(folderId, 'tree')
 }
 
-/** A repo's project id off the sidebar tree; hierarchical mutations need both ids. */
-export function projectIdForRepo(repoId: string): string | undefined {
-  return readSelect(selectRepos).find((r) => r.id === repoId)?.projectId
-}
-
 // The daemon renames the git branch and broadcasts the updated workspace, so there is no
 // optimistic write: a relabel would show a name that never landed. A 409 refusal (name taken,
 // locked, adopted checkout) carries a user-facing message, so it is surfaced.
-export async function performRenameWorkspaceBranch(wsId: string, branch: string): Promise<void> {
+async function performRenameWorkspaceBranch(wsId: string, branch: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.workspaces.some((w) => w.id === wsId))
   const ws = repo?.workspaces.find((w) => w.id === wsId)
   if (!repo || !ws || ws.status === 'locked') return
@@ -62,7 +57,7 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
 
 // A folder holds no worktree, so its rename is the same placement PATCH that refiles it, with only
 // the name changed. It applies the daemon's committed `{folder, shifted}` at once.
-export async function performRenameFolder(folderId: string, name: string): Promise<void> {
+async function performRenameFolder(folderId: string, name: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.folders?.some((f) => f.id === folderId))
   const folder = repo?.folders?.find((f) => f.id === folderId)
   if (!repo?.projectId || !folder) return
@@ -84,7 +79,7 @@ export async function performRenameFolder(folderId: string, name: string): Promi
 }
 
 // performRenameFolder for a project-home folder, which lives in no repo's `folders`.
-export async function performRenameHomeFolder(
+async function performRenameHomeFolder(
   projectId: string,
   folderId: string,
   name: string,
@@ -102,7 +97,7 @@ export async function performRenameHomeFolder(
 // Any workspace of `repo` whose scope is recorded — `.../chats` is repo-scoped, so which one
 // builds the URL doesn't matter. The repo's own ids, never a chat's `workspaceId`: a chat may
 // name a workspace in another repo (spec §9.2), which would address the wrong repo.
-export function scopedWorkspaceIdOf(repo: Repo): string | undefined {
+function scopedWorkspaceIdOf(repo: Repo): string | undefined {
   return repo.defaultWorkspaceId ?? repo.workspaces[0]?.id
 }
 
@@ -127,7 +122,7 @@ export async function performRenameChat(chatId: string, title: string): Promise<
 
 // performRenameChat for a project-home chat: no repo, so the home workspace names the route,
 // and the chat's projects-scope frame settles the title.
-export async function performRenameHomeChat(
+async function performRenameHomeChat(
   projectId: string,
   homeWorkspaceId: string,
   chatId: string,
@@ -145,7 +140,7 @@ export async function performRenameHomeChat(
 
 // Renames the repo's display name, never its branch: the project-home header row is the repo's
 // default workspace, and renaming that row names the repo.
-export async function performRenameRepo(repoId: string, name: string): Promise<void> {
+async function performRenameRepo(repoId: string, name: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.id === repoId)
   if (!repo?.projectId) return
   if (repo.name === name) return

@@ -5,7 +5,7 @@ import type { WorkspaceState } from '../workspace-store.types'
 // Enable Immer's MapSet plugin so Set mutations work inside immer producers
 enableMapSet()
 
-export interface FileWatcherActions {
+interface FileWatcherActions {
   watchPath(path: string): void
   unwatchPath(path: string): void
   getWatchedPaths(): string[]

@@ -1,10 +1,8 @@
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MobileTopBar } from '@/components/layout/mobile/mobile-top-bar'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { applyEntityFrame } from '@/core/entities/entity-store'
 import { resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 

@@ -6,10 +6,8 @@ import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 // jsdom can't run xterm/WebGL — stand in for it, same as agent-chat-pane's
 // own suite. The stand-in keeps its props so a test can fire the exit frame.

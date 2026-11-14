@@ -33,9 +33,3 @@ export function endSelectionDrag(): void {
 export function releaseSelectionDrag(held: boolean): void {
   if (held) endSelectionDrag()
 }
-
-/** Test-only: forget any in-flight drags. */
-export function __resetSelectionDragForTests(): void {
-  depth = 0
-  if (typeof document !== 'undefined') document.documentElement.removeAttribute(ATTRIBUTE)
-}

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  __resetSelectionDragForTests,
   beginSelectionDrag,
   endSelectionDrag,
   isSelectionDragging,
@@ -11,7 +10,7 @@ const attr = () => document.documentElement.getAttribute('data-editor-selecting'
 
 describe('selection-drag', () => {
   afterEach(() => {
-    __resetSelectionDragForTests()
+    while (isSelectionDragging()) endSelectionDrag()
   })
 
   it('publishes the drag as both a flag and the CSS attribute', () => {

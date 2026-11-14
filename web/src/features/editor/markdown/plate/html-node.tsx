@@ -6,15 +6,6 @@ import { createPlatePlugin, PlateElement, type PlateElementProps } from 'platejs
 import { handleMarkdownAnchorClick, useLinkWorkspace } from '@/lib/markdown-link'
 import { loadLocalImage, useMarkdownAsset } from './markdown-asset'
 
-/** A void block carrying a raw HTML string (a README's `<div align="center">` header): rendered
- *  sanitized, saved byte-for-byte via markdown-html-rules.ts. Not editable in place; change it in
- *  Source view, as with YAML frontmatter. */
-export interface HtmlElementNode {
-  type: 'html'
-  html: string
-  children: [{ text: '' }]
-}
-
 // The HTML comes from a file or an agent's message, maybe on another host: beyond scripts, it
 // may not restyle the app around it (style, class), take typing (forms) or carry inline SVG —
 // what README hosts drop too.
@@ -24,7 +15,7 @@ const HTML_BLOCK_POLICY = {
   FORBID_ATTR: ['style', 'class', 'action', 'formaction'],
 }
 
-export function HtmlElement(props: PlateElementProps) {
+function HtmlElement(props: PlateElementProps) {
   const raw = (props.element as unknown as { html?: string }).html ?? ''
   // Display-only: serialization keeps the untouched `html` string, so this cannot corrupt the file.
   const clean = DOMPurify.sanitize(raw, HTML_BLOCK_POLICY)

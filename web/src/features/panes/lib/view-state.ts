@@ -218,7 +218,7 @@ export function settleFocus(state: ViewState): void {
   state.activePaneId = state.mostRecentActivePaneIds.find((id) => showingSet.has(id)) ?? showing[0]
 }
 
-export function freshPaneId(state: ViewState): string {
+function freshPaneId(state: ViewState): string {
   return state.panes[ROOT_PANE_ID] || state.views[ROOT_PANE_ID] ? nanoid() : ROOT_PANE_ID
 }
 

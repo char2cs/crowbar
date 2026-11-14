@@ -43,7 +43,7 @@ export interface ComposerInputs {
 }
 
 /** What to say about a wait Crowbar cannot answer; an unknown kind is not guessed at. */
-export function describeTerminalWait(wait: AgentTerminalWait): string {
+function describeTerminalWait(wait: AgentTerminalWait): string {
   if (wait.kind === TERMINAL_WAIT_TRUST)
     return 'This provider is waiting for you to trust the workspace'
   return 'This provider is waiting for an answer only its terminal can give'

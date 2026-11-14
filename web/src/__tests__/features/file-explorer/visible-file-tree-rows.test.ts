@@ -5,7 +5,6 @@ import {
   filterFileTreeForFffHits,
   findTopVisibleItemIndex,
   getGuideAncestorRows,
-  getStickyAncestorRow,
   getStickyAncestorRows,
 } from '@/features/file-explorer/file-explorer/lib/visible-file-tree-rows'
 
@@ -111,17 +110,6 @@ describe('buildVisibleFileTreeRows', () => {
     expect(rows.map((row) => row.file.path)).toEqual(['/root/src/features'])
     expect(rows.map((row) => row.displayName)).toEqual(['root/src/features'])
     expect(rows.map((row) => row.isExpanded)).toEqual([false])
-  })
-
-  test('finds the nearest sticky ancestor for a visible descendant', () => {
-    const rows = buildVisibleFileTreeRows(
-      tree,
-      new Set(['/root', '/root/src', '/root/src/features', '/root/src/features/file-explorer']),
-    )
-
-    expect(getStickyAncestorRow(rows, 4)?.file.path).toBe('/root/src/features/file-explorer')
-    expect(getStickyAncestorRow(rows, 2)?.file.path).toBe('/root/src')
-    expect(getStickyAncestorRow(rows, 0)).toBeNull()
   })
 
   test('finds the full sticky ancestor stack for a visible descendant', () => {

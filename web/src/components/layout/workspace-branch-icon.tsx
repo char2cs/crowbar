@@ -109,7 +109,7 @@ export function WorkspaceBranchIcon({
   }
 }
 
-export function WorkspaceAgentSpinner({ invertedGround }: { invertedGround?: boolean } = {}) {
+function WorkspaceAgentSpinner({ invertedGround }: { invertedGround?: boolean } = {}) {
   // Theme-token colored, never a provider/hardcoded color; the <FlickerSpinner>
   // random-picks a flicker spinner and animates it.
   return (

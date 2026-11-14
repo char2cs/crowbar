@@ -6,7 +6,7 @@ import {
 import type { WorkspaceState } from '../workspace-store.types'
 
 /** One file to mark: its path and the signature it has right now. */
-export interface ViewedEntry {
+interface ViewedEntry {
   path: string
   signature: string
 }
@@ -47,7 +47,7 @@ export interface ReviewConversation {
   isActive: boolean
 }
 
-export interface BranchReviewState {
+interface BranchReviewState {
   description: string
   mergeStrategy: MergeStrategy
   diffStatus: 'idle' | 'loading' | 'loaded' | 'error'
@@ -80,7 +80,7 @@ export interface BranchReviewSlice {
   addReviewConversation: (conversation: ReviewConversation) => void
 }
 
-export const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
+const INITIAL_BRANCH_REVIEW_STATE: BranchReviewState = {
   description: '',
   mergeStrategy: 'merge',
   diffStatus: 'idle',

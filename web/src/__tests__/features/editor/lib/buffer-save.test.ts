@@ -35,10 +35,8 @@ import { useSettingsStore } from '@/features/settings/store'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { toast } from '@/features/window/stores/toast-store'
 import * as reports from '@/__tests__/__fixtures__/reports'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { onGitRefreshRequested } from '@/features/git/stores/git-refresh'

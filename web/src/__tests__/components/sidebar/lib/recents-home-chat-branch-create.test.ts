@@ -3,10 +3,8 @@ import { openChatInOwnPane } from '@/components/sidebar/lib/pane-drop-actions'
 import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { Repo, Workspace } from '@/core/entities/repo-types'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'

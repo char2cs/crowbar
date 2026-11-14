@@ -2,10 +2,8 @@ import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from 'vite
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import type { DocumentRef } from '@/lib/api/documents'
 import { MONACO_LOAD_MS, openTestDocument, WATCH_REFUSED } from '@/__tests__/__fixtures__/documents'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 const readDiskMock = vi.fn<(wsId: string, path: string) => Promise<string | null>>()
 const readDocumentMock = vi.fn()

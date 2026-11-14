@@ -54,7 +54,7 @@ export function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props): React
   )
 }
 
-export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   isActive?: boolean
   isDragged?: boolean
   action?: React.ReactNode

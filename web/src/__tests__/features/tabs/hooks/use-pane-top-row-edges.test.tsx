@@ -1,9 +1,7 @@
 import { act, render } from '@testing-library/react'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { usePaneTopRowEdges } from '@/features/tabs/hooks/use-pane-top-row-edges'
 
 class FakeResizeObserver {

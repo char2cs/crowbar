@@ -1,7 +1,5 @@
-// Stub
-
 /** camelCase keys map to kebab-case CSS variables: syntaxKeyword -> --syntax-keyword. */
-export interface ThemeTokens {
+interface ThemeTokens {
   // shadcn base tokens
   background: string
   foreground: string

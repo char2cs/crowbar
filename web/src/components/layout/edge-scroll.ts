@@ -5,7 +5,7 @@
 export const EDGE_SCROLL_BAND_PX = 36
 
 /** Peak speed, in px per frame, reached at the boundary itself. */
-export const EDGE_SCROLL_MAX_STEP_PX = 14
+const EDGE_SCROLL_MAX_STEP_PX = 14
 
 /** Ramp from a crawl at the band's inner edge to full speed at the boundary. */
 function ramp(distance: number): number {
@@ -17,7 +17,7 @@ function ramp(distance: number): number {
  * Pixels to scroll this frame for a pointer at `pointer` along the scroll axis, given the
  * scroller's viewport extent (`top`/`height` on y, left/width on x). Negative scrolls back.
  */
-export function edgeScrollStep(pointer: number, top: number, height: number): number {
+function edgeScrollStep(pointer: number, top: number, height: number): number {
   if (height <= 0) return 0
   const fromTop = pointer - top
   const fromBottom = top + height - pointer

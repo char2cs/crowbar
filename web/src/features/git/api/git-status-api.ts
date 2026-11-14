@@ -1,31 +1,6 @@
 import { apiFetch } from '@/lib/api/fetch'
 import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
-import type { GitHunk, GitStatus } from '../types/git-types'
-import { report } from '@/lib/errors/report'
-
-async function gitPost(
-  wsId: string,
-  action: string,
-  body: Record<string, unknown>,
-): Promise<boolean> {
-  try {
-    await apiFetch(`${gitBaseForWorkspace(wsId)}/${action}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    return true
-  } catch (error) {
-    console.error(`git ${action} failed:`, error)
-    report(error, { action: `git ${action} failed` })
-    return false
-  }
-}
-
-function hunkIdOf(hunk: GitHunk): string | undefined {
-  const h = hunk as GitHunk & { hunkId?: string; id?: string }
-  return h.hunkId ?? h.id
-}
+import type { GitStatus } from '../types/git-types'
 
 /** The worktree's status, or why git could not read it (a moved or deleted repo). */
 export async function readGitStatus(
@@ -40,19 +15,3 @@ export async function readGitStatus(
     return { status: null, error: err instanceof Error ? err.message : String(err) }
   }
 }
-
-export const getGitStatus = async (wsId: string): Promise<GitStatus | null> =>
-  (await readGitStatus(wsId)).status
-
-export const unstagePaths = (wsId: string, paths: string[]): Promise<boolean> =>
-  gitPost(wsId, 'unstage', { paths })
-
-// Hunk-level when the diff carries a hunkId; otherwise the whole file, so the action still has an effect.
-const hunkOrFile = (verb: 'stage' | 'unstage', wsId: string, hunk: GitHunk): Promise<boolean> => {
-  const hunkId = hunkIdOf(hunk)
-  return hunkId
-    ? gitPost(wsId, `${verb}-hunk`, { path: hunk.file_path, hunkId })
-    : gitPost(wsId, verb, { paths: [hunk.file_path] })
-}
-export const stageHunk = (wsId: string, hunk: GitHunk) => hunkOrFile('stage', wsId, hunk)
-export const unstageHunk = (wsId: string, hunk: GitHunk) => hunkOrFile('unstage', wsId, hunk)

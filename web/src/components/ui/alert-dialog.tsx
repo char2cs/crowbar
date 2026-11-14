@@ -136,4 +136,4 @@ export function AlertDialogClose(props: AlertDialogPrimitive.Close.Props): React
   return <AlertDialogPrimitive.Close data-slot="alert-dialog-close" {...props} />
 }
 
-export { AlertDialogPrimitive, AlertDialogPopup as AlertDialogContent }
+export { AlertDialogPopup as AlertDialogContent }

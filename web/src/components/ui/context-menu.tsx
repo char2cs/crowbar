@@ -30,7 +30,7 @@ export interface ContextMenuItem {
   closeOnClick?: boolean
 }
 
-export interface ContextMenuRootProps {
+interface ContextMenuRootProps {
   isOpen: boolean
   position: { x: number; y: number }
   items: ContextMenuItem[]

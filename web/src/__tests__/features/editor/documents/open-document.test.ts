@@ -37,10 +37,8 @@ import {
 } from '@/features/editor/documents/open-document'
 import { setDocumentDirty } from '@/features/editor/lib/buffer-save'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { toast } from '@/features/window/stores/toast-store'

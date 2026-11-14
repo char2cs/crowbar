@@ -19,10 +19,8 @@ vi.mock('@/features/panes/lib/chat-project', () => ({
 
 import { toast } from '@/features/window/stores/toast-store'
 import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'

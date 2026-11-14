@@ -7,10 +7,8 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
 }))
 
 import { SidebarTree } from '@/components/sidebar/sidebar-tree'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { resetChatStore, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'

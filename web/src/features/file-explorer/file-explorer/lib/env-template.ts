@@ -70,21 +70,3 @@ export function buildEnvTemplateContent(content: string): string {
 
   return `${templatedLines.join('\n')}${hasTrailingNewline ? '\n' : ''}`
 }
-
-export function normalizeEnvTargetFileName(input: string): string | null {
-  const trimmed = input.trim()
-  if (!trimmed) return null
-  if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.includes('..')) return null
-
-  const lower = trimmed.toLowerCase()
-  if (lower === '.env' || lower.startsWith('.env.')) {
-    return trimmed
-  }
-
-  if (lower === 'env' || lower.startsWith('env.')) {
-    return `.${trimmed}`
-  }
-
-  const suffix = trimmed.replace(/^\.+/, '')
-  return suffix ? `.env.${suffix}` : null
-}

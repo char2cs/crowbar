@@ -3,7 +3,7 @@
 import { TAB_REOPEN_CLOSED } from '@/features/keymaps/registry'
 import type { KeymapPreset, KeymapPresetId } from '@/features/keymaps/types'
 
-export const KEYMAP_PRESETS: Record<KeymapPresetId, KeymapPreset> = {
+const KEYMAP_PRESETS: Record<KeymapPresetId, KeymapPreset> = {
   default: {
     id: 'default',
     label: 'Default',

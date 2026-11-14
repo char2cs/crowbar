@@ -6,7 +6,6 @@ const SURFACE_BY_TYPE: Record<PaneContent['type'], SidebarTab> = {
   editor: 'files',
   markdownPreview: 'files',
   htmlPreview: 'files',
-  commitDiff: 'git',
   branchReview: 'git',
   terminal: 'chats',
   browser: 'chats',

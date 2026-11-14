@@ -15,7 +15,6 @@ import type {
   SymbolInformation,
   TextEdit,
 } from 'vscode-languageserver-types'
-import { extensionRegistry } from '@/extensions/registry/extension-registry'
 import { useJumpListStore } from '@/features/editor/stores/jump-list-store'
 import { toast } from '@/features/window/stores/toast-store'
 import { refFromUri } from '../documents/document-ref'
@@ -182,33 +181,6 @@ function positionOf(selectionOrPosition?: Monaco.IRange | Monaco.IPosition) {
   }
 }
 
-function snippetSuggestions(
-  model: Monaco.editor.ITextModel,
-  position: Monaco.IPosition,
-): Monaco.languages.CompletionList {
-  const doc = refFromUri(model.uri.toString())
-  const languageId = doc ? extensionRegistry.getLanguageId(doc.path) : null
-  if (!languageId) return { suggestions: [] }
-  const word = model.getWordUntilPosition(position)
-  const range = {
-    startLineNumber: position.lineNumber,
-    startColumn: word.startColumn,
-    endLineNumber: position.lineNumber,
-    endColumn: word.endColumn,
-  }
-  const suggestions = extensionRegistry
-    .getSnippetsForLanguage(languageId)
-    .map((snippet): Monaco.languages.CompletionItem => ({
-      label: snippet.prefix,
-      kind: languages.CompletionItemKind.Snippet,
-      detail: snippet.description || 'Snippet',
-      insertText: Array.isArray(snippet.body) ? snippet.body.join('\n') : snippet.body,
-      insertTextRules: languages.CompletionItemInsertTextRule.InsertAsSnippet,
-      range,
-    }))
-  return { suggestions }
-}
-
 let registered = false
 
 /** Register the providers once per page (idempotent). */
@@ -244,10 +216,6 @@ export function registerLspProviders(): void {
       )
       return true
     },
-  })
-
-  languages.registerCompletionItemProvider('*', {
-    provideCompletionItems: (model, position) => snippetSuggestions(model, position),
   })
 
   languages.registerCompletionItemProvider(selector, {

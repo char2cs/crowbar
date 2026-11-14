@@ -19,10 +19,8 @@ import {
 } from '@/features/editor/documents/open-document'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { reloadBufferFromDisk } from '@/features/editor/lib/reload-buffer'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
 import { ApiError } from '@/lib/errors/api-error'
 

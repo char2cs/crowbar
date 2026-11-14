@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import {
-  saveToLocalStorage,
-  loadFromLocalStorage,
-} from '@/features/workspace/stores/workspace-persistence'
+import { loadFromLocalStorage } from '@/features/workspace/stores/workspace-persistence'
 
 describe('workspace-persistence', () => {
   beforeEach(() => {
@@ -10,15 +7,8 @@ describe('workspace-persistence', () => {
     vi.restoreAllMocks()
   })
 
-  it('saveToLocalStorage writes a JSON string to localStorage', () => {
-    saveToLocalStorage('ws-1', { recentFiles: [] })
-    const raw = localStorage.getItem('workspace:ws-1:state')
-    expect(raw).not.toBeNull()
-    expect(JSON.parse(raw!).recentFiles).toEqual([])
-  })
-
   it('loadFromLocalStorage returns the saved snapshot', () => {
-    saveToLocalStorage('ws-2', { recentFiles: [] })
+    localStorage.setItem('workspace:ws-2:state', JSON.stringify({ recentFiles: [] }))
     const snap = loadFromLocalStorage('ws-2')
     expect(snap?.recentFiles).toEqual([])
   })

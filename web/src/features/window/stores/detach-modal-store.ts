@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 /** The placeholder whose holder the user is about to detach. */
-export interface DetachTarget {
+interface DetachTarget {
   wsId: string
   branch: string
   heldByPath: string

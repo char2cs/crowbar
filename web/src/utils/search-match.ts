@@ -1,4 +1,4 @@
-export function normalizeSearchText(value: string) {
+function normalizeSearchText(value: string) {
   return value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -7,7 +7,7 @@ export function normalizeSearchText(value: string) {
     .trim()
 }
 
-export function compactSearchText(value: string) {
+function compactSearchText(value: string) {
   return normalizeSearchText(value).replace(/\s+/g, '')
 }
 
@@ -32,24 +32,6 @@ export function matchesSearchQuery(query: string, candidates: string[]) {
   return candidates.some((candidate) =>
     searchTextIncludes(candidate, normalizedQuery, compactQuery),
   )
-}
-
-/** True when `needle` appears in `haystack` as an (order-preserving) subsequence. */
-function isSubsequence(needle: string, haystack: string): boolean {
-  let i = 0
-  for (let j = 0; j < haystack.length && i < needle.length; j++) {
-    if (haystack[j] === needle[i]) i++
-  }
-  return i === needle.length
-}
-
-/** Every whitespace token must appear in `text` as a subsequence, in any order and across
- *  separators ("qvr shell" matches). A blank query matches everything. */
-export function fuzzyMatch(query: string, text: string): boolean {
-  const tokens = normalizeSearchText(query).split(' ').filter(Boolean)
-  if (tokens.length === 0) return true
-  const haystack = normalizeSearchText(text)
-  return tokens.every((token) => isSubsequence(token, haystack))
 }
 
 export function scoreSearchQuery(query: string, fields: SearchCandidateField[]) {

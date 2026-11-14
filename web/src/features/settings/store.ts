@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { combine } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import {
-  defaultSettings,
   getDefaultSetting,
   getDefaultSettingsSnapshot,
 } from '@/features/settings/config/default-settings'
@@ -162,4 +161,4 @@ export const useSettingsStore = create(
   ),
 )
 
-export { defaultSettings, getDefaultSetting }
+export { getDefaultSetting }

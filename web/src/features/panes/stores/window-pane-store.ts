@@ -6,7 +6,6 @@ import { createBufferSlice } from './slices/buffer-slice'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { toPersistedBuffers } from '@/features/panes/utils/persisted-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
-import { releaseDocumentOf } from '@/features/panes/lib/buffer-release'
 
 export type WindowPaneStore = StoreApi<WindowPaneState>
 
@@ -108,29 +107,3 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
 
 /** The one window-level pane/buffer store, created at module load and never destroyed. */
 export const windowPaneStore = createWindowPaneStore()
-
-/** Resets data fields only: copying a fresh store's whole state would bind `target`'s actions
- *  to that throwaway store's set/get, so later calls would mutate it instead.
- *  @internal Exported for unit tests. */
-export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPaneStore): void {
-  // The buffers go as closing them would, documents included.
-  for (const b of target.getState().buffers) releaseDocumentOf(b)
-  const fresh = createWindowPaneStore().getState()
-  target.setState({
-    panes: fresh.panes,
-    views: fresh.views,
-    viewOrder: fresh.viewOrder,
-    stage: fresh.stage,
-    bottomLayout: fresh.bottomLayout,
-    activeViewId: fresh.activeViewId,
-    activePaneId: fresh.activePaneId,
-    fullscreenPaneId: fresh.fullscreenPaneId,
-    mostRecentActivePaneIds: fresh.mostRecentActivePaneIds,
-    activeViewByProject: fresh.activeViewByProject,
-    activeProjectId: fresh.activeProjectId,
-    buffers: fresh.buffers,
-    closedBuffersHistory: fresh.closedBuffersHistory,
-    pendingClose: fresh.pendingClose,
-    maxOpenTabs: fresh.maxOpenTabs,
-  })
-}

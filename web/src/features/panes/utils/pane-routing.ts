@@ -13,32 +13,3 @@ export function getPaneScopeForPaneId(
   }
   return getAllLeafIds(bottomLayout).flatMap((id) => (panes[id] ? [panes[id]] : []))
 }
-
-export interface WritablePaneRoutingInput {
-  activePane: PaneGroup | null
-  bufferId?: string
-  mostRecentActivePaneIds: string[]
-  paneScope: PaneGroup[]
-}
-
-export function resolveWritablePaneForBuffer({
-  activePane,
-  bufferId,
-  mostRecentActivePaneIds,
-  paneScope,
-}: WritablePaneRoutingInput): PaneGroup | null {
-  if (!activePane) return null
-
-  if ((bufferId && activePane.editorTabIds.includes(bufferId)) || !activePane.locked) {
-    return activePane
-  }
-
-  const paneById = new Map(paneScope.map((pane) => [pane.id, pane] as const))
-  return (
-    mostRecentActivePaneIds
-      .map((paneId) => paneById.get(paneId))
-      .find((pane) => pane && pane.id !== activePane.id && !pane.locked) ??
-    [...paneById.values()].find((pane) => pane.id !== activePane.id && !pane.locked) ??
-    null
-  )
-}

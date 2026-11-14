@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import {
-  useUIState,
-  _resetTerminalFocusRegistryForTests,
-} from '@/features/window/stores/ui-state-store'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 
 describe('ui-state-store focus registry', () => {
   beforeEach(() => {
     // Reset module-level registry singletons between tests
-    _resetTerminalFocusRegistryForTests()
+    for (const id of ['term-1', 'term-2']) useUIState.getState().clearTerminalFocus(id)
     // Reset bottomPaneHeight to default
     useUIState.setState({ bottomPaneHeight: 240 })
   })

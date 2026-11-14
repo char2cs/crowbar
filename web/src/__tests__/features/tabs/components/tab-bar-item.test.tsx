@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import TabBarItem from '@/features/tabs/components/tab-bar-item'
-import type { CommitDiffContent, EditorContent } from '@/features/panes/types/pane-content'
+import type { BranchReviewContent, EditorContent } from '@/features/panes/types/pane-content'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
@@ -94,11 +94,10 @@ describe('TabBarItem sidebar surface', () => {
     useSidebarFocusMode()
     return null
   }
-  const commitBuffer: CommitDiffContent = {
-    id: 'diff-1',
-    type: 'commitDiff',
-    name: 'abc1234',
-    sha: 'abc1234',
+  const reviewBuffer: BranchReviewContent = {
+    id: 'review-1',
+    type: 'branchReview',
+    name: 'Branch Review',
     wsId: 'w1',
     isPinned: false,
     workspaceId: 'w1',
@@ -116,20 +115,20 @@ describe('TabBarItem sidebar surface', () => {
     })
   })
 
-  it('focusing an editor tab shows Files, and a diff tab shows Git', () => {
+  it('focusing an editor tab shows Files, and a review tab shows Git', () => {
     render(
       <>
         <FocusMode />
         <TabBarItem buffer={editorBuffer} isActive {...shared} />
-        <TabBarItem buffer={commitBuffer} isActive {...shared} displayName="abc1234" />
+        <TabBarItem buffer={reviewBuffer} isActive {...shared} displayName="Branch Review" />
       </>,
     )
-    const [editorTab, diffTab] = screen.getAllByRole('tab')
+    const [editorTab, reviewTab] = screen.getAllByRole('tab')
     // Focus only moves the mode once the user has pressed something.
     fireEvent.pointerDown(document.body)
     act(() => editorTab.focus())
     expect(treeUiStore.getState().activeTab).toBe('files')
-    act(() => diffTab.focus())
+    act(() => reviewTab.focus())
     expect(treeUiStore.getState().activeTab).toBe('git')
   })
 

@@ -5,10 +5,8 @@ import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownEditorPane } from '@/features/editor/markdown/plate/markdown-editor-pane'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { workspaceRef } from '@/lib/api/documents'
 

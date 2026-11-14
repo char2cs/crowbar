@@ -5,10 +5,8 @@ import { useStore } from 'zustand'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-view-content'
 import { getEditorPortalEntry } from '@/features/panes/lib/editor-portal-registry'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'

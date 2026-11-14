@@ -3,10 +3,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PaneHandle } from '@/features/panes/components/pane-handle'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({

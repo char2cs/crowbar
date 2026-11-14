@@ -25,10 +25,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import type { AgentChat } from '@/features/agent/api/agent-chat-reads'

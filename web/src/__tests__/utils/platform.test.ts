@@ -16,21 +16,19 @@ afterEach(() => {
 
 describe('detectPlatform (webview branch)', () => {
   it('detects Windows from the user agent', async () => {
-    const { currentPlatform, IS_WINDOWS, IS_MAC, IS_LINUX } = await loadWithUserAgent(
+    const { currentPlatform, IS_WINDOWS, IS_MAC } = await loadWithUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
     )
     expect(currentPlatform).toBe('windows')
     expect(IS_WINDOWS).toBe(true)
     expect(IS_MAC).toBe(false)
-    expect(IS_LINUX).toBe(false)
   })
 
   it('detects Linux from the user agent', async () => {
-    const { currentPlatform, IS_LINUX, IS_MAC, IS_WINDOWS } = await loadWithUserAgent(
+    const { currentPlatform, IS_MAC, IS_WINDOWS } = await loadWithUserAgent(
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)',
     )
     expect(currentPlatform).toBe('linux')
-    expect(IS_LINUX).toBe(true)
     expect(IS_MAC).toBe(false)
     expect(IS_WINDOWS).toBe(false)
   })

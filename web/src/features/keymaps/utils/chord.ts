@@ -9,8 +9,6 @@ export interface ParsedChord {
   key: string
 }
 
-const MOD_ORDER = ['mod', 'shift', 'alt'] as const
-
 /** Parse a normalized chord string into structured form. Returns null if empty. */
 export function parseChord(chord: string): ParsedChord | null {
   const parts = chord
@@ -106,5 +104,3 @@ export function formatChord(chord: string): string {
   parts.push(keyLabel)
   return APPLE_KEYBOARD ? parts.join('') : parts.join('+')
 }
-
-export { MOD_ORDER }

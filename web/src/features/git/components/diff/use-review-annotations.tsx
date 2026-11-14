@@ -27,7 +27,7 @@ export type ReviewAnnotation = DiffLineAnnotation<ReviewThread>
  *  and annotations need metadata: the draft is a message-less ReviewThread no server id matches. */
 export const DRAFT_THREAD_ID = '__crowbar-draft-thread__'
 
-export function isDraftThread(thread: ReviewThread): boolean {
+function isDraftThread(thread: ReviewThread): boolean {
   return thread.id === DRAFT_THREAD_ID
 }
 

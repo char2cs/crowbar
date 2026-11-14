@@ -1,4 +1,3 @@
-import { extensionRegistry } from '@/extensions/registry/extension-registry'
 import { Check, SlidersHorizontal } from '@phosphor-icons/react'
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
@@ -100,8 +99,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     activeBuffer?.type === 'editor' && activeBuffer.languageOverride
       ? activeBuffer.languageOverride
       : activeBuffer?.path
-        ? getLanguageIdFromPath(activeBuffer.path) ||
-          extensionRegistry.getLanguageId(activeBuffer.path)
+        ? getLanguageIdFromPath(activeBuffer.path)
         : null
   const currentFileDisplayName = getLanguageDisplayNameOrNull(currentFileLanguageId)
 

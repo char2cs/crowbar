@@ -353,4 +353,3 @@ function FileExplorerSync(props: {
 }
 
 export const FileExplorerTree = memo(FileExplorerTreeComponent)
-export default FileExplorerTree

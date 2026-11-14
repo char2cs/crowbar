@@ -29,10 +29,8 @@ import {
 import type { Chat, Folder, Repo } from '@/core/entities/repo-types'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'

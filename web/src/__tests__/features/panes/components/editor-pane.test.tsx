@@ -27,10 +27,8 @@ vi.mock('@/lib/api/documents', async (importOriginal) => {
   return { ...actual, readDocument }
 })
 
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'

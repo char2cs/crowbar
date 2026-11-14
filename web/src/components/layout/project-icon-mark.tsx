@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 /** What a project carries for its mark. Both custom states are optional; when
  *  neither is set the mark is the Library glyph. An uploaded image names its
  *  project's `id`: that is what places its URL on the project's host. */
-export type ProjectIconSource = {
+type ProjectIconSource = {
   name: string
   avatarEmoji?: string
 } & ({ id: string; avatarUrl?: string } | { id?: string; avatarUrl?: undefined })

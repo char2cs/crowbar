@@ -1,14 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import {
   setActiveWorkspaceId,
   destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef } from '@/lib/api/documents'
 
@@ -53,13 +50,12 @@ describe('buffer preview pane integration', () => {
       dispatchEvent: vi.fn(),
     })
     resetWindowPaneStoreForTests()
-    const store = createWorkspaceStore('test-ws')
-    setActiveWorkspaceStoreForTests(store)
+    getOrCreateWorkspaceStore('test-ws')
     setActiveWorkspaceId('test-ws')
   })
 
   afterEach(() => {
-    setActiveWorkspaceStoreForTests(null)
+    setActiveWorkspaceId(null)
     destroyWorkspaceStore('test-ws')
     vi.unstubAllGlobals()
   })

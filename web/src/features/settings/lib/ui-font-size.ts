@@ -17,11 +17,6 @@ export function normalizeUiFontSize(value: unknown): number {
   return Number(clamped.toFixed(2))
 }
 
-export function shiftUiFontSize(currentSize: number, direction: -1 | 1): number {
-  const next = normalizeUiFontSize(currentSize) + direction * UI_FONT_SIZE_STEP
-  return normalizeUiFontSize(next)
-}
-
 export function formatUiFontSize(value: number): string {
   return normalizeUiFontSize(value).toFixed(2)
 }

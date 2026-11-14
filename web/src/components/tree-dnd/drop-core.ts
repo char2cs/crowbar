@@ -11,7 +11,6 @@ export type AllowedModes = Record<DropMode, boolean>
  *  a write here rewrites the rule for every row on the page. */
 export const NO_MODES: AllowedModes = { before: false, after: false, into: false }
 export const REORDER_MODES: AllowedModes = { before: true, after: true, into: false }
-export const INTO_MODES: AllowedModes = { before: false, after: false, into: true }
 export const ALL_MODES: AllowedModes = { before: true, after: true, into: true }
 
 /** A carried row's class, id and position. Trees widen it for their own matrix (the sidebar
@@ -88,15 +87,6 @@ export interface RowRect {
   bottom: number
   left: number
   width: number
-}
-
-/** The rows a drag carries: grabbing a selected row moves the selection; grabbing another moves
- *  it alone and leaves the selection be. */
-export function dragSubjectsFor<S extends DragSubjectBase>(
-  grabbed: S,
-  selection: readonly S[],
-): S[] {
-  return selection.some((s) => s.id === grabbed.id) ? [...selection] : [grabbed]
 }
 
 /** Whether two resolved drops would draw and commit the same thing. */

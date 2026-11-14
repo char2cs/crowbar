@@ -5,10 +5,6 @@ const registry = new Map<string, WorkspaceStore>()
 
 let _activeWorkspaceId: string | null = null
 
-// Scoped URLs are hierarchical (/v0/projects/:p/repos/:r/workspaces/:w/...); the wsId -> scope map
-// lives in dependency-free `@/lib/workspace-scope` so URL builders don't import this store graph.
-export { setWorkspaceScope, getWorkspaceScope, type WorkspaceScope } from '@/lib/workspace-scope'
-
 // Written only by `WorkspaceHost`, in the layout effect that mounts the stores, so every reader
 // agrees within a commit. Scoped-URL builders never read it: they name their workspace.
 export function setActiveWorkspaceId(wsId: string | null): void {
@@ -23,23 +19,6 @@ const activeWorkspaceListeners = new Set<() => void>()
 export function subscribeActiveWorkspaceId(listener: () => void): () => void {
   activeWorkspaceListeners.add(listener)
   return () => activeWorkspaceListeners.delete(listener)
-}
-
-/** Test-only: make `store` (registered under its own workspace id) the
- *  active one, or clear the active id — what the host does for a real mount. */
-export function setActiveWorkspaceStoreForTests(store: WorkspaceStore | null): void {
-  if (!store) {
-    _activeWorkspaceId = null
-    return
-  }
-  const wsId = store.getState().workspaceId
-  registry.set(wsId, store)
-  _activeWorkspaceId = wsId
-}
-
-export function getActiveWorkspaceStore(): WorkspaceStore | null {
-  if (!_activeWorkspaceId) return null
-  return registry.get(_activeWorkspaceId) ?? null
 }
 
 export function getActiveWorkspaceId(): string | null {

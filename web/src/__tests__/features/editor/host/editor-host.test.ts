@@ -12,7 +12,7 @@ import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
 import { applyWorkspaceEdit } from '@/features/editor/lsp/workspace-edit'
-import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,

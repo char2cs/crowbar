@@ -11,10 +11,8 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
 import { MONACO_LOAD_MS, openTestDocument } from '@/__tests__/__fixtures__/documents'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { HtmlPreview } from '@/features/editor/components/html/html-preview'
 
 async function previewOf(doc: DocumentRef, text: string) {

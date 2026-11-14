@@ -8,7 +8,6 @@ import {
   DEFAULT_HEADING_FONT_FAMILY,
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_TERMINAL_FONT_FAMILY,
-  DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_UI_FONT_FAMILY,
 } from '@/features/settings/config/typography-defaults'
 import type { Settings } from '@/features/settings/types/settings'
@@ -34,7 +33,7 @@ export const defaultSettings: Settings = {
   showMinimap: false,
   // Terminal
   terminalFontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-  terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
+  terminalFontSize: DEFAULT_CODE_FONT_SIZE,
   terminalLineHeight: 1,
   terminalLetterSpacing: 0,
   terminalScrollback: 10000,

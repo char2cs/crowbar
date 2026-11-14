@@ -193,8 +193,8 @@ describe('validateLoadedBuffers', () => {
     expect(out.panes.root.activeEditorTabId).toBe('e-1')
   })
 
-  it('keeps every type this build DOES know, including the new commit diff', () => {
-    const current = {
+  it('drops a persisted commit diff, which no build opens any more, and keeps what it knows', () => {
+    const saved = {
       buffers: [
         { id: 'c-1', type: 'commitDiff', wsId: 'w1', sha: 'abc1234', name: 'Commit abc1234' },
         {
@@ -210,7 +210,11 @@ describe('validateLoadedBuffers', () => {
       },
     } as unknown as Snapshot
 
-    expect(validateLoadedBuffers(current, ROOT)).toEqual(current)
+    const out = validateLoadedBuffers(saved, ROOT)
+
+    expect(out.buffers.map((b) => b.id)).toEqual(['br-1'])
+    expect(out.panes.root.editorTabIds).toEqual(['br-1'])
+    expect(out.panes.root.activeEditorTabId).toBe('br-1')
   })
 
   // Distinct from the retired `newTab` placeholder above, which old layouts

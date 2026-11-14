@@ -20,7 +20,7 @@ export interface GitCommit {
   date: string
 }
 
-export interface GitDiffLine {
+interface GitDiffLine {
   line_type: 'added' | 'removed' | 'context' | 'header'
   content: string
   old_line_number?: number
@@ -42,9 +42,4 @@ export interface GitDiff {
   raw_patch?: string
   additions?: number
   deletions?: number
-}
-
-export interface GitHunk {
-  file_path: string
-  lines: GitDiffLine[]
 }

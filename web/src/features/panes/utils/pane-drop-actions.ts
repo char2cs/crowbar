@@ -1,4 +1,3 @@
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { ensureBufferInPane } from './pane-buffer-actions'
 import type { PaneDropZone } from './pane-drop-zones'
 import { getPaneSplitDropOptions } from './pane-drop-zones'
@@ -28,18 +27,4 @@ export function ensureBufferInPaneDropTarget(
   }
 
   return ensureBufferInPane(targetPaneId, bufferId, true)
-}
-
-export function moveBufferToPaneDropTarget(
-  bufferId: string,
-  sourcePaneId: string,
-  target: PaneDropTarget,
-): string | null {
-  const targetPaneId = getOrCreatePaneDropTarget(target)
-  if (!targetPaneId) {
-    return null
-  }
-
-  windowPaneStore.getState().paneActions.moveEditorTabToPane(bufferId, sourcePaneId, targetPaneId)
-  return targetPaneId
 }

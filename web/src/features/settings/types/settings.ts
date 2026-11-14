@@ -5,7 +5,7 @@ import type { SearchEngine } from '@/features/browser/lib/search-engines'
 export type Theme = string
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type TabListScope = 'project' | 'all'
-export type RenderWhitespaceMode = 'none' | 'boundary' | 'trailing' | 'all'
+type RenderWhitespaceMode = 'none' | 'boundary' | 'trailing' | 'all'
 
 export interface Settings {
   // General

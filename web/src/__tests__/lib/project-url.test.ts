@@ -234,7 +234,6 @@ const CALLS: [name: string, call: Call, method: string, path: string][] = [
     'PATCH',
     `/v0/projects/${P}/repos/${R}`,
   ],
-  ['placeProject', (m) => m.placement.placeProject(P, 1), 'PATCH', `/v0/projects/${P}`],
   [
     'createChatWithOwnWorktree',
     (m) => m.agent.createChatWithOwnWorktree('c-new', 'op', P, R, 'claude'),

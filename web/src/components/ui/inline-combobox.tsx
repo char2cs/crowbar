@@ -14,7 +14,6 @@ import {
   ComboboxItem,
   ComboboxPopover,
   ComboboxProvider,
-  ComboboxRow,
   Portal,
   useComboboxContext,
   useComboboxStore,
@@ -344,8 +343,6 @@ const InlineComboboxEmpty = ({ children, className }: React.HTMLAttributes<HTMLD
   )
 }
 
-const InlineComboboxRow = ComboboxRow
-
 function InlineComboboxGroup({ className, ...props }: React.ComponentProps<typeof ComboboxGroup>) {
   return (
     <ComboboxGroup
@@ -375,5 +372,4 @@ export {
   InlineComboboxGroupLabel,
   InlineComboboxInput,
   InlineComboboxItem,
-  InlineComboboxRow,
 }

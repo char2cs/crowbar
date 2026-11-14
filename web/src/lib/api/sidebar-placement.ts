@@ -211,12 +211,3 @@ export async function placeRepo(
     body: JSON.stringify(placement),
   })
 }
-
-/** A project's index in the sidebar. */
-export async function placeProject(projectId: string, order: number): Promise<void> {
-  return apiFetch(projectBase(projectId), {
-    method: 'PATCH',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ order }),
-  })
-}

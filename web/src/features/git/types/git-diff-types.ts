@@ -1,14 +1,4 @@
-import type { GitDiff, GitDiffLine } from './git-types'
-
-export interface DiffLineWithIndex extends GitDiffLine {
-  diffIndex: number
-}
-
-export interface ParsedHunk {
-  header: GitDiffLine
-  lines: DiffLineWithIndex[]
-  id: number
-}
+import type { GitDiff } from './git-types'
 
 export interface ImageContainerProps {
   label: string

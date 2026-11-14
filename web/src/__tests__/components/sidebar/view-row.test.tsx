@@ -7,10 +7,8 @@ import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import type { Repo } from '@/core/entities/repo-types'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { resetChatStore, setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'

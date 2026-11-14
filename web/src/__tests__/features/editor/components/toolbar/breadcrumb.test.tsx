@@ -4,10 +4,8 @@ import Breadcrumb from '@/features/editor/components/toolbar/breadcrumb'
 import { fetchFileTree } from '@/features/files/lib/file-tree-api'
 import { openDocument } from '@/features/editor/documents/open-document'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
 vi.mock('@/features/editor/documents/open-document', async (importOriginal) => ({

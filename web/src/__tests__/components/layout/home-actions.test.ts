@@ -50,10 +50,8 @@ import { operationsState } from '@/core/entities/operations'
 import { operationRows } from '@/__tests__/__fixtures__/tree-rows'
 import { ApiError } from '@/lib/errors/api-error'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 import {

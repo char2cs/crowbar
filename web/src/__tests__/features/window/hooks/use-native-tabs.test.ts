@@ -4,10 +4,8 @@ import type { NativeChromeIntent, NativeTabs } from '@/lib/native-chrome'
 import { workspaceRef } from '@/lib/api/documents'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 const chrome = vi.hoisted(() => ({
   pushed: [] as NativeTabs[],

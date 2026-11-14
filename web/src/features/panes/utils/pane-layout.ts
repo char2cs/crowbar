@@ -44,12 +44,6 @@ export function findSplit(root: LayoutNode, splitId: string): LayoutSplit | null
   return findSplit(root.first, splitId) ?? findSplit(root.second, splitId)
 }
 
-export function findParentSplit(root: LayoutNode, nodeId: string): LayoutSplit | null {
-  if (root.type === 'pane') return null
-  if (root.first.id === nodeId || root.second.id === nodeId) return root
-  return findParentSplit(root.first, nodeId) ?? findParentSplit(root.second, nodeId)
-}
-
 export function getAllLeafIds(root: LayoutNode): string[] {
   if (root.type === 'pane') return [root.id]
   return [...getAllLeafIds(root.first), ...getAllLeafIds(root.second)]
@@ -73,26 +67,6 @@ export function splitLayout(
   const result = insertLeaf(root, paneId, createLeaf(newPaneId), direction, placement)
   if (!result) return null
   return { layout: result, newPaneId }
-}
-
-/** A leaf as a peer of all of `root`, not a split of one pane (a click names no pane, §8.4).
- *  Every entry of the flattened row gets an equal share — n views, n equal columns, not a
- *  50/25/12.5 cascade; cross-direction splits keep their inner sizes. */
-export function appendLeaf(
-  root: LayoutNode,
-  direction: 'horizontal' | 'vertical' = 'horizontal',
-): { layout: LayoutNode; newPaneId: string } {
-  const newPaneId = nanoid()
-  const layout = createSplit(direction, root, createLeaf(newPaneId))
-  const entries = flattenForRender(layout)
-  const even = 100 / entries.length
-  return {
-    layout: writeFlatSizesToLayout(
-      entries.map((entry) => ({ ...entry, size: even })),
-      layout,
-    ),
-    newPaneId,
-  }
 }
 
 function insertLeaf(
@@ -168,46 +142,6 @@ export function flattenForRender(
     }
   }
   return entries
-}
-
-export function resizeFlattenedLayout(
-  root: LayoutNode,
-  topSplitId: string,
-  index: number,
-  sizes: [number, number],
-): LayoutNode {
-  const split = findSplit(root, topSplitId)
-  if (!split) return root
-  const entries = flattenForRender(split)
-  if (index < 0 || index >= entries.length - 1) return root
-  const newEntries = entries.map((e, i) => {
-    if (i === index) return { ...e, size: sizes[0] }
-    if (i === index + 1) return { ...e, size: sizes[1] }
-    return e
-  })
-  return writeFlatSizesToLayout(newEntries, root)
-}
-
-function writeFlatSizesToLayout(entries: FlatLayoutEntry[], root: LayoutNode): LayoutNode {
-  const splitTotals = new Map<string, { first: number; second: number }>()
-  for (const entry of entries) {
-    for (const step of entry.path) {
-      if (!splitTotals.has(step.splitId)) splitTotals.set(step.splitId, { first: 0, second: 0 })
-      const t = splitTotals.get(step.splitId)!
-      if (step.childIndex === 0) t.first += entry.size
-      else t.second += entry.size
-    }
-  }
-  let next = root
-  for (const [splitId, totals] of splitTotals) {
-    const sum = totals.first + totals.second
-    if (sum <= 0) continue
-    next = updateSplitSizes(next, splitId, [
-      (totals.first / sum) * 100,
-      (totals.second / sum) * 100,
-    ])
-  }
-  return next
 }
 
 export function getAdjacentLeafId(

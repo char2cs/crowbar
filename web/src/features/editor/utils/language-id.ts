@@ -1,4 +1,3 @@
-import { extensionRegistry } from '@/extensions/registry/extension-registry'
 import { hasGrammar, type LanguageId } from '@/features/editor/monaco/language'
 
 const ANGULAR_TEMPLATE_LANGUAGE_ID: LanguageId = 'angular'
@@ -128,20 +127,7 @@ function isEnvFileName(fileName: string): boolean {
   return fileName === '.env' || fileName.startsWith('.env.')
 }
 
-export function normalizeLanguageId(languageId: string): string {
-  switch (languageId) {
-    case 'jsonc':
-      return 'json'
-    case 'c_sharp':
-      return 'csharp'
-    case 'mdx':
-      return 'markdown'
-    default:
-      return languageId
-  }
-}
-
-export function getLanguageIdFromExtension(extension: string): string | null {
+function getLanguageIdFromExtension(extension: string): string | null {
   const normalized = extension.replace(/^\./, '').toLowerCase()
   return EXTENSION_TO_LANGUAGE[normalized] || null
 }
@@ -230,11 +216,6 @@ export function getAllLanguages(): Array<{ id: string; displayName: string }> {
 export function getLanguageIdFromPath(filePath: string): string | null {
   if (isAngularTemplatePath(filePath)) {
     return ANGULAR_TEMPLATE_LANGUAGE_ID
-  }
-
-  const fromRegistry = extensionRegistry.getLanguageId(filePath)
-  if (fromRegistry) {
-    return normalizeLanguageId(fromRegistry)
   }
 
   const fileName = filePath.split('/').pop()?.toLowerCase() || ''

@@ -5,11 +5,9 @@ import {
   ALL_MODES,
   EDGE_BAND_CONTAINER,
   EDGE_BAND_HEAVY,
-  INTO_MODES,
   NO_MODES,
   REORDER_MODES,
   anyModeAllowed,
-  dragSubjectsFor,
   dropModeAt,
   resolvesToFirstChild,
   sameDrop,
@@ -31,7 +29,6 @@ describe('the four answers a matrix gives', () => {
   it('spells each refusal and permission exactly once', () => {
     expect(NO_MODES).toEqual({ before: false, after: false, into: false })
     expect(REORDER_MODES).toEqual({ before: true, after: true, into: false })
-    expect(INTO_MODES).toEqual({ before: false, after: false, into: true })
     expect(ALL_MODES).toEqual({ before: true, after: true, into: true })
   })
 
@@ -85,8 +82,8 @@ describe('dropModeAt', () => {
   })
 
   it('gives the whole row to a nest when nesting is the only thing on offer', () => {
-    expect(dropModeAt(0.01, INTO_MODES, EDGE_BAND_HEAVY)).toBe('into')
-    expect(dropModeAt(0.99, INTO_MODES, EDGE_BAND_HEAVY)).toBe('into')
+    expect(dropModeAt(0.01, modes({ before: false, after: false }), EDGE_BAND_HEAVY)).toBe('into')
+    expect(dropModeAt(0.99, modes({ before: false, after: false }), EDGE_BAND_HEAVY)).toBe('into')
   })
 
   it('reorders in the outer band and nests in the middle', () => {
@@ -120,29 +117,6 @@ describe('dropModeAt', () => {
 
   it('returns null for a total refusal, wherever the pointer is', () => {
     expect(dropModeAt(0.5, NO_MODES, EDGE_BAND_HEAVY)).toBeNull()
-  })
-})
-
-describe('dragSubjectsFor', () => {
-  const a = { kind: 'note', id: 'a' }
-  const b = { kind: 'note', id: 'b' }
-  const c = { kind: 'group', id: 'c' }
-
-  it('carries the whole selection when the grabbed row is part of it', () => {
-    expect(dragSubjectsFor(b, [a, b])).toEqual([a, b])
-  })
-
-  it('hands back a copy, so a drag cannot mutate the selection it read', () => {
-    const selection = [a, b]
-    expect(dragSubjectsFor(b, selection)).not.toBe(selection)
-  })
-
-  it('carries the grabbed row alone when it sits outside the selection', () => {
-    expect(dragSubjectsFor(c, [a, b])).toEqual([c])
-  })
-
-  it('carries one row when nothing is selected', () => {
-    expect(dragSubjectsFor(c, [])).toEqual([c])
   })
 })
 

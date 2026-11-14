@@ -15,9 +15,6 @@ const BranchReviewPane = lazy(() =>
     default: m.BranchReviewPane,
   })),
 )
-const CommitDiffPane = lazy(() =>
-  import('./commit-diff-pane').then((m) => ({ default: m.CommitDiffPane })),
-)
 const MarkdownPreview = lazy(() =>
   import('@/features/editor/markdown/markdown-preview').then((m) => ({
     default: m.MarkdownPreview,
@@ -51,11 +48,8 @@ type Renderers = {
 }
 
 // One entry per tab type a pane can show; the mapped type makes a missing one a type error.
-// A diff's `wsId` is the buffer's own workspace, never the ambient one.
+// A review's `wsId` is the buffer's own workspace, never the ambient one.
 const RENDERERS: Renderers = {
-  commitDiff: (c, { isActivePane }) => (
-    <CommitDiffPane sha={c.sha} wsId={c.wsId} isActivePane={isActivePane} />
-  ),
   branchReview: (c, { isActivePane }) => (
     <BranchReviewPane
       view={c.view}

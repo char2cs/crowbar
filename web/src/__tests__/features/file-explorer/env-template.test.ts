@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   buildEnvTemplateContent,
   isEnvFileName,
-  normalizeEnvTargetFileName,
 } from '@/features/file-explorer/file-explorer/lib/env-template'
 
 describe('env-template helpers', () => {
@@ -34,13 +33,5 @@ describe('env-template helpers', () => {
         '',
       ].join('\n'),
     )
-  })
-
-  it('normalizes custom target names', () => {
-    expect(normalizeEnvTargetFileName('staging')).toBe('.env.staging')
-    expect(normalizeEnvTargetFileName('.env.local')).toBe('.env.local')
-    expect(normalizeEnvTargetFileName('env.production')).toBe('.env.production')
-    expect(normalizeEnvTargetFileName('../.env')).toBeNull()
-    expect(normalizeEnvTargetFileName('.')).toBeNull()
   })
 })

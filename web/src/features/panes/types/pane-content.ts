@@ -7,7 +7,6 @@ import type { DocumentRef } from '@/lib/api/documents'
 export type EditorTabContentType =
   | 'editor'
   | 'terminal'
-  | 'commitDiff'
   | 'markdownPreview'
   | 'htmlPreview'
   | 'branchReview'
@@ -19,7 +18,6 @@ export type EditorTabContentType =
 export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>([
   'editor',
   'terminal',
-  'commitDiff',
   'markdownPreview',
   'htmlPreview',
   'branchReview',
@@ -75,14 +73,6 @@ export interface TerminalContent extends EditorTabBase {
   workingDirectory?: string
 }
 
-/** One commit's diff on the branch review's windowed surface. It carries the SHA, not the diff:
- *  files are fetched as the viewport reaches them, so a tab costs the same at any commit size. */
-export interface CommitDiffContent extends EditorTabBase {
-  type: 'commitDiff'
-  wsId: string
-  sha: string
-}
-
 export interface MarkdownPreviewContent extends EditorTabBase {
   type: 'markdownPreview'
   content: string
@@ -125,7 +115,6 @@ export interface NewTabPageContent extends EditorTabBase {
 export type PaneContent =
   | EditorContent
   | TerminalContent
-  | CommitDiffContent
   | MarkdownPreviewContent
   | HtmlPreviewContent
   | BranchReviewContent
@@ -154,7 +143,6 @@ export function hasUnsavedEdits(c: PaneContent): boolean {
 const VIRTUAL_TYPES: ReadonlySet<EditorTabContentType> = new Set([
   'terminal',
   'branchReview',
-  'commitDiff',
   'browser',
   'newTabPage',
 ])
@@ -186,7 +174,6 @@ export type OpenEditorTabSpec =
       path?: string
       workspaceId: string
     }
-  | { type: 'commitDiff'; wsId: string; sha: string; name: string }
   | { type: 'markdownPreview' | 'htmlPreview'; source: DocumentRef; name: string; content: string }
   | { type: 'branchReview'; wsId: string; name: string }
   | {

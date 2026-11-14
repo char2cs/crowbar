@@ -1,6 +1,6 @@
 import { logger } from '../../utils/logger'
 
-export const SYNTAX_HIGHLIGHTING_REFRESH_EVENT = 'syntax-highlighting-refresh'
+const SYNTAX_HIGHLIGHTING_REFRESH_EVENT = 'syntax-highlighting-refresh'
 
 export async function setSyntaxHighlightingFilePath(filePath: string) {
   logger.debug('SyntaxHighlighter', 'Requesting syntax highlighting refresh for', filePath)

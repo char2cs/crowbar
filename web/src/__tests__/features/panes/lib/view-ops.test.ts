@@ -8,9 +8,9 @@ import {
   removeView,
 } from '@/features/panes/lib/view-ops'
 import { makePane, showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
-import { assertViewIntegrity, viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
+import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import { buildViewState } from '@/__tests__/__fixtures__/view-state'
+import { assertViewIntegrity, buildViewState } from '@/__tests__/__fixtures__/view-state'
 
 const twoViews = () =>
   buildViewState({

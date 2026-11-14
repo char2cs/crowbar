@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { seatTab } from '@/__tests__/__fixtures__/view-state'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
@@ -22,35 +20,6 @@ describe('pane drop actions', () => {
     expect(targetPaneId).not.toBe(ROOT_PANE_ID)
     const rootIds = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(rootIds).toHaveLength(2)
-  })
-
-  it('moves buffers through a pane drop target', async () => {
-    const { moveBufferToPaneDropTarget } = await import('@/features/panes/utils/pane-drop-actions')
-    const paneActions = windowPaneStore.getState().paneActions
-
-    seatTab(windowPaneStore, ROOT_PANE_ID, {
-      id: 'buffer-a',
-      type: 'editor',
-      name: 'a.ts',
-      workspaceId: 'test-ws',
-    })
-    seatTab(windowPaneStore, ROOT_PANE_ID, {
-      id: 'buffer-b',
-      type: 'editor',
-      name: 'b.ts',
-      workspaceId: 'test-ws',
-    })
-
-    const targetPaneId = moveBufferToPaneDropTarget('buffer-a', ROOT_PANE_ID, {
-      paneId: ROOT_PANE_ID,
-      zone: 'right',
-    })
-
-    expect(targetPaneId).not.toBeNull()
-    if (!targetPaneId) return
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['buffer-b'])
-    expect(paneActions.getPaneById(targetPaneId)?.editorTabIds).toEqual(['buffer-a'])
-    expect(windowPaneStore.getState().activePaneId).toBe(targetPaneId)
   })
 
   it('adds buffers without duplicating existing target entries', async () => {

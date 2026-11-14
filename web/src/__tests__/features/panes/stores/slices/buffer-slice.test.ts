@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, onTestFinished, vi } from 'vitest'
 import {
   createWindowPaneStore,
-  resetWindowPaneStoreForTests,
   windowPaneStore,
   type WindowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'

@@ -5,14 +5,14 @@ import type { WorkspaceState } from '../workspace-store.types'
 // Enable Immer's MapSet plugin so Set mutations work inside immer producers
 enableMapSet()
 
-export interface TerminalLayout {
+interface TerminalLayout {
   widthMode: 'full' | 'editor'
   tabLayout: 'horizontal' | 'vertical'
   tabSidebarWidth: number
   tabSidebarPosition: 'left' | 'right'
 }
 
-export interface TerminalActions {
+interface TerminalActions {
   registerSession(sessionId: string): void
   unregisterSession(sessionId: string): void
   hasSession(sessionId: string): boolean

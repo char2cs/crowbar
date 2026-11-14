@@ -10,7 +10,7 @@ import { MARKDOWN_FONT_SIZE_DEFAULT, normalizeMarkdownFontSize } from './markdow
 import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from './ui-font-size'
 import { readLocal, writeLocal } from '@/lib/local-storage'
 
-export const APPEARANCE_BOOTSTRAP_CACHE_KEY = 'crowbar.bootstrap.appearance.v2'
+const APPEARANCE_BOOTSTRAP_CACHE_KEY = 'crowbar.bootstrap.appearance.v2'
 
 const DEFAULT_MONO_FALLBACK =
   '"Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'

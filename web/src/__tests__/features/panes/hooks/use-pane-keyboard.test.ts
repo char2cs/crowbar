@@ -114,8 +114,6 @@ vi.spyOn(keymap, 'useEffectiveChordMap').mockImplementation(() => ({
 
 // ensurePaneChatThenOpen runs for REAL: a new terminal/file attaches the pane
 // workspace's real owning chat (getOwningChatId, faked below), never a new one.
-import * as paneCommands from '@/features/panes/utils/pane-command-actions'
-vi.spyOn(paneCommands, 'splitActiveEditorGroup').mockImplementation(vi.fn())
 import * as workspaceScope from '@/lib/workspace-scope'
 vi.spyOn(workspaceScope, 'getOwningChatId').mockImplementation(getOwningChatId)
 

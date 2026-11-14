@@ -8,7 +8,6 @@ vi.mock('@/utils/platform', () => ({
   IS_MOBILE: false,
   APPLE_KEYBOARD: true,
   IS_WINDOWS: false,
-  IS_LINUX: false,
 }))
 
 const WIDTH = 320

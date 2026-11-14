@@ -13,9 +13,9 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
 import { commitViewWrite } from '@/features/panes/lib/view-ops'
 
-export type PaneDropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
+type PaneDropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
-export interface OpenChatOptions {
+interface OpenChatOptions {
   /** The chat's project; defaults to the active one. */
   projectId?: string
   /** The chat's workspace, recorded on its pane (C3). */

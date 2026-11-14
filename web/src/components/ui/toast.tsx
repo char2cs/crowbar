@@ -176,8 +176,7 @@ function heldUntilShown(manager: ToastManager): ToastManager {
 
 export const toastManager: ToastManager = heldUntilShown(Toast.createToastManager())
 
-export const anchoredToastManager: ReturnType<typeof Toast.createToastManager> =
-  Toast.createToastManager()
+const anchoredToastManager: ReturnType<typeof Toast.createToastManager> = Toast.createToastManager()
 
 export interface AnchoredToastProviderProps extends Toast.Provider.Props {
   portalProps?: React.ComponentProps<typeof Toast.Portal>

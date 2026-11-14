@@ -158,7 +158,6 @@ function stubDaemonWrites() {
     shiftedRows: [],
   })
   vi.spyOn(placement, 'placeRepo').mockResolvedValue(undefined)
-  vi.spyOn(placement, 'placeProject').mockResolvedValue(undefined)
   vi.spyOn(placement, 'createFolder').mockResolvedValue({
     folder: { id: 'new-folder', repoId: 'r1', projectId: 'p1', name: 'New folder', order: 0 },
     shifted: [],

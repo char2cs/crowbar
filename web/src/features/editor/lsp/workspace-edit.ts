@@ -1,4 +1,4 @@
-export interface LspPosition {
+interface LspPosition {
   line: number
   character: number
 }
@@ -55,18 +55,6 @@ function isTextDocumentEdit(value: unknown): value is TextDocumentEdit {
   )
 }
 
-export function isWorkspaceEdit(value: unknown): value is WorkspaceEdit {
-  if (!isObject(value)) return false
-
-  const hasChanges =
-    isObject(value.changes) &&
-    Object.values(value.changes).every((edits) => Array.isArray(edits) && edits.every(isTextEdit))
-  const hasDocumentChanges =
-    Array.isArray(value.documentChanges) && value.documentChanges.some(isTextDocumentEdit)
-
-  return hasChanges || hasDocumentChanges
-}
-
 export function filePathFromUri(uri: string): string {
   if (!uri.startsWith('file://')) return uri
 
@@ -107,10 +95,6 @@ function offsetFromPositionWithLineStarts(
   const character = Math.max(0, Math.trunc(position.character))
 
   return Math.max(0, Math.min(content.length, lineStart + Math.min(character, lineEnd - lineStart)))
-}
-
-export function offsetFromPosition(content: string, position: LspPosition): number {
-  return offsetFromPositionWithLineStarts(content, position, buildLineStartOffsets(content))
 }
 
 export function applyTextEditsToContent(content: string, edits: LspTextEdit[]): string {

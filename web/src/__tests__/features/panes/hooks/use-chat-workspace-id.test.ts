@@ -10,10 +10,8 @@ import {
   usePaneEditorWorkspaceIds,
   useViewWorkspaceIds,
 } from '@/features/panes/hooks/use-chat-workspace-id'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 

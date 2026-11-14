@@ -17,7 +17,7 @@ export interface ProjectRow {
 }
 
 /** The five movable classes. They do not mix. */
-export type DropKind = 'workspace' | 'folder' | 'repo' | 'project' | 'chat'
+type DropKind = 'workspace' | 'folder' | 'repo' | 'project' | 'chat'
 
 /** A row as a removal/drag subject: its class, its id, and enough placement to find its repo. */
 export interface DragSubject extends DragSubjectBase {

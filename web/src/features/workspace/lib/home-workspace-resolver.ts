@@ -65,11 +65,6 @@ export function getHomeOwningChatId(projectId: string): string | null {
   return read(projectId).owningChatId
 }
 
-/** `projectId`'s home workspace's own on-disk directory, or `null` before it is known. */
-export function getHomeWorkspacePath(projectId: string): string | null {
-  return read(projectId).localPath
-}
-
 export function useHomeWorkspaceStates(): ReadonlyMap<string, HomeWorkspaceState> {
   return useSyncExternalStore(entityStore.subscribe, () => homesOf(entityStore.getState()))
 }

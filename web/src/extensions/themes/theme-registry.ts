@@ -6,8 +6,6 @@ import {
   DEFAULT_APPEARANCE_BOOTSTRAP_CACHE,
 } from '@/features/settings/lib/appearance-bootstrap'
 
-export { cacheThemeForBootstrap } from '@/features/settings/lib/appearance-bootstrap'
-
 // Colours are CSS-first (theme.css): a theme is metadata plus a `dataTheme` selector, so adding
 // one is a `[data-theme="<id>"]` (+ .dark) block and an entry here.
 const BUILTIN_THEMES: ThemeDefinition[] = [
@@ -27,7 +25,7 @@ const BUILTIN_THEMES: ThemeDefinition[] = [
   },
 ]
 
-export class ThemeRegistry {
+class ThemeRegistry {
   private themes: Map<string, ThemeDefinition> = new Map()
   private activeThemeId: string | null = null
   private listeners: Set<() => void> = new Set()

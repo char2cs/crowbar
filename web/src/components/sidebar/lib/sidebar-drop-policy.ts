@@ -61,7 +61,7 @@ export function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScop
 // The repo whose own header row `rowId` is, else null. Never read row.repoIcon: a live drag's
 // target is rebuilt from DOM attributes that don't include it. resolveRowRepo won't do either —
 // it matches any row in the repo, not only its header.
-export function repoOfHeaderRow(repos: readonly Repo[], rowId: string): Repo | null {
+function repoOfHeaderRow(repos: readonly Repo[], rowId: string): Repo | null {
   const workspaceId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
   return repos.find((r) => r.defaultWorkspaceId === workspaceId) ?? null
 }

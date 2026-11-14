@@ -2,7 +2,7 @@ import type { WorkspaceStatus } from '@/core/entities/repo-types'
 import type { OperationState } from '@/core/entities/operations'
 import type { Problem } from '@/lib/errors/problem'
 
-export type SidebarRowKind = 'chat' | 'branch' | 'folder' | 'workflow'
+type SidebarRowKind = 'chat' | 'branch' | 'folder' | 'workflow'
 
 export interface SidebarRow {
   id: string

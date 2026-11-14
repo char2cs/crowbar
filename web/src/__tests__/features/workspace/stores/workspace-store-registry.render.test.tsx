@@ -11,10 +11,8 @@ import {
   getAllActiveWorkspaceIds,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { Repo } from '@/core/entities/repo-types'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 

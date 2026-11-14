@@ -42,7 +42,7 @@ function stripHash(value: string): string {
   return value.startsWith('#') ? value.slice(1) : value
 }
 
-export interface MonacoUiTokens {
+interface MonacoUiTokens {
   background: string
   widgetBackground: string
   foreground: string

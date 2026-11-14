@@ -5,10 +5,8 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 // ── Per-item render probe ────────────────────────────────────────────
 // Each TabBarItem renders FileExplorerIcon INLINE (it is not independently

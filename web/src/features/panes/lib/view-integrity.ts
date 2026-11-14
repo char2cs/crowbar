@@ -72,8 +72,3 @@ export function viewIntegrityViolations(state: ViewState): string[] {
   }
   return out
 }
-
-export function assertViewIntegrity(state: ViewState): void {
-  const violations = viewIntegrityViolations(state)
-  if (violations.length > 0) throw new Error(`view integrity: ${violations.join('; ')}`)
-}

@@ -76,17 +76,4 @@ function PopoverPopup({
   )
 }
 
-export function PopoverTitle({
-  className,
-  ...props
-}: PopoverPrimitive.Title.Props): React.ReactElement {
-  return (
-    <PopoverPrimitive.Title
-      className={cn('font-heading font-normal text-2xl leading-none', className)}
-      data-slot="popover-title"
-      {...props}
-    />
-  )
-}
-
-export { PopoverPrimitive, PopoverPopup as PopoverContent }
+export { PopoverPopup as PopoverContent }

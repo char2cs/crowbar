@@ -1,7 +1,6 @@
 import type {
   BranchReviewContent,
   BrowserContent,
-  CommitDiffContent,
   EditorContent,
   HtmlPreviewContent,
   MarkdownPreviewContent,
@@ -47,17 +46,6 @@ export function newBuffer(
         name: spec.name,
         path: `branch-review://${spec.wsId}`,
       } satisfies BranchReviewContent
-    case 'commitDiff':
-      return {
-        ...base(id, workspaceId),
-        type: 'commitDiff',
-        wsId: spec.wsId,
-        sha: spec.sha,
-        name: spec.name,
-        // One tab per commit per workspace: reopening the same commit
-        // focuses the tab that is already there rather than stacking another.
-        path: `commit-diff://${spec.wsId}/${spec.sha}`,
-      } satisfies CommitDiffContent
     case 'terminal': {
       const sessionId = spec.sessionId ?? `terminal-tab-${Date.now()}`
       return {

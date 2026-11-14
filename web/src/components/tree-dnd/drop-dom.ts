@@ -28,7 +28,7 @@ export interface DropRowSpec {
 }
 
 /** A row plus the decision the pointer's position in it resolves to. */
-export type Resolved<Row> = Row & { mode: DropMode }
+type Resolved<Row> = Row & { mode: DropMode }
 
 /** A row hit with the rect the decision was made from, so the indicator reuses it and a drag
  *  needs no DOM read of its own per pointermove. */

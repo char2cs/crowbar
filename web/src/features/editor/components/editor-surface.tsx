@@ -295,5 +295,3 @@ export function EditorSurface({
     </>
   )
 }
-
-export default EditorSurface

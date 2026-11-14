@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
 

@@ -9,10 +9,8 @@ vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
 
 import { useLaunchDraft } from '@/components/layout/mobile/use-launch-draft'
 import { isDraftChatId } from '@/features/agent/lib/draft-chat'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
 const navigate = vi.fn(() => Promise.resolve())
 

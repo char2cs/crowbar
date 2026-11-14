@@ -9,7 +9,7 @@ vi.mock('@/features/editor/documents/open-document', () => ({ openDocumentsAtPat
 vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({ useTauriFileDrop }))
 
 import { usePaneDropHandlers } from '@/features/panes/hooks/use-pane-drop-handlers'
-import { resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 

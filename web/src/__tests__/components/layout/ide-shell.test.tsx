@@ -2,10 +2,8 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { IDEShell } from '@/components/layout/ide-shell'
 import { useSettingsStore } from '@/features/settings/store'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'

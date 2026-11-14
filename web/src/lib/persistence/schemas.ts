@@ -4,7 +4,7 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, FolderDTO } from '@/lib/types'
 import type { EditorDraft } from '@/features/editor/documents/draft-store'
 
-export interface BranchReviewPersistedState {
+interface BranchReviewPersistedState {
   wsId: string
   /** Reviewed files: path -> the signature the file had when it was marked. */
   viewed: Record<string, string>
@@ -52,7 +52,7 @@ export interface SidebarUI {
   updatedAt: number
 }
 
-export interface CachedRecord<T> {
+interface CachedRecord<T> {
   key: string
   data: T
   fetchedAt: number

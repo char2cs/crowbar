@@ -5,10 +5,8 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
 }))
 
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 
 const mockSave = saveWorkspaceLayout as ReturnType<typeof vi.fn>

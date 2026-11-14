@@ -42,7 +42,7 @@ export function useResolvedImageSrc(url: string): string {
   return resolvedSrc
 }
 
-export function MarkdownImageElement(props: PlateElementProps) {
+function MarkdownImageElement(props: PlateElementProps) {
   const element = props.element as unknown as MarkdownImageNode
   const url = element.url ?? ''
   const alt = captionToAlt(element.caption)

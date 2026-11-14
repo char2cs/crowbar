@@ -1,4 +1,4 @@
-export type AttachmentLangKind = 'text-attachment' | 'excalidraw'
+type AttachmentLangKind = 'text-attachment' | 'excalidraw'
 
 export interface ParsedAttachmentLang {
   kind: AttachmentLangKind

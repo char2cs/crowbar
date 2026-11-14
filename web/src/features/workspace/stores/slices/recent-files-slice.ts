@@ -3,13 +3,13 @@ import type { WorkspaceState } from '../workspace-store.types'
 
 const MAX_RECENT_FILES = 50
 
-export interface RecentFileEntry {
+interface RecentFileEntry {
   path: string
   name: string
   lastOpenedAt: number
 }
 
-export interface RecentFilesActions {
+interface RecentFilesActions {
   addRecentFile(path: string, name: string): void
   removeRecentFile(path: string): void
   clearRecentFiles(): void

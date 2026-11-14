@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/utils/cn'
 
-export interface SearchToggleOption {
+interface SearchToggleOption {
   id: string
   label: string
   icon: ReactNode

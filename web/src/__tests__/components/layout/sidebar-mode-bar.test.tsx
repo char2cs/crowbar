@@ -10,10 +10,8 @@ vi.mock('@/features/panes/lib/release-closed-chat', () => ({
 
 import { SidebarModeBar } from '@/components/layout/sidebar-mode-bar'
 import { useIdeShellWorkspaceRetention } from '@/components/layout/use-ide-shell-workspace-retention'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { Repo } from '@/core/entities/repo-types'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'

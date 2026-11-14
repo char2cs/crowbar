@@ -1,10 +1,8 @@
 import { createElement } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'

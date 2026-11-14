@@ -13,10 +13,8 @@ import { findDocumentBuffer } from '@/features/editor/documents/open-document'
 import { MarkdownEditorPane } from '@/features/editor/markdown/plate/markdown-editor-pane'
 import { parseMarkdown } from '@/features/editor/markdown/plate/markdown-serialization'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'

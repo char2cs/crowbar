@@ -4,10 +4,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ViewTabsRow } from '@/features/tabs/components/view-tabs-row'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import type { Repo } from '@/core/entities/repo-types'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'

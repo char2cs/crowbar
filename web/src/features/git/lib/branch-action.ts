@@ -1,5 +1,5 @@
 /** Which action the merge box offers, given the repo state. */
-export type BranchActionKind =
+type BranchActionKind =
   | 'commit' // uncommitted changes → commit first
   | 'resolve' // conflicts with the parent must be resolved
   | 'pull-request' // parent is protected → open a PR

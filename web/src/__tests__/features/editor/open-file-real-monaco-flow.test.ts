@@ -4,10 +4,8 @@ import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { workspaceRef } from '@/lib/api/documents'
 
 // Real Monaco, no mocks: the production open sequence at store level (open the

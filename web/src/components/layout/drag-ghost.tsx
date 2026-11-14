@@ -20,7 +20,7 @@ export function grabOffsetFrom(rect: DOMRect, pointerX: number, pointerY: number
 }
 
 /** How many rows the stack draws before the count badge takes over. */
-export const DRAG_GHOST_MAX_ROWS = 3
+const DRAG_GHOST_MAX_ROWS = 3
 
 /** Step between stacked clones, both axes. */
 const STACK_STEP_PX = 4

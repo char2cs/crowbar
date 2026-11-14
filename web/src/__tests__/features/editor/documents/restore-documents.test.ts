@@ -34,10 +34,8 @@ import {
 import { getEditorHost, releaseWithDocument } from '@/features/editor/host/editor-host'
 import { restoreDocuments } from '@/features/editor/documents/restore-documents'
 import { saveActiveBuffer } from '@/features/editor/lib/buffer-save'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
 import {

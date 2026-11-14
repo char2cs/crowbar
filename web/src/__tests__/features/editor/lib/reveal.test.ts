@@ -25,10 +25,8 @@ import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { revealInEditor } from '@/features/editor/lib/reveal'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { workspaceRef, type DocumentRef, type DocumentTarget } from '@/lib/api/documents'
 import { toast } from '@/features/window/stores/toast-store'
 

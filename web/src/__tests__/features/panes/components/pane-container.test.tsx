@@ -4,15 +4,14 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
+  getOrCreateWorkspaceStore,
+  setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
-import {
-  windowPaneStore,
-  resetWindowPaneStoreForTests,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { ROOT_PANE_POSITION, type PanePosition } from '@/features/panes/types/pane'
 import { buildPaneContentStyle } from '@/features/panes/utils/pane-border'
@@ -254,7 +253,7 @@ beforeEach(() => {
 
 describe('PaneContainer — chat/editor-view hosting', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreForTests(null)
+    setActiveWorkspaceId(null)
   })
 
   it('renders the chat, not NewTabView, when the pane has a chat and zero editor tabs', async () => {
@@ -523,13 +522,13 @@ describe('PaneContainer — chat/editor-view hosting', () => {
   })
 
   it('a center-zone drop of a tab from a DIFFERENT pane is rejected — the tab stays exactly where it was', async () => {
-    const store = createWorkspaceStore('w1')
+    const store = getOrCreateWorkspaceStore('w1')
     // The center zone routes through pane-drop-actions.ts's
     // ensureBufferInPaneDropTarget, which reads the GLOBAL
     // active-workspace-store ref (a separate registry from the
     // WorkspaceStoreContext.Provider renderPane uses below) — the same setup
     // pane-drop-actions.test.ts already needs for that helper.
-    setActiveWorkspaceStoreForTests(store)
+    setActiveWorkspaceId('w1')
 
     const sourcePaneId = windowPaneStore
       .getState()
@@ -589,7 +588,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 // override ('xterm-helper-textarea') is wired correctly.
 describe('PaneContainer — mousedown-capture pane activation', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreForTests(null)
+    setActiveWorkspaceId(null)
   })
 
   /** A second pane, so ROOT_PANE_ID can start inactive — same pattern the
@@ -804,7 +803,7 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
 describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   afterEach(() => {
-    setActiveWorkspaceStoreForTests(null)
+    setActiveWorkspaceId(null)
   })
 
   /** jsdom reports 0 for every element's clientWidth/clientHeight (no layout
@@ -1223,7 +1222,7 @@ describe('PaneContainer — pane drop target', () => {
 describe("PaneContainer — the identity row shares the pane's background/rounding", () => {
   afterEach(() => {
     sidebarOpenOverride.current = true
-    setActiveWorkspaceStoreForTests(null)
+    setActiveWorkspaceId(null)
   })
 
   it('nests the tab-bar row inside the same rounded/clipped box as the content — not an unstyled sibling of it', async () => {

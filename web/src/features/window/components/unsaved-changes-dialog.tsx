@@ -9,7 +9,7 @@ interface UnsavedChangesDialogProps {
   onCancel?: () => void
 }
 
-export function UnsavedChangesDialog({
+function UnsavedChangesDialog({
   fileName,
   onSave,
   onDiscard,

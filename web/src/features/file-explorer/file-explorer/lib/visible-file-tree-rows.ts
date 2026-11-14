@@ -195,14 +195,6 @@ export function findTopVisibleItemIndex(
   return topItem ? topItem.index : -1
 }
 
-export function getStickyAncestorRow(
-  rows: readonly VisibleFileTreeRow[],
-  firstVisibleIndex: number,
-): VisibleFileTreeRow | null {
-  const ancestors = getStickyAncestorRows(rows, firstVisibleIndex)
-  return ancestors[ancestors.length - 1] ?? null
-}
-
 export function getStickyAncestorRows(
   rows: readonly VisibleFileTreeRow[],
   firstVisibleIndex: number,

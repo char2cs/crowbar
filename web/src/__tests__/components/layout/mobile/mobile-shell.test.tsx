@@ -4,10 +4,8 @@ import { useMobileScreenStore } from '@/features/window/stores/mobile-screen-sto
 import { useUIState } from '@/features/window/stores/ui-state-store'
 import { treeUiStore, type RemovalDraft } from '@/features/workspace/tree/tree-ui-store'
 import type { Project } from '@/lib/types'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 import { writeChat } from '@/__tests__/__fixtures__/agent-chat'
 

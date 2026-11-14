@@ -121,7 +121,7 @@ function syncMacOSWindowAppearance(themeType: 'light' | 'dark') {
   })
 }
 
-export function cacheFontSettings(
+function cacheFontSettings(
   settings: Pick<
     Settings,
     'fontFamily' | 'uiFontFamily' | 'uiFontSize' | 'markdownFontSize' | 'headingFontFamily'

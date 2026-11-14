@@ -11,10 +11,8 @@ import { loadEditorHost, reopenDocument, type EditorHost } from '@/features/edit
 import { activeEditors } from '@/features/editor/lib/active-editor-context'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
 import type { LspDiagnostic } from '@/features/editor/lsp/lsp-client'
-import {
-  resetWindowPaneStoreForTests,
-  windowPaneStore,
-} from '@/features/panes/stores/window-pane-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
