@@ -127,12 +127,18 @@ type wireMsg struct {
 
 func newSocketRig(t *testing.T) *socketRig {
 	t.Helper()
+	return newSocketRigFor(t, wsProvider, func(endpoint string) []byte { return fmt.Appendf(nil, wsDescriptor, endpoint) })
+}
+
+// newSocketRigFor is a socketRig whose provider is the descriptor describe renders
+// for the endpoint file the rig serves.
+func newSocketRigFor(t *testing.T, provider string, describe func(endpoint string) []byte) *socketRig {
+	t.Helper()
 	s := &socketRig{ws: kit.NewFakeWS(t), endpoint: filepath.Join(t.TempDir(), "endpoint.json"), calls: make(chan wireMsg, 64)}
 	s.offerEndpoint(t)
 	s.rig = newRigWith(t, func(t *testing.T, home, _ string) {
 		require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
-		require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", wsProvider+".yaml"),
-			fmt.Appendf(nil, wsDescriptor, s.endpoint), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", provider+".yaml"), describe(s.endpoint), 0o600))
 	})
 	go s.answer(t.Context())
 	return s

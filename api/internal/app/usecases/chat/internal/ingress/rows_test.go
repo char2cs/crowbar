@@ -262,6 +262,32 @@ func TestMap_ATurnStopRecordsItsReplyWithItsEnd(t *testing.T) {
 	assert.False(t, running)
 }
 
+// A thought that names the message it came with is that message's; the turn keeps
+// each, and every thought naming none is the turn's last, the newest standing.
+func TestMap_ATurnStopRecordsEachThoughtWithTheMessageItNames(t *testing.T) {
+	c := liveChatRows(t)
+	turnID := c.typed("go")
+	s := hooksSource()
+	s.Live = Unrecorded{
+		Answers: []liveText{{TurnID: turnID, ID: "a1", Text: "one"}, {TurnID: turnID, ID: "a2", Text: "two"}},
+		Reasoning: []liveText{
+			{TurnID: turnID, ID: "a1", Text: "first"},
+			{TurnID: turnID, ID: "a2", Text: "second"},
+			{TurnID: turnID, ID: "x", Text: "unnamed"},
+			{TurnID: "other", ID: "a1", Text: "of another turn"},
+		},
+	}
+
+	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1", Message: "two"}, s)
+
+	require.Equal(t, []ledger.Kind{
+		ledger.KindAssistantText, ledger.KindAssistantText, ledger.KindReasoning, ledger.KindReasoning, ledger.KindTurnEnded,
+	}, kinds(rows))
+	assert.Equal(t, ledger.Reasoning{MessageID: "a1", Text: "first"}, bodyOf[ledger.Reasoning](t, rows[2]))
+	assert.Equal(t, ledger.Reasoning{MessageID: "a2", Text: "unnamed"}, bodyOf[ledger.Reasoning](t, rows[3]),
+		"a thought naming no message is the last message's, and the newest of them stands")
+}
+
 func TestMap_AReplyWithNothingStreamedIsTheTurnsReply(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")

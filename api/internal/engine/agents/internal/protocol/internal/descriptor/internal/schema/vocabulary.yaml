@@ -346,7 +346,11 @@ events:
     #
     # model.* is the chat's composed model id taken back apart (ModelSpec.IDSplit),
     # for a session call that takes its parts as separate fields.
-    optional: [session_id, cwd, context, call_id, "permission.*", "model.*"]
+    #
+    # The relay vars are the ones an argv template reads, for a session call that hands
+    # the provider Crowbar's MCP server. {runner_token} is deliberately absent: it
+    # rides a file, since a request body is logged.
+    optional: [session_id, cwd, context, call_id, "permission.*", "model.*", crowbar, tmp, segid, project_id, workspace_id, repo_id, daemon_host, crowbar_home]
 
   interrupt:
     direction: out

@@ -12,6 +12,9 @@ runtime:
     connect: [hermes, gateway, attach, --json, --recover]
     connect_map: { url: url, protocols: protocols }
     reconnect: { max: 5, backoff_ms: 500 }
+    # The gateway ids no text or thought; each model call (agent.step) is one message of its prompt.
+    remember:
+      - { in: event, when: { type: agent.step }, capture: { step: payload.iteration } }
     # Without server_requests the gateway withdraws approvals instead of sending them.
     handshake: { call: client.capabilities, params: { server_requests: true } }
   spawn:
@@ -81,7 +84,7 @@ events:
       unverified: true
       map:
         session_id: session_id
-        message_id: { first_present: [{ join: [payload.turn_id, payload.segment] }, session_id] }
+        message_id: { first_present: [{ join: [admission_id, captured.step] }, session_id] }
         text:       payload.text
         turn_id:    payload.turn_id
 
@@ -94,7 +97,7 @@ events:
       unverified: true
       map:
         session_id: session_id
-        message_id: { join: [payload.turn_id, payload.segment] }
+        message_id: { join: [admission_id, captured.step] }
         text:       payload.text
         turn_id:    payload.turn_id
 
@@ -105,7 +108,7 @@ events:
       in: event
       when: { type: reasoning.delta }
       unverified: true
-      map: { session_id: session_id, text: payload.text }
+      map: { session_id: session_id, message_id: { join: [admission_id, captured.step] }, text: payload.text }
 
   tool_pre:
     required: [session_id, tool_id, tool_name]
@@ -215,13 +218,23 @@ events:
   prompt:
     fresh:
       - call: session.create
-        send: { source: tui, cwd: "{cwd}", model: "{model.name}", provider: "{model.provider}" }
+        # source acp is the only per-session MCP path, and the gateway keeps it in memory: a
+        # resume after a restart must send the same editor block. No toolsets override.
+        send:
+          source: acp
+          cwd: "{cwd}"
+          model: "{model.name}"
+          provider: "{model.provider}"
+          editor: { mcp_servers: [{ name: crowbar, command: "{crowbar}", args: [mcp, --segment, "{segid}", --token-file, "{tmp}/mcp.token", --project, "{project_id}", --workspace, "{workspace_id}", --repo, "{repo_id}", --host, "{daemon_host}"], env: [{ name: CROWBAR_HOME, value: "{crowbar_home}" }] }] }
         # The chat's pick is absent, not empty, so an unchosen model inherits the profile's.
         optional: [model, provider]
         capture: { session_id: session_id, execution_generation: execution_generation }
     resume:
       - call: session.resume
-        send: { session_id: "{session_id}", omit_messages: true }
+        send:
+          session_id: "{session_id}"
+          omit_messages: true
+          editor: { mcp_servers: [{ name: crowbar, command: "{crowbar}", args: [mcp, --segment, "{segid}", --token-file, "{tmp}/mcp.token", --project, "{project_id}", --workspace, "{workspace_id}", --repo, "{repo_id}", --host, "{daemon_host}"], env: [{ name: CROWBAR_HOME, value: "{crowbar_home}" }] }] }
         capture: { execution_generation: execution_generation }
     action:
       - call: prompt.submit
@@ -232,6 +245,10 @@ events:
   interrupt:
     out: session.interrupt
     send: { session_id: "{session_id}", execution_generation: "{execution_generation}" }
+
+# A dialed server takes no argv, so only this write_file runs: the token rides a 0600 file, never a body.
+mcp_injection:
+  - write_file: { path: "{tmp}/mcp.token", content: "{runner_token}" }
 
 # model.options lists every provider row with its models as bare ids; only rows the
 # profile is authenticated for are kept. Unverified: the shape comes from the typed contract

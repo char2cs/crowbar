@@ -49,6 +49,16 @@ type APISpec struct {
 	Requests  map[string]RequestSpec `yaml:"requests"`
 	Stream    StreamSpec             `yaml:"stream"`
 	Reconnect ReconnectSpec          `yaml:"reconnect"`
+	// Remember keeps values out of frames no event maps, for later maps to read as captured.NAME.
+	Remember []FrameCapture `yaml:"remember"`
+}
+
+// FrameCapture picks a frame by In and When as an event does, and keeps its Capture paths by
+// name; a null or absent path keeps the last value.
+type FrameCapture struct {
+	In      WireRef           `yaml:"in"`
+	When    WhenMap           `yaml:"when"`
+	Capture map[string]string `yaml:"capture"`
 }
 
 // ConnectMap holds paths into the connect JSON. Headers maps a header name to

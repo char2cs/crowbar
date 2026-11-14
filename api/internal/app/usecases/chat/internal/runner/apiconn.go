@@ -270,6 +270,16 @@ func (rs *Runners) establishAPISession(
 		// Only Fresh renders {context}; a resumed session gets the same document
 		// through applyAPITransport's resumeContext inject.
 		"context": tctx.Context,
+		// What argv templates read, for a session call that hands the provider
+		// Crowbar's MCP server. Never {runner_token}: bodies are logged.
+		"crowbar":      tctx.CrowbarBin,
+		"tmp":          tctx.Tmp,
+		"segid":        tctx.Segid,
+		"project_id":   tctx.ProjectID,
+		"workspace_id": tctx.WorkspaceID,
+		"repo_id":      tctx.RepoID,
+		"daemon_host":  tctx.DaemonHost,
+		"crowbar_home": tctx.CrowbarHome,
 	}
 	// A fresh session renders the chat's permission level from the same vars a
 	// restart_tui spawn's argv does, or it launches with none.
