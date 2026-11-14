@@ -1,4 +1,4 @@
-// web/scripts/check-bundle-budget.mjs — fails if the boot bundle exceeds budget.
+// app/panes/scripts/check-bundle-budget.mjs — fails if the boot bundle exceeds budget.
 //
 // The boot bundle is what the app downloads and parses before first paint: the
 // entry chunk plus the `_shell` route chunk (the app frame every route renders

@@ -12,7 +12,7 @@ Plan and acceptance targets: `docs/plans/2026-10-16-endpoint-security-load.md`.
     make meter ARGS=--keep                      # keep the fixture repos too
 
 It drives the real desktop app (`tauri dev`, WKWebView, sidecar daemon on a
-unix socket) through the `scripts/e2e` instance: own `CROWBAR_HOME`, socket and
+unix socket) through the `tools/scripts/e2e` instance: own `CROWBAR_HOME`, socket and
 webview origin; it never touches `~/.crowbar`. It refuses to start while
 another dev `crowbar-api`/`crowbar-desktop` runs. Needs bun, Go, Rust, clang.
 

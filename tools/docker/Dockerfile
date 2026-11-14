@@ -1,11 +1,11 @@
 # WEB selects the SPA baked into the binary: "embed" (default) needs a prebuilt
-# web/dist; "none" builds with -tags noEmbed for a headless API-only daemon.
+# app/panes/dist; "none" builds with -tags noEmbed for a headless API-only daemon.
 ARG WEB=embed
 
 # Both stages expose /dist so the builder's COPY is the same either way; the
-# unselected stage is never built, so "none" does not need web/dist.
+# unselected stage is never built, so "none" does not need app/panes/dist.
 FROM alpine:3.21 AS web-embed
-COPY web/dist /dist
+COPY app/panes/dist /dist
 
 FROM alpine:3.21 AS web-none
 RUN mkdir /dist

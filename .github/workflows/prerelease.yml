@@ -27,7 +27,7 @@ jobs:
       - name: Compute beta tag
         id: tag
         run: |
-          VERSION=$(grep -m1 '^version' desktop/src-tauri/Cargo.toml | grep -oP '[\d.]+')
+          VERSION=$(grep -m1 '^version' app/mobile/src-tauri/Cargo.toml | grep -oP '[\d.]+')
           BETA_NUM=$(( $(git tag -l "v${VERSION}-beta.*" | wc -l | tr -d ' ') + 1 ))
           TAG="v${VERSION}-beta.${BETA_NUM}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
@@ -64,7 +64,7 @@ jobs:
           VITE_BUILD_CHANNEL: beta
           VITE_BUILD_VERSION: ${{ needs.derive-tag.outputs.tag }}
           VITE_BUILD_TIMESTAMP: ${{ needs.derive-tag.outputs.timestamp }}
-        run: cd web && bun install --frozen-lockfile && bun run build
+        run: cd app/panes && bun install --frozen-lockfile && bun run build
       - name: Stage web assets for embedding
         run: cd api && make embed-web
       - name: Build daemon
@@ -100,7 +100,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: app/mobile/src-tauri
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.2'
@@ -111,51 +111,51 @@ jobs:
         run: cargo binstall tauri-cli@^2 --no-confirm --locked
       - name: Build Go sidecar (arm64 + amd64)
         run: |
-          mkdir -p desktop/src-tauri/binaries
+          mkdir -p app/mobile/src-tauri/binaries
           cd api
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags noEmbed \
-            -o ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
+            -o ../app/mobile/src-tauri/binaries/crowbar-api-aarch64-apple-darwin ./cmd/crowbar
           GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -tags noEmbed \
-            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
+            -o ../app/mobile/src-tauri/binaries/crowbar-api-x86_64-apple-darwin ./cmd/crowbar
           # cargo tauri build --target universal-apple-darwin bundles a single
           # sidecar named for the "universal-apple-darwin" triple — it does not
           # lipo the two arch-specific sidecars above on its own.
           lipo -create \
-            ../desktop/src-tauri/binaries/crowbar-api-aarch64-apple-darwin \
-            ../desktop/src-tauri/binaries/crowbar-api-x86_64-apple-darwin \
-            -output ../desktop/src-tauri/binaries/crowbar-api-universal-apple-darwin
+            ../app/mobile/src-tauri/binaries/crowbar-api-aarch64-apple-darwin \
+            ../app/mobile/src-tauri/binaries/crowbar-api-x86_64-apple-darwin \
+            -output ../app/mobile/src-tauri/binaries/crowbar-api-universal-apple-darwin
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           VITE_BUILD_CHANNEL: beta
           VITE_BUILD_VERSION: ${{ needs.derive-tag.outputs.tag }}
           VITE_BUILD_TIMESTAMP: ${{ needs.derive-tag.outputs.timestamp }}
-        run: cd web && bun install --frozen-lockfile && bun run build
+        run: cd app/panes && bun install --frozen-lockfile && bun run build
       - name: Sync version into tauri.conf.json
-        run: jq ".version = \"${VERSION}\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
+        run: jq ".version = \"${VERSION}\"" app/mobile/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json app/mobile/src-tauri/tauri.conf.json
       - name: Compile Liquid Glass icon (Xcode 26+ only)
-        run: bash desktop/icons-compiler/compile-icon.sh
+        run: bash app/mobile/icons-compiler/compile-icon.sh
       - name: Build Tauri app (universal DMG)
         env:
           # Signing + notarization are opt-in: when these secrets are unset they
           # expand to empty strings and the script builds the same ad-hoc
-          # (unsigned) DMG as before. See desktop/scripts/build-macos-dmg.sh.
+          # (unsigned) DMG as before. See app/mobile/scripts/build-macos-dmg.sh.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bash desktop/scripts/build-macos-dmg.sh
+        run: bash app/mobile/scripts/build-macos-dmg.sh
       - name: Verify artifact
         run: |
-          DMG=$(find desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
+          DMG=$(find app/mobile/src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
           [ -s "$DMG" ] || (echo "DMG missing or empty" && exit 1)
           echo "DMG: $DMG ($(du -h "$DMG" | cut -f1))"
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-macos
-          path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: app/mobile/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
   ios:
     needs: derive-tag
@@ -190,7 +190,7 @@ jobs:
           toolchain: '1.90'
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri
+          workspaces: app/mobile/src-tauri
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.2'
@@ -207,34 +207,34 @@ jobs:
         run: cargo binstall tauri-cli@^2 --no-confirm --locked
       - name: Build Go sidecar (${{ matrix.triple }})
         run: |
-          mkdir -p desktop/src-tauri/binaries
+          mkdir -p app/mobile/src-tauri/binaries
           cd api && GOOS=linux GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build -tags noEmbed \
-            -o ../desktop/src-tauri/binaries/crowbar-api-${{ matrix.triple }} ./cmd/crowbar
+            -o ../app/mobile/src-tauri/binaries/crowbar-api-${{ matrix.triple }} ./cmd/crowbar
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           VITE_BUILD_CHANNEL: beta
           VITE_BUILD_VERSION: ${{ needs.derive-tag.outputs.tag }}
           VITE_BUILD_TIMESTAMP: ${{ needs.derive-tag.outputs.timestamp }}
-        run: cd web && bun install --frozen-lockfile && bun run build
+        run: cd app/panes && bun install --frozen-lockfile && bun run build
       - name: Sync version into tauri.conf.json
-        run: jq ".version = \"${VERSION}\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
+        run: jq ".version = \"${VERSION}\"" app/mobile/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json app/mobile/src-tauri/tauri.conf.json
       - name: Build Tauri app (AppImage + deb)
-        working-directory: desktop/src-tauri
+        working-directory: app/mobile/src-tauri
         run: |
           cargo tauri build --bundles appimage,deb \
             --config '{"bundle":{"macOS":{"files":{}}}}'
       - name: Verify artifacts
         run: |
-          APPIMAGE=$(find desktop/src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          APPIMAGE=$(find app/mobile/src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
           [ -s "$APPIMAGE" ] || (echo "AppImage missing or empty" && exit 1)
           echo "AppImage: $APPIMAGE ($(du -h "$APPIMAGE" | cut -f1))"
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-linux-${{ matrix.goarch }}
           path: |
-            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
-            desktop/src-tauri/target/release/bundle/deb/*.deb
+            app/mobile/src-tauri/target/release/bundle/appimage/*.AppImage
+            app/mobile/src-tauri/target/release/bundle/deb/*.deb
 
   release:
     needs: [derive-tag, daemon, desktop-macos, desktop-linux, ios]

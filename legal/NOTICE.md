@@ -13,14 +13,14 @@ into the application by the build.
 
 ## Fonts
 
-### Cal Sans — `web/public/fonts/CalSans-Regular.woff2`, `web/public/fonts/CalSansUI.woff2`
+### Cal Sans — `app/panes/public/fonts/CalSans-Regular.woff2`, `app/panes/public/fonts/CalSansUI.woff2`
 
 Copyright 2021 The Cal Sans Project Authors (https://github.com/calcom/font)
 
 Licensed under the SIL Open Font License, Version 1.1.
 Full license text: [`licenses/CalSans-OFL-1.1.txt`](licenses/CalSans-OFL-1.1.txt)
 
-### Symbols Nerd Font Mono — `web/public/fonts/SymbolsNerdFontMono-Regular.woff2`
+### Symbols Nerd Font Mono — `app/panes/public/fonts/SymbolsNerdFontMono-Regular.woff2`
 
 Copyright (c) 2014 Ryan L McIntyre (https://github.com/ryanoasis/nerd-fonts)
 
@@ -40,7 +40,7 @@ in `api/go.mod` points the module at this directory.
 The copy is locally patched; details in `api/internal/core/terminal/internal/model/UPSTREAM.md`.
 Full license text: [`api/third_party/x-vt/LICENSE`](api/third_party/x-vt/LICENSE)
 
-### xterm.js — `api/third_party/x-vt/reflow.go`, `web/src/features/terminal/lib/terminal-links.ts`
+### xterm.js — `api/third_party/x-vt/reflow.go`, `app/panes/src/features/terminal/lib/terminal-links.ts`
 
 Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
 

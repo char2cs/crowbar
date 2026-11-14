@@ -1,4 +1,4 @@
-// web/scripts/check-knip.mjs — dead-code gate over knip (full + --production).
+// app/panes/scripts/check-knip.mjs — dead-code gate over knip (full + --production).
 //
 // knip.json's `ignoreIssues` / `ignoreDependencies` are the baseline of
 // findings that predate the gate. This script runs knip WITHOUT them and

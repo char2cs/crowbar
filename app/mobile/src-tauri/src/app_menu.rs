@@ -12,7 +12,7 @@ const NEW_WINDOW_MENU_ID: &str = "new_window";
 const CLOSE_WINDOW_MENU_ID: &str = "close_window";
 
 /// Accelerators here must not collide with the frontend keymap
-/// (web/src/features/keymaps/registry.ts): AppKit consumes a menu accelerator before
+/// (app/panes/src/features/keymaps/registry.ts): AppKit consumes a menu accelerator before
 /// WKWebView sees the key, making the in-app binding unreachable and unrebindable.
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let app_menu = SubmenuBuilder::new(app, "Crowbar")

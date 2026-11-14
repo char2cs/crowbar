@@ -1,7 +1,7 @@
 # macOS Code Signing & Notarization
 
 Crowbar's macOS DMGs are built by three workflows — `nightly.yml`, `prerelease.yml`,
-`stable-release.yml` — all of which call `desktop/scripts/build-macos-dmg.sh`.
+`stable-release.yml` — all of which call `app/mobile/scripts/build-macos-dmg.sh`.
 
 Signing + notarization is **opt-in via GitHub secrets**. Until the six secrets
 below exist, every build produces the same ad-hoc-signed (effectively unsigned)
@@ -95,9 +95,9 @@ before relying on CI — signing errors are far easier to read in a local termin
 
 ## Files involved
 
-- `desktop/scripts/build-macos-dmg.sh` — assembles the signing `--config` overlay
+- `app/mobile/scripts/build-macos-dmg.sh` — assembles the signing `--config` overlay
   and runs the build; no-op signing when `APPLE_SIGNING_IDENTITY` is empty.
-- `desktop/src-tauri/Entitlements.plist` — Hardened Runtime entitlements (WebView
+- `app/mobile/src-tauri/Entitlements.plist` — Hardened Runtime entitlements (WebView
   JIT). Required for a notarized Tauri app to launch without crashing.
 - `.github/workflows/{nightly,prerelease,stable-release}.yml` — pass the six
   secrets into the build step's environment.

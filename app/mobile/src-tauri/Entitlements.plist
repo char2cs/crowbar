@@ -8,7 +8,7 @@
 
       These are only consumed when the app is signed with a real Developer ID
       identity and `hardenedRuntime` is enabled (see
-      desktop/scripts/build-macos-dmg.sh). They are REQUIRED for a notarized
+      app/mobile/scripts/build-macos-dmg.sh). They are REQUIRED for a notarized
       Tauri app to launch: the WKWebView JavaScript engine JIT-compiles code and
       allocates executable memory, which the Hardened Runtime blocks by default.
       Without these three keys the app passes notarization but then crashes on

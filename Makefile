@@ -11,7 +11,7 @@ export CARGO_HOME := $(HOME)/.cargo
 dev dev-api dev-web dev-desktop dev-bundle seed seed-chat: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
 
 # Which worktree launched this dev instance. Debug builds put it in the window
-# title (see apply_window_title in desktop/src-tauri/src/dev_identity.rs) so that the
+# title (see apply_window_title in app/mobile/src-tauri/src/dev_identity.rs) so that the
 # several dev apps running on one machine — one per worktree, all of them a
 # `target/debug/crowbar-desktop` window called "Crowbar" — can be told apart.
 #
@@ -26,9 +26,9 @@ dev dev-api dev-web dev-desktop dev-bundle: export CROWBAR_DEV_LABEL ?= $(shell 
 # Which ORIGIN this worktree's dev app is served from. CROWBAR_HOME above
 # isolates the daemon; this isolates the webview, whose IndexedDB, localStorage
 # and service workers are keyed by origin and were shared by every worktree back
-# when the dev URL was a hardcoded localhost:5173. See desktop/Makefile for the
+# when the dev URL was a hardcoded localhost:5173. See app/mobile/Makefile for the
 # full rationale and the corruption it caused. Derived from the same worktree
-# root as desktop/Makefile so both entry points agree; override to pin one.
+# root as app/mobile/Makefile so both entry points agree; override to pin one.
 dev dev-web dev-desktop: export CROWBAR_DEV_PORT ?= $(shell printf '%s' '$(crowbar_root)' | cksum | awk '{print 5300 + ($$1 % 600)}')
 
 # Parallel dev. dev-web is deliberately NOT started here: dev-desktop's
@@ -44,13 +44,13 @@ dev-api:
 	$(MAKE) -C api dev
 
 dev-web:
-	$(MAKE) -C web dev
+	$(MAKE) -C app/panes dev
 
 # Preinstall web deps before launching the desktop app: Tauri's beforeDevCommand
-# runs the Vite dev server (cd ../web && npm run dev), which needs web/node_modules
+# runs the Vite dev server (cd ../panes && npm run dev), which needs app/panes/node_modules
 # to already exist. Kept as a prerequisite so a fresh checkout just works.
 dev-desktop: web-install
-	$(MAKE) -C desktop dev
+	$(MAKE) -C app/mobile dev
 
 # Fills the RUNNING dev daemon with a throwaway repo, project, repo, feature
 # workspace with a real diff, and review threads — so a new workspace does not
@@ -70,58 +70,58 @@ seed-chat:
 	@cd api && go run -tags noEmbed ./cmd/crowbar-seed-chat --workspace-id $(WORKSPACE_ID) --turns $(TURNS) --tool-calls $(TOOL_CALLS)
 
 # End-to-end suite against a real dev instance of this checkout, in an isolated
-# CROWBAR_HOME and webview origin (scripts/e2e/README.md). `e2e` drives the
+# CROWBAR_HOME and webview origin (tools/scripts/e2e/README.md). `e2e` drives the
 # Tauri desktop app; `e2e-browser` drives the same bundle in a headless Chrome.
 # ARGS passes flags through, e.g. make e2e ARGS=--only=console,recents
 ARGS ?=
 e2e:
-	@bun scripts/e2e/run.mjs --target=tauri $(ARGS)
+	@bun tools/scripts/e2e/run.mjs --target=tauri $(ARGS)
 
 e2e-browser:
-	@bun scripts/e2e/run.mjs --target=browser $(ARGS)
+	@bun tools/scripts/e2e/run.mjs --target=browser $(ARGS)
 
 # Endpoint-security meter: execs, file opens, held fds and file changes caused
-# by the desktop app and its daemon, per scenario (scripts/meter/README.md).
+# by the desktop app and its daemon, per scenario (tools/scripts/meter/README.md).
 # make meter ARGS='--only=burst --idle=60 --shims'
 meter:
-	@bun scripts/meter/run.mjs $(ARGS)
+	@bun tools/scripts/meter/run.mjs $(ARGS)
 
 # Release iOS app (no dev server). Free Apple ID: see docs/ios-device.md.
 ios-device ios-sim ios-doctor: ios-%:
-	@bash desktop/scripts/ios-install.sh $* $(if $(DRY_RUN),--dry-run)
+	@bash app/mobile/scripts/ios-install.sh $* $(if $(DRY_RUN),--dry-run)
 
 web-install:
-	$(MAKE) -C web install
+	$(MAKE) -C app/panes install
 
 # Debug bundle with macOS 26 Tahoe adaptive icon — no hot reload.
 dev-bundle:
 	@echo "Building web..."
-	@$(MAKE) -C web build
+	@$(MAKE) -C app/panes build
 	@echo "Building debug bundle..."
-	@$(MAKE) -C desktop dev-bundle
+	@$(MAKE) -C app/mobile dev-bundle
 
 build:
 	@echo "Building web..."
-	@$(MAKE) -C web build
+	@$(MAKE) -C app/panes build
 	@echo "Building Go daemon..."
 	@$(MAKE) -C api build
 	@echo "Building Tauri app..."
-	@$(MAKE) -C desktop build
+	@$(MAKE) -C app/mobile build
 
 test:
 	@$(MAKE) -C api test
-	@$(MAKE) -C web test
-	@$(MAKE) -C desktop test
+	@$(MAKE) -C app/panes test
+	@$(MAKE) -C app/mobile test
 
 lint:
 	@$(MAKE) -C api lint
-	@$(MAKE) -C web lint
-	@$(MAKE) -C desktop lint
+	@$(MAKE) -C app/panes lint
+	@$(MAKE) -C app/mobile lint
 
 test-coverage:
 	@$(MAKE) -C api test-coverage
-	@$(MAKE) -C web test-coverage
-	@$(MAKE) -C desktop test-coverage
+	@$(MAKE) -C app/panes test-coverage
+	@$(MAKE) -C app/mobile test-coverage
 
 pr-checks: lint test-coverage build
 	@echo "All PR checks passed! ✓"
@@ -129,9 +129,9 @@ pr-checks: lint test-coverage build
 ci: lint test build
 
 docker-up:
-	@$(MAKE) -C web build
-	docker compose -f docker/docker-compose.yml up --build -d
-	@echo "Crowbar running at https://localhost:$${CROWBAR_PORT:-3737} (self-signed TLS; pair with: docker compose -f docker/docker-compose.yml exec crowbar crowbar pair)"
+	@$(MAKE) -C app/panes build
+	docker compose -f tools/docker/docker-compose.yml up --build -d
+	@echo "Crowbar running at https://localhost:$${CROWBAR_PORT:-3737} (self-signed TLS; pair with: docker compose -f tools/docker/docker-compose.yml exec crowbar crowbar pair)"
 
 docker-down:
-	docker compose -f docker/docker-compose.yml down
+	docker compose -f tools/docker/docker-compose.yml down

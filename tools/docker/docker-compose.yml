@@ -5,10 +5,10 @@ name: crowbar
 services:
   crowbar:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../..
+      dockerfile: tools/docker/Dockerfile
       args:
-        # "embed" bakes in web/dist (build it first); "none" is a headless API-only daemon.
+        # "embed" bakes in app/panes/dist (build it first); "none" is a headless API-only daemon.
         WEB: ${CROWBAR_WEB:-embed}
     # One tag per variant, so building "none" does not overwrite the "embed" image.
     image: ghcr.io/rabbytesoftware/crowbar:${CROWBAR_WEB:-embed}

@@ -4,7 +4,7 @@
 
 - Apple secrets all present: signed `.ipa` (App Store Connect export), uploaded to TestFlight with `xcrun altool`.
 - Any secret missing: unsigned simulator build; `Crowbar_<version>_ios-simulator.app.zip` is uploaded as the `ios-simulator` artifact and attached to the release. The job stays green.
-- Marketing version: `desktop/src-tauri/Cargo.toml` version (`CFBundleShortVersionString`).
+- Marketing version: `app/mobile/src-tauri/Cargo.toml` version (`CFBundleShortVersionString`).
 - Build number (`CFBundleVersion`): UTC `yymmddHHMM` of the build, passed as `bundle.iOS.bundleVersion`. One integer, unique and increasing across all three workflows.
 - PR CI (`ios-checks` in `ci.yml`): `cargo check`/`clippy` for `aarch64-apple-ios-sim`, plugin Swift tests on an iPhone simulator, unsigned simulator build.
 

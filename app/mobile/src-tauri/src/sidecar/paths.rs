@@ -58,6 +58,7 @@ fn injected_home(current: Option<&OsStr>) -> Option<PathBuf> {
     return std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
+        .and_then(std::path::Path::parent)
         .map(dev_home_override);
     #[cfg(not(debug_assertions))]
     None

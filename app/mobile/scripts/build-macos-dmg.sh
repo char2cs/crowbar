@@ -29,7 +29,7 @@
 #
 set -euo pipefail
 
-# Resolve to desktop/src-tauri regardless of the caller's working directory.
+# Resolve to app/mobile/src-tauri regardless of the caller's working directory.
 cd "$(dirname "$0")/../src-tauri"
 
 # --- Assemble the `bundle.macOS` config overlay -----------------------------

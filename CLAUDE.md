@@ -27,8 +27,8 @@
 - Every nolint / eslint-disable / react-doctor-disable / ts-expect-error names
   the rule and gives a reason on the same line. Never loosen a lint config,
   coverage floor, or budget to get green.
-- Baselines (`api/deadcode-baseline.txt`, `web/knip.json` ignoreIssues, the
-  `*_BASELINE` lists in `web/eslint.config.js`, golangci-lint's `new-from-rev`)
+- Baselines (`api/deadcode-baseline.txt`, `app/panes/knip.json` ignoreIssues, the
+  `*_BASELINE` lists in `app/panes/eslint.config.js`, golangci-lint's `new-from-rev`)
   only shrink: fix an entry, delete it; never add one.
 
 ## Go (`api/`)
@@ -40,7 +40,7 @@
 - A test that needs file permissions enforced calls
   `testutil.RequirePermissionEnforcement(t)` (skips as root and on Windows).
 
-# Web (`web/`)
+# Web (`app/panes/`)
 
 Checks CI runs: `bunx eslint . --max-warnings 0`, `bun run knip` (dead code),
 `bunx tsc --noEmit`, `bunx prettier --check .`, `bun run test:coverage`,
@@ -48,9 +48,9 @@ Checks CI runs: `bunx eslint . --max-warnings 0`, `bun run knip` (dead code),
 
 ## Test file location
 
-All test files live in `web/src/__tests__/` mirroring the `web/src/` structure.
+All test files live in `app/panes/src/__tests__/` mirroring the `app/panes/src/` structure.
 
-**Rule:** A test for `web/src/features/X/lib/foo.ts` goes in `web/src/__tests__/features/X/lib/foo.test.ts`.
+**Rule:** A test for `app/panes/src/features/X/lib/foo.ts` goes in `app/panes/src/__tests__/features/X/lib/foo.test.ts`.
 
 Do **not** create `features/X/tests/` directories — the co-located pattern was retired in favour of the mirror structure.
 

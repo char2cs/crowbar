@@ -1,4 +1,4 @@
-// web/scripts/check-eslint-baselines.mjs — stale-entry gate for the *_BASELINE
+// app/panes/scripts/check-eslint-baselines.mjs — stale-entry gate for the *_BASELINE
 // lists in eslint.config.js.
 //
 // `eslint .` already fails on any violation a baseline does not cover. This

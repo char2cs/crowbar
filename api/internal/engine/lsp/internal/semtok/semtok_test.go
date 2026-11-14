@@ -9,7 +9,7 @@ import (
 
 // TestLegend_PinsTheWireContract pins the canonical legend: the web editor's
 // provider legend mirrors it index for index, so any change here must land in
-// web/src/features/editor/lsp/semantic-tokens.ts in the same commit.
+// app/panes/src/features/editor/lsp/semantic-tokens.ts in the same commit.
 func TestLegend_PinsTheWireContract(t *testing.T) {
 	wantTypes := []string{
 		"namespace", "type", "class", "enum", "interface", "struct", "typeParameter",

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const config = JSON.parse(readFileSync(join(here, 'icons.json'), 'utf8'))
-const defs = join(here, '../../../web/node_modules/@phosphor-icons/react/dist/defs')
+const defs = join(here, '../../../panes/node_modules/@phosphor-icons/react/dist/defs')
 const out = join(here, '../ios/Sources/CrowbarIconData.swift')
 
 const num = (n) => String(Math.round(n * 1000) / 1000)

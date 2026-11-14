@@ -24,7 +24,7 @@ import (
 // third invariant says no recurring-timer request may be O(diff size). These
 // benchmarks are how that claim is checked rather than asserted.
 //
-// The diff shape mirrors scripts/perf/gen-big-diff-fixture.sh: scattered files
+// The diff shape mirrors tools/scripts/perf/gen-big-diff-fixture.sh: scattered files
 // (every Nth line changed, so hunks are many and separated by context), dense
 // whole-file rewrites, and one monster file. A uniform rewrite would collapse
 // each file to a single hunk and quietly understate hunk-shaped work.

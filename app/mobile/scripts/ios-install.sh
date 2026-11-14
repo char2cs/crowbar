@@ -7,8 +7,8 @@ set -euo pipefail
 MODE="${1:-doctor}"
 DRY_RUN="${DRY_RUN:-}"
 [ "${2:-}" = --dry-run ] && DRY_RUN=1
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TAURI_DIR="$ROOT/desktop/src-tauri"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TAURI_DIR="$ROOT/app/mobile/src-tauri"
 BASE_ID="software.rabbyte.crowbar"
 BUNDLE_ID="${IOS_BUNDLE_ID:-${BUNDLE_ID_SUFFIX:+$BASE_ID.$BUNDLE_ID_SUFFIX}}"
 BUNDLE_ID="${BUNDLE_ID:-$BASE_ID}"
@@ -138,9 +138,9 @@ check_signing() {
 check_web() {
   [ "$MODE" = doctor ] && return
   echo "Web bundle"
-  if (cd "$ROOT/web" && run bun install --frozen-lockfile >/dev/null && run bun run build >/dev/null); then
-    ok "web/dist built"
-  else die "web build failed; run 'cd web && bun run build' to see why"; fi
+  if (cd "$ROOT/app/panes" && run bun install --frozen-lockfile >/dev/null && run bun run build >/dev/null); then
+    ok "app/panes/dist built"
+  else die "web build failed; run 'cd app/panes && bun run build' to see why"; fi
 }
 
 tauri_build() { # tauri_build <target> [extra args]
@@ -167,7 +167,7 @@ do_sim() {
   app="$(find_app '*xcarchive*')"
   [ -n "$app" ] || app="$(find_app '*')"
   [ -n "$DRY_RUN" ] && app="${app:-<built Crowbar.app>}"
-  [ -n "$app" ] || die "build produced no .app under desktop/src-tauri/gen/apple/build"
+  [ -n "$app" ] || die "build produced no .app under app/mobile/src-tauri/gen/apple/build"
   local id
   id="$BUNDLE_ID"
   [ -n "$DRY_RUN" ] || id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"

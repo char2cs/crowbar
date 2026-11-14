@@ -123,7 +123,7 @@ export function applyRows(feed: ChatFeed, rows: LedgerRow[]): ChatFeed {
 
 const LIVE3 = resolve(
   import.meta.dirname,
-  '../../../../api/internal/app/usecases/chat/internal/ingress/testdata/live3',
+  '../../../../../api/internal/app/usecases/chat/internal/ingress/testdata/live3',
 )
 
 /** Rows `from`..`to` of a feed recorded from a real CLI (`<time> <frame>` per line). */

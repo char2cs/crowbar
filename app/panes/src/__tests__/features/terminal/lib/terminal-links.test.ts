@@ -359,7 +359,7 @@ const fixture = JSON.parse(
   readFileSync(
     join(
       dirname(fileURLToPath(import.meta.url)),
-      '../../../../../../api/internal/core/terminal/internal/model/testdata/xterm-wrapped-links.json',
+      '../../../../../../../api/internal/core/terminal/internal/model/testdata/xterm-wrapped-links.json',
     ),
     'utf8',
   ),

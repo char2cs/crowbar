@@ -1,10 +1,10 @@
 .PHONY: dev build test test-integration bench bench-update test-coverage lint lint-backlog deadcode govet pr-checks missing-tests embed-web descriptor-check descriptor-live
 
 embed-web:
-	@test -d ../web/dist || (echo "ERROR: web/dist not found. Run 'cd ../web && bun run build' first." && exit 1)
+	@test -d ../app/panes/dist || (echo "ERROR: app/panes/dist not found. Run 'cd ../app/panes && bun run build' first." && exit 1)
 	rm -rf cmd/crowbar/web/dist
 	mkdir -p cmd/crowbar/web
-	cp -r ../web/dist cmd/crowbar/web/dist
+	cp -r ../app/panes/dist cmd/crowbar/web/dist
 	# Precompressed siblings for the static handler (internal/api/static.go):
 	# browser mode gets gzip with no per-request compression work.
 	find cmd/crowbar/web/dist -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.html' -o -name '*.json' -o -name '*.svg' -o -name '*.wasm' -o -name '*.ttf' \) -size +1k -exec gzip -k -n -9 {} +

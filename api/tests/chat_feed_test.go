@@ -316,7 +316,7 @@ func TestChatFeed_ToolPayloadIsReadableByItsRef(t *testing.T) {
 var updateRowsFixture = flag.Bool("update-rows-fixture", false,
 	"write the recorded subagent session's rows fixture for the web tests")
 
-const recordedRowsFixture = "../../web/src/__tests__/__fixtures__/claude-subagent-session.rows.json"
+const recordedRowsFixture = "../../app/panes/src/__tests__/__fixtures__/claude-subagent-session.rows.json"
 
 // runIDs is what the daemon mints per run (chat, turn, runner, session ids)
 // and the blob digests, some of whose content names the run's session.

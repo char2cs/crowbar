@@ -22,7 +22,7 @@ var updateKindsFixture = flag.Bool("update-kinds-fixture", false, "write the row
 
 // kindsFixture is what the web's ledger types are checked against: written
 // only from here, so it never drifts from what Check accepts.
-const kindsFixture = "../../../../web/src/__tests__/__fixtures__/ledger-kinds.json"
+const kindsFixture = "../../../../app/panes/src/__tests__/__fixtures__/ledger-kinds.json"
 
 func TestCheck_TheKindsTheWebChecksAreTheOnesItAccepts(t *testing.T) {
 	got, err := json.MarshalIndent(map[string]any{"rowKinds": ledger.RowKinds(), "markerKinds": ledger.MarkerKinds()}, "", "  ")

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Entry point: `bun scripts/e2e/run.mjs [--target=tauri|browser] [--only=a,b] [--keep]`
+// Entry point: `bun tools/scripts/e2e/run.mjs [--target=tauri|browser] [--only=a,b] [--keep]`
 // (see README.md; `make e2e` wraps it).
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -48,7 +48,7 @@ if (only && selected.length !== only.length) {
 
 const artifacts = join(
   REPO_ROOT,
-  'scripts/e2e/artifacts',
+  'tools/scripts/e2e/artifacts',
   new Date().toISOString().replace(/[:.]/g, '-'),
 )
 const inst = new Instance(target)

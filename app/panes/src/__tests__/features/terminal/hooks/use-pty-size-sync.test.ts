@@ -135,7 +135,7 @@ const resizeFixture = JSON.parse(
   readFileSync(
     join(
       dirname(fileURLToPath(import.meta.url)),
-      '../../../../../../api/internal/core/terminal/internal/model/testdata/xterm-resize-reflow.json',
+      '../../../../../../../api/internal/core/terminal/internal/model/testdata/xterm-resize-reflow.json',
     ),
     'utf8',
   ),

@@ -156,7 +156,7 @@ describe('ProviderIcon', () => {
 // checked as it is, not as a stale copy.
 const DESCRIPTORS = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../../../api/internal/engine/agents/internal/protocol/internal/descriptor/descriptors-v3',
+  '../../../../../../api/internal/engine/agents/internal/protocol/internal/descriptor/descriptors-v3',
 )
 
 function shippedIcons(): Array<[string, string]> {

@@ -1,6 +1,6 @@
 // Ported from xterm.js 6.0.0 (src/common/buffer/Buffer.ts resize, _reflowLarger, _reflowSmaller;
 // BufferReflow.ts), Copyright (c) 2017-2019 The xterm.js authors, MIT License: see
-// licenses/xtermjs-MIT.txt at the repository root. Names follow xterm's.
+// legal/licenses/xtermjs-MIT.txt at the repository root. Names follow xterm's.
 
 package vt
 

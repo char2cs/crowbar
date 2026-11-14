@@ -23,7 +23,7 @@ binary with `CROWBAR_E2E_CHROME`). Nothing to log in to.
    command does.
 3. Builds the daemon, starts Vite and the app, seeds a throwaway git repo and
    project through the daemon API, then runs the scenarios in order.
-4. On failure: a screenshot per scenario in `scripts/e2e/artifacts/` (gitignored)
+4. On failure: a screenshot per scenario in `tools/scripts/e2e/artifacts/` (gitignored)
    and the run dir (daemon, Vite and app logs) is kept and printed. On success
    everything is removed.
 

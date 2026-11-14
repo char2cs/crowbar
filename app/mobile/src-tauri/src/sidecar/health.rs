@@ -175,11 +175,12 @@ mod tests {
 
     // Owned by the Go side (the boot gate's and the health handler's tests assert
     // them byte for byte), so a renamed state fails here as well.
-    const OK: &str = include_str!("../../../../api/internal/core/bootgate/testdata/health-ok.json");
+    const OK: &str =
+        include_str!("../../../../../api/internal/core/bootgate/testdata/health-ok.json");
     const MIGRATING: &str =
-        include_str!("../../../../api/internal/core/bootgate/testdata/health-migrating.json");
+        include_str!("../../../../../api/internal/core/bootgate/testdata/health-migrating.json");
     const HALTED: &str =
-        include_str!("../../../../api/internal/core/bootgate/testdata/health-halted.json");
+        include_str!("../../../../../api/internal/core/bootgate/testdata/health-halted.json");
     const HALT_MESSAGE: &str =
         "this home is at layout 9 but this Crowbar only knows layout 0: run a newer Crowbar";
 

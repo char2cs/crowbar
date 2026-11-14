@@ -132,7 +132,7 @@ RUN git config --global user.email "dev@crowbar.local" \
 
 WORKDIR /workspace
 
-COPY docker/dev-linux/start.sh /usr/local/bin/start.sh
+COPY tools/docker/dev-linux/start.sh /usr/local/bin/start.sh
 RUN chmod +x /usr/local/bin/start.sh
 
 EXPOSE 6080

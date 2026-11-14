@@ -16,7 +16,7 @@ import { Driver, Fatal } from './driver.mjs'
 import { installStubProvider } from './stub-provider.mjs'
 import { until } from './wait.mjs'
 
-export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
+export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..')
 const TOOL_PATH = [
   join(homedir(), '.bun/bin'),
   join(homedir(), '.cargo/bin'),
@@ -137,14 +137,14 @@ export class Instance {
       this.daemon = daemonClient(`http://127.0.0.1:${this.apiPort}`)
       this.startDaemonProcess()
     } else {
-      this.sh('make', ['-C', 'desktop', 'fetch-sidecar'], REPO_ROOT)
+      this.sh('make', ['-C', 'app/mobile', 'fetch-sidecar'], REPO_ROOT)
       this.daemon = daemonClient(this.socketPath())
     }
     this.vite = this.spawnLogged(
       'vite',
       'bunx',
       ['vite', '--port', String(this.devPort), '--strictPort'],
-      join(REPO_ROOT, 'web'),
+      join(REPO_ROOT, 'app/panes'),
       this.target === 'browser' ? { VITE_API_URL: `http://127.0.0.1:${this.apiPort}` } : {},
     )
     await until(
@@ -215,7 +215,7 @@ export class Instance {
       name,
       'bunx',
       ['@tauri-apps/cli', 'dev', '--no-watch', '--config', config],
-      join(REPO_ROOT, 'desktop'),
+      join(REPO_ROOT, 'app/mobile'),
     )
     const log = join(this.runDir, `${name}.log`)
     this.driver = await Driver.attach(this.devPort, {

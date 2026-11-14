@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Entry point: `bun scripts/meter/run.mjs [--only=a,b] [--idle=310] [--tail=30] [--shims] [--keep]`
+// Entry point: `bun tools/scripts/meter/run.mjs [--only=a,b] [--idle=310] [--tail=30] [--shims] [--keep]`
 // (see README.md; `make meter` wraps it).
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'

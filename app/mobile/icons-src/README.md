@@ -27,7 +27,7 @@ icon render visibly larger than its neighbours.
 Regenerate the whole set after changing it:
 
 ```sh
-cd desktop
+cd app/mobile
 bunx @tauri-apps/cli icon icons-src/crowbar-dark.png
 git checkout -- src-tauri/icons/icon.icns   # macOS keeps the Icon Composer output
 ```

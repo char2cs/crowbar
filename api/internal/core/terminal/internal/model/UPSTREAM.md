@@ -76,7 +76,7 @@ foundation ships, and which gates are deferred vs. accepted, with eyes open.*
   on ring eviction; a row off the grid is ignored. The serializer writes a soft-wrapped row
   unbroken, so the client's xterm sets the same bit.
 - A resize reflows the primary screen and its scrollback as xterm.js 6.0.0's `Buffer.resize` does
-  (`reflow.go`, ported under the MIT License, see `NOTICE.md`): chains rejoin or rewrap, rows
+  (`reflow.go`, ported under the MIT License, see `legal/NOTICE.md`): chains rejoin or rewrap, rows
   scroll into and out of history as xterm's do, and a resize leaves no pending wrap. The alternate
   screen is not reflowed and keeps its wrap bits. A line no reflow rewraps (the alternate screen's,
   and the cursor's own chain on the primary screen) is cut to the new width, where xterm keeps the

@@ -2,11 +2,11 @@
 
 Module `github.com/char2cs/crowbar/api`. A local, single-user daemon: it owns
 projects, git repositories and worktrees, PTY terminals, and the agent CLIs
-(Claude Code, Codex) running inside them, and serves the React app in `web/`
-over REST + WebSocket. The Tauri shell (`desktop/`) and a browser are both just
+(Claude Code, Codex) running inside them, and serves the React app in `app/panes/`
+over REST + WebSocket. The Tauri shell (`app/mobile/`) and a browser are both just
 clients.
 
-Build and test with `-tags noEmbed` (the default build embeds `web/dist`, see
+Build and test with `-tags noEmbed` (the default build embeds `app/panes/dist`, see
 `make embed-web`).
 
 ## Binaries — `cmd/`

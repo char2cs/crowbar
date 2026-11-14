@@ -8,10 +8,10 @@ export CARGO_HOME := $(HOME)/.cargo
 # (see root Makefile). Debug builds also default to this via cfg(debug_assertions)
 # in src-tauri/src/sidecar/paths.rs, which covers the dev-bundle .app launched by
 # `open` (launchd does not inherit this env).
-dev: export CROWBAR_HOME ?= $(abspath ..)/.crowbar
+dev: export CROWBAR_HOME ?= $(abspath ../..)/.crowbar
 
 # Worktree label for the dev window title (see root Makefile). Repeated here so
-# a bare `cd desktop && make dev` is labelled too; `?=` leaves the root
+# a bare `cd app/mobile && make dev` is labelled too; `?=` leaves the root
 # Makefile's value alone when it delegates here.
 crowbar_root := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 dev: export CROWBAR_DEV_LABEL ?= $(shell git -C $(crowbar_root) rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -38,10 +38,10 @@ dev: export CROWBAR_DEV_LABEL ?= $(shell git -C $(crowbar_root) rev-parse --abbr
 # on the old config does not land on top of us.
 #
 # Hashed from the WORKTREE ROOT, not this directory, so `make dev-desktop` from
-# the root and `cd desktop && make dev` derive the SAME port. They must: a
+# the root and `cd app/mobile && make dev` derive the SAME port. They must: a
 # different port is a different origin, and the same worktree would otherwise
 # keep two divergent entity caches depending on which way it was launched.
-crowbar_ws_root := $(abspath $(crowbar_root)/..)
+crowbar_ws_root := $(abspath $(crowbar_root)/../..)
 crowbar_dev_port := $(shell printf '%s' '$(crowbar_ws_root)' | cksum | awk '{print 5300 + ($$1 % 600)}')
 dev: export CROWBAR_DEV_PORT ?= $(crowbar_dev_port)
 
@@ -52,7 +52,7 @@ dev: export CROWBAR_DEV_PORT ?= $(crowbar_dev_port)
 # carry one, and it killed every OTHER worktree's dev server on the machine.
 dev: fetch-sidecar
 	@echo "dev origin: http://localhost:$(CROWBAR_DEV_PORT)  (isolated per worktree)"
-	bunx @tauri-apps/cli dev --config '{"build":{"devUrl":"http://localhost:$(CROWBAR_DEV_PORT)","beforeDevCommand":"cd ../web && npm run dev -- --port $(CROWBAR_DEV_PORT) --strictPort"}}'
+	bunx @tauri-apps/cli dev --config '{"build":{"devUrl":"http://localhost:$(CROWBAR_DEV_PORT)","beforeDevCommand":"cd ../panes && npm run dev -- --port $(CROWBAR_DEV_PORT) --strictPort"}}'
 
 # Debug bundle: real .app with the macOS 26 Tahoe adaptive icon.
 # No hot reload — rebuild manually when source changes.

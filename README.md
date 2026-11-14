@@ -10,7 +10,7 @@ Crowbar is a local-first desktop IDE built around that gap. Import a repository 
 
 #### What's in this repo
 
-Everything. `api/` is the Go daemon that owns worktrees, agent sessions, terminals, LSP and search; `web/` is the React frontend; `desktop/` is the Tauri shell that hosts it; `docker/` is the same daemon serving a prebuilt bundle for self-hosting. The daemon is the product — the desktop app is a window onto it, which is why the Docker image serves the identical thing with no desktop app involved.
+Everything. `api/` is the Go daemon that owns worktrees, agent sessions, terminals, LSP and search; `app/panes/` is the React frontend; `app/mobile/` is the Tauri shell that hosts it; `tools/docker/` is the same daemon serving a prebuilt bundle for self-hosting. The daemon is the product — the desktop app is a window onto it, which is why the Docker image serves the identical thing with no desktop app involved.
 
 #### What it does
 
@@ -132,9 +132,9 @@ Crowbar follows the Valve-universe naming schema used across the rabbytesoftware
 
 Crowbar is dual-licensed: [**AGPL-3.0**](LICENSE) or a **commercial license**.
 
-Use it, modify it, self-host it — freely, under the AGPL. The catch is AGPL § 13: if you modify Crowbar and let others interact with it over a network, you have to publish your changes. Running it on your own machine for your own work triggers nothing. If that does not work for you, a commercial license removes the copyleft obligations — see [LICENSING.md](LICENSING.md).
+Use it, modify it, self-host it — freely, under the AGPL. The catch is AGPL § 13: if you modify Crowbar and let others interact with it over a network, you have to publish your changes. Running it on your own machine for your own work triggers nothing. If that does not work for you, a commercial license removes the copyleft obligations — see [LICENSING.md](legal/LICENSING.md).
 
-Third-party components keep their own licenses; see [NOTICE.md](NOTICE.md).
+Third-party components keep their own licenses; see [NOTICE.md](legal/NOTICE.md).
 
 ---
 

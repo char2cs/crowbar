@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Rejects Go test files named after coverage rather than behaviour
 # (*_coverage_test.go, *_extra_test.go, *_gaps_test.go). Existing offenders are
-# listed in scripts/test-name-baseline.txt; the list may only shrink.
+# listed in tools/scripts/test-name-baseline.txt; the list may only shrink.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
-baseline=scripts/test-name-baseline.txt
+baseline=tools/scripts/test-name-baseline.txt
 current=$(git ls-files -- 'api/**/*_coverage_test.go' 'api/**/*_extra_test.go' 'api/**/*_gaps_test.go' | LC_ALL=C sort)
 
 new=$(LC_ALL=C comm -13 "$baseline" <(printf '%s\n' "$current" | sed '/^$/d'))

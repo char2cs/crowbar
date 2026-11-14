@@ -179,8 +179,8 @@ const appendTo = (index: number, text: string) => (value: Value) =>
     i === index ? { ...node, children: [...node.children, { text }] } : node,
   ) as Value
 
-// vitest runs from web/, so the repo root is one level up.
-const REPO = join(process.cwd(), '..')
+// vitest runs from app/panes/, so the repo root is two levels up.
+const REPO = join(process.cwd(), '..', '..')
 const repoDocs = [
   'README.md',
   'CLAUDE.md',
