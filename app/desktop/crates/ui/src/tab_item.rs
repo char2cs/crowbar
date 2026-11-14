@@ -17,12 +17,22 @@ pub struct TabItem {
 impl TabItem {
     /// A text tab.
     pub fn text(label: impl Into<SharedString>) -> Self {
-        Self { label: Some(label.into()), icon: None, selected_weight: IconWeight::Regular, disabled: false }
+        Self {
+            label: Some(label.into()),
+            icon: None,
+            selected_weight: IconWeight::Regular,
+            disabled: false,
+        }
     }
 
     /// An icon-only tab; the icon turns `Fill` while selected like the sidebar mode switch.
     pub fn icon(icon: IconName) -> Self {
-        Self { label: None, icon: Some(icon), selected_weight: IconWeight::Fill, disabled: false }
+        Self {
+            label: None,
+            icon: Some(icon),
+            selected_weight: IconWeight::Fill,
+            disabled: false,
+        }
     }
 
     /// Adds an icon next to the label.
@@ -34,8 +44,12 @@ impl TabItem {
 
     /// Marks the tab as not selectable.
     #[must_use]
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
         self
     }
 }
+
+#[cfg(test)]
+#[path = "tab_item_tests.rs"]
+mod tests;

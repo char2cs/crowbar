@@ -16,3 +16,7 @@ pub trait OverlayHost {
     /// The overlay closed; views it hid may return.
     fn overlay_closed(&self, overlay: OverlayId);
 }
+
+#[cfg(test)]
+#[path = "overlay_host_tests.rs"]
+mod tests;

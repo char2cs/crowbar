@@ -16,12 +16,18 @@ pub struct Separator {
 impl Separator {
     /// A divider that runs along the horizontal axis (a rule between stacked items).
     pub fn horizontal() -> Self {
-        Self { axis: Axis::Horizontal, surface: Surface::default() }
+        Self {
+            axis: Axis::Horizontal,
+            surface: Surface::default(),
+        }
     }
 
     /// A divider that runs along the vertical axis (a rule between side-by-side items).
     pub fn vertical() -> Self {
-        Self { axis: Axis::Vertical, surface: Surface::default() }
+        Self {
+            axis: Axis::Vertical,
+            surface: Surface::default(),
+        }
     }
 
     /// Paints with the palette of `surface`.

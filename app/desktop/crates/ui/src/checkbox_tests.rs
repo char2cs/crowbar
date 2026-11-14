@@ -9,7 +9,10 @@ use crate::test_support::{measure, open};
 #[gpui::test]
 fn box_is_sixteen_pixels(cx: &mut TestAppContext) {
     let bounds = measure(cx, |_, _| Checkbox::new("c", false));
-    assert_eq!((f32::from(bounds.size.width), f32::from(bounds.size.height)), (16.0, 16.0));
+    assert_eq!(
+        (f32::from(bounds.size.width), f32::from(bounds.size.height)),
+        (16.0, 16.0)
+    );
 }
 
 #[gpui::test]

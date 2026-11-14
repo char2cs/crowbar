@@ -17,7 +17,13 @@ impl Keyframes {
     );
     /// Toast error: translateX 0, -3px, 3px, -3px, 0 at quarter steps.
     pub const TOAST_ERROR: Self = Self::new(
-        &[(0.0, 0.0), (0.25, -3.0), (0.5, 3.0), (0.75, -3.0), (1.0, 0.0)],
+        &[
+            (0.0, 0.0),
+            (0.25, -3.0),
+            (0.5, 3.0),
+            (0.75, -3.0),
+            (1.0, 0.0),
+        ],
         CubicBezier::TOAST,
     );
     /// Caret blink opacity: 1 at 0, 70 and 100%, 0 at 20 and 50%, eased out.
@@ -34,7 +40,10 @@ impl Keyframes {
     /// Value at progress `t` in 0 to 1.
     pub fn sample(&self, t: f32) -> f32 {
         let t = t.clamp(0.0, 1.0);
-        let segment = self.stops.windows(2).find(|pair| matches!(pair, [_, (end, _)] if t <= *end));
+        let segment = self
+            .stops
+            .windows(2)
+            .find(|pair| matches!(pair, [_, (end, _)] if t <= *end));
         let Some([(start, from), (end, to)]) = segment else {
             return self.stops.last().map_or(0.0, |&(_, value)| value);
         };

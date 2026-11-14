@@ -2,8 +2,8 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use crate::appearance::Appearance;
@@ -12,6 +12,8 @@ use crate::focus_ring::focus_ring;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
+use crate::opaque_debug::opaque_debug;
+use crate::pose::Pose;
 use crate::shadow;
 use crate::surface::Surface;
 use crate::theme::Theme;
@@ -33,14 +35,20 @@ pub struct Checkbox {
 
 impl Checkbox {
     /// A checkbox showing `checked`.
-    pub fn new(id: impl Into<ElementId>, checked: bool) -> Self {
-        Self { id: id.into(), checked, disabled: false, surface: Surface::default(), on_change: None }
+    pub fn new(id: impl Into<ElementId>, checked: impl Into<Pose>) -> Self {
+        Self {
+            id: id.into(),
+            checked: bool::from(checked.into()),
+            disabled: false,
+            surface: Surface::default(),
+            on_change: None,
+        }
     }
 
     /// Disables the checkbox.
     #[must_use]
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
         self
     }
 
@@ -65,7 +73,11 @@ impl RenderOnce for Checkbox {
         let palette = theme.palette(self.surface);
         let dark = theme.appearance() == Appearance::Dark;
         let (checked, enabled) = (self.checked, !self.disabled);
-        let rest = if dark { palette.input().opacity(0.32) } else { palette.background() };
+        let rest = if dark {
+            palette.input().opacity(0.32)
+        } else {
+            palette.background()
+        };
         div()
             .id(self.id)
             .flex()
@@ -75,7 +87,11 @@ impl RenderOnce for Checkbox {
             .size(px(SIZE))
             .rounded(px(RADIUS))
             .border_1()
-            .border_color(if checked { palette.primary() } else { palette.input() })
+            .border_color(if checked {
+                palette.primary()
+            } else {
+                palette.input()
+            })
             .bg(if checked { palette.primary() } else { rest })
             .when(!checked && enabled, |d| d.shadow(shadow::xs(0.05)))
             .when(enabled, |d| d.cursor_pointer().tab_stop(true))
@@ -95,6 +111,8 @@ impl RenderOnce for Checkbox {
             })
     }
 }
+
+opaque_debug!(Checkbox);
 
 #[cfg(test)]
 #[path = "checkbox_tests.rs"]

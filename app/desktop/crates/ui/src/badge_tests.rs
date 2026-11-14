@@ -5,11 +5,18 @@ use crate::test_support::measure;
 
 #[gpui::test]
 fn height_follows_the_size_step(cx: &mut TestAppContext) {
-    const CASES: &[(BadgeSize, f32)] = &[(BadgeSize::Sm, 16.0), (BadgeSize::Md, 18.0), (BadgeSize::Lg, 22.0)];
+    const CASES: &[(BadgeSize, f32)] = &[
+        (BadgeSize::Sm, 16.0),
+        (BadgeSize::Md, 18.0),
+        (BadgeSize::Lg, 22.0),
+    ];
     for &(size, height) in CASES {
         let bounds = measure(cx, move |_, _| Badge::new("3").size(size));
         assert_eq!(f32::from(bounds.size.height), height, "{size:?}");
-        assert!(f32::from(bounds.size.width) >= height, "{size:?} keeps its minimum width");
+        assert!(
+            f32::from(bounds.size.width) >= height,
+            "{size:?} keeps its minimum width"
+        );
     }
 }
 

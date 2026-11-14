@@ -1,11 +1,17 @@
 //! The grip of a draggable surface.
 
-use gpui::{App, CursorStyle, ElementId, InteractiveElement, IntoElement, RenderOnce, Styled, Window, div, px};
+use gpui::StatefulInteractiveElement as _;
+use gpui::{
+    App, CursorStyle, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    Styled, Window, div, px,
+};
 
 use crate::hover;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
+use crate::opaque_debug::opaque_debug;
+use crate::pose::Pose;
 use crate::surface::Surface;
 use crate::theme::Theme;
 
@@ -22,7 +28,10 @@ pub struct DragHandle {
 impl DragHandle {
     /// A handle; attach `on_drag` to the returned element's parent or wrap it.
     pub fn new(id: impl Into<ElementId>) -> Self {
-        Self { id: id.into(), surface: Surface::default() }
+        Self {
+            id: id.into(),
+            surface: Surface::default(),
+        }
     }
 
     /// Paints with the palette of `surface`.
@@ -36,8 +45,13 @@ impl DragHandle {
 impl RenderOnce for DragHandle {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let palette = Theme::of(cx).palette(self.surface);
-        let state = hover::track(&self.id, "hover", false, window, cx);
-        let color = hover::color(&state, palette.muted_foreground(), palette.foreground(), window, cx);
+        let state = hover::track(&self.id, Pose::Off, window, cx);
+        let color = hover::color(
+            &state,
+            (palette.muted_foreground(), palette.foreground()),
+            window,
+            cx,
+        );
         div()
             .id(self.id)
             .flex()
@@ -56,6 +70,8 @@ impl RenderOnce for DragHandle {
             )
     }
 }
+
+opaque_debug!(DragHandle);
 
 #[cfg(test)]
 #[path = "drag_handle_tests.rs"]

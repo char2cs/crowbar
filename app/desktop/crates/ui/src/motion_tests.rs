@@ -4,8 +4,14 @@ use super::*;
 fn reduced_motion_collapses_durations() {
     let full = Motion::default();
     let reduced = Motion::reduced();
-    assert_eq!(full.duration(Duration::from_millis(200)), Duration::from_millis(200));
-    assert_eq!(reduced.duration(Duration::from_millis(200)), Duration::from_micros(10));
+    assert_eq!(
+        full.duration(Duration::from_millis(200)),
+        Duration::from_millis(200)
+    );
+    assert_eq!(
+        reduced.duration(Duration::from_millis(200)),
+        Duration::from_micros(10)
+    );
     assert!(reduced.is_reduced() && !full.is_reduced());
 }
 

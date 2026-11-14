@@ -1,14 +1,17 @@
 //! A scrolling region with the styled overlay scrollbar.
 
 use gpui::{
-    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, ScrollHandle,
-    StatefulInteractiveElement, Styled, Window, div, hsla,
+    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    ScrollHandle, StatefulInteractiveElement, Styled, Window, div, hsla,
 };
 
 use crate::cubic_bezier::CubicBezier;
 use crate::hover;
+use crate::opaque_debug::opaque_debug;
+use crate::pose::Pose;
 use crate::scrollbar::Scrollbar;
 use crate::timing;
+use crate::tween::Tween;
 
 const THUMB_ALPHA: f32 = 0.42;
 const THUMB_LIGHTNESS: f32 = 0.45;
@@ -24,14 +27,23 @@ pub struct ScrollArea {
 impl ScrollArea {
     /// A scroll area around `content`; keep the `handle` to read or set the offset.
     pub fn new(id: impl Into<ElementId>, handle: &ScrollHandle, content: impl IntoElement) -> Self {
-        Self { id: id.into(), handle: handle.clone(), content: content.into_any_element() }
+        Self {
+            id: id.into(),
+            handle: handle.clone(),
+            content: content.into_any_element(),
+        }
     }
 }
 
 impl RenderOnce for ScrollArea {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let state = hover::track(&self.id, "hover", false, window, cx);
-        let shown = hover::position(&state, timing::MENU, CubicBezier::DEFAULT, window, cx);
+        let state = hover::track(&self.id, Pose::Off, window, cx);
+        let shown = hover::position(
+            &state,
+            Tween::new(timing::MENU, CubicBezier::DEFAULT),
+            window,
+            cx,
+        );
         let color = hsla(0.0, 0.0, THUMB_LIGHTNESS, THUMB_ALPHA).opacity(shown);
         div()
             .id(self.id.clone())
@@ -46,9 +58,15 @@ impl RenderOnce for ScrollArea {
                     .track_scroll(&self.handle)
                     .child(self.content),
             )
-            .child(div().absolute().inset_0().child(Scrollbar::new((self.id, "bar").into(), self.handle, color)))
+            .child(div().absolute().inset_0().child(Scrollbar::new(
+                (self.id, "bar").into(),
+                self.handle,
+                color,
+            )))
     }
 }
+
+opaque_debug!(ScrollArea);
 
 #[cfg(test)]
 #[path = "scroll_area_tests.rs"]

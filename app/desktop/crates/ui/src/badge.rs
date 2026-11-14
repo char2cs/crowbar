@@ -1,19 +1,15 @@
 //! Small status and count pills.
 
 use gpui::{
-    App, FontWeight, Hsla, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, hsla,
+    App, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div,
 };
 
-use crate::appearance::Appearance;
+use crate::badge_paint::BadgePaint;
 use crate::badge_size::BadgeSize;
 use crate::badge_variant::BadgeVariant;
 use crate::font::UI_FAMILY;
-use crate::palette::Palette;
 use crate::surface::Surface;
 use crate::theme::Theme;
-
-const TINT_LIGHT: f32 = 0.08;
-const TINT_DARK: f32 = 0.16;
 
 /// A pill with a short label or count.
 #[derive(Debug, Clone, IntoElement)]
@@ -57,55 +53,14 @@ impl Badge {
     }
 }
 
-struct Paint {
-    fill: Hsla,
-    text: Hsla,
-    border: Hsla,
-}
-
-fn tinted(fill: Hsla, text: Hsla, appearance: Appearance) -> Paint {
-    let alpha = match appearance {
-        Appearance::Light => TINT_LIGHT,
-        Appearance::Dark => TINT_DARK,
-    };
-    Paint { fill: fill.opacity(alpha), text, border: hsla(0.0, 0.0, 0.0, 0.0) }
-}
-
-fn solid(fill: Hsla, text: Hsla) -> Paint {
-    Paint { fill, text, border: hsla(0.0, 0.0, 0.0, 0.0) }
-}
-
-fn paint(variant: BadgeVariant, palette: &Palette, appearance: Appearance) -> Paint {
-    let dark = appearance == Appearance::Dark;
-    let tint_text = |foreground: Hsla, hue: Hsla| if dark { hue } else { foreground };
-    match variant {
-        BadgeVariant::Primary => solid(palette.primary(), palette.primary_foreground()),
-        BadgeVariant::Secondary => solid(palette.secondary(), palette.secondary_foreground()),
-        BadgeVariant::Destructive => {
-            let text = if dark { palette.destructive_foreground() } else { hsla(0.0, 0.0, 1.0, 1.0) };
-            solid(palette.destructive(), text)
-        }
-        BadgeVariant::Error => {
-            tinted(palette.destructive(), tint_text(palette.destructive_foreground(), palette.destructive()), appearance)
-        }
-        BadgeVariant::Info => tinted(palette.info(), palette.info_foreground(), appearance),
-        BadgeVariant::Success => {
-            tinted(palette.success(), tint_text(palette.success_foreground(), palette.success()), appearance)
-        }
-        BadgeVariant::Warning => {
-            tinted(palette.warning(), tint_text(palette.warning_foreground(), palette.warning()), appearance)
-        }
-        BadgeVariant::Outline => {
-            let fill = if dark { palette.input().opacity(0.32) } else { palette.background() };
-            Paint { fill, text: palette.foreground(), border: palette.input() }
-        }
-    }
-}
-
 impl RenderOnce for Badge {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = *Theme::of(cx);
-        let paint = paint(self.variant, theme.palette(self.surface), theme.appearance());
+        let paint = BadgePaint::of(
+            self.variant,
+            theme.palette(self.surface),
+            theme.appearance(),
+        );
         div()
             .flex()
             .flex_none()

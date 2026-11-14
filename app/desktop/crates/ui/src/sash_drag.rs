@@ -18,7 +18,11 @@ impl SashDrag {
 }
 
 impl Render for SashDrag {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<'_, Self>) -> impl IntoElement {
         div()
     }
 }
+
+#[cfg(test)]
+#[path = "sash_drag_tests.rs"]
+mod tests;

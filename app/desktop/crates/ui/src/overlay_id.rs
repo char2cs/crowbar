@@ -10,3 +10,7 @@ impl OverlayId {
         self.0
     }
 }
+
+#[cfg(test)]
+#[path = "overlay_id_tests.rs"]
+mod tests;

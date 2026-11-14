@@ -6,7 +6,7 @@ use crate::font::UI_FAMILY;
 use crate::radius;
 use crate::surface::Surface;
 use crate::theme::Theme;
-use crate::text_size::UiText;
+use crate::ui_text::UiText;
 
 const MIN_HEIGHT: f32 = 16.0;
 

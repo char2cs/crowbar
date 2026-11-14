@@ -2,8 +2,9 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    App, ClickEvent, Div, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
+    Window, div, px,
 };
 
 use crate::button_colors::ButtonColors;
@@ -15,6 +16,8 @@ use crate::font::UI_FAMILY;
 use crate::hover;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
+use crate::opaque_debug::opaque_debug;
+use crate::pose::Pose;
 use crate::surface::Surface;
 use crate::theme::Theme;
 
@@ -87,40 +90,32 @@ impl Button {
 
     /// Disables the button: dimmed, no hover, no click.
     #[must_use]
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
         self
     }
 
     /// Registers the activation handler.
     #[must_use]
-    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_click(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_click = Some(Box::new(handler));
         self
     }
 }
 
-impl RenderOnce for Button {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = *Theme::of(cx);
-        let palette = theme.palette(self.surface);
-        let colors = ButtonColors::resolve(self.variant, palette, theme.appearance());
+impl Button {
+    fn frame(&self, colors: &ButtonColors, background: Hsla) -> Div {
         let size = self.size;
-        let square = self.label.is_none();
-        let ring = focus_ring(palette);
-        let pointer = !self.disabled;
-        let hover = hover::track(&self.id, "hover", false, window, cx);
-        let background = hover::color(&hover, colors.background, colors.hover_background, window, cx);
-        let icon = self.icon.map(|name| Icon::new(name).size(size.icon()).color(colors.foreground));
-        div()
-            .id(self.id)
+        let frame = div()
             .flex()
             .flex_none()
             .items_center()
             .justify_center()
             .gap(size.gap())
             .h(size.height())
-            .map(|d| if square { d.w(size.height()) } else { d.px(size.padding_x()) })
             .rounded(size.radius())
             .border_1()
             .border_color(colors.border)
@@ -131,16 +126,52 @@ impl RenderOnce for Button {
             .font_weight(FontWeight::MEDIUM)
             .line_height(px(20.0))
             .whitespace_nowrap()
-            .shadow(colors.shadow)
-            .when(pointer, |d| d.cursor_pointer().on_hover(hover::listener(&hover)).tab_stop(true))
-            .when(self.disabled, |d| d.opacity(DISABLED_OPACITY))
+            .shadow(colors.shadow.clone());
+        if self.label.is_none() {
+            frame.w(size.height())
+        } else {
+            frame.px(size.padding_x())
+        }
+    }
+}
+
+impl RenderOnce for Button {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = *Theme::of(cx);
+        let palette = theme.palette(self.surface);
+        let colors = ButtonColors::resolve(self.variant, palette, theme.appearance());
+        let hover = hover::track(&self.id, Pose::Off, window, cx);
+        let background = hover::color(
+            &hover,
+            (colors.background, colors.hover_background),
+            window,
+            cx,
+        );
+        let icon = self.icon.map(|name| {
+            Icon::new(name)
+                .size(self.size.icon())
+                .color(colors.foreground)
+        });
+        let (ring, enabled) = (focus_ring(palette), !self.disabled);
+        self.frame(&colors, background)
+            .id(self.id)
+            .when(enabled, |d| {
+                d.cursor_pointer()
+                    .on_hover(hover::listener(&hover))
+                    .tab_stop(true)
+            })
+            .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
             .focus(move |s| s.shadow(ring))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .children(icon)
             .children(self.label)
-            .when_some(self.on_click.filter(|_| pointer), |d, handler| d.on_click(handler))
+            .when_some(self.on_click.filter(|_| enabled), |d, handler| {
+                d.on_click(handler)
+            })
     }
 }
+
+opaque_debug!(Button);
 
 #[cfg(test)]
 #[path = "button_tests.rs"]

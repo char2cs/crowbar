@@ -13,7 +13,11 @@ fn palette(mode: ThemeMode) -> (&'static Palette, Appearance) {
 fn filled_text_is_readable_in_both_modes() {
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
         let (palette, appearance) = palette(mode);
-        for variant in [ButtonVariant::Primary, ButtonVariant::Destructive, ButtonVariant::Secondary] {
+        for variant in [
+            ButtonVariant::Primary,
+            ButtonVariant::Destructive,
+            ButtonVariant::Secondary,
+        ] {
             let colors = ButtonColors::resolve(variant, palette, appearance);
             let ratio = contrast_ratio(colors.foreground, colors.background);
             assert!(ratio >= 4.5, "{variant:?} {mode:?}: {ratio:.2}");

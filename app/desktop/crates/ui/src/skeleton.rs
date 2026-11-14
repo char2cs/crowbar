@@ -1,13 +1,15 @@
 //! Placeholder block with a travelling highlight.
 
+use gpui::InteractiveElement as _;
 use gpui::{
-    AnimationExt, App, ElementId, Hsla, IntoElement, ParentElement, Pixels, RenderOnce, Styled, Window, div, hsla,
-    linear_color_stop, linear_gradient, relative,
+    AnimationExt, App, ElementId, Hsla, IntoElement, ParentElement, Pixels, RenderOnce, Styled,
+    Window, div, hsla, linear_color_stop, linear_gradient, relative,
 };
 
 use crate::appearance::Appearance;
 use crate::cubic_bezier::CubicBezier;
 use crate::motion::Motion;
+use crate::opaque_debug::opaque_debug;
 use crate::radius;
 use crate::surface::Surface;
 use crate::theme::Theme;
@@ -29,15 +31,20 @@ pub struct Skeleton {
 impl Skeleton {
     /// A block of the given size.
     pub fn new(id: impl Into<ElementId>, width: Pixels, height: Pixels) -> Self {
-        Self { id: id.into(), width, height }
+        Self {
+            id: id.into(),
+            width,
+            height,
+        }
     }
 }
 
 fn half(from: Hsla, to: Hsla) -> impl IntoElement {
-    div()
-        .h_full()
-        .w(relative(BAND))
-        .bg(linear_gradient(GRADIENT_ANGLE, linear_color_stop(from, 0.0), linear_color_stop(to, 1.0)))
+    div().h_full().w(relative(BAND)).bg(linear_gradient(
+        GRADIENT_ANGLE,
+        linear_color_stop(from, 0.0),
+        linear_color_stop(to, 1.0),
+    ))
 }
 
 impl RenderOnce for Skeleton {
@@ -74,6 +81,8 @@ impl RenderOnce for Skeleton {
             .child(band)
     }
 }
+
+opaque_debug!(Skeleton);
 
 #[cfg(test)]
 #[path = "skeleton_tests.rs"]

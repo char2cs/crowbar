@@ -85,3 +85,7 @@ icon_names! {
     Smiley => "smiley",
     Star => "star",
 }
+
+#[cfg(test)]
+#[path = "icon_name_tests.rs"]
+mod tests;

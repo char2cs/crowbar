@@ -1,6 +1,8 @@
 //! The icon element.
 
-use gpui::{App, Hsla, IntoElement, Pixels, RenderOnce, Styled, Transformation, Window, px, radians, svg};
+use gpui::{
+    App, Hsla, IntoElement, Pixels, RenderOnce, Styled, Transformation, Window, px, radians, svg,
+};
 
 use crate::icon_files::FILES;
 use crate::icon_name::IconName;

@@ -19,7 +19,10 @@ fn thumb_travels_from_margin_to_margin() {
     let top = Thumb::locate(300.0, 300.0, 0.0).expect("thumb");
     let bottom = Thumb::locate(300.0, 300.0, 300.0).expect("thumb");
     assert_eq!(top.start, 4.0);
-    assert!((bottom.start + bottom.length - 296.0).abs() < 0.01, "{bottom:?}");
+    assert!(
+        (bottom.start + bottom.length - 296.0).abs() < 0.01,
+        "{bottom:?}"
+    );
 }
 
 #[test]

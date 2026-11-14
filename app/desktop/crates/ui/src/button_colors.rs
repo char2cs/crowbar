@@ -10,7 +10,6 @@ use crate::shadow;
 const HOVER_FILL: f32 = 0.9;
 const GLOW: f32 = 0.24;
 
-/// Colours and shadow of a button in its rest and hover states.
 #[derive(Debug, Clone)]
 pub(crate) struct ButtonColors {
     pub(crate) background: Hsla,
@@ -29,11 +28,19 @@ fn white() -> Hsla {
 }
 
 impl ButtonColors {
-    pub(crate) fn resolve(variant: ButtonVariant, palette: &Palette, appearance: Appearance) -> Self {
+    pub(crate) fn resolve(
+        variant: ButtonVariant,
+        palette: &Palette,
+        appearance: Appearance,
+    ) -> Self {
         match variant {
             ButtonVariant::Primary => Self::filled(palette.primary(), palette.primary_foreground()),
-            ButtonVariant::Destructive => Self::filled(palette.destructive(), destructive_text(palette, appearance)),
-            ButtonVariant::Secondary => Self::plain(palette.secondary(), palette.secondary_foreground()),
+            ButtonVariant::Destructive => {
+                Self::filled(palette.destructive(), destructive_text(palette, appearance))
+            },
+            ButtonVariant::Secondary => {
+                Self::plain(palette.secondary(), palette.secondary_foreground())
+            },
             ButtonVariant::Outline => Self::outline(palette, appearance),
             ButtonVariant::Ghost => Self {
                 background: transparent(),

@@ -12,6 +12,9 @@ fn ui_text_scales_with_the_setting() {
     for &(size, setting, expected) in CASES {
         let theme = Theme::default().with_ui_font_size(setting);
         let actual: f32 = size.size(&theme).into();
-        assert!((actual - expected).abs() < 1e-4, "{size:?} at {setting}: {actual}");
+        assert!(
+            (actual - expected).abs() < 1e-4,
+            "{size:?} at {setting}: {actual}"
+        );
     }
 }

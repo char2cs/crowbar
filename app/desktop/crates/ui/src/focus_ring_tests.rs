@@ -1,6 +1,6 @@
 use super::*;
-use crate::theme::Theme;
 use crate::surface::Surface;
+use crate::theme::Theme;
 
 #[test]
 fn ring_is_two_pixels_beyond_a_one_pixel_offset() {

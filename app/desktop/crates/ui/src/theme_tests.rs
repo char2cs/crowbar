@@ -3,7 +3,10 @@ use gpui::Hsla;
 use super::*;
 
 fn theme(id: ThemeId, mode: ThemeMode, system: Appearance) -> Theme {
-    Theme::default().with_id(id).with_mode(mode).with_system(system)
+    Theme::default()
+        .with_id(id)
+        .with_mode(mode)
+        .with_system(system)
 }
 
 #[test]
@@ -12,7 +15,10 @@ fn system_mode_follows_the_os() {
     let light = dark.with_system(Appearance::Light);
     assert_eq!(dark.appearance(), Appearance::Dark);
     assert_eq!(light.appearance(), Appearance::Light);
-    assert_ne!(dark.palette(Surface::Window), light.palette(Surface::Window));
+    assert_ne!(
+        dark.palette(Surface::Window),
+        light.palette(Surface::Window)
+    );
 }
 
 #[test]
@@ -32,7 +38,10 @@ fn crowbar_chrome_stays_dark_in_light_mode() {
 #[test]
 fn frosted_has_no_special_chrome() {
     let light = theme(ThemeId::Frosted, ThemeMode::Light, Appearance::Light);
-    assert_eq!(light.palette(Surface::Chrome), light.palette(Surface::Window));
+    assert_eq!(
+        light.palette(Surface::Chrome),
+        light.palette(Surface::Window)
+    );
 }
 
 #[test]
@@ -46,7 +55,11 @@ fn ui_scale_is_size_over_fifteen_clamped() {
 
 #[test]
 fn spec_literals_survive() {
-    let palette = theme(ThemeId::Crowbar, ThemeMode::Dark, Appearance::Dark).palette(Surface::Window);
-    assert_eq!(palette.primary(), Hsla::from(crate::color::hex(0x98a86aff)));
-    assert_eq!(palette.border(), Hsla::from(crate::color::hex(0x333330ff)));
+    let palette =
+        theme(ThemeId::Crowbar, ThemeMode::Dark, Appearance::Dark).palette(Surface::Window);
+    assert_eq!(
+        palette.primary(),
+        Hsla::from(crate::color::hex(0x98a8_6aff))
+    );
+    assert_eq!(palette.border(), Hsla::from(crate::color::hex(0x3333_30ff)));
 }

@@ -2,8 +2,8 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use crate::check_handler::ToggleHandler;
@@ -11,11 +11,15 @@ use crate::color_mix::mix;
 use crate::cubic_bezier::CubicBezier;
 use crate::focus_ring::focus_ring;
 use crate::hover;
+use crate::opaque_debug::opaque_debug;
+use crate::palette::Palette;
+use crate::pose::Pose;
 use crate::radius;
 use crate::shadow;
 use crate::surface::Surface;
 use crate::theme::Theme;
 use crate::timing;
+use crate::tween::Tween;
 
 const TRACK_WIDTH: f32 = 30.0;
 const TRACK_HEIGHT: f32 = 18.0;
@@ -36,14 +40,20 @@ pub struct Switch {
 
 impl Switch {
     /// A switch showing `checked`; the owner stores the value and passes it back.
-    pub fn new(id: impl Into<ElementId>, checked: bool) -> Self {
-        Self { id: id.into(), checked, disabled: false, surface: Surface::default(), on_change: None }
+    pub fn new(id: impl Into<ElementId>, checked: impl Into<Pose>) -> Self {
+        Self {
+            id: id.into(),
+            checked: bool::from(checked.into()),
+            disabled: false,
+            surface: Surface::default(),
+            on_change: None,
+        }
     }
 
     /// Disables the switch.
     #[must_use]
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
         self
     }
 
@@ -62,14 +72,34 @@ impl Switch {
     }
 }
 
+fn thumb(offset: f32, palette: &Palette) -> gpui::Div {
+    div()
+        .size(px(THUMB))
+        .flex_none()
+        .ml(px(TRAVEL * offset))
+        .rounded(radius::FULL)
+        .bg(palette.background())
+        .shadow(shadow::sm(0.05))
+}
+
 impl RenderOnce for Switch {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let palette = Theme::of(cx).palette(self.surface);
-        let state = hover::track(&self.id, "checked", self.checked, window, cx);
-        state.update(cx, |s, cx| s.set(self.checked, cx));
-        let slide = hover::position(&state, THUMB_SLIDE, CubicBezier::EASE, window, cx);
-        let fade = hover::position(&state, timing::SLOW, CubicBezier::DEFAULT, window, cx);
-        let track = mix(palette.input(), palette.primary(), fade);
+        let pose = Pose::from(self.checked);
+        let state = hover::track(&self.id, pose, window, cx);
+        state.update(cx, |s, cx| s.set(pose, cx));
+        let slide = hover::position(
+            &state,
+            Tween::new(THUMB_SLIDE, CubicBezier::EASE),
+            window,
+            cx,
+        );
+        let fade = hover::position(
+            &state,
+            Tween::new(timing::SLOW, CubicBezier::DEFAULT),
+            window,
+            cx,
+        );
         let (checked, enabled) = (self.checked, !self.disabled);
         div()
             .id(self.id)
@@ -80,25 +110,19 @@ impl RenderOnce for Switch {
             .h(px(TRACK_HEIGHT))
             .p(px(1.0))
             .rounded(radius::FULL)
-            .bg(track)
+            .bg(mix(palette.input(), palette.primary(), fade))
             .when(enabled, |d| d.cursor_pointer().tab_stop(true))
             .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
             .focus(move |s| s.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-            .child(
-                div()
-                    .size(px(THUMB))
-                    .flex_none()
-                    .ml(px(TRAVEL * slide))
-                    .rounded(radius::FULL)
-                    .bg(palette.background())
-                    .shadow(shadow::sm(0.05)),
-            )
+            .child(thumb(slide, palette))
             .when_some(self.on_change.filter(|_| enabled), move |d, handler| {
                 d.on_click(move |_, window, cx| handler(!checked, window, cx))
             })
     }
 }
+
+opaque_debug!(Switch);
 
 #[cfg(test)]
 #[path = "switch_tests.rs"]

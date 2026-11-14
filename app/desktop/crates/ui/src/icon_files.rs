@@ -1,14 +1,8 @@
 //! The embedded icon files; generated from the Phosphor assets in `assets/icons`.
 
+use crate::icon_file::IconFile;
 use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
-
-pub(crate) struct IconFile {
-    pub(crate) name: IconName,
-    pub(crate) weight: IconWeight,
-    pub(crate) path: &'static str,
-    pub(crate) bytes: &'static [u8],
-}
 
 macro_rules! file {
     ($name:ident, $weight:ident, $dir:literal, $stem:literal) => {
@@ -50,7 +44,12 @@ pub(crate) const FILES: &[IconFile] = &[
     file!(Warning, Fill, "fill", "warning"),
     file!(ArrowClockwise, Regular, "regular", "arrow-clockwise"),
     file!(ArrowClockwise, Bold, "bold", "arrow-clockwise"),
-    file!(ArrowElbowDownRight, Regular, "regular", "arrow-elbow-down-right"),
+    file!(
+        ArrowElbowDownRight,
+        Regular,
+        "regular",
+        "arrow-elbow-down-right"
+    ),
     file!(ArrowElbowDownRight, Bold, "bold", "arrow-elbow-down-right"),
     file!(DotsThree, Regular, "regular", "dots-three"),
     file!(DotsThree, Bold, "bold", "dots-three"),
@@ -80,11 +79,26 @@ pub(crate) const FILES: &[IconFile] = &[
     file!(CircleNotch, Regular, "regular", "circle-notch"),
     file!(CircleNotch, Bold, "bold", "circle-notch"),
     file!(Code, Regular, "regular", "code"),
-    file!(SquareSplitHorizontal, Regular, "regular", "square-split-horizontal"),
+    file!(
+        SquareSplitHorizontal,
+        Regular,
+        "regular",
+        "square-split-horizontal"
+    ),
     file!(Copy, Regular, "regular", "copy"),
     file!(PencilSimpleLine, Regular, "regular", "pencil-simple-line"),
-    file!(ArrowCounterClockwise, Regular, "regular", "arrow-counter-clockwise"),
-    file!(ArrowCounterClockwise, Bold, "bold", "arrow-counter-clockwise"),
+    file!(
+        ArrowCounterClockwise,
+        Regular,
+        "regular",
+        "arrow-counter-clockwise"
+    ),
+    file!(
+        ArrowCounterClockwise,
+        Bold,
+        "bold",
+        "arrow-counter-clockwise"
+    ),
     file!(TerminalWindow, Regular, "regular", "terminal-window"),
     file!(TerminalWindow, Duotone, "duotone", "terminal-window"),
     file!(Terminal, Regular, "regular", "terminal"),

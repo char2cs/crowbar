@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div,
+    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels,
+    Render, Styled, TestAppContext, VisualTestContext, Window, div,
 };
 
 use crate::motion::Motion;
@@ -18,9 +18,14 @@ pub(crate) struct Probe {
 }
 
 impl Render for Probe {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let element = (self.build)(window, cx);
-        div().size_full().flex().items_start().child(div().flex_none().debug_selector(|| "probe".into()).child(element))
+        div().size_full().flex().items_start().child(
+            div()
+                .flex_none()
+                .debug_selector(|| "probe".into())
+                .child(element),
+        )
     }
 }
 

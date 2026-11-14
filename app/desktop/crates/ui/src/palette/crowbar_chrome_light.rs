@@ -1,5 +1,10 @@
 //! Resolved hex values of the crowbar chrome light palette (spec 00-tokens section 2).
 
+#![allow(
+    clippy::unreadable_literal,
+    reason = "generated table of spec hex values; digit groups would obscure them"
+)]
+
 use super::Palette;
 use crate::color::hex;
 

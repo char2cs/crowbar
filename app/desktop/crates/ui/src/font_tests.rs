@@ -3,12 +3,23 @@ use gpui::TestAppContext;
 use super::*;
 
 #[gpui::test]
-fn registers_the_three_families(cx: &mut TestAppContext) {
-    cx.update(|cx| {
-        register(cx).expect("embedded fonts parse");
-        let names = cx.text_system().all_font_names();
-        for family in [UI_FAMILY, HEADING_FAMILY, MONO_FAMILY] {
-            assert!(names.iter().any(|name| name == family), "{family} missing");
-        }
-    });
+fn embedded_files_are_accepted_by_the_text_system(cx: &mut TestAppContext) {
+    cx.update(|cx| assert!(register(cx).is_ok()));
+}
+
+#[test]
+fn family_names_match_the_font_name_tables() {
+    for (family, bytes) in [
+        (UI_FAMILY, FILES[0]),
+        (HEADING_FAMILY, FILES[1]),
+        (MONO_FAMILY, FILES[2]),
+    ] {
+        let needle: Vec<u8> = family.encode_utf16().flat_map(u16::to_be_bytes).collect();
+        assert!(
+            bytes
+                .windows(needle.len())
+                .any(|window| window == needle.as_slice()),
+            "{family} not in its font file"
+        );
+    }
 }

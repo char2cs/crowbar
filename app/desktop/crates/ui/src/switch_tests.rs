@@ -9,7 +9,10 @@ use crate::test_support::{measure, open};
 #[gpui::test]
 fn track_is_thirty_by_eighteen(cx: &mut TestAppContext) {
     let bounds = measure(cx, |_, _| Switch::new("s", true));
-    assert_eq!((f32::from(bounds.size.width), f32::from(bounds.size.height)), (30.0, 18.0));
+    assert_eq!(
+        (f32::from(bounds.size.width), f32::from(bounds.size.height)),
+        (30.0, 18.0)
+    );
 }
 
 #[gpui::test]
@@ -33,7 +36,9 @@ fn disabled_switch_ignores_clicks(cx: &mut TestAppContext) {
     let sink = Rc::clone(&seen);
     let cx = open(cx, move |_, _| {
         let sink = Rc::clone(&sink);
-        Switch::new("s", true).disabled(true).on_change(move |_, _, _| sink.set(true))
+        Switch::new("s", true)
+            .disabled()
+            .on_change(move |_, _, _| sink.set(true))
     });
     cx.simulate_click(point(px(10.0), px(9.0)), gpui::Modifiers::none());
     assert!(!seen.get());

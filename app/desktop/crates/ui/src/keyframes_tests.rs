@@ -15,7 +15,10 @@ fn stops_are_hit_exactly() {
     ];
     for &(keyframes, t, want) in CASES {
         let got = keyframes.sample(t);
-        assert!((got - want).abs() < 1e-3, "{keyframes:?} at {t}: {got} vs {want}");
+        assert!(
+            (got - want).abs() < 1e-3,
+            "{keyframes:?} at {t}: {got} vs {want}"
+        );
     }
 }
 

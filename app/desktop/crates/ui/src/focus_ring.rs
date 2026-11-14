@@ -7,7 +7,6 @@ use crate::palette::Palette;
 const OFFSET: f32 = 1.0;
 const WIDTH: f32 = 2.0;
 
-/// Shadow stack drawing `ring-2 ring-ring ring-offset-1 ring-offset-background`.
 pub(crate) fn focus_ring(palette: &Palette) -> Vec<BoxShadow> {
     let layer = |color, spread| BoxShadow {
         color,
@@ -15,7 +14,10 @@ pub(crate) fn focus_ring(palette: &Palette) -> Vec<BoxShadow> {
         blur_radius: px(0.0),
         spread_radius: px(spread),
     };
-    vec![layer(palette.ring(), OFFSET + WIDTH), layer(palette.background(), OFFSET)]
+    vec![
+        layer(palette.ring(), OFFSET + WIDTH),
+        layer(palette.background(), OFFSET),
+    ]
 }
 
 #[cfg(test)]

@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    Animation, AnimationExt, App, ElementId, Hsla, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window,
-    div, px,
+    Animation, AnimationExt, App, ElementId, Hsla, IntoElement, ParentElement, RenderOnce,
+    SharedString, Styled, Window, div, px,
 };
 
 use crate::font::UI_FAMILY;
@@ -13,6 +13,7 @@ use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
 use crate::keyframes::Keyframes;
 use crate::motion::Motion;
+use crate::opaque_debug::opaque_debug;
 use crate::palette::Palette;
 use crate::radius;
 use crate::shadow;
@@ -33,8 +34,16 @@ pub struct Toast {
 
 impl Toast {
     /// A toast of `kind` showing `message`.
-    pub fn new(id: impl Into<ElementId>, kind: ToastKind, message: impl Into<SharedString>) -> Self {
-        Self { id: id.into(), kind, message: message.into() }
+    pub fn new(
+        id: impl Into<ElementId>,
+        kind: ToastKind,
+        message: impl Into<SharedString>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            kind,
+            message: message.into(),
+        }
     }
 }
 
@@ -55,7 +64,10 @@ impl RenderOnce for Toast {
         let (name, color) = tone(self.kind, palette);
         let glyph = match self.kind {
             ToastKind::Loading => Spinner::new((self.id.clone(), "spin")).into_any_element(),
-            _ => Icon::new(name).weight(IconWeight::Fill).color(color).into_any_element(),
+            _ => Icon::new(name)
+                .weight(IconWeight::Fill)
+                .color(color)
+                .into_any_element(),
         };
         let card = div()
             .flex()
@@ -79,12 +91,16 @@ impl RenderOnce for Toast {
             self.id,
             Animation::new(motion.duration(timing::TOAST_ERROR)),
             move |card, delta| match self.kind {
-                ToastKind::Error => card.ml(px(shake.sample(delta).max(0.0))).mr(px((-shake.sample(delta)).max(0.0))),
+                ToastKind::Error => card
+                    .ml(px(shake.sample(delta).max(0.0)))
+                    .mr(px((-shake.sample(delta)).max(0.0))),
                 _ => card,
             },
         )
     }
 }
+
+opaque_debug!(Toast);
 
 #[cfg(test)]
 #[path = "toast_tests.rs"]

@@ -2,32 +2,29 @@
 
 use std::rc::Rc;
 
-use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Context, DismissEvent, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Window, canvas, div, px,
+    AnyElement, App, Context, DismissEvent, EventEmitter, FocusHandle, Focusable, FontWeight,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, Window, canvas, div,
+    px,
 };
 
-use crate::appearance::Appearance;
+use crate::direction::Direction;
 use crate::font::UI_FAMILY;
-use crate::icon::Icon;
-use crate::icon_name::IconName;
-use crate::icon_weight::IconWeight;
-use crate::menu_action::MenuAction;
 use crate::menu_actions::{CONTEXT, Confirm, Dismiss, SelectNext, SelectPrevious};
 use crate::menu_cursor::step;
 use crate::menu_item::MenuItem;
+use crate::menu_row::MenuRow;
+use crate::opaque_debug::opaque_debug;
 use crate::overlay_guard::OverlayGuard;
 use crate::overlays::Overlays;
 use crate::palette::Palette;
+use crate::pose::Pose;
 use crate::radius;
+use crate::row_handlers::RowHandlers;
 use crate::shadow;
 use crate::surface::Surface;
 use crate::text_size;
 use crate::theme::Theme;
-
-const MIN_WIDTH: f32 = 128.0;
-const DISABLED_OPACITY: f32 = 0.5;
 
 /// The popup frame with its rows; emits [`DismissEvent`] when it should close.
 pub struct Menu {
@@ -47,14 +44,20 @@ impl Focusable for Menu {
 }
 
 impl Menu {
+    pub(crate) const DEFAULT_MIN_WIDTH: Pixels = px(128.0);
+
     /// Builds a menu and takes focus so the arrow keys work at once.
-    pub fn new(items: impl Into<Rc<[MenuItem]>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        items: impl Into<Rc<[MenuItem]>>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle);
         Self {
             items: items.into(),
             highlighted: None,
-            min_width: px(MIN_WIDTH),
+            min_width: Self::DEFAULT_MIN_WIDTH,
             focus_handle,
             overlay: Rc::new(Overlays::open(cx, gpui::Bounds::default())),
         }
@@ -67,13 +70,15 @@ impl Menu {
         self
     }
 
-    fn move_highlight(&mut self, forward: bool, cx: &mut Context<Self>) {
-        self.highlighted = step(&self.items, self.highlighted, forward);
+    fn move_highlight(&mut self, direction: Direction, cx: &mut Context<'_, Self>) {
+        self.highlighted = step(&self.items, self.highlighted, direction);
         cx.notify();
     }
 
-    fn choose(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(MenuItem::Action(action)) = self.items.get(index).filter(|item| item.is_selectable()) else {
+    fn choose(&mut self, index: usize, window: &mut Window, cx: &mut Context<'_, Self>) {
+        let Some(MenuItem::Action(action)) =
+            self.items.get(index).filter(|item| item.is_selectable())
+        else {
             return;
         };
         let on_select = Rc::clone(&action.on_select);
@@ -81,89 +86,82 @@ impl Menu {
         on_select(window, cx);
     }
 
-    fn confirm(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
+    fn confirm(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<'_, Self>) {
         if let Some(index) = self.highlighted {
             self.choose(index, window, cx);
         }
     }
 
-    fn row(&self, index: usize, action: &MenuAction, palette: &Palette, appearance: Appearance, cx: &mut Context<Self>) -> impl IntoElement {
-        let highlighted = self.highlighted == Some(index) && !action.disabled;
-        let (fill, text) = highlight(action, highlighted, palette, appearance);
-        let icon = action.icon.map(|name| Icon::new(name).color(text));
-        let check = action.checked.then(|| Icon::new(IconName::Check).weight(IconWeight::Bold).size(px(14.0)).color(text));
-        div()
-            .id(("menu-row", index))
-            .flex()
-            .items_center()
-            .gap(px(6.0))
-            .px(px(6.0))
-            .py(px(4.0))
-            .rounded(radius::MD)
-            .bg(fill)
-            .text_color(text)
-            .text_size(text_size::SM)
-            .when(action.disabled, |d| d.opacity(DISABLED_OPACITY))
-            .when(!action.disabled, |d| {
-                d.cursor_pointer()
-                    .on_mouse_move(cx.listener(move |this, _, _, cx| {
-                        if this.highlighted != Some(index) {
-                            this.highlighted = Some(index);
-                            cx.notify();
-                        }
-                    }))
-                    .on_click(cx.listener(move |this, _, window, cx| this.choose(index, window, cx)))
-            })
-            .children(icon)
-            .child(action.label.clone())
-            .when_some(action.shortcut.clone(), |d, keys| {
-                d.child(div().ml_auto().pl(px(12.0)).text_size(text_size::XS).text_color(palette.muted_foreground().opacity(0.72)).child(keys))
-            })
-            .children(check.map(|check| div().ml_auto().child(check)))
-    }
-}
-
-fn highlight(action: &MenuAction, highlighted: bool, palette: &Palette, appearance: Appearance) -> (gpui::Hsla, gpui::Hsla) {
-    let clear = gpui::hsla(0.0, 0.0, 0.0, 0.0);
-    match (action.destructive, highlighted) {
-        (true, true) => {
-            let tint = if appearance == Appearance::Dark { 0.2 } else { 0.1 };
-            (palette.destructive().opacity(tint), palette.destructive())
+    fn highlight(&mut self, index: usize, cx: &mut Context<'_, Self>) {
+        if self.highlighted != Some(index) {
+            self.highlighted = Some(index);
+            cx.notify();
         }
-        (true, false) => (clear, palette.destructive()),
-        (false, true) => (palette.accent(), palette.accent_foreground()),
-        (false, false) => (clear, palette.foreground()),
+    }
+
+    fn handlers(cx: &Context<'_, Self>) -> RowHandlers {
+        let entity = cx.entity();
+        let hover_entity = entity.clone();
+        RowHandlers {
+            hover: Rc::new(move |index, _, cx| {
+                hover_entity.update(cx, |this, cx| this.highlight(index, cx));
+            }),
+            choose: Rc::new(move |index, window, cx| {
+                entity.update(cx, |this, cx| this.choose(index, window, cx));
+            }),
+        }
+    }
+
+    fn entry(
+        &self,
+        (index, item): (usize, &MenuItem),
+        palette: &Palette,
+        handlers: &RowHandlers,
+    ) -> AnyElement {
+        match item {
+            MenuItem::Action(action) => {
+                let highlight = Pose::from(self.highlighted == Some(index));
+                MenuRow::new(index, action.clone(), highlight, handlers.clone()).into_any_element()
+            },
+            MenuItem::Separator => div()
+                .my(px(4.0))
+                .mx(px(-4.0))
+                .h(px(1.0))
+                .bg(palette.border())
+                .into_any_element(),
+            MenuItem::Label(text) => div()
+                .px(px(6.0))
+                .py(px(4.0))
+                .text_size(text_size::XS)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(palette.muted_foreground())
+                .child(text.clone())
+                .into_any_element(),
+        }
     }
 }
 
 impl Render for Menu {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = *Theme::of(cx);
-        let palette = theme.palette(Surface::Window);
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let palette = Theme::of(cx).palette(Surface::Window);
         let guard = Rc::clone(&self.overlay);
-        let rows: Vec<_> = self
+        let handlers = Self::handlers(cx);
+        let rows = self
             .items
             .iter()
             .enumerate()
-            .map(|(index, item)| match item {
-                MenuItem::Action(action) => self.row(index, action, palette, theme.appearance(), cx).into_any_element(),
-                MenuItem::Separator => div().my(px(4.0)).mx(px(-4.0)).h(px(1.0)).bg(palette.border()).into_any_element(),
-                MenuItem::Label(text) => div()
-                    .px(px(6.0))
-                    .py(px(4.0))
-                    .text_size(text_size::XS)
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(palette.muted_foreground())
-                    .child(text.clone())
-                    .into_any_element(),
-            })
-            .collect();
+            .map(|entry| self.entry(entry, palette, &handlers));
         div()
             .id("ui-menu")
+            .debug_selector(|| "ui-menu".into())
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
-            .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_highlight(true, cx)))
-            .on_action(cx.listener(|this, _: &SelectPrevious, _, cx| this.move_highlight(false, cx)))
+            .on_action(cx.listener(|this, _: &SelectNext, _, cx| {
+                this.move_highlight(Direction::Forward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectPrevious, _, cx| {
+                this.move_highlight(Direction::Backward, cx);
+            }))
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(|_, _: &Dismiss, _, cx| cx.emit(DismissEvent)))
             .relative()
@@ -179,10 +177,16 @@ impl Render for Menu {
             .text_color(palette.foreground())
             .font_family(UI_FAMILY)
             .shadow(shadow::md(0.1))
-            .child(canvas(move |bounds, _, _| guard.update(bounds), |_, (), _, _| {}).absolute().size_full())
+            .child(
+                canvas(move |bounds, _, _| guard.update(bounds), |_, (), _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
             .children(rows)
     }
 }
+
+opaque_debug!(Menu);
 
 #[cfg(test)]
 #[path = "menu_tests.rs"]

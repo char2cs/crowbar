@@ -17,7 +17,6 @@ pub enum MenuItem {
 }
 
 impl MenuItem {
-    /// Whether keyboard navigation can land on this entry.
     pub(crate) fn is_selectable(&self) -> bool {
         matches!(self, Self::Action(action) if !action.disabled)
     }

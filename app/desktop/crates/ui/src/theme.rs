@@ -93,7 +93,9 @@ impl Theme {
     pub fn palette(&self, surface: Surface) -> &'static Palette {
         match (self.id, self.appearance(), surface) {
             (ThemeId::Crowbar, Appearance::Light, Surface::Window) => &Palette::CROWBAR_LIGHT,
-            (ThemeId::Crowbar, Appearance::Light, Surface::Chrome) => &Palette::CROWBAR_CHROME_LIGHT,
+            (ThemeId::Crowbar, Appearance::Light, Surface::Chrome) => {
+                &Palette::CROWBAR_CHROME_LIGHT
+            },
             (ThemeId::Crowbar, Appearance::Dark, _) => &Palette::CROWBAR_DARK,
             (ThemeId::Frosted, Appearance::Light, _) => &Palette::FROSTED_LIGHT,
             (ThemeId::Frosted, Appearance::Dark, _) => &Palette::FROSTED_DARK,

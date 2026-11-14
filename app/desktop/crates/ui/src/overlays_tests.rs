@@ -11,11 +11,17 @@ struct Recorder {
 
 impl OverlayHost for Recorder {
     fn overlay_changed(&self, overlay: OverlayId, bounds: Bounds<Pixels>) {
-        self.events.borrow_mut().push(format!("changed {} {}", overlay.get(), f32::from(bounds.size.width)));
+        self.events.borrow_mut().push(format!(
+            "changed {} {}",
+            overlay.get(),
+            f32::from(bounds.size.width)
+        ));
     }
 
     fn overlay_closed(&self, overlay: OverlayId) {
-        self.events.borrow_mut().push(format!("closed {}", overlay.get()));
+        self.events
+            .borrow_mut()
+            .push(format!("closed {}", overlay.get()));
     }
 }
 

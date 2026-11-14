@@ -18,7 +18,10 @@ pub struct Overlays {
 
 impl std::fmt::Debug for Overlays {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("Overlays").field("next", &self.next.get()).finish_non_exhaustive()
+        formatter
+            .debug_struct("Overlays")
+            .field("next", &self.next.get())
+            .finish_non_exhaustive()
     }
 }
 
@@ -27,7 +30,10 @@ impl Global for Overlays {}
 impl Overlays {
     /// Installs `host` as the receiver of overlay notifications.
     pub fn install(host: Rc<dyn OverlayHost>, cx: &mut App) {
-        cx.set_global(Self { host, next: Rc::new(Cell::new(1)) });
+        cx.set_global(Self {
+            host,
+            next: Rc::new(Cell::new(1)),
+        });
     }
 
     /// Announces a new overlay at `bounds`; the guard closes it when dropped.

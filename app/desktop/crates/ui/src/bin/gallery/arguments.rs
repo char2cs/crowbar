@@ -3,58 +3,62 @@
 use gpui::App;
 use ui::{Theme, ThemeId, ThemeMode};
 
-/// Parsed flags.
-pub struct Arguments {
+const DEFAULT_SIZE: (f32, f32) = (1200.0, 800.0);
+
+pub(crate) struct Arguments {
     theme: ThemeId,
     mode: ThemeMode,
     section: Option<String>,
-    width: f32,
-    height: f32,
+    size: (f32, f32),
+}
+
+fn flag(name: &str) -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    let position = args
+        .iter()
+        .position(|arg| arg.strip_prefix("--") == Some(name))?;
+    args.get(position + 1).cloned()
+}
+
+fn parse_size(value: &str) -> Option<(f32, f32)> {
+    let (width, height) = value.split_once('x')?;
+    Some((width.parse().ok()?, height.parse().ok()?))
 }
 
 impl Arguments {
-    /// Reads `std::env::args`; unknown flags are ignored.
-    pub fn from_env() -> Self {
-        let mut parsed = Self { theme: ThemeId::Crowbar, mode: ThemeMode::Light, section: None, width: 1200.0, height: 800.0 };
-        let mut args = std::env::args().skip(1);
-        while let Some(flag) = args.next() {
-            let value = args.next().unwrap_or_default();
-            match flag.as_str() {
-                "--theme" => parsed.theme = if value == "frosted" { ThemeId::Frosted } else { ThemeId::Crowbar },
-                "--mode" => parsed.mode = if value == "dark" { ThemeMode::Dark } else { ThemeMode::Light },
-                "--section" => parsed.section = Some(value),
-                "--size" => parsed.set_size(&value),
-                _ => {}
-            }
-        }
-        parsed
-    }
-
-    fn set_size(&mut self, value: &str) {
-        let Some((width, height)) = value.split_once('x') else {
-            return;
+    pub(crate) fn from_env() -> Self {
+        let theme = match flag("theme").as_deref() {
+            Some("frosted") => ThemeId::Frosted,
+            _ => ThemeId::Crowbar,
         };
-        self.width = width.parse().unwrap_or(self.width);
-        self.height = height.parse().unwrap_or(self.height);
+        let mode = match flag("mode").as_deref() {
+            Some("dark") => ThemeMode::Dark,
+            _ => ThemeMode::Light,
+        };
+        let size = flag("size")
+            .as_deref()
+            .and_then(parse_size)
+            .unwrap_or(DEFAULT_SIZE);
+        Self {
+            theme,
+            mode,
+            section: flag("section"),
+            size,
+        }
     }
 
-    /// Installs the chosen theme.
-    pub fn apply(&self, cx: &mut App) {
-        Theme::of(cx).with_id(self.theme).with_mode(self.mode).install(cx);
+    pub(crate) fn apply(&self, cx: &mut App) {
+        Theme::of(cx)
+            .with_id(self.theme)
+            .with_mode(self.mode)
+            .install(cx);
     }
 
-    /// Window width.
-    pub fn width(&self) -> f32 {
-        self.width
+    pub(crate) fn size(&self) -> (f32, f32) {
+        self.size
     }
 
-    /// Window height.
-    pub fn height(&self) -> f32 {
-        self.height
-    }
-
-    /// The requested section, if any.
-    pub fn section(&self) -> Option<String> {
+    pub(crate) fn section(&self) -> Option<String> {
         self.section.clone()
     }
 }

@@ -1,13 +1,16 @@
 //! Centred placeholder for an empty list.
 
-use gpui::{AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px};
+use gpui::{
+    AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
+};
 
 use crate::font::UI_FAMILY;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
+use crate::opaque_debug::opaque_debug;
 use crate::surface::Surface;
-use crate::text_size::UiText;
 use crate::theme::Theme;
+use crate::ui_text::UiText;
 
 /// An icon, a message and an optional description and action, centred in 96px or more.
 #[derive(IntoElement)]
@@ -22,7 +25,13 @@ pub struct EmptyState {
 impl EmptyState {
     /// An empty state showing `message`.
     pub fn new(message: impl Into<SharedString>) -> Self {
-        Self { message: message.into(), icon: None, description: None, action: None, surface: Surface::default() }
+        Self {
+            message: message.into(),
+            icon: None,
+            description: None,
+            action: None,
+            surface: Surface::default(),
+        }
     }
 
     /// Shows an icon above the message.
@@ -70,15 +79,32 @@ impl RenderOnce for EmptyState {
             .text_color(muted)
             .font_family(UI_FAMILY)
             .children(self.icon.map(|icon| {
-                div().mb(px(2.0)).size(px(28.0)).flex().items_center().justify_center().child(Icon::new(icon).size(px(20.0)).color(muted))
+                div()
+                    .mb(px(2.0))
+                    .size(px(28.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(Icon::new(icon).size(px(20.0)).color(muted))
             }))
-            .child(div().text_size(UiText::Sm.size(&theme)).line_height(px(16.0)).child(self.message))
+            .child(
+                div()
+                    .text_size(UiText::Sm.size(&theme))
+                    .line_height(px(16.0))
+                    .child(self.message),
+            )
             .children(self.description.map(|text| {
-                div().max_w(px(180.0)).text_size(UiText::Xs.size(&theme)).line_height(px(15.0)).child(text)
+                div()
+                    .max_w(px(180.0))
+                    .text_size(UiText::Xs.size(&theme))
+                    .line_height(px(15.0))
+                    .child(text)
             }))
             .children(self.action)
     }
 }
+
+opaque_debug!(EmptyState);
 
 #[cfg(test)]
 #[path = "empty_state_tests.rs"]

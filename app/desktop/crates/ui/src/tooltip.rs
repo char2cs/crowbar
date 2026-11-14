@@ -2,10 +2,11 @@
 
 use std::time::Instant;
 
+use gpui::StatefulInteractiveElement as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window,
-    deferred, div, px,
+    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedString, Styled, Window, deferred, div, px,
 };
 
 use crate::cubic_bezier::CubicBezier;
@@ -14,13 +15,16 @@ use crate::hover;
 use crate::kbd::Kbd;
 use crate::layer;
 use crate::motion::Motion;
+use crate::opaque_debug::opaque_debug;
+use crate::pose::Pose;
 use crate::radius;
 use crate::shadow;
 use crate::surface::Surface;
-use crate::text_size::UiText;
 use crate::theme::Theme;
 use crate::timing;
 use crate::tooltip_side::TooltipSide;
+use crate::tween::Tween;
+use crate::ui_text::UiText;
 
 const SIDE_OFFSET: f32 = 6.0;
 const SLIDE: f32 = 4.0;
@@ -37,7 +41,11 @@ pub struct Tooltip {
 
 impl Tooltip {
     /// A tooltip for `trigger`.
-    pub fn new(id: impl Into<ElementId>, text: impl Into<SharedString>, trigger: impl IntoElement) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        text: impl Into<SharedString>,
+        trigger: impl IntoElement,
+    ) -> Self {
         Self {
             id: id.into(),
             text: text.into(),
@@ -62,19 +70,10 @@ impl Tooltip {
     }
 }
 
-impl RenderOnce for Tooltip {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = *Theme::of(cx);
+impl Tooltip {
+    fn card(&self, theme: Theme, opacity: f32) -> gpui::Div {
         let palette = theme.palette(Surface::Window);
-        let hover_state = hover::track(&self.id, "tooltip", false, window, cx);
-        let shown = hover_state
-            .read(cx)
-            .entered(timing::TOOLTIP_DELAY, timing::DEFAULT, CubicBezier::EASE, Motion::of(cx), Instant::now());
-        if shown.running {
-            window.request_animation_frame();
-        }
-        let slide = SLIDE * (1.0 - shown.value);
-        let card = div()
+        div()
             .flex()
             .items_center()
             .gap(px(8.0))
@@ -89,14 +88,33 @@ impl RenderOnce for Tooltip {
             .font_family(UI_FAMILY)
             .whitespace_nowrap()
             .shadow(shadow::lg(0.1))
-            .opacity(shown.value)
-            .child(self.text)
-            .children(self.shortcut.map(Kbd::new));
+            .opacity(opacity)
+            .child(self.text.clone())
+            .children(self.shortcut.clone().map(Kbd::new))
+    }
+
+    fn placement(&self, slide: f32) -> gpui::Div {
         let placement = div().absolute().left_0().w_full().flex().justify_center();
-        let placement = match self.side {
+        match self.side {
             TooltipSide::Bottom => placement.top_full().mt(px(SIDE_OFFSET + slide)),
             TooltipSide::Top => placement.bottom_full().mb(px(SIDE_OFFSET - slide)),
-        };
+        }
+    }
+}
+
+impl RenderOnce for Tooltip {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = *Theme::of(cx);
+        let hover_state = hover::track(&self.id, Pose::Off, window, cx);
+        let tween = Tween::new(timing::DEFAULT, CubicBezier::EASE).delayed(timing::TOOLTIP_DELAY);
+        let shown = hover_state
+            .read(cx)
+            .entered(tween, Motion::of(cx), Instant::now());
+        if shown.running {
+            window.request_animation_frame();
+        }
+        let card = self.card(theme, shown.value);
+        let placement = self.placement(SLIDE * (1.0 - shown.value));
         div()
             .id(self.id)
             .relative()
@@ -108,6 +126,8 @@ impl RenderOnce for Tooltip {
             })
     }
 }
+
+opaque_debug!(Tooltip);
 
 #[cfg(test)]
 #[path = "tooltip_tests.rs"]

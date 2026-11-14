@@ -38,32 +38,44 @@ impl CubicBezier {
     }
 
     fn parameter_for(&self, x: f32) -> f32 {
-        let mut guess = x;
-        for _ in 0..NEWTON_STEPS {
-            let error = sample(self.x1, self.x2, guess) - x;
-            if error.abs() < EPSILON {
-                return guess;
-            }
-            let slope = slope(self.x1, self.x2, guess);
-            if slope.abs() < EPSILON {
-                break;
-            }
-            guess -= error / slope;
+        self.newton(x).unwrap_or_else(|| self.bisect(x))
+    }
+
+    fn newton(&self, x: f32) -> Option<f32> {
+        match (0..NEWTON_STEPS).try_fold(x, |guess, _| self.step(guess, x)) {
+            Ok(_) => None,
+            Err(solved) => solved,
         }
-        self.bisect(x)
+    }
+
+    /// One Newton iteration: `Ok` with the next guess, `Err(Some)` once solved, `Err(None)` when the slope vanishes.
+    fn step(&self, guess: f32, x: f32) -> Result<f32, Option<f32>> {
+        let error = sample(self.x1, self.x2, guess) - x;
+        if error.abs() < EPSILON {
+            return Err(Some(guess));
+        }
+        let slope = slope(self.x1, self.x2, guess);
+        if slope.abs() < EPSILON {
+            return Err(None);
+        }
+        Ok(guess - error / slope)
     }
 
     fn bisect(&self, x: f32) -> f32 {
-        let (mut low, mut high) = (0.0_f32, 1.0_f32);
+        let mut bounds = (0.0_f32, 1.0_f32);
         for _ in 0..BISECTION_STEPS {
-            let middle = (low + high) / 2.0;
-            if sample(self.x1, self.x2, middle) < x {
-                low = middle;
-            } else {
-                high = middle;
-            }
+            bounds = self.narrowed(bounds, x);
         }
-        (low + high) / 2.0
+        bounds.0.midpoint(bounds.1)
+    }
+
+    fn narrowed(&self, (low, high): (f32, f32), x: f32) -> (f32, f32) {
+        let middle = low.midpoint(high);
+        if sample(self.x1, self.x2, middle) < x {
+            (middle, high)
+        } else {
+            (low, middle)
+        }
     }
 }
 

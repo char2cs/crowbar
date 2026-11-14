@@ -2,7 +2,6 @@
 
 use gpui::{Hsla, Rgba};
 
-/// Blends `from` into `to` at progress `t` (0 to 1).
 pub(crate) fn mix(from: Hsla, to: Hsla, t: f32) -> Hsla {
     let (from, to) = (Rgba::from(from), Rgba::from(to));
     let alpha = from.a + (to.a - from.a) * t;

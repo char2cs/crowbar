@@ -1,18 +1,21 @@
 //! Keyboard highlight movement over the rows of a menu.
 
+use crate::direction::Direction;
 use crate::menu_item::MenuItem;
 
-/// Index of the next selectable row after `from` in the direction of `forward`, wrapping around.
-pub(crate) fn step(items: &[MenuItem], from: Option<usize>, forward: bool) -> Option<usize> {
+pub(crate) fn step(items: &[MenuItem], from: Option<usize>, direction: Direction) -> Option<usize> {
     let count = items.len();
-    let start = match (from, forward) {
-        (Some(index), true) => index + 1,
-        (Some(index), false) => index + count - 1,
-        (None, true) => 0,
-        (None, false) => count.saturating_sub(1),
+    let start = match (from, direction) {
+        (Some(index), Direction::Forward) => index + 1,
+        (Some(index), Direction::Backward) => index + count - 1,
+        (None, Direction::Forward) => 0,
+        (None, Direction::Backward) => count.saturating_sub(1),
     };
     (0..count)
-        .map(|offset| if forward { (start + offset) % count } else { (start + count - offset) % count })
+        .map(|offset| match direction {
+            Direction::Forward => (start + offset) % count,
+            Direction::Backward => (start + count - offset) % count,
+        })
         .find(|&index| items.get(index).is_some_and(MenuItem::is_selectable))
 }
 

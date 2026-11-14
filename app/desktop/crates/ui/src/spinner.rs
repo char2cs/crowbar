@@ -1,8 +1,8 @@
 //! The rotating loading indicator.
 
 use gpui::{
-    Animation, AnimationExt, App, ElementId, IntoElement, Pixels, RenderOnce, Transformation, Window, percentage,
-    px, svg, Styled,
+    AnimationExt, App, ElementId, IntoElement, Pixels, RenderOnce, Styled, Transformation, Window,
+    percentage, px, svg,
 };
 
 use crate::cubic_bezier::CubicBezier;
@@ -10,8 +10,9 @@ use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
 use crate::motion::Motion;
-use crate::theme::Theme;
+use crate::opaque_debug::opaque_debug;
 use crate::surface::Surface;
+use crate::theme::Theme;
 use crate::timing;
 
 const OPACITY: f32 = 0.8;
@@ -27,7 +28,11 @@ pub struct Spinner {
 impl Spinner {
     /// A 16px spinner.
     pub fn new(id: impl Into<ElementId>) -> Self {
-        Self { id: id.into(), size: px(16.0), surface: Surface::default() }
+        Self {
+            id: id.into(),
+            size: px(16.0),
+            surface: Surface::default(),
+        }
     }
 
     /// Sets the edge length.
@@ -47,16 +52,27 @@ impl Spinner {
 
 impl RenderOnce for Spinner {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let color = Theme::of(cx).palette(self.surface).muted_foreground().opacity(OPACITY);
+        let color = Theme::of(cx)
+            .palette(self.surface)
+            .muted_foreground()
+            .opacity(OPACITY);
         let path = Icon::path(IconName::CircleNotch, IconWeight::Regular).unwrap_or("");
-        svg().path(path).size(self.size).flex_none().text_color(color).with_animation(
-            self.id,
-            Motion::essential_loop(timing::SPIN, CubicBezier::LINEAR),
-            |element, delta| element.with_transformation(Transformation::rotate(percentage(delta))),
-        )
+        svg()
+            .path(path)
+            .size(self.size)
+            .flex_none()
+            .text_color(color)
+            .with_animation(
+                self.id,
+                Motion::essential_loop(timing::SPIN, CubicBezier::LINEAR),
+                |element, delta| {
+                    element.with_transformation(Transformation::rotate(percentage(delta)))
+                },
+            )
     }
 }
 
+opaque_debug!(Spinner);
 
 #[cfg(test)]
 #[path = "spinner_tests.rs"]

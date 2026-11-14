@@ -26,7 +26,11 @@ fn bounds(width: f32) -> Bounds<Pixels> {
 #[test]
 fn update_only_reports_real_changes() {
     let recorder = Rc::new(Recorder::default());
-    let guard = OverlayGuard::attach(Rc::clone(&recorder) as Rc<dyn OverlayHost>, OverlayId(7), bounds(10.0));
+    let guard = OverlayGuard::attach(
+        Rc::clone(&recorder) as Rc<dyn OverlayHost>,
+        OverlayId(7),
+        bounds(10.0),
+    );
     guard.update(bounds(10.0));
     guard.update(bounds(11.0));
     drop(guard);

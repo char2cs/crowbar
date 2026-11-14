@@ -1,13 +1,11 @@
 //! Reduced-motion preference and the animation factory.
 
-use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{Animation, App, Global};
 
 use crate::cubic_bezier::CubicBezier;
 
-/// Duration a reduced-motion animation takes: the `0.01ms` of the spec's blanket rule.
 const REDUCED: Duration = Duration::from_micros(10);
 
 /// Global motion preference; the shell sets it from the OS "reduce motion" setting.
@@ -41,12 +39,14 @@ impl Motion {
 
     /// A one-shot animation of `duration` along `curve`, honouring the preference.
     pub fn animation(self, duration: Duration, curve: CubicBezier) -> Animation {
-        Animation::new(self.duration(duration)).with_easing(Rc::new(move |t| curve.ease(t)))
+        Animation::new(self.duration(duration)).with_easing(move |t| curve.ease(t))
     }
 
     /// A looping animation that stays active under reduced motion (spinners are exempt).
     pub fn essential_loop(duration: Duration, curve: CubicBezier) -> Animation {
-        Animation::new(duration).repeat().with_easing(Rc::new(move |t| curve.ease(t)))
+        Animation::new(duration)
+            .repeat()
+            .with_easing(move |t| curve.ease(t))
     }
 }
 

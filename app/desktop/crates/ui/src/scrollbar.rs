@@ -1,18 +1,18 @@
 //! The overlay scrollbar element.
 
 use gpui::{
-    App, BorderStyle, Bounds, Element, ElementId, GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, ScrollHandle, Style, Window, point,
-    px, quad, relative, size, transparent_black,
+    App, BorderStyle, Bounds, Element, ElementId, GlobalElementId, Hsla, InspectorElementId,
+    IntoElement, LayoutId, Pixels, ScrollHandle, Style, Window, point, px, quad, relative, size,
+    transparent_black,
 };
 
 use crate::radius;
-use crate::scroll_thumb::Thumb;
+use crate::thumb::Thumb;
+use crate::thumb_drag::ThumbDrag;
 
 const WIDTH: f32 = 6.0;
 const MARGIN: f32 = 4.0;
 
-/// Paints a vertical thumb over a scrolling region and lets the pointer drag it.
 pub(crate) struct Scrollbar {
     handle: ScrollHandle,
     color: Hsla,
@@ -25,11 +25,6 @@ impl Scrollbar {
     }
 }
 
-/// The thumb quad of this frame, in window coordinates.
-pub(crate) struct Prepaint {
-    thumb: Option<Bounds<Pixels>>,
-}
-
 impl IntoElement for Scrollbar {
     type Element = Self;
 
@@ -40,7 +35,7 @@ impl IntoElement for Scrollbar {
 
 impl Element for Scrollbar {
     type RequestLayoutState = ();
-    type PrepaintState = Prepaint;
+    type PrepaintState = Option<Bounds<Pixels>>;
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -68,17 +63,19 @@ impl Element for Scrollbar {
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _: &mut Self::RequestLayoutState,
+        (): &mut Self::RequestLayoutState,
         _: &mut Window,
         _: &mut App,
     ) -> Self::PrepaintState {
         let scrolled = -f32::from(self.handle.offset().y);
         let max = f32::from(self.handle.max_offset().height);
-        let thumb = Thumb::locate(f32::from(bounds.size.height), max, scrolled).map(|thumb| {
-            let origin = point(bounds.right() - px(MARGIN + WIDTH), bounds.top() + px(thumb.start));
+        Thumb::locate(f32::from(bounds.size.height), max, scrolled).map(|thumb| {
+            let origin = point(
+                bounds.right() - px(MARGIN + WIDTH),
+                bounds.top() + px(thumb.start),
+            );
             Bounds::new(origin, size(px(WIDTH), px(thumb.length)))
-        });
-        Prepaint { thumb }
+        })
     }
 
     fn paint(
@@ -86,39 +83,23 @@ impl Element for Scrollbar {
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _: &mut Self::RequestLayoutState,
+        (): &mut Self::RequestLayoutState,
         prepaint: &mut Self::PrepaintState,
         window: &mut Window,
         _: &mut App,
     ) {
-        let Some(thumb) = prepaint.thumb else {
+        let Some(thumb) = *prepaint else {
             return;
         };
-        let paint: PaintQuad = quad(thumb, radius::FULL, self.color, 0.0, transparent_black(), BorderStyle::default());
-        window.paint_quad(paint);
-        let handle = self.handle.clone();
-        let view = f32::from(bounds.size.height);
-        let grab = std::rc::Rc::new(std::cell::Cell::new(None::<(f32, f32)>));
-        let on_down = std::rc::Rc::clone(&grab);
-        let down_handle = handle.clone();
-        window.on_mouse_event(move |event: &MouseDownEvent, _, window, _| {
-            if event.button == MouseButton::Left && thumb.contains(&event.position) {
-                on_down.set(Some((f32::from(event.position.y), -f32::from(down_handle.offset().y))));
-                window.prevent_default();
-            }
-        });
-        let on_move = std::rc::Rc::clone(&grab);
-        window.on_mouse_event(move |event: &MouseMoveEvent, _, window, _| {
-            let Some((start_y, start_offset)) = on_move.get() else {
-                return;
-            };
-            let max = f32::from(handle.max_offset().height);
-            let delta = f32::from(event.position.y) - start_y;
-            let target = Thumb::scrolled_after(view, max, start_offset, delta);
-            handle.set_offset(point(handle.offset().x, px(-target)));
-            window.refresh();
-        });
-        window.on_mouse_event(move |_: &MouseUpEvent, _, _, _| grab.set(None));
+        window.paint_quad(quad(
+            thumb,
+            radius::FULL,
+            self.color,
+            0.0,
+            transparent_black(),
+            BorderStyle::default(),
+        ));
+        ThumbDrag::new(self.handle.clone(), f32::from(bounds.size.height), thumb).install(window);
     }
 }
 

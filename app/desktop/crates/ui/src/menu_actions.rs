@@ -4,10 +4,8 @@ use gpui::{KeyBinding, actions};
 
 actions!(ui_menu, [SelectNext, SelectPrevious, Confirm, Dismiss]);
 
-/// Key context the menu sets on its root element.
 pub(crate) const CONTEXT: &str = "UiMenu";
 
-/// The default key bindings of an open menu.
 pub(crate) fn bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("down", SelectNext, Some(CONTEXT)),

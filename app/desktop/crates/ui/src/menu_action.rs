@@ -5,6 +5,7 @@ use std::rc::Rc;
 use gpui::{App, SharedString, Window};
 
 use crate::icon_name::IconName;
+use crate::menu_tone::MenuTone;
 
 pub(crate) type Select = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
@@ -15,26 +16,32 @@ pub struct MenuAction {
     pub(crate) icon: Option<IconName>,
     pub(crate) shortcut: Option<SharedString>,
     pub(crate) checked: bool,
-    pub(crate) destructive: bool,
+    pub(crate) tone: MenuTone,
     pub(crate) disabled: bool,
     pub(crate) on_select: Select,
 }
 
 impl std::fmt::Debug for MenuAction {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("MenuAction").field("label", &self.label).finish_non_exhaustive()
+        formatter
+            .debug_struct("MenuAction")
+            .field("label", &self.label)
+            .finish_non_exhaustive()
     }
 }
 
 impl MenuAction {
     /// A row labelled `label` that calls `on_select`.
-    pub fn new(label: impl Into<SharedString>, on_select: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+    pub fn new(
+        label: impl Into<SharedString>,
+        on_select: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
         Self {
             label: label.into(),
             icon: None,
             shortcut: None,
             checked: false,
-            destructive: false,
+            tone: MenuTone::Normal,
             disabled: false,
             on_select: Rc::new(on_select),
         }
@@ -56,22 +63,26 @@ impl MenuAction {
 
     /// Marks the row as the current choice with a check mark.
     #[must_use]
-    pub fn checked(mut self, checked: bool) -> Self {
-        self.checked = checked;
+    pub fn checked(mut self) -> Self {
+        self.checked = true;
         self
     }
 
     /// Colours the row as destructive.
     #[must_use]
-    pub fn destructive(mut self, destructive: bool) -> Self {
-        self.destructive = destructive;
+    pub fn destructive(mut self) -> Self {
+        self.tone = MenuTone::Destructive;
         self
     }
 
     /// Dims the row and ignores it.
     #[must_use]
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+    pub fn disabled(mut self) -> Self {
+        self.disabled = true;
         self
     }
 }
+
+#[cfg(test)]
+#[path = "menu_action_tests.rs"]
+mod tests;

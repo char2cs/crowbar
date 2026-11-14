@@ -88,3 +88,7 @@ impl Palette {
     pub(crate) const FROSTED_LIGHT: Self = frosted_light::PALETTE;
     pub(crate) const FROSTED_DARK: Self = frosted_dark::PALETTE;
 }
+
+#[cfg(test)]
+#[path = "palette_tests.rs"]
+mod tests;

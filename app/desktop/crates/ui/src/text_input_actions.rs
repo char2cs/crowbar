@@ -22,10 +22,8 @@ actions!(
     ]
 );
 
-/// Key context the input sets on its root element.
 pub(crate) const CONTEXT: &str = "UiTextInput";
 
-/// The default key bindings of a focused text input.
 pub(crate) fn bindings() -> Vec<KeyBinding> {
     let context = Some(CONTEXT);
     vec![
