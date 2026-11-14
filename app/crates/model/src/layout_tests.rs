@@ -1,7 +1,11 @@
+use std::collections::BTreeMap;
+
 use protocol::{PaneState, PaneTypeId, Params};
+use serde_json::json;
 
 use super::*;
 use crate::edge::Edge;
+use crate::placement::Placement;
 
 fn id(name: &str) -> PaneId {
     PaneId::new(name).unwrap()
@@ -10,17 +14,32 @@ fn id(name: &str) -> PaneId {
 fn instance(name: &str) -> PaneInstance {
     PaneInstance {
         pane_id: id(name),
-        type_id: PaneTypeId::new("core.chat").unwrap(),
+        type_id: PaneTypeId::new("core.terminal").unwrap(),
         params: Params::default(),
         state: PaneState::default(),
     }
 }
 
-fn open(tab: u64, name: &str) -> Command {
+fn chat(name: &str, chat_id: &str) -> PaneInstance {
+    PaneInstance {
+        type_id: PaneTypeId::new("core.chat").unwrap(),
+        params: Params::default().with("chatId", chat_id).unwrap(),
+        ..instance(name)
+    }
+}
+
+fn open(tab: u64, instance: PaneInstance) -> Command {
     Command::OpenPane {
         tab: TabId(tab),
-        instance: instance(name),
+        instance,
         placement: None,
+    }
+}
+
+fn add(tab: u64) -> Command {
+    Command::AddTab {
+        id: TabId(tab),
+        title: format!("tab {tab}"),
     }
 }
 
@@ -33,262 +52,181 @@ fn layout(commands: Vec<Command>) -> Layout {
     layout
 }
 
-fn add(tab: u64) -> Command {
-    Command::AddTab {
-        id: TabId(tab),
-        title: format!("tab {tab}"),
+fn sample() -> Layout {
+    layout(vec![
+        add(1),
+        open(1, chat("a", "c1")),
+        open(1, instance("b")),
+        add(2),
+        open(2, instance("c")),
+    ])
+}
+
+#[test]
+fn queries_find_tabs_and_panes() {
+    let layout = sample();
+    assert_eq!(layout.pane_count(), 3, "count");
+    assert_eq!(
+        layout.tab_of(&id("c")).map(Tab::id),
+        Some(TabId(2)),
+        "tab of"
+    );
+    assert_eq!(
+        layout.pane(&id("b")).map(|p| p.pane_id.clone()),
+        Some(id("b")),
+        "pane"
+    );
+    assert!(
+        layout.pane(&id("zz")).is_none() && layout.tab(TabId(9)).is_none(),
+        "missing"
+    );
+    let found = layout.find_pane(
+        &PaneTypeId::new("core.chat").unwrap(),
+        &Params::default().with("chatId", "c1").unwrap(),
+    );
+    assert_eq!(
+        found.map(|p| p.pane_id.clone()),
+        Some(id("a")),
+        "by identity"
+    );
+    let other_type = layout.find_pane(
+        &PaneTypeId::new("core.terminal").unwrap(),
+        &Params::default().with("chatId", "c1").unwrap(),
+    );
+    assert!(other_type.is_none(), "type is part of the identity");
+    let no_params = layout.find_pane(
+        &PaneTypeId::new("core.terminal").unwrap(),
+        &Params::default(),
+    );
+    assert!(no_params.is_none(), "empty parameters identify nothing");
+}
+
+#[test]
+fn a_refused_command_changes_nothing() {
+    let mut layout = sample();
+    let before = layout.clone();
+    let refused = [
+        open(9, instance("n")),
+        open(1, instance("a")),
+        Command::CloseTab { tab: TabId(9) },
+        Command::ClosePane { pane: id("zz") },
+        Command::MovePane {
+            pane: id("a"),
+            placement: Placement {
+                target: id("a"),
+                edge: Edge::Left,
+            },
+        },
+    ];
+    for command in refused {
+        assert!(layout.apply(command).is_err());
+        assert_eq!(layout, before, "unchanged");
     }
 }
 
 #[test]
-fn adding_a_tab_activates_it() {
-    let layout = layout(vec![add(1), add(2)]);
-    assert_eq!(layout.active_tab().map(Tab::id), Some(TabId(2)), "active");
-    assert_eq!(layout.tabs().len(), 2, "count");
-}
-
-#[test]
-fn duplicate_tab_ids_are_refused() {
-    let mut layout = layout(vec![add(1)]);
-    assert_eq!(
-        layout.apply(add(1)),
-        Err(Error::DuplicateTab(TabId(1))),
-        "duplicate"
-    );
-}
-
-#[test]
-fn closing_the_active_tab_activates_its_neighbour() {
-    let mut layout = layout(vec![
-        add(1),
-        add(2),
-        add(3),
-        Command::ActivateTab { tab: TabId(2) },
-    ]);
-    layout.apply(Command::CloseTab { tab: TabId(2) }).unwrap();
-    assert_eq!(layout.active_tab().map(Tab::id), Some(TabId(3)), "next");
-    layout.apply(Command::CloseTab { tab: TabId(3) }).unwrap();
-    assert_eq!(layout.active_tab().map(Tab::id), Some(TabId(1)), "previous");
-    layout.apply(Command::CloseTab { tab: TabId(1) }).unwrap();
-    assert!(
-        layout.active_tab().is_none() && layout.tabs().is_empty(),
-        "none left"
-    );
-    assert!(layout.validate().is_ok(), "valid");
-}
-
-#[test]
-fn closing_an_inactive_tab_keeps_the_active_one() {
-    let mut layout = layout(vec![add(1), add(2)]);
-    layout.apply(Command::CloseTab { tab: TabId(1) }).unwrap();
-    assert_eq!(
-        layout.active_tab().map(Tab::id),
-        Some(TabId(2)),
-        "active kept"
-    );
-}
-
-#[test]
-fn tabs_reorder_within_range() {
-    let mut layout = layout(vec![add(1), add(2), add(3)]);
-    layout
-        .apply(Command::MoveTab {
-            tab: TabId(3),
-            to_index: 0,
-        })
-        .unwrap();
-    let ids: Vec<u64> = layout.tabs().iter().map(|t| t.id().0).collect();
-    assert_eq!(ids, [3, 1, 2], "moved to front");
-    assert_eq!(
-        layout.apply(Command::MoveTab {
-            tab: TabId(3),
-            to_index: 3
-        }),
-        Err(Error::IndexOutOfRange { index: 3, len: 3 }),
-        "out of range"
-    );
-}
-
-#[test]
-fn rename_changes_only_the_title() {
-    let mut layout = layout(vec![add(1)]);
-    layout
-        .apply(Command::RenameTab {
-            tab: TabId(1),
-            title: "new".into(),
-        })
-        .unwrap();
-    assert_eq!(layout.tab(TabId(1)).map(Tab::title), Some("new"), "title");
-}
-
-#[test]
-fn pane_ids_are_unique_across_tabs() {
-    let mut layout = layout(vec![add(1), add(2), open(1, "a")]);
-    assert_eq!(
-        layout.apply(open(2, "a")),
-        Err(Error::DuplicatePane(id("a"))),
-        "duplicate"
-    );
-    assert_eq!(
-        layout.apply(open(9, "b")),
-        Err(Error::TabNotFound(TabId(9))),
-        "no tab"
-    );
-}
-
-#[test]
-fn opening_a_pane_activates_its_tab() {
-    let layout = layout(vec![
-        add(1),
-        add(2),
-        Command::ActivateTab { tab: TabId(1) },
-        open(2, "a"),
-    ]);
-    assert_eq!(layout.active_tab().map(Tab::id), Some(TabId(2)), "active");
-    assert_eq!(
-        layout.tab_of(&id("a")).map(Tab::id),
-        Some(TabId(2)),
-        "owner"
-    );
-}
-
-#[test]
-fn focusing_a_pane_activates_its_tab() {
-    let mut layout = layout(vec![add(1), open(1, "a"), add(2)]);
-    layout.apply(Command::FocusPane { pane: id("a") }).unwrap();
-    assert_eq!(
-        layout.active_tab().map(Tab::id),
-        Some(TabId(1)),
-        "tab 1 active"
-    );
-}
-
-#[test]
-fn moving_a_pane_to_another_tab_keeps_id_and_state() {
-    let state = PaneState::new(serde_json::json!({"k": 1})).unwrap();
-    let mut layout = layout(vec![
-        add(1),
-        add(2),
-        open(1, "a"),
-        open(1, "b"),
-        Command::SetPaneState {
-            pane: id("a"),
-            state: state.clone(),
+fn validate_names_broken_invariants() {
+    let broken_active = Layout {
+        active: Some(TabId(9)),
+        ..sample()
+    };
+    assert!(broken_active.validate().is_err(), "active tab missing");
+    let no_active = Layout {
+        active: None,
+        ..sample()
+    };
+    assert!(no_active.validate().is_err(), "tabs but no active");
+    let mut duplicated = sample();
+    duplicated.tabs.push(duplicated.tabs[0].clone());
+    assert!(duplicated.validate().is_err(), "tab id and panes twice");
+    let mut same_chat = sample();
+    same_chat.tabs[1] = Tab::restored(
+        crate::tab_shape::TabShape {
+            id: TabId(2),
+            title: "two".into(),
+            tree: Some(crate::split_node::SplitNode::Leaf { pane: id("d") }),
+            focused: Some(id("d")),
         },
-    ]);
-    layout
-        .apply(Command::MovePaneToTab {
-            pane: id("a"),
-            to: TabId(2),
-            placement: None,
-        })
-        .unwrap();
-    layout.validate().unwrap();
-    let tab = layout.tab_of(&id("a")).unwrap();
-    assert_eq!(tab.id(), TabId(2), "moved");
-    assert_eq!(
-        tab.pane(&id("a")).map(|p| p.state.clone()),
-        Some(state),
-        "state kept"
+        [(id("d"), chat("d", "c1"))].into_iter().collect(),
     );
-    assert_eq!(
-        layout.tab(TabId(1)).map(|t| t.pane_ids().len()),
-        Some(1),
-        "source shrank"
-    );
-    assert_eq!(
-        layout.active_tab().map(Tab::id),
-        Some(TabId(2)),
-        "destination active"
-    );
+    assert!(same_chat.validate().is_err(), "one chat open twice");
 }
 
 #[test]
-fn a_failed_move_leaves_everything_as_it_was() {
-    let mut layout = layout(vec![add(1), add(2), open(1, "a"), open(2, "b")]);
+fn a_layout_round_trips_through_json_with_its_version() {
+    let layout = sample();
+    let value = serde_json::to_value(&layout).unwrap();
+    assert_eq!(value["version"], json!(SCHEMA_VERSION), "versioned");
+    let back: Layout = serde_json::from_value(value).unwrap();
+    assert_eq!(back, layout, "round trip");
+}
+
+#[test]
+fn an_unversioned_layout_from_the_first_format_is_migrated() {
+    let mut value = serde_json::to_value(sample()).unwrap();
+    value.as_object_mut().unwrap().remove("version");
+    let migrated: Layout = serde_json::from_value(value).unwrap();
+    assert_eq!(migrated, sample(), "same layout");
+}
+
+#[test]
+fn a_layout_from_a_newer_app_or_with_stray_data_is_refused() {
+    let value = serde_json::to_value(sample()).unwrap();
+    let mut newer = value.clone();
+    newer["version"] = json!(SCHEMA_VERSION + 1);
+    let error = serde_json::from_value::<Layout>(newer)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("newer"), "{error}");
+    let mut stray = value.clone();
+    stray["surprise"] = json!(true);
+    assert!(
+        serde_json::from_value::<Layout>(stray).is_err(),
+        "unknown field"
+    );
+    let mut ghost = value;
+    ghost["active"] = json!(77);
+    let error = serde_json::from_value::<Layout>(ghost)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("invalid layout"), "{error}");
+}
+
+#[test]
+fn swapping_in_an_arrangement_keeps_live_panes_and_parks_the_rest() {
+    let mut layout = sample();
+    let before = layout.arrangement();
+    let removed = layout
+        .execute(Command::ClosePane { pane: id("b") })
+        .unwrap();
+    let step = UndoStep {
+        arrangement: before.clone(),
+        parked: removed
+            .into_iter()
+            .map(|p| (p.pane_id.clone(), p))
+            .collect(),
+    };
+    let after_close = layout.arrangement();
+    let inverse = layout.swap_arrangement(step).unwrap();
+    assert_eq!(layout.arrangement(), before, "arrangement back");
+    assert_eq!(layout.pane_count(), 3, "pane back");
+    assert!(
+        inverse.parked.is_empty() && inverse.arrangement == after_close,
+        "inverse: {inverse:?}"
+    );
+    layout.validate().unwrap();
+}
+
+#[test]
+fn an_arrangement_naming_a_vanished_pane_is_refused_untouched() {
+    let mut layout = sample();
     let before = layout.clone();
-    let bad = Some(Placement {
-        target: id("zz"),
-        edge: Edge::Left,
-    });
-    assert!(
-        layout
-            .apply(Command::MovePaneToTab {
-                pane: id("a"),
-                to: TabId(2),
-                placement: bad
-            })
-            .is_err(),
-        "bad target"
-    );
-    assert_eq!(layout, before, "atomic: the pane is not lost from tab 1");
-    assert_eq!(
-        layout.apply(Command::MovePaneToTab {
-            pane: id("a"),
-            to: TabId(1),
-            placement: None
-        }),
-        Err(Error::SamePane(id("a"))),
-        "same tab"
-    );
-    assert_eq!(layout, before, "unchanged");
-}
-
-#[test]
-fn closing_a_tab_drops_its_panes() {
-    let mut layout = layout(vec![add(1), open(1, "a")]);
-    layout.apply(Command::CloseTab { tab: TabId(1) }).unwrap();
-    assert!(layout.tab_of(&id("a")).is_none(), "pane gone with its tab");
-}
-
-#[test]
-fn pane_commands_find_the_owning_tab() {
-    let mut layout = layout(vec![
-        add(1),
-        add(2),
-        open(1, "a"),
-        open(2, "b"),
-        open(2, "c"),
-    ]);
-    layout
-        .apply(Command::SwapPanes {
-            a: id("b"),
-            b: id("c"),
-        })
-        .unwrap();
-    layout.apply(Command::ClosePane { pane: id("c") }).unwrap();
-    layout
-        .apply(Command::ResizeSplit {
-            tab: TabId(1),
-            path: vec![],
-            ratio: 0.3,
-        })
-        .unwrap_err();
-    assert_eq!(
-        layout.apply(Command::ClosePane { pane: id("c") }),
-        Err(Error::PaneNotFound(id("c"))),
-        "gone"
-    );
-    layout.validate().unwrap();
-}
-
-#[test]
-fn serde_round_trips_and_validates_on_load() {
-    let layout = layout(vec![add(1), open(1, "a"), open(1, "b")]);
-    let json = serde_json::to_string(&layout).unwrap();
-    assert_eq!(
-        serde_json::from_str::<Layout>(&json).unwrap(),
-        layout,
-        "round trip"
-    );
-    let broken = json.replace(r#""active":1"#, r#""active":7"#);
-    assert!(
-        serde_json::from_str::<Layout>(&broken).is_err(),
-        "unknown active tab"
-    );
-    let orphan = json.replace(r#""pane":"b""#, r#""pane":"ghost""#);
-    assert!(
-        serde_json::from_str::<Layout>(&orphan).is_err(),
-        "leaf without pane"
-    );
+    let mut arrangement = layout.arrangement();
+    arrangement.tabs[0].tree = Some(crate::split_node::SplitNode::Leaf { pane: id("ghost") });
+    let step = UndoStep {
+        arrangement,
+        parked: BTreeMap::new(),
+    };
+    assert!(layout.swap_arrangement(step).is_err(), "refused");
+    assert_eq!(layout, before, "layout untouched");
 }

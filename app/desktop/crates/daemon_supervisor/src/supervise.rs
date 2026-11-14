@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,10 +10,13 @@ use tokio_util::sync::CancellationToken;
 use crate::command::Command;
 use crate::crash_report::{crash_report, crash_summary};
 use crate::daemon_event::DaemonEvent;
+use crate::daemon_get::get;
 use crate::error::Error;
-use crate::health::{get, wait_for_health};
+use crate::health::wait_for_health;
 use crate::phase::Phase;
+use crate::reply::reply;
 use crate::running::Running;
+use crate::socket_dial::SocketDial;
 use crate::spawn_daemon::spawn_daemon;
 use crate::startup::Startup;
 use crate::stop::{send, stop_with};
@@ -56,17 +58,20 @@ async fn await_ready(
     child: &mut tokio::process::Child,
     commands: &mut Commands,
 ) -> Startup {
-    let t = &supervision.config.timings;
+    let bus = &supervision.bus;
     let health = wait_for_health(
         &supervision.config.paths.socket,
-        t.health_attempts,
-        t.health_poll,
-        t.health_probe_timeout,
+        &supervision.config.timings,
+        |progress| {
+            bus.emit(DaemonEvent::Migrating {
+                progress: progress.cloned(),
+            });
+        },
     );
     tokio::select! {
         outcome = health => match outcome {
             Ok(pid) => Startup::Ready(pid.or(child.id())),
-            Err(Error::Halted(message)) => Startup::Halted(message),
+            Err(Error::Halted { reason, message }) => Startup::Halted { reason, message },
             Err(_) => Startup::NeverHealthy,
         },
         status = child.wait() => Startup::Exited(describe_exit(&status)),
@@ -79,13 +84,18 @@ async fn await_ready(
 
 fn answer_stop_or_busy(command: Option<Command>) {
     match command {
-        Some(Command::Stop(done)) => {
-            done.send(()).ok();
-        },
-        Some(Command::Restart(reply)) => {
-            reply.send(Err(Error::AlreadyRunning)).ok();
-        },
+        Some(Command::Stop(done)) => reply(done, ()),
+        Some(Command::Restart(asked)) => reply(asked, Err(Error::AlreadyRunning)),
         None => {},
+    }
+}
+
+pub(crate) fn pid_mismatch(reported: Option<u32>, spawned: Option<u32>) -> Option<String> {
+    match (reported, spawned) {
+        (Some(reported), Some(spawned)) if reported != spawned => Some(format!(
+            "daemon reports pid {reported} but the process we started is {spawned}: a stale daemon may own the socket"
+        )),
+        _ => None,
     }
 }
 
@@ -112,6 +122,10 @@ async fn after_startup(
 ) -> Phase {
     match startup {
         Startup::Ready(pid) => {
+            if let Some(warning) = pid_mismatch(pid, child.id()) {
+                tracing::warn!("{warning}");
+                supervision.note("===", &warning);
+            }
             supervision.bus.emit(DaemonEvent::Ready { pid });
             let (wedged, watchdog) = start_watchdog(supervision, child.id());
             let running = Running {
@@ -121,9 +135,11 @@ async fn after_startup(
             };
             monitor(supervision, running, commands).await
         },
-        Startup::Halted(message) => {
+        Startup::Halted { reason, message } => {
             stop_child(supervision, &mut child).await;
-            supervision.bus.emit(DaemonEvent::Halted { message });
+            supervision
+                .bus
+                .emit(DaemonEvent::Halted { reason, message });
             Phase::Idle
         },
         Startup::NeverHealthy => {
@@ -164,10 +180,14 @@ async fn monitor(
                 return Phase::Recover { reason };
             }
             command = commands.recv() => match command {
-                Some(Command::Restart(reply)) => { reply.send(Err(Error::AlreadyRunning)).ok(); }
+                Some(Command::Restart(asked)) => reply(asked, Err(Error::AlreadyRunning)),
                 other => return stop_running(supervision, &mut running, other).await,
             },
-            Some(()) = running.wedged.recv() => kill_wedged(supervision, &mut running).await,
+            Some(()) = running.wedged.recv() => {
+                if let Err(stop) = kill_unless_stopped(supervision, &mut running, commands).await {
+                    return stop_running(supervision, &mut running, stop).await;
+                }
+            }
         }
     }
 }
@@ -180,31 +200,61 @@ async fn stop_running(
     stop_child(supervision, &mut running.child).await;
     supervision.bus.emit(DaemonEvent::Stopped);
     if let Some(Command::Stop(done)) = command {
-        done.send(()).ok();
+        reply(done, ());
     }
     Phase::Stop
 }
 
-async fn kill_wedged(supervision: &Supervision, running: &mut Running) {
+async fn kill_unless_stopped(
+    supervision: &Supervision,
+    running: &mut Running,
+    commands: &mut Commands,
+) -> Result<(), Option<Command>> {
+    let kill = std::pin::pin!(kill_wedged(supervision, &mut running.child));
+    race_stop(kill, commands).await
+}
+
+async fn race_stop(
+    mut kill: std::pin::Pin<&mut impl Future<Output = ()>>,
+    commands: &mut Commands,
+) -> Result<(), Option<Command>> {
+    loop {
+        tokio::select! {
+            () = &mut kill => return Ok(()),
+            command = commands.recv() => match command {
+                Some(Command::Restart(asked)) => reply(asked, Err(Error::AlreadyRunning)),
+                other => return Err(other),
+            },
+        }
+    }
+}
+
+async fn kill_wedged(supervision: &Supervision, child: &mut tokio::process::Child) {
     let t = &supervision.config.timings;
-    let socket: &Path = &supervision.config.paths.socket;
     let dump = tokio::time::timeout(
         t.dump_timeout,
-        get(socket, "/debug/pprof/goroutine?debug=2", DUMP_LIMIT),
+        get(
+            &SocketDial::new(&supervision.config.paths.socket),
+            "/debug/pprof/goroutine?debug=2",
+            DUMP_LIMIT,
+        ),
     )
     .await;
-    if let Ok(Ok(body)) = dump {
-        supervision.note(
+    match dump {
+        Ok(Ok(body)) => supervision.note(
             "=== watchdog goroutine dump",
             &String::from_utf8_lossy(&body),
-        );
+        ),
+        Ok(Err(e)) => tracing::debug!("no goroutine dump: {e}"),
+        Err(_) => tracing::debug!("no goroutine dump within {:?}", t.dump_timeout),
     }
-    send(&running.child, Signal::QUIT);
-    if tokio::time::timeout(t.sigquit_grace, running.child.wait())
+    send(child, Signal::QUIT);
+    if tokio::time::timeout(t.sigquit_grace, child.wait())
         .await
         .is_err()
+        && let Err(e) = child.kill().await
     {
-        running.child.kill().await.ok();
+        tracing::warn!("cannot kill the wedged daemon: {e}");
     }
 }
 
@@ -220,7 +270,12 @@ async fn recover(supervision: &mut Supervision, reason: String, commands: &mut C
     match supervision.budget.on_death(Instant::now()) {
         Verdict::GiveUp { deaths } => {
             let summary = crash_summary(deaths, t.restart_window);
-            let report = crash_report(&summary, &supervision.config.paths.log);
+            supervision.flush_log().await;
+            let report = crash_report(
+                &summary,
+                &supervision.config.paths.log,
+                &supervision.config.version,
+            );
             supervision.bus.emit(DaemonEvent::GaveUp { report });
             Phase::Idle
         },
@@ -241,9 +296,9 @@ async fn backoff(supervision: &mut Supervision, delay: Duration, commands: &mut 
     tokio::select! {
         () = tokio::time::sleep(delay) => Phase::Launch,
         command = commands.recv() => match command {
-            Some(Command::Restart(reply)) => {
+            Some(Command::Restart(asked)) => {
                 supervision.budget.reset();
-                reply.send(Ok(())).ok();
+                reply(asked, Ok(()));
                 Phase::Launch
             }
             other => stop_idle(supervision, other),
@@ -254,16 +309,16 @@ async fn backoff(supervision: &mut Supervision, delay: Duration, commands: &mut 
 fn stop_idle(supervision: &Supervision, command: Option<Command>) -> Phase {
     supervision.bus.emit(DaemonEvent::Stopped);
     if let Some(Command::Stop(done)) = command {
-        done.send(()).ok();
+        reply(done, ());
     }
     Phase::Stop
 }
 
 async fn idle(supervision: &mut Supervision, commands: &mut Commands) -> Phase {
     match commands.recv().await {
-        Some(Command::Restart(reply)) => {
+        Some(Command::Restart(asked)) => {
             supervision.budget.reset();
-            reply.send(Ok(())).ok();
+            reply(asked, Ok(()));
             Phase::Launch
         },
         other => stop_idle(supervision, other),
@@ -277,7 +332,10 @@ pub(crate) async fn supervise(mut supervision: Supervision, mut commands: Comman
             Phase::Launch => launch(&mut supervision, &mut commands).await,
             Phase::Recover { reason } => recover(&mut supervision, reason, &mut commands).await,
             Phase::Idle => idle(&mut supervision, &mut commands).await,
-            Phase::Stop => return,
+            Phase::Stop => {
+                supervision.flush_log().await;
+                return;
+            },
         };
     }
 }

@@ -12,7 +12,9 @@ fn a_new_config_runs_with_production_timings() {
         PathBuf::from("/bin/crowbar-api"),
         paths,
         Some(PathBuf::from("/home")),
+        "1.2.3",
     );
     assert_eq!(config.timings.restart_max, Timings::default().restart_max);
     assert_eq!(config.home, Some(PathBuf::from("/home")));
+    assert_eq!(config.version, "1.2.3");
 }

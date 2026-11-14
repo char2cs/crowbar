@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use rustix::io::Errno;
 use thiserror::Error;
 
 /// Everything that can stop the daemon from being found, started, kept up or stopped.
@@ -25,8 +26,13 @@ pub enum Error {
     #[error("cannot resolve the Crowbar home: {0}")]
     Paths(String),
     /// The daemon halted on purpose, and no restart fixes it.
-    #[error("the daemon halted: {0}")]
-    Halted(String),
+    #[error("the daemon halted: {message}")]
+    Halted {
+        /// The machine-readable halt reason, when the daemon gave one.
+        reason: Option<String>,
+        /// What the daemon said.
+        message: String,
+    },
     /// The daemon never became healthy.
     #[error("daemon did not become healthy in {0} attempts")]
     GaveUp(u32),
@@ -48,4 +54,58 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    /// The daemon's socket could not be dialled.
+    #[error("cannot dial the daemon: {source}")]
+    Dial {
+        /// The OS error, kept so a full descriptor table can be told from a dead daemon.
+        #[source]
+        source: std::io::Error,
+    },
+    /// A request to the daemon failed after the connection was made.
+    #[error("request {target} failed: {source}")]
+    Exchange {
+        /// The request path.
+        target: String,
+        /// What went wrong.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// The daemon answered with a status other than success.
+    #[error("{target} returned status {status}")]
+    Status {
+        /// The request path.
+        target: String,
+        /// The HTTP status code.
+        status: u16,
+    },
+    /// The daemon's answer was larger than the reader accepts.
+    #[error("{target} returned more than {limit} bytes")]
+    BodyTooLarge {
+        /// The request path.
+        target: String,
+        /// The limit that was exceeded.
+        limit: usize,
+    },
 }
+
+impl Error {
+    #[must_use]
+    pub(crate) fn is_descriptor_exhaustion(&self) -> bool {
+        let chain =
+            std::iter::successors(Some(self as &(dyn std::error::Error + 'static)), |error| {
+                error.source()
+            });
+        chain.into_iter().any(is_out_of_descriptors)
+    }
+}
+
+fn is_out_of_descriptors(error: &(dyn std::error::Error + 'static)) -> bool {
+    error
+        .downcast_ref::<std::io::Error>()
+        .and_then(std::io::Error::raw_os_error)
+        .is_some_and(|raw| raw == Errno::MFILE.raw_os_error() || raw == Errno::NFILE.raw_os_error())
+}
+
+#[cfg(test)]
+#[path = "error_tests.rs"]
+mod tests;

@@ -17,6 +17,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 create_builder() {
   docker rm -f "$name" >/dev/null 2>&1 || true
   docker run -d --name "$name" \
+    --ulimit core=0 \
     --tmpfs "/target:rw,exec,size=${target_size}" \
     -v "$registry_volume:/usr/local/cargo/registry" \
     -v "$root:/w" \

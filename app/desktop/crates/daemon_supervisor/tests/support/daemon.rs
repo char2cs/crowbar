@@ -1,7 +1,7 @@
-use std::path::PathBuf;
 use std::time::Duration;
 
 use daemon_supervisor::{DaemonEvent, DaemonPaths, SupervisorConfig, Timings};
+use tempfile::TempDir;
 use tokio::sync::broadcast::Receiver;
 
 const EVENT_BUDGET: Duration = Duration::from_secs(30);
@@ -19,22 +19,26 @@ pub(crate) fn fast_timings() -> Timings {
     }
 }
 
-pub(crate) fn config(tag: &str, mode: &str, timings: Timings) -> SupervisorConfig {
-    let dir = std::env::temp_dir().join(format!("cb-sup-{tag}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("test dir");
-    let script = dir.join("crowbar-api");
+/// A supervisor config whose `crowbar-api` is a script that runs the fake daemon in `mode`. The
+/// returned directory holds the socket, script and log and is removed when it is dropped.
+pub(crate) fn config(mode: &str, timings: Timings) -> (SupervisorConfig, TempDir) {
+    let dir = tempfile::Builder::new()
+        .prefix("cb-sup-")
+        .tempdir()
+        .expect("test dir");
+    let script = dir.path().join("crowbar-api");
     let fake = env!("CARGO_BIN_EXE_fake_daemon");
     let body = format!("#!/bin/sh\nFAKE_DAEMON_MODE={mode} exec {fake} \"$@\"\n");
     std::fs::write(&script, body).expect("script");
     std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .expect("chmod");
     let paths = DaemonPaths {
-        socket: dir.join("d.sock"),
-        log: dir.join("logs").join("daemon.log"),
+        socket: dir.path().join("d.sock"),
+        log: dir.path().join("logs").join("daemon.log"),
     };
-    let mut config = SupervisorConfig::new(script, paths, None);
+    let mut config = SupervisorConfig::new(script, paths, None, "1.2.3-test");
     config.timings = timings;
-    config
+    (config, dir)
 }
 
 async fn first_matching(
@@ -56,8 +60,4 @@ pub(crate) async fn next_matching(
     tokio::time::timeout(EVENT_BUDGET, first_matching(events, wanted))
         .await
         .expect("event arrived in time")
-}
-
-pub(crate) fn log_of(config: &SupervisorConfig) -> PathBuf {
-    config.paths.log.clone()
 }

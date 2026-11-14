@@ -18,16 +18,20 @@ path = "src/bin/fake_daemon.rs"
 required-features = ["test-daemon"]
 
 [dependencies]
+bytes = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 rustix = { version = "1", features = ["process", "param"] }
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "sync", "time"] }
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["rt"] }
 tracing.workspace = true
-transport = { path = "../../../crates/transport" }
 
 [dev-dependencies]
 daemon_supervisor = { path = ".", features = ["test-daemon"] }
+tempfile = "3"
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time", "test-util"] }
 
 [lints]

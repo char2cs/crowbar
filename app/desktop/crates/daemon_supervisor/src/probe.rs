@@ -1,9 +1,10 @@
 use std::path::Path;
 
-use rustix::io::Errno;
-use tokio::net::UnixStream;
-
-use crate::health::{Health, check_health, get};
+use crate::daemon_get::get;
+use crate::dial::Dial;
+use crate::error::Error;
+use crate::health::{Health, check_health};
+use crate::socket_dial::SocketDial;
 
 const PROBE_BODY_LIMIT: usize = 8 * 1024 * 1024;
 
@@ -21,31 +22,31 @@ pub enum Probe {
     Held,
 }
 
-pub(crate) fn is_descriptor_exhaustion(error: &std::io::Error) -> bool {
-    let raw = error.raw_os_error();
-    raw == Some(Errno::MFILE.raw_os_error()) || raw == Some(Errno::NFILE.raw_os_error())
+fn failed(error: &Error) -> Probe {
+    if error.is_descriptor_exhaustion() {
+        Probe::LocalDescriptorExhaustion
+    } else {
+        Probe::Unserved
+    }
+}
+
+pub(crate) async fn probe_with<D: Dial>(dial: &D) -> Probe {
+    match check_health(dial).await {
+        Err(error) => return failed(&error),
+        Ok(Health::Migrating { .. } | Health::Halted { .. }) => return Probe::Held,
+        Ok(Health::Ready { .. }) => {},
+    }
+    match get(dial, "/v0/projects", PROBE_BODY_LIMIT).await {
+        Ok(_) => Probe::Healthy,
+        Err(error) => failed(&error),
+    }
 }
 
 /// Deep readiness probe: `/v0/projects` goes through the view store every observed wedge pinned,
-/// unlike the static `/v0/health`. Reports whether it could dial at all, since a process out of
-/// descriptors cannot reach even a healthy daemon.
+/// unlike the static `/v0/health`. Every dial is classified, not just the first: a process out of
+/// descriptors cannot reach even a healthy daemon, whichever request ran out.
 pub async fn probe_ready(socket: &Path) -> Probe {
-    if let Err(e) = UnixStream::connect(socket).await {
-        return if is_descriptor_exhaustion(&e) {
-            Probe::LocalDescriptorExhaustion
-        } else {
-            Probe::Unserved
-        };
-    }
-    match check_health(socket).await {
-        Ok(Health::Migrating | Health::Halted { .. }) => return Probe::Held,
-        Ok(Health::Ready { .. }) => {},
-        Err(_) => return Probe::Unserved,
-    }
-    match get(socket, "/v0/projects", PROBE_BODY_LIMIT).await {
-        Ok(_) => Probe::Healthy,
-        Err(_) => Probe::Unserved,
-    }
+    probe_with(&SocketDial::new(socket)).await
 }
 
 #[cfg(test)]

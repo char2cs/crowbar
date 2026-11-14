@@ -33,13 +33,13 @@ pub(crate) fn crash_summary(deaths: usize, window: Duration) -> String {
     )
 }
 
-pub(crate) fn crash_report(summary: &str, log: &Path) -> String {
+pub(crate) fn crash_report(summary: &str, log: &Path, version: &str) -> String {
     let tail = match read_tail(log) {
         Ok(text) => last_run_tail(&text, LOG_TAIL_LINES),
         Err(e) => format!("could not read {}: {e}", log.display()),
     };
     format!(
-        "Crowbar daemon on {} {}\n{summary}\n\n{tail}",
+        "Crowbar {version} on {} {}\n{summary}\n\n{tail}",
         std::env::consts::OS,
         std::env::consts::ARCH
     )

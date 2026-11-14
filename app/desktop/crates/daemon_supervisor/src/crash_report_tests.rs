@@ -26,7 +26,21 @@ fn the_summary_names_the_deaths_counted_and_the_window() {
 
 #[test]
 fn an_unreadable_log_is_said_so_in_the_report() {
-    let report = crash_report("It died.", Path::new("/definitely/not/here.log"));
+    let report = crash_report("It died.", Path::new("/definitely/not/here.log"), "1.2.3");
     assert!(report.contains("It died."));
     assert!(report.contains("could not read /definitely/not/here.log"));
+}
+
+#[test]
+fn the_report_names_the_app_version_and_the_platform() {
+    let report = crash_report("It died.", Path::new("/definitely/not/here.log"), "1.2.3");
+    let first = report.lines().next().unwrap_or_default();
+    assert_eq!(
+        first,
+        format!(
+            "Crowbar 1.2.3 on {} {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    );
 }

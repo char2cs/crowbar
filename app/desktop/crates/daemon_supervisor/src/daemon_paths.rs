@@ -25,7 +25,9 @@ fn absolute(report: &Value, key: &str) -> Result<PathBuf, Error> {
     if path.is_absolute() {
         return Ok(path);
     }
-    Err(Error::Paths(format!("paths output: {key} is not absolute: {text:?}")))
+    Err(Error::Paths(format!(
+        "paths output: {key} is not absolute: {text:?}"
+    )))
 }
 
 impl DaemonPaths {

@@ -11,13 +11,17 @@ use crate::supervise::supervise;
 use crate::supervision::Supervision;
 use crate::supervisor_config::SupervisorConfig;
 
-/// Handle to the running supervision task. Dropping it without [`Supervisor::stop`] aborts the
-/// task, which kills the daemon child (it is spawned with `kill_on_drop`).
+/// Handle to the running supervision task.
+///
+/// The shell must `await` [`Supervisor::stop`] before it exits: that is the only way the daemon
+/// gets SIGTERM and time to flush its state. Dropping the handle without it asks the task to stop
+/// the same way and returns at once, and when the runtime is already shutting down the daemon
+/// child is killed outright (it is spawned with `kill_on_drop`).
 #[derive(Debug)]
 pub struct Supervisor {
     commands: mpsc::Sender<Command>,
     bus: Arc<Bus>,
-    task: JoinHandle<()>,
+    task: Option<JoinHandle<()>>,
 }
 
 impl Supervisor {
@@ -31,7 +35,7 @@ impl Supervisor {
         Self {
             commands,
             bus,
-            task,
+            task: Some(task),
         }
     }
 
@@ -63,12 +67,33 @@ impl Supervisor {
 
     /// Stops the daemon gracefully (SIGTERM, then SIGKILL after the grace period) and ends
     /// supervision.
-    pub async fn stop(self) {
+    pub async fn stop(mut self) {
         let (done, finished) = oneshot::channel();
-        if self.commands.send(Command::Stop(done)).await.is_ok() {
-            finished.await.ok();
+        if self.commands.send(Command::Stop(done)).await.is_ok() && finished.await.is_err() {
+            tracing::debug!("the supervision task ended without confirming the stop");
         }
-        self.task.await.ok();
+        if let Some(Err(e)) = self.finished().await {
+            tracing::warn!("the supervision task failed: {e}");
+        }
+    }
+
+    async fn finished(&mut self) -> Option<Result<(), tokio::task::JoinError>> {
+        match self.task.take() {
+            Some(task) => Some(task.await),
+            None => None,
+        }
+    }
+}
+
+impl Drop for Supervisor {
+    fn drop(&mut self) {
+        let Some(task) = self.task.take() else {
+            return;
+        };
+        let (done, _unwanted) = oneshot::channel();
+        if self.commands.try_send(Command::Stop(done)).is_err() {
+            task.abort();
+        }
     }
 }
 

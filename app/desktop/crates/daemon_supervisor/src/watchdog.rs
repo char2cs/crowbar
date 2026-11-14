@@ -3,11 +3,11 @@ use std::time::{Duration, SystemTime};
 use tokio::time::Instant;
 
 use crate::daemon_event::DaemonEvent;
+use crate::exoneration::Exoneration;
 use crate::probe::{Probe, probe_ready};
 use crate::process_cpu::{cpu_time, is_suspended};
 use crate::watch_context::WatchContext;
 use crate::watch_state::WatchState;
-use crate::exoneration::Exoneration;
 use crate::wedge::{cycle_was_suspended, made_progress, should_kill_wedged};
 
 async fn probe_within(ctx: &WatchContext, budget: Duration) -> Probe {
@@ -90,11 +90,24 @@ pub(crate) async fn watch(ctx: WatchContext) {
             () = ctx.cancel.cancelled() => return,
             () = tokio::time::sleep(ctx.timings.watchdog_interval) => {}
         }
-        if cycle(&ctx, &mut state).await {
-            ctx.bus.emit(DaemonEvent::Unhealthy);
-            ctx.wedged.send(()).await.ok();
+        let wedged = tokio::select! {
+            () = ctx.cancel.cancelled() => return,
+            wedged = cycle(&ctx, &mut state) => wedged,
+        };
+        if wedged {
+            announce_wedge(&ctx).await;
             state.forget();
         }
+    }
+}
+
+async fn announce_wedge(ctx: &WatchContext) {
+    if ctx.cancel.is_cancelled() {
+        return;
+    }
+    ctx.bus.emit(DaemonEvent::Unhealthy);
+    if ctx.wedged.send(()).await.is_err() {
+        tracing::debug!("the supervisor stopped listening for wedge reports");
     }
 }
 

@@ -1,9 +1,9 @@
-use std::path::PathBuf;
+use std::io::ErrorKind;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
+use rustix::io::Errno;
 
 use super::*;
+use crate::daemon_get::tests::FakeDaemon;
 use crate::failure_tracker::FailureTracker;
 
 const OK: &str = include_str!("../../../../../api/internal/core/bootgate/testdata/health-ok.json");
@@ -13,56 +13,35 @@ const HALTED: &str =
     include_str!("../../../../../api/internal/core/bootgate/testdata/health-halted.json");
 const THRESHOLD: u32 = 6;
 
-fn socket(tag: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("cb-probe-{tag}-{}.sock", std::process::id()))
+fn daemon(health: &'static str, other: u16) -> FakeDaemon {
+    FakeDaemon::answering(move |_, target| {
+        if target == "/v0/health" {
+            (200, health.to_owned())
+        } else {
+            (other, "{}".to_owned())
+        }
+    })
 }
 
-fn serve(path: &Path, health: &'static str, other: u16) -> tokio::task::JoinHandle<()> {
-    let listener = UnixListener::bind(path).unwrap();
-    tokio::spawn(serve_forever(listener, health, other))
-}
-
-async fn serve_forever(listener: UnixListener, health: &'static str, other: u16) {
-    loop {
-        let (stream, _) = listener.accept().await.unwrap();
-        answer_one(stream, health, other).await;
-    }
-}
-
-async fn answer_one(mut stream: UnixStream, health: &'static str, other: u16) {
-    let mut buf = vec![0u8; 4096];
-    let read = stream.read(&mut buf).await.unwrap_or(0);
-    if read == 0 {
-        return;
-    }
-    let is_health = buf.get(..read).is_some_and(|head| head.starts_with(b"GET /v0/health "));
-    let (status, body) = if is_health { (200, health) } else { (other, "{}") };
-    let reply = format!(
-        "HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    stream.write_all(reply.as_bytes()).await.ok();
-}
-
-async fn watched(tag: &str, health: &'static str, other: u16) -> (Vec<Probe>, bool) {
-    let path = socket(tag);
-    let daemon = serve(&path, health, other);
+async fn watched(daemon: &FakeDaemon) -> (Vec<Probe>, bool) {
     let mut tracker = FailureTracker::new(THRESHOLD);
     let (mut outcomes, mut tripped) = (Vec::new(), false);
     for _ in 0..THRESHOLD * 2 {
-        let outcome = probe_ready(&path).await;
+        let outcome = probe_with(daemon).await;
         tripped |= tracker.observe(outcome);
         outcomes.push(outcome);
     }
-    daemon.abort();
-    std::fs::remove_file(&path).unwrap();
     (outcomes, tripped)
+}
+
+fn out_of_descriptors(errno: Errno) -> std::io::Error {
+    std::io::Error::from_raw_os_error(errno.raw_os_error())
 }
 
 #[tokio::test]
 async fn a_migrating_or_halted_daemon_is_held_and_never_killed() {
     for (tag, health) in [("migrating", MIGRATING), ("halted", HALTED)] {
-        let (outcomes, tripped) = watched(tag, health, 503).await;
+        let (outcomes, tripped) = watched(&daemon(health, 503)).await;
         assert!(
             outcomes.iter().all(|o| *o == Probe::Held),
             "{tag}: {outcomes:?}"
@@ -73,7 +52,7 @@ async fn a_migrating_or_halted_daemon_is_held_and_never_killed() {
 
 #[tokio::test]
 async fn a_serving_daemon_whose_deep_probe_fails_is_still_indicted() {
-    let (outcomes, tripped) = watched("wedged", OK, 503).await;
+    let (outcomes, tripped) = watched(&daemon(OK, 503)).await;
     assert!(
         outcomes.iter().all(|o| *o == Probe::Unserved),
         "{outcomes:?}"
@@ -83,7 +62,7 @@ async fn a_serving_daemon_whose_deep_probe_fails_is_still_indicted() {
 
 #[tokio::test]
 async fn a_serving_daemon_that_answers_is_healthy() {
-    let (outcomes, tripped) = watched("healthy", OK, 200).await;
+    let (outcomes, tripped) = watched(&daemon(OK, 200)).await;
     assert!(
         outcomes.iter().all(|o| *o == Probe::Healthy),
         "{outcomes:?}"
@@ -92,15 +71,50 @@ async fn a_serving_daemon_that_answers_is_healthy() {
 }
 
 #[tokio::test]
-async fn a_missing_socket_is_unserved_and_descriptor_errors_are_recognised() {
-    assert_eq!(probe_ready(&socket("absent")).await, Probe::Unserved);
-    assert!(is_descriptor_exhaustion(
-        &std::io::Error::from_raw_os_error(Errno::MFILE.raw_os_error())
-    ));
-    assert!(is_descriptor_exhaustion(
-        &std::io::Error::from_raw_os_error(Errno::NFILE.raw_os_error())
-    ));
-    assert!(!is_descriptor_exhaustion(
-        &std::io::Error::from_raw_os_error(Errno::CONNREFUSED.raw_os_error())
-    ));
+async fn a_probe_dials_once_per_request_and_not_an_extra_time() {
+    let daemon = daemon(OK, 200);
+    assert_eq!(probe_with(&daemon).await, Probe::Healthy);
+    assert_eq!(daemon.dialled(), 2, "health, then projects");
+}
+
+#[tokio::test]
+async fn running_out_of_descriptors_on_any_dial_is_never_blamed_on_the_daemon() {
+    let cases = [
+        (0, Errno::MFILE),
+        (0, Errno::NFILE),
+        (1, Errno::MFILE),
+        (1, Errno::NFILE),
+    ];
+    for (nth, errno) in cases {
+        let daemon =
+            daemon(OK, 200).refusing(move |n| (n == nth).then(|| out_of_descriptors(errno)));
+        assert_eq!(
+            probe_with(&daemon).await,
+            Probe::LocalDescriptorExhaustion,
+            "dial {nth} failed with {errno:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_healthy_daemon_is_never_indicted_however_often_a_dial_runs_dry() {
+    let daemon =
+        daemon(OK, 200).refusing(|n| (n % 2 == 1).then(|| out_of_descriptors(Errno::MFILE)));
+    let (outcomes, tripped) = watched(&daemon).await;
+    assert!(
+        outcomes
+            .iter()
+            .all(|o| *o == Probe::LocalDescriptorExhaustion),
+        "{outcomes:?}"
+    );
+    assert!(!tripped, "the watchdog's failure count never moved");
+}
+
+#[tokio::test]
+async fn a_refused_connection_is_a_daemon_that_does_not_serve() {
+    let daemon = daemon(OK, 200).refusing(|_| Some(out_of_descriptors(Errno::CONNREFUSED)));
+    assert_eq!(probe_with(&daemon).await, Probe::Unserved);
+    let missing = FakeDaemon::answering(|_, _| (200, String::new()))
+        .refusing(|_| Some(std::io::Error::from(ErrorKind::NotFound)));
+    assert_eq!(probe_with(&missing).await, Probe::Unserved);
 }

@@ -3,7 +3,8 @@
 //! Pure data and operations, no GUI and no I/O. A [`Layout`] holds [`Tab`]s; a tab arranges
 //! [`PaneInstance`]s in a binary split tree ([`SplitNode`]). Every change goes through
 //! [`Layout::apply`] with a [`Command`], which either succeeds completely or changes
-//! nothing, and [`LayoutHistory`] adds undo and redo of structural commands.
+//! nothing, and [`LayoutHistory`] adds undo and redo of structural commands. The stored form
+//! is versioned ([`SCHEMA_VERSION`]) and older versions are migrated on load.
 //!
 //! ```
 //! use model::{Command, Layout, PaneInstance, TabId};
@@ -25,32 +26,46 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+mod arrangement;
 mod axis;
 mod branch;
 mod command;
+mod division;
 mod edge;
 mod error;
 mod layout;
+mod layout_document;
 mod layout_history;
+mod model;
+mod pane_commands;
 mod pane_instance;
 mod pane_slot;
 mod placement;
 mod rect;
+mod sash;
+mod schema;
 mod split_node;
 mod tab;
+mod tab_commands;
 mod tab_id;
+mod tab_record;
+mod tab_shape;
+mod undo_step;
 
 pub use axis::Axis;
 pub use branch::Branch;
 pub use command::Command;
 pub use edge::Edge;
 pub use error::{Error, Result};
-pub use layout::Layout;
-pub use layout_history::LayoutHistory;
+pub use layout::{Layout, MAX_TABS};
+pub use layout_history::{LayoutHistory, MAX_PARKED_PANES, MAX_UNDO_STEPS};
+pub use model::{load, store};
 pub use pane_instance::PaneInstance;
 pub use pane_slot::PaneSlot;
 pub use placement::Placement;
 pub use rect::Rect;
-pub use split_node::{MIN_RATIO, SplitNode};
-pub use tab::Tab;
+pub use sash::Sash;
+pub use schema::SCHEMA_VERSION;
+pub use split_node::{MIN_PANE_EXTENT, SASH_THICKNESS, SplitNode};
+pub use tab::{MAX_PANES_PER_TAB, Tab};
 pub use tab_id::TabId;

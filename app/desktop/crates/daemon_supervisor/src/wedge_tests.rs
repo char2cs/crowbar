@@ -26,10 +26,17 @@ fn a_cycle_far_longer_than_nominal_means_the_process_was_suspended() {
 #[test]
 fn only_a_running_unresponsive_idle_daemon_is_killed() {
     assert!(should_kill_wedged(&[]));
-    for reason in [Exoneration::Suspended, Exoneration::Answering, Exoneration::Busy] {
+    for reason in [
+        Exoneration::Suspended,
+        Exoneration::Answering,
+        Exoneration::Busy,
+    ] {
         assert!(!should_kill_wedged(&[reason]), "{reason:?}");
     }
-    assert!(!should_kill_wedged(&[Exoneration::Suspended, Exoneration::Answering]));
+    assert!(!should_kill_wedged(&[
+        Exoneration::Suspended,
+        Exoneration::Answering
+    ]));
 }
 
 #[test]

@@ -35,6 +35,12 @@ impl Supervision {
             log.line(prefix, text);
         }
     }
+
+    pub(crate) async fn flush_log(&self) {
+        if let Some(log) = &self.log {
+            log.flush().await;
+        }
+    }
 }
 
 #[cfg(test)]

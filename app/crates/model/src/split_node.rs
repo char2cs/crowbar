@@ -3,12 +3,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::axis::Axis;
 use crate::branch::Branch;
+use crate::division::Division;
 use crate::edge::Edge;
 use crate::pane_slot::PaneSlot;
 use crate::rect::Rect;
+use crate::sash::Sash;
 
-/// Smallest share a split gives either child.
-pub const MIN_RATIO: f32 = 0.1;
+/// Thickness of the divider between two panes, in logical pixels. Panes share what is left, so
+/// the stored ratio is exactly the rendered ratio.
+pub const SASH_THICKNESS: f32 = 6.0;
+
+/// Smallest size either child of a split may have, in logical pixels. One value serves the live
+/// drag, the committed ratio and the layout of a resized window; there is no second, relative
+/// minimum.
+pub const MIN_PANE_EXTENT: f32 = 160.0;
+
+pub(crate) const EQUAL_SHARE: f32 = 0.5;
 
 /// A node of the split tree: a pane, or a split with exactly two non-empty children.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -23,7 +33,8 @@ pub enum SplitNode {
     Split {
         /// How the children are arranged.
         axis: Axis,
-        /// Share of the space given to the first child, within [`MIN_RATIO`]..`1 - MIN_RATIO`.
+        /// Share of the space left after the sash that the first child gets, strictly between
+        /// 0 and 1. A window too small for [`MIN_PANE_EXTENT`] on both sides shows equal halves.
         ratio: f32,
         /// Left or top child.
         first: Box<SplitNode>,
@@ -47,11 +58,22 @@ impl SplitNode {
         }
     }
 
-    pub(crate) fn first_pane(&self) -> &PaneId {
+    fn first_pane(&self) -> &PaneId {
         match self {
             Self::Leaf { pane } => pane,
             Self::Split { first, .. } => first.first_pane(),
         }
+    }
+
+    fn last_pane(&self) -> &PaneId {
+        match self {
+            Self::Leaf { pane } => pane,
+            Self::Split { second, .. } => second.last_pane(),
+        }
+    }
+
+    fn is_leaf_of(&self, id: &PaneId) -> bool {
+        matches!(self, Self::Leaf { pane } if pane == id)
     }
 
     pub(crate) fn split_leaf(&mut self, target: &PaneId, new: &PaneId, edge: Edge) -> bool {
@@ -76,7 +98,7 @@ impl SplitNode {
         };
         Self::Split {
             axis: edge.axis(),
-            ratio: 0.5,
+            ratio: EQUAL_SHARE,
             first: Box::new(first),
             second: Box::new(second),
         }
@@ -103,15 +125,19 @@ impl SplitNode {
         }
     }
 
-    pub(crate) fn sibling_of(&self, pane: &PaneId) -> Option<&PaneId> {
+    pub(crate) fn neighbour_of(&self, pane: &PaneId) -> Option<&PaneId> {
         let Self::Split { first, second, .. } = self else {
             return None;
         };
-        match (first.as_ref(), second.as_ref()) {
-            (Self::Leaf { pane: own }, other) if own == pane => Some(other.first_pane()),
-            (other, Self::Leaf { pane: own }) if own == pane => Some(other.first_pane()),
-            _ => first.sibling_of(pane).or_else(|| second.sibling_of(pane)),
+        if first.is_leaf_of(pane) {
+            return Some(second.first_pane());
         }
+        if second.is_leaf_of(pane) {
+            return Some(first.last_pane());
+        }
+        first
+            .neighbour_of(pane)
+            .or_else(|| second.neighbour_of(pane))
     }
 
     pub(crate) fn swap_leaves(&mut self, a: &PaneId, b: &PaneId) {
@@ -139,6 +165,26 @@ impl SplitNode {
         }
     }
 
+    pub(crate) fn split_rect(&self, path: &[Branch], bounds: Rect) -> Option<(Axis, Rect)> {
+        let Self::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } = self
+        else {
+            return None;
+        };
+        let Some((step, rest)) = path.split_first() else {
+            return Some((*axis, bounds));
+        };
+        let parts = divide(bounds, *axis, *ratio);
+        match step {
+            Branch::First => first.split_rect(rest, parts.first),
+            Branch::Second => second.split_rect(rest, parts.second),
+        }
+    }
+
     pub(crate) fn place(&self, bounds: Rect, out: &mut Vec<PaneSlot>) {
         match self {
             Self::Leaf { pane } => out.push(PaneSlot {
@@ -151,10 +197,40 @@ impl SplitNode {
                 first,
                 second,
             } => {
-                let (a, b) = divide(bounds, *axis, *ratio);
-                first.place(a, out);
-                second.place(b, out);
+                let parts = divide(bounds, *axis, *ratio);
+                first.place(parts.first, out);
+                second.place(parts.second, out);
             },
+        }
+    }
+
+    pub(crate) fn place_sashes(&self, bounds: Rect, path: &mut Vec<Branch>, out: &mut Vec<Sash>) {
+        let Self::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } = self
+        else {
+            return;
+        };
+        let parts = divide(bounds, *axis, *ratio);
+        out.push(Sash {
+            path: path.clone(),
+            axis: *axis,
+            rect: parts.sash,
+        });
+        path.push(Branch::First);
+        first.place_sashes(parts.first, path, out);
+        path.pop();
+        path.push(Branch::Second);
+        second.place_sashes(parts.second, path, out);
+        path.pop();
+    }
+
+    pub(crate) fn set_ratio(&mut self, value: f32) {
+        if let Self::Split { ratio, .. } = self {
+            *ratio = value;
         }
     }
 
@@ -168,7 +244,8 @@ impl SplitNode {
                 ..
             } => {
                 ratio.is_finite()
-                    && (MIN_RATIO..=1.0 - MIN_RATIO).contains(ratio)
+                    && *ratio > 0.0
+                    && *ratio < 1.0
                     && first.ratios_valid()
                     && second.ratios_valid()
             },
@@ -176,29 +253,69 @@ impl SplitNode {
     }
 }
 
-fn divide(bounds: Rect, axis: Axis, ratio: f32) -> (Rect, Rect) {
+pub(crate) fn extent_of(bounds: Rect, axis: Axis) -> f32 {
     match axis {
-        Axis::Horizontal => {
-            let width = bounds.width * ratio;
-            (
-                Rect { width, ..bounds },
-                Rect {
-                    x: bounds.x + width,
-                    width: bounds.width - width,
-                    ..bounds
-                },
-            )
+        Axis::Horizontal => bounds.width,
+        Axis::Vertical => bounds.height,
+    }
+}
+
+fn shareable(total: f32) -> f32 {
+    (total - SASH_THICKNESS).max(0.0)
+}
+
+fn honours_minimum(shareable: f32) -> bool {
+    shareable >= 2.0 * MIN_PANE_EXTENT
+}
+
+fn first_extent(total: f32, ratio: f32) -> f32 {
+    let room = shareable(total);
+    if !honours_minimum(room) {
+        return room * EQUAL_SHARE;
+    }
+    (room * ratio).clamp(MIN_PANE_EXTENT, room - MIN_PANE_EXTENT)
+}
+
+pub(crate) fn ratio_for(total: f32, wanted: f32) -> Option<f32> {
+    let room = shareable(total);
+    honours_minimum(room).then(|| wanted.clamp(MIN_PANE_EXTENT, room - MIN_PANE_EXTENT) / room)
+}
+
+fn divide(bounds: Rect, axis: Axis, ratio: f32) -> Division {
+    let first = first_extent(extent_of(bounds, axis), ratio);
+    let rest = (extent_of(bounds, axis) - first - SASH_THICKNESS).max(0.0);
+    match axis {
+        Axis::Horizontal => Division {
+            first: Rect {
+                width: first,
+                ..bounds
+            },
+            sash: Rect {
+                x: bounds.x + first,
+                width: SASH_THICKNESS,
+                ..bounds
+            },
+            second: Rect {
+                x: bounds.x + first + SASH_THICKNESS,
+                width: rest,
+                ..bounds
+            },
         },
-        Axis::Vertical => {
-            let height = bounds.height * ratio;
-            (
-                Rect { height, ..bounds },
-                Rect {
-                    y: bounds.y + height,
-                    height: bounds.height - height,
-                    ..bounds
-                },
-            )
+        Axis::Vertical => Division {
+            first: Rect {
+                height: first,
+                ..bounds
+            },
+            sash: Rect {
+                y: bounds.y + first,
+                height: SASH_THICKNESS,
+                ..bounds
+            },
+            second: Rect {
+                y: bounds.y + first + SASH_THICKNESS,
+                height: rest,
+                ..bounds
+            },
         },
     }
 }

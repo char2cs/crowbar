@@ -4,19 +4,33 @@ use tokio::process::Command;
 
 use crate::wedge::{parse_proc_stat_cpu, parse_ps_cpu_time, proc_state_is_stopped};
 
+const PS: &str = "/bin/ps";
+const PS_TIMEOUT: Duration = Duration::from_secs(2);
+
 async fn proc_stat(pid: u32) -> Option<String> {
     tokio::fs::read_to_string(format!("/proc/{pid}/stat"))
         .await
+        .map_err(|e| tracing::trace!("/proc/{pid}/stat: {e}"))
         .ok()
 }
 
 async fn ps(args: [&str; 3], pid: u32) -> Option<String> {
-    let output = Command::new("ps")
+    let run = Command::new(PS)
         .args(args)
         .arg(pid.to_string())
-        .output()
-        .await
-        .ok()?;
+        .kill_on_drop(true)
+        .output();
+    let output = match tokio::time::timeout(PS_TIMEOUT, run).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(e)) => {
+            tracing::debug!("{PS}: {e}");
+            return None;
+        },
+        Err(_) => {
+            tracing::warn!("{PS} did not answer within {PS_TIMEOUT:?}");
+            return None;
+        },
+    };
     output
         .status
         .success()

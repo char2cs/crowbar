@@ -12,3 +12,17 @@ pub struct Rect {
     /// Height.
     pub height: f32,
 }
+
+impl Rect {
+    pub(crate) fn is_valid(self) -> bool {
+        [self.x, self.y, self.width, self.height]
+            .iter()
+            .all(|v| v.is_finite())
+            && self.width >= 0.0
+            && self.height >= 0.0
+    }
+}
+
+#[cfg(test)]
+#[path = "rect_tests.rs"]
+mod tests;

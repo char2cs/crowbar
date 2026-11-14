@@ -1,23 +1,32 @@
 //! Supervises the Crowbar daemon sidecar: finds, spawns, health-checks, recovers and stops it,
 //! and reports its state as a stream of [`DaemonEvent`]s.
 
+mod announced;
 mod bus;
 mod command;
 mod crash_report;
 mod daemon_event;
+mod daemon_get;
 mod daemon_log;
 mod daemon_paths;
+mod dial;
 mod error;
 mod exoneration;
 mod failure_tracker;
+mod fill;
 mod health;
 mod locate_binary;
+mod log_message;
+mod log_writer;
+mod migration_progress;
 mod output_pump;
 mod phase;
 mod probe;
 mod process_cpu;
+mod reply;
 mod restart_budget;
 mod running;
+mod socket_dial;
 mod spawn_daemon;
 mod startup;
 mod stop;
@@ -38,6 +47,7 @@ pub use daemon_paths::{DaemonPaths, child_home};
 pub use error::Error;
 pub use health::{Health, parse_health, wait_for_health};
 pub use locate_binary::locate_binary;
+pub use migration_progress::MigrationProgress;
 pub use probe::{Probe, probe_ready};
 pub use supervisor::Supervisor;
 pub use supervisor_config::SupervisorConfig;

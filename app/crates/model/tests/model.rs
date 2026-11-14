@@ -1,146 +1,415 @@
-//! Public-API tests: random command sequences never break an invariant, and undo is exact.
+//! Public-API property tests: random command sequences never break an invariant, refused
+//! commands change nothing, panes are never lost or duplicated, and undo is exact.
 
-use model::{Branch, Command, Edge, Layout, LayoutHistory, PaneInstance, Placement, Tab, TabId};
+#![allow(
+    clippy::unwrap_used,
+    reason = "test: a failing fixture should fail loudly"
+)]
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use model::{
+    Branch, Command, Edge, Layout, LayoutHistory, PaneInstance, Placement, Rect, Tab, TabId,
+};
+use proptest::prelude::*;
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
+use serde_json::json;
 
-struct Lcg(u64);
+const TABS: u8 = 4;
+const PANES: u8 = 8;
+const CHATS: u8 = 3;
+const SCREEN: Rect = Rect {
+    x: 0.0,
+    y: 0.0,
+    width: 2000.0,
+    height: 1000.0,
+};
 
-impl Lcg {
-    fn next(&mut self, bound: usize) -> usize {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        usize::try_from(self.0 >> 33).unwrap() % bound
+#[derive(Debug, Clone)]
+enum Step {
+    AddTab(u8),
+    CloseTab(u8),
+    Activate(u8),
+    MoveTab(u8, u8),
+    Rename(u8),
+    Open {
+        tab: u8,
+        pane: u8,
+        chat: Option<u8>,
+        placement: Option<(u8, Edge)>,
+    },
+    Close(u8),
+    Focus(u8),
+    MovePane(u8, u8, Edge),
+    MoveToTab(u8, u8, Option<(u8, Edge)>),
+    Detach(u8, u8),
+    Swap(u8, u8),
+    Resize(Vec<Branch>, f32),
+    Reset(Vec<Branch>),
+    SetState(u8, u8),
+}
+
+fn edge() -> impl Strategy<Value = Edge> {
+    prop_oneof![
+        Just(Edge::Left),
+        Just(Edge::Right),
+        Just(Edge::Top),
+        Just(Edge::Bottom)
+    ]
+}
+
+fn branch() -> impl Strategy<Value = Branch> {
+    prop_oneof![Just(Branch::First), Just(Branch::Second)]
+}
+
+fn step() -> impl Strategy<Value = Step> {
+    let tab = 0..TABS;
+    let pane = 0..PANES;
+    prop_oneof![
+        2 => tab.clone().prop_map(Step::AddTab),
+        2 => tab.clone().prop_map(Step::CloseTab),
+        1 => tab.clone().prop_map(Step::Activate),
+        1 => (tab.clone(), 0..TABS).prop_map(|(t, i)| Step::MoveTab(t, i)),
+        1 => tab.clone().prop_map(Step::Rename),
+        6 => (tab.clone(), pane.clone(), proptest::option::of(0..CHATS), proptest::option::of((0..PANES, edge())))
+            .prop_map(|(tab, pane, chat, placement)| Step::Open { tab, pane, chat, placement }),
+        3 => pane.clone().prop_map(Step::Close),
+        1 => pane.clone().prop_map(Step::Focus),
+        2 => (pane.clone(), 0..PANES, edge()).prop_map(|(p, t, e)| Step::MovePane(p, t, e)),
+        2 => (pane.clone(), tab.clone(), proptest::option::of((0..PANES, edge()))).prop_map(|(p, t, pl)| Step::MoveToTab(p, t, pl)),
+        2 => (pane.clone(), tab.clone()).prop_map(|(p, t)| Step::Detach(p, t)),
+        1 => (pane.clone(), 0..PANES).prop_map(|(a, b)| Step::Swap(a, b)),
+        1 => (proptest::collection::vec(branch(), 0..3), -100.0_f32..2200.0).prop_map(|(p, e)| Step::Resize(p, e)),
+        1 => proptest::collection::vec(branch(), 0..3).prop_map(Step::Reset),
+        1 => (pane, 0..8_u8).prop_map(|(p, s)| Step::SetState(p, s)),
+    ]
+}
+
+fn sequence() -> impl Strategy<Value = Vec<Step>> {
+    proptest::collection::vec(step(), 1..60)
+}
+
+fn pane_id(n: u8) -> PaneId {
+    PaneId::new(format!("p{n}")).unwrap()
+}
+
+fn tab_id(n: u8) -> TabId {
+    TabId(u64::from(n))
+}
+
+fn placement((target, edge): (u8, Edge)) -> Placement {
+    Placement {
+        target: pane_id(target),
+        edge,
     }
 }
 
-fn pane_ids(layout: &Layout) -> Vec<PaneId> {
+fn instance(pane: u8, chat: Option<u8>) -> PaneInstance {
+    let (type_id, params) = match chat {
+        Some(chat) => (
+            "core.chat",
+            Params::default()
+                .with("chatId", format!("c{chat}"))
+                .unwrap(),
+        ),
+        None => ("core.terminal", Params::default()),
+    };
+    PaneInstance {
+        pane_id: pane_id(pane),
+        type_id: PaneTypeId::new(type_id).unwrap(),
+        params,
+        state: PaneState::default(),
+    }
+}
+
+#[allow(clippy::too_many_lines, reason = "one flat arm per Step variant")]
+fn command(step: &Step) -> Command {
+    match step.clone() {
+        Step::AddTab(t) => Command::AddTab {
+            id: tab_id(t),
+            title: format!("tab {t}"),
+        },
+        Step::CloseTab(t) => Command::CloseTab { tab: tab_id(t) },
+        Step::Activate(t) => Command::ActivateTab { tab: tab_id(t) },
+        Step::MoveTab(t, i) => Command::MoveTab {
+            tab: tab_id(t),
+            to_index: usize::from(i),
+        },
+        Step::Rename(t) => Command::RenameTab {
+            tab: tab_id(t),
+            title: format!("renamed {t}"),
+        },
+        Step::Open {
+            tab,
+            pane,
+            chat,
+            placement: at,
+        } => Command::OpenPane {
+            tab: tab_id(tab),
+            instance: instance(pane, chat),
+            placement: at.map(placement),
+        },
+        Step::Close(p) => Command::ClosePane { pane: pane_id(p) },
+        Step::Focus(p) => Command::FocusPane { pane: pane_id(p) },
+        Step::MovePane(p, t, e) => Command::MovePane {
+            pane: pane_id(p),
+            placement: placement((t, e)),
+        },
+        Step::MoveToTab(p, t, at) => Command::MovePaneToTab {
+            pane: pane_id(p),
+            to: tab_id(t),
+            placement: at.map(placement),
+        },
+        Step::Detach(p, t) => Command::DetachPane {
+            pane: pane_id(p),
+            new_tab: tab_id(t),
+            title: "detached".into(),
+        },
+        Step::Swap(a, b) => Command::SwapPanes {
+            a: pane_id(a),
+            b: pane_id(b),
+        },
+        Step::Resize(path, extent) => Command::ResizeSplit {
+            tab: tab_id(0),
+            path,
+            bounds: SCREEN,
+            first_extent: extent,
+        },
+        Step::Reset(path) => Command::ResetSplit {
+            tab: tab_id(0),
+            path,
+        },
+        Step::SetState(p, s) => Command::SetPaneState {
+            pane: pane_id(p),
+            state: PaneState::new(json!({ "s": s })).unwrap(),
+        },
+    }
+}
+
+fn panes(layout: &Layout) -> BTreeSet<PaneId> {
     layout.tabs().iter().flat_map(Tab::pane_ids).collect()
 }
 
-fn pick(rng: &mut Lcg, ids: &[PaneId]) -> PaneId {
-    ids.get(rng.next(ids.len().max(1)))
-        .cloned()
-        .unwrap_or_else(|| PaneId::new("missing").unwrap())
+fn empty_tabs(layout: &Layout) -> BTreeSet<TabId> {
+    layout
+        .tabs()
+        .iter()
+        .filter(|t| t.is_empty())
+        .map(Tab::id)
+        .collect()
 }
 
-fn edge(rng: &mut Lcg) -> Edge {
-    [Edge::Left, Edge::Right, Edge::Top, Edge::Bottom][rng.next(4)]
-}
-
-fn random_command(rng: &mut Lcg, layout: &Layout, serial: &mut u64) -> Command {
-    let panes = pane_ids(layout);
-    let tab = TabId(rng.next(4) as u64);
-    *serial += 1;
-    match rng.next(11) {
-        0 => Command::AddTab {
-            id: tab,
-            title: "t".into(),
-        },
-        1 => Command::CloseTab { tab },
-        2 => Command::ActivateTab { tab },
-        3 => Command::MoveTab {
-            tab,
-            to_index: rng.next(4),
-        },
-        4 | 5 => Command::OpenPane {
-            tab,
-            instance: PaneInstance {
-                pane_id: PaneId::new(format!("p{serial}")).unwrap(),
-                type_id: PaneTypeId::new("core.chat").unwrap(),
-                params: Params::default(),
-                state: PaneState::default(),
-            },
-            placement: (rng.next(2) == 0).then(|| Placement {
-                target: pick(rng, &panes),
-                edge: edge(rng),
-            }),
-        },
-        6 => Command::ClosePane {
-            pane: pick(rng, &panes),
-        },
-        7 => Command::MovePane {
-            pane: pick(rng, &panes),
-            placement: Placement {
-                target: pick(rng, &panes),
-                edge: edge(rng),
-            },
-        },
-        8 => Command::MovePaneToTab {
-            pane: pick(rng, &panes),
-            to: tab,
-            placement: None,
-        },
-        9 => Command::SwapPanes {
-            a: pick(rng, &panes),
-            b: pick(rng, &panes),
-        },
-        _ => Command::ResizeSplit {
-            tab,
-            path: vec![Branch::First],
-            ratio: rng.next(100) as f32 / 100.0,
-        },
-    }
-}
-
-#[test]
-fn random_sequences_keep_every_invariant() {
-    for seed in 0..40 {
-        let mut rng = Lcg(seed);
-        let mut serial = 0;
-        let mut layout = Layout::default();
-        for step in 0..300 {
-            let command = random_command(&mut rng, &layout, &mut serial);
-            let before = layout.clone();
-            if layout.apply(command.clone()).is_err() {
-                assert_eq!(
-                    layout, before,
-                    "seed {seed} step {step}: refused {command:?} changed the layout"
-                );
-            }
+fn identities(layout: &Layout) -> BTreeMap<PaneId, (PaneTypeId, Params)> {
+    panes(layout)
+        .into_iter()
+        .filter_map(|id| {
             layout
-                .validate()
-                .unwrap_or_else(|e| panic!("seed {seed} step {step} after {command:?}: {e}"));
-        }
-    }
+                .pane(&id)
+                .map(|p| (id, (p.type_id.clone(), p.params.clone())))
+        })
+        .collect()
 }
 
-#[test]
-fn undoing_everything_returns_to_the_start() {
-    let mut rng = Lcg(7);
-    let mut serial = 0;
-    let mut history = LayoutHistory::default();
-    for _ in 0..60 {
-        let command = random_command(&mut rng, history.layout(), &mut serial);
-        let _refused = history.apply(command).is_err();
-    }
-    while history.undo() {}
-    assert_eq!(history.layout(), &Layout::default(), "empty layout again");
-    while history.redo() {}
-    history.layout().validate().unwrap();
+fn states(layout: &Layout) -> BTreeMap<PaneId, PaneState> {
+    panes(layout)
+        .into_iter()
+        .filter_map(|id| layout.pane(&id).map(|p| (id, p.state.clone())))
+        .collect()
 }
 
-#[test]
-fn panes_never_disappear_unless_closed() {
-    let mut rng = Lcg(99);
-    let mut serial = 0;
-    let mut layout = Layout::default();
-    for _ in 0..400 {
-        let command = random_command(&mut rng, &layout, &mut serial);
-        let removes = matches!(
-            command,
-            Command::ClosePane { .. } | Command::CloseTab { .. }
-        );
-        let before = pane_ids(&layout).len();
-        let opens = matches!(command, Command::OpenPane { .. });
-        if layout.apply(command).is_ok() && !removes {
-            let after = pane_ids(&layout).len();
-            assert_eq!(
-                after,
-                before + usize::from(opens),
-                "pane count changed without open or close"
+fn check_transition(step: &Step, before: &Layout, after: &Layout) {
+    let (was, now) = (panes(before), panes(after));
+    match step {
+        Step::Close(p) => {
+            let expected: BTreeSet<_> = was
+                .iter()
+                .filter(|id| **id != pane_id(*p))
+                .cloned()
+                .collect();
+            assert_eq!(now, expected, "{step:?}: exactly the closed pane is gone");
+        },
+        Step::CloseTab(t) => {
+            let gone: BTreeSet<_> = before
+                .tab(tab_id(*t))
+                .map_or_else(BTreeSet::new, |tab| tab.pane_ids().into_iter().collect());
+            let expected: BTreeSet<_> = was.difference(&gone).cloned().collect();
+            assert_eq!(now, expected, "{step:?}: exactly the tab's panes are gone");
+        },
+        Step::Open { .. } => {
+            assert!(
+                was.is_subset(&now) && now.len() <= was.len() + 1,
+                "{step:?}: opens at most one pane and loses none"
             );
+        },
+        _ => assert_eq!(now, was, "{step:?}: no pane appears or disappears"),
+    }
+    check_what_stayed(step, before, after);
+    check_focus(step, after);
+}
+
+fn check_what_stayed(step: &Step, before: &Layout, after: &Layout) {
+    let mut allowed = empty_tabs(before);
+    if let Step::AddTab(t) = step {
+        allowed.insert(tab_id(*t));
+    }
+    assert!(
+        empty_tabs(after).is_subset(&allowed),
+        "{step:?}: a command left an empty tab behind"
+    );
+    let (old, new) = (identities(before), identities(after));
+    for (id, identity) in &old {
+        assert!(
+            new.get(id).is_none_or(|n| n == identity),
+            "{step:?}: {id} changed what it is"
+        );
+    }
+    let (old_state, new_state) = (states(before), states(after));
+    for (id, state) in &old_state {
+        let touched = matches!(step, Step::SetState(p, _) if pane_id(*p) == *id);
+        assert!(
+            touched || new_state.get(id).is_none_or(|n| n == state),
+            "{step:?}: {id} lost its state"
+        );
+    }
+}
+
+fn check_focus(step: &Step, after: &Layout) {
+    let shown = |pane: u8| {
+        let id = pane_id(pane);
+        after.active_tab().is_some_and(|t| t.focused() == Some(&id))
+    };
+    match step {
+        Step::Focus(p) | Step::Detach(p, _) | Step::MoveToTab(p, _, _) => {
+            assert!(shown(*p), "{step:?}: the pane is shown and focused");
+        },
+        _ => {},
+    }
+    for tab in after.tabs() {
+        assert_eq!(
+            tab.focused().is_some(),
+            !tab.is_empty(),
+            "{step:?}: focus iff panes"
+        );
+    }
+}
+
+fn run(steps: &[Step]) -> Layout {
+    let mut layout = Layout::default();
+    for step in steps {
+        let before = layout.clone();
+        match layout.apply(command(step)) {
+            Ok(()) => check_transition(step, &before, &layout),
+            Err(_) => assert_eq!(
+                layout, before,
+                "{step:?}: a refused command changed the layout"
+            ),
+        }
+        let valid = layout.validate();
+        assert!(valid.is_ok(), "{step:?}: {valid:?}");
+    }
+    layout
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn random_sequences_keep_every_invariant(steps in sequence()) {
+        let layout = run(&steps);
+        let json = serde_json::to_value(&layout).unwrap();
+        let loaded: Layout = serde_json::from_value(json).unwrap();
+        prop_assert_eq!(loaded, layout, "a valid layout survives a round trip through its stored form");
+    }
+
+    #[test]
+    fn undoing_everything_empties_the_layout_and_redoing_restores_it(steps in sequence()) {
+        let mut history = LayoutHistory::default();
+        for step in &steps {
+            history.apply(command(step)).ok();
+        }
+        let last = history.layout().clone();
+        while history.undo() {
+            history.layout().validate().unwrap();
+        }
+        prop_assert_eq!(history.layout(), &Layout::default());
+        while history.redo() {
+            history.layout().validate().unwrap();
+        }
+        prop_assert_eq!(history.layout(), &last);
+    }
+
+    #[test]
+    fn each_undo_returns_to_the_layout_before_that_step(steps in sequence()) {
+        let structural: Vec<Step> = steps
+            .into_iter()
+            .filter(|s| !matches!(s, Step::Activate(_) | Step::Focus(_) | Step::Resize(..) | Step::Reset(_) | Step::SetState(..)))
+            .collect();
+        let mut history = LayoutHistory::default();
+        let mut before_each = Vec::new();
+        for step in &structural {
+            let before = history.layout().clone();
+            if history.apply(command(step)).is_ok() && history.layout() != &before {
+                before_each.push(before);
+            }
+        }
+        for before in before_each.iter().rev() {
+            prop_assert!(history.undo());
+            prop_assert_eq!(history.layout(), before);
         }
     }
+
+    #[test]
+    fn panes_never_overlap_or_leave_the_screen(steps in sequence()) {
+        let layout = run(&steps);
+        for tab in layout.tabs() {
+            let slots = tab.layout(SCREEN);
+            for slot in &slots {
+                let r = slot.rect;
+                prop_assert!(r.width >= 0.0 && r.height >= 0.0);
+                prop_assert!(r.x >= -0.01 && r.y >= -0.01);
+                prop_assert!(r.x + r.width <= SCREEN.width + 0.01 && r.y + r.height <= SCREEN.height + 0.01);
+            }
+            for (i, a) in slots.iter().enumerate() {
+                for b in slots.iter().skip(i + 1) {
+                    let apart = a.rect.x + a.rect.width <= b.rect.x + 0.01
+                        || b.rect.x + b.rect.width <= a.rect.x + 0.01
+                        || a.rect.y + a.rect.height <= b.rect.y + 0.01
+                        || b.rect.y + b.rect.height <= a.rect.y + 0.01;
+                    prop_assert!(apart, "{a:?} overlaps {b:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn state_sent_per_keystroke_never_grows_history_or_copies_the_layout() {
+    let mut history = LayoutHistory::default();
+    history.apply(command(&Step::AddTab(0))).unwrap();
+    for pane in 0..4 {
+        history
+            .apply(command(&Step::Open {
+                tab: 0,
+                pane,
+                chat: None,
+                placement: None,
+            }))
+            .unwrap();
+    }
+    for keystroke in 0..2000_u32 {
+        history
+            .apply(Command::SetPaneState {
+                pane: pane_id(2),
+                state: PaneState::new(
+                    json!({ "draft": "x".repeat(usize::try_from(keystroke % 512).unwrap()) }),
+                )
+                .unwrap(),
+            })
+            .unwrap();
+    }
+    let mut undone = 0;
+    while history.undo() {
+        undone += 1;
+    }
+    assert_eq!(undone, 5, "only the five structural commands are undoable");
 }
