@@ -96,6 +96,8 @@ type FakeSpec struct {
 	// Turn names the recorded frames an api-transport fake's turn replays between
 	// its start and completion, in place of the default reply.
 	Turn []string
+	// Composer, when set, makes the fake CLI a TUI input box (see Composer).
+	Composer *Composer
 }
 
 // InstallFakeProvider writes the descriptor and points the daemon's provider
@@ -185,13 +187,17 @@ func fakeDocument(tb testing.TB, spec FakeSpec, cli, dir string) map[string]any 
 			attach[0] = cli
 		}
 	}
-	doc["hooks_injection"] = []any{
+	injection := []any{
 		setEnv("FAKECLI_DIR", dir),
 		setEnv("FAKECLI_SEG", "{segid}"),
 		setEnv("FAKECLI_TOKEN", "{runner_token}"),
 		// The only hook-command shape descriptorcheck accepts as wiring the hooks.
 		setEnv("FAKECLI_HOOK", "{hook_curl} {hook_url}"),
 	}
+	for _, kv := range composerEnv(spec.Composer) {
+		injection = append(injection, setEnv(kv[0], kv[1]))
+	}
+	doc["hooks_injection"] = injection
 	return doc
 }
 
@@ -256,6 +262,7 @@ type Launch struct {
 	Argv     []string `json:"argv"`
 	PID      int      `json:"pid"`
 	Cwd      string   `json:"cwd"` // the working directory the CLI was started in
+	dir      string   // the provider's capture directory, where the CLI wrote its records
 }
 
 // AwaitLaunch blocks until the fake CLI for runnerID has written its capture.
@@ -266,6 +273,7 @@ func (f FakeProvider) AwaitLaunch(tb testing.TB, runnerID string) Launch {
 		raw, err := os.ReadFile(filepath.Join(f.Dir, runnerID+".json")) //nolint:gosec // G304: the capture dir this provider made
 		return err == nil && json.Unmarshal(raw, &l) == nil
 	}, 10*time.Second, 20*time.Millisecond, "kit: fake CLI for runner %s never launched", runnerID)
+	l.dir = f.Dir
 	return l
 }
 
