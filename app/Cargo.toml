@@ -17,6 +17,9 @@ model = { path = "crates/model" }
 webview = { path = "desktop/crates/webview" }
 pane_host = { path = "desktop/crates/pane_host" }
 ui = { path = "desktop/crates/ui" }
+sidebar = { path = "desktop/crates/sidebar" }
+layout_view = { path = "desktop/crates/layout_view" }
+tab_bar = { path = "desktop/crates/tab_bar" }
 
 async-channel = "2"
 gpui = "=0.2.2"

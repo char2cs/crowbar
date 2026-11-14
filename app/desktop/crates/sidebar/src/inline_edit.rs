@@ -1,0 +1,14 @@
+//! The text field of the row being renamed, branched or drafted.
+
+use gpui::{Entity, Subscription};
+use ui::TextInput;
+
+use crate::row_id::RowId;
+
+#[derive(Debug)]
+pub(crate) struct InlineEdit {
+    pub(crate) row: RowId,
+    pub(crate) field: Entity<TextInput>,
+    pub(crate) error: Option<String>,
+    pub(crate) _subscriptions: Vec<Subscription>,
+}

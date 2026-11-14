@@ -1,0 +1,151 @@
+//! Inline rename, make-a-branch and fork-name inputs.
+
+use gpui::{AppContext as _, Context, Focusable as _, Subscription, Window};
+use ui::{Surface, TextInput, TextInputEvent, TextInputStyle};
+
+use crate::command::Command;
+use crate::edit_outcome::EditOutcome;
+use crate::editing::Editing;
+use crate::error::Error;
+use crate::inline_edit::InlineEdit;
+use crate::row_id::RowId;
+use crate::sidebar::Sidebar;
+
+const BRANCH_PLACEHOLDER: &str = "branch-name";
+
+impl Sidebar {
+    pub(crate) fn start_rename(
+        &mut self,
+        id: &RowId,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(row) = self.row(id) else {
+            return;
+        };
+        self.tree.start_rename(&row);
+        if self.tree.editing() == &Editing::Renaming(id.clone()) {
+            self.open_field((id.clone(), &row.label, ""), window, cx);
+        }
+    }
+
+    pub(crate) fn start_branching(
+        &mut self,
+        id: &RowId,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.tree.start_branching(id);
+        self.open_field((id.clone(), "", BRANCH_PLACEHOLDER), window, cx);
+    }
+
+    pub(crate) fn start_draft(
+        &mut self,
+        id: &RowId,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.tree.start_draft(id);
+        self.open_field((id.clone(), "", BRANCH_PLACEHOLDER), window, cx);
+    }
+
+    fn open_field(
+        &mut self,
+        (row, initial, placeholder): (RowId, &str, &str),
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let field = cx.new(|cx| {
+            TextInput::new(placeholder.to_owned(), cx)
+                .on(Surface::Chrome)
+                .style(TextInputStyle::Bare)
+        });
+        field.update(cx, |field, cx| field.set_text(initial, cx));
+        field.read(cx).focus(window);
+        let subscriptions = Self::watch_field(&field, window, cx);
+        self.inline = Some(InlineEdit {
+            row,
+            field,
+            error: None,
+            _subscriptions: subscriptions,
+        });
+        cx.notify();
+    }
+
+    fn watch_field(
+        field: &gpui::Entity<TextInput>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Vec<Subscription> {
+        let handle = field.read(cx).focus_handle(cx);
+        let events =
+            cx.subscribe_in(
+                field,
+                window,
+                |this, _, event: &TextInputEvent, _, cx| match event {
+                    TextInputEvent::Submitted => this.finish_edit(EditOutcome::Confirm, cx),
+                    TextInputEvent::Cancelled => this.finish_edit(EditOutcome::Cancel, cx),
+                    _ => {},
+                },
+            );
+        let blur = cx.on_blur(&handle, window, |this, _, cx| {
+            let outcome = match this.tree.editing() {
+                Editing::Branching(_) => EditOutcome::Cancel,
+                _ => EditOutcome::Confirm,
+            };
+            this.finish_edit(outcome, cx);
+        });
+        vec![events, blur]
+    }
+
+    pub(crate) fn finish_edit(&mut self, outcome: EditOutcome, cx: &mut Context<'_, Self>) {
+        let Some(edit) = self.inline.as_ref() else {
+            return;
+        };
+        let name = edit.field.read(cx).text().trim().to_owned();
+        if outcome == EditOutcome::Cancel || name.is_empty() {
+            self.close_edit(cx);
+            return;
+        }
+        let command = self.edit_command(&edit.row, name);
+        match self.sink.dispatch(command) {
+            Ok(()) => self.close_edit(cx),
+            Err(Error::Refused { reason }) => self.refuse_edit(reason, cx),
+            Err(error) => self.refuse_edit(error.to_string(), cx),
+        }
+    }
+
+    fn edit_command(&self, row: &RowId, name: String) -> Command {
+        match self.tree.editing() {
+            Editing::Branching(target) => Command::MakeBranch {
+                row: target.clone(),
+                name,
+            },
+            Editing::Drafting(parent) => Command::Fork {
+                parent: parent.clone(),
+                name,
+            },
+            _ => Command::Rename {
+                row: row.clone(),
+                name,
+            },
+        }
+    }
+
+    fn close_edit(&mut self, cx: &mut Context<'_, Self>) {
+        self.tree.stop_editing();
+        self.inline = None;
+        cx.notify();
+    }
+
+    fn refuse_edit(&mut self, reason: String, cx: &mut Context<'_, Self>) {
+        if let Some(edit) = self.inline.as_mut() {
+            edit.error = Some(reason);
+        }
+        cx.notify();
+    }
+}
+
+#[cfg(test)]
+#[path = "edit_tests.rs"]
+mod tests;

@@ -90,12 +90,33 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 | `transport` | `ShellTransport`, the implementation of `DaemonTransport` (HTTP to the daemon, WebSocket relay) |
 | `webview` (desktop) | the only platform crate: create, place, show, hide, eval and destroy web views; GTK thread on Linux |
 | `pane_host` (desktop) | pane registry, slot pool, park and restore, focus routing, overlay hiding, the `crowbar://` protocol |
+| `tab_bar` (desktop) | the tab strip: pills, reorder/merge drags, drop line, context menu, collapsed-sidebar toggle; emits `TabBarEvent::Apply(Vec<Command>)` |
+| `layout_view` (desktop) | the pane layout: frames, handles, accent ring, sashes, drop zones and preview; emits `LayoutEvent::Apply(Command)` |
 | `crowbar_desktop` (desktop/app) | the thin binary: GPUI window, native chrome regions, one real chat pane |
 
 ## DaemonTransport for pane_host
 
 `pane_host::PaneProtocol::new(scheme, transport, bundles, extension_bundles, origins)` takes an `Arc<dyn protocol::DaemonTransport>`. Every `crowbar://<host>/v0/...` request from a pane becomes a `DaemonRequest` and is answered through the `Responder`; `relay_endpoint` serves WebSocket access. Pass `transport::ShellTransport` there. `crowbar_desktop` uses a loopback stand-in (`/v0/health` only) until it is wired.
 
+## tab_bar and layout_view integration
+
+Both views render the model and issue `model::Command`s; the app applies them to `Layout` and pushes the new state back (`TabBar::set_tabs`, `LayoutView::set_tab`). Neither keeps layout state of its own.
+
+- `LayoutView::new(Rc<dyn PaneSource>)`: the app implements `PaneSource` (hole content, drag-ghost label, a fresh `TabId` for detach). Content is an empty element in production because the pane host's web view covers the hole.
+- `layout_view::pane_holes(tab, content, ChromeContext)` returns the inset hole rect of every pane. The app builds `pane_host::LayoutSnapshot::from_layout(..)` and replaces each `visible` bound with the matching hole, so web views stop at the pane border and radius.
+- Web views are native child windows, so GPUI never sees the pointer over them: the app calls `LayoutView::set_hovered_pane` from the pane host's hover notifications (the handle fades in from it).
+- `ui::Overlays` hides web views while a drag is over the layout and while the pane handle is shown.
+- Shared drag payload: `model::DragSubject` (`Pane`, `Open(PaneInstance)`, `Tab`). The sidebar starts `Open`/`Tab` drags with it; tab_bar and layout_view accept it.
+- Added to `ui`: `Glide` (retargetable eased value, honours reduced motion) and `DragGhost` (the 32px lifted pill).
+- Demos: `layout_demo` and `tab_bar_demo` binaries (fake model, no daemon).
+
+Known gaps: no tab pinning or compact pins, no label fade mask under the close button (ellipsis), no inset shadows, tab drag out of the strip onto a pane is not handled, cross-project drops are not refused, and the tab context menu has Close and Close Others only.
+
 ## requests to protocol/model owners
 
-None open.
+- `model`: a per-tab `pinned` flag (and a `Command` to set it) for tab pinning.
+- `model`: per-pane titles so the strip can show chat names without the shell passing them in.
+- `model`: a project id on pane instances, so a drop across projects can be refused.
+- `ui`: an italic font face (or synthetic italic): the provisional chat title is italic in the reference and GPUI does not synthesise one from the upright faces.
+- `ui`: an emoji font in the app assets; project marks of kind `Emoji` render as tofu in a container without system emoji fonts.
+- `ui`: the sidebar added icons (`ArrowsOutCardinal`, `XCircle`, `Funnel`, `UploadSimple`, `PencilSimple`, `SidebarToggle`, `SidebarToggleRight`), `TextInputStyle::Bare` and `TabItem::with_label`.
