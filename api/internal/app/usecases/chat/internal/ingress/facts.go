@@ -268,3 +268,36 @@ func mapCompaction(st ledger.State, ev engineagents.CanonicalEvent, src Source) 
 	settled, err := ledger.SettleCarried(st, src.RunnerID, true, ledger.ReasonProviderBuiltin)
 	return append(rows, settled...), err
 }
+
+// thoughtRows are the thoughts of a turn as rows: one per message among said that a
+// thought names, and one for the last message holding the newest of the rest.
+func thoughtRows(turnID, last string, said, thoughts []liveText) ([]ledger.Row, error) {
+	named := map[string]bool{}
+	for _, a := range said {
+		named[a.ID] = true
+	}
+	var order []string
+	text := map[string]string{}
+	for _, t := range thoughts {
+		if t.TurnID != turnID {
+			continue
+		}
+		id := last
+		if named[t.ID] {
+			id = t.ID
+		}
+		if _, seen := text[id]; !seen {
+			order = append(order, id)
+		}
+		text[id] = t.Text
+	}
+	rows := make([]ledger.Row, 0, len(order))
+	for _, id := range order {
+		row, err := ledger.NewRow(ledger.KindReasoning, turnID, "", ledger.Reasoning{MessageID: id, Text: text[id]})
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
