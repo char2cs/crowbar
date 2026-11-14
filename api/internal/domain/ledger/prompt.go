@@ -18,6 +18,7 @@ const (
 	DeliveryRestart = "restart" // a replacement CLI launched with the prompt
 	DeliverySteer   = "steer"   // parked on the running turn's end hook
 	DeliveryAPI     = "api"     // pushed over the live api connection
+	DeliveryType    = "type"    // pasted into the live CLI's own composer
 )
 
 // Why a prompt ended without a turn.

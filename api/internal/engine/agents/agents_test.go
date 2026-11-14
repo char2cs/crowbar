@@ -588,6 +588,107 @@ func TestAgent_PromptSteerCarriesTheMessageAsAJSONStringAndSkipsCommands(t *test
 	assert.False(t, ok, "a provider that declares no steering is never steered")
 }
 
+const typedPromptDescriptor = `
+id: typist
+spawn:
+  cmd: typist-cli
+  interactive_required: true
+events:
+  session_start:
+    in: session_start
+    map: { session_id: session_id }
+  turn_stop:
+    in: turn_stop
+    map: { message: last }
+session:
+  resume: { arg: "--resume {id}" }
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "{message}" }
+    steer:
+      skip_prefixes: ["/"]
+      frame: "from the user: {message}"
+      reply: '{"decision":"block","reason":{message_json}}'
+    type:
+      paste: bracketed
+      submit: "\r"
+      skip_prefixes: ["!", "/btw"]
+      composer:
+        row_prefix: "❯ "
+`
+
+func typist(t *testing.T) agents.Agent {
+	t.Helper()
+	home := t.TempDir()
+	writeDescriptor(t, home, "typist", typedPromptDescriptor)
+	a, err := agents.New().Get(context.Background(), home, "typist")
+	require.NoError(t, err)
+	return a
+}
+
+func TestAgent_PromptTypeReportsWhatTheDescriptorDeclares(t *testing.T) {
+	typing, ok := typist(t).PromptType()
+	require.True(t, ok)
+	assert.Equal(t, agents.PromptTyping{
+		Paste: "bracketed", Submit: "\r", ComposerRowPrefix: "❯ ", SkipPrefixes: []string{"!", "/btw"},
+	}, typing, "the row prefix keeps its no-break space")
+
+	_, ok = get(t, "codex").PromptType()
+	assert.False(t, ok, "a provider that declares no type block is never typed into")
+}
+
+func TestAgent_PromptTypeBytesPastesTheMessageThenSubmits(t *testing.T) {
+	a := typist(t)
+
+	got, ok := a.PromptTypeBytes("first line\nsecond \"line\"\r\n\x1b[31m{message}")
+	require.True(t, ok)
+	assert.Equal(t, "\x1b[200~first line\nsecond \"line\"\r\n\x1b[31m{message}\x1b[201~\r", string(got))
+
+	got, ok = a.PromptTypeBytes("")
+	require.True(t, ok)
+	assert.Equal(t, "\x1b[200~\x1b[201~\r", string(got))
+}
+
+func TestAgent_PromptTypeBytesRefusesWhatWouldEndThePasteEarlyOrIsACommand(t *testing.T) {
+	a := typist(t)
+
+	for name, text := range map[string]string{
+		"end-paste sequence mid-message": "hi\x1b[201~\rrm -rf /",
+		"end-paste sequence alone":       "\x1b[201~",
+		"a message the type block skips": "!ls",
+		"a longer skipped prefix":        "/btw and so on",
+	} {
+		got, ok := a.PromptTypeBytes(text)
+		assert.False(t, ok, name)
+		assert.Empty(t, got, name)
+	}
+
+	got, ok := a.PromptTypeBytes("/compact")
+	require.True(t, ok, "only the type block's own skip list applies, not steer's")
+	assert.Equal(t, "\x1b[200~/compact\x1b[201~\r", string(got))
+
+	_, ok = get(t, "codex").PromptTypeBytes("hello")
+	assert.False(t, ok, "a provider that declares no type block renders nothing")
+}
+
+func TestAgent_CanTypeIsFalseForSkippedOrUnsafeMessages(t *testing.T) {
+	a := typist(t)
+	assert.True(t, a.CanType("hello\nworld"))
+	assert.True(t, a.CanType("not a !command"))
+	assert.False(t, a.CanType("!ls"))
+	assert.False(t, a.CanType("/btw hi"))
+	assert.False(t, a.CanType("x\x1b[201~"))
+	assert.False(t, get(t, "codex").CanType("hello"))
+}
+
 func TestAgent_ToolDenialRefusesTheCallWithItsReasonAsJSON(t *testing.T) {
 	for _, id := range []string{"claude", "codex"} {
 		stdout, ok := get(t, id).ToolDenial(`write "elsewhere"`)

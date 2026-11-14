@@ -4,6 +4,9 @@ const (
 	DeliveryRestartTUI = "restart_tui"
 )
 
+// PasteBracketed wraps typed text in ESC[200~ ... ESC[201~.
+const PasteBracketed = "bracketed"
+
 const (
 	CatalogAdapterJSONTextSection      = "json_text_section"
 	CatalogAdapterJSONInventoryDetails = "json_inventory_text_detail"
@@ -42,6 +45,25 @@ type PromptSubmitSpec struct {
 	Resume        InjectSteps        `yaml:"resume"`
 	LeadingSigils *LeadingSigilsSpec `yaml:"leading_sigils"`
 	Steer         *SteerSpec         `yaml:"steer"`
+	Type          *PromptTypeSpec    `yaml:"type"`
+}
+
+// PromptTypeSpec lets an idle CLI take a prompt typed into its own composer
+// instead of a restart. Submit is the key bytes that send it; Composer says how
+// the empty input box looks, so the runner can tell it is empty. A message
+// opening with a SkipPrefixes entry keeps its meaning under paste (a command or
+// a mode switch) and is restarted instead of typed.
+type PromptTypeSpec struct {
+	Paste        string             `yaml:"paste"`
+	Submit       string             `yaml:"submit"`
+	SkipPrefixes []string           `yaml:"skip_prefixes"`
+	Composer     PromptComposerSpec `yaml:"composer"`
+}
+
+// PromptComposerSpec: the composer is empty when the cursor's row starts with
+// RowPrefix and the cursor column is exactly that prefix's width.
+type PromptComposerSpec struct {
+	RowPrefix string `yaml:"row_prefix"`
 }
 
 // SteerSpec lets a mid-turn message ride the CLI's turn-end hook instead of a

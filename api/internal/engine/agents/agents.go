@@ -106,6 +106,16 @@ type Agent interface {
 	// into a RUNNING turn (presentation.prompt_submit.steer); ok is false when
 	// the provider declares none or text is a command the descriptor excludes.
 	PromptSteer(text string) (stdout string, ok bool)
+	// PromptType is presentation.prompt_submit.type: how a prompt is typed into
+	// an idle CLI's composer; ok is false when the provider declares none.
+	PromptType() (typing PromptTyping, ok bool)
+	// CanType reports whether text may be typed: the provider declares a type
+	// block, text opens with none of its skip_prefixes, and text holds no
+	// sequence that would end the paste early. When false the caller restarts.
+	CanType(text string) bool
+	// PromptTypeBytes renders text as the bytes written to the PTY to type it:
+	// a paste, then the submit key. ok is CanType(text).
+	PromptTypeBytes(text string) (bytes []byte, ok bool)
 	// ToolDenial renders the reply that refuses one tool call before it runs,
 	// with reason shown to the model; ok is false when the provider declares none.
 	ToolDenial(reason string) (stdout string, ok bool)
