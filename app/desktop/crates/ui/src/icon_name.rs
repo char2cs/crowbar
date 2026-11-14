@@ -84,6 +84,14 @@ icon_names! {
     Upload => "upload",
     Smiley => "smiley",
     Star => "star",
+    Minus => "minus",
+    ArrowsOutCardinal => "arrows-out-cardinal",
+    XCircle => "x-circle",
+    Funnel => "funnel",
+    UploadSimple => "upload-simple",
+    PencilSimple => "pencil-simple",
+    SidebarToggle => "sidebar-toggle",
+    SidebarToggleRight => "sidebar-toggle-right",
 }
 
 #[cfg(test)]

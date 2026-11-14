@@ -28,6 +28,17 @@ impl TextInputElement {
         Self { input, palette }
     }
 
+    fn aligned(&self, bounds: Bounds<Pixels>, line: &ShapedLine, cx: &App) -> Bounds<Pixels> {
+        if !self.input.read(cx).style.centered() {
+            return bounds;
+        }
+        let spare = (bounds.size.width - line.width).max(px(0.0));
+        Bounds::new(
+            point(bounds.left() + spare / 2.0, bounds.top()),
+            size(bounds.size.width - spare, bounds.size.height),
+        )
+    }
+
     fn shape(&self, window: &mut Window, cx: &App) -> ShapedLine {
         let input = self.input.read(cx);
         let empty = input.text().is_empty();
@@ -145,6 +156,7 @@ impl Element for TextInputElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let line = self.shape(window, cx);
+        let bounds = self.aligned(bounds, &line, cx);
         let selection = self.input.read(cx).buffer.selection();
         let (from, to) = (
             line.x_for_index(selection.start),
@@ -184,6 +196,7 @@ impl Element for TextInputElement {
         window: &mut Window,
         cx: &mut App,
     ) {
+        let bounds = self.aligned(bounds, &prepaint.line, cx);
         let focus = self.input.read(cx).focus_handle.clone();
         window.handle_input(
             &focus,

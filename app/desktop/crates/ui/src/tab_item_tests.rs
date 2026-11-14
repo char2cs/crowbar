@@ -21,3 +21,11 @@ fn builders_add_an_icon_and_disable() {
     assert_eq!(tab.icon, Some(IconName::Check));
     assert!(tab.disabled);
 }
+
+#[test]
+fn a_labelled_icon_tab_keeps_its_fill_weight() {
+    let tab = TabItem::icon(IconName::Check).with_label("Chats");
+    assert_eq!(tab.label.as_ref().map(AsRef::as_ref), Some("Chats"));
+    assert_eq!(tab.icon, Some(IconName::Check));
+    assert_eq!(tab.selected_weight, IconWeight::Fill);
+}

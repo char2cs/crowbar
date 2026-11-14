@@ -25,6 +25,7 @@ pub(crate) struct DialogHeader {
     icon: Option<IconName>,
     actions: Option<AnyElement>,
     on_close: Option<CloseHandler>,
+    ruled: bool,
 }
 
 impl DialogHeader {
@@ -35,6 +36,7 @@ impl DialogHeader {
             icon: None,
             actions: None,
             on_close: None,
+            ruled: true,
         }
     }
 
@@ -55,6 +57,11 @@ impl DialogHeader {
 
     pub(crate) fn on_close(mut self, handler: Option<CloseHandler>) -> Self {
         self.on_close = handler;
+        self
+    }
+
+    pub(crate) fn unruled(mut self) -> Self {
+        self.ruled = false;
         self
     }
 
@@ -81,8 +88,9 @@ impl RenderOnce for DialogHeader {
             .gap(px(8.0))
             .px(px(16.0))
             .py(px(12.0))
-            .border_b_1()
-            .border_color(palette.border())
+            .when(self.ruled, |d| {
+                d.border_b_1().border_color(palette.border())
+            })
             .children(
                 self.icon
                     .map(|icon| Icon::new(icon).color(palette.muted_foreground())),
@@ -94,18 +102,18 @@ impl RenderOnce for DialogHeader {
                     .line_height(px(14.0))
                     .child(title)
             }))
-            .when_some(self.actions, |d, actions| {
-                d.child(
-                    div()
-                        .ml(px(8.0))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.0))
-                        .child(actions),
-                )
-            })
+            .when_some(self.actions, |d, actions| d.child(actions_slot(actions)))
             .child(div().ml_auto().child(close))
     }
+}
+
+fn actions_slot(actions: AnyElement) -> impl IntoElement {
+    div()
+        .ml(px(8.0))
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(actions)
 }
 
 opaque_debug!(DialogHeader);

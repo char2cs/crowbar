@@ -33,7 +33,7 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Motion | `CubicBezier`, `Keyframes`, `Motion` (reduced motion, animation factory) | verified |
 | Controls | `Button`, `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
 | Overlays | `OverlayHost`, `Overlays`, `OverlayGuard`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
-| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `Separator`, `Skeleton`, `Spinner`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
+| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
 
 ## Conventions for consumers
 
@@ -51,6 +51,12 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 `cargo run -p ui --bin gallery -- --theme crowbar --mode dark --section buttons --size 1200x800` renders every
 component in every state. Sections: `buttons`, `inputs`, `toggles`, `feedback`, `structure`, `icons`,
 `overlays`, `dialog`. The Docker recipe lives in `app/desktop/tests/docker`.
+
+## Settings modal additions
+
+`TextInputStyle` (`Standard`, `Compact` 28px, `Stepper` 24px centred) with `TextInput::style` and `leading_icon`;
+`hover_fill` (150ms background fade on hover); `DialogExtent` with `Dialog::flush` (fixed-size dialog with an
+unruled header and no body padding); `Select::compact` (28px trigger); `IconName::Minus`.
 
 ## Assets and licenses
 

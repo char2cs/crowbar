@@ -42,6 +42,13 @@ impl TabItem {
         self
     }
 
+    /// Adds a text label next to the icon; the selected weight is kept.
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
     /// Marks the tab as not selectable.
     #[must_use]
     pub fn disabled(mut self) -> Self {

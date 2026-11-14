@@ -24,6 +24,8 @@ use crate::text_size;
 use crate::theme::Theme;
 
 const DEFAULT_WIDTH: f32 = 144.0;
+const STANDARD_HEIGHT: f32 = 32.0;
+const COMPACT_HEIGHT: f32 = 28.0;
 const CARET_OPACITY: f32 = 0.8;
 const PLACEHOLDER_OPACITY: f32 = 0.72;
 const DARK_FILL: f32 = 0.32;
@@ -36,6 +38,7 @@ pub struct Select {
     selected: Option<usize>,
     placeholder: SharedString,
     width: Pixels,
+    height: Pixels,
     surface: Surface,
     on_change: Option<IndexHandler>,
 }
@@ -53,6 +56,7 @@ impl Select {
             selected,
             placeholder: SharedString::default(),
             width: px(DEFAULT_WIDTH),
+            height: px(STANDARD_HEIGHT),
             surface: Surface::default(),
             on_change: None,
         }
@@ -69,6 +73,13 @@ impl Select {
     #[must_use]
     pub fn width(mut self, width: Pixels) -> Self {
         self.width = width;
+        self
+    }
+
+    /// Makes the trigger 28px tall, as in a row of settings.
+    #[must_use]
+    pub fn compact(mut self) -> Self {
+        self.height = px(COMPACT_HEIGHT);
         self
     }
 
@@ -104,7 +115,7 @@ impl Select {
             .justify_between()
             .gap(px(8.0))
             .w(self.width)
-            .min_h(px(32.0))
+            .min_h(self.height)
             .px(px(10.0))
             .rounded(radius::LG)
             .border_1()

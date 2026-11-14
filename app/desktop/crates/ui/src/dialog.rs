@@ -10,6 +10,7 @@ use gpui::{
 
 use crate::close_handler::CloseHandler;
 use crate::cubic_bezier::CubicBezier;
+use crate::dialog_extent::DialogExtent;
 use crate::dialog_header::DialogHeader;
 use crate::dialog_size::DialogSize;
 use crate::font::UI_FAMILY;
@@ -36,6 +37,7 @@ pub struct Dialog {
     id: ElementId,
     header: DialogHeader,
     size: DialogSize,
+    extent: Option<DialogExtent>,
     body: Option<AnyElement>,
     footer: Option<AnyElement>,
     on_close: Option<CloseHandler>,
@@ -49,6 +51,7 @@ impl Dialog {
             header: DialogHeader::new(id.clone()),
             id,
             size: DialogSize::default(),
+            extent: None,
             body: None,
             footer: None,
             on_close: None,
@@ -73,6 +76,14 @@ impl Dialog {
     #[must_use]
     pub fn size(mut self, size: DialogSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Fills `extent` of the window; the body then has no padding and the header no rule.
+    #[must_use]
+    pub fn flush(mut self, extent: DialogExtent) -> Self {
+        self.extent = Some(extent);
+        self.header = self.header.unruled();
         self
     }
 
@@ -106,7 +117,7 @@ impl Dialog {
         self
     }
 
-    fn popup(self, theme: Theme, viewport_height: gpui::Pixels) -> gpui::Stateful<gpui::Div> {
+    fn popup(self, theme: Theme, viewport: gpui::Size<gpui::Pixels>) -> gpui::Stateful<gpui::Div> {
         let palette = theme.palette(Surface::Window);
         let header = (!self.header.is_empty()).then_some(self.header);
         let footer = self.footer.map(|footer| {
@@ -122,14 +133,19 @@ impl Dialog {
                 .bg(palette.muted().opacity(0.5))
                 .child(footer)
         });
-        div()
-            .id((self.id, "popup"))
-            .occlude()
-            .flex()
-            .flex_col()
-            .w_full()
-            .max_w(self.size.max_width())
-            .max_h(viewport_height - px(2.0 * VIEWPORT_PADDING))
+        let padding = if self.extent.is_some() { 0.0 } else { 16.0 };
+        let frame = div().id((self.id, "popup")).occlude().flex().flex_col();
+        let frame = match self.extent {
+            Some(extent) => {
+                let fixed = extent.size(viewport);
+                frame.w(fixed.width).h(fixed.height)
+            },
+            None => frame
+                .w_full()
+                .max_w(self.size.max_width())
+                .max_h(viewport.height - px(2.0 * VIEWPORT_PADDING)),
+        };
+        frame
             .overflow_hidden()
             .rounded(radius::XL)
             .bg(palette.popover())
@@ -139,7 +155,7 @@ impl Dialog {
             .children(header)
             .children(
                 self.body
-                    .map(|body| div().flex_1().min_h_0().p(px(16.0)).child(body)),
+                    .map(|body| div().flex_1().min_h_0().p(px(padding)).child(body)),
             )
             .children(footer)
     }
@@ -172,7 +188,7 @@ impl RenderOnce for Dialog {
         slot.read(cx).guard.update(whole_window(viewport));
         let duration = Motion::of(cx).duration(timing::SLOW);
         let (id, scrim_close) = (self.id.clone(), self.on_close.clone());
-        let popup = self.popup(theme, viewport.height);
+        let popup = self.popup(theme, viewport);
         let layer = div()
             .id((id.clone(), "scrim"))
             .occlude()

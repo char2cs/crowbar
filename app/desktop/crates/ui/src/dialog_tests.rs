@@ -72,3 +72,19 @@ fn a_press_inside_the_popup_does_not_close(cx: &mut TestAppContext) {
     cx.simulate_click(body.center(), gpui::Modifiers::none());
     assert_eq!(closed.get(), 0);
 }
+
+#[gpui::test]
+fn a_flush_dialog_fills_its_extent_with_no_body_padding(cx: &mut TestAppContext) {
+    let cx = open(cx, |_, _| {
+        Dialog::new("d")
+            .title("Title")
+            .flush(DialogExtent::new(0.5, 0.5, px(300.0), px(200.0)))
+            .body(div().size_full().debug_selector(|| "body".into()))
+    });
+    let popup = cx.debug_bounds("body").unwrap_or_default();
+    assert_eq!(
+        f32::from(popup.size.width),
+        300.0,
+        "the body spans the popup width: no padding"
+    );
+}
