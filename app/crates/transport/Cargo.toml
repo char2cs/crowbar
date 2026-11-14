@@ -1,0 +1,47 @@
+[package]
+name = "transport"
+description = "Daemon transport for Crowbar clients: crowbar:// requests, paired hosts and the loopback WebSocket relay."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+os-keychain = ["dep:keyring", "dep:security-framework"]
+
+[dependencies]
+protocol.workspace = true
+base64 = "0.22"
+bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+getrandom = "0.3"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+keyring = { version = "3", optional = true, default-features = false, features = ["apple-native", "linux-native-sync-persistent", "crypto-rust"] }
+rustls = "0.23"
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+socket2 = "0.6"
+thiserror.workspace = true
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-rustls = "0.26"
+tokio-tungstenite = "0.30"
+tokio-util = "0.7"
+tracing.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", optional = true }
+
+[dev-dependencies]
+rcgen = "0.13"
+socket2 = { version = "0.6", features = ["all"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time", "test-util"] }
+
+[lints]
+workspace = true
