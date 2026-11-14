@@ -129,8 +129,8 @@ func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
 // pass over chat_ledger's tool_call rows instead of one full-table scan per
 // ref. Use this for a purge's whole batch of refs rather than calling
 // RefInUse in a loop.
-func (s *Store) RefsInUse(ctx context.Context, refs []string) (map[string]bool, error) {
-	inUse := make(map[string]bool, len(refs))
+func (s *Store) RefsInUse(ctx context.Context, refs []string) (inUse map[string]bool, err error) {
+	inUse = make(map[string]bool, len(refs))
 	if len(refs) == 0 {
 		return inUse, nil
 	}
@@ -146,7 +146,11 @@ func (s *Store) RefsInUse(ctx context.Context, refs []string) (map[string]bool, 
 	if err != nil {
 		return nil, fmt.Errorf("ledger: refs in use: %w", err)
 	}
-	defer cur.Close()
+	defer func() {
+		if closeErr := cur.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("ledger: refs in use: close: %w", closeErr)
+		}
+	}()
 	for cur.Next() {
 		if ctx.Err() != nil {
 			return inUse, fmt.Errorf("ledger: refs in use: %w", ctx.Err())
