@@ -2,18 +2,10 @@
 //! The web store owns every piece of state; this plugin renders what it is handed and
 //! reports what the user asked for back as `intent` events.
 
-use tauri::plugin::{Builder, TauriPlugin};
-use tauri::Runtime;
+mod font;
+mod frontend;
+mod frontend_asset;
+mod ffi;
+mod tauri_plugin_crowbar_chrome;
 
-#[cfg(target_os = "ios")]
-mod ios;
-
-pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    #[allow(unused_mut)] // reason: only iOS adds the Swift plugin and its commands
-    let mut builder = Builder::new("crowbar-chrome");
-    #[cfg(target_os = "ios")]
-    {
-        builder = ios::attach(builder);
-    }
-    builder.build()
-}
+pub use tauri_plugin_crowbar_chrome::init;

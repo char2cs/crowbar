@@ -1,55 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// What a sheet should do next, from the web's `open` and what UIKit is showing. The web's value
-/// is mirrored, never overwritten here, so a user swipe-down is not undone by the next state push
-/// that still says open; the sheet is only presented again once the web has closed and reopened.
-struct SheetPlan {
-  enum Step { case none, present, dismiss }
-
-  private var wantOpen = false
-  private(set) var presented = false
-  // A present or dismiss still animating: the web can flip open and closed faster than that
-  // (React's dev double-mount does), so the next step waits for this one's completion.
-  private(set) var moving = false
-  // A present that found no view controller to go over: tried again on the next push.
-  private var waitingForRoot = false
-
-  /// The web's current `open`; acts only when it changed, or when a present is waiting for a root.
-  mutating func update(open: Bool) -> Step {
-    if open == wantOpen { return waitingForRoot ? next() : .none }
-    wantOpen = open
-    waitingForRoot = false
-    return next()
-  }
-
-  /// A `.present` had nothing to present over; it stays wanted without being shown.
-  mutating func noRoot() -> Step {
-    moving = false
-    presented = false
-    waitingForRoot = true
-    return .none
-  }
-
-  mutating func finished() -> Step {
-    moving = false
-    return next()
-  }
-
-  /// The user closed it; the web is told and answers with `open: false`.
-  mutating func dismissedByUser() { presented = false }
-
-  private mutating func next() -> Step {
-    waitingForRoot = false
-    guard !moving, wantOpen != presented else { return .none }
-    moving = true
-    presented = wantOpen
-    return wantOpen ? .present : .dismiss
-  }
-}
-
-/// Presents a sheet while the web says it is open. A swipe-down is reported through
-/// `onUserDismiss`; closing it from the web is not reported back.
 @available(iOS 26.0, *)
 final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
   private let makeContent: () -> UIViewController
@@ -61,10 +12,11 @@ final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
   private var plan = SheetPlan()
   private weak var root: UIViewController?
 
-  /// `undimmed`: what is above a half-height sheet stays lit and touchable.
   init(
-    undimmed: Bool, detents: [UISheetPresentationController.Detent] = [.medium(), .large()],
-    content: @escaping () -> UIViewController, onUserDismiss: @escaping () -> Void
+    undimmed: Bool,
+    detents: [UISheetPresentationController.Detent] = [.medium(), .large()],
+    content: @escaping () -> UIViewController,
+    onUserDismiss: @escaping () -> Void
   ) {
     self.undimmed = undimmed
     self.detents = detents
@@ -72,15 +24,18 @@ final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
     self.onUserDismiss = onUserDismiss
   }
 
-  func update(open: Bool, busy: Bool, over root: UIViewController?) {
+  func update(
+    _ opening: SheetOpening,
+    dismissal: SheetDismissal = .allowed,
+    over root: UIViewController?
+  ) {
     self.root = root ?? self.root
-    sheet?.isModalInPresentation = busy
-    self.busy = busy
-    run(plan.update(open: open))
+    let blocked = dismissal == .blocked
+    sheet?.isModalInPresentation = blocked
+    busy = blocked
+    run(plan.update(opening))
   }
 
-  /// Dismisses a sheet the user acted in, then runs `done`: what the action presents next
-  /// (a system picker) would otherwise collide with the sheet leaving.
   func closeThen(_ done: @escaping () -> Void) {
     guard let open = sheet else { return done() }
     sheet = nil

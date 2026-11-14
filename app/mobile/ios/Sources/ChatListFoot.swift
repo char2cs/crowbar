@@ -1,13 +1,10 @@
 import SwiftUI
 
-/// The chat list's own buttons, native over the bottom of the list page.
 @available(iOS 26.0, *)
 struct ChatListFoot: View {
   @ObservedObject var model: ChromeModel
   @Environment(\.colorScheme) private var colorScheme
 
-  /// Over the dark chrome sidebar (Crowbar) the foot reads as dark glass with light glyphs and a
-  /// brand-green New thread; nil keeps the plain look.
   private var sidebar: SidebarPalette? { model.palette?.sidebar }
 
   var body: some View {
@@ -31,11 +28,13 @@ struct ChatListFoot: View {
           model.send(.of("openHostPicker"))
         } label: {
           HostPlaceIcon(
-            hostId: model.hostPlace == "local" ? "local" : "remote", state: model.hostStatus,
-            palette: model.palette)
-            .frame(width: 44, height: 44)
-            .foregroundStyle(sidebar?.text ?? .primary)
-            .contentShape(.circle)
+            hostId: model.hostPlace == "local" ? "local" : "remote",
+            state: model.hostStatus,
+            palette: model.palette
+          )
+          .frame(width: 44, height: 44)
+          .foregroundStyle(sidebar?.text ?? .primary)
+          .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
@@ -52,11 +51,10 @@ struct ChatListFoot: View {
             Text("New thread")
           }
           .font(.subheadline.weight(.semibold))
-            .padding(.horizontal, 6)
-            .foregroundStyle(sidebar?.brandText ?? .white)
+          .padding(.horizontal, 6)
+          .foregroundStyle(sidebar?.brandText ?? .white)
         }
         .buttonStyle(.glassProminent)
-        // Over the dark sidebar the brand green is the dark palette's primary; else the welcome's.
         .tint(sidebar?.brand ?? model.brandGround ?? .green)
         .controlSize(.large)
       }

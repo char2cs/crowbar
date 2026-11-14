@@ -42,5 +42,5 @@ api/docs/superpowers/
 app/mobile/src-tauri/icons/Assets.car
 app/mobile/src-tauri/icons/crowbar.icns
 app/mobile/icons-compiler/.build/
-app/mobile/ios-chrome/.build/
-app/mobile/ios-chrome/ios/.build/
+app/mobile/.tauri/
+app/mobile/ios/.build/

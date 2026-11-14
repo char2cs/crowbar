@@ -64,7 +64,7 @@ tauri-plugin-macos-fps = "0.1.0"
 tauri-plugin-mcp-bridge = "0.13"
 
 [target.'cfg(target_os = "ios")'.dependencies]
-tauri-plugin-crowbar-chrome = { path = "../ios-chrome" }
+tauri-plugin-crowbar-chrome = { path = "../ios-plugin" }
 
 [target."cfg(unix)".dependencies]
 libc = "0.2"

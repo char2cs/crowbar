@@ -11,7 +11,6 @@ class ChromePlugin: Plugin {
 
   override func load(webview: WKWebView) {
     self.webview = webview
-    // The launch screen's colour until the page paints its own: no white flash between them.
     webview.isOpaque = false
     webview.backgroundColor = UIColor(named: "LaunchBackground")
   }

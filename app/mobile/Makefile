@@ -71,7 +71,7 @@ test-coverage:
 
 lint:
 	cd src-tauri && cargo fmt --check && cargo clippy -- -D warnings
-	node ios-chrome/scripts/gen-icons.mjs --check
+	node ios-plugin/scripts/gen-icons.mjs --check
 
 fetch-sidecar:
 	@echo "Fetching crowbar-api sidecar..."

@@ -1,9 +1,6 @@
 import SwiftUI
 import WebKit
 
-/// Settings as a native navigation stack: a grouped list whose rows push native screens (hosts,
-/// theme) or the web's own settings tabs, hosted in the one warm settings page. Colours are the
-/// web palette's, so it reads as the app's own pages.
 @available(iOS 26.0, *)
 struct SettingsSheet: View {
   @ObservedObject var model: SettingsModel
@@ -19,31 +16,39 @@ struct SettingsSheet: View {
   var body: some View {
     NavigationStack(path: $path) {
       root
-        .navigationDestination(for: SettingsRoute.self) { route in screen(route) }
+        .navigationDestination(for: SettingsRoute.self) { route in
+          Destination(route: route, model: model, page: page, palette: palette, text: text)
+        }
     }
   }
 
   private var pages: [SettingsPageItem] { (model.state?.pages ?? []).filter { $0.id != "hosts" } }
 
-  /// A row that pushes `route`, with the app's own caret: the list's automatic disclosure
-  /// chevron is a system symbol, so rows push by hand instead of through a NavigationLink.
-  private func pushRow<Content: View>(
-    _ route: SettingsRoute, caret: Bool = true, @ViewBuilder content: () -> Content
-  ) -> some View {
-    Button {
-      Haptics.select()
-      path.append(route)
-    } label: {
-      HStack(spacing: RowMetrics.gap) {
-        content().frame(maxWidth: .infinity, alignment: .leading)
-        if caret { disclosure }
+  private struct PushRow<Content: View>: View {
+    let route: SettingsRoute
+    var caret = true
+    let secondaryText: Color
+    @Binding var path: [SettingsRoute]
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+      Button {
+        Haptics.select()
+        path.append(route)
+      } label: {
+        HStack(spacing: RowMetrics.gap) {
+          content().frame(maxWidth: .infinity, alignment: .leading)
+          if caret {
+            PhosphorIcon(.caretRight, size: 14).foregroundStyle(secondaryText)
+              .frame(width: RowMetrics.trailing)
+          }
+        }
+        .contentShape(.rect)
       }
-      .contentShape(.rect)
+      .buttonStyle(.plain)
     }
-    .buttonStyle(.plain)
   }
 
-  /// In the trailing column every row shares, so each row's caret sits at the same x.
   private var disclosure: some View {
     PhosphorIcon(.caretRight, size: 14).foregroundStyle(secondaryText)
       .frame(width: RowMetrics.trailing)
@@ -52,9 +57,10 @@ struct SettingsSheet: View {
   private var root: some View {
     List {
       Section {
-        pushRow(.hosts, caret: false) { hostsRow }
+        PushRow(route: .hosts, caret: false, secondaryText: secondaryText, path: $path) { hostsRow }
       } header: {
-        Text(hostsTitle).crowbarHeading(size: 17, relativeTo: .subheadline).foregroundStyle(secondaryText)
+        Text(hostsTitle).crowbarHeading(size: 17, relativeTo: .subheadline)
+          .foregroundStyle(secondaryText)
       }
       Section {
         AppearanceCards(mode: model.themeMode, palette: palette) { mode in
@@ -64,21 +70,31 @@ struct SettingsSheet: View {
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
       } header: {
-        Text("Appearance").crowbarHeading(size: 17, relativeTo: .subheadline).foregroundStyle(secondaryText)
+        Text("Appearance").crowbarHeading(size: 17, relativeTo: .subheadline)
+          .foregroundStyle(secondaryText)
       }
       Section {
-        pushRow(.theme) {
+        PushRow(route: .theme, secondaryText: secondaryText, path: $path) {
           IconRow(
-            icon: .palette, title: "Theme", text: text, value: themeName,
-            secondaryText: secondaryText)
+            icon: .palette,
+            title: "Theme",
+            text: text,
+            value: themeName,
+            secondaryText: secondaryText
+          )
         }
         ForEach(pages) { item in
-          pushRow(.page(id: item.id, label: item.label)) {
+          PushRow(
+            route: .page(id: item.id, label: item.label),
+            secondaryText: secondaryText,
+            path: $path
+          ) {
             IconRow(icon: CrowbarIcon(named: item.icon), title: item.label, text: text)
           }
         }
       } header: {
-        Text("App").crowbarHeading(size: 17, relativeTo: .subheadline).foregroundStyle(secondaryText)
+        Text("App").crowbarHeading(size: 17, relativeTo: .subheadline)
+          .foregroundStyle(secondaryText)
       }
     }
     .nativeList(palette)
@@ -86,13 +102,12 @@ struct SettingsSheet: View {
     .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .topBarLeading) {
-        Button(action: close) { PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(text) }.accessibilityLabel("Close")
+        Button(action: close) { PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(text) }
+          .accessibilityLabel("Close")
       }
     }
   }
 
-  /// The one place hosts appear on the root: the host the chat list shows, pushing the list of
-  /// them (where Add host is), or a prompt to add the first.
   @ViewBuilder private var hostsRow: some View {
     if let shown = model.hosts.hosts.first(where: { $0.id == model.hosts.shownHost })
       ?? model.hosts.hosts.first
@@ -102,7 +117,8 @@ struct SettingsSheet: View {
       }
     } else {
       HStack(spacing: RowMetrics.gap) {
-        IconRow(icon: .cloud, title: "Add a host", text: text).frame(maxWidth: .infinity, alignment: .leading)
+        IconRow(icon: .cloud, title: "Add a host", text: text)
+          .frame(maxWidth: .infinity, alignment: .leading)
         disclosure
       }
     }
@@ -116,53 +132,67 @@ struct SettingsSheet: View {
     model.state?.themes.first { $0.id == model.state?.theme }?.name ?? model.state?.theme ?? ""
   }
 
-  @ViewBuilder private func screen(_ route: SettingsRoute) -> some View {
-    switch route {
-    case .hosts:
-      List { HostListSection(list: model.hosts, palette: palette, send: model.send) }
+  private struct Destination: View {
+    let route: SettingsRoute
+    @ObservedObject var model: SettingsModel
+    let page: WKWebView
+    let palette: ChromePalette?
+    let text: Color
+
+    var body: some View {
+      switch route {
+      case .hosts:
+        List { HostListSection(list: model.hosts, palette: palette, send: model.send) }
+          .nativeList(palette)
+          .nativeTitle("Hosts")
+      case .theme:
+        List {
+          Section {
+            ForEach(model.state?.themes ?? []) { theme in
+              ThemeRow(
+                theme: theme,
+                isCurrent: theme.id == model.state?.theme,
+                text: text,
+                send: model.send
+              )
+            }
+          }
+        }
         .nativeList(palette)
-        .nativeTitle("Hosts")
-    case .theme:
-      List {
-        Section {
-          ForEach(model.state?.themes ?? []) { theme in themeRow(theme) }
-        }
-        }
-      .nativeList(palette)
-      .nativeTitle("Theme")
-    case .page(let id, let label):
-      HostedPage(page: page)
-        .background(palette?.surface.ignoresSafeArea())
-        .ignoresSafeArea(edges: .bottom)
-        .nativeTitle(label)
-        .onAppear { model.showTab(id) }
-        .onDisappear { model.showTab(nil) }
-    }
-  }
-
-  private func themeRow(_ theme: ThemeChoice) -> some View {
-    Button {
-      Haptics.select()
-      model.send(.of("setTheme", ["id": theme.id]))
-    } label: {
-      HStack {
-        Text(theme.name).foregroundStyle(text)
-        Spacer()
-        if theme.id == model.state?.theme {
-          PhosphorIcon(.check, size: 18).frame(width: RowMetrics.trailing)
-        }
+        .nativeTitle("Theme")
+      case .page(let id, let label):
+        HostedPage(page: page)
+          .background(palette?.surface.ignoresSafeArea())
+          .ignoresSafeArea(edges: .bottom)
+          .nativeTitle(label)
+          .onAppear { model.showTab(id) }
+          .onDisappear { model.showTab(nil) }
       }
-      .contentShape(.rect)
     }
-    .tint(text)
-    .accessibilityAddTraits(theme.id == model.state?.theme ? .isSelected : [])
   }
-}
 
-/// The one warm settings page, put into a pushed screen.
-private struct HostedPage: UIViewRepresentable {
-  let page: WKWebView
+  private struct ThemeRow: View {
+    let theme: ThemeChoice
+    let isCurrent: Bool
+    let text: Color
+    let send: (ChromeIntent) -> Void
 
-  func makeUIView(context: Context) -> WKWebView { page }
-  func updateUIView(_ view: WKWebView, context: Context) {}
+    var body: some View {
+      Button {
+        Haptics.select()
+        send(.of("setTheme", ["id": theme.id]))
+      } label: {
+        HStack {
+          Text(theme.name).foregroundStyle(text)
+          Spacer()
+          if isCurrent {
+            PhosphorIcon(.check, size: 18).frame(width: RowMetrics.trailing)
+          }
+        }
+        .contentShape(.rect)
+      }
+      .tint(text)
+      .accessibilityAddTraits(isCurrent ? .isSelected : [])
+    }
+  }
 }

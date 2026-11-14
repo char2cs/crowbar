@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// The inputs of one pairing stage.
 @available(iOS 26.0, *)
 struct ConnectFields: View {
   let stage: ConnectStage
@@ -29,13 +28,13 @@ struct ConnectFields: View {
       Text("Run crowbar pair on the host first: it shows the fingerprint and the code you’ll need.")
         .font(.subheadline)
         .foregroundStyle(secondaryText)
-      field("Name") {
+      Field(label: "Name", raised: raised) {
         TextField("homelab", text: $drafts.name)
           .accessibilityLabel("Name")
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
       }
-      field("Address") {
+      Field(label: "Address", raised: raised) {
         TextField("homelab.example.com or 1.2.3.4", text: $drafts.address)
           .accessibilityLabel("Address")
           .textInputAutocapitalization(.never)
@@ -64,7 +63,7 @@ struct ConnectFields: View {
   }
 
   private var code: some View {
-    field("Pairing code") {
+    Field(label: "Pairing code", raised: raised) {
       TextField("123456", text: $drafts.code)
         .accessibilityLabel("Pairing code")
         .keyboardType(.numberPad)
@@ -75,13 +74,19 @@ struct ConnectFields: View {
     }
   }
 
-  private func field<Input: View>(_ label: String, @ViewBuilder input: () -> Input) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(label).font(.subheadline.weight(.medium))
-      input()
-        .padding(.horizontal, 14)
-        .frame(minHeight: 48)
-        .background(raised, in: .rect(cornerRadius: 14))
+  private struct Field<Input: View>: View {
+    let label: String
+    let raised: Color
+    @ViewBuilder let input: () -> Input
+
+    var body: some View {
+      VStack(alignment: .leading, spacing: 6) {
+        Text(label).font(.subheadline.weight(.medium))
+        input()
+          .padding(.horizontal, 14)
+          .frame(minHeight: 48)
+          .background(raised, in: .rect(cornerRadius: 14))
+      }
     }
   }
 }

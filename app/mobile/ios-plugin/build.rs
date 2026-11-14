@@ -1,3 +1,5 @@
+//! Registers the commands the Swift plugin handles with the Tauri permission system.
+
 const COMMANDS: &[&str] = &[
     "set_chrome",
     "set_sidebar",
@@ -17,5 +19,5 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
-    tauri_plugin::Builder::new(COMMANDS).ios_path("ios").build();
+    tauri_plugin::Builder::new(COMMANDS).ios_path("../ios").build();
 }

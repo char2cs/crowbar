@@ -4,7 +4,11 @@ import XCTest
 @testable import tauri_plugin_crowbar_chrome
 
 final class CSSColorTests: XCTestCase {
-  private func rgba(_ css: String, file: StaticString = #filePath, line: UInt = #line)
+  private func rgba(
+    _ css: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  )
     -> [Float]?
   {
     guard let color = Color(css: css) else { return nil }
@@ -13,10 +17,15 @@ final class CSSColorTests: XCTestCase {
   }
 
   private func assertColor(
-    _ css: String, _ expected: [Float], accuracy: Float = 0.01,
-    file: StaticString = #filePath, line: UInt = #line
+    _ css: String,
+    _ expected: [Float],
+    accuracy: Float = 0.01,
+    file: StaticString = #filePath,
+    line: UInt = #line
   ) {
-    guard let got = rgba(css) else { return XCTFail("\(css) did not parse", file: file, line: line) }
+    guard let got = rgba(css) else {
+      return XCTFail("\(css) did not parse", file: file, line: line)
+    }
     for (a, b) in zip(got, expected) {
       XCTAssertEqual(a, b, accuracy: accuracy, css, file: file, line: line)
     }

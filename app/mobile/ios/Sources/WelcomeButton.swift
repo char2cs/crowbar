@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// The first-run call to action, centred under the web-drawn brand.
 @available(iOS 26.0, *)
 struct WelcomeButton: View {
   @ObservedObject var model: ChromeModel

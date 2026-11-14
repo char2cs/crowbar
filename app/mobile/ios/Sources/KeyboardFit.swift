@@ -1,14 +1,9 @@
 import UIKit
 import WebKit
 
-/// Shrinks the webview above the keyboard, with the keyboard's own animation. Otherwise WebKit
-/// pans the whole page up to reveal a focused field before the web's layout can react.
-/// A downward drag on the page puts the keyboard away, as a native transcript's does.
 final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
   private weak var webview: WKWebView?
   private var up = false
-  /// Runs inside the keyboard's animation, once the webview has its new height: whatever is
-  /// placed from the webview's bottom edge follows the page up and down with it.
   var fitted: () -> Void = {}
 
   init(webview: WKWebView) {
@@ -16,19 +11,25 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
     super.init()
     webview.scrollView.contentInsetAdjustmentBehavior = .never
     webview.scrollView.isScrollEnabled = false
-    // The transcript scrolls in WebKit's own inner scrollers, so `keyboardDismissMode` has no
-    // scroller to go on: this watches drags alongside them instead, never claiming the touch.
+    // PLATFORM: The transcript scrolls in WebKit's own inner scrollers, so `keyboardDismissMode` has no
+    // PLATFORM: scroller to go on: this watches drags alongside them instead, never claiming the touch.
     let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
     drag.cancelsTouchesInView = false
     drag.delegate = self
     webview.addGestureRecognizer(drag)
     let center = NotificationCenter.default
     center.addObserver(
-      self, selector: #selector(change(_:)),
-      name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+      self,
+      selector: #selector(change(_:)),
+      name: UIResponder.keyboardWillChangeFrameNotification,
+      object: nil
+    )
     center.addObserver(
-      self, selector: #selector(change(_:)), name: UIResponder.keyboardWillHideNotification,
-      object: nil)
+      self,
+      selector: #selector(change(_:)),
+      name: UIResponder.keyboardWillHideNotification,
+      object: nil
+    )
   }
 
   @objc private func dragged(_ drag: UIPanGestureRecognizer) {
@@ -53,9 +54,11 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
     let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
     let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
     UIView.animate(
-      withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)
+      withDuration: duration,
+      delay: 0,
+      options: UIView.AnimationOptions(rawValue: curve << 16)
     ) {
-      // Bounds and centre, not frame: the reveal may have the webview transformed.
+      // PLATFORM: Bounds and centre, not frame: the reveal may have the webview transformed.
       let height = host.bounds.height - overlap
       webview.bounds.size.height = height
       webview.center.y = height / 2

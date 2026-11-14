@@ -5,17 +5,18 @@ import WebKit
 private func crowbarChromeDevURL() -> UnsafePointer<CChar>?
 @_silgen_name("crowbar_chrome_asset")
 private func crowbarChromeAsset(
-  _ path: UnsafePointer<CChar>, _ len: UnsafeMutablePointer<Int>,
+  _ path: UnsafePointer<CChar>,
+  _ len: UnsafeMutablePointer<Int>,
   _ mime: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
 ) -> UnsafeMutablePointer<UInt8>?
 @_silgen_name("crowbar_chrome_asset_free")
 private func crowbarChromeAssetFree(
-  _ bytes: UnsafeMutablePointer<UInt8>, _ len: Int, _ mime: UnsafeMutablePointer<CChar>?)
+  _ bytes: UnsafeMutablePointer<UInt8>,
+  _ len: Int,
+  _ mime: UnsafeMutablePointer<CChar>?
+)
 
-/// Serves `tauri://localhost` to the chrome's own webviews, so they share the main page's origin
-/// and storage: from the dev server in dev builds, else from the assets embedded in the app.
 final class AppScheme: NSObject, WKURLSchemeHandler {
-  static let shared = AppScheme()
   private let devURL = crowbarChromeDevURL().map { String(cString: $0) }
   private var stopped = Set<ObjectIdentifier>()
 
@@ -31,15 +32,18 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
   private func proxy(_ task: WKURLSchemeTask, url: URL, to devURL: String) {
     var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
     parts?.fragment = nil
-    let path = (parts?.percentEncodedPath ?? "") + (parts?.percentEncodedQuery.map { "?\($0)" } ?? "")
+    let path =
+      (parts?.percentEncodedPath ?? "") + (parts?.percentEncodedQuery.map { "?\($0)" } ?? "")
     guard let source = URL(string: devURL + path) else { return fail(task) }
-    URLSession.shared.dataTask(with: source) { data, response, _ in
-      DispatchQueue.main.async {
-        guard let data, let http = response as? HTTPURLResponse else { return self.fail(task) }
-        let headers = http.allHeaderFields as? [String: String]
-        self.respond(task, url: url, status: http.statusCode, headers: headers ?? [:], body: data)
+    URLSession.shared
+      .dataTask(with: source) { data, response, _ in
+        DispatchQueue.main.async {
+          guard let data, let http = response as? HTTPURLResponse else { return self.fail(task) }
+          let headers = http.allHeaderFields as? [String: String]
+          self.respond(task, url: url, status: http.statusCode, headers: headers ?? [:], body: data)
+        }
       }
-    }.resume()
+      .resume()
   }
 
   private func serve(_ task: WKURLSchemeTask, url: URL) {
@@ -56,12 +60,22 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
   }
 
   private func respond(
-    _ task: WKURLSchemeTask, url: URL, status: Int, headers: [String: String], body: Data
+    _ task: WKURLSchemeTask,
+    url: URL,
+    status: Int,
+    headers: [String: String],
+    body: Data
   ) {
-    // WebKit raises if a task it already stopped is answered.
+    // PLATFORM: WebKit raises if a task it already stopped is answered.
     guard stopped.remove(ObjectIdentifier(task)) == nil else { return }
-    let response = HTTPURLResponse(
-      url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+    guard
+      let response = HTTPURLResponse(
+        url: url,
+        statusCode: status,
+        httpVersion: "HTTP/1.1",
+        headerFields: headers
+      )
+    else { return task.didFailWithError(URLError(.badServerResponse)) }
     task.didReceive(response)
     task.didReceive(body)
     task.didFinish()

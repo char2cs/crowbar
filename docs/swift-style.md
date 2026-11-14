@@ -1,6 +1,6 @@
 # Swift style manifest
 
-Applies to the iOS Swift package (`app/mobile/ios`, currently `app/mobile/ios-chrome/ios` until the move). The Rust plugin that bridges it (`app/mobile/ios-plugin`) follows `docs/rust-style.md`. Same numbering (M#) as the owner manifest and `docs/rust-style.md`; rules not listed there are not applicable to Swift.
+Applies to the iOS Swift package (`app/mobile/ios`). The Rust plugin that bridges it (`app/mobile/ios-plugin`) follows `docs/rust-style.md`. Same numbering (M#) as the owner manifest and `docs/rust-style.md`; rules not listed there are not applicable to Swift.
 
 Sources: [Swift API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/) (clarity at the point of use, every declaration documented, naming, argument labels), [swift-format rules](https://github.com/swiftlang/swift-format/blob/main/Documentation/RuleDocumentation.md) and [configuration](https://github.com/swiftlang/swift-format/blob/main/Documentation/Configuration.md), [SwiftLint rules](https://realm.github.io/SwiftLint/rule-directory.html), [Swift Package Manager](https://docs.swift.org/package-manager/) (Sources/Tests layout).
 

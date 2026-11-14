@@ -1,55 +1,14 @@
 import SwiftUI
 
-struct AttachSource: Decodable, Identifiable, Equatable {
-  let id: String
-  let title: String
-  /// A Phosphor name.
-  let icon: String
-}
-
-struct AttachFile: Decodable, Identifiable, Equatable {
-  let id: String
-  let name: String
-  let detail: String
-  /// `uploading`, `done` or `bad`.
-  let status: String
-  /// 0-100 once bytes are reported; nil draws an indeterminate bar.
-  let percent: Int?
-  let canRetry: Bool
-}
-
-/// The composer's Attach sheet, as `set_attach_sheet` hands it over; the web owns every upload.
-struct AttachSheetState: Decodable, Equatable {
-  let open: Bool
-  let title: String
-  let note: String
-  let sources: [AttachSource]
-  let files: [AttachFile]
-  let hint: String?
-  let attachLabel: String
-  let canAttach: Bool
-}
-
-final class AttachSheetModel: ObservableObject {
-  @Published var state = AttachSheetState(
-    open: false, title: "", note: "", sources: [], files: [], hint: nil, attachLabel: "",
-    canAttach: false)
-}
-
-/// The Attach sheet as a native sheet in the web palette. It only draws: every tap is reported as
-/// an intent and the web answers with the next state.
 @available(iOS 26.0, *)
 struct AttachSheet: View {
   @ObservedObject var model: AttachSheetModel
   @ObservedObject var chrome: ChromeModel
-  /// Dismisses the sheet, then reports the source: the system picker cannot present over a
-  /// sheet that is still leaving.
   let pick: (String) -> Void
 
   @Environment(\.colorScheme) private var scheme
 
   private var state: AttachSheetState { model.state }
-  /// The brand green in the mode the sheet is drawn in; `chrome.accent` is only set for some pages.
   private var accent: Color? { palette?.brand(scheme) ?? chrome.accent }
   private var palette: ChromePalette? { chrome.palette }
   private var text: Color { palette?.text ?? .primary }
@@ -68,7 +27,15 @@ struct AttachSheet: View {
         }
         if !state.files.isEmpty {
           Section {
-            ForEach(state.files) { file in row(file) }
+            ForEach(state.files) { file in
+              Row(
+                file: file,
+                text: text,
+                secondaryText: secondaryText,
+                accent: accent,
+                send: { chrome.send($0) }
+              )
+            }
           }
           .listRowBackground(palette?.raised)
         }
@@ -106,49 +73,56 @@ struct AttachSheet: View {
     .listRowInsets(EdgeInsets())
   }
 
-  private func row(_ file: AttachFile) -> some View {
-    HStack(alignment: .top, spacing: RowMetrics.gap) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(file.name).lineLimit(1).foregroundStyle(text)
-        HStack(spacing: 8) {
-          Text(file.detail)
-            .font(.footnote)
-            .foregroundStyle(file.status == "bad" ? Color.red : secondaryText)
-          if file.canRetry {
-            Button("Retry") {
-              Haptics.select()
-              chrome.send(.of("retryAttachFile", ["id": file.id]))
-            }
-            .font(.footnote.weight(.semibold))
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
-            .controlSize(.small)
-          }
-        }
-        if file.status == "uploading" { progress(file.percent) }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      Button {
-        Haptics.select()
-        chrome.send(.of("removeAttachFile", ["id": file.id]))
-      } label: {
-        PhosphorIcon(.x, size: 18, emphasis: 0.7)
-          .foregroundStyle(secondaryText)
-          .frame(width: 44, height: 44)
-          .contentShape(.rect)
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Remove \(file.name)")
-    }
-    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 4))
-  }
+  private struct Row: View {
+    let file: AttachFile
+    let text: Color
+    let secondaryText: Color
+    let accent: Color?
+    let send: (ChromeIntent) -> Void
 
-  @ViewBuilder
-  private func progress(_ percent: Int?) -> some View {
-    if let percent {
-      ProgressView(value: Double(percent), total: 100).tint(accent)
-    } else {
-      ProgressView().progressViewStyle(.linear).tint(accent)
+    var body: some View {
+      HStack(alignment: .top, spacing: RowMetrics.gap) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(file.name).lineLimit(1).foregroundStyle(text)
+          HStack(spacing: 8) {
+            Text(file.detail)
+              .font(.footnote)
+              .foregroundStyle(file.status == "bad" ? Color.red : secondaryText)
+            if file.canRetry {
+              Button("Retry") {
+                Haptics.select()
+                send(.of("retryAttachFile", ["id": file.id]))
+              }
+              .font(.footnote.weight(.semibold))
+              .buttonStyle(.glass)
+              .buttonBorderShape(.capsule)
+              .controlSize(.small)
+            }
+          }
+          if file.status == "uploading" { progress }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        Button {
+          Haptics.select()
+          send(.of("removeAttachFile", ["id": file.id]))
+        } label: {
+          PhosphorIcon(.x, size: 18, emphasis: 0.7)
+            .foregroundStyle(secondaryText)
+            .frame(width: 44, height: 44)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remove \(file.name)")
+      }
+      .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 4))
+    }
+
+    @ViewBuilder private var progress: some View {
+      if let percent = file.percent {
+        ProgressView(value: Double(percent), total: 100).tint(accent)
+      } else {
+        ProgressView().progressViewStyle(.linear).tint(accent)
+      }
     }
   }
 
@@ -159,7 +133,9 @@ struct AttachSheet: View {
       }
       GlassEffectContainer(spacing: 12) {
         HStack(spacing: 12) {
-          Button { chrome.send(.of("closeAttachSheet")) } label: {
+          Button {
+            chrome.send(.of("closeAttachSheet"))
+          } label: {
             Text("Cancel")
               .frame(maxWidth: .infinity, minHeight: 48)
               .background(palette?.raised ?? Color.secondary.opacity(0.15), in: .capsule)

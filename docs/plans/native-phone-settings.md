@@ -41,7 +41,7 @@ the desktop tabs behind a title dropdown. Hosts and Agents are fed to it as snap
 
 ## Fonts
 Native text uses the web's own faces, converted to TrueType (CoreText cannot read woff2) in
-`desktop/ios-chrome/assets/`: `CalSansUI.ttf` (`--font-sans`, body rows, wght 400-700) and
+`app/mobile/ios-plugin/assets/`: `CalSansUI.ttf` (`--font-sans`, body rows, wght 400-700) and
 `InstrumentSerif.ttf` (`--font-heading`, from @fontsource, section headers and nav titles). The Rust
 half embeds both (`crowbar_chrome_font`) because a Swift package's resources do not reach the app;
 `CrowbarFont.swift` registers them once. `crowbarUI` / `crowbarHeading` scale with Dynamic Type.
@@ -72,4 +72,4 @@ the agents list (a card of its own rows). Rows set `data-setting-layout`; deskto
 
 ## Icons
 
-The phone draws the desktop's Phosphor icons, never SF Symbols. `desktop/ios-chrome/scripts/gen-icons.mjs` reads the glyphs listed in `icons.json` from `@phosphor-icons/react` and writes `CrowbarIconData.swift` (path data as code; package resources do not reach the app). `PhosphorIcon` draws one in SwiftUI; `CrowbarIcon.image(size:)` renders a template `UIImage` for menus and swipe actions. Web payloads carry Phosphor names (`icon`), not symbol names. List rows push by hand so the caret is Phosphor's CaretRight. `make -C desktop lint` fails when the generated file is stale.
+The phone draws the desktop's Phosphor icons, never SF Symbols. `app/mobile/ios-plugin/scripts/gen-icons.mjs` reads the glyphs listed in `icons.json` from `@phosphor-icons/react` and writes `CrowbarIconData.swift` (path data as code; package resources do not reach the app). `PhosphorIcon` draws one in SwiftUI; `CrowbarIcon.image(size:)` renders a template `UIImage` for menus and swipe actions. Web payloads carry Phosphor names (`icon`), not symbol names. List rows push by hand so the caret is Phosphor's CaretRight. `make -C desktop lint` fails when the generated file is stale.

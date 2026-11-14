@@ -51,7 +51,7 @@ final class NavigationMachineTests: XCTestCase {
     guard let began = machine.beginDrag(toward: toward) else { return }
     run(began)
     machine.drag(translation: toward == .rightward ? distance : -distance)
-    run(machine.endDrag(velocity: toward == .rightward ? velocity : -velocity, cancelled: false))
+    run(machine.endDrag(velocity: toward == .rightward ? velocity : -velocity, ending: .released))
   }
 
   private func settleFully() {
@@ -104,7 +104,11 @@ final class NavigationMachineTests: XCTestCase {
     for _ in 0..<400 {
       switch Int(next() * 5) {
       case 0, 1:
-        swipe(next() < 0.5 ? .leftward : .rightward, distance: next() * 380, velocity: next() * 1500)
+        swipe(
+          next() < 0.5 ? .leftward : .rightward,
+          distance: next() * 380,
+          velocity: next() * 1500
+        )
       case 2:
         for _ in 0..<Int(next() * 30) { run(machine.tick(1.0 / 120)) }
       case 3:
@@ -216,7 +220,7 @@ final class NavigationMachineTests: XCTestCase {
   func testNoScreenLiesBeyondTheEnds() {
     XCTAssertNotNil(machine.beginDrag(toward: .rightward))
     machine.drag(translation: 0)
-    _ = machine.endDrag(velocity: 0, cancelled: true)
+    _ = machine.endDrag(velocity: 0, ending: .cancelled)
     settleFully()
     swipe(.rightward, distance: 400, velocity: 900)
     settleFully()

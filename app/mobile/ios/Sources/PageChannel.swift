@@ -1,14 +1,10 @@
 import Tauri
 import WebKit
 
-/// Snapshot feeds for app pages in the chrome's own webviews, which have no IPC. A page
-/// installs the feed's global and posts its ready message to get the latest raw snapshot;
-/// anything else it posts goes to `intercept`, then to the main webview as an intent.
 @available(iOS 26.0, *)
 final class PageChannel: NSObject, WKScriptMessageHandler {
   private let handler: String
   private let send: (ChromeIntent) -> Void
-  /// Ready message → the global it feeds.
   private let feeds: [String: String]
   private var latest: [String: String] = [:]
   private var pages: [String: NSHashTable<WKWebView>] = [:]
@@ -22,14 +18,12 @@ final class PageChannel: NSObject, WKScriptMessageHandler {
     self.send = send
   }
 
-  /// A new page's content controller, wired to this channel.
   func controller() -> WKUserContentController {
     let controller = WKUserContentController()
     controller.add(WeakMessageHandler(self), name: handler)
     return controller
   }
 
-  /// The feed whose pages call `global`.
   func render(_ snapshot: String, to global: String) {
     latest[global] = snapshot
     for page in pages[global]?.allObjects ?? [] { push(global, to: page) }
@@ -40,7 +34,8 @@ final class PageChannel: NSObject, WKScriptMessageHandler {
   }
 
   func userContentController(
-    _ controller: WKUserContentController, didReceive message: WKScriptMessage
+    _ controller: WKUserContentController,
+    didReceive message: WKScriptMessage
   ) {
     guard let body = message.body as? [String: Any], let type = body["type"] as? String,
       let page = message.webView
@@ -55,46 +50,5 @@ final class PageChannel: NSObject, WKScriptMessageHandler {
     if intercept(type, body, page) { return }
     guard let payload = JSTypes.coerceDictionaryToJSObject(body) else { return }
     send(ChromeIntent(payload: payload))
-  }
-}
-
-/// WKUserContentController holds its handlers strongly; this breaks the page's retain cycle.
-private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
-  private weak var target: WKScriptMessageHandler?
-
-  init(_ target: WKScriptMessageHandler) {
-    self.target = target
-  }
-
-  func userContentController(
-    _ controller: WKUserContentController, didReceive message: WKScriptMessage
-  ) {
-    target?.userContentController(controller, didReceive: message)
-  }
-}
-
-/// A second page of the app, beside the main one: same storage and app URL, at another route.
-/// It has no Tauri IPC, so the route it loads must render from what it is handed.
-@available(iOS 26.0, *)
-enum SecondaryPage {
-  static func make(
-    like main: WKWebView, fragment: String, controller: WKUserContentController
-  ) -> WKWebView {
-    let config = WKWebViewConfiguration()
-    // Same storage as the main page: theme and settings come from its localStorage.
-    config.websiteDataStore = main.configuration.websiteDataStore
-    config.userContentController = controller
-    // Not wry's handler: it assumes its own webview class and crashes on this one.
-    config.setURLSchemeHandler(AppScheme.shared, forURLScheme: "tauri")
-    let page = WKWebView(frame: .zero, configuration: config)
-    FormAccessory.hide(in: page)
-    page.isOpaque = false
-    page.backgroundColor = .clear
-    page.scrollView.contentInsetAdjustmentBehavior = .never
-    if let url = main.url, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-      parts.fragment = fragment
-      if let address = parts.url { page.load(URLRequest(url: address)) }
-    }
-    return page
   }
 }

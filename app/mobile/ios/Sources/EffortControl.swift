@@ -1,11 +1,8 @@
 import SwiftUI
 
-/// The effort levels as one track with one pill. The pill follows the finger and a single
-/// intent goes out on release; the value itself is the web's, handed in as `handed`.
 @available(iOS 26.0, *)
 struct EffortControl: View {
   let levels: [String]
-  /// The web's effort for the selected model.
   let handed: String?
   let text: Color
   let pill: Color
@@ -30,7 +27,7 @@ struct EffortControl: View {
         }
         HStack(spacing: 0) {
           ForEach(Array(levels.enumerated()), id: \.offset) { position, level in
-            Text(Self.label(level))
+            Text(EffortDial.label(level))
               .font(.subheadline.weight(position == lit ? .semibold : .regular))
               .foregroundStyle(text)
               .lineLimit(1).minimumScaleFactor(0.7)
@@ -43,11 +40,18 @@ struct EffortControl: View {
       .gesture(
         DragGesture(minimumDistance: 0)
           .updating($touch) { drag, state, _ in
-            state = EffortDial.index(at: drag.location.x, width: track.size.width, count: levels.count)
+            state = EffortDial.index(
+              at: drag.location.x,
+              width: track.size.width,
+              count: levels.count
+            )
           }
           .onEnded { drag in
             let index = EffortDial.index(
-              at: drag.location.x, width: track.size.width, count: levels.count)
+              at: drag.location.x,
+              width: track.size.width,
+              count: levels.count
+            )
             guard levels.indices.contains(index),
               dial.release(on: levels[index], handed: handed)
             else { return }
@@ -61,7 +65,7 @@ struct EffortControl: View {
     .onChange(of: levels) { dial.receive(handed: handed, levels: levels) }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Effort")
-    .accessibilityValue(handed.map(Self.label) ?? "")
+    .accessibilityValue(handed.map(EffortDial.label) ?? "")
     .accessibilityAdjustableAction { direction in
       guard let current = dial.shown(handed: handed).flatMap(levels.firstIndex(of:)) else { return }
       let next = current + (direction == .increment ? 1 : -1)
@@ -70,9 +74,5 @@ struct EffortControl: View {
       }
       onPick(levels[next])
     }
-  }
-
-  static func label(_ level: String) -> String {
-    level == "xhigh" ? "XHigh" : level.prefix(1).uppercased() + level.dropFirst()
   }
 }

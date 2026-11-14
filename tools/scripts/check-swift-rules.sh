@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Enforces the structure rules of docs/swift-style.md that SwiftLint and swift-format cannot.
 # Usage: check-swift-rules.sh [--full] [ROOT]   |   check-swift-rules.sh --self-test
-# ROOT is the Swift package directory (default app/mobile/ios, falling back to app/mobile/ios-chrome/ios).
+# ROOT is the Swift package directory (default app/mobile/ios).
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
@@ -63,7 +63,7 @@ for a in "$@"; do
   case $a in --self-test) self_test ;; --full) do_full=1 ;; *) root=$a ;; esac
 done
 if [[ -z $root ]]; then
-  root="$repo/app/mobile/ios"; [[ -d $root ]] || root="$repo/app/mobile/ios-chrome/ios"
+  root="$repo/app/mobile/ios"
 fi
 scan_package "$root"
 ((do_full)) && full "$root"

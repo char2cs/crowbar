@@ -1,9 +1,6 @@
 import UIKit
 import WebKit
 
-/// Presents the phone's screens by rendering the `NavigationMachine`'s `frames`, feeding
-/// it drags, web reports and display-link ticks. Bottom to top: parked chat list and files
-/// page, scrim, live webview, IDE header, frozen chat, chat header.
 @available(iOS 26.0, *)
 final class NavigationController: NSObject {
   static let strip: CGFloat = 72
@@ -22,16 +19,16 @@ final class NavigationController: NSObject {
   private var lastTick: CFTimeInterval = 0
   private var machine: NavigationMachine
 
-  /// Each screen's header views: they move and fade with their own card.
   var chatHeader: [UIView] = []
   var ideHeader: [UIView] = []
-  /// Whether the chat has an IDE to swipe to.
   var canOpenIde: () -> Bool = { false }
-  /// False while a full-screen first-run page stands in for the app: no card has a drawer to open.
   var swipesEnabled: () -> Bool = { true }
 
   init(
-    host: UIView, webview: WKWebView, list: UIView, files: UIView,
+    host: UIView,
+    webview: WKWebView,
+    list: UIView,
+    files: UIView,
     send: @escaping (ChromeIntent) -> Void
   ) {
     self.host = host
@@ -47,20 +44,14 @@ final class NavigationController: NSObject {
 
   deinit { link?.invalidate() }
 
-  // MARK: from the web
-
-  /// What the web shows now, and the newest of our intents it had applied when it said so.
   func web(reports reveal: Reveal, ack: Int) {
     run(machine.web(reports: reveal.screen, ack: ack))
     resume()
   }
 
-  /// The web is about to put the IDE where the chat is.
   func willOpenIde() {
     run(machine.willOpenIde())
   }
-
-  // MARK: installation
 
   private func install(in host: UIView, webview: WKWebView) {
     for layer in [list, files] {
@@ -84,9 +75,7 @@ final class NavigationController: NSObject {
     webview.layer.cornerCurve = .continuous
     webview.layer.zPosition = Z.web
 
-    // Over the visible strip of a card slid aside: a tap puts it back.
     catcher.isHidden = true
-    // VoiceOver reaches the strip as a button, and the escape gesture closes the drawer too.
     catcher.isAccessibilityElement = true
     catcher.accessibilityTraits = .button
     catcher.close = { [weak self] in self?.tapStrip() }
@@ -99,8 +88,6 @@ final class NavigationController: NSObject {
     self.swipe = swipe
   }
 
-  /// Where a touch may start a swipe, by the screen at rest. A card already moving is grabbed
-  /// from anywhere, and either way.
   private func claim(at start: CGPoint) -> DrawerSwipe.Claim? {
     guard let host, swipesEnabled() else { return nil }
     let width = host.bounds.width
@@ -112,7 +99,7 @@ final class NavigationController: NSObject {
       return .init(motion: .rightward)
     case 1 where start.x > width * 0.6 && canOpenIde():
       return .init(motion: .leftward)
-    // The IDE's editor and terminal scroll sideways themselves: only its edges swipe.
+    // PLATFORM: The IDE's editor and terminal scroll sideways themselves: only its edges swipe.
     case 2 where start.x < DrawerSwipe.edge:
       return .init(motion: .rightward)
     case 2 where start.x > width - DrawerSwipe.edge:
@@ -123,8 +110,6 @@ final class NavigationController: NSObject {
       return nil
     }
   }
-
-  // MARK: input
 
   @objc private func tapStrip() {
     Haptics.tap()
@@ -147,7 +132,9 @@ final class NavigationController: NSObject {
       machine.drag(translation: travel)
     case .ended, .cancelled, .failed:
       let commands = machine.endDrag(
-        velocity: Double(gesture.velocity(in: host).x), cancelled: gesture.state != .ended)
+        velocity: Double(gesture.velocity(in: host).x),
+        ending: gesture.state == .ended ? .released : .cancelled
+      )
       if !commands.isEmpty { Haptics.tap() }
       run(commands)
       resume()
@@ -156,8 +143,6 @@ final class NavigationController: NSObject {
     }
     render()
   }
-
-  // MARK: motion
 
   private func resume() {
     guard machine.isMoving, machine.phase != .dragging, link == nil else {
@@ -172,13 +157,12 @@ final class NavigationController: NSObject {
     render()
   }
 
-  fileprivate func step(_ link: CADisplayLink) {
+  func step(_ link: CADisplayLink) {
     let dt = lastTick == 0 ? link.duration : link.timestamp - lastTick
     lastTick = link.timestamp
     run(machine.tick(min(dt, 1.0 / 30)))
     render()
     if case .settling = machine.phase { return }
-    // A drag that took the card over has its own end; nothing else needs the link.
     link.invalidate()
     self.link = nil
   }
@@ -197,8 +181,6 @@ final class NavigationController: NSObject {
     }
   }
 
-  /// The chat as it is now, before the web swaps it for the IDE beneath. Only the webview: the
-  /// native headers are each their screen's and are never baked into a card.
   private func freezeChat() {
     guard snapshot == nil, let webview, let host else { return }
     let frozen: UIView
@@ -218,9 +200,6 @@ final class NavigationController: NSObject {
     snapshot = frozen
   }
 
-  // MARK: layout
-
-  /// Where the welcome button sits: over the web card (which would otherwise hide it), under headers.
   static let welcomeZ = Z.welcome
 
   private enum Z {
@@ -241,14 +220,12 @@ final class NavigationController: NSObject {
     CGAffineTransform(translationX: CGFloat(x), y: 0)
   }
 
-  /// Draws every layer from the machine's position: nothing here decides anything.
   private func render() {
     guard let host, let webview else { return }
     machine.width = Double(host.bounds.width)
     let frames = machine.frames
     let width = host.bounds.width
 
-    // The webview is the IDE's card once the chat has its own (the frozen one).
     let webIsIde = machine.hasSnapshot || machine.web >= .ide
     webview.transform = transform(webIsIde ? frames.ideOffset : frames.chatOffset)
     snapshot?.transform = transform(frames.chatOffset)
@@ -266,8 +243,9 @@ final class NavigationController: NSObject {
     shadow.bounds = CGRect(origin: .zero, size: host.bounds.size)
     shadow.center = CGPoint(x: host.bounds.midX + offset, y: host.bounds.midY)
     shadow.layer.cornerRadius = radius
-    // Whatever peeks round the card's rounded corners is the page beneath, never a stock white.
-    let beneath = frames.gap == 1 ? webview.backgroundColor : (machine.position < 1 ? list : files).backgroundColor
+    let beneath =
+      frames.gap == 1
+      ? webview.backgroundColor : (machine.position < 1 ? list : files).backgroundColor
     shadow.backgroundColor = beneath ?? .clear
     shadow.layer.shadowPath =
       UIBezierPath(roundedRect: shadow.bounds, cornerRadius: radius).cgPath
@@ -278,9 +256,8 @@ final class NavigationController: NSObject {
     dim.layer.zPosition = overIde ? Z.scrimOverIde : Z.scrim
     shadow.layer.zPosition = overIde ? Z.shadowOverIde : Z.shadow
 
-    // Whatever is uncovered is the one page beneath; the other waits off screen, still drawn.
-    park(list, except: machine.position < 1, by: width)
-    park(files, except: machine.position > 2, by: width)
+    park(list, by: machine.position < 1 ? 0 : width)
+    park(files, by: machine.position > 2 ? 0 : width)
     list.layer.zPosition = Z.underlay
     files.layer.zPosition = Z.underlay
 
@@ -289,15 +266,14 @@ final class NavigationController: NSObject {
     placeCatcher(width: width, height: host.bounds.height)
   }
 
-  private func park(_ layer: UIView, except visible: Bool, by width: CGFloat) {
-    layer.transform = visible ? .identity : CGAffineTransform(translationX: width, y: 0)
+  private func park(_ layer: UIView, by offset: CGFloat) {
+    layer.transform = CGAffineTransform(translationX: offset, y: 0)
   }
 
   private func place(_ views: [UIView], offset: Double, alpha: Double, z: CGFloat) {
     for view in views {
       view.transform = transform(offset)
       view.alpha = CGFloat(alpha)
-      // A header on its way in or out is not a target yet.
       view.isUserInteractionEnabled = alpha >= 1
       view.layer.zPosition = z
     }
@@ -316,61 +292,14 @@ final class NavigationController: NSObject {
     default:
       break
     }
-    // The status bar's glyphs are drawn for the drawer, so the card's strip under them takes the
-    // drawer's colour; the card's own white would swallow the clock where it straddles the edge.
+    // PLATFORM: The status bar's glyphs are drawn for the drawer, so the card's strip under them takes the
+    // PLATFORM: drawer's colour; the card's own white would swallow the clock where it straddles the edge.
     catcher.band.backgroundColor = (at == 3 ? files : list).backgroundColor
     catcher.band.frame = CGRect(
-      x: 0, y: 0, width: Self.strip, height: host?.safeAreaInsets.top ?? 0)
-  }
-}
-
-/// The display link retains its target; this one holds the controller weakly.
-@available(iOS 26.0, *)
-private final class LinkTarget: NSObject {
-  private weak var controller: NavigationController?
-
-  init(_ controller: NavigationController) {
-    self.controller = controller
-  }
-
-  @objc func step(_ link: CADisplayLink) {
-    guard let controller else { return link.invalidate() }
-    controller.step(link)
-  }
-}
-
-extension Reveal {
-  var screen: Screen {
-    switch self {
-    case .none: return .chat
-    case .chatList: return .chatList
-    case .ide: return .ide
-    case .files: return .files
-    }
-  }
-}
-
-/// The visible strip of a card slid aside, as one control that closes the drawer.
-private final class StripCatcher: UIView {
-  var close: () -> Void = {}
-  /// Fills the strip's part behind the status bar.
-  let band = UIView()
-
-  override init(frame: CGRect) {
-    super.init(frame: frame)
-    band.isUserInteractionEnabled = false
-    addSubview(band)
-  }
-
-  required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-  override func accessibilityActivate() -> Bool {
-    close()
-    return true
-  }
-
-  override func accessibilityPerformEscape() -> Bool {
-    close()
-    return true
+      x: 0,
+      y: 0,
+      width: Self.strip,
+      height: host?.safeAreaInsets.top ?? 0
+    )
   }
 }

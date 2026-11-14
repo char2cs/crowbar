@@ -11,3 +11,59 @@ tauri = "2"
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
+[lints.rust]
+rust_2018_idioms = { level = "deny", priority = -1 }
+future_incompatible = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
+dead_code = "deny"
+missing_docs = "deny"
+unreachable_pub = "deny"
+missing_debug_implementations = "deny"
+unused_must_use = "deny"
+unused_qualifications = "deny"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+static_mut_refs = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+must_use_candidate = "allow"
+similar_names = "allow"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+exit = "deny"
+mem_forget = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+let_underscore_must_use = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+allow_attributes_without_reason = "deny"
+mod_module_files = "deny"
+missing_assert_message = "deny"
+clone_on_ref_ptr = "deny"
+rc_mutex = "deny"
+same_name_method = "deny"
+str_to_string = "deny"
+empty_drop = "deny"
+cognitive_complexity = "deny"
+excessive_nesting = "deny"
+large_futures = "deny"
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"

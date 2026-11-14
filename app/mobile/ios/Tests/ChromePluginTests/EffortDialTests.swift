@@ -39,4 +39,10 @@ final class EffortDialTests: XCTestCase {
     XCTAssertEqual(EffortDial.index(at: 999, width: 300, count: 5), 4)
     XCTAssertEqual(EffortDial.index(at: 10, width: 0, count: 5), 0)
   }
+
+  func testLabelsReadAsWords() {
+    XCTAssertEqual(EffortDial.label("low"), "Low")
+    XCTAssertEqual(EffortDial.label("xhigh"), "XHigh")
+    XCTAssertEqual(EffortDial.label("max"), "Max")
+  }
 }
