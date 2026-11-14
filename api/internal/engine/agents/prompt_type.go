@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rivo/uniseg"
+
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -35,6 +37,21 @@ func (a *agent) CanType(text string) bool {
 	return !slices.ContainsFunc(typing.SkipPrefixes, func(prefix string) bool {
 		return strings.HasPrefix(text, prefix)
 	})
+}
+
+// ComposerEmpty tests the cursor column, not the row's text: a ghost suggestion
+// paints after the cursor, while a draft pushes the cursor past the prefix.
+func (a *agent) ComposerEmpty(text string, cursorRow, cursorCol int) bool {
+	typing, ok := a.PromptType()
+	if !ok {
+		return false
+	}
+	rows := strings.Split(text, "\n")
+	if cursorRow < 0 || cursorRow >= len(rows) {
+		return false
+	}
+	return strings.HasPrefix(rows[cursorRow], typing.ComposerRowPrefix) &&
+		cursorCol == uniseg.StringWidth(typing.ComposerRowPrefix)
 }
 
 func (a *agent) PromptTypeBytes(text string) ([]byte, bool) {

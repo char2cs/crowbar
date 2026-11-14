@@ -1,0 +1,40 @@
+
+
+❯ Say only: OK
+
+⏺ OK
+
+✻ Worked for 1s · done 8:38 PM
+
+❯ Say only: OK
+
+⏺ OK
+
+✻ Crunched for 1s · done 8:39 PM
+
+❯ Say only: OK
+
+⏺ OK
+
+✻ Baked for 1s · done 8:39 PM
+
+❯ Run the shell command: sleep 20 (foreground, via your Bash tool), then say only: OK
+
+  Ran 1 shell command
+
+⏺ OK
+
+✻ Sautéed for 23s · done 8:39 PM
+
+❯ Say only: OK
+  line two
+
+⏺ OK
+
+✻ Crunched for 1s · done 8:41 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Say only: OK
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Est. usage: $0.20
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent

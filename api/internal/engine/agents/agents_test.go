@@ -645,6 +645,16 @@ func TestAgent_PromptTypeReportsWhatTheDescriptorDeclares(t *testing.T) {
 	assert.False(t, ok, "a provider that declares no type block is never typed into")
 }
 
+func TestAgent_ClaudeDeclaresTypedDeliveryWithItsNoBreakSpacePrefix(t *testing.T) {
+	typing, ok := get(t, "claude").PromptType()
+
+	require.True(t, ok)
+	assert.Equal(t, agents.PromptTyping{
+		Paste: "bracketed", Submit: "\r", ComposerRowPrefix: "❯ ", SkipPrefixes: []string{"/", "!"},
+	}, typing)
+	assert.Equal(t, []byte{0xe2, 0x9d, 0xaf, 0xc2, 0xa0}, []byte(typing.ComposerRowPrefix))
+}
+
 func TestAgent_PromptTypeBytesPastesTheMessageThenSubmits(t *testing.T) {
 	a := typist(t)
 

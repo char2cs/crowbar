@@ -116,6 +116,11 @@ type Agent interface {
 	// PromptTypeBytes renders text as the bytes written to the PTY to type it:
 	// a paste, then the submit key. ok is CanType(text).
 	PromptTypeBytes(text string) (bytes []byte, ok bool)
+	// ComposerEmpty reports whether the composer holds no draft: the row of text
+	// at cursorRow (0-based, rows split on newlines) starts with the type block's
+	// row prefix and cursorCol is that prefix's width in terminal cells. False
+	// when the provider declares no type block or the row is out of range.
+	ComposerEmpty(text string, cursorRow, cursorCol int) bool
 	// ToolDenial renders the reply that refuses one tool call before it runs,
 	// with reason shown to the model; ok is false when the provider declares none.
 	ToolDenial(reason string) (stdout string, ok bool)

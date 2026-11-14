@@ -2,8 +2,11 @@ package agents_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -85,4 +88,83 @@ func TestMatchTerminalPrompt_ProviderDeclaringNoneNeverMatches(t *testing.T) {
 	_, ok := a.MatchTerminalPrompt("❯ 1. Yes, I trust this folder\nEnter to confirm")
 	assert.False(t, ok)
 	assert.False(t, a.Capabilities().TerminalPrompts)
+}
+
+// composerRecording is a screen recorded from the real CLI through our emulator
+// plus the cursor it left, as the terminal read reports them.
+func composerRecording(t *testing.T, state string) (screen string, row, col int) {
+	t.Helper()
+	text, err := os.ReadFile("testdata/claude-composer-" + state + "-2.1.325.screen")
+	require.NoError(t, err)
+	cursor, err := os.ReadFile("testdata/claude-composer-" + state + "-2.1.325.cursor")
+	require.NoError(t, err)
+	var paste bool
+	_, err = fmt.Sscanf(string(cursor), "%d %d %t", &row, &col, &paste)
+	require.NoError(t, err)
+	return string(text), row, col
+}
+
+// typistWithPrefix is the typist descriptor with its composer row prefix swapped.
+func typistWithPrefix(t *testing.T, prefix string) agents.Agent {
+	t.Helper()
+	home := t.TempDir()
+	body := strings.Replace(typedPromptDescriptor, `row_prefix: "❯ "`, "row_prefix: "+strconv.Quote(prefix), 1)
+	require.NotEqual(t, typedPromptDescriptor, body)
+	writeDescriptor(t, home, "typist", body)
+	a, err := agents.New().Get(context.Background(), home, "typist")
+	require.NoError(t, err)
+	return a
+}
+
+func TestComposerEmpty_ClaudeReadsEachRecordedScreen(t *testing.T) {
+	cases := []struct {
+		state string
+		empty bool
+	}{
+		{"idle-fresh-80x24", true},
+		{"idle-fresh-120x40", true},
+		{"idle-ghost-80x24", true},
+		{"idle-ghost-120x40", true},
+		// The composer reads empty mid-turn too: the ledger is what guards it.
+		{"midturn-80x24", true},
+		{"draft-80x24", false},
+		{"draft-120x40", false},
+		{"help-dialog-80x24", false},
+		{"paste-bang-80x24", false},
+		{"paste-escaped-bang-80x24", false},
+		{"paste-multiline-80x24", false},
+		{"slash-typed-80x24", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.state, func(t *testing.T) {
+			screen, row, col := composerRecording(t, tc.state)
+
+			assert.Equal(t, tc.empty, get(t, "claude").ComposerEmpty(screen, row, col))
+		})
+	}
+}
+
+func TestComposerEmpty_APlainSpacePrefixNeverMatchesTheNoBreakSpaceRecording(t *testing.T) {
+	screen, row, col := composerRecording(t, "idle-fresh-80x24")
+
+	assert.False(t, typistWithPrefix(t, "❯ ").ComposerEmpty(screen, row, col))
+	assert.True(t, typistWithPrefix(t, "❯ ").ComposerEmpty(screen, row, col))
+}
+
+func TestComposerEmpty_JudgesTheCursorRowAgainstThePrefixDisplayWidth(t *testing.T) {
+	a := typistWithPrefix(t, "あ> ")
+	screen := "banner\nあ> \nfooter"
+
+	assert.True(t, a.ComposerEmpty(screen, 1, 4), "a wide glyph takes two cells: 2 + '>' + ' '")
+	assert.False(t, a.ComposerEmpty(screen, 1, 3), "the rune count is not the width")
+	assert.False(t, a.ComposerEmpty(screen, 1, 5))
+	assert.False(t, a.ComposerEmpty(screen, 0, 4), "another row does not start with the prefix")
+	assert.False(t, a.ComposerEmpty(screen, 3, 4), "past the last row")
+	assert.False(t, a.ComposerEmpty(screen, -1, 4), "before the first row")
+}
+
+func TestComposerEmpty_ProviderDeclaringNoTypeBlockIsNeverEmpty(t *testing.T) {
+	screen, row, col := composerRecording(t, "idle-fresh-80x24")
+
+	assert.False(t, get(t, "codex").ComposerEmpty(screen, row, col))
 }

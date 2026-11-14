@@ -1,0 +1,23 @@
+ ▝▝   ▝▝   /…/3955affc-c845-4dd9-9550-2a14d0a8c0e1/scratchpad/spike/work/w80
+
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Help  General   Commands   Custom commands
+
+   Claude understands your codebase, makes edits with your permission, and
+   executes commands — right from your terminal.
+   Shortcuts
+   ! for shell mode      double tap esc to clear       ctrl + shift + _ to
+   / for commands        input                         undo
+   @ for file paths      shift + tab to auto-accept    ctrl + z to suspend
+   /btw for side         edits                         ctrl + v to paste
+   question              shift + ↑/↓ to change effort  images
+                         ctrl + o for verbose output   opt + p to switch
+                         ctrl + t to toggle tasks      model
+                         \⏎ for newline                opt + o to toggle fast
+                                                       mode
+                                                       ctrl + s to stash
+                                                       prompt
+                                                       ctrl + g to edit in
+                                                       $EDITOR
+                                                       /keybindings to
+                                                       customize

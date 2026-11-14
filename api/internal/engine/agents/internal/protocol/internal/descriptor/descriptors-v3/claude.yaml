@@ -451,6 +451,15 @@ presentation:
       skip_prefixes: ["/", "!"]
       frame: "Message from the user, typed while you were working (Crowbar hands it to you through this hook):\n\n{message}\n\nReply to it as their next message."
       reply: '{"decision":"block","reason":{message_json}}'
+    # Idle prompts are pasted into the composer, not restarted. `/` and `!` stay
+    # commands under paste, so they restart. The prompt glyph is followed by a
+    # NO-BREAK space (U+00A0): a plain space never matches the screen.
+    type:
+      paste: bracketed
+      submit: "\r"
+      skip_prefixes: ["/", "!"]
+      composer:
+        row_prefix: "❯ "
   # Plugin metadata is readable without a model turn; user skills are not,
   # hence plugin_only rather than complete.
   slash_catalog:
