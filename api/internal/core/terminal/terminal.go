@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
@@ -38,6 +39,22 @@ var ErrShuttingDown = errors.New("terminal: engine is shutting down")
 // ErrCommandNotFound is returned by CreateCommand when argv[0] is missing or not executable: a missing
 // dependency, classified where exec fails so callers never string-match exec's error text.
 var ErrCommandNotFound = problem.New(problem.FailedDependency, "terminal: command not found")
+
+// ErrScreenStateUnavailable is returned by ScreenStateReader.ScreenState for a live session whose
+// terminal model cannot report cursor and mode.
+var ErrScreenStateUnavailable = errors.New("terminal: screen state unavailable")
+
+// ScreenState is one atomic read of a session's screen: visible text, 0-based cursor cell and whether
+// bracketed paste (DEC mode 2004) is on.
+type ScreenState = model.ScreenState
+
+// ScreenStateReader is implemented by the engine beside Engine, so existing Engine fakes keep compiling.
+type ScreenStateReader interface {
+	// ScreenState is a side-effect-free read; an unknown or suspended session is ErrSessionNotFound.
+	ScreenState(
+		sessionID string,
+	) (ScreenState, error)
+}
 
 // Exit is how a command session's process ended: its exit code (-1 when
 // unknown) and the text on its screen at the end.

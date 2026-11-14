@@ -41,6 +41,21 @@ func (s *Session) ScreenText(since uint64) (text string, gen uint64, changed boo
 	return reader.ScreenText(), s.screenGen, true
 }
 
+// ScreenState reads the visible text, cursor and bracketed-paste mode under one s.mu hold. ok is false
+// for a placeholder or a model that cannot report it.
+func (s *Session) ScreenState() (st model.ScreenState, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.model == nil {
+		return model.ScreenState{}, false
+	}
+	reader, ok := s.model.(model.ScreenStateReader)
+	if !ok {
+		return model.ScreenState{}, false
+	}
+	return reader.ScreenState(), true
+}
+
 // header builds the mandatory CRWB1 size line, sourced entirely from the model's
 // HeaderState so it never re-parses the stream. Caller holds s.mu; only live sessions
 // (model != nil) call it.

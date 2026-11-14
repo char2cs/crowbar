@@ -157,6 +157,21 @@ func (e *terminalEngine) Screen(sessionID string, since uint64) (text string, ge
 	return s.ScreenText(since)
 }
 
+// ScreenState reads a live session's visible text, cursor and bracketed-paste mode in one step. A
+// session that is unknown or suspended is ErrSessionNotFound, one whose model cannot report it
+// ErrScreenStateUnavailable.
+func (e *terminalEngine) ScreenState(sessionID string) (ScreenState, error) {
+	s := e.liveSession(sessionID)
+	if s == nil {
+		return ScreenState{}, fmt.Errorf("terminal: screen state: %w: %s", ErrSessionNotFound, sessionID)
+	}
+	st, ok := s.ScreenState()
+	if !ok {
+		return ScreenState{}, fmt.Errorf("terminal: screen state: %w: %s", ErrScreenStateUnavailable, sessionID)
+	}
+	return st, nil
+}
+
 func (e *terminalEngine) Write(_ context.Context, sessionID string, data []byte) error {
 	s := e.liveSession(sessionID)
 	if s == nil {

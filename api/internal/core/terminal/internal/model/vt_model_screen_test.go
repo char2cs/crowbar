@@ -50,3 +50,50 @@ func TestVtModel_ScreenText_StripsSGRButKeepsLetters(t *testing.T) {
 	assert.NotContains(t, text, "\x1b", "no raw escape byte may reach the plain-text render")
 	assert.Contains(t, text, "red text", "the SGR-wrapped letters must still render")
 }
+
+var _ ScreenStateReader = (*vtModel)(nil)
+
+func TestVtModel_ScreenState_BracketedPasteFollowsMode2004(t *testing.T) {
+	m := newVTModel(20, 5, 100)
+	assert.False(t, m.ScreenState().BracketedPaste, "off until an app asks for it")
+
+	m.Write([]byte("\x1b[?2004h"))
+	assert.True(t, m.ScreenState().BracketedPaste)
+
+	m.Write([]byte("\x1b[?2004l"))
+	assert.False(t, m.ScreenState().BracketedPaste)
+
+	m.Write([]byte("\x1b[?2004h"))
+	m.OnForegroundReset()
+	assert.False(t, m.ScreenState().BracketedPaste, "a dead app's paste mode must not outlive it")
+}
+
+func TestVtModel_ScreenState_CursorSitsAfterTheWrittenPrompt(t *testing.T) {
+	m := newVTModel(20, 5, 100)
+	m.Write([]byte("\x1b[3;1H❯ "))
+
+	st := m.ScreenState()
+	assert.Equal(t, 2, st.CursorRow, "0-based row of the prompt")
+	assert.Equal(t, 2, st.CursorCol, "prompt glyph and space are two cells")
+	assert.Equal(t, m.ScreenText(), st.Text, "one read returns the same text ScreenText does")
+}
+
+func TestVtModel_ScreenState_GhostTextLeavesTheCursorBehindIt(t *testing.T) {
+	m := newVTModel(30, 3, 100)
+	m.Write([]byte("❯ \x1b[2mrun the tests\x1b[0m\x1b[13D"))
+
+	st := m.ScreenState()
+	assert.Equal(t, 0, st.CursorRow)
+	assert.Equal(t, 2, st.CursorCol, "ghost text paints after the cursor, it does not move it")
+	assert.Contains(t, st.Text, "❯ run the tests", "the ghost text is on the row")
+
+	m.Write([]byte("fix"))
+	assert.Equal(t, 5, m.ScreenState().CursorCol, "a typed draft pushes the cursor past the prompt")
+}
+
+func TestVtModel_ScreenState_WideCharacterCountsTwoCells(t *testing.T) {
+	m := newVTModel(20, 3, 100)
+	m.Write([]byte("日本"))
+
+	assert.Equal(t, 4, m.ScreenState().CursorCol, "each double-width character occupies two cells")
+}

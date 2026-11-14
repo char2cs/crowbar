@@ -299,6 +299,21 @@ func (m *vtModel) ScreenText() string {
 	return out.String()
 }
 
+// decModeBracketedPaste is DEC mode 2004, tracked in the shadow state.
+const decModeBracketedPaste = 2004
+
+// ScreenState reads text, cursor and bracketed-paste mode from one model state; the session's lock makes
+// the three mutually consistent.
+func (m *vtModel) ScreenState() ScreenState {
+	pos := m.emu.CursorPosition()
+	return ScreenState{
+		Text:           m.ScreenText(),
+		CursorRow:      pos.Y,
+		CursorCol:      pos.X,
+		BracketedPaste: m.shadow.modes[decModeBracketedPaste],
+	}
+}
+
 func (m *vtModel) HeaderState() (cols, rows int, alt bool, scrollbackLines int) {
 	return m.emu.Width(), m.emu.Height(), m.emu.IsAltScreen(), m.scrollbackLines
 }
