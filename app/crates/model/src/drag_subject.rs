@@ -1,0 +1,17 @@
+use protocol::PaneId;
+
+use crate::pane_instance::PaneInstance;
+use crate::tab_id::TabId;
+
+/// What a pointer drag carries. The sidebar, the tab bar and the pane layout all start and
+/// accept drags of this one shape, so a drop resolves to a [`Command`](crate::Command) the same
+/// way wherever it lands.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DragSubject {
+    /// A pane that is already open, dragged by its handle.
+    Pane(PaneId),
+    /// A pane that is not open yet, for instance a chat dragged out of the sidebar.
+    Open(PaneInstance),
+    /// A whole tab, dragged inside the tab bar.
+    Tab(TabId),
+}

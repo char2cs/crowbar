@@ -1,0 +1,21 @@
+[package]
+name = "layout_view"
+description = "Pane layout of one tab for the Crowbar shell: split frames, sashes, drop zones and the pane handle, driven by the model's commands."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+model.workspace = true
+protocol.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true
