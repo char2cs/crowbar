@@ -1,0 +1,2 @@
+struct W {}
+struct V {}

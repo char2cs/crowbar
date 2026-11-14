@@ -1,0 +1,2 @@
+/// Not public.
+struct W {}

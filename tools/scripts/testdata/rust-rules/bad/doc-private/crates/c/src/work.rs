@@ -1,0 +1,2 @@
+/// Not public.
+fn work() {}

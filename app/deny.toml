@@ -1,0 +1,60 @@
+[graph]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "aarch64-apple-ios",
+]
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# Crowbar itself is AGPL-3.0-only OR LicenseRef-Commercial (legal/LICENSING.md). Dependencies must be
+# permissive or weak copyleft so the commercial offer stays possible: no GPL, LGPL or AGPL crates.
+# Fonts (legal/licenses: OFL-1.1, MIT) are assets, not crates.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "CC0-1.0",
+  "BSL-1.0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "CDLA-Permissive-2.0",
+]
+exceptions = []
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+  { crate = "lazy_static", reason = "use std::sync::LazyLock inside a constructor, or pass state in (M24)" },
+  { crate = "once_cell", reason = "std covers it; global init is banned by M24" },
+  { crate = "ctor", reason = "init magic (M24)" },
+  { crate = "inventory", reason = "init magic (M24)" },
+  { crate = "linkme", reason = "init magic (M24)" },
+  { crate = "failure", reason = "unmaintained; use thiserror" },
+  { crate = "error-chain", reason = "unmaintained; use thiserror" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

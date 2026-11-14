@@ -1,0 +1,6 @@
+[package]
+name = "transport"
+version = "0.0.0"
+
+[lints]
+workspace = true

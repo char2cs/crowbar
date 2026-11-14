@@ -13,6 +13,14 @@ Replace the Tauri desktop shell with a native GPUI shell that looks and behaves 
 
 Chat, Plate, files, review and browser content stay React panes loaded as web views. The old Tauri desktop code is removed on this branch. Tauri stays only for iOS.
 
+## Parity rule
+
+Visual parity is 1:1. Underlying behaviour is not copied when it is buggy or half baked; it is redesigned to be correct and robust. Known cases:
+
+- **Data migration:** today a stray pane sits under the panes and the sidebar with small text. Replace it with a full-screen native view that hides the layout, shows the migration state and its progress, and hands over to the normal screen when it finishes.
+- **Moving chats and tabs between panes and tabs:** the current logic has bugs. Specify the intended behaviour, then implement it cleanly in `model` with exhaustive tests.
+- The visual spec lists such items as "Intent" (what it is meant to do) and never encodes the bug.
+
 ## Gate (all must hold before returning to the owner)
 
 - App works as today. The settings modal is native and schema-driven, prepared for extensions but without them.

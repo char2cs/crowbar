@@ -1,0 +1,20 @@
+too-many-arguments-threshold = 4
+too-many-lines-threshold = 40
+cognitive-complexity-threshold = 10
+excessive-nesting-threshold = 3
+type-complexity-threshold = 150
+large-error-threshold = 128
+max-fn-params-bools = 0
+max-struct-bools = 2
+disallowed-names = ["foo", "baz", "quux", "tmp", "temp", "helper"]
+doc-valid-idents = ["..", "GPUI", "WebView", "WebKit", "macOS", "iOS", "GTK", "XWayland", "TLS", "SwiftUI", "Crowbar", "NSView", "PTY"]
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+disallowed-methods = [
+  { path = "std::thread::sleep", reason = "tests wait on a channel, a condition with a deadline or a paused clock" },
+  { path = "std::process::exit", reason = "return from main so destructors run" },
+]

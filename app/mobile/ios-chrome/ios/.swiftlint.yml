@@ -1,0 +1,77 @@
+included:
+  - Sources
+  - Tests
+excluded:
+  - .build
+
+disabled_rules:
+  - todo
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - fatal_error_message
+  - file_name
+  - force_unwrapping
+  - implicitly_unwrapped_optional
+  - missing_docs
+  - multiline_arguments
+  - multiline_parameters
+  - no_magic_numbers
+  - one_declaration_per_file
+  - private_over_fileprivate
+  - sorted_imports
+  - unused_declaration
+  - unused_import
+  - weak_delegate
+
+analyzer_rules:
+  - unused_declaration
+  - unused_import
+
+file_length:
+  warning: 400
+  error: 500
+  ignore_comment_only_lines: false
+function_body_length:
+  warning: 30
+  error: 40
+function_parameter_count:
+  warning: 3
+  error: 4
+cyclomatic_complexity:
+  warning: 8
+  error: 10
+nesting:
+  type_level: 1
+  function_level: 2
+type_body_length:
+  warning: 250
+  error: 400
+line_length:
+  warning: 100
+  error: 120
+missing_docs:
+  warning: [open, public]
+multiline_arguments:
+  first_argument_location: next_line
+  only_enforce_after_first_closure_on_first_line: true
+no_magic_numbers:
+  test_parent_classes: [XCTestCase]
+
+custom_rules:
+  no_inline_comment:
+    name: "No narrative comments"
+    regex: '(?<!:)//(?![/!])(?!\s*(SPEC|PLATFORM|DEPRECATED):)(?!\s*swiftlint:)'
+    message: "Only SPEC:, PLATFORM: and DEPRECATED: comments are allowed (swift-style M7)."
+    severity: error
+  no_bool_parameter:
+    name: "No Bool flag parameters"
+    regex: 'func\s+\w+(<[^>]*>)?\([^)]*:\s*Bool\b'
+    message: "Use an enum or two functions (swift-style M33)."
+    severity: error
+  no_global_mutable_state:
+    name: "No global mutable state"
+    regex: '^(?:(?:public|internal|private|fileprivate)\s+)?var\s|static\s+var\s|static\s+let\s+shared\b'
+    message: "Pass state in; no globals or singletons (swift-style M24)."
+    severity: error

@@ -1,0 +1,3 @@
+struct W {
+  func go() {}
+}
