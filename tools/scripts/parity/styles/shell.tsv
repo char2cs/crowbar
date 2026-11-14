@@ -1,0 +1,24 @@
+root	#root
+sidebar-wrapper	:is([data-slot=sidebar-wrapper],[data-testid=sidebar-wrapper])
+sidebar-split	[data-sidebar-split-pane]
+resize-handle	:is([data-slot=sidebar-resize-handle],[data-testid=sidebar-resize-handle])
+project-switcher	:is([data-slot=sidebar-project-switcher],[data-testid=sidebar-project-switcher])
+active-project-name	:is([data-slot=active-project-name],[data-testid=active-project-name])
+mode-bar	:is([data-slot=tabs-list],[data-testid=tabs-list])
+mode-tab	:is([data-slot=tabs-tab],[data-testid=tabs-tab])
+mode-indicator	:is([data-slot=tab-indicator],[data-testid=tab-indicator])
+space-scroll	:is([data-slot=space-scroll-region],[data-testid=space-scroll-region])
+space-panel	:is([data-slot=space-panel],[data-testid=space-panel])
+tree-foot	:is([data-slot=tree-foot],[data-testid=tree-foot])
+tree-foot-divider	:is([data-slot=tree-foot-divider],[data-testid=tree-foot-divider])
+toast-viewport	:is([data-slot=sidebar-toast-viewport],[data-testid=sidebar-toast-viewport])
+view-tabs	:is([data-slot=view-tabs],[data-testid=view-tabs])
+view-tab	:is([data-slot=view-tabs],[data-testid=view-tabs]) [role=tab]
+pane-top-row	:is([data-slot=pane-top-row],[data-testid=pane-top-row])
+pane-tab	:is([data-slot=editor-tab-scroller],[data-testid=editor-tab-scroller]) [role=tab]
+editor-tab-scroller	:is([data-slot=editor-tab-scroller],[data-testid=editor-tab-scroller])
+pane-content	[data-pane-content],[data-testid=paneContent]
+chat-view	[data-chat-view],[data-testid=chatView]
+segmented	:is([data-slot=segmented-control],[data-testid=segmented-control])
+segmented-item	:is([data-slot=segmented-control-item],[data-testid=segmented-control-item])
+console-dock	:is([data-slot=console-dock],[data-testid=console-dock])

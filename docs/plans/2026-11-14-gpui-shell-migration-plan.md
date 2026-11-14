@@ -71,3 +71,12 @@ Two Docker desktops with noVNC: one runs the Tauri app (reference), one runs the
 - macOS is verified by CI runner only; any macOS-specific issue is found there.
 - IME and drag-and-drop through web views are unproven; tested during wave 3.
 - GPUI is pinned to 0.2.2 with a vendored patch; upstream the patch.
+
+## Decisions on spec items flagged OWNER (lead's defaults, 2026-11-14)
+
+- Dropping a chat on the centre of an occupied pane adds it beside the existing one (to the right); an open chat is moved, never duplicated.
+- Closing a pane moves its editor tabs to a pane of the same workspace if one exists; otherwise the user is asked before they are closed.
+- `mod+w` closes the active tab only. Closing a split pane is the pane handle's job.
+- The Build readout row stays (it is user-facing). The Developer tab is dropped only if nothing user-facing remains in it.
+- Keybinding capture accepts a chord with a modifier, a function key, or Escape; bare printable keys are refused.
+- Layout and view state live in a versioned file in the shell's data directory, written atomically, with schema migration on load; the daemon stays the source for everything else.
