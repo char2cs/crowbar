@@ -1,0 +1,16 @@
+# Swift sources whose only functions are UIKit, SwiftUI, WebKit or Tauri glue with nothing to
+# assert without a device. One per line: <TypeName> # <reason>. This list only shrinks.
+AppScheme # applies the OS interface style through UIKit
+ChromeOverlays # presents UIKit overlays
+ChromePlugin # Tauri plugin registration and FFI entry points
+CrowbarFont # registers fonts with CoreText
+CrowbarFontModifier # SwiftUI view modifier
+CrowbarHeadingModifier # SwiftUI view modifier
+DrawerSwipe # UIKit gesture recognizer glue
+FormAccessory # UIKit input accessory glue
+Haptics # UIKit feedback generators
+HostedPage # WKWebView host
+PageChannel # WKScriptMessageHandler bridge
+SecondaryPage # SwiftUI hosting controller
+ViewStyles # SwiftUI styling
+WeakMessageHandler # WKScriptMessageHandler weak proxy

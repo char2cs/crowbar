@@ -31,7 +31,8 @@ scan_package() {
     lines=$(wc -l <"$root/$rel")
     ((lines > max_lines)) && fail "$rel:1: [size] $lines lines (max $max_lines); split by concept"
     check_file "$rel" "$root/$rel" src "$stem"
-    if grep -qE '^[[:space:]]*((public|open|internal|private|fileprivate|static|override|mutating) +)*func[[:space:]]' "$root/$rel"; then
+    if grep -qE '^[[:space:]]*((public|open|internal|private|fileprivate|static|override|mutating) +)*func[[:space:]]' "$root/$rel" \
+      && ! grep -qE "^${stem}[[:space:]]+#" "$here/swift-test-exemptions.txt" 2>/dev/null; then
       [[ -n $(find "$root/Tests" -name "${stem}Tests.swift" 2>/dev/null) ]] || fail "$rel:1: [test-missing] needs Tests/<Target>/${stem}Tests.swift"
     fi
   done < <(cd "$root" && find Sources Tests -name '*.swift' -not -path '*/.build/*' 2>/dev/null | LC_ALL=C sort)
