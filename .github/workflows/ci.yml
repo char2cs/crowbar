@@ -350,7 +350,7 @@ jobs:
         run: |
           UDID=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | contains("iOS")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
           [ -n "$UDID" ] && [ "$UDID" != "null" ] || (echo "no iPhone simulator available" && exit 1)
-          cd app/mobile/ios-chrome/ios
+          cd app/mobile/ios
           xcodebuild test -scheme tauri-plugin-crowbar-chrome -destination "id=$UDID"
       - name: Build frontend
         env:
@@ -358,3 +358,27 @@ jobs:
         run: cd app/panes && bun install --frozen-lockfile && bun run build
       - name: Build app for the simulator (unsigned)
         run: cd app/mobile/src-tauri && cargo tauri ios build --ci --debug --target aarch64-sim --no-sign --archive-only
+
+  ci-ok:
+    if: always()
+    needs:
+      - changes
+      - validate-branch
+      - go-checks
+      - go-macos
+      - go-lint
+      - frontend-checks
+      - website-checks
+      - tauri-checks-linux
+      - tauri-checks-macos
+      - ios-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every needed job succeeded or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "job result: $r"; exit 1 ;; esac
+          done

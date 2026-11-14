@@ -1,0 +1,265 @@
+name: Rust shell
+
+# Workspace root is app/Cargo.toml. app/mobile/src-tauri is a separate workspace
+# and stays in ci.yml. Pull requests always start the workflow and the `changes`
+# job decides what runs, so the `rust-ok` aggregate is always reported and can
+# be the single required status check.
+on:
+  pull_request:
+    branches: [master, develop]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [develop]
+    paths:
+      - 'app/crates/**'
+      - 'app/desktop/**'
+      - 'app/Cargo.*'
+      - 'app/*.toml'
+      - 'app/mobile/ios/**'
+      - 'app/mobile/ios-plugin/**'
+      - 'tools/scripts/check-rust-rules.sh'
+      - 'tools/scripts/rust-rules.awk'
+      - 'tools/scripts/check-swift-rules.sh'
+      - 'tools/scripts/swift-rules.awk'
+      - 'tools/scripts/testdata/**'
+      - '.github/workflows/rust.yml'
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  RUST_BACKTRACE: '1'
+
+jobs:
+  changes:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.rust }}
+      swift: ${{ github.event_name == 'push' && 'true' || steps.filter.outputs.swift }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'app/crates/**'
+              - 'app/desktop/**'
+              - 'app/Cargo.*'
+              - 'app/*.toml'
+              - 'app/mobile/ios-plugin/**'
+              - 'tools/scripts/check-rust-rules.sh'
+              - 'tools/scripts/rust-rules.awk'
+              - 'tools/scripts/testdata/rust-rules/**'
+              - '.github/workflows/rust.yml'
+            swift:
+              - 'app/mobile/ios/**'
+              - 'tools/scripts/check-swift-rules.sh'
+              - 'tools/scripts/swift-rules.awk'
+              - 'tools/scripts/testdata/swift-rules/**'
+              - '.github/workflows/rust.yml'
+
+  rust-lint:
+    name: rust-lint (linux)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake clang pkg-config \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev librsvg2-dev \
+            libfontconfig-dev libfreetype-dev libssl-dev libdbus-1-dev libzstd-dev libasound2-dev \
+            libxcb1-dev libx11-dev libx11-xcb-dev libxcb-xkb-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxkbfile-dev libwayland-dev libvulkan-dev
+      - name: Install Rust toolchain (app/rust-toolchain.toml)
+        working-directory: app
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          cache-on-failure: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-machete
+      - name: Rust rules (docs/rust-style.md)
+        run: |
+          bash tools/scripts/check-rust-rules.sh --self-test
+          bash tools/scripts/check-rust-rules.sh
+      - name: fmt
+        run: cd app && cargo fmt --all --check
+      - name: clippy
+        run: cd app && cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cd app && cargo doc --locked --workspace --no-deps --all-features
+      - name: cargo-deny (advisories, licenses, bans, sources)
+        run: cd app && cargo deny check
+      - name: cargo-machete (unused dependencies)
+        run: cd app && cargo machete
+
+  rust-test:
+    name: rust-test (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-latest
+          - name: macos-arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake clang pkg-config \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev librsvg2-dev \
+            libfontconfig-dev libfreetype-dev libssl-dev libdbus-1-dev libzstd-dev libasound2-dev \
+            libxcb1-dev libx11-dev libx11-xcb-dev libxcb-xkb-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxkbfile-dev libwayland-dev libvulkan-dev \
+            xvfb x11-utils xdotool openbox mesa-vulkan-drivers vulkan-tools libgl1-mesa-dri libegl1 fonts-dejavu-core
+      - name: Check Xcode command line tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          xcode-select -p
+          xcrun --sdk macosx --show-sdk-path
+          xcrun -find metal
+      - name: Install Rust toolchain (app/rust-toolchain.toml)
+        working-directory: app
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          key: test-${{ matrix.name }}
+          cache-on-failure: true
+      - name: clippy
+        run: cd app && cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Tests (headless)
+        run: cd app && cargo test --locked --workspace --all-features
+      # Tests that open a real window are `#[ignore = "needs display"]` (docs/rust-style.md M41).
+      # Linux: Xvfb + openbox + lavapipe software Vulkan.
+      - name: GUI tests (Linux, Xvfb + openbox + lavapipe)
+        if: runner.os == 'Linux'
+        env:
+          ZED_ALLOW_EMULATED_GPU: '1'
+        run: |
+          cd app
+          xvfb-run -a -s '-screen 0 1920x1080x24' bash -c '
+            set -euo pipefail
+            openbox &
+            until xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id"; do sleep 0.2; done
+            vulkaninfo --summary
+            cargo test --locked --workspace --all-features -- --ignored
+          '
+      # macOS runners have a window server and Metal; not blocking until the first run shows it is stable.
+      - name: GUI tests (macOS)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: cd app && cargo test --locked --workspace --all-features -- --ignored
+
+  rust-build:
+    name: rust-build (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+          - name: macos-arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake clang pkg-config \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev librsvg2-dev \
+            libfontconfig-dev libfreetype-dev libssl-dev libdbus-1-dev libzstd-dev libasound2-dev \
+            libxcb1-dev libx11-dev libx11-xcb-dev libxcb-xkb-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxkbfile-dev libwayland-dev libvulkan-dev
+      - name: Install Rust toolchain (app/rust-toolchain.toml)
+        working-directory: app
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          key: build-${{ matrix.name }}
+          cache-on-failure: true
+      - name: Build release binary (app/desktop/app)
+        run: cd app && cargo build --locked --release -p app
+      - name: Type-check x86_64 macOS (Intel) from the arm64 runner
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin
+          cd app && cargo check --locked --release -p app --target x86_64-apple-darwin
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-${{ matrix.name }}
+          path: app/target/release/app
+          if-no-files-found: error
+          retention-days: 7
+
+  swift-lint:
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install swiftlint and swift-format
+        run: brew install swiftlint swift-format
+      - name: Swift rules (docs/swift-style.md)
+        run: |
+          bash tools/scripts/check-swift-rules.sh --self-test
+          # Package location differs until the iOS move lands everywhere.
+          ROOT=app/mobile/ios
+          [ -d "$ROOT" ] || ROOT=app/mobile/ios-chrome/ios
+          bash tools/scripts/check-swift-rules.sh --full "$ROOT"
+      # The package depends on the generated .tauri/tauri-api, so building and
+      # testing it needs the cargo build and runs in ci.yml (ios-checks).
+
+  rust-ok:
+    if: always()
+    needs: [changes, rust-lint, rust-test, rust-build, swift-lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every needed job succeeded or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "job result: $r"; exit 1 ;; esac
+          done
