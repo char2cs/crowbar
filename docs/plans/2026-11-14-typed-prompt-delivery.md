@@ -36,8 +36,9 @@ presentation:
     type:
       paste: bracketed          # message wrapped in ESC[200~ … ESC[201~
       submit: "\r"              # key that sends it
-      composer:                 # how the empty input box looks (values from the spike)
-        row_prefix: "…"
+      skip_prefixes: ["/", "!"] # messages that must still restart (see §8)
+      composer:                 # how the empty input box looks
+        row_prefix: "❯\u00a0"   # glyph + NO-BREAK space; a plain space never matches
 ```
 
 "Composer empty" is generic: the screen row holding the cursor starts with
@@ -63,8 +64,12 @@ of `submitPromptLocked`. A prompt is typed only when all hold:
    level still restarts).
 4. The runner has a live PTY terminal session, and its snapshot reports bracketed
    paste on and an empty composer.
-5. The message is not one the descriptor keeps off typed delivery (a
-   `skip_prefixes` command, as for steer).
+5. The message does not start with one of the block's `skip_prefixes`.
+
+The composer test alone cannot tell idle from busy (§8): it reads empty
+mid-turn too. Idleness is the ledger's call, and it must be "no main-scope turn
+is running", not `State.Busy()`: background subagents and shells outliving the
+turn are exactly what typing exists to keep, so they must not block it.
 
 Otherwise `resolvePromptDelivery` / `launchCarrying` run as before.
 
@@ -99,22 +104,26 @@ fakes are not widened.
 any pending prompt (queued until its turn starts); only `restart` carries the
 launch divider.
 
-## 8. What the spike must settle before values land in `claude.yaml`
+## 8. Spike results (claude 2.1.325, through the daemon's own emulator)
 
-Measured against a real claude with a recorded screen, never assumed:
+1. **Composer.** Idle, ghost suggestion, and mid-turn all read cursor col 2 on
+   the row `❯\u00a0…`; a draft puts the cursor past col 2 (`hello` → col 7); a
+   dialog or shell mode moves the cursor off that row. Same at 80x24 and
+   120x40. Mode 2004 was on in every state. Ghost text is faint and starts at
+   col 2, so the cursor column is the test, as planned.
+2. **Submit.** Paste plus `\r` in one write submitted 3 of 3; two back-to-back
+   writes also 3 of 3. No wait signal is needed.
+3. **Sigils.** Under paste a leading `!` still enters shell mode and a leading
+   `/` still runs the command. So `leading_sigils` stays for the restart path
+   and those messages are kept off typed delivery by `skip_prefixes`.
+4. **Multi-line.** A paste with an embedded newline is one draft, and `\r`
+   sends one message.
+5. **Busy.** The composer reads empty mid-turn too, so only the ledger guards
+   against typing into a running turn.
 
-1. What the empty composer looks like, with and without a ghost suggestion, with
-   a draft, mid-turn, and under a dialog; where the cursor sits in each.
-2. Whether a paste followed by the submit key in **one** write submits, or the
-   CLI needs the paste to land first. If it does, the signal to wait on is the
-   screen changing, never a timer.
-3. Whether a pasted leading `!` or `/` changes mode, and whether `leading_sigils`
-   still has to escape it.
-4. Whether a multi-line prompt arrives as one message.
-
-Each result becomes a recorded screen under `engine/agents/testdata/` (per
-claude version, like `claude-trust-2.1.319.screen`) and a descriptor value, so a
-TUI change breaks a test instead of users.
+Recordings: `api/internal/engine/agents/testdata/claude-composer-*-2.1.325.screen`
+with a `.cursor` sidecar each. The trust dialog could not be re-recorded on this
+account; the 2.1.319 recording stays the only evidence for it.
 
 ## 9. Tests
 
