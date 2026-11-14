@@ -1,4 +1,4 @@
-use protocol::{PaneKind, RelayScope};
+use protocol::{PaneOrigin, RelayScope};
 
 use crate::origin_policy::OriginPolicy;
 
@@ -27,12 +27,11 @@ impl OriginPolicy for ExactOrigins {
         if origin.is_empty() || origin == "null" {
             return false;
         }
-        match (scope.kind, &scope.extension) {
-            (PaneKind::Core, None) => self.core.iter().any(|allowed| allowed == origin),
-            (PaneKind::Extension, Some(id)) => {
+        match scope.origin() {
+            PaneOrigin::Core => self.core.iter().any(|allowed| allowed == origin),
+            PaneOrigin::Extension(id) => {
                 self.extension_template.replace("{extension}", id.as_str()) == origin
             },
-            _ => false,
         }
     }
 }

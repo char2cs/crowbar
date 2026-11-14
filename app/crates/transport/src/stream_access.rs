@@ -10,8 +10,7 @@ pub trait StreamAccess: Send + Sync {
     /// `crowbar.token.<token>`. Issuing again for the same pane and host replaces the old token.
     ///
     /// # Errors
-    /// [`Error::BadGrant`] for a scope that contradicts itself, [`Error::Random`] when no
-    /// token can be generated.
+    /// [`Error::Random`] when no token can be generated.
     fn issue(&self, scope: &RelayScope) -> Result<RelayEndpoint, Error>;
 
     /// Ends every token and open stream of the pane, for when it is destroyed.

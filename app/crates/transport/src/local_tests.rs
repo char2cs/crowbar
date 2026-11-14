@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use tempfile::TempDir;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 
 use super::*;
 use crate::response::marker_of;
 
-fn socket(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("cb-l-{tag}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("d.sock")
+fn socket(dir: &TempDir) -> PathBuf {
+    dir.path().join("d.sock")
 }
 
 fn request(method: Method) -> Request<Vec<u8>> {
@@ -34,7 +34,8 @@ fn retries_poll_densely_then_back_off_to_a_cap() {
 #[tokio::test]
 async fn a_read_retries_until_the_attempts_are_spent_then_says_the_daemon_is_unavailable() {
     let waits = AtomicU32::new(0);
-    let path = socket("none");
+    let dir = TempDir::new().unwrap();
+    let path = socket(&dir);
 
     let answer = forward_local(&path, request(Method::GET), |_| {
         waits.fetch_add(1, Ordering::SeqCst);
@@ -45,12 +46,18 @@ async fn a_read_retries_until_the_attempts_are_spent_then_says_the_daemon_is_una
     assert_eq!(answer.status(), 503);
     assert_eq!(marker_of(&answer), Some(DAEMON_UNAVAILABLE));
     assert_eq!(waits.load(Ordering::SeqCst), CONNECT_ATTEMPTS - 1);
+    let body = String::from_utf8_lossy(answer.body());
+    assert!(
+        !body.contains(dir.path().to_str().unwrap()),
+        "the page is not told where the socket is: {body}"
+    );
 }
 
 #[tokio::test]
 async fn a_mutation_is_never_replayed() {
     let waits = AtomicU32::new(0);
-    let path = socket("post");
+    let dir = TempDir::new().unwrap();
+    let path = socket(&dir);
 
     let answer = forward_local(&path, request(Method::POST), |_| {
         waits.fetch_add(1, Ordering::SeqCst);
@@ -84,7 +91,8 @@ fn bind_on_third_attempt(path: &std::path::Path, attempt: u32) {
 
 #[tokio::test]
 async fn a_daemon_that_binds_late_is_reached_by_a_retried_read() {
-    let path = socket("late");
+    let dir = TempDir::new().unwrap();
+    let path = socket(&dir);
     let listener_path = path.clone();
     let attempts = AtomicU32::new(0);
 

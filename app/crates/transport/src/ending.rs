@@ -3,4 +3,7 @@ pub(crate) enum Ending {
     Closed,
     Gone,
     Idle,
+    TooLarge,
+    Protocol,
+    Stalled,
 }

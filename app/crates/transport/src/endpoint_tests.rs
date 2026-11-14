@@ -29,7 +29,10 @@ fn a_host_and_port_parses_and_reads_back_as_written() {
 fn assert_refused(refused: &[&str]) {
     for text in refused {
         let err = Endpoint::parse(text).expect_err(text);
-        assert!(err.to_string().contains("is not a host:port address"), "{err}");
+        assert!(
+            err.to_string().contains("is not a host:port address"),
+            "{err}"
+        );
     }
 }
 

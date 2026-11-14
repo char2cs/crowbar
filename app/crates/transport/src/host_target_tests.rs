@@ -15,9 +15,9 @@ fn local_and_localhost_name_the_local_daemon() {
 }
 
 #[test]
-fn only_ids_a_url_authority_keeps_intact_can_be_registered() {
+fn the_local_daemon_cannot_be_registered_as_a_remote_host() {
     assert!(check_registrable(&id("host-1")).is_ok());
-    for text in ["local", "localhost", "host_1"] {
+    for text in ["local", "localhost"] {
         assert!(check_registrable(&id(text)).is_err(), "{text}");
     }
 }

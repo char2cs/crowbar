@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use protocol::{ExtensionId, HostId, PaneId, PaneKind, RelayScope};
+use protocol::{ExtensionId, HostId, PaneId, PaneOrigin, RelayScope};
 
 use super::*;
 use crate::connection_book::ConnectionBook;
@@ -11,6 +11,8 @@ use crate::memory_token_store::MemoryTokenStore;
 use crate::relay_config::RelayConfig;
 use crate::token_book::TokenBook;
 use crate::transport::Transport;
+use std::sync::Arc;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 const PORT: u16 = 4242;
@@ -36,19 +38,17 @@ fn state() -> Arc<RelayState> {
     })
 }
 
-fn issue(state: &RelayState, kind: PaneKind, extension: Option<&str>) -> String {
-    let scope = RelayScope {
-        host: HostId::new("local").unwrap(),
-        pane: PaneId::new("p1").unwrap(),
-        kind,
-        extension: extension.map(|id| ExtensionId::new(id).unwrap()),
-    };
-    state
-        .tokens
-        .lock()
-        .unwrap()
-        .issue(scope, Instant::now())
-        .unwrap()
+fn issue(state: &RelayState, origin: PaneOrigin) -> String {
+    let scope = RelayScope::new(
+        HostId::new("local").unwrap(),
+        PaneId::new("p1").unwrap(),
+        origin,
+    );
+    state.tokens().issue(scope, Instant::now()).unwrap()
+}
+
+fn acme() -> PaneOrigin {
+    PaneOrigin::Extension(ExtensionId::new("acme").unwrap())
 }
 
 struct Dial<'a> {
@@ -89,16 +89,16 @@ impl Dial<'_> {
 #[tokio::test]
 async fn a_well_formed_dial_is_admitted_with_its_scope_and_target() {
     let state = state();
-    let token = issue(&state, PaneKind::Core, None);
+    let token = issue(&state, PaneOrigin::Core);
     let admission = inspect(&state, &Dial::good(&token).request()).unwrap();
     assert_eq!(admission.path_and_query, "/v0/terminals/t1/stream");
-    assert_eq!(admission.scope.pane.as_str(), "p1");
+    assert_eq!(admission.scope.pane().as_str(), "p1");
 }
 
 #[tokio::test]
 async fn each_check_refuses_on_its_own() {
     let state = state();
-    let token = issue(&state, PaneKind::Core, None);
+    let token = issue(&state, PaneOrigin::Core);
     let refused = |dial: Dial<'_>| inspect(&state, &dial.request()).err();
 
     let mut wrong_host = Dial::good(&token);
@@ -138,7 +138,7 @@ async fn each_check_refuses_on_its_own() {
 #[tokio::test]
 async fn an_extension_token_reaches_only_its_own_routes() {
     let state = state();
-    let token = issue(&state, PaneKind::Extension, Some("acme"));
+    let token = issue(&state, acme());
     let mut dial = Dial::good(&token);
     dial.origins = vec!["crowbar-ext://acme"];
     dial.target = "/v0/ext/acme/stream";
@@ -163,4 +163,59 @@ fn a_comma_separated_protocol_list_is_split_and_trimmed() {
         .body(())
         .unwrap();
     assert_eq!(offered_protocols(&request), ["a", "b", "c"]);
+}
+
+#[tokio::test]
+async fn admission_registers_the_stream_so_a_revoke_right_after_cancels_it() {
+    let state = state();
+    let token = issue(&state, PaneOrigin::Core);
+    let admission = inspect(&state, &Dial::good(&token).request()).unwrap();
+    assert!(!admission.guard.cancelled().is_cancelled());
+    state.revoke_pane(&PaneId::new("p1").unwrap());
+    assert!(admission.guard.cancelled().is_cancelled());
+    assert_eq!(
+        inspect(&state, &Dial::good(&token).request()).err(),
+        Some(StatusCode::UNAUTHORIZED),
+        "the token is gone for the next dial"
+    );
+}
+
+#[tokio::test]
+async fn a_full_relay_refuses_before_the_upgrade_with_503() {
+    let state = state();
+    let token = issue(&state, PaneOrigin::Core);
+    let held: Vec<_> = (0..4)
+        .map(|_| inspect(&state, &Dial::good(&token).request()).unwrap())
+        .collect();
+    assert_eq!(
+        inspect(&state, &Dial::good(&token).request()).err(),
+        Some(StatusCode::SERVICE_UNAVAILABLE)
+    );
+    drop(held);
+    assert!(inspect(&state, &Dial::good(&token).request()).is_ok());
+}
+
+#[tokio::test]
+async fn a_pane_may_ask_for_its_own_idle_limit_within_bounds() {
+    let state = state();
+    let token = issue(&state, PaneOrigin::Core);
+    let with_idle = |seconds: &str| {
+        let mut dial = Dial::good(&token);
+        dial.protocols
+            .push(format!("{IDLE_SUBPROTOCOL_PREFIX}{seconds}"));
+        inspect(&state, &dial.request())
+    };
+    let idle = |seconds: &str| with_idle(seconds).unwrap().upstream_idle;
+    assert_eq!(idle("30"), Some(Duration::from_secs(30)));
+    assert_eq!(idle("1"), Some(Duration::from_secs(MIN_IDLE_SECONDS)));
+    assert_eq!(idle("999999"), Some(Duration::from_secs(MAX_IDLE_SECONDS)));
+    for bad in ["", "-1", "soon", "1.5"] {
+        assert_eq!(
+            with_idle(bad).err(),
+            Some(StatusCode::BAD_REQUEST),
+            "{bad:?}"
+        );
+    }
+    let plain = inspect(&state, &Dial::good(&token).request()).unwrap();
+    assert_eq!(plain.upstream_idle, None);
 }

@@ -2,15 +2,14 @@ use super::*;
 
 #[test]
 fn a_credential_round_trips_and_hides_its_token_from_debug() {
-    let credential = Credential {
-        token: "secret-token".into(),
-        pin: [7; 32],
-    };
+    let credential = Credential::new("secret-token".into(), [7; 32]);
     assert_eq!(
         Credential::decode(&credential.encode()),
         Some(credential.clone())
     );
     assert!(!format!("{credential:?}").contains("secret-token"));
+    assert_eq!(credential.token(), "secret-token");
+    assert_eq!(credential.pin(), [7; 32]);
 }
 
 #[test]

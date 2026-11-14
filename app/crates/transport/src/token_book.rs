@@ -46,16 +46,20 @@ impl TokenBook {
     }
 
     pub(crate) fn revoke_pane(&mut self, pane: &PaneId) {
-        self.entries.retain(|_, (scope, _)| scope.pane != *pane);
+        self.entries.retain(|_, (scope, _)| scope.pane() != pane);
     }
 
     pub(crate) fn revoke_host(&mut self, host: &HostId) {
-        self.entries.retain(|_, (scope, _)| scope.host != *host);
+        self.retain_hosts(|held| held != host);
+    }
+
+    pub(crate) fn retain_hosts(&mut self, keep: impl Fn(&HostId) -> bool) {
+        self.entries.retain(|_, (scope, _)| keep(scope.host()));
     }
 }
 
 fn same_stream(a: &RelayScope, b: &RelayScope) -> bool {
-    a.pane == b.pane && a.host == b.host
+    a.pane() == b.pane() && a.host() == b.host()
 }
 
 fn digest(token: &str) -> Digest32 {

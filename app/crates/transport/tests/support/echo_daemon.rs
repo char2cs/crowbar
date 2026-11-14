@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futures_util::{SinkExt, StreamExt};
@@ -11,32 +11,26 @@ use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 pub(crate) struct EchoDaemon {
     pub(crate) socket: PathBuf,
     pub(crate) paths: Arc<Mutex<Vec<String>>>,
+    _dir: tempfile::TempDir,
 }
 
 impl EchoDaemon {
-    pub(crate) fn start(tag: &str) -> Self {
-        let socket =
-            std::env::temp_dir().join(format!("cb-echo-{tag}-{}.sock", std::process::id()));
-        std::fs::remove_file(&socket).ok();
+    pub(crate) fn start() -> Self {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let socket = dir.path().join("echo.sock");
         let listener = UnixListener::bind(&socket).expect("bind echo daemon");
         let paths = Arc::new(Mutex::new(Vec::new()));
         tokio::spawn(accept(listener, Arc::clone(&paths)));
-        Self { socket, paths }
+        Self {
+            socket,
+            paths,
+            _dir: dir,
+        }
     }
 
     pub(crate) fn dialled(&self) -> Vec<String> {
         self.paths.lock().expect("paths lock").clone()
     }
-}
-
-impl Drop for EchoDaemon {
-    fn drop(&mut self) {
-        remove(&self.socket);
-    }
-}
-
-fn remove(path: &Path) {
-    std::fs::remove_file(path).ok();
 }
 
 async fn accept(listener: UnixListener, paths: Arc<Mutex<Vec<String>>>) {

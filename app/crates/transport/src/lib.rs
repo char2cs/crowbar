@@ -10,11 +10,14 @@
 mod access_scope;
 mod admission;
 mod async_stream;
+mod blocking;
 mod bridge;
+mod bridge_limits;
 mod cached_token_store;
 mod connection_book;
 mod connection_guard;
 mod credential;
+mod credential_io;
 mod daemon_wire;
 mod dial;
 mod ending;
@@ -22,9 +25,10 @@ mod endpoint;
 mod error;
 mod exact_origins;
 mod fingerprint;
+mod first_connected;
 mod gate;
 mod host_entry;
-mod host_path;
+mod host_limits;
 mod host_registry;
 mod host_target;
 mod hosts_document;
@@ -52,6 +56,7 @@ mod relay_protocol;
 mod relay_state;
 mod remote;
 mod remote_host;
+mod reply;
 mod response;
 mod session;
 mod shell_transport;
@@ -62,51 +67,40 @@ mod token_book;
 mod token_store;
 mod transport;
 mod unpinned_probe_verifier;
+mod unrecorded;
 mod upstream;
+mod upstream_request;
 
 #[cfg(feature = "os-keychain")]
 mod os_keychain;
 
-pub use access_scope::{AccessScope, EXTENSION_HEADER};
-pub use async_stream::{AsyncStream, BoxedStream};
+pub use access_scope::EXTENSION_HEADER;
 pub use cached_token_store::CachedTokenStore;
-pub use credential::Credential;
-pub use dial::{DIAL_TIMEOUT, KEEPALIVE_IDLE, KEEPALIVE_INTERVAL, dial};
 pub use endpoint::Endpoint;
 pub use error::Error;
 pub use exact_origins::ExactOrigins;
-pub use fingerprint::{CertificateDigest, certificate_digest, fingerprint_of, hex};
-pub use host_path::{HostPath, qualify, split_host_path};
+pub use fingerprint::fingerprint_of;
 pub use host_registry::HostRegistry;
-pub use host_target::HostTarget;
-pub use http_conn::{Channel, collect_capped, exchange, open_channel, send};
 pub use keychain::Keychain;
-pub use local::{CONNECT_ATTEMPTS, connect, connect_once, connect_retry_delay, forward_local};
 pub use local_get::local_get;
 pub use memory_token_store::MemoryTokenStore;
 pub use origin_policy::OriginPolicy;
 pub use pair_request::PairRequest;
-pub use paired_host::PairedHost;
-pub use pairing::{PAIR_TIMEOUT, pair_remote_host};
-pub use pin::Pin;
-pub use pinned_verifier::pinned_client_config;
-pub use probe::{PROBE_TIMEOUT, probe_fingerprint};
+pub use pairing::pair_remote_host;
+pub use probe::probe_fingerprint;
 pub use read_error::ReadError;
 pub use relay::Relay;
 pub use relay_config::RelayConfig;
-pub use relay_protocol::{RELAY_SUBPROTOCOL, TOKEN_SUBPROTOCOL_PREFIX};
-pub use remote::{REMOTE_BODY_LIMIT, bearer, forward_remote, paired_host, stored_credential};
-pub use remote_host::RemoteHost;
+pub use relay_protocol::{IDLE_SUBPROTOCOL_PREFIX, RELAY_SUBPROTOCOL, TOKEN_SUBPROTOCOL_PREFIX};
 pub use response::{
-    DAEMON_UNAVAILABLE, HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, PROXY_HEADER, error_response,
-    marked_response, marker_of, readable_by,
+    DAEMON_UNAVAILABLE, HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, NO_CREDENTIAL, PROXY_HEADER,
+    UNKNOWN_HOST, marker_of,
 };
 pub use shell_transport::ShellTransport;
 pub use socket_locator::SocketLocator;
 pub use stream_access::StreamAccess;
 pub use token_store::TokenStore;
-pub use transport::{PROXY_TIMEOUT, Transport};
-pub use upstream::UpstreamSocket;
+pub use transport::Transport;
 
 #[cfg(feature = "os-keychain")]
 pub use os_keychain::OsKeychain;

@@ -4,7 +4,7 @@ use crate::error::Error;
 #[test]
 fn accepts_local_and_paired_hosts() {
     assert!(HostId::new("local").is_ok(), "local");
-    assert!(HostId::new("host-7_b").is_ok(), "paired");
+    assert!(HostId::new("host-7b").is_ok(), "paired");
 }
 
 #[test]
@@ -17,6 +17,10 @@ fn rejects_authority_breaking_text() {
         "slash"
     );
     assert!(HostId::new("Upper").is_err(), "upper case");
+    assert!(
+        HostId::new("host_7").is_err(),
+        "underscore is not a hostname character"
+    );
     assert!(HostId::new("").is_err(), "empty");
 }
 

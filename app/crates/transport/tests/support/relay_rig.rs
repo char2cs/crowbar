@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use protocol::{ExtensionId, HostId, PaneId, PaneKind, RelayScope};
+use protocol::{ExtensionId, HostId, PaneId, PaneOrigin, RelayScope};
 use transport::{
     ExactOrigins, HostRegistry, MemoryTokenStore, Relay, RelayConfig, StreamAccess, Transport,
 };
@@ -17,8 +17,8 @@ pub(crate) struct RelayRig {
 }
 
 impl RelayRig {
-    pub(crate) async fn start(tag: &str, config: RelayConfig) -> Self {
-        let daemon = EchoDaemon::start(tag);
+    pub(crate) async fn start(config: RelayConfig) -> Self {
+        let daemon = EchoDaemon::start();
         let transport = Arc::new(Transport::new(
             Arc::new(daemon.socket.clone()),
             Arc::new(HostRegistry::in_memory()),
@@ -35,17 +35,25 @@ impl RelayRig {
         }
     }
 
-    pub(crate) fn token(&self, pane: &str, kind: PaneKind, extension: Option<&str>) -> String {
-        let scope = RelayScope {
-            host: HostId::new("local").expect("host id"),
-            pane: PaneId::new(pane).expect("pane id"),
-            kind,
-            extension: extension.map(|id| ExtensionId::new(id).expect("extension id")),
-        };
-        self.relay.issue(&scope).expect("token issued").token
+    pub(crate) fn token(&self, pane: &str, origin: PaneOrigin) -> String {
+        let scope = RelayScope::new(
+            HostId::new("local").expect("host id"),
+            PaneId::new(pane).expect("pane id"),
+            origin,
+        );
+        self.relay
+            .issue(&scope)
+            .expect("token issued")
+            .token()
+            .to_owned()
+    }
+
+    pub(crate) fn extension_token(&self, pane: &str, extension: &str) -> String {
+        let id = ExtensionId::new(extension).expect("extension id");
+        self.token(pane, PaneOrigin::Extension(id))
     }
 
     pub(crate) fn core_token(&self, pane: &str) -> String {
-        self.token(pane, PaneKind::Core, None)
+        self.token(pane, PaneOrigin::Core)
     }
 }

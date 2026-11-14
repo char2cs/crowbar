@@ -2,23 +2,17 @@ use crate::credential::Credential;
 use crate::endpoint::Endpoint;
 use crate::pin::Pin;
 
-/// Where a remote daemon listens, and the one certificate trusted there.
 #[derive(Clone, Debug)]
-pub struct RemoteHost {
-    /// The address dialled.
-    pub endpoint: Endpoint,
-    /// The only certificate the dial accepts.
-    pub pin: Pin,
+pub(crate) struct RemoteHost {
+    pub(crate) endpoint: Endpoint,
+    pub(crate) pin: Pin,
 }
 
 impl RemoteHost {
-    /// Pinned to the certificate `credential` was minted by, never to anything the registry, and
-    /// so the webview, supplies.
-    #[must_use]
-    pub fn paired(endpoint: Endpoint, credential: &Credential) -> Self {
+    pub(crate) fn paired(endpoint: Endpoint, credential: &Credential) -> Self {
         Self {
             endpoint,
-            pin: Pin::Paired(credential.pin),
+            pin: Pin::Paired(credential.pin()),
         }
     }
 }

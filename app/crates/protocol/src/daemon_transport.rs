@@ -13,9 +13,18 @@ pub type Responder = Box<dyn FnOnce(Result<DaemonResponse>) + Send + 'static>;
 /// through this trait. The implementation (unix socket, paired remote host, token and TLS pin
 /// handling) lives in the `transport` crate. The trait is callback based so it needs no async
 /// runtime: an implementation may answer from any thread.
+///
+/// Only a pane has a [`PaneOrigin`](crate::PaneOrigin), so a browser tab, which has none, can
+/// neither build a [`DaemonRequest`] nor ask for a [`RelayScope`]; the shell must not invent one
+/// for it.
 pub trait DaemonTransport: Send + Sync + 'static {
-    /// Forwards `request` and calls `respond` exactly once, from any thread. Must not block
-    /// the caller.
+    /// Forwards `request` and calls `respond` exactly once, from any thread, with
+    /// [`Error::Interrupted`](crate::Error::Interrupted) if the transport stops first. Must not
+    /// block the caller.
+    ///
+    /// The platform's custom protocol task (WebKit's URL scheme task) may only be completed on
+    /// the UI thread, so the `respond` the shell passes in hops there; an implementation never
+    /// assumes it runs on the caller's thread.
     fn request(&self, request: DaemonRequest, respond: Responder);
 
     /// Issues a relay endpoint and token for a pane's WebSocket streams.

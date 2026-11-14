@@ -17,10 +17,10 @@ mod tls_host;
 use std::sync::Arc;
 
 use http::{Method, Request};
-use protocol::HostId;
+use protocol::{HostId, PaneOrigin};
 use transport::{
-    AccessScope, Endpoint, Error, HostRegistry, MemoryTokenStore, PairRequest, TokenStore,
-    Transport, fingerprint_of, pair_remote_host,
+    Endpoint, Error, HostRegistry, MemoryTokenStore, PairRequest, TokenStore, Transport,
+    fingerprint_of, pair_remote_host,
 };
 
 use crate::http_daemon::Handler;
@@ -114,7 +114,7 @@ async fn pairing_with_the_confirmed_fingerprint_registers_the_host_and_requests_
     );
     let answer = rig
         .transport
-        .handle(&AccessScope::Core, get("crowbar://host-1/v0/projects"))
+        .handle(&PaneOrigin::Core, get("crowbar://host-1/v0/projects"))
         .await;
     assert_eq!(answer.status(), 200);
     let sent = host.requests().pop().expect("the host saw a request");
@@ -132,7 +132,7 @@ async fn pairing_against_a_different_certificate_leaves_no_trace() {
     assert!(rig.tokens.get("host-1").unwrap().is_none());
     assert_eq!(
         host.requests().len(),
-         0,
+        0,
         "no request, and so no code, reached the impostor"
     );
 }
@@ -159,15 +159,16 @@ async fn a_host_that_changes_its_certificate_after_pairing_never_sees_the_token(
     let id = HostId::new("host-1").unwrap();
     rig.registry
         .insert(id, Endpoint::parse(&impostor.endpoint()).unwrap())
+        .await
         .unwrap();
     let answer = rig
         .transport
-        .handle(&AccessScope::Core, get("crowbar://host-1/v0/projects"))
+        .handle(&PaneOrigin::Core, get("crowbar://host-1/v0/projects"))
         .await;
     assert_eq!(transport::marker_of(&answer), Some("host-identity-changed"));
     assert_eq!(
         impostor.requests().len(),
-         0,
+        0,
         "the bearer token never reached the impostor"
     );
 }
@@ -195,10 +196,11 @@ async fn an_unreachable_host_is_marked_unreachable() {
     drop(closed);
     rig.registry
         .insert(HostId::new("host-1").unwrap(), endpoint)
+        .await
         .unwrap();
     let answer = rig
         .transport
-        .handle(&AccessScope::Core, get("crowbar://host-1/v0/projects"))
+        .handle(&PaneOrigin::Core, get("crowbar://host-1/v0/projects"))
         .await;
     assert_eq!(transport::marker_of(&answer), Some("host-unreachable"));
 }
@@ -223,7 +225,7 @@ impl TokenStore for FullKeychain {
 #[tokio::test]
 async fn a_token_the_keychain_cannot_keep_is_revoked_on_the_host() {
     let host = host().await;
-    let registry = HostRegistry::in_memory();
+    let registry = Arc::new(HostRegistry::in_memory());
     let tokens: Arc<dyn TokenStore> = Arc::new(FullKeychain);
     let endpoint = host.endpoint();
     let fingerprint = fingerprint_of(&host.cert_der);
@@ -231,7 +233,7 @@ async fn a_token_the_keychain_cannot_keep_is_revoked_on_the_host() {
     let error = pair_remote_host(&registry, &tokens, &pairing)
         .await
         .unwrap_err();
-    assert!(matches!(error, Error::Unkept { .. }), "{error}");
+    assert!(matches!(error, Error::NotRecorded { .. }), "{error}");
     assert_eq!(registry.list().len(), 0);
     let revoke = host
         .requests()

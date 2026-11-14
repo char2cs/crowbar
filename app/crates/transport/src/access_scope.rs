@@ -1,68 +1,42 @@
-use protocol::{ExtensionId, PaneKind};
+use http::{HeaderMap, HeaderName, HeaderValue};
+use protocol::PaneOrigin;
 
 use crate::error::Error;
 
 const API_PREFIX: &str = "/v0";
 const EXTENSION_ROUTES: &str = "/v0/ext/";
 
-/// Header the transport sets on every extension-scoped request and strips from every other, so a
-/// daemon can apply its own per-origin check without trusting the page.
+/// Header the transport sets on every extension-scoped request, HTTP and WebSocket alike, and
+/// strips from every other, so a daemon can apply its own per-origin check without trusting the
+/// page. Its value is the extension id.
 pub const EXTENSION_HEADER: &str = "x-crowbar-extension";
 
-/// What a pane origin may reach on a daemon: core panes the whole `/v0` API, an extension only
-/// its own `/v0/ext/<id>/...` routes, which hold its calls and its own blobs. The daemon
-/// enforces the same rule independently.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AccessScope {
-    /// A built-in pane.
-    Core,
-    /// A pane provided by the named extension.
-    Extension(ExtensionId),
+pub(crate) fn check(origin: &PaneOrigin, path_and_query: &str) -> Result<(), Error> {
+    let path = path_and_query.split(['?', '#']).next().unwrap_or_default();
+    if is_plain_path(path) && allows(origin, path) {
+        return Ok(());
+    }
+    Err(Error::Forbidden(path_and_query.to_owned()))
 }
 
-impl AccessScope {
-    /// The scope of a pane of `kind`.
-    ///
-    /// # Errors
-    /// [`Error::BadGrant`] when an extension pane names no extension or a core pane names one.
-    pub fn of(kind: PaneKind, extension: Option<&ExtensionId>) -> Result<Self, Error> {
-        match (kind, extension) {
-            (PaneKind::Core, None) => Ok(Self::Core),
-            (PaneKind::Extension, Some(id)) => Ok(Self::Extension(id.clone())),
-            (PaneKind::Core, Some(_)) => Err(Error::BadGrant("a core pane has no extension")),
-            (PaneKind::Extension, None) => {
-                Err(Error::BadGrant("an extension pane needs its extension"))
-            },
-        }
+pub(crate) fn stamp(headers: &mut HeaderMap, origin: &PaneOrigin) {
+    let name = HeaderName::from_static(EXTENSION_HEADER);
+    headers.remove(&name);
+    let value = origin
+        .extension()
+        .and_then(|id| HeaderValue::from_str(id.as_str()).ok());
+    if let Some(value) = value {
+        headers.insert(name, value);
     }
+}
 
-    /// Checks the request target (path and optional query) against this scope.
-    ///
-    /// # Errors
-    /// [`Error::Forbidden`] for any path outside the scope or that a parser could read two ways.
-    pub fn check(&self, path_and_query: &str) -> Result<(), Error> {
-        let path = path_and_query.split(['?', '#']).next().unwrap_or_default();
-        if is_plain_path(path) && self.allows(path) {
-            return Ok(());
-        }
-        Err(Error::Forbidden(path_and_query.to_owned()))
-    }
-
-    pub(crate) fn extension(&self) -> Option<&ExtensionId> {
-        match self {
-            Self::Extension(id) => Some(id),
-            Self::Core => None,
-        }
-    }
-
-    fn allows(&self, path: &str) -> bool {
-        match self {
-            Self::Core => path == API_PREFIX || path.starts_with("/v0/"),
-            Self::Extension(id) => path
-                .strip_prefix(EXTENSION_ROUTES)
-                .and_then(|rest| rest.strip_prefix(id.as_str()))
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/')),
-        }
+fn allows(origin: &PaneOrigin, path: &str) -> bool {
+    match origin {
+        PaneOrigin::Core => path == API_PREFIX || path.starts_with("/v0/"),
+        PaneOrigin::Extension(id) => path
+            .strip_prefix(EXTENSION_ROUTES)
+            .and_then(|rest| rest.strip_prefix(id.as_str()))
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/')),
     }
 }
 

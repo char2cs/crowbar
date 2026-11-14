@@ -60,3 +60,64 @@ async fn the_daemon_cannot_answer_as_the_proxy() {
     assert_eq!(answer.body(), b"ok");
     assert!(answer.headers().get(PROXY_HEADER).is_none());
 }
+
+async fn echo_head(request: Request<Vec<u8>>) -> String {
+    let (client, mut server) = tokio::io::duplex(8192);
+    let seen = tokio::spawn(async move {
+        let mut buf = vec![0u8; 8192];
+        let read = server.read(&mut buf).await.unwrap_or(0);
+        server
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        String::from_utf8_lossy(buf.get(..read).unwrap_or_default()).to_lowercase()
+    });
+    exchange(Box::new(client), request, 1024).await.unwrap();
+    seen.await.unwrap()
+}
+
+#[tokio::test]
+async fn the_daemon_sees_a_constant_host_and_none_of_the_panes_hop_by_hop_or_credential_headers() {
+    let mut request = Request::builder()
+        .uri("crowbar://localhost/v0/x")
+        .header("x-pane", "p1")
+        .header("host", "evil.example")
+        .header("authorization", "Bearer pane-guess")
+        .header("connection", "upgrade")
+        .header("upgrade", "websocket")
+        .header("transfer-encoding", "chunked")
+        .header("content-length", "999")
+        .body(Vec::new())
+        .unwrap();
+    strip_pane_headers(request.headers_mut());
+    let head = echo_head(request).await;
+    assert!(head.contains("x-pane: p1"), "{head}");
+    assert!(head.contains("host: localhost"), "{head}");
+    for banned in ["evil.example", "pane-guess", "upgrade", "chunked", "999"] {
+        assert!(
+            !head.contains(banned),
+            "{banned} reached the daemon: {head}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn hop_by_hop_answer_headers_are_not_relayed_with_a_buffered_body() {
+    let (client, mut server) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        let read = server.read(&mut buf).await.unwrap();
+        assert!(read > 0, "the request arrived");
+        server
+            .write_all(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nkeep-alive: timeout=5\r\nx-kept: 1\r\nconnection: close\r\n\r\n2\r\nok\r\n0\r\n\r\n")
+            .await
+            .unwrap();
+    });
+    let request = Request::builder().uri("/v0/x").body(Vec::new()).unwrap();
+    let answer = exchange(Box::new(client), request, 1024).await.unwrap();
+    assert_eq!(answer.body(), b"ok");
+    assert_eq!(answer.headers().get("x-kept").unwrap(), "1");
+    for hop in ["transfer-encoding", "keep-alive", "connection"] {
+        assert!(answer.headers().get(hop).is_none(), "{hop}");
+    }
+}

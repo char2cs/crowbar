@@ -16,15 +16,16 @@ use std::sync::{Arc, Mutex};
 
 use http::{Method, Request};
 use protocol::ExtensionId;
+use protocol::PaneOrigin;
 use tokio::net::UnixListener;
-use transport::{AccessScope, EXTENSION_HEADER, HostRegistry, MemoryTokenStore, Transport};
+use transport::{EXTENSION_HEADER, HostRegistry, MemoryTokenStore, Transport};
 
 use crate::http_daemon::{Handler, Log, serve_http};
 
-fn socket(tag: &str) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!("cb-http-{tag}-{}.sock", std::process::id()));
-    std::fs::remove_file(&path).ok();
-    path
+fn socket() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("daemon.sock");
+    (dir, path)
 }
 
 fn transport_at(path: std::path::PathBuf) -> Transport {
@@ -73,7 +74,7 @@ fn ok(body: &str) -> Handler {
 
 #[tokio::test]
 async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_answer_returns() {
-    let path = socket("roundtrip");
+    let (_dir, path) = socket();
     let log = daemon(
         &path,
         Arc::new(|seen| {
@@ -91,7 +92,7 @@ async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_a
         b"hello",
     );
     req.headers_mut().insert("x-pane", "p1".parse().unwrap());
-    let answer = transport.handle(&AccessScope::Core, req).await;
+    let answer = transport.handle(&PaneOrigin::Core, req).await;
     assert_eq!(answer.status(), 201);
     assert_eq!(answer.body(), b"got 5");
     assert_eq!(answer.headers()["x-seen"], "/v0/threads?limit=5");
@@ -105,10 +106,10 @@ async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_a
 
 #[tokio::test]
 async fn the_extension_header_is_stamped_for_extensions_and_stripped_from_core_requests() {
-    let path = socket("stamp");
+    let (_dir, path) = socket();
     let log = daemon(&path, ok("{}"));
     let transport = transport_at(path);
-    let acme = AccessScope::Extension(ExtensionId::new("acme").unwrap());
+    let acme = PaneOrigin::Extension(ExtensionId::new("acme").unwrap());
     transport
         .handle(
             &acme,
@@ -119,7 +120,7 @@ async fn the_extension_header_is_stamped_for_extensions_and_stripped_from_core_r
     forged
         .headers_mut()
         .insert(EXTENSION_HEADER, "victim".parse().unwrap());
-    transport.handle(&AccessScope::Core, forged).await;
+    transport.handle(&PaneOrigin::Core, forged).await;
     let seen = log.lock().unwrap().clone();
     assert_eq!(seen[0].header(EXTENSION_HEADER), Some("acme"));
     assert_eq!(
@@ -131,10 +132,10 @@ async fn the_extension_header_is_stamped_for_extensions_and_stripped_from_core_r
 
 #[tokio::test]
 async fn an_extension_cannot_reach_core_routes_and_the_daemon_never_hears_of_it() {
-    let path = socket("scope");
+    let (_dir, path) = socket();
     let log = daemon(&path, ok("{}"));
     let transport = transport_at(path);
-    let acme = AccessScope::Extension(ExtensionId::new("acme").unwrap());
+    let acme = PaneOrigin::Extension(ExtensionId::new("acme").unwrap());
     for uri in [
         "crowbar://localhost/v0/projects",
         "crowbar://localhost/v0/ext/other/x",
@@ -153,7 +154,7 @@ async fn an_extension_cannot_reach_core_routes_and_the_daemon_never_hears_of_it(
 
 #[tokio::test]
 async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() {
-    let path = socket("marker");
+    let (_dir, path) = socket();
     daemon(
         &path,
         Arc::new(|_| {
@@ -167,7 +168,7 @@ async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() {
     let transport = transport_at(path);
     let answer = transport
         .handle(
-            &AccessScope::Core,
+            &PaneOrigin::Core,
             request(Method::GET, "crowbar://localhost/v0/x", b""),
         )
         .await;
@@ -176,14 +177,14 @@ async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() {
 
 #[tokio::test]
 async fn cors_is_granted_only_to_answers_the_proxy_wrote() {
-    let path = socket("cors");
+    let (_dir, path) = socket();
     daemon(&path, ok("{}"));
     let transport = transport_at(path.clone());
     let mut served = request(Method::GET, "crowbar://localhost/v0/x", b"");
     served
         .headers_mut()
         .insert("origin", "crowbar://app".parse().unwrap());
-    let answer = transport.handle(&AccessScope::Core, served).await;
+    let answer = transport.handle(&PaneOrigin::Core, served).await;
     assert!(
         answer
             .headers()
@@ -197,7 +198,7 @@ async fn cors_is_granted_only_to_answers_the_proxy_wrote() {
     refused
         .headers_mut()
         .insert("origin", "crowbar://app".parse().unwrap());
-    let answer = transport.handle(&AccessScope::Core, refused).await;
+    let answer = transport.handle(&PaneOrigin::Core, refused).await;
     assert_eq!(answer.status(), 503);
     assert_eq!(transport::marker_of(&answer), Some("daemon-unavailable"));
     assert_eq!(
@@ -208,7 +209,7 @@ async fn cors_is_granted_only_to_answers_the_proxy_wrote() {
 
 #[tokio::test]
 async fn a_large_body_goes_through_intact_in_both_directions() {
-    let path = socket("large");
+    let (_dir, path) = socket();
     daemon(
         &path,
         Arc::new(|seen| {
@@ -223,7 +224,7 @@ async fn a_large_body_goes_through_intact_in_both_directions() {
     let payload = "x".repeat(4 * 1024 * 1024);
     let answer = transport
         .handle(
-            &AccessScope::Core,
+            &PaneOrigin::Core,
             request(Method::POST, "crowbar://localhost/v0/x", payload.as_bytes()),
         )
         .await;
@@ -232,10 +233,11 @@ async fn a_large_body_goes_through_intact_in_both_directions() {
 
 #[tokio::test]
 async fn an_unregistered_remote_host_is_a_bad_gateway() {
-    let transport = transport_at(socket("none"));
+    let (_dir, path) = socket();
+    let transport = transport_at(path);
     let answer = transport
         .handle(
-            &AccessScope::Core,
+            &PaneOrigin::Core,
             request(Method::GET, "crowbar://host-7/v0/x", b""),
         )
         .await;

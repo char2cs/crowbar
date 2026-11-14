@@ -1,14 +1,13 @@
-use protocol::PaneKind;
+use protocol::PaneOrigin;
 
 use super::*;
 
 fn scope(pane: &str, host: &str) -> RelayScope {
-    RelayScope {
-        host: HostId::new(host).unwrap(),
-        pane: PaneId::new(pane).unwrap(),
-        kind: PaneKind::Core,
-        extension: None,
-    }
+    RelayScope::new(
+        HostId::new(host).unwrap(),
+        PaneId::new(pane).unwrap(),
+        PaneOrigin::Core,
+    )
 }
 
 #[test]
@@ -52,4 +51,17 @@ fn shutting_the_root_down_cancels_every_connection() {
     let a = book.register(&scope("p1", "local"), &root).unwrap();
     root.cancel();
     assert!(a.cancelled().is_cancelled());
+}
+
+#[test]
+fn closing_hosts_not_kept_cancels_every_stream_of_an_unlisted_host() {
+    let book = ConnectionBook::new(10, 10);
+    let root = CancellationToken::new();
+    let local = book.register(&scope("p1", "local"), &root).unwrap();
+    let listed = book.register(&scope("p2", "host-1"), &root).unwrap();
+    let removed = book.register(&scope("p3", "host-2"), &root).unwrap();
+    book.close_hosts_not_kept(|host| host.as_str() != "host-2");
+    assert!(!local.cancelled().is_cancelled());
+    assert!(!listed.cancelled().is_cancelled());
+    assert!(removed.cancelled().is_cancelled());
 }

@@ -5,8 +5,8 @@ use serde_json::Value;
 use crate::envelope::Envelope;
 use crate::error::{Error, Result};
 use crate::pane_frame::PaneFrame;
+use crate::sdk_version::SDK_VERSION;
 use crate::shell_frame::ShellFrame;
-use crate::version::SDK_MAJOR;
 
 /// Largest control frame accepted, in bytes. Bulk data uses the custom protocol instead.
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
@@ -18,7 +18,7 @@ pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 /// text exceeds [`MAX_FRAME_BYTES`].
 pub fn encode<T: Serialize>(frame: &T) -> Result<String> {
     let text = serde_json::to_string(&Envelope {
-        sdk: SDK_MAJOR,
+        sdk: SDK_VERSION.major(),
         frame,
     })?;
     check_size(text.len())?;
@@ -58,10 +58,10 @@ fn decode<T: DeserializeOwned>(text: &str) -> Result<T> {
         .as_object_mut()
         .and_then(|object| object.remove("sdk"))
         .and_then(|sdk| sdk.as_u64());
-    if found != Some(u64::from(SDK_MAJOR)) {
+    if found != Some(u64::from(SDK_VERSION.major())) {
         return Err(Error::UnsupportedSdk {
             found,
-            expected: SDK_MAJOR,
+            expected: SDK_VERSION.major(),
         });
     }
     Ok(serde_json::from_value(value)?)

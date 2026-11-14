@@ -1,17 +1,14 @@
 use std::fmt;
 
 use serde_json::{Value, json};
+use zeroize::Zeroizing;
 
 use crate::fingerprint::{CertificateDigest, hex};
 
-/// A host's token and the certificate it is bound to, kept in one keychain entry so nothing the
-/// webview or the host config can write moves the token to another identity.
 #[derive(Clone, PartialEq, Eq)]
-pub struct Credential {
-    /// The bearer token the host issued at pairing.
-    pub token: String,
-    /// The whole digest of the certificate pairing verified.
-    pub pin: CertificateDigest,
+pub(crate) struct Credential {
+    token: Zeroizing<String>,
+    pin: CertificateDigest,
 }
 
 impl fmt::Debug for Credential {
@@ -24,25 +21,33 @@ impl fmt::Debug for Credential {
 }
 
 impl Credential {
-    /// The keychain entry text for this credential.
-    #[must_use]
-    pub fn encode(&self) -> String {
-        json!({ "token": self.token, "pin": hex(&self.pin) }).to_string()
+    pub(crate) fn new(token: String, pin: CertificateDigest) -> Self {
+        Self {
+            token: Zeroizing::new(token),
+            pin,
+        }
     }
 
-    /// `None` for anything pairing did not write, including a blank token.
-    #[must_use]
-    pub fn decode(stored: &str) -> Option<Self> {
+    pub(crate) fn token(&self) -> &str {
+        &self.token
+    }
+
+    pub(crate) fn pin(&self) -> CertificateDigest {
+        self.pin
+    }
+
+    pub(crate) fn encode(&self) -> Zeroizing<String> {
+        Zeroizing::new(json!({ "token": self.token.as_str(), "pin": hex(&self.pin) }).to_string())
+    }
+
+    pub(crate) fn decode(stored: &str) -> Option<Self> {
         let value: Value = serde_json::from_str(stored).ok()?;
         let token = value
             .get("token")?
             .as_str()
             .filter(|t| !t.trim().is_empty())?;
         let pin = parse_digest(value.get("pin")?.as_str()?)?;
-        Some(Self {
-            token: token.to_owned(),
-            pin,
-        })
+        Some(Self::new(token.to_owned(), pin))
     }
 }
 

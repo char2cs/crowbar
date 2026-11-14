@@ -1,22 +1,32 @@
 use http::header::AUTHORIZATION;
+use protocol::PaneOrigin;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::{WebSocketStream, client_async_with_config};
 
+use crate::access_scope::stamp;
 use crate::async_stream::BoxedStream;
-use crate::dial::{DIAL_TIMEOUT, dial};
+use crate::dial::dial;
 use crate::error::Error;
 use crate::host_target::HostTarget;
 use crate::remote::paired_host;
 use crate::transport::Transport;
+use crate::upstream_request::UpstreamRequest;
 
-/// A daemon-side WebSocket over whichever transport the target needs.
-pub type UpstreamSocket = WebSocketStream<BoxedStream>;
+pub(crate) type UpstreamSocket = WebSocketStream<BoxedStream>;
 
 pub(crate) fn ws_config(max_message: usize) -> WebSocketConfig {
     WebSocketConfig::default()
         .max_message_size(Some(max_message))
         .max_frame_size(Some(max_message))
+}
+
+fn upgrade_request(origin: &PaneOrigin, path_and_query: &str) -> Result<http::Request<()>, Error> {
+    let mut request = format!("ws://localhost{path_and_query}")
+        .into_client_request()
+        .map_err(Error::websocket)?;
+    stamp(request.headers_mut(), origin);
+    Ok(request)
 }
 
 async fn connect(
@@ -41,22 +51,15 @@ async fn connect(
 
 pub(crate) async fn open(
     transport: &Transport,
-    target: &HostTarget,
-    path_and_query: &str,
-    max_message: usize,
+    wanted: &UpstreamRequest,
 ) -> Result<UpstreamSocket, Error> {
-    let mut request = format!("ws://localhost{path_and_query}")
-        .into_client_request()
-        .map_err(|e| Error::WebSocket(Box::new(e)))?;
-    let stream = connect(transport, target, &mut request).await?;
-    let upgrade = client_async_with_config(request, stream, Some(ws_config(max_message)));
-    let upgraded = match target {
-        HostTarget::Local => upgrade.await,
-        HostTarget::Remote(_) => tokio::time::timeout(DIAL_TIMEOUT, upgrade)
+    let mut request = upgrade_request(&wanted.origin, &wanted.path_and_query)?;
+    let stream = connect(transport, &wanted.target, &mut request).await?;
+    let (socket, _response) =
+        client_async_with_config(request, stream, Some(ws_config(wanted.max_message)))
             .await
-            .map_err(|_| Error::UpgradeTimeout)?,
-    };
-    Ok(upgraded.map_err(|e| Error::WebSocket(Box::new(e)))?.0)
+            .map_err(Error::websocket)?;
+    Ok(socket)
 }
 
 #[cfg(test)]

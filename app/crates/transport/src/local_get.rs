@@ -18,7 +18,8 @@ pub async fn local_get(
     let mut request = Request::builder()
         .method(Method::GET)
         .uri(target)
-        .body(Vec::new())?;
+        .body(Vec::new())
+        .map_err(Error::bad_request)?;
     request
         .headers_mut()
         .insert(header::HOST, HeaderValue::from_static("localhost"));

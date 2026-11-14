@@ -2,6 +2,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use super::*;
@@ -33,6 +34,10 @@ fn state(handshake_timeout: Duration) -> Arc<RelayState> {
     })
 }
 
+fn slot() -> OwnedSemaphorePermit {
+    Arc::new(Semaphore::new(1)).try_acquire_owned().unwrap()
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_client_that_never_finishes_the_handshake_is_dropped_at_the_deadline() {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
@@ -40,7 +45,7 @@ async fn a_client_that_never_finishes_the_handshake_is_dropped_at_the_deadline()
         .await
         .unwrap();
     let (accepted, _) = listener.accept().await.unwrap();
-    run(state(Duration::from_secs(10)), accepted).await;
+    run(state(Duration::from_secs(10)), accepted, slot()).await;
     drop(silent);
 }
 
@@ -53,5 +58,5 @@ async fn garbage_instead_of_a_websocket_handshake_ends_the_session() {
         .unwrap();
     let (accepted, _) = listener.accept().await.unwrap();
     client.write_all(b"GET / HTTP/1.1\r\n\r\n").await.unwrap();
-    run(state(Duration::from_secs(10)), accepted).await;
+    run(state(Duration::from_secs(10)), accepted, slot()).await;
 }

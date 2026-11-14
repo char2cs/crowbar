@@ -6,33 +6,47 @@ use crate::host_id::HostId;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// An identifier was empty.
+    /// A value was empty.
     #[error("{kind} is empty")]
     EmptyId {
-        /// Which identifier was being parsed.
+        /// Which value was being parsed.
         kind: &'static str,
     },
-    /// An identifier was longer than the allowed maximum.
+    /// A value was longer than the allowed maximum.
     #[error("{kind} is longer than {max} bytes")]
     IdTooLong {
-        /// Which identifier was being parsed.
+        /// Which value was being parsed.
         kind: &'static str,
         /// Maximum length in bytes.
         max: usize,
     },
-    /// An identifier contains a character outside its alphabet.
+    /// A value contains a character outside its alphabet.
     #[error("{kind} contains invalid character {found:?}")]
     InvalidIdCharacter {
-        /// Which identifier was being parsed.
+        /// Which value was being parsed.
         kind: &'static str,
         /// The offending character.
         found: char,
     },
-    /// An identifier does not have the required shape.
+    /// A value does not have the required shape.
     #[error("{kind} {reason}")]
     MalformedId {
-        /// Which identifier was being parsed.
+        /// Which value was being parsed.
         kind: &'static str,
+        /// What is wrong with it.
+        reason: &'static str,
+    },
+    /// A map holds more entries than allowed.
+    #[error("{kind} holds more than {max} entries")]
+    TooManyEntries {
+        /// Which map was being built.
+        kind: &'static str,
+        /// Maximum number of entries.
+        max: usize,
+    },
+    /// A daemon request is malformed.
+    #[error("invalid request: {reason}")]
+    InvalidRequest {
         /// What is wrong with it.
         reason: &'static str,
     },
@@ -66,12 +80,15 @@ pub enum Error {
     /// The host id is not known to the transport.
     #[error("unknown host {0}")]
     UnknownHost(HostId),
-    /// The daemon or remote host cannot be reached.
+    /// The daemon or remote host cannot be reached; the cause is the transport's own error.
     #[error("host unavailable: {0}")]
-    HostUnavailable(String),
-    /// The request was refused by policy.
+    HostUnavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The request was refused by policy; the reason is fixed text, safe to show to a page.
     #[error("denied: {0}")]
-    Denied(String),
+    Denied(&'static str),
+    /// The transport stopped before it answered the request.
+    #[error("the transport stopped before answering")]
+    Interrupted,
     /// The daemon did not answer within the budget.
     #[error("timed out")]
     Timeout,

@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use protocol::HostId;
 
+use crate::blocking::blocking;
 use crate::endpoint::Endpoint;
 use crate::error::Error;
 use crate::host_target::check_registrable;
@@ -12,11 +13,13 @@ use crate::hosts_document::HostsDocument;
 type Hosts = BTreeMap<HostId, Endpoint>;
 
 /// Host id to the `host:port` its daemon listens on, optionally backed by a JSON file. Secrets
-/// are not here: tokens and pins live in the [`TokenStore`](crate::TokenStore). Changes are
-/// written through; a failed write leaves the list as it was.
+/// are not here: tokens and pins live in a [`TokenStore`](crate::TokenStore). Changes are
+/// written through on the blocking pool; a failed write leaves the list as it was, and readers
+/// never wait for the disk.
 #[derive(Debug, Default)]
 pub struct HostRegistry {
     hosts: RwLock<Hosts>,
+    writer: Mutex<()>,
     file: Option<PathBuf>,
 }
 
@@ -28,11 +31,12 @@ impl HostRegistry {
     }
 
     /// A registry persisted at `path`. A missing file is an empty list; a corrupt one is an
-    /// error rather than silently dropping the user's hosts.
+    /// error rather than silently dropping the user's hosts. Reads the file on the calling
+    /// thread, so call it at startup or from the blocking pool.
     ///
     /// # Errors
-    /// [`Error::HostsIo`], [`Error::HostsCorrupt`] or [`Error::HostsVersion`] when the file
-    /// cannot be read or understood.
+    /// [`Error::HostsIo`], [`Error::HostsCorrupt`], [`Error::HostsInvalid`] or
+    /// [`Error::HostsVersion`] when the file cannot be read or understood.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, Error> {
         let path = path.into();
         let hosts = match std::fs::read(&path) {
@@ -42,6 +46,7 @@ impl HostRegistry {
         };
         Ok(Self {
             hosts: RwLock::new(hosts),
+            writer: Mutex::new(()),
             file: Some(path),
         })
     }
@@ -66,31 +71,45 @@ impl HostRegistry {
     /// # Errors
     /// [`Error::BadHostId`] for an id that names the local daemon, or a hosts-file error when
     /// the list cannot be saved.
-    pub fn insert(&self, host_id: HostId, endpoint: Endpoint) -> Result<(), Error> {
-        check_registrable(&host_id)?;
-        self.change(|hosts| {
-            hosts.insert(host_id, endpoint);
-        })
+    pub async fn insert(
+        self: &Arc<Self>,
+        host_id: HostId,
+        endpoint: Endpoint,
+    ) -> Result<(), Error> {
+        let registry = Arc::clone(self);
+        blocking(move || registry.insert_blocking(host_id, endpoint)).await
     }
 
     /// Removes `host_id`; removing an unknown host is not an error.
     ///
     /// # Errors
     /// A hosts-file error when the list cannot be saved.
-    pub fn remove(&self, host_id: &HostId) -> Result<(), Error> {
+    pub async fn remove(self: &Arc<Self>, host_id: HostId) -> Result<(), Error> {
+        let registry = Arc::clone(self);
+        blocking(move || registry.remove_blocking(&host_id)).await
+    }
+
+    pub(crate) fn insert_blocking(&self, host_id: HostId, endpoint: Endpoint) -> Result<(), Error> {
+        check_registrable(&host_id)?;
+        self.change(|hosts| {
+            hosts.insert(host_id, endpoint);
+        })
+    }
+
+    pub(crate) fn remove_blocking(&self, host_id: &HostId) -> Result<(), Error> {
         self.change(|hosts| {
             hosts.remove(host_id);
         })
     }
 
     fn change(&self, edit: impl FnOnce(&mut Hosts)) -> Result<(), Error> {
-        let mut hosts = self.write();
-        let mut next = hosts.clone();
+        let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut next = self.read().clone();
         edit(&mut next);
         if let Some(path) = &self.file {
             HostsDocument::save(path, &next)?;
         }
-        *hosts = next;
+        *self.write() = next;
         Ok(())
     }
 

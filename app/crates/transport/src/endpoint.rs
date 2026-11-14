@@ -5,8 +5,14 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Error;
+use std::time::Duration;
+
 use tokio::net::{TcpStream, lookup_host};
+
+use crate::error::Error;
+use crate::first_connected::first_connected;
+
+const CONNECT_STAGGER: Duration = Duration::from_millis(250);
 
 /// A DNS name, IPv4 address or bracketed IPv6 address, and a port. Parsing resolves nothing:
 /// a name is looked up only when it is dialled.
@@ -51,11 +57,7 @@ impl Endpoint {
         })
     }
 
-    /// Resolves the host, then connects to the first of its addresses that answers.
-    ///
-    /// # Errors
-    /// [`Error::Unresolvable`] or [`Error::Unreachable`].
-    pub async fn connect(&self) -> Result<TcpStream, Error> {
+    pub(crate) async fn connect(&self) -> Result<TcpStream, Error> {
         let unresolvable = |reason: String| Error::Unresolvable {
             host: self.host.clone(),
             reason,
@@ -64,20 +66,15 @@ impl Endpoint {
             .await
             .map_err(|e| unresolvable(e.to_string()))?
             .collect();
-        let mut refused = None;
-        for addr in addrs {
-            match TcpStream::connect(addr).await {
-                Ok(tcp) => return Ok(tcp),
-                Err(e) => refused = Some(e),
-            }
+        if addrs.is_empty() {
+            return Err(unresolvable("it has no addresses".to_owned()));
         }
-        Err(match refused {
-            Some(source) => Error::Unreachable {
+        first_connected(addrs, CONNECT_STAGGER, TcpStream::connect)
+            .await
+            .map_err(|source| Error::Unreachable {
                 endpoint: self.clone(),
                 source,
-            },
-            None => unresolvable("it has no addresses".to_owned()),
-        })
+            })
     }
 }
 

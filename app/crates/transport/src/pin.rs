@@ -4,9 +4,8 @@ use crate::fingerprint::{
     CertificateDigest, certificate_digest, display_fingerprint, fingerprint_of,
 };
 
-/// The one certificate a pinned dial trusts.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Pin {
+pub(crate) enum Pin {
     /// The fingerprint a human confirmed against `crowbar pair`. Truncated, so it pins only
     /// the pairing dial, which captures the full digest.
     Confirmed(String),

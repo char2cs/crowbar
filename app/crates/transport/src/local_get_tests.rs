@@ -1,10 +1,11 @@
+use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 
 use super::*;
 
-fn socket(tag: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("cb-lget-{tag}-{}.sock", std::process::id()))
+fn socket(dir: &TempDir) -> std::path::PathBuf {
+    dir.path().join("d.sock")
 }
 
 async fn serve_once(listener: UnixListener, reply: &'static str) -> String {
@@ -17,7 +18,8 @@ async fn serve_once(listener: UnixListener, reply: &'static str) -> String {
 
 #[tokio::test]
 async fn it_gets_the_target_and_returns_the_buffered_answer() {
-    let path = socket("ok");
+    let dir = TempDir::new().unwrap();
+    let path = socket(&dir);
     let listener = UnixListener::bind(&path).unwrap();
     let daemon = tokio::spawn(serve_once(
         listener,
@@ -29,12 +31,12 @@ async fn it_gets_the_target_and_returns_the_buffered_answer() {
     assert_eq!(response.body(), b"hi");
     let seen = daemon.await.unwrap();
     assert!(seen.starts_with("GET /v0/health?x=1 HTTP/1.1"), "{seen}");
-    std::fs::remove_file(&path).unwrap();
 }
 
 #[tokio::test]
 async fn an_answer_over_the_limit_is_refused() {
-    let path = socket("big");
+    let dir = TempDir::new().unwrap();
+    let path = socket(&dir);
     let listener = UnixListener::bind(&path).unwrap();
     tokio::spawn(serve_once(
         listener,
@@ -43,5 +45,4 @@ async fn an_answer_over_the_limit_is_refused() {
     let stream = UnixStream::connect(&path).await.unwrap();
     let error = local_get(stream, "/v0/x", 4).await.unwrap_err();
     assert!(matches!(error, Error::TooLarge), "{error}");
-    std::fs::remove_file(&path).unwrap();
 }

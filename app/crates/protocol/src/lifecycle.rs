@@ -18,21 +18,3 @@ pub enum Lifecycle {
     /// The pane instance is removed for good; its state is dropped.
     Destroy,
 }
-
-impl Lifecycle {
-    /// The wire name of the event.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Mount => "mount",
-            Self::Activate => "activate",
-            Self::Deactivate => "deactivate",
-            Self::Park => "park",
-            Self::Destroy => "destroy",
-        }
-    }
-}
-
-#[cfg(test)]
-#[path = "lifecycle_tests.rs"]
-mod tests;

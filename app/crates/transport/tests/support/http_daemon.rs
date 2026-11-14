@@ -69,7 +69,12 @@ async fn read_request<S: AsyncRead + Unpin>(
     }
     let body = buffered.get(end..end + length)?.to_vec();
     buffered.drain(..end + length);
-    Some(Seen { method, target, headers, body })
+    Some(Seen {
+        method,
+        target,
+        headers,
+        body,
+    })
 }
 
 /// Serves HTTP/1.1 with keep-alive on `stream` until it closes, recording what it saw.

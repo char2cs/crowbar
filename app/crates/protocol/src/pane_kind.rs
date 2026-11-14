@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 /// Who authored a pane: the app itself or an extension.
 ///
-/// Relay tokens and origins are scoped by this value.
+/// A coarse category of a [`PaneOrigin`](crate::PaneOrigin), for code that only needs to tell
+/// core from extension; scopes themselves use `PaneOrigin`, which cannot name no extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PaneKind {

@@ -13,23 +13,13 @@ use crate::remote_host::RemoteHost;
 
 pub(crate) const SERVER_NAME: &str = "crowbar-remote";
 
-/// Bound on connect plus handshake. A host that is up answers well within it; one behind a
-/// dropped link would otherwise hold the request until the OS abandons the connect.
-pub const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How long a connection to a remote host idles before keepalive probes start. A peer that
-/// dies silently never closes the connection, and an idle TCP socket never notices on its own.
-pub const KEEPALIVE_IDLE: Duration = Duration::from_secs(15);
+const KEEPALIVE_IDLE: Duration = Duration::from_secs(15);
 
-/// Spacing of keepalive probes once the connection has been idle.
-pub const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 
-/// TCP plus a TLS handshake that trusts only `host`'s pinned certificate.
-///
-/// # Errors
-/// [`Error::HostUnreachable`] when the host does not answer, [`Error::IdentityChanged`] when it
-/// answers with another certificate.
-pub async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Error> {
+pub(crate) async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Error> {
     match tokio::time::timeout(DIAL_TIMEOUT, connect_pinned(host)).await {
         Ok(result) => result,
         Err(_) => Err(Error::HostUnreachable(format!(
@@ -46,7 +36,7 @@ async fn connect_pinned(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Error
         .connect()
         .await
         .map_err(|e| unreachable(e.to_string()))?;
-    probe_when_idle(&tcp)
+    enable_keepalive(&tcp)
         .map_err(|e| unreachable(format!("cannot reach {}: {e}", host.endpoint)))?;
     let name = ServerName::try_from(SERVER_NAME).map_err(|e| unreachable(e.to_string()))?;
     let config = pinned_client_config(host.pin.clone()).map_err(|e| unreachable(e.to_string()))?;
@@ -56,7 +46,7 @@ async fn connect_pinned(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Error
         .map_err(|e| handshake_failure(host, &e))
 }
 
-fn probe_when_idle(tcp: &TcpStream) -> io::Result<()> {
+fn enable_keepalive(tcp: &TcpStream) -> io::Result<()> {
     let keepalive = TcpKeepalive::new()
         .with_time(KEEPALIVE_IDLE)
         .with_interval(KEEPALIVE_INTERVAL);

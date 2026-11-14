@@ -11,9 +11,13 @@ pub const HOST_UNREACHABLE: &str = "host-unreachable";
 /// A remote host answered, but not with the identity pinned at pairing.
 pub const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
 
-/// A plain-text answer the proxy wrote itself rather than relayed from a daemon.
+/// No credential is stored for the host: pairing has to be done again.
+pub const NO_CREDENTIAL: &str = "no-credential";
+/// The host id is not registered.
+pub const UNKNOWN_HOST: &str = "unknown-host";
+
 #[must_use]
-pub fn error_response(status: u16, message: &str) -> Response<Vec<u8>> {
+pub(crate) fn error_response(status: u16, message: &str) -> Response<Vec<u8>> {
     let mut response = Response::new(message.as_bytes().to_vec());
     *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
     response
@@ -23,9 +27,12 @@ pub fn error_response(status: u16, message: &str) -> Response<Vec<u8>> {
     response
 }
 
-/// [`error_response`] carrying a [`PROXY_HEADER`] marker naming the failure.
 #[must_use]
-pub fn marked_response(status: u16, marker: &'static str, message: &str) -> Response<Vec<u8>> {
+pub(crate) fn marked_response(
+    status: u16,
+    marker: &'static str,
+    message: &str,
+) -> Response<Vec<u8>> {
     let mut response = error_response(status, message);
     response
         .headers_mut()
@@ -33,11 +40,8 @@ pub fn marked_response(status: u16, marker: &'static str, message: &str) -> Resp
     response
 }
 
-/// The page reaches `crowbar://` cross-origin, so WebKit hides any answer without CORS headers
-/// (status and marker too) and `fetch` rejects opaquely. A daemon grants its own answers; the
-/// proxy's are granted here.
 #[must_use]
-pub fn readable_by(
+pub(crate) fn readable_by(
     origin: Option<HeaderValue>,
     mut response: Response<Vec<u8>>,
 ) -> Response<Vec<u8>> {

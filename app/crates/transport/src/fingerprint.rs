@@ -1,21 +1,18 @@
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 
-/// A certificate's whole SHA-256.
-pub type CertificateDigest = [u8; 32];
+pub(crate) type CertificateDigest = [u8; 32];
 
 const DISPLAY_BYTES: usize = 12;
 const GROUP_CHARS: usize = 4;
 
-/// The SHA-256 of a DER certificate.
 #[must_use]
-pub fn certificate_digest(der: &[u8]) -> CertificateDigest {
+pub(crate) fn certificate_digest(der: &[u8]) -> CertificateDigest {
     Sha256::digest(der).into()
 }
 
-/// Lowercase hex of `bytes`.
 #[must_use]
-pub fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut text, byte| {
         write!(text, "{byte:02x}").ok();
         text

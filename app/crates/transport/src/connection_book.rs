@@ -31,7 +31,7 @@ impl ConnectionBook {
         let same_pane = registry
             .live
             .values()
-            .filter(|l| l.pane == scope.pane)
+            .filter(|l| l.pane == *scope.pane())
             .count();
         if registry.live.len() >= self.max_total || same_pane >= self.max_per_pane {
             return None;
@@ -42,8 +42,8 @@ impl ConnectionBook {
         registry.live.insert(
             id,
             Live {
-                pane: scope.pane.clone(),
-                host: scope.host.clone(),
+                pane: scope.pane().clone(),
+                host: scope.host().clone(),
                 cancel: cancel.clone(),
             },
         );
@@ -60,6 +60,10 @@ impl ConnectionBook {
 
     pub(crate) fn close_host(&self, host: &HostId) {
         self.close_where(|live| live.host == *host);
+    }
+
+    pub(crate) fn close_hosts_not_kept(&self, keep: impl Fn(&HostId) -> bool) {
+        self.close_where(|live| !keep(&live.host));
     }
 
     fn close_where(&self, matches: impl Fn(&Live) -> bool) {

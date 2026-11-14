@@ -13,8 +13,7 @@ use crate::fingerprint::fingerprint_of;
 use crate::tls_config::client_config_with;
 use crate::unpinned_probe_verifier::UnpinnedProbeVerifier;
 
-/// Bound on connect, handshake and hang-up; the user is waiting on a dialog.
-pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The fingerprint of the certificate `endpoint` presents, for the user to confirm before pairing
 /// pins it. This is the one unpinned TLS dial: it sends nothing and hangs up.

@@ -20,9 +20,14 @@ BEGIN { pend_doc = 0; cfg_line = 0 }
     report(cfg_line, "cfg-test", "#[cfg(test)] is only allowed as the wiring of foo_tests.rs (#[path] on the next line)")
   }
   if (cfg_line) cfg_line = 0
-  if (raw ~ /#!?\[allow\(/) {
-    if (raw !~ /reason *=/) report(NR, "allow", "allow without reason = \"...\"")
-    if (raw ~ /dead_code/) report(NR, "allow-dead", "dead code is deleted, not allowed")
+  if (raw ~ /#!?\[allow\(/) { allow_buf = ""; allow_line = NR; collecting = 1 }
+  if (collecting) {
+    allow_buf = allow_buf raw
+    if (raw ~ /\]/) {
+      collecting = 0
+      if (allow_buf !~ /reason *=/) report(allow_line, "allow", "allow without reason = \"...\"")
+      if (allow_buf ~ /dead_code/) report(allow_line, "allow-dead", "dead code is deleted, not allowed")
+    }
   }
   if (mode == "test") next
   if (raw ~ /^[ \t]*#\[cfg\(.*test/ && raw !~ /not\(test\)/) { cfg_line = NR; next }

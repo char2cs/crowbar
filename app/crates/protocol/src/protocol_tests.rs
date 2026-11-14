@@ -42,8 +42,8 @@ fn rejects_oversized_text_before_parsing() {
 #[test]
 fn encode_refuses_oversized_frames() {
     let frame = PaneFrame::Request {
-        id: crate::RequestId(1),
-        method: "m".into(),
+        id: crate::RequestId::new(1),
+        method: crate::MethodName::new("m").unwrap(),
         params: Value::String("x".repeat(MAX_FRAME_BYTES)),
     };
     assert!(

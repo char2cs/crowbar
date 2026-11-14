@@ -1,11 +1,50 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 /// A loopback WebSocket endpoint a pane can dial with its native `WebSocket`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The token is a live credential: [`Debug`](fmt::Debug) prints it redacted so it never reaches
+/// a log or a panic message.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayEndpoint {
-    /// Base URL, for example `ws://127.0.0.1:41233`.
-    pub url: String,
-    /// Per-pane session token the relay checks together with the `Origin`.
-    pub token: String,
+    url: String,
+    token: String,
 }
+
+impl RelayEndpoint {
+    /// An endpoint at `url` that accepts `token`.
+    #[must_use]
+    pub fn new(url: impl Into<String>, token: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            token: token.into(),
+        }
+    }
+
+    /// Base URL, for example `ws://127.0.0.1:41233`.
+    #[must_use]
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// Per-pane session token the relay checks together with the `Origin`.
+    #[must_use]
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+}
+
+impl fmt::Debug for RelayEndpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RelayEndpoint")
+            .field("url", &self.url)
+            .field("token", &"<redacted>")
+            .finish()
+    }
+}
+
+#[cfg(test)]
+#[path = "relay_endpoint_tests.rs"]
+mod tests;

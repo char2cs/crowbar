@@ -8,18 +8,22 @@ fn a_bearer_header_is_sensitive_and_refuses_newlines() {
 }
 
 #[tokio::test]
-async fn an_entry_pairing_did_not_write_is_no_credential() {
-    let store = MemoryTokenStore::default();
-    store.set("host-1", "sometoken").unwrap();
-    let tokens: Arc<dyn TokenStore> = Arc::new(store);
+async fn a_host_with_no_registration_or_credential_is_never_dialled() {
+    let registry = HostRegistry::in_memory();
+    let tokens: Arc<dyn TokenStore> = Arc::new(MemoryTokenStore::default());
     let id = HostId::new("host-1").unwrap();
     assert!(matches!(
-        stored_credential(&tokens, &id).await,
-        Err(Error::NoCredential)
+        paired_host(&registry, &tokens, &id).await,
+        Err(Error::UnknownHost(_))
     ));
-    let other = HostId::new("host-2").unwrap();
+    registry
+        .insert_blocking(
+            id.clone(),
+            crate::endpoint::Endpoint::parse("10.0.0.2:7000").unwrap(),
+        )
+        .unwrap();
     assert!(matches!(
-        stored_credential(&tokens, &other).await,
+        paired_host(&registry, &tokens, &id).await,
         Err(Error::NoCredential)
     ));
 }
@@ -33,5 +37,21 @@ fn a_dial_failure_keeps_unreachable_and_impostor_apart() {
     assert_ne!(
         outage.headers().get("x-crowbar-proxy"),
         impostor.headers().get("x-crowbar-proxy")
+    );
+}
+
+#[test]
+fn a_missing_credential_or_host_is_marked_so_the_page_can_offer_pairing() {
+    let none = credential_response(&Error::NoCredential);
+    assert_eq!(none.status(), 401);
+    assert_eq!(
+        none.headers().get("x-crowbar-proxy").unwrap(),
+        "no-credential"
+    );
+    let unknown = credential_response(&Error::UnknownHost(HostId::new("host-1").unwrap()));
+    assert_eq!(unknown.status(), 502);
+    assert_eq!(
+        unknown.headers().get("x-crowbar-proxy").unwrap(),
+        "unknown-host"
     );
 }

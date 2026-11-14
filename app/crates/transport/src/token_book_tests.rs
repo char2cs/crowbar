@@ -1,14 +1,13 @@
-use protocol::{ExtensionId, PaneKind};
+use protocol::PaneOrigin;
 
 use super::*;
 
 fn scope(pane: &str, host: &str) -> RelayScope {
-    RelayScope {
-        host: HostId::new(host).unwrap(),
-        pane: PaneId::new(pane).unwrap(),
-        kind: PaneKind::Core,
-        extension: None::<ExtensionId>,
-    }
+    RelayScope::new(
+        HostId::new(host).unwrap(),
+        PaneId::new(pane).unwrap(),
+        PaneOrigin::Core,
+    )
 }
 
 #[tokio::test(start_paused = true)]
@@ -59,4 +58,14 @@ async fn revoking_a_pane_or_a_host_drops_exactly_their_tokens() {
     assert_eq!(book.authorize(&a, Instant::now()), None);
     assert_eq!(book.authorize(&b, Instant::now()), None);
     assert!(book.authorize(&c, Instant::now()).is_some());
+}
+
+#[tokio::test(start_paused = true)]
+async fn retaining_hosts_drops_the_tokens_of_hosts_that_are_no_longer_kept() {
+    let mut book = TokenBook::new(Duration::from_secs(60));
+    let kept = book.issue(scope("p1", "local"), Instant::now()).unwrap();
+    let gone = book.issue(scope("p2", "host-1"), Instant::now()).unwrap();
+    book.retain_hosts(|host| host.as_str() == "local");
+    assert!(book.authorize(&kept, Instant::now()).is_some());
+    assert_eq!(book.authorize(&gone, Instant::now()), None);
 }

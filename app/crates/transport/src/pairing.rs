@@ -8,6 +8,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
 use crate::credential::Credential;
+use crate::credential_io;
 use crate::dial::dial;
 use crate::endpoint::Endpoint;
 use crate::error::Error;
@@ -21,20 +22,21 @@ use crate::redeemed::Redeemed;
 use crate::remote::{REMOTE_BODY_LIMIT, bearer};
 use crate::remote_host::RemoteHost;
 use crate::token_store::TokenStore;
+use crate::unrecorded::Unrecorded;
 
-/// Bound on the whole redeem: dial, request and answer.
-pub const PAIR_TIMEOUT: Duration = Duration::from_secs(30);
+const PAIR_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Redeems the one-time code at the host, trusting only the confirmed fingerprint's certificate,
-/// keeps the token in `tokens` and registers the host. On any failure the registry and keychain
-/// are untouched. Resolves to the daemon's id for this client, which a server-side revoke
-/// (`DELETE /v0/clients/:id`) names.
+/// keeps the token in `tokens` and registers the host. On any failure nothing is left behind: the
+/// registry is restored, no credential is stored, and the token is revoked on the host. Resolves
+/// to the daemon's id for this client, which a server-side revoke (`DELETE /v0/clients/:id`)
+/// names.
 ///
 /// # Errors
-/// Any pairing failure: a bad id or address, an unreachable or impostor host, a refused code, a
-/// keychain that cannot keep the token (the token is then revoked on the host).
+/// Any pairing failure: a bad id or address, an unreachable or impostor host, a refused code, or
+/// a host list or keychain that cannot record the pairing ([`Error::NotRecorded`]).
 pub async fn pair_remote_host(
-    registry: &HostRegistry,
+    registry: &Arc<HostRegistry>,
     tokens: &Arc<dyn TokenStore>,
     request: &PairRequest<'_>,
 ) -> Result<String, Error> {
@@ -44,64 +46,76 @@ pub async fn pair_remote_host(
         endpoint: Endpoint::parse(request.endpoint)?,
         pin: Pin::Confirmed(request.fingerprint.to_owned()),
     };
-    let mut redeemed = within_deadline(&host, redeem(&host, request)).await?;
-    keep_or_revoke(tokens, &host_id, &mut redeemed).await?;
-    registry.insert(host_id, host.endpoint)?;
-    Ok(redeemed.client_id)
-}
-
-async fn within_deadline<T>(
-    host: &RemoteHost,
-    step: impl Future<Output = Result<T, Error>>,
-) -> Result<T, Error> {
-    match tokio::time::timeout(PAIR_TIMEOUT, step).await {
-        Ok(result) => result,
-        Err(_) => Err(Error::PairTimeout(host.endpoint.clone())),
+    let mut redeemed = within_deadline(&host.endpoint, redeem(&host, request)).await?;
+    match record(registry, tokens, &host_id, &redeemed).await {
+        Ok(()) => Ok(redeemed.client_id),
+        Err(unrecorded) => Err(undo(&mut redeemed, unrecorded).await),
     }
 }
 
-async fn keep_or_revoke(
-    tokens: &Arc<dyn TokenStore>,
-    host_id: &HostId,
-    redeemed: &mut Redeemed,
-) -> Result<(), Error> {
-    let Err(keychain) = keep_credential(tokens, host_id, &redeemed.credential).await else {
-        return Ok(());
-    };
-    let endpoint = redeemed.endpoint.clone();
-    let revoked = within_deadline_for(&endpoint, revoke(redeemed)).await;
-    Err(Error::Unkept {
-        endpoint,
-        keychain,
-        revoke: match revoked {
-            Ok(()) => "the host revoked it".to_owned(),
-            Err(why) => format!("revoking it on the host failed: {why}"),
-        },
-    })
-}
-
-async fn within_deadline_for(
+async fn within_deadline<T>(
     endpoint: &Endpoint,
-    step: impl Future<Output = Result<(), Error>>,
-) -> Result<(), Error> {
+    step: impl Future<Output = Result<T, Error>>,
+) -> Result<T, Error> {
     match tokio::time::timeout(PAIR_TIMEOUT, step).await {
         Ok(result) => result,
         Err(_) => Err(Error::PairTimeout(endpoint.clone())),
     }
 }
 
-async fn keep_credential(
+async fn record(
+    registry: &Arc<HostRegistry>,
     tokens: &Arc<dyn TokenStore>,
     host_id: &HostId,
-    credential: &Credential,
-) -> Result<(), String> {
-    let store = Arc::clone(tokens);
-    let key = host_id.to_string();
-    let entry = credential.encode();
-    tokio::task::spawn_blocking(move || store.set(&key, &entry))
+    redeemed: &Redeemed,
+) -> Result<(), Unrecorded> {
+    let previous = registry.get(host_id);
+    registry
+        .insert(host_id.clone(), redeemed.endpoint.clone())
         .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
+        .map_err(|e| Unrecorded {
+            stage: "host list",
+            cause: e.to_string(),
+            rollback: "the host list is unchanged".to_owned(),
+        })?;
+    let Err(e) = credential_io::keep(tokens, host_id, &redeemed.credential).await else {
+        return Ok(());
+    };
+    Err(Unrecorded {
+        stage: "keychain",
+        cause: e.to_string(),
+        rollback: restore(registry, host_id, previous).await,
+    })
+}
+
+async fn restore(
+    registry: &Arc<HostRegistry>,
+    host_id: &HostId,
+    previous: Option<Endpoint>,
+) -> String {
+    let restored = match previous {
+        Some(endpoint) => registry.insert(host_id.clone(), endpoint).await,
+        None => registry.remove(host_id.clone()).await,
+    };
+    match restored {
+        Ok(()) => "the host list is restored".to_owned(),
+        Err(e) => format!("restoring the host list failed: {e}"),
+    }
+}
+
+async fn undo(redeemed: &mut Redeemed, unrecorded: Unrecorded) -> Error {
+    let endpoint = redeemed.endpoint.clone();
+    let revoked = within_deadline(&endpoint, revoke(redeemed)).await;
+    let revoke_note = match revoked {
+        Ok(()) => "the host revoked the token".to_owned(),
+        Err(why) => format!("revoking the token on the host failed: {why}"),
+    };
+    Error::NotRecorded {
+        endpoint,
+        stage: unrecorded.stage,
+        cause: unrecorded.cause,
+        cleanup: format!("{}; {revoke_note}", unrecorded.rollback),
+    }
 }
 
 async fn revoke(redeemed: &mut Redeemed) -> Result<(), Error> {
@@ -112,9 +126,9 @@ async fn revoke(redeemed: &mut Redeemed) -> Result<(), Error> {
     let request = Request::builder()
         .method(Method::DELETE)
         .uri(format!("/v0/clients/{}", redeemed.client_id))
-        .header(header::AUTHORIZATION, bearer(&redeemed.credential.token)?)
+        .header(header::AUTHORIZATION, bearer(redeemed.credential.token())?)
         .body(Vec::new())
-        .map_err(|e| exchange_failed(e.into()))?;
+        .map_err(|e| exchange_failed(Error::bad_request(e)))?;
     let response = send(&mut redeemed.channel, request, REMOTE_BODY_LIMIT)
         .await
         .map_err(exchange_failed)?;
@@ -122,7 +136,7 @@ async fn revoke(redeemed: &mut Redeemed) -> Result<(), Error> {
         return Ok(());
     }
     Err(Error::Refused {
-        status: response.status(),
+        status: response.status().as_u16(),
         reason: "revoke declined".to_owned(),
     })
 }
@@ -140,7 +154,7 @@ async fn redeem(host: &RemoteHost, request: &PairRequest<'_>) -> Result<Redeemed
         .uri("/v0/pair")
         .header(header::CONTENT_TYPE, "application/json")
         .body(body.into_bytes())
-        .map_err(|e| exchange_failed(e.into()))?;
+        .map_err(|e| exchange_failed(Error::bad_request(e)))?;
     let mut channel = open_channel(Box::new(tls)).await.map_err(exchange_failed)?;
     let response = send(&mut channel, http_request, REMOTE_BODY_LIMIT)
         .await
@@ -148,7 +162,7 @@ async fn redeem(host: &RemoteHost, request: &PairRequest<'_>) -> Result<Redeemed
     let (token, client_id) = pairing_answer(&response)?;
     Ok(Redeemed {
         endpoint: host.endpoint.clone(),
-        credential: Credential { token, pin },
+        credential: Credential::new(token, pin),
         client_id,
         channel,
     })
@@ -167,7 +181,7 @@ fn pairing_answer(response: &Response<Vec<u8>>) -> Result<(String, String), Erro
             .and_then(serde_json::Value::as_str)
             .unwrap_or("no reason given");
         return Err(Error::Refused {
-            status: response.status(),
+            status: response.status().as_u16(),
             reason: reason.to_owned(),
         });
     }

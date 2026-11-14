@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use protocol::{DaemonResponse, ExtensionId, HostId, PaneId, PaneKind};
+use protocol::{DaemonResponse, ExtensionId, HttpMethod, PaneId, PaneOrigin, RequestTarget};
 
 use super::*;
 use crate::host_registry::HostRegistry;
@@ -14,10 +14,7 @@ struct RecordingAccess {
 impl StreamAccess for RecordingAccess {
     fn issue(&self, scope: &RelayScope) -> Result<RelayEndpoint, Error> {
         self.issued.lock().unwrap().push(scope.clone());
-        Ok(RelayEndpoint {
-            url: "ws://127.0.0.1:1".into(),
-            token: "t".into(),
-        })
+        Ok(RelayEndpoint::new("ws://127.0.0.1:1", "t"))
     }
 
     fn revoke_pane(&self, _pane: &PaneId) {}
@@ -41,24 +38,20 @@ fn shell() -> (ShellTransport, Arc<RecordingAccess>) {
 }
 
 fn scope(host: &str) -> RelayScope {
-    RelayScope {
-        host: HostId::new(host).unwrap(),
-        pane: PaneId::new("p1").unwrap(),
-        kind: PaneKind::Core,
-        extension: None,
-    }
+    RelayScope::new(
+        HostId::new(host).unwrap(),
+        PaneId::new("p1").unwrap(),
+        PaneOrigin::Core,
+    )
 }
 
-fn request(path: &str, kind: PaneKind, extension: Option<&str>) -> DaemonRequest {
-    DaemonRequest {
-        host: HostId::new("local").unwrap(),
-        origin: kind,
-        extension: extension.map(|id| ExtensionId::new(id).unwrap()),
-        method: "GET".into(),
-        path_and_query: path.into(),
-        headers: Vec::new(),
-        body: Vec::new(),
-    }
+fn request(path: &str, origin: PaneOrigin) -> DaemonRequest {
+    DaemonRequest::new(
+        HostId::new("local").unwrap(),
+        origin,
+        HttpMethod::new("GET").unwrap(),
+        RequestTarget::new(path).unwrap(),
+    )
 }
 
 async fn answer_of(shell: &ShellTransport, request: DaemonRequest) -> DaemonResponse {
@@ -75,25 +68,28 @@ async fn answer_of(shell: &ShellTransport, request: DaemonRequest) -> DaemonResp
 #[tokio::test]
 async fn a_request_outside_the_origins_scope_is_answered_403_without_a_daemon() {
     let (shell, _) = shell();
-    let answer = answer_of(
-        &shell,
-        request("/v0/projects", PaneKind::Extension, Some("acme")),
-    )
-    .await;
-    assert_eq!(answer.status, 403);
+    let acme = PaneOrigin::Extension(ExtensionId::new("acme").unwrap());
+    let answer = answer_of(&shell, request("/v0/projects", acme)).await;
+    assert_eq!(answer.status(), 403);
 }
 
 #[tokio::test]
-async fn an_extension_origin_without_its_id_is_refused() {
-    let (shell, _) = shell();
-    let answer = answer_of(&shell, request("/v0/ext/acme/x", PaneKind::Extension, None)).await;
-    assert_eq!(answer.status, 403);
+async fn a_reply_the_runtime_never_ran_is_answered_interrupted() {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let respond: Responder = Box::new(move |result| {
+        sender.send(result).ok();
+    });
+    drop(Reply::new(respond));
+    assert!(matches!(
+        receiver.await.unwrap(),
+        Err(protocol::Error::Interrupted)
+    ));
 }
 
 #[tokio::test]
 async fn a_relay_endpoint_is_issued_for_the_local_host_but_not_an_unregistered_one() {
     let (shell, access) = shell();
-    assert_eq!(shell.relay_endpoint(&scope("local")).unwrap().token, "t");
+    assert_eq!(shell.relay_endpoint(&scope("local")).unwrap().token(), "t");
     assert_eq!(access.issued.lock().unwrap().len(), 1);
     let error = shell.relay_endpoint(&scope("host-9")).unwrap_err();
     assert!(matches!(error, protocol::Error::UnknownHost(_)), "{error}");
@@ -110,10 +106,6 @@ fn errors_map_to_the_protocol_kinds() {
     assert!(matches!(
         into_protocol(Error::UnknownHost(id)),
         protocol::Error::UnknownHost(_)
-    ));
-    assert!(matches!(
-        into_protocol(Error::BadGrant("x")),
-        protocol::Error::Denied(_)
     ));
     assert!(matches!(
         into_protocol(Error::Forbidden("x".into())),

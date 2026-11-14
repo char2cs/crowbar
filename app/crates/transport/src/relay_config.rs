@@ -1,21 +1,36 @@
 use std::time::Duration;
 
 /// Limits and timeouts of the loopback relay.
+///
+/// Open streams are counted against `max_connections` and `max_per_pane` only once the token has
+/// been checked; connections still in their handshake are counted separately against
+/// `max_handshakes` and give the slot back the moment the handshake ends, so a client that
+/// never authenticates cannot take a stream's place.
 #[derive(Debug, Clone)]
 pub struct RelayConfig {
-    /// Open client connections across all panes.
+    /// Open streams across all panes.
     pub max_connections: usize,
-    /// Open client connections of one pane.
+    /// Open streams of one pane.
     pub max_per_pane: usize,
+    /// Connections that may be in their handshake at once; further ones are answered `503`.
+    pub max_handshakes: usize,
     /// Time a client has to finish the WebSocket handshake.
     pub handshake_timeout: Duration,
+    /// Time the daemon has to accept the upstream WebSocket upgrade.
+    pub open_timeout: Duration,
+    /// Time a peer has to accept one outgoing message before it counts as stalled and its
+    /// stream is closed.
+    pub write_timeout: Duration,
+    /// Time both sides together have to complete a close before the stream is dropped.
+    pub close_grace: Duration,
     /// How long an issued token stays valid.
     pub token_ttl: Duration,
     /// Largest message in either direction; a terminal snapshot frame is the biggest honest one.
     pub max_message_bytes: usize,
-    /// Close a stream whose daemon says nothing for this long; for streams the daemon pings.
+    /// Close a stream whose daemon says nothing for this long, unless the pane offered its own
+    /// `crowbar.idle.<seconds>` subprotocol; for streams the daemon pings. `None` never closes.
     pub upstream_idle: Option<Duration>,
-    /// Close a stream whose pane says nothing for this long.
+    /// Close a stream whose pane says nothing for this long. `None` never closes.
     pub client_idle: Option<Duration>,
 }
 
@@ -24,7 +39,11 @@ impl Default for RelayConfig {
         Self {
             max_connections: 256,
             max_per_pane: 32,
-            handshake_timeout: Duration::from_secs(10),
+            max_handshakes: 64,
+            handshake_timeout: Duration::from_secs(3),
+            open_timeout: Duration::from_secs(10),
+            write_timeout: Duration::from_secs(10),
+            close_grace: Duration::from_secs(2),
             token_ttl: Duration::from_hours(12),
             max_message_bytes: 64 * 1024 * 1024,
             upstream_idle: None,

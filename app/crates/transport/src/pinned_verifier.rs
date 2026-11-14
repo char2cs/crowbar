@@ -67,12 +67,7 @@ impl ServerCertVerifier for PinnedVerifier {
     }
 }
 
-/// A rustls client config trusting only `pin`'s certificate. The crypto provider is explicit so
-/// signature checks never depend on a process-wide default; TLS 1.3 only.
-///
-/// # Errors
-/// Fails when the crypto provider offers no TLS 1.3 suite.
-pub fn pinned_client_config(pin: Pin) -> Result<Arc<rustls::ClientConfig>, TlsError> {
+pub(crate) fn pinned_client_config(pin: Pin) -> Result<Arc<rustls::ClientConfig>, TlsError> {
     let provider = Arc::new(aws_lc_rs::default_provider());
     let verifier = Arc::new(PinnedVerifier::new(pin, &provider));
     client_config_with(provider, verifier)

@@ -1,27 +1,52 @@
+use std::os::unix::fs::PermissionsExt;
+
+use tempfile::TempDir;
+
 use super::*;
 
-fn scratch(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("cb-doc-{tag}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("hosts.json")
+fn scratch() -> (TempDir, PathBuf) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("sub").join("hosts.json");
+    (dir, path)
 }
 
-#[test]
-fn a_saved_list_reads_back() {
-    let path = scratch("roundtrip");
+fn one_host() -> BTreeMap<HostId, Endpoint> {
     let mut hosts = BTreeMap::new();
     hosts.insert(
         HostId::new("host-1").unwrap(),
         Endpoint::parse("a.example:3737").unwrap(),
     );
-    HostsDocument::save(&path, &hosts).unwrap();
+    hosts
+}
+
+#[test]
+fn a_saved_list_reads_back_privately_and_leaves_no_temp_file() {
+    let (_dir, path) = scratch();
+    HostsDocument::save(&path, &one_host()).unwrap();
     let read = HostsDocument::parse(&path, &std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(read, hosts);
+    assert_eq!(read, one_host());
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&path), PRIVATE_FILE, "file");
+    assert_eq!(mode(path.parent().unwrap()), PRIVATE_DIR, "directory");
+    assert!(!staged_name(&path).exists(), "temp copy renamed away");
+}
+
+#[test]
+fn a_failed_save_removes_its_temp_copy() {
+    let (_dir, path) = scratch();
+    HostsDocument::save(&path, &one_host()).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    assert!(
+        HostsDocument::save(&path, &one_host()).is_err(),
+        "cannot replace a directory"
+    );
+    assert!(!staged_name(&path).exists(), "no stray temp copy");
 }
 
 #[test]
 fn a_corrupt_newer_or_unregistrable_file_is_an_error() {
-    let path = scratch("bad");
+    let path = PathBuf::from("hosts.json");
     for (text, wanted) in [
         ("{not json", "corrupt"),
         (r#"{"version":9,"hosts":[]}"#, "version 9"),
@@ -35,7 +60,11 @@ fn a_corrupt_newer_or_unregistrable_file_is_an_error() {
         ),
         (
             r#"{"version":1,"hosts":[{"id":"localhost","endpoint":"a:1"}]}"#,
-            "local daemon",
+            "host localhost",
+        ),
+        (
+            r#"{"version":1,"hosts":[{"id":"a","endpoint":"a:1"},{"id":"a","endpoint":"b:2"}]}"#,
+            "host a is listed twice",
         ),
     ] {
         let err = HostsDocument::parse(&path, text.as_bytes()).unwrap_err();

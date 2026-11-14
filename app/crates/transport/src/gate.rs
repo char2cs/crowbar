@@ -1,15 +1,20 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use http::{HeaderValue, StatusCode, header};
+use protocol::RelayScope;
 use tokio::sync::oneshot;
-use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::handshake::server::{
     Callback, ErrorResponse, Request, Response,
 };
 
-use crate::access_scope::AccessScope;
+use crate::access_scope;
 use crate::admission::Admission;
-use crate::relay_protocol::{RELAY_SUBPROTOCOL, TOKEN_SUBPROTOCOL_PREFIX};
+use crate::relay_protocol::{IDLE_SUBPROTOCOL_PREFIX, RELAY_SUBPROTOCOL, TOKEN_SUBPROTOCOL_PREFIX};
 use crate::relay_state::RelayState;
-use std::sync::{Arc, PoisonError};
+
+const MIN_IDLE_SECONDS: u64 = 5;
+const MAX_IDLE_SECONDS: u64 = 3600;
 
 pub(crate) struct Gate {
     state: Arc<RelayState>,
@@ -57,25 +62,41 @@ fn inspect(state: &RelayState, request: &Request) -> Result<Admission, StatusCod
         .iter()
         .find_map(|p| p.strip_prefix(TOKEN_SUBPROTOCOL_PREFIX))
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let scope = state
-        .tokens
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .authorize(token, Instant::now())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    if !state.policy.allows(&scope, origin) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    let upstream_idle = requested_idle(&offered)?;
     let path_and_query = request.uri().path_and_query().map_or("/", |pq| pq.as_str());
-    let access =
-        AccessScope::of(scope.kind, scope.extension.as_ref()).map_err(|_| StatusCode::FORBIDDEN)?;
-    access
-        .check(path_and_query)
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+    let (scope, guard) = state.admit(token, |scope| {
+        permitted(state, scope, origin, path_and_query)
+    })?;
     Ok(Admission {
         scope,
         path_and_query: path_and_query.to_owned(),
+        upstream_idle,
+        guard,
     })
+}
+
+fn permitted(
+    state: &RelayState,
+    scope: &RelayScope,
+    origin: &str,
+    path_and_query: &str,
+) -> Result<(), StatusCode> {
+    if !state.policy.allows(scope, origin) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    access_scope::check(scope.origin(), path_and_query).map_err(|_| StatusCode::FORBIDDEN)
+}
+
+fn requested_idle(offered: &[String]) -> Result<Option<Duration>, StatusCode> {
+    let Some(text) = offered
+        .iter()
+        .find_map(|p| p.strip_prefix(IDLE_SUBPROTOCOL_PREFIX))
+    else {
+        return Ok(None);
+    };
+    let seconds: u64 = text.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let clamped = seconds.clamp(MIN_IDLE_SECONDS, MAX_IDLE_SECONDS);
+    Ok(Some(Duration::from_secs(clamped)))
 }
 
 fn check_host(request: &Request, port: u16) -> Result<(), StatusCode> {

@@ -54,10 +54,10 @@ scan_names() {
 scan_integration() {
   local rel=$1 path=$2 stem=$3 root=$4 crate=$5
   local depth
-  depth=$(echo "$rel" | sed -E 's#.*/tests/##' | tr -cd '/' | wc -c)
+  depth=$(echo "$rel" | sed -E 's#^(.*/)?tests/##' | tr -cd '/' | wc -c)
   if ((depth > 0)); then fail "$rel:1: [test-orphan] only tests/<name>.rs, tests/support/ and tests/fixtures/ are allowed"; return; fi
   local cratename
-  cratename=$(basename "$crate")
+  cratename=$(basename "${crate:-$root}")
   if [[ $stem != "${cratename//-/_}" && ! -f "$root$crate/src/$stem.rs" && ! -f "$root/${crate#/}/src/$stem.rs" ]]; then
     fail "$rel:1: [test-orphan] tests/$stem.rs has no src/$stem.rs and is not the crate entry ($cratename)"
   fi

@@ -80,3 +80,22 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 - a `ShellTransport` (for the `DaemonTransport` trait) or `Transport::handle` called straight from its custom protocol handler, and a `Relay` if its panes open WebSockets.
 
 `daemon_supervisor` (`app/desktop/crates/daemon_supervisor`) is desktop only: iOS has no sidecar.
+
+## crate ownership
+
+| crate | owns |
+| --- | --- |
+| `protocol` | control frames (`sdk@1` JSON text), lifecycle, ids, the 64 KiB `PaneState` cap, `AppPhase`, `DaemonTransport` |
+| `model` | tabs, pane slots, the split tree and pane instances as a pure state machine with undo |
+| `transport` | `ShellTransport`, the implementation of `DaemonTransport` (HTTP to the daemon, WebSocket relay) |
+| `webview` (desktop) | the only platform crate: create, place, show, hide, eval and destroy web views; GTK thread on Linux |
+| `pane_host` (desktop) | pane registry, slot pool, park and restore, focus routing, overlay hiding, the `crowbar://` protocol |
+| `crowbar_desktop` (desktop/app) | the thin binary: GPUI window, native chrome regions, one real chat pane |
+
+## DaemonTransport for pane_host
+
+`pane_host::PaneProtocol::new(scheme, transport, bundles, extension_bundles, origins)` takes an `Arc<dyn protocol::DaemonTransport>`. Every `crowbar://<host>/v0/...` request from a pane becomes a `DaemonRequest` and is answered through the `Responder`; `relay_endpoint` serves WebSocket access. Pass `transport::ShellTransport` there. `crowbar_desktop` uses a loopback stand-in (`/v0/health` only) until it is wired.
+
+## requests to protocol/model owners
+
+None open.

@@ -1,25 +1,26 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use http::{HeaderName, HeaderValue, Request, Response, header};
-use protocol::HostId;
+use http::{Request, Response, header};
+use protocol::{HostId, PaneOrigin};
 use tokio::sync::broadcast;
 
-use crate::access_scope::{AccessScope, EXTENSION_HEADER};
+use crate::access_scope;
+use crate::credential_io;
 use crate::error::Error;
 use crate::host_registry::HostRegistry;
 use crate::host_target::HostTarget;
+use crate::http_conn::strip_pane_headers;
 use crate::local::{connect_retry_delay, forward_local};
 use crate::remote::forward_remote;
 use crate::response::{error_response, readable_by};
 use crate::socket_locator::SocketLocator;
 use crate::token_store::TokenStore;
 use crate::upstream::{self, UpstreamSocket};
+use crate::upstream_request::UpstreamRequest;
 
-/// Upper bound on one proxied request: a daemon that accepts but never answers would otherwise
-/// pin a socket and two tasks for the app's life (`fetch` never aborts). Well above the daemon's
-/// own slowest bound, a 3-minute network git transfer.
-pub const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
+const REMOVAL_BACKLOG: usize = 16;
 
 /// Reaches the local daemon and paired remote hosts on behalf of panes.
 pub struct Transport {
@@ -44,7 +45,7 @@ impl Transport {
         registry: Arc<HostRegistry>,
         tokens: Arc<dyn TokenStore>,
     ) -> Self {
-        let (removed, _) = broadcast::channel(16);
+        let (removed, _) = broadcast::channel(REMOVAL_BACKLOG);
         Self {
             locator,
             registry,
@@ -69,48 +70,61 @@ impl Transport {
         self.locator.as_ref()
     }
 
-    /// Drops a host so nothing can reach it, and tells every open stream to it to end.
+    /// Forgets a host: it is dropped from the list so nothing can reach it, every open stream to
+    /// it is told to end, and its stored credential is deleted. Safe to call again after a
+    /// failure.
     ///
     /// # Errors
-    /// A hosts-file error when the list cannot be saved; the host is then still registered.
-    pub fn remove_host(&self, host_id: &HostId) -> Result<(), Error> {
-        self.registry.remove(host_id)?;
-        self.removed.send(host_id.clone()).ok();
-        Ok(())
+    /// A hosts-file error when the list cannot be saved; the host is then still registered and
+    /// nothing else changed. [`Error::CredentialRemains`] when the host is gone but its
+    /// credential could not be deleted; calling again retries the deletion.
+    pub async fn remove_host(&self, host_id: &HostId) -> Result<(), Error> {
+        self.registry.remove(host_id.clone()).await?;
+        if self.removed.send(host_id.clone()).is_err() {
+            tracing::debug!("no relay is following host removals");
+        }
+        credential_io::forget(&self.tokens, host_id)
+            .await
+            .map_err(|source| Error::CredentialRemains {
+                host: host_id.clone(),
+                source: Box::new(source),
+            })
     }
 
     pub(crate) fn removed_hosts(&self) -> broadcast::Receiver<HostId> {
         self.removed.subscribe()
     }
 
-    /// Answers one `crowbar://<hostId>/v0/...` request made by a pane with reach `scope`. The
-    /// answer is always a response: a failure is a marked proxy answer the page can read.
+    /// Answers one `crowbar://<hostId>/v0/...` request made by a pane of `origin`. The answer is
+    /// always a response: a failure is a marked proxy answer the page can read.
     pub async fn handle(
         &self,
-        scope: &AccessScope,
+        origin: &PaneOrigin,
         request: Request<Vec<u8>>,
     ) -> Response<Vec<u8>> {
-        let origin = request.headers().get(header::ORIGIN).cloned();
-        let response = match tokio::time::timeout(PROXY_TIMEOUT, self.route(scope, request)).await {
+        let page_origin = request.headers().get(header::ORIGIN).cloned();
+        let response = match tokio::time::timeout(PROXY_TIMEOUT, self.route(origin, request)).await
+        {
             Ok(response) => response,
             Err(_) => error_response(504, "crowbar daemon did not answer in time"),
         };
-        readable_by(origin, response)
+        readable_by(page_origin, response)
     }
 
-    async fn route(&self, scope: &AccessScope, mut request: Request<Vec<u8>>) -> Response<Vec<u8>> {
+    async fn route(&self, origin: &PaneOrigin, mut request: Request<Vec<u8>>) -> Response<Vec<u8>> {
         let target_text = request.uri().path_and_query().map_or_else(
             || request.uri().path().to_owned(),
             |pq| pq.as_str().to_owned(),
         );
-        if scope.check(&target_text).is_err() {
+        if access_scope::check(origin, &target_text).is_err() {
             return error_response(403, "crowbar api is not available to this origin");
         }
         let target = match target_of(request.uri()) {
             Ok(target) => target,
             Err(e) => return error_response(400, &e.to_string()),
         };
-        stamp_scope(request.headers_mut(), scope);
+        strip_pane_headers(request.headers_mut());
+        access_scope::stamp(request.headers_mut(), origin);
         match target {
             HostTarget::Local => self.forward_to_local(request).await,
             HostTarget::Remote(id) => {
@@ -128,29 +142,25 @@ impl Transport {
 
     pub(crate) async fn open_stream(
         &self,
-        target: &HostTarget,
-        path_and_query: &str,
-        max_message: usize,
+        request: &UpstreamRequest,
     ) -> Result<UpstreamSocket, Error> {
-        upstream::open(self, target, path_and_query, max_message).await
+        upstream::open(self, request).await
     }
 }
 
 fn target_of(uri: &http::Uri) -> Result<HostTarget, Error> {
-    match uri.host() {
-        None | Some("" | "localhost") => Ok(HostTarget::Local),
-        Some(authority) => Ok(HostTarget::of(&HostId::new(authority)?)),
+    let host = uri.host().unwrap_or_default();
+    let bare = uri
+        .authority()
+        .is_none_or(|authority| authority.as_str() == host);
+    if !bare {
+        return Err(Error::InvalidRequest(
+            "the authority holds more than a host",
+        ));
     }
-}
-
-fn stamp_scope(headers: &mut http::HeaderMap, scope: &AccessScope) {
-    let name = HeaderName::from_static(EXTENSION_HEADER);
-    headers.remove(&name);
-    let id = scope
-        .extension()
-        .and_then(|id| HeaderValue::from_str(id.as_str()).ok());
-    if let Some(value) = id {
-        headers.insert(name, value);
+    match host {
+        "" | "localhost" => Ok(HostTarget::Local),
+        other => Ok(HostTarget::of(&HostId::new(other)?)),
     }
 }
 

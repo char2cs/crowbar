@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use protocol::{HostId, PaneId, PaneKind};
+use protocol::{HostId, PaneId, PaneOrigin};
 
 use super::*;
 
@@ -15,12 +15,11 @@ impl OriginPolicy for OnlyThis {
 #[test]
 fn a_policy_is_usable_as_a_shared_trait_object() {
     let policy: Arc<dyn OriginPolicy> = Arc::new(OnlyThis("crowbar://app"));
-    let scope = RelayScope {
-        host: HostId::new("local").unwrap(),
-        pane: PaneId::new("p1").unwrap(),
-        kind: PaneKind::Core,
-        extension: None,
-    };
+    let scope = RelayScope::new(
+        HostId::new("local").unwrap(),
+        PaneId::new("p1").unwrap(),
+        PaneOrigin::Core,
+    );
     assert!(policy.allows(&scope, "crowbar://app"));
     assert!(!policy.allows(&scope, "crowbar://other"));
 }

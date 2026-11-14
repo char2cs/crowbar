@@ -1,14 +1,13 @@
-use protocol::{HostId, PaneId, PaneKind, RelayScope};
+use protocol::{HostId, PaneId, PaneOrigin, RelayScope};
 
 use super::*;
 
 fn scope() -> RelayScope {
-    RelayScope {
-        host: HostId::new("local").unwrap(),
-        pane: PaneId::new("p1").unwrap(),
-        kind: PaneKind::Core,
-        extension: None,
-    }
+    RelayScope::new(
+        HostId::new("local").unwrap(),
+        PaneId::new("p1").unwrap(),
+        PaneOrigin::Core,
+    )
 }
 
 #[test]
