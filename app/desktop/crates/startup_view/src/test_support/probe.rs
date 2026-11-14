@@ -1,0 +1,49 @@
+//! Renders a single element in a test window.
+
+use std::rc::Rc;
+
+use gpui::{
+    AnyElement, App, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels,
+    Render, Styled, TestAppContext, VisualTestContext, Window, div,
+};
+
+type Build = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+
+struct Probe {
+    build: Build,
+}
+
+impl Render for Probe {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let element = (self.build)(window, cx);
+        div().size_full().flex().items_start().child(
+            div()
+                .flex_none()
+                .debug_selector(|| "probe".into())
+                .child(element),
+        )
+    }
+}
+
+/// Opens a window showing `build()` with the design system installed.
+pub(crate) fn open<E: IntoElement>(
+    cx: &mut TestAppContext,
+    build: impl Fn(&mut Window, &mut App) -> E + 'static,
+) -> &mut VisualTestContext {
+    cx.update(|cx| {
+        ui::init(cx).expect("the design system installs");
+    });
+    let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
+    let (_, cx) = cx.add_window_view(move |_, _| Probe { build });
+    cx.run_until_parked();
+    cx
+}
+
+/// Bounds of the element built by `build`, laid out at its natural size.
+pub(crate) fn measure<E: IntoElement>(
+    cx: &mut TestAppContext,
+    build: impl Fn(&mut Window, &mut App) -> E + 'static,
+) -> Bounds<Pixels> {
+    let cx = open(cx, build);
+    cx.debug_bounds("probe").unwrap_or_default()
+}

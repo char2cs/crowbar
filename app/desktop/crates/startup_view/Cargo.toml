@@ -1,0 +1,24 @@
+[package]
+name = "startup_view"
+description = "The full-screen native startup and data-migration view of the Crowbar shell."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "startup_gallery"
+path = "src/bin/startup_gallery.rs"
+
+[dependencies]
+gpui.workspace = true
+protocol.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true
