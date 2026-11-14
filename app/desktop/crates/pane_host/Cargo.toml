@@ -1,0 +1,24 @@
+[package]
+name = "pane_host"
+description = "Pane registry, web view slot pool, lifecycle and the crowbar:// protocol router of the Crowbar shell."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-channel.workspace = true
+model.workspace = true
+protocol.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+webview.workspace = true
+
+[dev-dependencies]
+webview = { workspace = true, features = ["mock"] }
+
+[lints]
+workspace = true

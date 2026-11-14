@@ -28,6 +28,35 @@ Licensed under the MIT License. The font aggregates glyphs from upstream icon se
 that carry their own licenses; see the note in the license file.
 Full license text: [`licenses/SymbolsNerdFont-MIT.txt`](licenses/SymbolsNerdFont-MIT.txt)
 
+### Geist Mono — `app/desktop/crates/ui/assets/fonts/GeistMono-Variable.ttf`
+
+Copyright (c) 2023 Vercel, in collaboration with basement.studio
+
+Licensed under the SIL Open Font License, Version 1.1.
+Full license text: [`licenses/Geist-OFL-1.1.txt`](licenses/Geist-OFL-1.1.txt)
+
+### Instrument Serif — `app/desktop/crates/ui/assets/fonts/InstrumentSerif.ttf`
+
+Copyright 2022 The Instrument Serif Project Authors (https://github.com/Instrument/instrument-serif)
+
+Licensed under the SIL Open Font License, Version 1.1.
+Full license text: [`licenses/InstrumentSerif-OFL-1.1.txt`](licenses/InstrumentSerif-OFL-1.1.txt)
+
+### Cal Sans UI — `app/desktop/crates/ui/assets/fonts/CalSansUI.ttf`
+
+TrueType build of the Cal Sans UI file listed above; same copyright and license
+([`licenses/CalSans-OFL-1.1.txt`](licenses/CalSans-OFL-1.1.txt)).
+
+## Icons
+
+### Phosphor Icons — `app/desktop/crates/ui/assets/icons`
+
+Copyright (c) 2023 Phosphor Icons (https://github.com/phosphor-icons/core)
+
+Licensed under the MIT License. SVG files of the icons the shell uses, copied unchanged from
+`@phosphor-icons/core` 2.1.1.
+Full license text: [`licenses/Phosphor-MIT.txt`](licenses/Phosphor-MIT.txt)
+
 ## Go source
 
 ### charmbracelet/x/vt — `api/third_party/x-vt`
