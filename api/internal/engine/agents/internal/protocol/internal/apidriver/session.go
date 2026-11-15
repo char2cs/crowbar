@@ -67,6 +67,9 @@ func (drv *Driver) EstablishSession(
 	}
 	drv.markEstablished(out)
 	settle(out["session_id"])
+	if !resuming {
+		drv.armLead(out)
+	}
 	return out, nil
 }
 
@@ -177,8 +180,13 @@ func (drv *Driver) Dispatch(
 	}
 	ev := drv.d.Events[canonical]
 	drv.setInflight(len(ev.Action) > 0)
+	values, lead := drv.leadValues(values)
+	if lead != "" {
+		out["text"] = values["text"]
+	}
 	err = drv.runSteps(ctx, ev.Action, out)
 	if err == nil {
+		drv.spendLead(lead)
 		return out, nil
 	}
 	drv.setInflight(false)
@@ -193,19 +201,19 @@ func (drv *Driver) Dispatch(
 		return nil, fmt.Errorf("%w (after %w)", recoverErr, err)
 	}
 	drv.setInflight(len(ev.Action) > 0)
+	drv.spendLead(lead)
 	return recovered, nil
 }
 
 // InjectAt runs the inject step declared for lifecycle moment at, if any. A
 // context inject runs once, right after a resume loads a session that existed
-// before this connection: a fresh one's creating call already carries it.
+// before this connection: a fresh one's creating call already carries it. A step
+// that leads a prompt makes no call: its document waits for the next prompt.
 func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]string) error {
-	var step *spec.InjectSpec
-	for i := range drv.d.Inject {
-		if drv.d.Inject[i].At == at {
-			step = &drv.d.Inject[i]
-			break
-		}
+	step := drv.injectAt(at)
+	if step != nil && step.PromptLead != "" {
+		drv.armLead(values)
+		return nil
 	}
 	if step == nil || step.Call == "" {
 		return nil

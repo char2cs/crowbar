@@ -78,7 +78,7 @@ events:
       deny: '{"decision":"deny"}'
   prompt:
     fresh:
-      - { call: create_run, send: { cwd: "{cwd}" }, capture: { session_id: id } }
+      - { call: create_run, send: { cwd: "{cwd}", context: "{context}" }, capture: { session_id: id } }
     resume:
       - { call: get_run }
     action:

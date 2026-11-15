@@ -297,6 +297,10 @@ type InjectSpec struct {
 	Call  string         `yaml:"call"`
 	Send  map[string]any `yaml:"send"`
 	Steps InjectSteps    `yaml:"steps"`
+	// PromptLead, for at: context, replaces the call: the rendered template leads the first
+	// prompt's text of the session that is owed the document, for a provider with no other
+	// channel to carry it.
+	PromptLead string `yaml:"prompt_lead"`
 }
 
 // TransportFor returns the transport an event uses: its own if it declares one, the

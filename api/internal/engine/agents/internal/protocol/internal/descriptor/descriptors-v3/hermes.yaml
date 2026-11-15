@@ -318,3 +318,9 @@ model:
 spawn:
   cmd: hermes
   interactive_required: true
+
+# No create or resume field takes instructions, so the context document (tools preamble, lineage,
+# and a replaced session's record) leads the new session's first prompt.
+inject:
+  - at: context
+    prompt_lead: "{context}"

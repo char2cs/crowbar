@@ -106,7 +106,7 @@ events:
   prompt:
     fresh:
       - call: thread/start
-        send: { cwd: "{cwd}" }
+        send: { cwd: "{cwd}", developerInstructions: "{context}" }
         capture: { session_id: thread.id }
     resume:
       - call: thread/resume

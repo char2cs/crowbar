@@ -505,7 +505,7 @@ events:
   prompt:
     fresh:
       - call: thread/start
-        send: { relay: { crowbar: "{crowbar}", segid: "{segid}" } }
+        send: { relay: { crowbar: "{crowbar}", segid: "{segid}" }, developerInstructions: "{context}" }
         capture: { session_id: thread.id }
     resume:
       - call: thread/resume

@@ -123,6 +123,7 @@ events:
   prompt:
     fresh:
       - call: thread/start
+        send: { developerInstructions: "{context}" }
         capture: { session_id: thread.id }
     resume:
       - call: thread/resume
@@ -275,6 +276,7 @@ events:
   prompt:
     fresh:
       - call: thread/start
+        send: { developerInstructions: "{context}" }
         capture: { session_id: thread.id }
     resume:
       - call: thread/resume

@@ -25,6 +25,7 @@ var loadRules = map[string]loadRule{
 	"selection_strategy":    {"model", "declare how a model/effort selection reaches the CLI"},
 	"selection_apply":       {"model", "each selection strategy needs its apply steps"},
 	"selection_api_carrier": {"model", "an api-transport provider needs api_apply for its selection"},
+	"context_channel":       {"inject", "send {context} in prompt.fresh, or declare inject: [{at: context, prompt_lead: \"{context}\"}]"},
 	"model_catalog":         {"model", "declare the models the picker offers"},
 	"model_discover":        {"model.discover", "a discover source needs a command and a parse rule"},
 	"model_manifest":        {"model.discover", "a manifest source needs items_path"},

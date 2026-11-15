@@ -78,6 +78,8 @@ type Driver struct {
 	birth       map[string]string
 	inflight    bool
 	lastEvent   string
+	// lead is the context document the session's first prompt still owes a lead.
+	lead string
 }
 
 // Start runs the descriptor's handshake over serve's stdio and starts

@@ -20,7 +20,7 @@ func withAPIDiscover() *spec.Descriptor {
 	d.Model.Discover.Command = nil
 	d.Model.Discover.API = &spec.ModelDiscoverAPI{Call: "catalog.list"}
 	d.Events = map[string]spec.EventSpec{
-		"prompt": {Fresh: []spec.CallStep{{Call: "session.new", Send: map[string]any{"pick": "{model}"}}}},
+		"prompt": {Fresh: []spec.CallStep{{Call: "session.new", Send: map[string]any{"pick": "{model}", "notes": "{context}"}}}},
 	}
 	return d
 }
