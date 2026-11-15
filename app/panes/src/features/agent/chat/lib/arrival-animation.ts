@@ -1,14 +1,11 @@
 /** Duplicated as a literal in composer-dock.css (`.dock .underbar`): CSS cannot import it. */
-export const ARRIVAL_SLIDE_MS = 320
+const ARRIVAL_SLIDE_MS = 320
 
-export const ARRIVAL_EASE = 'cubic-bezier(0, 0, 0.2, 1)'
+const ARRIVAL_EASE = 'cubic-bezier(0, 0, 0.2, 1)'
 
 /** `null` means don't animate: no origin (not a first send), or a zero offset
  *  that is not worth the transitionend bookkeeping. */
-export function arrivalOffset(
-  origin: { top: number } | null,
-  rest: { top: number },
-): number | null {
+function arrivalOffset(origin: { top: number } | null, rest: { top: number }): number | null {
   if (!origin) return null
   const dy = origin.top - rest.top
   return dy === 0 ? null : dy

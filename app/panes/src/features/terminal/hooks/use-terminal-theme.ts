@@ -58,8 +58,8 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-/** Pure: turn resolved palettes into an xterm ITheme. Unit-tested. */
-export function buildTerminalTheme(
+/** Pure: turn resolved palettes into an xterm ITheme. */
+function buildTerminalTheme(
   ansi: Partial<Record<TerminalAnsiKey, string>>,
   ui: TerminalUiTokens,
 ): TerminalTheme {
@@ -124,7 +124,7 @@ export interface TerminalThemePayload {
 
 /** The reported background is the app's opaque `--background`: the terminal itself is
  *  transparent and has no colour of its own to report. */
-export function buildTerminalThemePayload(
+function buildTerminalThemePayload(
   resolve: (name: string) => string | null,
   isDark: boolean,
 ): TerminalThemePayload {

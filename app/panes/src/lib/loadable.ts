@@ -32,7 +32,7 @@ export const dataOf = <T>(l?: Loadable<T>): T | undefined => {
   return undefined
 }
 
-export const fetchedAtOf = <T>(l?: Loadable<T>): number | undefined => {
+const fetchedAtOf = <T>(l?: Loadable<T>): number | undefined => {
   if (!l) return undefined
   if (l.status === 'success') return l.fetchedAt
   if (l.status === 'loading' || l.status === 'error') return l.staleAt ?? undefined

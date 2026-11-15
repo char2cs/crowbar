@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  SYNTAX_TOKEN_KEYS,
-  TERMINAL_ANSI_KEYS,
   cssColorToHex,
   readSyntaxPalette,
   readTerminalPalette,
@@ -114,15 +112,15 @@ describe('DOM resolver', () => {
 
   it('readSyntaxPalette returns a hex for every syntax key', () => {
     const palette = readSyntaxPalette()
-    for (const key of SYNTAX_TOKEN_KEYS) {
-      expect(palette[key]).toBe('#ffffff')
-    }
+    expect(palette.keyword).toBe('#ffffff')
+    expect(Object.values(palette).every((hex) => hex === '#ffffff')).toBe(true)
+    expect(Object.keys(palette)).toContain('markdown-quote')
   })
 
   it('readTerminalPalette returns a hex for every ANSI key', () => {
     const palette = readTerminalPalette()
-    for (const key of TERMINAL_ANSI_KEYS) {
-      expect(palette[key]).toBe('#ffffff')
-    }
+    expect(palette.red).toBe('#ffffff')
+    expect(Object.values(palette).every((hex) => hex === '#ffffff')).toBe(true)
+    expect(Object.keys(palette)).toContain('bright-white')
   })
 })

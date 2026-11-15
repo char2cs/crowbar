@@ -75,12 +75,8 @@ import { useTerminalAttachment } from '@/features/terminal/hooks/use-terminal-at
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { toast } from '@/features/window/stores/toast-store'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
-import {
-  reportChannelState,
-  resetConnectionState,
-  useConnectionStore,
-} from '@/lib/ws/connection-store'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { reportChannelState, useConnectionStore } from '@/lib/ws/connection-store'
 import {
   destroyHostRuntime,
   getHostRuntime,
@@ -93,6 +89,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 type Props = Parameters<typeof useTerminalAttachment>[0]
 
@@ -136,7 +133,7 @@ beforeEach(() => {
   localStorage.clear()
   resetHostWorld()
   useTerminalStore.setState({ sessions: new Map() })
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   scope('p', 'ws-1', 'chat-1')
   useConnectionStore.setState({ status: 'connected' })
 })
@@ -320,8 +317,8 @@ describe('on an install that has paired a remote host', () => {
 
   beforeEach(() => {
     pairRemoteHost('host-1')
-    resetConnectionState()
-    __resetWorkspaceScopesForTest()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     scope('p-remote', 'ws-remote', 'chat-r')
     scope('p-local', 'ws-local', 'chat-l')
     // A tab already bound to a PTY, so every attach has to ask the daemon.

@@ -2,16 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   chatAttachmentUrl,
   chatMarkdownAssetInfo,
-  fetchChatAttachmentDataUrl,
   fetchChatAttachmentMetadata,
   parseChatAttachmentRef,
 } from '@/features/agent/composer/plate/attachments/chat-asset-resolver'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import * as scopeUrl from '@/lib/workspace-scope-url'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+
+function fetchChatAttachmentDataUrl(wsId: string, ref: string, signal?: AbortSignal) {
+  const asset = chatMarkdownAssetInfo(wsId)
+  return 'resolve' in asset ? asset.resolve(ref, signal) : Promise.resolve(null)
+}
 
 beforeEach(() => {
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
 })
 
@@ -325,7 +330,7 @@ describe('fetchChatAttachmentMetadata', () => {
 })
 
 describe('chatMarkdownAssetInfo', () => {
-  it('produces a resolve() that round-trips through fetchChatAttachmentDataUrl', async () => {
+  it('produces a resolve() that fetches the attachment as a data URL', async () => {
     const blob = new Blob(['x'], { type: 'image/png' })
     vi.stubGlobal(
       'fetch',

@@ -22,8 +22,8 @@ import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
 import type { Repo } from '@/core/entities/repo-types'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const navigate = vi.fn(() => Promise.resolve()) as unknown as Parameters<typeof handleCreate>[2]
 
@@ -55,7 +55,7 @@ const repo = (): Repo => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   resetEntities()
   treeUiStore.setState({ draft: null })
   resetEntities()

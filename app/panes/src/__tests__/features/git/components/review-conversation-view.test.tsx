@@ -5,8 +5,9 @@ import { ReviewConversationView } from '@/features/git/components/review-convers
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { clearReviewThreads, putReviewThread } from '@/__tests__/__fixtures__/review-threads'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const mocks = vi.hoisted(() => ({
   openThread: vi.fn(),
@@ -82,7 +83,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   clearReviewThreads()
 })
 
@@ -156,7 +157,7 @@ describe('ReviewConversationView', () => {
 
   // The patch is addressed through the owning chat, which the sidebar records after a cold launch.
   it('reads the anchored code once the workspace’s owning chat is known', async () => {
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     renderView([thread({ id: 'a', lineNumber: 5, startLine: 5 })])
     expect(mocks.getReviewPatch).not.toHaveBeenCalled()
 

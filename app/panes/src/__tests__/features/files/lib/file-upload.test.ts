@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 
 const { createFileNode, writeDocument } = vi.hoisted(() => ({
   createFileNode: vi.fn(async () => {}),
-  writeDocument: vi.fn(async () => {}),
+  writeDocument: vi.fn(async (_ref: unknown, _content: string, _options: unknown) => {}),
 }))
 vi.mock('@/features/files/lib/file-tree-api', () => ({ createFileNode }))
 vi.mock('@/lib/api/documents', async (importOriginal) => ({
@@ -10,28 +10,9 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   writeDocument,
 }))
 
-import { pickAndUploadFiles, readFileAsBase64 } from '@/features/files/lib/file-upload'
+import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef } from '@/lib/api/documents'
-
-// Uploads go through readFileAsBase64 → writeDocument(..., { encoding: 'base64' })
-// so the exact bytes reach the daemon. This pins the byte-faithful half: bytes that are
-// invalid UTF-8 and contain NULs must survive the encode (file.text() would have
-// mangled them, which was the corruption this fixes).
-describe('readFileAsBase64', () => {
-  it('encodes exact bytes, binary-safe (invalid UTF-8 + NUL)', async () => {
-    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x01, 0x80])
-    const b64 = await readFileAsBase64(new Blob([bytes]))
-
-    // Decode the base64 back to bytes and compare byte-for-byte.
-    const decoded = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-    expect(Array.from(decoded)).toEqual(Array.from(bytes))
-  })
-
-  it('an empty file encodes to an empty payload', async () => {
-    expect(await readFileAsBase64(new Blob([]))).toBe('')
-  })
-})
 
 // An upload creates files, so it goes to the workspace of the tree it was asked from,
 // whichever other workspace happens to be in view.
@@ -59,5 +40,26 @@ describe('pickAndUploadFiles', () => {
       'aGk=',
       { encoding: 'base64' },
     )
+  })
+
+  // The exact bytes must reach the daemon: invalid UTF-8 and NULs would be mangled by file.text().
+  it.each([
+    ['binary bytes (invalid UTF-8 + NUL)', [0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x01, 0x80]],
+    ['an empty file', []],
+  ])('uploads %s byte-for-byte as base64', async (_name, bytes) => {
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      Object.defineProperty(this, 'files', {
+        value: [new File([new Uint8Array(bytes)], 'f.bin')],
+      })
+      this.onchange?.(new Event('change'))
+    })
+
+    await pickAndUploadFiles('ws-b', '')
+
+    const content = writeDocument.mock.calls.at(-1)?.[1] ?? ''
+    const decoded = Uint8Array.from(atob(content), (c) => c.charCodeAt(0))
+    expect(Array.from(decoded)).toEqual(bytes)
   })
 })

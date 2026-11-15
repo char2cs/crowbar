@@ -1,12 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type {
-  WorkspaceDTO,
-  RepoDTO,
-  ProjectDTO,
-  ThreadDTO,
-  ThreadReplyDTO,
-  TerminalSessionDTO,
-} from '@/lib/types'
+import type { WorkspaceDTO, RepoDTO, ProjectDTO, ThreadDTO, ThreadReplyDTO } from '@/lib/types'
 
 // These DTOs are the camelCase mirrors of the Go Canonical Contracts. The asserts
 // are type-level (the file fails to compile if a field is missing/renamed) plus a
@@ -61,7 +54,7 @@ describe('canonical DTO shapes', () => {
     expect(repo.avatarEmoji).toBe('rocket')
   })
 
-  it('ProjectDTO, ThreadDTO, ThreadReplyDTO, TerminalSessionDTO compile', () => {
+  it('ProjectDTO, ThreadDTO, ThreadReplyDTO compile', () => {
     const reply: ThreadReplyDTO = {
       id: 'rp1',
       threadId: 't1',
@@ -95,18 +88,7 @@ describe('canonical DTO shapes', () => {
       status: '',
       lastActivity: '2026-06-19T00:00:00Z',
     }
-    const term: TerminalSessionDTO = {
-      id: 'ts1',
-      // A session belongs to the CHAT that opened it — no project/repo/workspace
-      // rides on the frame any more.
-      chatId: 'c1',
-      profileId: '',
-      status: 'active',
-      createdAt: '2026-06-19T00:00:00Z',
-      endedAt: null,
-    }
     expect(thread.replies[0]).toBe(reply)
     expect(project.id).toBe('p1')
-    expect(term.status).toBe('active')
   })
 })

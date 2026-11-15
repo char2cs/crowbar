@@ -15,11 +15,7 @@ import {
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import type { GitDiff } from '@/features/git/types/git-types'
-import {
-  __resetWorkspaceScopesForTest,
-  recordWorkspaceScope,
-  setWorkspaceScope,
-} from '@/lib/workspace-scope'
+import { recordWorkspaceScope, setWorkspaceScope } from '@/lib/workspace-scope'
 import type { ReviewState } from '@/features/git/api/review-api'
 import type { Repo } from '@/core/entities/repo-types'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
@@ -69,6 +65,7 @@ vi.mock('@/features/git/components/review-conversation-view', () => ({
 }))
 
 import { BranchReviewPane } from '@/features/git/components/branch-review-pane'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 function review(overrides: Partial<ReviewState> = {}): ReviewState {
   return {
@@ -90,7 +87,7 @@ function renderPane(wsId: string, store: ReturnType<typeof createWorkspaceStore>
 
 beforeEach(() => {
   vi.clearAllMocks()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   mocks.getReview.mockResolvedValue(review())
 })
 

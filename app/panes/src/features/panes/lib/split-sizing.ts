@@ -3,7 +3,7 @@
 
 /** Keeps both panes at least `minPx`; too small for both, the divider centres rather than
  *  jumping to an edge. */
-export function clampFirstPx(firstPx: number, containerPx: number, minPx: number): number {
+function clampFirstPx(firstPx: number, containerPx: number, minPx: number): number {
   if (containerPx <= 0) return 0
   if (containerPx < minPx * 2) return containerPx / 2
   const min = minPx

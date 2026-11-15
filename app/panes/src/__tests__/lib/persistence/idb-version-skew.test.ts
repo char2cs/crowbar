@@ -8,10 +8,10 @@
  * opened fails silently: every persistence call is best-effort, so the feature
  * behind it simply has no data, with a green typecheck and a green suite.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { openDB } from 'idb'
 import { IDBFactory } from 'fake-indexeddb'
-import { getDB, resetDB } from '@/lib/persistence/idb'
+import { getDB } from '@/lib/persistence/idb'
 import { hydrateCriticalStores } from '@/lib/boot'
 
 // The entity stores an earlier build filled and this one leaves alone, as a literal:
@@ -30,11 +30,6 @@ const ENTITY_STORES = [
 // you anything.
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory()
-  resetDB()
-})
-
-afterEach(() => {
-  resetDB()
 })
 
 describe('a database newer than this build', () => {
@@ -81,10 +76,8 @@ describe('a database already at this build’s version', () => {
     await earlier.put('crowbar_chats', { id: 'c1', title: 'kept' } as never)
     const stores = Array.from(earlier.objectStoreNames).sort()
     localStorage.setItem('crowbar:cache-version', '2')
-    resetDB()
 
     await hydrateCriticalStores()
-    resetDB()
 
     const after = await openDB('crowbar')
     expect(after.version).toBe(14)

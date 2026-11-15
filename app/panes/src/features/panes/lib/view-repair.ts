@@ -3,6 +3,7 @@ import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { LayoutNode, PaneGroup, ViewRecord } from '@/features/panes/types/pane'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { settlePinnedOrder } from './view-pins'
+import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 import { makePane, settleFocus, type ViewState } from './view-state'
 
 /** Drop the leaves `keep` refuses, collapsing emptied splits; null when none survive. */
@@ -19,7 +20,7 @@ function pruneLayout(node: LayoutNode, keep: (paneId: string) => boolean): Layou
 
 /** The largest part of `input` satisfying viewIntegrityViolations: whatever breaks an invariant
  *  is dropped, the rest (band order included) kept. Pure. */
-export function repairViewState(input: Partial<ViewState>): ViewState {
+function repairViewState(input: Partial<ViewState>): ViewState {
   const source = input.panes ?? {}
   const panes: Record<string, PaneGroup> = {}
   const chatsSeen = new Set<string>()
@@ -100,4 +101,23 @@ export function repairViewState(input: Partial<ViewState>): ViewState {
   settlePinnedOrder(repaired)
   settleFocus(repaired)
   return repaired
+}
+
+// The persisted views, repaired: a record, pane or pointer breaking an invariant is dropped, every
+// valid one kept. A record without views restores an empty band around its stage.
+export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState {
+  const views = layout.views ?? {}
+  return repairViewState({
+    panes: layout.panes ?? {},
+    views,
+    viewOrder: layout.viewOrder ?? Object.keys(views),
+    activeViewId: layout.activeViewId ?? null,
+    activeViewByProject: layout.activeViewByProject ?? {},
+    activeProjectId: null,
+    stage: layout.stage,
+    bottomLayout: layout.bottomLayout,
+    activePaneId: layout.activePaneId,
+    mostRecentActivePaneIds: layout.mostRecentActivePaneIds ?? [],
+    fullscreenPaneId: null,
+  })
 }

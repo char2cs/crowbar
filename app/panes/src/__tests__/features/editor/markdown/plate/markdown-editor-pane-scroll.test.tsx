@@ -3,7 +3,6 @@ import { StrictMode } from 'react'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { MONACO_LOAD_MS } from '@/__tests__/__fixtures__/documents'
 import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
-import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownEditorPane } from '@/features/editor/markdown/plate/markdown-editor-pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
@@ -59,7 +58,6 @@ beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 describe('MarkdownEditorPane scroll retention', () => {
   beforeEach(() => {
-    clearPreservedScroll()
     openFixtures()
   })
 

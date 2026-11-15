@@ -10,16 +10,11 @@ import {
   hydrateSidebar,
   hydrateWindowPaneLayout,
   placeRestoredPanesOnceSynced,
-  upgradeWindowPaneLayout,
 } from '@/lib/persistence/hydrate'
 import { loadDrafts } from '@/features/editor/documents/draft-store'
-import { getDB, resetDB } from '@/lib/persistence/idb'
+import { getDB } from '@/lib/persistence/idb'
 import { entityStore } from '@/core/entities/entity-store'
-import {
-  WINDOW_LAYOUT_VERSION,
-  WINDOW_SESSION_ID,
-  loadWindowPaneLayout,
-} from '@/lib/persistence/workspace-layout'
+import { WINDOW_LAYOUT_VERSION, loadWindowPaneLayout } from '@/lib/persistence/workspace-layout'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
@@ -39,6 +34,9 @@ import {
   resetEntities,
   seedRepos,
 } from '@/__tests__/__fixtures__/sidebar-entities'
+
+// The fixed key of the one persisted window layout row.
+const WINDOW_SESSION_ID = 'window'
 
 /** The projects scope's snapshot landing with `chats`. */
 function syncChats(chats: Array<{ id: string; workspaceId: string }>): void {
@@ -78,7 +76,6 @@ const HYDRATE_TEST_REPOS: Repo[] = [
 
 describe('hydrateWindowPaneLayout', () => {
   beforeEach(() => {
-    resetDB()
     globalThis.indexedDB = new IDBFactory()
     resetWindowPaneStoreForTests()
   })
@@ -272,7 +269,6 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
   const P = 'p1'
 
   beforeEach(() => {
-    resetDB()
     globalThis.indexedDB = new IDBFactory()
     resetWindowPaneStoreForTests()
     resetEntities()
@@ -454,10 +450,10 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     const stamped = await loadWindowPaneLayout()
     expect(stamped?.version).toBe(WINDOW_LAYOUT_VERSION)
     expect(stamped?.panes['pane-a']).toMatchObject({ chatId: 'chat-a', workspaceId: null })
-    // Idempotent: upgrading an upgraded layout changes nothing.
-    expect(await upgradeWindowPaneLayout(stamped!)).toBe(stamped)
+    // Idempotent: hydrating an upgraded layout changes nothing.
     resetWindowPaneStoreForTests()
     await hydrateWindowPaneLayout()
+    expect(await loadWindowPaneLayout()).toEqual(stamped)
     expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
   })
 
@@ -519,7 +515,6 @@ function buffer(id: string): EditorContent {
 
 describe('hydrateSidebar', () => {
   beforeEach(async () => {
-    resetDB()
     globalThis.indexedDB = new IDBFactory()
     seedRepos(HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })))
     treeUiStore.setState(treeUiStore.getInitialState(), true)

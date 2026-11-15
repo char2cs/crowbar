@@ -11,7 +11,7 @@ import {
 } from '@/features/hosts/stores/host-runtime-registry'
 import type { HostStatus } from '@/features/hosts/types'
 import { useUIState } from '@/features/window/stores/ui-state-store'
-import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
+import { reportChannelState, useConnectionStore } from '@/lib/ws/connection-store'
 import { loadProjects, pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
 import { projectDTO } from '@/__tests__/__fixtures__/sidebar-entities'
@@ -237,7 +237,7 @@ describe('SidebarProjectSwitcher', () => {
     })
     afterEach(() => {
       destroyHostRuntime('h1')
-      resetConnectionState()
+      useConnectionStore.setState(useConnectionStore.getInitialState())
       resetHostWorld()
     })
 

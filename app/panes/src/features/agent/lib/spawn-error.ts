@@ -14,7 +14,7 @@ const CHAT_BUSY = 'chat_busy'
 /** The provider no longer has the chat's session: only a new conversation continues it. */
 const SESSION_LOST = 'session_lost'
 
-export interface SpawnErrorNotice {
+interface SpawnErrorNotice {
   message: string
   description: string
 }
@@ -22,11 +22,7 @@ export interface SpawnErrorNotice {
 /** Turn a failed spawn into what to SAY about it. Every spawn route (new chat, resume, switch)
  *  fails the same ways through one daemon path, and a swallowed failure hides e.g. a missing CLI.
  *  `action` is the verb as phrased in the sentence ("start", "resume", "switch"). */
-export function describeSpawnError(
-  err: unknown,
-  providerName: string,
-  action: string,
-): SpawnErrorNotice {
+function describeSpawnError(err: unknown, providerName: string, action: string): SpawnErrorNotice {
   if (err instanceof ApiError && err.status === CLI_NOT_FOUND) {
     return {
       message: `${providerName} isn’t installed`,

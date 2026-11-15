@@ -55,7 +55,7 @@ function isTextDocumentEdit(value: unknown): value is TextDocumentEdit {
   )
 }
 
-export function filePathFromUri(uri: string): string {
+function filePathFromUri(uri: string): string {
   if (!uri.startsWith('file://')) return uri
 
   try {
@@ -112,7 +112,7 @@ export function applyTextEditsToContent(content: string, edits: LspTextEdit[]): 
   }, content)
 }
 
-export function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspTextEdit[]> {
+function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspTextEdit[]> {
   const editsByFile = new Map<string, LspTextEdit[]>()
 
   for (const [uri, edits] of Object.entries(edit.changes ?? {})) {

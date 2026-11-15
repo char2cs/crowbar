@@ -10,7 +10,7 @@ import { ApiError } from '@/lib/errors/api-error'
 import {
   reportChannelFailure,
   reportChannelState,
-  resetConnectionState,
+  useConnectionStore,
 } from '@/lib/ws/connection-store'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
@@ -22,7 +22,7 @@ const statusOf = (hostId: string) => getHostRuntime(hostId)?.getState().status
 let stop: (() => void) | undefined
 
 beforeEach(() => {
-  resetConnectionState()
+  useConnectionStore.setState(useConnectionStore.getInitialState())
   resetHostWorld()
   pairRemoteHost('h1')
   getOrCreateHostRuntime('h1').getState().setStatus('up')

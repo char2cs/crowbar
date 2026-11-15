@@ -4,8 +4,6 @@ import {
   buildGitFolderTree,
   collectNodeFiles,
   compactFolder,
-  createFolderNode,
-  normalizePathSegments,
   sortFilesByPath,
   sortFoldersByName,
 } from '@/features/git/utils/build-git-folder-tree'
@@ -17,31 +15,38 @@ const makeFile = (path: string, staged = false): GitFile => ({
   staged,
 })
 
-describe('normalizePathSegments', () => {
-  it('splits a unix path into segments', () => {
-    expect(normalizePathSegments('src/sub/b.ts')).toEqual(['src', 'sub', 'b.ts'])
+describe('path normalisation in buildGitFolderTree', () => {
+  it('splits a unix path into folders and a file', () => {
+    const root = buildGitFolderTree([makeFile('src/sub/b.ts')])
+    expect(
+      root.folders
+        .get('src')
+        ?.folders.get('sub')
+        ?.files.map((f) => f.path),
+    ).toEqual(['src/sub/b.ts'])
   })
 
-  it('normalizes backslashes to forward slashes', () => {
-    expect(normalizePathSegments('src\\sub\\b.ts')).toEqual(['src', 'sub', 'b.ts'])
+  it('treats backslashes as separators', () => {
+    const root = buildGitFolderTree([makeFile('src\\sub\\b.ts')])
+    expect(root.folders.get('src')?.folders.get('sub')?.files).toHaveLength(1)
   })
 
-  it('strips empty segments from leading/trailing slashes', () => {
-    expect(normalizePathSegments('/src/a.ts/')).toEqual(['src', 'a.ts'])
+  it('ignores empty segments from leading and trailing slashes', () => {
+    const root = buildGitFolderTree([makeFile('/src/a.ts/')])
+    expect(root.folders.get('src')?.files).toHaveLength(1)
   })
 
-  it('returns empty array for empty string', () => {
-    expect(normalizePathSegments('')).toEqual([])
+  it('skips a path with no segments', () => {
+    const root = buildGitFolderTree([makeFile('')])
+    expect(root.files).toEqual([])
+    expect(root.folders.size).toBe(0)
   })
-})
 
-describe('createFolderNode', () => {
-  it('creates a node with correct shape', () => {
-    const node = createFolderNode('src', 'src')
-    expect(node.name).toBe('src')
-    expect(node.fullPath).toBe('src')
-    expect(node.folders).toBeInstanceOf(Map)
-    expect(node.files).toEqual([])
+  it('names each folder node by its segment and full path', () => {
+    const node = buildGitFolderTree([makeFile('src/a.ts')]).folders.get('src')
+    expect(node?.name).toBe('src')
+    expect(node?.fullPath).toBe('src')
+    expect(node?.folders).toBeInstanceOf(Map)
   })
 })
 
@@ -121,12 +126,12 @@ describe('buildGitFolderTree', () => {
 
 describe('sortFoldersByName', () => {
   it('sorts folders alphabetically by name', () => {
-    const folders = [
-      createFolderNode('z-folder', 'z-folder'),
-      createFolderNode('a-folder', 'a-folder'),
-      createFolderNode('m-folder', 'm-folder'),
-    ]
-    const sorted = sortFoldersByName(folders)
+    const root = buildGitFolderTree([
+      makeFile('z-folder/f.ts'),
+      makeFile('a-folder/f.ts'),
+      makeFile('m-folder/f.ts'),
+    ])
+    const sorted = sortFoldersByName(root.folders.values())
     expect(sorted.map((f) => f.name)).toEqual(['a-folder', 'm-folder', 'z-folder'])
   })
 
@@ -173,8 +178,7 @@ describe('collectNodeFiles', () => {
   })
 
   it('returns empty array for leaf node with no files', () => {
-    const node = createFolderNode('empty', 'empty')
-    expect(collectNodeFiles(node)).toEqual([])
+    expect(collectNodeFiles(buildGitFolderTree([]))).toEqual([])
   })
 })
 

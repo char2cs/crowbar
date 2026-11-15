@@ -7,10 +7,10 @@ import * as homeResolver from '@/features/workspace/lib/home-workspace-resolver'
 import { toast } from '@/features/window/stores/toast-store'
 import { homeRows } from '@/__tests__/__fixtures__/tree-rows'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
-import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import type { Project } from '@/lib/types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // SpacePanel's own useNavigate() call (used only to hand a navigate fn to
 // handleCreateHomeThread below) — no Router is mounted in these unit tests.
@@ -75,7 +75,7 @@ describe('SpaceScroller', () => {
     HTMLElement.prototype.scrollTo = vi.fn()
     resetWindowPaneStoreForTests()
     resetEntities()
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     stubPanelVerbs()
     useHomeWorkspaceState.mockReturnValue({
       wsId: 'home-ws-1',

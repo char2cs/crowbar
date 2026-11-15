@@ -1,7 +1,7 @@
 // Language id → Monaco language id for model assignment, and so the one list of languages that
 // colour: every non-plaintext id here needs a registration in language-contributions.ts or renders
 // as plaintext. language-contributions.test.ts enforces it.
-export const MONACO_LANGUAGE_BY_LANGUAGE_ID = {
+const MONACO_LANGUAGE_BY_LANGUAGE_ID = {
   angular: 'html',
   bash: 'shell',
   batch: 'bat',

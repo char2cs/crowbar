@@ -25,7 +25,7 @@ export type ReviewAnnotation = DiffLineAnnotation<ReviewThread>
 
 /** The unposted draft's id. The composer is an annotation, so it sits where the comment will,
  *  and annotations need metadata: the draft is a message-less ReviewThread no server id matches. */
-export const DRAFT_THREAD_ID = '__crowbar-draft-thread__'
+const DRAFT_THREAD_ID = '__crowbar-draft-thread__'
 
 function isDraftThread(thread: ReviewThread): boolean {
   return thread.id === DRAFT_THREAD_ID
@@ -39,15 +39,15 @@ export function toAnnotationSide(side: ReviewThread['side']): AnnotationSide {
   return side === 'old' ? 'deletions' : 'additions'
 }
 
-export function toThreadSide(side: AnnotationSide): ReviewThread['side'] {
+function toThreadSide(side: AnnotationSide): ReviewThread['side'] {
   return side === 'deletions' ? 'old' : 'new'
 }
 
-export function threadToAnnotation(thread: ReviewThread): ReviewAnnotation {
+function threadToAnnotation(thread: ReviewThread): ReviewAnnotation {
   return { side: toAnnotationSide(thread.side), lineNumber: thread.lineNumber, metadata: thread }
 }
 
-export function annotationToThread(annotation: ReviewAnnotation): ReviewThread {
+function annotationToThread(annotation: ReviewAnnotation): ReviewThread {
   return annotation.metadata
 }
 
@@ -57,9 +57,7 @@ export function isGeneralThread(thread: ReviewThread): boolean {
 }
 
 /** Annotations for every file that has any, ordered by line within each file. */
-export function groupAnnotationsByPath(
-  threads: readonly ReviewThread[],
-): Map<string, ReviewAnnotation[]> {
+function groupAnnotationsByPath(threads: readonly ReviewThread[]): Map<string, ReviewAnnotation[]> {
   const byPath = new Map<string, ReviewThread[]>()
   for (const thread of threads) {
     if (isGeneralThread(thread)) continue
@@ -76,7 +74,7 @@ export function groupAnnotationsByPath(
 }
 
 /** Threads per file, from the threads alone, so it is right for files the diff hasn't loaded. */
-export function countThreadsByPath(threads: readonly ReviewThread[]): Record<string, number> {
+function countThreadsByPath(threads: readonly ReviewThread[]): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const thread of threads) {
     if (isGeneralThread(thread)) continue

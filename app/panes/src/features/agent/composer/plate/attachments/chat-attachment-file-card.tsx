@@ -24,7 +24,7 @@ import { ATTACHMENT_BOX_CLASS } from './attachment-box'
 const UNITS = ['KB', 'MB', 'GB', 'TB']
 
 /** Same units as the file explorer's Properties dialog, whose helper isn't exported. */
-export function formatAttachmentSize(bytes: number | null): string | null {
+function formatAttachmentSize(bytes: number | null): string | null {
   if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return null
   if (bytes < 1024) return `${bytes} bytes`
   let value = bytes / 1024

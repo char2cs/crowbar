@@ -1,9 +1,7 @@
 import { saveSidebarUI, loadSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { IDBFactory } from 'fake-indexeddb'
-import { resetDB } from '@/lib/persistence/idb'
 
 beforeEach(() => {
-  resetDB()
   globalThis.indexedDB = new IDBFactory()
 })
 

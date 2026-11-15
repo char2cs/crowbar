@@ -5,7 +5,7 @@ import type { HomeTree } from '@/core/entities/home-rows'
 /** Whether the tree positively names `chatId` a thread (owns no worktree; `workspaceId` is its
  *  parent's, so it can't decide). Unseen in `repos` → false, so branch chrome doesn't blink while
  *  chats load; a project-home chat can never own one → true. */
-export function chatIsThreadIn(
+function chatIsThreadIn(
   repos: readonly Repo[],
   chatId: string | null,
   homeTrees: Record<string, HomeTree> = {},

@@ -37,7 +37,7 @@ function shikiForRange(
   return { data: encodeShikiTokens(tokens) }
 }
 
-export const viewportSemanticTokensProvider: languages.DocumentRangeSemanticTokensProvider = {
+const viewportSemanticTokensProvider: languages.DocumentRangeSemanticTokensProvider = {
   getLegend: () => SEMANTIC_TOKEN_LEGEND,
   onDidChange: providerOnDidChange,
   provideDocumentRangeSemanticTokens(model, range) {

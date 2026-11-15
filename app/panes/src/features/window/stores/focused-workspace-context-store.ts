@@ -14,7 +14,7 @@ export interface FocusedWorkspaceContext {
   rootPath: string
 }
 
-export const EMPTY_FOCUSED_WORKSPACE_CONTEXT: FocusedWorkspaceContext = {
+const EMPTY_FOCUSED_WORKSPACE_CONTEXT: FocusedWorkspaceContext = {
   projectId: null,
   workspaceId: null,
   isProjectHome: false,

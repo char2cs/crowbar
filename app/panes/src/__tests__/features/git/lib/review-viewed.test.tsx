@@ -16,7 +16,6 @@ import {
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { viewedMapOf } from '@/__tests__/__fixtures__/viewed'
-import { resetDB } from '@/lib/persistence/idb'
 import {
   loadBranchReviewViewed,
   saveBranchReviewViewed,
@@ -41,7 +40,6 @@ function file(path: string, over: Partial<GitDiff> = {}): GitDiff {
 
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory()
-  resetDB()
 })
 
 describe('isFileViewed', () => {

@@ -17,7 +17,7 @@ function pickFiles(): Promise<File[]> {
 
 // A File's bytes as base64 (the payload of readAsDataURL's data: URL). Reading bytes rather than
 // file.text() keeps binary uploads byte-faithful; a UTF-8 round trip mangles non-UTF-8 bytes.
-export function readFileAsBase64(file: Blob): Promise<string> {
+function readFileAsBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {

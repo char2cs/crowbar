@@ -1,14 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import type { LayoutLeaf } from '@/features/panes/types/pane'
+import type { LayoutLeaf, LayoutSplit } from '@/features/panes/types/pane'
+import { createSplit } from '@/__tests__/__fixtures__/pane-layout'
 import {
   createLeaf,
-  createSplit,
   splitLayout,
   closeLayout,
   findLeaf,
   findSplit,
   getAllLeafIds,
-  flattenForRender,
   updateSplitSizes,
   getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
@@ -19,15 +18,16 @@ describe('createLeaf', () => {
   })
 })
 
-describe('createSplit', () => {
-  it('creates split with 50/50 default sizes', () => {
-    const s = createSplit('horizontal', createLeaf('a'), createLeaf('b'))
-    expect(s.type).toBe('split')
-    expect(s.sizes[0] + s.sizes[1]).toBeCloseTo(100)
+describe('a new split', () => {
+  it('starts with 50/50 sizes', () => {
+    const result = splitLayout(createLeaf('a'), 'a', 'horizontal')
+    expect(result?.layout.type).toBe('split')
+    expect((result?.layout as LayoutSplit).sizes).toEqual([50, 50])
   })
   it('clamps sizes below MIN_PANE_SIZE', () => {
-    const s = createSplit('horizontal', createLeaf('a'), createLeaf('b'), [2, 98])
-    expect(s.sizes[0]).toBeGreaterThanOrEqual(10)
+    const s = createSplit('horizontal', createLeaf('a'), createLeaf('b'))
+    const resized = updateSplitSizes(s, s.id, [2, 98]) as LayoutSplit
+    expect(resized.sizes[0]).toBeGreaterThanOrEqual(10)
   })
 })
 
@@ -85,23 +85,6 @@ describe('closeLayout', () => {
     const inner = createSplit('horizontal', createLeaf('b'), createLeaf('c'))
     const outer = createSplit('horizontal', createLeaf('a'), inner)
     expect(getAllLeafIds(closeLayout(outer, 'b')!)).toEqual(['a', 'c'])
-  })
-})
-
-describe('flattenForRender', () => {
-  it('flattens same-direction nested splits', () => {
-    const inner = createSplit('horizontal', createLeaf('b'), createLeaf('c'), [50, 50])
-    const outer = createSplit('horizontal', createLeaf('a'), inner, [50, 50])
-    const entries = flattenForRender(outer)
-    expect(entries).toHaveLength(3)
-    expect(entries.map((e) => (e.node as LayoutLeaf).id)).toEqual(['a', 'b', 'c'])
-  })
-  it('does not flatten cross-direction splits', () => {
-    const inner = createSplit('vertical', createLeaf('b'), createLeaf('c'))
-    const outer = createSplit('horizontal', createLeaf('a'), inner)
-    const entries = flattenForRender(outer)
-    expect(entries).toHaveLength(2)
-    expect(entries[1].node.type).toBe('split')
   })
 })
 

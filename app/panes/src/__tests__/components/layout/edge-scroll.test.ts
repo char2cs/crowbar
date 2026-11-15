@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createEdgeScroller, EDGE_SCROLL_BAND_PX } from '@/components/layout/edge-scroll'
+import { createEdgeScroller } from '@/components/layout/edge-scroll'
 
 describe('createEdgeScroller', () => {
   let frames: FrameRequestCallback[] = []
@@ -18,7 +18,7 @@ describe('createEdgeScroller', () => {
     const onScrolled = vi.fn()
     const scroller = createEdgeScroller(el, { left: 100, width: 400 }, { onScrolled })
 
-    scroller.update(100 + EDGE_SCROLL_BAND_PX + 20)
+    scroller.update(300)
     expect(frames).toHaveLength(0)
 
     scroller.update(499)

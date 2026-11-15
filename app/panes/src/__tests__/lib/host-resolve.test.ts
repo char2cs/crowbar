@@ -19,7 +19,7 @@ import {
   workspaceDTO,
 } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { entityStore } from '@/core/entities/entity-store'
 import { hostScope } from '@/core/stream/host-scope'
@@ -30,6 +30,7 @@ import {
 } from '@/features/hosts/stores/host-runtime-registry'
 import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const host = (id: string): Host => ({
   id,
@@ -76,7 +77,7 @@ function recordScope(wsId: string, projectId: string): void {
 beforeEach(() => {
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   resetEntities()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 afterEach(() => {

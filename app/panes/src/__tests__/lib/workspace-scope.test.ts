@@ -8,23 +8,22 @@ import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-en
 import type { Project } from '@/lib/types'
 import {
   recordWorkspaceScopeFromPath,
-  parseWorkspaceScopeFromPath,
   getWorkspaceScope,
   getOwningChatId,
   getWorkspaceIdOwnedByChat,
   recordWorkspaceScope,
   forgetWorkspaceScope,
   subscribeToWorkspaceScope,
-  __resetWorkspaceScopesForTest,
 } from '@/lib/workspace-scope'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // The IDE shell renders WorkspaceView, whose subtree builds scoped URLs, during the same render
 // that reads the route — so the scope must be recorded synchronously from the path, not in an
 // effect, or the first render throws "no project/repo scope recorded".
 beforeEach(() => {
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 describe('recordWorkspaceScopeFromPath', () => {
@@ -62,30 +61,8 @@ describe('recordWorkspaceScopeFromPath', () => {
   it('returns null and records nothing for a non-ide path', () => {
     expect(recordWorkspaceScopeFromPath('/')).toBeNull()
     expect(recordWorkspaceScopeFromPath('/chat/abc')).toBeNull()
+    expect(recordWorkspaceScopeFromPath('/workspaces/w9')).toBeNull()
     expect(getWorkspaceScope('w9')).toBeNull()
-  })
-})
-
-// Read-only render paths (the context pill) parse the active workspace from the real
-// /ide/:p/:r/:wsId route without recording it.
-describe('parseWorkspaceScopeFromPath', () => {
-  it('parses the scope from an /ide/:p/:r/:wsId path', () => {
-    expect(parseWorkspaceScopeFromPath('/ide/p1/r1/ws1')).toEqual({
-      projectId: 'p1',
-      repoId: 'r1',
-      wsId: 'ws1',
-    })
-  })
-
-  it('returns null for a legacy /workspaces/:wsId path and other non-ide paths', () => {
-    expect(parseWorkspaceScopeFromPath('/workspaces/ws1')).toBeNull()
-    expect(parseWorkspaceScopeFromPath('/')).toBeNull()
-    expect(parseWorkspaceScopeFromPath('/chat/abc')).toBeNull()
-  })
-
-  it('does NOT record into the registry (pure read, unlike recordWorkspaceScopeFromPath)', () => {
-    parseWorkspaceScopeFromPath('/ide/p2/r2/ws2')
-    expect(getWorkspaceScope('ws2')).toBeNull()
   })
 })
 

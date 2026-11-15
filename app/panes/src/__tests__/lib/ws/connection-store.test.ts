@@ -30,14 +30,9 @@ class MockWebSocket {
 
 vi.stubGlobal('WebSocket', MockWebSocket)
 
-const { createWSManager } = await import('@/lib/ws/manager')
-const {
-  useConnectionStore,
-  resetConnectionState,
-  reportChannelState,
-  reportChannelGone,
-  reportDaemonRefusal,
-} = await import('@/lib/ws/connection-store')
+const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { useConnectionStore, reportChannelState, reportChannelGone, reportDaemonRefusal } =
+  await import('@/lib/ws/connection-store')
 const { useDaemonHaltStore } = await import('@/features/window/stores/daemon-halt-store')
 
 const status = () => useConnectionStore.getState().status
@@ -46,7 +41,7 @@ const degraded = () => useConnectionStore.getState().degraded
 
 beforeEach(() => {
   MockWebSocket.instances = []
-  resetConnectionState()
+  useConnectionStore.setState(useConnectionStore.getInitialState())
   useDaemonHaltStore.getState().clear()
 })
 

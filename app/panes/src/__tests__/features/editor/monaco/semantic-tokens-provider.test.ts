@@ -34,12 +34,15 @@ vi.mock('@/features/editor/lib/shiki-grammars', () => ({
 }))
 
 import { lspViewportTokens } from '@/features/editor/lsp/semantic-tokens'
-import {
-  registerViewportSemanticTokens,
-  viewportSemanticTokensProvider,
-} from '@/features/editor/monaco/semantic-tokens-provider'
+import { languages as monacoLanguages } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import { registerViewportSemanticTokens } from '@/features/editor/monaco/semantic-tokens-provider'
 import { SEMANTIC_TOKEN_LEGEND } from '@/features/editor/monaco/semantic-tokens-legend'
-import { __resetShikiTokensForTests } from '@/features/editor/monaco/shiki-tokens'
+
+// Registration is once-per-module, so the provider is captured from the first call.
+registerViewportSemanticTokens()
+const viewportSemanticTokensProvider = vi.mocked(
+  monacoLanguages.registerDocumentRangeSemanticTokensProvider,
+).mock.calls[0][1] as languages.DocumentRangeSemanticTokensProvider
 
 const typeIndex = (type: string) => SEMANTIC_TOKEN_LEGEND.tokenTypes.indexOf(type)
 
@@ -95,7 +98,6 @@ async function warm(model: editor.ITextModel): Promise<void> {
 describe('viewportSemanticTokensProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    __resetShikiTokensForTests()
     shiki.ready.clear()
     shiki.tokenizeLine.mockImplementation(fakeGrammar)
   })
@@ -111,7 +113,6 @@ describe('viewportSemanticTokensProvider', () => {
   })
 
   it('asks Monaco to re-request once a grammar lands', () => {
-    registerViewportSemanticTokens()
     const changed = vi.fn()
     const subscription = viewportSemanticTokensProvider.onDidChange?.(changed)
 

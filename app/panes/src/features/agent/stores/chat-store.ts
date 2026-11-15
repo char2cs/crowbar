@@ -1,5 +1,6 @@
 import { createStore, useStore } from 'zustand'
 import { forgetWithChat } from '@/features/agent/stores/chat-lifecycle'
+import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import type { FeedFrame } from '@/features/agent/api/chat-rows'
 import { applyReady } from '@/features/agent/stores/lib/fold-live'
 import { applyLive, applyRow, emptyFeed, FeedFold } from '@/features/agent/stores/lib/fold-rows'
@@ -12,11 +13,14 @@ export interface ChatStoreState {
   feeds: Record<string, ChatFeed>
   /** Prompts with no row yet, by chat; written only by chat-outbox. */
   outbox: Record<string, OutboxItem[]>
+  /** Each chat's last surface pick; session-lifetime, so a reopened pane lands where it was. */
+  presentations: Record<string, ChatPresentation>
 }
 
 export const chatStore = createStore<ChatStoreState>()(() => ({
   feeds: {},
   outbox: {},
+  presentations: {},
 }))
 
 export function useChatStore<T>(selector: (state: ChatStoreState) => T): T {

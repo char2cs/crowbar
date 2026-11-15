@@ -3,7 +3,7 @@
 // of rows moved only if the step was a row action.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { viewChatIds, type ViewState } from '@/features/panes/lib/view-state'
-import { restoreWindowPaneState } from '@/lib/persistence/hydrate'
+import { restoreWindowPaneState } from '@/features/panes/lib/view-repair'
 import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,

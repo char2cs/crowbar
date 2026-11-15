@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CSV_MAX_COLUMNS,
-  CSV_MAX_ROWS,
   isCsvFile,
   resolveCsv,
   rowsToMarkdownTable,
 } from '@/features/agent/composer/plate/attachments/resolve-csv'
+
+// The shipped table-size gate.
+const CSV_MAX_ROWS = 200
+const CSV_MAX_COLUMNS = 20
 
 const encode = (s: string) => new TextEncoder().encode(s)
 

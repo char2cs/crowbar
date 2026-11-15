@@ -11,7 +11,7 @@ import {
 import { ShellLanding } from '@/components/layout/shell-landing'
 import { useProjectStore } from '@/core/entities/active-project'
 import { startStream } from '@/core/stream/stream'
-import { reportMigrating, resetConnectionState } from '@/lib/ws/connection-store'
+import { reportMigrating, useConnectionStore } from '@/lib/ws/connection-store'
 import { projectDTO, resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 
 const socket = vi.hoisted(() => ({
@@ -76,7 +76,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   resetEntities()
-  resetConnectionState()
+  useConnectionStore.setState(useConnectionStore.getInitialState())
   useProjectStore.setState({ activeProjectId: '' })
   reconnect()
   socket.deliver({ t: 'synced', scope: 'projects' })

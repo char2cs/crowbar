@@ -1,10 +1,7 @@
 import { act, fireEvent, render } from '@testing-library/react'
 import { StrictMode, useEffect, useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  clearPreservedScroll,
-  usePreservedScroll,
-} from '@/features/editor/hooks/use-preserved-scroll'
+import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 
 /**
  * Minimal host for the hook: a scrollable div whose offset the hook is asked to
@@ -14,7 +11,7 @@ import {
  */
 function ScrollHost({ scrollKey, ready = true }: { scrollKey: string | null; ready?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
-  usePreservedScroll(ref, scrollKey, ready)
+  usePreservedScroll(ref, scrollKey === null ? null : `${testRun}:${scrollKey}`, ready)
   return (
     <div ref={ref} data-testid="scroller" style={{ overflow: 'auto', height: 100 }}>
       <div style={{ height: 1000 }} />
@@ -22,9 +19,12 @@ function ScrollHost({ scrollKey, ready = true }: { scrollKey: string | null; rea
   )
 }
 
+// The offsets outlive a component, so each test keys its buffers apart from the others'.
+let testRun = 0
+
 describe('usePreservedScroll', () => {
   beforeEach(() => {
-    clearPreservedScroll()
+    testRun += 1
   })
 
   it('restores the last scroll offset after an unmount/remount cycle', () => {

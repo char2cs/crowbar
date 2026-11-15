@@ -60,8 +60,8 @@ beforeEach(() => {
   isTauri.mockReturnValue(false)
 })
 
-const { createWSManager } = await import('@/lib/ws/manager')
-const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
+const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { useConnectionStore } = await import('@/lib/ws/connection-store')
 const { destroyHostRuntime, getOrCreateHostRuntime } =
   await import('@/features/hosts/stores/host-runtime-registry')
 const { pairRemoteHost, resetHostWorld } = await import('@/__tests__/__fixtures__/remote-host')
@@ -228,7 +228,7 @@ describe('WSManager remote stream failures', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     isTauri.mockReturnValue(true)
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
   })
   afterEach(() => {
     vi.useRealTimers()

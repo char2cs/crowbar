@@ -1,10 +1,10 @@
 import { createSettingsExportPayload } from '@/features/settings/lib/settings-import-export'
 import type { Settings } from '@/features/settings/types/settings'
 
-export const SETTINGS_EXPORT_FILENAME = 'crowbar-settings.json'
+const SETTINGS_EXPORT_FILENAME = 'crowbar-settings.json'
 
 /** The versioned export envelope, pretty-printed. */
-export function buildSettingsExportFile(settings: Settings): {
+function buildSettingsExportFile(settings: Settings): {
   filename: string
   contents: string
 } {

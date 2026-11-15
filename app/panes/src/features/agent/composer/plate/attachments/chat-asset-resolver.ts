@@ -58,7 +58,7 @@ function blobToDataUrl(blob: Blob, signal?: AbortSignal): Promise<string> {
 }
 
 /** Never rejects, so it plugs into `MarkdownAssetInfo.resolve` with no adapter. */
-export async function fetchChatAttachmentDataUrl(
+async function fetchChatAttachmentDataUrl(
   wsId: string,
   ref: string,
   signal?: AbortSignal,

@@ -13,16 +13,17 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  SPLIT_SIDE_BY_SIDE_MIN_PX,
   presetChatLandingPresentation,
-  resetChatPresentationMemoryForTests,
   useChatPresentation,
   usePaneViewPresentation,
 } from '@/features/agent/hooks/use-chat-presentation'
+import { chatStore } from '@/features/agent/stores/chat-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 
 const platform = vi.hoisted(() => ({ mobile: false }))
+const SIDE_BY_SIDE_MIN_PX = 780 // the pane floor the hook documents
+
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
   get IS_MOBILE() {
@@ -38,7 +39,7 @@ describe('useChatPresentation — on the phone', () => {
 
   afterEach(() => {
     platform.mobile = false
-    resetChatPresentationMemoryForTests()
+    chatStore.setState({ presentations: {} })
   })
 
   it('lands on the chat even where the desktop default is the terminal', () => {
@@ -83,7 +84,7 @@ describe('useChatPresentation — a view the daemon holds', () => {
     })
   afterEach(() => {
     platform.mobile = false
-    resetChatPresentationMemoryForTests()
+    chatStore.setState({ presentations: {} })
     withSplit(false)
   })
   const render = (held: 'chat' | 'terminal') =>
@@ -205,12 +206,12 @@ describe('useChatPresentation — a chat remembers its own surface', () => {
  */
 describe('presetChatLandingPresentation — choosing a new chat’s surface at creation', () => {
   beforeEach(() => {
-    resetChatPresentationMemoryForTests()
+    chatStore.setState({ presentations: {} })
     useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   })
 
   afterEach(() => {
-    resetChatPresentationMemoryForTests()
+    chatStore.setState({ presentations: {} })
     useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   })
 
@@ -259,7 +260,7 @@ describe('usePaneViewPresentation', () => {
 
   it('wide enough and landscape presents side by side', () => {
     const { result } = renderHook(() =>
-      usePaneViewPresentation(true, ref({ clientWidth: SPLIT_SIDE_BY_SIDE_MIN_PX + 100 })),
+      usePaneViewPresentation(true, ref({ clientWidth: SIDE_BY_SIDE_MIN_PX + 100 })),
     )
     expect(result.current).toBe('side-by-side')
   })
@@ -268,7 +269,7 @@ describe('usePaneViewPresentation', () => {
     const { result } = renderHook(() =>
       usePaneViewPresentation(
         true,
-        ref({ clientWidth: 500, clientHeight: SPLIT_SIDE_BY_SIDE_MIN_PX + 200 }),
+        ref({ clientWidth: 500, clientHeight: SIDE_BY_SIDE_MIN_PX + 200 }),
       ),
     )
     expect(result.current).toBe('stacked')
@@ -284,8 +285,8 @@ describe('usePaneViewPresentation', () => {
       usePaneViewPresentation(
         true,
         ref({
-          clientWidth: SPLIT_SIDE_BY_SIDE_MIN_PX,
-          clientHeight: SPLIT_SIDE_BY_SIDE_MIN_PX,
+          clientWidth: SIDE_BY_SIDE_MIN_PX,
+          clientHeight: SIDE_BY_SIDE_MIN_PX,
         }),
       ),
     )

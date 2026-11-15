@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { reparentWorkspace, retryProvision, detachHolder } from '@/lib/api/workspace'
-import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // The worktree lifecycle verbs are addressed to the CHAT that holds the
 // worktree (backend spec §4.3), on the repo-scoped chat prefix the chat's own
@@ -14,7 +15,7 @@ const VERB_BASE = `/v0/projects/p1/repos/crowbar/chats/${CHAT}`
 let fetchMock: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope({
     projectId: 'p1',
     repoId: 'crowbar',
@@ -94,7 +95,7 @@ describe('detachHolder', () => {
 // from an empty id would 404 identically whatever went wrong.
 describe('a workspace with no recorded owning chat', () => {
   it('throws rather than dialling a chat-less URL', async () => {
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     recordWorkspaceScope({ projectId: 'p1', repoId: 'crowbar', wsId: 'orphan' })
     await expect(retryProvision('orphan', 'op-1')).rejects.toThrow(/no owning chat/)
     expect(fetchMock).not.toHaveBeenCalled()

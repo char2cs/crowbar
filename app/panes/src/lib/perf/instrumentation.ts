@@ -113,14 +113,3 @@ export function installPerfObserver(): void {
     observer.observe({ entryTypes: ['measure'] })
   }
 }
-
-/** Test-only: clears module state and performance entries. */
-export function __resetPerfForTests(): void {
-  observer?.disconnect()
-  observer = null
-  openMarks.clear()
-  delete window.__perfLog
-  delete window.__measures
-  performance.clearMarks()
-  performance.clearMeasures()
-}

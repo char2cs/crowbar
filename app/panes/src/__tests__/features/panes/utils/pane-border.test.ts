@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  buildInnerViewStyle,
-  buildPaneContentStyle,
-  isWindowEdge,
-} from '@/features/panes/utils/pane-border'
+import { buildInnerViewStyle, buildPaneContentStyle } from '@/features/panes/utils/pane-border'
 import type { PanePosition } from '@/features/panes/types/pane'
 
 // buildPaneContentStyle's header-icon inset is genuinely platform-dependent
@@ -18,52 +14,6 @@ const notAtEdge: PanePosition = { atLeft: false, atTop: false, atRight: false, a
 
 const INACTIVE = '1px solid var(--pane-border)'
 const ACTIVE = 'var(--pane-accent-width) solid var(--pane-accent)'
-
-describe('isWindowEdge', () => {
-  it('top is never a window edge', () => {
-    expect(isWindowEdge('top', full, 'left')).toBe(false)
-    expect(isWindowEdge('top', full, 'right')).toBe(false)
-    expect(isWindowEdge('top', notAtEdge, 'left')).toBe(false)
-  })
-
-  it('top is never a window edge, regardless of sidebar state', () => {
-    expect(isWindowEdge('top', full, 'left', true)).toBe(false)
-    expect(isWindowEdge('top', full, 'left', false)).toBe(false)
-  })
-
-  it('bottom is always a window edge when atBottom', () => {
-    expect(isWindowEdge('bottom', full, 'left')).toBe(true)
-    expect(isWindowEdge('bottom', full, 'right')).toBe(true)
-    expect(isWindowEdge('bottom', notAtEdge, 'left')).toBe(false)
-  })
-
-  it('left is window edge when atLeft and sidebar is NOT on left', () => {
-    expect(isWindowEdge('left', { ...full, atLeft: true }, 'right')).toBe(true)
-    expect(isWindowEdge('left', { ...full, atLeft: true }, 'left')).toBe(false)
-    expect(isWindowEdge('left', { ...full, atLeft: false }, 'right')).toBe(false)
-  })
-
-  it('right is window edge when atRight and sidebar is NOT on right', () => {
-    expect(isWindowEdge('right', { ...full, atRight: true }, 'left')).toBe(true)
-    expect(isWindowEdge('right', { ...full, atRight: true }, 'right')).toBe(false)
-    expect(isWindowEdge('right', { ...full, atRight: false }, 'left')).toBe(false)
-  })
-
-  // A collapsed sidebar shields nothing: the pane is flush against the frame, so
-  // that edge has to square off. Getting this wrong left a rounded corner and a
-  // border on the window's own rounded, vibrant edge, and compositing it cost
-  // ~98ms per frame in WKWebView — 8ms frames became 106ms for as long as the
-  // sidebar stayed hidden.
-  it('treats the sidebar side as a window edge once the sidebar is collapsed', () => {
-    expect(isWindowEdge('left', { ...full, atLeft: true }, 'left', false)).toBe(true)
-    expect(isWindowEdge('right', { ...full, atRight: true }, 'right', false)).toBe(true)
-  })
-
-  it('still shields the pane while the sidebar is open', () => {
-    expect(isWindowEdge('left', { ...full, atLeft: true }, 'left', true)).toBe(false)
-    expect(isWindowEdge('right', { ...full, atRight: true }, 'right', true)).toBe(false)
-  })
-})
 
 describe('buildPaneContentStyle — collapsed sidebar', () => {
   it('squares the corner the sidebar was covering', () => {

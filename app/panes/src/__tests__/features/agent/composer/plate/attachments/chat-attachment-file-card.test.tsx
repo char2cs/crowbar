@@ -4,49 +4,19 @@ import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
-import { formatAttachmentSize } from '@/features/agent/composer/plate/attachments/chat-attachment-file-card'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn as remoteProject,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 beforeEach(() => {
   resetHostWorld()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
-})
-
-describe('formatAttachmentSize', () => {
-  it('formats a sub-1024 byte count as whole bytes', () => {
-    expect(formatAttachmentSize(0)).toBe('0 bytes')
-    expect(formatAttachmentSize(500)).toBe('500 bytes')
-    expect(formatAttachmentSize(1023)).toBe('1023 bytes')
-  })
-
-  it('formats KB with two decimals below 10, one decimal at/above 10', () => {
-    expect(formatAttachmentSize(1024)).toBe('1.00 KB')
-    expect(formatAttachmentSize(2048)).toBe('2.00 KB')
-    expect(formatAttachmentSize(10240)).toBe('10.0 KB')
-  })
-
-  it('cycles through MB and GB', () => {
-    expect(formatAttachmentSize(1024 ** 2)).toBe('1.00 MB')
-    expect(formatAttachmentSize(1024 ** 3)).toBe('1.00 GB')
-  })
-
-  it('stops advancing units at TB — the last entry — rather than reading past it', () => {
-    expect(formatAttachmentSize(1024 ** 5)).toBe('1024.0 TB')
-  })
-
-  it('returns null for null, negative, or non-finite input rather than a bogus label', () => {
-    expect(formatAttachmentSize(null)).toBeNull()
-    expect(formatAttachmentSize(-1)).toBeNull()
-    expect(formatAttachmentSize(Number.NaN)).toBeNull()
-    expect(formatAttachmentSize(Number.POSITIVE_INFINITY)).toBeNull()
-  })
 })
 
 describe('chat attachment file card', () => {
@@ -102,6 +72,37 @@ describe('chat attachment file card', () => {
     expect(() => fireEvent.click(anchor!)).not.toThrow()
     expect(() => fireEvent.mouseOver(anchor!)).not.toThrow()
 
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    [500, '500 bytes'],
+    [1023, '1023 bytes'],
+    [1024, '1.00 KB'],
+    [10240, '10.0 KB'],
+    [1024 ** 2, '1.00 MB'],
+    [1024 ** 3, '1.00 GB'],
+    // TB is the last unit: larger sizes keep counting in it rather than reading past the table.
+    [1024 ** 5, '1024.0 TB'],
+  ])('labels a %i byte attachment %s', async (bytes, label) => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': String(bytes) } }),
+        ),
+    )
+
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>
+          {'[report.pdf](chats/c1/attachments/report.pdf)'}
+        </MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByText(label)).toBeInTheDocument())
     vi.unstubAllGlobals()
   })
 

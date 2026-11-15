@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { PlateEditor } from 'platejs/react'
 import type { TCodeBlockElement } from 'platejs'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
@@ -9,10 +8,7 @@ import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
-import {
-  excalidrawSceneFromCodeBlock,
-  findFollowingImageRef,
-} from '@/features/agent/composer/plate/attachments/chat-code-block-node'
+import { excalidrawSceneFromCodeBlock } from '@/features/agent/composer/plate/attachments/chat-code-block-node'
 import * as ExcalidrawPreviewModule from '@/features/agent/composer/plate/attachments/excalidraw-preview'
 
 /** The app renders attachments under `AgentChatView`'s `DndScope`. */
@@ -276,24 +272,5 @@ describe('excalidrawSceneFromCodeBlock identity stability', () => {
     const b = codeBlockElement('excalidraw:AbC123xy', [scene])
     expect(a).not.toBe(b)
     expect(excalidrawSceneFromCodeBlock(a)).toBe(excalidrawSceneFromCodeBlock(b))
-  })
-})
-
-/** Covers findPath returning `undefined` (its `Path | undefined` contract), which no mounted
- *  document triggers. findPath is used over `props.path` because Plate's useNodePath memo may not
- *  recompute when a sibling shifts this node, per its own JSDoc. */
-describe('findFollowingImageRef', () => {
-  it('returns undefined, without looking up a sibling, when the element has no path', () => {
-    const nodeSpy = vi.fn()
-    const fakeEditor = {
-      api: { findPath: () => undefined, node: nodeSpy },
-    } as unknown as PlateEditor
-    const result = findFollowingImageRef({
-      editor: fakeEditor,
-      element: { type: 'code_block', children: [] },
-    } as unknown as Parameters<typeof findFollowingImageRef>[0])
-
-    expect(result).toBeUndefined()
-    expect(nodeSpy).not.toHaveBeenCalled()
   })
 })

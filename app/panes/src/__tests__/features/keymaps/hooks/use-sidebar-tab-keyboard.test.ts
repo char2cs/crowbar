@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-keyboard'
 import {
-  EMPTY_FOCUSED_WORKSPACE_CONTEXT,
+  useFocusedWorkspaceContextStore,
   publishFocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
 
@@ -31,7 +31,7 @@ vi.mock('@/features/workspace/tree/tree-ui-store', () => ({
 
 const inRepoWorkspace = { workspaceId: 'w1', repoId: 'r1' }
 const focus = (ctx: { workspaceId: string | null; repoId: string | null }) =>
-  publishFocusedWorkspaceContext({ ...EMPTY_FOCUSED_WORKSPACE_CONTEXT, ...ctx })
+  publishFocusedWorkspaceContext({ ...useFocusedWorkspaceContextStore.getInitialState(), ...ctx })
 
 function dispatchKeydown(init: KeyboardEventInit): KeyboardEvent {
   const event = new KeyboardEvent('keydown', { cancelable: true, bubbles: true, ...init })

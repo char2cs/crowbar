@@ -6,13 +6,14 @@ import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { IdentityDTO } from '@/features/git/api/identity-api'
 import { toast } from '@/features/window/stores/toast-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
@@ -428,7 +429,7 @@ describe('a link in a review comment', () => {
     vi.clearAllMocks()
     open = vi.spyOn(window, 'open').mockReturnValue(null)
     resetHostWorld()
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     pairRemoteHost('h1', 'Build box')
     loadProjects(projectOn('p-remote', 'h1'), projectOn('p-local', 'local'))
     recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })

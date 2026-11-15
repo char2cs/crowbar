@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { allowedModes } from '@/components/sidebar/lib/sidebar-drop-policy'
+import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-policy'
 import { NO_MODES, REORDER_MODES } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
@@ -75,12 +75,12 @@ describe('repo-vs-repo reorder indicator, against a live DOM-reconstructed targe
   it('offers the reorder modes between two repo headers in the same project', () => {
     const subject = repoHeaderSubject('home-1', 'proj-1', 'repo-1')
     const target = liveDomTarget('home-2')
-    expect(allowedModes([subject], target)).toEqual(REORDER_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(REORDER_MODES)
   })
 
   it('still refuses between two repo headers in different projects', () => {
     const subject = repoHeaderSubject('home-1', 'proj-1', 'repo-1')
     const target = liveDomTarget('home-3')
-    expect(allowedModes([subject], target)).toEqual(NO_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(NO_MODES)
   })
 })

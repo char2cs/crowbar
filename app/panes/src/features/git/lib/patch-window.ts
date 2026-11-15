@@ -3,14 +3,14 @@
 // that is either correct or thrashing can be tested exhaustively.
 
 /** How many files past each edge of the viewport are materialised ahead of time. */
-export const LOOKAHEAD_FILES = 6
+const LOOKAHEAD_FILES = 6
 
 /** Drift allowed before a held file drops. Wider than LOOKAHEAD_FILES on purpose: equal bands
  *  would evict and refetch a boundary file on every one-row scroll. */
-export const EVICT_BEYOND_FILES = 20
+const EVICT_BEYOND_FILES = 20
 
 /** Hard ceiling on how many files hold patch text at once. */
-export const MAX_MATERIALIZED_FILES = 40
+const MAX_MATERIALIZED_FILES = 40
 
 /** Hard ceiling on total diff lines held — what actually bounds memory, since two generated
  *  files can outweigh forty ordinary ones. */

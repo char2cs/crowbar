@@ -81,13 +81,14 @@ import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { nextVersion, seedChats, resetChatStore } from '@/__tests__/__fixtures__/agent-chat'
 import { useSettingsStore } from '@/features/settings/store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const providers: AgentProvider[] = [
   {
@@ -302,7 +303,7 @@ describe('a pane on a remote host', () => {
   beforeEach(() => {
     resetHostWorld()
     pairRemoteHost('host-1')
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
     loadProjects(projectOn('p-remote', 'host-1'))
     useAgentProvidersStore.getState().setProviders(providers)

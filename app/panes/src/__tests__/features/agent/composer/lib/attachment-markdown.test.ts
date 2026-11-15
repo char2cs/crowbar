@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   textAttachmentMarkdown,
   imageMarkdown,
-  fileMarkdown,
   excalidrawMarkdown,
   markdownForUpload,
 } from '@/features/agent/composer/lib/attachment-markdown'
@@ -155,43 +154,43 @@ describe('imageMarkdown', () => {
   })
 })
 
-describe('fileMarkdown', () => {
+function fileLink(filename: string, ref: string) {
+  return markdownForUpload({ filename, ref, contentType: 'application/pdf' })
+}
+
+describe('markdownForUpload for a non-image file', () => {
   it('produces a standard markdown link', () => {
-    expect(fileMarkdown('report.pdf', 'chats/c1/attachments/x-report.pdf')).toBe(
+    expect(fileLink('report.pdf', 'chats/c1/attachments/x-report.pdf')).toBe(
       '[report.pdf](chats/c1/attachments/x-report.pdf)',
     )
   })
 
   it('handles filename with spaces', () => {
-    expect(fileMarkdown('my report.pdf', 'path/to/file.pdf')).toBe(
-      '[my report.pdf](path/to/file.pdf)',
-    )
+    expect(fileLink('my report.pdf', 'path/to/file.pdf')).toBe('[my report.pdf](path/to/file.pdf)')
   })
 
   it('handles filename with special characters', () => {
-    expect(fileMarkdown('report-2024-09-04.docx', 'path/to/file.docx')).toBe(
+    expect(fileLink('report-2024-09-04.docx', 'path/to/file.docx')).toBe(
       '[report-2024-09-04.docx](path/to/file.docx)',
     )
   })
 
   it('handles filename with brackets', () => {
-    expect(fileMarkdown('[file].txt', 'path/to/file.txt')).toBe('[[file].txt](path/to/file.txt)')
+    expect(fileLink('[file].txt', 'path/to/file.txt')).toBe('[[file].txt](path/to/file.txt)')
   })
 
   it('handles filename with parentheses', () => {
-    expect(fileMarkdown('file (1).txt', 'path/to/file.txt')).toBe(
-      '[file (1).txt](path/to/file.txt)',
-    )
+    expect(fileLink('file (1).txt', 'path/to/file.txt')).toBe('[file (1).txt](path/to/file.txt)')
   })
 
   it('handles ref with query parameters', () => {
-    expect(fileMarkdown('file.pdf', 'path/to/file.pdf?download=true')).toBe(
+    expect(fileLink('file.pdf', 'path/to/file.pdf?download=true')).toBe(
       '[file.pdf](path/to/file.pdf?download=true)',
     )
   })
 
   it('handles empty filename', () => {
-    expect(fileMarkdown('', 'path/to/file.txt')).toBe('[](path/to/file.txt)')
+    expect(fileLink('', 'path/to/file.txt')).toBe('[](path/to/file.txt)')
   })
 })
 

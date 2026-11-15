@@ -145,7 +145,7 @@ function chatModes(
 // Which of before/after/into this drag may do to this target. Only a chat crosses a project; across
 // repos only rows owning no worktree move (§8.3). Busy rows refuse everything, working ones all but
 // a chat's move out of its workspace, and a locked or ownerless branch keeps its fork anchor.
-export function allowedModes(subjects: readonly SidebarRow[], target: DropTargetRow): AllowedModes {
+function allowedModes(subjects: readonly SidebarRow[], target: DropTargetRow): AllowedModes {
   if (subjects.length === 0) return NO_MODES
   const ops = operationsState()
   if (subjects.some((s) => s.workspaceId && selectEntityBusy(ops, s.workspaceId))) return NO_MODES
@@ -285,7 +285,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
 // The outer band reorders; the middle nests. Folders get the container band (filing is cheap and
 // common); every other kind gets the heavy band, since nesting there re-parents a fork or makes a
 // thread — heavier moves that deserve a harder-to-hit target.
-export function edgeBandFor(kind: string): number {
+function edgeBandFor(kind: string): number {
   return kind === 'folder' ? EDGE_BAND_CONTAINER : EDGE_BAND_HEAVY
 }
 

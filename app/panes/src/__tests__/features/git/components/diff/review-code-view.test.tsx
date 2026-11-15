@@ -12,7 +12,6 @@ import {
 import type { FileOutline } from '@/features/git/api/review-window-api'
 import { PATCH_LINE_CAP } from '@/features/git/lib/patch-window'
 import type { GitDiff } from '@/features/git/types/git-types'
-import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
@@ -535,10 +534,6 @@ describe('ReviewCodeView binary files', () => {
 })
 
 describe('ReviewCodeView scroll retention', () => {
-  beforeEach(() => {
-    clearPreservedScroll()
-  })
-
   // A tab switch unmounts this surface; the scroll offset must survive the remount.
   it('restores the scroll offset when the tab is switched away and back', () => {
     const { files, outline } = manyFiles(5)

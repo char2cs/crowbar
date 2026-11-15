@@ -15,7 +15,8 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
-import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // The document, not the pane, is what the language server knows: one open per
 // document, addressed to the document's own workspace, whichever is active.
@@ -91,7 +92,7 @@ let host: EditorHost
 beforeEach(async () => {
   host = await loadEditorHost()
   resetWindowPaneStoreForTests()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w1', owningChatId: 'chat-1' })
   setActiveWorkspaceId('w1')
   vi.useFakeTimers()

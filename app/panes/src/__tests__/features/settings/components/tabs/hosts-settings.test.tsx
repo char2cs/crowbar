@@ -31,11 +31,7 @@ import {
   getHostRuntime,
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
-import {
-  reportChannelState,
-  resetConnectionState,
-  useConnectionStore,
-} from '@/lib/ws/connection-store'
+import { reportChannelState, useConnectionStore } from '@/lib/ws/connection-store'
 import { HostsSettings } from '@/features/settings/components/tabs/hosts-settings'
 import { PrimitiveDialogProvider } from '@/components/ui/primitive-dialog-service'
 import { proxyMarkerError } from '@/lib/api/errors'
@@ -141,7 +137,7 @@ describe('HostsSettings', () => {
     })
     expect(dot).toHaveAttribute('aria-label', 'Offline')
     expect(row).not.toHaveTextContent('no live stream')
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
     destroyHostRuntime('h1')
   })
 

@@ -11,7 +11,7 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { pendingChatSurfaces } from '@/features/panes/stores/pending-chat-surfaces'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import {
   loadProjects,
@@ -38,6 +38,7 @@ vi.mock('@/features/agent/chat/agent-chat-view', () => ({
 }))
 
 import { AgentChatPaneGate } from '@/features/agent/components/agent-chat-pane-gate'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const WAITING = 'Opening this chat…'
 
@@ -68,7 +69,7 @@ beforeEach(() => {
   resetHostWorld()
   resetWindowPaneStoreForTests()
   pendingChatSurfaces.setState({ pending: new Set() })
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope({ projectId: 'p-local', repoId: 'r1', wsId: 'w1', owningChatId: 'o1' })
   fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true, data: [] })))
   vi.stubGlobal('fetch', fetchMock)
@@ -173,7 +174,7 @@ describe('AgentChatPaneGate on an install that has paired a remote host', () => 
   })
 
   it('treats a workspace whose scope is not recorded yet as waiting, then mounts when it is', async () => {
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     loadProjects(projectOn('p-local', 'local'))
     mount()
     expect(screen.getByText(WAITING)).toBeInTheDocument()

@@ -36,7 +36,6 @@ import {
 } from '@/core/entities/operations'
 import type { Repo } from '@/core/entities/repo-types'
 import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
-import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { ApiError, type WorkAtRisk } from '@/lib/errors/api-error'
 import { DISCARD_WORK_INIT } from '@/lib/api'
 import type { Problem } from '@/lib/errors/problem'
@@ -45,6 +44,7 @@ import { readSelect, selectHomeTree } from '@/core/entities/select'
 import { proxyMarkerError } from '@/lib/api/errors'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.
@@ -114,7 +114,7 @@ beforeEach(() => {
   toastError?.mockRestore()
   toastError = watchToasts()
   resetOperations()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   resetEntities()
   seedRepos([repo()])

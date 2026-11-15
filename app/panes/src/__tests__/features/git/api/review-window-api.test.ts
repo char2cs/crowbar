@@ -4,7 +4,6 @@ import {
   getReviewOutline,
   getReviewPatch,
   searchReviewDiff,
-  DIFF_TRUNCATED_HEADER,
 } from '@/features/git/api/review-window-api'
 import { ApiError } from '@/lib/errors/api-error'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
@@ -157,8 +156,7 @@ describe('getReviewPatch', () => {
   // Truncation travels in a leading RESPONSE HEADER, deliberately not an HTTP
   // trailer: fetch() exposes no trailers, so a trailer could never be read here.
   it('reads truncation from the X-Crowbar-Diff-Truncated response header', async () => {
-    expect(DIFF_TRUNCATED_HEADER).toBe('X-Crowbar-Diff-Truncated')
-    mockText('diff --git a/big b/big\n', { [DIFF_TRUNCATED_HEADER]: 'true' })
+    mockText('diff --git a/big b/big\n', { 'X-Crowbar-Diff-Truncated': 'true' })
 
     const result = await getReviewPatch({ wsId: 'ws-1' }, 'big.js', 20000)
 
@@ -171,7 +169,7 @@ describe('getReviewPatch', () => {
   it('reports a header-only capped patch as truncated rather than empty', async () => {
     const headerOnly =
       'diff --git a/monster.js b/monster.js\nindex 000..111 100644\n--- a/monster.js\n+++ b/monster.js\n'
-    mockText(headerOnly, { [DIFF_TRUNCATED_HEADER]: 'true' })
+    mockText(headerOnly, { 'X-Crowbar-Diff-Truncated': 'true' })
 
     const result = await getReviewPatch({ wsId: 'ws-1' }, 'monster.js', 20000)
 

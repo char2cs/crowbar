@@ -5,7 +5,7 @@ import {
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
 import type { HostStatus } from '@/features/hosts/types'
-import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
+import { reportChannelState, useConnectionStore } from '@/lib/ws/connection-store'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 let buildBadgeOverride: string = 'auto'
@@ -26,7 +26,7 @@ beforeEach(() => {
   buildBadgeOverride = 'beta'
   buildReadout = true
   chrome.phone = false
-  resetConnectionState()
+  useConnectionStore.setState(useConnectionStore.getInitialState())
   resetHostWorld()
 })
 

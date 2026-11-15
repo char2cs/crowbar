@@ -7,7 +7,7 @@ import { apiFetch } from '@/lib/api/fetch'
 import { ApiError } from '@/lib/errors/api-error'
 import { UNREACHED, userWords } from '@/lib/errors/report'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
-import { resetConnectionState, useConnectionStore } from '@/lib/ws/connection-store'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
 // A retry config that runs instantly (no real backoff sleeps) so the suite stays
@@ -321,7 +321,7 @@ describe('apiFetch refusals', () => {
   })
 
   it('a daemon_migrating refusal reports the state before it throws', async () => {
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(refusal('daemon_migrating', 'Crowbar is starting')),
@@ -332,7 +332,7 @@ describe('apiFetch refusals', () => {
     )
 
     expect(seen).toEqual({ message: 'Crowbar is starting' })
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
   })
 
   // A daemon that halts before the page loads announces it to nobody: the

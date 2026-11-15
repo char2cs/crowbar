@@ -78,7 +78,7 @@ function syncThemeWithSystem(themeMode: 'light' | 'dark' | 'system', onModeChang
   removeThemeSyncListener = () => mediaQuery.removeEventListener('change', handleChange)
 }
 
-export async function applyTheme(theme: Theme) {
+async function applyTheme(theme: Theme) {
   if (typeof window === 'undefined') return
 
   try {

@@ -2,16 +2,9 @@ import type { ReactNode } from 'react'
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  annotationToThread,
-  countThreadsByPath,
-  DRAFT_THREAD_ID,
-  groupAnnotationsByPath,
-  threadToAnnotation,
   toAnnotationSide,
-  toThreadSide,
   useReviewAnnotations,
 } from '@/features/git/components/diff/use-review-annotations'
-import type { ReviewAnnotation } from '@/features/git/components/diff/use-review-annotations'
 import { ReviewCodeView } from '@/features/git/components/diff/review-code-view'
 import type { FileOutline } from '@/features/git/api/review-window-api'
 import type { GitDiff } from '@/features/git/types/git-types'
@@ -319,38 +312,30 @@ describe('review thread ↔ annotation side map', () => {
     expect(toAnnotationSide('old')).toBe('deletions')
     expect(toAnnotationSide('new')).toBe('additions')
   })
-
-  it('maps deletions back to old and additions back to new', () => {
-    expect(toThreadSide('deletions')).toBe('old')
-    expect(toThreadSide('additions')).toBe('new')
-  })
 })
 
-describe('threadToAnnotation / annotationToThread', () => {
-  it('carries the line number and the thread itself as metadata', () => {
-    const thread = makeThread({ lineNumber: 42 })
-    const annotation = threadToAnnotation(thread)
+describe('threads as annotations', () => {
+  it('carries the line number and the thread itself as metadata, and hands the thread back', () => {
+    const thread = makeThread({ filePath: 'src/a.ts', lineNumber: 42 })
+    const { result } = renderLayer([thread])
 
-    expect(annotation.lineNumber).toBe(42)
-    expect(annotation.side).toBe('additions')
-    expect(annotation.metadata).toBe(thread)
+    const annotation = result.current.annotationsByPath.get('src/a.ts')?.[0]
+    expect(annotation?.lineNumber).toBe(42)
+    expect(annotation?.side).toBe('additions')
+    expect(annotation?.metadata).toEqual(thread)
+    expect(result.current.threadsFor('src/a.ts')).toEqual([thread])
   })
 
-  it('round-trips a thread through an annotation and back, on both sides', () => {
-    for (const side of ['old', 'new'] as const) {
-      const thread = makeThread({ id: `thread-${side}`, side, lineNumber: 7 })
-      expect(annotationToThread(threadToAnnotation(thread))).toEqual(thread)
-    }
-  })
+  it('anchors old-side threads to deletions and returns each thread unchanged', () => {
+    const threads = (['old', 'new'] as const).map((side) =>
+      makeThread({ id: `thread-${side}`, filePath: `src/${side}.ts`, side, lineNumber: 7 }),
+    )
+    const { result } = renderLayer(threads)
 
-  it('round-trips an annotation through a thread and back, on both sides', () => {
-    for (const side of ['deletions', 'additions'] as const) {
-      const annotation: ReviewAnnotation = {
-        side,
-        lineNumber: 11,
-        metadata: makeThread({ side: toThreadSide(side), lineNumber: 11 }),
-      }
-      expect(threadToAnnotation(annotationToThread(annotation))).toEqual(annotation)
+    expect(result.current.annotationsByPath.get('src/old.ts')?.[0].side).toBe('deletions')
+    expect(result.current.annotationsByPath.get('src/new.ts')?.[0].side).toBe('additions')
+    for (const thread of threads) {
+      expect(result.current.threadsFor(thread.filePath)).toEqual([thread])
     }
   })
 })
@@ -361,7 +346,7 @@ describe('grouping threads by file', () => {
     const b = makeThread({ id: 'b', filePath: 'src/a.ts', lineNumber: 3 })
     const c = makeThread({ id: 'c', filePath: 'src/b.ts', lineNumber: 1, side: 'old' })
 
-    const grouped = groupAnnotationsByPath([a, b, c])
+    const grouped = renderLayer([a, b, c]).result.current.annotationsByPath
 
     expect([...grouped.keys()].sort()).toEqual(['src/a.ts', 'src/b.ts'])
     expect(grouped.get('src/a.ts')?.map((x) => x.lineNumber)).toEqual([3, 9])
@@ -369,21 +354,23 @@ describe('grouping threads by file', () => {
   })
 
   it('counts threads per file, including files the diff never materialises', () => {
-    const counts = countThreadsByPath([
+    const { threadCounts } = renderLayer([
       makeThread({ id: 'a', filePath: 'src/a.ts' }),
       makeThread({ id: 'b', filePath: 'src/a.ts' }),
       makeThread({ id: 'c', filePath: 'never/materialised.ts' }),
-    ])
+    ]).result.current
 
-    expect(counts).toEqual({ 'src/a.ts': 2, 'never/materialised.ts': 1 })
+    expect(threadCounts).toEqual({ 'src/a.ts': 2, 'never/materialised.ts': 1 })
   })
 
   it('ignores un-anchored (Conversation-only) threads in annotations and counts', () => {
     const general = makeThread({ id: 'g', filePath: '', lineNumber: 0 })
     const anchored = makeThread({ id: 'a', filePath: 'src/a.ts', lineNumber: 2 })
 
-    expect([...groupAnnotationsByPath([general, anchored]).keys()]).toEqual(['src/a.ts'])
-    expect(countThreadsByPath([general, anchored])).toEqual({ 'src/a.ts': 1 })
+    const layer = renderLayer([general, anchored]).result.current
+
+    expect([...layer.annotationsByPath.keys()]).toEqual(['src/a.ts'])
+    expect(layer.threadCounts).toEqual({ 'src/a.ts': 1 })
   })
 })
 
@@ -412,7 +399,8 @@ describe('useReviewAnnotations', () => {
     // The draft is an annotation of its own, anchored at the last selected line.
     const draft = result.current.annotationsByPath.get('src/a.ts')?.[0]
     expect(draft).toMatchObject({ side: 'additions', lineNumber: 7 })
-    expect(draft?.metadata.id).toBe(DRAFT_THREAD_ID)
+    expect(result.current.draft).not.toBeNull()
+    expect(draft?.metadata).toBe(result.current.draft)
 
     await act(async () => {
       await result.current.submitDraft('looks wrong')
@@ -508,7 +496,9 @@ describe('useReviewAnnotations', () => {
     const thread = makeThread({ id: 'thread-9' })
     const { result } = renderLayer([thread])
 
-    render(<>{result.current.renderAnnotation(threadToAnnotation(thread))}</>)
+    const annotation = result.current.annotationsByPath.get(thread.filePath)?.[0]
+    if (!annotation) throw new Error('thread has no annotation')
+    render(<>{result.current.renderAnnotation(annotation)}</>)
 
     expect(screen.getByText('crowbarThreadBody')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /resolve/i }))

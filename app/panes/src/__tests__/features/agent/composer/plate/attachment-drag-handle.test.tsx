@@ -6,13 +6,9 @@ import type { TElement } from 'platejs'
 import { createPlateEditor, Plate, useEditorRef, usePlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import {
-  AttachmentDeleteButton,
-  AttachmentDragHandle,
+  AttachmentControls,
   AttachmentDropLine,
-  attachmentDropMove,
-  canDropAttachmentNode,
   resolveAttachmentDrop,
-  resolveDraggableBlockElement,
   useAttachmentDraggable,
   useAttachmentDropTarget,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
@@ -32,172 +28,41 @@ function EditorWrapper({ children }: { children: ReactNode }) {
   return <Plate editor={editor}>{children}</Plate>
 }
 
-function Harness() {
-  const editor = usePlateEditor({
-    plugins: chatComposerPlugins,
-    value: [{ type: 'p', children: [{ text: 'hi' }] }],
-  })
-  return (
-    <Plate editor={editor}>
-      <AttachmentDragHandle onSelect={() => editor.tf.select(editor.children[0]!)} />
-    </Plate>
-  )
-}
-
-describe('AttachmentDragHandle', () => {
-  it('renders a grab affordance', () => {
-    render(<Harness />)
+describe('AttachmentControls', () => {
+  it('renders a grab affordance and a delete affordance', () => {
+    render(<AttachmentControls onDelete={vi.fn()} />)
     expect(screen.getByRole('button', { name: /reorder/i })).toBeInTheDocument()
-  })
-
-  it('calls onSelect on click', () => {
-    const onSelect = vi.fn()
-    render(<AttachmentDragHandle onSelect={onSelect} />)
-    fireEvent.click(screen.getByRole('button', { name: /reorder/i }))
-    expect(onSelect).toHaveBeenCalledTimes(1)
-  })
-
-  // `size="icon-xs"` is the shared square small-icon token: one `size-N` utility sets width and
-  // height together, so its presence is the squareness guarantee.
-  it('uses the shared icon-xs button size token, not a one-off non-square size', () => {
-    render(<Harness />)
-    const handle = screen.getByRole('button', { name: /reorder/i })
-    expect(handle.className).toMatch(/(?:^|\s)size-7(?:\s|$)/)
-    expect(handle.className).not.toContain('h-6')
-    expect(handle.className).not.toContain('w-4')
-  })
-
-  // The handle sits over arbitrary attachment content, so it needs a truly OPAQUE surface:
-  // `--popover` (solid in both themes). The outline variant's dark `bg-input/32` and the sidebar
-  // hover tokens are color-mix blends, so they are overridden here.
-  it('is genuinely opaque in every state — no alpha-blended background utility survives, in either theme', () => {
-    render(<Harness />)
-    const handle = screen.getByRole('button', { name: /reorder/i })
-    expect(handle.className).toContain('dark:bg-popover')
-    expect(handle.className).toContain('dark:hover:bg-popover')
-    // No stray alpha-sliced `bg-*/NN` utility left at all, under ANY variant
-    // prefix (dark:, hover:, data-pressed:, ...) — this is the actual "is it
-    // really opaque" contract, not just "did we remove the three specific
-    // classes we already knew about."
-    expect(handle.className).not.toMatch(/(?:^|\s)(?:[\w-]+:)*bg-[\w-]+\/\d+(?:\s|$)/)
-  })
-})
-
-// Sits right under the drag handle (same left edge), the way to remove an attachment.
-describe('AttachmentDeleteButton', () => {
-  it('renders a delete affordance', () => {
-    render(<AttachmentDeleteButton onDelete={vi.fn()} />)
     expect(screen.getByRole('button', { name: /remove this attachment/i })).toBeInTheDocument()
   })
 
-  it('calls onDelete on click', () => {
+  it('calls onDelete on delete click', () => {
     const onDelete = vi.fn()
-    render(<AttachmentDeleteButton onDelete={onDelete} />)
+    render(<AttachmentControls onDelete={onDelete} />)
     fireEvent.click(screen.getByRole('button', { name: /remove this attachment/i }))
     expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
-  it('uses the shared icon-xs button size token, not a one-off non-square size', () => {
-    render(<AttachmentDeleteButton onDelete={vi.fn()} />)
-    const button = screen.getByRole('button', { name: /remove this attachment/i })
-    expect(button.className).toMatch(/(?:^|\s)size-7(?:\s|$)/)
-    expect(button.className).not.toContain('h-6')
-    expect(button.className).not.toContain('w-4')
-  })
+  // `size="icon-xs"` is the shared square small-icon token: one `size-N` utility sets width and
+  // height together, so its presence is the squareness guarantee.
+  it.each([/reorder/i, /remove this attachment/i])(
+    'button %s uses the shared icon-xs size token',
+    (name) => {
+      render(<AttachmentControls onDelete={vi.fn()} />)
+      const button = screen.getByRole('button', { name })
+      expect(button.className).toMatch(/(?:^|\s)size-7(?:\s|$)/)
+      expect(button.className).not.toContain('h-6')
+      expect(button.className).not.toContain('w-4')
+    },
+  )
 
-  it('is genuinely opaque in every state — no alpha-blended background utility survives, in either theme', () => {
-    render(<AttachmentDeleteButton onDelete={vi.fn()} />)
-    const button = screen.getByRole('button', { name: /remove this attachment/i })
+  // The buttons sit over arbitrary attachment content, so they need a truly OPAQUE surface:
+  // `--popover` (solid in both themes), with no alpha-blended background under any variant.
+  it.each([/reorder/i, /remove this attachment/i])('button %s is opaque in every state', (name) => {
+    render(<AttachmentControls onDelete={vi.fn()} />)
+    const button = screen.getByRole('button', { name })
     expect(button.className).toContain('dark:bg-popover')
     expect(button.className).toContain('dark:hover:bg-popover')
     expect(button.className).not.toMatch(/(?:^|\s)(?:[\w-]+:)*bg-[\w-]+\/\d+(?:\s|$)/)
-  })
-})
-
-describe('canDropAttachmentNode', () => {
-  it('returns true for a drop target that is a same-parent sibling', () => {
-    expect(canDropAttachmentNode([0, 1], [0, 2])).toBe(true)
-  })
-
-  it('returns false for a drop target under a different parent', () => {
-    expect(canDropAttachmentNode([0, 1], [1, 0])).toBe(false)
-  })
-})
-
-/** File-card links deserialize nested in their own paragraph (`[N] p -> [N, 0] a`), and
- *  `canDropAttachmentNode` compares parents, so each link is walked up to its paragraph first. */
-describe('resolveDraggableBlockElement', () => {
-  it('returns the element unchanged when it is already a top-level block (a fence-based attachment)', () => {
-    const editor = createPlateEditor({
-      plugins: chatComposerPlugins,
-      value: [{ type: 'code_block', children: [{ type: 'code_line', children: [{ text: 'x' }] }] }],
-    })
-    const codeBlock = editor.children[0] as TElement
-
-    expect(resolveDraggableBlockElement(editor, codeBlock)).toBe(codeBlock)
-  })
-
-  it('walks a nested link up to its wrapping paragraph (a file-card attachment)', () => {
-    const editor = createPlateEditor({
-      plugins: chatComposerPlugins,
-      value: [
-        {
-          type: 'p',
-          children: [
-            { type: 'a', url: 'chats/c1/attachments/a.pdf', children: [{ text: 'a.pdf' }] },
-          ],
-        },
-      ],
-    })
-    const paragraph = editor.children[0] as TElement
-    const link = paragraph.children[0] as TElement
-
-    const resolved = resolveDraggableBlockElement(editor, link)
-
-    expect(resolved).toBe(paragraph)
-    expect(resolved).not.toBe(link)
-    expect(editor.api.findPath(resolved)).toEqual([0])
-  })
-
-  it('falls back to the element unchanged when it has no path in the document at all', () => {
-    const editor = createPlateEditor({
-      plugins: chatComposerPlugins,
-      value: [{ type: 'p', children: [{ text: 'hi' }] }],
-    })
-    const detached: TElement = { type: 'a', children: [{ text: 'x' } as never] }
-
-    expect(resolveDraggableBlockElement(editor, detached)).toBe(detached)
-  })
-
-  it('resolves two separate file-card links to top-level paragraphs whose parent path is the SAME — the actual I1 fix', () => {
-    const editor = createPlateEditor({
-      plugins: chatComposerPlugins,
-      value: [
-        {
-          type: 'p',
-          children: [
-            { type: 'a', url: 'chats/c1/attachments/a.pdf', children: [{ text: 'a.pdf' }] },
-          ],
-        },
-        {
-          type: 'p',
-          children: [
-            { type: 'a', url: 'chats/c1/attachments/b.pdf', children: [{ text: 'b.pdf' }] },
-          ],
-        },
-      ],
-    })
-    const linkA = (editor.children[0] as TElement).children[0] as TElement
-    const linkB = (editor.children[1] as TElement).children[0] as TElement
-
-    const blockA = resolveDraggableBlockElement(editor, linkA)
-    const blockB = resolveDraggableBlockElement(editor, linkB)
-    // Before this fix, the raw (unresolved) links had paths `[0, 0]` and
-    // `[1, 0]` — parents `[0]` and `[1]`, never equal. Resolved to their
-    // wrapping paragraphs, both parents are the document root `[]`.
-    expect(canDropAttachmentNode(editor.api.findPath(blockA)!, editor.api.findPath(blockB)!)).toBe(
-      true,
-    )
   })
 })
 
@@ -209,52 +74,19 @@ function threeBlocks() {
       { type: 'code_block', children: [{ type: 'code_line', children: [{ text: 'x' }] }] },
       { type: 'p', children: [{ text: 'b' }] },
       { type: 'p', children: [{ text: 'c' }] },
+      { type: 'blockquote', children: [{ type: 'p', children: [{ text: 'nested' }] }] },
     ],
   })
-  const [a, attachment, b, c] = editor.children as TElement[]
-  return { editor, a: a!, attachment: attachment!, b: b!, c: c! }
+  const [a, attachment, b, c, quote] = editor.children as TElement[]
+  return {
+    editor,
+    a: a!,
+    attachment: attachment!,
+    b: b!,
+    c: c!,
+    nested: quote!.children[0] as TElement,
+  }
 }
-
-describe('attachmentDropMove', () => {
-  it('moves below a later sibling', () => {
-    const { editor, attachment, c } = threeBlocks()
-    expect(
-      attachmentDropMove({ editor, element: attachment }, { editor, element: c }, 'bottom'),
-    ).toEqual({ at: [1], to: [3] })
-  })
-
-  it('moves above an earlier sibling', () => {
-    const { editor, attachment, a } = threeBlocks()
-    expect(
-      attachmentDropMove({ editor, element: attachment }, { editor, element: a }, 'top'),
-    ).toEqual({ at: [1], to: [0] })
-  })
-
-  it('is a no-op (null) where the block already sits: the top of the next block, the bottom of the previous one', () => {
-    const { editor, attachment, a, b } = threeBlocks()
-    expect(
-      attachmentDropMove({ editor, element: attachment }, { editor, element: b }, 'top'),
-    ).toBeNull()
-    expect(
-      attachmentDropMove({ editor, element: attachment }, { editor, element: a }, 'bottom'),
-    ).toBeNull()
-  })
-
-  it('refuses a drop on itself or into another editor', () => {
-    const { editor, attachment } = threeBlocks()
-    const other = threeBlocks()
-    expect(
-      attachmentDropMove({ editor, element: attachment }, { editor, element: attachment }, 'top'),
-    ).toBeNull()
-    expect(
-      attachmentDropMove(
-        { editor, element: attachment },
-        { editor: other.editor, element: other.c },
-        'top',
-      ),
-    ).toBeNull()
-  })
-})
 
 describe('resolveAttachmentDrop', () => {
   function event(
@@ -286,6 +118,35 @@ describe('resolveAttachmentDrop', () => {
       resolveAttachmentDrop(event({ editor, element: attachment }, { editor, element: c }, 115))
         ?.target,
     ).toEqual({ id: 'drop', line: 'bottom' })
+  })
+
+  const TOP = 105
+  const BOTTOM = 115
+
+  it.each([
+    ['moves below a later sibling', 'c', BOTTOM, { at: [1], to: [3] }],
+    ['moves above an earlier sibling', 'a', TOP, { at: [1], to: [0] }],
+    ['is a no-op at the top of the next block', 'b', TOP, undefined],
+    ['is a no-op at the bottom of the previous block', 'a', BOTTOM, undefined],
+    ['refuses a drop on itself', 'attachment', TOP, undefined],
+    ['refuses a drop into a different parent', 'nested', TOP, undefined],
+  ] as const)('%s', (_name, hovered, y, expected) => {
+    const blocks = threeBlocks()
+    const { editor, attachment } = blocks
+    const resolved = resolveAttachmentDrop(
+      event({ editor, element: attachment }, { editor, element: blocks[hovered] }, y),
+    )
+    expect(resolved?.move).toEqual(expected)
+  })
+
+  it('refuses a drop into another editor', () => {
+    const { editor, attachment } = threeBlocks()
+    const other = threeBlocks()
+    expect(
+      resolveAttachmentDrop(
+        event({ editor, element: attachment }, { editor: other.editor, element: other.c }, TOP),
+      ),
+    ).toBeNull()
   })
 
   it('resolves nothing when not over a target, or over one that is not an attachment target', () => {
@@ -333,6 +194,28 @@ describe('useAttachmentDraggable', () => {
 
     expect(result.current.editor.children).toHaveLength(1)
     expect(result.current.editor.children[0]).toMatchObject({ children: [{ text: 'keep me' }] })
+  })
+
+  it('remove() deletes a top-level block as is', () => {
+    const { result } = renderHook(
+      () => {
+        const editor = useEditorRef()
+        return { editor, draggable: useAttachmentDraggable(editor.children[0] as TElement) }
+      },
+      { wrapper: EditorWrapper },
+    )
+    result.current.draggable.remove()
+    expect(result.current.editor.children).toHaveLength(0)
+  })
+
+  it('remove() leaves the document alone for an element that is not in it', () => {
+    const detached: TElement = { type: 'a', children: [{ text: 'x' } as never] }
+    const { result } = renderHook(
+      () => ({ editor: useEditorRef(), draggable: useAttachmentDraggable(detached) }),
+      { wrapper: EditorWrapper },
+    )
+    result.current.draggable.remove()
+    expect(result.current.editor.children).toHaveLength(1)
   })
 
   it('is inert outside a DndScope: not dragging, no drop line', () => {

@@ -73,13 +73,14 @@ import {
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const provider = (
   id: string,
@@ -814,7 +815,7 @@ describe('ProvidersSettings with a remote workspace in view', () => {
   beforeEach(() => {
     resetHostWorld()
     pairRemoteHost('host-1')
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
     loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))
     act(() => {

@@ -5,9 +5,10 @@ import { ExcalidrawPreview } from '@/features/agent/composer/plate/attachments/e
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { ChatIdContext } from '@/features/agent/composer/plate/attachments/chat-id-context'
 import { MarkdownAssetContext } from '@/features/editor/markdown/plate/markdown-asset'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import { useExcalidrawEditRequests } from '@/features/agent/composer/lib/excalidraw-edit-requests'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // The real `@excalidraw/excalidraw` needs Canvas/font-metrics APIs jsdom
 // doesn't implement — mocked so the live-render path is deterministic and
@@ -32,7 +33,7 @@ function fakeSvg(): SVGSVGElement {
 }
 
 beforeEach(() => {
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
   restoreMock.mockClear()
   exportToSvgMock.mockReset().mockRejectedValue(new Error('jsdom cannot render this'))

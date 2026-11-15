@@ -53,21 +53,21 @@ interface MonacoUiTokens {
   error: string
 }
 
-export interface MonacoThemeInput {
+interface MonacoThemeInput {
   isDark: boolean
   syntax: Partial<Record<SyntaxTokenKey, string>>
   ui: MonacoUiTokens
 }
 
-export interface MonacoThemeData {
+interface MonacoThemeData {
   base: 'vs' | 'vs-dark'
   inherit: true
   rules: Monaco.editor.ITokenThemeRule[]
   colors: Record<string, string>
 }
 
-/** Pure: turn resolved palettes into Monaco theme data. Unit-tested. */
-export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
+/** Pure: turn resolved palettes into Monaco theme data. */
+function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
   const { isDark, syntax, ui } = input
 
   const rules: Monaco.editor.ITokenThemeRule[] = TOKEN_MAP.flatMap(([token, key]) => {

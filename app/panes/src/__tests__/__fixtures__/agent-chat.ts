@@ -47,7 +47,7 @@ export function chatSnapshot(chat: Partial<ChatEntity> & { id: string }): ChatEn
 export function resetChatStore(): void {
   // Releases the feeds the outbox held, which outlive a state reset.
   for (const chatId of Object.keys(chatStore.getState().outbox)) forgetOutbox(chatId)
-  chatStore.setState({ feeds: {}, outbox: {} })
+  chatStore.setState({ feeds: {}, outbox: {}, presentations: {} })
   entityStore.setState((s) => ({ byKind: { ...s.byKind, chat: {}, telemetry: {} } }))
 }
 

@@ -111,7 +111,7 @@ const STRUCTURAL_CATEGORY = new Map<string, StructuralCategory>([
 /** Classify a token by its scope stack (outermost → innermost); innermost wins. Anything inside a
  *  comment is never re-colored, since doc-comment grammars emit code scopes in prose.
  *  `structural` adds STRUCTURAL_CATEGORY. */
-export function scopeCategory(scopes: readonly string[], structural = false): ShikiCategory | null {
+function scopeCategory(scopes: readonly string[], structural = false): ShikiCategory | null {
   for (const scope of scopes) {
     if (scope === 'comment' || scope.startsWith('comment.')) return structural ? 'comment' : null
   }
@@ -361,10 +361,4 @@ export function shikiTokensInRange(
   const structural = toMonacoLanguageId(languageId) === 'plaintext'
   tokenizeRows(state.grammar, getLine, state.stacks, start, end, tokens, structural)
   return tokens
-}
-
-/** Test-only: drop every model rule stack and compiled-language mark. */
-export function __resetShikiTokensForTests(): void {
-  for (const key of [...modelStates.keys()]) disposeModelState(key)
-  compiledLanguages.clear()
 }

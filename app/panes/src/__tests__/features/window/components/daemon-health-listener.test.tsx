@@ -4,7 +4,7 @@ import { DaemonHealthListener } from '@/features/window/components/daemon-health
 import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
+import { reportChannelState, useConnectionStore } from '@/lib/ws/connection-store'
 import { watchToasts } from '@/__tests__/__fixtures__/reports'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -70,7 +70,7 @@ describe('DaemonHealthListener', () => {
   })
 
   it('drops a recorded crash loop as soon as the backend is serving again', async () => {
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
     render(<DaemonHealthListener />)
     await waitFor(() => expect(handlers.size).toBe(4))
 
@@ -79,18 +79,18 @@ describe('DaemonHealthListener', () => {
 
     act(() => reportChannelState('/ws/feed', true, 'local'))
     expect(useDaemonCrashStore.getState().report).toBeNull()
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
   })
 
   it('does not record a crash loop that was reported after the backend was already serving', async () => {
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
     act(() => reportChannelState('/ws/feed', true, 'local'))
     crashReportAtLoad = 'exited 3 times'
     render(<DaemonHealthListener />)
     await waitFor(() => expect(handlers.size).toBe(4))
     handlers.get('daemon:dead')!({ payload: 'late' })
     expect(useDaemonCrashStore.getState().report).toBeNull()
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
   })
 
   it('records a crash loop the supervisor gives up on, and clears it on restart', async () => {

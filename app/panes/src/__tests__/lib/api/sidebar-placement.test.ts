@@ -5,7 +5,8 @@ import {
   deleteFolder,
   placeWorkspace,
 } from '@/lib/api/sidebar-placement'
-import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: true, data }), {
@@ -141,7 +142,7 @@ describe('deleteFolder', () => {
 // never its owning chat, so no owningChatId need be recorded — only the project/repo scope.
 describe('placeWorkspace', () => {
   beforeEach(() => {
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
   })
 

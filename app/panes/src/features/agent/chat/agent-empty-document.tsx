@@ -28,7 +28,7 @@ const HANDLE_LEAD = 4
 
 /** The handle rides under the LAST written line, not the caret: editing mid-paragraph must not
  *  walk the send controls up the page. */
-export function lastLineTop(doc: HTMLElement, headerClearancePx = 0): number {
+function lastLineTop(doc: HTMLElement, headerClearancePx = 0): number {
   const editable = doc.querySelector<HTMLElement>('[data-slate-editor]')
   const last = editable?.lastElementChild
   if (!last || !editable?.textContent) return firstLineTop(headerClearancePx)

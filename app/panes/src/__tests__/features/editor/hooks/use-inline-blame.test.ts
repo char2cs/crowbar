@@ -8,13 +8,14 @@ vi.mock('@/lib/api/fetch', () => ({ apiFetch }))
 import { useInlineBlame } from '@/features/editor/hooks/use-inline-blame'
 import { blameKey, useGitBlameStore } from '@/features/git/stores/git-blame-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // The load effect only needs a bound editor and model; nothing is rendered
 // because every load here answers with no entries.
@@ -27,7 +28,7 @@ beforeEach(() => {
   useGitBlameStore.setState({ blame: {} })
   useSettingsStore.setState((s) => ({ settings: { ...s.settings, inlineBlame: true } }))
   resetHostWorld()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'ws-local', owningChatId: 'c-l' })
 })
 afterEach(() => resetHostWorld())

@@ -2,17 +2,11 @@ import { nanoid } from 'nanoid'
 import { DEFAULT_SPLIT_RATIO, MIN_PANE_SIZE } from '../constants/pane'
 import type { LayoutLeaf, LayoutNode, LayoutSplit } from '../types/pane'
 
-export interface FlatLayoutEntry {
-  node: LayoutNode
-  size: number
-  path: Array<{ splitId: string; childIndex: 0 | 1 }>
-}
-
 export function createLeaf(id: string): LayoutLeaf {
   return { type: 'pane', id }
 }
 
-export function createSplit(
+function createSplit(
   direction: 'horizontal' | 'vertical',
   first: LayoutNode,
   second: LayoutNode,
@@ -122,26 +116,6 @@ export function normalizeLayout(root: LayoutNode): LayoutNode {
   const first = normalizeLayout(root.first)
   const second = normalizeLayout(root.second)
   return { ...root, sizes: normalizeSizes(root.sizes), first, second }
-}
-
-export function flattenForRender(
-  split: LayoutSplit,
-  parentSize = 100,
-  path: Array<{ splitId: string; childIndex: 0 | 1 }> = [],
-): FlatLayoutEntry[] {
-  const entries: FlatLayoutEntry[] = []
-  for (let i = 0; i < 2; i++) {
-    const idx = i as 0 | 1
-    const child = idx === 0 ? split.first : split.second
-    const childSize = (split.sizes[idx] / 100) * parentSize
-    const childPath = [...path, { splitId: split.id, childIndex: idx }]
-    if (child.type === 'split' && child.direction === split.direction) {
-      entries.push(...flattenForRender(child, childSize, childPath))
-    } else {
-      entries.push({ node: child, size: childSize, path: childPath })
-    }
-  }
-  return entries
 }
 
 export function getAdjacentLeafId(

@@ -5,20 +5,21 @@ vi.mock('@/lib/external-open', () => ({ openExternalUrl: vi.fn(async () => {}) }
 import { toast } from '@/features/window/stores/toast-store'
 import { openExternalUrl } from '@/lib/external-open'
 import { openWorkspaceLink } from '@/lib/workspace-link'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 let info: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   vi.mocked(openExternalUrl).mockClear()
   resetHostWorld()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   info = vi.spyOn(toast, 'info').mockReturnValue('')
   pairRemoteHost('h1', 'Build box')
   loadProjects(projectOn('p-remote', 'h1'), projectOn('p-local', 'local'))

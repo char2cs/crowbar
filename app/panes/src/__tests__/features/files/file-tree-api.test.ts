@@ -3,12 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/api/fetch', () => ({ apiFetch: vi.fn() }))
 
 import { apiFetch } from '@/lib/api/fetch'
-import {
-  fetchFileTree,
-  findNode,
-  mergeChildren,
-  toAppFile,
-} from '@/features/files/lib/file-tree-api'
+import { fetchFileTree, findNode, mergeChildren } from '@/features/files/lib/file-tree-api'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 // Files are addressed through the chat that holds the worktree, so the api
@@ -21,16 +16,36 @@ beforeEach(() => {
 
 afterEach(() => vi.clearAllMocks())
 
-describe('toAppFile', () => {
-  it('maps a directory with no children to children: undefined (not loaded)', () => {
-    const f = toAppFile({ name: 'src', path: 'src', type: 'directory' })
+describe('fetchFileTree node mapping', () => {
+  const fetchOne = async (node: object) => {
+    ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([node])
+    return (await fetchFileTree('ws-1'))[0]
+  }
+
+  it('maps a directory with no children to children: undefined (not loaded)', async () => {
+    const f = await fetchOne({ name: 'src', path: 'src', type: 'directory' })
     expect(f).toMatchObject({ name: 'src', path: 'src', isDir: true, isFile: false })
     expect(f.children).toBeUndefined()
   })
 
-  it('maps a file and carries gitStatus', () => {
-    const f = toAppFile({ name: 'a.ts', path: 'src/a.ts', type: 'file', gitStatus: 'modified' })
+  it('maps a file and carries gitStatus', async () => {
+    const f = await fetchOne({
+      name: 'a.ts',
+      path: 'src/a.ts',
+      type: 'file',
+      gitStatus: 'modified',
+    })
     expect(f).toMatchObject({ isDir: false, isFile: true, gitStatus: 'modified' })
+  })
+
+  it('maps loaded children recursively, an empty loaded directory to []', async () => {
+    const f = await fetchOne({
+      name: 'src',
+      path: 'src',
+      type: 'directory',
+      children: [{ name: 'empty', path: 'src/empty', type: 'directory', children: [] }],
+    })
+    expect(f.children?.[0]).toMatchObject({ path: 'src/empty', children: [] })
   })
 })
 

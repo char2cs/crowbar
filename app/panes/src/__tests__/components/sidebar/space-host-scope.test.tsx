@@ -8,7 +8,7 @@ import {
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
 import type { HostStatus } from '@/features/hosts/types'
-import { resetConnectionState, useConnectionStore } from '@/lib/ws/connection-store'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
 const scope = () => screen.getByTestId('space-host-scope')
@@ -34,7 +34,7 @@ beforeEach(() => resetHostWorld())
 
 afterEach(() => {
   destroyHostRuntime('h1')
-  resetConnectionState()
+  useConnectionStore.setState(useConnectionStore.getInitialState())
 })
 
 describe('SpaceHostScope', () => {

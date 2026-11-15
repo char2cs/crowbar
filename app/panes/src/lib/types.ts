@@ -204,16 +204,3 @@ export interface ThreadDTO extends AgentAttribution {
   createdAt: string
   replies: ThreadReplyDTO[]
 }
-
-export interface TerminalSessionDTO {
-  id: string
-  /** The chat that owns this session — the frame's only id and the lifecycle stream's topic key.
-   *  A session belongs to its chat, not its worktree, so there is nothing else to key by. */
-  chatId: string
-  profileId: string
-  status: 'active' | 'detached' | 'suspended' | 'ended'
-  /** Process exit code; only present on "ended" frames where the exit code is known (>=0). */
-  exitCode?: number
-  createdAt: string
-  endedAt: string | null
-}

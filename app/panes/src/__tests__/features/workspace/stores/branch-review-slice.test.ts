@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
-import { resetDB } from '@/lib/persistence/idb'
 import {
   loadBranchReviewViewed,
   saveBranchReviewViewed,
@@ -68,7 +67,6 @@ describe('branch-review-slice viewed files', () => {
 
   beforeEach(() => {
     globalThis.indexedDB = new IDBFactory()
-    resetDB()
   })
 
   it('starts unloaded and empty, and reads nothing until asked', async () => {

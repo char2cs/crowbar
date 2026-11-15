@@ -43,9 +43,7 @@ export function excalidrawSceneFromCodeBlock(
 /** The `url` of the `img` right after this block (an excalidraw fence's PNG).
  *  `findPath`, not `props.path`: Plate memoizes the latter and can hand back a
  *  stale path after a sibling moves. */
-export function findFollowingImageRef(
-  props: PlateElementProps<TCodeBlockElement>,
-): string | undefined {
+function findFollowingImageRef(props: PlateElementProps<TCodeBlockElement>): string | undefined {
   const path = props.editor.api.findPath(props.element)
   if (!path) return undefined
   const node = props.editor.api.node(PathApi.next(path))?.[0] as

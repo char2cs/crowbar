@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SidebarBody } from '@/components/layout/sidebar-body'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import {
-  EMPTY_FOCUSED_WORKSPACE_CONTEXT,
+  useFocusedWorkspaceContextStore,
   publishFocusedWorkspaceContext,
   type FocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
@@ -132,7 +132,7 @@ describe('SidebarBody', () => {
   })
 
   it('renders the mode bar on an empty stage, with Chats showing', () => {
-    publishFocusedWorkspaceContext(EMPTY_FOCUSED_WORKSPACE_CONTEXT)
+    publishFocusedWorkspaceContext(useFocusedWorkspaceContextStore.getInitialState())
     treeUiStore.setState({ activeTab: 'files' })
     renderBody()
     expect(screen.getByRole('tablist', { name: 'Sidebar mode' })).toBeInTheDocument()

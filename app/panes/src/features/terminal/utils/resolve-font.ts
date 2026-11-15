@@ -95,7 +95,7 @@ function uniqueFontFamilies(families: string[]): string[] {
 
 /** xterm.js measures cell width from the first font it resolves, so the order is: primary ->
  *  Nerd Font glyph fallbacks -> platform native -> generic monospace. */
-export function buildTerminalFontFamily(primaryFont: string): string {
+function buildTerminalFontFamily(primaryFont: string): string {
   const requestedFonts = splitFontFamilyList(primaryFont)
   const concreteRequestedFonts = requestedFonts.filter(
     (font) => !CSS_GENERIC_FONT_FAMILIES.has(stripWrappingQuotes(font).toLowerCase()),

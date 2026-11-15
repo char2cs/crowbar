@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  clearInputTape,
-  dumpInputTape,
-  observeInputEvents,
-  recordInputTape,
-} from '@/features/terminal/utils/input-tape'
+import { observeInputEvents, recordInputTape } from '@/features/terminal/utils/input-tape'
+import { clearInputTape, dumpInputTape } from '@/__tests__/__fixtures__/input-tape'
 
 describe('input tape', () => {
   beforeEach(() => {

@@ -5,7 +5,6 @@ import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-compos
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 import * as scenes from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
-import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 
 const mermaid = vi.hoisted(() => ({
   initialize: vi.fn(),
@@ -203,7 +202,10 @@ describe('MarkdownMessage streaming fade-in', () => {
 
 describe('chat.stream.token perf span', () => {
   beforeEach(() => {
-    __resetPerfForTests()
+    delete window.__perfLog
+    delete window.__measures
+    performance.clearMarks()
+    performance.clearMeasures()
     window.__CROWBAR_PERF__ = true
   })
 

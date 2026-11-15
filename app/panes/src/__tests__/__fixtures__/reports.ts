@@ -1,13 +1,13 @@
 import { expect, vi } from 'vitest'
 import { ApiError } from '@/lib/errors/api-error'
 import { toastManager } from '@/lib/toast-manager'
-import { resetConnectionState, useConnectionStore } from '@/lib/ws/connection-store'
+import { useConnectionStore } from '@/lib/ws/connection-store'
 
 const MIGRATING = 'Crowbar is upgrading its data (step 2 of 7)'
 
 /** Watches every toast, report()'s and toast-store's alike. */
 export function watchToasts() {
-  resetConnectionState()
+  useConnectionStore.setState(useConnectionStore.getInitialState())
   return vi.spyOn(toastManager, 'add').mockClear()
 }
 

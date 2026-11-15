@@ -66,7 +66,7 @@ export async function getReviewOutline(scope: DiffScope): Promise<FileOutline[]>
 
 /** Reports a capped patch was cut short. A leading header, not a trailer, because `fetch()`
  *  exposes no trailers; the server buffers the (cap-bounded) body to answer up front. */
-export const DIFF_TRUNCATED_HEADER = 'X-Crowbar-Diff-Truncated'
+const DIFF_TRUNCATED_HEADER = 'X-Crowbar-Diff-Truncated'
 
 export interface ReviewPatch {
   patch: string

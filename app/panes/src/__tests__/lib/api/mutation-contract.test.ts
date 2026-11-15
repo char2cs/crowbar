@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { postProject, postRepo, renameRepo, importBranches, renameWorkspaceBranch } from '@/lib/api'
 import { apiFetch } from '@/lib/api/fetch'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // §3/§7: every entity mutation is hierarchical and fire-and-forget — the daemon
 // answers 202 Accepted with an EMPTY body and the real entity arrives over the
@@ -12,12 +13,12 @@ let fetchMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
   vi.stubGlobal('fetch', fetchMock)
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 function lastCall(): [string, RequestInit] {

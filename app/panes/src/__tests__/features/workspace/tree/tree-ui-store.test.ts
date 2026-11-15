@@ -7,7 +7,6 @@ import {
   type RemovalDraft,
 } from '@/features/workspace/tree/tree-ui-store'
 import { loadSidebarUI, saveSidebarUI } from '@/lib/persistence/sidebar-ui'
-import { resetDB } from '@/lib/persistence/idb'
 import { hydrateSidebar } from '@/lib/persistence/hydrate'
 
 const state = () => treeUiStore.getState()
@@ -50,7 +49,6 @@ function mountRow(id: string, recents = false): HTMLElement {
 }
 
 beforeEach(() => {
-  resetDB()
   globalThis.indexedDB = new IDBFactory()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
 })

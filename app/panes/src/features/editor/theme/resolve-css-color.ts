@@ -84,7 +84,7 @@ export function withAlpha(hex: string, alpha: number): string {
 }
 
 /** Syntax token keys → their CSS variable is `--syntax-<key>`. */
-export const SYNTAX_TOKEN_KEYS = [
+const SYNTAX_TOKEN_KEYS = [
   'keyword',
   'string',
   'number',
@@ -117,7 +117,7 @@ export const SYNTAX_TOKEN_KEYS = [
 export type SyntaxTokenKey = (typeof SYNTAX_TOKEN_KEYS)[number]
 
 /** ANSI keys → their CSS variable is `--terminal-<key>`. */
-export const TERMINAL_ANSI_KEYS = [
+const TERMINAL_ANSI_KEYS = [
   'black',
   'red',
   'green',

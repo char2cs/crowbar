@@ -4,39 +4,30 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@/utils/platform', () => ({ IS_MAC: false, IS_MOBILE: false, APPLE_KEYBOARD: false }))
 
 import {
-  parseChord,
-  stringifyChord,
   normalizeChord,
   eventMatchesChord,
   formatChord,
   chordFromEvent,
 } from '@/features/keymaps/utils/chord'
 
-describe('chord parse/stringify', () => {
-  it('parses modifiers in any order and lowercases the key', () => {
-    expect(parseChord('Shift+Mod+T')).toEqual({ mod: true, shift: true, alt: false, key: 't' })
+describe('normalizeChord', () => {
+  it('accepts modifiers in any order and lowercases the key', () => {
+    expect(normalizeChord('Shift+Mod+T')).toBe('mod+shift+t')
   })
 
   it('treats cmd/ctrl/meta and option/opt as their canonical modifiers', () => {
-    expect(parseChord('cmd+\\')).toEqual({ mod: true, shift: false, alt: false, key: '\\' })
-    expect(parseChord('option+arrowleft')).toEqual({
-      mod: false,
-      shift: false,
-      alt: true,
-      key: 'arrowleft',
-    })
+    expect(normalizeChord('cmd+\\')).toBe('mod+\\')
+    expect(normalizeChord('option+arrowleft')).toBe('alt+arrowleft')
   })
 
-  it('returns null for empty input or a bare modifier with no key', () => {
-    expect(parseChord('')).toBeNull()
-    expect(parseChord('mod+shift')).toBeNull()
+  it('returns an empty string for empty input or a bare modifier with no key', () => {
+    expect(normalizeChord('')).toBe('')
+    expect(normalizeChord('mod+shift')).toBe('')
   })
 
   it('normalizes to a canonical modifier order (mod, shift, alt)', () => {
     expect(normalizeChord('alt+shift+mod+k')).toBe('mod+shift+alt+k')
-    expect(stringifyChord({ mod: true, shift: false, alt: true, key: 'arrowright' })).toBe(
-      'mod+alt+arrowright',
-    )
+    expect(normalizeChord('alt+mod+arrowright')).toBe('mod+alt+arrowright')
   })
 })
 
@@ -68,8 +59,8 @@ describe('formatChord (non-mac labels)', () => {
 })
 
 describe('backtick chord', () => {
-  it('round-trips through the parser, the recorder, the matcher and the label', () => {
-    expect(parseChord('mod+`')).toEqual({ mod: true, shift: false, alt: false, key: '`' })
+  it('round-trips through the normalizer, the recorder, the matcher and the label', () => {
+    expect(normalizeChord('mod+`')).toBe('mod+`')
     const event = new KeyboardEvent('keydown', { key: '`', ctrlKey: true })
     expect(chordFromEvent(event)).toBe('mod+`')
     expect(eventMatchesChord(event, 'mod+`')).toBe(true)

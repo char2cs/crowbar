@@ -7,7 +7,7 @@ import { openWorkspaceLink } from '@/lib/workspace-link'
 const EXTERNAL_SCHEME = /^(?:https?|mailto|tel):/i
 
 /** A URL for the OS browser/mail/dialer, not the webview; protocol-relative `//host/…` counts. */
-export function isExternalUrl(url: string): boolean {
+function isExternalUrl(url: string): boolean {
   return url.startsWith('//') || EXTERNAL_SCHEME.test(url)
 }
 

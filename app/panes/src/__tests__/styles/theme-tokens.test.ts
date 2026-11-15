@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
-import { cssColorToHex, SYNTAX_TOKEN_KEYS } from '@/features/editor/theme/resolve-css-color'
+import { describe, expect, it, vi } from 'vitest'
+import { cssColorToHex, readSyntaxPalette } from '@/features/editor/theme/resolve-css-color'
 
 // NOTE: vite statically rewrites `new URL('<literal>', import.meta.url)` into its
 // asset-URL helper, which under jsdom resolves to a `http://localhost/...` URL and
@@ -12,6 +12,17 @@ const css = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../styles/theme.css'),
   'utf8',
 )
+
+// The renderers' token list is read through the palette reader, which keys on it.
+const SYNTAX_TOKEN_KEYS = (() => {
+  const style = { getPropertyValue: () => '#ffffff' } as unknown as CSSStyleDeclaration
+  const spy = vi.spyOn(window, 'getComputedStyle').mockReturnValue(style)
+  try {
+    return Object.keys(readSyntaxPalette())
+  } finally {
+    spy.mockRestore()
+  }
+})()
 
 function relLuminance(hex: string): number {
   const h = hex.replace('#', '').slice(0, 6)

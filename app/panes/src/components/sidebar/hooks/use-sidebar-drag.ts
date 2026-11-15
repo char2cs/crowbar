@@ -38,7 +38,7 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 // 8px, not 5: an ordinary click carries 5-7px of jitter, which armed a drag whose faded source
 // and fixed-position ghost briefly composited into one doubled row. 8px clears jitter while an
 // intentional drag still arms immediately.
-export const SIDEBAR_DRAG_THRESHOLD_PX = 8
+const SIDEBAR_DRAG_THRESHOLD_PX = 8
 
 /** Stable empty, so a render that is not dragging hands out one identity. */
 const NO_IDS: ReadonlySet<string> = new Set<string>()

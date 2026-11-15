@@ -1,30 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  buildTerminalFontFamily,
-  resolveTerminalFont,
-} from '@/features/terminal/utils/resolve-font'
-
-describe('terminal font resolution', () => {
-  it('keeps the configured font first and adds Nerd Font glyph fallbacks', () => {
-    const fontFamily = buildTerminalFontFamily('Geist Mono Variable')
-
-    expect(fontFamily.startsWith('"Geist Mono Variable",')).toBe(true)
-    expect(fontFamily).toContain('"Symbols Nerd Font Mono"')
-    expect(fontFamily).toContain('"MesloLGS NF"')
-    expect(fontFamily).toMatch(/,\s*monospace$/)
-  })
-
-  it('deduplicates existing fallback lists without quoting CSS generic families', () => {
-    const fontFamily = buildTerminalFontFamily(
-      '"Geist Mono Variable", "Symbols Nerd Font Mono", monospace',
-    )
-
-    expect(fontFamily.match(/"Symbols Nerd Font Mono"/g)).toHaveLength(1)
-    expect(fontFamily).toContain('"Geist Mono Variable"')
-    expect(fontFamily).toMatch(/,\s*monospace$/)
-    expect(fontFamily).not.toContain('"monospace"')
-  })
-})
+import { resolveTerminalFont } from '@/features/terminal/utils/resolve-font'
 
 describe('resolveTerminalFont', () => {
   // available = set of family names whose load()+check() succeed.
@@ -47,6 +22,29 @@ describe('resolveTerminalFont', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('keeps the configured font first and adds Nerd Font glyph fallbacks', async () => {
+    available.add('Geist Mono Variable')
+    const fontFamily = await resolveTerminalFont('Geist Mono Variable', 14)
+
+    expect(fontFamily.startsWith('"Geist Mono Variable",')).toBe(true)
+    expect(fontFamily).toContain('"Symbols Nerd Font Mono"')
+    expect(fontFamily).toContain('"MesloLGS NF"')
+    expect(fontFamily).toMatch(/,\s*monospace$/)
+  })
+
+  it('deduplicates existing fallback lists without quoting CSS generic families', async () => {
+    available.add('Geist Mono Variable')
+    const fontFamily = await resolveTerminalFont(
+      '"Geist Mono Variable", "Symbols Nerd Font Mono", monospace',
+      14,
+    )
+
+    expect(fontFamily.match(/"Symbols Nerd Font Mono"/g)).toHaveLength(1)
+    expect(fontFamily).toContain('"Geist Mono Variable"')
+    expect(fontFamily).toMatch(/,\s*monospace$/)
+    expect(fontFamily).not.toContain('"monospace"')
   })
 
   it('keeps a variable font as-is instead of mapping to its static cut', async () => {

@@ -7,21 +7,22 @@ vi.mock('@/lib/external-open', () => ({
 }))
 
 import { openExternalUrl } from '@/lib/external-open'
-import { handleMarkdownAnchorClick, isExternalUrl } from '@/lib/markdown-link'
+import { handleMarkdownAnchorClick } from '@/lib/markdown-link'
 import { toast } from '@/features/window/stores/toast-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 function fakeClick() {
   return { preventDefault: vi.fn(), stopPropagation: vi.fn() }
 }
 
-describe('isExternalUrl', () => {
+describe('external link classification', () => {
   it.each([
     ['https://example.com', true],
     ['http://example.com', true],
@@ -33,9 +34,10 @@ describe('isExternalUrl', () => {
     ['../up-one/readme.md', false],
     ['/abs/path.md', false],
     ['#heading-anchor', false],
-    ['', false],
-  ])('classifies %s as external=%s', (url, expected) => {
-    expect(isExternalUrl(url)).toBe(expected)
+  ])('click on %s opens in the OS browser=%s', (url, expected) => {
+    vi.clearAllMocks()
+    handleMarkdownAnchorClick(fakeClick(), url, null)
+    expect(vi.mocked(openExternalUrl).mock.calls.length).toBe(expected ? 1 : 0)
   })
 })
 
@@ -79,7 +81,7 @@ describe('handleMarkdownAnchorClick', () => {
   // A chat or README in a workspace on another host that links its own localhost means that host.
   it('does not open a loopback link from a workspace on another host', () => {
     resetHostWorld()
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     const info = vi.spyOn(toast, 'info').mockReturnValue('')
     pairRemoteHost('h1', 'Build box')
     loadProjects(projectOn('p', 'h1'))

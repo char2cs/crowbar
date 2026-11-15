@@ -4,7 +4,7 @@ import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
 type Edge = 'left' | 'top' | 'right' | 'bottom'
 
-export function isWindowEdge(
+function isWindowEdge(
   edge: Edge,
   position: PanePosition,
   sidebarSide: 'left' | 'right',

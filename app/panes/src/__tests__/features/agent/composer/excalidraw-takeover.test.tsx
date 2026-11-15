@@ -10,7 +10,6 @@ import type {
   ExcalidrawSaveResult,
 } from '@/features/agent/composer/excalidraw-canvas'
 import { ExcalidrawTakeover } from '@/features/agent/composer/excalidraw-takeover'
-import { INLINE_ATTACHMENT_MAX_BYTES } from '@/features/agent/composer/lib/inline-attachment-cap'
 import { loadExcalidrawDesign } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 import {
@@ -20,6 +19,9 @@ import {
   refusal,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
+
+// Mirrors the composer's inline cap (32 KiB): above it a paste or drawing uploads as a file.
+const INLINE_ATTACHMENT_MAX_BYTES = 32 * 1024
 
 // The mocked canvas exposes `save()` via the same imperative handle the real
 // one does, invoking `onSave` with whatever this file's `saveResult` holds at

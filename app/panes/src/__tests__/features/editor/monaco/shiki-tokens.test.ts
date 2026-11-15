@@ -16,12 +16,13 @@ vi.mock('@/features/editor/lib/shiki-grammars', () => ({
   grammarFor: (languageId: string) => grammars.get(languageId) ?? null,
 }))
 
-import {
-  __resetShikiTokensForTests,
-  scopeCategory,
-  shikiTokensInRange,
-  type TokenizerModel,
+import type {
+  shikiTokensInRange as shikiTokensInRangeFn,
+  TokenizerModel,
 } from '@/features/editor/monaco/shiki-tokens'
+
+// The tokenizer keeps module-level caches; a fresh module per test starts them empty.
+let shikiTokensInRange: typeof shikiTokensInRangeFn
 
 // ── A stateful stand-in for a TextMate grammar ────────────────────────────────
 
@@ -95,8 +96,9 @@ function fakeModel(uri: string, lines: string[]) {
   }
 }
 
-beforeEach(() => {
-  __resetShikiTokensForTests()
+beforeEach(async () => {
+  vi.resetModules()
+  ;({ shikiTokensInRange } = await import('@/features/editor/monaco/shiki-tokens'))
   grammars.clear()
 })
 
@@ -108,7 +110,22 @@ function register(languageId: string): void {
   grammars.set(languageId, fakeGrammar())
 }
 
-describe('scopeCategory', () => {
+/** The category the tokenizer gives one token carrying `scopes`; `plaintext` has no Monaco grammar. */
+async function categoryOf(scopes: readonly string[], languageId = 'fakelang') {
+  grammars.set(languageId, {
+    tokenizeLine: () => ({
+      tokens: [{ startIndex: 0, endIndex: 1, scopes: [...scopes] }],
+      ruleStack: null as unknown as StateStack,
+    }),
+  })
+  const { model } = fakeModel('file:///scope.fake', ['x'])
+  const onReady = vi.fn()
+  shikiTokensInRange(model, languageId, 0, 0, onReady)
+  await vi.waitFor(() => expect(onReady).toHaveBeenCalled())
+  return shikiTokensInRange(model, languageId, 0, 0, () => {})?.[0]?.category ?? null
+}
+
+describe('scope classification', () => {
   it.each([
     [['source.ts', 'meta.class.ts', 'entity.name.type.class.ts'], 'type'],
     [['source.python', 'meta.class.python', 'entity.other.inherited-class.python'], 'type'],
@@ -134,8 +151,8 @@ describe('scopeCategory', () => {
     [['source.go', 'variable.parameter.go'], 'variable'],
     [['source.go', 'variable.other.go'], 'variable'],
     [['source.ts', 'meta.class.ts', 'variable.other.readwrite.ts'], 'variable'],
-  ])('classifies %j as %s', (scopes, expected) => {
-    expect(scopeCategory(scopes)).toBe(expected)
+  ])('classifies %j as %s', async (scopes, expected) => {
+    expect(await categoryOf(scopes)).toBe(expected)
   })
 
   it.each([
@@ -150,13 +167,13 @@ describe('scopeCategory', () => {
     [['source.python', 'meta.function-call.python', 'meta.function-call.arguments.python']],
     [['text.html.erb', 'meta.embedded.line.erb', 'source.ruby']],
     [['source.dockerfile']],
-  ])('leaves %j to Monaco', (scopes) => {
-    expect(scopeCategory(scopes)).toBeNull()
+  ])('leaves %j to Monaco', async (scopes) => {
+    expect(await categoryOf(scopes)).toBeNull()
   })
 
-  it('never re-colors inside a comment, even when a doc grammar names a type', () => {
+  it('never re-colors inside a comment, even when a doc grammar names a type', async () => {
     expect(
-      scopeCategory([
+      await categoryOf([
         'source.js',
         'comment.block.documentation.js',
         'entity.name.type.instance.jsdoc',
@@ -172,14 +189,14 @@ describe('scopeCategory', () => {
     [['source.nix', 'constant.numeric.nix'], 'number'],
     [['source.nix', 'comment.line.number-sign.nix'], 'comment'],
     [['source.nix', 'entity.name.function.nix'], 'function'],
-  ])('also classifies %j as %s where Monaco has no grammar', (scopes, expected) => {
-    expect(scopeCategory(scopes, true)).toBe(expected)
+  ])('also classifies %j as %s where Monaco has no grammar', async (scopes, expected) => {
+    expect(await categoryOf(scopes, 'plaintext')).toBe(expected)
   })
 
-  it('takes the innermost scope over its container', () => {
+  it('takes the innermost scope over its container', async () => {
     // The `(` inside a python call: the call's meta scope would say "function".
     expect(
-      scopeCategory([
+      await categoryOf([
         'source.python',
         'meta.function-call.generic.python',
         'punctuation.definition.arguments.begin.python',

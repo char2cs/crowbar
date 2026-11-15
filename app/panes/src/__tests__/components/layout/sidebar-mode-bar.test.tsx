@@ -16,7 +16,7 @@ import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import type { Repo } from '@/core/entities/repo-types'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import {
-  EMPTY_FOCUSED_WORKSPACE_CONTEXT,
+  useFocusedWorkspaceContextStore,
   publishFocusedWorkspaceContext,
   type FocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
@@ -88,7 +88,7 @@ describe('SidebarModeBar', () => {
     })
 
     it('with no focused workspace, Files and Git are disabled and Chats stays usable', () => {
-      publishFocusedWorkspaceContext(EMPTY_FOCUSED_WORKSPACE_CONTEXT)
+      publishFocusedWorkspaceContext(useFocusedWorkspaceContextStore.getInitialState())
       render(<SidebarModeBar />)
       expect(segment('Chats')).toHaveAttribute('aria-disabled', 'false')
       expect(segment('Files')).toHaveAttribute('aria-disabled', 'true')

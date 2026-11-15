@@ -1,8 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { renderHook } from '@testing-library/react'
 import {
-  buildTerminalTheme,
-  buildTerminalThemePayload,
+  readTerminalThemePayload,
+  useTerminalTheme,
 } from '@/features/terminal/hooks/use-terminal-theme'
+
+const css = vi.hoisted(() => ({
+  vars: {} as Record<string, string>,
+  ansi: {} as Record<string, string>,
+}))
+
+vi.mock('@/features/editor/theme/resolve-css-color', () => ({
+  readTerminalPalette: () => css.ansi,
+  resolveCssVar: (name: string) => css.vars[name] ?? null,
+}))
 
 const ANSI = {
   black: '#1f1f1f',
@@ -22,16 +33,28 @@ const ANSI = {
   'bright-cyan': '#5fbcc4',
   'bright-white': '#f5f5f5',
 }
-const UI = {
-  foreground: '#f5f5f5',
-  cursor: '#f5f5f5',
-  scrollbarThumb: '#8080806b',
-  scrollbarThumbHover: '#80808094',
+
+css.ansi = ANSI
+
+const UI_VARS = {
+  '--foreground': '#f5f5f5',
+  '--app-scrollbar-thumb': '#8080806b',
+  '--app-scrollbar-thumb-hover': '#80808094',
 }
 
-describe('buildTerminalTheme', () => {
+function terminalTheme() {
+  return renderHook(() => useTerminalTheme()).result.current.getTerminalTheme()
+}
+
+afterEach(() => {
+  css.vars = {}
+  document.documentElement.classList.remove('dark')
+})
+
+describe('useTerminalTheme', () => {
   it('maps ANSI palette keys onto xterm theme fields', () => {
-    const theme = buildTerminalTheme(ANSI, UI)
+    css.vars = UI_VARS
+    const theme = terminalTheme()
     expect(theme.red).toBe('#d97757')
     expect(theme.brightWhite).toBe('#f5f5f5')
     // Transparent, so the CSS --pane-background shows through the xterm canvas.
@@ -40,25 +63,26 @@ describe('buildTerminalTheme', () => {
   })
 
   it('derives a translucent selection from the cursor color', () => {
-    const theme = buildTerminalTheme(ANSI, UI)
-    expect(theme.selectionBackground).toBe('rgba(245, 245, 245, 0.25)')
+    css.vars = UI_VARS
+    expect(terminalTheme().selectionBackground).toBe('rgba(245, 245, 245, 0.25)')
   })
 
   it('carries the app scrollbar tokens onto the xterm 6 slider colours', () => {
     // xterm 6 paints the scrollbar from the theme, not from CSS, so these are
     // the only lever keeping the terminal's scrollbar matching the app's.
-    const theme = buildTerminalTheme(ANSI, UI)
+    css.vars = UI_VARS
+    const theme = terminalTheme()
     expect(theme.scrollbarSliderBackground).toBe('#8080806b')
     expect(theme.scrollbarSliderHoverBackground).toBe('#80808094')
     expect(theme.scrollbarSliderActiveBackground).toBe('#80808094')
   })
 })
 
-describe('buildTerminalThemePayload', () => {
+describe('readTerminalThemePayload', () => {
   it('reports the resolved --background/--foreground and dark flag to the daemon', () => {
-    const resolve = (name: string) =>
-      name === '--background' ? '#101014' : name === '--foreground' ? '#e8e8e8' : null
-    expect(buildTerminalThemePayload(resolve, true)).toEqual({
+    css.vars = { '--background': '#101014', '--foreground': '#e8e8e8' }
+    document.documentElement.classList.add('dark')
+    expect(readTerminalThemePayload()).toEqual({
       background: '#101014',
       foreground: '#e8e8e8',
       dark: true,
@@ -66,8 +90,8 @@ describe('buildTerminalThemePayload', () => {
   })
 
   it('carries the light polarity independently of the resolved colours', () => {
-    const resolve = (name: string) => (name === '--background' ? '#ffffff' : '#111111')
-    expect(buildTerminalThemePayload(resolve, false)).toEqual({
+    css.vars = { '--background': '#ffffff', '--foreground': '#111111' }
+    expect(readTerminalThemePayload()).toEqual({
       background: '#ffffff',
       foreground: '#111111',
       dark: false,
@@ -75,7 +99,7 @@ describe('buildTerminalThemePayload', () => {
   })
 
   it('falls back to sane opaque defaults when the vars are unresolved', () => {
-    const payload = buildTerminalThemePayload(() => null, false)
+    const payload = readTerminalThemePayload()
     expect(payload.dark).toBe(false)
     expect(payload.background).toMatch(/^#[0-9a-f]{6}$/i)
     expect(payload.foreground).toMatch(/^#[0-9a-f]{6}$/i)

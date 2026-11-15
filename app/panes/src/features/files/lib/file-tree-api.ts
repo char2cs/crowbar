@@ -2,7 +2,7 @@ import { apiFetch } from '@/lib/api/fetch'
 import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { AppFile } from '@/features/file-system/types/app'
 
-export interface FileNodeDTO {
+interface FileNodeDTO {
   name: string
   path: string
   type: 'file' | 'directory'
@@ -13,7 +13,7 @@ export interface FileNodeDTO {
 // Map a backend file node onto the explorer's AppFile. A directory without a `children` key is
 // not yet loaded (`children: undefined`, the lazy loader's fetch sentinel); a loaded empty one
 // is `children: []`.
-export function toAppFile(node: FileNodeDTO): AppFile {
+function toAppFile(node: FileNodeDTO): AppFile {
   const isDir = node.type === 'directory'
   return {
     name: node.name,

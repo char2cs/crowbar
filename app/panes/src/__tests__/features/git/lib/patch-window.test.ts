@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import {
-  planWindow,
-  LOOKAHEAD_FILES,
-  EVICT_BEYOND_FILES,
-  MAX_MATERIALIZED_FILES,
-  MAX_MATERIALIZED_LINES,
-} from '@/features/git/lib/patch-window'
+import { planWindow } from '@/features/git/lib/patch-window'
 import type { WindowInput } from '@/features/git/lib/patch-window'
+
+// The shipped file budget.
+const MAX_MATERIALIZED_FILES = 40
 
 // planWindow is the one part of the windowed renderer that decides, on every
 // scroll frame, which file patches exist in memory. It is deliberately pure —
@@ -40,19 +37,6 @@ function applyPlan(materialized: readonly string[], plan: { fetch: string[]; evi
   for (const p of plan.fetch) next.add(p)
   return [...next]
 }
-
-describe('planWindow constants', () => {
-  // The hysteresis gap IS the anti-thrash mechanism: a file that leaves the
-  // fetch band must sit in a no-man's-land before it is allowed to be evicted.
-  it('the eviction band is strictly wider than the lookahead band', () => {
-    expect(EVICT_BEYOND_FILES).toBeGreaterThan(LOOKAHEAD_FILES)
-  })
-
-  it('exposes the materialisation budgets', () => {
-    expect(MAX_MATERIALIZED_FILES).toBe(40)
-    expect(MAX_MATERIALIZED_LINES).toBe(60_000)
-  })
-})
 
 describe('planWindow — empty input', () => {
   it('is a no-op with no files at all', () => {

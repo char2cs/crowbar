@@ -7,7 +7,6 @@ import {
   type ReviewCodeViewHandle,
 } from '@/features/git/components/diff/review-code-view'
 import type { FileOutline } from '@/features/git/api/review-window-api'
-import { resetDB } from '@/lib/persistence/idb'
 import type { GitDiff } from '@/features/git/types/git-types'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
@@ -33,7 +32,6 @@ const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRec
 
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory()
-  resetDB()
   const rect = { top: 0, left: 0, right: 900, bottom: 800, width: 900, height: 800, x: 0, y: 0 }
   HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
     return { ...rect, toJSON: () => rect } as DOMRect

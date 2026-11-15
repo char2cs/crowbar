@@ -12,23 +12,21 @@ vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
 }))
 
 import { SidebarFilesPanel } from '@/components/layout/sidebar-files-panel'
-import {
-  EMPTY_FOCUSED_WORKSPACE_CONTEXT,
-  useFocusedWorkspaceContextStore,
-} from '@/features/window/stores/focused-workspace-context-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 function focus(workspaceId: string, projectId: string) {
   recordWorkspaceScope({ projectId, repoId: 'r1', wsId: workspaceId })
   act(() =>
     useFocusedWorkspaceContextStore.setState({
-      ...EMPTY_FOCUSED_WORKSPACE_CONTEXT,
+      ...useFocusedWorkspaceContextStore.getInitialState(),
       projectId,
       workspaceId,
       rootPath: '/work/root',
@@ -42,12 +40,16 @@ describe('SidebarFilesPanel reveal in Finder', () => {
   beforeEach(() => {
     tree.onRevealInFinder = undefined
     resetHostWorld()
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     pairRemoteHost('host-1')
     loadProjects(projectOn('p-local', 'local'), projectOn('p-remote', 'host-1'))
   })
   afterEach(() => {
-    act(() => useFocusedWorkspaceContextStore.setState({ ...EMPTY_FOCUSED_WORKSPACE_CONTEXT }))
+    act(() =>
+      useFocusedWorkspaceContextStore.setState({
+        ...useFocusedWorkspaceContextStore.getInitialState(),
+      }),
+    )
     resetHostWorld()
   })
 

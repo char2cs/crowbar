@@ -4,9 +4,9 @@
 const KEY_PREFIX = 'crowbar:agent-excalidraw-design:v1:'
 
 // A single scene, not an accumulating queue — one budget per entry is enough.
-export const MAX_EXCALIDRAW_DESIGN_BYTES = 512 * 1024
+const MAX_EXCALIDRAW_DESIGN_BYTES = 512 * 1024
 
-export function excalidrawDesignStorageKey(wsId: string, chatId: string): string {
+function excalidrawDesignStorageKey(wsId: string, chatId: string): string {
   return `${KEY_PREFIX}${encodeURIComponent(wsId)}:${encodeURIComponent(chatId)}`
 }
 

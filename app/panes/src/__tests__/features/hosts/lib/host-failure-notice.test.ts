@@ -16,7 +16,7 @@ import { HostNotConfiguredError, proxyMarkerError } from '@/lib/api/errors'
 import { ApiError } from '@/lib/errors/api-error'
 import { HostNotResolvedError } from '@/lib/host-path'
 import { hostIdForProject, hostIdForWorkspace } from '@/lib/host-resolve'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
@@ -24,6 +24,7 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 import { markProjectsSynced } from '@/__tests__/__fixtures__/sidebar-entities'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const unreachable = (hostId = 'h1') => proxyMarkerError('host-unreachable', hostId)!
 const changed = (hostId = 'h1') => proxyMarkerError('host-identity-changed', hostId)!
@@ -124,7 +125,7 @@ describe('an action whose host could not be told yet', () => {
     throw new Error('expected the host not to resolve')
   }
   const unresolved = (projectId = 'p-remote') => thrown(() => hostIdForProject(projectId))
-  afterEach(() => __resetWorkspaceScopesForTest())
+  afterEach(() => useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState()))
 
   it('says the projects are still loading while the list has not been read', () => {
     toastHostFailure(unresolved())

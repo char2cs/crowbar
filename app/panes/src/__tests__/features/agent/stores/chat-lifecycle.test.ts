@@ -6,7 +6,7 @@ import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
-import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import {
   markProjectsSynced,
@@ -14,6 +14,7 @@ import {
   resetEntities,
   workspaceDTO,
 } from '@/__tests__/__fixtures__/sidebar-entities'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const panes = () => windowPaneStore.getState().panes
 const actions = () => windowPaneStore.getState().paneActions
@@ -24,7 +25,7 @@ beforeEach(() => {
   resetEntities()
   resetChatStore()
   resetWindowPaneStoreForTests()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   stop = followChatLifecycle()
 })
 

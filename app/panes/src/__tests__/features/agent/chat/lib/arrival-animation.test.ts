@@ -1,29 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  ARRIVAL_EASE,
-  ARRIVAL_SLIDE_MS,
-  arrivalOffset,
-  playArrival,
-} from '@/features/agent/chat/lib/arrival-animation'
-
-describe('arrivalOffset', () => {
-  it('is null with no origin — nothing to arrive from', () => {
-    expect(arrivalOffset(null, { top: 400 })).toBeNull()
-  })
-
-  it('is the distance the dock must travel up to sit where the handle was', () => {
-    // The handle rode near the top of the doc; the dock rests near the bottom.
-    expect(arrivalOffset({ top: 120 }, { top: 500 })).toBe(-380)
-  })
-
-  it('is positive when the handle was actually BELOW the dock’s resting spot', () => {
-    expect(arrivalOffset({ top: 600 }, { top: 500 })).toBe(100)
-  })
-
-  it('is null when the handle already sat exactly at the resting spot', () => {
-    expect(arrivalOffset({ top: 500 }, { top: 500 })).toBeNull()
-  })
-})
+import { playArrival } from '@/features/agent/chat/lib/arrival-animation'
 
 describe('playArrival', () => {
   let node: HTMLDivElement
@@ -47,6 +23,19 @@ describe('playArrival', () => {
     expect(node.style.transform).toBe('')
   })
 
+  it('does nothing when the origin already sits at the resting spot', () => {
+    playArrival(node, { top: 500 })
+
+    expect(node.dataset.arriving).toBeUndefined()
+    expect(node.style.transform).toBe('')
+  })
+
+  it('pins a node below its rest position at a positive offset', () => {
+    playArrival(node, { top: 600 })
+
+    expect(node.style.transform).toBe('translateY(100px)')
+  })
+
   it('pins the node at the origin, transition-less, on the very first frame', () => {
     playArrival(node, { top: 120 })
 
@@ -60,7 +49,7 @@ describe('playArrival', () => {
 
     vi.runOnlyPendingTimers()
 
-    expect(node.style.transition).toBe(`transform ${ARRIVAL_SLIDE_MS}ms ${ARRIVAL_EASE}`)
+    expect(node.style.transition).toBe('transform 320ms cubic-bezier(0, 0, 0.2, 1)')
     expect(node.style.transform).toBe('')
     // Still arriving — the underbar stays hidden until the slide actually ends,
     // not merely once it has been told to start.

@@ -12,16 +12,16 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { createRef } from 'react'
-import {
-  useSidebarDrag,
-  SIDEBAR_DRAG_THRESHOLD_PX,
-} from '@/components/sidebar/hooks/use-sidebar-drag'
+import { useSidebarDrag } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { PANE_DROP_ATTR, type SidebarPaneZone } from '@/components/sidebar/lib/sidebar-drag-hover'
 import { useDragStore } from '@/features/panes/stores/drag-store'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+
+// Pointer travel that arms a drag.
+const SIDEBAR_DRAG_THRESHOLD_PX = 8
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { openDB, type IDBPDatabase } from 'idb'
 import { IDBFactory } from 'fake-indexeddb'
-import { getDB, resetDB } from '@/lib/persistence/idb'
+import { getDB } from '@/lib/persistence/idb'
 import {
   loadBranchReviewViewed,
   saveBranchReviewViewed,
@@ -9,7 +9,6 @@ import {
 
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory()
-  resetDB()
 })
 
 describe('idb schema v5', () => {

@@ -1,26 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import {
-  getAncestorDirectoryPaths,
-  getExplorerTargetPath,
-} from '@/features/file-explorer/utils/file-explorer-tree-utils'
-
-describe('getAncestorDirectoryPaths', () => {
-  it('returns parent directories from root to leaf parent', () => {
-    expect(
-      getAncestorDirectoryPaths(
-        '/workspace/src/features/file-explorer/components/file-explorer-tree.tsx',
-        '/workspace',
-      ),
-    ).toEqual([
-      '/workspace',
-      '/workspace/src',
-      '/workspace/src/features',
-      '/workspace/src/features/file-explorer',
-      '/workspace/src/features/file-explorer/components',
-    ])
-  })
-})
+import { getExplorerTargetPath } from '@/features/file-explorer/utils/file-explorer-tree-utils'
 
 describe('getExplorerTargetPath', () => {
   it('uses the source file for preview buffers', () => {

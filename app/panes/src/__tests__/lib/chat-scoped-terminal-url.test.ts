@@ -10,12 +10,8 @@ import {
   worktreeVerbBaseForWorkspace,
   repoChatsBaseForWorkspace,
 } from '@/lib/workspace-scope-url'
-import {
-  recordWorkspaceScope,
-  setWorkspaceScope,
-  getOwningChatId,
-  __resetWorkspaceScopesForTest,
-} from '@/lib/workspace-scope'
+import { recordWorkspaceScope, setWorkspaceScope, getOwningChatId } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // The PTY routes are chat-scoped: `/v0/chats/:chatId/terminals[...]`. A terminal
 // belongs to the CHAT that opened it, never to the worktree it runs in — sibling
@@ -39,7 +35,7 @@ class FakeWebSocket {
 beforeEach(() => {
   FakeWebSocket.instances = []
   vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 afterEach(() => {

@@ -3,13 +3,14 @@ import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { showTerminalUrlMenu } from '@/features/terminal/lib/terminal-url-menu'
 import { toast } from '@/features/window/stores/toast-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const shown = vi.hoisted(() => ({
   items: [] as ContextMenuItem[],
@@ -111,7 +112,7 @@ describe('a loopback link printed in a terminal', () => {
 
   beforeEach(() => {
     resetHostWorld()
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     vi.spyOn(toast, 'info').mockReturnValue('')
     pairRemoteHost('h1', 'Build box')
     loadProjects(projectOn('p-remote', 'h1'), projectOn('p-local', 'local'))

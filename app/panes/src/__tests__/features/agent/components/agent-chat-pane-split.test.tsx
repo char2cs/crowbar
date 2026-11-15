@@ -92,8 +92,8 @@ vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
 )
 
 import { ChatHeaderSlot, ChatHeaderSlotProvider } from '@/features/agent/hooks/chat-header-slot'
-import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { AgentChatPaneGate as AgentChatPane } from '@/features/agent/components/agent-chat-pane-gate'
+import { chatStore } from '@/features/agent/stores/chat-store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
@@ -466,7 +466,7 @@ describe('AgentChatPane — a hot-swap chat after a reload', () => {
     useSettingsStore.setState({
       settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: false },
     }) // lands on the terminal
-    resetChatPresentationMemoryForTests()
+    chatStore.setState({ presentations: {} })
     const store = seed()
     await renderPane(store)
     expect(showing()).toBe('terminal')

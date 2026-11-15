@@ -19,7 +19,7 @@ export type SettingsTab =
   | 'developer'
 
 export type BottomPaneTab = 'terminal' | 'buffers'
-export type SidebarActivityItem = 'file-explorer' | 'git' | 'search' | 'extensions'
+type SidebarActivityItem = 'file-explorer' | 'git' | 'search' | 'extensions'
 
 export interface UIState {
   sidebarWidth: number

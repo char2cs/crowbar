@@ -131,24 +131,6 @@ export function SidebarHeader({
   )
 }
 
-export function SidebarFooter({
-  className,
-  surface: _surface,
-  ...props
-}: React.ComponentProps<'div'> & {
-  /** Crowbar compat: surface elevation flag (no visual effect) */
-  surface?: boolean
-}): React.ReactElement {
-  return (
-    <div
-      className={cn('flex flex-col gap-2 p-2', className)}
-      data-sidebar="footer"
-      data-slot="sidebar-footer"
-      {...props}
-    />
-  )
-}
-
 export function SidebarEmptyActionState({
   icon,
   message,

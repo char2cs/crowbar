@@ -20,7 +20,6 @@ import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-hos
 import { MarkdownPreview } from '@/features/editor/markdown/markdown-preview'
 import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type {
   EditorContent,
@@ -32,13 +31,14 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const LONG_MARKDOWN = Array.from({ length: 200 }, (_, i) => `# Heading ${i}\n\nBody ${i}\n`).join(
   '\n',
@@ -127,10 +127,6 @@ describe('MarkdownPreview scroll retention', () => {
     const store = setupStore(['/repo/WARMUP.md'])
     renderPreview(store, 'preview-/repo/WARMUP.md').unmount()
   }, 30_000)
-
-  beforeEach(() => {
-    clearPreservedScroll()
-  })
 
   // Switching tabs unmounts the preview (only the active buffer renders); the scroll offset must
   // survive the way back.
@@ -251,7 +247,7 @@ describe('MarkdownPreview links to a loopback address', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetHostWorld()
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     vi.spyOn(toast, 'info').mockReturnValue('')
     pairRemoteHost('h1', 'Build box')
     loadProjects(projectOn('p-remote', 'h1'), projectOn('p-local', 'local'))

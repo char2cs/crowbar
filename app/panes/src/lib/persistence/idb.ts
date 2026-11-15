@@ -2,20 +2,19 @@ import { openDB } from 'idb'
 import type { IDBPDatabase } from 'idb'
 import type { CrowbarDB } from './schemas'
 
-let _db: IDBPDatabase<CrowbarDB> | null = null
-// Memoize the in-flight open, not the settled handle: startup callers arrive together, and a
-// second `openDB` at the old version blocks a version upgrade that holds it — a deadlock.
-let _opening: Promise<IDBPDatabase<CrowbarDB>> | null = null
+// One connection per IndexedDB factory, memoizing the in-flight open as well as the settled handle:
+// startup callers arrive together, and a second `openDB` at the old version blocks a version
+// upgrade that holds it — a deadlock.
+const connections = new WeakMap<IDBFactory, Promise<IDBPDatabase<CrowbarDB>>>()
 
-export async function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
-  if (_db) return _db
-  _opening ??= openDatabase()
-  try {
-    _db = await _opening
-    return _db
-  } finally {
-    _opening = null
-  }
+export function getDB(): Promise<IDBPDatabase<CrowbarDB>> {
+  const factory = globalThis.indexedDB
+  const held = connections.get(factory)
+  if (held) return held
+  const opening = openDatabase()
+  connections.set(factory, opening)
+  opening.catch(() => connections.delete(factory))
+  return opening
 }
 
 // Open at the declared version, or as-is when the database is newer: asking below the on-disk
@@ -125,10 +124,4 @@ async function openDeclared(): Promise<IDBPDatabase<CrowbarDB>> {
       }
     },
   })
-}
-
-/** Only for testing — resets the module-level singleton so tests get a fresh database. */
-export function resetDB(): void {
-  _db = null
-  _opening = null
 }

@@ -41,14 +41,15 @@ import { XtermTerminal, type TerminalFocusHandle } from '@/features/terminal/com
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { hostDotLabel } from '@/features/hosts/lib/host-tone'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
-import { reportChannelState, resetConnectionState } from '@/lib/ws/connection-store'
-import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { reportChannelState, useConnectionStore } from '@/lib/ws/connection-store'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 beforeEach(() => {
   bridge.opened.length = 0
@@ -58,7 +59,7 @@ beforeEach(() => {
   bridge.written = []
   localStorage.clear()
   useTerminalStore.setState({ sessions: new Map() })
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   resetHostWorld()
 })
 
@@ -218,7 +219,7 @@ describe('XtermTerminal', () => {
           'Build box: no live stream — this terminal can’t attach',
         )
       } finally {
-        resetConnectionState()
+        useConnectionStore.setState(useConnectionStore.getInitialState())
       }
     })
 

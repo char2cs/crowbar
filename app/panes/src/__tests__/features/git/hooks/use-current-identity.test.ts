@@ -10,11 +10,7 @@ vi.mock('@/features/git/api/identity-api', () => ({
 }))
 
 import { useCurrentIdentity } from '@/features/git/hooks/use-current-identity'
-import {
-  __resetWorkspaceScopesForTest,
-  recordWorkspaceScope,
-  setWorkspaceScope,
-} from '@/lib/workspace-scope'
+import { recordWorkspaceScope, setWorkspaceScope } from '@/lib/workspace-scope'
 import { toastManager } from '@/lib/toast-manager'
 import { ApiError } from '@/lib/errors/api-error'
 import {
@@ -23,6 +19,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 function identity(login: string): IdentityDTO {
   return { login, displayName: login, avatarUrl: `https://x/${login}.png` }
@@ -30,7 +27,7 @@ function identity(login: string): IdentityDTO {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 describe('useCurrentIdentity', () => {

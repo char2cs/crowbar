@@ -1,12 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { waitFor } from '@testing-library/react'
 import { noteSocketOpened, probeDaemon } from '@/lib/ws/daemon-probe'
-import { createWSManager } from '@/lib/ws/manager'
-import {
-  reportChannelState,
-  resetConnectionState,
-  useConnectionStore,
-} from '@/lib/ws/connection-store'
+import { createWSManager } from '@/lib/ws/create-ws-manager'
+import { reportChannelState, useConnectionStore } from '@/lib/ws/connection-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
 class MockWebSocket {
@@ -46,7 +42,7 @@ const halted = health({
 })
 
 beforeEach(() => {
-  resetConnectionState()
+  useConnectionStore.setState(useConnectionStore.getInitialState())
   useDaemonHaltStore.getState().clear()
   // A closed channel, so a migrating report is not ignored as stale.
   reportChannelState('/v0/ws/test', false, 'local')

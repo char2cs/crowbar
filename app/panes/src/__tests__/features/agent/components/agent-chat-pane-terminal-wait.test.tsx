@@ -43,7 +43,6 @@ vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { chatStore } from '@/features/agent/stores/chat-store'
-import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import {
   chatSnapshot,
   provider,
@@ -115,7 +114,6 @@ const showing = () =>
 const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 
 beforeEach(() => {
-  resetChatPresentationMemoryForTests()
   resetChatStore()
   // The wait banner is about a chat that is on the Chat surface.
   useSettingsStore.setState({

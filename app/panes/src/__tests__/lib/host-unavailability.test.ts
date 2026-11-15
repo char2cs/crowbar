@@ -8,9 +8,10 @@ import {
   destroyHostRuntime,
   getOrCreateHostRuntime,
 } from '@/features/hosts/stores/host-runtime-registry'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import type { Host, HostStatus } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const host = (id: string): Host => ({
   id,
@@ -51,7 +52,7 @@ function setStatus(hostId: string, status: HostStatus): void {
 beforeEach(() => {
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   resetEntities()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 afterEach(() => {

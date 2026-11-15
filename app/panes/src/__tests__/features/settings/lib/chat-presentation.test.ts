@@ -18,7 +18,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   getDefaultChatPresentation,
-  selectDefaultChatPresentation,
   type ChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
 import { useSettingsStore } from '@/features/settings/store'
@@ -69,7 +68,8 @@ describe('the chat landing-surface preference', () => {
     it('reads back as on from an empty store', async () => {
       const loaded = await loadPersistedSettings()
       expect(loaded.chatIsDefaultPresentation).toBe(true)
-      expect(selectDefaultChatPresentation({ settings: loaded })).toBe('chat')
+      useSettingsStore.setState({ settings: loaded })
+      expect(getDefaultChatPresentation()).toBe('chat')
     })
 
     // An older profile, or a hand-edited export, carries no choice at all here —
@@ -147,7 +147,8 @@ describe('the chat landing-surface preference', () => {
 
       const reloaded = await loadPersistedSettings()
       expect(reloaded.chatIsDefaultPresentation).toBe(false)
-      expect(selectDefaultChatPresentation({ settings: reloaded })).toBe('terminal')
+      useSettingsStore.setState({ settings: reloaded })
+      expect(getDefaultChatPresentation()).toBe('terminal')
     })
   })
 })

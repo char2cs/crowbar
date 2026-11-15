@@ -50,7 +50,7 @@ function repoAvatarURL(repo: RepoDTO): string | undefined {
   return projectAssetURL(repo.projectId, repo.avatarUrl)
 }
 
-export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
+function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
   return {
     // Every field present, never conditionally spread: applyWorkspaceDTO merges `{...w, ...ws}`,
     // so an omitted key keeps its previous value, while a cleared field ('' / undefined — a move to
@@ -131,7 +131,7 @@ export function sortByPlacement<T extends { id: string; order?: number; createdA
   return [...rows].sort(compareByPlacement)
 }
 
-export function toSidebarRepo(
+function toSidebarRepo(
   repo: RepoDTO,
   workspaces: WorkspaceDTO[],
   folders: Folder[] = [],
@@ -190,7 +190,7 @@ export function toSidebarRepo(
 // Repos in sidebar order. `order` is per project, so the flat list interleaves projects — fine,
 // since the sidebar buckets by projectId and reads each bucket in order. Ties break as the daemon
 // does (compareByPlacement, by id), so an undragged level never reshuffles between rebuilds.
-export function sortReposByOrder(repos: readonly Repo[]): Repo[] {
+function sortReposByOrder(repos: readonly Repo[]): Repo[] {
   return sortByPlacement(repos)
 }
 

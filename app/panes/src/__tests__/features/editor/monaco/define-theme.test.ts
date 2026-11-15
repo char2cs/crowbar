@@ -1,5 +1,21 @@
-import { describe, expect, it } from 'vitest'
-import { buildMonacoThemeData } from '@/features/editor/monaco/define-theme'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const monaco = vi.hoisted(() => ({ defineTheme: vi.fn() }))
+vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({
+  editor: { defineTheme: monaco.defineTheme },
+}))
+
+const css = vi.hoisted(() => ({
+  syntax: {} as Record<string, string>,
+  vars: {} as Record<string, string>,
+}))
+vi.mock('@/features/editor/theme/resolve-css-color', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/editor/theme/resolve-css-color')>()),
+  readSyntaxPalette: () => css.syntax,
+  resolveCssVar: (name: string) => css.vars[name] ?? null,
+}))
+
+import { defineMonacoTheme } from '@/features/editor/monaco/define-theme'
 
 const SYNTAX = {
   keyword: '#d97757',
@@ -19,7 +35,38 @@ const UI = {
   error: '#e5484d',
 }
 
-describe('buildMonacoThemeData', () => {
+interface ThemeData {
+  base: string
+  rules: { token: string; foreground?: string }[]
+  colors: Record<string, string>
+}
+
+function buildMonacoThemeData(input: {
+  isDark: boolean
+  syntax: Record<string, string>
+  ui: typeof UI
+}): ThemeData {
+  css.syntax = input.syntax
+  css.vars = {
+    '--background': input.ui.widgetBackground,
+    '--foreground': input.ui.foreground,
+    '--editor-selection': input.ui.selection,
+    '--border': input.ui.border,
+    '--muted-foreground': input.ui.subtle,
+    '--ring': input.ui.ring,
+    '--destructive': input.ui.error,
+  }
+  document.documentElement.classList.toggle('dark', input.isDark)
+  defineMonacoTheme('any')
+  return monaco.defineTheme.mock.lastCall?.[1] as ThemeData
+}
+
+afterEach(() => {
+  document.documentElement.classList.remove('dark')
+  monaco.defineTheme.mockClear()
+})
+
+describe('defineMonacoTheme', () => {
   it('uses vs-dark base in dark mode and vs in light', () => {
     expect(buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI }).base).toBe('vs-dark')
     expect(buildMonacoThemeData({ isDark: false, syntax: SYNTAX, ui: UI }).base).toBe('vs')

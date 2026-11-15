@@ -8,8 +8,7 @@ import { entityOf, entityStore, type EntityState } from '@/core/entities/entity-
 import { chatHostOf } from '@/lib/host-resolve'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import type { ViewState } from '@/features/panes/lib/view-state'
-import { repairViewState } from '@/features/panes/lib/view-repair'
+import { restoreWindowPaneState } from '@/features/panes/lib/view-repair'
 import {
   splitLegacyEditorContent,
   upgradeLegacyBuffers,
@@ -59,7 +58,7 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
 // The one idempotent load-time upgrade to WINDOW_LAYOUT_VERSION. v2: a chat pane records its
 // workspace (unplaced, null, until the projects scope answers). v3: buffers name their documents.
 // v4: buffers drop their text, written as drafts first.
-export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
+async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
   const version = layout.version ?? 1
   if (version >= WINDOW_LAYOUT_VERSION) return layout
   const placed = version < 2 ? unplaceChatPanes(layout) : layout
@@ -108,25 +107,6 @@ export function placeRestoredPanesOnceSynced(): void {
   const stop = entityStore.subscribe((s, prev) => {
     if (!s.loaded.projects || (prev.loaded.projects && s.unread === prev.unread)) return
     if (placeFrom(s)) stop()
-  })
-}
-
-// The persisted views, repaired: a record, pane or pointer breaking an invariant is dropped, every
-// valid one kept. A record without views restores an empty band around its stage.
-export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState {
-  const views = layout.views ?? {}
-  return repairViewState({
-    panes: layout.panes ?? {},
-    views,
-    viewOrder: layout.viewOrder ?? Object.keys(views),
-    activeViewId: layout.activeViewId ?? null,
-    activeViewByProject: layout.activeViewByProject ?? {},
-    activeProjectId: null,
-    stage: layout.stage,
-    bottomLayout: layout.bottomLayout,
-    activePaneId: layout.activePaneId,
-    mostRecentActivePaneIds: layout.mostRecentActivePaneIds ?? [],
-    fullscreenPaneId: null,
   })
 }
 

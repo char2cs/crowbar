@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  SIDEBAR_DROP_POLICY,
-  allowedModes,
-  edgeBandFor,
-} from '@/components/sidebar/lib/sidebar-drop-policy'
+import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-policy'
 import {
   ALL_MODES,
   EDGE_BAND_CONTAINER,
@@ -114,10 +110,12 @@ describe('SIDEBAR_DROP_POLICY', () => {
     runOperation({ ...start, subject: { kind: 'workspace', id: 'ws-1' } }, () => {
       return new Promise<OperationReply>((resolve) => (land = resolve))
     })
-    expect(allowedModes([subject], target)).toEqual(NO_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(NO_MODES)
 
     land({ items: [] })
-    await vi.waitFor(() => expect(allowedModes([subject], target)).not.toEqual(NO_MODES))
+    await vi.waitFor(() =>
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).not.toEqual(NO_MODES),
+    )
   })
 
   it('cross-project drag is refused', () => {
@@ -463,11 +461,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.edgeBandFor('branch')).toBe(EDGE_BAND_HEAVY)
     expect(SIDEBAR_DROP_POLICY.edgeBandFor('chat')).toBe(EDGE_BAND_HEAVY)
     expect(SIDEBAR_DROP_POLICY.edgeBandFor('workflow')).toBe(EDGE_BAND_HEAVY)
-  })
-
-  it('exports the same functions the policy object wraps', () => {
-    expect(SIDEBAR_DROP_POLICY.allowedModes).toBe(allowedModes)
-    expect(SIDEBAR_DROP_POLICY.edgeBandFor).toBe(edgeBandFor)
   })
 
   // A chat is workspace-scoped for placement, and §8.3 makes cross-repo drag

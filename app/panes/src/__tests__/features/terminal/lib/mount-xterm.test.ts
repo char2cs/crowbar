@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Terminal } from '@xterm/xterm'
 import { mountXterm } from '@/features/terminal/lib/mount-xterm'
-import { clearInputTape, dumpInputTape } from '@/features/terminal/utils/input-tape'
+import { clearInputTape, dumpInputTape } from '@/__tests__/__fixtures__/input-tape'
 
 // The mount's one dispose owns everything it hung on the terminal's DOM: once it
 // has run, no listener it added still reacts, even on a detached element.

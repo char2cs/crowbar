@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 import { toast } from '@/features/window/stores/toast-store'
 import { useMarkdownAsset } from '@/features/editor/markdown/plate/markdown-asset'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { useChatId } from '@/features/agent/composer/plate/attachments/chat-id-context'
 import {
@@ -13,10 +13,11 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 beforeEach(() => {
   resetHostWorld()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
 })
 

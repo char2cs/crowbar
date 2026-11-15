@@ -1,7 +1,8 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { chatIsThreadIn, useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
+import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { seedChats, writeChat } from '@/__tests__/__fixtures__/agent-chat'
+import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 import type { HomeTree } from '@/core/entities/views-from-entities'
 
@@ -37,11 +38,23 @@ function makeRepo(overrides: Partial<Repo> = {}): Repo {
   } as Repo
 }
 
+/** What the tab bar's hook answers for a chat once the tree holds `repos` and `homeTrees`. */
+function chatIsThreadIn(
+  repos: Repo[],
+  chatId: string | null,
+  homeTrees: Record<string, HomeTree> = {},
+): boolean {
+  resetEntities()
+  seedRepos(repos)
+  for (const [projectId, tree] of Object.entries(homeTrees)) seedHomeTree(projectId, tree)
+  return renderHook(() => useChatIsThread(chatId)).result.current
+}
+
 // The chat's own worktree OWNERSHIP is the only signal that may gate branch
 // chrome — `Chat.workspaceId` cannot, because a thread carries its parent's
 // and so names a worktree it does not own. Same authority `deriveRows`
 // folds a `branch` row from.
-describe('chatIsThreadIn', () => {
+describe('useChatIsThread over the tree', () => {
   it('calls a chat that owns no worktree on its parent branch a thread', () => {
     const repos = [
       makeRepo({
@@ -77,6 +90,7 @@ describe('chatIsThreadIn', () => {
   it('does not call a chat a thread when it claims its own worktree', () => {
     const repos = [
       makeRepo({
+        workspaces: [makeWorkspace({ id: 'w-fork' })],
         chats: [makeChat({ id: 'chat-fork', workspaceId: 'w-fork', ownsWorktree: true })],
       }),
     ]

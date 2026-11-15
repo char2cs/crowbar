@@ -6,7 +6,7 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
 import type { AppFile } from '@/features/file-system/types/app'
 import { toastManager } from '@/lib/toast-manager'
 import { heldScopes, reconnectStream, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
@@ -18,6 +18,7 @@ import {
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const { fetchFileTree, reconcileBuffers } = vi.hoisted(() => ({
   fetchFileTree: vi.fn(),
@@ -261,7 +262,7 @@ describe('on an install that has paired a remote host', () => {
   beforeEach(() => {
     resetHostWorld()
     pairRemoteHost('host-1')
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     setWorkspaceScope({
       projectId: 'p-remote',
       repoId: 'r1',

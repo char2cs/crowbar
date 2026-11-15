@@ -60,7 +60,7 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
 }
 
 /** An editor buffer's document closes with it: its model and undo history go. */
-export function releaseDocumentOf(buf: PaneContent): void {
+function releaseDocumentOf(buf: PaneContent): void {
   if (!isEditorContent(buf) || !buf.path) return
   getEditorHost()?.documents.release(documentUri(documentRefOf(buf)))
 }

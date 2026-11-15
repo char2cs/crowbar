@@ -1,21 +1,49 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import {
-  markStart,
-  markEnd,
-  installPerfObserver,
-  perfEnabled,
-  pushPerfEntry,
-  __resetPerfForTests,
-} from '@/lib/perf/instrumentation'
+
+type Instrumentation = typeof import('@/lib/perf/instrumentation')
+
+let markStart: Instrumentation['markStart']
+let markEnd: Instrumentation['markEnd']
+let installPerfObserver: Instrumentation['installPerfObserver']
+let perfEnabled: Instrumentation['perfEnabled']
+let pushPerfEntry: Instrumentation['pushPerfEntry']
+
+const observers: PerformanceObserver[] = []
+
+// The module keeps its observer and open marks in module state, so every test loads it afresh
+// and disconnects the observers the previous copy installed.
+async function loadFreshInstrumentation(): Promise<void> {
+  const RealObserver = PerformanceObserver
+  vi.stubGlobal(
+    'PerformanceObserver',
+    class extends RealObserver {
+      constructor(callback: PerformanceObserverCallback) {
+        super(callback)
+        observers.push(this)
+      }
+    },
+  )
+  vi.resetModules()
+  ;({ markStart, markEnd, installPerfObserver, perfEnabled, pushPerfEntry } =
+    await import('@/lib/perf/instrumentation'))
+  delete window.__perfLog
+  delete window.__measures
+  performance.clearMarks()
+  performance.clearMeasures()
+}
+
+function disconnectObservers(): void {
+  for (const observer of observers.splice(0)) observer.disconnect()
+  vi.unstubAllGlobals()
+}
 
 describe('perf instrumentation', () => {
-  beforeEach(() => {
-    __resetPerfForTests()
-  })
+  beforeEach(loadFreshInstrumentation)
 
   // Runs even when a test body throws mid-way, so a failing test cannot
   // leak its DEV stub or arming flag into the tests after it.
   afterEach(() => {
+    disconnectObservers()
     vi.unstubAllEnvs()
     delete (window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__
   })
@@ -142,14 +170,15 @@ describe('perf instrumentation', () => {
 // capture run) actually wants. __measures is a second ring that only ever
 // receives measures, sized for a whole scenario rather than a few seconds.
 describe('measure-only ring', () => {
-  beforeEach(() => {
-    __resetPerfForTests()
+  beforeEach(async () => {
+    await loadFreshInstrumentation()
     // pushPerfEntry and the observer both self-gate on perfEnabled(); arm
     // explicitly rather than relying on the runner's import.meta.env.DEV.
     ;(window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__ = true
   })
 
   afterEach(() => {
+    disconnectObservers()
     vi.unstubAllEnvs()
     delete (window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__
   })

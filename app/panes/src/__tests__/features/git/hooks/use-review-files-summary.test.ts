@@ -15,17 +15,14 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
-import {
-  __resetWorkspaceScopesForTest,
-  recordWorkspaceScope,
-  setWorkspaceScope,
-} from '@/lib/workspace-scope'
+import { recordWorkspaceScope, setWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 function summaryFile(
   path: string,
@@ -51,7 +48,7 @@ describe('useReviewFilesSummary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getReviewFiles.mockResolvedValue([])
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1', owningChatId: 'chat1' })
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws2', owningChatId: 'chat2' })
   })
@@ -165,7 +162,7 @@ describe('useReviewFilesSummary on an install that has paired a remote host', ()
     mocks.getReviewFiles.mockResolvedValue([summaryFile('src/a.ts')])
     resetHostWorld()
     pairRemoteHost('host-1')
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     setWorkspaceScope({
       projectId: 'p-remote',
       repoId: 'r1',

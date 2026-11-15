@@ -1,12 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { showingLayout } from '@/features/panes/lib/view-state'
-import {
-  createLeaf,
-  createSplit,
-  findSplit,
-  getAllLeafIds,
-} from '@/features/panes/utils/pane-layout'
+import { createLeaf, findSplit, getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { createSplit } from '@/__tests__/__fixtures__/pane-layout'
 import { buildViewState, editorTab, makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
 
 describe('splitPane', () => {

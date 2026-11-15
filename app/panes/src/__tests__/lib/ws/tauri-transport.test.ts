@@ -29,8 +29,8 @@ beforeEach(() => {
 })
 
 const { TauriWebSocket } = await import('@/lib/ws/tauri-transport')
-const { createWSManager } = await import('@/lib/ws/manager')
-const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
+const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { useConnectionStore } = await import('@/lib/ws/connection-store')
 const { followStreamFailures } = await import('@/features/hosts/lib/host-failures')
 const { destroyHostRuntime, getHostRuntime, getOrCreateHostRuntime } =
   await import('@/features/hosts/stores/host-runtime-registry')
@@ -167,7 +167,7 @@ describe('TauriWebSocket', () => {
       ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
         invoke: async () => {},
       }
-      resetConnectionState()
+      useConnectionStore.setState(useConnectionStore.getInitialState())
       // Only a paired host is dialled.
       pairRemoteHost('h1')
       pairRemoteHost('h2')

@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import {
-  exceedsInlineSizeCap,
-  INLINE_ATTACHMENT_MAX_BYTES,
-} from '@/features/agent/composer/lib/inline-attachment-cap'
+import { exceedsInlineSizeCap } from '@/features/agent/composer/lib/inline-attachment-cap'
+
+const INLINE_ATTACHMENT_MAX_BYTES = 32 * 1024
 
 describe('exceedsInlineSizeCap', () => {
   it('is false for text well under the cap', () => {

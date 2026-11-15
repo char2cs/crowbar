@@ -11,17 +11,14 @@ vi.mock('@/features/git/api/review-window-api', () => ({
 
 import { useReviewOutline } from '@/features/git/hooks/use-review-outline'
 import { markGitStatusChanged } from '@/features/git/stores/git-refresh'
-import {
-  __resetWorkspaceScopesForTest,
-  recordWorkspaceScope,
-  setWorkspaceScope,
-} from '@/lib/workspace-scope'
+import { recordWorkspaceScope, setWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
   projectOn,
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 function outlineFile(path: string): FileOutline {
   return { path, hunks: [], isPartial: false, isBinary: false }
@@ -35,7 +32,7 @@ describe('useReviewOutline', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getReviewOutline.mockResolvedValue([])
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1', owningChatId: 'chat1' })
   })
 
@@ -155,7 +152,7 @@ describe('useReviewOutline on an install that has paired a remote host', () => {
     mocks.getReviewOutline.mockResolvedValue([outlineFile('src/a.ts')])
     resetHostWorld()
     pairRemoteHost('host-1')
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     setWorkspaceScope({
       projectId: 'p-remote',
       repoId: 'r1',

@@ -23,12 +23,6 @@ function getPreservedScroll(key: string): number {
   return scrollOffsets.get(key) ?? 0
 }
 
-/** Drops one key's offset, or every offset when called with no key. */
-export function clearPreservedScroll(key?: string): void {
-  if (key === undefined) scrollOffsets.clear()
-  else scrollOffsets.delete(key)
-}
-
 /** Keeps `containerRef`'s scroll offset across remounts, keyed by `key` (a buffer id; `null`
  *  disables it). Restore waits for `isContentReady`: an empty box clamps the offset to 0. */
 export function usePreservedScroll(

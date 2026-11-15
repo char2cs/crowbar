@@ -15,7 +15,7 @@ export function resolveChatProjectId(chatId: string, workspaceHint?: string | nu
 
 /** `wsId`'s owning project, as its workspace entity names it: a fork's, a repo's own
  *  checkout's and a project home's alike. */
-export function resolveWorkspaceProjectId(wsId: string): string | null {
+function resolveWorkspaceProjectId(wsId: string): string | null {
   const hostId = resolvedHostOf({ wsId })
   if (!hostId) return null
   return entityOf(entityStore.getState(), 'workspace', hostId, wsId)?.projectId || null

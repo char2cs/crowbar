@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, it, expect, vi } from 'vitest'
-import { SidebarHeader, SidebarFooter, SidebarProvider, useSidebar } from '@/components/ui/sidebar'
+import { SidebarHeader, SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 
 const realMatchMedia = window.matchMedia
 afterEach(() => {
@@ -68,19 +68,5 @@ describe('SidebarHeader', () => {
     const { container } = render(<SidebarHeader>test</SidebarHeader>)
     const el = container.firstChild as HTMLElement
     expect(el.className).not.toContain('bg-chrome-bg')
-  })
-})
-
-describe('SidebarFooter', () => {
-  it('does not set its own background in default mode (inherits from body)', () => {
-    const { container } = render(<SidebarFooter>test</SidebarFooter>)
-    const el = container.firstChild as HTMLElement
-    expect(el.className).not.toContain('bg-chrome-bg')
-  })
-
-  it('does not include bg-primary-bg in default mode', () => {
-    const { container } = render(<SidebarFooter>test</SidebarFooter>)
-    const el = container.firstChild as HTMLElement
-    expect(el.className).not.toContain('bg-primary-bg')
   })
 })

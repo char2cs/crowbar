@@ -41,7 +41,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { deleteRepo } from '@/lib/api'
 import { deleteChat } from '@/features/agent/api/agent-chat-commands'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import * as placement from '@/lib/api/sidebar-placement'
 import * as api from '@/lib/api'
 import * as chatCommands from '@/features/agent/api/agent-chat-commands'
@@ -53,6 +53,7 @@ import { planRemoval, type DragSubject } from '@/components/layout/removal-plan'
 import type { Project } from '@/lib/types'
 import { seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectRepos } from '@/core/entities/select'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const project: Project = {
   id: 'p1',
@@ -188,7 +189,7 @@ beforeEach(() => {
   // DELETE cascades the worktree), so a row with no owning chat recorded cannot
   // be removed at all — the sidebar records these off WorkspaceDTO.owningChatId
   // for real; this suite drives the store directly, so it records them itself.
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   for (const wsId of ['a', 'kid', 'b', 'w-default']) {
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: `chat-${wsId}` })
   }
@@ -196,7 +197,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 describe('holding a row', () => {

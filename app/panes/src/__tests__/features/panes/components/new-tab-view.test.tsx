@@ -8,7 +8,8 @@ import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pa
 import * as openDocumentModule from '@/features/editor/documents/open-document'
 import { resetEntities, seedHomeTree } from '@/__tests__/__fixtures__/sidebar-entities'
 import type { Chat } from '@/core/entities/repo-types'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const openUntitled = vi.spyOn(openDocumentModule, 'openUntitledDocument').mockResolvedValue('')
 const homeThread = () =>
@@ -44,7 +45,7 @@ describe('NewTabView', () => {
     platform.mobile = false
     resetWindowPaneStoreForTests()
     resetEntities()
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     ensurePaneChatThenOpen.mockImplementation(
       (ws: string, _pane, open: (p: string, w: string) => void) => open('pane-x', ws),
     )

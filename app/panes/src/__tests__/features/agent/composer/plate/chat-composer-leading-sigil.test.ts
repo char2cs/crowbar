@@ -4,7 +4,7 @@ import {
   chatMarkdownToValue,
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
-import { fileMarkdown, imageMarkdown } from '@/features/agent/composer/lib/attachment-markdown'
+import { imageMarkdown } from '@/features/agent/composer/lib/attachment-markdown'
 
 /**
  * The composer half of the leading-`!` shell-mode bug.
@@ -44,7 +44,7 @@ describe('TestRegression_ComposerLeadingSigil', () => {
   })
 
   it('never opens with a sigil for a non-image attachment, which is a plain link', () => {
-    const md = chatValueToMarkdown(chatMarkdownToValue(fileMarkdown('notes.pdf', REF)))
+    const md = chatValueToMarkdown(chatMarkdownToValue(`[notes.pdf](${REF})`))
 
     expect(md.startsWith('!')).toBe(false)
   })

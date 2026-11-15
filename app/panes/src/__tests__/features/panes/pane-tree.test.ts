@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   distributeSplit,
-  flattenForRender,
   getAdjacentLeafId,
   normalizeLayout,
   splitLayout,
   createLeaf,
-  createSplit,
 } from '@/features/panes/utils/pane-layout'
+import { createSplit } from '@/__tests__/__fixtures__/pane-layout'
 import type { LayoutNode, LayoutSplit } from '@/features/panes/types/pane'
 
 function leaf(id: string) {
@@ -53,21 +52,6 @@ describe('normalizeLayout', () => {
 })
 
 describe('flattened layout', () => {
-  it('flattens same-direction nested splits into one resize row', () => {
-    const row: LayoutNode = createSplit(
-      'horizontal',
-      leaf('left'),
-      createSplit('horizontal', leaf('middle'), leaf('right'), [50, 50]),
-      [50, 50],
-    )
-
-    expect(row.type).toBe('split')
-    if (row.type !== 'split') return
-    const entries = flattenForRender(row)
-    expect(entries.map((e) => e.node.id)).toEqual(['left', 'middle', 'right'])
-    expect(entries.map((e) => e.size)).toEqual([50, 25, 25])
-  })
-
   it('distributes entries evenly across nested same-direction splits', () => {
     const nestedSplit = createSplit('horizontal', leaf('middle'), leaf('right'), [75, 25])
     const rowSplit = createSplit('horizontal', leaf('left'), nestedSplit, [80, 20])

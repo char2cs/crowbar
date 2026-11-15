@@ -69,7 +69,7 @@ const BUILD_BADGE_OPTIONS: { value: Settings['buildBadgeOverride']; label: strin
   { value: 'off', label: 'Off' },
 ]
 
-export function BuildBadgeSection() {
+function BuildBadgeSection() {
   const buildBadgeOverride = useSettingsStore((s) => s.settings.buildBadgeOverride)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
 

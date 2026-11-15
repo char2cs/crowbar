@@ -1,14 +1,12 @@
-import {
-  saveWorkspaceLayout,
-  WINDOW_LAYOUT_VERSION,
-  WINDOW_SESSION_ID,
-} from '@/lib/persistence/workspace-layout'
+import { saveWorkspaceLayout, WINDOW_LAYOUT_VERSION } from '@/lib/persistence/workspace-layout'
 import { loadWindowPaneLayout } from '@/lib/persistence/workspace-layout'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 import { IDBFactory } from 'fake-indexeddb'
-import { resetDB } from '@/lib/persistence/idb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { createLeaf } from '@/features/panes/utils/pane-layout'
+
+// The fixed key of the one persisted window layout row.
+const WINDOW_SESSION_ID = 'window'
 
 const mockLayout: WorkspaceLayout = {
   // Layout is window-level: the keyPath is still `workspaceId`, but saveWorkspaceLayout always
@@ -38,7 +36,6 @@ const mockLayout: WorkspaceLayout = {
 }
 
 beforeEach(() => {
-  resetDB()
   globalThis.indexedDB = new IDBFactory()
 })
 

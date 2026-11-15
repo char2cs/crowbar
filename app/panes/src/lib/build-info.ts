@@ -19,8 +19,8 @@ interface BuildEnv {
 
 // Release CI stamps VITE_BUILD_CHANNEL/VERSION/TIMESTAMP before `bun run build`; a bundle built
 // outside it falls back to the quiet release badge rather than guess a channel. Split from
-// getBuildInfo() so the branching is testable without stubbing `import.meta.env`.
-export function resolveBuildInfo(env: BuildEnv): BuildInfo {
+// getBuildInfo() so the branching reads an explicit env.
+function resolveBuildInfo(env: BuildEnv): BuildInfo {
   if (env.DEV) return { channel: 'dev', timestamp: DEV_SESSION_START }
 
   const version = env.VITE_BUILD_VERSION || __APP_VERSION__

@@ -1,7 +1,7 @@
 import Papa from 'papaparse'
 
-export const CSV_MAX_ROWS = 200
-export const CSV_MAX_COLUMNS = 20
+const CSV_MAX_ROWS = 200
+const CSV_MAX_COLUMNS = 20
 
 export type CsvResolution = { kind: 'table'; rows: string[][] } | { kind: 'file' }
 

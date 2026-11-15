@@ -1,15 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
-import {
-  buildRepoTree,
-  sortByPlacement,
-  sortReposByOrder,
-  toSidebarChat,
-  toSidebarRepo,
-  toSidebarWorkspace,
-} from '@/lib/store/build-repo-tree'
-import type { Repo } from '@/core/entities/repo-types'
+import { buildRepoTree, sortByPlacement, toSidebarChat } from '@/lib/store/build-repo-tree'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO => ({
@@ -255,6 +247,12 @@ function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
     ...over,
   } as WorkspaceDTO
 }
+// A lone workspace as the sidebar renders it, built through the public tree entry.
+const toSidebarWorkspace = (dto: WorkspaceDTO) =>
+  buildRepoTree([repo(dto.repoId, 'r')], [dto])[0].workspaces[0]
+const toSidebarRepo = (repoDto: RepoDTO, workspaces: WorkspaceDTO[]) =>
+  buildRepoTree([repoDto], workspaces)[0]
+
 const baseRepo: RepoDTO = { id: 'r1', projectId: 'p1', name: 'crowbar' } as RepoDTO
 
 describe('toSidebarWorkspace heldByPath', () => {
@@ -433,16 +431,6 @@ describe('a tied level sorts the way the daemon sorts it', () => {
   })
 })
 
-const sortRepo = (id: string, order?: number): Repo => ({
-  id,
-  projectId: 'p1',
-  name: id,
-  avatarLabel: id[0].toUpperCase(),
-  avatarColor: 'bg-indigo-700',
-  workspaces: [],
-  ...(order !== undefined && { order }),
-})
-
 const sortDto = (id: string, order: number): RepoDTO => ({
   id,
   projectId: 'p1',
@@ -457,20 +445,9 @@ const sortDto = (id: string, order: number): RepoDTO => ({
 })
 
 describe('the sort', () => {
-  it('orders by index, with a missing order last', () => {
-    expect(
-      sortReposByOrder([
-        sortRepo('c', 2),
-        sortRepo('a', 0),
-        sortRepo('nope'),
-        sortRepo('b', 1),
-      ]).map((r) => r.id),
-    ).toEqual(['a', 'b', 'c', 'nope'])
-  })
-
   it('keeps arrival order among ties, so an undragged level never reshuffles', () => {
     expect(
-      sortReposByOrder([sortRepo('x', 0), sortRepo('y', 0), sortRepo('z', 0)]).map((r) => r.id),
+      buildRepoTree([sortDto('x', 0), sortDto('y', 0), sortDto('z', 0)], []).map((r) => r.id),
     ).toEqual(['x', 'y', 'z'])
   })
 

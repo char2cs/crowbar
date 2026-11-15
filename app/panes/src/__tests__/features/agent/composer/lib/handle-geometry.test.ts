@@ -4,10 +4,6 @@ import {
   COMPOSER_LINE_HEIGHT,
   handleOffset,
   isMultiline,
-  sendInset,
-  SEND_DIAMETER,
-  handleClusterWidth,
-  HANDLE_GAP,
 } from '@/features/agent/composer/lib/handle-geometry'
 
 describe('handleOffset', () => {
@@ -38,36 +34,5 @@ describe('isMultiline', () => {
   it('turns into the rounded rectangle as soon as a second line appears', () => {
     expect(isMultiline(40)).toBe(true)
     expect(isMultiline(60)).toBe(true)
-  })
-})
-
-describe('sendInset', () => {
-  // THE TWO ARE ONE NUMBER: change the diameter or the padding and the button
-  // stops being centred in the box it is nested in.
-  it('insets the shipped 30px button by 5px on every side', () => {
-    expect(sendInset()).toBe(5)
-  })
-
-  it('follows the diameter', () => {
-    expect(sendInset(24)).toBe(8)
-    expect(sendInset(SEND_DIAMETER, 20, 8)).toBe(3)
-  })
-})
-
-describe('handleClusterWidth', () => {
-  it('is one circle wide with a single occupant', () => {
-    expect(handleClusterWidth(1)).toBe(SEND_DIAMETER)
-  })
-
-  it('adds one diameter and one gap for the second occupant', () => {
-    expect(handleClusterWidth(2)).toBe(2 * SEND_DIAMETER + HANDLE_GAP)
-  })
-})
-
-// The phone's capsule: 20px line, 16px padding, 34pt circles (hit-slop makes them 44).
-describe('the phone capsule', () => {
-  // composer-pill.css touch `.field` padding-right and `.handle` right inset.
-  it('insets its 34pt circles by 9px', () => {
-    expect(sendInset(34, 20, 16)).toBe(9)
   })
 })

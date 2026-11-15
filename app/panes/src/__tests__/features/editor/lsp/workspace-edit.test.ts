@@ -16,18 +16,9 @@ import { documentText } from '@/features/editor/documents/document-text'
 import { findDocumentBuffer, openDocument } from '@/features/editor/documents/open-document'
 import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
-import {
-  applyTextEditsToContent,
-  applyWorkspaceEdit,
-  collectWorkspaceTextEdits,
-  filePathFromUri,
-} from '@/features/editor/lsp/workspace-edit'
+import { applyTextEditsToContent, applyWorkspaceEdit } from '@/features/editor/lsp/workspace-edit'
 
 describe('workspace edit utilities', () => {
-  it('decodes file URIs into filesystem paths', () => {
-    expect(filePathFromUri('file:///tmp/hello%20world.ts')).toBe('/tmp/hello world.ts')
-  })
-
   const editAt = (
     start: { line: number; character: number },
     end: { line: number; character: number },
@@ -96,38 +87,6 @@ describe('workspace edit utilities', () => {
       ]),
     ).toBe('01AA45BB89')
   })
-
-  it('collects edits from changes and documentChanges', () => {
-    const edit = {
-      changes: {
-        'file:///tmp/a.ts': [
-          {
-            range: {
-              start: { line: 0, character: 0 },
-              end: { line: 0, character: 0 },
-            },
-            newText: 'a',
-          },
-        ],
-      },
-      documentChanges: [
-        {
-          textDocument: { uri: 'file:///tmp/a.ts' },
-          edits: [
-            {
-              range: {
-                start: { line: 1, character: 0 },
-                end: { line: 1, character: 0 },
-              },
-              newText: 'b',
-            },
-          ],
-        },
-      ],
-    }
-
-    expect(collectWorkspaceTextEdits(edit).get('/tmp/a.ts')).toHaveLength(2)
-  })
 })
 
 describe('applyWorkspaceEdit', () => {
@@ -187,5 +146,46 @@ describe('applyWorkspaceEdit', () => {
     expect(documentText(sibling)).toBe('const one = 1')
     expect(findDocumentBuffer(sibling)?.isDirty).toBe(false)
     expect(writeDocument).toHaveBeenCalledWith(workspaceRef('ws-1', PATH), 'const uno = 1')
+  })
+
+  it('decodes a file URI into the filesystem path it writes', async () => {
+    const path = '/tmp/hello world.ts'
+    readDocument.mockResolvedValueOnce({ ref: workspaceRef('ws-1', path), text: 'a' })
+
+    await applyWorkspaceEdit(
+      {
+        changes: {
+          'file:///tmp/hello%20world.ts': [
+            {
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+              newText: 'b',
+            },
+          ],
+        },
+      },
+      'ws-1',
+    )
+
+    expect(writeDocument).toHaveBeenCalledWith(workspaceRef('ws-1', path), 'b')
+  })
+
+  it('merges edits from changes and documentChanges into one write per file', async () => {
+    const at = (line: number, newText: string) => ({
+      range: { start: { line, character: 0 }, end: { line, character: 0 } },
+      newText,
+    })
+    readDocument.mockResolvedValueOnce({ ref: workspaceRef('ws-1', '/tmp/a.ts'), text: 'x\ny' })
+
+    await expect(
+      applyWorkspaceEdit(
+        {
+          changes: { 'file:///tmp/a.ts': [at(0, 'a')] },
+          documentChanges: [{ textDocument: { uri: 'file:///tmp/a.ts' }, edits: [at(1, 'b')] }],
+        },
+        'ws-1',
+      ),
+    ).resolves.toEqual({ editedFiles: 1 })
+
+    expect(writeDocument).toHaveBeenCalledWith(workspaceRef('ws-1', '/tmp/a.ts'), 'ax\nby')
   })
 })

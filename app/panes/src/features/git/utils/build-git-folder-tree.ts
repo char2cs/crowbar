@@ -7,14 +7,14 @@ export interface GitFolderNode {
   files: GitFile[]
 }
 
-export const createFolderNode = (name: string, fullPath: string): GitFolderNode => ({
+const createFolderNode = (name: string, fullPath: string): GitFolderNode => ({
   name,
   fullPath,
   folders: new Map<string, GitFolderNode>(),
   files: [],
 })
 
-export const normalizePathSegments = (path: string): string[] =>
+const normalizePathSegments = (path: string): string[] =>
   path
     .replace(/\\/g, '/')
     .split('/')

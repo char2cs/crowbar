@@ -6,12 +6,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 import { toast } from '@/features/window/stores/toast-store'
-import {
-  useConnectionStore,
-  resetConnectionState,
-  reportChannelState,
-  reportMigrating,
-} from '@/lib/ws/connection-store'
+import { useConnectionStore, reportChannelState, reportMigrating } from '@/lib/ws/connection-store'
 import { ConnectionIndicator } from '@/components/layout/connection-indicator'
 import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store'
 
@@ -23,7 +18,7 @@ function shown() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  resetConnectionState()
+  useConnectionStore.setState(useConnectionStore.getInitialState())
   useDaemonCrashStore.getState().clear()
   vi.useFakeTimers()
 })

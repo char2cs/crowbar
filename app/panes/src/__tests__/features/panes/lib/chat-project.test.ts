@@ -5,7 +5,7 @@
 // a record is minted and once per drop, never in a render path.
 import { describe, expect, it, beforeEach } from 'vitest'
 
-import { resolveChatProjectId, resolveWorkspaceProjectId } from '@/features/panes/lib/chat-project'
+import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import type { Chat, Repo, Workspace } from '@/core/entities/repo-types'
 import {
   resetEntities,
@@ -36,36 +36,6 @@ const repo = (over: Partial<Repo>): Repo => ({
 beforeEach(() => {
   resetEntities()
   seedRepos([])
-})
-
-describe('resolveWorkspaceProjectId', () => {
-  it("finds a fork's project through its repo", () => {
-    seedRepos([
-      repo({
-        id: 'repo-1',
-        projectId: 'project-a',
-        workspaces: [workspace('ws-1')],
-      }),
-    ])
-
-    expect(resolveWorkspaceProjectId('ws-1')).toBe('project-a')
-  })
-
-  it("finds the repo-home workspace's project too", () => {
-    seedRepos([repo({ id: 'repo-1', projectId: 'project-a', defaultWorkspaceId: 'ws-main' })])
-
-    expect(resolveWorkspaceProjectId('ws-main')).toBe('project-a')
-  })
-
-  it('finds a PROJECT HOME workspace, which rides no repo at all', () => {
-    seedHome('project-b', 'ws-home-b')
-
-    expect(resolveWorkspaceProjectId('ws-home-b')).toBe('project-b')
-  })
-
-  it('answers null rather than guessing for a workspace nothing knows', () => {
-    expect(resolveWorkspaceProjectId('ws-unknown')).toBeNull()
-  })
 })
 
 describe('resolveChatProjectId', () => {
@@ -101,5 +71,35 @@ describe('resolveChatProjectId', () => {
 
   it('answers null when nothing loaded can name a project', () => {
     expect(resolveChatProjectId('chat-nowhere')).toBeNull()
+  })
+})
+
+describe('resolveChatProjectId through the workspace hint', () => {
+  it("finds a fork's project through its repo", () => {
+    seedRepos([
+      repo({
+        id: 'repo-1',
+        projectId: 'project-a',
+        workspaces: [workspace('ws-1')],
+      }),
+    ])
+
+    expect(resolveChatProjectId('chat-unlisted', 'ws-1')).toBe('project-a')
+  })
+
+  it("finds the repo-home workspace's project too", () => {
+    seedRepos([repo({ id: 'repo-1', projectId: 'project-a', defaultWorkspaceId: 'ws-main' })])
+
+    expect(resolveChatProjectId('chat-unlisted', 'ws-main')).toBe('project-a')
+  })
+
+  it('finds a PROJECT HOME workspace, which rides no repo at all', () => {
+    seedHome('project-b', 'ws-home-b')
+
+    expect(resolveChatProjectId('chat-unlisted', 'ws-home-b')).toBe('project-b')
+  })
+
+  it('answers null rather than guessing for a workspace nothing knows', () => {
+    expect(resolveChatProjectId('chat-unlisted', 'ws-unknown')).toBeNull()
   })
 })

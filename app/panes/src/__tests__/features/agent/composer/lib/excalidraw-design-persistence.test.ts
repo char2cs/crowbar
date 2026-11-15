@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  excalidrawDesignStorageKey,
   loadExcalidrawDesign,
-  MAX_EXCALIDRAW_DESIGN_BYTES,
   saveExcalidrawDesign,
 } from '@/features/agent/composer/lib/excalidraw-design-persistence'
 
@@ -36,13 +34,16 @@ describe('excalidraw design persistence', () => {
   })
 
   it('rejects and does not persist a scene over the size cap', () => {
-    const huge = JSON.stringify({ elements: [], pad: 'x'.repeat(MAX_EXCALIDRAW_DESIGN_BYTES) })
+    const huge = JSON.stringify({ elements: [], pad: 'x'.repeat(512 * 1024) })
 
     expect(saveExcalidrawDesign('w1', 'c1', huge)).toBe(false)
     expect(loadExcalidrawDesign('w1', 'c1')).toBeNull()
   })
 
   it('escapes workspace/chat ids that themselves contain the key separator', () => {
-    expect(excalidrawDesignStorageKey('w/1', 'c:1')).toContain('w%2F1:c%3A1')
+    saveExcalidrawDesign('w/1', 'c:1', '{"elements":[]}')
+
+    expect(localStorage.key(0)).toContain('w%2F1:c%3A1')
+    expect(loadExcalidrawDesign('w/1', 'c:1')).toBe('{"elements":[]}')
   })
 })

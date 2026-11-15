@@ -2,7 +2,7 @@
 // `[mod+][shift+][alt+]<key>` (e.g. `mod+shift+t`). `mod` is Cmd on macOS, Ctrl elsewhere.
 import { APPLE_KEYBOARD } from '@/utils/platform'
 
-export interface ParsedChord {
+interface ParsedChord {
   mod: boolean
   shift: boolean
   alt: boolean
@@ -10,7 +10,7 @@ export interface ParsedChord {
 }
 
 /** Parse a normalized chord string into structured form. Returns null if empty. */
-export function parseChord(chord: string): ParsedChord | null {
+function parseChord(chord: string): ParsedChord | null {
   const parts = chord
     .trim()
     .toLowerCase()
@@ -42,7 +42,7 @@ export function parseChord(chord: string): ParsedChord | null {
 }
 
 /** Produce the canonical normalized chord string from structured form. */
-export function stringifyChord(parsed: ParsedChord): string {
+function stringifyChord(parsed: ParsedChord): string {
   const out: string[] = []
   if (parsed.mod) out.push('mod')
   if (parsed.shift) out.push('shift')

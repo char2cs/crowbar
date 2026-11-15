@@ -25,7 +25,7 @@ const AddRepositoryModal = lazy(() =>
 
 interface SpaceScrollerProps {
   projects: Project[]
-  /** Undefined on a route with no project yet; the same value SidebarFooter reads. */
+  /** Undefined on a route with no project yet; the same value the sidebar footer reads. */
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void
   /** Every row the project's panel draws (`deriveRows`). */

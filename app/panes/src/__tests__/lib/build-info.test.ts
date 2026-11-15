@@ -1,7 +1,25 @@
-import { describe, it, expect } from 'vitest'
-import { resolveBuildInfo } from '@/lib/build-info'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { getBuildInfo } from '@/lib/build-info'
 
-describe('resolveBuildInfo', () => {
+interface BuildEnv {
+  DEV: boolean
+  VITE_BUILD_CHANNEL?: string
+  VITE_BUILD_VERSION?: string
+  VITE_BUILD_TIMESTAMP?: string
+}
+
+afterEach(() => vi.unstubAllEnvs())
+
+/** What the build stamped into `import.meta.env`, read through the public entry. */
+function resolveBuildInfo(env: BuildEnv) {
+  vi.stubEnv('DEV', env.DEV)
+  vi.stubEnv('VITE_BUILD_CHANNEL', env.VITE_BUILD_CHANNEL)
+  vi.stubEnv('VITE_BUILD_VERSION', env.VITE_BUILD_VERSION)
+  vi.stubEnv('VITE_BUILD_TIMESTAMP', env.VITE_BUILD_TIMESTAMP)
+  return getBuildInfo()
+}
+
+describe('getBuildInfo', () => {
   it('is dev whenever DEV is true, regardless of any CI channel stamp', () => {
     expect(resolveBuildInfo({ DEV: true, VITE_BUILD_CHANNEL: 'release' })).toMatchObject({
       channel: 'dev',

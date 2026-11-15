@@ -16,7 +16,7 @@ import {
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import { __resetWorkspaceScopesForTest, setWorkspaceScope } from '@/lib/workspace-scope'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
 import { toastManager } from '@/lib/toast-manager'
 import { heldScopes, streamDaemon } from '@/__tests__/__fixtures__/stream-daemon'
 import { holding } from '@/core/stream/stream'
@@ -27,6 +27,7 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 import { ApiError } from '@/lib/errors/api-error'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const { fetchGitData, getReviewFiles } = vi.hoisted(() => ({
   fetchGitData: vi.fn(),
@@ -248,7 +249,7 @@ describe('on an install that has paired a remote host', () => {
   beforeEach(() => {
     resetHostWorld()
     pairRemoteHost('host-1')
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     setWorkspaceScope({
       projectId: 'p-remote',
       repoId: 'r1',

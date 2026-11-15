@@ -42,12 +42,12 @@ export interface AttachmentMove {
 
 /** Attachments reorder only among their own siblings at the SAME level — not
  *  into a list item or a table cell. */
-export function canDropAttachmentNode(dragPath: Path, dropPath: Path): boolean {
+function canDropAttachmentNode(dragPath: Path, dropPath: Path): boolean {
   return PathApi.equals(PathApi.parent(dragPath), PathApi.parent(dropPath))
 }
 
 /** `null` when the drop is not allowed or would leave the block where it is. */
-export function attachmentDropMove(
+function attachmentDropMove(
   drag: AttachmentDndData,
   drop: AttachmentDndData,
   line: DropLine,
@@ -103,7 +103,7 @@ function useDropLine(id: UniqueIdentifier): DropLine | undefined {
 
 /** A file card's link sits inside its own paragraph; `canDropAttachmentNode`
  *  compares parents, so the nested link must resolve to that block. */
-export function resolveDraggableBlockElement(editor: PlateEditor, element: TElement): TElement {
+function resolveDraggableBlockElement(editor: PlateEditor, element: TElement): TElement {
   const path = editor.api.findPath(element)
   if (!path) return element
   const ancestor = editor.api.above<TElement>({
@@ -159,13 +159,7 @@ export function useAttachmentDropTarget(element: TElement) {
 
 /** `contentEditable={false}`: inside Slate's editable region WebKit treats
  *  pointerdown+move as a text selection before the drag can start. */
-export function AttachmentDragHandle({
-  handleProps,
-  onSelect,
-}: {
-  handleProps?: AttachmentHandleProps
-  onSelect?: () => void
-}) {
+function AttachmentDragHandle({ handleProps }: { handleProps?: AttachmentHandleProps }) {
   return (
     <div contentEditable={false} className="contents">
       <Button
@@ -178,7 +172,6 @@ export function AttachmentDragHandle({
           'focus-visible:ring-0 focus-visible:ring-offset-0',
           'cursor-grab touch-none active:cursor-grabbing',
         )}
-        onClick={onSelect}
       >
         <DotsSixVerticalIcon className="text-muted-foreground" />
       </Button>
@@ -186,7 +179,7 @@ export function AttachmentDragHandle({
   )
 }
 
-export function AttachmentDeleteButton({ onDelete }: { onDelete: () => void }) {
+function AttachmentDeleteButton({ onDelete }: { onDelete: () => void }) {
   return (
     <Button
       variant="outline"

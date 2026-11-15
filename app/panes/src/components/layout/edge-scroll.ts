@@ -2,7 +2,7 @@
 // an interval wastes or misses frames, and per-pointermove speed would stall a held-still hand.
 
 /** How close to an end of the scroller starts the drag scrolling it. */
-export const EDGE_SCROLL_BAND_PX = 36
+const EDGE_SCROLL_BAND_PX = 36
 
 /** Peak speed, in px per frame, reached at the boundary itself. */
 const EDGE_SCROLL_MAX_STEP_PX = 14

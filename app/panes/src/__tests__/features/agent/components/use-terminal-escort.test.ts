@@ -6,9 +6,9 @@ import * as commandsApi from '@/features/agent/api/agent-chat-commands'
 import { useTerminalEscort } from '@/features/agent/components/use-terminal-escort'
 import {
   presetChatLandingPresentation,
-  resetChatPresentationMemoryForTests,
   useChatPresentation,
 } from '@/features/agent/hooks/use-chat-presentation'
+import { chatStore } from '@/features/agent/stores/chat-store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { useSettingsStore } from '@/features/settings/store'
@@ -90,7 +90,7 @@ beforeEach(() => {
 
 afterEach(() => {
   platform.mobile = false
-  resetChatPresentationMemoryForTests()
+  chatStore.setState({ presentations: {} })
 })
 
 describe('useTerminalEscort — a hot-swap chat records every surface it is shown on', () => {

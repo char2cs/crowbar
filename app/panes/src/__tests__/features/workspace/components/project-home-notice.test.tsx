@@ -12,7 +12,6 @@ import {
 } from '@/__tests__/__fixtures__/remote-host'
 
 vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: () => (config: unknown) => config,
   useParams: () => ({ projectId: 'p1' }),
 }))
 
@@ -24,26 +23,26 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   useHomeWorkspaceState: useHomeWorkspaceStateMock,
 }))
 
-import { HomeRoute } from '@/routes/_shell/ide/$projectId/home'
+import { ProjectHomeNotice } from '@/features/workspace/components/project-home-notice'
 
-// HomeRoute only surfaces the loading/error state; WorkspaceHost retains and paints the home
+// ProjectHomeNotice only surfaces the loading/error state; WorkspaceHost retains and paints the home
 // workspace like any other.
-describe('HomeRoute component', () => {
+describe('ProjectHomeNotice', () => {
   it('renders nothing while the home workspace id is still resolving', () => {
     useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: false })
-    const { container } = render(<HomeRoute />)
+    const { container } = render(<ProjectHomeNotice />)
     expect(container).toBeEmptyDOMElement()
   })
 
   it('renders nothing once resolved — WorkspaceHost (an Outlet sibling in IDEShell) paints the content', () => {
     useHomeWorkspaceStateMock.mockReturnValue({ wsId: 'ws-home-1', error: false })
-    const { container } = render(<HomeRoute />)
+    const { container } = render(<ProjectHomeNotice />)
     expect(container).toBeEmptyDOMElement()
   })
 
   it('renders fallback on error, saying what to do', () => {
     useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: true })
-    render(<HomeRoute />)
+    render(<ProjectHomeNotice />)
     expect(screen.getByText(/unavailable/i)).toBeInTheDocument()
     expect(screen.getByText(/connect to this project's host/i)).toBeInTheDocument()
   })
@@ -61,7 +60,7 @@ describe('HomeRoute component', () => {
       loadProjects(projectOn('p-other', 'local'))
       useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: false })
 
-      render(<HomeRoute />)
+      render(<ProjectHomeNotice />)
 
       expect(screen.getByText(/unavailable/i)).toBeInTheDocument()
     })
@@ -73,7 +72,7 @@ describe('HomeRoute component', () => {
       loadProjects(projectOn('p-other', 'local'))
       useHomeWorkspaceStateMock.mockReturnValue({ wsId: 'ws-cached', error: false, stale: true })
 
-      const { container } = render(<HomeRoute />)
+      const { container } = render(<ProjectHomeNotice />)
 
       expect(container).toBeEmptyDOMElement()
     })

@@ -23,13 +23,13 @@ import {
 } from '@/__tests__/__fixtures__/remote-host'
 import { toastManager } from '@/lib/toast-manager'
 import {
-  __resetWorkspaceScopesForTest,
   forgetWorkspaceScope,
   recordWorkspaceScope,
   recordWorkspaceScopeFromPath,
   setWorkspaceScope,
   subscribeToWorkspaceScope,
 } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const SCOPE_1 = 'lsp:chat-1'
 const SCOPE_2 = 'lsp:chat-2'
@@ -61,7 +61,7 @@ afterEach(() => {
 beforeEach(() => {
   apiFetch.mockReset()
   apiFetch.mockResolvedValue(null)
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w1', owningChatId: 'chat-1' })
   recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'w2', owningChatId: 'chat-2' })
 })

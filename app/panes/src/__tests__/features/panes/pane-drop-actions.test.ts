@@ -12,9 +12,19 @@ describe('pane drop actions', () => {
   })
 
   it('creates a split drop target from an edge zone', async () => {
-    const { getOrCreatePaneDropTarget } = await import('@/features/panes/utils/pane-drop-actions')
+    const { ensureBufferInPaneDropTarget } =
+      await import('@/features/panes/utils/pane-drop-actions')
+    seatTab(windowPaneStore, ROOT_PANE_ID, {
+      id: 'buffer-a',
+      type: 'editor',
+      name: 'a.ts',
+      workspaceId: 'test-ws',
+    })
 
-    const targetPaneId = getOrCreatePaneDropTarget({ paneId: ROOT_PANE_ID, zone: 'right' })
+    const targetPaneId = ensureBufferInPaneDropTarget('buffer-a', {
+      paneId: ROOT_PANE_ID,
+      zone: 'right',
+    })
 
     expect(targetPaneId).not.toBeNull()
     expect(targetPaneId).not.toBe(ROOT_PANE_ID)

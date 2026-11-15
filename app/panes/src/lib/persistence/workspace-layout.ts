@@ -3,7 +3,7 @@ import type { WorkspaceLayout } from './schemas'
 
 // Pane/buffer layout is window-level (panes hold chats from different workspaces), so there is one
 // persisted layout per window; the store's `workspaceId` keyPath keys that one fixed row.
-export const WINDOW_SESSION_ID = 'window'
+const WINDOW_SESSION_ID = 'window'
 
 /** 2: every chat pane records its workspace (`PaneGroup.workspaceId`).
  *  3: every editor buffer names its document's authority, a preview its source.

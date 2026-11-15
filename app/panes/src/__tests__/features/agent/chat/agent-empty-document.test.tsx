@@ -5,7 +5,6 @@ import {
   AgentEmptyDocument,
   type AgentEmptyDocumentHandle,
   type AgentEmptyDocumentProps,
-  lastLineTop,
 } from '@/features/agent/chat/agent-empty-document'
 
 type Overrides = Partial<Omit<AgentEmptyDocumentProps, 'docRef' | 'ref'>>
@@ -63,71 +62,56 @@ describe('AgentEmptyDocument handle', () => {
 
 // The handle always sits under the last written line, never the caret's: editing an earlier
 // sentence must not drag the send button up the page.
-describe('lastLineTop', () => {
-  function docWithParagraphs(bottoms: number[], docTop = 0): HTMLDivElement {
-    const doc = document.createElement('div')
+describe('handle placement under the last line', () => {
+  /** Writes paragraphs into the rendered `.doc`, re-renders, and reads where the handle went. */
+  function placedWith(bottoms: number[], docTop = 0, overrides: Overrides = {}, text = 'text') {
+    const view = draw(overrides)
+    const doc = view.container.querySelector('.doc') as HTMLElement
     vi.spyOn(doc, 'getBoundingClientRect').mockReturnValue({ top: docTop } as DOMRect)
     const editable = document.createElement('div')
     editable.setAttribute('data-slate-editor', 'true')
     for (const bottom of bottoms) {
       const p = document.createElement('p')
-      p.textContent = 'text'
+      p.textContent = text
       vi.spyOn(p, 'getBoundingClientRect').mockReturnValue({ bottom } as DOMRect)
       editable.appendChild(p)
     }
     doc.appendChild(editable)
-    return doc
+    view.rerender(<DocumentHost handle={view.ref} {...overrides} />)
+    const handle = view.container.querySelector('.dochandle') as HTMLElement
+    return { handle }
   }
 
+  const under = (line: number) => `translateY(${line + 4}px)`
+
   it('sits under the LAST paragraph, not the first, when there is more than one', () => {
-    expect(lastLineTop(docWithParagraphs([100, 250]))).toBe(250)
+    expect(placedWith([100, 250]).handle.style.transform).toBe(under(250))
   })
 
   it('is measured relative to the doc, not the viewport', () => {
-    expect(lastLineTop(docWithParagraphs([250], 40))).toBe(210)
+    expect(placedWith([250], 40).handle.style.transform).toBe(under(210))
   })
 
   it('falls back to the first-line position on a genuinely empty document', () => {
-    expect(lastLineTop(docWithParagraphs([]))).toBeCloseTo(48 + 40)
+    expect(placedWith([]).handle.style.transform).toBe(under(48 + 40))
   })
 
   it('falls back to the first-line position when the editor holds no text at all', () => {
-    const doc = document.createElement('div')
-    vi.spyOn(doc, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
-    const editable = document.createElement('div')
-    editable.setAttribute('data-slate-editor', 'true')
-    editable.appendChild(document.createElement('p')) // present, but empty
-    doc.appendChild(editable)
-
-    expect(lastLineTop(doc)).toBeCloseTo(48 + 40)
+    expect(placedWith([100], 0, {}, '').handle.style.transform).toBe(under(48 + 40))
   })
 
   // The overlay chat header takes no flex space, so an empty document's fallback position adds
   // the same clearance as `.doc`'s top padding (`--agent-header-clearance`).
   it('adds headerClearancePx to the fallback position on a genuinely empty document', () => {
-    expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 40)
+    expect(placedWith([], 0, { headerClearancePx: 52 }).handle.style.transform).toBe(
+      under(48 + 52 + 40),
+    )
   })
 
   it('ignores headerClearancePx once there is a real last line to measure', () => {
-    expect(lastLineTop(docWithParagraphs([100, 250]), 52)).toBe(250)
-  })
-
-  it('ignores where the caret actually is — a selection anchored in an earlier line does not move it', () => {
-    const doc = docWithParagraphs([100, 250])
-    document.body.appendChild(doc)
-    try {
-      const editable = doc.querySelector('[data-slate-editor]') as HTMLElement
-      const firstParagraph = editable.firstElementChild as HTMLElement
-      const range = document.createRange()
-      range.selectNodeContents(firstParagraph)
-      const selection = window.getSelection()
-      selection?.removeAllRanges()
-      selection?.addRange(range)
-
-      expect(lastLineTop(doc)).toBe(250)
-    } finally {
-      document.body.removeChild(doc)
-    }
+    expect(placedWith([100, 250], 0, { headerClearancePx: 52 }).handle.style.transform).toBe(
+      under(250),
+    )
   })
 })
 

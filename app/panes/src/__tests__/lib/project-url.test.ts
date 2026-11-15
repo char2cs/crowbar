@@ -3,16 +3,13 @@ import { HostNotResolvedError } from '@/lib/host-path'
 import { projectAssetURL, projectBase, projectBaseOnHost, repoBase } from '@/lib/project-url'
 import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import {
-  __resetWorkspaceScopesForTest,
-  recordWorkspaceScope,
-  type WorkspaceScope,
-} from '@/lib/workspace-scope'
+import { recordWorkspaceScope, type WorkspaceScope } from '@/lib/workspace-scope'
 import * as api from '@/lib/api'
 import * as placement from '@/lib/api/sidebar-placement'
 import * as agent from '@/features/agent/api/agent-chat-creates'
 import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const P = 'p1'
 const R = 'r1'
@@ -53,7 +50,7 @@ beforeEach(() => {
   // addHost sets a persisted one-way bit; a later test must start never-paired.
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   resetEntities()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope(SCOPE)
 })
 

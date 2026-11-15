@@ -53,17 +53,17 @@ export function recordInputTape(
   })
 }
 
-export interface InputTapeDump {
+interface InputTapeDump {
   /** Entries evicted by the ring before this dump. */
   dropped: number
   entries: InputTapeEntry[]
 }
 
-export function dumpInputTape(): InputTapeDump {
+function dumpInputTape(): InputTapeDump {
   return { dropped, entries: entries.slice() }
 }
 
-export function clearInputTape(): void {
+function clearInputTape(): void {
   entries.length = 0
   dropped = 0
 }

@@ -15,6 +15,7 @@ import {
   type LeafDiff,
   type Node,
 } from '@/features/agent/transcript/plate/streaming-value-blocks'
+import { splitIntoWords, staggerDelay } from '@/features/agent/transcript/plate/fresh-word-stagger'
 
 /** The fade-in mark, only ever a Slate decoration — never in the document. */
 export const CHAT_FRESH_MARK = 'chatFresh'
@@ -32,26 +33,12 @@ const CHAT_FRESH_HELD = 'chatFreshHeld'
 export const CHAT_FRESH_WORD_INDEX_MARK = 'chatFreshWordIndex'
 export const CHAT_FRESH_WORD_TOTAL_MARK = 'chatFreshWordTotal'
 
-// The step scales down for a long chunk instead of the delay capping, so every
-// word keeps a distinct delay and the cascade still ends within MAX_STAGGER_MS.
-const WORD_STAGGER_MS = 30
-const MAX_STAGGER_MS = 320
-export function staggerDelay(index: number, total: number): number {
-  const step = total <= 1 ? 0 : Math.min(WORD_STAGGER_MS, MAX_STAGGER_MS / (total - 1))
-  return index * step
-}
-
 // Flat head start per word so scroll-follow gets underway before text appears.
 const SCROLL_LEAD_MS = 150
 
 // Past this many words the stagger step is imperceptible, so the chunk fades
 // as one span instead of paying for hundreds.
 const WORD_SPLIT_CAP = 80
-
-/** Whitespace-preserving split: joining the result reconstructs the input. */
-export function splitIntoWords(text: string): string[] {
-  return text.match(/\s*\S+\s*/g) ?? [text]
-}
 
 /** One insertion's just-arrived text, as a range over text the document
  *  already holds — the fade is a decoration, never a document change. */

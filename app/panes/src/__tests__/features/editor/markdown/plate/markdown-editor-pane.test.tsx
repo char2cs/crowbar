@@ -17,7 +17,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { toast } from '@/features/window/stores/toast-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   loadProjects,
   pairRemoteHost,
@@ -25,6 +25,7 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // Buffer fixtures keyed by bufferId, so each test picks the shape it needs with no shared mutable
 // state; hoisted for the `vi.mock` factory below.
@@ -480,7 +481,7 @@ describe('MarkdownEditorPane raw-HTML anchors', () => {
     } finally {
       info.mockRestore()
       resetHostWorld()
-      __resetWorkspaceScopesForTest()
+      useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     }
   })
 

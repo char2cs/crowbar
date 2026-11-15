@@ -17,7 +17,7 @@ import {
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import {
   loadProjects,
@@ -26,6 +26,7 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 import { deferred } from '@/__tests__/__fixtures__/deferred'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const provider = (id: string, enabled = true): AgentProvider => ({
   id,
@@ -191,7 +192,7 @@ describe('agent providers store across hosts', () => {
   beforeEach(() => {
     resetHostWorld()
     pairRemoteHost('host-1')
-    __resetWorkspaceScopesForTest()
+    useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r', wsId: 'w-remote' })
     recordWorkspaceScope({ projectId: 'p-local', repoId: 'r', wsId: 'w-local' })
     loadProjects(projectOn('p-remote', 'host-1'), projectOn('p-local', 'local'))

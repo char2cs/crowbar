@@ -5,10 +5,11 @@ import {
   type ChatPresentation,
   type LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
+import { chatStore } from '@/features/agent/stores/chat-store'
 import { IS_MOBILE } from '@/utils/platform'
 
 export const SPLIT_MIN_HALF_PX = 340
-export const SPLIT_SIDE_BY_SIDE_MIN_PX = 780
+const SPLIT_SIDE_BY_SIDE_MIN_PX = 780
 export const SPLIT_MIN_STACKED_PX = 160
 export const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
 
@@ -53,14 +54,12 @@ function deriveStacked(width: number): boolean {
   return width > 0 && width < SPLIT_SIDE_BY_SIDE_MIN_PX
 }
 
-/** Each chat's last pick, at module scope because closing a pane deletes it and
- *  reopening mounts a fresh one; nothing renders off it, so it is not a store.
- *  Session-lifetime only. */
-const lastChosenByChatId = new Map<string, ChatPresentation>()
+function lastChosen(chatId: string): ChatPresentation | undefined {
+  return chatStore.getState().presentations[chatId]
+}
 
-/** Test fixtures reuse chat ids across `it` blocks; a real session never does. */
-export function resetChatPresentationMemoryForTests(): void {
-  lastChosenByChatId.clear()
+function rememberChosen(chatId: string, presentation: ChatPresentation): void {
+  chatStore.setState((s) => ({ presentations: { ...s.presentations, [chatId]: presentation } }))
 }
 
 /** Lands one just-minted chat on a surface before its pane mounts, without
@@ -70,7 +69,7 @@ export function presetChatLandingPresentation(
   chatId: string,
   presentation: LandingChatPresentation,
 ): void {
-  lastChosenByChatId.set(chatId, presentation)
+  rememberChosen(chatId, presentation)
 }
 
 /** What shows: the daemon's view when it holds only one, else the user's pick. A split whose
@@ -98,14 +97,13 @@ export function useChatPresentation(
 ) {
   // The phone opens on the chat: its TUI is a deliberate detour, never a recorded or default one.
   const seed = (chatId: string) =>
-    lastChosenByChatId.get(chatId) ??
-    (IS_MOBILE ? 'chat' : (recorded ?? getDefaultChatPresentation()))
+    lastChosen(chatId) ?? (IS_MOBILE ? 'chat' : (recorded ?? getDefaultChatPresentation()))
   const [chosen, setChosenRaw] = useState<ChatPresentation>(() => seed(shownChatId))
   // Explicit picks are remembered per chat; the re-seed below restores through
   // `setChosenRaw` so a restore never rewrites the entry it reads.
   const setChosen = useCallback(
     (next: ChatPresentation) => {
-      lastChosenByChatId.set(shownChatId, next)
+      rememberChosen(shownChatId, next)
       setChosenRaw(next)
     },
     [shownChatId],
@@ -123,7 +121,7 @@ export function useChatPresentation(
   if (recordedBefore !== recorded) {
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: the pattern above; an effect would paint the preference for a frame first.
     setRecordedBefore(recorded)
-    if (recorded && !IS_MOBILE && !lastChosenByChatId.has(shownChatId)) setChosenRaw(recorded)
+    if (recorded && !IS_MOBILE && !lastChosen(shownChatId)) setChosenRaw(recorded)
   }
   // Two live halves do not fit a phone.
   const splitEnabled = useSplitPresentationEnabled() && !IS_MOBILE
@@ -178,7 +176,7 @@ export type PaneViewPresentation = 'side-by-side' | 'stacked' | 'tabs'
 /** Too small on the longer axis downgrades to tabs while keeping the toggle, so
  *  growing the pane recovers the split; one floor serves both axes because a
  *  stacked layout needs height for the same reason side by side needs width. */
-export function derivePaneViewPresentation(width: number, height: number): PaneViewPresentation {
+function derivePaneViewPresentation(width: number, height: number): PaneViewPresentation {
   // Unmeasured: guess the common landscape case, so the pane does not pop
   // from one view to two when the real measurement lands.
   if (width === 0 && height === 0) return 'side-by-side'

@@ -15,7 +15,6 @@ import {
   chatMarkdownToValue,
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
-import { INLINE_ATTACHMENT_MAX_BYTES } from '@/features/agent/composer/lib/inline-attachment-cap'
 import {
   expectMigratingShown,
   expectReported,
@@ -24,6 +23,9 @@ import {
   UNWORDED,
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
+
+// Mirrors the composer's inline cap (32 KiB): above it a paste or drawing uploads as a file.
+const INLINE_ATTACHMENT_MAX_BYTES = 32 * 1024
 
 const uploadChatAttachmentMock = vi.hoisted(() => vi.fn())
 vi.mock('@/features/agent/api/upload-chat-attachment', () => ({

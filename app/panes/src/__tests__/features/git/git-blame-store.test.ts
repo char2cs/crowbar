@@ -10,7 +10,8 @@ import {
   loadBlame,
   useGitBlameStore,
 } from '@/features/git/stores/git-blame-store'
-import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const ENTRY = {
   lineNumber: 1,
@@ -25,7 +26,7 @@ beforeEach(() => {
   apiFetch.mockReset()
   apiFetch.mockResolvedValue([ENTRY])
   useGitBlameStore.setState({ blame: {} })
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
   recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-2', owningChatId: 'chat-2' })
 })

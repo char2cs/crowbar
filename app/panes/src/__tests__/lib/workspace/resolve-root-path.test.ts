@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { workspaceRootPath } from '@/lib/workspace/resolve-root-path'
 import type { Repo } from '@/core/entities/repo-types'
-import { recordWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const repo: Repo = {
   id: 'r1',
@@ -24,7 +25,7 @@ const repo: Repo = {
 
 beforeEach(() => {
   seedRepos([repo])
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   // The workspace in view is never the one asked about.
   setActiveWorkspaceId('ws-in-view')
 })

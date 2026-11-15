@@ -10,8 +10,8 @@ import {
   applyStreamedValue,
   freshDecorations,
   settleFreshGeneration,
-  splitIntoWords,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
+import { splitIntoWords } from '@/features/agent/transcript/plate/fresh-word-stagger'
 
 // Node ids are metadata, not content: irrelevant to what these tests check,
 // so any are stripped.

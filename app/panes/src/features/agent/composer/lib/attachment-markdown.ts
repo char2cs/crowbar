@@ -22,7 +22,7 @@ export function imageMarkdown(alt: string, ref: string): string {
   return `![${alt}](${ref})`
 }
 
-export function fileMarkdown(filename: string, ref: string): string {
+function fileMarkdown(filename: string, ref: string): string {
   return `[${filename}](${ref})`
 }
 

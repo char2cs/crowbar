@@ -28,10 +28,7 @@ import {
   defaultSettings,
   getDefaultSettingsSnapshot,
 } from '@/features/settings/config/default-settings'
-import {
-  SPLIT_PRESENTATION_AVAILABLE,
-  useSplitPresentationEnabled,
-} from '@/features/settings/lib/chat-presentation'
+import { useSplitPresentationEnabled } from '@/features/settings/lib/chat-presentation'
 import {
   normalizeSettingValue,
   normalizeSettings,
@@ -72,7 +69,6 @@ describe('the split-view switch', () => {
     expect(SETTINGS_TAB_ITEMS.some((tab) => tab.id === 'developer')).toBe(
       import.meta.env.DEV === true,
     )
-    expect(SPLIT_PRESENTATION_AVAILABLE).toBe(import.meta.env.DEV === true)
   })
 
   // Both gates, together. Off, the surface is not on offer no matter what build
@@ -91,7 +87,7 @@ describe('the split-view switch', () => {
     await user.click(toggle())
 
     expect(useSettingsStore.getState().settings.chatSplitPresentationEnabled).toBe(true)
-    expect(gate()).toBe(String(SPLIT_PRESENTATION_AVAILABLE))
+    expect(gate()).toBe(String(import.meta.env.DEV === true))
   })
 
   it('says what it costs, so nobody leaves it on by accident', () => {

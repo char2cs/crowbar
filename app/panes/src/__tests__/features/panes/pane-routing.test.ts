@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { getPaneScopeForPaneId } from '@/features/panes/utils/pane-routing'
-import { createLeaf, createSplit } from '@/features/panes/utils/pane-layout'
+import { createLeaf } from '@/features/panes/utils/pane-layout'
+import { createSplit } from '@/__tests__/__fixtures__/pane-layout'
 
 function makeGroup(id: string, overrides: Partial<PaneGroup> = {}): PaneGroup {
   return {

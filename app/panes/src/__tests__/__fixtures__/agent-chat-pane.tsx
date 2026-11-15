@@ -12,7 +12,6 @@ import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pa
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
 import { platform } from '@/__tests__/__fixtures__/pane-platform'
-import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 
 export const switchProviderFn = vi.fn()
 export const resumeChatFn = vi.fn()
@@ -292,7 +291,6 @@ function resetPaneHarness() {
   platform.mobile = false
   resetWindowPaneStoreForTests()
   resetChatStore()
-  resetChatPresentationMemoryForTests()
   paneWorkspace.clear()
   switchProviderFn.mockReset()
   resumeChatFn.mockReset()

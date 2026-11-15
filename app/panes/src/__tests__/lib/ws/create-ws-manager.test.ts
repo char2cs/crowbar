@@ -49,15 +49,15 @@ vi.stubGlobal('WebSocket', MockWebSocket)
 const install = vi.hoisted(() => ({ localDaemon: true }))
 vi.mock('@/features/hosts/lib/local-daemon', () => ({ hasLocalDaemon: () => install.localDaemon }))
 
-const { createWSManager } = await import('@/lib/ws/manager')
-const { useConnectionStore, resetConnectionState } = await import('@/lib/ws/connection-store')
+const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { useConnectionStore } = await import('@/lib/ws/connection-store')
 
 // The phone app: a local endpoint has no daemon behind it, so it is neither dialled nor
 // reported down (which would raise "Backend unavailable" for a daemon that never existed).
 describe('WSManager with no local daemon', () => {
   beforeEach(() => {
     install.localDaemon = false
-    resetConnectionState()
+    useConnectionStore.setState(useConnectionStore.getInitialState())
   })
   afterEach(() => {
     install.localDaemon = true
@@ -378,7 +378,7 @@ describe('WSManager', () => {
       isWebSocketCapable: () => false,
     }))
     try {
-      const fresh = await import('@/lib/ws/manager')
+      const fresh = await import('@/lib/ws/create-ws-manager')
       const mgr = fresh.createWSManager()
       mgr.subscribe('/v0/chats/c1/ws', vi.fn())
 

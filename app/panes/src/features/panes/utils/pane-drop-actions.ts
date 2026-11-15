@@ -8,7 +8,7 @@ export interface PaneDropTarget {
   zone: PaneDropZone
 }
 
-export function getOrCreatePaneDropTarget(target: PaneDropTarget): string | null {
+function getOrCreatePaneDropTarget(target: PaneDropTarget): string | null {
   const splitOptions = getPaneSplitDropOptions(target.zone)
   if (!splitOptions) {
     return target.paneId

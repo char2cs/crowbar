@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampFirstPx, percentsToPx, pxToPercents } from '@/features/panes/lib/split-sizing'
+import { percentsToPx, pxToPercents } from '@/features/panes/lib/split-sizing'
 
 describe('pxToPercents', () => {
   it('produces a 50/50 split for a centered divider', () => {
@@ -38,6 +38,14 @@ describe('pxToPercents', () => {
     expect(a).toBeGreaterThanOrEqual(0)
     expect(b).toBeGreaterThanOrEqual(0)
   })
+
+  it('centres the divider when the container is smaller than 2x min', () => {
+    expect(pxToPercents(100, 10, 100)).toEqual([50, 50])
+  })
+
+  it('keeps an in-range drag where it was dropped', () => {
+    expect(pxToPercents(1000, 250, 100)).toEqual([25, 75])
+  })
 })
 
 describe('percentsToPx', () => {
@@ -52,23 +60,5 @@ describe('percentsToPx', () => {
 
   it('handles a 70/30 split', () => {
     expect(percentsToPx(1000, [70, 30])).toEqual([700, 300])
-  })
-})
-
-describe('clampFirstPx', () => {
-  it('keeps a value within [minPx, containerPx - minPx]', () => {
-    expect(clampFirstPx(500, 1000, 100)).toBe(500)
-  })
-
-  it('clamps below the minimum up to minPx', () => {
-    expect(clampFirstPx(10, 1000, 100)).toBe(100)
-  })
-
-  it('clamps above the maximum down to containerPx - minPx', () => {
-    expect(clampFirstPx(990, 1000, 100)).toBe(900)
-  })
-
-  it('collapses to the midpoint when container is smaller than 2x min', () => {
-    expect(clampFirstPx(10, 100, 100)).toBe(50)
   })
 })

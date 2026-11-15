@@ -9,10 +9,7 @@ import { useIdeShellWorkspaceRetention } from '@/components/layout/use-ide-shell
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import type { Repo } from '@/core/entities/repo-types'
-import {
-  EMPTY_FOCUSED_WORKSPACE_CONTEXT,
-  useFocusedWorkspaceContextStore,
-} from '@/features/window/stores/focused-workspace-context-store'
+import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
@@ -225,7 +222,11 @@ describe('useIdeShellWorkspaceRetention — a chat that moved to a child worktre
   }
 
   afterEach(() => {
-    act(() => useFocusedWorkspaceContextStore.setState({ ...EMPTY_FOCUSED_WORKSPACE_CONTEXT }))
+    act(() =>
+      useFocusedWorkspaceContextStore.setState({
+        ...useFocusedWorkspaceContextStore.getInitialState(),
+      }),
+    )
   })
 
   it("scopes the panel and retention to the chat's current workspace, not the pane's record", () => {

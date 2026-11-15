@@ -22,7 +22,7 @@ export interface WorkspacePlacement {
 }
 
 /** One row's decided placement, as a placement PATCH reports it. */
-export interface PlacedRow {
+interface PlacedRow {
   id: string
   /** A chat id, a folder id, or '' for the root. */
   parentId: string

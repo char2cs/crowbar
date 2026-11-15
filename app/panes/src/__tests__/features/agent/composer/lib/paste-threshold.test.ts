@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import {
-  shouldWrapAsTextAttachment,
-  PASTE_CHAR_THRESHOLD,
-  PASTE_LINE_THRESHOLD,
-} from '@/features/agent/composer/lib/paste-threshold'
+import { shouldWrapAsTextAttachment } from '@/features/agent/composer/lib/paste-threshold'
+
+const PASTE_CHAR_THRESHOLD = 400
+const PASTE_LINE_THRESHOLD = 6
 
 describe('shouldWrapAsTextAttachment', () => {
   it('stays plain text under both thresholds', () => {

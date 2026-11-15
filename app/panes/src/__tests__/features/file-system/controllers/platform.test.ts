@@ -8,7 +8,8 @@ vi.mock('@/lib/api/fetch', async () => {
 import { apiFetch } from '@/lib/api/fetch'
 import { ApiError } from '@/lib/errors/api-error'
 import { exists, moveFile, readDirectory } from '@/features/file-system/controllers/platform'
-import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const mockFetch = apiFetch as ReturnType<typeof vi.fn>
 
@@ -22,7 +23,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
 
 describe('readDirectory', () => {

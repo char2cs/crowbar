@@ -11,7 +11,7 @@ import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pa
 import type { Repo } from '@/core/entities/repo-types'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
-  EMPTY_FOCUSED_WORKSPACE_CONTEXT,
+  useFocusedWorkspaceContextStore,
   getFocusedWorkspaceContext,
   publishFocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
@@ -64,7 +64,7 @@ beforeEach(() => {
   resetEntities()
   seedRepos([repo])
   resetWindowPaneStoreForTests()
-  publishFocusedWorkspaceContext(EMPTY_FOCUSED_WORKSPACE_CONTEXT)
+  publishFocusedWorkspaceContext(useFocusedWorkspaceContextStore.getInitialState())
   seedHomeChat()
 })
 

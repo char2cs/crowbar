@@ -2,12 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostNotResolvedError } from '@/lib/host-path'
 import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
-import {
-  __resetWorkspaceScopesForTest,
-  getWorkspaceScope,
-  recordWorkspaceScope,
-  type WorkspaceScope,
-} from '@/lib/workspace-scope'
+import { getWorkspaceScope, recordWorkspaceScope, type WorkspaceScope } from '@/lib/workspace-scope'
 import {
   chatBase,
   chatTerminalsBaseForWorkspace,
@@ -21,6 +16,7 @@ import {
 import * as urls from '@/lib/workspace-scope-url'
 import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 // A repo workspace with an owning chat, and a project HOME (no repo, no chat).
 const REPO_WS = 'ws-1'
@@ -146,7 +142,7 @@ beforeEach(() => {
   // addHost sets a persisted one-way bit; a later test must start never-paired.
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   resetEntities()
-  __resetWorkspaceScopesForTest()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
   recordWorkspaceScope(REPO)
   recordWorkspaceScope(HOME)
 })
