@@ -2,13 +2,15 @@
 //! `FAKE_DAEMON_MODE`: `ok`, `migrating`, `steps` (reports no step, step 1 of 2, step 2 of 2,
 //! then serves), `halted`, `crash` (exits at once), `die` (serves one health answer, then
 //! exits), `noisy` (writes a megabyte that is not UTF-8 to stderr before serving), `wedge`
-//! (accepts and never answers) or `stall` (answers the first request, then never answers).
+//! (accepts and never answers), `stall` (answers the first request, then never answers) or
+//! `deaf` (serves, and ignores SIGTERM).
 
 use std::io::Write;
 use std::process::ExitCode;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::signal::unix::{Signal, SignalKind, signal};
 
 const OK: &str = r#"{"success":true,"data":{"status":"ok","pid":PID}}"#;
 const MIGRATING: &str = r#"{"success":true,"data":{"status":"migrating"}}"#;
@@ -17,6 +19,13 @@ const STEP_ONE: &str = r#"{"success":true,"data":{"status":"migrating","detail":
 const STEP_TWO: &str = r#"{"success":true,"data":{"status":"migrating","detail":{"phase":"pre-open","step":{"number":2,"name":"second"},"index":2,"total":2}}}"#;
 const HALTED: &str = r#"{"success":true,"data":{"status":"halted","detail":{"reason":"layout_newer","message":"layout too new"}}}"#;
 const NOISE_BYTES: usize = 1 << 20;
+const READ_BUFFER_BYTES: usize = 4096;
+const THIRD_REQUEST: u32 = 3;
+const EXIT_DIED: u8 = 3;
+const EXIT_USAGE: u8 = 64;
+const EXIT_BIND: u8 = 65;
+const EXIT_NOISE: u8 = 66;
+const EXIT_SIGNAL: u8 = 67;
 
 fn socket_arg() -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
@@ -36,9 +45,20 @@ fn health_body(
         ("halted", _) => HALTED.to_owned(),
         ("steps", 1) => STARTING.to_owned(),
         ("steps", 2) => STEP_ONE.to_owned(),
-        ("steps", 3) => STEP_TWO.to_owned(),
+        ("steps", THIRD_REQUEST) => STEP_TWO.to_owned(),
         _ => OK.replace("PID", &std::process::id().to_string()),
     }
+}
+
+fn reply_body(
+    head: &str,
+    mode: &str,
+    served: u32,
+) -> String {
+    if !head.starts_with("GET /v0/health ") {
+        return "{}".to_owned();
+    }
+    health_body(mode, served)
 }
 
 async fn answer(
@@ -46,16 +66,12 @@ async fn answer(
     mode: &str,
     served: u32,
 ) {
-    let mut buf = vec![0u8; 4096];
+    let mut buf = vec![0u8; READ_BUFFER_BYTES];
     let Ok(read) = stream.read(&mut buf).await else {
         return;
     };
     let head = String::from_utf8_lossy(buf.get(..read).unwrap_or_default()).into_owned();
-    let body = if head.starts_with("GET /v0/health ") {
-        health_body(mode, served)
-    } else {
-        "{}".to_owned()
-    };
+    let body = reply_body(&head, mode, served);
     let reply = format!(
         "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
@@ -68,25 +84,55 @@ async fn hold(stream: UnixStream) {
     std::future::pending::<()>().await;
 }
 
+fn holds_connection(
+    mode: &str,
+    served: u32,
+) -> bool {
+    let stalls_now = mode == "stall" && served > 1;
+    mode == "wedge" || stalls_now
+}
+
+async fn serve_one(
+    listener: &UnixListener,
+    mode: &str,
+    served: u32,
+) -> Option<ExitCode> {
+    let Ok((stream, _)) = listener.accept().await else {
+        return Some(ExitCode::FAILURE);
+    };
+    if holds_connection(mode, served) {
+        tokio::spawn(hold(stream));
+        return None;
+    }
+    answer(stream, mode, served).await;
+    (mode == "die").then_some(ExitCode::from(EXIT_DIED))
+}
+
 async fn serve(
     listener: UnixListener,
     mode: String,
 ) -> ExitCode {
     let mut served = 0u32;
-    loop {
-        let Ok((stream, _)) = listener.accept().await else {
-            return ExitCode::FAILURE;
-        };
+    let mut finished = None;
+    while finished.is_none() {
         served += 1;
-        if mode == "wedge" || (mode == "stall" && served > 1) {
-            tokio::spawn(hold(stream));
-            continue;
-        }
-        answer(stream, &mode, served).await;
-        if mode == "die" {
-            return ExitCode::from(3);
-        }
+        finished = serve_one(&listener, &mode, served).await;
     }
+    finished.unwrap_or(ExitCode::FAILURE)
+}
+
+fn noise_failed(mode: &str) -> bool {
+    mode == "noisy"
+        && std::io::stderr()
+            .write_all(&vec![0xff; NOISE_BYTES])
+            .is_err()
+}
+
+fn deaf_to_term(mode: &str) -> std::io::Result<Option<Signal>> {
+    if mode != "deaf" {
+        return Ok(None);
+    }
+    signal(SignalKind::terminate()).map(Some)
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -96,18 +142,17 @@ async fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     let Some(path) = socket_arg() else {
-        return ExitCode::from(64);
+        return ExitCode::from(EXIT_USAGE);
     };
-    if mode == "noisy"
-        && std::io::stderr()
-            .write_all(&vec![0xff; NOISE_BYTES])
-            .is_err()
-    {
-        return ExitCode::from(66);
+    let Ok(_deaf) = deaf_to_term(&mode) else {
+        return ExitCode::from(EXIT_SIGNAL);
+    };
+    if noise_failed(&mode) {
+        return ExitCode::from(EXIT_NOISE);
     }
     std::fs::remove_file(&path).ok();
-    match UnixListener::bind(&path) {
-        Ok(listener) => serve(listener, mode).await,
-        Err(_) => ExitCode::from(65),
-    }
+    let Ok(listener) = UnixListener::bind(&path) else {
+        return ExitCode::from(EXIT_BIND);
+    };
+    serve(listener, mode).await
 }

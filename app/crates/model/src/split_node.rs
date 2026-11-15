@@ -219,7 +219,7 @@ impl SplitNode {
         }
     }
 
-    pub(crate) fn place(
+    pub(crate) fn place_panes(
         &self,
         bounds: Rect,
         out: &mut Vec<PaneSlot>,
@@ -236,8 +236,8 @@ impl SplitNode {
                 second,
             } => {
                 let parts = divide(bounds, *axis, *ratio);
-                first.place(parts.first, out);
-                second.place(parts.second, out);
+                first.place_panes(parts.first, out);
+                second.place_panes(parts.second, out);
             },
         }
     }
@@ -452,7 +452,7 @@ mod tests {
         bounds: Rect,
     ) -> Vec<(String, [f32; 4])> {
         let mut slots = Vec::new();
-        tree.place(bounds, &mut slots);
+        tree.place_panes(bounds, &mut slots);
         slots
             .iter()
             .map(|s| {

@@ -3,6 +3,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::announced::Announced;
+use crate::attempt::Attempt;
 use crate::daemon_get::get;
 use crate::dial::Dial;
 use crate::error::Error;
@@ -93,29 +94,47 @@ pub(crate) async fn wait_with<D: Dial>(
     timings: &Timings,
     mut on_migrating: impl FnMut(Option<&MigrationProgress>) + Send,
 ) -> Result<Option<u32>, Error> {
+    let attempts = timings.health_attempts;
     let mut failed = 0;
     let mut announce = Announced::default();
     loop {
         tokio::time::sleep(timings.health_poll).await;
-        match tokio::time::timeout(timings.health_probe_timeout, check_health(dial)).await {
-            Ok(Ok(Health::Ready { pid })) => return Ok(pid),
-            Ok(Ok(Health::Halted { reason, message })) => {
-                return Err(Error::Halted { reason, message });
-            },
-            Ok(Ok(Health::Migrating { progress })) => {
-                announce.report(progress, &mut on_migrating);
-                continue;
-            },
-            Ok(Err(error)) => tracing::debug!("daemon health: {error}"),
-            Err(_) => tracing::debug!(
+        match attempt(dial, timings, &mut announce, &mut on_migrating).await {
+            Attempt::Served(pid) => return Ok(pid),
+            Attempt::Refused(error) => return Err(error),
+            Attempt::Waiting => {},
+            Attempt::Failed if failed + 1 >= attempts => return Err(Error::GaveUp(attempts)),
+            Attempt::Failed => failed += 1,
+        }
+    }
+}
+
+async fn attempt<D: Dial>(
+    dial: &D,
+    timings: &Timings,
+    announce: &mut Announced,
+    on_migrating: &mut impl FnMut(Option<&MigrationProgress>),
+) -> Attempt {
+    match tokio::time::timeout(timings.health_probe_timeout, check_health(dial)).await {
+        Ok(Ok(Health::Ready { pid })) => Attempt::Served(pid),
+        Ok(Ok(Health::Halted { reason, message })) => {
+            Attempt::Refused(Error::Halted { reason, message })
+        },
+        Ok(Ok(Health::Migrating { progress })) => {
+            announce.report(progress, on_migrating);
+            Attempt::Waiting
+        },
+        Ok(Err(error)) => {
+            tracing::debug!("daemon health: {error}");
+            Attempt::Failed
+        },
+        Err(_) => {
+            tracing::debug!(
                 "daemon health: no answer in {:?}",
                 timings.health_probe_timeout
-            ),
-        }
-        failed += 1;
-        if failed >= timings.health_attempts {
-            return Err(Error::GaveUp(timings.health_attempts));
-        }
+            );
+            Attempt::Failed
+        },
     }
 }
 
@@ -160,78 +179,83 @@ mod tests {
         })
     }
 
-    #[test]
-    fn the_three_known_states_map_to_their_health() {
-        assert_eq!(
-            parse_health(OK.as_bytes()),
-            Health::Ready { pid: Some(4242) }
-        );
-        let body: Value = serde_json::from_str(MIGRATING).unwrap();
-        assert_eq!(
-            parse_health(MIGRATING.as_bytes()),
-            Health::Migrating {
-                progress: MigrationProgress::parse(&body["data"]["detail"])
-            }
-        );
-        assert_eq!(
-            parse_health(HALTED.as_bytes()),
-            Health::Halted {
-                reason: Some("layout_newer".into()),
-                message: HALT_MESSAGE.into()
-            }
-        );
+    type HealthCase = (&'static str, &'static [u8], Health);
+
+    fn served_cases() -> Vec<HealthCase> {
+        let step: Value = serde_json::from_str(MIGRATING).unwrap();
+        let ready = |pid| Health::Ready { pid };
+        vec![
+            ("ok", OK.as_bytes(), ready(Some(4242))),
+            (
+                "migrating at a step",
+                MIGRATING.as_bytes(),
+                Health::Migrating {
+                    progress: MigrationProgress::parse(&step["data"]["detail"]),
+                },
+            ),
+            (
+                "halted",
+                HALTED.as_bytes(),
+                Health::Halted {
+                    reason: Some("layout_newer".into()),
+                    message: HALT_MESSAGE.into(),
+                },
+            ),
+            (
+                "migrating before the first step",
+                NO_STEP_YET.as_bytes(),
+                Health::Migrating { progress: None },
+            ),
+            (
+                "halted without a message",
+                br#"{"success":true,"data":{"status":"halted"}}"#,
+                Health::Halted {
+                    reason: None,
+                    message: "the daemon halted without saying why".into(),
+                },
+            ),
+        ]
+    }
+
+    fn unnamed_cases() -> Vec<HealthCase> {
+        let ready = |pid| Health::Ready { pid };
+        vec![
+            ("no state", br#"{"data":{"pid":7}}"#, ready(Some(7))),
+            (
+                "unknown state",
+                br#"{"data":{"status":"resting","pid":7}}"#,
+                ready(Some(7)),
+            ),
+            ("unreadable body", b"not json", ready(None)),
+            ("no pid", br#"{"data":{"status":"ok"}}"#, ready(None)),
+            ("pid zero", br#"{"data":{"pid":0}}"#, ready(None)),
+        ]
     }
 
     #[test]
-    fn a_daemon_that_has_not_reached_its_first_step_is_migrating_without_progress() {
-        assert_eq!(
-            parse_health(NO_STEP_YET.as_bytes()),
-            Health::Migrating { progress: None }
-        );
-    }
-
-    #[test]
-    fn a_halt_without_a_message_still_halts() {
-        let body = br#"{"success":true,"data":{"status":"halted"}}"#;
-        assert!(matches!(
-            parse_health(body),
-            Health::Halted { reason: None, .. }
-        ));
-    }
-
-    #[test]
-    fn a_daemon_that_names_no_state_or_an_unknown_one_is_ready() {
-        assert_eq!(
-            parse_health(br#"{"data":{"pid":7}}"#),
-            Health::Ready { pid: Some(7) }
-        );
-        assert_eq!(
-            parse_health(br#"{"data":{"status":"resting","pid":7}}"#),
-            Health::Ready { pid: Some(7) }
-        );
-    }
-
-    #[test]
-    fn an_unreadable_body_or_pid_zero_is_ready_without_a_pid() {
-        for body in [
-            &b"not json"[..],
-            br#"{"data":{"status":"ok"}}"#,
-            br#"{"data":{"pid":0}}"#,
-        ] {
-            assert_eq!(parse_health(body), Health::Ready { pid: None });
+    fn every_health_body_maps_to_its_state() {
+        for (name, body, expected) in served_cases().into_iter().chain(unnamed_cases()) {
+            assert_eq!(parse_health(body), expected, "{name}");
         }
+    }
+
+    fn ignore(_: Option<&MigrationProgress>) {}
+
+    async fn heard_progress(daemon: &FakeDaemon) -> (Option<u32>, Vec<Option<MigrationProgress>>) {
+        let mut heard = Vec::new();
+        let pid = wait_with(daemon, &timings(1), |progress| {
+            heard.push(progress.cloned());
+        })
+        .await
+        .unwrap();
+        (pid, heard)
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_migrating_daemon_is_waited_for_without_spending_the_budget_and_progress_is_reported_once_per_change()
      {
         let daemon = daemon(vec![NO_STEP_YET, NO_STEP_YET, MIGRATING, MIGRATING, OK]);
-        let mut heard = Vec::new();
-        let pid = wait_with(&daemon, &timings(1), |progress| {
-            heard.push(progress.cloned());
-        })
-        .await
-        .unwrap();
+        let (pid, heard) = heard_progress(&daemon).await;
         assert_eq!(pid, Some(4242));
         assert_eq!(heard.len(), 2, "no step, then the step: {heard:?}");
         assert_eq!(heard.first(), Some(&None), "starting");
@@ -247,7 +271,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_halted_daemon_ends_the_wait_with_its_reason_and_message() {
         let daemon = daemon(vec![MIGRATING, HALTED]);
-        let outcome = wait_with(&daemon, &timings(30), |_| {}).await;
+        let outcome = wait_with(&daemon, &timings(30), ignore).await;
         assert!(
             matches!(&outcome, Err(Error::Halted { reason: Some(r), message }) if r == "layout_newer" && message == HALT_MESSAGE),
             "{outcome:?}"
@@ -258,7 +282,7 @@ mod tests {
     async fn a_daemon_that_never_answers_runs_the_budget_down() {
         let daemon = FakeDaemon::answering(|_, _| (200, String::new()))
             .refusing(|_| Some(std::io::Error::from(std::io::ErrorKind::NotFound)));
-        let outcome = wait_with(&daemon, &timings(2), |_| {}).await;
+        let outcome = wait_with(&daemon, &timings(2), ignore).await;
         assert!(matches!(outcome, Err(Error::GaveUp(2))), "{outcome:?}");
         assert_eq!(daemon.dialled(), 2, "one dial per attempt");
     }
@@ -266,7 +290,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn an_answer_that_is_not_success_counts_against_the_budget() {
         let daemon = FakeDaemon::answering(|_, _| (503, "{}".into()));
-        let outcome = wait_with(&daemon, &timings(3), |_| {}).await;
+        let outcome = wait_with(&daemon, &timings(3), ignore).await;
         assert!(matches!(outcome, Err(Error::GaveUp(3))), "{outcome:?}");
     }
 }

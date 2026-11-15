@@ -26,7 +26,7 @@ pub(crate) fn close(
     id: TabId,
 ) -> Result<Vec<PaneInstance>> {
     let index = layout.index_of(id)?;
-    let mut removed = layout.remove_tab_at(index).ok_or(Error::TabNotFound(id))?;
+    let mut removed = layout.take_tab_at(index).ok_or(Error::TabNotFound(id))?;
     Ok(removed.take_instances().into_values().collect())
 }
 

@@ -145,7 +145,7 @@ impl Tab {
     ) -> Vec<PaneSlot> {
         let mut slots = Vec::with_capacity(self.panes.len());
         if let Some(tree) = &self.tree {
-            tree.place(bounds, &mut slots);
+            tree.place_panes(bounds, &mut slots);
         }
         slots
     }
@@ -244,10 +244,10 @@ impl Tab {
             .is_some_and(|tree| tree.split_leaf(&placement.target, id, placement.edge));
         split
             .then_some(())
-            .ok_or_else(|| Error::PaneNotFound(placement.target))
+            .ok_or(Error::PaneNotFound(placement.target))
     }
 
-    pub(crate) fn remove(
+    pub(crate) fn take_pane(
         &mut self,
         pane: &PaneId,
     ) -> Result<PaneInstance> {
@@ -448,6 +448,8 @@ mod tests {
     use crate::axis::Axis;
     use crate::split_node::{MIN_PANE_EXTENT, SASH_THICKNESS};
 
+    type Breaker = fn(&mut Tab);
+
     fn id(name: &str) -> PaneId {
         PaneId::new(name).unwrap()
     }
@@ -568,7 +570,7 @@ mod tests {
         tab.open(pane("b"), Some(at("a", Edge::Right))).unwrap();
         tab.focus(&id("x")).unwrap();
         assert_eq!(order(&tab), ["a", "b", "x"], "[[a|b]|x]");
-        tab.remove(&id("x")).unwrap();
+        tab.take_pane(&id("x")).unwrap();
         assert_eq!(
             tab.focused(),
             Some(&id("b")),
@@ -581,7 +583,7 @@ mod tests {
     fn closing_a_pane_hands_focus_to_the_neighbour_taking_its_space() {
         let mut tab = tab_with(&["a", "b", "c"]);
         tab.focus(&id("b")).unwrap();
-        let closed = tab.remove(&id("b")).unwrap();
+        let closed = tab.take_pane(&id("b")).unwrap();
         assert_eq!(closed.pane_id, id("b"), "returned instance");
         assert_eq!(tab.focused(), Some(&id("c")), "heir focused");
         assert_eq!(order(&tab), ["a", "c"], "order");
@@ -592,18 +594,18 @@ mod tests {
     fn closing_an_unfocused_pane_keeps_focus() {
         let mut tab = tab_with(&["a", "b"]);
         tab.focus(&id("a")).unwrap();
-        tab.remove(&id("b")).unwrap();
+        tab.take_pane(&id("b")).unwrap();
         assert_eq!(tab.focused(), Some(&id("a")), "focus kept");
     }
 
     #[test]
     fn removing_the_last_pane_empties_the_tab() {
         let mut tab = tab_with(&["a"]);
-        tab.remove(&id("a")).unwrap();
+        tab.take_pane(&id("a")).unwrap();
         assert!(tab.tree().is_none() && tab.focused().is_none(), "empty");
         tab.validate().unwrap();
         assert_eq!(
-            tab.remove(&id("a")),
+            tab.take_pane(&id("a")),
             Err(Error::PaneNotFound(id("a"))),
             "again"
         );
@@ -814,9 +816,9 @@ mod tests {
 
     #[test]
     fn validate_names_broken_invariants() {
-        let cases: [(&str, fn(&mut Tab)); 3] = [
+        let cases: [(&str, Breaker); 3] = [
             ("focus on a missing pane", |tab| {
-                tab.focused = Some(id("zz"))
+                tab.focused = Some(id("zz"));
             }),
             ("orphan leaf", |tab| {
                 tab.panes.remove(&id("b"));

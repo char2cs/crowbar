@@ -61,15 +61,15 @@ impl DaemonPaths {
         if let Some(home) = home {
             command.env("CROWBAR_HOME", home);
         }
-        let output = command.output().await.map_err(|source| Error::Spawn {
+        let finished = command.output().await.map_err(|source| Error::Spawn {
             path: binary.to_path_buf(),
             source,
         })?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        if !finished.status.success() {
+            let stderr = String::from_utf8_lossy(&finished.stderr);
             return Err(Error::Paths(stderr.trim().to_owned()));
         }
-        Self::parse(&output.stdout)
+        Self::parse(&finished.stdout)
     }
 }
 
@@ -120,13 +120,20 @@ mod tests {
     #[test]
     fn a_set_home_is_not_replaced_and_an_empty_one_counts_as_unset() {
         let dev = Some(PathBuf::from("/work/.crowbar"));
-        assert_eq!(
-            child_home(Some("/mine".into()), dev.clone()),
-            Some(PathBuf::from("/mine"))
-        );
-        assert_eq!(child_home(Some(OsString::new()), dev.clone()), dev);
-        assert_eq!(child_home(None, dev.clone()), dev);
-        assert_eq!(child_home(None, None), None);
+        let cases = [
+            (
+                "set",
+                Some("/mine".into()),
+                dev.clone(),
+                Some(PathBuf::from("/mine")),
+            ),
+            ("empty", Some(OsString::new()), dev.clone(), dev.clone()),
+            ("unset", None, dev.clone(), dev),
+            ("unset without fallback", None, None, None),
+        ];
+        for (name, current, fallback, expected) in cases {
+            assert_eq!(child_home(current, fallback), expected, "{name}");
+        }
     }
 
     #[tokio::test]

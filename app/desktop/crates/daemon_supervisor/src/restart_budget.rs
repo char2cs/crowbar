@@ -30,13 +30,17 @@ impl RestartBudget {
         self.restarts
             .retain(|at| now.saturating_duration_since(*at) < window);
         if self.restarts.len() >= self.max {
-            return Verdict::GiveUp {
-                deaths: self.restarts.len() + 1,
-            };
+            return self.exhausted();
         }
         self.restarts.push(now);
         Verdict::Respawn {
             attempt: self.restarts.len(),
+        }
+    }
+
+    fn exhausted(&self) -> Verdict {
+        Verdict::GiveUp {
+            deaths: self.restarts.len() + 1,
         }
     }
 
@@ -51,36 +55,33 @@ mod tests {
 
     #[test]
     fn restarts_are_budgeted_inside_a_sliding_window() {
-        let start = Instant::now();
-        let mut budget = RestartBudget::new(3, Duration::from_secs(600));
-        assert_eq!(budget.on_death(start), Verdict::Respawn { attempt: 1 });
-        assert_eq!(
-            budget.on_death(start + Duration::from_secs(1)),
-            Verdict::Respawn { attempt: 2 }
-        );
-        assert_eq!(
-            budget.on_death(start + Duration::from_secs(2)),
-            Verdict::Respawn { attempt: 3 }
-        );
-        assert_eq!(
-            budget.on_death(start + Duration::from_secs(3)),
-            Verdict::GiveUp { deaths: 4 }
-        );
-    }
-
-    #[test]
-    fn old_restarts_age_out_of_the_window() {
-        let start = Instant::now();
-        let mut budget = RestartBudget::new(1, Duration::from_secs(10));
-        assert_eq!(budget.on_death(start), Verdict::Respawn { attempt: 1 });
-        assert_eq!(
-            budget.on_death(start + Duration::from_secs(5)),
-            Verdict::GiveUp { deaths: 2 }
-        );
-        assert_eq!(
-            budget.on_death(start + Duration::from_secs(11)),
-            Verdict::Respawn { attempt: 1 }
-        );
+        let respawn = |attempt| Verdict::Respawn { attempt };
+        let give_up = |deaths| Verdict::GiveUp { deaths };
+        let cases = [
+            (
+                "budget spent inside the window",
+                3,
+                600,
+                vec![0, 1, 2, 3],
+                vec![respawn(1), respawn(2), respawn(3), give_up(4)],
+            ),
+            (
+                "old restarts age out of the window",
+                1,
+                10,
+                vec![0, 5, 11],
+                vec![respawn(1), give_up(2), respawn(1)],
+            ),
+        ];
+        for (name, max, window, deaths, expected) in cases {
+            let start = Instant::now();
+            let mut budget = RestartBudget::new(max, Duration::from_secs(window));
+            let verdicts: Vec<Verdict> = deaths
+                .into_iter()
+                .map(|secs| budget.on_death(start + Duration::from_secs(secs)))
+                .collect();
+            assert_eq!(verdicts, expected, "{name}");
+        }
     }
 
     #[test]

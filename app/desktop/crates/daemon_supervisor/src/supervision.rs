@@ -72,7 +72,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());
         let log = config.paths.log.clone();
-        let supervision = Supervision::new(config, Arc::new(Bus::new()));
+        let supervision = Supervision::new(config, Arc::new(Bus::default()));
         supervision.note("===", "daemon spawned");
         supervision.flush_log().await;
         assert_eq!(
@@ -86,7 +86,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut config = config(dir.path());
         config.paths.log = "/proc/definitely/not/writable/daemon.log".into();
-        let supervision = Supervision::new(config, Arc::new(Bus::new()));
+        let supervision = Supervision::new(config, Arc::new(Bus::default()));
         assert!(supervision.log.is_none());
         supervision.note("===", "ignored");
     }

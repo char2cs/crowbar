@@ -55,9 +55,9 @@ pub(crate) fn close(
         .tabs
         .get_mut(index)
         .ok_or_else(|| Error::PaneNotFound(pane.clone()))?;
-    let instance = tab.remove(pane)?;
+    let instance = tab.take_pane(pane)?;
     if tab.is_empty() {
-        layout.remove_tab_at(index);
+        layout.take_tab_at(index);
     }
     Ok(vec![instance])
 }
@@ -112,11 +112,11 @@ pub(crate) fn move_to_tab(
         .tabs
         .get_mut(from)
         .ok_or_else(|| Error::PaneNotFound(pane.clone()))?;
-    let instance = source.remove(pane)?;
+    let instance = source.take_pane(pane)?;
     let emptied = source.is_empty();
     layout.tab_mut(to)?.open(instance, placement)?;
     if emptied {
-        layout.remove_tab_at(from);
+        layout.take_tab_at(from);
     }
     layout.active = Some(to);
     Ok(())
@@ -142,7 +142,7 @@ pub(crate) fn detach(
     if source.len() < 2 {
         return Err(Error::OnlyPane(pane.clone()));
     }
-    let instance = source.remove(pane)?;
+    let instance = source.take_pane(pane)?;
     let mut tab = Tab::new(new_tab, title);
     tab.open(instance, None)?;
     layout.tabs.insert(from + 1, tab);

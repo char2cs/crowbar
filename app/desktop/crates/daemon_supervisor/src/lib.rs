@@ -2,6 +2,7 @@
 //! and reports its state as a stream of [`DaemonEvent`]s.
 
 mod announced;
+mod attempt;
 mod bus;
 mod command;
 mod crash_report;
@@ -42,6 +43,7 @@ mod verdict;
 mod watch_context;
 mod watch_state;
 mod watchdog;
+mod watchdog_guard;
 mod wedge;
 
 pub use daemon_event::DaemonEvent;

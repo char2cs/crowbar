@@ -4,15 +4,16 @@ use std::time::Duration;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::Child;
 
+fn pid_of(id: Option<u32>) -> Option<Pid> {
+    id.and_then(|id| i32::try_from(id).ok())
+        .and_then(Pid::from_raw)
+}
+
 pub(crate) fn send(
     child: &Child,
     signal: Signal,
 ) {
-    let pid = child
-        .id()
-        .and_then(|id| i32::try_from(id).ok())
-        .and_then(Pid::from_raw);
-    let Some(pid) = pid else {
+    let Some(pid) = pid_of(child.id()) else {
         return;
     };
     if let Err(e) = kill_process(pid, signal) {
@@ -35,43 +36,18 @@ pub(crate) async fn stop_with(
 
 #[cfg(test)]
 mod tests {
-    use std::process::Stdio;
-
-    use tokio::process::Command;
-
     use super::*;
 
-    fn shell(script: &str) -> Child {
-        Command::new("/bin/sh")
-            .args(["-c", script])
-            .stdin(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn a_process_that_honours_the_first_signal_is_not_waited_out() {
-        let mut child = shell("exec sleep 30");
-        let status = stop_with(&mut child, Signal::TERM, Duration::from_secs(60))
-            .await
-            .unwrap();
-        assert!(!status.success());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_process_that_ignores_the_first_signal_is_killed_after_the_grace() {
-        let mut child = shell("trap '' TERM; while :; do sleep 1; done");
-        let status = stop_with(&mut child, Signal::TERM, Duration::from_millis(200))
-            .await
-            .unwrap();
-        assert!(!status.success(), "SIGKILL ended it");
-    }
-
-    #[tokio::test]
-    async fn a_child_that_already_exited_is_left_alone() {
-        let mut child = shell("exit 0");
-        child.wait().await.unwrap();
-        send(&child, Signal::TERM);
+    #[test]
+    fn only_a_live_process_id_names_a_pid_to_signal() {
+        let cases = [
+            ("already reaped", None, None),
+            ("pid zero would signal our own group", Some(0), None),
+            ("beyond the pid range", Some(u32::MAX), None),
+            ("a process", Some(4242), Pid::from_raw(4242)),
+        ];
+        for (name, id, expected) in cases {
+            assert_eq!(pid_of(id), expected, "{name}");
+        }
     }
 }

@@ -109,32 +109,42 @@ mod tests {
     }
 
     #[test]
-    fn a_full_log_is_rotated_aside_when_it_is_opened() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        std::fs::write(&path, b"0123456789ABCDEF").unwrap();
-        LogWriter::open(&path, 10)
-            .unwrap()
-            .write("fresh\n")
-            .unwrap();
-        assert_eq!(
-            std::fs::read(dir.path().join("daemon.log.1")).unwrap(),
-            b"0123456789ABCDEF"
-        );
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "fresh\n");
-    }
-
-    #[test]
-    fn a_log_below_the_cap_is_appended_to_in_place() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        std::fs::write(&path, b"short\n").unwrap();
-        LogWriter::open(&path, 100)
-            .unwrap()
-            .write("more\n")
-            .unwrap();
-        assert!(!dir.path().join("daemon.log.1").exists());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "short\nmore\n");
+    fn opening_and_writing_respects_the_size_cap() {
+        let cases = [
+            (
+                "a full log is rotated aside when opened",
+                Some("0123456789ABCDEF"),
+                10,
+                "fresh\n",
+                "fresh\n",
+                Some("0123456789ABCDEF"),
+            ),
+            (
+                "a log below the cap is appended to in place",
+                Some("short\n"),
+                100,
+                "more\n",
+                "short\nmore\n",
+                None,
+            ),
+            (
+                "one entry larger than the cap is still written",
+                None,
+                5,
+                "a very long entry\n",
+                "a very long entry\n",
+                None,
+            ),
+        ];
+        for (name, existing, cap, entry, current, rotated) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("daemon.log");
+            existing.inspect(|text| std::fs::write(&path, text).unwrap());
+            LogWriter::open(&path, cap).unwrap().write(entry).unwrap();
+            let aside = std::fs::read_to_string(dir.path().join("daemon.log.1")).ok();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), current, "{name}");
+            assert_eq!(aside.as_deref(), rotated, "{name}: rotated");
+        }
     }
 
     #[test]
@@ -150,17 +160,5 @@ mod tests {
             "aaaaaaaaa\nbbbbbbbbb\n"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "ccccccccc\n");
-    }
-
-    #[test]
-    fn one_entry_larger_than_the_cap_is_still_written() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        let mut writer = LogWriter::open(&path, 5).unwrap();
-        writer.write("a very long entry\n").unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "a very long entry\n"
-        );
     }
 }

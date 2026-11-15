@@ -48,12 +48,11 @@ async fn first_matching(
     events: &mut Receiver<DaemonEvent>,
     wanted: impl Fn(&DaemonEvent) -> bool,
 ) -> DaemonEvent {
-    loop {
-        let event = events.recv().await.expect("event stream open");
-        if wanted(&event) {
-            return event;
-        }
+    let mut event = events.recv().await.expect("event stream open");
+    while !wanted(&event) {
+        event = events.recv().await.expect("event stream open");
     }
+    event
 }
 
 pub(crate) async fn next_matching(

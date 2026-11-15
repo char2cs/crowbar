@@ -24,10 +24,9 @@ pub enum Probe {
 
 fn failed(error: &Error) -> Probe {
     if error.is_descriptor_exhaustion() {
-        Probe::LocalDescriptorExhaustion
-    } else {
-        Probe::Unserved
+        return Probe::LocalDescriptorExhaustion;
     }
+    Probe::Unserved
 }
 
 pub(crate) async fn probe_with<D: Dial>(dial: &D) -> Probe {
@@ -67,17 +66,22 @@ mod tests {
         include_str!("../../../../../api/internal/core/bootgate/testdata/health-halted.json");
     const THRESHOLD: u32 = 6;
 
+    fn answer_for(
+        target: &str,
+        health: &str,
+        other: u16,
+    ) -> (u16, String) {
+        if target != "/v0/health" {
+            return (other, "{}".to_owned());
+        }
+        (200, health.to_owned())
+    }
+
     fn daemon(
         health: &'static str,
         other: u16,
     ) -> FakeDaemon {
-        FakeDaemon::answering(move |_, target| {
-            if target == "/v0/health" {
-                (200, health.to_owned())
-            } else {
-                (other, "{}".to_owned())
-            }
-        })
+        FakeDaemon::answering(move |_, target| answer_for(target, health, other))
     }
 
     async fn watched(daemon: &FakeDaemon) -> (Vec<Probe>, bool) {
@@ -95,9 +99,8 @@ mod tests {
         std::io::Error::from_raw_os_error(errno.raw_os_error())
     }
 
-    #[tokio::test]
-    async fn a_migrating_or_halted_daemon_is_held_and_never_killed() {
-        for (tag, health) in [("migrating", MIGRATING), ("halted", HALTED)] {
+    async fn assert_held(cases: [(&str, &'static str); 2]) {
+        for (tag, health) in cases {
             let (outcomes, tripped) = watched(&daemon(health, 503)).await;
             assert!(
                 outcomes.iter().all(|o| *o == Probe::Held),
@@ -105,6 +108,11 @@ mod tests {
             );
             assert!(!tripped, "{tag}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_migrating_or_halted_daemon_is_held_and_never_killed() {
+        assert_held([("migrating", MIGRATING), ("halted", HALTED)]).await;
     }
 
     #[tokio::test]
@@ -142,6 +150,10 @@ mod tests {
             (1, Errno::MFILE),
             (1, Errno::NFILE),
         ];
+        assert_exhaustion_blamed_on_us(cases).await;
+    }
+
+    async fn assert_exhaustion_blamed_on_us(cases: [(usize, Errno); 4]) {
         for (nth, errno) in cases {
             let daemon =
                 daemon(OK, 200).refusing(move |n| (n == nth).then(|| out_of_descriptors(errno)));

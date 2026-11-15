@@ -46,11 +46,11 @@ impl FakeDaemon {
 async fn read_head(server: &mut DuplexStream) -> Vec<u8> {
     let mut head = Vec::new();
     let mut byte = [0_u8; 1];
-    while !head.ends_with(b"\r\n\r\n") {
-        if server.read(&mut byte).await.unwrap_or(0) == 0 {
-            break;
-        }
-        head.extend_from_slice(&byte);
+    let mut open = true;
+    while open && !head.ends_with(b"\r\n\r\n") {
+        let read = server.read(&mut byte).await.unwrap_or(0);
+        head.extend_from_slice(byte.get(..read).unwrap_or_default());
+        open = read > 0;
     }
     head
 }

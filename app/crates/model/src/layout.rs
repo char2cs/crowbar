@@ -219,7 +219,7 @@ impl Layout {
             .ok_or_else(|| Error::PaneNotFound(pane.clone()))
     }
 
-    pub(crate) fn remove_tab_at(
+    pub(crate) fn take_tab_at(
         &mut self,
         index: usize,
     ) -> Option<Tab> {

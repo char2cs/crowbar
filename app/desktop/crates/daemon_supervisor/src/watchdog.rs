@@ -73,6 +73,20 @@ async fn confirmed_wedge(
     false
 }
 
+async fn track_silence(
+    ctx: &WatchContext,
+    state: &mut WatchState,
+    outcome: Probe,
+) {
+    if outcome != Probe::Unserved {
+        state.silent_since = None;
+        return;
+    }
+    if state.silent_since.is_none() {
+        state.silent_since = Some((Instant::now(), daemon_cpu(ctx).await));
+    }
+}
+
 async fn cycle(
     ctx: &WatchContext,
     state: &mut WatchState,
@@ -87,30 +101,32 @@ async fn cycle(
         state.forget();
         return false;
     }
-    if outcome != Probe::Unserved {
-        state.silent_since = None;
-    } else if state.silent_since.is_none() {
-        state.silent_since = Some((Instant::now(), daemon_cpu(ctx).await));
-    }
+    track_silence(ctx, state, outcome).await;
     state.tracker.observe(outcome) && confirmed_wedge(ctx, state).await
 }
 
 pub(crate) async fn watch(ctx: WatchContext) {
     let mut state = WatchState::new(ctx.timings.failure_threshold);
-    loop {
-        tokio::select! {
-            () = ctx.cancel.cancelled() => return,
-            () = tokio::time::sleep(ctx.timings.watchdog_interval) => {}
-        }
-        let wedged = tokio::select! {
-            () = ctx.cancel.cancelled() => return,
-            wedged = cycle(&ctx, &mut state) => wedged,
-        };
-        if wedged {
-            announce_wedge(&ctx).await;
-            state.forget();
-        }
+    while watch_once(&ctx, &mut state).await {}
+}
+
+async fn watch_once(
+    ctx: &WatchContext,
+    state: &mut WatchState,
+) -> bool {
+    tokio::select! {
+        () = ctx.cancel.cancelled() => return false,
+        () = tokio::time::sleep(ctx.timings.watchdog_interval) => {}
     }
+    let wedged = tokio::select! {
+        () = ctx.cancel.cancelled() => return false,
+        wedged = cycle(ctx, state) => wedged,
+    };
+    if wedged {
+        announce_wedge(ctx).await;
+        state.forget();
+    }
+    true
 }
 
 async fn announce_wedge(ctx: &WatchContext) {
@@ -148,7 +164,7 @@ mod tests {
             socket,
             pid: None,
             timings,
-            bus: Arc::new(Bus::new()),
+            bus: Arc::new(Bus::default()),
             wedged,
             cancel,
         }

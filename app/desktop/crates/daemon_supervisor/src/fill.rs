@@ -8,6 +8,13 @@ pub(crate) enum Fill {
     GiveUp,
 }
 
+fn after_error(failures: u32) -> Fill {
+    if failures >= MAX_CONSECUTIVE_READ_ERRORS {
+        return Fill::GiveUp;
+    }
+    Fill::Retry
+}
+
 pub(crate) async fn fill_buffer<R: AsyncRead + Unpin>(
     reader: &mut BufReader<R>,
     prefix: &str,
@@ -21,11 +28,7 @@ pub(crate) async fn fill_buffer<R: AsyncRead + Unpin>(
         Err(e) => {
             *failures += 1;
             tracing::warn!("daemon {prefix} stream: {e}");
-            if *failures >= MAX_CONSECUTIVE_READ_ERRORS {
-                Fill::GiveUp
-            } else {
-                Fill::Retry
-            }
+            after_error(*failures)
         },
     }
 }
@@ -63,16 +66,23 @@ mod tests {
         assert_eq!(failures, 0);
     }
 
+    async fn retry_until_the_limit(
+        reader: &mut BufReader<Broken>,
+        failures: &mut u32,
+    ) {
+        for _ in 1..MAX_CONSECUTIVE_READ_ERRORS {
+            assert!(matches!(
+                fill_buffer(reader, "[err]", failures).await,
+                Fill::Retry
+            ));
+        }
+    }
+
     #[tokio::test]
     async fn errors_are_retried_until_the_limit_and_then_given_up_on() {
         let mut reader = BufReader::new(Broken);
         let mut failures = 0;
-        for _ in 1..MAX_CONSECUTIVE_READ_ERRORS {
-            assert!(matches!(
-                fill_buffer(&mut reader, "[err]", &mut failures).await,
-                Fill::Retry
-            ));
-        }
+        retry_until_the_limit(&mut reader, &mut failures).await;
         assert!(matches!(
             fill_buffer(&mut reader, "[err]", &mut failures).await,
             Fill::GiveUp

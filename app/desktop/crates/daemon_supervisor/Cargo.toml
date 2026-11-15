@@ -24,7 +24,7 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 rustix = { version = "1", features = ["process", "param"] }
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing.workspace = true
 

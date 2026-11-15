@@ -13,6 +13,7 @@ use crate::daemon_event::DaemonEvent;
 use crate::daemon_get::get;
 use crate::error::Error;
 use crate::health::wait_for_health;
+use crate::migration_progress::MigrationProgress;
 use crate::phase::Phase;
 use crate::reply::reply;
 use crate::running::Running;
@@ -24,10 +25,13 @@ use crate::supervision::Supervision;
 use crate::verdict::Verdict;
 use crate::watch_context::WatchContext;
 use crate::watchdog::watch;
+use crate::watchdog_guard::WatchdogGuard;
 
 type Commands = mpsc::Receiver<Command>;
+type Raced = Result<(), Option<Command>>;
 
 const DUMP_LIMIT: usize = 16 * 1024 * 1024;
+const MAX_DOUBLINGS: u32 = 16;
 
 fn describe_exit(status: &std::io::Result<ExitStatus>) -> String {
     match status {
@@ -62,24 +66,41 @@ async fn await_ready(
     let health = wait_for_health(
         &supervision.config.paths.socket,
         &supervision.config.timings,
-        |progress| {
-            bus.emit(DaemonEvent::Migrating {
-                progress: progress.cloned(),
-            });
-        },
+        |progress| bus.emit(migrating(progress)),
     );
     tokio::select! {
-        outcome = health => match outcome {
-            Ok(pid) => Startup::Ready(pid.or(child.id())),
-            Err(Error::Halted { reason, message }) => Startup::Halted { reason, message },
-            Err(_) => Startup::NeverHealthy,
-        },
+        outcome = health => startup_of(outcome, child.id()),
         status = child.wait() => Startup::Exited(describe_exit(&status)),
-        command = commands.recv() => {
-            answer_stop_or_busy(command);
-            Startup::Stopped
-        }
+        command = commands.recv() => stopped_before_ready(command),
     }
+}
+
+fn migrating(progress: Option<&MigrationProgress>) -> DaemonEvent {
+    DaemonEvent::Migrating {
+        progress: progress.cloned(),
+    }
+}
+
+fn recover_because(reason: &str) -> Phase {
+    Phase::Recover {
+        reason: reason.to_owned(),
+    }
+}
+
+fn startup_of(
+    outcome: Result<Option<u32>, Error>,
+    spawned: Option<u32>,
+) -> Startup {
+    match outcome {
+        Ok(pid) => Startup::Ready(pid.or(spawned)),
+        Err(Error::Halted { reason, message }) => Startup::Halted { reason, message },
+        Err(_) => Startup::NeverHealthy,
+    }
+}
+
+fn stopped_before_ready(command: Option<Command>) -> Startup {
+    answer_stop_or_busy(command);
+    Startup::Stopped
 }
 
 fn answer_stop_or_busy(command: Option<Command>) {
@@ -108,14 +129,19 @@ async fn launch(
 ) -> Phase {
     supervision.bus.emit(DaemonEvent::Starting);
     supervision.note("===", "daemon spawned");
-    let mut child = match spawn_daemon(supervision) {
-        Ok(child) => child,
-        Err(e) => {
-            return Phase::Recover {
-                reason: e.to_string(),
-            };
+    match spawn_daemon(supervision) {
+        Ok(child) => supervise_child(supervision, child, commands).await,
+        Err(e) => Phase::Recover {
+            reason: e.to_string(),
         },
-    };
+    }
+}
+
+async fn supervise_child(
+    supervision: &mut Supervision,
+    mut child: tokio::process::Child,
+    commands: &mut Commands,
+) -> Phase {
     let startup = await_ready(supervision, &mut child, commands).await;
     after_startup(supervision, child, startup, commands).await
 }
@@ -127,40 +153,52 @@ async fn after_startup(
     commands: &mut Commands,
 ) -> Phase {
     match startup {
-        Startup::Ready(pid) => {
-            if let Some(warning) = pid_mismatch(pid, child.id()) {
-                tracing::warn!("{warning}");
-                supervision.note("===", &warning);
-            }
-            supervision.bus.emit(DaemonEvent::Ready { pid });
-            let (wedged, watchdog) = start_watchdog(supervision, child.id());
-            let running = Running {
-                child,
-                wedged,
-                watchdog,
-            };
-            monitor(supervision, running, commands).await
-        },
+        Startup::Ready(pid) => become_ready(supervision, child, pid, commands).await,
         Startup::Halted { reason, message } => {
             stop_child(supervision, &mut child).await;
-            supervision
-                .bus
-                .emit(DaemonEvent::Halted { reason, message });
-            Phase::Idle
+            halt(supervision, reason, message)
         },
         Startup::NeverHealthy => {
             stop_child(supervision, &mut child).await;
-            Phase::Recover {
-                reason: "the daemon never became healthy".to_owned(),
-            }
+            recover_because("the daemon never became healthy")
         },
         Startup::Exited(reason) => Phase::Recover { reason },
         Startup::Stopped => {
             stop_child(supervision, &mut child).await;
-            supervision.bus.emit(DaemonEvent::Stopped);
-            Phase::Stop
+            stop_idle(supervision, None)
         },
     }
+}
+
+fn halt(
+    supervision: &Supervision,
+    reason: Option<String>,
+    message: String,
+) -> Phase {
+    supervision
+        .bus
+        .emit(DaemonEvent::Halted { reason, message });
+    Phase::Idle
+}
+
+async fn become_ready(
+    supervision: &mut Supervision,
+    child: tokio::process::Child,
+    pid: Option<u32>,
+    commands: &mut Commands,
+) -> Phase {
+    if let Some(warning) = pid_mismatch(pid, child.id()) {
+        tracing::warn!("{warning}");
+        supervision.note("===", &warning);
+    }
+    supervision.bus.emit(DaemonEvent::Ready { pid });
+    let (wedged, watchdog) = start_watchdog(supervision, child.id());
+    let running = Running {
+        _watchdog: WatchdogGuard::new(watchdog),
+        child,
+        wedged,
+    };
+    monitor(supervision, running, commands).await
 }
 
 async fn stop_child(
@@ -181,23 +219,54 @@ async fn monitor(
     mut running: Running,
     commands: &mut Commands,
 ) -> Phase {
-    loop {
-        tokio::select! {
-            status = running.child.wait() => {
-                let reason = describe_exit(&status);
-                supervision.note("===", &reason);
-                return Phase::Recover { reason };
-            }
-            command = commands.recv() => match command {
-                Some(Command::Restart(asked)) => reply(asked, Err(Error::AlreadyRunning)),
-                other => return stop_running(supervision, &mut running, other).await,
-            },
-            Some(()) = running.wedged.recv() => {
-                if let Err(stop) = kill_unless_stopped(supervision, &mut running, commands).await {
-                    return stop_running(supervision, &mut running, stop).await;
-                }
-            }
-        }
+    let mut settled = None;
+    while settled.is_none() {
+        settled = watch_once(supervision, &mut running, commands).await;
+    }
+    settled.unwrap_or(Phase::Stop)
+}
+
+async fn watch_once(
+    supervision: &mut Supervision,
+    running: &mut Running,
+    commands: &mut Commands,
+) -> Option<Phase> {
+    tokio::select! {
+        status = running.child.wait() => Some(exited(supervision, &status)),
+        command = commands.recv() => on_command(supervision, running, command).await,
+        Some(()) = running.wedged.recv() => on_wedged(supervision, running, commands).await,
+    }
+}
+
+fn exited(
+    supervision: &Supervision,
+    status: &std::io::Result<ExitStatus>,
+) -> Phase {
+    let reason = describe_exit(status);
+    supervision.note("===", &reason);
+    Phase::Recover { reason }
+}
+
+async fn on_command(
+    supervision: &Supervision,
+    running: &mut Running,
+    command: Option<Command>,
+) -> Option<Phase> {
+    if let Some(Command::Restart(asked)) = command {
+        reply(asked, Err(Error::AlreadyRunning));
+        return None;
+    }
+    Some(stop_running(supervision, running, command).await)
+}
+
+async fn on_wedged(
+    supervision: &Supervision,
+    running: &mut Running,
+    commands: &mut Commands,
+) -> Option<Phase> {
+    match kill_unless_stopped(supervision, running, commands).await {
+        Ok(()) => None,
+        Err(stop) => Some(stop_running(supervision, running, stop).await),
     }
 }
 
@@ -218,7 +287,7 @@ async fn kill_unless_stopped(
     supervision: &Supervision,
     running: &mut Running,
     commands: &mut Commands,
-) -> Result<(), Option<Command>> {
+) -> Raced {
     let kill = std::pin::pin!(kill_wedged(supervision, &mut running.child));
     race_stop(kill, commands).await
 }
@@ -226,16 +295,30 @@ async fn kill_unless_stopped(
 async fn race_stop(
     mut kill: std::pin::Pin<&mut impl Future<Output = ()>>,
     commands: &mut Commands,
-) -> Result<(), Option<Command>> {
-    loop {
-        tokio::select! {
-            () = &mut kill => return Ok(()),
-            command = commands.recv() => match command {
-                Some(Command::Restart(asked)) => reply(asked, Err(Error::AlreadyRunning)),
-                other => return Err(other),
-            },
-        }
+) -> Raced {
+    let mut settled = None;
+    while settled.is_none() {
+        settled = race_once(&mut kill, commands).await;
     }
+    settled.unwrap_or(Ok(()))
+}
+
+async fn race_once(
+    kill: &mut std::pin::Pin<&mut impl Future<Output = ()>>,
+    commands: &mut Commands,
+) -> Option<Raced> {
+    tokio::select! {
+        () = &mut *kill => Some(Ok(())),
+        command = commands.recv() => refuse_restart(command),
+    }
+}
+
+fn refuse_restart(command: Option<Command>) -> Option<Raced> {
+    if let Some(Command::Restart(asked)) = command {
+        reply(asked, Err(Error::AlreadyRunning));
+        return None;
+    }
+    Some(Err(command))
 }
 
 async fn kill_wedged(
@@ -277,7 +360,7 @@ fn recovery_delay(
 ) -> Duration {
     let doublings = u32::try_from(attempt.saturating_sub(1))
         .unwrap_or(u32::MAX)
-        .min(16);
+        .min(MAX_DOUBLINGS);
     (base * 2u32.saturating_pow(doublings)).min(cap)
 }
 
@@ -288,28 +371,43 @@ async fn recover(
 ) -> Phase {
     let t = supervision.config.timings.clone();
     match supervision.budget.on_death(Instant::now()) {
-        Verdict::GiveUp { deaths } => {
-            let summary = crash_summary(deaths, t.restart_window);
-            supervision.flush_log().await;
-            let report = crash_report(
-                &summary,
-                &supervision.config.paths.log,
-                &supervision.config.version,
-            );
-            supervision.bus.emit(DaemonEvent::GaveUp { report });
-            Phase::Idle
-        },
+        Verdict::GiveUp { deaths } => give_up(supervision, deaths, t.restart_window).await,
         Verdict::Respawn { attempt } => {
             let delay = recovery_delay(t.respawn_base, t.respawn_cap, attempt);
-            let attempt = u32::try_from(attempt).unwrap_or(u32::MAX);
-            supervision.bus.emit(DaemonEvent::Recovering {
-                attempt,
-                delay,
-                reason,
-            });
+            announce_recovery(supervision, attempt, delay, reason);
             backoff(supervision, delay, commands).await
         },
     }
+}
+
+async fn give_up(
+    supervision: &Supervision,
+    deaths: usize,
+    window: Duration,
+) -> Phase {
+    let summary = crash_summary(deaths, window);
+    supervision.flush_log().await;
+    let report = crash_report(
+        &summary,
+        &supervision.config.paths.log,
+        &supervision.config.version,
+    );
+    supervision.bus.emit(DaemonEvent::GaveUp { report });
+    Phase::Idle
+}
+
+fn announce_recovery(
+    supervision: &Supervision,
+    attempt: usize,
+    delay: Duration,
+    reason: String,
+) {
+    let attempt = u32::try_from(attempt).unwrap_or(u32::MAX);
+    supervision.bus.emit(DaemonEvent::Recovering {
+        attempt,
+        delay,
+        reason,
+    });
 }
 
 async fn backoff(
@@ -319,14 +417,7 @@ async fn backoff(
 ) -> Phase {
     tokio::select! {
         () = tokio::time::sleep(delay) => Phase::Launch,
-        command = commands.recv() => match command {
-            Some(Command::Restart(asked)) => {
-                supervision.budget.reset();
-                reply(asked, Ok(()));
-                Phase::Launch
-            }
-            other => stop_idle(supervision, other),
-        },
+        command = commands.recv() => while_down(supervision, command),
     }
 }
 
@@ -341,17 +432,36 @@ fn stop_idle(
     Phase::Stop
 }
 
+fn while_down(
+    supervision: &mut Supervision,
+    command: Option<Command>,
+) -> Phase {
+    let Some(Command::Restart(asked)) = command else {
+        return stop_idle(supervision, command);
+    };
+    supervision.budget.reset();
+    reply(asked, Ok(()));
+    Phase::Launch
+}
+
 async fn idle(
     supervision: &mut Supervision,
     commands: &mut Commands,
 ) -> Phase {
-    match commands.recv().await {
-        Some(Command::Restart(asked)) => {
-            supervision.budget.reset();
-            reply(asked, Ok(()));
-            Phase::Launch
-        },
-        other => stop_idle(supervision, other),
+    let command = commands.recv().await;
+    while_down(supervision, command)
+}
+
+async fn step(
+    supervision: &mut Supervision,
+    phase: Phase,
+    commands: &mut Commands,
+) -> Phase {
+    match phase {
+        Phase::Launch => launch(supervision, commands).await,
+        Phase::Recover { reason } => recover(supervision, reason, commands).await,
+        Phase::Idle => idle(supervision, commands).await,
+        Phase::Stop => Phase::Stop,
     }
 }
 
@@ -360,17 +470,10 @@ pub(crate) async fn supervise(
     mut commands: Commands,
 ) {
     let mut phase = Phase::Launch;
-    loop {
-        phase = match phase {
-            Phase::Launch => launch(&mut supervision, &mut commands).await,
-            Phase::Recover { reason } => recover(&mut supervision, reason, &mut commands).await,
-            Phase::Idle => idle(&mut supervision, &mut commands).await,
-            Phase::Stop => {
-                supervision.flush_log().await;
-                return;
-            },
-        };
+    while !matches!(phase, Phase::Stop) {
+        phase = step(&mut supervision, phase, &mut commands).await;
     }
+    supervision.flush_log().await;
 }
 
 #[cfg(test)]
@@ -401,12 +504,13 @@ mod tests {
 
     #[test]
     fn matching_or_unknown_pids_raise_no_warning() {
-        for (reported, spawned) in [
+        let cases = [
             (Some(7), Some(7)),
             (None, Some(7)),
             (Some(7), None),
             (None, None),
-        ] {
+        ];
+        for (reported, spawned) in cases {
             assert_eq!(
                 pid_mismatch(reported, spawned),
                 None,

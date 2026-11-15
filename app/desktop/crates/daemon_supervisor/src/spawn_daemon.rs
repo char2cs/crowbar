@@ -1,4 +1,5 @@
 use std::os::unix::fs::DirBuilderExt;
+use std::path::Path;
 use std::process::Stdio;
 
 use tokio::process::{Child, Command};
@@ -9,18 +10,25 @@ use crate::supervision::Supervision;
 
 const SOCKET_DIR_MODE: u32 = 0o700;
 
+fn make_socket_dir(dir: &Path) -> Result<(), Error> {
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(SOCKET_DIR_MODE)
+        .create(dir)
+        .map_err(|source| Error::Spawn {
+            path: dir.to_path_buf(),
+            source,
+        })
+}
+
 pub(crate) fn spawn_daemon(supervision: &Supervision) -> Result<Child, Error> {
     let config = &supervision.config;
-    if let Some(dir) = config.paths.socket.parent() {
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(SOCKET_DIR_MODE)
-            .create(dir)
-            .map_err(|source| Error::Spawn {
-                path: dir.to_path_buf(),
-                source,
-            })?;
-    }
+    config
+        .paths
+        .socket
+        .parent()
+        .map(make_socket_dir)
+        .transpose()?;
     let host = format!("unix://{}", config.paths.socket.display());
     let mut command = Command::new(&config.binary);
     command
@@ -61,7 +69,7 @@ mod tests {
         };
         let config =
             SupervisorConfig::new("/definitely/not/crowbar-api".into(), paths, None, "test");
-        let supervision = Supervision::new(config, Arc::new(Bus::new()));
+        let supervision = Supervision::new(config, Arc::new(Bus::default()));
         let err = spawn_daemon(&supervision).unwrap_err();
         assert!(matches!(err, Error::Spawn { .. }), "{err}");
         let run = dir.path().join("run");

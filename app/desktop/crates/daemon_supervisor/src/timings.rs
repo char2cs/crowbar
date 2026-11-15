@@ -38,25 +38,42 @@ pub struct Timings {
     pub log_max_bytes: u64,
 }
 
+const HEALTH_POLL: Duration = Duration::from_millis(200);
+const HEALTH_ATTEMPTS: u32 = 30;
+const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const WATCHDOG_INTERVAL: Duration = Duration::from_secs(10);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const GRACE_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+const FAILURE_THRESHOLD: u32 = 6;
+const SUSPENSION_MARGIN: Duration = Duration::from_secs(15);
+const SIGTERM_GRACE: Duration = Duration::from_secs(3);
+const SIGQUIT_GRACE: Duration = Duration::from_secs(2);
+const DUMP_TIMEOUT: Duration = Duration::from_secs(10);
+const RESPAWN_BASE: Duration = Duration::from_millis(500);
+const RESPAWN_CAP: Duration = Duration::from_secs(10);
+const RESTART_MAX: usize = 3;
+const RESTART_WINDOW: Duration = Duration::from_mins(10);
+const LOG_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
 impl Default for Timings {
     fn default() -> Self {
         Self {
-            health_poll: Duration::from_millis(200),
-            health_attempts: 30,
-            health_probe_timeout: Duration::from_secs(3),
-            watchdog_interval: Duration::from_secs(10),
-            probe_timeout: Duration::from_secs(5),
-            grace_probe_timeout: Duration::from_secs(8),
-            failure_threshold: 6,
-            suspension_margin: Duration::from_secs(15),
-            sigterm_grace: Duration::from_secs(3),
-            sigquit_grace: Duration::from_secs(2),
-            dump_timeout: Duration::from_secs(10),
-            respawn_base: Duration::from_millis(500),
-            respawn_cap: Duration::from_secs(10),
-            restart_max: 3,
-            restart_window: Duration::from_secs(600),
-            log_max_bytes: 4 * 1024 * 1024,
+            health_poll: HEALTH_POLL,
+            health_attempts: HEALTH_ATTEMPTS,
+            health_probe_timeout: HEALTH_PROBE_TIMEOUT,
+            watchdog_interval: WATCHDOG_INTERVAL,
+            probe_timeout: PROBE_TIMEOUT,
+            grace_probe_timeout: GRACE_PROBE_TIMEOUT,
+            failure_threshold: FAILURE_THRESHOLD,
+            suspension_margin: SUSPENSION_MARGIN,
+            sigterm_grace: SIGTERM_GRACE,
+            sigquit_grace: SIGQUIT_GRACE,
+            dump_timeout: DUMP_TIMEOUT,
+            respawn_base: RESPAWN_BASE,
+            respawn_cap: RESPAWN_CAP,
+            restart_max: RESTART_MAX,
+            restart_window: RESTART_WINDOW,
+            log_max_bytes: LOG_MAX_BYTES,
         }
     }
 }

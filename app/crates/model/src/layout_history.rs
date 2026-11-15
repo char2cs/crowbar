@@ -227,6 +227,15 @@ mod tests {
         }
     }
 
+    fn apply_all(
+        history: &mut LayoutHistory,
+        commands: Vec<Command>,
+    ) {
+        for command in commands {
+            history.apply(command).unwrap();
+        }
+    }
+
     fn fill_tab(
         layout: &mut Layout,
         tab: u64,
@@ -428,9 +437,7 @@ mod tests {
         ];
         for (name, prelude, command, moved) in cases {
             let mut history = history();
-            prelude
-                .into_iter()
-                .for_each(|step| history.apply(step).unwrap());
+            apply_all(&mut history, prelude);
             let before = history.layout().clone();
             history.apply(command).unwrap();
             assert_eq!(history.layout().tabs().len(), 2, "{name}: two tabs");

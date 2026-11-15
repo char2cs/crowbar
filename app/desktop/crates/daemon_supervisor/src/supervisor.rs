@@ -11,6 +11,8 @@ use crate::error::Error;
 use crate::supervision::Supervision;
 use crate::supervisor_config::SupervisorConfig;
 
+const COMMAND_QUEUE: usize = 8;
+
 /// Handle to the running supervision task.
 ///
 /// The shell must `await` [`Supervisor::stop`] before it exits: that is the only way the daemon
@@ -28,8 +30,8 @@ impl Supervisor {
     /// Starts the daemon and supervises it until [`Supervisor::stop`].
     #[must_use]
     pub fn start(config: SupervisorConfig) -> Self {
-        let bus = Arc::new(Bus::new());
-        let (commands, receiver) = mpsc::channel(8);
+        let bus = Arc::new(Bus::default());
+        let (commands, receiver) = mpsc::channel(COMMAND_QUEUE);
         let supervision = Supervision::new(config, Arc::clone(&bus));
         let task = tokio::spawn(supervise(supervision, receiver));
         Self {
@@ -120,12 +122,26 @@ mod tests {
         config
     }
 
+    async fn until_recovering(events: &mut broadcast::Receiver<DaemonEvent>) {
+        while !matches!(events.recv().await, Ok(DaemonEvent::Recovering { .. })) {}
+    }
+
+    async fn until_stopped(
+        events: &mut broadcast::Receiver<DaemonEvent>
+    ) -> Result<DaemonEvent, broadcast::error::RecvError> {
+        let mut last = events.recv().await;
+        while matches!(&last, Ok(event) if *event != DaemonEvent::Stopped) {
+            last = events.recv().await;
+        }
+        last
+    }
+
     #[tokio::test]
     async fn a_restart_while_the_daemon_is_not_up_is_accepted_and_one_after_stop_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let supervisor = Supervisor::start(missing_binary(dir.path()));
         let mut events = supervisor.events();
-        while !matches!(events.recv().await, Ok(DaemonEvent::Recovering { .. })) {}
+        until_recovering(&mut events).await;
         supervisor.restart().await.unwrap();
         let commands = supervisor.commands.clone();
         supervisor.stop().await;
@@ -143,10 +159,7 @@ mod tests {
         let mut events = supervisor.events();
         let commands = supervisor.commands.clone();
         drop(supervisor);
-        let mut last = events.recv().await;
-        while matches!(&last, Ok(event) if *event != DaemonEvent::Stopped) {
-            last = events.recv().await;
-        }
+        let last = until_stopped(&mut events).await;
         assert_eq!(
             last,
             Ok(DaemonEvent::Stopped),

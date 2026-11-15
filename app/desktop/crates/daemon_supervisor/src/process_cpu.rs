@@ -15,7 +15,7 @@ async fn proc_stat(pid: u32) -> Option<String> {
 }
 
 async fn ps(
-    args: [&str; 3],
+    args: &[&str],
     pid: u32,
 ) -> Option<String> {
     let run = Command::new(PS)
@@ -23,8 +23,8 @@ async fn ps(
         .arg(pid.to_string())
         .kill_on_drop(true)
         .output();
-    let output = match tokio::time::timeout(PS_TIMEOUT, run).await {
-        Ok(Ok(output)) => output,
+    let finished = match tokio::time::timeout(PS_TIMEOUT, run).await {
+        Ok(Ok(finished)) => finished,
         Ok(Err(e)) => {
             tracing::debug!("{PS}: {e}");
             return None;
@@ -34,24 +34,24 @@ async fn ps(
             return None;
         },
     };
-    output
+    finished
         .status
         .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+        .then(|| String::from_utf8_lossy(&finished.stdout).into_owned())
 }
 
 pub(crate) async fn cpu_time(pid: u32) -> Option<Duration> {
     if let Some(stat) = proc_stat(pid).await {
         return parse_proc_stat_cpu(&stat, rustix::param::clock_ticks_per_second());
     }
-    parse_ps_cpu_time(&ps(["-o", "time=", "-p"], pid).await?)
+    parse_ps_cpu_time(&ps(&["-o", "time=", "-p"], pid).await?)
 }
 
 pub(crate) async fn is_suspended(pid: u32) -> bool {
     if let Some(stat) = proc_stat(pid).await {
         return proc_state_is_stopped(&stat);
     }
-    ps(["-o", "stat=", "-p"], pid)
+    ps(&["-o", "stat=", "-p"], pid)
         .await
         .is_some_and(|state| state.trim_start().starts_with('T'))
 }

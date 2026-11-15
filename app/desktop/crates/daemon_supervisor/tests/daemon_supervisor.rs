@@ -21,8 +21,10 @@
 mod support;
 
 use daemon_supervisor::{DaemonEvent, Error, Supervisor, Timings};
+use std::path::PathBuf;
 use std::time::Duration;
 use support::{config, fast_timings, next_matching};
+use tokio::sync::broadcast::Receiver;
 
 fn is_ready(e: &DaemonEvent) -> bool {
     matches!(e, DaemonEvent::Ready { .. })
@@ -49,7 +51,9 @@ async fn a_healthy_daemon_goes_starting_then_ready_and_stops_gracefully() {
     );
     let text = std::fs::read_to_string(log).expect("log written");
     assert!(
-        text.contains("=== daemon spawned") && text.contains("=== daemon terminated"),
+        text.contains("=== daemon spawned")
+            && text.contains("=== daemon terminated")
+            && text.contains("SIGTERM"),
         "{text}"
     );
 }
@@ -120,21 +124,59 @@ async fn a_daemon_that_dies_after_becoming_ready_is_recovered_and_comes_back() {
 }
 
 #[tokio::test]
-async fn a_daemon_that_never_answers_is_stopped_and_recovered() {
-    let timings = Timings {
+async fn a_daemon_that_cannot_serve_is_recovered_with_the_reason_named() {
+    let never_answers = Timings {
         health_attempts: 3,
         health_probe_timeout: Duration::from_millis(50),
         ..fast_timings()
     };
-    let (cfg, _home) = config("wedge", timings);
+    let cases = [
+        (
+            "never answers",
+            "wedge",
+            never_answers,
+            None,
+            "never became healthy",
+        ),
+        (
+            "missing binary",
+            "ok",
+            fast_timings(),
+            Some("/definitely/not/crowbar-api"),
+            "cannot run",
+        ),
+    ];
+    for (name, mode, timings, binary, reason) in cases {
+        let (mut cfg, _home) = config(mode, timings);
+        cfg.binary = binary.map_or(cfg.binary, PathBuf::from);
+        let supervisor = Supervisor::start(cfg);
+        let mut events = supervisor.events();
+        let event =
+            next_matching(&mut events, |e| matches!(e, DaemonEvent::Recovering { .. })).await;
+        assert!(
+            matches!(&event, DaemonEvent::Recovering { reason: said, .. } if said.contains(reason)),
+            "{name}: {event:?}"
+        );
+        supervisor.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn a_daemon_that_ignores_sigterm_is_killed_once_the_grace_runs_out() {
+    let timings = Timings {
+        sigterm_grace: Duration::from_millis(200),
+        ..fast_timings()
+    };
+    let (cfg, _home) = config("deaf", timings);
+    let log = cfg.paths.log.clone();
     let supervisor = Supervisor::start(cfg);
     let mut events = supervisor.events();
-    let event = next_matching(&mut events, |e| matches!(e, DaemonEvent::Recovering { .. })).await;
-    assert!(
-        matches!(&event, DaemonEvent::Recovering { reason, .. } if reason.contains("never became healthy")),
-        "{event:?}"
-    );
-    supervisor.stop().await;
+    next_matching(&mut events, is_ready).await;
+    tokio::time::timeout(Duration::from_secs(30), supervisor.stop())
+        .await
+        .expect("stop returned");
+    let text = std::fs::read_to_string(log).expect("log written");
+    assert!(text.contains("SIGKILL"), "{text}");
 }
 
 #[tokio::test]
@@ -157,36 +199,22 @@ async fn the_watchdog_kills_a_daemon_that_stops_answering_and_it_is_recovered() 
     supervisor.stop().await;
 }
 
-#[tokio::test]
-async fn a_missing_binary_is_recovered_then_reported_not_panicked_on() {
-    let (mut cfg, _home) = config("ok", fast_timings());
-    cfg.binary = "/definitely/not/crowbar-api".into();
-    let supervisor = Supervisor::start(cfg);
-    let mut events = supervisor.events();
-    let event = next_matching(&mut events, |e| matches!(e, DaemonEvent::Recovering { .. })).await;
-    assert!(
-        matches!(&event, DaemonEvent::Recovering { reason, .. } if reason.contains("cannot run")),
-        "{event:?}"
-    );
-    supervisor.stop().await;
-}
-
 type Step = (String, u32, u32);
+
+async fn heard_until_ready(events: &mut Receiver<DaemonEvent>) -> Vec<DaemonEvent> {
+    let mut heard = Vec::new();
+    while !heard.last().is_some_and(is_ready) {
+        heard.push(next_matching(events, |_| true).await);
+    }
+    heard
+}
 
 #[tokio::test]
 async fn a_migrating_daemon_is_reported_step_by_step_and_then_ready() {
     let (cfg, _home) = config("steps", fast_timings());
     let supervisor = Supervisor::start(cfg);
     let mut events = supervisor.events();
-    let mut heard = Vec::new();
-    loop {
-        let event = next_matching(&mut events, |_| true).await;
-        let done = is_ready(&event);
-        heard.push(event);
-        if done {
-            break;
-        }
-    }
+    let heard = heard_until_ready(&mut events).await;
     supervisor.stop().await;
     let steps: Vec<Option<Step>> = heard
         .iter()

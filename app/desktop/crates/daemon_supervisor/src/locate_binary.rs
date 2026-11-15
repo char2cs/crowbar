@@ -59,25 +59,36 @@ mod tests {
         assert_eq!(found, PathBuf::from("/x/crowbar-api"));
     }
 
-    #[test]
-    fn the_binary_beside_the_app_beats_one_on_the_path() {
-        let app = dir("beside");
-        let other = dir("path");
-        std::fs::write(app.join("crowbar-api"), b"").unwrap();
-        std::fs::write(other.join("crowbar-api"), b"").unwrap();
-        let exe = app.join("crowbar");
-        let found = locate_binary(None, Some(&exe), Some(other.as_os_str())).unwrap();
-        assert_eq!(found, app.join("crowbar-api"));
+    fn stock(
+        places: &[PathBuf],
+        flags: [bool; 2],
+    ) {
+        places
+            .iter()
+            .zip(flags)
+            .filter(|(_, stocked)| *stocked)
+            .for_each(|(place, _)| std::fs::write(place.join(BINARY_NAME), b"").unwrap());
     }
 
     #[test]
-    fn the_path_is_searched_and_a_miss_names_every_place_looked() {
-        let other = dir("only-path");
-        std::fs::write(other.join("crowbar-api"), b"").unwrap();
-        assert_eq!(
-            locate_binary(None, None, Some(other.as_os_str())).unwrap(),
-            other.join("crowbar-api")
-        );
+    fn the_binary_is_searched_beside_the_app_then_on_the_path() {
+        let cases = [
+            ("beside beats path", [true, true], Some(0)),
+            ("path is searched", [false, true], Some(1)),
+            ("a miss", [false, false], None),
+        ];
+        for (name, flags, winner) in cases {
+            let places = [dir(&format!("{name}-app")), dir(&format!("{name}-path"))];
+            stock(&places, flags);
+            let exe = places[0].join("crowbar");
+            let found = locate_binary(None, Some(&exe), Some(places[1].as_os_str()));
+            let expected = winner.map(|at: usize| places[at].join(BINARY_NAME));
+            assert_eq!(found.ok(), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_miss_names_every_place_looked() {
         let empty = dir("empty");
         let err =
             locate_binary(None, Some(&empty.join("crowbar")), Some(empty.as_os_str())).unwrap_err();

@@ -4,6 +4,7 @@ use std::time::Duration;
 
 const LOG_TAIL_BYTES: u64 = 64 * 1024;
 const LOG_TAIL_LINES: usize = 40;
+const SECONDS_PER_MINUTE: u64 = 60;
 const SPAWN_MARKER: &str = "=== daemon spawned";
 
 pub(crate) fn last_run_tail(
@@ -35,7 +36,7 @@ pub(crate) fn crash_summary(
 ) -> String {
     format!(
         "The backend exited {deaths} times within {} minutes.",
-        window.as_secs() / 60
+        window.as_secs() / SECONDS_PER_MINUTE
     )
 }
 
@@ -64,15 +65,22 @@ mod tests {
         let log = "=== daemon spawned (epoch 1)\n[err] old run\n=== daemon terminated (code=Some(2))\n\
                === daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n\
                === daemon terminated (code=Some(2))\n";
-        assert_eq!(
-            last_run_tail(log, 10),
-            "=== daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n=== daemon terminated (code=Some(2))"
-        );
-        assert_eq!(
-            last_run_tail(log, 2),
-            "[err] goroutine 1\n=== daemon terminated (code=Some(2))"
-        );
-        assert_eq!(last_run_tail("no marker\nat all", 5), "no marker\nat all");
+        let cases = [
+            (
+                log,
+                10,
+                "=== daemon spawned (epoch 2)\n[err] panic: boom\n[err] goroutine 1\n=== daemon terminated (code=Some(2))",
+            ),
+            (
+                log,
+                2,
+                "[err] goroutine 1\n=== daemon terminated (code=Some(2))",
+            ),
+            ("no marker\nat all", 5, "no marker\nat all"),
+        ];
+        for (text, lines, expected) in cases {
+            assert_eq!(last_run_tail(text, lines), expected, "{lines} lines");
+        }
     }
 
     #[test]

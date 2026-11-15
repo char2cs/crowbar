@@ -8,13 +8,17 @@ pub(crate) struct Bus {
     current: watch::Sender<DaemonEvent>,
 }
 
-impl Bus {
-    pub(crate) fn new() -> Self {
-        let (stream, _) = broadcast::channel(64);
+const EVENT_BACKLOG: usize = 64;
+
+impl Default for Bus {
+    fn default() -> Self {
+        let (stream, _) = broadcast::channel(EVENT_BACKLOG);
         let (current, _) = watch::channel(DaemonEvent::Starting);
         Self { stream, current }
     }
+}
 
+impl Bus {
     pub(crate) fn emit(
         &self,
         event: DaemonEvent,
@@ -39,7 +43,7 @@ mod tests {
 
     #[test]
     fn every_subscriber_sees_each_event_in_order_and_current_holds_the_latest() {
-        let bus = Bus::new();
+        let bus = Bus::default();
         let mut one = bus.subscribe();
         let mut two = bus.subscribe();
         let current = bus.current();
@@ -58,6 +62,6 @@ mod tests {
 
     #[test]
     fn emitting_with_nobody_listening_is_harmless() {
-        Bus::new().emit(DaemonEvent::Unhealthy);
+        Bus::default().emit(DaemonEvent::Unhealthy);
     }
 }

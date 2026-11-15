@@ -32,40 +32,60 @@ fn cut_at(
     text: &str,
     limit: usize,
 ) -> usize {
-    let mut cut = text.len().min(limit);
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    cut
+    (0..=text.len().min(limit))
+        .rev()
+        .find(|&cut| text.is_char_boundary(cut))
+        .unwrap_or(0)
 }
 
-fn push_line(
-    out: &mut String,
-    prefix: &str,
-    mut line: &str,
-) {
-    loop {
-        let (head, tail) = line.split_at(cut_at(line, MAX_LINE_BYTES));
-        out.push_str(prefix);
-        out.push(' ');
-        out.push_str(head);
-        out.push('\n');
-        if tail.is_empty() {
-            return;
-        }
-        line = tail;
-    }
+fn pieces(line: &str) -> impl Iterator<Item = &str> {
+    let mut remaining = Some(line);
+    std::iter::from_fn(move || {
+        let current = remaining.take()?;
+        let (head, tail) = current.split_at(cut_at(current, MAX_LINE_BYTES));
+        remaining = (!tail.is_empty()).then_some(tail);
+        Some(head)
+    })
 }
 
 fn format_lines(
     prefix: &str,
     text: &str,
 ) -> String {
-    let mut out = String::new();
-    for line in text.lines() {
-        push_line(&mut out, prefix, line.trim_end_matches('\r'));
+    text.lines()
+        .flat_map(|line| pieces(line.trim_end_matches('\r')))
+        .fold(String::new(), |mut formatted, piece| {
+            formatted.push_str(prefix);
+            formatted.push(' ');
+            formatted.push_str(piece);
+            formatted.push('\n');
+            formatted
+        })
+}
+
+fn note_drops(
+    writer: &mut LogWriter,
+    lost: u64,
+) -> std::io::Result<()> {
+    if lost == 0 {
+        return Ok(());
     }
-    out
+    writer.write(&format!(
+        "[log] {lost} log entries were dropped: the disk is slow\n"
+    ))
+}
+
+fn write_message(
+    writer: &mut LogWriter,
+    message: LogMessage,
+) -> std::io::Result<()> {
+    match message {
+        LogMessage::Text(text) => writer.write(&text),
+        LogMessage::Flush(done) => {
+            reply(done, ());
+            Ok(())
+        },
+    }
 }
 
 fn run_writer(
@@ -75,24 +95,20 @@ fn run_writer(
     path: &Path,
 ) {
     while let Some(message) = queue.blocking_recv() {
-        let lost = dropped.swap(0, Ordering::Relaxed);
-        let result = if lost > 0 {
-            writer.write(&format!(
-                "[log] {lost} log entries were dropped: the disk is slow\n"
-            ))
-        } else {
-            Ok(())
-        };
-        let result = result.and_then(|()| match message {
-            LogMessage::Text(text) => writer.write(&text),
-            LogMessage::Flush(done) => {
-                reply(done, ());
-                Ok(())
-            },
-        });
-        if let Err(e) = result {
-            tracing::warn!("daemon log {}: {e}", path.display());
-        }
+        write_next(&mut writer, message, dropped, path);
+    }
+}
+
+fn write_next(
+    writer: &mut LogWriter,
+    message: LogMessage,
+    dropped: &AtomicU64,
+    path: &Path,
+) {
+    let written = note_drops(writer, dropped.swap(0, Ordering::Relaxed))
+        .and_then(|()| write_message(writer, message));
+    if let Err(e) = written {
+        tracing::warn!("daemon log {}: {e}", path.display());
     }
 }
 
@@ -164,17 +180,51 @@ mod tests {
         std::fs::read_to_string(path).unwrap()
     }
 
+    fn log_numbered(
+        log: &DaemonLog,
+        count: u32,
+    ) {
+        for n in 0..count {
+            log.line("[out]", &format!("line number {n}"));
+        }
+    }
+
+    fn log_all(
+        log: &DaemonLog,
+        lines: Lines<'_>,
+    ) {
+        for (prefix, text) in lines {
+            log.line(prefix, text);
+        }
+    }
+
+    type Lines<'a> = Vec<(&'a str, &'a str)>;
+
+    async fn assert_lines_written(cases: Vec<(&str, Lines<'_>, &str)>) {
+        for (name, lines, expected) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("logs").join("daemon.log");
+            let log = DaemonLog::open(&path, 1 << 20).unwrap();
+            log_all(&log, lines);
+            assert_eq!(written(&path, &log).await, expected, "{name}");
+        }
+    }
+
     #[tokio::test]
-    async fn lines_are_appended_with_their_prefix_and_no_trailing_newline_doubling() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("logs").join("daemon.log");
-        let log = DaemonLog::open(&path, 1 << 20).unwrap();
-        log.line("[out]", "hello\r\n");
-        log.line("===", "daemon spawned");
-        assert_eq!(
-            written(&path, &log).await,
-            "[out] hello\n=== daemon spawned\n"
-        );
+    async fn lines_are_written_prefixed_one_per_line_without_doubling_newlines() {
+        let cases = vec![
+            (
+                "carriage returns and consecutive lines",
+                vec![("[out]", "hello\r\n"), ("===", "daemon spawned")],
+                "[out] hello\n=== daemon spawned\n",
+            ),
+            (
+                "several lines in one text",
+                vec![("=== dump", "goroutine 1\n\ngoroutine 2\r\n")],
+                "=== dump goroutine 1\n=== dump \n=== dump goroutine 2\n",
+            ),
+        ];
+        assert_lines_written(cases).await;
     }
 
     #[tokio::test]
@@ -186,18 +236,6 @@ mod tests {
         let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(path.parent().unwrap()), 0o700, "directory");
         assert_eq!(mode(&path), 0o600, "file");
-    }
-
-    #[tokio::test]
-    async fn text_with_several_lines_becomes_several_prefixed_lines() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        let log = DaemonLog::open(&path, 1 << 20).unwrap();
-        log.line("=== dump", "goroutine 1\n\ngoroutine 2\r\n");
-        assert_eq!(
-            written(&path, &log).await,
-            "=== dump goroutine 1\n=== dump \n=== dump goroutine 2\n"
-        );
     }
 
     #[tokio::test]
@@ -228,9 +266,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.log");
         let log = DaemonLog::open(&path, 40).unwrap();
-        for n in 0..6 {
-            log.line("[out]", &format!("line number {n}"));
-        }
+        log_numbered(&log, 6);
         let text = written(&path, &log).await;
         assert!(dir.path().join("daemon.log.1").exists(), "rotated");
         assert!(
