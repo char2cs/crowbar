@@ -3,6 +3,7 @@
 package session
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -14,8 +15,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
 )
 
-// attachQuiet starts /bin/sh at 50x10, attaches, prints a URL that wraps at 50 columns and
-// drains every frame, so the test sees only what its own Resize causes.
+// attachQuiet starts /bin/sh at 50x10, attaches, prints a URL that wraps at 50 columns, parks
+// the shell and drains every frame, so the test sees only what its own Resize causes.
 func attachQuiet(t *testing.T, id string) (*Session, <-chan OutputFrame) {
 	t.Helper()
 	s, err := New(t.Context(), id, "/bin/sh", t.TempDir(), "", testEnv(), 50, 10, 200)
@@ -26,11 +27,23 @@ func attachQuiet(t *testing.T, id string) (*Session, <-chan OutputFrame) {
 	t.Cleanup(func() { s.Detach(ch) })
 	quiesce(t, s, ch)
 	runShell(t, s, "printf '%s\\n' https://example.com/"+strings.Repeat("x", 45))
+	parkShell(t, s)
 	s.mu.Lock()
 	s.flushPendingEmitLocked()
 	s.mu.Unlock()
 	drainFrames(ch)
 	return s, ch
+}
+
+// parkShell hands the terminal to a silent foreground child: a shell at its prompt redraws its
+// line on SIGWINCH from the real pump goroutine, outside the test's bubble, racing its frames.
+// The marker is the child's last byte, so seeing it means no output is still in flight.
+func parkShell(t *testing.T, s *Session) {
+	t.Helper()
+	n := markerSeq.Add(1)
+	tok := fmt.Sprintf("PK%dON", n)
+	require.NoError(t, s.Write([]byte(fmt.Sprintf("( printf '%%s%%s' PK%d ON; exec sleep 9999 )\n", n))))
+	waitScreen(t, s, func(scr string) bool { return strings.Contains(scr, tok) }, "the parked child to announce itself")
 }
 
 // assertRebuilds replays a keyframe into a fresh client at the session's size and requires it
@@ -108,6 +121,28 @@ func TestModelDriven_ResizeBurstSendsOneKeyframe(t *testing.T) {
 		frames := takeFrames(ch)
 		require.Len(t, frames, 1, "one keyframe for the whole burst")
 		assertRebuilds(t, s, frames[0], 74, 10)
+	})
+}
+
+// An app that redraws on SIGWINCH only after the burst settled (an idle shell's prompt) lands
+// after the keyframe; it goes out as a diff on that keyframe and the client converges.
+func TestModelDriven_RedrawAfterResizeKeyframeIsADiff(t *testing.T) {
+	s, ch := attachQuiet(t, "sid-md-resize-late")
+	synctest.Test(t, func(t *testing.T) {
+		stopTimerInBubble(t, s)
+		require.NoError(t, s.Resize(74, 10))
+		time.Sleep(resizeSettle)
+		synctest.Wait()
+		keyframe := takeFrames(ch)
+		require.Len(t, keyframe, 1, "the settled resize sends its keyframe")
+
+		time.Sleep(minEmitInterval)
+		s.PumpChunkForTest([]byte("\r" + shellPrompt + "\x1b[K"))
+		late := takeFrames(ch)
+		require.Len(t, late, 1, "the late redraw emits at once")
+		require.False(t, late[0].Snapshot, "a redraw after the keyframe is a diff on it")
+		replay := OutputFrame{Data: append(keyframe[0].Data, late[0].Data...), Snapshot: true}
+		assertRebuilds(t, s, replay, 74, 10)
 	})
 }
 
