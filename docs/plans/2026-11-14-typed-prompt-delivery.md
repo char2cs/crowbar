@@ -154,7 +154,18 @@ account; the 2.1.319 recording stays the only evidence for it.
   falls back to a restart.
 - Live: a subagent started in turn one survives the prompt of turn two.
 
-## 10. Out of scope
+## 10. Known limits
+
+- An idle notification dispatched just before the paste's `UserPromptSubmit`
+  settles the typed prompt `not_acknowledged`, and the turn then opens as a
+  provider prompt (the text shows twice). Telling the two orders apart needs a
+  timestamp the CLI does not send; the alternative leaves a prompt the CLI
+  never took unsettled, which blocks the chat until Stop.
+- A keystroke from an attached pane that opens a turn before the paste is
+  submitted also settles the typed prompt `not_acknowledged`.
+- Only `/` and `!` were recorded as sigils that change meaning under paste.
+
+## 11. Out of scope
 
 Model, effort and permission changes keep `restart_tui`. Codex and Hermes are
 unchanged; the block is generic, so they can declare it later.
