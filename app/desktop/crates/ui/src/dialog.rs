@@ -13,6 +13,7 @@ use crate::cubic_bezier::CubicBezier;
 use crate::dialog_extent::DialogExtent;
 use crate::dialog_header::DialogHeader;
 use crate::dialog_size::DialogSize;
+use crate::dialog_style::DialogStyle;
 use crate::icon_name::IconName;
 use crate::layer;
 use crate::motion::Motion;
@@ -21,7 +22,6 @@ use crate::opaque_debug::opaque_debug;
 use crate::overlay_slot::OverlaySlot;
 use crate::overlays::Overlays;
 use crate::palette::Palette;
-use crate::radius;
 use crate::shadow;
 use crate::spacing;
 use crate::surface::Surface;
@@ -39,6 +39,7 @@ pub struct Dialog {
     id: ElementId,
     header: DialogHeader,
     size: DialogSize,
+    style: DialogStyle,
     extent: Option<DialogExtent>,
     body: Option<AnyElement>,
     footer: Option<AnyElement>,
@@ -53,6 +54,7 @@ impl Dialog {
             header: DialogHeader::new(id.clone()),
             id,
             size: DialogSize::default(),
+            style: DialogStyle::default(),
             extent: None,
             body: None,
             footer: None,
@@ -77,6 +79,17 @@ impl Dialog {
         icon: IconName,
     ) -> Self {
         self.header = self.header.icon(Some(icon));
+        self
+    }
+
+    /// Picks the React dialog to reproduce: `AppDialog` (default) or the plain `Dialog`.
+    #[must_use]
+    pub fn style(
+        mut self,
+        style: DialogStyle,
+    ) -> Self {
+        self.style = style;
+        self.header = self.header.style(style);
         self
     }
 
@@ -150,8 +163,10 @@ impl Dialog {
     ) -> gpui::Stateful<gpui::Div> {
         let palette = theme.palette(Surface::Window);
         let header = (!self.header.is_empty()).then_some(self.header);
-        let footer = self.footer.map(|footer| footer_bar(footer, palette));
-        let padding = self.extent.map_or(spacing::STEP_4, |_| px(0.0));
+        let footer = self
+            .footer
+            .map(|footer| footer_bar(footer, (palette, self.style)));
+        let padding = self.extent.map_or(self.style.body_padding(), |_| px(0.0));
         let frame = div().id((self.id, "popup")).occlude().flex().flex_col();
         let frame = match self.extent {
             Some(extent) => {
@@ -163,9 +178,9 @@ impl Dialog {
                 .max_w(self.size.max_width())
                 .max_h(viewport.height - px(2.0 * VIEWPORT_PADDING)),
         };
-        frame
+        self.style
+            .frame(frame, palette)
             .overflow_hidden()
-            .rounded(radius::XL)
             .bg(palette.popover())
             .text_color(palette.foreground())
             .font_family(theme.ui_family())
@@ -181,18 +196,19 @@ impl Dialog {
 
 fn footer_bar(
     footer: AnyElement,
-    palette: &Palette,
+    (palette, style): (&Palette, DialogStyle),
 ) -> gpui::Div {
+    let (px_x, px_y) = style.footer_padding();
     div()
         .flex()
         .flex_none()
         .justify_end()
         .gap(spacing::STEP_2)
-        .px(spacing::STEP_4)
-        .py(spacing::STEP_3)
+        .px(px_x)
+        .py(px_y)
         .border_t_1()
         .border_color(palette.border())
-        .bg(palette.muted().opacity(0.5))
+        .bg(palette.muted().opacity(style.footer_wash()))
         .child(footer)
 }
 

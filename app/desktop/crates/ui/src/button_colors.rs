@@ -10,11 +10,13 @@ use crate::shadow;
 
 const HOVER_FILL: f32 = 0.9;
 const GLOW: f32 = 0.24;
+const PRESSED_FILL: f32 = 0.8;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ButtonColors {
     pub(crate) background: Hsla,
     pub(crate) hover_background: Hsla,
+    pub(crate) pressed_background: Hsla,
     pub(crate) border: Hsla,
     pub(crate) foreground: Hsla,
     pub(crate) shadow: Vec<BoxShadow>,
@@ -39,13 +41,15 @@ impl ButtonColors {
             ButtonVariant::Destructive => {
                 Self::filled(palette.destructive(), destructive_text(palette, appearance))
             },
-            ButtonVariant::Secondary => {
-                Self::plain(palette.secondary(), palette.secondary_foreground())
+            ButtonVariant::Secondary => Self {
+                pressed_background: palette.secondary().opacity(PRESSED_FILL),
+                ..Self::plain(palette.secondary(), palette.secondary_foreground())
             },
             ButtonVariant::Outline => Self::outline(palette, appearance),
             ButtonVariant::Ghost => Self {
                 background: transparent(),
                 hover_background: palette.accent(),
+                pressed_background: palette.accent(),
                 border: transparent(),
                 foreground: palette.foreground(),
                 shadow: Vec::new(),
@@ -70,6 +74,7 @@ impl ButtonColors {
         Self {
             background: fill,
             hover_background: fill.opacity(HOVER_FILL),
+            pressed_background: fill.opacity(HOVER_FILL),
             border: fill,
             foreground,
             shadow: Vec::new(),
@@ -90,6 +95,7 @@ impl ButtonColors {
         Self {
             background,
             hover_background,
+            pressed_background: hover_background,
             border: palette.input(),
             foreground: palette.foreground(),
             shadow: shadow::xs(opacity::PERCENT_5),
@@ -144,6 +150,25 @@ mod tests {
         let colors = ButtonColors::resolve(ButtonVariant::Primary, palette, appearance);
         assert!((colors.hover_background.a - 0.9).abs() < 1e-6);
         assert_eq!(colors.shadow.len(), 1);
+    }
+
+    #[test]
+    fn only_secondary_presses_darker_than_it_hovers() {
+        const CASES: &[(ButtonVariant, f32)] = &[
+            (ButtonVariant::Primary, 0.9),
+            (ButtonVariant::Destructive, 0.9),
+            (ButtonVariant::Secondary, 0.8),
+        ];
+        let (palette, appearance) = palette(ThemeMode::Light);
+        for &(variant, alpha) in CASES {
+            let colors = ButtonColors::resolve(variant, palette, appearance);
+            assert!(
+                (colors.pressed_background.a - alpha).abs() < 1e-6,
+                "{variant:?}"
+            );
+        }
+        let outline = ButtonColors::resolve(ButtonVariant::Outline, palette, appearance);
+        assert_eq!(outline.pressed_background, outline.hover_background);
     }
 
     #[test]

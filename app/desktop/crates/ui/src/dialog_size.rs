@@ -4,6 +4,7 @@ use gpui::{Pixels, px};
 
 const WIDTH_SM: Pixels = px(384.0);
 const WIDTH_MD: Pixels = px(448.0);
+const WIDTH_BASE: Pixels = px(512.0);
 const WIDTH_LG: Pixels = px(672.0);
 const WIDTH_XL: Pixels = px(896.0);
 
@@ -16,6 +17,8 @@ pub enum DialogSize {
     /// 448px.
     #[default]
     Md,
+    /// 512px, the width of the plain dialog.
+    Base,
     /// 672px.
     Lg,
     /// 896px.
@@ -28,6 +31,7 @@ impl DialogSize {
         match self {
             Self::Sm => WIDTH_SM,
             Self::Md => WIDTH_MD,
+            Self::Base => WIDTH_BASE,
             Self::Lg => WIDTH_LG,
             Self::Xl => WIDTH_XL,
         }
@@ -43,6 +47,7 @@ mod tests {
         const CASES: &[(DialogSize, f32)] = &[
             (DialogSize::Sm, 384.0),
             (DialogSize::Md, 448.0),
+            (DialogSize::Base, 512.0),
             (DialogSize::Lg, 672.0),
             (DialogSize::Xl, 896.0),
         ];

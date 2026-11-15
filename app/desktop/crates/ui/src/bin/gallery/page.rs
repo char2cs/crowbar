@@ -115,5 +115,8 @@ impl Render for Page {
             .when(self.only.as_deref() == Some("dialog"), |page| {
                 page.child(overlays::dialog())
             })
+            .when(self.only.as_deref() == Some("plain-dialog"), |page| {
+                page.child(overlays::plain_dialog())
+            })
     }
 }

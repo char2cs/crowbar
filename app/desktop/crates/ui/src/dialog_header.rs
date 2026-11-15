@@ -10,12 +10,12 @@ use crate::button::Button;
 use crate::button_size::ButtonSize;
 use crate::button_variant::ButtonVariant;
 use crate::close_handler::CloseHandler;
+use crate::dialog_style::DialogStyle;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::opaque_debug::opaque_debug;
 use crate::spacing;
 use crate::surface::Surface;
-use crate::text_size;
 use crate::theme::Theme;
 
 #[derive(IntoElement)]
@@ -26,6 +26,7 @@ pub(crate) struct DialogHeader {
     actions: Option<AnyElement>,
     on_close: Option<CloseHandler>,
     ruled: bool,
+    style: DialogStyle,
 }
 
 impl DialogHeader {
@@ -37,6 +38,7 @@ impl DialogHeader {
             actions: None,
             on_close: None,
             ruled: true,
+            style: DialogStyle::default(),
         }
     }
 
@@ -72,6 +74,14 @@ impl DialogHeader {
         self
     }
 
+    pub(crate) fn style(
+        mut self,
+        style: DialogStyle,
+    ) -> Self {
+        self.style = style;
+        self
+    }
+
     pub(crate) fn unruled(mut self) -> Self {
         self.ruled = false;
         self
@@ -90,36 +100,68 @@ impl RenderOnce for DialogHeader {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
-        let close = Button::icon_only((self.id, "close"), IconName::X)
-            .variant(ButtonVariant::Ghost)
-            .size(ButtonSize::Sm);
-        let close = match self.on_close {
-            Some(handler) => close.on_click(move |_, window, cx| handler(window, cx)),
-            None => close,
-        };
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(spacing::STEP_2)
-            .px(spacing::STEP_4)
-            .py(spacing::STEP_3)
-            .when(self.ruled, |d| {
-                d.border_b_1().border_color(palette.border())
-            })
-            .children(
-                self.icon
-                    .map(|icon| Icon::new(icon).color(palette.muted_foreground())),
-            )
-            .children(self.title.map(|title| {
-                div()
-                    .font_family(theme.heading_family())
-                    .text_size(text_size::SM)
-                    .line_height(spacing::STEP_3_5)
-                    .child(title)
-            }))
-            .when_some(self.actions, |d, actions| d.child(actions_slot(actions)))
-            .child(div().ml_auto().child(close))
+        let style = self.style;
+        let (px_x, px_y) = style.header_padding();
+        let title = self.title.map(|title| title_text(title, style, &theme));
+        let close = close_button(self.id, self.on_close, style);
+        let frame = div().flex().flex_none().px(px_x).py(px_y);
+        match style {
+            DialogStyle::Plain => frame
+                .relative()
+                .flex_col()
+                .gap(spacing::STEP_2)
+                .children(title)
+                .child(
+                    div()
+                        .absolute()
+                        .right(spacing::STEP_2)
+                        .top(spacing::STEP_2)
+                        .child(close),
+                ),
+            DialogStyle::App => frame
+                .items_center()
+                .gap(spacing::STEP_2)
+                .when(self.ruled, |d| {
+                    d.border_b_1().border_color(palette.border())
+                })
+                .children(
+                    self.icon
+                        .map(|icon| Icon::new(icon).color(palette.muted_foreground())),
+                )
+                .children(title)
+                .when_some(self.actions, |d, actions| d.child(actions_slot(actions)))
+                .child(div().ml_auto().child(close)),
+        }
+    }
+}
+
+fn title_text(
+    title: SharedString,
+    style: DialogStyle,
+    theme: &Theme,
+) -> gpui::Div {
+    div()
+        .font_family(theme.heading_family())
+        .text_size(style.title_size())
+        .line_height(style.title_line())
+        .child(title)
+}
+
+fn close_button(
+    id: ElementId,
+    on_close: Option<CloseHandler>,
+    style: DialogStyle,
+) -> Button {
+    let size = match style {
+        DialogStyle::App => ButtonSize::Sm,
+        DialogStyle::Plain => ButtonSize::Lg,
+    };
+    let close = Button::icon_only((id, "close"), IconName::X)
+        .variant(ButtonVariant::Ghost)
+        .size(size);
+    match on_close {
+        Some(handler) => close.on_click(move |_, window, cx| handler(window, cx)),
+        None => close,
     }
 }
 
@@ -157,6 +199,29 @@ mod tests {
                 .icon(Some(IconName::Gear))
                 .is_empty()
         );
+    }
+
+    #[gpui::test]
+    fn plain_header_is_title_line_plus_24px_padding_and_app_header_is_ruled(
+        cx: &mut TestAppContext
+    ) {
+        const CASES: &[(DialogStyle, f32)] =
+            &[(DialogStyle::Plain, 68.0), (DialogStyle::App, 53.0)];
+        for &(style, height) in CASES {
+            assert_eq!(header_height(cx, style), height, "{style:?}");
+        }
+    }
+
+    fn header_height(
+        cx: &mut TestAppContext,
+        style: DialogStyle,
+    ) -> f32 {
+        let cx = open(cx, move |_, _| {
+            DialogHeader::new(ElementId::from("h"))
+                .title(Some("T".into()))
+                .style(style)
+        });
+        f32::from(cx.debug_bounds("probe").unwrap_or_default().size.height)
     }
 
     #[gpui::test]

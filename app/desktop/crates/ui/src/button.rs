@@ -3,8 +3,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Div, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, hsla,
+    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement,
+    StyleRefinement, Styled, Window, div, hsla,
 };
 
 use crate::button_colors::ButtonColors;
@@ -217,6 +217,7 @@ impl RenderOnce for Button {
                     .tab_stop(true)
             })
             .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
+            .when(enabled, |d| d.active(pressed(&colors)))
             .focus(move |s| s.shadow(ring))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .children(icon)
@@ -226,6 +227,11 @@ impl RenderOnce for Button {
                 d.on_click(handler)
             })
     }
+}
+
+fn pressed(colors: &ButtonColors) -> impl FnOnce(StyleRefinement) -> StyleRefinement + use<> {
+    let (fill, shadow) = (colors.pressed_background, Vec::new());
+    move |style| style.bg(fill).shadow(shadow)
 }
 
 fn indicator(

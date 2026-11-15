@@ -2,8 +2,8 @@
 
 use gpui::{IntoElement, ParentElement, Pixels, Styled, div, px};
 use ui::{
-    Button, ButtonVariant, ContextMenu, Dialog, DropdownMenu, IconName, MenuAction, MenuItem,
-    Popover, spacing,
+    Button, ButtonVariant, ContextMenu, Dialog, DialogSize, DialogStyle, DropdownMenu, IconName,
+    MenuAction, MenuItem, Popover, spacing,
 };
 
 use crate::section::row;
@@ -65,6 +65,20 @@ pub(crate) fn menus() -> impl IntoElement {
         .child(DropdownMenu::new("dropdown", trigger, items()))
         .child(ContextMenu::new("context", area, items()))
         .child(popover)
+}
+
+pub(crate) fn plain_dialog() -> impl IntoElement {
+    Dialog::new("plain-dialog")
+        .style(DialogStyle::Plain)
+        .size(DialogSize::Sm)
+        .title("Choose a folder")
+        .body(
+            div()
+                .px(spacing::STEP_6)
+                .pb(spacing::STEP_6)
+                .child("Folders load once the host answers."),
+        )
+        .footer(Button::new("select", "Select"))
 }
 
 pub(crate) fn dialog() -> impl IntoElement {
