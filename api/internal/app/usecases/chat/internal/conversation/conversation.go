@@ -184,8 +184,20 @@ func (c *Conversations) forgetLedger(ctx context.Context, chatID string) {
 	if err := c.ledger.Forget(ctx, chatID); err != nil {
 		slog.ErrorContext(ctx, "agent: purge chat: forget ledger (best-effort, continuing)", "chat_id", chatID, "err", err)
 	}
-	inUse := func(ref string) (bool, error) { return c.ledger.RefInUse(ctx, ref) }
+	// One pass over the ledger for the whole batch of refs, not one full-table
+	// scan per ref: RefInUse in a loop turned a chat with many tool calls into
+	// a multi-minute delete and blocked the request (and everything behind it)
+	// long enough for clients to see it as a 5xx.
+	stillUsed, err := c.ledger.RefsInUse(ctx, refs)
+	if err != nil {
+		slog.ErrorContext(ctx, "agent: purge chat: scan refs in use (best-effort, continuing)", "chat_id", chatID, "err", err)
+	}
+	inUse := func(ref string) (bool, error) { return stillUsed[ref], nil }
 	for _, ref := range refs {
+		if ctx.Err() != nil {
+			slog.WarnContext(ctx, "agent: purge chat: payload sweep aborted, context canceled", "chat_id", chatID)
+			break
+		}
 		if err := c.blobs.Collect(ref, inUse); err != nil {
 			slog.WarnContext(ctx, "agent: purge chat: delete payload (best-effort, continuing)", "chat_id", chatID, "err", err)
 		}

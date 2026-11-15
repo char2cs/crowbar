@@ -108,6 +108,11 @@ func (s *Store) BlobRefs(ctx context.Context, chatID string) ([]string, error) {
 }
 
 // RefInUse reports whether any chat's tool call still carries ref.
+//
+// This scans every tool_call row's body with instr() to answer one ref; a
+// purge that checks many refs this way re-scans the whole table once per ref
+// (O(refs * rows)), which on a sizeable ledger turns a chat delete into a
+// multi-minute request. Prefer RefsInUse to check a batch in a single pass.
 func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
 	var n int64
 	err := s.db.WithContext(ctx).Raw(
@@ -118,6 +123,57 @@ func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
 		return false, fmt.Errorf("ledger: ref in use %s: %w", ref, err)
 	}
 	return n > 0, nil
+}
+
+// RefsInUse reports which of refs any chat's tool call still carries, in one
+// pass over chat_ledger's tool_call rows instead of one full-table scan per
+// ref. Use this for a purge's whole batch of refs rather than calling
+// RefInUse in a loop.
+func (s *Store) RefsInUse(ctx context.Context, refs []string) (inUse map[string]bool, err error) {
+	inUse = make(map[string]bool, len(refs))
+	if len(refs) == 0 {
+		return inUse, nil
+	}
+	want := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		if ref != "" {
+			want[ref] = true
+		}
+	}
+	cur, err := s.db.WithContext(ctx).Raw(
+		`SELECT body FROM chat_ledger WHERE kind = ?`, string(ledger.KindToolCall),
+	).Rows()
+	if err != nil {
+		return nil, fmt.Errorf("ledger: refs in use: %w", err)
+	}
+	defer func() {
+		if closeErr := cur.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("ledger: refs in use: close: %w", closeErr)
+		}
+	}()
+	for cur.Next() {
+		if ctx.Err() != nil {
+			return inUse, fmt.Errorf("ledger: refs in use: %w", ctx.Err())
+		}
+		var body []byte
+		if err := cur.Scan(&body); err != nil {
+			continue
+		}
+		tc, err := ledger.DecodeBody[ledger.ToolCall](ledger.Row{Kind: ledger.KindToolCall, Body: body})
+		if err != nil {
+			continue
+		}
+		if want[tc.InputRef] {
+			inUse[tc.InputRef] = true
+		}
+		if want[tc.ResultRef] {
+			inUse[tc.ResultRef] = true
+		}
+	}
+	if err := cur.Err(); err != nil {
+		return nil, fmt.Errorf("ledger: refs in use: %w", err)
+	}
+	return inUse, nil
 }
 
 // RunnerStart is the runner_started row that put runnerID on a chat, and that
