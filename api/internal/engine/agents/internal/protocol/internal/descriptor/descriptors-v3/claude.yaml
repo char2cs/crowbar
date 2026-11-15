@@ -375,9 +375,9 @@ events:
     out: prompt
     send: { text: "Stop the background task {shell_id} now." }
 
-# restart_tui is a no-op in practice: prompt_submit.strategy is already
-# restart_tui, so every message already restarts the CLI. NOT
-# bypassPermissions, which skips every check including what auto still makes.
+# A changed permission level still restarts the CLI (prompt_submit.type only
+# types when the launch selection is unchanged). NOT bypassPermissions, which
+# skips every check including what auto still makes.
 permission_levels:
   strategy: restart_tui
   levels:
