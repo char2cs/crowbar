@@ -11,10 +11,7 @@ pub(crate) fn check_text(
         return Err(Error::EmptyId { kind });
     }
     if value.len() > MAX_ID_BYTES {
-        return Err(Error::IdTooLong {
-            kind,
-            max: MAX_ID_BYTES,
-        });
+        return Err(Error::too_long(kind, MAX_ID_BYTES));
     }
     match value.chars().find(|c| !allowed(*c)) {
         Some(found) => Err(Error::InvalidIdCharacter { kind, found }),

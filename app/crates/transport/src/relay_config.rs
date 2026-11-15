@@ -1,5 +1,13 @@
 use std::time::Duration;
 
+const DEFAULT_MAX_CONNECTIONS: usize = 256;
+const DEFAULT_MAX_PER_PANE: usize = 32;
+const DEFAULT_MAX_HANDSHAKES: usize = 64;
+const DEFAULT_HANDSHAKE_SECS: u64 = 3;
+const DEFAULT_IO_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_TOKEN_TTL_HOURS: u64 = 12;
+const DEFAULT_MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+
 /// Limits and timeouts of the loopback relay.
 ///
 /// Open streams are counted against `max_connections` and `max_per_pane` only once the token has
@@ -37,15 +45,15 @@ pub struct RelayConfig {
 impl Default for RelayConfig {
     fn default() -> Self {
         Self {
-            max_connections: 256,
-            max_per_pane: 32,
-            max_handshakes: 64,
-            handshake_timeout: Duration::from_secs(3),
-            open_timeout: Duration::from_secs(10),
-            write_timeout: Duration::from_secs(10),
+            max_connections: DEFAULT_MAX_CONNECTIONS,
+            max_per_pane: DEFAULT_MAX_PER_PANE,
+            max_handshakes: DEFAULT_MAX_HANDSHAKES,
+            handshake_timeout: Duration::from_secs(DEFAULT_HANDSHAKE_SECS),
+            open_timeout: Duration::from_secs(DEFAULT_IO_TIMEOUT_SECS),
+            write_timeout: Duration::from_secs(DEFAULT_IO_TIMEOUT_SECS),
             close_grace: Duration::from_secs(2),
-            token_ttl: Duration::from_hours(12),
-            max_message_bytes: 64 * 1024 * 1024,
+            token_ttl: Duration::from_hours(DEFAULT_TOKEN_TTL_HOURS),
+            max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
             upstream_idle: None,
             client_idle: None,
         }

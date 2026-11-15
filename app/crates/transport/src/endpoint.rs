@@ -12,6 +12,8 @@ use tokio::net::{TcpStream, lookup_host};
 use crate::error::Error;
 use crate::first_connected::first_connected;
 
+const MAX_HOST_BYTES: usize = 253;
+const MAX_LABEL_BYTES: usize = 63;
 const CONNECT_STAGGER: Duration = Duration::from_millis(250);
 
 /// A DNS name, IPv4 address or bracketed IPv6 address, and a port. Parsing resolves nothing:
@@ -109,12 +111,12 @@ fn is_name_or_ipv4(host: &str) -> bool {
     if !last.is_empty() && last.bytes().all(|b| b.is_ascii_digit()) {
         return host.parse::<Ipv4Addr>().is_ok();
     }
-    host.len() <= 253 && host.split('.').all(is_label)
+    host.len() <= MAX_HOST_BYTES && host.split('.').all(is_label)
 }
 
 fn is_label(label: &str) -> bool {
     let bytes = label.as_bytes();
-    (1..=63).contains(&bytes.len())
+    (1..=MAX_LABEL_BYTES).contains(&bytes.len())
         && bytes
             .iter()
             .all(|b| b.is_ascii_alphanumeric() || *b == b'-')
@@ -137,7 +139,7 @@ mod tests {
     fn a_host_and_port_parses_and_reads_back_as_written() {
         let long_label = format!("{}.com:1", "a".repeat(63));
         let longest_name = format!("{}a:3737", "a.".repeat(126));
-        let valid = [
+        let cases = [
             "homelab.example.com:3737",
             "HomeLab.Example.com:3737",
             "homelab:4000",
@@ -153,7 +155,7 @@ mod tests {
             &long_label,
             &longest_name,
         ];
-        for text in valid {
+        for text in cases {
             let endpoint = Endpoint::parse(text).unwrap_or_else(|e| panic!("{e}"));
             assert_eq!(endpoint.to_string(), text);
         }

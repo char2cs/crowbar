@@ -43,18 +43,20 @@ mod tests {
 
     const DER: &[u8] = b"not a real certificate, only bytes to hash";
 
-    #[test]
-    fn a_confirmed_pin_matches_the_displayed_fingerprint_of_the_certificate() {
-        let pin = Pin::Confirmed(fingerprint_of(DER));
-        assert!(pin.matches(DER));
-        assert!(!pin.matches(b"another certificate"));
-    }
+    type Make = fn(&[u8]) -> Pin;
+
+    const CASES: [Make; 2] = [
+        |der| Pin::Confirmed(fingerprint_of(der)),
+        |der| Pin::Paired(certificate_digest(der)),
+    ];
 
     #[test]
-    fn a_paired_pin_matches_the_whole_digest() {
-        let pin = Pin::Paired(certificate_digest(DER));
-        assert!(pin.matches(DER));
-        assert!(!pin.matches(b"another certificate"));
+    fn a_pin_matches_the_certificate_it_was_made_from_and_no_other() {
+        for make in CASES {
+            let pin = make(DER);
+            assert!(pin.matches(DER));
+            assert!(!pin.matches(b"another certificate"));
+        }
     }
 
     #[test]

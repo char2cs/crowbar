@@ -20,13 +20,13 @@ impl HostTarget {
 }
 
 pub(crate) fn check_registrable(host: &HostId) -> Result<(), Error> {
-    if LOCAL_IDS.contains(&host.as_str()) {
-        return Err(Error::BadHostId {
+    let names_local_daemon = LOCAL_IDS.contains(&host.as_str());
+    (!names_local_daemon)
+        .then_some(())
+        .ok_or_else(|| Error::BadHostId {
             id: host.clone(),
             why: "it names the local daemon",
-        });
-    }
-    Ok(())
+        })
 }
 
 #[cfg(test)]
@@ -37,21 +37,34 @@ mod tests {
         HostId::new(text).unwrap()
     }
 
+    #[derive(Clone, Copy)]
+    enum Names {
+        LocalDaemon,
+        RemoteHost,
+    }
+
+    const CASES: [(&str, Names); 3] = [
+        ("local", Names::LocalDaemon),
+        ("localhost", Names::LocalDaemon),
+        ("host-1", Names::RemoteHost),
+    ];
+
     #[test]
     fn local_and_localhost_name_the_local_daemon() {
-        assert_eq!(HostTarget::of(&id("local")), HostTarget::Local);
-        assert_eq!(HostTarget::of(&id("localhost")), HostTarget::Local);
-        assert_eq!(
-            HostTarget::of(&id("host-1")),
-            HostTarget::Remote(id("host-1"))
-        );
+        for (text, names) in CASES {
+            let expected = match names {
+                Names::LocalDaemon => HostTarget::Local,
+                Names::RemoteHost => HostTarget::Remote(id(text)),
+            };
+            assert_eq!(HostTarget::of(&id(text)), expected, "{text}");
+        }
     }
 
     #[test]
     fn the_local_daemon_cannot_be_registered_as_a_remote_host() {
-        assert!(check_registrable(&id("host-1")).is_ok());
-        for text in ["local", "localhost"] {
-            assert!(check_registrable(&id(text)).is_err(), "{text}");
+        for (text, names) in CASES {
+            let refused = matches!(names, Names::LocalDaemon);
+            assert_eq!(check_registrable(&id(text)).is_err(), refused, "{text}");
         }
     }
 }

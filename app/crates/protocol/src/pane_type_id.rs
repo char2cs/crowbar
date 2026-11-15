@@ -10,10 +10,10 @@ use crate::pane_origin::PaneOrigin;
 use crate::string_id::check_text;
 
 fn malformed() -> Error {
-    Error::MalformedId {
-        kind: "pane type id",
-        reason: "must be `core.<name>` or `ext.<extension>.<name>`",
-    }
+    Error::malformed(
+        "pane type id",
+        "must be `core.<name>` or `ext.<extension>.<name>`",
+    )
 }
 
 fn parse_origin(value: &str) -> Result<PaneOrigin> {
@@ -123,28 +123,27 @@ impl AsRef<str> for PaneTypeId {
 mod tests {
     use super::*;
 
-    #[test]
-    fn requires_a_namespace() {
-        for ok in ["core.chat", "ext.git.review", "core.a.b", "ext.my-ext.x_y"] {
-            assert!(PaneTypeId::new(ok).is_ok(), "{ok} should be valid");
-        }
-        for bad in [
-            "chat",
-            "ext.git",
-            "other.thing",
-            "core..x",
-            "core.",
-            ".core.x",
-            "Core.chat",
-        ] {
-            assert!(PaneTypeId::new(bad).is_err(), "{bad} should be rejected");
-        }
-    }
+    const CASES: [(&str, bool); 14] = [
+        ("core.chat", true),
+        ("ext.git.review", true),
+        ("core.a.b", true),
+        ("ext.my-ext.x_y", true),
+        ("chat", false),
+        ("ext.git", false),
+        ("other.thing", false),
+        ("core..x", false),
+        ("core.", false),
+        (".core.x", false),
+        ("Core.chat", false),
+        ("ext.my_ext.bar", false),
+        ("ext.1foo.bar", false),
+        ("ext.-x.bar", false),
+    ];
 
     #[test]
-    fn an_extension_segment_that_is_no_extension_id_is_refused() {
-        for bad in ["ext.my_ext.bar", "ext.1foo.bar", "ext.-x.bar"] {
-            assert!(PaneTypeId::new(bad).is_err(), "{bad} should be rejected");
+    fn requires_a_namespace_and_a_valid_extension_segment() {
+        for (text, valid) in CASES {
+            assert_eq!(PaneTypeId::new(text).is_ok(), valid, "{text}");
         }
     }
 

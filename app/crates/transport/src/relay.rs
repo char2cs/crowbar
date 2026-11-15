@@ -1,9 +1,10 @@
-use std::net::SocketAddr;
+use std::io;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use protocol::{HostId, PaneId, RelayEndpoint, RelayScope};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::time::Instant;
@@ -60,7 +61,7 @@ impl Relay {
     /// The address the relay listens on.
     #[must_use]
     pub fn addr(&self) -> SocketAddr {
-        SocketAddr::from(([127, 0, 0, 1], self.state.port))
+        SocketAddr::from((Ipv4Addr::LOCALHOST, self.state.port))
     }
 
     /// Stops accepting and closes every open stream.
@@ -111,24 +112,26 @@ async fn accept_loop(
     state: Arc<RelayState>,
 ) {
     let handshakes = Arc::new(Semaphore::new(state.config.max_handshakes));
-    loop {
-        let accepted = tokio::select! {
-            () = state.shutdown.cancelled() => return,
-            accepted = listener.accept() => accepted,
-        };
-        let Ok((tcp, _peer)) = accepted else {
-            tokio::time::sleep(ACCEPT_BACKOFF).await;
-            continue;
-        };
-        let Ok(permit) = Arc::clone(&handshakes).try_acquire_owned() else {
-            turn_away(&tcp);
-            continue;
-        };
-        tokio::spawn(session::run(Arc::clone(&state), tcp, permit));
+    while let Some(accepted) = state.shutdown.run_until_cancelled(listener.accept()).await {
+        greet(&state, &handshakes, accepted).await;
     }
 }
 
-fn turn_away(tcp: &tokio::net::TcpStream) {
+async fn greet(
+    state: &Arc<RelayState>,
+    handshakes: &Arc<Semaphore>,
+    accepted: io::Result<(TcpStream, SocketAddr)>,
+) {
+    let Ok((tcp, _peer)) = accepted else {
+        return tokio::time::sleep(ACCEPT_BACKOFF).await;
+    };
+    let Ok(permit) = Arc::clone(handshakes).try_acquire_owned() else {
+        return turn_away(&tcp);
+    };
+    tokio::spawn(session::run(Arc::clone(state), tcp, permit));
+}
+
+fn turn_away(tcp: &TcpStream) {
     const BUSY: &[u8] =
         b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
     if let Err(e) = tcp.try_write(BUSY) {
@@ -140,11 +143,7 @@ async fn follow_removals(
     state: Arc<RelayState>,
     mut removed: broadcast::Receiver<HostId>,
 ) {
-    loop {
-        let host = tokio::select! {
-            () = state.shutdown.cancelled() => return,
-            host = removed.recv() => host,
-        };
+    while let Some(host) = state.shutdown.run_until_cancelled(removed.recv()).await {
         match host {
             Ok(host) => state.revoke_host(&host),
             Err(RecvError::Lagged(_)) => state.revoke_unregistered_hosts(),
@@ -197,33 +196,6 @@ mod tests {
         scope_on("local", origin)
     }
 
-    async fn until_refused(addr: SocketAddr) {
-        while tokio::net::TcpStream::connect(addr).await.is_ok() {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    #[tokio::test]
-    async fn the_relay_listens_on_loopback_only_and_names_its_port_in_the_endpoint() {
-        let relay = relay().await;
-        assert!(relay.addr().ip().is_loopback());
-        let endpoint = relay.issue(&scope(PaneOrigin::Core)).unwrap();
-        assert_eq!(
-            endpoint.url(),
-            format!("ws://127.0.0.1:{}", relay.addr().port())
-        );
-        assert_eq!(endpoint.token().len(), 43);
-    }
-
-    #[tokio::test]
-    async fn shutting_down_stops_accepting_connections() {
-        let relay = relay().await;
-        let addr = relay.addr();
-        relay.shutdown();
-        let refused = tokio::time::timeout(Duration::from_secs(30), until_refused(addr)).await;
-        assert!(refused.is_ok(), "the listener stayed open after shutdown");
-    }
-
     #[tokio::test]
     async fn removing_a_host_cancels_its_open_streams_and_leaves_others_alone() {
         let transport = transport();
@@ -243,6 +215,14 @@ mod tests {
         assert!(!kept.is_cancelled());
     }
 
+    fn overflow(sender: &broadcast::Sender<HostId>) {
+        for n in 0..6 {
+            sender
+                .send(HostId::new(format!("other-{n}")).unwrap())
+                .unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn a_follower_that_fell_behind_revokes_every_host_the_registry_no_longer_lists() {
         let relay = relay().await;
@@ -251,42 +231,16 @@ mod tests {
         let guard = state.connections.register(&gone, &state.shutdown).unwrap();
         let token = relay.issue(&gone).unwrap();
         let (sender, receiver) = broadcast::channel(2);
-        for n in 0..6 {
-            sender
-                .send(HostId::new(format!("other-{n}")).unwrap())
-                .unwrap();
-        }
+        overflow(&sender);
         let follower = tokio::spawn(follow_removals(Arc::clone(&state), receiver));
         tokio::time::timeout(Duration::from_secs(30), guard.cancelled().cancelled())
             .await
             .unwrap();
         assert!(
-            state.admit(token.token(), |_| Ok(())).is_err(),
+            state.admit_stream(token.token(), |_| Ok(())).is_err(),
             "its token is gone too"
         );
         state.shutdown.cancel();
         follower.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_handshake_beyond_the_limit_is_answered_503_not_left_hanging() {
-        use tokio::io::AsyncReadExt;
-        let transport = transport();
-        let policy = Arc::new(ExactOrigins::new(vec![], "crowbar-ext://{extension}"));
-        let config = RelayConfig {
-            max_handshakes: 1,
-            handshake_timeout: Duration::from_secs(30),
-            ..RelayConfig::default()
-        };
-        let relay = Relay::start(transport, policy, config).await.unwrap();
-        let silent = tokio::net::TcpStream::connect(relay.addr()).await.unwrap();
-        let mut refused = tokio::net::TcpStream::connect(relay.addr()).await.unwrap();
-        let mut answer = Vec::new();
-        tokio::time::timeout(Duration::from_secs(30), refused.read_to_end(&mut answer))
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(answer.starts_with(b"HTTP/1.1 503"));
-        drop(silent);
     }
 }

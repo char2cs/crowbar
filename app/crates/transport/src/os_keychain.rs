@@ -4,9 +4,19 @@ use crate::read_error::ReadError;
 
 const SERVICE: &str = "crowbar-desktop";
 
-/// Raw access to the OS keychain under the `crowbar-desktop` service.
+/// Raw access to the OS keychain under one service name.
 #[derive(Debug, Clone, Copy)]
-pub struct OsKeychain;
+pub struct OsKeychain {
+    service: &'static str,
+}
+
+impl OsKeychain {
+    /// The keychain the desktop app keeps its host credentials in (`crowbar-desktop`).
+    #[must_use]
+    pub const fn desktop() -> Self {
+        Self { service: SERVICE }
+    }
+}
 
 fn is_denial(error: &keyring::Error) -> bool {
     match error {
@@ -22,8 +32,11 @@ fn is_denial(error: &keyring::Error) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+const TRANSIENT_STATUSES: [i32; 5] = [-25308, -25291, -25292, -25294, -25295];
+
+#[cfg(target_os = "macos")]
 fn is_transient_status(code: i32) -> bool {
-    matches!(code, -25308 | -25291 | -25292 | -25294 | -25295)
+    TRANSIENT_STATUSES.contains(&code)
 }
 
 fn read_error(error: &keyring::Error) -> ReadError {
@@ -42,7 +55,7 @@ impl Keychain for OsKeychain {
         &self,
         host_id: &str,
     ) -> Result<Option<String>, ReadError> {
-        let entry = keyring::Entry::new(SERVICE, host_id).map_err(|e| read_error(&e))?;
+        let entry = keyring::Entry::new(self.service, host_id).map_err(|e| read_error(&e))?;
         match entry.get_password() {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -55,7 +68,7 @@ impl Keychain for OsKeychain {
         host_id: &str,
         entry: &str,
     ) -> Result<(), Error> {
-        let item = keyring::Entry::new(SERVICE, host_id).map_err(|e| store_error(&e))?;
+        let item = keyring::Entry::new(self.service, host_id).map_err(|e| store_error(&e))?;
         item.set_password(entry).map_err(|e| store_error(&e))
     }
 
@@ -63,7 +76,7 @@ impl Keychain for OsKeychain {
         &self,
         host_id: &str,
     ) -> Result<(), Error> {
-        let item = keyring::Entry::new(SERVICE, host_id).map_err(|e| store_error(&e))?;
+        let item = keyring::Entry::new(self.service, host_id).map_err(|e| store_error(&e))?;
         match item.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(store_error(&e)),

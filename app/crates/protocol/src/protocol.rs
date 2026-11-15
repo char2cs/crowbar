@@ -43,10 +43,7 @@ pub fn decode_shell_frame(text: &str) -> Result<ShellFrame> {
 
 fn check_size(size: usize) -> Result<()> {
     if size > MAX_FRAME_BYTES {
-        return Err(Error::FrameTooLarge {
-            size,
-            limit: MAX_FRAME_BYTES,
-        });
+        return Err(Error::frame_too_large(size, MAX_FRAME_BYTES));
     }
     Ok(())
 }
@@ -59,10 +56,7 @@ fn decode<T: DeserializeOwned>(text: &str) -> Result<T> {
         .and_then(|object| object.remove("sdk"))
         .and_then(|sdk| sdk.as_u64());
     if found != Some(u64::from(SDK_VERSION.major())) {
-        return Err(Error::UnsupportedSdk {
-            found,
-            expected: SDK_VERSION.major(),
-        });
+        return Err(Error::unsupported_sdk(found, SDK_VERSION.major()));
     }
     Ok(serde_json::from_value(value)?)
 }
@@ -73,12 +67,13 @@ mod tests {
 
     #[test]
     fn rejects_missing_or_foreign_sdk_version() {
-        for text in [
+        const CASES: [&str; 4] = [
             r#"{"kind":"pane.setTitle","title":"t"}"#,
             r#"{"sdk":2,"kind":"pane.setTitle","title":"t"}"#,
             r#"{"sdk":"1","kind":"pane.setTitle","title":"t"}"#,
             "[]",
-        ] {
+        ];
+        for text in CASES {
             assert!(
                 matches!(decode_pane_frame(text), Err(Error::UnsupportedSdk { .. })),
                 "{text}"
@@ -88,17 +83,13 @@ mod tests {
 
     #[test]
     fn rejects_garbage_and_unknown_kinds() {
-        assert!(
-            matches!(decode_pane_frame("nope"), Err(Error::Json(_))),
-            "garbage"
-        );
-        assert!(
-            matches!(
-                decode_pane_frame(r#"{"sdk":1,"kind":"pane.explode"}"#),
-                Err(Error::Json(_))
-            ),
-            "unknown kind"
-        );
+        const CASES: [&str; 2] = ["nope", r#"{"sdk":1,"kind":"pane.explode"}"#];
+        for text in CASES {
+            assert!(
+                matches!(decode_pane_frame(text), Err(Error::Json(_))),
+                "{text}"
+            );
+        }
     }
 
     #[test]

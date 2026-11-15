@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use http::{Method, Request, Response};
+use http::{Method, Request, Response, StatusCode};
 use tokio::net::UnixStream;
 
 use crate::error::Error;
@@ -58,6 +58,21 @@ where
     }
 }
 
+async fn connect_for<W, F>(
+    method: &Method,
+    locator: &dyn SocketLocator,
+    wait: W,
+) -> Result<UnixStream, Error>
+where
+    W: FnMut(u32) -> F,
+    F: Future<Output = ()>,
+{
+    if is_idempotent_read(method) {
+        return connect(locator, wait).await;
+    }
+    connect_once(locator).await
+}
+
 pub(crate) async fn forward_local<W, F>(
     locator: &dyn SocketLocator,
     request: Request<Vec<u8>>,
@@ -67,24 +82,23 @@ where
     W: FnMut(u32) -> F,
     F: Future<Output = ()>,
 {
-    let connected = if is_idempotent_read(request.method()) {
-        connect(locator, wait).await
-    } else {
-        connect_once(locator).await
-    };
-    let stream = match connected {
+    let stream = match connect_for(request.method(), locator, wait).await {
         Ok(stream) => stream,
         Err(e) => {
             tracing::debug!("local daemon unreachable: {e}");
-            return marked_response(503, DAEMON_UNAVAILABLE, UNREACHABLE_TEXT);
+            return marked_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                DAEMON_UNAVAILABLE,
+                UNREACHABLE_TEXT,
+            );
         },
     };
     match exchange(Box::new(stream), request, LOCAL_BODY_LIMIT).await {
         Ok(response) => response,
-        Err(Error::TooLarge) => error_response(502, "local response too large"),
+        Err(Error::TooLarge) => error_response(StatusCode::BAD_GATEWAY, "local response too large"),
         Err(e) => {
             tracing::debug!("local daemon exchange failed: {e}");
-            error_response(502, "crowbar proxy error")
+            error_response(StatusCode::BAD_GATEWAY, "crowbar proxy error")
         },
     }
 }
@@ -114,14 +128,39 @@ mod tests {
             .unwrap()
     }
 
+    /// (attempt, the wait before the next one)
+    const CASES: [(u32, Duration); 6] = [
+        (1, Duration::from_millis(25)),
+        (40, Duration::from_millis(25)),
+        (41, Duration::from_millis(100)),
+        (42, Duration::from_millis(200)),
+        (46, Duration::from_secs(1)),
+        (1000, Duration::from_secs(1)),
+    ];
+
     #[test]
     fn retries_poll_densely_then_back_off_to_a_cap() {
-        assert_eq!(connect_retry_delay(1), Duration::from_millis(25));
-        assert_eq!(connect_retry_delay(40), Duration::from_millis(25));
-        assert_eq!(connect_retry_delay(41), Duration::from_millis(100));
-        assert_eq!(connect_retry_delay(42), Duration::from_millis(200));
-        assert_eq!(connect_retry_delay(46), Duration::from_secs(1));
-        assert_eq!(connect_retry_delay(1000), Duration::from_secs(1));
+        for (attempt, wait) in CASES {
+            assert_eq!(connect_retry_delay(attempt), wait, "attempt {attempt}");
+        }
+    }
+
+    fn counting(waits: &AtomicU32) -> impl Fn(u32) -> std::future::Ready<()> + '_ {
+        |_| {
+            waits.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(())
+        }
+    }
+
+    fn binding_late<'a>(
+        attempts: &'a AtomicU32,
+        path: &'a std::path::Path,
+    ) -> impl Fn(u32) -> std::future::Ready<()> + 'a {
+        |attempt| {
+            attempts.store(attempt, Ordering::SeqCst);
+            bind_on_third_attempt(path, attempt);
+            std::future::ready(())
+        }
     }
 
     #[tokio::test]
@@ -130,11 +169,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = socket(&dir);
 
-        let answer = forward_local(&path, request(Method::GET), |_| {
-            waits.fetch_add(1, Ordering::SeqCst);
-            std::future::ready(())
-        })
-        .await;
+        let answer = forward_local(&path, request(Method::GET), counting(&waits)).await;
 
         assert_eq!(answer.status(), 503);
         assert_eq!(marker_of(&answer), Some(DAEMON_UNAVAILABLE));
@@ -152,11 +187,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = socket(&dir);
 
-        let answer = forward_local(&path, request(Method::POST), |_| {
-            waits.fetch_add(1, Ordering::SeqCst);
-            std::future::ready(())
-        })
-        .await;
+        let answer = forward_local(&path, request(Method::POST), counting(&waits)).await;
 
         assert_eq!(answer.status(), 503);
         assert_eq!(waits.load(Ordering::SeqCst), 0);
@@ -192,12 +223,8 @@ mod tests {
         let listener_path = path.clone();
         let attempts = AtomicU32::new(0);
 
-        let answer = forward_local(&path, request(Method::GET), |attempt| {
-            attempts.store(attempt, Ordering::SeqCst);
-            bind_on_third_attempt(&listener_path, attempt);
-            std::future::ready(())
-        })
-        .await;
+        let wait = binding_late(&attempts, &listener_path);
+        let answer = forward_local(&path, request(Method::GET), wait).await;
 
         assert_eq!(answer.status(), 200);
         assert_eq!(answer.body(), b"ok");

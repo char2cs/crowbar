@@ -37,11 +37,17 @@ async fn accept(
     listener: UnixListener,
     paths: Arc<Mutex<Vec<String>>>,
 ) {
-    loop {
-        let Ok((stream, _)) = listener.accept().await else {
-            return;
-        };
+    while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(echo(stream, Arc::clone(&paths)));
+    }
+}
+
+fn record_path(
+    paths: &Mutex<Vec<String>>,
+    request: &Request,
+) {
+    if let Ok(mut seen) = paths.lock() {
+        seen.push(request.uri().to_string());
     }
 }
 
@@ -50,9 +56,7 @@ async fn echo(
     paths: Arc<Mutex<Vec<String>>>,
 ) {
     let record = |request: &Request, response: Response| {
-        if let Ok(mut seen) = paths.lock() {
-            seen.push(request.uri().to_string());
-        }
+        record_path(&paths, request);
         Ok(response)
     };
     let Ok(ws) = tokio_tungstenite::accept_hdr_async_with_config(stream, record, Some(big())).await
@@ -60,12 +64,20 @@ async fn echo(
         return;
     };
     let (mut write, mut read) = ws.split();
-    while let Some(Ok(message)) = read.next().await {
-        let closing = message.is_close();
-        if write.send(message).await.is_err() || closing {
-            return;
-        }
-    }
+    while let Some(Ok(message)) = read.next().await
+        && echoed(&mut write, message).await
+    {}
+}
+
+async fn echoed<W>(
+    write: &mut W,
+    message: Message,
+) -> bool
+where
+    W: futures_util::Sink<Message> + Unpin,
+{
+    let closing = message.is_close();
+    write.send(message).await.is_ok() && !closing
 }
 
 fn big() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {

@@ -19,27 +19,27 @@ mod tests {
     use super::*;
     use crate::error::Error;
 
-    #[test]
-    fn accepts_local_and_paired_hosts() {
-        assert!(HostId::new("local").is_ok(), "local");
-        assert!(HostId::new("host-7b").is_ok(), "paired");
-    }
+    const CASES: [(&str, bool); 6] = [
+        ("local", true),
+        ("host-7b", true),
+        ("a/b", false),
+        ("Upper", false),
+        ("host_7", false),
+        ("", false),
+    ];
 
     #[test]
-    fn rejects_authority_breaking_text() {
+    fn validity_follows_the_hostname_alphabet() {
+        for (text, valid) in CASES {
+            assert_eq!(HostId::new(text).is_ok(), valid, "{text:?}");
+        }
         assert!(
             matches!(
                 HostId::new("a/b"),
                 Err(Error::InvalidIdCharacter { found: '/', .. })
             ),
-            "slash"
+            "slash names the offending character"
         );
-        assert!(HostId::new("Upper").is_err(), "upper case");
-        assert!(
-            HostId::new("host_7").is_err(),
-            "underscore is not a hostname character"
-        );
-        assert!(HostId::new("").is_err(), "empty");
     }
 
     #[test]

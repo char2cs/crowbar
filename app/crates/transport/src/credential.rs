@@ -5,6 +5,8 @@ use zeroize::Zeroizing;
 
 use crate::fingerprint::{CertificateDigest, hex};
 
+const HEX_RADIX: u32 = 16;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Credential {
     token: Zeroizing<String>,
@@ -63,7 +65,7 @@ fn parse_digest(text: &str) -> Option<CertificateDigest> {
         return None;
     }
     for (byte, pair) in digest.iter_mut().zip(text.as_bytes().chunks(2)) {
-        *byte = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+        *byte = u8::from_str_radix(std::str::from_utf8(pair).ok()?, HEX_RADIX).ok()?;
     }
     Some(digest)
 }

@@ -49,10 +49,10 @@ impl SdkVersion {
         shell: Self,
     ) -> Result<Self> {
         if self.major != shell.major {
-            return Err(Error::UnsupportedSdk {
-                found: Some(u64::from(self.major)),
-                expected: shell.major,
-            });
+            return Err(Error::unsupported_sdk(
+                Some(u64::from(self.major)),
+                shell.major,
+            ));
         }
         Ok(Self {
             major: shell.major,
@@ -86,10 +86,14 @@ impl<'de> Deserialize<'de> for SdkVersion {
     }
 }
 
+const MAX_VERSION_DIGITS: usize = 9;
+
 fn parse(text: &str) -> Option<SdkVersion> {
     let (major, minor) = text.split_once('.')?;
     let number = |part: &str| {
-        let plain = !part.is_empty() && part.len() <= 9 && part.bytes().all(|b| b.is_ascii_digit());
+        let plain = !part.is_empty()
+            && part.len() <= MAX_VERSION_DIGITS
+            && part.bytes().all(|b| b.is_ascii_digit());
         plain.then(|| part.parse().ok()).flatten()
     };
     Some(SdkVersion::new(number(major)?, number(minor)?))

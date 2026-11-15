@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use http::{HeaderValue, Request, Response, header};
+use http::{HeaderValue, Request, Response, StatusCode, header};
 use protocol::HostId;
 
 use crate::credential_io::load;
@@ -39,24 +39,23 @@ pub(crate) async fn paired_host(
 
 fn credential_response(error: &Error) -> Response<Vec<u8>> {
     let status = match error {
-        Error::UnknownHost(_) => 502,
-        Error::NoCredential => 401,
-        _ => 500,
+        Error::UnknownHost(_) => StatusCode::BAD_GATEWAY,
+        Error::NoCredential => StatusCode::UNAUTHORIZED,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
     };
     answer_for(status, error)
 }
 
 fn dial_response(error: &Error) -> Response<Vec<u8>> {
-    let status = if matches!(error, Error::HostUnreachable(_)) {
-        503
-    } else {
-        502
+    let status = match error {
+        Error::HostUnreachable(_) => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::BAD_GATEWAY,
     };
     answer_for(status, error)
 }
 
 fn answer_for(
-    status: u16,
+    status: StatusCode,
     error: &Error,
 ) -> Response<Vec<u8>> {
     match error.marker() {
@@ -84,10 +83,12 @@ pub(crate) async fn forward_remote(
     };
     match exchange(Box::new(tls), request, REMOTE_BODY_LIMIT).await {
         Ok(response) => response,
-        Err(Error::TooLarge) => error_response(502, "remote response too large"),
+        Err(Error::TooLarge) => {
+            error_response(StatusCode::BAD_GATEWAY, "remote response too large")
+        },
         Err(e) => {
             tracing::debug!("remote exchange failed: {e}");
-            error_response(502, "crowbar proxy error")
+            error_response(StatusCode::BAD_GATEWAY, "crowbar proxy error")
         },
     }
 }
@@ -96,6 +97,9 @@ pub(crate) async fn forward_remote(
 mod tests {
     use super::*;
     use crate::memory_token_store::MemoryTokenStore;
+    use crate::response::{
+        HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, NO_CREDENTIAL, UNKNOWN_HOST, marker_of,
+    };
 
     #[test]
     fn a_bearer_header_is_sensitive_and_refuses_newlines() {
@@ -124,31 +128,45 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn a_dial_failure_keeps_unreachable_and_impostor_apart() {
-        let outage = dial_response(&Error::HostUnreachable("down".into()));
-        let impostor = dial_response(&Error::IdentityChanged("changed".into()));
-        assert_eq!(outage.status(), 503);
-        assert_eq!(impostor.status(), 502);
-        assert_ne!(
-            outage.headers().get("x-crowbar-proxy"),
-            impostor.headers().get("x-crowbar-proxy")
-        );
+    type Respond = fn(&Error) -> Response<Vec<u8>>;
+
+    type Case = (Respond, Error, u16, Option<&'static str>);
+
+    fn cases() -> [Case; 4] {
+        [
+            (
+                dial_response,
+                Error::HostUnreachable("down".into()),
+                503,
+                Some(HOST_UNREACHABLE),
+            ),
+            (
+                dial_response,
+                Error::IdentityChanged("changed".into()),
+                502,
+                Some(HOST_IDENTITY_CHANGED),
+            ),
+            (
+                credential_response,
+                Error::NoCredential,
+                401,
+                Some(NO_CREDENTIAL),
+            ),
+            (
+                credential_response,
+                Error::UnknownHost(HostId::new("host-1").unwrap()),
+                502,
+                Some(UNKNOWN_HOST),
+            ),
+        ]
     }
 
     #[test]
-    fn a_missing_credential_or_host_is_marked_so_the_page_can_offer_pairing() {
-        let none = credential_response(&Error::NoCredential);
-        assert_eq!(none.status(), 401);
-        assert_eq!(
-            none.headers().get("x-crowbar-proxy").unwrap(),
-            "no-credential"
-        );
-        let unknown = credential_response(&Error::UnknownHost(HostId::new("host-1").unwrap()));
-        assert_eq!(unknown.status(), 502);
-        assert_eq!(
-            unknown.headers().get("x-crowbar-proxy").unwrap(),
-            "unknown-host"
-        );
+    fn each_failure_is_answered_with_its_status_and_a_marker_the_page_can_act_on() {
+        for (respond, error, status, marker) in cases() {
+            let answer = respond(&error);
+            assert_eq!(answer.status(), status, "{error}");
+            assert_eq!(marker_of(&answer), marker, "{error}");
+        }
     }
 }

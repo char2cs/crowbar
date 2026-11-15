@@ -22,10 +22,7 @@ impl PaneState {
         let mut counter = ByteCounter(0);
         serde_json::to_writer(&mut counter, &value)?;
         if counter.0 > MAX_STATE_BYTES {
-            return Err(Error::StateTooLarge {
-                size: counter.0,
-                limit: MAX_STATE_BYTES,
-            });
+            return Err(Error::state_too_large(counter.0, MAX_STATE_BYTES));
         }
         Ok(Self(value))
     }
@@ -62,18 +59,15 @@ mod tests {
         Value::String("x".repeat(len))
     }
 
-    #[test]
-    fn accepts_state_at_the_limit() {
-        let state = PaneState::new(string_of_len(MAX_STATE_BYTES - 2)).unwrap();
-        assert_eq!(
-            state.as_value().as_str().map(str::len),
-            Some(MAX_STATE_BYTES - 2),
-            "kept"
-        );
-    }
+    /// (string length, accepted)
+    const CASES: [(usize, bool); 2] = [(MAX_STATE_BYTES - 2, true), (MAX_STATE_BYTES - 1, false)];
 
     #[test]
-    fn rejects_state_one_byte_over() {
+    fn the_cap_is_inclusive_of_the_json_quotes() {
+        for (len, accepted) in CASES {
+            let result = PaneState::new(string_of_len(len));
+            assert_eq!(result.is_ok(), accepted, "len {len}");
+        }
         let err = PaneState::new(string_of_len(MAX_STATE_BYTES - 1)).unwrap_err();
         assert!(
             matches!(err, Error::StateTooLarge { size, .. } if size == MAX_STATE_BYTES + 1),

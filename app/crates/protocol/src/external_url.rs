@@ -10,24 +10,20 @@ fn has_allowed_scheme(value: &str) -> bool {
     SCHEMES.iter().any(|scheme| lowered.starts_with(scheme))
 }
 
+const SCHEME_REASON: &str = "must start with http://, https://, mailto: or tel:";
+
 fn validate(value: &str) -> Result<()> {
     if value.is_empty() {
         return Err(Error::EmptyId { kind: KIND });
     }
     if value.len() > MAX_URL_BYTES {
-        return Err(Error::IdTooLong {
-            kind: KIND,
-            max: MAX_URL_BYTES,
-        });
+        return Err(Error::too_long(KIND, MAX_URL_BYTES));
     }
     if let Some(found) = value.chars().find(|c| !c.is_ascii_graphic()) {
         return Err(Error::InvalidIdCharacter { kind: KIND, found });
     }
     if !has_allowed_scheme(value) {
-        return Err(Error::MalformedId {
-            kind: KIND,
-            reason: "must start with http://, https://, mailto: or tel:",
-        });
+        return Err(Error::malformed(KIND, SCHEME_REASON));
     }
     Ok(())
 }

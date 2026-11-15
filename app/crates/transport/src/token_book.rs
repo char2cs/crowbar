@@ -7,10 +7,11 @@ use sha2::{Digest, Sha256};
 use tokio::time::{Duration, Instant};
 
 use crate::error::Error;
+use crate::fingerprint::DIGEST_BYTES;
 
 const TOKEN_BYTES: usize = 32;
 
-type Digest32 = [u8; 32];
+type Digest32 = [u8; DIGEST_BYTES];
 
 pub(crate) struct TokenBook {
     entries: HashMap<Digest32, (RelayScope, Instant)>,

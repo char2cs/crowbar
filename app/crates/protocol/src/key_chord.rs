@@ -5,10 +5,7 @@ const MAX_CHORD_BYTES: usize = 64;
 
 fn validate(value: &str) -> Result<()> {
     if value.len() > MAX_CHORD_BYTES {
-        return Err(Error::IdTooLong {
-            kind: "key chord",
-            max: MAX_CHORD_BYTES,
-        });
+        return Err(Error::too_long("key chord", MAX_CHORD_BYTES));
     }
     check_text("key chord", value, |c| c.is_ascii_graphic())
 }

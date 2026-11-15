@@ -9,19 +9,13 @@ fn validate(value: &str) -> Result<()> {
         return Err(Error::EmptyId { kind: KIND });
     }
     if value.len() > MAX_PATH_BYTES {
-        return Err(Error::IdTooLong {
-            kind: KIND,
-            max: MAX_PATH_BYTES,
-        });
+        return Err(Error::too_long(KIND, MAX_PATH_BYTES));
     }
     if let Some(found) = value.chars().find(|c| c.is_control()) {
         return Err(Error::InvalidIdCharacter { kind: KIND, found });
     }
     if !value.starts_with('/') {
-        return Err(Error::MalformedId {
-            kind: KIND,
-            reason: "must be absolute",
-        });
+        return Err(Error::malformed(KIND, "must be absolute"));
     }
     Ok(())
 }

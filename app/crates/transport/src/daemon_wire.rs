@@ -1,5 +1,5 @@
 use http::uri::PathAndQuery;
-use http::{HeaderName, HeaderValue, Method, Request, Response, Uri};
+use http::{HeaderName, HeaderValue, Method, Request, Response, StatusCode, Uri};
 use protocol::{DaemonRequest, DaemonResponse, HostId, PaneOrigin};
 
 use crate::error::Error;
@@ -38,20 +38,24 @@ fn routed_uri(
     Ok(uri)
 }
 
+fn header_name(name: &str) -> Result<HeaderName, Error> {
+    HeaderName::from_bytes(name.as_bytes())
+        .map_err(|_| Error::InvalidRequest("a request header name is not valid"))
+}
+
+fn header_value(value: &str) -> Result<HeaderValue, Error> {
+    HeaderValue::from_str(value)
+        .map_err(|_| Error::InvalidRequest("a request header value is not valid"))
+}
+
 pub(crate) fn to_http(request: DaemonRequest) -> Result<Routed, Error> {
     let origin = request.origin().clone();
     let uri = routed_uri(authority(request.host()), request.target().as_str())?;
     let method = Method::from_bytes(request.method().as_str().as_bytes())
         .map_err(|_| Error::InvalidRequest("the request method is not valid"))?;
     let mut builder = Request::builder().method(method).uri(uri);
-    if let Some(headers) = builder.headers_mut() {
-        for (name, value) in request.headers() {
-            let name = HeaderName::from_bytes(name.as_bytes())
-                .map_err(|_| Error::InvalidRequest("a request header name is not valid"))?;
-            let value = HeaderValue::from_str(value)
-                .map_err(|_| Error::InvalidRequest("a request header value is not valid"))?;
-            headers.append(name, value);
-        }
+    for (name, value) in request.headers() {
+        builder = builder.header(header_name(name)?, header_value(value)?);
     }
     let http_request = builder
         .body(request.into_body())
@@ -60,10 +64,9 @@ pub(crate) fn to_http(request: DaemonRequest) -> Result<Routed, Error> {
 }
 
 pub(crate) fn refusal(error: &Error) -> DaemonResponse {
-    let status = if matches!(error, Error::Forbidden(_)) {
-        403
-    } else {
-        400
+    let status = match error {
+        Error::Forbidden(_) => StatusCode::FORBIDDEN,
+        _ => StatusCode::BAD_REQUEST,
     };
     from_http(error_response(status, &error.to_string()))
 }
@@ -131,7 +134,7 @@ mod tests {
 
     #[test]
     fn a_target_can_never_change_the_host_the_request_is_dialled_to() {
-        for target in [
+        const CASES: [&str; 8] = [
             "@host-2/v0/x",
             "-x/v0/x",
             ":80/v0/x",
@@ -140,7 +143,8 @@ mod tests {
             "//host-2/v0/x",
             "v0/x",
             "",
-        ] {
+        ];
+        for target in CASES {
             assert!(routed_uri("localhost", target).is_err(), "{target:?}");
         }
         let uri = routed_uri("localhost", "/v0/x@host-2/y").unwrap();
@@ -159,14 +163,15 @@ mod tests {
         let bad_value = request("local", "/v0/x")
             .with_headers(vec![("x-a".into(), "line\nbreak".into())])
             .unwrap();
-        for case in [bad_name, bad_value] {
+        let cases = [bad_name, bad_value];
+        for case in cases {
             assert!(matches!(to_http(case), Err(Error::InvalidRequest(_))));
         }
     }
 
     #[test]
     fn a_response_keeps_status_headers_and_body_and_non_ascii_values() {
-        let mut answer = error_response(503, "down");
+        let mut answer = error_response(StatusCode::SERVICE_UNAVAILABLE, "down");
         answer
             .headers_mut()
             .insert("x-extra", HeaderValue::from_static("1"));

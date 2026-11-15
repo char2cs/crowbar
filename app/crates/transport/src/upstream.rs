@@ -4,7 +4,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::{WebSocketStream, client_async_with_config};
 
-use crate::access_scope::stamp;
+use crate::access_scope::stamp_extension_header;
 use crate::async_stream::BoxedStream;
 use crate::dial::dial;
 use crate::error::Error;
@@ -28,7 +28,7 @@ fn upgrade_request(
     let mut request = format!("ws://localhost{path_and_query}")
         .into_client_request()
         .map_err(Error::websocket)?;
-    stamp(request.headers_mut(), origin);
+    stamp_extension_header(request.headers_mut(), origin);
     Ok(request)
 }
 

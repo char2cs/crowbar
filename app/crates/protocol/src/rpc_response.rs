@@ -45,14 +45,14 @@ impl TryFrom<RpcResponseWire> for RpcResponse {
             (Some(result), None) => RpcOutcome::Ok(result),
             (None, Some(error)) => RpcOutcome::Err(error),
             (Some(_), Some(_)) => {
-                return Err(Error::InvalidRequest {
-                    reason: "a response holds both a result and an error",
-                });
+                return Err(Error::invalid_request(
+                    "a response holds both a result and an error",
+                ));
             },
             (None, None) => {
-                return Err(Error::InvalidRequest {
-                    reason: "a response holds neither a result nor an error",
-                });
+                return Err(Error::invalid_request(
+                    "a response holds neither a result nor an error",
+                ));
             },
         };
         Ok(Self {
@@ -117,11 +117,12 @@ mod tests {
 
     #[test]
     fn both_or_neither_is_refused_on_the_wire() {
-        for wire in [
+        let cases = [
             json!({"id": 1}),
             json!({"id": 1, "result": 1, "error": {"code": "Timeout", "message": ""}}),
             json!({"id": 1, "result": null, "error": {"code": "Timeout", "message": ""}}),
-        ] {
+        ];
+        for wire in cases {
             assert!(
                 serde_json::from_value::<RpcResponse>(wire.clone()).is_err(),
                 "{wire}"

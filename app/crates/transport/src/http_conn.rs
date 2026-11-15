@@ -33,12 +33,17 @@ pub(crate) async fn open_channel(stream: BoxedStream) -> Result<Channel, Error> 
     let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
         .map_err(Error::exchange)?;
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::debug!("daemon connection ended: {e}");
-        }
-    });
+    tokio::spawn(drive(connection));
     Ok(sender)
+}
+
+async fn drive<I>(connection: hyper::client::conn::http1::Connection<I, Full<Bytes>>)
+where
+    I: hyper::rt::Read + hyper::rt::Write + Unpin,
+{
+    if let Err(e) = connection.await {
+        tracing::debug!("daemon connection ended: {e}");
+    }
 }
 
 pub(crate) fn strip_pane_headers(headers: &mut HeaderMap) {
@@ -86,10 +91,10 @@ pub(crate) async fn send(
         .await
         .map_err(Error::exchange)?;
     let (parts, body) = answer.into_parts();
-    let mut out = Response::new(collect_capped(body, body_limit).await?);
-    *out.status_mut() = parts.status;
-    copy_relayed_headers(&parts.headers, out.headers_mut());
-    Ok(out)
+    let mut relayed = Response::new(collect_capped(body, body_limit).await?);
+    *relayed.status_mut() = parts.status;
+    copy_relayed_headers(&parts.headers, relayed.headers_mut());
+    Ok(relayed)
 }
 
 pub(crate) async fn exchange(
@@ -140,36 +145,52 @@ mod tests {
         StreamBody::new(stream::iter(frames))
     }
 
-    #[tokio::test]
-    async fn an_oversized_answer_is_cut_off_while_it_streams() {
-        let pulled = Arc::new(AtomicUsize::new(0));
-        let err = collect_capped(counted_body(1024, Arc::clone(&pulled)), 4 * 1024)
-            .await
-            .unwrap_err();
-        assert!(matches!(err, Error::TooLarge));
-        assert!(pulled.load(Ordering::SeqCst) <= 5, "read the whole body");
+    const CHUNK: usize = 1024;
+    const LIMIT: usize = 4 * CHUNK;
+
+    /// (chunks the daemon would send, the relayed length or whether it was cut off as too large)
+    type Relayed = Result<usize, bool>;
+
+    const CASES: [(usize, Relayed); 2] = [(1024, Err(true)), (3, Ok(3 * CHUNK))];
+
+    async fn assert_relayed_or_cut_off() {
+        for (chunks, expected) in CASES {
+            let pulled = Arc::new(AtomicUsize::new(0));
+            let result = collect_capped(counted_body(chunks, Arc::clone(&pulled)), LIMIT).await;
+            let observed = result
+                .map(|body| body.len())
+                .map_err(|e| matches!(e, Error::TooLarge));
+            assert_eq!(observed, expected, "{chunks} chunks");
+            let read_at_most = chunks.min(LIMIT / CHUNK + 1);
+            assert!(
+                pulled.load(Ordering::SeqCst) <= read_at_most,
+                "read the whole body"
+            );
+        }
     }
 
     #[tokio::test]
-    async fn an_answer_within_the_limit_is_relayed_whole() {
-        let body = collect_capped(counted_body(3, Arc::default()), 4 * 1024)
-            .await
-            .unwrap();
-        assert_eq!(body.len(), 3 * 1024);
+    async fn an_answer_is_relayed_whole_within_the_limit_and_cut_off_while_it_streams_beyond() {
+        assert_relayed_or_cut_off().await;
+    }
+
+    async fn reply_once(
+        mut server: tokio::io::DuplexStream,
+        reply: Vec<u8>,
+    ) {
+        let mut buf = vec![0u8; 4096];
+        let read = server.read(&mut buf).await.unwrap_or(0);
+        assert!(read > 0, "the request arrived");
+        server.write_all(&reply).await.unwrap();
     }
 
     #[tokio::test]
     async fn the_daemon_cannot_answer_as_the_proxy() {
-        let (client, mut server) = tokio::io::duplex(4096);
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 4096];
-            let read = server.read(&mut buf).await.unwrap_or(0);
-            assert!(read > 0, "the request arrived");
-            let reply = format!(
-                "HTTP/1.1 200 OK\r\n{PROXY_HEADER}: host-unreachable\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
-            );
-            server.write_all(reply.as_bytes()).await.unwrap();
-        });
+        let (client, server) = tokio::io::duplex(4096);
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\n{PROXY_HEADER}: host-unreachable\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
+        );
+        tokio::spawn(reply_once(server, reply.into_bytes()));
         let request = Request::builder()
             .uri("crowbar://localhost/v0/x?a=1")
             .body(Vec::new())
@@ -214,6 +235,10 @@ mod tests {
         let head = echo_head(request).await;
         assert!(head.contains("x-pane: p1"), "{head}");
         assert!(head.contains("host: localhost"), "{head}");
+        assert_nothing_leaked(&head);
+    }
+
+    fn assert_nothing_leaked(head: &str) {
         for banned in ["evil.example", "pane-guess", "upgrade", "chunked", "999"] {
             assert!(
                 !head.contains(banned),
@@ -222,24 +247,21 @@ mod tests {
         }
     }
 
+    fn assert_hop_headers_dropped(answer: &Response<Vec<u8>>) {
+        for hop in ["transfer-encoding", "keep-alive", "connection"] {
+            assert!(answer.headers().get(hop).is_none(), "{hop}");
+        }
+    }
+
     #[tokio::test]
     async fn hop_by_hop_answer_headers_are_not_relayed_with_a_buffered_body() {
-        let (client, mut server) = tokio::io::duplex(4096);
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 4096];
-            let read = server.read(&mut buf).await.unwrap();
-            assert!(read > 0, "the request arrived");
-            server
-            .write_all(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nkeep-alive: timeout=5\r\nx-kept: 1\r\nconnection: close\r\n\r\n2\r\nok\r\n0\r\n\r\n")
-            .await
-            .unwrap();
-        });
+        let (client, server) = tokio::io::duplex(4096);
+        let reply = b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nkeep-alive: timeout=5\r\nx-kept: 1\r\nconnection: close\r\n\r\n2\r\nok\r\n0\r\n\r\n";
+        tokio::spawn(reply_once(server, reply.to_vec()));
         let request = Request::builder().uri("/v0/x").body(Vec::new()).unwrap();
         let answer = exchange(Box::new(client), request, 1024).await.unwrap();
         assert_eq!(answer.body(), b"ok");
         assert_eq!(answer.headers().get("x-kept").unwrap(), "1");
-        for hop in ["transfer-encoding", "keep-alive", "connection"] {
-            assert!(answer.headers().get(hop).is_none(), "{hop}");
-        }
+        assert_hop_headers_dropped(&answer);
     }
 }

@@ -5,7 +5,7 @@ use crate::string_id::string_id;
 pub const MAX_TARGET_BYTES: usize = 8 * 1024;
 
 fn invalid(reason: &'static str) -> Error {
-    Error::InvalidRequest { reason }
+    Error::invalid_request(reason)
 }
 
 fn validate(value: &str) -> Result<()> {

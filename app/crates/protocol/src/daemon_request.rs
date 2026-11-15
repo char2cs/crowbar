@@ -57,9 +57,9 @@ impl DaemonRequest {
             .map(|(name, value)| name.len() + value.len())
             .sum();
         if headers.len() > MAX_HEADERS || bytes > MAX_HEADER_BYTES {
-            return Err(Error::InvalidRequest {
-                reason: "too many or too large request headers",
-            });
+            return Err(Error::invalid_request(
+                "too many or too large request headers",
+            ));
         }
         self.headers = headers;
         Ok(self)

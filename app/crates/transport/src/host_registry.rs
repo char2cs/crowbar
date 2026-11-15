@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGua
 
 use protocol::HostId;
 
-use crate::blocking::blocking;
+use crate::blocking::run_blocking;
 use crate::endpoint::Endpoint;
 use crate::error::Error;
 use crate::host_target::check_registrable;
@@ -80,7 +80,7 @@ impl HostRegistry {
         endpoint: Endpoint,
     ) -> Result<(), Error> {
         let registry = Arc::clone(self);
-        blocking(move || registry.insert_blocking(host_id, endpoint)).await
+        run_blocking(move || registry.insert_blocking(host_id, endpoint)).await
     }
 
     /// Removes `host_id`; removing an unknown host is not an error.
@@ -92,7 +92,7 @@ impl HostRegistry {
         host_id: HostId,
     ) -> Result<(), Error> {
         let registry = Arc::clone(self);
-        blocking(move || registry.remove_blocking(&host_id)).await
+        run_blocking(move || registry.remove_blocking(&host_id)).await
     }
 
     pub(crate) fn insert_blocking(
@@ -170,10 +170,12 @@ mod tests {
         assert_eq!(registry.list().len(), 0);
     }
 
+    const CASES: [&str; 2] = ["local", "localhost"];
+
     #[test]
     fn ids_the_router_would_send_to_the_local_daemon_are_refused() {
         let registry = HostRegistry::in_memory();
-        for text in ["local", "localhost"] {
+        for text in CASES {
             assert!(
                 registry.insert_blocking(id(text), at("1.2.3.4:1")).is_err(),
                 "{text}"

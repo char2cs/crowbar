@@ -1,2 +1,4 @@
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ProxyAnswer;
+pub(crate) enum ProxyAnswer {
+    Proxy,
+}

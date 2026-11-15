@@ -23,11 +23,11 @@ use futures_util::{SinkExt, StreamExt};
 use protocol::{HostId, PaneId, PaneOrigin};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use transport::{RelayConfig, StreamAccess};
+use transport::{RelayConfig, StreamAccess, TOKEN_SUBPROTOCOL_PREFIX};
 
 use crate::echo_daemon::text;
 use crate::relay_rig::{CORE_ORIGIN, RelayRig};
-use crate::ws_client::{Client, Dial, status_of};
+use crate::ws_client::{Client, Dial, open_tcp, status_of};
 
 const STREAM: &str = "/v0/terminals/t1/stream";
 const BUDGET: Duration = Duration::from_secs(30);
@@ -52,41 +52,48 @@ async fn refused_with(dial: Dial) -> u16 {
 }
 
 async fn next_close(ws: &mut Client) -> Option<CloseCode> {
-    while let Some(Ok(message)) = ws.next().await {
-        if let Message::Close(frame) = message {
-            return frame.map(|f| f.code);
-        }
-    }
-    None
+    let closes = ws.filter_map(|item| {
+        std::future::ready(match item {
+            Ok(Message::Close(frame)) => Some(frame.map(|f| f.code)),
+            _ => None,
+        })
+    });
+    std::pin::pin!(closes).next().await.flatten()
 }
 
 async fn ended_without_data(ws: &mut Client) -> bool {
-    while let Some(Ok(message)) = ws.next().await {
-        match message {
-            Message::Close(_) => return true,
-            Message::Binary(_) => return false,
-            _ => {},
-        }
-    }
-    true
+    let verdicts = ws.filter_map(|item| {
+        std::future::ready(match item {
+            Ok(Message::Close(_)) => Some(true),
+            Ok(Message::Binary(_)) => Some(false),
+            _ => None,
+        })
+    });
+    std::pin::pin!(verdicts).next().await.unwrap_or(true)
 }
 
 async fn echoes(ws: &mut Client) -> bool {
     ws.send(text("probe")).await.is_ok() && matches!(ws.next().await, Some(Ok(Message::Text(_))))
 }
 
+async fn echoing_client(
+    rig: &RelayRig,
+    token: &str,
+) -> Option<Client> {
+    let mut ws = good(rig, token).connect().await.ok()?;
+    echoes(&mut ws).await.then_some(ws)
+}
+
 async fn reconnect(
     rig: &RelayRig,
     token: &str,
 ) -> Client {
-    loop {
-        if let Ok(mut ws) = good(rig, token).connect().await
-            && echoes(&mut ws).await
-        {
-            return ws;
-        }
+    let mut attempt = echoing_client(rig, token).await;
+    while attempt.is_none() {
         tokio::task::yield_now().await;
+        attempt = echoing_client(rig, token).await;
     }
+    attempt.expect("reconnected")
 }
 
 async fn refused_once_revoked(
@@ -136,13 +143,10 @@ async fn large_binary_frames_arrive_byte_identical() {
         ws.send(Message::Binary(frame.clone().into()))
             .await
             .unwrap();
-        let Message::Binary(echoed) = within(ws.next()).await.unwrap().unwrap() else {
-            panic!("a binary frame came back as another kind");
-        };
-        assert_eq!(echoed.len(), frame.len());
+        let echoed = within(ws.next()).await.unwrap().unwrap();
         assert!(
-            echoed.as_ref() == frame.as_slice(),
-            "payload changed in transit"
+            echoed == Message::Binary(frame.clone().into()),
+            "payload changed in transit or came back as another kind"
         );
     }
 }
@@ -178,64 +182,90 @@ async fn a_close_from_the_pane_is_echoed_with_its_code() {
     assert_eq!(closing, Some(CloseCode::Normal));
 }
 
+type Spoil = fn(&mut Dial);
+
+/// Each way a dial can be wrong, the single field it breaks, and the status it earns.
+const CASES: [(&str, Spoil, u16); 14] = [
+    (
+        "unknown token",
+        |dial| dial.protocols[1] = format!("{TOKEN_SUBPROTOCOL_PREFIX}not-a-token"),
+        401,
+    ),
+    ("missing token", |dial| dial.protocols.truncate(1), 401),
+    (
+        "missing relay subprotocol",
+        |dial| {
+            dial.protocols.remove(0);
+        },
+        400,
+    ),
+    ("no origin", |dial| dial.origins = vec![], 403),
+    (
+        "null origin",
+        |dial| dial.origins = vec!["null".to_owned()],
+        403,
+    ),
+    (
+        "foreign origin",
+        |dial| dial.origins = vec!["https://evil.example".to_owned()],
+        403,
+    ),
+    (
+        "origin with a suffix",
+        |dial| dial.origins = vec![format!("{CORE_ORIGIN}.evil.example")],
+        403,
+    ),
+    (
+        "origin with a slash",
+        |dial| dial.origins = vec![format!("{CORE_ORIGIN}/")],
+        403,
+    ),
+    (
+        "two origins",
+        |dial| dial.origins = vec![CORE_ORIGIN.to_owned(), CORE_ORIGIN.to_owned()],
+        403,
+    ),
+    (
+        "upper-cased origin",
+        |dial| dial.origins = vec![CORE_ORIGIN.to_uppercase()],
+        403,
+    ),
+    (
+        "rebound host name",
+        |dial| dial.host = Some(format!("evil.example:{}", dial.port)),
+        403,
+    ),
+    (
+        "host without a port",
+        |dial| dial.host = Some("127.0.0.1".to_owned()),
+        403,
+    ),
+    (
+        "localhost instead of the loopback address",
+        |dial| dial.host = Some(format!("localhost:{}", dial.port)),
+        403,
+    ),
+    (
+        "another port",
+        |dial| dial.host = Some(format!("127.0.0.1:{}", dial.port.wrapping_add(1))),
+        403,
+    ),
+];
+
 #[tokio::test]
-async fn an_unknown_missing_or_unrelated_token_is_refused_401() {
+async fn a_dial_that_breaks_one_rule_is_refused_with_that_rules_status() {
     let rig = rig().await;
-    assert_eq!(refused_with(good(&rig, "not-a-token")).await, 401);
-    let mut none = good(&rig, "x");
-    none.protocols.truncate(1);
-    assert_eq!(refused_with(none).await, 401);
+    let token = rig.core_token("p1");
+    for (name, spoil, status) in CASES {
+        let mut dial = good(&rig, &token);
+        spoil(&mut dial);
+        assert_eq!(refused_with(dial).await, status, "{name}");
+    }
     assert_eq!(
         rig.daemon.dialled().len(),
         0,
         "the daemon was never dialled"
     );
-}
-
-#[tokio::test]
-async fn a_missing_relay_subprotocol_is_a_bad_request() {
-    let rig = rig().await;
-    let token = rig.core_token("p1");
-    let mut dial = good(&rig, &token);
-    dial.protocols.remove(0);
-    assert_eq!(refused_with(dial).await, 400);
-}
-
-#[tokio::test]
-async fn origin_must_be_present_single_and_exact() {
-    let rig = rig().await;
-    let token = rig.core_token("p1");
-    for origins in [
-        vec![],
-        vec!["null".to_owned()],
-        vec!["https://evil.example".to_owned()],
-        vec![format!("{CORE_ORIGIN}.evil.example")],
-        vec![format!("{CORE_ORIGIN}/")],
-        vec![CORE_ORIGIN.to_owned(), CORE_ORIGIN.to_owned()],
-        vec![CORE_ORIGIN.to_uppercase()],
-    ] {
-        let mut dial = good(&rig, &token);
-        dial.origins = origins.clone();
-        assert_eq!(refused_with(dial).await, 403, "{origins:?}");
-    }
-    assert_eq!(rig.daemon.dialled().len(), 0);
-}
-
-#[tokio::test]
-async fn a_rebound_host_header_is_refused_before_anything_else() {
-    let rig = rig().await;
-    let token = rig.core_token("p1");
-    let port = rig.relay.addr().port();
-    for host in [
-        format!("evil.example:{port}"),
-        "127.0.0.1".to_owned(),
-        format!("localhost:{port}"),
-        format!("127.0.0.1:{}", port.wrapping_add(1)),
-    ] {
-        let mut dial = good(&rig, &token);
-        dial.host = Some(host.clone());
-        assert_eq!(refused_with(dial).await, 403, "{host}");
-    }
 }
 
 #[tokio::test]
@@ -246,14 +276,15 @@ async fn an_extension_token_reaches_only_its_own_extension_routes() {
     let origin = "crowbar-ext://acme";
     let dial = |path: &str, origin: &str| Dial::good(port, origin, &token, path);
     assert!(dial("/v0/ext/acme/events", origin).connect().await.is_ok());
-    for path in [
+    let cases = [
         "/v0/terminals/t1/stream",
         "/v0/ext/other/events",
         "/v0/ext/acme/../terminals/t1",
         "/v0/ext/acme/%2e%2e/x",
         "/v0/ext//acme/x",
         "/v0/ext/acmeevil/x",
-    ] {
+    ];
+    for path in cases {
         assert_eq!(refused_with(dial(path, origin)).await, 403, "{path}");
     }
     assert_eq!(
@@ -347,4 +378,48 @@ async fn removing_a_host_revokes_its_tokens() {
     let token = rig.relay.issue(&scope).unwrap().token().to_owned();
     rig.transport.remove_host(&id).await.unwrap();
     assert_eq!(within(refused_once_revoked(&rig, &token)).await, 401);
+}
+
+#[tokio::test]
+async fn the_relay_listens_on_loopback_only_and_names_its_port_in_the_endpoint() {
+    let rig = rig().await;
+    assert!(rig.relay.addr().is_ipv4() && rig.relay.addr().ip().is_loopback());
+    let scope = protocol::RelayScope::new(
+        HostId::new("local").unwrap(),
+        PaneId::new("p1").unwrap(),
+        PaneOrigin::Core,
+    );
+    let endpoint = rig.relay.issue(&scope).unwrap();
+    assert_eq!(
+        endpoint.url(),
+        format!("ws://127.0.0.1:{}", rig.relay.addr().port())
+    );
+    assert_eq!(endpoint.token().len(), 43);
+}
+
+async fn until_refused(port: u16) {
+    while open_tcp(port).await.is_ok() {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn shutting_down_stops_accepting_connections() {
+    let rig = rig().await;
+    rig.relay.shutdown();
+    within(until_refused(rig.relay.addr().port())).await;
+}
+
+#[tokio::test]
+async fn a_handshake_beyond_the_limit_is_answered_503_not_left_hanging() {
+    let config = RelayConfig {
+        max_handshakes: 1,
+        handshake_timeout: BUDGET,
+        ..RelayConfig::default()
+    };
+    let rig = RelayRig::start(config).await;
+    let silent = open_tcp(rig.relay.addr().port()).await.unwrap();
+    let token = rig.core_token("p1");
+    assert_eq!(refused_with(good(&rig, &token)).await, 503);
+    drop(silent);
 }

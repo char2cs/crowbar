@@ -1,8 +1,9 @@
+use std::convert::Infallible;
 use std::future::Future;
 use std::time::Duration;
 
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
@@ -80,17 +81,61 @@ where
     match message {
         Message::Text(_) | Message::Binary(_) => send_within(write, message, limit).await.err(),
         Message::Close(frame) => {
-            if let Err(why) = send_within(write, echoed_close(frame), limit).await {
-                tracing::debug!("close echo not delivered: {why:?}");
-            }
+            echo_close(write, frame, limit).await;
             Some(Ending::Closed)
         },
         _ => None,
     }
 }
 
-async fn pump<R, W>(
+async fn echo_close<W>(
+    write: &mut W,
+    frame: Option<CloseFrame>,
+    limit: Duration,
+) where
+    W: Sink<Message> + Unpin,
+{
+    if let Err(why) = send_within(write, echoed_close(frame), limit).await {
+        tracing::debug!("close echo not delivered: {why:?}");
+    }
+}
+
+async fn step<R, W>(
+    read: &mut R,
+    write: &mut W,
+    idle: Option<Duration>,
+    write_timeout: Duration,
+) -> Result<(), Ending>
+where
+    R: Stream<Item = Result<Message, WsError>> + Unpin,
+    W: Sink<Message> + Unpin,
+{
+    let ending = match next_within(read, idle).await {
+        Err(()) => Some(Ending::Idle),
+        Ok(None) => Some(Ending::Gone),
+        Ok(Some(Err(e))) => Some(ending_of(&e)),
+        Ok(Some(Ok(message))) => forward(message, write, write_timeout).await,
+    };
+    ending.map_or(Ok(()), Err)
+}
+
+async fn run<R, W>(
     mut read: R,
+    write: &mut W,
+    idle: Option<Duration>,
+    write_timeout: Duration,
+) -> Result<Infallible, Ending>
+where
+    R: Stream<Item = Result<Message, WsError>> + Unpin,
+    W: Sink<Message> + Unpin,
+{
+    loop {
+        step(&mut read, write, idle, write_timeout).await?;
+    }
+}
+
+async fn pump<R, W>(
+    read: R,
     write: &mut W,
     idle: Option<Duration>,
     write_timeout: Duration,
@@ -99,25 +144,18 @@ where
     R: Stream<Item = Result<Message, WsError>> + Unpin,
     W: Sink<Message> + Unpin,
 {
-    loop {
-        let ending = match next_within(&mut read, idle).await {
-            Err(()) => Some(Ending::Idle),
-            Ok(None) => Some(Ending::Gone),
-            Ok(Some(Err(e))) => Some(ending_of(&e)),
-            Ok(Some(Ok(message))) => forward(message, write, write_timeout).await,
-        };
-        if let Some(ending) = ending {
-            return ending;
-        }
-    }
+    let Err(ending) = run(read, write, idle, write_timeout).await;
+    ending
 }
 
-pub(crate) async fn bridge(
-    client: WebSocketStream<TcpStream>,
+pub(crate) async fn bridge<S>(
+    client: WebSocketStream<S>,
     upstream: UpstreamSocket,
     cancel: CancellationToken,
     limits: BridgeLimits,
-) {
+) where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let (mut client_write, client_read) = client.split();
     let (mut upstream_write, upstream_read) = upstream.split();
     let mut upload = Box::pin(pump(
@@ -219,18 +257,27 @@ async fn say_and_close<S>(
 ) where
     S: Sink<Message> + Unpin,
 {
-    let closing = async {
-        if let Some(message) = farewell
-            && sink.send(message).await.is_err()
-        {
-            return;
-        }
-        if sink.close().await.is_err() {
-            tracing::debug!("peer was already gone at close");
-        }
-    };
-    if tokio::time::timeout(grace, closing).await.is_err() {
+    if tokio::time::timeout(grace, farewell_then_close(sink, farewell))
+        .await
+        .is_err()
+    {
         tracing::debug!("peer did not take the close within the grace period");
+    }
+}
+
+async fn farewell_then_close<S>(
+    sink: &mut S,
+    farewell: Option<Message>,
+) where
+    S: Sink<Message> + Unpin,
+{
+    if let Some(message) = farewell
+        && sink.send(message).await.is_err()
+    {
+        return;
+    }
+    if sink.close().await.is_err() {
+        tracing::debug!("peer was already gone at close");
     }
 }
 
@@ -378,10 +425,9 @@ mod tests {
         assert_eq!(started.elapsed(), WRITE);
     }
 
-    #[tokio::test]
-    async fn an_oversized_or_malformed_message_is_named_not_reported_as_a_dropped_socket() {
+    async fn assert_named_endings() {
         use tokio_tungstenite::tungstenite::error::{CapacityError, ProtocolError};
-        for (error, ending) in [
+        let cases = [
             (
                 WsError::Capacity(CapacityError::MessageTooLong {
                     size: 2,
@@ -394,11 +440,17 @@ mod tests {
                 Ending::Protocol,
             ),
             (WsError::ConnectionClosed, Ending::Gone),
-        ] {
+        ];
+        for (error, ending) in cases {
             let mut out: Vec<Message> = Vec::new();
             let input = stream::iter(vec![Err::<Message, WsError>(error)]);
             assert_eq!(pump(input, &mut out, None, WRITE).await, ending);
         }
+    }
+
+    #[tokio::test]
+    async fn an_oversized_or_malformed_message_is_named_not_reported_as_a_dropped_socket() {
+        assert_named_endings().await;
     }
 
     #[tokio::test]
@@ -447,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pane_that_ends_the_stream_is_named_by_close_code_on_both_sides() {
+    fn a_client_that_ends_the_stream_is_named_by_close_code_on_both_sides() {
         assert_farewells(vec![
             (
                 Outcome::Upload(Ending::TooLarge),
@@ -470,6 +522,12 @@ mod tests {
                 Some(CloseCode::Error),
                 None,
             ),
+        ]);
+    }
+
+    #[test]
+    fn an_upstream_that_ends_the_stream_is_named_by_close_code_on_both_sides() {
+        assert_farewells(vec![
             (
                 Outcome::Download(Ending::Protocol),
                 Some(CloseCode::Error),

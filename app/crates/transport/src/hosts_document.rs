@@ -22,21 +22,37 @@ pub(crate) struct HostsDocument {
     hosts: Vec<HostEntry>,
 }
 
+fn unsupported_version(
+    path: &Path,
+    found: u32,
+) -> Error {
+    Error::HostsVersion {
+        path: path.to_path_buf(),
+        found,
+        supported: FILE_VERSION,
+    }
+}
+
+fn entries(hosts: &BTreeMap<HostId, Endpoint>) -> Vec<HostEntry> {
+    let entry = |(id, endpoint): (&HostId, &Endpoint)| HostEntry {
+        id: id.clone(),
+        endpoint: endpoint.clone(),
+    };
+    hosts.iter().map(entry).collect()
+}
+
 impl HostsDocument {
     pub(crate) fn parse(
         path: &Path,
         bytes: &[u8],
     ) -> Result<BTreeMap<HostId, Endpoint>, Error> {
-        let doc: Self = serde_json::from_slice(bytes).map_err(|source| Error::HostsCorrupt {
+        let corrupt = |source| Error::HostsCorrupt {
             path: path.to_path_buf(),
             source,
-        })?;
+        };
+        let doc: Self = serde_json::from_slice(bytes).map_err(corrupt)?;
         if doc.version != FILE_VERSION {
-            return Err(Error::HostsVersion {
-                path: path.to_path_buf(),
-                found: doc.version,
-                supported: FILE_VERSION,
-            });
+            return Err(unsupported_version(path, doc.version));
         }
         let invalid = |why: String| Error::HostsInvalid {
             path: path.to_path_buf(),
@@ -44,7 +60,7 @@ impl HostsDocument {
         };
         let mut hosts = BTreeMap::new();
         for entry in doc.hosts {
-            admit(&mut hosts, entry).map_err(invalid)?;
+            insert_registrable_host(&mut hosts, entry).map_err(invalid)?;
         }
         Ok(hosts)
     }
@@ -59,13 +75,7 @@ impl HostsDocument {
         };
         let doc = Self {
             version: FILE_VERSION,
-            hosts: hosts
-                .iter()
-                .map(|(id, endpoint)| HostEntry {
-                    id: id.clone(),
-                    endpoint: endpoint.clone(),
-                })
-                .collect(),
+            hosts: entries(hosts),
         };
         let bytes = serde_json::to_vec_pretty(&doc).map_err(|e| io(e.into()))?;
         if let Some(dir) = path.parent() {
@@ -119,7 +129,7 @@ fn stage_and_rename(
     std::fs::rename(staged, path)
 }
 
-fn admit(
+fn insert_registrable_host(
     hosts: &mut BTreeMap<HostId, Endpoint>,
     entry: HostEntry,
 ) -> Result<(), String> {
@@ -178,29 +188,31 @@ mod tests {
         assert!(!staged_name(&path).exists(), "no stray temp copy");
     }
 
+    const CASES: [(&str, &str); 6] = [
+        ("{not json", "corrupt"),
+        (r#"{"version":9,"hosts":[]}"#, "version 9"),
+        (
+            r#"{"version":1,"hosts":[{"id":"Bad Id","endpoint":"a:1"}]}"#,
+            "corrupt",
+        ),
+        (
+            r#"{"version":1,"hosts":[{"id":"ok","endpoint":"nope"}]}"#,
+            "corrupt",
+        ),
+        (
+            r#"{"version":1,"hosts":[{"id":"localhost","endpoint":"a:1"}]}"#,
+            "host localhost",
+        ),
+        (
+            r#"{"version":1,"hosts":[{"id":"a","endpoint":"a:1"},{"id":"a","endpoint":"b:2"}]}"#,
+            "host a is listed twice",
+        ),
+    ];
+
     #[test]
     fn a_corrupt_newer_or_unregistrable_file_is_an_error() {
         let path = PathBuf::from("hosts.json");
-        for (text, wanted) in [
-            ("{not json", "corrupt"),
-            (r#"{"version":9,"hosts":[]}"#, "version 9"),
-            (
-                r#"{"version":1,"hosts":[{"id":"Bad Id","endpoint":"a:1"}]}"#,
-                "corrupt",
-            ),
-            (
-                r#"{"version":1,"hosts":[{"id":"ok","endpoint":"nope"}]}"#,
-                "corrupt",
-            ),
-            (
-                r#"{"version":1,"hosts":[{"id":"localhost","endpoint":"a:1"}]}"#,
-                "host localhost",
-            ),
-            (
-                r#"{"version":1,"hosts":[{"id":"a","endpoint":"a:1"},{"id":"a","endpoint":"b:2"}]}"#,
-                "host a is listed twice",
-            ),
-        ] {
+        for (text, wanted) in CASES {
             let err = HostsDocument::parse(&path, text.as_bytes()).unwrap_err();
             assert!(err.to_string().contains(wanted), "{text}: {err}");
         }

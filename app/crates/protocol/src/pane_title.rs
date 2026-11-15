@@ -6,10 +6,7 @@ pub const MAX_TITLE_BYTES: usize = 256;
 
 fn validate(value: &str) -> Result<()> {
     if value.len() > MAX_TITLE_BYTES {
-        return Err(Error::IdTooLong {
-            kind: "pane title",
-            max: MAX_TITLE_BYTES,
-        });
+        return Err(Error::too_long("pane title", MAX_TITLE_BYTES));
     }
     match value.chars().find(|c| c.is_control()) {
         Some(found) => Err(Error::InvalidIdCharacter {

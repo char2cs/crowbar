@@ -35,10 +35,7 @@ impl ThemeTokens {
         })?;
         check_value(&value)?;
         if self.0.len() >= MAX_THEME_TOKENS && !self.0.contains_key(&name) {
-            return Err(Error::TooManyEntries {
-                kind: "theme",
-                max: MAX_THEME_TOKENS,
-            });
+            return Err(Error::too_many_entries("theme", MAX_THEME_TOKENS));
         }
         self.0.insert(name, value);
         Ok(self)
@@ -68,10 +65,7 @@ impl ThemeTokens {
 
 fn check_value(value: &str) -> Result<()> {
     if value.len() > MAX_VALUE_BYTES {
-        return Err(Error::IdTooLong {
-            kind: "theme token value",
-            max: MAX_VALUE_BYTES,
-        });
+        return Err(Error::too_long("theme token value", MAX_VALUE_BYTES));
     }
     match value.chars().find(|c| c.is_control()) {
         Some(found) => Err(Error::InvalidIdCharacter {

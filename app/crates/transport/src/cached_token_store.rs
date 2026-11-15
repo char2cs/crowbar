@@ -34,7 +34,7 @@ impl<K: Keychain> CachedTokenStore<K> {
 }
 
 impl<K: Keychain> TokenStore for CachedTokenStore<K> {
-    fn get(
+    fn load_entry(
         &self,
         host_id: &str,
     ) -> Result<Option<String>, Error> {
@@ -79,16 +79,43 @@ impl<K: Keychain> TokenStore for CachedTokenStore<K> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    #[derive(Clone, Copy)]
+    enum Failure {
+        Denied,
+        Locked,
+    }
+
+    fn read_error(failure: Failure) -> ReadError {
+        match failure {
+            Failure::Denied => ReadError {
+                message: "user denied".into(),
+                denied: true,
+            },
+            Failure::Locked => ReadError {
+                message: "keychain is locked".into(),
+                denied: false,
+            },
+        }
+    }
 
     #[derive(Default)]
     struct Counting {
         entries: Mutex<HashMap<String, String>>,
         reads: AtomicUsize,
-        deny: AtomicBool,
-        transient: AtomicBool,
+        failure: Mutex<Option<Failure>>,
+    }
+
+    impl Counting {
+        fn fail_with(
+            &self,
+            failure: Option<Failure>,
+        ) {
+            *self.failure.lock().unwrap() = failure;
+        }
     }
 
     impl Keychain for Arc<Counting> {
@@ -97,19 +124,11 @@ mod tests {
             host_id: &str,
         ) -> Result<Option<String>, ReadError> {
             self.reads.fetch_add(1, Ordering::SeqCst);
-            if self.deny.load(Ordering::SeqCst) {
-                return Err(ReadError {
-                    message: "user denied".into(),
-                    denied: true,
-                });
-            }
-            if self.transient.load(Ordering::SeqCst) {
-                return Err(ReadError {
-                    message: "keychain is locked".into(),
-                    denied: false,
-                });
-            }
-            Ok(self.entries.lock().unwrap().get(host_id).cloned())
+            let failure = *self.failure.lock().unwrap();
+            failure.map_or_else(
+                || Ok(self.entries.lock().unwrap().get(host_id).cloned()),
+                |failure| Err(read_error(failure)),
+            )
         }
 
         fn write(
@@ -147,31 +166,42 @@ mod tests {
             .unwrap()
             .insert("h".into(), "e".into());
         for _ in 0..3 {
-            assert_eq!(store.get("h").unwrap(), Some("e".into()));
-            assert_eq!(store.get("missing").unwrap(), None);
+            assert_eq!(store.load_entry("h").unwrap(), Some("e".into()));
+            assert_eq!(store.load_entry("missing").unwrap(), None);
         }
         assert_eq!(keychain.reads.load(Ordering::SeqCst), 2);
     }
 
+    /// (failure, keychain reads after two lookups): a denial is remembered, a locked keychain is retried.
+    const CASES: [(Failure, usize); 2] = [(Failure::Denied, 1), (Failure::Locked, 2)];
+
     #[test]
-    fn a_denial_is_remembered_until_the_host_is_paired_again() {
-        let (keychain, store) = store();
-        keychain.deny.store(true, Ordering::SeqCst);
-        assert!(store.get("h").is_err());
-        assert!(store.get("h").is_err());
-        assert_eq!(keychain.reads.load(Ordering::SeqCst), 1);
-        store.set("h", "fresh").unwrap();
-        assert_eq!(store.get("h").unwrap(), Some("fresh".into()));
+    fn only_a_denial_is_remembered_other_failures_are_retried() {
+        for (failure, reads) in CASES {
+            let (keychain, store) = store();
+            keychain.fail_with(Some(failure));
+            assert!(store.load_entry("h").is_err());
+            assert!(store.load_entry("h").is_err());
+            assert_eq!(keychain.reads.load(Ordering::SeqCst), reads);
+        }
     }
 
     #[test]
-    fn a_transient_failure_is_retried() {
+    fn pairing_again_clears_a_remembered_denial() {
         let (keychain, store) = store();
-        keychain.transient.store(true, Ordering::SeqCst);
-        assert!(store.get("h").is_err());
-        keychain.transient.store(false, Ordering::SeqCst);
-        assert_eq!(store.get("h").unwrap(), None);
-        assert_eq!(keychain.reads.load(Ordering::SeqCst), 2);
+        keychain.fail_with(Some(Failure::Denied));
+        assert!(store.load_entry("h").is_err());
+        store.set("h", "fresh").unwrap();
+        assert_eq!(store.load_entry("h").unwrap(), Some("fresh".into()));
+    }
+
+    #[test]
+    fn a_retried_failure_recovers_once_the_keychain_unlocks() {
+        let (keychain, store) = store();
+        keychain.fail_with(Some(Failure::Locked));
+        assert!(store.load_entry("h").is_err());
+        keychain.fail_with(None);
+        assert_eq!(store.load_entry("h").unwrap(), None);
     }
 
     #[test]
@@ -179,7 +209,7 @@ mod tests {
         let (keychain, store) = store();
         store.set("h", "e").unwrap();
         store.delete("h").unwrap();
-        assert_eq!(store.get("h").unwrap(), None);
+        assert_eq!(store.load_entry("h").unwrap(), None);
         assert_eq!(keychain.reads.load(Ordering::SeqCst), 0);
     }
 }

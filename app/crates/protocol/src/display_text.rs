@@ -6,10 +6,7 @@ pub const MAX_DISPLAY_TEXT_BYTES: usize = 1024;
 
 fn validate(value: &str) -> Result<()> {
     if value.len() > MAX_DISPLAY_TEXT_BYTES {
-        return Err(Error::IdTooLong {
-            kind: "display text",
-            max: MAX_DISPLAY_TEXT_BYTES,
-        });
+        return Err(Error::too_long("display text", MAX_DISPLAY_TEXT_BYTES));
     }
     Ok(())
 }

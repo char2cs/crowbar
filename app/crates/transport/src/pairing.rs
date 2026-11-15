@@ -78,7 +78,7 @@ async fn record(
             cause: e.to_string(),
             rollback: "the host list is unchanged".to_owned(),
         })?;
-    let Err(e) = credential_io::keep(tokens, host_id, &redeemed.credential).await else {
+    let Err(e) = credential_io::persist_credential(tokens, host_id, &redeemed.credential).await else {
         return Ok(());
     };
     Err(Unrecorded {
@@ -179,6 +179,16 @@ fn peer_digest(tls: &TlsStream<TcpStream>) -> Option<CertificateDigest> {
     chain.first().map(|cert| certificate_digest(cert))
 }
 
+fn refusal(
+    status: http::StatusCode,
+    reason: &str,
+) -> Error {
+    Error::Refused {
+        status: status.as_u16(),
+        reason: reason.to_owned(),
+    }
+}
+
 fn pairing_answer(response: &Response<Vec<u8>>) -> Result<(String, String), Error> {
     let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap_or_default();
     if !response.status().is_success() {
@@ -186,10 +196,7 @@ fn pairing_answer(response: &Response<Vec<u8>>) -> Result<(String, String), Erro
             .get("error")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("no reason given");
-        return Err(Error::Refused {
-            status: response.status().as_u16(),
-            reason: reason.to_owned(),
-        });
+        return Err(refusal(response.status(), reason));
     }
     let field = |name: &'static str| {
         body.get("data")
@@ -215,34 +222,41 @@ mod tests {
         response
     }
 
-    #[test]
-    fn a_pairing_answer_yields_its_token_and_client_id() {
-        let ok = answer(200, r#"{"data":{"token":"t","clientId":"c1"}}"#);
-        assert_eq!(pairing_answer(&ok).unwrap(), ("t".into(), "c1".into()));
+    fn verdict(response: &Response<Vec<u8>>) -> String {
+        match pairing_answer(response) {
+            Ok((token, client)) => format!("paired {token}/{client}"),
+            Err(Error::Refused { status, reason }) => format!("refused {status}: {reason}"),
+            Err(Error::MissingField(name)) => format!("missing {name}"),
+            Err(other) => panic!("unexpected {other}"),
+        }
     }
 
-    #[test]
-    fn a_refusal_carries_the_hosts_reason() {
-        let refused = answer(403, r#"{"error":"code expired"}"#);
-        let err = pairing_answer(&refused).unwrap_err();
-        assert!(err.to_string().contains("code expired"), "{err}");
-    }
-
-    #[test]
-    fn an_answer_without_a_token_or_client_id_is_refused() {
-        for body in [
-            r#"{"data":{"clientId":"c"}}"#,
+    /// (status, body, verdict)
+    const CASES: [(u16, &str, &str); 6] = [
+        (
+            200,
+            r#"{"data":{"token":"t","clientId":"c1"}}"#,
+            "paired t/c1",
+        ),
+        (
+            403,
+            r#"{"error":"code expired"}"#,
+            "refused 403: code expired",
+        ),
+        (200, r#"{"data":{"clientId":"c"}}"#, "missing token"),
+        (
+            200,
             r#"{"data":{"token":" ","clientId":"c"}}"#,
-            r#"{"data":{"token":"t"}}"#,
-            "nonsense",
-        ] {
-            assert!(
-                matches!(
-                    pairing_answer(&answer(200, body)),
-                    Err(Error::MissingField(_))
-                ),
-                "{body}"
-            );
+            "missing token",
+        ),
+        (200, r#"{"data":{"token":"t"}}"#, "missing clientId"),
+        (200, "nonsense", "missing token"),
+    ];
+
+    #[test]
+    fn a_pairing_answer_yields_its_credentials_or_names_what_went_wrong() {
+        for (status, body, expected) in CASES {
+            assert_eq!(verdict(&answer(status, body)), expected, "{body}");
         }
     }
 }

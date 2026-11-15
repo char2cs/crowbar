@@ -32,7 +32,7 @@ impl RelayState {
         self.tokens.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(crate) fn admit(
+    pub(crate) fn admit_stream(
         &self,
         token: &str,
         accept: impl FnOnce(&RelayScope) -> Result<(), StatusCode>,
@@ -129,14 +129,14 @@ mod tests {
     async fn a_pane_revoked_between_the_token_check_and_the_open_stream_leaves_no_stream() {
         let state = state_with(HostRegistry::in_memory());
         let token = issue(&state, scope("p1", "local"));
-        let (_, guard) = state.admit(&token, |_| Ok(())).unwrap();
+        let (_, guard) = state.admit_stream(&token, |_| Ok(())).unwrap();
         state.revoke_pane(&PaneId::new("p1").unwrap());
         assert!(
             guard.cancelled().is_cancelled(),
             "registered before the revoke, so cancelled by it"
         );
         assert_eq!(
-            state.admit(&token, |_| Ok(())).err(),
+            state.admit_stream(&token, |_| Ok(())).err(),
             Some(StatusCode::UNAUTHORIZED),
             "revoked before the check, so refused"
         );
@@ -147,7 +147,7 @@ mod tests {
         let state = state_with(HostRegistry::in_memory());
         let token = issue(&state, scope("p1", "local"));
         assert_eq!(
-            state.admit(&token, |_| Err(StatusCode::FORBIDDEN)).err(),
+            state.admit_stream(&token, |_| Err(StatusCode::FORBIDDEN)).err(),
             Some(StatusCode::FORBIDDEN)
         );
         assert!(
@@ -159,20 +159,16 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn removing_a_host_revokes_its_tokens_and_streams_but_not_local_ones() {
-        let state = state_with(HostRegistry::in_memory());
-        let remote = issue(&state, scope("p1", "host-1"));
-        let local = issue(&state, scope("p2", "local"));
-        let (_, remote_guard) = state.admit(&remote, |_| Ok(())).unwrap();
-        let (_, local_guard) = state.admit(&local, |_| Ok(())).unwrap();
-        state.revoke_host(&HostId::new("host-1").unwrap());
-        assert!(remote_guard.cancelled().is_cancelled());
-        assert!(!local_guard.cancelled().is_cancelled());
-    }
+    type Revoke = fn(&RelayState);
 
-    #[tokio::test]
-    async fn reconciling_drops_every_host_the_registry_no_longer_lists() {
+    /// Both ways a host leaves (it is removed, or the follower fell behind and reconciles) must
+    /// cancel exactly the streams and tokens of hosts the registry no longer lists.
+    const CASES: [Revoke; 2] = [
+        |state| state.revoke_host(&HostId::new("gone").unwrap()),
+        RelayState::revoke_unregistered_hosts,
+    ];
+
+    fn assert_only_the_departed_host_is_revoked(revoke: Revoke) {
         let registry = HostRegistry::in_memory();
         registry
             .insert_blocking(
@@ -184,14 +180,27 @@ mod tests {
         let kept = issue(&state, scope("p1", "kept"));
         let gone = issue(&state, scope("p2", "gone"));
         let local = issue(&state, scope("p3", "local"));
-        let (_, gone_guard) = state.admit(&gone, |_| Ok(())).unwrap();
-        state.revoke_unregistered_hosts();
+        let (_, kept_guard) = state.admit_stream(&kept, |_| Ok(())).unwrap();
+        let (_, gone_guard) = state.admit_stream(&gone, |_| Ok(())).unwrap();
+        let (_, local_guard) = state.admit_stream(&local, |_| Ok(())).unwrap();
+
+        revoke(&state);
+
         assert!(gone_guard.cancelled().is_cancelled());
+        assert!(!kept_guard.cancelled().is_cancelled());
+        assert!(!local_guard.cancelled().is_cancelled());
         assert_eq!(
-            state.admit(&gone, |_| Ok(())).err(),
+            state.admit_stream(&gone, |_| Ok(())).err(),
             Some(StatusCode::UNAUTHORIZED)
         );
-        assert!(state.admit(&kept, |_| Ok(())).is_ok());
-        assert!(state.admit(&local, |_| Ok(())).is_ok());
+        assert!(state.admit_stream(&kept, |_| Ok(())).is_ok());
+        assert!(state.admit_stream(&local, |_| Ok(())).is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_host_that_leaves_loses_its_tokens_and_streams_but_neither_local_nor_listed_ones() {
+        CASES
+            .into_iter()
+            .for_each(assert_only_the_departed_host_is_revoked);
     }
 }

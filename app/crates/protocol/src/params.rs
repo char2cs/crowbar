@@ -35,10 +35,7 @@ impl Params {
         let (key, value) = (key.into(), value.into());
         check_entry(&key, &value)?;
         if self.0.len() >= MAX_PARAMS && !self.0.contains_key(&key) {
-            return Err(Error::TooManyEntries {
-                kind: "params",
-                max: MAX_PARAMS,
-            });
+            return Err(Error::too_many_entries("params", MAX_PARAMS));
         }
         self.0.insert(key, value);
         Ok(self)
@@ -70,10 +67,7 @@ fn check_entry(
     value: &str,
 ) -> Result<()> {
     if key.len() > MAX_KEY_BYTES {
-        return Err(Error::IdTooLong {
-            kind: "param key",
-            max: MAX_KEY_BYTES,
-        });
+        return Err(Error::too_long("param key", MAX_KEY_BYTES));
     }
     check_text("param key", key, |c| {
         c.is_ascii_alphanumeric() || matches!(c, '-' | '_')
@@ -125,14 +119,15 @@ mod tests {
 
     #[test]
     fn keys_and_values_stay_inside_their_alphabets() {
-        for (key, value) in [
+        const CASES: [(&str, &str); 6] = [
             ("", "v"),
             ("a b", "v"),
             ("k.k", "v"),
             ("k", ""),
             ("k", "a b"),
             ("k", "a/b"),
-        ] {
+        ];
+        for (key, value) in CASES {
             assert!(
                 Params::default().with(key, value).is_err(),
                 "{key:?}={value:?}"

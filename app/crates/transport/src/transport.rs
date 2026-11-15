@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use http::{Request, Response, header};
+use http::{Request, Response, StatusCode, header};
 use protocol::{HostId, PaneOrigin};
 use tokio::sync::broadcast;
 
@@ -110,7 +110,10 @@ impl Transport {
         let response = match tokio::time::timeout(PROXY_TIMEOUT, self.route(origin, request)).await
         {
             Ok(response) => response,
-            Err(_) => error_response(504, "crowbar daemon did not answer in time"),
+            Err(_) => error_response(
+                StatusCode::GATEWAY_TIMEOUT,
+                "crowbar daemon did not answer in time",
+            ),
         };
         readable_by(page_origin, response)
     }
@@ -124,15 +127,18 @@ impl Transport {
             || request.uri().path().to_owned(),
             |pq| pq.as_str().to_owned(),
         );
-        if access_scope::check(origin, &target_text).is_err() {
-            return error_response(403, "crowbar api is not available to this origin");
+        if access_scope::ensure_path_allowed(origin, &target_text).is_err() {
+            return error_response(
+                StatusCode::FORBIDDEN,
+                "crowbar api is not available to this origin",
+            );
         }
         let target = match target_of(request.uri()) {
             Ok(target) => target,
-            Err(e) => return error_response(400, &e.to_string()),
+            Err(e) => return error_response(StatusCode::BAD_REQUEST, &e.to_string()),
         };
         strip_pane_headers(request.headers_mut());
-        access_scope::stamp(request.headers_mut(), origin);
+        access_scope::stamp_extension_header(request.headers_mut(), origin);
         match target {
             HostTarget::Local => self.forward_to_local(request).await,
             HostTarget::Remote(id) => {
@@ -186,32 +192,39 @@ mod tests {
         Request::builder().uri(uri).body(Vec::new()).unwrap()
     }
 
-    #[tokio::test]
-    async fn a_path_outside_the_scope_never_reaches_a_daemon() {
-        let transport = transport(std::env::temp_dir().join("cb-none.sock"));
+    type Case = (PaneOrigin, &'static str, u16, Option<&'static str>);
+
+    fn cases() -> [Case; 4] {
         let extension = PaneOrigin::Extension(protocol::ExtensionId::new("acme").unwrap());
-        let answer = transport
-            .handle(&extension, get("crowbar://localhost/v0/projects"))
-            .await;
-        assert_eq!(answer.status(), 403);
-        let answer = transport
-            .handle(&PaneOrigin::Core, get("crowbar://localhost/debug/pprof"))
-            .await;
-        assert_eq!(answer.status(), 403);
+        [
+            (extension, "crowbar://localhost/v0/projects", 403, None),
+            (
+                PaneOrigin::Core,
+                "crowbar://localhost/debug/pprof",
+                403,
+                None,
+            ),
+            (PaneOrigin::Core, "crowbar://Host_1/v0/x", 400, None),
+            (
+                PaneOrigin::Core,
+                "crowbar://host-9/v0/x",
+                502,
+                Some(crate::response::UNKNOWN_HOST),
+            ),
+        ]
+    }
+
+    async fn assert_answers(subject: &Transport) {
+        for (origin, uri, status, marker) in cases() {
+            let answer = subject.handle(&origin, get(uri)).await;
+            assert_eq!(answer.status(), status, "{uri}");
+            assert_eq!(marker_of(&answer), marker, "{uri}");
+        }
     }
 
     #[tokio::test]
-    async fn a_malformed_authority_is_a_bad_request_and_an_unknown_host_a_bad_gateway() {
-        let transport = transport(std::env::temp_dir().join("cb-none.sock"));
-        let bad = transport
-            .handle(&PaneOrigin::Core, get("crowbar://Host_1/v0/x"))
-            .await;
-        assert_eq!(bad.status(), 400);
-        let unknown = transport
-            .handle(&PaneOrigin::Core, get("crowbar://host-9/v0/x"))
-            .await;
-        assert_eq!(unknown.status(), 502);
-        assert_eq!(marker_of(&unknown), Some(crate::response::UNKNOWN_HOST));
+    async fn a_request_that_cannot_be_routed_is_answered_without_reaching_a_daemon() {
+        assert_answers(&transport(std::env::temp_dir().join("cb-none.sock"))).await;
     }
 
     #[tokio::test]
@@ -228,7 +241,7 @@ mod tests {
         transport.remove_host(&id).await.unwrap();
         assert_eq!(removed.recv().await.unwrap(), id);
         assert_eq!(
-            tokens.get("host-1").unwrap(),
+            tokens.load_entry("host-1").unwrap(),
             None,
             "the keychain entry is deleted"
         );
@@ -237,7 +250,7 @@ mod tests {
     struct StuckStore;
 
     impl TokenStore for StuckStore {
-        fn get(
+        fn load_entry(
             &self,
             _: &str,
         ) -> Result<Option<String>, Error> {
@@ -289,11 +302,12 @@ mod tests {
 
     #[test]
     fn an_authority_that_holds_more_than_a_host_is_refused() {
-        for uri in [
+        const CASES: [&str; 3] = [
             "crowbar://user@host-1/v0/x",
             "crowbar://localhost@host-2/v0/x",
             "crowbar://host-1:99/v0/x",
-        ] {
+        ];
+        for uri in CASES {
             let uri: http::Uri = uri.parse().unwrap();
             assert!(target_of(&uri).is_err(), "{uri}");
         }

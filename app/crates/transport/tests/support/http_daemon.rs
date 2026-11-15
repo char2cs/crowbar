@@ -54,16 +54,47 @@ fn parse_head(head: &str) -> Option<Head> {
     Some((method, target, headers))
 }
 
+fn head_end(buffered: &[u8]) -> Option<usize> {
+    buffered
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|at| at + 4)
+}
+
+fn render_reply(
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: &str,
+) -> String {
+    let mut reply = format!("HTTP/1.1 {status} X\r\ncontent-length: {}\r\n", body.len());
+    for (name, value) in headers {
+        write!(reply, "{name}: {value}\r\n").ok();
+    }
+    reply.push_str("\r\n");
+    reply.push_str(body);
+    reply
+}
+
+async fn answer<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    handler: &Handler,
+    log: &Log,
+    seen: Seen,
+) -> bool {
+    let (status, headers, body) = handler(&seen);
+    log.lock().expect("log lock").push(seen);
+    let reply = render_reply(status, headers, &body);
+    stream.write_all(reply.as_bytes()).await.is_ok()
+}
+
 async fn read_request<S: AsyncRead + Unpin>(
     stream: &mut S,
     buffered: &mut Vec<u8>,
 ) -> Option<Seen> {
-    let end = loop {
-        if let Some(at) = buffered.windows(4).position(|w| w == b"\r\n\r\n") {
-            break at + 4;
-        }
+    while head_end(buffered).is_none() {
         fill(stream, buffered).await?;
-    };
+    }
+    let end = head_end(buffered)?;
     let (method, target, headers) = parse_head(&String::from_utf8_lossy(buffered.get(..end)?))?;
     let length = headers
         .iter()
@@ -92,17 +123,7 @@ pub(crate) async fn serve_http<S>(
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut buffered = Vec::new();
-    while let Some(seen) = read_request(&mut stream, &mut buffered).await {
-        let (status, headers, body) = handler(&seen);
-        log.lock().expect("log lock").push(seen);
-        let mut reply = format!("HTTP/1.1 {status} X\r\ncontent-length: {}\r\n", body.len());
-        for (name, value) in headers {
-            write!(reply, "{name}: {value}\r\n").ok();
-        }
-        reply.push_str("\r\n");
-        reply.push_str(&body);
-        if stream.write_all(reply.as_bytes()).await.is_err() {
-            return;
-        }
-    }
+    while let Some(seen) = read_request(&mut stream, &mut buffered).await
+        && answer(&mut stream, &handler, &log, seen).await
+    {}
 }

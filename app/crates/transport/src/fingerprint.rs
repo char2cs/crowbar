@@ -1,7 +1,8 @@
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 
-pub(crate) type CertificateDigest = [u8; 32];
+pub(crate) const DIGEST_BYTES: usize = 32;
+pub(crate) type CertificateDigest = [u8; DIGEST_BYTES];
 
 const DISPLAY_BYTES: usize = 12;
 const GROUP_CHARS: usize = 4;

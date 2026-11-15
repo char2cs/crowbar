@@ -117,7 +117,7 @@ async fn pairing_with_the_confirmed_fingerprint_registers_the_host_and_requests_
     assert!(rig.registry.get(&id).is_some());
     assert!(
         rig.tokens
-            .get("host-1")
+            .load_entry("host-1")
             .unwrap()
             .is_some_and(|entry| entry.contains(TOKEN))
     );
@@ -130,31 +130,50 @@ async fn pairing_with_the_confirmed_fingerprint_registers_the_host_and_requests_
     assert_eq!(sent.header("authorization"), Some("Bearer tok-1"));
 }
 
-#[tokio::test]
-async fn pairing_against_a_different_certificate_leaves_no_trace() {
-    let host = host().await;
-    let rig = rig();
-    let wrong = fingerprint_of(&identity().cert);
-    let error = pair(&rig, &host, &wrong, "good").await.unwrap_err();
-    assert!(matches!(error, Error::IdentityChanged(_)), "{error}");
-    assert_eq!(rig.registry.list().len(), 0);
-    assert!(rig.tokens.get("host-1").unwrap().is_none());
-    assert_eq!(
-        host.requests().len(),
-        0,
-        "no request, and so no code, reached the impostor"
-    );
+enum Fingerprint {
+    Pinned,
+    Other,
 }
 
+type Refusal = fn(&Error) -> bool;
+
+/// (fingerprint the shell confirmed, code typed, how the failure reads, requests the host saw)
+type Case = (Fingerprint, &'static str, Refusal, usize);
+
+const CASES: [Case; 2] = [
+    (
+        Fingerprint::Other,
+        "good",
+        |error| matches!(error, Error::IdentityChanged(_)),
+        0,
+    ),
+    (
+        Fingerprint::Pinned,
+        "stale",
+        |error| error.to_string().contains("code expired"),
+        1,
+    ),
+];
+
 #[tokio::test]
-async fn a_refused_code_is_reported_and_nothing_is_stored() {
-    let host = host().await;
-    let rig = rig();
-    let error = pair(&rig, &host, &fingerprint_of(&host.cert_der), "stale")
-        .await
-        .unwrap_err();
-    assert!(error.to_string().contains("code expired"), "{error}");
-    assert_eq!(rig.registry.list().len(), 0);
+async fn a_refused_pairing_is_reported_and_leaves_no_trace() {
+    for (fingerprint, code, reads_as, seen) in CASES {
+        let host = host().await;
+        let rig = rig();
+        let confirmed = match fingerprint {
+            Fingerprint::Pinned => fingerprint_of(&host.cert_der),
+            Fingerprint::Other => fingerprint_of(&identity().cert),
+        };
+        let error = pair(&rig, &host, &confirmed, code).await.unwrap_err();
+        assert!(reads_as(&error), "{code}: {error}");
+        assert_eq!(rig.registry.list().len(), 0);
+        assert!(rig.tokens.load_entry("host-1").unwrap().is_none());
+        assert_eq!(
+            host.requests().len(),
+            seen,
+            "{code}: requests that reached the host"
+        );
+    }
 }
 
 #[tokio::test]
@@ -215,10 +234,12 @@ async fn an_unreachable_host_is_marked_unreachable() {
 }
 
 #[derive(Debug)]
-struct FullKeychain;
+struct FullKeychain {
+    complaint: &'static str,
+}
 
 impl TokenStore for FullKeychain {
-    fn get(
+    fn load_entry(
         &self,
         _host_id: &str,
     ) -> Result<Option<String>, Error> {
@@ -230,7 +251,7 @@ impl TokenStore for FullKeychain {
         _host_id: &str,
         _entry: &str,
     ) -> Result<(), Error> {
-        Err(Error::Store("the keychain is full".into()))
+        Err(Error::Store(self.complaint.into()))
     }
 
     fn delete(
@@ -245,7 +266,9 @@ impl TokenStore for FullKeychain {
 async fn a_token_the_keychain_cannot_keep_is_revoked_on_the_host() {
     let host = host().await;
     let registry = Arc::new(HostRegistry::in_memory());
-    let tokens: Arc<dyn TokenStore> = Arc::new(FullKeychain);
+    let tokens: Arc<dyn TokenStore> = Arc::new(FullKeychain {
+        complaint: "the keychain is full",
+    });
     let endpoint = host.endpoint();
     let fingerprint = fingerprint_of(&host.cert_der);
     let pairing = request(&endpoint, &fingerprint, "good");

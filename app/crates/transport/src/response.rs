@@ -18,21 +18,21 @@ pub const UNKNOWN_HOST: &str = "unknown-host";
 
 #[must_use]
 pub(crate) fn error_response(
-    status: u16,
+    status: StatusCode,
     message: &str,
 ) -> Response<Vec<u8>> {
     let mut response = Response::new(message.as_bytes().to_vec());
-    *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
+    *response.status_mut() = status;
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
-    response.extensions_mut().insert(ProxyAnswer);
+    response.extensions_mut().insert(ProxyAnswer::Proxy);
     response
 }
 
 #[must_use]
 pub(crate) fn marked_response(
-    status: u16,
+    status: StatusCode,
     marker: &'static str,
     message: &str,
 ) -> Response<Vec<u8>> {
@@ -82,7 +82,7 @@ mod tests {
         let page = HeaderValue::from_static("crowbar-pane://app");
         let own = readable_by(
             Some(page.clone()),
-            marked_response(503, HOST_UNREACHABLE, "down"),
+            marked_response(StatusCode::SERVICE_UNAVAILABLE, HOST_UNREACHABLE, "down"),
         );
         assert_eq!(
             own.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
@@ -101,17 +101,12 @@ mod tests {
 
     #[test]
     fn no_origin_means_no_cors_headers() {
-        let answer = readable_by(None, error_response(502, "x"));
+        let answer = readable_by(None, error_response(StatusCode::BAD_GATEWAY, "x"));
         assert!(
             answer
                 .headers()
                 .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
                 .is_none()
         );
-    }
-
-    #[test]
-    fn an_unrepresentable_status_becomes_a_bad_gateway() {
-        assert_eq!(error_response(99, "x").status(), StatusCode::BAD_GATEWAY);
     }
 }

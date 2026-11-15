@@ -49,9 +49,7 @@ impl Dial {
         if !self.protocols.is_empty() {
             headers.insert(SEC_WEBSOCKET_PROTOCOL, header(&self.protocols.join(", ")));
         }
-        let tcp = TcpStream::connect(("127.0.0.1", self.port))
-            .await
-            .map_err(WsError::Io)?;
+        let tcp = open_tcp(self.port).await.map_err(WsError::Io)?;
         let config = WebSocketConfig::default()
             .max_message_size(None)
             .max_frame_size(None);
@@ -60,6 +58,11 @@ impl Dial {
             .await
             .map(|(ws, _)| ws)
     }
+}
+
+/// A bare TCP connection to the relay: the one place the relay tests touch a real loopback socket.
+pub(crate) async fn open_tcp(port: u16) -> std::io::Result<TcpStream> {
+    TcpStream::connect(("127.0.0.1", port)).await
 }
 
 fn header(value: &str) -> HeaderValue {

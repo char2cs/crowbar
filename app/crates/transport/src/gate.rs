@@ -70,7 +70,7 @@ fn inspect(
         .ok_or(StatusCode::UNAUTHORIZED)?;
     let upstream_idle = requested_idle(&offered)?;
     let path_and_query = request.uri().path_and_query().map_or("/", |pq| pq.as_str());
-    let (scope, guard) = state.admit(token, |scope| {
+    let (scope, guard) = state.admit_stream(token, |scope| {
         permitted(state, scope, origin, path_and_query)
     })?;
     Ok(Admission {
@@ -90,7 +90,7 @@ fn permitted(
     if !state.policy.allows(scope, origin) {
         return Err(StatusCode::FORBIDDEN);
     }
-    access_scope::check(scope.origin(), path_and_query).map_err(|_| StatusCode::FORBIDDEN)
+    access_scope::ensure_path_allowed(scope.origin(), path_and_query).map_err(|_| StatusCode::FORBIDDEN)
 }
 
 fn requested_idle(offered: &[String]) -> Result<Option<Duration>, StatusCode> {
@@ -197,6 +197,13 @@ mod tests {
         PaneOrigin::Extension(ExtensionId::new("acme").unwrap())
     }
 
+    fn offer_protocol(
+        builder: http::request::Builder,
+        protocol: &String,
+    ) -> http::request::Builder {
+        builder.header(header::SEC_WEBSOCKET_PROTOCOL, protocol)
+    }
+
     struct Dial<'a> {
         host: Option<String>,
         origins: Vec<&'a str>,
@@ -218,16 +225,16 @@ mod tests {
         }
 
         fn request(&self) -> Request {
-            let mut builder = http::Request::builder().uri(self.target);
-            if let Some(host) = &self.host {
-                builder = builder.header(header::HOST, host);
-            }
-            for origin in &self.origins {
-                builder = builder.header(header::ORIGIN, *origin);
-            }
-            for protocol in &self.protocols {
-                builder = builder.header(header::SEC_WEBSOCKET_PROTOCOL, protocol);
-            }
+            let builder = http::Request::builder().uri(self.target);
+            let builder = self
+                .host
+                .iter()
+                .fold(builder, |b, host| b.header(header::HOST, host));
+            let builder = self
+                .origins
+                .iter()
+                .fold(builder, |b, origin| b.header(header::ORIGIN, *origin));
+            let builder = self.protocols.iter().fold(builder, offer_protocol);
             builder.body(()).unwrap()
         }
     }
@@ -241,44 +248,70 @@ mod tests {
         assert_eq!(admission.scope.pane().as_str(), "p1");
     }
 
+    type Spoil = fn(&mut Dial<'_>);
+
+    /// Each way a dial can be wrong, the single field it breaks, and the status it earns.
+    const CASES: [(&str, Spoil, StatusCode); 8] = [
+        (
+            "wrong host",
+            |dial| dial.host = Some("evil.example:4242".into()),
+            StatusCode::FORBIDDEN,
+        ),
+        ("no host", |dial| dial.host = None, StatusCode::FORBIDDEN),
+        (
+            "no origin",
+            |dial| dial.origins = vec![],
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "two origins",
+            |dial| dial.origins = vec![ORIGIN, ORIGIN],
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "foreign origin",
+            |dial| dial.origins = vec!["https://evil.example"],
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "no relay protocol",
+            |dial| {
+                dial.protocols.remove(0);
+            },
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "no token",
+            |dial| dial.protocols.truncate(1),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            "unknown token",
+            |dial| dial.protocols[1] = format!("{TOKEN_SUBPROTOCOL_PREFIX}not-a-token"),
+            StatusCode::UNAUTHORIZED,
+        ),
+    ];
+
+    fn assert_each_check_refuses(
+        state: &RelayState,
+        token: &str,
+    ) {
+        for (name, spoil, status) in CASES {
+            let mut dial = Dial::good(token);
+            spoil(&mut dial);
+            assert_eq!(
+                inspect(state, &dial.request()).err(),
+                Some(status),
+                "{name}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn each_check_refuses_on_its_own() {
         let state = state();
         let token = issue(&state, PaneOrigin::Core);
-        let refused = |dial: Dial<'_>| inspect(&state, &dial.request()).err();
-
-        let mut wrong_host = Dial::good(&token);
-        wrong_host.host = Some("evil.example:4242".into());
-        assert_eq!(refused(wrong_host), Some(StatusCode::FORBIDDEN));
-
-        let mut no_host = Dial::good(&token);
-        no_host.host = None;
-        assert_eq!(refused(no_host), Some(StatusCode::FORBIDDEN));
-
-        let mut no_origin = Dial::good(&token);
-        no_origin.origins = vec![];
-        assert_eq!(refused(no_origin), Some(StatusCode::FORBIDDEN));
-
-        let mut two_origins = Dial::good(&token);
-        two_origins.origins = vec![ORIGIN, ORIGIN];
-        assert_eq!(refused(two_origins), Some(StatusCode::FORBIDDEN));
-
-        let mut foreign_origin = Dial::good(&token);
-        foreign_origin.origins = vec!["https://evil.example"];
-        assert_eq!(refused(foreign_origin), Some(StatusCode::FORBIDDEN));
-
-        let mut no_relay_protocol = Dial::good(&token);
-        no_relay_protocol.protocols.remove(0);
-        assert_eq!(refused(no_relay_protocol), Some(StatusCode::BAD_REQUEST));
-
-        let mut no_token = Dial::good(&token);
-        no_token.protocols.truncate(1);
-        assert_eq!(refused(no_token), Some(StatusCode::UNAUTHORIZED));
-
-        assert_eq!(
-            refused(Dial::good("not-a-token")),
-            Some(StatusCode::UNAUTHORIZED)
-        );
+        assert_each_check_refuses(&state, &token);
     }
 
     #[tokio::test]
@@ -287,18 +320,22 @@ mod tests {
         let token = issue(&state, acme());
         let mut dial = Dial::good(&token);
         dial.origins = vec!["crowbar-ext://acme"];
-        dial.target = "/v0/ext/acme/stream";
-        assert!(inspect(&state, &dial.request()).is_ok());
-        dial.target = "/v0/terminals/t1/stream";
-        assert_eq!(
-            inspect(&state, &dial.request()).err(),
-            Some(StatusCode::FORBIDDEN)
-        );
-        dial.target = "/v0/ext/other/stream";
-        assert_eq!(
-            inspect(&state, &dial.request()).err(),
-            Some(StatusCode::FORBIDDEN)
-        );
+        assert_routes(&state, dial);
+    }
+
+    fn assert_routes(
+        state: &RelayState,
+        mut dial: Dial<'_>,
+    ) {
+        let routes = [
+            ("/v0/ext/acme/stream", None),
+            ("/v0/terminals/t1/stream", Some(StatusCode::FORBIDDEN)),
+            ("/v0/ext/other/stream", Some(StatusCode::FORBIDDEN)),
+        ];
+        for (target, refusal) in routes {
+            dial.target = target;
+            assert_eq!(inspect(state, &dial.request()).err(), refusal, "{target}");
+        }
     }
 
     #[test]
@@ -341,27 +378,39 @@ mod tests {
         assert!(inspect(&state, &Dial::good(&token).request()).is_ok());
     }
 
-    #[tokio::test]
-    async fn a_pane_may_ask_for_its_own_idle_limit_within_bounds() {
-        let state = state();
-        let token = issue(&state, PaneOrigin::Core);
-        let with_idle = |seconds: &str| {
-            let mut dial = Dial::good(&token);
-            dial.protocols
-                .push(format!("{IDLE_SUBPROTOCOL_PREFIX}{seconds}"));
-            inspect(&state, &dial.request())
-        };
-        let idle = |seconds: &str| with_idle(seconds).unwrap().upstream_idle;
-        assert_eq!(idle("30"), Some(Duration::from_secs(30)));
-        assert_eq!(idle("1"), Some(Duration::from_secs(MIN_IDLE_SECONDS)));
-        assert_eq!(idle("999999"), Some(Duration::from_secs(MAX_IDLE_SECONDS)));
+    fn with_idle(
+        state: &RelayState,
+        token: &str,
+        seconds: &str,
+    ) -> Result<Admission, StatusCode> {
+        let mut dial = Dial::good(token);
+        dial.protocols
+            .push(format!("{IDLE_SUBPROTOCOL_PREFIX}{seconds}"));
+        inspect(state, &dial.request())
+    }
+
+    fn assert_bad_idles_refused(
+        state: &RelayState,
+        token: &str,
+    ) {
         for bad in ["", "-1", "soon", "1.5"] {
             assert_eq!(
-                with_idle(bad).err(),
+                with_idle(state, token, bad).err(),
                 Some(StatusCode::BAD_REQUEST),
                 "{bad:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_pane_may_ask_for_its_own_idle_limit_within_bounds() {
+        let state = state();
+        let token = issue(&state, PaneOrigin::Core);
+        let idle = |seconds: &str| with_idle(&state, &token, seconds).unwrap().upstream_idle;
+        assert_eq!(idle("30"), Some(Duration::from_secs(30)));
+        assert_eq!(idle("1"), Some(Duration::from_secs(MIN_IDLE_SECONDS)));
+        assert_eq!(idle("999999"), Some(Duration::from_secs(MAX_IDLE_SECONDS)));
+        assert_bad_idles_refused(&state, &token);
         let plain = inspect(&state, &Dial::good(&token).request()).unwrap();
         assert_eq!(plain.upstream_idle, None);
     }

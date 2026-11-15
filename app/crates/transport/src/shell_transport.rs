@@ -68,7 +68,7 @@ async fn answer(
     let queued = tokio::time::timeout(PROXY_TIMEOUT, limits.acquire(&host)).await;
     let Ok(Some(_slot)) = queued else {
         return from_http(crate::response::error_response(
-            503,
+            http::StatusCode::SERVICE_UNAVAILABLE,
             "too many requests are waiting for this host",
         ));
     };
@@ -195,12 +195,18 @@ mod tests {
         assert_eq!(answer.status(), 403);
     }
 
+    fn forward_to(
+        sender: tokio::sync::oneshot::Sender<Result<DaemonResponse, protocol::Error>>
+    ) -> Responder {
+        Box::new(move |result| {
+            sender.send(result).ok();
+        })
+    }
+
     #[tokio::test]
     async fn a_reply_the_runtime_never_ran_is_answered_interrupted() {
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        let respond: Responder = Box::new(move |result| {
-            sender.send(result).ok();
-        });
+        let respond = forward_to(sender);
         drop(Reply::new(respond));
         assert!(matches!(
             receiver.await.unwrap(),
@@ -222,16 +228,25 @@ mod tests {
         );
     }
 
+    type Kind = fn(&protocol::Error) -> bool;
+
+    fn cases() -> [(Error, Kind); 2] {
+        [
+            (
+                Error::UnknownHost(HostId::new("host-1").unwrap()),
+                |mapped| matches!(mapped, protocol::Error::UnknownHost(_)),
+            ),
+            (Error::Forbidden("x".into()), |mapped| {
+                matches!(mapped, protocol::Error::HostUnavailable(_))
+            }),
+        ]
+    }
+
     #[test]
     fn errors_map_to_the_protocol_kinds() {
-        let id = HostId::new("host-1").unwrap();
-        assert!(matches!(
-            into_protocol(Error::UnknownHost(id)),
-            protocol::Error::UnknownHost(_)
-        ));
-        assert!(matches!(
-            into_protocol(Error::Forbidden("x".into())),
-            protocol::Error::HostUnavailable(_)
-        ));
+        for (error, is_expected) in cases() {
+            let described = error.to_string();
+            assert!(is_expected(&into_protocol(error)), "{described}");
+        }
     }
 }

@@ -6,10 +6,7 @@ fn validate(value: &str) -> Result<()> {
         c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
     })?;
     if value.starts_with(|c: char| !c.is_ascii_lowercase()) {
-        return Err(Error::MalformedId {
-            kind: "extension id",
-            reason: "must start with a letter",
-        });
+        return Err(Error::malformed("extension id", "must start with a letter"));
     }
     Ok(())
 }

@@ -38,13 +38,12 @@ impl ServerCertVerifier for PinnedVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, TlsError> {
-        if self.pin.matches(end_entity.as_ref()) {
-            Ok(ServerCertVerified::assertion())
-        } else {
-            Err(TlsError::InvalidCertificate(
+        if !self.pin.matches(end_entity.as_ref()) {
+            return Err(TlsError::InvalidCertificate(
                 CertificateError::ApplicationVerificationFailure,
-            ))
+            ));
         }
+        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
@@ -84,7 +83,7 @@ mod tests {
     use crate::fingerprint::{certificate_digest, fingerprint_of};
     use rustls::client::danger::ServerCertVerifier;
     use rustls::crypto::aws_lc_rs;
-    // DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
+    // PLATFORM: DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
     use rustls::internal::msgs::codec::Codec;
     use rustls::pki_types::{
         CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,
@@ -147,7 +146,6 @@ mod tests {
     ) -> Result<(), TlsError> {
         let provider = Arc::new(aws_lc_rs::default_provider());
         let signing_key = provider.key_provider.load_private_key(key)?;
-        // CertifiedKey::new skips the cert/key match check, as an attacker's server would.
         let resolver = SingleCertAndKey::from(CertifiedKey::new(vec![cert.clone()], signing_key));
         let server_config = rustls::ServerConfig::builder_with_provider(provider)
             .with_protocol_versions(versions)?
@@ -167,125 +165,126 @@ mod tests {
                 !(to_server.is_empty() && to_client.is_empty()),
                 "handshake stalled"
             );
-            let mut inbound = to_server.as_slice();
-            while !inbound.is_empty() {
-                server.read_tls(&mut inbound).unwrap();
-                server.process_new_packets()?;
-            }
-            let mut inbound = to_client.as_slice();
-            while !inbound.is_empty() {
-                client.read_tls(&mut inbound).unwrap();
-                client.process_new_packets()?;
-            }
+            deliver(&mut server, &to_server)?;
+            deliver(&mut client, &to_client)?;
         }
         Ok(())
     }
 
+    fn deliver<Side>(
+        connection: &mut rustls::ConnectionCommon<Side>,
+        mut inbound: &[u8],
+    ) -> Result<(), TlsError> {
+        while !inbound.is_empty() {
+            connection.read_tls(&mut inbound).unwrap();
+            connection.process_new_packets()?;
+        }
+        Ok(())
+    }
+
+    #[derive(Clone, Copy)]
+    enum Signer {
+        Pinned,
+        Attacker,
+    }
+
+    fn bad_signature() -> TlsError {
+        TlsError::InvalidCertificate(CertificateError::BadSignature)
+    }
+
+    /// (who signs, expected `verify_tls13_signature`/`verify_tls12_signature` result)
+    const SIGNATURES: [(Signer, bool); 2] = [(Signer::Attacker, false), (Signer::Pinned, true)];
+
     #[test]
-    fn handshake_signature_from_a_key_other_than_the_pinned_certs_is_rejected() {
-        let (cert, _) = generate_identity();
-        let verifier = verifier_pinned_to(fingerprint_of(&cert));
-        let forged = sign(&attacker_key(), TRANSCRIPT);
+    fn handshake_signature_is_accepted_only_from_the_pinned_certs_key() {
+        for (signer, accepted) in SIGNATURES {
+            let (cert, key) = generate_identity();
+            let verifier = verifier_pinned_to(fingerprint_of(&cert));
+            let signed = match signer {
+                Signer::Pinned => sign(&key, TRANSCRIPT),
+                Signer::Attacker => sign(&attacker_key(), TRANSCRIPT),
+            };
+            let expected = accepted.then_some(()).ok_or_else(bad_signature);
 
-        let tls13 = verifier.verify_tls13_signature(TRANSCRIPT, &cert, &forged);
-        let tls12 = verifier.verify_tls12_signature(TRANSCRIPT, &cert, &forged);
+            let tls13 = verifier.verify_tls13_signature(TRANSCRIPT, &cert, &signed);
+            let tls12 = verifier.verify_tls12_signature(TRANSCRIPT, &cert, &signed);
 
-        let bad_signature = TlsError::InvalidCertificate(CertificateError::BadSignature);
-        assert!(
-            matches!(&tls13, Err(e) if *e == bad_signature),
-            "expected TLS 1.3 to reject an attacker-key signature, got {tls13:?}"
-        );
-        assert!(
-            matches!(&tls12, Err(e) if *e == bad_signature),
-            "expected TLS 1.2 to reject an attacker-key signature, got {tls12:?}"
-        );
+            assert_eq!(tls13.map(|_| ()), expected, "TLS 1.3");
+            assert_eq!(tls12.map(|_| ()), expected, "TLS 1.2");
+        }
+    }
+
+    const TLS12_ONLY: &[&SupportedProtocolVersion] = &[&rustls::version::TLS12];
+
+    /// (who signs the handshake, protocol versions the server speaks, expected outcome)
+    type Handshake = (
+        Signer,
+        &'static [&'static SupportedProtocolVersion],
+        Result<(), TlsError>,
+    );
+
+    fn handshake_cases() -> [Handshake; 3] {
+        [
+            (
+                Signer::Attacker,
+                rustls::DEFAULT_VERSIONS,
+                Err(TlsError::InvalidCertificate(CertificateError::BadSignature)),
+            ),
+            (Signer::Pinned, rustls::DEFAULT_VERSIONS, Ok(())),
+            (
+                Signer::Pinned,
+                TLS12_ONLY,
+                Err(TlsError::PeerIncompatible(
+                    PeerIncompatible::Tls12NotOfferedOrEnabled,
+                )),
+            ),
+        ]
     }
 
     #[test]
-    fn handshake_signature_from_the_pinned_certs_key_is_accepted() {
-        let (cert, key) = generate_identity();
-        let verifier = verifier_pinned_to(fingerprint_of(&cert));
-        let genuine = sign(&key, TRANSCRIPT);
-
-        let tls13 = verifier.verify_tls13_signature(TRANSCRIPT, &cert, &genuine);
-        let tls12 = verifier.verify_tls12_signature(TRANSCRIPT, &cert, &genuine);
-
-        assert!(tls13.is_ok(), "expected TLS 1.3 to accept, got {tls13:?}");
-        assert!(tls12.is_ok(), "expected TLS 1.2 to accept, got {tls12:?}");
+    fn the_handshake_completes_only_for_the_pinned_key_over_tls13() {
+        for (signer, versions, expected) in handshake_cases() {
+            let (cert, key) = generate_identity();
+            let key = match signer {
+                Signer::Pinned => key,
+                Signer::Attacker => attacker_key(),
+            };
+            assert_eq!(handshake(&cert, key, versions), expected);
+        }
     }
 
-    #[test]
-    fn server_replaying_the_pinned_cert_without_its_key_fails_the_handshake() {
-        let (cert, _) = generate_identity();
+    /// (does the verifier pin the presented certificate, expected `verify_server_cert` result)
+    type Verdict = Result<(), TlsError>;
 
-        let result = handshake(&cert, attacker_key(), rustls::DEFAULT_VERSIONS);
-
-        assert_eq!(
-            result,
-            Err(TlsError::InvalidCertificate(CertificateError::BadSignature)),
-            "expected the MITM handshake to fail on its forged signature"
-        );
-    }
-
-    #[test]
-    fn server_holding_the_pinned_certs_key_completes_the_handshake() {
-        let (cert, key) = generate_identity();
-
-        let result = handshake(&cert, key, rustls::DEFAULT_VERSIONS);
-
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn server_offering_only_tls12_is_refused() {
-        let (cert, key) = generate_identity();
-
-        let result = handshake(&cert, key, &[&rustls::version::TLS12]);
-
-        assert_eq!(
-            result,
-            Err(TlsError::PeerIncompatible(
-                PeerIncompatible::Tls12NotOfferedOrEnabled
+    const CERTIFICATES: [(bool, Verdict); 2] = [
+        (true, Ok(())),
+        (
+            false,
+            Err(TlsError::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure,
             )),
-            "expected the pinned client not to offer TLS 1.2"
-        );
-    }
+        ),
+    ];
 
     #[test]
-    fn verify_server_cert_accepts_the_matching_fingerprint() {
-        let (der, _) = generate_identity();
-        let verifier = verifier_pinned_to(fingerprint_of(&der));
-        let server_name = ServerName::try_from("localhost").unwrap();
+    fn verify_server_cert_accepts_only_the_pinned_fingerprint() {
+        for (pinned, expected) in CERTIFICATES {
+            let (der, _) = generate_identity();
+            let wrong_fingerprint = "SHA256:0000 0000 0000 0000 0000 0000".to_owned();
+            assert_ne!(
+                fingerprint_of(&der),
+                wrong_fingerprint,
+                "fixture must differ"
+            );
+            let candidates = [wrong_fingerprint, fingerprint_of(&der)];
+            let fingerprint = candidates[usize::from(pinned)].clone();
+            let verifier = verifier_pinned_to(fingerprint);
+            let server_name = ServerName::try_from("localhost").unwrap();
 
-        let result = verifier.verify_server_cert(&der, &[], &server_name, &[], UnixTime::now());
+            let result = verifier.verify_server_cert(&der, &[], &server_name, &[], UnixTime::now());
 
-        assert!(
-            result.is_ok(),
-            "expected the pinned (matching) fingerprint to verify, got {result:?}"
-        );
-    }
-
-    #[test]
-    fn verify_server_cert_rejects_a_wrong_fingerprint() {
-        let (der, _) = generate_identity();
-        let wrong_fingerprint = "SHA256:0000 0000 0000 0000 0000 0000".to_owned();
-        assert_ne!(
-            fingerprint_of(&der),
-            wrong_fingerprint,
-            "test fixture bug: the 'wrong' fingerprint accidentally matches the real one"
-        );
-        let verifier = verifier_pinned_to(wrong_fingerprint);
-        let server_name = ServerName::try_from("localhost").unwrap();
-
-        let result = verifier.verify_server_cert(&der, &[], &server_name, &[], UnixTime::now());
-
-        assert_eq!(
-            result.err(),
-            Some(TlsError::InvalidCertificate(
-                CertificateError::ApplicationVerificationFailure
-            )),
-            "expected a mismatched fingerprint to be rejected as an invalid certificate"
-        );
+            assert_eq!(result.map(|_| ()), expected, "pinned: {pinned}");
+        }
     }
 
     #[test]

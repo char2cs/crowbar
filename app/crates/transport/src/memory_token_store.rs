@@ -17,7 +17,7 @@ impl MemoryTokenStore {
 }
 
 impl TokenStore for MemoryTokenStore {
-    fn get(
+    fn load_entry(
         &self,
         host_id: &str,
     ) -> Result<Option<String>, Error> {
@@ -50,8 +50,8 @@ mod tests {
     fn the_memory_store_round_trips() {
         let store = MemoryTokenStore::default();
         store.set("h", "e").unwrap();
-        assert_eq!(store.get("h").unwrap(), Some("e".into()));
+        assert_eq!(store.load_entry("h").unwrap(), Some("e".into()));
         store.delete("h").unwrap();
-        assert_eq!(store.get("h").unwrap(), None);
+        assert_eq!(store.load_entry("h").unwrap(), None);
     }
 }

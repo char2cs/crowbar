@@ -28,7 +28,7 @@ fn assert_shell_frames_round_trip(frames: &[ShellFrame]) -> protocol::Result<()>
 #[test]
 fn every_pane_frame_round_trips() {
     let type_id = PaneTypeId::new("ext.git.review").unwrap();
-    let frames = [
+    let cases = [
         PaneFrame::Register {
             type_id: type_id.clone(),
             sdk: SDK_VERSION,
@@ -59,13 +59,13 @@ fn every_pane_frame_round_trips() {
             command: CommandId::new("ext.git.openReview").unwrap(),
         },
     ];
-    assert_pane_frames_round_trip(&frames).unwrap();
+    assert_pane_frames_round_trip(&cases).unwrap();
 }
 
 #[test]
 fn the_sdk_frames_for_settings_composer_and_attachments_round_trip() {
     let key = SettingKey::new("diff.context").unwrap();
-    let frames = [
+    let cases = [
         PaneFrame::SettingsGet {
             id: RequestId::new(5),
             key: key.clone(),
@@ -85,13 +85,13 @@ fn the_sdk_frames_for_settings_composer_and_attachments_round_trip() {
             attachment_id: AttachmentId::new("att-1").unwrap(),
         },
     ];
-    assert_pane_frames_round_trip(&frames).unwrap();
+    assert_pane_frames_round_trip(&cases).unwrap();
 }
 
 #[test]
 fn every_shell_frame_round_trips() {
     let ext = ExtensionId::new("git").unwrap();
-    let frames = [
+    let cases = [
         ShellFrame::Lifecycle {
             pane_id: PaneId::new("p1").unwrap(),
             event: Lifecycle::Mount,
@@ -121,12 +121,12 @@ fn every_shell_frame_round_trips() {
             Some(DisplayText::new("crashed").unwrap()),
         )),
     ];
-    assert_shell_frames_round_trip(&frames).unwrap();
+    assert_shell_frames_round_trip(&cases).unwrap();
 }
 
 #[test]
 fn the_sdk_push_frames_for_keybindings_settings_and_theme_round_trip() {
-    let frames = [
+    let cases = [
         ShellFrame::Keybindings {
             bindings: vec![KeyBinding::new(
                 KeyChord::new("mod+k").unwrap(),
@@ -142,7 +142,7 @@ fn the_sdk_push_frames_for_keybindings_settings_and_theme_round_trip() {
             tokens: ThemeTokens::default().with("color-bg", "#111").unwrap(),
         },
     ];
-    assert_shell_frames_round_trip(&frames).unwrap();
+    assert_shell_frames_round_trip(&cases).unwrap();
 }
 
 #[test]

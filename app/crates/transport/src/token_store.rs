@@ -8,7 +8,7 @@ pub trait TokenStore: Send + Sync {
     ///
     /// # Errors
     /// [`Error::Store`] when the store cannot be read.
-    fn get(
+    fn load_entry(
         &self,
         host_id: &str,
     ) -> Result<Option<String>, Error>;
@@ -43,10 +43,10 @@ mod tests {
     #[test]
     fn a_store_is_usable_as_a_shared_trait_object_and_forgets_on_delete() {
         let store: Arc<dyn TokenStore> = Arc::new(MemoryTokenStore::default());
-        assert_eq!(store.get("h").unwrap(), None);
+        assert_eq!(store.load_entry("h").unwrap(), None);
         store.set("h", "entry").unwrap();
-        assert_eq!(store.get("h").unwrap().as_deref(), Some("entry"));
+        assert_eq!(store.load_entry("h").unwrap().as_deref(), Some("entry"));
         store.delete("h").unwrap();
-        assert_eq!(store.get("h").unwrap(), None);
+        assert_eq!(store.load_entry("h").unwrap(), None);
     }
 }

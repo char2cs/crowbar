@@ -20,16 +20,25 @@ where
     let mut last_error = None;
     start_next(&mut queue, &mut running, &connect);
     while !running.is_empty() {
-        tokio::select! {
-            Some(joined) = running.join_next() => match settled(joined) {
-                Ok(connected) => return Ok(connected),
-                Err(e) => last_error = Some(e),
-            },
-            () = tokio::time::sleep(stagger), if !queue.as_slice().is_empty() => {},
+        match settled_or_staggered(&mut running, stagger, queue.as_slice()).await {
+            Some(Ok(connected)) => return Ok(connected),
+            Some(Err(e)) => last_error = Some(e),
+            None => {},
         }
         start_next(&mut queue, &mut running, &connect);
     }
     Err(last_error.unwrap_or_else(|| io::Error::other("no address to connect to")))
+}
+
+async fn settled_or_staggered<T: 'static>(
+    running: &mut JoinSet<io::Result<T>>,
+    stagger: Duration,
+    waiting: &[SocketAddr],
+) -> Option<io::Result<T>> {
+    tokio::select! {
+        Some(joined) = running.join_next() => Some(settled(joined)),
+        () = tokio::time::sleep(stagger), if !waiting.is_empty() => None,
+    }
 }
 
 fn start_next<T, C, F>(
@@ -137,16 +146,17 @@ mod tests {
         assert_eq!(connected, 1);
     }
 
+    async fn refuse_all(_: SocketAddr) -> io::Result<u8> {
+        Err(io::Error::from(io::ErrorKind::ConnectionRefused))
+    }
+
     #[tokio::test(start_paused = true)]
     async fn when_every_address_fails_the_last_error_is_returned() {
-        let refuse = |_: SocketAddr| async {
-            Err::<u8, _>(io::Error::from(io::ErrorKind::ConnectionRefused))
-        };
-        let error = first_connected(vec![addr(1), addr(2)], STAGGER, refuse)
+        let error = first_connected(vec![addr(1), addr(2)], STAGGER, refuse_all)
             .await
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::ConnectionRefused);
-        let none = first_connected(Vec::new(), STAGGER, refuse)
+        let none = first_connected(Vec::new(), STAGGER, refuse_all)
             .await
             .unwrap_err();
         assert_eq!(none.kind(), io::ErrorKind::Other);

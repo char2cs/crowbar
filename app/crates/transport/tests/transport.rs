@@ -52,10 +52,7 @@ async fn accept_loop(
     handler: Handler,
     seen: Log,
 ) {
-    loop {
-        let Ok((stream, _)) = listener.accept().await else {
-            return;
-        };
+    while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(serve_http(stream, Arc::clone(&handler), Arc::clone(&seen)));
     }
 }
@@ -147,14 +144,15 @@ async fn an_extension_cannot_reach_core_routes_and_the_daemon_never_hears_of_it(
     let log = daemon(&path, ok("{}"));
     let transport = transport_at(path);
     let acme = PaneOrigin::Extension(ExtensionId::new("acme").unwrap());
-    for uri in [
+    let cases = [
         "crowbar://localhost/v0/projects",
         "crowbar://localhost/v0/ext/other/x",
         "crowbar://localhost/v0/ext/acme/../projects",
         "crowbar://localhost/v0/ext/acme/%2e%2e/projects",
         "crowbar://localhost/v0/ext/acme//x",
         "crowbar://localhost/debug/pprof",
-    ] {
+    ];
+    for uri in cases {
         let answer = transport
             .handle(&acme, request(Method::GET, uri, b""))
             .await;

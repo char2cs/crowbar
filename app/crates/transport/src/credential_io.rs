@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use protocol::HostId;
 
-use crate::blocking::blocking;
+use crate::blocking::run_blocking;
 use crate::credential::Credential;
 use crate::error::Error;
 use crate::token_store::TokenStore;
@@ -12,21 +12,21 @@ pub(crate) async fn load(
     host_id: &HostId,
 ) -> Result<Credential, Error> {
     let (store, key) = (Arc::clone(tokens), host_id.to_string());
-    let entry = blocking(move || store.get(&key)).await?;
+    let entry = run_blocking(move || store.load_entry(&key)).await?;
     entry
         .as_deref()
         .and_then(Credential::decode)
         .ok_or(Error::NoCredential)
 }
 
-pub(crate) async fn keep(
+pub(crate) async fn persist_credential(
     tokens: &Arc<dyn TokenStore>,
     host_id: &HostId,
     credential: &Credential,
 ) -> Result<(), Error> {
     let (store, key) = (Arc::clone(tokens), host_id.to_string());
     let entry = credential.encode();
-    blocking(move || store.set(&key, &entry)).await
+    run_blocking(move || store.set(&key, &entry)).await
 }
 
 pub(crate) async fn forget(
@@ -34,7 +34,7 @@ pub(crate) async fn forget(
     host_id: &HostId,
 ) -> Result<(), Error> {
     let (store, key) = (Arc::clone(tokens), host_id.to_string());
-    blocking(move || store.delete(&key)).await
+    run_blocking(move || store.delete(&key)).await
 }
 
 #[cfg(test)]
@@ -52,7 +52,7 @@ mod tests {
         let store = Arc::new(MemoryTokenStore::default());
         let tokens = Arc::clone(&store) as Arc<dyn TokenStore>;
         let credential = Credential::new("t".into(), [1; 32]);
-        keep(&tokens, &host(), &credential).await.unwrap();
+        persist_credential(&tokens, &host(), &credential).await.unwrap();
         assert_eq!(load(&tokens, &host()).await.unwrap(), credential);
         forget(&tokens, &host()).await.unwrap();
         assert!(matches!(
@@ -60,7 +60,7 @@ mod tests {
             Err(Error::NoCredential)
         ));
         assert_eq!(
-            store.get("host-1").unwrap(),
+            store.load_entry("host-1").unwrap(),
             None,
             "nothing left in the store"
         );

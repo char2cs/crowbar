@@ -94,3 +94,87 @@ pub enum Error {
 
 /// Result alias using the crate [`enum@Error`].
 pub type Result<T> = std::result::Result<T, Error>;
+
+impl Error {
+    pub(crate) fn too_long(
+        kind: &'static str,
+        max: usize,
+    ) -> Self {
+        Self::IdTooLong { kind, max }
+    }
+
+    pub(crate) fn malformed(
+        kind: &'static str,
+        reason: &'static str,
+    ) -> Self {
+        Self::MalformedId { kind, reason }
+    }
+
+    pub(crate) fn too_many_entries(
+        kind: &'static str,
+        max: usize,
+    ) -> Self {
+        Self::TooManyEntries { kind, max }
+    }
+
+    pub(crate) fn state_too_large(
+        size: usize,
+        limit: usize,
+    ) -> Self {
+        Self::StateTooLarge { size, limit }
+    }
+
+    pub(crate) fn frame_too_large(
+        size: usize,
+        limit: usize,
+    ) -> Self {
+        Self::FrameTooLarge { size, limit }
+    }
+
+    pub(crate) fn invalid_request(reason: &'static str) -> Self {
+        Self::InvalidRequest { reason }
+    }
+
+    pub(crate) fn unsupported_sdk(
+        found: Option<u64>,
+        expected: u32,
+    ) -> Self {
+        Self::UnsupportedSdk { found, expected }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructors_build_the_matching_variants() {
+        let cases = [
+            (Error::too_long("id", 3), "id is longer than 3 bytes"),
+            (Error::malformed("id", "is odd"), "id is odd"),
+            (
+                Error::too_many_entries("params", 2),
+                "params holds more than 2 entries",
+            ),
+            (
+                Error::state_too_large(5, 4),
+                "pane state is 5 bytes, the limit is 4",
+            ),
+            (
+                Error::frame_too_large(5, 4),
+                "frame is 5 bytes, the limit is 4",
+            ),
+            (Error::invalid_request("bad"), "invalid request: bad"),
+        ];
+        for (error, text) in cases {
+            assert_eq!(error.to_string(), text);
+        }
+        assert!(matches!(
+            Error::unsupported_sdk(None, 1),
+            Error::UnsupportedSdk {
+                found: None,
+                expected: 1
+            }
+        ));
+    }
+}

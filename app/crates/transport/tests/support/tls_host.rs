@@ -79,10 +79,7 @@ async fn accept(
     handler: Handler,
     log: Log,
 ) {
-    loop {
-        let Ok((tcp, _)) = listener.accept().await else {
-            return;
-        };
+    while let Ok((tcp, _)) = listener.accept().await {
         let (acceptor, handler, log) = (acceptor.clone(), Arc::clone(&handler), Arc::clone(&log));
         tokio::spawn(serve_tls(acceptor, tcp, handler, log));
     }
