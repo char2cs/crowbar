@@ -90,6 +90,25 @@ func TestSettleCarried_SettlesOnlyWhatThatRunnerCarries(t *testing.T) {
 	assert.Empty(t, none)
 }
 
+func TestSettleOvertaken_SettlesOnlyTheTypedPromptsThatRunnerCarries(t *testing.T) {
+	msg := func(requestID, runnerID, delivery string) ledger.Row {
+		return row(t, ledger.KindUserMessage, "T-"+requestID, ledger.UserMessage{
+			RequestID: requestID, Text: requestID, Origin: ledger.OriginCrowbar, RunnerID: runnerID, Delivery: delivery,
+		})
+	}
+	st := ledger.Fold("c1", sequenced(t,
+		msg("typed", "run-1", ledger.DeliveryType),
+		msg("restart", "run-1", ledger.DeliveryRestart),
+		msg("steer", "run-1", ledger.DeliverySteer),
+		msg("elsewhere", "run-2", ledger.DeliveryType),
+	))
+
+	rows, err := ledger.SettleOvertaken(st, "run-1")
+	require.NoError(t, err)
+	assert.Equal(t, []ledger.PromptSettled{{RequestID: "typed", Reason: "not_acknowledged"}}, settled(t, rows),
+		"a launch or a steer is not handed to the composer the other prompt came through")
+}
+
 func TestSettleOrphaned_SettlesPromptsWhoseCarrierIsNotLive(t *testing.T) {
 	st := carriedPrompts(t)
 	live := func(runnerID string) bool { return runnerID == "run-1" }

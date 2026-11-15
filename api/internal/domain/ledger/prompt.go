@@ -122,6 +122,14 @@ func SettleUntaken(st State, match func(Prompt) bool, command func(text string) 
 	return append(ran, rest...), err
 }
 
+// SettleOvertaken settles the typed prompts runnerID carries once a turn opens
+// there on other words: its composer took something else in their place.
+func SettleOvertaken(st State, runnerID string) ([]Row, error) {
+	return Settle(st, func(p Prompt) bool {
+		return p.RunnerID == runnerID && p.Delivery == DeliveryType
+	}, false, ReasonNotAcknowledged)
+}
+
 // SettleOrphaned settles, as runner_exited, every pending prompt whose carrier
 // live does not report. A prompt with no carrier is never orphaned.
 func SettleOrphaned(st State, live func(runnerID string) bool) ([]Row, error) {

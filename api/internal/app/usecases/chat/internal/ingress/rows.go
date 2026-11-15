@@ -273,7 +273,19 @@ func openRows(st ledger.State, started ledger.TurnStarted, src Source) ([]ledger
 		if wordless {
 			return bareTurn(started)
 		}
+		overtaken, err := ledger.SettleOvertaken(st, src.RunnerID)
+		if err != nil {
+			return nil, err
+		}
+		opened, err := providerPromptTurn(started, src)
+		return append(overtaken, opened...), err
 	}
+	return providerPromptTurn(started, src)
+}
+
+// providerPromptTurn is a turn on words no Crowbar prompt sent: their own
+// user_message, then the turn.
+func providerPromptTurn(started ledger.TurnStarted, src Source) ([]ledger.Row, error) {
 	turnID := uuid.NewString()
 	msg, err := ledger.NewRow(ledger.KindUserMessage, turnID, "",
 		ledger.UserMessage{Text: src.Prompt.Text, Origin: src.Prompt.Origin})

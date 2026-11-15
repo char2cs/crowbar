@@ -111,6 +111,31 @@ func TestRegression_AnIdlePromptIsTypedIntoTheRunningCLI(t *testing.T) {
 	assert.Equal(t, requestID, turn.RequestID, "the typed prompt opened its own turn")
 }
 
+// A turn its CLI opens on other words (a keystroke from the pane, a draft the
+// paste joined) took something else: the typed prompt settles, sends go on.
+func TestRegression_ATypedPromptAnotherPromptOvertookSettles(t *testing.T) {
+	c := newTypedChat(t, kit.Composer{})
+	requestID := uuid.NewString()
+	c.send(t, "rename the helper", requestID)
+	c.launch.AwaitSubmitted(t, 1)
+
+	c.hook(t, "user_prompt", map[string]any{"prompt": "halfrename the helper"})
+
+	st := chatState(t, c.h, c.chatID)
+	assert.Empty(t, st.PendingPrompts(), "nothing is left waiting for a hook that will not come")
+	p, ok := st.Receipt(requestID)
+	require.True(t, ok)
+	assert.Equal(t, ledger.PromptStatusSettled, p.Status)
+	assert.Equal(t, ledger.ReasonNotAcknowledged, p.Reason)
+	turn, running := st.RunningTurn()
+	require.True(t, running)
+	assert.Empty(t, turn.RequestID, "the turn is the provider's own prompt")
+
+	c.hook(t, "turn_stop", map[string]any{"last_assistant_message": "done"})
+	c.send(t, "next", uuid.NewString())
+	assert.Equal(t, []string{"rename the helper", "next"}, c.launch.AwaitSubmitted(t, 2), "the chat takes the next send")
+}
+
 // A faint suggestion after the cursor is no draft: the prompt is typed over it.
 func TestRegression_AFaintSuggestionIsTypedOver(t *testing.T) {
 	c := newTypedChat(t, kit.Composer{Ghost: "run the tests"})
