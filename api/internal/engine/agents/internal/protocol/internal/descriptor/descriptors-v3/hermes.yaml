@@ -49,8 +49,9 @@ events:
       map: { session_id: session_id, message: payload.text, turn_id: payload.turn_id }
 
   # turn_failed is offered first (sorted names); any other status closes here.
+  # An interrupted completion carries no text, so only the session is required.
   turn_stop:
-    required: [session_id, message]
+    required: [session_id]
     status_map: { complete: completed, interrupted: interrupted }
     api:
       in: event

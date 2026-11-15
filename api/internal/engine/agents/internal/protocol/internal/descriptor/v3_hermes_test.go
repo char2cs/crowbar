@@ -3,6 +3,7 @@ package descriptor_test
 import (
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/inbound"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
@@ -33,4 +34,26 @@ func TestHermesDescriptor_NamesTheKindServerAndToolOfACall(t *testing.T) {
 			expectEq(t, tc.name+" "+event.name+" name", tool.Name, tc.name)
 		}
 	}
+}
+
+func TestHermesDescriptor_AStoppedTurnWithNoReplyTextStillEnds(t *testing.T) {
+	d := loadDescriptor(t, "hermes")
+	ev, err := inbound.Parse(d, "turn_stop",
+		[]byte(`{"type":"message.complete","session_id":"s1","payload":{"status":"interrupted"}}`), spec.ChannelAPI)
+	if err != nil {
+		t.Fatalf("turn_stop of an interrupted completion with no text: %v", err)
+	}
+	expectEq(t, "turn status", ev.TurnStatus, "interrupted")
+	expectEq(t, "message", ev.Message, "")
+}
+
+func TestHermesDescriptor_ACompletionKeepsItsReplyText(t *testing.T) {
+	d := loadDescriptor(t, "hermes")
+	ev, err := inbound.Parse(d, "turn_stop",
+		[]byte(`{"type":"message.complete","session_id":"s1","payload":{"status":"complete","text":"done"}}`), spec.ChannelAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectEq(t, "turn status", ev.TurnStatus, "completed")
+	expectEq(t, "message", ev.Message, "done")
 }
