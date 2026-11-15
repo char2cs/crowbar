@@ -117,7 +117,10 @@ function announce(fold: FeedFold, row: LedgerRow<'subagent'>, scope: string) {
   const { type, title } = row.body
   const known = cardOf(fold, scope)
   if (known) {
-    fold.put({ ...known, type: known.type || type || '', title: known.title || title || '' })
+    // A second start of a known scope is a follow-up when the card had ended.
+    const named = { ...known, type: known.type || type || '', title: known.title || title || '' }
+    fold.put(named)
+    resume(fold, scope)
     return
   }
   const unbound = fold.facts.liveSubagents.some(

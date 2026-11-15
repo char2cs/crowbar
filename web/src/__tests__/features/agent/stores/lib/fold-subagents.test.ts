@@ -219,6 +219,57 @@ describe('subagent cards', () => {
     expect(feed.facts.liveSubagents).toEqual([])
   })
 
+  it('runs an ended card again when a follow-up announces its scope with a second start', () => {
+    const l = ledger()
+    const row = (phase: 'start' | 'stop' | 'result', result?: string) =>
+      l.row(
+        'subagent',
+        { phase, type: 'general-purpose', result },
+        { turnId: 'turn-1', scope: 'thread-c' },
+      )
+    const ended = [l.start('turn-1'), row('start'), row('stop'), row('result', 'pong')]
+    let feed = applyRows(emptyFeed(), ended)
+    expect(feed.items.get('s:thread-c')).toMatchObject({ status: 'done', result: 'pong' })
+    feed = applyRows(feed, [row('start')])
+    expect(feed.items.get('s:thread-c')).toMatchObject({
+      status: 'running',
+      endedAt: undefined,
+      result: undefined,
+    })
+    expect(feed.facts.liveSubagents).toEqual(['s:thread-c'])
+    feed = applyRows(feed, [row('result', 'bye')])
+    expect(feed.items.get('s:thread-c')).toMatchObject({ status: 'done', result: 'bye' })
+    expect(feed.facts.liveSubagents).toEqual([])
+  })
+
+  it('leaves a running card as it is when its scope starts again', () => {
+    const l = ledger()
+    const start = () =>
+      l.row('subagent', { phase: 'start', type: 'plan' }, { turnId: 'turn-1', scope: 'thread-c' })
+    const feed = applyRows(emptyFeed(), [l.start('turn-1'), start()])
+    const again = applyRows(feed, [start()])
+    expect(again.items.get('s:thread-c')).toEqual(feed.items.get('s:thread-c'))
+    expect(again.facts.liveSubagents).toEqual(['s:thread-c'])
+  })
+
+  it('runs an interrupted card again on a second start', () => {
+    const l = ledger()
+    const start = (scope: string) =>
+      l.row('subagent', { phase: 'start', type: 'plan' }, { turnId: 'turn-1', scope })
+    const interrupted = applyRows(emptyFeed(), [
+      l.start('turn-1'),
+      start('sub-1'),
+      l.row(
+        'subagent',
+        { phase: 'stop', status: 'interrupted' },
+        { turnId: 'turn-1', scope: 'sub-1' },
+      ),
+      start('sub-1'),
+    ])
+    expect(interrupted.items.get('s:sub-1')).toMatchObject({ status: 'running' })
+    expect(interrupted.facts.liveSubagents).toEqual(['s:sub-1'])
+  })
+
   it('folds the recorded session into two cards that each hold their own calls and result', () => {
     const feed = applyRows(emptyFeed(), subagentSessionRows())
     const cards = feed.order
