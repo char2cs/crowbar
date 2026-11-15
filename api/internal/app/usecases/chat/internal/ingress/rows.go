@@ -1,8 +1,6 @@
 package ingress
 
 import (
-	"strings"
-
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -351,91 +349,6 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	steered, reply, err := steerRows(st, src)
 	fx.Reply = reply
 	return append(rows, steered...), fx, err
-}
-
-// closingRows are what a turn's end records: answers streamed with no row of their
-// own, the hook's reply and its thought, and every ask nothing will answer now. One
-// message is one whole row; the reply is its last message's.
-func closingRows(st ledger.State, turnID, reply string, src Source, outlived bool) ([]ledger.Row, error) {
-	said, last := withReply(st, turnID, reply, unsaid(st, turnID, src))
-	rows, err := answerRows(turnID, said)
-	if err != nil {
-		return nil, err
-	}
-	thoughts, err := thoughtRows(st, turnID, last, said, src.Live.Reasoning)
-	if err != nil {
-		return nil, err
-	}
-	rows = append(rows, thoughts...)
-	abandoned, err := abandonAsks(st, turnID, outlived)
-	return append(rows, abandoned...), err
-}
-
-// withReply is said with the turn's reply in it, and the turn's last message. The
-// reply joins the last message still open; after a whole one it is said only as
-// far as that message did not already say it.
-func withReply(st ledger.State, turnID, reply string, said []liveText) ([]liveText, string) {
-	if n := len(said); n > 0 {
-		said[n-1].Text = fuller(reply, said[n-1].Text)
-		return said, said[n-1].ID
-	}
-	last, hasLast := st.LastMessage(turnID)
-	if !hasLast {
-		last = ledger.ReplyID(turnID)
-	} else if st.HasChunk("", last, ledger.IndexComplete) {
-		if _, _, replied := st.Reply(turnID); replied {
-			return said, last
-		}
-		if reply = notYetSaid(reply, st.WholeText("", last)); reply != "" {
-			last = ledger.ReplyID(turnID)
-		}
-	}
-	if reply == "" {
-		return said, last
-	}
-	return append(said, liveText{ID: last, Text: reply}), last
-}
-
-// notYetSaid is the part of reply a whole message's text does not hold, edge
-// spaces aside: nothing when the message says it, the rest when it extends it.
-func notYetSaid(reply, whole string) string {
-	r, w := strings.TrimSpace(reply), strings.TrimSpace(whole)
-	if strings.HasPrefix(w, r) {
-		return ""
-	}
-	if w != "" && strings.HasPrefix(r, w) {
-		return strings.TrimSpace(r[len(w):])
-	}
-	return reply
-}
-
-// fuller is the longer of a turn end's reply and the stream it names: the
-// reply may be another message's text, the stream may have lost frames.
-func fuller(reply, streamed string) string {
-	if len(reply) > len(streamed) {
-		return reply
-	}
-	return streamed
-}
-
-// unsaid are turnID's main-scope answers that streamed with no whole row. A
-// whole row cut at an action is said again with what streamed after it, which
-// is all a stream holds once its row is in.
-func unsaid(st ledger.State, turnID string, src Source) []liveText {
-	var out []liveText
-	for _, a := range src.Live.Answers {
-		if a.TurnID != turnID || a.Scope != "" {
-			continue
-		}
-		if st.HasChunk("", a.ID, ledger.IndexComplete) {
-			if !src.EndsAtAction {
-				continue
-			}
-			a.Text = st.WholeText("", a.ID) + a.Text
-		}
-		out = append(out, a)
-	}
-	return out
 }
 
 // lastText is the newest of texts, of turnID's turn when one is named.

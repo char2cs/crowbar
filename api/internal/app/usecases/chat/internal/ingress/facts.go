@@ -108,40 +108,6 @@ func mapComplete(st ledger.State, ev engineagents.CanonicalEvent, src Source, sc
 	return []ledger.Row{row}, err
 }
 
-// endsText reports whether an event of kind is the agent acting: what it
-// streamed before is whole when its descriptor says messages end at an action.
-func endsText(kind string) bool {
-	switch kind {
-	case engineagents.HookToolPre, engineagents.HookSubagentPre, engineagents.HookPermission, engineagents.HookElicitation:
-		return true
-	}
-	return false
-}
-
-// textBefore records the answers src streamed with no row of their own before
-// ev ended them, so they read above what ev records.
-func textBefore(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
-	turnID, ok := turnFor(st, src, "", ev.TurnID)
-	if !ok {
-		return nil, nil
-	}
-	return answerRows(turnID, unsaid(st, turnID, src))
-}
-
-// answerRows are turnID's main-scope messages as whole rows.
-func answerRows(turnID string, said []liveText) ([]ledger.Row, error) {
-	rows := make([]ledger.Row, 0, len(said))
-	for _, a := range said {
-		row, err := ledger.NewRow(ledger.KindAssistantText, turnID, "",
-			ledger.AssistantText{MessageID: a.ID, Index: ledger.IndexComplete, Text: a.Text})
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
 func toolPhase(kind string) string {
 	switch kind {
 	case engineagents.HookToolPost:
@@ -301,37 +267,4 @@ func mapCompaction(st ledger.State, ev engineagents.CanonicalEvent, src Source) 
 	}
 	settled, err := ledger.SettleCarried(st, src.RunnerID, true, ledger.ReasonProviderBuiltin)
 	return append(rows, settled...), err
-}
-
-// thoughtRows are the thoughts of a turn as rows: one per message of it, said or
-// recorded, that a thought names, and one for the last message holding the newest of the rest.
-func thoughtRows(st ledger.State, turnID, last string, said, thoughts []liveText) ([]ledger.Row, error) {
-	named := map[string]bool{}
-	for _, a := range said {
-		named[a.ID] = true
-	}
-	var order []string
-	text := map[string]string{}
-	for _, t := range thoughts {
-		if t.TurnID != turnID {
-			continue
-		}
-		id := last
-		if of, recorded := st.MessageTurn("", t.ID); named[t.ID] || recorded && of == turnID {
-			id = t.ID
-		}
-		if _, seen := text[id]; !seen {
-			order = append(order, id)
-		}
-		text[id] = t.Text
-	}
-	rows := make([]ledger.Row, 0, len(order))
-	for _, id := range order {
-		row, err := ledger.NewRow(ledger.KindReasoning, turnID, "", ledger.Reasoning{MessageID: id, Text: text[id]})
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
 }
