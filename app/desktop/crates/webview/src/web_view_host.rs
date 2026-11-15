@@ -18,7 +18,10 @@ pub struct WebViewHost {
 }
 
 impl std::fmt::Debug for WebViewHost {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         f.debug_struct("WebViewHost").finish_non_exhaustive()
     }
 }
@@ -59,7 +62,11 @@ impl WebViewHost {
     ///
     /// # Errors
     /// An [`Error`](crate::Error) when the engine fails.
-    pub fn create_in(&self, parent: ParentWindow, config: WebViewConfig) -> Result<WebViewHandle> {
+    pub fn create_in(
+        &self,
+        parent: ParentWindow,
+        config: WebViewConfig,
+    ) -> Result<WebViewHandle> {
         let id = WebViewId(self.next_id.get());
         self.next_id.set(id.0 + 1);
         self.platform.create(id, parent, config)?;
@@ -87,5 +94,97 @@ fn start_native(_config: HostConfig) -> Result<Rc<dyn Platform>> {
 }
 
 #[cfg(test)]
-#[path = "web_view_host_tests.rs"]
-mod tests;
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::bounds::Bounds;
+    use crate::call::Call;
+    use crate::mock_platform::MockPlatform;
+    use crate::visibility::Visibility;
+    use crate::web_view_kind::WebViewKind;
+
+    fn rect(
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Bounds {
+        Bounds {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    fn config(kind: WebViewKind) -> WebViewConfig {
+        WebViewConfig {
+            url: "crowbar://local/".into(),
+            bounds: rect(1.0, 2.0, 3.0, 4.0),
+            kind,
+            visibility: Visibility::Hidden,
+            initialization_script: None,
+            on_ipc: Arc::new(|_| {}),
+            on_page: None,
+        }
+    }
+
+    #[test]
+    fn every_view_gets_a_fresh_id() {
+        let mock = Rc::new(MockPlatform::default());
+        let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
+        let a = host
+            .create_in(ParentWindow::X11(7), config(WebViewKind::Core))
+            .unwrap();
+        let b = host
+            .create_in(ParentWindow::X11(7), config(WebViewKind::Core))
+            .unwrap();
+        assert_ne!(a.id(), b.id(), "ids differ");
+        assert_eq!(mock.live_views().len(), 2, "both alive");
+    }
+
+    #[test]
+    fn a_failed_create_registers_nothing() {
+        let mock = Rc::new(MockPlatform::default());
+        let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
+        mock.fail_next_create();
+        assert!(
+            host.create_in(ParentWindow::X11(7), config(WebViewKind::Core))
+                .is_err(),
+            "fails"
+        );
+        assert!(
+            mock.calls().is_empty() && mock.live_views().is_empty(),
+            "nothing recorded"
+        );
+    }
+
+    fn kinds() -> Vec<(&'static str, WebViewKind)> {
+        let git = protocol::ExtensionId::new("git").unwrap();
+        vec![
+            ("core", WebViewKind::Core),
+            ("extension", WebViewKind::Extension(git)),
+        ]
+    }
+
+    #[test]
+    fn the_config_reaches_the_backend_unchanged() {
+        let wrong: Vec<&str> = kinds()
+            .into_iter()
+            .filter(|(_, kind)| {
+                let mock = Rc::new(MockPlatform::default());
+                let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
+                let _view = host
+                    .create_in(ParentWindow::X11(7), config(kind.clone()))
+                    .unwrap();
+                !matches!(
+                    mock.calls().first(),
+                    Some(Call::Create { parent: ParentWindow::X11(7), kind: made, visibility: Visibility::Hidden, .. }) if made == kind
+                )
+            })
+            .map(|(name, _)| name)
+            .collect();
+        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
+    }
+}

@@ -1,3 +1,4 @@
+use browser_nav::PageUpdate;
 use protocol::{
     CommandId, EventName, MethodName, PaneFrame, PaneId, PaneState, PaneTitle, PaneTypeId, Params,
     RequestId,
@@ -84,5 +85,12 @@ pub enum HostEvent {
         pane: PaneId,
         /// Whether the pointer is over it.
         hovered: bool,
+    },
+    /// A browser pane's page reported its address, load state or title.
+    BrowserPage {
+        /// The pane.
+        pane: PaneId,
+        /// What the engine reported.
+        update: PageUpdate,
     },
 }

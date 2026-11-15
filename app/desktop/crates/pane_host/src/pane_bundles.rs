@@ -13,11 +13,38 @@ pub struct PaneBundles {
 }
 
 impl std::fmt::Debug for PaneBundles {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         f.debug_struct("PaneBundles").finish_non_exhaustive()
     }
 }
 
 #[cfg(test)]
-#[path = "pane_bundles_tests.rs"]
-mod tests;
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::bundle_asset::BundleAsset;
+
+    struct Core;
+
+    impl BundleSource for Core {
+        fn read(
+            &self,
+            _path: &str,
+        ) -> Option<BundleAsset> {
+            None
+        }
+    }
+
+    #[test]
+    fn debug_names_the_type_and_nothing_else() {
+        let bundles = PaneBundles {
+            core: Arc::new(Core),
+            extensions: ExtensionBundles::default(),
+        };
+        assert_eq!(format!("{bundles:?}"), "PaneBundles { .. }", "opaque");
+    }
+}

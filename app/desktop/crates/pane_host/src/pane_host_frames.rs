@@ -1,6 +1,5 @@
-use protocol::{
-    ExtensionStatus, Lifecycle, PaneFrame, PaneId, PaneState, PaneTypeId, ShellFrame, StatusKind,
-};
+use model::Layout;
+use protocol::{ExtensionStatus, Lifecycle, PaneFrame, PaneId, PaneTypeId, ShellFrame, StatusKind};
 
 use crate::error::Result;
 use crate::host_event::HostEvent;
@@ -9,16 +8,29 @@ use crate::pane_phase::PanePhase;
 use crate::pane_runtime::PaneRuntime;
 use crate::stage::Stage;
 
-fn wanted_stage(runtime: &PaneRuntime, id: &PaneId, focused: Option<&PaneId>) -> Stage {
+fn wanted_stage(
+    runtime: &PaneRuntime,
+    id: &PaneId,
+    focused: Option<&PaneId>,
+) -> Stage {
     if runtime.is_mounted() && focused == Some(id) {
-        Stage::Active
-    } else {
-        Stage::Shown
+        return Stage::Active;
     }
+    Stage::Shown
+}
+
+fn lifecycle_for(stage: Stage) -> Lifecycle {
+    if stage == Stage::Active {
+        return Lifecycle::Activate;
+    }
+    Lifecycle::Deactivate
 }
 
 impl PaneHost {
-    pub(crate) fn route_activation(&mut self) -> Result<()> {
+    pub(crate) fn route_activation(
+        &mut self,
+        layout: &Layout,
+    ) -> Result<()> {
         let focused = self.focused.as_ref();
         let changes: Vec<(PaneId, Stage)> = self
             .panes
@@ -29,20 +41,20 @@ impl PaneHost {
             .collect();
         changes
             .into_iter()
-            .try_for_each(|(pane, stage)| self.set_activation(&pane, stage))
+            .try_for_each(|(pane, stage)| self.set_activation(&pane, stage, layout))
     }
 
-    pub(crate) fn set_activation(&mut self, pane: &PaneId, stage: Stage) -> Result<()> {
+    pub(crate) fn set_activation(
+        &mut self,
+        pane: &PaneId,
+        stage: Stage,
+        layout: &Layout,
+    ) -> Result<()> {
         let Some(runtime) = self.panes.get_mut(pane) else {
             return Ok(());
         };
         runtime.stage = stage;
-        let event = if stage == Stage::Active {
-            Lifecycle::Activate
-        } else {
-            Lifecycle::Deactivate
-        };
-        let frame = runtime.lifecycle_frame(event);
+        let frame = runtime.lifecycle_frame(pane, lifecycle_for(stage), layout.pane(pane));
         let slot = runtime.slot;
         self.send(pane, &frame)?;
         match (stage, slot.and_then(|id| self.pool.get(id))) {
@@ -51,22 +63,20 @@ impl PaneHost {
         }
     }
 
-    fn remember_state(&mut self, pane: &PaneId, state: &PaneState) {
-        if let Some(runtime) = self.panes.get_mut(pane) {
-            runtime.instance.state = state.clone();
-        }
-    }
-
-    pub(crate) fn on_frame(&mut self, pane: PaneId, frame: PaneFrame) -> Result<Vec<HostEvent>> {
+    pub(crate) fn on_frame(
+        &mut self,
+        pane: PaneId,
+        frame: PaneFrame,
+        layout: &Layout,
+    ) -> Result<Vec<HostEvent>> {
         let event = match frame {
             PaneFrame::Register { type_id, .. } => {
-                return self.on_register(&pane, &type_id).map(|()| Vec::new());
+                return self
+                    .on_register(&pane, &type_id, layout)
+                    .map(|()| Vec::new());
             },
             PaneFrame::SetTitle { title } => HostEvent::TitleChanged { pane, title },
-            PaneFrame::SetState { state } => {
-                self.remember_state(&pane, &state);
-                HostEvent::StateChanged { pane, state }
-            },
+            PaneFrame::SetState { state } => HostEvent::StateChanged { pane, state },
             PaneFrame::Open { type_id, params } => HostEvent::OpenRequested {
                 from: pane,
                 type_id,
@@ -85,38 +95,56 @@ impl PaneHost {
             | PaneFrame::SettingsSubscribe { .. }
             | PaneFrame::ComposerAttach { .. }
             | PaneFrame::ComposerDraft { .. }
-            | PaneFrame::AttachmentOpen { .. }) => HostEvent::ShellCall { pane, frame },
+            | PaneFrame::AttachmentOpen { .. }
+            | PaneFrame::OpenExternal { .. }
+            | PaneFrame::Reveal { .. }) => HostEvent::ShellCall { pane, frame },
         };
         Ok(vec![event])
     }
 
-    fn on_register(&mut self, pane: &PaneId, type_id: &PaneTypeId) -> Result<()> {
+    fn on_register(
+        &mut self,
+        pane: &PaneId,
+        type_id: &PaneTypeId,
+        layout: &Layout,
+    ) -> Result<()> {
         let Some(runtime) = self.panes.get_mut(pane) else {
             return Ok(());
         };
-        if &runtime.instance.type_id != type_id {
+        if &runtime.type_id != type_id {
             let message = format!(
                 "page registered as {type_id} but was opened as {}",
-                runtime.instance.type_id
+                runtime.type_id
             );
             return self.fail(pane, message);
         }
         runtime.phase = PanePhase::Mounted;
-        let mount = runtime.lifecycle_frame(Lifecycle::Mount);
+        let mount = runtime.lifecycle_frame(pane, Lifecycle::Mount, layout.pane(pane));
         runtime.discard_state = false;
         self.send(pane, &mount)?;
-        if !self.keybindings.is_empty() {
-            self.send(
-                pane,
-                &ShellFrame::Keybindings {
-                    bindings: self.keybindings.clone(),
-                },
-            )?;
-        }
-        self.route_activation()
+        self.send_context(pane)?;
+        self.route_activation(layout)
     }
 
-    pub(crate) fn fail(&mut self, pane: &PaneId, message: String) -> Result<()> {
+    fn send_context(
+        &self,
+        pane: &PaneId,
+    ) -> Result<()> {
+        if !self.keybindings.is_empty() {
+            let bindings = self.keybindings.clone();
+            self.send(pane, &ShellFrame::Keybindings { bindings })?;
+        }
+        let Some(tokens) = self.theme.clone() else {
+            return Ok(());
+        };
+        self.send(pane, &ShellFrame::Theme { tokens })
+    }
+
+    pub(crate) fn fail(
+        &mut self,
+        pane: &PaneId,
+        message: String,
+    ) -> Result<()> {
         let Some(runtime) = self.panes.get_mut(pane) else {
             return Ok(());
         };
@@ -125,7 +153,12 @@ impl PaneHost {
         self.refresh_native_visibility(pane)
     }
 
-    pub(crate) fn apply_status(&mut self, pane: &PaneId, status: &ExtensionStatus) -> Result<()> {
+    pub(crate) fn apply_status(
+        &mut self,
+        pane: &PaneId,
+        status: &ExtensionStatus,
+        layout: &Layout,
+    ) -> Result<()> {
         if self.panes.get(pane).is_some_and(PaneRuntime::is_mounted) {
             self.send(pane, &ShellFrame::ExtensionStatus(status.clone()))?;
         }
@@ -137,11 +170,15 @@ impl PaneHost {
                 );
                 self.fail(pane, reason)
             },
-            StatusKind::Running | StatusKind::Back => self.recover(pane),
+            StatusKind::Running | StatusKind::Back => self.recover(pane, layout),
         }
     }
 
-    fn recover(&mut self, pane: &PaneId) -> Result<()> {
+    fn recover(
+        &mut self,
+        pane: &PaneId,
+        layout: &Layout,
+    ) -> Result<()> {
         let Some(runtime) = self.panes.get_mut(pane) else {
             return Ok(());
         };
@@ -149,12 +186,194 @@ impl PaneHost {
             return Ok(());
         }
         runtime.phase = PanePhase::Mounted;
-        let mount = runtime.lifecycle_frame(Lifecycle::Mount);
+        let mount = runtime.lifecycle_frame(pane, Lifecycle::Mount, layout.pane(pane));
         self.send(pane, &mount)?;
         self.refresh_native_visibility(pane)
     }
 }
 
 #[cfg(test)]
-#[path = "pane_host_frames_tests.rs"]
-mod tests;
+mod tests {
+    use protocol::{CommandId, DisplayText, ExtensionId, PaneFrame, PaneState, PaneTitle, encode};
+    use serde_json::json;
+    use webview::{Call, Visibility, WebViewKind};
+
+    use super::*;
+    use crate::ipc_message::IpcMessage;
+    use crate::pane_display::PaneDisplay;
+    use crate::test_support::{Fixture, fixture, instance, lifecycle_events, register};
+
+    pub(crate) fn started() -> Fixture {
+        let mut f = fixture();
+        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
+        f
+    }
+
+    fn post(
+        f: &mut Fixture,
+        frame: &PaneFrame,
+    ) -> Vec<HostEvent> {
+        let text = encode(frame).unwrap();
+        f.ipc(IpcMessage {
+            pane: PaneId::new("p1").unwrap(),
+            text,
+        })
+    }
+
+    type Case = (&'static str, PaneFrame, HostEvent);
+
+    fn cases() -> Vec<Case> {
+        let pane = PaneId::new("p1").unwrap();
+        let title = PaneTitle::new("Hi").unwrap();
+        let state = PaneState::new(json!({"k": 1})).unwrap();
+        let command = CommandId::new("palette.open").unwrap();
+        vec![
+            (
+                "a title frame",
+                PaneFrame::SetTitle {
+                    title: title.clone(),
+                },
+                HostEvent::TitleChanged {
+                    pane: pane.clone(),
+                    title,
+                },
+            ),
+            (
+                "a state frame",
+                PaneFrame::SetState {
+                    state: state.clone(),
+                },
+                HostEvent::StateChanged {
+                    pane: pane.clone(),
+                    state,
+                },
+            ),
+            (
+                "a command frame",
+                PaneFrame::RunCommand {
+                    command: command.clone(),
+                },
+                HostEvent::CommandRequested { pane, command },
+            ),
+        ]
+    }
+
+    #[test]
+    fn frames_become_their_events() {
+        let wrong: Vec<&str> = cases()
+            .into_iter()
+            .filter(|(_, frame, expected)| post(&mut started(), frame) != [expected.clone()])
+            .map(|(name, ..)| name)
+            .collect();
+        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
+    }
+
+    #[test]
+    fn malformed_and_stale_messages_are_contained() {
+        let mut f = fixture();
+        let panes = [instance("p1", "core.chat"), instance("p2", "core.chat")];
+        f.sync(&panes, &["p1"], Some("p1"));
+        let junk = IpcMessage {
+            pane: PaneId::new("p1").unwrap(),
+            text: "not json".into(),
+        };
+        assert!(f.ipc(junk).is_empty(), "no events");
+        assert!(
+            matches!(
+                f.host.display(&PaneId::new("p1").unwrap()),
+                PaneDisplay::Error { .. }
+            ),
+            "p1 fails"
+        );
+        let stale = IpcMessage {
+            pane: PaneId::new("p2").unwrap(),
+            text: "{}".into(),
+        };
+        assert!(f.ipc(stale).is_empty(), "p2 has no web view; ignored");
+        assert_eq!(
+            f.host.display(&PaneId::new("p2").unwrap()),
+            PaneDisplay::Empty,
+            "p2 untouched"
+        );
+    }
+
+    #[test]
+    fn a_page_that_registers_the_wrong_type_fails_inside_its_own_frame() {
+        let mut f = fixture();
+        f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
+        register(&mut f, "p1", "core.term");
+        assert!(
+            matches!(
+                f.host.display(&PaneId::new("p1").unwrap()),
+                PaneDisplay::Error { .. }
+            ),
+            "error display"
+        );
+        assert!(
+            matches!(
+                f.mock.calls().last(),
+                Some(Call::SetVisibility {
+                    visibility: Visibility::Hidden,
+                    ..
+                })
+            ),
+            "web view hidden"
+        );
+        assert!(lifecycle_events(&f.mock).is_empty(), "never mounted");
+    }
+
+    #[test]
+    fn extension_panes_get_their_own_web_view_kind_and_react_to_status() {
+        let mut f = fixture();
+        let review = instance("r", "ext.git.review");
+        f.sync(&[review], &["r"], Some("r"));
+        let git = ExtensionId::new("git").unwrap();
+        assert!(
+            matches!(&f.mock.calls()[0], Call::Create { kind: WebViewKind::Extension(e), .. } if e.as_str() == git.as_str()),
+            "extension view"
+        );
+        register(&mut f, "r", "ext.git.review");
+        let down = ExtensionStatus::new(
+            git.clone(),
+            StatusKind::Unavailable,
+            Some(DisplayText::new("crashed").unwrap()),
+        );
+        f.host.extension_status(&down, &f.layout).unwrap();
+        assert_eq!(
+            f.host.display(&PaneId::new("r").unwrap()),
+            PaneDisplay::Error {
+                message: "crashed".into()
+            },
+            "error in frame"
+        );
+        let back = ExtensionStatus::new(git, StatusKind::Back, None);
+        f.host.extension_status(&back, &f.layout).unwrap();
+        assert_eq!(
+            f.host.display(&PaneId::new("r").unwrap()),
+            PaneDisplay::Web,
+            "recovered"
+        );
+        let mounts = lifecycle_events(&f.mock)
+            .iter()
+            .filter(|e| **e == Lifecycle::Mount)
+            .count();
+        assert_eq!(mounts, 2, "mount re-sent with the saved state");
+    }
+
+    #[test]
+    fn the_pointer_report_becomes_a_hover_event() {
+        let mut f = started();
+        let report = IpcMessage {
+            pane: PaneId::new("p1").unwrap(),
+            text: r#"{"sdk":1,"kind":"shell.hover","hovered":true}"#.into(),
+        };
+        assert_eq!(
+            f.ipc(report),
+            [HostEvent::HoverChanged {
+                pane: PaneId::new("p1").unwrap(),
+                hovered: true
+            }],
+            "hover"
+        );
+    }
+}

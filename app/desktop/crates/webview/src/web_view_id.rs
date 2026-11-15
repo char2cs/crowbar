@@ -13,11 +13,24 @@ impl WebViewId {
 }
 
 impl fmt::Display for WebViewId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
         write!(f, "wv-{}", self.0)
     }
 }
 
 #[cfg(test)]
-#[path = "web_view_id_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_form_round_trips() {
+        let id = WebViewId(42);
+        assert_eq!(id.to_string(), "wv-42", "display");
+        assert_eq!(WebViewId::parse("wv-42"), Some(id), "parse");
+        assert_eq!(WebViewId::parse("42"), None, "missing prefix");
+        assert_eq!(WebViewId::parse("wv-x"), None, "not a number");
+    }
+}

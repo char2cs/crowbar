@@ -15,14 +15,21 @@ pub struct ExtensionBundles {
 }
 
 impl std::fmt::Debug for ExtensionBundles {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         f.debug_struct("ExtensionBundles").finish_non_exhaustive()
     }
 }
 
 impl ExtensionBundles {
     /// Serves `extension`'s panes from `source`, replacing an earlier source.
-    pub fn insert(&self, extension: ExtensionId, source: Arc<dyn BundleSource>) {
+    pub fn insert(
+        &self,
+        extension: ExtensionId,
+        source: Arc<dyn BundleSource>,
+    ) {
         self.sources
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -30,7 +37,10 @@ impl ExtensionBundles {
     }
 
     /// Stops serving an extension, for example when it is disabled.
-    pub fn remove(&self, extension: &ExtensionId) {
+    pub fn remove(
+        &self,
+        extension: &ExtensionId,
+    ) {
         self.sources
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -39,7 +49,10 @@ impl ExtensionBundles {
 
     /// The source of an extension's bundle.
     #[must_use]
-    pub fn get(&self, extension: &ExtensionId) -> Option<Arc<dyn BundleSource>> {
+    pub fn get(
+        &self,
+        extension: &ExtensionId,
+    ) -> Option<Arc<dyn BundleSource>> {
         self.sources
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -49,5 +62,32 @@ impl ExtensionBundles {
 }
 
 #[cfg(test)]
-#[path = "extension_bundles_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::bundle_asset::BundleAsset;
+
+    struct One;
+
+    impl BundleSource for One {
+        fn read(
+            &self,
+            _path: &str,
+        ) -> Option<BundleAsset> {
+            None
+        }
+    }
+
+    #[test]
+    fn insert_get_remove() {
+        let bundles = ExtensionBundles::default();
+        let git = ExtensionId::new("git").unwrap();
+        assert!(bundles.get(&git).is_none(), "empty");
+        bundles.insert(git.clone(), Arc::new(One));
+        assert!(
+            bundles.clone().get(&git).is_some(),
+            "inserted, visible through a clone"
+        );
+        bundles.remove(&git);
+        assert!(bundles.get(&git).is_none(), "removed");
+    }
+}

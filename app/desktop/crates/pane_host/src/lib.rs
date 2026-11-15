@@ -14,27 +14,36 @@
 //! Pages talk to the host with the `sdk@1` frames of the `protocol` crate over ipc. The sender
 //! is the pane that owns the web view (a [`PaneHost`] decision), never a pane-supplied id.
 
+mod assignment;
 mod authorized;
 mod bootstrap;
+mod browse;
+mod browse_action;
+mod browser_slot;
 mod bundle_asset;
 mod bundle_source;
 mod dir_bundle;
 mod entry_url;
 mod error;
 mod extension_bundles;
+mod failures;
 mod host_event;
 mod hover_message;
+mod ipc_envelope;
 mod ipc_message;
 mod layout_snapshot;
 mod mime;
 mod multiplicity;
 mod origin_table;
 mod overlay;
+mod owned_pane;
 mod pane_bundles;
 mod pane_display;
 mod pane_host;
-mod pane_host_frames;
 mod pane_host_config;
+mod pane_host_frames;
+mod pane_host_slots;
+mod pane_kind;
 mod pane_lifecycle;
 mod pane_phase;
 mod pane_protocol;
@@ -50,8 +59,12 @@ mod slot_owner;
 mod slot_pool;
 mod slot_request;
 mod stage;
+mod status;
+mod sync_report;
 mod visible_pane;
 
+pub use assignment::Assignment;
+pub use browse_action::BrowseAction;
 pub use bundle_asset::BundleAsset;
 pub use bundle_source::BundleSource;
 pub use dir_bundle::DirBundle;
@@ -61,15 +74,20 @@ pub use host_event::HostEvent;
 pub use ipc_message::IpcMessage;
 pub use layout_snapshot::LayoutSnapshot;
 pub use multiplicity::Multiplicity;
-pub use protocol::PaneOrigin;
 pub use origin_table::OriginTable;
 pub use overlay::Overlay;
 pub use pane_bundles::PaneBundles;
 pub use pane_display::PaneDisplay;
 pub use pane_host::PaneHost;
 pub use pane_host_config::PaneHostConfig;
+pub use pane_kind::PaneKind;
 pub use pane_lifecycle::PaneLifecycle;
 pub use pane_protocol::PaneProtocol;
 pub use pane_registry::PaneRegistry;
 pub use pane_type::PaneType;
+pub use protocol::PaneOrigin;
+pub use sync_report::SyncReport;
 pub use visible_pane::VisiblePane;
+
+#[cfg(test)]
+mod test_support;

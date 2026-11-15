@@ -1,8 +1,10 @@
 (() => {
   const queue = [];
   let bindings = [];
+  const generation = new URLSearchParams(window.location.search).get('g') || '0';
   const crowbar = {
-    post: (text) => window.ipc.postMessage(text),
+    post: (text) => window.ipc.postMessage(generation + ':' + text),
+    relay: () => fetch(window.__CROWBAR__.api + '/__crowbar/relay').then((response) => response.json()),
     onmessage: null,
   };
   const chord = (event) => {
@@ -17,7 +19,8 @@
   window.addEventListener(
     'keydown',
     (event) => {
-      const hit = bindings.find((binding) => binding.keys === chord(event));
+      const pressed = chord(event);
+      const hit = bindings.find((binding) => binding.keys === pressed);
       if (!hit) return;
       event.preventDefault();
       crowbar.post(JSON.stringify({ sdk: 1, kind: 'command.run', command: hit.command }));

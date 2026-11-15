@@ -11,4 +11,8 @@ pub enum WebViewKind {
     Core,
     /// A pane provided by the given extension.
     Extension(ExtensionId),
+    /// A browser pane showing arbitrary web pages. It shares nothing with core or extension
+    /// views: its own storage, and the shell's custom scheme is not registered in it, so the page
+    /// cannot reach the pane protocol or the daemon.
+    Browser,
 }

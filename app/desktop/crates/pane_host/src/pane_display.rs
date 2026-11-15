@@ -5,6 +5,8 @@ use protocol::PaneTypeId;
 pub enum PaneDisplay {
     /// The pane's web view covers the rectangle.
     Web,
+    /// The shell paints a native view in the rectangle; there is no web view.
+    Native,
     /// No web view right now (parked, hidden or still being assigned); draw the background.
     Empty,
     /// The pane's type is not registered any more; draw a placeholder. State is kept.

@@ -18,21 +18,28 @@ type Job = Box<dyn FnOnce(&mut GtkState) + Send>;
 #[derive(Debug)]
 pub(crate) struct LinuxPlatform {
     jobs: async_channel::Sender<Job>,
+    thread: Option<thread::JoinHandle<()>>,
 }
 
 impl LinuxPlatform {
     pub(crate) fn start(config: HostConfig) -> Result<Self> {
         let (jobs, inbox) = async_channel::unbounded::<Job>();
         let (ready_tx, ready_rx) = mpsc::channel();
-        thread::Builder::new()
+        let thread = thread::Builder::new()
             .name("crowbar-gtk".into())
             .spawn(move || run_gtk_thread(config, &inbox, &ready_tx))
             .map_err(|error| Error::PlatformThread(error.to_string()))?;
         ready_rx.recv().map_err(|_| Error::HostStopped)??;
-        Ok(Self { jobs })
+        Ok(Self {
+            jobs,
+            thread: Some(thread),
+        })
     }
 
-    fn post(&self, job: impl FnOnce(&mut GtkState) + Send + 'static) -> Result<()> {
+    fn post(
+        &self,
+        job: impl FnOnce(&mut GtkState) + Send + 'static,
+    ) -> Result<()> {
         self.jobs
             .send_blocking(Box::new(job))
             .map_err(|_| Error::HostStopped)
@@ -47,15 +54,52 @@ impl LinuxPlatform {
     }
 }
 
-fn log_failure(what: &'static str, result: Result<()>) {
+impl Drop for LinuxPlatform {
+    fn drop(&mut self) {
+        self.jobs.close();
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        if thread.join().is_err() {
+            tracing::error!("the web view thread panicked while stopping");
+        }
+    }
+}
+
+fn log_failure(
+    what: &'static str,
+    result: Result<()>,
+) {
     if let Err(error) = result {
         tracing::warn!(%error, what, "web view operation failed");
     }
 }
 
-fn answer_create(reply: &mpsc::Sender<Result<()>>, result: Result<()>) {
+fn answer_create(
+    reply: &mpsc::Sender<Result<()>>,
+    result: Result<()>,
+) {
     if reply.send(result).is_err() {
         tracing::warn!("web view created for a caller that stopped waiting");
+    }
+}
+
+fn report_init_failure(
+    ready: &mpsc::Sender<Result<()>>,
+    error: &glib::BoolError,
+) {
+    let failure = Error::PlatformThread(error.to_string());
+    if ready.send(Err(failure)).is_err() {
+        tracing::error!("gtk failed to initialise and nobody is waiting");
+    }
+}
+
+async fn run_jobs(
+    inbox: &async_channel::Receiver<Job>,
+    state: &mut GtkState,
+) {
+    while let Ok(job) = inbox.recv().await {
+        job(state);
     }
 }
 
@@ -65,20 +109,13 @@ fn run_gtk_thread(
     ready: &mpsc::Sender<Result<()>>,
 ) {
     if let Err(error) = gtk::init() {
-        if ready
-            .send(Err(Error::PlatformThread(error.to_string())))
-            .is_err()
-        {
-            tracing::error!("gtk failed to initialise and nobody is waiting");
-        }
+        report_init_failure(ready, &error);
         return;
     }
     let inbox = inbox.clone();
     let mut state = GtkState::new(config);
     glib::MainContext::default().spawn_local(async move {
-        while let Ok(job) = inbox.recv().await {
-            job(&mut state);
-        }
+        run_jobs(&inbox, &mut state).await;
         gtk::main_quit();
     });
     if ready.send(Ok(())).is_err() {
@@ -88,45 +125,105 @@ fn run_gtk_thread(
 }
 
 impl Platform for LinuxPlatform {
-    fn create(&self, id: WebViewId, parent: ParentWindow, config: WebViewConfig) -> Result<()> {
+    fn create(
+        &self,
+        id: WebViewId,
+        parent: ParentWindow,
+        config: WebViewConfig,
+    ) -> Result<()> {
         let (reply, answer) = mpsc::channel();
         self.post(move |state| answer_create(&reply, state.create(id, parent, &config)))?;
         answer.recv().map_err(|_| Error::HostStopped)?
     }
 
-    fn set_bounds(&self, id: WebViewId, bounds: Bounds) -> Result<()> {
+    fn set_bounds(
+        &self,
+        id: WebViewId,
+        bounds: Bounds,
+    ) -> Result<()> {
         self.post_logged("set_bounds", move |state| state.set_bounds(id, bounds))
     }
 
-    fn set_visibility(&self, id: WebViewId, visibility: Visibility) -> Result<()> {
+    fn set_visibility(
+        &self,
+        id: WebViewId,
+        visibility: Visibility,
+    ) -> Result<()> {
         self.post_logged("set_visibility", move |state| {
             state.set_visibility(id, visibility)
         })
     }
 
-    fn eval(&self, id: WebViewId, script: &str) -> Result<()> {
+    fn eval(
+        &self,
+        id: WebViewId,
+        script: &str,
+    ) -> Result<()> {
         let script = script.to_owned();
         self.post_logged("eval", move |state| state.eval(id, &script))
     }
 
-    fn navigate(&self, id: WebViewId, url: &str) -> Result<()> {
+    fn navigate(
+        &self,
+        id: WebViewId,
+        url: &str,
+    ) -> Result<()> {
         let url = url.to_owned();
         self.post_logged("navigate", move |state| state.navigate(id, &url))
     }
 
-    fn focus(&self, id: WebViewId) -> Result<()> {
+    fn focus(
+        &self,
+        id: WebViewId,
+    ) -> Result<()> {
         self.post_logged("focus", move |state| state.focus(id))
     }
 
-    fn focus_parent(&self, id: WebViewId) -> Result<()> {
+    fn focus_parent(
+        &self,
+        id: WebViewId,
+    ) -> Result<()> {
         self.post_logged("focus_parent", move |state| state.focus_parent(id))
     }
 
-    fn destroy(&self, id: WebViewId) -> Result<()> {
+    fn destroy(
+        &self,
+        id: WebViewId,
+    ) -> Result<()> {
         self.post_logged("destroy", move |state| state.destroy(id))
     }
 }
 
 #[cfg(test)]
-#[path = "linux_platform_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::protocol_handler::{ProtocolHandler, ProtocolResponder};
+    use crate::protocol_request::ProtocolRequest;
+
+    struct Silent;
+
+    impl ProtocolHandler for Silent {
+        fn handle(
+            &self,
+            _request: ProtocolRequest,
+            _respond: ProtocolResponder,
+        ) {
+        }
+    }
+
+    #[test]
+    fn starting_without_a_display_is_a_typed_error() {
+        if std::env::var_os("DISPLAY").is_some() {
+            return;
+        }
+        let config = HostConfig {
+            scheme: "crowbar".into(),
+            protocol: std::sync::Arc::new(Silent),
+            data_dir: None,
+        };
+        assert!(
+            matches!(LinuxPlatform::start(config), Err(Error::PlatformThread(_))),
+            "no display"
+        );
+    }
+}

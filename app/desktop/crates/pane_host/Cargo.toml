@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 async-channel.workspace = true
+browser_nav.workspace = true
 model.workspace = true
 protocol.workspace = true
 serde_json.workspace = true

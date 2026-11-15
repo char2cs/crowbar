@@ -33,6 +33,7 @@
 //!         visibility: Visibility::Shown,
 //!         initialization_script: None,
 //!         on_ipc: Arc::new(|_| {}),
+//!         on_page: None,
 //!     },
 //! )?;
 //! view.hide()?;
@@ -48,6 +49,7 @@ mod error;
 mod host_config;
 #[cfg(feature = "mock")]
 mod mock_platform;
+mod page_event;
 mod parent_window;
 mod platform;
 mod protocol_handler;
@@ -77,6 +79,7 @@ mod macos_platform;
 pub use bounds::Bounds;
 pub use error::{Error, Result};
 pub use host_config::HostConfig;
+pub use page_event::{PageEvent, PageHandler};
 pub use parent_window::ParentWindow;
 pub use platform::Platform;
 pub use protocol_handler::{ProtocolHandler, ProtocolResponder};

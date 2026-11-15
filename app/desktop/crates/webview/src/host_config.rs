@@ -15,7 +15,10 @@ pub struct HostConfig {
 }
 
 impl std::fmt::Debug for HostConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         f.debug_struct("HostConfig")
             .field("scheme", &self.scheme)
             .field("data_dir", &self.data_dir)
@@ -24,5 +27,33 @@ impl std::fmt::Debug for HostConfig {
 }
 
 #[cfg(test)]
-#[path = "host_config_tests.rs"]
-mod tests;
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::protocol_handler::ProtocolResponder;
+    use crate::protocol_request::ProtocolRequest;
+
+    struct Silent;
+
+    impl ProtocolHandler for Silent {
+        fn handle(
+            &self,
+            _request: ProtocolRequest,
+            _respond: ProtocolResponder,
+        ) {
+        }
+    }
+
+    #[test]
+    fn debug_shows_the_scheme_and_hides_the_handler() {
+        let config = HostConfig {
+            scheme: "crowbar".into(),
+            protocol: Arc::new(Silent),
+            data_dir: None,
+        };
+        let text = format!("{config:?}");
+        assert!(text.contains("crowbar"), "scheme shown: {text}");
+        assert!(!text.contains("Silent"), "handler hidden: {text}");
+    }
+}

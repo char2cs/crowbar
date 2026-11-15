@@ -1,6 +1,7 @@
 use protocol::PaneTypeId;
 
 use crate::multiplicity::Multiplicity;
+use crate::pane_kind::PaneKind;
 use crate::pane_lifecycle::PaneLifecycle;
 
 /// A registered pane type. Built-in and extension panes are the same thing to the host: an
@@ -13,6 +14,8 @@ pub struct PaneType {
     pub title: String,
     /// Entry page path inside the owner's bundle, for example `chat/index.html`.
     pub entry: String,
+    /// Whether a web view or the shell itself draws the pane.
+    pub kind: PaneKind,
     /// What happens to the web view when the pane is hidden.
     pub lifecycle: PaneLifecycle,
     /// How many instances may exist.

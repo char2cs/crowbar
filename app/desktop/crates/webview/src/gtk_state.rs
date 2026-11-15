@@ -23,6 +23,7 @@ pub(crate) struct GtkState {
     protocol: Arc<dyn ProtocolHandler>,
     data_dir: Option<PathBuf>,
     core_context: WebContext,
+    browser_context: WebContext,
     extension_contexts: HashMap<ExtensionId, WebContext>,
     views: HashMap<WebViewId, LiveView>,
 }
@@ -30,10 +31,12 @@ pub(crate) struct GtkState {
 impl GtkState {
     pub(crate) fn new(config: HostConfig) -> Self {
         let core_dir = config.data_dir.as_ref().map(|dir| dir.join("core"));
+        let browser_dir = config.data_dir.as_ref().map(|dir| dir.join("browser"));
         Self {
             scheme: config.scheme,
             protocol: config.protocol,
             core_context: WebContext::new(core_dir),
+            browser_context: WebContext::new(browser_dir),
             data_dir: config.data_dir,
             extension_contexts: HashMap::new(),
             views: HashMap::new(),
@@ -58,45 +61,76 @@ impl GtkState {
         Ok(())
     }
 
-    pub(crate) fn set_bounds(&self, id: WebViewId, bounds: Bounds) -> Result<()> {
+    pub(crate) fn set_bounds(
+        &self,
+        id: WebViewId,
+        bounds: Bounds,
+    ) -> Result<()> {
         Ok(self.live(id)?.view.set_bounds(to_rect(bounds))?)
     }
 
-    pub(crate) fn set_visibility(&self, id: WebViewId, visibility: Visibility) -> Result<()> {
+    pub(crate) fn set_visibility(
+        &self,
+        id: WebViewId,
+        visibility: Visibility,
+    ) -> Result<()> {
         Ok(self
             .live(id)?
             .view
             .set_visible(visibility == Visibility::Shown)?)
     }
 
-    pub(crate) fn eval(&self, id: WebViewId, script: &str) -> Result<()> {
+    pub(crate) fn eval(
+        &self,
+        id: WebViewId,
+        script: &str,
+    ) -> Result<()> {
         Ok(self.live(id)?.view.evaluate_script(script)?)
     }
 
-    pub(crate) fn navigate(&self, id: WebViewId, url: &str) -> Result<()> {
+    pub(crate) fn navigate(
+        &self,
+        id: WebViewId,
+        url: &str,
+    ) -> Result<()> {
         Ok(self.live(id)?.view.load_url(url)?)
     }
 
-    pub(crate) fn focus(&self, id: WebViewId) -> Result<()> {
+    pub(crate) fn focus(
+        &self,
+        id: WebViewId,
+    ) -> Result<()> {
         Ok(self.live(id)?.view.focus()?)
     }
 
-    pub(crate) fn focus_parent(&self, id: WebViewId) -> Result<()> {
+    pub(crate) fn focus_parent(
+        &self,
+        id: WebViewId,
+    ) -> Result<()> {
         Ok(self.live(id)?.view.focus_parent()?)
     }
 
-    pub(crate) fn destroy(&mut self, id: WebViewId) -> Result<()> {
+    pub(crate) fn destroy(
+        &mut self,
+        id: WebViewId,
+    ) -> Result<()> {
         self.views
             .remove(&id)
             .map(drop)
             .ok_or(Error::UnknownWebView(id))
     }
 
-    fn live(&self, id: WebViewId) -> Result<&LiveView> {
+    fn live(
+        &self,
+        id: WebViewId,
+    ) -> Result<&LiveView> {
         self.views.get(&id).ok_or(Error::UnknownWebView(id))
     }
 
-    fn builder_for<'a>(&'a mut self, kind: &WebViewKind) -> WebViewBuilder<'a> {
+    fn builder_for<'a>(
+        &'a mut self,
+        kind: &WebViewKind,
+    ) -> WebViewBuilder<'a> {
         let related = self
             .views
             .values()
@@ -105,10 +139,13 @@ impl GtkState {
         if let Some(anchor) = related {
             return WebViewBuilder::new().with_related_view(anchor);
         }
+        if *kind == WebViewKind::Browser {
+            return WebViewBuilder::new_with_web_context(&mut self.browser_context);
+        }
         let scheme = self.scheme.clone();
         let protocol = Arc::clone(&self.protocol);
         let context = match kind {
-            WebViewKind::Core => &mut self.core_context,
+            WebViewKind::Core | WebViewKind::Browser => &mut self.core_context,
             WebViewKind::Extension(extension) => {
                 let dir = self
                     .data_dir
@@ -129,5 +166,61 @@ impl GtkState {
 }
 
 #[cfg(test)]
-#[path = "gtk_state_tests.rs"]
-mod tests;
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::protocol_handler::{ProtocolHandler, ProtocolResponder};
+    use crate::protocol_request::ProtocolRequest;
+
+    fn rect(
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Bounds {
+        Bounds {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    struct Silent;
+
+    impl ProtocolHandler for Silent {
+        fn handle(
+            &self,
+            _request: ProtocolRequest,
+            _respond: ProtocolResponder,
+        ) {
+        }
+    }
+
+    #[test]
+    #[ignore = "needs display"]
+    fn a_parent_that_is_not_an_x11_window_is_refused() {
+        gtk::init().unwrap();
+        let mut state = GtkState::new(HostConfig {
+            scheme: "crowbar".into(),
+            protocol: Arc::new(Silent),
+            data_dir: None,
+        });
+        let config = WebViewConfig {
+            url: "about:blank".into(),
+            bounds: rect(0.0, 0.0, 1.0, 1.0),
+            kind: WebViewKind::Core,
+            visibility: Visibility::Hidden,
+            initialization_script: None,
+            on_ipc: Arc::new(|_| {}),
+            on_page: None,
+        };
+        let id = WebViewId(1);
+        let refused = state.create(id, ParentWindow::AppKit(1), &config);
+        assert!(
+            matches!(refused, Err(Error::UnsupportedParent(_))),
+            "refused"
+        );
+    }
+}
