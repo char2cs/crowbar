@@ -208,6 +208,9 @@ func extraRoutes() []string {
 	// chat is the flat chat-scoped prefix (spec §7.1), same as specRoutes'.
 	const chat = "/v0/chats/:chatId"
 	return []string{
+		// A relay-keyed session (Hermes) keeps one MCP identity for its life, so
+		// its tool surface hangs off the relay id rather than a runner or a path.
+		"POST /v0/relays/:relay/mcp",
 		"DELETE /v0/projects/:projectId",
 		// Project reorder: the sidebar's manual project order, a single store
 		// write that densifies the list and broadcasts every row it shifted.
