@@ -8,8 +8,11 @@ macro_rules! platforms {
             #[cfg(any($(target_os = $platform),*))]
             pub use self::$module::*;
 
-            #[cfg(any($(target_os = $platform),*))]
+            #[cfg(all(any($(target_os = $platform),*), any(target_os = "linux", target_os = "android")))]
             pub const ENOATTR: ::libc::c_int = ::libc::ENODATA;
+
+            #[cfg(all(any($(target_os = $platform),*), not(any(target_os = "linux", target_os = "android"))))]
+            pub const ENOATTR: ::libc::c_int = ::libc::ENOATTR;
         )*
 
         #[cfg(all(feature = "unsupported", not(any($($(target_os = $platform),*),*))))]

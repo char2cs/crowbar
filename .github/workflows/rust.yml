@@ -21,6 +21,10 @@ on:
       - 'tools/scripts/rust-rules.awk'
       - 'tools/scripts/check-swift-rules.sh'
       - 'tools/scripts/swift-rules.awk'
+      - 'tools/scripts/check-ts-rules.sh'
+      - 'tools/scripts/ts-rules.awk'
+      - 'tools/scripts/brace-rules.awk'
+      - 'tools/scripts/check-standards.sh'
       - 'tools/scripts/testdata/**'
       - '.github/workflows/rust.yml'
 
@@ -143,12 +147,17 @@ jobs:
             libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libxkbfile-dev libwayland-dev libvulkan-dev \
             xvfb x11-utils xdotool openbox mesa-vulkan-drivers vulkan-tools libgl1-mesa-dri libegl1 fonts-dejavu-core
-      - name: Check Xcode command line tools (macOS)
+      # gpui compiles its Metal shaders in build.rs with `xcrun metal`, which needs full Xcode (not only
+      # the command line tools). Since Xcode 26 the Metal toolchain is a separate download.
+      - name: Check Xcode and the Metal toolchain (macOS)
         if: runner.os == 'macOS'
         run: |
           xcode-select -p
           xcrun --sdk macosx --show-sdk-path
-          xcrun -find metal
+          xcrun --sdk macosx metal --version || {
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun --sdk macosx metal --version
+          }
       - name: Install Rust toolchain (app/rust-toolchain.toml)
         working-directory: app
         run: rustup toolchain install && rustup show active-toolchain
@@ -209,6 +218,13 @@ jobs:
             libxcb1-dev libx11-dev libx11-xcb-dev libxcb-xkb-dev libxcb-render0-dev \
             libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libxkbfile-dev libwayland-dev libvulkan-dev
+      - name: Check Xcode and the Metal toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          xcrun --sdk macosx metal --version || {
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun --sdk macosx metal --version
+          }
       - name: Install Rust toolchain (app/rust-toolchain.toml)
         working-directory: app
         run: rustup toolchain install && rustup show active-toolchain
@@ -250,9 +266,25 @@ jobs:
       # The package depends on the generated .tauri/tauri-api, so building and
       # testing it needs the cargo build and runs in ci.yml (ios-checks).
 
+  standards:
+    name: standards (Rabbyte manifest)
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Fetch the base branch the checkers diff against
+        run: git fetch origin develop:develop
+      - name: Rust, Swift and TypeScript rules (docs/rabbyte-manifest.md)
+        run: |
+          bash tools/scripts/check-standards.sh --self-test
+          bash tools/scripts/check-standards.sh
+
   rust-ok:
     if: always()
-    needs: [changes, rust-lint, rust-test, rust-build, swift-lint]
+    needs: [changes, rust-lint, rust-test, rust-build, swift-lint, standards]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

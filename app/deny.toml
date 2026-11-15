@@ -10,7 +10,22 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+# Every entry is an unmaintained-crate notice with no safe upgrade, reached only through gpui
+# (patched copy in desktop/vendor) or wry/gtk-rs. Each is dropped when the named parent bumps.
+# Review at every gpui or wry upgrade; delete an entry as soon as `cargo deny check` stops needing it.
+ignore = [
+  { id = "RUSTSEC-2025-0052", reason = "async-std discontinued; via gpui_http_client and zed-async-tar. Revisit when gpui bumps." },
+  { id = "RUSTSEC-2026-0441", reason = "pin-utils unmaintained; via async-std, same gpui subtree. Revisit when gpui bumps." },
+  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; via gpui (metal, core-video). Revisit when gpui bumps." },
+  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; via gpui (stacksafe-macro). Revisit when gpui bumps." },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained; via glib-macros of gtk-rs 0.18, which wry/webview use on Linux. Revisit when wry moves to gtk4 or a newer gtk-rs." },
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained; via gpui's zed-reqwest. Revisit when gpui bumps." },
+  { id = "RUSTSEC-2026-0206", reason = "rustybuzz unmaintained; via gpui (cosmic-text, usvg). Revisit when gpui bumps." },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; via gpui (cosmic-text, fontdb, usvg). Revisit when gpui bumps." },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; via zbus under gpui's ashpd and oo7. Revisit when gpui or zbus bumps." },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; via oo7 and zbus under gpui. Revisit when gpui or zbus bumps." },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained; via zvariant under gpui. Revisit when gpui or zbus bumps." },
+]
 
 [licenses]
 version = 2
@@ -31,8 +46,6 @@ allow = [
   "BSL-1.0",
   "MPL-2.0",
   "Unicode-3.0",
-  "Unicode-DFS-2016",
-  "CDLA-Permissive-2.0",
 ]
 exceptions = []
 
@@ -43,11 +56,48 @@ ignore = true
 multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
+# The bans guard code we write. Transitive uses are allowed only through the exact direct parents
+# below, which are third-party crates we cannot change; a new parent fails the check and needs review.
 deny = [
-  { crate = "lazy_static", reason = "use std::sync::LazyLock inside a constructor, or pass state in (M24)" },
-  { crate = "once_cell", reason = "std covers it; global init is banned by M24" },
-  { crate = "ctor", reason = "init magic (M24)" },
-  { crate = "inventory", reason = "init magic (M24)" },
+  { crate = "lazy_static", reason = "use std::sync::LazyLock inside a constructor, or pass state in (M24)", wrappers = [
+    "num-bigint-dig",  # oo7 keyring under gpui. Revisit when gpui bumps.
+    "sharded-slab",    # tracing-subscriber (shell_diagnostics). Revisit when tracing-subscriber drops it.
+    "zed-font-kit",    # gpui. Revisit when gpui bumps.
+  ] },
+  { crate = "once_cell", reason = "std covers it; global init is banned by M24", wrappers = [
+    "ahash",                  # zed-xim under gpui
+    "async-global-executor",  # async-std under gpui
+    "async-std",              # gpui_http_client under gpui
+    "blade-graphics",         # gpui Linux renderer
+    "cairo-rs",               # gtk-rs 0.18 under wry (webview)
+    "const-random-macro",     # ahash under gpui
+    "gdk-pixbuf",             # gtk-rs 0.18 under wry
+    "gio",                    # gtk-rs 0.18 under wry
+    "glib",                   # gtk-rs 0.18 under wry
+    "is-docker",              # gpui
+    "is-wsl",                 # gpui
+    "naga",                   # blade-graphics under gpui
+    "pango",                  # gtk-rs 0.18 under wry
+    "proc-macro-crate",       # gtk-rs 0.18 macros
+    "read-fonts",             # gpui font stack
+    "rustls",                 # zed-reqwest under gpui; daemon transport
+    "tempfile",               # temp files in tests and the app; upstream
+    "tracing-core",           # tracing
+    "tracing-subscriber",     # shell_diagnostics
+    "wayland-sys",            # gpui Linux
+    "webkit2gtk",             # wry on Linux
+    "wry",                    # the web view crate (webview)
+    "x11-dl",                 # gpui Linux
+    "yeslogic-fontconfig-sys",  # gpui font stack
+    "zed-reqwest",            # gpui_http_client under gpui
+  ] },
+  { crate = "ctor", reason = "init magic (M24)", wrappers = [
+    "gpui",        # registers actions at load. Revisit when gpui bumps.
+    "gpui_media",  # gpui
+  ] },
+  { crate = "inventory", reason = "init magic (M24)", wrappers = [
+    "gpui",  # action and element registry. Revisit when gpui bumps.
+  ] },
   { crate = "linkme", reason = "init magic (M24)" },
   { crate = "failure", reason = "unmaintained; use thiserror" },
   { crate = "error-chain", reason = "unmaintained; use thiserror" },
