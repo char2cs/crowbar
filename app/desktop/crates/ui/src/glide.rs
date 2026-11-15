@@ -114,7 +114,7 @@ mod tests {
     const SPAN: Duration = Duration::from_millis(100);
 
     type Moves = &'static [(f32, u64)];
-    type Expect = (f32, f32, bool);
+    type Expect = (f32, f32, bool, f32);
 
     type Case = (&'static str, f32, Moves, fn() -> Motion, u64, Expect);
 
@@ -125,7 +125,7 @@ mod tests {
             &[],
             Motion::default,
             0,
-            (3.0, 3.0, false),
+            (3.0, 3.0, false, 0.0),
         ),
         (
             "halfway",
@@ -133,7 +133,7 @@ mod tests {
             &[(10.0, 0)],
             Motion::default,
             50,
-            (5.0, 10.0, true),
+            (5.0, 10.0, true, 1e-3),
         ),
         (
             "arrival",
@@ -141,7 +141,7 @@ mod tests {
             &[(10.0, 0)],
             Motion::default,
             100,
-            (10.0, 10.0, false),
+            (10.0, 10.0, false, 0.0),
         ),
         (
             "retargeting starts from the value shown",
@@ -149,7 +149,7 @@ mod tests {
             &[(10.0, 0), (0.0, 50)],
             Motion::default,
             50,
-            (5.0, 0.0, true),
+            (5.0, 0.0, true, 1e-3),
         ),
         (
             "the same target keeps its course",
@@ -157,7 +157,7 @@ mod tests {
             &[(10.0, 0), (10.0, 50)],
             Motion::default,
             50,
-            (5.0, 10.0, true),
+            (5.0, 10.0, true, 1e-3),
         ),
         (
             "reduced motion arrives at once",
@@ -165,7 +165,7 @@ mod tests {
             &[(10.0, 0)],
             Motion::reduced,
             1,
-            (10.0, 10.0, false),
+            (10.0, 10.0, false, 0.0),
         ),
     ];
 
@@ -186,15 +186,15 @@ mod tests {
 
     #[test]
     fn moves_reach_the_expected_value_target_and_state() {
-        for &(name, from, moves, motion, probe_ms, (value, target, running)) in CASES {
+        for &(name, from, moves, motion, probe_ms, (value, target, running, tolerance)) in CASES {
             let (start, motion) = (Instant::now(), motion());
             let moving = played(glide(from), moves, (start, motion));
             let probe = start + Duration::from_millis(probe_ms);
             assert!(
-                (moving.value(probe, motion) - value).abs() < 1e-3,
+                (moving.value(probe, motion) - value).abs() <= tolerance,
                 "{name}: value"
             );
-            assert!((moving.target() - target).abs() < 1e-3, "{name}: target");
+            assert_eq!(moving.target(), target, "{name}: target");
             assert_eq!(moving.is_running(probe, motion), running, "{name}: running");
         }
     }

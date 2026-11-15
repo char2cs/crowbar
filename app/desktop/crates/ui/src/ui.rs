@@ -11,7 +11,7 @@ use crate::theme::Theme;
 /// Registers fonts, installs the default [`Theme`] and the [`Motion`] preference.
 ///
 /// Call once at startup, before the first window opens, with the app built through
-/// `Application::with_assets(ui::Assets)` (or an asset source that wraps it).
+/// `Application::with_assets(ui::assets())` (or an asset source that wraps it).
 ///
 /// # Errors
 ///
@@ -32,7 +32,7 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::assets::Assets;
+    use crate::assets::assets;
 
     #[gpui::test]
     fn init_installs_the_globals_and_registers_fonts(cx: &mut TestAppContext) {
@@ -41,6 +41,6 @@ mod tests {
             assert!(cx.try_global::<Theme>().is_some());
             assert!(cx.try_global::<Motion>().is_some());
         });
-        let _ = Assets;
+        let _ = assets();
     }
 }

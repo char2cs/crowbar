@@ -7,7 +7,7 @@ build on this crate and add no styling of their own.
 ## Setup
 
 ```rust
-let application = gpui::Application::new().with_assets(ui::Assets);
+let application = gpui::Application::new().with_assets(ui::assets());
 application.run(|cx| {
     ui::init(cx)?;                       // fonts, Theme, Motion, key bindings
     ui::Overlays::install(host, cx);     // pane host implements ui::OverlayHost (optional until web views exist)
@@ -15,7 +15,7 @@ application.run(|cx| {
 });
 ```
 
-`Assets` serves the embedded icons; an app with its own assets wraps it and falls back to it.
+`ui::assets()` serves the embedded icons; an app with its own assets wraps it and falls back to it.
 `Theme::install` repaints every window, so switching theme, mode or UI font size is live. To follow the OS
 appearance call `Theme::with_system(Appearance::from(window.appearance()))` from
 `Window::observe_window_appearance`.
@@ -29,7 +29,7 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Theme | `Theme`, `ThemeId`, `ThemeMode`, `Appearance`, `Surface`, `Palette` (53 colour tokens as accessors returning `Hsla`), `contrast_ratio` | verified |
 | Metrics | `radius::{SM,MD,LG,XL,XXL,FULL}`, `text_size::{XS..XL, UiText}`, `shadow::{xs,sm,md,lg,xs_tinted,dropdown,handle}`, `layer::*` (z order), `timing::*` (durations) | unverified |
 | Fonts | `font::{register, UI_FAMILY, HEADING_FAMILY, MONO_FAMILY}` (Cal Sans UI, Instrument Serif, Geist Mono) | verified |
-| Icons | `Icon`, `IconName`, `IconWeight`, `Assets` (Phosphor: 56 icons, 92 weight files) | verified |
+| Icons | `Icon`, `IconName`, `IconWeight`, `assets()` (Phosphor: 56 icons, 92 weight files) | verified |
 | Motion | `CubicBezier`, `Keyframes`, `Motion` (reduced motion, animation factory) | verified |
 | Controls | `Button` (with `loading()`), `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
 | Overlays | `OverlayHost`, `Overlays`, `OverlayGuard`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |

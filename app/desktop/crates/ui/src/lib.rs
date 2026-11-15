@@ -128,7 +128,7 @@ mod ui;
 mod ui_text;
 
 pub use appearance::Appearance;
-pub use assets::Assets;
+pub use assets::assets;
 pub use axis::Axis;
 pub use badge::Badge;
 pub use badge_size::BadgeSize;

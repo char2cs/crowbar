@@ -52,7 +52,7 @@ mod tests {
 
     const SPAN: Duration = Duration::from_millis(100);
 
-    type Case = (&'static str, u64, u64, fn() -> Motion, (f32, bool));
+    type Case = (&'static str, u64, u64, fn() -> Motion, (f32, bool, f32));
 
     const CASES: &[Case] = &[
         (
@@ -60,46 +60,56 @@ mod tests {
             0,
             0,
             Motion::default,
-            (0.0, true),
+            (0.0, true, 1e-6),
         ),
         (
             "progress follows the curve",
             0,
             50,
             Motion::default,
-            (0.5, true),
+            (0.5, true, 1e-3),
         ),
-        ("progress settles", 0, 250, Motion::default, (1.0, false)),
+        (
+            "progress settles",
+            0,
+            250,
+            Motion::default,
+            (1.0, false, 0.0),
+        ),
         (
             "a delay holds progress at zero",
             40,
             39,
             Motion::default,
-            (0.0, true),
+            (0.0, true, 0.0),
         ),
         (
             "progress resumes after the delay",
             40,
             90,
             Motion::default,
-            (0.5, true),
+            (0.5, true, 1e-3),
         ),
         (
             "reduced motion finishes at once",
             40,
             1,
             Motion::reduced,
-            (1.0, false),
+            (1.0, false, 0.0),
         ),
     ];
 
     #[test]
     fn progress_follows_the_curve_the_delay_and_the_motion_preference() {
-        for &(name, delay_ms, elapsed_ms, motion, (progress, running)) in CASES {
+        for &(name, delay_ms, elapsed_ms, motion, (progress, running, tolerance)) in CASES {
             let tween =
                 Tween::new(SPAN, CubicBezier::LINEAR).delayed(Duration::from_millis(delay_ms));
             let at = tween.at(Duration::from_millis(elapsed_ms), motion());
-            assert!((at.0 - progress).abs() < 1e-3, "{name}: progress {}", at.0);
+            assert!(
+                (at.0 - progress).abs() <= tolerance,
+                "{name}: progress {}",
+                at.0
+            );
             assert_eq!(at.1, running, "{name}: running");
         }
     }

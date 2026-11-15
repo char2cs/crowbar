@@ -56,6 +56,6 @@ fn start(
 fn main() {
     let arguments = Arguments::from_env();
     Application::new()
-        .with_assets(ui::Assets)
+        .with_assets(ui::assets())
         .run(move |cx: &mut App| start(cx, &arguments));
 }

@@ -4,18 +4,24 @@ use std::borrow::Cow;
 
 use gpui::{AssetSource, SharedString};
 
+use crate::icon_file::IconFile;
 use crate::icon_files::FILES;
 
-/// [`AssetSource`] for `icons/<weight>/<stem>.svg`; pass it to `Application::with_assets`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Assets;
+/// The [`AssetSource`] for `icons/<weight>/<stem>.svg`; pass it to `Application::with_assets`.
+pub fn assets() -> impl AssetSource {
+    Assets { files: FILES }
+}
+
+struct Assets {
+    files: &'static [IconFile],
+}
 
 impl AssetSource for Assets {
     fn load(
         &self,
         path: &str,
     ) -> gpui::Result<Option<Cow<'static, [u8]>>> {
-        let found = FILES.iter().find(|file| file.path == path);
+        let found = self.files.iter().find(|file| file.path == path);
         Ok(found.map(|file| Cow::Borrowed(file.bytes)))
     }
 
@@ -23,7 +29,8 @@ impl AssetSource for Assets {
         &self,
         path: &str,
     ) -> gpui::Result<Vec<SharedString>> {
-        Ok(FILES
+        Ok(self
+            .files
             .iter()
             .filter(|file| file.path.starts_with(path))
             .map(|file| SharedString::from(file.path))
@@ -64,7 +71,7 @@ mod tests {
             ("icons/regular/nope.svg", false),
         ];
         for &(path, embedded) in CASES {
-            let found = Assets.load(path).expect("load");
+            let found = assets().load(path).expect("load");
             assert_eq!(found.is_some(), embedded, "{path}");
             assert!(found.is_none_or(|svg| svg.starts_with(b"<svg")), "{path}");
         }
@@ -72,7 +79,7 @@ mod tests {
 
     #[test]
     fn list_filters_by_prefix() {
-        let bold = Assets.list("icons/bold/").expect("list");
+        let bold = assets().list("icons/bold/").expect("list");
         assert!(bold.len() > 5, "the bold weight ships icons");
         assert!(bold.iter().all(|name| name.starts_with("icons/bold/")));
     }
