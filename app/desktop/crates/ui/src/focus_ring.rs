@@ -7,7 +7,8 @@ use crate::palette::Palette;
 const OFFSET: f32 = 1.0;
 const WIDTH: f32 = 2.0;
 
-pub(crate) fn focus_ring(palette: &Palette) -> Vec<BoxShadow> {
+/// The two stacked shadows of the focus ring: 2px of `ring` outside a 1px page-coloured offset.
+pub fn focus_ring(palette: &Palette) -> Vec<BoxShadow> {
     let layer = |color, spread| BoxShadow {
         color,
         offset: point(px(0.0), px(0.0)),

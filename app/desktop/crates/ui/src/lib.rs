@@ -152,6 +152,7 @@ pub use drag_handle::DragHandle;
 pub use dropdown_menu::DropdownMenu;
 pub use empty_state::EmptyState;
 pub use error::Error;
+pub use focus_ring::focus_ring;
 pub use glide::Glide;
 pub use hover_fill::hover_fill;
 pub use icon::Icon;

@@ -3,7 +3,7 @@
 use gpui::{App, Global};
 
 use crate::appearance::Appearance;
-use crate::font::{HEADING_FAMILY, UI_FAMILY};
+use crate::font::{HEADING_FAMILY, MONO_FAMILY, UI_FAMILY};
 use crate::palette::Palette;
 use crate::surface::Surface;
 use crate::theme_id::ThemeId;
@@ -20,6 +20,7 @@ pub struct Theme {
     vibrancy: Vibrancy,
     ui_family: Option<&'static str>,
     heading_family: Option<&'static str>,
+    mono_family: Option<&'static str>,
 }
 
 impl Global for Theme {}
@@ -34,6 +35,7 @@ impl Default for Theme {
             vibrancy: Vibrancy::None,
             ui_family: None,
             heading_family: None,
+            mono_family: None,
         }
     }
 }
@@ -81,6 +83,11 @@ impl Theme {
     /// Family of headings: the chosen one, else the embedded [`HEADING_FAMILY`].
     pub fn heading_family(&self) -> &'static str {
         self.heading_family.unwrap_or(HEADING_FAMILY)
+    }
+
+    /// Family of code and keyboard hints: the chosen one, else the embedded [`MONO_FAMILY`].
+    pub fn mono_family(&self) -> &'static str {
+        self.mono_family.unwrap_or(MONO_FAMILY)
     }
 
     /// The same theme with another id.
@@ -151,6 +158,18 @@ impl Theme {
     ) -> Self {
         Self {
             heading_family: Some(family),
+            ..self
+        }
+    }
+
+    /// The same theme with `family` for code (`fontFamily` setting).
+    #[must_use]
+    pub fn with_mono_family(
+        self,
+        family: &'static str,
+    ) -> Self {
+        Self {
+            mono_family: Some(family),
             ..self
         }
     }
@@ -298,6 +317,19 @@ mod tests {
     ) -> (&'static str, &'static str) {
         themed.install(cx);
         (Theme::of(cx).ui_family(), Theme::of(cx).heading_family())
+    }
+
+    #[gpui::test]
+    fn installed_mono_family_is_what_components_read(cx: &mut gpui::TestAppContext) {
+        type Case = (Theme, &'static str);
+        let cases: [Case; 2] = [
+            (Theme::default(), MONO_FAMILY),
+            (Theme::default().with_mono_family("Fira Code"), "Fira Code"),
+        ];
+        for (themed, mono) in cases {
+            cx.update(|cx| themed.install(cx));
+            cx.update(|cx| assert_eq!(Theme::of(cx).mono_family(), mono));
+        }
     }
 
     #[test]

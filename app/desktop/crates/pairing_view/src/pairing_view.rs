@@ -208,7 +208,9 @@ impl PairingView {
             PairingStage::Address => body
                 .child(labelled("Name", palette, &self.name))
                 .child(labelled("Address", palette, &self.address)),
-            PairingStage::Fingerprint => body.child(fingerprint_box(palette, &state.fingerprint, mono)),
+            PairingStage::Fingerprint => {
+                body.child(fingerprint_box(palette, &state.fingerprint, mono))
+            },
             PairingStage::Code => body.child(labelled("Code", palette, &self.code)),
             PairingStage::Paired => body,
         }
