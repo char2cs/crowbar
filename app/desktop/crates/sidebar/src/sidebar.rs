@@ -7,6 +7,7 @@ use gpui::{AnyView, Context, EventEmitter, FocusHandle, ScrollHandle};
 use ui::{CubicBezier, Glide};
 
 use crate::command_sink::CommandSink;
+use crate::drag_state::DragState;
 use crate::inline_edit::InlineEdit;
 use crate::mode::Mode;
 use crate::open_menu::OpenMenu;
@@ -43,6 +44,7 @@ pub struct Sidebar {
     pub(crate) changes_scroll: ScrollHandle,
     pub(crate) handle_focus: FocusHandle,
     pub(crate) creating_space: bool,
+    pub(crate) drag: DragState,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -74,6 +76,7 @@ impl Sidebar {
             changes_scroll: ScrollHandle::new(),
             handle_focus: cx.focus_handle(),
             creating_space: false,
+            drag: DragState::default(),
         }
     }
 

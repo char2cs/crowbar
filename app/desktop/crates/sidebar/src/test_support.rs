@@ -9,6 +9,6 @@ mod recorder;
 mod rows;
 
 pub(crate) use open::open;
-pub(crate) use probe::measure;
+pub(crate) use probe::{measure, mount};
 pub(crate) use recorder::Recorder;
 pub(crate) use rows::{chat, recording_handler};

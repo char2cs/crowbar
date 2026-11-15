@@ -13,6 +13,7 @@ use crate::project_tree::ProjectTree;
 use crate::removing_row::RemovingRow;
 use crate::row::Row;
 use crate::row_action::RowHandler;
+use crate::row_drag::RowDrag;
 use crate::row_input::RowInput;
 use crate::row_kind::RowKind;
 use crate::sidebar::Sidebar;
@@ -68,11 +69,16 @@ impl Sidebar {
         }
         let input = self.input_for(&row);
         let expansion = visible.expansion;
+        let drag = RowDrag {
+            lifted: self.drag.is_lifted(&row.id),
+            mode: self.drag.mode_on(&row.id),
+        };
         TreeRow {
             row,
             expansion,
             input,
             handler,
+            drag,
         }
         .into_any_element()
     }
@@ -119,6 +125,7 @@ impl Sidebar {
                 expansion,
                 input: Some(input),
                 handler,
+                drag: RowDrag::default(),
             }
             .into_any_element(),
         )

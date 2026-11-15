@@ -1,7 +1,7 @@
 //! Command line of the sidebar gallery.
 
 use gpui::App;
-use sidebar::{DemoData, Mode, Preferences, Visibility};
+use sidebar::{DemoData, DropMode, Mode, Preferences, RowId, Visibility};
 use ui::{Theme, ThemeId, ThemeMode};
 
 const DEFAULT_SIZE: (f32, f32) = (1200.0, 800.0);
@@ -14,6 +14,7 @@ pub(crate) struct Arguments {
     panel: Mode,
     width: Option<f32>,
     closed: bool,
+    drag: Option<String>,
 }
 
 fn flag(name: &str) -> Option<String> {
@@ -52,6 +53,7 @@ impl Arguments {
             },
             width: flag("width").and_then(|value| value.parse().ok()),
             closed: std::env::args().any(|arg| arg == "--closed"),
+            drag: flag("drag"),
         }
     }
 
@@ -75,6 +77,17 @@ impl Arguments {
             "loading" => DemoData::loading(),
             _ => DemoData::reference(),
         }
+    }
+
+    pub(crate) fn drag(&self) -> Option<(RowId, RowId, DropMode)> {
+        let mut parts = self.drag.as_deref()?.split(':');
+        let (subject, target) = (parts.next()?, parts.next()?);
+        let mode = match parts.next()? {
+            "before" => DropMode::Before,
+            "after" => DropMode::After,
+            _ => DropMode::Into,
+        };
+        Some((RowId::from(subject), RowId::from(target), mode))
     }
 
     fn visibility(

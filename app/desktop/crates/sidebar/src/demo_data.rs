@@ -66,7 +66,7 @@ impl DemoData {
         Self::with_rows(rich_rows(), RICH_COUNTS)
     }
 
-    fn with_rows(
+    pub(crate) fn with_rows(
         rows: Vec<Row>,
         (spaces, hosts): (usize, usize),
     ) -> Self {

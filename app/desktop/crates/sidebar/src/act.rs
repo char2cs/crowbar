@@ -33,6 +33,10 @@ impl Sidebar {
                 self.open_menu((foot_menu(&project), at), window, cx);
             },
             RowAction::Intent(intent) => self.apply(intent, window, cx),
+            RowAction::Edge(pull) => self.drag.pull = pull,
+            RowAction::Press(press) => self.press_row(press),
+            RowAction::DragOver(point) => self.drag_over(&point, cx),
+            RowAction::Dropped(subject, target) => self.drop_on((subject, target), cx),
         }
     }
 

@@ -13,9 +13,25 @@ pub fn edge_speed(distance: f32) -> f32 {
         .max(1.0)
 }
 
+pub(crate) fn pull(
+    (top, bottom): (f32, f32),
+    y: f32,
+) -> f32 {
+    edge_speed(bottom - y) - edge_speed(y - top)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pull_points_towards_the_nearer_edge() {
+        const CASES: [(f32, f32); 4] = [(5.0, -12.0), (95.0, 12.0), (50.0, 0.0), (100.0, 14.0)];
+        for (y, expected) in CASES {
+            let got = pull((0.0, 100.0), y);
+            assert!((got - expected).abs() < 0.01, "y {y}: {got}");
+        }
+    }
 
     #[test]
     fn speed_ramps_from_fourteen_at_the_edge_to_one_at_the_band() {

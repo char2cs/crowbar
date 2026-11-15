@@ -16,6 +16,7 @@ use crate::presence::Presence;
 use crate::row::Row;
 use crate::row_action::{RowAction, RowHandler};
 use crate::row_cluster::cluster;
+use crate::row_drag::{RowDrag, draggable};
 use crate::row_glyph::RowGlyph;
 use crate::row_id::RowId;
 use crate::row_input::RowInput;
@@ -32,6 +33,7 @@ pub(crate) struct TreeRow {
     pub(crate) expansion: Expansion,
     pub(crate) input: Option<RowInput>,
     pub(crate) handler: RowHandler,
+    pub(crate) drag: RowDrag,
 }
 
 impl RenderOnce for TreeRow {
@@ -57,6 +59,13 @@ impl RenderOnce for TreeRow {
             .child(glyph_box(&self.row, self.expansion, cx))
             .child(label(&self.row, self.input.as_ref(), palette))
             .child(cluster(&spec));
+        let shell = self.drag.style(shell, palette);
+        let (id, label) = (
+            self.row.id.clone(),
+            SharedString::from(self.row.label.clone()),
+        );
+        let (handler, free) = (Rc::clone(&self.handler), self.input.is_none());
+        let shell = shell.when(free, move |d| draggable(d, (id, label), &handler));
         let shell = with_menu(shell, &self.row.id, &self.handler);
         let (id, handler) = (self.row.id.clone(), Rc::clone(&self.handler));
         shell.when(self.input.is_none(), move |d| open_on_click(d, id, handler))
@@ -142,6 +151,7 @@ mod tests {
             row: chat("Refactor"),
             expansion: Expansion::Expanded,
             input: None,
+            drag: RowDrag::default(),
             handler: Rc::clone(&handler),
         });
         assert_eq!(f32::from(bounds.size.height), 38.0);

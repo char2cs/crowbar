@@ -5,19 +5,33 @@
 //! Shows the sidebar over a stand-in content area; used to capture parity screenshots.
 //!
 //! Usage: `sidebar_gallery [--theme crowbar|frosted] [--mode light|dark] [--size WxH]
-//! [--data reference|rich|loading] [--panel chats|files|changes] [--width N] [--closed]`.
+//! [--data reference|rich|loading] [--panel chats|files|changes] [--width N] [--closed]
+//! [--drag subject:target:before|after|into]`.
 
 mod arguments;
 mod content;
 
 use std::rc::Rc;
 
-use gpui::{App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui::{
+    App, AppContext as _, Application, Bounds, Entity, WindowBounds, WindowOptions, px, size,
+};
 use sidebar::Sidebar;
 use ui::{Surface, Theme};
 
 use crate::arguments::Arguments;
 use crate::content::Content;
+
+fn preview(
+    sidebar: &Entity<Sidebar>,
+    arguments: &Arguments,
+    cx: &mut App,
+) {
+    let Some(drag) = arguments.drag() else {
+        return;
+    };
+    sidebar.update(cx, |this, cx| this.preview_drag(drag, cx));
+}
 
 fn open(
     cx: &mut App,
@@ -34,7 +48,10 @@ fn open(
     let opened = cx.open_window(options, |_, cx| {
         let background = Theme::of(cx).palette(Surface::Window).background();
         let content = cx.new(|_| Content { background }).into();
-        cx.new(|cx| Sidebar::new(Rc::clone(&data) as _, data, content, (preferences, cx)))
+        let sidebar =
+            cx.new(|cx| Sidebar::new(Rc::clone(&data) as _, data, content, (preferences, cx)));
+        preview(&sidebar, arguments, cx);
+        sidebar
     });
     if let Err(error) = opened {
         eprintln!("sidebar_gallery: open window: {error}");

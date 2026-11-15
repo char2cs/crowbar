@@ -4,16 +4,19 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, Window, div, px,
+    AnyElement, Context, DragMoveEvent, InteractiveElement, IntoElement, ParentElement,
+    SharedString, Styled, Window, div, px,
 };
 use ui::{Motion, ScrollArea};
 
+use crate::dragged_row::DraggedRow;
+use crate::edge_scroll::pull;
 use crate::notice::Notice;
 use crate::notice_row::NoticeRow;
 use crate::project::Project;
 use crate::project_tree::ProjectTree;
 use crate::row::Row;
-use crate::row_action::RowHandler;
+use crate::row_action::{RowAction, RowHandler};
 use crate::scale::SPACE_MD;
 use crate::scope_sync::ScopeSync;
 use crate::sidebar::Sidebar;
@@ -63,6 +66,7 @@ impl Sidebar {
             .collect();
         let rows: Vec<Row> = trees.iter().flat_map(|tree| tree.rows.clone()).collect();
         self.tree.reconcile(&rows);
+        self.scroll_edge(window);
         let offset = self.carousel_offset((&projects, width), window, cx);
         let panels: Vec<AnyElement> = projects
             .iter()
@@ -125,11 +129,17 @@ impl Sidebar {
             .children(rows)
             .child(foot);
         let handle = self.scroll_for(&project.id);
+        let edge_handler = Rc::clone(&handler);
         let id = SharedString::from(format!("space-scroll-{}", project.id.as_str()));
         div()
             .flex_none()
             .w(px(width))
             .h_full()
+            .on_drag_move(move |event: &DragMoveEvent<DraggedRow>, window, cx| {
+                let (top, bottom) = (event.bounds.top(), event.bounds.bottom());
+                let pull = pull((top.into(), bottom.into()), event.event.position.y.into());
+                edge_handler(RowAction::Edge(pull), window, cx);
+            })
             .child(ScrollArea::new(id, &handle, list))
             .into_any_element()
     }
