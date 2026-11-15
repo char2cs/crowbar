@@ -15,7 +15,10 @@ impl StartupTiming {
     pub const DEFAULT_MIN_VISIBLE: Duration = Duration::from_millis(600);
 
     /// Timing with the given blank time and minimum visible time.
-    pub const fn new(reveal_delay: Duration, min_visible: Duration) -> Self {
+    pub const fn new(
+        reveal_delay: Duration,
+        min_visible: Duration,
+    ) -> Self {
         Self {
             reveal_delay,
             min_visible,
@@ -40,5 +43,14 @@ impl Default for StartupTiming {
 }
 
 #[cfg(test)]
-#[path = "startup_timing_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_reveals_late_and_holds_longer_than_it_reveals() {
+        let timing = StartupTiming::default();
+        assert_eq!(timing.reveal_delay(), StartupTiming::DEFAULT_REVEAL_DELAY);
+        assert_eq!(timing.min_visible(), StartupTiming::DEFAULT_MIN_VISIBLE);
+        assert!(timing.min_visible() > timing.reveal_delay());
+    }
+}

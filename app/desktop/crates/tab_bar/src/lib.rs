@@ -6,6 +6,7 @@
 //! the strip and [`TabDrop`] turns a chat dropped from elsewhere into commands; the GPUI plumbing
 //! only forwards pointer events to them.
 
+mod clock;
 mod drag_session;
 mod incoming_drop;
 mod member_view;
@@ -30,6 +31,7 @@ mod tab_shell;
 mod tab_view;
 mod test_support;
 
+pub use clock::Clock;
 pub use member_view::MemberView;
 pub use new_tab::NewTab;
 pub use shell_look::ShellLook;

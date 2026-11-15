@@ -1,7 +1,11 @@
+use std::rc::Rc;
+use std::time::Instant;
+
 use gpui::{Bounds, Context, Entity, EventEmitter, Pixels, ScrollHandle};
 use model::TabId;
 use ui::Menu;
 
+use crate::clock::Clock;
 use crate::drag_session::DragSession;
 use crate::incoming_drop::IncomingDrop;
 use crate::new_tab::NewTab;
@@ -26,10 +30,14 @@ pub struct TabBar {
     pub(crate) incoming: Option<IncomingDrop>,
     pub(crate) settle: Option<Settle>,
     pub(crate) menu: Option<Entity<Menu>>,
+    pub(crate) clock: Rc<dyn Clock>,
 }
 
 impl std::fmt::Debug for TabBar {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         formatter
             .debug_struct("TabBar")
             .field("tabs", &self.tabs.len())
@@ -44,6 +52,14 @@ impl TabBar {
     /// An empty strip; `first_free_tab` is the first tab id the strip may hand out for tabs a
     /// drop creates, and it counts up from there.
     pub fn new(first_free_tab: TabId) -> Self {
+        Self::with_clock(first_free_tab, Rc::new(Instant::now))
+    }
+
+    /// Like [`TabBar::new`], but animations read the time from `clock`.
+    pub fn with_clock(
+        first_free_tab: TabId,
+        clock: Rc<dyn Clock>,
+    ) -> Self {
         Self {
             tabs: Vec::new(),
             active: None,
@@ -56,6 +72,7 @@ impl TabBar {
             incoming: None,
             settle: None,
             menu: None,
+            clock,
         }
     }
 
@@ -76,22 +93,67 @@ impl TabBar {
     }
 
     /// Tells the strip whether the sidebar is collapsed, so it shows the re-open toggle.
-    pub fn set_sidebar(&mut self, sidebar: SidebarState, cx: &mut Context<'_, Self>) {
+    pub fn set_sidebar(
+        &mut self,
+        sidebar: SidebarState,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.sidebar = sidebar;
         cx.notify();
     }
 
-    pub(crate) fn fresh_tab(&mut self, title: String) -> NewTab {
+    pub(crate) fn allocate_tab(
+        &mut self,
+        title: String,
+    ) -> NewTab {
         let id = TabId(self.next_tab);
         self.next_tab += 1;
         NewTab { id, title }
     }
 }
 
-pub(crate) fn position(tabs: &[TabView], id: TabId) -> Option<usize> {
+pub(crate) fn position(
+    tabs: &[TabView],
+    id: TabId,
+) -> Option<usize> {
     tabs.iter().position(|tab| tab.id == id)
 }
 
 #[cfg(test)]
-#[path = "tab_bar_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+    use model::TabId;
+
+    use crate::test_support::{open, view};
+
+    #[gpui::test]
+    fn set_tabs_shows_the_tabs_and_the_active_one(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 2);
+        let (bar, cx) = (harness.bar, harness.cx);
+        bar.read_with(cx, |bar, _| {
+            assert_eq!(bar.tabs.len(), 2, "two tabs");
+            assert_eq!(bar.active, Some(TabId(2)), "second is active");
+        });
+    }
+
+    #[gpui::test]
+    fn tabs_created_by_a_drop_get_ids_counting_up_from_the_first_free_one(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        let ids = bar.update(cx, |bar, _| {
+            let first = bar.allocate_tab("One".into());
+            let second = bar.allocate_tab("Two".into());
+            (first.id, second.id)
+        });
+        assert_eq!(ids, (TabId(50), TabId(51)), "50 then 51");
+    }
+
+    #[test]
+    fn position_finds_a_tab_by_id() {
+        let tabs = vec![view(4, &["a"]), view(9, &["b"])];
+        assert_eq!(position(&tabs, TabId(9)), Some(1), "second slot");
+        assert_eq!(position(&tabs, TabId(1)), None, "unknown tab");
+    }
+
+    use super::position;
+}

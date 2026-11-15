@@ -14,7 +14,11 @@ struct Probe {
 }
 
 impl Render for Probe {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         let element = (self.build)(window, cx);
         div().size_full().flex().items_start().child(
             div()

@@ -36,7 +36,11 @@ impl TabBar {
     }
 }
 
-fn close_tabs(label: &'static str, tabs: Vec<TabId>, view: Entity<TabBar>) -> MenuAction {
+fn close_tabs(
+    label: &'static str,
+    tabs: Vec<TabId>,
+    view: Entity<TabBar>,
+) -> MenuAction {
     let none = tabs.is_empty();
     let action = MenuAction::new(label, move |_, cx| {
         let commands = tabs
@@ -45,9 +49,27 @@ fn close_tabs(label: &'static str, tabs: Vec<TabId>, view: Entity<TabBar>) -> Me
             .collect();
         view.update(cx, |_, cx| cx.emit(TabBarEvent::Apply(commands)));
     });
-    if none { action.disabled() } else { action }
+    if none {
+        return action.disabled();
+    }
+    action
 }
 
 #[cfg(test)]
-#[path = "tab_bar_menu_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
+
+    use crate::test_support::{open, view};
+
+    #[gpui::test]
+    fn right_clicking_a_tab_opens_its_menu(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        cx.simulate_mouse_down(
+            point(px(100.0), px(21.0)),
+            MouseButton::Right,
+            Modifiers::none(),
+        );
+        bar.read_with(cx, |bar, _| assert!(bar.menu.is_some(), "a context menu"));
+    }
+}

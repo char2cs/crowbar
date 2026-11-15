@@ -24,5 +24,13 @@ impl StartupClock for MonotonicClock {
 }
 
 #[cfg(test)]
-#[path = "monotonic_clock_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn time_never_goes_backwards() {
+        let clock = MonotonicClock::start();
+        let first = clock.now();
+        assert!(clock.now() >= first);
+    }
+}

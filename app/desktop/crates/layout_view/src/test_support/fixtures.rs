@@ -14,7 +14,10 @@ pub(crate) fn chat(name: &str) -> PaneInstance {
     }
 }
 
-pub(crate) fn layout_of(first: &str, others: &[(&str, &str, model::Edge)]) -> Layout {
+pub(crate) fn layout_of(
+    first: &str,
+    others: &[(&str, &str, model::Edge)],
+) -> Layout {
     let mut layout = Layout::default();
     let tab = TabId(1);
     layout
@@ -30,18 +33,25 @@ pub(crate) fn layout_of(first: &str, others: &[(&str, &str, model::Edge)]) -> La
             placement: None,
         })
         .expect("open first");
-    for (name, beside, edge) in others {
-        let placement = Some(Placement {
-            target: pane_id(beside),
-            edge: *edge,
-        });
-        layout
-            .apply(Command::OpenPane {
-                tab,
-                instance: chat(name),
-                placement,
-            })
-            .expect("open pane");
+    for split in others {
+        open_beside(&mut layout, tab, split);
     }
     layout
+}
+
+fn open_beside(
+    layout: &mut Layout,
+    tab: TabId,
+    (name, beside, edge): &(&str, &str, model::Edge),
+) {
+    let placement = Some(Placement {
+        target: pane_id(beside),
+        edge: *edge,
+    });
+    let command = Command::OpenPane {
+        tab,
+        instance: chat(name),
+        placement,
+    };
+    layout.apply(command).expect("open pane");
 }

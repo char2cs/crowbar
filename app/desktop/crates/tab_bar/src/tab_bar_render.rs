@@ -20,9 +20,15 @@ use crate::tab_bar_event::TabBarEvent;
 use crate::tab_drop::TabDrop;
 use crate::tab_shell::{CloseAction, TabShell};
 
+const DROP_LINE_INSET: f32 = 4.0;
+
 impl Render for TabBar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        let (now, motion) = (Instant::now(), Motion::of(cx));
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
+        let (now, motion) = (self.clock.now(), Motion::of(cx));
         if self.is_animating(now, motion) {
             window.request_animation_frame();
         }
@@ -54,7 +60,12 @@ impl Render for TabBar {
 }
 
 impl TabBar {
-    fn row(&self, now: Instant, motion: Motion, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn row(
+        &self,
+        now: Instant,
+        motion: Motion,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         div()
             .flex()
             .items_center()
@@ -70,7 +81,11 @@ impl TabBar {
             })
     }
 
-    fn is_animating(&self, now: Instant, motion: Motion) -> bool {
+    fn is_animating(
+        &self,
+        now: Instant,
+        motion: Motion,
+    ) -> bool {
         self.drag
             .as_ref()
             .is_some_and(|drag| drag.is_sliding(now, motion))
@@ -114,7 +129,12 @@ impl TabBar {
             .children(slots)
     }
 
-    fn shift(&self, index: usize, tab: TabId, (now, motion): (Instant, Motion)) -> f32 {
+    fn shift(
+        &self,
+        index: usize,
+        tab: TabId,
+        (now, motion): (Instant, Motion),
+    ) -> f32 {
         if let Some(drag) = &self.drag {
             return drag.slide(index, now, motion);
         }
@@ -164,7 +184,10 @@ impl TabBar {
             .into_any_element()
     }
 
-    fn close_action(tab: TabId, cx: &mut Context<'_, Self>) -> CloseAction {
+    fn close_action(
+        tab: TabId,
+        cx: &mut Context<'_, Self>,
+    ) -> CloseAction {
         let view = cx.entity();
         let close = vec![Command::CloseTab { tab }];
         Rc::new(move |_, cx| {
@@ -172,7 +195,10 @@ impl TabBar {
         })
     }
 
-    fn look_of(&self, index: usize) -> ShellLook {
+    fn look_of(
+        &self,
+        index: usize,
+    ) -> ShellLook {
         let Some(tab) = self.tabs.get(index) else {
             return ShellLook::Idle;
         };
@@ -186,7 +212,10 @@ impl TabBar {
         ShellLook::Idle
     }
 
-    fn toggle(side: SidebarState, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn toggle(
+        side: SidebarState,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         let palette = *Theme::of(cx).palette(Surface::Chrome);
         let button = div()
             .id("sidebar-toggle")
@@ -243,7 +272,12 @@ impl TabBar {
         )
     }
 
-    fn drop_line(&self, now: Instant, motion: Motion, cx: &App) -> Option<AnyElement> {
+    fn drop_line(
+        &self,
+        now: Instant,
+        motion: Motion,
+        cx: &App,
+    ) -> Option<AnyElement> {
         let incoming = self.incoming.as_ref()?;
         let TabDrop::Reorder(_) = incoming.drop else {
             return None;
@@ -256,9 +290,9 @@ impl TabBar {
             div()
                 .absolute()
                 .left(px(x - 1.0))
-                .top(px((ROW_HEIGHT - TAB_HEIGHT) / 2.0 + 4.0))
+                .top(px((ROW_HEIGHT - TAB_HEIGHT) / 2.0 + DROP_LINE_INSET))
                 .w(px(2.0))
-                .h(px(TAB_HEIGHT - 8.0))
+                .h(px(TAB_HEIGHT - 2.0 * DROP_LINE_INSET))
                 .rounded_full()
                 .bg(palette.sidebar_drop_line())
                 .into_any_element(),
@@ -289,5 +323,30 @@ fn menu_layer(menu: &gpui::Entity<ui::Menu>) -> AnyElement {
 }
 
 #[cfg(test)]
-#[path = "tab_bar_render_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+    use model::TabId;
+
+    use crate::shell_look::ShellLook;
+    use crate::tab_drop::TabDrop;
+    use crate::test_support::{open, view};
+
+    #[gpui::test]
+    fn the_active_tab_is_raised_and_a_merge_target_is_marked(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 2);
+        let (bar, cx) = (harness.bar, harness.cx);
+        bar.read_with(cx, |bar, _| {
+            assert_eq!(bar.look_of(1), ShellLook::Active, "active");
+            assert_eq!(bar.look_of(0), ShellLook::Idle, "idle");
+        });
+        bar.update(cx, |bar, _| {
+            bar.incoming = Some(crate::incoming_drop::IncomingDrop::new(
+                TabDrop::Merge(TabId(1)),
+                0.0,
+            ));
+        });
+        bar.read_with(cx, |bar, _| {
+            assert_eq!(bar.look_of(0), ShellLook::MergeTarget, "merge target");
+        });
+    }
+}

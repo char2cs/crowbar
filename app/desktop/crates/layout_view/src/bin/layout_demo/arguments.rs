@@ -38,7 +38,10 @@ impl Arguments {
         }
     }
 
-    pub(crate) fn apply(&self, cx: &mut App) {
+    pub(crate) fn apply(
+        &self,
+        cx: &mut App,
+    ) {
         Theme::of(cx)
             .with_id(ThemeId::Crowbar)
             .with_mode(self.mode)

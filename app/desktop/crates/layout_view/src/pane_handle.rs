@@ -40,7 +40,11 @@ impl PaneHandle {
 }
 
 impl RenderOnce for PaneHandle {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
         let ink = palette.primary_foreground();
         let name = self.pane.as_str().to_owned();
@@ -76,11 +80,18 @@ impl RenderOnce for PaneHandle {
     }
 }
 
-fn element_id(pane: &str, kind: &'static str) -> ElementId {
+fn element_id(
+    pane: &str,
+    kind: &'static str,
+) -> ElementId {
     ElementId::from((ElementId::from(SharedString::from(pane.to_owned())), kind))
 }
 
-fn grip(pane: PaneId, label: SharedString, ink: Hsla) -> impl IntoElement {
+fn grip(
+    pane: PaneId,
+    label: SharedString,
+    ink: Hsla,
+) -> impl IntoElement {
     div()
         .id(element_id(pane.as_str(), "handle-grip"))
         .size(px(BUTTON))
@@ -119,5 +130,30 @@ fn button(
 }
 
 #[cfg(test)]
-#[path = "pane_handle_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_handle_is_sixty_nine_by_twenty_one() {
+        assert_eq!(
+            PaneHandle::size(),
+            (69.0, 21.0),
+            "three 12px buttons, two 9px gaps, padding"
+        );
+    }
+
+    #[test]
+    fn the_buttons_and_gaps_add_up_to_the_width() {
+        let inner = 3.0 * BUTTON + 2.0 * GAP;
+        assert_eq!(
+            inner + 2.0 * SIDE_PADDING,
+            WIDTH,
+            "inner width plus padding"
+        );
+        assert_eq!(
+            BUTTON + TOP_PADDING + BOTTOM_PADDING,
+            HEIGHT,
+            "button height plus padding"
+        );
+    }
+}

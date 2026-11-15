@@ -11,7 +11,10 @@ pub(crate) struct ManualClock {
 
 impl ManualClock {
     /// Sets the time.
-    pub(crate) fn set(&self, now: Duration) {
+    pub(crate) fn set(
+        &self,
+        now: Duration,
+    ) {
         self.now.set(now);
     }
 }

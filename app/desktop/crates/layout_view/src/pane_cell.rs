@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, AnyView, App, ElementId, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use model::Rect;
 use protocol::PaneId;
@@ -25,6 +25,7 @@ pub(crate) struct PaneCell {
     pub(crate) slot: Rect,
     pub(crate) frame: PaneFrame,
     pub(crate) content: AnyElement,
+    pub(crate) chrome: Option<(AnyView, f32)>,
     pub(crate) ring_opacity: f32,
     pub(crate) handle: Option<PaneHandle>,
     pub(crate) on_enter: CellAction,
@@ -33,7 +34,11 @@ pub(crate) struct PaneCell {
 }
 
 impl RenderOnce for PaneCell {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
         let frame = self.frame;
         let (enter, leave, press) = (self.on_enter, self.on_leave, self.on_press);
@@ -57,6 +62,9 @@ impl RenderOnce for PaneCell {
                     palette.pane_border(),
                     palette.pane_chrome_bg(),
                 )
+                .when_some(self.chrome, |frame, (chrome, height)| {
+                    frame.child(chrome_strip(chrome, height))
+                })
                 .child(self.content),
             )
             .child(ring(
@@ -72,7 +80,25 @@ impl RenderOnce for PaneCell {
     }
 }
 
-fn route(actions: [&CellAction; 2], hovered: usize, window: &mut Window, cx: &mut App) {
+fn chrome_strip(
+    chrome: AnyView,
+    height: f32,
+) -> gpui::Div {
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .w_full()
+        .h(px(height))
+        .child(chrome)
+}
+
+fn route(
+    actions: [&CellAction; 2],
+    hovered: usize,
+    window: &mut Window,
+    cx: &mut App,
+) {
     if let Some(action) = actions.get(hovered) {
         action(window, cx);
     }
@@ -86,7 +112,12 @@ fn handle_origin(frame: &PaneFrame) -> (f32, f32) {
     )
 }
 
-fn boxed(frame: &PaneFrame, slot: Rect, border: gpui::Hsla, fill: gpui::Hsla) -> gpui::Div {
+fn boxed(
+    frame: &PaneFrame,
+    slot: Rect,
+    border: gpui::Hsla,
+    fill: gpui::Hsla,
+) -> gpui::Div {
     framed(frame, slot)
         .overflow_hidden()
         .bg(fill)
@@ -106,7 +137,7 @@ fn ring(
     (accent, width): (gpui::Hsla, f32),
     opacity: f32,
 ) -> gpui::Div {
-    let drawn = |side: f32| if side > 0.0 { width } else { 0.0 };
+    let drawn = |side: f32| width * f32::from(side > 0.0);
     let border = Insets {
         left: drawn(frame.border.left),
         top: drawn(frame.border.top),
@@ -118,7 +149,10 @@ fn ring(
         .opacity(opacity)
 }
 
-fn framed(frame: &PaneFrame, slot: Rect) -> gpui::Div {
+fn framed(
+    frame: &PaneFrame,
+    slot: Rect,
+) -> gpui::Div {
     let (outer, border, radius) = (frame.outer, frame.border, frame.radius);
     div()
         .absolute()
@@ -137,5 +171,34 @@ fn framed(frame: &PaneFrame, slot: Rect) -> gpui::Div {
 }
 
 #[cfg(test)]
-#[path = "pane_cell_tests.rs"]
-mod tests;
+mod tests {
+    use model::Rect;
+
+    use super::*;
+    use crate::chrome_context::ChromeContext;
+
+    #[test]
+    fn the_handle_sits_centred_on_the_top_edge_of_the_box() {
+        let slot = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 400.0,
+            height: 300.0,
+        };
+        let frame = PaneFrame::new(slot, slot, ChromeContext::default());
+        let (left, top) = handle_origin(&frame);
+        let (width, _) = PaneHandle::size();
+        assert_eq!(
+            left,
+            frame.outer.x + (frame.outer.width - width) / 2.0,
+            "centred"
+        );
+        assert_eq!(top, frame.outer.y, "on the top edge");
+    }
+
+    #[test]
+    fn the_ring_is_two_pixels_in_light_mode_and_one_in_dark() {
+        assert_eq!(RING_WIDTH_LIGHT, 2.0, "light");
+        assert_eq!(RING_WIDTH_DARK, 1.0, "dark");
+    }
+}

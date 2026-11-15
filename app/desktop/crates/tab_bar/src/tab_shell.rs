@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, CursorStyle, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, CursorStyle, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use ui::font::UI_FAMILY;
 use ui::{Icon, IconName, IconWeight, Palette, Spinner, Surface, Theme, radius, shadow, text_size};
@@ -37,7 +37,11 @@ pub(crate) struct TabShell {
 }
 
 impl RenderOnce for TabShell {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = *Theme::of(cx).palette(Surface::Chrome);
         let look = self.look;
         let count = self.members.len();
@@ -93,7 +97,10 @@ fn shell(
     }
 }
 
-fn ink(look: ShellLook, palette: &Palette) -> (Hsla, Hsla) {
+fn ink(
+    look: ShellLook,
+    palette: &Palette,
+) -> (Hsla, Hsla) {
     match look {
         ShellLook::Active | ShellLook::Lifted => (
             palette.control_foreground(),
@@ -105,6 +112,34 @@ fn ink(look: ShellLook, palette: &Palette) -> (Hsla, Hsla) {
     }
 }
 
+fn member_ink(
+    look: ShellLook,
+    strong: Hsla,
+    muted: Hsla,
+) -> Hsla {
+    if look == ShellLook::Idle {
+        return muted;
+    }
+    strong
+}
+
+fn member_glyph(
+    spinner_id: Option<ElementId>,
+    color: Hsla,
+) -> AnyElement {
+    if let Some(spinner_id) = spinner_id {
+        return Spinner::new(spinner_id)
+            .size(px(SPINNER))
+            .on(Surface::Chrome)
+            .into_any_element();
+    }
+    Icon::new(IconName::ChatsCircle)
+        .weight(IconWeight::Regular)
+        .size(px(GLYPH))
+        .color(color)
+        .into_any_element()
+}
+
 fn member_row(
     id: &ElementId,
     (index, count): (usize, usize),
@@ -112,24 +147,12 @@ fn member_row(
     (look, palette): (ShellLook, &Palette),
 ) -> impl IntoElement {
     let (strong, muted) = ink(look, palette);
-    let text = if look == ShellLook::Idle {
-        muted
-    } else {
-        strong
-    };
+    let text = member_ink(look, strong, muted);
     let last = index + 1 == count;
-    let glyph = if member.working {
-        Spinner::new(ElementId::from((id.clone(), format!("spin{index}"))))
-            .size(px(SPINNER))
-            .on(Surface::Chrome)
-            .into_any_element()
-    } else {
-        Icon::new(IconName::ChatsCircle)
-            .weight(IconWeight::Regular)
-            .size(px(GLYPH))
-            .color(text)
-            .into_any_element()
-    };
+    let spinner = member
+        .working
+        .then(|| ElementId::from((id.clone(), format!("spin{index}"))));
+    let glyph = member_glyph(spinner, text);
     div()
         .relative()
         .flex()
@@ -147,7 +170,10 @@ fn member_row(
         .child(label(member, text))
 }
 
-fn label(member: MemberView, color: Hsla) -> impl IntoElement {
+fn label(
+    member: MemberView,
+    color: Hsla,
+) -> impl IntoElement {
     div()
         .flex_1()
         .min_w_0()
@@ -201,5 +227,12 @@ fn close_button(
 }
 
 #[cfg(test)]
-#[path = "tab_shell_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pill_is_thirty_two_pixels_high_and_the_close_button_twenty_four() {
+        assert_eq!(TAB_HEIGHT, 32.0, "pill height");
+        assert_eq!(CLOSE, 24.0, "close button");
+    }
+}

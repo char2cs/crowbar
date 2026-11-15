@@ -6,6 +6,9 @@ use ui::{ProgressBar, Surface, Theme, UiText, font};
 use crate::migration_step::MigrationStep;
 
 const WIDTH: f32 = 360.0;
+const CAPTION_GAP: f32 = 12.0;
+const FOOTNOTE_MARGIN: f32 = 10.0;
+const STACK_GAP: f32 = 14.0;
 
 #[derive(Debug, IntoElement)]
 pub(crate) struct WaitingPanel {
@@ -36,9 +39,7 @@ impl WaitingPanel {
     ) -> Self {
         Self {
             headline: "Upgrading your data",
-            caption: step.map_or("Preparing the upgrade".into(), |step| {
-                step.name().to_owned().into()
-            }),
+            caption: caption_of(step),
             count: step.map(|step| format!("{} / {}", step.index(), step.total()).into()),
             fraction,
             previous,
@@ -47,8 +48,18 @@ impl WaitingPanel {
     }
 }
 
+fn caption_of(step: Option<&MigrationStep>) -> SharedString {
+    let Some(step) = step else {
+        return "Preparing the upgrade".into();
+    };
+    step.name().to_owned().into()
+}
+
 impl WaitingPanel {
-    fn caption_row(&self, theme: &Theme) -> impl IntoElement {
+    fn caption_row(
+        &self,
+        theme: &Theme,
+    ) -> impl IntoElement {
         let muted = theme.palette(Surface::Window).muted_foreground();
         let count = self.count.clone().map(|count| {
             div()
@@ -60,7 +71,7 @@ impl WaitingPanel {
         div()
             .flex()
             .justify_between()
-            .gap(px(12.0))
+            .gap(px(CAPTION_GAP))
             .w(px(WIDTH))
             .text_size(UiText::Sm.size(theme))
             .text_color(muted)
@@ -70,7 +81,11 @@ impl WaitingPanel {
 }
 
 impl RenderOnce for WaitingPanel {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let muted = theme.palette(Surface::Window).muted_foreground();
         let bar = ProgressBar::new("startup-progress", self.fraction)
@@ -78,7 +93,7 @@ impl RenderOnce for WaitingPanel {
             .width(px(WIDTH));
         let footnote = self.footnote.map(|note| {
             div()
-                .mt(px(10.0))
+                .mt(px(FOOTNOTE_MARGIN))
                 .max_w(px(WIDTH))
                 .text_center()
                 .text_size(UiText::Xs.size(&theme))
@@ -89,7 +104,7 @@ impl RenderOnce for WaitingPanel {
             .flex()
             .flex_col()
             .items_center()
-            .gap(px(14.0))
+            .gap(px(STACK_GAP))
             .child(
                 div()
                     .text_size(UiText::Xl.size(&theme))
@@ -103,5 +118,41 @@ impl RenderOnce for WaitingPanel {
 }
 
 #[cfg(test)]
-#[path = "waiting_panel_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::test_support::measure;
+
+    fn width_of(
+        cx: &mut TestAppContext,
+        panel: impl Fn() -> WaitingPanel + 'static,
+    ) -> f32 {
+        f32::from(measure(cx, move |_, _| panel()).size.width)
+    }
+
+    #[gpui::test]
+    fn every_waiting_screen_is_as_wide_as_its_bar(cx: &mut TestAppContext) {
+        let step = MigrationStep::new("Rebuild the search index", 2, 5);
+        assert_eq!(width_of(cx, WaitingPanel::starting), WIDTH);
+        assert_eq!(
+            width_of(cx, move || WaitingPanel::migrating(
+                Some(&step),
+                Some(0.4),
+                0.2
+            )),
+            WIDTH
+        );
+        assert_eq!(
+            width_of(cx, || WaitingPanel::migrating(None, None, 0.0)),
+            WIDTH
+        );
+    }
+
+    #[gpui::test]
+    fn the_migration_screen_adds_the_footnote(cx: &mut TestAppContext) {
+        let starting = measure(cx, |_, _| WaitingPanel::starting());
+        let migrating = measure(cx, |_, _| WaitingPanel::migrating(None, None, 0.0));
+        assert!(migrating.size.height > starting.size.height);
+    }
+}

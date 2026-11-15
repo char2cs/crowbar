@@ -16,6 +16,21 @@ const THREE: &[(&str, &str, Edge)] = &[
     ("gamma", "beta", Edge::Bottom),
 ];
 
+fn open_beside(
+    tab: TabId,
+    (pane, beside, edge): &(&str, &str, Edge),
+) -> Command {
+    let placement = Some(Placement {
+        target: PaneId::new(*beside).expect("static id"),
+        edge: *edge,
+    });
+    Command::OpenPane {
+        tab,
+        instance: instance(pane),
+        placement,
+    }
+}
+
 pub(crate) fn build(name: &str) -> Layout {
     let panes = match name {
         "single" => &[][..],
@@ -35,21 +50,11 @@ pub(crate) fn build(name: &str) -> Layout {
             placement: None,
         },
     ];
-    for (pane, beside, edge) in panes {
-        let placement = Some(Placement {
-            target: PaneId::new(*beside).expect("static id"),
-            edge: *edge,
-        });
-        commands.push(Command::OpenPane {
-            tab,
-            instance: instance(pane),
-            placement,
-        });
-    }
-    for command in commands {
-        if layout.apply(command).is_err() {
-            break;
-        }
-    }
+    commands.extend(panes.iter().map(|split| open_beside(tab, split)));
+    drop(
+        commands
+            .into_iter()
+            .try_for_each(|command| layout.apply(command)),
+    );
     layout
 }

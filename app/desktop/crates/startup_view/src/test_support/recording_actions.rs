@@ -19,7 +19,11 @@ impl RecordingActions {
 }
 
 impl StartupActions for RecordingActions {
-    fn perform(&self, command: StartupCommand, _cx: &mut App) {
+    fn perform(
+        &self,
+        command: StartupCommand,
+        _cx: &mut App,
+    ) {
         self.performed.borrow_mut().push(command);
     }
 }

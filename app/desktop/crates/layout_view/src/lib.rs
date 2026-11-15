@@ -11,6 +11,7 @@
 //! moves into resize commands, and the GPUI plumbing only forwards events to them.
 
 mod chrome_context;
+mod clock;
 mod corners;
 mod drop_hit;
 mod drop_hover;
@@ -35,6 +36,7 @@ mod sidebar_edge;
 mod test_support;
 
 pub use chrome_context::ChromeContext;
+pub use clock::Clock;
 pub use corners::Corners;
 pub use drop_target::DropTarget;
 pub use insets::Insets;
@@ -42,7 +44,7 @@ pub use layout_event::LayoutEvent;
 pub use layout_view::LayoutView;
 pub use pane_frame::PaneFrame;
 pub use pane_hole::PaneHole;
-pub use pane_holes::pane_holes;
+pub use pane_holes::{pane_holes, pane_holes_with};
 pub use pane_source::PaneSource;
 pub use pane_zone::PaneZone;
 pub use sash_grab::SashGrab;

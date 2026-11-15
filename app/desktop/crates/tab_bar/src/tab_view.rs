@@ -15,7 +15,10 @@ pub struct TabView {
 impl TabView {
     /// The view of `tab`, with `member` supplying how each of its panes looks.
     #[must_use]
-    pub fn from_tab(tab: &Tab, member: impl Fn(&PaneId) -> MemberView) -> Self {
+    pub fn from_tab(
+        tab: &Tab,
+        member: impl Fn(&PaneId) -> MemberView,
+    ) -> Self {
         Self {
             id: tab.id(),
             members: tab.pane_ids().iter().map(member).collect(),
@@ -31,5 +34,57 @@ impl TabView {
 }
 
 #[cfg(test)]
-#[path = "tab_view_tests.rs"]
-mod tests;
+mod tests {
+    use model::{Command, Layout, PaneInstance, TabId};
+    use protocol::{PaneId, PaneState, PaneTypeId, Params};
+
+    use super::*;
+
+    fn instance(name: &str) -> PaneInstance {
+        PaneInstance {
+            pane_id: PaneId::new(name).expect("id"),
+            type_id: PaneTypeId::new("core.chat").expect("type"),
+            params: Params::default().with("chat", name).expect("params"),
+            state: PaneState::default(),
+        }
+    }
+
+    fn open_pane(
+        layout: &mut Layout,
+        name: &str,
+    ) {
+        let command = Command::OpenPane {
+            tab: TabId(7),
+            instance: instance(name),
+            placement: None,
+        };
+        layout.apply(command).expect("pane");
+    }
+
+    fn member(pane: &PaneId) -> MemberView {
+        MemberView {
+            pane: pane.clone(),
+            label: pane.as_str().to_uppercase().into(),
+            provisional: false,
+            working: false,
+        }
+    }
+
+    #[test]
+    fn a_tab_view_lists_its_panes_in_layout_order_and_joins_their_titles() {
+        let mut layout = Layout::default();
+        layout
+            .apply(Command::AddTab {
+                id: TabId(7),
+                title: "T".into(),
+            })
+            .expect("tab");
+        for name in ["a", "b"] {
+            open_pane(&mut layout, name);
+        }
+        let view = TabView::from_tab(layout.active_tab().expect("tab"), member);
+        assert_eq!(view.id, TabId(7), "same id as the model tab");
+        assert_eq!(view.members.len(), 2, "two members");
+        assert_eq!(view.title(), "A | B", "titles joined");
+    }
+}

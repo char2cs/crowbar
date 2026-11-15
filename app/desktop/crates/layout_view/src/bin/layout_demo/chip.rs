@@ -7,14 +7,21 @@ use ui::{DragGhost, Surface, Theme, radius, text_size};
 
 use crate::scenario::instance;
 
-pub(crate) fn chip(name: &'static str, cx: &gpui::App) -> impl IntoElement {
+const CHIP_HEIGHT: f32 = 32.0;
+const CHIP_PADDING: f32 = 12.0;
+const GHOST_WIDTH: f32 = 160.0;
+
+pub(crate) fn chip(
+    name: &'static str,
+    cx: &gpui::App,
+) -> impl IntoElement {
     let palette = Theme::of(cx).palette(Surface::Chrome);
     let label: SharedString = format!("Chat {name}").into();
     let ghost = label.clone();
     div()
         .id(ElementId::from(name))
-        .h(px(32.0))
-        .px(px(12.0))
+        .h(px(CHIP_HEIGHT))
+        .px(px(CHIP_PADDING))
         .flex()
         .items_center()
         .rounded(radius::LG)
@@ -23,7 +30,7 @@ pub(crate) fn chip(name: &'static str, cx: &gpui::App) -> impl IntoElement {
         .text_size(text_size::SM)
         .text_color(palette.foreground())
         .on_drag(DragSubject::Open(instance(name)), move |_, _, _, cx| {
-            cx.new(|_| DragGhost::new(ghost.clone(), 160.0))
+            cx.new(|_| DragGhost::new(ghost.clone(), GHOST_WIDTH))
         })
         .child(label)
 }

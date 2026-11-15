@@ -8,6 +8,7 @@ use ui::{Badge, BadgeVariant, Icon, IconName, IconWeight, Surface, Theme, UiText
 use crate::command_button::CommandButton;
 use crate::detail_box::DetailBox;
 use crate::halt_reason::HaltReason;
+use crate::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
 use crate::startup_actions::StartupActions;
 use crate::startup_command::StartupCommand;
 
@@ -42,14 +43,14 @@ impl HaltPanel {
         div()
             .flex()
             .items_center()
-            .gap(px(8.0))
+            .gap(px(GAP_SM))
             .text_color(destructive)
             .text_size(UiText::Lg.size(theme))
             .font_weight(FontWeight::SEMIBOLD)
             .child(
                 Icon::new(IconName::WarningCircle)
                     .weight(IconWeight::Fill)
-                    .size(px(20.0))
+                    .size(px(TITLE_ICON))
                     .color(destructive),
             )
             .child("Crowbar could not start")
@@ -57,16 +58,25 @@ impl HaltPanel {
 
     fn buttons(&self) -> impl IntoElement {
         let commands = [StartupCommand::OpenLog, StartupCommand::Quit];
-        div().flex().justify_end().gap(px(8.0)).w_full().children(
-            commands
-                .into_iter()
-                .map(|command| CommandButton::new(command, StartupCommand::Quit, &self.actions)),
-        )
+        div()
+            .flex()
+            .justify_end()
+            .gap(px(GAP_SM))
+            .w_full()
+            .children(
+                commands.into_iter().map(|command| {
+                    CommandButton::new(command, StartupCommand::Quit, &self.actions)
+                }),
+            )
     }
 }
 
 impl RenderOnce for HaltPanel {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         let destructive = palette.destructive();
@@ -82,9 +92,9 @@ impl RenderOnce for HaltPanel {
             .flex()
             .flex_col()
             .items_start()
-            .gap(px(12.0))
+            .gap(px(GAP_MD))
             .w(px(WIDTH))
-            .p(px(20.0))
+            .p(px(CARD_PADDING))
             .rounded(radius::XXL)
             .border_1()
             .border_color(destructive.opacity(TINT_BORDER))
@@ -101,5 +111,29 @@ impl RenderOnce for HaltPanel {
 }
 
 #[cfg(test)]
-#[path = "halt_panel_tests.rs"]
-mod tests;
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{TestAppContext, px};
+
+    use super::*;
+    use crate::test_support::{RecordingActions, measure};
+
+    fn panel(code: Option<&str>) -> HaltPanel {
+        let actions: Rc<dyn StartupActions> = Rc::new(RecordingActions::default());
+        HaltPanel::new(&HaltReason::from_code(code), "step 3 failed", &actions)
+    }
+
+    #[gpui::test]
+    fn the_card_has_a_fixed_width(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| panel(Some("step_failed")));
+        assert_eq!(f32::from(bounds.size.width), WIDTH);
+    }
+
+    #[gpui::test]
+    fn a_known_code_adds_a_reason_badge(cx: &mut TestAppContext) {
+        let coded = measure(cx, |_, _| panel(Some("layout_newer")));
+        let uncoded = measure(cx, |_, _| panel(None));
+        assert!(coded.size.height > uncoded.size.height + px(10.0));
+    }
+}

@@ -27,32 +27,34 @@ pub(crate) fn member(pane: &PaneId) -> MemberView {
     }
 }
 
+const MANY_TABS: u64 = 14;
+const DEFAULT_TABS: u64 = 3;
+
+fn add_chat_tab(
+    layout: &mut Layout,
+    index: u64,
+) -> model::Result<()> {
+    let title = format!("p{index}");
+    let tab = TabId(index);
+    layout.apply(Command::AddTab {
+        id: tab,
+        title: title.clone(),
+    })?;
+    layout.apply(Command::OpenPane {
+        tab,
+        instance: instance(&title),
+        placement: None,
+    })
+}
+
 pub(crate) fn build(name: &str) -> Layout {
     let count: u64 = match name {
         "one" => 1,
-        "many" => 14,
-        _ => 3,
+        "many" => MANY_TABS,
+        _ => DEFAULT_TABS,
     };
     let mut layout = Layout::default();
-    for index in 1..=count {
-        let title = format!("p{index}");
-        let tab = TabId(index);
-        let opened = layout
-            .apply(Command::AddTab {
-                id: tab,
-                title: title.clone(),
-            })
-            .and_then(|()| {
-                layout.apply(Command::OpenPane {
-                    tab,
-                    instance: instance(&title),
-                    placement: None,
-                })
-            });
-        if opened.is_err() {
-            break;
-        }
-    }
+    drop((1..=count).try_for_each(|index| add_chat_tab(&mut layout, index)));
     drop(layout.apply(Command::ActivateTab { tab: TabId(1) }));
     layout
 }

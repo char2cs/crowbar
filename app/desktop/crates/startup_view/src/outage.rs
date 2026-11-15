@@ -66,5 +66,73 @@ impl Outage {
 }
 
 #[cfg(test)]
-#[path = "outage_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    struct Case {
+        make: fn() -> Outage,
+        retryable: bool,
+        restarting: bool,
+        detail: Option<&'static str>,
+        explanation: &'static str,
+    }
+
+    const CASES: &[Case] = &[
+        Case {
+            make: || Outage::Unresponsive,
+            retryable: false,
+            restarting: true,
+            detail: None,
+            explanation: "restarting it",
+        },
+        Case {
+            make: recovering,
+            retryable: false,
+            restarting: true,
+            detail: Some("exit status 1"),
+            explanation: "attempt 3",
+        },
+        Case {
+            make: gave_up,
+            retryable: true,
+            restarting: false,
+            detail: Some("crowbar 1.0"),
+            explanation: "stopped restarting",
+        },
+        Case {
+            make: || Outage::Stopped,
+            retryable: true,
+            restarting: false,
+            detail: None,
+            explanation: "Start it again",
+        },
+    ];
+
+    fn recovering() -> Outage {
+        Outage::Recovering {
+            attempt: 3,
+            reason: "exit status 1".to_owned(),
+        }
+    }
+
+    fn gave_up() -> Outage {
+        Outage::GaveUp {
+            report: "crowbar 1.0".to_owned(),
+        }
+    }
+
+    #[test]
+    fn each_outage_offers_retry_names_its_detail_and_explains_itself() {
+        for case in CASES {
+            let outage = (case.make)();
+            assert_eq!(outage.is_retryable(), case.retryable, "{outage:?}");
+            assert_eq!(outage.is_restarting(), case.restarting, "{outage:?}");
+            assert_eq!(outage.detail(), case.detail, "{outage:?}");
+            assert!(!outage.headline().is_empty(), "{outage:?}");
+            assert!(
+                outage.explanation().contains(case.explanation),
+                "{outage:?}"
+            );
+        }
+    }
+}

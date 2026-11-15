@@ -17,7 +17,11 @@ pub(crate) struct SidebarGlyph {
 }
 
 impl RenderOnce for SidebarGlyph {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> impl IntoElement {
         let rail = || {
             div()
                 .w(px(RAIL))
@@ -48,5 +52,21 @@ impl RenderOnce for SidebarGlyph {
 }
 
 #[cfg(test)]
-#[path = "sidebar_glyph_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_rail_column_and_both_strokes_fit_inside_the_frame() {
+        const {
+            assert!(
+                RAIL_COLUMN + STROKE * 2.0 <= WIDTH,
+                "rails sit left of the divider inside the frame"
+            );
+            assert!(RAIL <= RAIL_COLUMN, "a rail is no wider than its column");
+            assert!(
+                2.0 * RAIL_HEIGHT + RAIL_GAP * 2.0 + 1.0 <= HEIGHT,
+                "both rails fit the frame height"
+            );
+        }
+    }
+}

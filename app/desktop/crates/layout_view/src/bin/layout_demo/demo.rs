@@ -13,6 +13,8 @@ use crate::demo_source::DemoSource;
 use crate::scenario;
 
 const SIDEBAR: f32 = 296.0;
+const SIDEBAR_PADDING: f32 = 12.0;
+const SIDEBAR_GAP: f32 = 8.0;
 const STRIP: f32 = 42.0;
 const CHIPS: [&str; 3] = ["delta", "epsilon", "zeta"];
 
@@ -23,9 +25,12 @@ pub(crate) struct Demo {
 }
 
 impl Demo {
-    pub(crate) fn new(scenario: &str, cx: &mut Context<'_, Self>) -> Self {
+    pub(crate) fn new(
+        scenario: &str,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
         let layout: Layout = scenario::build(scenario);
-        let view = cx.new(|_| LayoutView::new(Rc::new(DemoSource::new())));
+        let view = cx.new(|_| LayoutView::new(Rc::new(DemoSource::starting_at_first_tab())));
         let chrome = ChromeContext {
             sidebar: SidebarEdge::Left,
             tab_strip: true,
@@ -45,7 +50,12 @@ impl Demo {
 }
 
 impl Demo {
-    fn on_event(&mut self, _: Entity<LayoutView>, event: &LayoutEvent, cx: &mut Context<'_, Self>) {
+    fn on_event(
+        &mut self,
+        _: Entity<LayoutView>,
+        event: &LayoutEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
         let LayoutEvent::Apply(command) = event else {
             return;
         };
@@ -57,7 +67,11 @@ impl Demo {
 }
 
 impl Render for Demo {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         div()
             .size_full()
@@ -67,10 +81,10 @@ impl Render for Demo {
                 div()
                     .w(px(SIDEBAR))
                     .h_full()
-                    .p(px(12.0))
+                    .p(px(SIDEBAR_PADDING))
                     .flex()
                     .flex_col()
-                    .gap(px(8.0))
+                    .gap(px(SIDEBAR_GAP))
                     .children(CHIPS.map(|name| chip(name, cx))),
             )
             .child(

@@ -2,10 +2,10 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, App, Context, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Render, Styled, Window, canvas, div, px,
+    AnyElement, AnyView, App, Context, Hsla, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, Render, Styled, Window, canvas, div, px,
 };
-use model::{Axis, DragSubject, Rect, Sash as ModelSash};
+use model::{Axis, DragSubject, PaneSlot, Rect, Sash as ModelSash};
 use protocol::PaneId;
 use ui::{Motion, Sash, SashDrag, Surface, Theme};
 
@@ -19,8 +19,12 @@ const PREVIEW_FILL: f32 = 0.14;
 const PREVIEW_RING: f32 = 0.25;
 
 impl Render for LayoutView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        let (now, motion) = (Instant::now(), Motion::of(cx));
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
+        let (now, motion) = (self.clock.now(), Motion::of(cx));
         let busy = self.rings.is_running(now, motion)
             || self.handles.is_running(now, motion)
             || self.drop.is_running(now, motion);
@@ -54,31 +58,59 @@ impl Render for LayoutView {
 }
 
 impl LayoutView {
-    fn pane_cells(&self, window: &mut Window, cx: &mut Context<'_, Self>) -> Vec<AnyElement> {
+    fn pane_cells(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Vec<AnyElement> {
         let Some(tab) = &self.tab else {
             return Vec::new();
         };
         let local = self.local();
-        let (now, motion) = (Instant::now(), Motion::of(cx));
         tab.layout(local)
             .into_iter()
-            .map(|slot| {
-                let frame = PaneFrame::new(slot.rect, local, self.chrome);
-                let content = self.source.content(&slot.pane, window, cx);
-                PaneCell {
-                    handle: self.handle_for(&slot.pane, (now, motion), cx),
-                    ring_opacity: self.rings.opacity(&slot.pane, now, motion),
-                    on_enter: Self::enter_action(&slot.pane, cx),
-                    on_leave: Self::leave_action(&slot.pane, cx),
-                    on_press: Self::press_action(&slot.pane, cx),
-                    pane: slot.pane,
-                    slot: slot.rect,
-                    frame,
-                    content,
-                }
-                .into_any_element()
-            })
+            .map(|slot| self.pane_cell(slot, window, cx))
             .collect()
+    }
+
+    fn pane_cell(
+        &self,
+        slot: PaneSlot,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
+        let (now, motion) = (self.clock.now(), Motion::of(cx));
+        let frame = PaneFrame::new(slot.rect, self.local(), self.chrome);
+        let content = self.source.content(&slot.pane, window, cx);
+        let chrome = self.chrome_for(&slot.pane, window, cx);
+        PaneCell {
+            handle: self.handle_for(&slot.pane, (now, motion), cx),
+            ring_opacity: self.rings.opacity(&slot.pane, now, motion),
+            on_enter: Self::enter_action(&slot.pane, cx),
+            on_leave: Self::leave_action(&slot.pane, cx),
+            on_press: Self::press_action(&slot.pane, cx),
+            pane: slot.pane,
+            slot: slot.rect,
+            frame,
+            content,
+            chrome,
+        }
+        .into_any_element()
+    }
+
+    fn chrome_for(
+        &self,
+        pane: &PaneId,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<(AnyView, f32)> {
+        let height = self.source.chrome_height(pane);
+        if height <= 0.0 {
+            return None;
+        }
+        self.source
+            .chrome(pane, window, cx)
+            .map(|view| (view, height))
     }
 
     fn handle_for(
@@ -101,7 +133,10 @@ impl LayoutView {
         })
     }
 
-    fn sashes(&self, cx: &mut Context<'_, Self>) -> Vec<AnyElement> {
+    fn sashes(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> Vec<AnyElement> {
         let Some(tab) = &self.tab else {
             return Vec::new();
         };
@@ -112,7 +147,11 @@ impl LayoutView {
             .collect()
     }
 
-    fn sash_element(index: usize, sash: &ModelSash, cx: &mut Context<'_, Self>) -> AnyElement {
+    fn sash_element(
+        index: usize,
+        sash: &ModelSash,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         let rect = sash.rect;
         let axis = ui_axis(sash.axis);
         let grabbed = sash.clone();
@@ -133,23 +172,37 @@ impl LayoutView {
             .into_any_element()
     }
 
-    fn preview(&self, now: Instant, motion: Motion, cx: &App) -> Option<AnyElement> {
+    fn preview(
+        &self,
+        now: Instant,
+        motion: Motion,
+        cx: &App,
+    ) -> Option<AnyElement> {
         let rect = self.drop.preview(now, motion)?;
         let palette = Theme::of(cx).palette(Surface::Window);
         Some(preview_box(rect, palette.secondary()).into_any_element())
     }
 
-    fn enter_action(pane: &PaneId, cx: &mut Context<'_, Self>) -> CellAction {
+    fn enter_action(
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) -> CellAction {
         let (view, pane) = (cx.entity(), pane.clone());
         Rc::new(move |_, cx| view.update(cx, |this, cx| this.pane_entered(&pane, cx)))
     }
 
-    fn leave_action(pane: &PaneId, cx: &mut Context<'_, Self>) -> CellAction {
+    fn leave_action(
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) -> CellAction {
         let (view, pane) = (cx.entity(), pane.clone());
         Rc::new(move |_, cx| view.update(cx, |this, cx| this.pane_left(&pane, cx)))
     }
 
-    fn press_action(pane: &PaneId, cx: &mut Context<'_, Self>) -> CellAction {
+    fn press_action(
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) -> CellAction {
         let (view, pane) = (cx.entity(), pane.clone());
         Rc::new(move |_, cx| view.update(cx, |this, cx| this.pane_pressed(&pane, cx)))
     }
@@ -162,7 +215,10 @@ impl LayoutView {
         Rc::new(move |_, cx| view.update(cx, |this, cx| this.detach(&pane, cx)))
     }
 
-    fn close_action(pane: &PaneId, cx: &mut Context<'_, Self>) -> crate::pane_handle::HandleAction {
+    fn close_action(
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) -> crate::pane_handle::HandleAction {
         let (view, pane) = (cx.entity(), pane.clone());
         Rc::new(move |_, cx| view.update(cx, |_, cx| Self::close(&pane, cx)))
     }
@@ -175,7 +231,10 @@ fn ui_axis(axis: Axis) -> ui::Axis {
     }
 }
 
-fn preview_box(rect: Rect, accent: Hsla) -> gpui::Div {
+fn preview_box(
+    rect: Rect,
+    accent: Hsla,
+) -> gpui::Div {
     div()
         .absolute()
         .left(px(rect.x))
@@ -195,5 +254,18 @@ fn preview_box(rect: Rect, accent: Hsla) -> gpui::Div {
 }
 
 #[cfg(test)]
-#[path = "layout_render_tests.rs"]
-mod tests;
+mod tests {
+    use model::Axis;
+
+    use super::*;
+
+    #[test]
+    fn model_axes_map_to_the_matching_sash_axes() {
+        assert_eq!(
+            ui_axis(Axis::Horizontal),
+            ui::Axis::Horizontal,
+            "side by side"
+        );
+        assert_eq!(ui_axis(Axis::Vertical), ui::Axis::Vertical, "stacked");
+    }
+}

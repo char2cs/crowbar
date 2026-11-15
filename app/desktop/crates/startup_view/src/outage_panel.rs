@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, ClickEvent, ClipboardItem, FontWeight, IntoElement, ParentElement, RenderOnce, Styled,
-    Window, div, px,
+    AnyElement, App, ClickEvent, ClipboardItem, FontWeight, Hsla, IntoElement, ParentElement,
+    RenderOnce, Styled, Window, div, px,
 };
 use ui::{
     Button, ButtonSize, ButtonVariant, Icon, IconName, IconWeight, Spinner, Surface, Theme, UiText,
@@ -12,10 +12,14 @@ use ui::{
 use crate::command_button::CommandButton;
 use crate::detail_box::DetailBox;
 use crate::outage::Outage;
+use crate::spacing::{CARD_PADDING, GAP_MD, GAP_SM, TITLE_ICON};
 use crate::startup_actions::StartupActions;
 use crate::startup_command::StartupCommand;
 
 const WIDTH: f32 = 560.0;
+const SPINNER_SIZE: f32 = 18.0;
+const TITLE_GAP: f32 = 10.0;
+const SHADOW_OPACITY: f32 = 0.05;
 
 #[derive(IntoElement)]
 pub(crate) struct OutagePanel {
@@ -24,34 +28,46 @@ pub(crate) struct OutagePanel {
 }
 
 impl OutagePanel {
-    pub(crate) fn new(outage: &Outage, actions: &Rc<dyn StartupActions>) -> Self {
+    pub(crate) fn new(
+        outage: &Outage,
+        actions: &Rc<dyn StartupActions>,
+    ) -> Self {
         Self {
             outage: outage.clone(),
             actions: Rc::clone(actions),
         }
     }
 
-    fn title(&self, theme: &Theme) -> impl IntoElement {
+    fn title(
+        &self,
+        theme: &Theme,
+    ) -> impl IntoElement {
         let palette = theme.palette(Surface::Window);
-        let lead = if self.outage.is_restarting() {
-            Spinner::new("startup-outage-spinner")
-                .size(px(18.0))
-                .into_any_element()
-        } else {
-            Icon::new(IconName::LinkBreak)
-                .weight(IconWeight::Regular)
-                .size(px(20.0))
-                .color(palette.warning())
-                .into_any_element()
-        };
+        let lead = self.lead(palette.warning());
         div()
             .flex()
             .items_center()
-            .gap(px(10.0))
+            .gap(px(TITLE_GAP))
             .text_size(UiText::Lg.size(theme))
             .font_weight(FontWeight::SEMIBOLD)
             .child(lead)
             .child(self.outage.headline())
+    }
+
+    fn lead(
+        &self,
+        warning: Hsla,
+    ) -> AnyElement {
+        if self.outage.is_restarting() {
+            return Spinner::new("startup-outage-spinner")
+                .size(px(SPINNER_SIZE))
+                .into_any_element();
+        }
+        Icon::new(IconName::LinkBreak)
+            .weight(IconWeight::Regular)
+            .size(px(TITLE_ICON))
+            .color(warning)
+            .into_any_element()
     }
 
     fn copy_button(&self) -> Option<Button> {
@@ -68,18 +84,21 @@ impl OutagePanel {
         )
     }
 
+    fn primary(&self) -> StartupCommand {
+        if self.outage.is_retryable() {
+            return StartupCommand::Retry;
+        }
+        StartupCommand::OpenLog
+    }
+
     fn buttons(&self) -> impl IntoElement {
-        let primary = if self.outage.is_retryable() {
-            StartupCommand::Retry
-        } else {
-            StartupCommand::OpenLog
-        };
+        let primary = self.primary();
         let commands = [
             self.outage.is_retryable().then_some(StartupCommand::Retry),
             Some(StartupCommand::OpenLog),
             self.outage.is_retryable().then_some(StartupCommand::Quit),
         ];
-        div().flex().gap(px(8.0)).children(
+        div().flex().gap(px(GAP_SM)).children(
             commands
                 .into_iter()
                 .flatten()
@@ -93,7 +112,11 @@ fn copy_to_clipboard(text: String) -> impl Fn(&ClickEvent, &mut Window, &mut App
 }
 
 impl RenderOnce for OutagePanel {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         let detail = self
@@ -112,14 +135,14 @@ impl RenderOnce for OutagePanel {
             .flex()
             .flex_col()
             .items_start()
-            .gap(px(12.0))
+            .gap(px(GAP_MD))
             .w(px(WIDTH))
-            .p(px(20.0))
+            .p(px(CARD_PADDING))
             .rounded(radius::XXL)
             .border_1()
             .border_color(palette.border())
             .bg(palette.popover())
-            .shadow(shadow::lg(0.05))
+            .shadow(shadow::lg(SHADOW_OPACITY))
             .text_size(UiText::Sm.size(&theme))
             .text_color(palette.foreground())
             .child(self.title(&theme))
@@ -134,5 +157,91 @@ impl RenderOnce for OutagePanel {
 }
 
 #[cfg(test)]
-#[path = "outage_panel_tests.rs"]
-mod tests;
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{TestAppContext, px};
+
+    use super::*;
+    use crate::startup_command::StartupCommand;
+    use crate::test_support::{RecordingActions, click_across, measure, open};
+
+    fn gave_up() -> Outage {
+        Outage::GaveUp {
+            report: "crowbar 1.0\nexit status 1".to_owned(),
+        }
+    }
+
+    fn sink() -> (Rc<RecordingActions>, Rc<dyn StartupActions>) {
+        let recording = Rc::new(RecordingActions::default());
+        let shared = Rc::clone(&recording) as Rc<dyn StartupActions>;
+        (recording, shared)
+    }
+
+    #[gpui::test]
+    fn every_outage_renders_a_card_of_the_fixed_width(cx: &mut TestAppContext) {
+        let outages = [
+            Outage::Unresponsive,
+            Outage::Recovering {
+                attempt: 2,
+                reason: "exit status 1".to_owned(),
+            },
+            gave_up(),
+            Outage::Stopped,
+        ];
+        for outage in outages {
+            let (_, actions) = sink();
+            let bounds = measure(cx, move |_, _| OutagePanel::new(&outage, &actions));
+            assert_eq!(f32::from(bounds.size.width), WIDTH);
+        }
+    }
+
+    #[gpui::test]
+    fn the_report_of_a_supervisor_that_gave_up_can_be_copied(cx: &mut TestAppContext) {
+        let (_, actions) = sink();
+        let with_report = measure(cx, {
+            let actions = Rc::clone(&actions);
+            move |_, _| OutagePanel::new(&gave_up(), &actions)
+        });
+        let without = measure(cx, move |_, _| OutagePanel::new(&Outage::Stopped, &actions));
+        assert!(with_report.size.height > without.size.height + px(40.0));
+    }
+
+    #[gpui::test]
+    fn a_stopped_daemon_offers_every_command(cx: &mut TestAppContext) {
+        let (recording, actions) = sink();
+        let bounds = measure(cx, {
+            let actions = Rc::clone(&actions);
+            move |_, _| OutagePanel::new(&Outage::Stopped, &actions)
+        });
+        let cx = open(cx, move |_, _| OutagePanel::new(&Outage::Stopped, &actions));
+        click_across(cx, bounds);
+        let performed = recording.performed();
+        for command in [
+            StartupCommand::Retry,
+            StartupCommand::OpenLog,
+            StartupCommand::Quit,
+        ] {
+            assert!(performed.contains(&command), "{command:?} in {performed:?}");
+        }
+    }
+
+    #[gpui::test]
+    fn a_restarting_daemon_offers_only_the_log(cx: &mut TestAppContext) {
+        let (recording, actions) = sink();
+        let outage = Outage::Unresponsive;
+        let bounds = measure(cx, {
+            let (actions, outage) = (Rc::clone(&actions), outage.clone());
+            move |_, _| OutagePanel::new(&outage, &actions)
+        });
+        let cx = open(cx, move |_, _| OutagePanel::new(&outage, &actions));
+        click_across(cx, bounds);
+        let performed = recording.performed();
+        assert!(performed.contains(&StartupCommand::OpenLog));
+        assert!(
+            performed
+                .iter()
+                .all(|command| *command == StartupCommand::OpenLog)
+        );
+    }
+}
