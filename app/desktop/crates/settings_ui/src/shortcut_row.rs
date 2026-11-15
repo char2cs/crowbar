@@ -4,7 +4,7 @@ use gpui::{
     App, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, Window, div, px,
 };
-use ui::font::{MONO_FAMILY, UI_FAMILY};
+use ui::font::MONO_FAMILY;
 use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, UiText, hover_fill, radius};
 
 use crate::chord::Chord;
@@ -45,7 +45,7 @@ pub(crate) fn shortcut_row(
         .px(spacing::TIGHT)
         .border_b_1()
         .border_color(palette.border().opacity(BORDER_FADE))
-        .font_family(UI_FAMILY)
+        .font_family(theme.ui_family())
         .text_size(UiText::Sm.size(&theme));
     hover_fill(
         base,

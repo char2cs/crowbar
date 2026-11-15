@@ -1,7 +1,6 @@
 //! A large heading with an optional explanation, as used above sections and pages.
 
 use gpui::{App, ParentElement, Styled, div, px};
-use ui::font::{HEADING_FAMILY, UI_FAMILY};
 use ui::{Surface, Theme, UiText};
 
 use crate::spacing;
@@ -19,7 +18,7 @@ pub(crate) fn title_block(
     let palette = theme.palette(Surface::Window);
     let note = description.map(|text| {
         div()
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .text_size(UiText::Sm.size(&theme))
             .line_height(px(TEXT_LINE))
             .text_color(palette.muted_foreground())
@@ -31,7 +30,7 @@ pub(crate) fn title_block(
         .py(spacing::SNUG)
         .child(
             div()
-                .font_family(HEADING_FAMILY)
+                .font_family(theme.heading_family())
                 .text_size(px(TITLE))
                 .line_height(px(TITLE_LINE))
                 .text_color(palette.foreground())

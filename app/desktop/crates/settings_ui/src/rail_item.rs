@@ -5,7 +5,6 @@ use gpui::{
     App, ElementId, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::font::HEADING_FAMILY;
 use ui::{Icon, IconWeight, Surface, Theme, hover_fill, radius};
 
 use crate::frame::Frame;
@@ -51,12 +50,15 @@ pub(crate) fn rail_item(
             icon_named(&page.icon)
                 .map(|icon| Icon::new(icon).weight(IconWeight::Duotone).size(px(ICON))),
         )
-        .child(label(page))
+        .child(label(page, Theme::of(cx).heading_family()))
 }
 
-fn label(page: &Page) -> impl IntoElement {
+fn label(
+    page: &Page,
+    family: &'static str,
+) -> impl IntoElement {
     div()
-        .font_family(HEADING_FAMILY)
+        .font_family(family)
         .text_size(px(LABEL))
         .line_height(px(HEIGHT))
         .overflow_hidden()

@@ -5,7 +5,6 @@ use gpui::{
     AnyElement, App, CursorStyle, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
     MouseButton, ParentElement, RenderOnce, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::font::UI_FAMILY;
 use ui::{Icon, IconName, IconWeight, Palette, Spinner, Surface, Theme, radius, shadow, text_size};
 
 use crate::member_view::MemberView;
@@ -52,6 +51,7 @@ impl RenderOnce for TabShell {
             .map(|(index, member)| member_row(&self.id, (index, count), member, (look, &palette)))
             .collect();
         shell(self.id.clone(), self.width, look, &palette)
+            .font_family(Theme::of(cx).ui_family())
             .children(members)
             .when_some(self.on_close, |shell, close| {
                 shell.child(close_button(&self.id, look, &palette, close))
@@ -180,7 +180,6 @@ fn label(
         .overflow_hidden()
         .whitespace_nowrap()
         .text_ellipsis()
-        .font_family(UI_FAMILY)
         .text_size(text_size::SM - px(1.0))
         .font_weight(FontWeight::MEDIUM)
         .text_color(color)

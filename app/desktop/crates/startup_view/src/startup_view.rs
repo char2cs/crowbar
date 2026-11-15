@@ -6,7 +6,7 @@ use gpui::{
     Window, div, px,
 };
 use protocol::AppPhase;
-use ui::{CubicBezier, Motion, Surface, Theme, font, timing};
+use ui::{CubicBezier, Motion, Surface, Theme, timing};
 
 use crate::halt_panel::HaltPanel;
 use crate::handover::Handover;
@@ -240,7 +240,7 @@ impl Render for StartupView {
             .justify_center()
             .bg(palette.background())
             .text_color(palette.foreground())
-            .font_family(font::UI_FAMILY);
+            .font_family(Theme::of(cx).ui_family());
         match self.handover {
             Handover::Done => div().into_any_element(),
             Handover::Fading => backdrop

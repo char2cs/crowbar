@@ -2,7 +2,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
-use ui::font::{MONO_FAMILY, UI_FAMILY};
+use ui::font::MONO_FAMILY;
 use ui::{
     Badge, Button, ButtonSize, ButtonVariant, Icon, IconName, Surface, Switch, Theme, UiText,
 };
@@ -45,7 +45,7 @@ pub(crate) fn record_view(
         .min_h(px(ROW_MIN_HEIGHT))
         .px(spacing::TIGHT)
         .py(spacing::SNUG)
-        .font_family(UI_FAMILY)
+        .font_family(theme.ui_family())
         .text_size(UiText::Sm.size(&theme))
         .children(leading)
         .child(text)
@@ -99,11 +99,14 @@ fn text_column(
         .children(lines)
 }
 
-fn line_family(line: &Line) -> &'static str {
+fn line_family(
+    line: &Line,
+    theme: &Theme,
+) -> &'static str {
     if line.mono {
         return MONO_FAMILY;
     }
-    UI_FAMILY
+    theme.ui_family()
 }
 
 fn line_text(
@@ -112,7 +115,7 @@ fn line_text(
 ) -> impl IntoElement {
     let palette = theme.palette(Surface::Window);
     div()
-        .font_family(line_family(line))
+        .font_family(line_family(line, theme))
         .text_size(UiText::Xs.size(theme))
         .text_color(tone_color(line.tone, palette))
         .child(line.text.clone())

@@ -1,5 +1,5 @@
 use gpui::{App, IntoElement, ParentElement, Styled, div, px};
-use ui::{Surface, Theme, font};
+use ui::{Surface, Theme};
 
 const SIZE: f32 = 44.0;
 const LINE_HEIGHT_RATIO: f32 = 1.1;
@@ -7,7 +7,7 @@ const LINE_HEIGHT_RATIO: f32 = 1.1;
 pub(crate) fn wordmark(cx: &App) -> impl IntoElement + use<> {
     let palette = Theme::of(cx).palette(Surface::Window);
     div()
-        .font_family(font::HEADING_FAMILY)
+        .font_family(Theme::of(cx).heading_family())
         .text_size(px(SIZE))
         .line_height(px(SIZE * LINE_HEIGHT_RATIO))
         .text_color(palette.foreground())

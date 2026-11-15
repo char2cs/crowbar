@@ -1,7 +1,7 @@
 //! Draws the control of a row.
 
 use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
-use ui::font::{MONO_FAMILY, UI_FAMILY};
+use ui::font::MONO_FAMILY;
 use ui::{Surface, Switch, Theme, UiText};
 
 use crate::button_control::button_control;
@@ -48,10 +48,13 @@ fn switch_control(
     })
 }
 
-fn readout_family(control: &Control) -> &'static str {
+fn readout_family(
+    control: &Control,
+    theme: &Theme,
+) -> &'static str {
     match control {
         Control::Readout { mono: true } => MONO_FAMILY,
-        _ => UI_FAMILY,
+        _ => theme.ui_family(),
     }
 }
 
@@ -63,7 +66,7 @@ fn readout_control(
     let theme = *Theme::of(cx);
     div()
         .max_w(px(READOUT_WIDTH))
-        .font_family(readout_family(&row.control))
+        .font_family(readout_family(&row.control, &theme))
         .text_size(UiText::Sm.size(&theme))
         .text_color(theme.palette(Surface::Window).muted_foreground())
         .child(frame.state.field_text(row))
