@@ -30,7 +30,10 @@ pub struct ProgressBar {
 
 impl ProgressBar {
     /// A bar at `fraction` of its width (clamped to 0..=1), or indeterminate when `None`.
-    pub fn new(id: impl Into<ElementId>, fraction: Option<f32>) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        fraction: Option<f32>,
+    ) -> Self {
         Self {
             id: id.into(),
             fraction: fraction.map(clamp_fraction),
@@ -42,21 +45,30 @@ impl ProgressBar {
 
     /// Animates the fill from `previous` to the current fraction when the fraction changes.
     #[must_use]
-    pub fn from(mut self, previous: f32) -> Self {
+    pub fn from(
+        mut self,
+        previous: f32,
+    ) -> Self {
         self.from = Some(clamp_fraction(previous));
         self
     }
 
     /// Sets the track width.
     #[must_use]
-    pub fn width(mut self, width: Pixels) -> Self {
+    pub fn width(
+        mut self,
+        width: Pixels,
+    ) -> Self {
         self.width = width;
         self
     }
 
     /// Paints with the palette of `surface`.
     #[must_use]
-    pub fn on(mut self, surface: Surface) -> Self {
+    pub fn on(
+        mut self,
+        surface: Surface,
+    ) -> Self {
         self.surface = surface;
         self
     }
@@ -70,7 +82,11 @@ fn clamp_fraction(fraction: f32) -> f32 {
 }
 
 impl RenderOnce for ProgressBar {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(self.surface);
         let motion = Motion::of(cx);
         let track = div()
@@ -108,5 +124,33 @@ impl RenderOnce for ProgressBar {
 opaque_debug!(ProgressBar);
 
 #[cfg(test)]
-#[path = "progress_bar_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{TestAppContext, px};
+
+    use super::*;
+    use crate::test_support::measure;
+
+    fn bar(fraction: Option<f32>) -> ProgressBar {
+        ProgressBar::new("bar", fraction).width(px(120.0))
+    }
+
+    #[gpui::test]
+    fn track_has_the_requested_width_and_a_fixed_height(cx: &mut TestAppContext) {
+        for fraction in [None, Some(0.0), Some(0.5), Some(2.0)] {
+            let bounds = measure(cx, move |_, _| bar(fraction));
+            assert_eq!(
+                (f32::from(bounds.size.width), f32::from(bounds.size.height)),
+                (120.0, 6.0),
+                "{fraction:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fractions_are_clamped_and_nan_is_empty() {
+        const CASES: &[(f32, f32)] = &[(-1.0, 0.0), (0.25, 0.25), (3.0, 1.0), (f32::NAN, 0.0)];
+        for &(input, expected) in CASES {
+            assert_eq!(clamp_fraction(input), expected, "{input}");
+        }
+    }
+}

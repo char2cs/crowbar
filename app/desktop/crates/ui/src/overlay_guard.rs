@@ -17,7 +17,10 @@ pub struct OverlayGuard {
 }
 
 impl std::fmt::Debug for OverlayGuard {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         let id = self.attached.as_ref().map(|(_, id)| id.get());
         formatter
             .debug_struct("OverlayGuard")
@@ -27,7 +30,11 @@ impl std::fmt::Debug for OverlayGuard {
 }
 
 impl OverlayGuard {
-    pub(crate) fn attach(host: Rc<dyn OverlayHost>, id: OverlayId, bounds: Bounds<Pixels>) -> Self {
+    pub(crate) fn attach(
+        host: Rc<dyn OverlayHost>,
+        id: OverlayId,
+        bounds: Bounds<Pixels>,
+    ) -> Self {
         host.overlay_changed(id, bounds);
         Self {
             attached: Some((host, id)),
@@ -43,7 +50,10 @@ impl OverlayGuard {
     }
 
     /// Reports new bounds when they differ from the last report.
-    pub fn update(&self, bounds: Bounds<Pixels>) {
+    pub fn update(
+        &self,
+        bounds: Bounds<Pixels>,
+    ) {
         let Some((host, id)) = &self.attached else {
             return;
         };
@@ -64,5 +74,50 @@ impl Drop for OverlayGuard {
 }
 
 #[cfg(test)]
-#[path = "overlay_guard_tests.rs"]
-mod tests;
+mod tests {
+    use std::cell::RefCell;
+
+    use gpui::{point, px, size};
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Recorder {
+        events: RefCell<Vec<&'static str>>,
+    }
+
+    impl OverlayHost for Recorder {
+        fn overlay_changed(
+            &self,
+            _: OverlayId,
+            _: Bounds<Pixels>,
+        ) {
+            self.events.borrow_mut().push("changed");
+        }
+
+        fn overlay_closed(
+            &self,
+            _: OverlayId,
+        ) {
+            self.events.borrow_mut().push("closed");
+        }
+    }
+
+    fn bounds(width: f32) -> Bounds<Pixels> {
+        Bounds::new(point(px(0.0), px(0.0)), size(px(width), px(10.0)))
+    }
+
+    #[test]
+    fn update_only_reports_real_changes() {
+        let recorder = Rc::new(Recorder::default());
+        let guard = OverlayGuard::attach(
+            Rc::clone(&recorder) as Rc<dyn OverlayHost>,
+            OverlayId(7),
+            bounds(10.0),
+        );
+        guard.update(bounds(10.0));
+        guard.update(bounds(11.0));
+        drop(guard);
+        assert_eq!(*recorder.events.borrow(), ["changed", "changed", "closed"]);
+    }
+}

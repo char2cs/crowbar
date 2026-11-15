@@ -8,7 +8,10 @@ use crate::text_input_actions as actions;
 use crate::text_input_event::TextInputEvent;
 
 impl TextInput {
-    pub(crate) fn bind_actions(field: Stateful<Div>, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+    pub(crate) fn bind_actions(
+        field: Stateful<Div>,
+        cx: &mut Context<'_, Self>,
+    ) -> Stateful<Div> {
         Self::bind_editing(Self::bind_movement(field, cx), cx)
             .on_action(
                 cx.listener(|_, _: &actions::Submit, _, cx| cx.emit(TextInputEvent::Submitted)),
@@ -18,7 +21,10 @@ impl TextInput {
             )
     }
 
-    fn bind_movement(field: Stateful<Div>, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+    fn bind_movement(
+        field: Stateful<Div>,
+        cx: &mut Context<'_, Self>,
+    ) -> Stateful<Div> {
         field
             .on_action(cx.listener(|this, _: &actions::Left, _, cx| {
                 this.move_caret(Direction::Backward, cx);
@@ -46,7 +52,10 @@ impl TextInput {
             }))
     }
 
-    fn bind_editing(field: Stateful<Div>, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+    fn bind_editing(
+        field: Stateful<Div>,
+        cx: &mut Context<'_, Self>,
+    ) -> Stateful<Div> {
         field
             .on_action(cx.listener(|this, _: &actions::Backspace, window, cx| {
                 this.erase(Direction::Backward, window, cx);
@@ -61,5 +70,29 @@ impl TextInput {
 }
 
 #[cfg(test)]
-#[path = "text_input_binding_tests.rs"]
-mod tests;
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::TestAppContext;
+
+    use crate::TextInputEvent;
+    use crate::test_support::field;
+
+    #[gpui::test]
+    fn enter_submits_and_escape_cancels(cx: &mut TestAppContext) {
+        let (input, cx) = field(cx);
+        let (submitted, cancelled) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+        let (on_submit, on_cancel) = (Rc::clone(&submitted), Rc::clone(&cancelled));
+        cx.update(|_, cx| {
+            cx.subscribe(&input, move |_, event: &TextInputEvent, _| match event {
+                TextInputEvent::Submitted => on_submit.set(on_submit.get() + 1),
+                TextInputEvent::Cancelled => on_cancel.set(on_cancel.get() + 1),
+                TextInputEvent::Changed(_) => {},
+            })
+            .detach();
+        });
+        cx.simulate_keystrokes("enter escape escape");
+        assert_eq!((submitted.get(), cancelled.get()), (1, 2));
+    }
+}

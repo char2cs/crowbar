@@ -1,7 +1,7 @@
 //! Every embedded icon in every embedded weight.
 
-use gpui::{IntoElement, ParentElement, Styled, div, px};
-use ui::{Icon, IconName, IconWeight};
+use gpui::{IntoElement, ParentElement, Styled, div};
+use ui::{Icon, IconName, IconWeight, spacing};
 
 const WEIGHTS: [IconWeight; 4] = [
     IconWeight::Regular,
@@ -10,12 +10,15 @@ const WEIGHTS: [IconWeight; 4] = [
     IconWeight::Duotone,
 ];
 
-fn cell(name: IconName, weight: IconWeight) -> Option<impl IntoElement> {
+fn cell(
+    name: IconName,
+    weight: IconWeight,
+) -> Option<impl IntoElement> {
     Icon::path(name, weight)?;
     Some(
         div()
-            .size(px(24.0))
-            .child(Icon::new(name).weight(weight).size(px(20.0))),
+            .size(spacing::STEP_6)
+            .child(Icon::new(name).weight(weight).size(spacing::STEP_5)),
     )
 }
 
@@ -25,5 +28,9 @@ pub(crate) fn icons() -> impl IntoElement {
             .into_iter()
             .filter_map(move |weight| cell(name, weight))
     });
-    div().flex().flex_wrap().gap(px(6.0)).children(cells)
+    div()
+        .flex()
+        .flex_wrap()
+        .gap(spacing::STEP_1_5)
+        .children(cells)
 }

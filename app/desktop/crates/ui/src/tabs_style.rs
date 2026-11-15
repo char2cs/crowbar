@@ -2,9 +2,13 @@
 
 use gpui::{Div, Hsla, Styled, div};
 
+use crate::opacity;
 use crate::palette::Palette;
 use crate::radius;
 use crate::shadow;
+
+const PILL_HEIGHT: f32 = 32.0;
+const SEGMENT_HEIGHT: f32 = 30.0;
 
 /// Visual recipe of a tab list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -20,27 +24,33 @@ pub enum TabsStyle {
 impl TabsStyle {
     pub(crate) fn tab_height(self) -> f32 {
         match self {
-            Self::Pill => 32.0,
-            Self::Segmented => 30.0,
+            Self::Pill => PILL_HEIGHT,
+            Self::Segmented => SEGMENT_HEIGHT,
         }
     }
 
-    pub(crate) fn pill(self, palette: &Palette) -> Div {
+    pub(crate) fn pill(
+        self,
+        palette: &Palette,
+    ) -> Div {
         match self {
             Self::Pill => div()
                 .rounded(radius::LG)
                 .border_1()
                 .border_color(palette.control_surface())
                 .bg(palette.control_surface())
-                .shadow(shadow::xs(0.1)),
+                .shadow(shadow::xs(opacity::PERCENT_10)),
             Self::Segmented => div()
                 .rounded(radius::MD)
                 .bg(palette.background())
-                .shadow(shadow::sm(0.05)),
+                .shadow(shadow::sm(opacity::PERCENT_5)),
         }
     }
 
-    pub(crate) fn active_text(self, palette: &Palette) -> Hsla {
+    pub(crate) fn active_text(
+        self,
+        palette: &Palette,
+    ) -> Hsla {
         match self {
             Self::Pill => palette.control_foreground(),
             Self::Segmented => palette.foreground(),
@@ -49,5 +59,27 @@ impl TabsStyle {
 }
 
 #[cfg(test)]
-#[path = "tabs_style_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::surface::Surface;
+    use crate::theme::Theme;
+
+    #[test]
+    fn heights_follow_the_spec() {
+        assert!((TabsStyle::Pill.tab_height() - 32.0).abs() < f32::EPSILON);
+        assert!((TabsStyle::Segmented.tab_height() - 30.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn selected_text_colour_differs_per_style() {
+        let palette = Theme::default().palette(Surface::Window);
+        assert_eq!(
+            TabsStyle::Pill.active_text(palette),
+            palette.control_foreground()
+        );
+        assert_eq!(
+            TabsStyle::Segmented.active_text(palette),
+            palette.foreground()
+        );
+    }
+}

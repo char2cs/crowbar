@@ -22,10 +22,25 @@ pub fn init(cx: &mut App) -> Result<(), Error> {
     cx.set_global(Theme::default().with_system(system));
     cx.set_global(Motion::default());
     cx.bind_keys(crate::menu_actions::bindings());
+    cx.bind_keys(crate::popover_actions::bindings());
     cx.bind_keys(crate::text_input_actions::bindings());
     Ok(())
 }
 
 #[cfg(test)]
-#[path = "ui_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::assets::Assets;
+
+    #[gpui::test]
+    fn init_installs_the_globals_and_registers_fonts(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            assert!(init(cx).is_ok());
+            assert!(cx.try_global::<Theme>().is_some());
+            assert!(cx.try_global::<Motion>().is_some());
+        });
+        let _ = Assets;
+    }
+}

@@ -1,7 +1,7 @@
 //! Every button variant, size and state.
 
-use gpui::{IntoElement, ParentElement, Styled, div, px};
-use ui::{Button, ButtonSize, ButtonVariant, IconName};
+use gpui::{IntoElement, ParentElement, Styled, div};
+use ui::{Button, ButtonSize, ButtonVariant, IconName, spacing};
 
 use crate::section::row;
 
@@ -40,6 +40,18 @@ fn disabled() -> impl IntoElement {
     row().children(buttons)
 }
 
+fn loading() -> impl IntoElement {
+    let buttons = VARIANTS
+        .iter()
+        .enumerate()
+        .map(|(index, (variant, label))| {
+            Button::new(("busy", index), *label)
+                .variant(*variant)
+                .loading()
+        });
+    row().children(buttons)
+}
+
 fn sizes() -> impl IntoElement {
     let buttons = SIZES.iter().enumerate().map(|(index, size)| {
         Button::new(("size", index), "Button")
@@ -63,9 +75,10 @@ pub(crate) fn buttons() -> impl IntoElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(spacing::STEP_2)
         .child(variants())
         .child(disabled())
+        .child(loading())
         .child(sizes())
         .child(icon_buttons())
 }

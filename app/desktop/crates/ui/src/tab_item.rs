@@ -37,14 +37,20 @@ impl TabItem {
 
     /// Adds an icon next to the label.
     #[must_use]
-    pub fn with_icon(mut self, icon: IconName) -> Self {
+    pub fn with_icon(
+        mut self,
+        icon: IconName,
+    ) -> Self {
         self.icon = Some(icon);
         self
     }
 
     /// Adds a text label next to the icon; the selected weight is kept.
     #[must_use]
-    pub fn with_label(mut self, label: impl Into<SharedString>) -> Self {
+    pub fn with_label(
+        mut self,
+        label: impl Into<SharedString>,
+    ) -> Self {
         self.label = Some(label.into());
         self
     }
@@ -58,5 +64,58 @@ impl TabItem {
 }
 
 #[cfg(test)]
-#[path = "tab_item_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    type Expect = (Option<&'static str>, Option<IconName>, IconWeight, bool);
+
+    type Case = (&'static str, fn() -> TabItem, Expect);
+
+    const CASES: &[Case] = &[
+        (
+            "text tabs have a label and no icon",
+            || TabItem::text("Chat"),
+            (Some("Chat"), None, IconWeight::Regular, false),
+        ),
+        (
+            "icon tabs fill when selected",
+            || TabItem::icon(IconName::Check),
+            (None, Some(IconName::Check), IconWeight::Fill, false),
+        ),
+        (
+            "builders add an icon and disable",
+            || TabItem::text("Chat").with_icon(IconName::Check).disabled(),
+            (
+                Some("Chat"),
+                Some(IconName::Check),
+                IconWeight::Regular,
+                true,
+            ),
+        ),
+        (
+            "a labelled icon tab keeps its fill weight",
+            || TabItem::icon(IconName::Check).with_label("Chats"),
+            (
+                Some("Chats"),
+                Some(IconName::Check),
+                IconWeight::Fill,
+                false,
+            ),
+        ),
+    ];
+
+    #[test]
+    fn constructors_and_builders_set_their_fields() {
+        for &(name, build, (label, icon, weight, disabled)) in CASES {
+            let tab = build();
+            assert_eq!(
+                tab.label.as_ref().map(AsRef::as_ref),
+                label,
+                "{name}: label"
+            );
+            assert_eq!(tab.icon, icon, "{name}: icon");
+            assert_eq!(tab.selected_weight, weight, "{name}: weight");
+            assert_eq!(tab.disabled, disabled, "{name}: disabled");
+        }
+    }
+}

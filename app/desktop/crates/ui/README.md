@@ -31,8 +31,8 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Fonts | `font::{register, UI_FAMILY, HEADING_FAMILY, MONO_FAMILY}` (Cal Sans UI, Instrument Serif, Geist Mono) | verified |
 | Icons | `Icon`, `IconName`, `IconWeight`, `Assets` (Phosphor: 56 icons, 92 weight files) | verified |
 | Motion | `CubicBezier`, `Keyframes`, `Motion` (reduced motion, animation factory) | verified |
-| Controls | `Button`, `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
-| Overlays | `OverlayHost`, `Overlays`, `OverlayGuard`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
+| Controls | `Button` (with `loading()`), `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
+| Overlays | `OverlayHost`, `Overlays`, `OverlayGuard`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
 | Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
 
 ## Conventions for consumers
@@ -64,4 +64,6 @@ unruled header and no body padding); `Select::compact` (28px trigger); `IconName
 (OFL-1.1 for the fonts, MIT for Phosphor).
 
 
-Missing: `Popover`, `ContextMenu`, submenus, `Button` loading state, `ui::root()`. Pixel comparison against the React originals is not done: the golden captures are whole-app screens, not component captures. The frosted theme and Tooltip hover motion have not been looked at in the gallery.
+Missing: `ui::root()` (every consumer sets the window background itself; no shared base wrapper earned its keep), emoji font bundling (emoji render through the system colour-emoji font that GPUI's text system falls back to; hosts without Noto Color Emoji show tofu), a true italic UI face (see below).
+
+Italics: Cal Sans UI has no italic face and GPUI does not synthesise an oblique, so `.italic()` (provisional titles) renders upright. Fix path: bake a 0.25-shear face (glyf and gvar deltas) with fontTools and register it as a second face of `Cal Sans UI`; not done because fontTools was unavailable offline. Pixel comparison against the React originals is not done: the golden captures are whole-app screens, not component captures. The frosted theme and Tooltip hover motion have not been looked at in the gallery.

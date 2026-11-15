@@ -12,3 +12,5 @@ pub const BASE: Pixels = px(16.0);
 pub const LG: Pixels = px(18.0);
 /// Tailwind `text-xl` (20/28).
 pub const XL: Pixels = px(20.0);
+/// Line height of controls (`leading-5`).
+pub const LINE_HEIGHT: Pixels = px(20.0);

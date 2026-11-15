@@ -2,7 +2,7 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Div, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
+    App, Div, ElementId, Entity, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
     ParentElement, RenderOnce, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
@@ -16,9 +16,11 @@ use crate::opaque_debug::opaque_debug;
 use crate::palette::Palette;
 use crate::pose::Pose;
 use crate::radius;
+use crate::spacing;
 use crate::tab_item::TabItem;
 use crate::tabs_style::TabsStyle;
 use crate::text_size;
+use crate::toggle_state::ToggleState;
 
 const DISABLED_OPACITY: f32 = 0.64;
 const MUTED_TEXT: f32 = 0.72;
@@ -36,7 +38,11 @@ pub(crate) struct TabCell {
 }
 
 impl TabCell {
-    pub(crate) fn new(id: ElementId, item: TabItem, look: (TabsStyle, &'static Palette)) -> Self {
+    pub(crate) fn new(
+        id: ElementId,
+        item: TabItem,
+        look: (TabsStyle, &'static Palette),
+    ) -> Self {
         Self {
             id,
             item,
@@ -47,20 +53,30 @@ impl TabCell {
         }
     }
 
-    pub(crate) fn at(mut self, index: usize, selected: Pose) -> Self {
+    pub(crate) fn at(
+        mut self,
+        index: usize,
+        selected: Pose,
+    ) -> Self {
         self.index = index;
         self.selected = selected;
         self
     }
 
-    pub(crate) fn on_select(mut self, handler: Option<IndexHandler>) -> Self {
+    pub(crate) fn on_select(
+        mut self,
+        handler: Option<IndexHandler>,
+    ) -> Self {
         self.on_select = handler;
         self
     }
 }
 
 impl TabCell {
-    fn frame(&self, color: Hsla) -> Stateful<Div> {
+    fn frame(
+        &self,
+        color: Hsla,
+    ) -> Stateful<Div> {
         let (style, palette) = self.look;
         let frame = div()
             .id(self.id.clone())
@@ -69,9 +85,9 @@ impl TabCell {
             .flex_1()
             .items_center()
             .justify_center()
-            .gap(px(6.0))
+            .gap(spacing::STEP_1_5)
             .h(px(style.tab_height()))
-            .px(px(8.0))
+            .px(spacing::STEP_2)
             .rounded(radius::MD)
             .text_color(color)
             .text_size(text_size::SM)
@@ -83,18 +99,40 @@ impl TabCell {
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
     }
 
-    fn icon(&self, color: Hsla) -> Option<Icon> {
-        let selected = self.selected == Pose::On;
-        let weight = if selected {
-            self.item.selected_weight
-        } else {
-            IconWeight::Regular
-        };
-        let size = if self.item.label.is_some() {
-            ICON_WITH_LABEL
-        } else {
-            ICON_ALONE
-        };
+    fn label_color(
+        &self,
+        hover_state: &Entity<ToggleState>,
+        window: &mut Window,
+        cx: &App,
+    ) -> Hsla {
+        let (style, palette) = self.look;
+        if self.selected == Pose::On {
+            return style.active_text(palette);
+        }
+        let rest = palette.muted_foreground().opacity(MUTED_TEXT);
+        hover::color(hover_state, (rest, palette.foreground()), window, cx)
+    }
+
+    fn icon_weight(&self) -> IconWeight {
+        if self.selected == Pose::On {
+            return self.item.selected_weight;
+        }
+        IconWeight::Regular
+    }
+
+    fn icon_size(&self) -> f32 {
+        if self.item.label.is_some() {
+            return ICON_WITH_LABEL;
+        }
+        ICON_ALONE
+    }
+
+    fn icon(
+        &self,
+        color: Hsla,
+    ) -> Option<Icon> {
+        let weight = self.icon_weight();
+        let size = self.icon_size();
         self.item
             .icon
             .map(|icon| Icon::new(icon).weight(weight).color(color).size(px(size)))
@@ -102,16 +140,14 @@ impl TabCell {
 }
 
 impl RenderOnce for TabCell {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let (style, palette) = self.look;
+    fn render(
+        self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let selected = self.selected == Pose::On;
         let hover_state = hover::track(&self.id, Pose::Off, window, cx);
-        let rest = palette.muted_foreground().opacity(MUTED_TEXT);
-        let color = if selected {
-            style.active_text(palette)
-        } else {
-            hover::color(&hover_state, (rest, palette.foreground()), window, cx)
-        };
+        let color = self.label_color(&hover_state, window, cx);
         let (index, disabled) = (self.index, self.item.disabled);
         let handler = self.on_select.clone().filter(|_| !selected && !disabled);
         self.frame(color)
@@ -132,5 +168,57 @@ impl RenderOnce for TabCell {
 opaque_debug!(TabCell);
 
 #[cfg(test)]
-#[path = "tab_cell_tests.rs"]
-mod tests;
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::{Modifiers, TestAppContext, point, px};
+
+    use super::*;
+    use crate::icon_name::IconName;
+    use crate::surface::Surface;
+    use crate::test_support::{measure, open};
+    use crate::theme::Theme;
+
+    fn look() -> (TabsStyle, &'static Palette) {
+        (TabsStyle::Pill, Theme::default().palette(Surface::Window))
+    }
+
+    fn cell() -> TabCell {
+        TabCell::new(
+            ElementId::from("tab"),
+            TabItem::icon(IconName::Gear),
+            look(),
+        )
+    }
+
+    #[gpui::test]
+    fn height_follows_the_style(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| cell());
+        assert!((f32::from(bounds.size.height) - 32.0).abs() < f32::EPSILON);
+    }
+
+    #[gpui::test]
+    fn only_an_enabled_unselected_tab_reports_clicks(cx: &mut TestAppContext) {
+        let clicked = Rc::new(Cell::new(0));
+        let sink = Rc::clone(&clicked);
+        let handler: IndexHandler = Rc::new(move |_, _, _| sink.set(sink.get() + 1));
+        let cx = open(cx, move |_, _| {
+            cell().at(3, Pose::Off).on_select(Some(Rc::clone(&handler)))
+        });
+        cx.simulate_click(point(px(10.0), px(10.0)), Modifiers::none());
+        assert_eq!(clicked.get(), 1);
+    }
+
+    #[gpui::test]
+    fn selected_tab_ignores_clicks(cx: &mut TestAppContext) {
+        let clicked = Rc::new(Cell::new(0));
+        let sink = Rc::clone(&clicked);
+        let handler: IndexHandler = Rc::new(move |_, _, _| sink.set(sink.get() + 1));
+        let cx = open(cx, move |_, _| {
+            cell().at(0, Pose::On).on_select(Some(Rc::clone(&handler)))
+        });
+        cx.simulate_click(point(px(10.0), px(10.0)), Modifiers::none());
+        assert_eq!(clicked.get(), 0);
+    }
+}

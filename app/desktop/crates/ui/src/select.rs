@@ -15,10 +15,12 @@ use crate::icon_name::IconName;
 use crate::index_handler::IndexHandler;
 use crate::menu_action::MenuAction;
 use crate::menu_item::MenuItem;
+use crate::opacity;
 use crate::opaque_debug::opaque_debug;
 use crate::palette::Palette;
 use crate::radius;
 use crate::shadow;
+use crate::spacing;
 use crate::surface::Surface;
 use crate::text_size;
 use crate::theme::Theme;
@@ -28,7 +30,6 @@ const STANDARD_HEIGHT: f32 = 32.0;
 const COMPACT_HEIGHT: f32 = 28.0;
 const CARET_OPACITY: f32 = 0.8;
 const PLACEHOLDER_OPACITY: f32 = 0.72;
-const DARK_FILL: f32 = 0.32;
 
 /// A select box: the trigger shows the chosen option, the popup lists all of them with a check on the current one.
 #[derive(IntoElement)]
@@ -64,14 +65,20 @@ impl Select {
 
     /// Text shown while nothing is selected.
     #[must_use]
-    pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
+    pub fn placeholder(
+        mut self,
+        placeholder: impl Into<SharedString>,
+    ) -> Self {
         self.placeholder = placeholder.into();
         self
     }
 
     /// Sets the width of the trigger and the minimum width of the popup.
     #[must_use]
-    pub fn width(mut self, width: Pixels) -> Self {
+    pub fn width(
+        mut self,
+        width: Pixels,
+    ) -> Self {
         self.width = width;
         self
     }
@@ -85,25 +92,34 @@ impl Select {
 
     /// Paints with the palette of `surface`.
     #[must_use]
-    pub fn on(mut self, surface: Surface) -> Self {
+    pub fn on(
+        mut self,
+        surface: Surface,
+    ) -> Self {
         self.surface = surface;
         self
     }
 
     /// Registers the handler receiving the index of the chosen option.
     #[must_use]
-    pub fn on_change(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_change(
+        mut self,
+        handler: impl Fn(usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_change = Some(Rc::new(handler));
         self
     }
 }
 
 impl Select {
-    fn trigger(&self, theme: Theme) -> gpui::Stateful<gpui::Div> {
+    fn trigger(
+        &self,
+        theme: Theme,
+    ) -> gpui::Stateful<gpui::Div> {
         let palette = theme.palette(self.surface);
         let fill = match theme.appearance() {
             Appearance::Light => palette.background(),
-            Appearance::Dark => palette.input().opacity(DARK_FILL),
+            Appearance::Dark => palette.input().opacity(opacity::DARK_INPUT),
         };
         let (label, color) = self.shown(palette);
         let caret =
@@ -113,10 +129,10 @@ impl Select {
             .flex()
             .items_center()
             .justify_between()
-            .gap(px(8.0))
+            .gap(spacing::STEP_2)
             .w(self.width)
             .min_h(self.height)
-            .px(px(10.0))
+            .px(spacing::STEP_2_5)
             .rounded(radius::LG)
             .border_1()
             .border_color(palette.input())
@@ -126,7 +142,7 @@ impl Select {
             .font_weight(FontWeight::NORMAL)
             .text_color(color)
             .cursor_pointer()
-            .shadow(shadow::xs(0.05))
+            .shadow(shadow::xs(opacity::PERCENT_5))
             .child(
                 div()
                     .flex_1()
@@ -137,7 +153,10 @@ impl Select {
             .child(caret)
     }
 
-    fn shown(&self, palette: &Palette) -> (SharedString, Hsla) {
+    fn shown(
+        &self,
+        palette: &Palette,
+    ) -> (SharedString, Hsla) {
         match self.selected.and_then(|index| self.options.get(index)) {
             Some(label) => (label.clone(), palette.foreground()),
             None => (
@@ -147,27 +166,47 @@ impl Select {
         }
     }
 
-    fn item(&self, index: usize, option: &SharedString) -> MenuItem {
+    fn marked(
+        &self,
+        index: usize,
+        action: MenuAction,
+    ) -> MenuAction {
+        if self.selected == Some(index) {
+            return action.checked();
+        }
+        action
+    }
+
+    fn item(
+        &self,
+        index: usize,
+        option: &SharedString,
+    ) -> MenuItem {
         let handler = self.on_change.clone();
         let action = MenuAction::new(option.clone(), move |window, cx| {
             forward(handler.as_ref(), index, window, cx);
         });
-        MenuItem::Action(if self.selected == Some(index) {
-            action.checked()
-        } else {
-            action
-        })
+        MenuItem::Action(self.marked(index, action))
     }
 }
 
-fn forward(handler: Option<&IndexHandler>, index: usize, window: &mut Window, cx: &mut App) {
+fn forward(
+    handler: Option<&IndexHandler>,
+    index: usize,
+    window: &mut Window,
+    cx: &mut App,
+) {
     if let Some(handler) = handler {
         handler(index, window, cx);
     }
 }
 
 impl RenderOnce for Select {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let trigger = self.trigger(*Theme::of(cx));
         let items: Vec<MenuItem> = self
             .options
@@ -182,5 +221,47 @@ impl RenderOnce for Select {
 opaque_debug!(Select);
 
 #[cfg(test)]
-#[path = "select_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{TestAppContext, px};
+
+    use super::*;
+    use crate::test_support::measure;
+
+    fn options() -> Vec<SharedString> {
+        vec!["System".into(), "Light".into(), "Dark".into()]
+    }
+
+    #[gpui::test]
+    fn trigger_is_thirty_two_pixels_high_and_as_wide_as_requested(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| {
+            Select::new("s", options(), Some(1)).width(px(160.0))
+        });
+        assert_eq!(
+            (f32::from(bounds.size.width), f32::from(bounds.size.height)),
+            (160.0, 32.0)
+        );
+    }
+
+    #[gpui::test]
+    fn default_width_is_one_hundred_forty_four(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| {
+            Select::new("s", options(), None).placeholder("Choose")
+        });
+        assert_eq!(f32::from(bounds.size.width), 144.0);
+    }
+
+    #[gpui::test]
+    fn compact_triggers_are_28px_tall(cx: &mut TestAppContext) {
+        let compact = measure(cx, |_, _| {
+            Select::new("s", vec!["A".into()], Some(0)).compact()
+        });
+        let standard = measure(cx, |_, _| Select::new("s", vec!["A".into()], Some(0)));
+        assert_eq!(
+            (
+                f32::from(compact.size.height),
+                f32::from(standard.size.height)
+            ),
+            (28.0, 32.0)
+        );
+    }
+}

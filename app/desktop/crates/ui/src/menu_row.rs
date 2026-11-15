@@ -3,7 +3,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Div, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    StatefulInteractiveElement, Styled, Window, div, hsla, px,
+    StatefulInteractiveElement, Styled, Window, div, hsla,
 };
 
 use crate::appearance::Appearance;
@@ -17,6 +17,7 @@ use crate::palette::Palette;
 use crate::pose::Pose;
 use crate::radius;
 use crate::row_handlers::RowHandlers;
+use crate::spacing;
 use crate::surface::Surface;
 use crate::text_size;
 use crate::theme::Theme;
@@ -71,45 +72,72 @@ fn colors(
     }
 }
 
-fn hint(action: &MenuAction, palette: &Palette) -> Option<Div> {
+fn hint(
+    action: &MenuAction,
+    palette: &Palette,
+) -> Option<Div> {
     let keys = action.shortcut.clone()?;
     Some(
         div()
             .ml_auto()
-            .pl(px(12.0))
+            .pl(spacing::STEP_3)
             .text_size(text_size::XS)
             .text_color(palette.muted_foreground().opacity(SHORTCUT_OPACITY))
             .child(keys),
     )
 }
 
-fn check(action: &MenuAction, color: Hsla) -> Option<Div> {
+fn trailing(
+    action: &MenuAction,
+    color: Hsla,
+) -> Option<Div> {
+    if action.submenu.is_some() {
+        let icon = Icon::new(IconName::CaretRight)
+            .size(spacing::STEP_3_5)
+            .color(color);
+        return Some(div().ml_auto().child(icon));
+    }
+    check(action, color)
+}
+
+fn check(
+    action: &MenuAction,
+    color: Hsla,
+) -> Option<Div> {
     let icon = Icon::new(IconName::Check)
         .weight(IconWeight::Bold)
-        .size(px(14.0))
+        .size(spacing::STEP_3_5)
         .color(color);
     action.checked.then(|| div().ml_auto().child(icon))
 }
 
+impl MenuRow {
+    fn shown(&self) -> Pose {
+        if self.action.disabled {
+            return Pose::Off;
+        }
+        self.highlight
+    }
+}
+
 impl RenderOnce for MenuRow {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         let action = &self.action;
-        let highlight = if action.disabled {
-            Pose::Off
-        } else {
-            self.highlight
-        };
-        let (fill, text) = colors(action, highlight, palette, theme.appearance());
+        let (fill, text) = colors(action, self.shown(), palette, theme.appearance());
         let (index, handlers) = (self.index, self.handlers);
         div()
             .id(("menu-row", index))
             .flex()
             .items_center()
-            .gap(px(6.0))
-            .px(px(6.0))
-            .py(px(4.0))
+            .gap(spacing::STEP_1_5)
+            .px(spacing::STEP_1_5)
+            .py(spacing::STEP_1)
             .rounded(radius::MD)
             .bg(fill)
             .text_color(text)
@@ -123,12 +151,49 @@ impl RenderOnce for MenuRow {
             .children(action.icon.map(|name| Icon::new(name).color(text)))
             .child(action.label.clone())
             .children(hint(action, palette))
-            .children(check(action, text))
+            .children(trailing(action, text))
     }
 }
 
 opaque_debug!(MenuRow);
 
 #[cfg(test)]
-#[path = "menu_row_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::theme::Theme;
+
+    fn plain() -> MenuAction {
+        MenuAction::new("x", |_, _| {})
+    }
+
+    fn dangerous() -> MenuAction {
+        plain().destructive()
+    }
+
+    #[test]
+    fn plain_rows_highlight_with_the_accent_colours() {
+        let palette = Theme::default().palette(Surface::Window);
+        let plain = plain();
+        assert_eq!(
+            colors(&plain, Pose::Off, palette, Appearance::Light).1,
+            palette.foreground()
+        );
+        assert_eq!(
+            colors(&plain, Pose::On, palette, Appearance::Light),
+            (palette.accent(), palette.accent_foreground())
+        );
+    }
+
+    #[test]
+    fn destructive_rows_tint_more_strongly_in_dark_mode() {
+        let palette = Theme::default().palette(Surface::Window);
+        let danger = dangerous();
+        assert_eq!(
+            colors(&danger, Pose::Off, palette, Appearance::Light).1,
+            palette.destructive()
+        );
+        let light = colors(&danger, Pose::On, palette, Appearance::Light).0;
+        let dark = colors(&danger, Pose::On, palette, Appearance::Dark).0;
+        assert!(dark.a > light.a);
+    }
+}

@@ -2,7 +2,7 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
+    App, ElementId, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
@@ -12,7 +12,9 @@ use crate::focus_ring::focus_ring;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
+use crate::opacity;
 use crate::opaque_debug::opaque_debug;
+use crate::palette::Palette;
 use crate::pose::Pose;
 use crate::shadow;
 use crate::surface::Surface;
@@ -35,7 +37,10 @@ pub struct Checkbox {
 
 impl Checkbox {
     /// A checkbox showing `checked`.
-    pub fn new(id: impl Into<ElementId>, checked: impl Into<Pose>) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        checked: impl Into<Pose>,
+    ) -> Self {
         Self {
             id: id.into(),
             checked: bool::from(checked.into()),
@@ -54,30 +59,63 @@ impl Checkbox {
 
     /// Paints with the palette of `surface`.
     #[must_use]
-    pub fn on(mut self, surface: Surface) -> Self {
+    pub fn on(
+        mut self,
+        surface: Surface,
+    ) -> Self {
         self.surface = surface;
         self
     }
 
     /// Registers the handler receiving the requested value.
     #[must_use]
-    pub fn on_change(mut self, handler: impl Fn(bool, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_change(
+        mut self,
+        handler: impl Fn(bool, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_change = Some(Box::new(handler));
         self
     }
 }
 
+fn fill_at_rest(
+    palette: &Palette,
+    appearance: Appearance,
+) -> Hsla {
+    if appearance == Appearance::Light {
+        return palette.background();
+    }
+    palette.input().opacity(opacity::DARK_INPUT)
+}
+
+fn box_colors(
+    checked: Pose,
+    palette: &Palette,
+    appearance: Appearance,
+) -> (Hsla, Hsla) {
+    if checked == Pose::On {
+        return (palette.primary(), palette.primary());
+    }
+    (fill_at_rest(palette, appearance), palette.input())
+}
+
+fn mark(palette: &Palette) -> Icon {
+    Icon::new(IconName::Check)
+        .weight(IconWeight::Bold)
+        .size(px(MARK))
+        .color(palette.primary_foreground())
+}
+
 impl RenderOnce for Checkbox {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(self.surface);
-        let dark = theme.appearance() == Appearance::Dark;
         let (checked, enabled) = (self.checked, !self.disabled);
-        let rest = if dark {
-            palette.input().opacity(0.32)
-        } else {
-            palette.background()
-        };
+        let (fill, border) = box_colors(Pose::from(checked), palette, theme.appearance());
         div()
             .id(self.id)
             .flex()
@@ -87,25 +125,16 @@ impl RenderOnce for Checkbox {
             .size(px(SIZE))
             .rounded(px(RADIUS))
             .border_1()
-            .border_color(if checked {
-                palette.primary()
-            } else {
-                palette.input()
+            .border_color(border)
+            .bg(fill)
+            .when(!checked && enabled, |d| {
+                d.shadow(shadow::xs(opacity::PERCENT_5))
             })
-            .bg(if checked { palette.primary() } else { rest })
-            .when(!checked && enabled, |d| d.shadow(shadow::xs(0.05)))
             .when(enabled, |d| d.cursor_pointer().tab_stop(true))
             .when(!enabled, |d| d.opacity(DISABLED_OPACITY))
             .focus(move |s| s.shadow(focus_ring(palette)))
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-            .when(checked, |d| {
-                d.child(
-                    Icon::new(IconName::Check)
-                        .weight(IconWeight::Bold)
-                        .size(px(MARK))
-                        .color(palette.primary_foreground()),
-                )
-            })
+            .when(checked, |d| d.child(mark(palette)))
             .when_some(self.on_change.filter(|_| enabled), move |d, handler| {
                 d.on_click(move |_, window, cx| handler(!checked, window, cx))
             })
@@ -115,5 +144,33 @@ impl RenderOnce for Checkbox {
 opaque_debug!(Checkbox);
 
 #[cfg(test)]
-#[path = "checkbox_tests.rs"]
-mod tests;
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::{TestAppContext, point, px};
+
+    use super::*;
+    use crate::test_support::{measure, open};
+
+    #[gpui::test]
+    fn box_is_sixteen_pixels(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| Checkbox::new("c", false));
+        assert_eq!(
+            (f32::from(bounds.size.width), f32::from(bounds.size.height)),
+            (16.0, 16.0)
+        );
+    }
+
+    #[gpui::test]
+    fn click_requests_the_opposite_value(cx: &mut TestAppContext) {
+        let seen = Rc::new(Cell::new(None));
+        let sink = Rc::clone(&seen);
+        let cx = open(cx, move |_, _| {
+            let sink = Rc::clone(&sink);
+            Checkbox::new("c", false).on_change(move |value, _, _| sink.set(Some(value)))
+        });
+        cx.simulate_click(point(px(8.0), px(8.0)), gpui::Modifiers::none());
+        assert_eq!(seen.get(), Some(true));
+    }
+}

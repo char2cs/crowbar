@@ -3,7 +3,10 @@
 use gpui::{Pixels, px};
 
 use crate::radius;
+use crate::spacing;
 use crate::text_size;
+
+const ICON_XL: Pixels = px(18.0);
 
 /// Height steps of a button; the icon-only form is square at the same size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -25,33 +28,33 @@ pub enum ButtonSize {
 impl ButtonSize {
     /// Outer height (and width of the icon-only form).
     pub fn height(self) -> Pixels {
-        px(match self {
-            Self::Xs => 24.0,
-            Self::Sm => 28.0,
-            Self::Md => 32.0,
-            Self::Lg => 36.0,
-            Self::Xl => 40.0,
-        })
+        match self {
+            Self::Xs => spacing::STEP_6,
+            Self::Sm => spacing::STEP_7,
+            Self::Md => spacing::STEP_8,
+            Self::Lg => spacing::STEP_9,
+            Self::Xl => spacing::STEP_10,
+        }
     }
 
     /// Horizontal padding inside the 1px border.
     pub fn padding_x(self) -> Pixels {
-        px(match self {
-            Self::Xs => 6.0,
-            Self::Sm => 8.0,
-            Self::Md => 10.0,
-            Self::Lg => 12.0,
-            Self::Xl => 14.0,
-        })
+        match self {
+            Self::Xs => spacing::STEP_1_5,
+            Self::Sm => spacing::STEP_2,
+            Self::Md => spacing::STEP_2_5,
+            Self::Lg => spacing::STEP_3,
+            Self::Xl => spacing::STEP_3_5,
+        }
     }
 
     /// Gap between icon and label.
     pub fn gap(self) -> Pixels {
-        px(match self {
-            Self::Xs => 4.0,
-            Self::Sm => 6.0,
-            _ => 8.0,
-        })
+        match self {
+            Self::Xs => spacing::STEP_1,
+            Self::Sm => spacing::STEP_1_5,
+            _ => spacing::STEP_2,
+        }
     }
 
     /// Label font size.
@@ -65,11 +68,11 @@ impl ButtonSize {
 
     /// Icon edge length.
     pub fn icon(self) -> Pixels {
-        px(match self {
-            Self::Xs => 14.0,
-            Self::Xl => 18.0,
-            _ => 16.0,
-        })
+        match self {
+            Self::Xs => spacing::STEP_3_5,
+            Self::Xl => ICON_XL,
+            _ => spacing::STEP_4,
+        }
     }
 
     /// Corner radius.
@@ -82,5 +85,22 @@ impl ButtonSize {
 }
 
 #[cfg(test)]
-#[path = "button_size_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn heights_match_the_spec() {
+        let cases = [
+            (ButtonSize::Xs, 24.0, 6.0, 14.0),
+            (ButtonSize::Sm, 28.0, 8.0, 16.0),
+            (ButtonSize::Md, 32.0, 10.0, 16.0),
+            (ButtonSize::Lg, 36.0, 12.0, 16.0),
+            (ButtonSize::Xl, 40.0, 14.0, 18.0),
+        ];
+        for (size, height, padding, icon) in cases {
+            assert_eq!(f32::from(size.height()), height, "{size:?} height");
+            assert_eq!(f32::from(size.padding_x()), padding, "{size:?} padding");
+            assert_eq!(f32::from(size.icon()), icon, "{size:?} icon");
+        }
+    }
+}

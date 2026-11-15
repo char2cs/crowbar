@@ -18,7 +18,11 @@ pub(crate) struct Probe {
 }
 
 impl Render for Probe {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         let element = (self.build)(window, cx);
         div().size_full().flex().items_start().child(
             div()
@@ -38,6 +42,7 @@ pub(crate) fn open<E: IntoElement>(
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
         cx.bind_keys(crate::menu_actions::bindings());
+        cx.bind_keys(crate::popover_actions::bindings());
         cx.bind_keys(crate::text_input_actions::bindings());
     });
     let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());

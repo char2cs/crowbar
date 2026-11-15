@@ -22,7 +22,10 @@ use gpui::{App, AppContext as _, Application, Bounds, WindowBounds, WindowOption
 use crate::arguments::Arguments;
 use crate::page::Page;
 
-fn open(cx: &mut App, arguments: &Arguments) {
+fn open(
+    cx: &mut App,
+    arguments: &Arguments,
+) {
     let (width, height) = arguments.size();
     let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
     let options = WindowOptions {
@@ -36,18 +39,23 @@ fn open(cx: &mut App, arguments: &Arguments) {
     }
 }
 
+fn start(
+    cx: &mut App,
+    arguments: &Arguments,
+) {
+    if let Err(error) = ui::init(cx) {
+        eprintln!("gallery: {error}");
+        cx.quit();
+        return;
+    }
+    arguments.apply(cx);
+    open(cx, arguments);
+    cx.activate(true);
+}
+
 fn main() {
     let arguments = Arguments::from_env();
     Application::new()
         .with_assets(ui::Assets)
-        .run(move |cx: &mut App| {
-            if let Err(error) = ui::init(cx) {
-                eprintln!("gallery: {error}");
-                cx.quit();
-                return;
-            }
-            arguments.apply(cx);
-            open(cx, &arguments);
-            cx.activate(true);
-        });
+        .run(move |cx: &mut App| start(cx, &arguments));
 }

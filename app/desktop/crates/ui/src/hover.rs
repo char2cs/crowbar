@@ -23,7 +23,7 @@ pub(crate) fn track(
 }
 
 pub(crate) fn listener(
-    state: &Entity<ToggleState>,
+    state: &Entity<ToggleState>
 ) -> impl Fn(&bool, &mut Window, &mut App) + 'static {
     let state = state.clone();
     move |hovered, _, cx| state.update(cx, |s, cx| s.set(Pose::from(*hovered), cx))
@@ -55,5 +55,53 @@ pub(crate) fn color(
 }
 
 #[cfg(test)]
-#[path = "hover_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{
+        Context, InteractiveElement as _, IntoElement, Render, StatefulInteractiveElement as _,
+        Styled as _, TestAppContext, VisualTestContext, Window, div, point, px,
+    };
+
+    use super::*;
+    use crate::timing;
+
+    struct Probe {
+        state: Option<Entity<ToggleState>>,
+    }
+
+    impl Render for Probe {
+        fn render(
+            &mut self,
+            window: &mut Window,
+            cx: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            let id = ElementId::from("probe");
+            let state = track(&id, Pose::Off, window, cx);
+            self.state = Some(state.clone());
+            div().id(id).size(px(40.0)).on_hover(listener(&state))
+        }
+    }
+
+    fn fade_runs(
+        state: &Entity<ToggleState>,
+        tween: Tween,
+        cx: &mut VisualTestContext,
+    ) -> bool {
+        state.read_with(cx, |s, _| {
+            s.position(tween, Motion::default(), Instant::now()).running
+        })
+    }
+
+    #[gpui::test]
+    fn pointer_enter_starts_a_fade(cx: &mut TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, _| Probe { state: None });
+        cx.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
+        let state = view.read_with(cx, |probe, _| probe.state.clone());
+        let tween = Tween::new(timing::DEFAULT, CubicBezier::DEFAULT);
+        let running = state.map(|state| fade_runs(&state, tween, cx));
+        assert_eq!(
+            running,
+            Some(true),
+            "a fade should be running right after entering"
+        );
+    }
+}

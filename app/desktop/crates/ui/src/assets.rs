@@ -11,12 +11,18 @@ use crate::icon_files::FILES;
 pub struct Assets;
 
 impl AssetSource for Assets {
-    fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
+    fn load(
+        &self,
+        path: &str,
+    ) -> gpui::Result<Option<Cow<'static, [u8]>>> {
         let found = FILES.iter().find(|file| file.path == path);
         Ok(found.map(|file| Cow::Borrowed(file.bytes)))
     }
 
-    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
+    fn list(
+        &self,
+        path: &str,
+    ) -> gpui::Result<Vec<SharedString>> {
         Ok(FILES
             .iter()
             .filter(|file| file.path.starts_with(path))
@@ -26,5 +32,69 @@ impl AssetSource for Assets {
 }
 
 #[cfg(test)]
-#[path = "assets_tests.rs"]
-mod tests;
+mod tests {
+    use std::collections::BTreeSet;
+    use std::fs;
+    use std::path::Path;
+
+    use super::*;
+
+    fn files_of(weight: &Path) -> Vec<String> {
+        let folder = weight
+            .file_name()
+            .expect("folder")
+            .to_string_lossy()
+            .into_owned();
+        fs::read_dir(weight)
+            .expect("weight dir")
+            .map(|file| {
+                file.expect("entry")
+                    .file_name()
+                    .into_string()
+                    .expect("utf8")
+            })
+            .map(|name| format!("icons/{folder}/{name}"))
+            .collect()
+    }
+
+    #[test]
+    fn load_returns_embedded_svg_and_none_for_unknown() {
+        const CASES: &[(&str, bool)] = &[
+            ("icons/regular/gear.svg", true),
+            ("icons/regular/nope.svg", false),
+        ];
+        for &(path, embedded) in CASES {
+            let found = Assets.load(path).expect("load");
+            assert_eq!(found.is_some(), embedded, "{path}");
+            assert!(found.is_none_or(|svg| svg.starts_with(b"<svg")), "{path}");
+        }
+    }
+
+    #[test]
+    fn list_filters_by_prefix() {
+        let bold = Assets.list("icons/bold/").expect("list");
+        assert!(bold.len() > 5, "the bold weight ships icons");
+        assert!(bold.iter().all(|name| name.starts_with("icons/bold/")));
+    }
+
+    #[test]
+    fn every_icon_name_has_a_regular_or_other_weight_and_no_file_is_orphaned() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons");
+        let on_disk: BTreeSet<String> = fs::read_dir(&root)
+            .expect("icons dir")
+            .flat_map(|weight| files_of(&weight.expect("entry").path()))
+            .collect();
+        let embedded: BTreeSet<String> = FILES.iter().map(|file| file.path.to_owned()).collect();
+        assert_eq!(embedded, on_disk, "embedded table and assets/icons differ");
+        let stems: BTreeSet<&str> = crate::icon_name::IconName::ALL
+            .iter()
+            .map(|icon| icon.stem())
+            .collect();
+        for stem in stems {
+            let found = embedded
+                .iter()
+                .any(|name| name.ends_with(&format!("/{stem}.svg")));
+            assert!(found, "icon {stem} has no embedded weight");
+        }
+    }
+}

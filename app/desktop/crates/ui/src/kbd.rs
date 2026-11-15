@@ -4,6 +4,7 @@ use gpui::{App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Wi
 
 use crate::font::UI_FAMILY;
 use crate::radius;
+use crate::spacing;
 use crate::surface::Surface;
 use crate::theme::Theme;
 use crate::ui_text::UiText;
@@ -24,7 +25,11 @@ impl Kbd {
 }
 
 impl RenderOnce for Kbd {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         div()
@@ -33,7 +38,7 @@ impl RenderOnce for Kbd {
             .items_center()
             .justify_center()
             .min_h(px(MIN_HEIGHT))
-            .px(px(6.0))
+            .px(spacing::STEP_1_5)
             .rounded(radius::MD)
             .border_1()
             .border_color(palette.border())
@@ -47,5 +52,15 @@ impl RenderOnce for Kbd {
 }
 
 #[cfg(test)]
-#[path = "kbd_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn pill_is_at_least_sixteen_pixels_high(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| Kbd::new("Ctrl+B"));
+        assert!(f32::from(bounds.size.height) >= 16.0);
+    }
+}

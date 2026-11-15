@@ -1,11 +1,16 @@
 //! Badges, toasts, skeleton, spinner and empty state.
 
-use gpui::{IntoElement, ParentElement, Styled, div, px};
+use gpui::{IntoElement, ParentElement, Pixels, Styled, div, px};
 use ui::{
     Badge, BadgeSize, BadgeVariant, EmptyState, IconName, Kbd, Skeleton, Spinner, Toast, ToastKind,
+    spacing,
 };
 
 use crate::section::row;
+
+const TOAST_WIDTH: Pixels = px(288.0);
+const EMPTY_WIDTH: Pixels = px(240.0);
+const SKELETON_WIDTH: Pixels = px(200.0);
 
 const BADGES: [(BadgeVariant, &str); 8] = [
     (BadgeVariant::Primary, "3"),
@@ -50,8 +55,8 @@ fn toasts() -> impl IntoElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
-        .w(px(288.0))
+        .gap(spacing::STEP_2)
+        .w(TOAST_WIDTH)
         .children(cards)
 }
 
@@ -59,20 +64,20 @@ fn empty() -> impl IntoElement {
     let state = EmptyState::new("No chats yet")
         .icon(IconName::ChatsCircle)
         .description("Start one from the New Tab page");
-    div().w(px(240.0)).child(state)
+    div().w(EMPTY_WIDTH).child(state)
 }
 
 pub(crate) fn feedback() -> impl IntoElement {
     let column = div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(spacing::STEP_2)
         .child(badges())
         .child(extras())
-        .child(Skeleton::new("skeleton", px(200.0), px(14.0)));
+        .child(Skeleton::new("skeleton", SKELETON_WIDTH, spacing::STEP_3_5));
     div()
         .flex()
-        .gap(px(24.0))
+        .gap(spacing::STEP_6)
         .child(column)
         .child(toasts())
         .child(empty())

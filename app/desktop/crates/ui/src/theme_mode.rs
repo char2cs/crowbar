@@ -17,7 +17,10 @@ pub enum ThemeMode {
 
 impl ThemeMode {
     /// The appearance this preference yields when the OS reports `system`.
-    pub fn resolve(self, system: Appearance) -> Appearance {
+    pub fn resolve(
+        self,
+        system: Appearance,
+    ) -> Appearance {
         match self {
             Self::Light => Appearance::Light,
             Self::Dark => Appearance::Dark,
@@ -27,5 +30,19 @@ impl ThemeMode {
 }
 
 #[cfg(test)]
-#[path = "theme_mode_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_follows_system_only_in_system_mode() {
+        const CASES: &[(ThemeMode, Appearance, Appearance)] = &[
+            (ThemeMode::Light, Appearance::Dark, Appearance::Light),
+            (ThemeMode::Dark, Appearance::Light, Appearance::Dark),
+            (ThemeMode::System, Appearance::Dark, Appearance::Dark),
+            (ThemeMode::System, Appearance::Light, Appearance::Light),
+        ];
+        for &(mode, system, expected) in CASES {
+            assert_eq!(mode.resolve(system), expected, "{mode:?} on {system:?}");
+        }
+    }
+}

@@ -19,6 +19,9 @@ pub(crate) fn field(cx: &mut TestAppContext) -> (Entity<TextInput>, &mut VisualT
 }
 
 /// The text currently in `input`.
-pub(crate) fn text_of(input: &Entity<TextInput>, cx: &mut VisualTestContext) -> String {
+pub(crate) fn text_of(
+    input: &Entity<TextInput>,
+    cx: &mut VisualTestContext,
+) -> String {
     input.read_with(cx, |input, _| input.text().to_owned())
 }

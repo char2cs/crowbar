@@ -18,11 +18,24 @@ impl SashDrag {
 }
 
 impl Render for SashDrag {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         div()
     }
 }
 
 #[cfg(test)]
-#[path = "sash_drag_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_its_axis() {
+        let drag = SashDrag {
+            axis: Axis::Horizontal,
+        };
+        assert_eq!(drag.axis(), Axis::Horizontal);
+    }
+}

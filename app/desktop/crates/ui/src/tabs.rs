@@ -36,7 +36,11 @@ pub struct Tabs {
 
 impl Tabs {
     /// A pill-style list showing `items` with `selected` active.
-    pub fn new(id: impl Into<ElementId>, items: Vec<TabItem>, selected: usize) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        items: Vec<TabItem>,
+        selected: usize,
+    ) -> Self {
         Self {
             id: id.into(),
             items,
@@ -49,27 +53,41 @@ impl Tabs {
 
     /// Chooses the visual recipe.
     #[must_use]
-    pub fn style(mut self, style: TabsStyle) -> Self {
+    pub fn style(
+        mut self,
+        style: TabsStyle,
+    ) -> Self {
         self.style = style;
         self
     }
 
     /// Paints with the palette of `surface`.
     #[must_use]
-    pub fn on(mut self, surface: Surface) -> Self {
+    pub fn on(
+        mut self,
+        surface: Surface,
+    ) -> Self {
         self.surface = surface;
         self
     }
 
     /// Registers the handler receiving the index of the clicked tab.
     #[must_use]
-    pub fn on_select(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
+    pub fn on_select(
+        mut self,
+        handler: impl Fn(usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
         self.on_select = Some(std::rc::Rc::new(handler));
         self
     }
 }
 
-fn slide_position(id: &ElementId, selected: u16, window: &mut Window, cx: &mut App) -> f32 {
+fn slide_position(
+    id: &ElementId,
+    selected: u16,
+    window: &mut Window,
+    cx: &mut App,
+) -> f32 {
     let tween = Tween::new(timing::SLOW, CubicBezier::DEFAULT);
     let slide = window.use_keyed_state((id.clone(), "slide"), cx, |_, _| {
         SlideState::starting(selected)
@@ -83,7 +101,11 @@ fn slide_position(id: &ElementId, selected: u16, window: &mut Window, cx: &mut A
 }
 
 impl RenderOnce for Tabs {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(self.surface);
         let selected = u16::try_from(self.selected).unwrap_or(u16::MAX);
         let count = u16::try_from(self.items.len()).unwrap_or(u16::MAX);
@@ -120,5 +142,54 @@ impl RenderOnce for Tabs {
 opaque_debug!(Tabs);
 
 #[cfg(test)]
-#[path = "tabs_tests.rs"]
-mod tests;
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::{ParentElement, Styled, TestAppContext, div, point, px};
+
+    use super::*;
+    use crate::icon_name::IconName;
+    use crate::test_support::{measure, open};
+
+    fn items() -> Vec<TabItem> {
+        vec![
+            TabItem::icon(IconName::ChatsCircle),
+            TabItem::icon(IconName::FolderOpen),
+            TabItem::icon(IconName::GitBranch),
+        ]
+    }
+
+    #[gpui::test]
+    fn list_is_thirty_six_pixels_high_in_pill_style_and_thirty_four_segmented(
+        cx: &mut TestAppContext
+    ) {
+        let pill = measure(cx, |_, _| {
+            div().w(px(300.0)).child(Tabs::new("t", items(), 0))
+        });
+        assert_eq!(f32::from(pill.size.height), 36.0);
+        let segmented = measure(cx, |_, _| {
+            div()
+                .w(px(300.0))
+                .child(Tabs::new("t", items(), 0).style(TabsStyle::Segmented))
+        });
+        assert_eq!(f32::from(segmented.size.height), 34.0);
+    }
+
+    #[gpui::test]
+    fn clicking_an_unselected_tab_reports_its_index(cx: &mut TestAppContext) {
+        let seen = Rc::new(Cell::new(None));
+        let sink = Rc::clone(&seen);
+        let cx = open(cx, move |_, _| {
+            let sink = Rc::clone(&sink);
+            div().w(px(300.0)).child(
+                Tabs::new("t", items(), 0).on_select(move |index, _, _| sink.set(Some(index))),
+            )
+        });
+        cx.simulate_click(point(px(150.0), px(18.0)), gpui::Modifiers::none());
+        assert_eq!(seen.get(), Some(1));
+        seen.set(None);
+        cx.simulate_click(point(px(20.0), px(18.0)), gpui::Modifiers::none());
+        assert_eq!(seen.get(), None, "the selected tab does not re-select");
+    }
+}

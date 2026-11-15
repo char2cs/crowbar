@@ -3,9 +3,9 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-    ScrollHandle, StatefulInteractiveElement, Styled, Window, div, px,
+    ScrollHandle, StatefulInteractiveElement, Styled, Window, div,
 };
-use ui::{Surface, TextInput, Theme};
+use ui::{Surface, TextInput, Theme, spacing};
 
 use crate::section::section;
 use crate::{buttons, feedback, icons, inputs, overlays, structure, toggles};
@@ -22,7 +22,10 @@ pub(crate) struct Page {
 }
 
 impl Page {
-    pub(crate) fn new(only: Option<String>, cx: &mut Context<'_, Self>) -> Self {
+    pub(crate) fn new(
+        only: Option<String>,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
         Self {
             only,
             switch_on: true,
@@ -35,12 +38,19 @@ impl Page {
         }
     }
 
-    pub(crate) fn edit(&mut self, cx: &mut Context<'_, Self>, change: impl FnOnce(&mut Self)) {
+    pub(crate) fn edit(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+        change: impl FnOnce(&mut Self),
+    ) {
         change(self);
         cx.notify();
     }
 
-    fn wanted(&self, name: &str) -> bool {
+    fn wanted(
+        &self,
+        name: &str,
+    ) -> bool {
         self.only.as_deref().is_none_or(|only| only == name)
     }
 
@@ -78,7 +88,11 @@ impl Page {
 }
 
 impl Render for Page {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         let shown: Vec<AnyElement> = self
@@ -93,10 +107,10 @@ impl Render for Page {
             .overflow_y_scroll()
             .bg(palette.background())
             .text_color(palette.foreground())
-            .p(px(16.0))
+            .p(spacing::STEP_4)
             .flex()
             .flex_col()
-            .gap(px(20.0))
+            .gap(spacing::STEP_5)
             .children(shown)
             .when(self.only.as_deref() == Some("dialog"), |page| {
                 page.child(overlays::dialog())

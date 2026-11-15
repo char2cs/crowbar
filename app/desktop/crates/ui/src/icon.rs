@@ -35,34 +35,49 @@ impl Icon {
 
     /// Selects the stroke weight; the file must be embedded or nothing is drawn.
     #[must_use]
-    pub fn weight(mut self, weight: IconWeight) -> Self {
+    pub fn weight(
+        mut self,
+        weight: IconWeight,
+    ) -> Self {
         self.weight = weight;
         self
     }
 
     /// Sets the square size.
     #[must_use]
-    pub fn size(mut self, size: Pixels) -> Self {
+    pub fn size(
+        mut self,
+        size: Pixels,
+    ) -> Self {
         self.size = size;
         self
     }
 
     /// Sets the colour; without it the glyph takes the inherited text colour.
     #[must_use]
-    pub fn color(mut self, color: Hsla) -> Self {
+    pub fn color(
+        mut self,
+        color: Hsla,
+    ) -> Self {
         self.color = Some(color);
         self
     }
 
     /// Turns the glyph clockwise by `radians`.
     #[must_use]
-    pub fn rotate(mut self, radians: f32) -> Self {
+    pub fn rotate(
+        mut self,
+        radians: f32,
+    ) -> Self {
         self.rotation = radians;
         self
     }
 
     /// Asset path of the embedded file for this name and weight, if it exists.
-    pub fn path(name: IconName, weight: IconWeight) -> Option<&'static str> {
+    pub fn path(
+        name: IconName,
+        weight: IconWeight,
+    ) -> Option<&'static str> {
         FILES
             .iter()
             .find(|file| file.name == name && file.weight == weight)
@@ -71,7 +86,11 @@ impl Icon {
 }
 
 impl RenderOnce for Icon {
-    fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        window: &mut Window,
+        _cx: &mut App,
+    ) -> impl IntoElement {
         let path = Self::path(self.name, self.weight).unwrap_or(MISSING_PATH);
         let color = self.color.unwrap_or_else(|| window.text_style().color);
         svg()
@@ -84,5 +103,35 @@ impl RenderOnce for Icon {
 }
 
 #[cfg(test)]
-#[path = "icon_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_resolves_only_embedded_weights() {
+        assert_eq!(
+            Icon::path(IconName::Gear, IconWeight::Regular),
+            Some("icons/regular/gear.svg")
+        );
+        assert_eq!(
+            Icon::path(IconName::GitBranch, IconWeight::Fill),
+            Some("icons/fill/git-branch.svg")
+        );
+        assert_eq!(Icon::path(IconName::Gear, IconWeight::Duotone), None);
+    }
+
+    #[test]
+    fn every_icon_has_at_least_one_weight() {
+        for &name in IconName::ALL {
+            let weights = [
+                IconWeight::Regular,
+                IconWeight::Bold,
+                IconWeight::Fill,
+                IconWeight::Duotone,
+            ];
+            assert!(
+                weights.iter().any(|&w| Icon::path(name, w).is_some()),
+                "{name:?}"
+            );
+        }
+    }
+}

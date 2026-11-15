@@ -32,7 +32,10 @@ impl Separator {
 
     /// Paints with the palette of `surface`.
     #[must_use]
-    pub fn on(mut self, surface: Surface) -> Self {
+    pub fn on(
+        mut self,
+        surface: Surface,
+    ) -> Self {
         self.surface = surface;
         self
     }
@@ -41,7 +44,11 @@ impl Separator {
 const THICKNESS: Pixels = px(1.0);
 
 impl RenderOnce for Separator {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let color = Theme::of(cx).palette(self.surface).border();
         let line: Div = div().flex_none().bg(color);
         match self.axis {
@@ -52,5 +59,17 @@ impl RenderOnce for Separator {
 }
 
 #[cfg(test)]
-#[path = "separator_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{ParentElement, Styled, TestAppContext, div, px};
+
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn lines_are_one_pixel_thick(cx: &mut TestAppContext) {
+        let horizontal = measure(cx, |_, _| Separator::horizontal());
+        assert_eq!(f32::from(horizontal.size.height), 1.0);
+        let vertical = measure(cx, |_, _| div().h(px(20.0)).child(Separator::vertical()));
+        assert_eq!(f32::from(vertical.size.width), 1.0);
+    }
+}

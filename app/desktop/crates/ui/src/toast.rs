@@ -13,10 +13,12 @@ use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
 use crate::keyframes::Keyframes;
 use crate::motion::Motion;
+use crate::opacity;
 use crate::opaque_debug::opaque_debug;
 use crate::palette::Palette;
 use crate::radius;
 use crate::shadow;
+use crate::spacing;
 use crate::spinner::Spinner;
 use crate::surface::Surface;
 use crate::text_size;
@@ -47,7 +49,10 @@ impl Toast {
     }
 }
 
-fn tone(kind: ToastKind, palette: &Palette) -> (IconName, Hsla) {
+fn tone(
+    kind: ToastKind,
+    palette: &Palette,
+) -> (IconName, Hsla) {
     match kind {
         ToastKind::Info => (IconName::Info, palette.info()),
         ToastKind::Success => (IconName::CheckCircle, palette.success()),
@@ -58,7 +63,11 @@ fn tone(kind: ToastKind, palette: &Palette) -> (IconName, Hsla) {
 }
 
 impl RenderOnce for Toast {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
         let (name, color) = tone(self.kind, palette);
@@ -72,9 +81,9 @@ impl RenderOnce for Toast {
         let card = div()
             .flex()
             .items_start()
-            .gap(px(8.0))
-            .px(px(14.0))
-            .py(px(12.0))
+            .gap(spacing::STEP_2)
+            .px(spacing::STEP_3_5)
+            .py(spacing::STEP_3)
             .rounded(radius::LG)
             .border_1()
             .border_color(palette.border())
@@ -82,7 +91,7 @@ impl RenderOnce for Toast {
             .text_color(palette.foreground())
             .text_size(text_size::SM)
             .font_family(UI_FAMILY)
-            .shadow(shadow::lg(0.05))
+            .shadow(shadow::lg(opacity::PERCENT_5))
             .child(glyph)
             .child(self.message);
         let motion = Motion::of(cx);
@@ -103,5 +112,26 @@ impl RenderOnce for Toast {
 opaque_debug!(Toast);
 
 #[cfg(test)]
-#[path = "toast_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn every_kind_renders_a_card(cx: &mut TestAppContext) {
+        for kind in [
+            ToastKind::Info,
+            ToastKind::Success,
+            ToastKind::Warning,
+            ToastKind::Error,
+            ToastKind::Loading,
+        ] {
+            let bounds = measure(cx, move |_, _| Toast::new("t", kind, "Branch created"));
+            assert!(
+                f32::from(bounds.size.height) >= 2.0 * 12.0 + 16.0,
+                "{kind:?} keeps its padding"
+            );
+        }
+    }
+}

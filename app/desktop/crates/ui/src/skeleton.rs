@@ -30,7 +30,11 @@ pub struct Skeleton {
 
 impl Skeleton {
     /// A block of the given size.
-    pub fn new(id: impl Into<ElementId>, width: Pixels, height: Pixels) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        width: Pixels,
+        height: Pixels,
+    ) -> Self {
         Self {
             id: id.into(),
             width,
@@ -39,7 +43,10 @@ impl Skeleton {
     }
 }
 
-fn half(from: Hsla, to: Hsla) -> impl IntoElement {
+fn half(
+    from: Hsla,
+    to: Hsla,
+) -> impl IntoElement {
     div().h_full().w(relative(BAND)).bg(linear_gradient(
         GRADIENT_ANGLE,
         linear_color_stop(from, 0.0),
@@ -48,7 +55,11 @@ fn half(from: Hsla, to: Hsla) -> impl IntoElement {
 }
 
 impl RenderOnce for Skeleton {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let alpha = match theme.appearance() {
             Appearance::Light => LIGHT_HIGHLIGHT,
@@ -85,5 +96,18 @@ impl RenderOnce for Skeleton {
 opaque_debug!(Skeleton);
 
 #[cfg(test)]
-#[path = "skeleton_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{TestAppContext, px};
+
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn block_has_the_requested_size(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| Skeleton::new("sk", px(120.0), px(14.0)));
+        assert_eq!(
+            (f32::from(bounds.size.width), f32::from(bounds.size.height)),
+            (120.0, 14.0)
+        );
+    }
+}

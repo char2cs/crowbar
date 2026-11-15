@@ -26,7 +26,11 @@ pub struct ScrollArea {
 
 impl ScrollArea {
     /// A scroll area around `content`; keep the `handle` to read or set the offset.
-    pub fn new(id: impl Into<ElementId>, handle: &ScrollHandle, content: impl IntoElement) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        handle: &ScrollHandle,
+        content: impl IntoElement,
+    ) -> Self {
         Self {
             id: id.into(),
             handle: handle.clone(),
@@ -36,7 +40,11 @@ impl ScrollArea {
 }
 
 impl RenderOnce for ScrollArea {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let state = hover::track(&self.id, Pose::Off, window, cx);
         let shown = hover::position(
             &state,
@@ -69,5 +77,30 @@ impl RenderOnce for ScrollArea {
 opaque_debug!(ScrollArea);
 
 #[cfg(test)]
-#[path = "scroll_area_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{ParentElement, ScrollHandle, Styled, TestAppContext, div, px};
+
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn viewport_keeps_its_size_and_content_scrolls(cx: &mut TestAppContext) {
+        let handle = ScrollHandle::new();
+        let probe = handle.clone();
+        let bounds = measure(cx, move |_, _| {
+            let tall = div().h(px(600.0)).w(px(100.0));
+            div()
+                .h(px(100.0))
+                .w(px(100.0))
+                .child(ScrollArea::new("sa", &probe, tall))
+        });
+        assert_eq!(
+            (f32::from(bounds.size.width), f32::from(bounds.size.height)),
+            (100.0, 100.0)
+        );
+        assert!(
+            f32::from(handle.max_offset().height) > 400.0,
+            "content is taller than the viewport"
+        );
+    }
+}

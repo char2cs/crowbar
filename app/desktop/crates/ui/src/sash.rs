@@ -27,7 +27,10 @@ pub struct Sash {
 
 impl Sash {
     /// A sash that separates regions along `axis`: `Horizontal` for a vertical bar between side-by-side regions.
-    pub fn new(id: impl Into<ElementId>, axis: Axis) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        axis: Axis,
+    ) -> Self {
         Self {
             id: id.into(),
             axis,
@@ -37,7 +40,10 @@ impl Sash {
 
     /// Paints with the palette of `surface`.
     #[must_use]
-    pub fn on(mut self, surface: Surface) -> Self {
+    pub fn on(
+        mut self,
+        surface: Surface,
+    ) -> Self {
         self.surface = surface;
         self
     }
@@ -49,7 +55,11 @@ impl Sash {
 }
 
 impl RenderOnce for Sash {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(self.surface);
         let state = hover::track(&self.id, Pose::Off, window, cx);
         let rest = palette.border().opacity(0.0);
@@ -82,5 +92,18 @@ impl RenderOnce for Sash {
 opaque_debug!(Sash);
 
 #[cfg(test)]
-#[path = "sash_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn hit_area_is_six_pixels_thick(cx: &mut TestAppContext) {
+        let horizontal = measure(cx, |_, _| Sash::new("a", Axis::Horizontal));
+        assert_eq!(f32::from(horizontal.size.width), 6.0);
+        let vertical = measure(cx, |_, _| Sash::new("b", Axis::Vertical));
+        assert_eq!(f32::from(vertical.size.height), 6.0);
+        assert_eq!(f32::from(Sash::thickness()), 6.0);
+    }
+}

@@ -3,42 +3,57 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Context, DismissEvent, EventEmitter, FocusHandle, Focusable, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, Window, canvas, div,
-    px,
+    AnyElement, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
+    FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render, Styled, Window,
+    canvas, div, px,
 };
 
 use crate::direction::Direction;
 use crate::font::UI_FAMILY;
-use crate::menu_actions::{CONTEXT, Confirm, Dismiss, SelectNext, SelectPrevious};
+use crate::menu_actions::{
+    CONTEXT, CloseSubmenu, Confirm, Dismiss, OpenSubmenu as OpenSubmenuAction, SelectNext,
+    SelectPrevious,
+};
 use crate::menu_cursor::step;
 use crate::menu_item::MenuItem;
+use crate::menu_level::MenuLevel;
+use crate::menu_navigation::MenuNavigation;
 use crate::menu_row::MenuRow;
+use crate::opacity;
 use crate::opaque_debug::opaque_debug;
+use crate::open_submenu::OpenSubmenu;
 use crate::overlay_guard::OverlayGuard;
 use crate::overlays::Overlays;
 use crate::palette::Palette;
 use crate::pose::Pose;
 use crate::radius;
-use crate::row_handlers::RowHandlers;
+use crate::row_handlers::{RowHandler, RowHandlers};
 use crate::shadow;
+use crate::spacing;
 use crate::surface::Surface;
 use crate::text_size;
 use crate::theme::Theme;
 
 /// The popup frame with its rows; emits [`DismissEvent`] when it should close.
 pub struct Menu {
-    items: Rc<[MenuItem]>,
-    highlighted: Option<usize>,
+    pub(crate) items: Rc<[MenuItem]>,
+    pub(crate) highlighted: Option<usize>,
     min_width: Pixels,
-    focus_handle: FocusHandle,
+    pub(crate) focus_handle: FocusHandle,
     overlay: Rc<OverlayGuard>,
+    pub(crate) level: MenuLevel,
+    pub(crate) submenu: Option<OpenSubmenu<Menu>>,
 }
 
 impl EventEmitter<DismissEvent> for Menu {}
 
+impl EventEmitter<MenuNavigation> for Menu {}
+
 impl Focusable for Menu {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+    fn focus_handle(
+        &self,
+        _cx: &App,
+    ) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
@@ -52,63 +67,150 @@ impl Menu {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
+        Self::at_level(items.into(), MenuLevel::Root, window, cx)
+    }
+
+    pub(crate) fn nested(
+        items: Rc<[MenuItem]>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
+        Self::at_level(items, MenuLevel::Nested, window, cx)
+    }
+
+    fn at_level(
+        items: Rc<[MenuItem]>,
+        level: MenuLevel,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle);
         Self {
-            items: items.into(),
+            items,
             highlighted: None,
             min_width: Self::DEFAULT_MIN_WIDTH,
             focus_handle,
             overlay: Rc::new(Overlays::open(cx, gpui::Bounds::default())),
+            level,
+            submenu: None,
         }
     }
 
     /// Widens the menu to at least `width`, as selects do to match their trigger.
     #[must_use]
-    pub fn min_width(mut self, width: Pixels) -> Self {
+    pub fn min_width(
+        mut self,
+        width: Pixels,
+    ) -> Self {
         self.min_width = width;
         self
     }
 
-    fn move_highlight(&mut self, direction: Direction, cx: &mut Context<'_, Self>) {
+    fn move_highlight(
+        &mut self,
+        direction: Direction,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.highlighted = step(&self.items, self.highlighted, direction);
         cx.notify();
     }
 
-    fn choose(&mut self, index: usize, window: &mut Window, cx: &mut Context<'_, Self>) {
+    fn choose(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(MenuItem::Action(action)) =
             self.items.get(index).filter(|item| item.is_selectable())
         else {
             return;
         };
+        if action.submenu.is_some() {
+            self.open_submenu(index, window, cx);
+            return;
+        }
         let on_select = Rc::clone(&action.on_select);
         cx.emit(DismissEvent);
         on_select(window, cx);
     }
 
-    fn confirm(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<'_, Self>) {
+    fn confirm(
+        &mut self,
+        _: &Confirm,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         if let Some(index) = self.highlighted {
             self.choose(index, window, cx);
         }
     }
 
-    fn highlight(&mut self, index: usize, cx: &mut Context<'_, Self>) {
-        if self.highlighted != Some(index) {
-            self.highlighted = Some(index);
-            cx.notify();
+    fn highlight(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.highlighted == Some(index) {
+            return;
+        }
+        self.highlighted = Some(index);
+        self.hover_submenu(index, window, cx);
+        cx.notify();
+    }
+
+    fn dismiss(
+        &mut self,
+        _: &Dismiss,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match self.level {
+            MenuLevel::Root => cx.emit(DismissEvent),
+            MenuLevel::Nested => cx.emit(MenuNavigation::Back),
         }
     }
 
+    fn close_submenu(
+        &mut self,
+        _: &CloseSubmenu,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.level == MenuLevel::Nested {
+            cx.emit(MenuNavigation::Back);
+        }
+    }
+
+    fn open_highlighted(
+        &mut self,
+        _: &OpenSubmenuAction,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if let Some(index) = self.highlighted {
+            self.open_submenu(index, window, cx);
+        }
+    }
+
+    fn hover_handler(entity: Entity<Self>) -> RowHandler {
+        Rc::new(move |index, window, cx| {
+            entity.update(cx, |this, cx| this.highlight(index, window, cx));
+        })
+    }
+
+    fn choose_handler(entity: Entity<Self>) -> RowHandler {
+        Rc::new(move |index, window, cx| {
+            entity.update(cx, |this, cx| this.choose(index, window, cx));
+        })
+    }
+
     fn handlers(cx: &Context<'_, Self>) -> RowHandlers {
-        let entity = cx.entity();
-        let hover_entity = entity.clone();
         RowHandlers {
-            hover: Rc::new(move |index, _, cx| {
-                hover_entity.update(cx, |this, cx| this.highlight(index, cx));
-            }),
-            choose: Rc::new(move |index, window, cx| {
-                entity.update(cx, |this, cx| this.choose(index, window, cx));
-            }),
+            hover: Self::hover_handler(cx.entity()),
+            choose: Self::choose_handler(cx.entity()),
         }
     }
 
@@ -121,17 +223,18 @@ impl Menu {
         match item {
             MenuItem::Action(action) => {
                 let highlight = Pose::from(self.highlighted == Some(index));
-                MenuRow::new(index, action.clone(), highlight, handlers.clone()).into_any_element()
+                let row = MenuRow::new(index, action.clone(), highlight, handlers.clone());
+                self.with_submenu(index, row.into_any_element())
             },
             MenuItem::Separator => div()
-                .my(px(4.0))
-                .mx(px(-4.0))
+                .my(spacing::STEP_1)
+                .mx(-spacing::STEP_1)
                 .h(px(1.0))
                 .bg(palette.border())
                 .into_any_element(),
             MenuItem::Label(text) => div()
-                .px(px(6.0))
-                .py(px(4.0))
+                .px(spacing::STEP_1_5)
+                .py(spacing::STEP_1)
                 .text_size(text_size::XS)
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(palette.muted_foreground())
@@ -141,8 +244,18 @@ impl Menu {
     }
 }
 
+fn bounds_probe(guard: Rc<OverlayGuard>) -> impl IntoElement {
+    canvas(move |bounds, _, _| guard.update(bounds), |_, (), _, _| {})
+        .absolute()
+        .size_full()
+}
+
 impl Render for Menu {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
         let guard = Rc::clone(&self.overlay);
         let handlers = Self::handlers(cx);
@@ -163,25 +276,23 @@ impl Render for Menu {
                 this.move_highlight(Direction::Backward, cx);
             }))
             .on_action(cx.listener(Self::confirm))
-            .on_action(cx.listener(|_, _: &Dismiss, _, cx| cx.emit(DismissEvent)))
+            .on_action(cx.listener(Self::dismiss))
+            .on_action(cx.listener(Self::close_submenu))
+            .on_action(cx.listener(Self::open_highlighted))
             .relative()
             .occlude()
             .flex()
             .flex_col()
             .min_w(self.min_width)
-            .p(px(4.0))
+            .p(spacing::STEP_1)
             .rounded(radius::LG)
             .border_1()
-            .border_color(palette.foreground().opacity(0.1))
+            .border_color(palette.foreground().opacity(opacity::PERCENT_10))
             .bg(palette.popover())
             .text_color(palette.foreground())
             .font_family(UI_FAMILY)
-            .shadow(shadow::md(0.1))
-            .child(
-                canvas(move |bounds, _, _| guard.update(bounds), |_, (), _, _| {})
-                    .absolute()
-                    .size_full(),
-            )
+            .shadow(shadow::md(opacity::PERCENT_10))
+            .child(bounds_probe(guard))
             .children(rows)
     }
 }
@@ -189,5 +300,90 @@ impl Render for Menu {
 opaque_debug!(Menu);
 
 #[cfg(test)]
-#[path = "menu_tests.rs"]
-mod tests;
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use gpui::{DismissEvent, Entity, TestAppContext, VisualTestContext};
+
+    use super::*;
+    use crate::menu_action::MenuAction;
+    use crate::menu_actions;
+    use crate::motion::Motion;
+
+    type Log = Rc<RefCell<Vec<&'static str>>>;
+
+    fn items(log: &Log) -> Vec<MenuItem> {
+        let record = |name: &'static str| {
+            let log = Rc::clone(log);
+            move |_: &mut Window, _: &mut App| log.borrow_mut().push(name)
+        };
+        vec![
+            MenuItem::Action(MenuAction::new("First", record("first"))),
+            MenuItem::Action(MenuAction::new("Off", record("off")).disabled()),
+            MenuItem::Separator,
+            MenuItem::Action(MenuAction::new("Last", record("last"))),
+        ]
+    }
+
+    fn bump(counter: &RefCell<u32>) {
+        *counter.borrow_mut() += 1;
+    }
+
+    type Opened<'a> = (Entity<Menu>, &'a mut VisualTestContext, Rc<RefCell<u32>>);
+
+    fn open_menu<'a>(
+        cx: &'a mut TestAppContext,
+        log: &Log,
+    ) -> Opened<'a> {
+        cx.update(|cx| {
+            cx.set_global(Theme::default());
+            cx.set_global(Motion::default());
+            cx.bind_keys(menu_actions::bindings());
+        });
+        let entries = items(log);
+        let (menu, cx) = cx.add_window_view(move |window, cx| Menu::new(entries, window, cx));
+        let dismissed = Rc::new(RefCell::new(0));
+        let counter = Rc::clone(&dismissed);
+        cx.update(|_, cx| {
+            cx.subscribe(&menu, move |_, _: &DismissEvent, _| bump(&counter))
+                .detach();
+        });
+        (menu, cx, dismissed)
+    }
+
+    #[gpui::test]
+    fn arrow_keys_skip_disabled_rows_and_enter_runs_the_highlighted_one(cx: &mut TestAppContext) {
+        let log = Log::default();
+        let (_, cx, dismissed) = open_menu(cx, &log);
+        cx.simulate_keystrokes("down down enter");
+        assert_eq!(*log.borrow(), ["last"]);
+        assert_eq!(*dismissed.borrow(), 1);
+    }
+
+    #[gpui::test]
+    fn up_from_nothing_selects_the_last_row(cx: &mut TestAppContext) {
+        let log = Log::default();
+        let (_, cx, _) = open_menu(cx, &log);
+        cx.simulate_keystrokes("up enter");
+        assert_eq!(*log.borrow(), ["last"]);
+    }
+
+    #[gpui::test]
+    fn enter_without_a_highlight_does_nothing(cx: &mut TestAppContext) {
+        let log = Log::default();
+        let (_, cx, dismissed) = open_menu(cx, &log);
+        cx.simulate_keystrokes("enter");
+        assert!(log.borrow().is_empty());
+        assert_eq!(*dismissed.borrow(), 0);
+    }
+
+    #[gpui::test]
+    fn escape_dismisses_without_running_anything(cx: &mut TestAppContext) {
+        let log = Log::default();
+        let (_, cx, dismissed) = open_menu(cx, &log);
+        cx.simulate_keystrokes("down escape");
+        assert!(log.borrow().is_empty());
+        assert_eq!(*dismissed.borrow(), 1);
+    }
+}

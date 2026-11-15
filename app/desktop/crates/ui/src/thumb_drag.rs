@@ -21,7 +21,11 @@ pub(crate) struct ThumbDrag {
 }
 
 impl ThumbDrag {
-    pub(crate) fn new(handle: ScrollHandle, view: f32, thumb: Bounds<Pixels>) -> Self {
+    pub(crate) fn new(
+        handle: ScrollHandle,
+        view: f32,
+        thumb: Bounds<Pixels>,
+    ) -> Self {
         Self {
             handle,
             view,
@@ -30,12 +34,20 @@ impl ThumbDrag {
         }
     }
 
-    pub(crate) fn target(&self, grab: Grab, pointer_y: f32) -> f32 {
+    pub(crate) fn target(
+        &self,
+        grab: Grab,
+        pointer_y: f32,
+    ) -> f32 {
         let max = f32::from(self.handle.max_offset().height);
         Thumb::scrolled_after(self.view, max, grab.1, pointer_y - grab.0)
     }
 
-    fn press(&self, event: &MouseDownEvent, window: &mut Window) {
+    fn press(
+        &self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+    ) {
         if event.button != MouseButton::Left || !self.thumb.contains(&event.position) {
             return;
         }
@@ -44,7 +56,11 @@ impl ThumbDrag {
         window.prevent_default();
     }
 
-    fn pull(&self, event: &MouseMoveEvent, window: &mut Window) {
+    fn pull(
+        &self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+    ) {
         let Some(grab) = self.grab.get() else {
             return;
         };
@@ -54,7 +70,10 @@ impl ThumbDrag {
         window.refresh();
     }
 
-    pub(crate) fn install(self, window: &mut Window) {
+    pub(crate) fn install(
+        self,
+        window: &mut Window,
+    ) {
         let drag = Rc::new(self);
         let (pressed, moved, released) = (Rc::clone(&drag), Rc::clone(&drag), drag);
         window.on_mouse_event(move |event: &MouseDownEvent, _, window, _| {
@@ -68,5 +87,22 @@ impl ThumbDrag {
 }
 
 #[cfg(test)]
-#[path = "thumb_drag_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{ScrollHandle, point, px, size};
+
+    use super::*;
+
+    #[test]
+    fn dragging_the_thumb_scrolls_proportionally_and_clamps() {
+        let handle = ScrollHandle::new();
+        let drag = ThumbDrag::new(
+            handle,
+            100.0,
+            Bounds::new(point(px(0.0), px(0.0)), size(px(6.0), px(20.0))),
+        );
+        assert!(
+            drag.target((10.0, 0.0), 10.0).abs() < f32::EPSILON,
+            "no content, nothing to scroll"
+        );
+    }
+}

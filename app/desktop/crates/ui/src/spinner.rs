@@ -1,8 +1,8 @@
 //! The rotating loading indicator.
 
 use gpui::{
-    AnimationExt, App, ElementId, IntoElement, Pixels, RenderOnce, Styled, Transformation, Window,
-    percentage, px, svg,
+    AnimationExt, App, ElementId, Hsla, IntoElement, Pixels, RenderOnce, Styled, Transformation,
+    Window, percentage, svg,
 };
 
 use crate::cubic_bezier::CubicBezier;
@@ -11,6 +11,7 @@ use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
 use crate::motion::Motion;
 use crate::opaque_debug::opaque_debug;
+use crate::spacing;
 use crate::surface::Surface;
 use crate::theme::Theme;
 use crate::timing;
@@ -23,6 +24,7 @@ pub struct Spinner {
     id: ElementId,
     size: Pixels,
     surface: Surface,
+    color: Option<Hsla>,
 }
 
 impl Spinner {
@@ -30,32 +32,54 @@ impl Spinner {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
-            size: px(16.0),
+            size: spacing::STEP_4,
             surface: Surface::default(),
+            color: None,
         }
     }
 
     /// Sets the edge length.
     #[must_use]
-    pub fn size(mut self, size: Pixels) -> Self {
+    pub fn size(
+        mut self,
+        size: Pixels,
+    ) -> Self {
         self.size = size;
         self
     }
 
     /// Takes the muted text colour of `surface`'s palette.
     #[must_use]
-    pub fn on(mut self, surface: Surface) -> Self {
+    pub fn on(
+        mut self,
+        surface: Surface,
+    ) -> Self {
         self.surface = surface;
+        self
+    }
+
+    /// Draws the spinner in `color` instead of the muted text colour.
+    #[must_use]
+    pub fn color(
+        mut self,
+        color: Hsla,
+    ) -> Self {
+        self.color = Some(color);
         self
     }
 }
 
 impl RenderOnce for Spinner {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let color = Theme::of(cx)
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
+        let muted = Theme::of(cx)
             .palette(self.surface)
             .muted_foreground()
             .opacity(OPACITY);
+        let color = self.color.unwrap_or(muted);
         let path = Icon::path(IconName::CircleNotch, IconWeight::Regular).unwrap_or("");
         svg()
             .path(path)
@@ -75,5 +99,28 @@ impl RenderOnce for Spinner {
 opaque_debug!(Spinner);
 
 #[cfg(test)]
-#[path = "spinner_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{TestAppContext, px};
+
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn default_size_is_sixteen_pixels(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| Spinner::new("s"));
+        assert_eq!(
+            (f32::from(bounds.size.width), f32::from(bounds.size.height)),
+            (16.0, 16.0)
+        );
+        let big = measure(cx, |_, _| Spinner::new("s").size(px(24.0)));
+        assert_eq!(f32::from(big.size.width), 24.0);
+    }
+
+    #[gpui::test]
+    fn an_explicit_colour_does_not_change_the_size(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, _| {
+            Spinner::new("s").color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+        });
+        assert_eq!(f32::from(bounds.size.width), 16.0);
+    }
+}

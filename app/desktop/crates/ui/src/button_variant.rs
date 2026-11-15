@@ -1,6 +1,6 @@
 //! Visual variants of a button.
 
-/// Colour treatment of a [`crate::Button`] or [`crate::IconButton`].
+/// Colour treatment of a [`crate::Button`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum ButtonVariant {

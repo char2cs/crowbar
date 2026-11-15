@@ -18,7 +18,11 @@ pub(crate) struct BadgePaint {
 }
 
 impl BadgePaint {
-    pub(crate) fn of(variant: BadgeVariant, palette: &Palette, appearance: Appearance) -> Self {
+    pub(crate) fn of(
+        variant: BadgeVariant,
+        palette: &Palette,
+        appearance: Appearance,
+    ) -> Self {
         match variant {
             BadgeVariant::Primary => Self::solid(palette.primary(), palette.primary_foreground()),
             BadgeVariant::Secondary => {
@@ -43,7 +47,10 @@ impl BadgePaint {
         }
     }
 
-    fn solid(fill: Hsla, text: Hsla) -> Self {
+    fn solid(
+        fill: Hsla,
+        text: Hsla,
+    ) -> Self {
         Self {
             fill,
             text,
@@ -51,7 +58,11 @@ impl BadgePaint {
         }
     }
 
-    fn tinted(hue: Hsla, light_text: Hsla, appearance: Appearance) -> Self {
+    fn tinted(
+        hue: Hsla,
+        light_text: Hsla,
+        appearance: Appearance,
+    ) -> Self {
         let (alpha, text) = match appearance {
             Appearance::Light => (TINT_LIGHT, light_text),
             Appearance::Dark => (TINT_DARK, hue),
@@ -59,7 +70,10 @@ impl BadgePaint {
         Self::solid(hue.opacity(alpha), text)
     }
 
-    fn destructive(palette: &Palette, appearance: Appearance) -> Self {
+    fn destructive(
+        palette: &Palette,
+        appearance: Appearance,
+    ) -> Self {
         let text = match appearance {
             Appearance::Dark => palette.destructive_foreground(),
             Appearance::Light => hsla(0.0, 0.0, 1.0, 1.0),
@@ -67,7 +81,10 @@ impl BadgePaint {
         Self::solid(palette.destructive(), text)
     }
 
-    fn outline(palette: &Palette, appearance: Appearance) -> Self {
+    fn outline(
+        palette: &Palette,
+        appearance: Appearance,
+    ) -> Self {
         let fill = match appearance {
             Appearance::Dark => palette.input().opacity(OUTLINE_DARK_FILL),
             Appearance::Light => palette.background(),
@@ -81,5 +98,60 @@ impl BadgePaint {
 }
 
 #[cfg(test)]
-#[path = "badge_paint_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::surface::Surface;
+    use crate::theme::Theme;
+
+    type Check = fn(&BadgePaint, &Palette) -> bool;
+
+    type Case = (&'static str, BadgeVariant, Appearance, Check);
+
+    const CASES: &[Case] = &[
+        (
+            "tinted light fill is faint",
+            BadgeVariant::Success,
+            Appearance::Light,
+            |paint, _| (paint.fill.a - TINT_LIGHT).abs() < 1e-6,
+        ),
+        (
+            "tinted dark fill is stronger",
+            BadgeVariant::Success,
+            Appearance::Dark,
+            |paint, _| (paint.fill.a - TINT_DARK).abs() < 1e-6,
+        ),
+        (
+            "tinted dark text is the hue",
+            BadgeVariant::Success,
+            Appearance::Dark,
+            |paint, palette| paint.text == palette.success(),
+        ),
+        (
+            "solid fill is the colour",
+            BadgeVariant::Primary,
+            Appearance::Light,
+            |paint, palette| paint.fill == palette.primary(),
+        ),
+        (
+            "solid has no border",
+            BadgeVariant::Primary,
+            Appearance::Light,
+            |paint, _| paint.border.a.abs() < f32::EPSILON,
+        ),
+        (
+            "outline has a border",
+            BadgeVariant::Outline,
+            Appearance::Light,
+            |paint, palette| paint.border == palette.input(),
+        ),
+    ];
+
+    #[test]
+    fn paints_follow_the_variant_and_appearance() {
+        let palette = Theme::default().palette(Surface::Window);
+        for &(name, variant, appearance, check) in CASES {
+            let paint = BadgePaint::of(variant, palette, appearance);
+            assert!(check(&paint, palette), "{name}");
+        }
+    }
+}
