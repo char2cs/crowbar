@@ -15,7 +15,8 @@ use crate::surface::Surface;
 use crate::theme::Theme;
 use crate::timing;
 
-const BAND: f32 = 0.5;
+const BAND: f32 = 0.4;
+const IDLE: f32 = 0.3;
 const LIGHT_HIGHLIGHT: f32 = 0.64;
 const DARK_HIGHLIGHT: f32 = 0.04;
 const GRADIENT_ANGLE: f32 = 90.0;
@@ -54,6 +55,13 @@ fn half(
     ))
 }
 
+fn band_left(delta: f32) -> f32 {
+    if delta < IDLE {
+        return 1.0;
+    }
+    -BAND + (delta - IDLE) / (1.0 - IDLE) * (1.0 + BAND)
+}
+
 impl RenderOnce for Skeleton {
     fn render(
         self,
@@ -78,7 +86,7 @@ impl RenderOnce for Skeleton {
             .with_animation(
                 self.id.clone(),
                 Motion::essential_loop(timing::SKELETON, CubicBezier::LINEAR),
-                |band, delta| band.left(relative(delta * (1.0 + BAND) - BAND)),
+                |band, delta| band.left(relative(band_left(delta))),
             );
         div()
             .id(self.id)
@@ -101,6 +109,20 @@ mod tests {
 
     use super::*;
     use crate::test_support::measure;
+
+    #[test]
+    fn the_highlight_rests_then_crosses_in_seventy_percent_of_the_cycle() {
+        const CASES: &[(f32, f32)] = &[
+            (0.0, 1.0),
+            (0.29, 1.0),
+            (0.3, -0.4),
+            (0.65, 0.3),
+            (1.0, 1.0),
+        ];
+        for &(delta, left) in CASES {
+            assert!((band_left(delta) - left).abs() < 1e-5, "{delta}");
+        }
+    }
 
     #[gpui::test]
     fn block_has_the_requested_size(cx: &mut TestAppContext) {

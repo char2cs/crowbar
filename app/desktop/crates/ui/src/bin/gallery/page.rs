@@ -8,7 +8,7 @@ use gpui::{
 use ui::{Surface, TextInput, Theme, spacing};
 
 use crate::section::section;
-use crate::{buttons, feedback, icons, inputs, overlays, structure, toggles};
+use crate::{buttons, feedback, icons, inputs, overlays, structure, toggles, typography};
 
 pub(crate) struct Page {
     only: Option<String>,
@@ -83,6 +83,11 @@ impl Page {
             ),
             ("icons", "ICONS", icons::icons().into_any_element()),
             ("overlays", "OVERLAYS", overlays::menus().into_any_element()),
+            (
+                "typography",
+                "TYPOGRAPHY",
+                typography::typography().into_any_element(),
+            ),
         ]
     }
 }

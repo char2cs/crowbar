@@ -16,6 +16,7 @@ mod page;
 mod section;
 mod structure;
 mod toggles;
+mod typography;
 
 use gpui::{App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions, px, size};
 

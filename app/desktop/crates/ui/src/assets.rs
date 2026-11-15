@@ -74,6 +74,15 @@ mod tests {
     fn load_returns_embedded_svg_and_none_for_unknown() {
         const CASES: &[(&str, bool)] = &[
             ("icons/regular/gear.svg", true),
+            ("icons/regular/folder-plus.svg", true),
+            ("icons/regular/caret-double-up.svg", true),
+            ("icons/regular/image.svg", true),
+            ("icons/regular/link.svg", true),
+            ("icons/regular/file-text.svg", true),
+            ("icons/regular/folder-simple-plus.svg", true),
+            ("icons/regular/folder-minus.svg", true),
+            ("icons/regular/scissors.svg", true),
+            ("icons/regular/copy-simple.svg", true),
             ("icons/regular/nope.svg", false),
             ("brand/crowbar-wordmark.svg", true),
         ];

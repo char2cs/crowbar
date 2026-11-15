@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    Animation, AnimationExt, App, ElementId, Hsla, IntoElement, ParentElement, RenderOnce,
+    Animation, AnimationExt, App, Div, ElementId, Hsla, IntoElement, ParentElement, RenderOnce,
     SharedString, Styled, Window, div, px,
 };
 
@@ -25,12 +25,20 @@ use crate::theme::Theme;
 use crate::timing;
 use crate::toast_kind::ToastKind;
 
-/// A message card: icon by tone, text, optional dismiss; error toasts shake once when added.
+/// A message card: icon by tone and text; an error toast shakes when it is updated.
 #[derive(IntoElement)]
 pub struct Toast {
     id: ElementId,
     kind: ToastKind,
     message: SharedString,
+    updates: u32,
+}
+
+fn shakes(
+    kind: ToastKind,
+    updates: u32,
+) -> bool {
+    kind == ToastKind::Error && updates > 0
 }
 
 impl Toast {
@@ -44,7 +52,18 @@ impl Toast {
             id: id.into(),
             kind,
             message: message.into(),
+            updates: 0,
         }
+    }
+
+    /// Marks the toast as updated `updates` times; an updated error shakes again.
+    #[must_use]
+    pub fn updated(
+        mut self,
+        updates: u32,
+    ) -> Self {
+        self.updates = updates;
+        self
     }
 }
 
@@ -94,18 +113,20 @@ impl RenderOnce for Toast {
             .child(glyph)
             .child(self.message);
         let motion = Motion::of(cx);
-        let shake = Rc::new(Keyframes::TOAST_ERROR);
+        let shake = shakes(self.kind, self.updates).then(|| Rc::new(Keyframes::TOAST_ERROR));
         card.with_animation(
-            self.id,
+            (self.id, format!("replay-{}", self.updates)),
             Animation::new(motion.duration(timing::TOAST_ERROR)),
-            move |card, delta| match self.kind {
-                ToastKind::Error => card
-                    .ml(px(shake.sample(delta).max(0.0)))
-                    .mr(px((-shake.sample(delta)).max(0.0))),
-                _ => card,
-            },
+            move |card, delta| offset(card, shake.as_ref().map_or(0.0, |k| k.sample(delta))),
         )
     }
+}
+
+fn offset(
+    card: Div,
+    shift: f32,
+) -> Div {
+    card.ml(px(shift.max(0.0))).mr(px((-shift).max(0.0)))
 }
 
 opaque_debug!(Toast);
@@ -116,6 +137,18 @@ mod tests {
 
     use super::*;
     use crate::test_support::measure;
+
+    #[test]
+    fn only_updated_errors_shake() {
+        const CASES: &[(ToastKind, u32, bool)] = &[
+            (ToastKind::Error, 0, false),
+            (ToastKind::Error, 1, true),
+            (ToastKind::Success, 1, false),
+        ];
+        for &(kind, updates, shaking) in CASES {
+            assert_eq!(shakes(kind, updates), shaking, "{kind:?} {updates}");
+        }
+    }
 
     #[gpui::test]
     fn every_kind_renders_a_card(cx: &mut TestAppContext) {
