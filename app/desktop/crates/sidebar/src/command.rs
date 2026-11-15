@@ -97,6 +97,11 @@ pub enum Command {
     },
     /// Open a file of the Files or Changes panel.
     OpenFile(String),
+    /// Show the file or directory in the system file manager; the path is workspace-relative.
+    RevealFile {
+        /// The path relative to the workspace root.
+        path: String,
+    },
     /// Fold or unfold a directory of the Files panel.
     ToggleDirectory(String),
 }

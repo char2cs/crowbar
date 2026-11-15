@@ -5,11 +5,12 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use ui::font::MONO_FAMILY;
-use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
+use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
 
 use crate::command::Command;
 use crate::expansion::Expansion;
 use crate::file_kind::FileKind;
+use crate::file_menu::file_menu;
 use crate::file_tree_entry::FileTreeEntry;
 use crate::git_status::GitStatus;
 use crate::intent::Intent;
@@ -39,9 +40,11 @@ impl RenderOnce for FileTreeRow {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let entry = self.entry;
         let id = ElementId::from(SharedString::from(format!("file-{}", entry.path)));
+        let menu_id = SharedString::from(format!("file-menu-{}", entry.path));
         let action = RowAction::Intent(Intent::Send(command(&entry)));
         let letter = entry.status.letter().map(letter_badge);
-        div()
+        let menu = file_menu(&entry, &self.handler);
+        let row = div()
             .id(id)
             .flex()
             .items_center()
@@ -70,7 +73,8 @@ impl RenderOnce for FileTreeRow {
             )
             .children(letter)
             .children(entry.counts.map(|counts| counts_view(counts, palette)))
-            .on_click(report(&self.handler, action))
+            .on_click(report(&self.handler, action));
+        ContextMenu::new(menu_id, row, menu)
     }
 }
 
