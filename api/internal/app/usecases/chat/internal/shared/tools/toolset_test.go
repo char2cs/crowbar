@@ -503,6 +503,10 @@ func (p perfRunners) RunnerByID(runnerID string) (agents.Runner, bool) {
 	return r, ok
 }
 
+func (perfRunners) RelayRunner(context.Context, string) (agents.Runner, bool, error) {
+	return agents.Runner{}, false, nil
+}
+
 // perfDiffSpec is the shape of one review fixture. hunks is per file and is
 // exact, not approximate: perfScatterEvery keeps every changed line further
 // apart than git's context window, so no two changes ever merge.
@@ -1162,9 +1166,22 @@ func TestToolSet_OnlyTheToolsThatNeedTheTreeReadIt(t *testing.T) {
 	}
 }
 
-type stubRunners struct{ r agents.Runner }
+// stubRunners is a live table of at most one runner, which relay (when set) is the id of the
+// session bound in its chat; relayErr is what the relay lookup fails with.
+type stubRunners struct {
+	r        agents.Runner
+	relay    string
+	relayErr error
+}
 
 func (s stubRunners) RunnerByID(string) (agents.Runner, bool) { return s.r, s.r.ID != "" }
+
+func (s stubRunners) RelayRunner(_ context.Context, relayID string) (agents.Runner, bool, error) {
+	if s.relayErr != nil {
+		return agents.Runner{}, false, s.relayErr
+	}
+	return s.r, s.relay != "" && s.relay == relayID && s.r.ID != "", nil
+}
 
 type stubChats struct {
 	c    domain.Chat

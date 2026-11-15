@@ -1,9 +1,12 @@
 package agents
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
 func (a *agent) SessionAssignArg() (string, bool) {
@@ -11,6 +14,21 @@ func (a *agent) SessionAssignArg() (string, bool) {
 		return "", false
 	}
 	return a.spec.Session.Assign.Arg, true
+}
+
+// SessionPinsRelay reports whether the descriptor's session calls name {relay_id}, so
+// the provider keeps the relay's identity for the session and every resume must repeat it.
+func (a *agent) SessionPinsRelay() bool {
+	ev := a.spec.Events["prompt"]
+	for _, steps := range [][]spec.CallStep{ev.Fresh, ev.Resume} {
+		for _, step := range steps {
+			raw, err := json.Marshal(step.Send)
+			if err == nil && strings.Contains(string(raw), "{relay_id}") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // SessionPersists is when the CLI has written a session it can resume.

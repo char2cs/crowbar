@@ -45,6 +45,25 @@ func TestTokenMinter_TokensDoNotSurviveAReboot(t *testing.T) {
 	require.False(t, second.Verify("runner-a", first.Mint("runner-a")))
 }
 
+func TestTokenMinter_RelayTokensAreKeyedByTheRelayAndLeaveRunnersAlone(t *testing.T) {
+	m, err := tools.NewTokenMinter()
+	require.NoError(t, err)
+
+	tok := m.MintRelay("relay-a")
+	require.True(t, m.VerifyRelay("relay-a", tok))
+	require.False(t, m.VerifyRelay("relay-b", tok), "another binding's id is refused")
+	require.False(t, m.Verify("relay-a", tok), "a relay token is no runner's")
+	require.False(t, m.VerifyRelay("relay-a", m.Mint("relay-a")), "a runner's token is no relay's")
+	require.False(t, m.VerifyRelay("", m.MintRelay("")))
+	require.False(t, m.VerifyRelay("relay-a", ""))
+	require.False(t, m.VerifyRelay("relay-a", "not-base64-$$$"))
+
+	reboot, err := tools.NewTokenMinter()
+	require.NoError(t, err)
+	require.False(t, reboot.VerifyRelay("relay-a", tok), "the next boot's secret retires the token the relay holds")
+	require.True(t, reboot.VerifyRelay("relay-a", reboot.MintRelay("relay-a")))
+}
+
 // The token travels in argv and in a JSON/TOML config value, so it must be safe
 // to embed in both without escaping.
 func TestTokenMinter_TokenIsURLSafeBase64(t *testing.T) {

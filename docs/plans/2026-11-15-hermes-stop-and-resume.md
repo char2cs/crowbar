@@ -1,7 +1,7 @@
 # Hermes Stop: interrupt fence and what Stop records
 
-Status: Proposed. The fence fix below has shipped; the Stop-ordering change waits on
-stable resume identity (planned separately).
+Status: Proposed. The fence fix below has shipped, and so has stable resume identity
+(`2026-11-15-hermes-stable-mcp-identity.md`); the Stop-ordering change is what remains.
 
 ## The fence fix
 
@@ -49,13 +49,11 @@ fix is to make the provider's answer decide what is recorded:
 
 ## Dependency: stable resume identity
 
-Step 3 retires the runner on a failed interrupt. Today a retired Hermes chat comes
-back through `session.resume`, and a session-resume identity bug can leave the
-revived chat bound to the wrong session, or to none. So falling back to retire after
-a failed interrupt would brick the chat. Until resume identity is stable, Stop keeps
-its current order: the turn is recorded as stopped first, and a failed interrupt
-leaves the provider running. The Stop-ordering change lands after the resume-identity
-fix (separate plan).
+Step 3 retires the runner on a failed interrupt, and a retired Hermes chat comes back
+through `session.resume`. A resume now carries the block its session was created with,
+so a new runner continues the conversation. One limit remains: a session bound before
+that change has no relay id, stays lost, and its chat starts a new session on the next
+prompt. Stop keeps its current order until the Stop-ordering change lands.
 
 ## To verify live
 

@@ -28,7 +28,7 @@ func (rs *Runners) HandleSessionStart(
 	if ev.SessionID == "" {
 		return nil
 	}
-	got, err := rs.announceSession(ctx, runner.CurrentChatID, runner.ProviderID, ev.SessionID, ev.Reason == startCleared)
+	got, err := rs.announceSession(ctx, runner.CurrentChatID, runner.ProviderID, ev.SessionID, "", ev.Reason == startCleared)
 	if err != nil {
 		return err
 	}
@@ -74,14 +74,16 @@ const startCleared = "cleared"
 // announceSession records that providerID's CLI on chatID is on sessionID, cleared
 // when the person's clear started it. The ledger's session index alone judges a
 // session another chat holds.
-func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sessionID string, cleared bool) (announced, error) {
-	announce := func(st ledger.State) ([]ledger.Row, error) { return ledger.Announce(st, providerID, sessionID, "") }
+func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sessionID, relayID string, cleared bool) (announced, error) {
+	announce := func(st ledger.State) ([]ledger.Row, error) {
+		return ledger.Announce(st, providerID, sessionID, "", relayID)
+	}
 	if cleared {
 		announce = func(st ledger.State) ([]ledger.Row, error) { return ledger.AnnounceCleared(st, providerID, sessionID) }
 	}
 	rows, _, err := rs.ledger.Do(ctx, chatID, announce)
 	if errors.Is(err, ledgerstore.ErrSessionClaimed) {
-		rows, err = rs.claimHeld(ctx, chatID, providerID, sessionID)
+		rows, err = rs.claimHeld(ctx, chatID, providerID, sessionID, relayID)
 	}
 	if err != nil {
 		return announcedNothing, fmt.Errorf("agent: announce session: %w", err)
@@ -99,9 +101,9 @@ func (rs *Runners) announceSession(ctx context.Context, chatID, providerID, sess
 	return announcedNothing, nil
 }
 
-func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID, owner string) ([]ledger.Row, error) {
+func (rs *Runners) announce(ctx context.Context, chatID, providerID, sessionID, owner, relayID string) ([]ledger.Row, error) {
 	rows, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
-		return ledger.Announce(st, providerID, sessionID, owner)
+		return ledger.Announce(st, providerID, sessionID, owner, relayID)
 	})
 	return rows, err
 }
@@ -139,13 +141,13 @@ func (rs *Runners) commandOf(ctx context.Context, runner engineagents.Runner) fu
 
 // sessionOrigin is told the session an api connection's own driver opened or
 // resumed for chatID, which binds exactly as a CLI's announcement does.
-func (rs *Runners) sessionOrigin(chatID, providerID string) engineagents.APISessionOrigin {
+func (rs *Runners) sessionOrigin(chatID, providerID, relayID string) engineagents.APISessionOrigin {
 	return func() func(string) {
 		return func(sessionID string) {
 			if sessionID == "" {
 				return
 			}
-			if _, err := rs.announceSession(context.Background(), chatID, providerID, sessionID, false); err != nil {
+			if _, err := rs.announceSession(context.Background(), chatID, providerID, sessionID, relayID, false); err != nil {
 				slog.Warn("agent: api transport: bind the session it opened",
 					"chat_id", chatID, "provider", providerID, "err", err)
 			}

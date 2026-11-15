@@ -30,6 +30,27 @@ func (m *TokenMinter) Mint(runnerID string) string {
 	return base64.RawURLEncoding.EncodeToString(m.sign(runnerID))
 }
 
+// relayDomain keeps a relay token from verifying as a runner's: the two id spaces never meet.
+const relayDomain = "relay:"
+
+// MintRelay is the token for a session's relay id. It outlives any runner, but only
+// until the daemon's next boot, whose new secret the next spawn's rewrite replaces.
+func (m *TokenMinter) MintRelay(relayID string) string {
+	return base64.RawURLEncoding.EncodeToString(m.sign(relayDomain + relayID))
+}
+
+// VerifyRelay is Verify for a relay id.
+func (m *TokenMinter) VerifyRelay(relayID, token string) bool {
+	if relayID == "" || token == "" {
+		return false
+	}
+	got, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return false
+	}
+	return hmac.Equal(got, m.sign(relayDomain+relayID))
+}
+
 // String redacts the secret so no %v/%+v of a struct reaching the minter leaks the HMAC key. The value
 // receiver is load-bearing: it covers both a TokenMinter copy and a *TokenMinter.
 func (m TokenMinter) String() string {

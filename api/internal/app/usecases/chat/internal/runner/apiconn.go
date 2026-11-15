@@ -146,7 +146,7 @@ func (rs *Runners) startAPIConn(
 		return nil, err
 	}
 	//nolint:contextcheck // the driver announces long after this request; its values must not reach the binding.
-	driver, err := agent.StartAPIConn(ctx, stdio, rs.sessionOrigin(tctx.ChatID, agent.ID()))
+	driver, err := agent.StartAPIConn(ctx, stdio, rs.sessionOrigin(tctx.ChatID, agent.ID(), tctx.RelayID))
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: handshake", "err", err, "runner_id", runnerID)
 		serve.kill()
@@ -160,7 +160,7 @@ func (rs *Runners) dialAPIConn(
 	ctx context.Context, runnerID string, agent engineagents.Agent, tctx engineagents.TemplateCtx,
 ) (*apiconn, error) {
 	//nolint:contextcheck // the driver announces long after this request; its values must not reach the binding.
-	driver, err := agent.StartAPIEndpoint(ctx, tctx, rs.sessionOrigin(tctx.ChatID, agent.ID()))
+	driver, err := agent.StartAPIEndpoint(ctx, tctx, rs.sessionOrigin(tctx.ChatID, agent.ID(), tctx.RelayID))
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: connect", "err", err, "runner_id", runnerID)
 		return nil, err
@@ -270,16 +270,14 @@ func (rs *Runners) establishAPISession(
 		// Only Fresh renders {context}; a resumed session gets the same document
 		// through applyAPITransport's resumeContext inject.
 		"context": tctx.Context,
-		// What argv templates read, for a session call that hands the provider
-		// Crowbar's MCP server. Never {runner_token}: bodies are logged.
-		"crowbar":      tctx.CrowbarBin,
-		"tmp":          tctx.Tmp,
-		"segid":        tctx.Segid,
-		"project_id":   tctx.ProjectID,
-		"workspace_id": tctx.WorkspaceID,
-		"repo_id":      tctx.RepoID,
-		"daemon_host":  tctx.DaemonHost,
-		"crowbar_home": tctx.CrowbarHome,
+		// What a session call that hands the provider Crowbar's MCP server reads. Only
+		// what survives a new runner and a move: the provider pins this block.
+		// Never {relay_token}: bodies are logged, so the relay reads the file instead.
+		"crowbar":          tctx.CrowbarBin,
+		"relay_id":         tctx.RelayID,
+		"relay_token_file": tctx.RelayTokenFile(),
+		"daemon_host":      tctx.DaemonHost,
+		"crowbar_home":     tctx.CrowbarHome,
 	}
 	// A fresh session renders the chat's permission level from the same vars a
 	// restart_tui spawn's argv does, or it launches with none.

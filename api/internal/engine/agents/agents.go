@@ -131,6 +131,9 @@ type Agent interface {
 
 	ResumeArg() (string, bool)
 	SessionAssignArg() (string, bool)
+	// SessionPinsRelay is whether a session's calls carry {relay_id}: the provider
+	// keeps that block for the session, so a launch must repeat it byte for byte.
+	SessionPinsRelay() bool
 	// RefusedResume is the line by which the CLI refused a resume, even wrapped.
 	RefusedResume(exitCode int, output string) (line string, refused bool)
 	// SessionPersists is session.persists: "turn_start" (or "") or "turn_end".

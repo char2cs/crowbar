@@ -48,6 +48,30 @@ func TestMCP_ReturnsRPCResponseInEnvelope(
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{}}`, string(env.Data.RPC))
 }
 
+// The relay route hands the usecase the :relay id, never a runner id.
+func TestRelayMCP_ForwardsTheRelayIDTheTokenAndTheRawMessage(
+	t *testing.T,
+) {
+	uc := &fakeAgentUsecase{
+		dispatchMCPOut:  []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`),
+		dispatchMCPSend: true,
+	}
+	h := newChatHandlers(uc)
+
+	body := []byte(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/relays/relay-1/mcp", body)
+	ctx.Params = gin.Params{{Key: "relay", Value: "relay-1"}}
+
+	h.RelayMCP(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, uc.dispatchMCPCalls, "a relay is not a runner")
+	require.Len(t, uc.dispatchRelayCalls, 1)
+	assert.Equal(t, "relay-1", uc.dispatchRelayCalls[0].runnerID)
+	assert.Equal(t, "TOK", uc.dispatchRelayCalls[0].token)
+	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, string(uc.dispatchRelayCalls[0].message))
+}
+
 // TestMCP_NotificationGets204 proves a message the engine answers with silence
 // (a JSON-RPC notification) produces an empty 204, never an envelope: a client
 // that sent notifications/initialized must not receive a stray reply.

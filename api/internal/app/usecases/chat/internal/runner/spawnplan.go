@@ -196,6 +196,11 @@ func (rs *Runners) renderSpawnContext(
 		// The token `crowbar mcp` attributes this runner's tool calls by, minted where
 		// the runner id is born and by the SAME minter DispatchMCP verifies against.
 		RunnerToken: rs.mintRunnerToken(in.runnerID),
+		// The session's own identity, so the block a provider pins at creation is the
+		// same for every runner on it; only its token is minted afresh.
+		RelayID:     in.relayID,
+		RelayDir:    worktreepath.RelayDir(in.crowbarHome, in.chatID),
+		RelayToken:  rs.mintRelayToken(in.relayID),
 		HookBase:    hookBase(in.crowbarHome),
 		Provider:    in.providerID,
 		ProjectID:   in.projectID,

@@ -505,11 +505,11 @@ events:
   prompt:
     fresh:
       - call: thread/start
-        send: { relay: { crowbar: "{crowbar}", segid: "{segid}" }, developerInstructions: "{context}" }
+        send: { relay: { crowbar: "{crowbar}", id: "{relay_id}", file: "{relay_token_file}" }, developerInstructions: "{context}" }
         capture: { session_id: thread.id }
     resume:
       - call: thread/resume
-        send: { threadId: "{session_id}", relay: { crowbar: "{crowbar}", segid: "{segid}" } }
+        send: { threadId: "{session_id}", relay: { crowbar: "{crowbar}", id: "{relay_id}", file: "{relay_token_file}" } }
     action:
       - call: turn/start
         send: { threadId: "{session_id}", text: "{text}" }
@@ -561,6 +561,7 @@ func establishedParams(t *testing.T, tctx engineagents.TemplateCtx) map[string]a
 func TestEstablishAPISession_RendersTheRelayVarsOfTheSpawnIntoFreshAndResume(t *testing.T) {
 	tctx := engineagents.TemplateCtx{
 		ChatID: "chat-1", CrowbarBin: "/bin/crowbar", Segid: "seg-1", RunnerToken: "s3cret-token",
+		RelayID: "relay-1", RelayDir: "/crow/chats/chat-1/relay", RelayToken: "relay-s3cret",
 	}
 	relay := func(params map[string]any) map[string]any {
 		got, ok := params["relay"].(map[string]any)
@@ -570,12 +571,16 @@ func TestEstablishAPISession_RendersTheRelayVarsOfTheSpawnIntoFreshAndResume(t *
 
 	fresh := establishedParams(t, tctx)
 	assert.Equal(t, "/bin/crowbar", relay(fresh)["crowbar"])
-	assert.Equal(t, "seg-1", relay(fresh)["segid"])
+	assert.Equal(t, "relay-1", relay(fresh)["id"])
+	assert.Equal(t, "/crow/chats/chat-1/relay/relay-1.token", relay(fresh)["file"])
 	assert.NotContains(t, fmt.Sprint(fresh), "s3cret-token")
+	assert.NotContains(t, fmt.Sprint(fresh), "relay-s3cret")
 
 	tctx.Session = "S1"
 	resumed := establishedParams(t, tctx)
 	assert.Equal(t, "/bin/crowbar", relay(resumed)["crowbar"])
-	assert.Equal(t, "seg-1", relay(resumed)["segid"])
+	assert.Equal(t, relay(fresh), relay(resumed), "a resumed session is handed the block it was created with")
 	assert.NotContains(t, fmt.Sprint(resumed), "s3cret-token")
+	assert.NotContains(t, fmt.Sprint(resumed), "relay-s3cret")
+	assert.NotContains(t, fmt.Sprint(resumed), "seg-1", "nothing of the runner rides a block the provider pins")
 }

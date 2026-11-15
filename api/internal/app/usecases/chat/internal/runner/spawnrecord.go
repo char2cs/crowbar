@@ -137,3 +137,11 @@ func (rs *Runners) mintRunnerToken(runnerID string) string {
 	}
 	return rs.minter.Mint(runnerID)
 }
+
+// mintRelayToken is relayID's credential, "" for a spawn with no relay.
+func (rs *Runners) mintRelayToken(relayID string) string {
+	if rs.minter == nil || relayID == "" {
+		return ""
+	}
+	return rs.minter.MintRelay(relayID)
+}

@@ -86,14 +86,28 @@ type toolDef struct {
 // makes it impossible to reach a tool handler without a successful Resolve —
 // there is no code path that calls run() with an unauthenticated Caller.
 type ToolSet struct {
-	deps     Deps
-	runnerID string
-	token    string
-	defs     []toolDef
+	deps Deps
+	// resolve authenticates the credentials this set was built around.
+	resolve func(context.Context) (Caller, error)
+	defs    []toolDef
 }
 
 func NewToolSet(deps Deps, runnerID, token string) *ToolSet {
-	ts := &ToolSet{deps: deps, runnerID: runnerID, token: token}
+	return newToolSet(deps, func(ctx context.Context) (Caller, error) {
+		return deps.Resolver.Resolve(ctx, runnerID, token)
+	})
+}
+
+// NewRelayToolSet is NewToolSet for a relay that outlives its runners: it is
+// authenticated by the session's relay id, and the caller is the chat's live runner.
+func NewRelayToolSet(deps Deps, relayID, token string) *ToolSet {
+	return newToolSet(deps, func(ctx context.Context) (Caller, error) {
+		return deps.Resolver.ResolveRelay(ctx, relayID, token)
+	})
+}
+
+func newToolSet(deps Deps, resolve func(context.Context) (Caller, error)) *ToolSet {
+	ts := &ToolSet{deps: deps, resolve: resolve}
 	ts.defs = append(ts.defs, chatTools(deps)...)
 	ts.defs = append(ts.defs, branchNameTools(deps)...)
 	ts.defs = append(ts.defs, branchOutTools(deps)...)
@@ -131,7 +145,7 @@ func (t *ToolSet) CallWithImages(
 ) (result string, images []mcp.Image, err error) {
 	defer func() { t.deps.Metrics.Record(t.metricName(name), err == nil) }()
 
-	caller, err := t.deps.Resolver.Resolve(ctx, t.runnerID, t.token)
+	caller, err := t.resolve(ctx)
 	if err != nil {
 		return "", nil, err
 	}

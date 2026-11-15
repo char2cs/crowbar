@@ -43,6 +43,15 @@ type ProviderUsecase interface {
 		message []byte,
 	) ([]byte, bool, error)
 
+	// DispatchRelayMCP is DispatchMCP for a provider whose relay is keyed by its session
+	// binding instead of a runner, so it keeps working across the session's runners.
+	DispatchRelayMCP(
+		ctx context.Context,
+		relayID string,
+		token string,
+		message []byte,
+	) ([]byte, bool, error)
+
 	// VerifyRunnerToken reports whether token is the one minted for runnerID: what
 	// a vendor CLI's HTTP hook proves itself with.
 	VerifyRunnerToken(runnerID, token string) bool
@@ -123,6 +132,16 @@ func (u *Usecase) DispatchMCP(
 	message []byte,
 ) ([]byte, bool, error) {
 	return u.providers.DispatchMCP(ctx, runnerID, token, message)
+}
+
+// DispatchRelayMCP serves one authenticated MCP call from a session's relay.
+func (u *Usecase) DispatchRelayMCP(
+	ctx context.Context,
+	relayID string,
+	token string,
+	message []byte,
+) ([]byte, bool, error) {
+	return u.providers.DispatchRelayMCP(ctx, relayID, token, message)
 }
 
 // VerifyRunnerToken reports whether token was minted for runnerID.

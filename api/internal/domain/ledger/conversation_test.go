@@ -109,7 +109,7 @@ func TestAnnounce_DecidesBetweenNothingABindingAChangeAndAConflict(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rows, err := ledger.Announce(tc.st, "p1", tc.id, tc.owner)
+			rows, err := ledger.Announce(tc.st, "p1", tc.id, tc.owner, "")
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, decodeRows(t, rows))
 		})
@@ -165,6 +165,54 @@ func mustLose(t *testing.T, st ledger.State, provider, session string) []ledger.
 	rows, err := ledger.Lose(st, provider, session, "refused", "run-1")
 	require.NoError(t, err)
 	return rows
+}
+
+func TestAnnounce_ABindingCarriesTheRelayIdOfTheSessionItBinds(t *testing.T) {
+	rows, err := ledger.Announce(ledger.State{}, "p1", "S1", "", "R1")
+	require.NoError(t, err)
+	body, err := ledger.DecodeBody[ledger.SessionBound](rows[0])
+	require.NoError(t, err)
+	assert.Equal(t, "R1", body.RelayID)
+
+	moved, err := ledger.Announce(ledger.State{}, "p1", "S2", "c2", "R2")
+	require.NoError(t, err)
+	body, err = ledger.DecodeBody[ledger.SessionBound](moved[0])
+	require.NoError(t, err)
+	assert.Equal(t, ledger.CauseMoved, body.Cause)
+	assert.Equal(t, "R2", body.RelayID, "the relay id the holder bound moves with the session")
+
+	cleared, err := ledger.AnnounceCleared(ledger.State{}, "p1", "S3")
+	require.NoError(t, err)
+	body, err = ledger.DecodeBody[ledger.SessionBound](cleared[0])
+	require.NoError(t, err)
+	assert.Empty(t, body.RelayID, "a cleared conversation starts over with no identity of its own")
+}
+
+func TestRelayConversation_OnlyABoundBindingHoldsItsRelayId(t *testing.T) {
+	relayBound := func(session, relay string) ledger.Row {
+		return row(t, ledger.KindSessionBound, "", ledger.SessionBound{
+			Provider: "p1", SessionID: session, Cause: ledger.CauseAnnounced, RelayID: relay,
+		})
+	}
+	st := ledger.Fold("c1", sequenced(t, relayBound("S1", "R1")))
+
+	c, ok := st.RelayConversation("R1")
+	require.True(t, ok)
+	assert.Equal(t, "S1", c.SessionID)
+	_, ok = st.RelayConversation("R-other")
+	assert.False(t, ok, "another binding's id is nobody's here")
+	_, ok = st.RelayConversation("")
+	assert.False(t, ok, "a binding with no relay id answers no empty id")
+
+	lost := ledger.Fold("c1", sequenced(t, relayBound("S1", "R1"), lostS1(t, "p1")))
+	_, ok = lost.RelayConversation("R1")
+	assert.False(t, ok, "a lost session's relay id resolves to nothing")
+
+	replaced := ledger.Fold("c1", sequenced(t, relayBound("S1", "R1"), relayBound("S2", "R2")))
+	_, ok = replaced.RelayConversation("R1")
+	assert.False(t, ok, "a replaced binding's relay id resolves to nothing")
+	_, ok = replaced.RelayConversation("R2")
+	assert.True(t, ok)
 }
 
 func TestCheck_RefusesASessionRowWithoutItsIdentity(t *testing.T) {

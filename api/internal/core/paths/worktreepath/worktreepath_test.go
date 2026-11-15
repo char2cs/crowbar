@@ -316,6 +316,10 @@ func TestAttachmentsDir(t *testing.T) {
 	assert.Equal(t, "/crow/chats/chat-1/attachments", dir)
 }
 
+func TestRelayDir_IsTheChatsOwnAndNeverItsRunnersOrWorkspaces(t *testing.T) {
+	assert.Equal(t, "/crow/chats/chat-1/relay", RelayDir("/crow", "chat-1"))
+}
+
 func TestRestoreDurableAttachmentRefs_RewritesAnAbsoluteReferenceBack(t *testing.T) {
 	text := "look ![x](/crow/chats/chat-1/attachments/photo.png) done"
 	out := RestoreDurableAttachmentRefs(text, "/crow", "chat-1")

@@ -61,6 +61,8 @@ runtime:
 spawn:
   cmd: socketed
   interactive_required: true
+session:
+  refused: { rpc_code: -32600, needles: ["no such session"] }
 surfaces:
   chat: { channel: api, start_here: true }
 events:

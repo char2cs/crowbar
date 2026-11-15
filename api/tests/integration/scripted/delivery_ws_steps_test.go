@@ -152,18 +152,6 @@ func flagValue(t *testing.T, args []string, flag string) string {
 	return args[i+1]
 }
 
-// withoutRunnerIdentity is srv with the values that name one runner blanked.
-func withoutRunnerIdentity(t *testing.T, srv relayServer) relayServer {
-	t.Helper()
-	args := slices.Clone(srv.Args)
-	for _, flag := range []string{"--segment", "--token-file"} {
-		flagValue(t, args, flag)
-		args[slices.Index(args, flag)+1] = ""
-	}
-	srv.Args = args
-	return srv
-}
-
 // readToken is the token file a relay reads, which must be 0600 and hold something.
 func readToken(t *testing.T, srv relayServer) string {
 	t.Helper()
@@ -175,6 +163,29 @@ func readToken(t *testing.T, srv relayServer) string {
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
 	return string(token)
+}
+
+// firstTurn drives one finished turn so the session has something a resume would load.
+func (s *socketRig) firstTurn(t *testing.T, chatID string) {
+	t.Helper()
+	require.NoError(t, s.send(chatID, "hi"))
+	s.nextMethod(t, "prompt.submit")
+	s.event(t, "message.start", `{}`)
+	s.event(t, "message.complete", `{"text":"hello","status":"complete"}`)
+	s.eventually(func() bool { return slices.Contains(s.said(chatID), "assistant: hello") && !s.working(chatID) },
+		"the first turn never closed")
+}
+
+// relayAnswer is the reply the daemon gives a relay's tool call, with the token the relay
+// would read from its file now.
+func (s *socketRig) relayAnswer(t *testing.T, srv relayServer) string {
+	t.Helper()
+	out, send, err := s.d.app.Usecases.AgentProvider.DispatchRelayMCP(context.Background(),
+		flagValue(t, srv.Args, "--relay"), readToken(t, srv),
+		[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_workspaces","arguments":{}}}`))
+	require.NoError(t, err)
+	require.True(t, send)
+	return string(out)
 }
 
 // Hermes has one per-session MCP path, and the gateway keeps it in memory only: the create
@@ -195,20 +206,18 @@ func TestRegression_HermesSessionCallsHandTheGatewayCrowbarsMCPRelay(t *testing.
 	assert.Equal(t, crowbarBin, relay.Command)
 	require.NotEmpty(t, relay.Args)
 	assert.Equal(t, "mcp", relay.Args[0])
-	for _, flag := range []string{"--segment", "--token-file", "--project", "--workspace", "--repo", "--host"} {
+	for _, flag := range []string{"--relay", "--token-file", "--host"} {
 		assert.Contains(t, relay.Args, flag)
+	}
+	for _, flag := range []string{"--segment", "--workspace", "--project", "--repo"} {
+		assert.NotContains(t, relay.Args, flag, "the gateway pins this block: nothing a move or a new runner changes rides it")
 	}
 	require.Len(t, relay.Env, 1)
 	assert.Equal(t, "CROWBAR_HOME", relay.Env[0].Name, "an MCP server may get a scrubbed env: the relay is told its home")
 	assert.NotEmpty(t, relay.Env[0].Value)
 	assert.NotContains(t, string(createFrame.Params), readToken(t, relay), "a request body is logged")
 
-	require.NoError(t, s.send(chatID, "hi"))
-	s.nextMethod(t, "prompt.submit")
-	s.event(t, "message.start", `{}`)
-	s.event(t, "message.complete", `{"text":"hello","status":"complete"}`)
-	s.eventually(func() bool { return slices.Contains(s.said(chatID), "assistant: hello") && !s.working(chatID) },
-		"the first turn never closed")
+	s.firstTurn(t, chatID)
 	require.NoError(t, s.runners().StopChat(context.Background(), chatID))
 	s.offerEndpoint(t)
 
@@ -216,10 +225,38 @@ func TestRegression_HermesSessionCallsHandTheGatewayCrowbarsMCPRelay(t *testing.
 	resumeFrame := s.nextMethod(t, "session.resume")
 	resume := decodeSessionCall(t, resumeFrame)
 	assert.Equal(t, "sess-1", resume.SessionID)
-	// A revived chat is a new runner: the same block, naming that runner's own segment and token.
-	resumed := resume.Editor.MCPServers[0]
-	assert.Equal(t, withoutRunnerIdentity(t, relay), withoutRunnerIdentity(t, resumed),
-		"a restarted gateway has no memory of the relay: resume re-sends it")
-	assert.NotEqual(t, flagValue(t, relay.Args, "--segment"), flagValue(t, resumed.Args, "--segment"))
-	assert.NotContains(t, string(resumeFrame.Params), readToken(t, resumed))
+	assert.Equal(t, relay, resume.Editor.MCPServers[0],
+		"a restarted gateway has no memory of the relay: resume re-sends the block the session was created with")
+	assert.NotContains(t, string(resumeFrame.Params), readToken(t, resume.Editor.MCPServers[0]))
+}
+
+// A chat's second runner resumes with the block its session was created with, byte for byte:
+// the gateway refuses a resume whose block differs. The relay the first runner's gateway
+// kept keeps answering through the second runner, and answers nothing once no runner lives.
+func TestRegression_HermesSecondRunnerResumesWithTheIdenticalBlock(t *testing.T) {
+	s := newSocketRigFor(t, "hermes", hermesOverSocket(t))
+	s.results.Store("session.create", `{"session_id":"sess-1","execution_generation":1}`)
+	s.results.Store("prompt.submit", `{"admission_id":"adm-1","execution_generation":1}`)
+	chatID := s.spawn("hermes")
+	createFrame := s.nextMethod(t, "session.create")
+	relay := decodeSessionCall(t, createFrame).Editor.MCPServers[0]
+	_, firstRunner := s.live(chatID)
+	s.firstTurn(t, chatID)
+	assert.NotContains(t, s.relayAnswer(t, relay), "unauthorized", "the live runner's session is served")
+
+	require.NoError(t, s.runners().StopChat(context.Background(), chatID))
+	assert.Contains(t, s.relayAnswer(t, relay), "unauthorized", "a relay with no live runner behind it is refused")
+	s.offerEndpoint(t)
+
+	require.NoError(t, s.send(chatID, "again"))
+	resumeFrame := s.nextMethod(t, "session.resume")
+	var created, resumed struct {
+		Editor json.RawMessage `json:"editor"`
+	}
+	require.NoError(t, json.Unmarshal(createFrame.Params, &created))
+	require.NoError(t, json.Unmarshal(resumeFrame.Params, &resumed))
+	assert.JSONEq(t, string(created.Editor), string(resumed.Editor))
+	_, secondRunner := s.live(chatID)
+	assert.NotEqual(t, firstRunner, secondRunner, "the chat's second runner is what resumed")
+	assert.NotContains(t, s.relayAnswer(t, relay), "unauthorized", "the same relay now reaches the second runner")
 }

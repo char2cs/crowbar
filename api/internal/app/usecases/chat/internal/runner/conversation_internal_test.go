@@ -35,7 +35,7 @@ func TestAnnounceSession_ASessionAnotherChatHoldsIsAConflict(t *testing.T) {
 	require.NoError(t, err)
 	rs := &Runners{ledger: l}
 
-	got, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2", false)
+	got, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, announcedConflict, got)
 	c, _ := chatState(t, l).Conversation("claude")
@@ -48,12 +48,54 @@ func TestAnnounceSession_ASessionAnotherChatHoldsIsAConflict(t *testing.T) {
 	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerSessionConflict, Detail: "S2", Owner: "chat-2"}, last)
 }
 
+// The row that binds a session carries the relay id its provider pinned, so every later
+// runner on the binding can be launched with it.
+func TestAnnounceSession_TheBindingRecordsTheRelayIDItWasCreatedWith(t *testing.T) {
+	l := newTestLedger(t)
+	rs := &Runners{ledger: l}
+
+	_, err := rs.announceSession(t.Context(), "chat-1", "acme", "S1", "R1", false)
+	require.NoError(t, err)
+	_, err = rs.announceSession(t.Context(), "chat-1", "acme", "S1", "R2", false)
+	require.NoError(t, err, "a resume of the bound session binds nothing again")
+
+	c, _ := chatState(t, l).Conversation("acme")
+	assert.Equal(t, "R1", c.RelayID)
+}
+
+// A session handed to another chat takes the relay id its holder bound it with: the
+// provider's pinned block is the session's, not the chat's.
+func TestAnnounceSession_AMovedSessionKeepsTheRelayIDItsHolderBoundIt(t *testing.T) {
+	l := newTestLedger(t)
+	rs := &Runners{ledger: l, live: newLiveTable()}
+	_, err := rs.announceSession(t.Context(), "chat-1", "acme", "S1", "R1", false)
+	require.NoError(t, err)
+
+	got, err := rs.announceSession(t.Context(), "chat-2", "acme", "S1", "R-other", false)
+	require.NoError(t, err)
+	require.Equal(t, announcedNothing, got)
+
+	moved, _ := func() (ledger.Conversation, bool) {
+		st, err := l.State(t.Context(), "chat-2")
+		require.NoError(t, err)
+		return st.Conversation("acme")
+	}()
+	assert.Equal(t, ledger.CauseMoved, moved.Cause)
+	assert.Equal(t, "R1", moved.RelayID)
+	owner, ok, err := l.RelayOwner(t.Context(), "R1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "chat-2", owner, "the relay now resolves to the chat that holds the session")
+	given, _ := chatState(t, l).Conversation("acme")
+	assert.Equal(t, ledger.ConversationLost, given.State)
+}
+
 // A session the person's clear started is a change the conversation starts over at.
 func TestAnnounceSession_AClearedSessionStartsTheConversationOver(t *testing.T) {
 	l := turnedTestLedger(t, "claude", "S1")
 	rs := &Runners{ledger: l}
 
-	got, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2", true)
+	got, err := rs.announceSession(t.Context(), "chat-1", "claude", "S2", "", true)
 	require.NoError(t, err)
 	assert.Equal(t, announcedChange, got)
 	st := chatState(t, l)
@@ -181,7 +223,7 @@ func apiLoseConn(t *testing.T, rs *Runners, replies map[string]map[string]any) (
 			}
 		}
 	})
-	driver, err := agent.StartAPIConn(t.Context(), stdio, rs.sessionOrigin("chat-1", apiLoseProvider))
+	driver, err := agent.StartAPIConn(t.Context(), stdio, rs.sessionOrigin("chat-1", apiLoseProvider, ""))
 	require.NoError(t, err)
 	conn := &apiconn{driver: driver, ctx: t.Context()}
 	rs.apiConns.set("runner-1", conn)

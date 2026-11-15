@@ -1,6 +1,25 @@
 # Hermes: a Stable MCP Identity per Session — Plan
 
-**Status:** Proposed · **Date:** 2026-11-15
+**Status:** Implemented (§3, daemon side) · **Date:** 2026-11-15
+
+Live checks (§6.2) and the §7 inferences are still open. Deviations from the plan:
+
+- **Relay lookup.** A relay id resolves through `chat_ledger_relays` (relay id → chat), a derived
+  index beside `chat_ledger_sessions`. The chat's ledger `State` stays the authority: the index
+  names a chat, and `State.RelayConversation` must still hold that id on a bound conversation of
+  `current`. A lost, cleared or moved-away binding therefore resolves to nothing.
+- **Route.** `POST /v0/relays/:relay/mcp`, a flat route with no project or repo in the path.
+  `crowbar mcp --relay <id>` replaces `--segment/--project/--repo/--workspace`.
+- **Who mints.** The descriptor decides: `Agent.SessionPinsRelay()` is true when a session call
+  names `{relay_id}`. Only then does a fresh launch mint an id, so claude and codex write no relay
+  id and keep `{segid}` = runner id unchanged.
+- **Token file.** `<home>/chats/<chat>/relay/<relay>.token`, keyed by the chat's directory as
+  planned. A session moved to another chat would change that path in a pinned block; api providers
+  do not move sessions between chats today, so this stays a documented limit.
+- **Per-request token.** The relay re-reads its token file on every message; a read error answers
+  that message with a transport error. There is no retry loop.
+- **Old bindings.** Sessions bound before this change have no relay id, are not resumed, and end at
+  the `session.refused` stopgap. No migration.
 
 ## 1. The defect
 

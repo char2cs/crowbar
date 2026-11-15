@@ -22,6 +22,9 @@ type sessionLaunch struct {
 	// afterLoss: the provider refused the chat's session, so what this launch is
 	// handed of the conversation is Crowbar's record, which the transcript says.
 	afterLoss bool
+	// relayID is the MCP identity a provider that pins it keeps for the session: the
+	// bound one when resuming, a new one when starting. "" for a provider that pins none.
+	relayID string
 }
 
 // launchSession is the launch decision. A bound session that turned is resumed
@@ -30,9 +33,12 @@ type sessionLaunch struct {
 func launchSession(st ledger.State, d engineagents.Agent) (sessionLaunch, error) {
 	c, ok := st.Conversation(d.ID())
 	if ok && c.Resumable() {
-		return sessionLaunch{resumeID: c.SessionID}, nil
+		return sessionLaunch{resumeID: c.SessionID, relayID: c.RelayID}, nil
 	}
 	launch := sessionLaunch{afterLoss: ok && c.State == ledger.ConversationLost}
+	if d.SessionPinsRelay() {
+		launch.relayID = uuid.NewString()
+	}
 	if _, ok := d.SessionAssignArg(); !ok {
 		return launch, nil
 	}

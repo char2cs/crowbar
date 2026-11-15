@@ -340,6 +340,12 @@ func AttachmentsDir(crowbarHome, chatID string) string {
 	return filepath.Join(LedgerChatsDir(crowbarHome), chatID, "attachments")
 }
 
+// RelayDir returns <home>/chats/<chatID>/relay, where a session's MCP relay finds its token. Like
+// the attachment store it hangs off the chat, so a new runner or a move of the chat keeps the path.
+func RelayDir(crowbarHome, chatID string) string {
+	return filepath.Join(LedgerChatsDir(crowbarHome), chatID, "relay")
+}
+
 // RestoreDurableAttachmentRefs rewrites durable-store absolute attachment paths in a hook's prompt
 // back to logical chats/<chatID>/attachments/<file> refs, since a prompt typed into the CLI has no
 // other copy of the original text. Text without such paths comes back unchanged.

@@ -137,6 +137,58 @@ func TestResolve_NoWorkspaceStoreFailsClosed(t *testing.T) {
 	require.ErrorIs(t, err, tools.ErrUnauthorized)
 }
 
+func relayResolver(t *testing.T, runners stubRunners) (*tools.Resolver, *tools.TokenMinter) {
+	t.Helper()
+	m, err := tools.NewTokenMinter()
+	require.NoError(t, err)
+	return tools.NewResolver(m, runners, stubWorkspaces{all: tree()}), m
+}
+
+// A relay id outlives any runner: the caller is whichever runner the chat that bound the
+// session has now.
+func TestResolveRelay_ResolvesToTheChatsLiveRunner(t *testing.T) {
+	live := agents.Runner{ID: "RUN-2", CurrentChatID: "CHAT", ProviderID: "p", WorkspaceID: "ws-a"}
+	r, m := relayResolver(t, stubRunners{r: live, relay: "RELAY"})
+
+	c, err := r.ResolveRelay(context.Background(), "RELAY", m.MintRelay("RELAY"))
+	require.NoError(t, err)
+	require.Equal(t, "RUN-2", c.RunnerID)
+	require.Equal(t, "CHAT", c.ChatID)
+	require.ElementsMatch(t, []string{"ws-a", "ws-a1"}, visibleIDs(c))
+}
+
+func TestResolveRelay_RefusesWhatNoLiveRunnerOrBindingBacks(t *testing.T) {
+	live := agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}
+	for name, tc := range map[string]struct {
+		runners stubRunners
+		relay   string
+		token   func(*tools.TokenMinter) string
+	}{
+		"no live runner on the chat":       {stubRunners{relay: "RELAY"}, "RELAY", func(m *tools.TokenMinter) string { return m.MintRelay("RELAY") }},
+		"another binding's relay id":       {stubRunners{r: live, relay: "RELAY"}, "OTHER", func(m *tools.TokenMinter) string { return m.MintRelay("OTHER") }},
+		"a token minted for another id":    {stubRunners{r: live, relay: "RELAY"}, "RELAY", func(m *tools.TokenMinter) string { return m.MintRelay("OTHER") }},
+		"a runner's token in its place":    {stubRunners{r: live, relay: "RELAY"}, "RELAY", func(m *tools.TokenMinter) string { return m.Mint("RELAY") }},
+		"no token":                         {stubRunners{r: live, relay: "RELAY"}, "RELAY", func(*tools.TokenMinter) string { return "" }},
+		"an unreadable binding":            {stubRunners{r: live, relay: "RELAY", relayErr: errors.New("ledger down")}, "RELAY", func(m *tools.TokenMinter) string { return m.MintRelay("RELAY") }},
+		"an empty relay id with its token": {stubRunners{r: live, relay: ""}, "", func(m *tools.TokenMinter) string { return m.MintRelay("") }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, m := relayResolver(t, tc.runners)
+			_, err := r.ResolveRelay(context.Background(), tc.relay, tc.token(m))
+			require.ErrorIs(t, err, tools.ErrUnauthorized)
+		})
+	}
+}
+
+// A token minted for a runner id never opens a relay of the same string, nor the reverse.
+func TestResolve_ARelayTokenIsNotARunnerToken(t *testing.T) {
+	live := agents.Runner{ID: "ID", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}
+	r, m := relayResolver(t, stubRunners{r: live, relay: "ID"})
+
+	_, err := r.Resolve(context.Background(), "ID", m.MintRelay("ID"))
+	require.ErrorIs(t, err, tools.ErrUnauthorized)
+}
+
 // TestResolve_NeverSeesDeletedWorkspaces covers all three visibility branches,
 // because the bug was in none of them individually and in all of them at once:
 // WorkspaceLister.List hands back the residual rows of workspaces the user has

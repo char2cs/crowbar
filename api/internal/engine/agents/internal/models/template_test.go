@@ -39,6 +39,29 @@ func TestScopeFlags_QuotesADaemonSocketWithASpace(t *testing.T) {
 	}
 }
 
+// The relay's identity and token file name nothing of the runner, the workspace or the
+// chat's placement: a provider pins the block they render into for the session's life.
+func TestRelayVars_RenderTheBindingsIdentityAndTokenFile(t *testing.T) {
+	c := TemplateCtx{
+		RelayID: "R1", RelayDir: "/crow/chats/c1/relay", RelayToken: "TOK",
+		Segid: "runner-1", Tmp: "/crow/runners/runner-1", WorkspaceID: "w1", ProjectID: "p1", RepoID: "r1",
+	}
+	r := c.Replacer()
+
+	if got := r.Replace("{relay_id}"); got != "R1" {
+		t.Fatalf("{relay_id} = %q", got)
+	}
+	if got := r.Replace("{relay_token_file}"); got != "/crow/chats/c1/relay/R1.token" {
+		t.Fatalf("{relay_token_file} = %q", got)
+	}
+	if got := r.Replace("{relay_token}"); got != "TOK" {
+		t.Fatalf("{relay_token} = %q", got)
+	}
+	if got := (TemplateCtx{RelayDir: "/d"}).RelayTokenFile(); got != "" {
+		t.Fatalf("a spawn with no relay id names no token file, got %q", got)
+	}
+}
+
 func TestScopeFlags_OmitsHomeWhenEmpty(t *testing.T) {
 	c := TemplateCtx{ProjectID: "p1", WorkspaceID: "w1"}
 	got := c.ScopeFlags()

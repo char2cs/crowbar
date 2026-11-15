@@ -17,6 +17,10 @@ var schema = []string{
 	`CREATE TABLE IF NOT EXISTS chat_ledger_sessions (
 		provider TEXT NOT NULL, session_id TEXT NOT NULL, chat_id TEXT NOT NULL,
 		PRIMARY KEY (provider, session_id)) WITHOUT ROWID`,
+	// A relay row finds the chat a session's MCP relay id was bound in.
+	`CREATE TABLE IF NOT EXISTS chat_ledger_relays (
+		relay_id TEXT PRIMARY KEY, chat_id TEXT NOT NULL) WITHOUT ROWID`,
+	`CREATE INDEX IF NOT EXISTS chat_ledger_relays_by_chat ON chat_ledger_relays (chat_id)`,
 	`CREATE TABLE IF NOT EXISTS ledger_dead_letters (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, chat_id TEXT NOT NULL DEFAULT '',
 		runner_id TEXT NOT NULL, provider TEXT NOT NULL, event TEXT NOT NULL, reason TEXT NOT NULL,

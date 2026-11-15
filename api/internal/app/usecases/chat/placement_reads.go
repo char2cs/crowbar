@@ -5,6 +5,8 @@ package chat
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -22,6 +24,32 @@ func (u *Usecase) LiveRunnerForChat(
 // resolver's port.
 func (u *Usecase) RunnerByID(runnerID string) (engineagents.Runner, bool) {
 	return u.runners.RunnerByID(runnerID)
+}
+
+// RelayRunner is the live runner on the chat whose bound session holds relayID: the MCP
+// resolver's port for a relay that outlives its runners. A lost, replaced or moved-away
+// binding holds nothing, and neither does a chat with no runner now.
+func (u *Usecase) RelayRunner(ctx context.Context, relayID string) (engineagents.Runner, bool, error) {
+	chatID, ok, err := u.ledger.RelayOwner(ctx, relayID)
+	if err != nil || !ok {
+		return engineagents.Runner{}, false, err
+	}
+	st, err := u.ledger.State(ctx, chatID)
+	if err != nil {
+		return engineagents.Runner{}, false, fmt.Errorf("agent: relay runner: %w", err)
+	}
+	bound, ok := st.RelayConversation(relayID)
+	if !ok {
+		return engineagents.Runner{}, false, nil
+	}
+	live, err := u.runners.LiveRunnerForChat(ctx, chatID)
+	if errors.Is(err, ErrNoLiveRunner) {
+		return engineagents.Runner{}, false, nil
+	}
+	if err != nil {
+		return engineagents.Runner{}, false, err
+	}
+	return live, live.ProviderID == bound.Provider, nil
 }
 
 // ConversationsForChat returns every (provider, session) the chat's ledger

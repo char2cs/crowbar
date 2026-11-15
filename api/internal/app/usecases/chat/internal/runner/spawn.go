@@ -137,6 +137,7 @@ func (rs *Runners) spawnRunner(
 		worktree:        worktree,
 		crowbarHome:     crowbarHome,
 		launchSessionID: launch.resumeID,
+		relayID:         launch.relayID,
 		threads:         threads,
 		conversation:    dispatchConversation,
 		promptMessage:   dispatchMessage,
@@ -302,6 +303,8 @@ type spawnContext struct {
 	// resume argv carries, and what tells an api connection's EstablishSession
 	// to run Resume rather than Fresh.
 	launchSessionID string
+	// relayID is the session's MCP identity, from the same launch decision.
+	relayID string
 }
 
 type spawnPreflight struct {

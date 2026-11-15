@@ -92,22 +92,22 @@ func TestValidate_UnknownFieldWithinAKnownEvent_IsRejected(t *testing.T) {
 	}
 }
 
-// The relay vars may ride a prompt's session call; the runner token may not, since a
+// The relay vars may ride a prompt's session call; the relay token may not, since a
 // request body is logged.
-func TestValidate_PromptAdmitsTheRelayVarsButNotTheRunnerToken(t *testing.T) {
+func TestValidate_PromptAdmitsTheRelayVarsButNotTheRelayToken(t *testing.T) {
 	v := load(t)
 	prompt := func(field string) error {
 		return v.Validate("acme", map[string]map[string][]string{
 			"prompt": {"text": {"text"}, field: {field}},
 		})
 	}
-	for _, field := range []string{"crowbar", "tmp", "segid", "project_id", "workspace_id", "repo_id", "daemon_host", "crowbar_home"} {
+	for _, field := range []string{"crowbar", "relay_id", "relay_token_file", "daemon_host", "crowbar_home"} {
 		if err := prompt(field); err != nil {
 			t.Errorf("relay var %q must be admitted: %v", field, err)
 		}
 	}
-	if err := prompt("runner_token"); err == nil {
-		t.Error("runner_token must be refused: it is file-only")
+	if err := prompt("relay_token"); err == nil {
+		t.Error("relay_token must be refused: it is file-only")
 	}
 }
 
