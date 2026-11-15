@@ -1,0 +1,132 @@
+//! Terminal emulation for the Crowbar shell: an alacritty grid fed by the daemon's PTY frames, read as
+//! render snapshots, with selection, search, links and key, mouse and paste encoding. No GPUI.
+
+#![allow(
+    clippy::match_bool,
+    reason = "the rules forbid `else`, so a two-way choice on a bool is a match"
+)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "cell and pixel geometry stays far below f32 precision and the usize range"
+)]
+#![allow(
+    clippy::too_many_arguments,
+    reason = "the four-parameter limit of the manifest does not count `self`"
+)]
+
+mod address_runs;
+mod background_span;
+mod cell_hit;
+mod cell_metrics;
+mod cell_ref;
+mod cell_side;
+mod click_tracker;
+mod client_message;
+mod color_source;
+mod cursor_cell;
+mod cursor_keys;
+mod cursor_shape;
+mod daemon_frame;
+mod drag_edge;
+mod dropped_paths;
+mod error;
+mod event_sink;
+mod feed;
+mod grid_size;
+mod highlight;
+mod key_encoder;
+mod key_input;
+mod link;
+mod link_finder;
+mod link_target;
+mod link_token;
+mod link_tokens;
+mod logical_line;
+mod modifiers;
+mod mouse_action;
+mod mouse_button;
+mod mouse_encoder;
+mod mouse_encoding;
+mod mouse_event;
+mod mouse_tracking;
+mod named_keys;
+mod paste;
+mod paste_mode;
+mod path_match;
+mod path_scanner;
+mod resolve_path;
+mod rgb;
+mod row;
+mod row_builder;
+mod screen_buffer;
+mod scroll_accumulator;
+mod scrollbar_thumb;
+mod search_options;
+mod search_query;
+mod search_state;
+mod search_summary;
+mod segment;
+mod selection_kind;
+mod snapshot;
+mod snapshot_builder;
+mod style_flags;
+mod style_span;
+mod terminal;
+mod terminal_config;
+mod terminal_event;
+mod terminal_palette;
+#[cfg(test)]
+mod test_support;
+mod title;
+mod underline;
+mod url_scanner;
+mod view_point;
+mod viewport;
+mod wheel_route;
+mod xterm_color;
+
+pub use background_span::BackgroundSpan;
+pub use cell_hit::CellHit;
+pub use cell_metrics::CellMetrics;
+pub use cell_side::CellSide;
+pub use click_tracker::ClickTracker;
+pub use client_message::ClientMessage;
+pub use cursor_cell::CursorCell;
+pub use cursor_shape::CursorShape;
+pub use daemon_frame::DaemonFrame;
+pub use drag_edge::DragEdge;
+pub use dropped_paths::format_dropped_paths;
+pub use error::Error;
+pub use highlight::Highlight;
+pub use key_input::KeyInput;
+pub use link::Link;
+pub use link_target::LinkTarget;
+pub use modifiers::Modifiers;
+pub use mouse_action::MouseAction;
+pub use mouse_button::MouseButton;
+pub use mouse_event::MouseEvent;
+pub use mouse_tracking::MouseTracking;
+pub use resolve_path::resolve_file_path;
+pub use rgb::Rgb;
+pub use row::Row;
+pub use screen_buffer::ScreenBuffer;
+pub use scroll_accumulator::ScrollAccumulator;
+pub use scrollbar_thumb::ScrollbarThumb;
+pub use search_options::SearchOptions;
+pub use search_query::SearchQuery;
+pub use search_summary::SearchSummary;
+pub use segment::Segment;
+pub use selection_kind::SelectionKind;
+pub use snapshot::Snapshot;
+pub use style_flags::StyleFlags;
+pub use style_span::StyleSpan;
+pub use terminal::Terminal;
+pub use terminal_config::TerminalConfig;
+pub use terminal_event::TerminalEvent;
+pub use terminal_palette::TerminalPalette;
+pub use title::sanitize_title;
+pub use underline::Underline;
+pub use view_point::ViewPoint;
+pub use wheel_route::{WheelRoute, route_wheel};

@@ -1,0 +1,79 @@
+//! Terminals with known content for the unit tests.
+
+use alacritty_terminal::Term;
+use alacritty_terminal::term::Config;
+
+use crate::cursor_shape::CursorShape;
+use crate::daemon_frame::DaemonFrame;
+use crate::event_sink::{EventQueue, EventSink};
+use crate::feed::Feed;
+use crate::grid_size::GridSize;
+use crate::rgb::Rgb;
+use crate::row::Row;
+use crate::terminal::Terminal;
+use crate::terminal_config::TerminalConfig;
+use crate::terminal_palette::TerminalPalette;
+
+pub(crate) const FOREGROUND: u32 = 0xaa_aaaa;
+const BACKGROUND: u32 = 0x11_1111;
+const ANSI_BASE: u32 = 0x10_0000;
+const SCROLLBACK: usize = 1_000;
+
+pub(crate) fn ansi(index: u32) -> Rgb {
+    Rgb::from_hex(ANSI_BASE + index)
+}
+
+pub(crate) fn empty_terminal(
+    columns: usize,
+    lines: usize,
+) -> Terminal {
+    let palette = TerminalPalette {
+        foreground: Rgb::from_hex(FOREGROUND),
+        background: Rgb::from_hex(BACKGROUND),
+        cursor: Rgb::from_hex(FOREGROUND),
+        ansi: std::array::from_fn(|index| ansi(index as u32)),
+    };
+    Terminal::new(TerminalConfig {
+        columns,
+        lines,
+        scrollback: SCROLLBACK,
+        cursor_shape: CursorShape::Block,
+        cursor_blink: false,
+        palette,
+    })
+}
+
+pub(crate) fn terminal_showing(
+    output: &str,
+    columns: usize,
+    lines: usize,
+) -> Terminal {
+    let mut terminal = empty_terminal(columns, lines);
+    terminal.apply(&DaemonFrame::Output(output.as_bytes().to_vec()));
+    terminal
+}
+
+pub(crate) fn row_text(row: &Row) -> String {
+    let mut text = String::new();
+    for segment in &row.segments {
+        let padding = segment.column.saturating_sub(text.chars().count());
+        text.push_str(&" ".repeat(padding));
+        text.push_str(&segment.text);
+    }
+    text
+}
+
+pub(crate) fn emulator_showing(
+    output: &str,
+    columns: usize,
+    lines: usize,
+) -> Term<EventSink> {
+    let size = GridSize { columns, lines };
+    let mut term = Term::new(
+        Config::default(),
+        &size,
+        EventSink::new(EventQueue::default()),
+    );
+    Feed::default().apply(&mut term, &DaemonFrame::Output(output.as_bytes().to_vec()));
+    term
+}
