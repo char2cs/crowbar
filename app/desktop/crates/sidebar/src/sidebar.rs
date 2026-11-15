@@ -15,9 +15,11 @@ use crate::peek::Peek;
 use crate::preferences::Preferences;
 use crate::project_id::ProjectId;
 use crate::resizing::Resizing;
+use crate::row_id::RowId;
 use crate::sidebar_data::SidebarData;
 use crate::sidebar_event::SidebarEvent;
 use crate::tree_state::TreeState;
+use crate::work_at_risk::WorkAtRisk;
 
 const CAROUSEL_SPAN: std::time::Duration = std::time::Duration::from_millis(300);
 
@@ -75,25 +77,38 @@ impl Sidebar {
         }
     }
 
-    /// The geometry the preferences should store.
-    pub fn panel(&self) -> &Panel {
-        &self.panel
-    }
-
     /// The preferences matching the current state.
     pub fn preferences(&self) -> Preferences {
-        self.preferences.updated(&self.panel, self.mode, &self.tree)
+        self.preferences.updated(self.panel, self.mode, &self.tree)
     }
 
     /// Opens or closes the sidebar (Mod+B, the header button).
-    pub fn toggle(&mut self, cx: &mut Context<'_, Self>) {
+    pub fn toggle(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.panel.toggle();
         self.peek.slide_to(0.0, ui::Motion::of(cx));
         Self::changed(cx);
     }
 
+    /// Asks again before discarding `row`, naming the work a refused removal would lose.
+    pub fn ask_to_discard(
+        &mut self,
+        row: &RowId,
+        at_risk: Vec<WorkAtRisk>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.tree.ask_to_discard(row, at_risk);
+        cx.notify();
+    }
+
     /// Chooses a mode (Mod+1, Mod+2, Mod+3).
-    pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<'_, Self>) {
+    pub fn set_mode(
+        &mut self,
+        mode: Mode,
+        cx: &mut Context<'_, Self>,
+    ) {
         if !mode.is_available(self.data.focus()) {
             return;
         }
@@ -102,7 +117,11 @@ impl Sidebar {
     }
 
     /// Docks the sidebar to the other window edge.
-    pub fn dock_to(&mut self, side: crate::dock_side::DockSide, cx: &mut Context<'_, Self>) {
+    pub fn dock_to(
+        &mut self,
+        side: crate::dock_side::DockSide,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.panel.dock_to(side);
         Self::changed(cx);
     }
@@ -112,13 +131,19 @@ impl Sidebar {
         cx.notify();
     }
 
-    pub(crate) fn scroll_for(&mut self, project: &ProjectId) -> ScrollHandle {
+    pub(crate) fn scroll_for(
+        &mut self,
+        project: &ProjectId,
+    ) -> ScrollHandle {
         self.scrolls.entry(project.clone()).or_default().clone()
     }
 }
 
 impl std::fmt::Debug for Sidebar {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         formatter
             .debug_struct("Sidebar")
             .field("panel", &self.panel)
@@ -128,5 +153,74 @@ impl std::fmt::Debug for Sidebar {
 }
 
 #[cfg(test)]
-#[path = "sidebar_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::confirmation::Confirmation;
+    use crate::dock_side::DockSide;
+    use crate::intent::Intent;
+    use crate::test_support::prelude::*;
+
+    fn bump(counter: &Rc<std::cell::Cell<u32>>) {
+        counter.set(counter.get() + 1);
+    }
+
+    #[gpui::test]
+    fn changes_to_the_geometry_are_reported_as_preferences(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let events = Rc::new(std::cell::Cell::new(0));
+        let seen = Rc::clone(&events);
+        let _subscription =
+            cx.update(|_, cx| cx.subscribe(&sidebar, move |_, _: &SidebarEvent, _| bump(&seen)));
+        sidebar.update(cx, |this, cx| this.dock_to(DockSide::Right, cx));
+        assert_eq!(events.get(), 1);
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.preferences().side),
+            DockSide::Right
+        );
+    }
+
+    #[gpui::test]
+    fn a_refused_removal_asks_again_naming_the_loss(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let risk = WorkAtRisk {
+            branch: "b".into(),
+            uncommitted_files: 2,
+            unmerged_commits: 0,
+        };
+        sidebar.update_in(cx, |this, window, cx| {
+            this.apply(Intent::RequestRemoval(RowId::from("chat")), window, cx);
+            this.ask_to_discard(&RowId::from("chat"), vec![risk], cx);
+        });
+        let title = sidebar.read_with(cx, |this, _| {
+            this.tree.confirmation().map(Confirmation::title)
+        });
+        assert!(title.is_some_and(|text| text.ends_with("and lose work?")));
+    }
+
+    #[gpui::test]
+    fn each_space_keeps_its_own_scroll_position(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let (a, b) = sidebar.update(cx, |this, _| {
+            (
+                this.scroll_for(&ProjectId::from("inv")),
+                this.scroll_for(&ProjectId::from("other")),
+            )
+        });
+        a.set_offset(point(px(0.0), px(-10.0)));
+        assert_ne!(a.offset(), b.offset());
+    }
+
+    #[gpui::test]
+    fn toggling_twice_restores_the_sidebar(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let before = sidebar.read_with(cx, |this, _| this.panel.visibility());
+        sidebar.update(cx, |this, cx| {
+            this.toggle(cx);
+            this.toggle(cx);
+        });
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.panel.visibility()),
+            before
+        );
+    }
+}

@@ -19,10 +19,8 @@ use crate::row_kind::RowKind;
 use crate::visible_row::VisibleRow;
 use crate::work_at_risk::WorkAtRisk;
 
-/// Folded rows, the inline input, the removal tray and the open confirmation. The rows themselves
-/// stay with the data source: this holds ids only.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TreeState {
+pub(crate) struct TreeState {
     folded: BTreeSet<RowId>,
     editing: Editing,
     tray: RemovalTray,
@@ -30,68 +28,72 @@ pub struct TreeState {
 }
 
 impl TreeState {
-    /// A state with the given rows folded, as restored from preferences.
-    pub fn with_folded(folded: impl IntoIterator<Item = RowId>) -> Self {
+    pub(crate) fn with_folded(folded: impl IntoIterator<Item = RowId>) -> Self {
         Self {
             folded: folded.into_iter().collect(),
             ..Self::default()
         }
     }
 
-    /// The folded row ids, for persistence.
-    pub fn folded(&self) -> impl Iterator<Item = &RowId> {
+    pub(crate) fn folded(&self) -> impl Iterator<Item = &RowId> {
         self.folded.iter()
     }
 
-    /// Folds an expanded row and expands a folded one.
-    pub fn toggle_fold(&mut self, row: &RowId) {
+    pub(crate) fn toggle_fold(
+        &mut self,
+        row: &RowId,
+    ) {
         if !self.folded.remove(row) {
             self.folded.insert(row.clone());
         }
     }
 
-    /// The inline input in use.
-    pub fn editing(&self) -> &Editing {
+    pub(crate) fn editing(&self) -> &Editing {
         &self.editing
     }
 
-    /// Replaces the label of `row` with an input; locked branches refuse. Stops any other input.
-    pub fn start_rename(&mut self, row: &Row) {
+    pub(crate) fn start_rename(
+        &mut self,
+        row: &Row,
+    ) {
         if row.kind == RowKind::Branch && row.lock == Lock::Locked {
             return;
         }
         self.editing = Editing::Renaming(row.id.clone());
     }
 
-    /// Turns the chat row into the "make a branch" input. Stops any other input.
-    pub fn start_branching(&mut self, row: &RowId) {
+    pub(crate) fn start_branching(
+        &mut self,
+        row: &RowId,
+    ) {
         self.editing = Editing::Branching(row.clone());
     }
 
-    /// Opens a naming input for a fork under `parent` and unfolds the parent.
-    pub fn start_draft(&mut self, parent: &RowId) {
+    pub(crate) fn start_draft(
+        &mut self,
+        parent: &RowId,
+    ) {
         self.folded.remove(parent);
         self.editing = Editing::Drafting(parent.clone());
     }
 
-    /// Closes the inline input, confirmed or cancelled.
-    pub fn stop_editing(&mut self) {
+    pub(crate) fn stop_editing(&mut self) {
         self.editing = Editing::Nothing;
     }
 
-    /// The removal tray.
-    pub fn tray(&self) -> &RemovalTray {
+    pub(crate) fn tray(&self) -> &RemovalTray {
         &self.tray
     }
 
-    /// The confirmation waiting for an answer.
-    pub fn confirmation(&self) -> Option<&Confirmation> {
+    pub(crate) fn confirmation(&self) -> Option<&Confirmation> {
         self.confirmation.as_ref()
     }
 
-    /// Starts removing `row`: a countdown with Keep for chats, folders and workspaces, the
-    /// confirm dialog for a repository. Locked branches refuse.
-    pub fn request_removal(&mut self, row: &Row, now: Instant) {
+    pub(crate) fn request_removal(
+        &mut self,
+        row: &Row,
+        now: Instant,
+    ) {
         let Some(kind) = removal_kind(row) else {
             return;
         };
@@ -108,8 +110,11 @@ impl TreeState {
         }
     }
 
-    /// Asks before deleting a whole space; spaces are not rows and have no countdown.
-    pub fn request_project_removal(&mut self, project: ProjectId, label: &str) {
+    pub(crate) fn request_project_removal(
+        &mut self,
+        project: ProjectId,
+        label: &str,
+    ) {
         self.confirmation = Some(Confirmation {
             target: RemovalTarget::Project(project),
             kind: RemovalKind::Project,
@@ -118,8 +123,11 @@ impl TreeState {
         });
     }
 
-    /// The daemon refused to delete `row` over unsaved work: ask again naming the loss.
-    pub fn ask_to_discard(&mut self, row: &RowId, at_risk: Vec<WorkAtRisk>) {
+    pub(crate) fn ask_to_discard(
+        &mut self,
+        row: &RowId,
+        at_risk: Vec<WorkAtRisk>,
+    ) {
         let Some(hold) = self.tray.get(row).cloned() else {
             return;
         };
@@ -127,13 +135,14 @@ impl TreeState {
         self.confirmation = Some(Confirmation::for_hold(&hold, at_risk));
     }
 
-    /// Cancels the countdown of `row`; it reappears as it was.
-    pub fn keep(&mut self, row: &RowId) {
+    pub(crate) fn keep(
+        &mut self,
+        row: &RowId,
+    ) {
         self.tray.keep(row);
     }
 
-    /// Answers the confirmation with Cancel.
-    pub fn cancel_confirmation(&mut self) {
+    pub(crate) fn cancel_confirmation(&mut self) {
         let Some(confirmation) = self.confirmation.take() else {
             return;
         };
@@ -142,8 +151,7 @@ impl TreeState {
         }
     }
 
-    /// Answers with the destructive button and returns what to delete.
-    pub fn accept_confirmation(&mut self) -> Option<Confirmation> {
+    pub(crate) fn accept_confirmation(&mut self) -> Option<Confirmation> {
         let confirmation = self.confirmation.take()?;
         if let RemovalTarget::Row(row) = &confirmation.target {
             self.tray.commit(row);
@@ -151,20 +159,26 @@ impl TreeState {
         Some(confirmation)
     }
 
-    /// Sends every countdown that reached `now` and returns the rows to delete.
-    pub fn take_due(&mut self, now: Instant) -> Vec<RowId> {
+    pub(crate) fn take_due(
+        &mut self,
+        now: Instant,
+    ) -> Vec<RowId> {
         self.tray.take_due(now)
     }
 
-    /// Drops holds and folds of rows the daemon no longer lists.
-    pub fn reconcile(&mut self, rows: &[Row]) {
+    pub(crate) fn reconcile(
+        &mut self,
+        rows: &[Row],
+    ) {
         let exists = |id: &RowId| rows.iter().any(|row| &row.id == id);
         self.tray.release_gone(exists);
         self.folded.retain(exists);
     }
 
-    /// The rows to draw: descendants of folded and held rows are skipped, committed rows hide.
-    pub fn visible(&self, rows: &[Row]) -> Vec<VisibleRow> {
+    pub(crate) fn visible(
+        &self,
+        rows: &[Row],
+    ) -> Vec<VisibleRow> {
         let mut hidden_below: Option<u8> = None;
         rows.iter()
             .enumerate()
@@ -174,7 +188,11 @@ impl TreeState {
             .collect()
     }
 
-    fn is_hidden(&self, row: &Row, hidden_below: &mut Option<u8>) -> bool {
+    fn is_hidden(
+        &self,
+        row: &Row,
+        hidden_below: &mut Option<u8>,
+    ) -> bool {
         if hidden_below.is_some_and(|depth| row.depth > depth) {
             return true;
         }
@@ -183,21 +201,32 @@ impl TreeState {
         false
     }
 
-    fn is_committed(&self, row: &Row) -> bool {
+    fn is_committed(
+        &self,
+        row: &Row,
+    ) -> bool {
         let hold = self.tray.get(&row.id);
         hold.is_some_and(|hold| hold.deadline == Deadline::Committed)
     }
 
-    fn entry(&self, index: usize, row: &Row) -> VisibleRow {
-        let folded = row.nesting == Nesting::Parent && self.folded.contains(&row.id);
-        let expansion = if folded {
-            Expansion::Collapsed
-        } else {
-            Expansion::Expanded
-        };
+    fn expansion_of(
+        &self,
+        row: &Row,
+    ) -> Expansion {
+        if row.nesting == Nesting::Parent && self.folded.contains(&row.id) {
+            return Expansion::Collapsed;
+        }
+        Expansion::Expanded
+    }
+
+    fn entry(
+        &self,
+        index: usize,
+        row: &Row,
+    ) -> VisibleRow {
         VisibleRow {
             index,
-            expansion,
+            expansion: self.expansion_of(row),
             removal: self.tray.get(&row.id).cloned(),
         }
     }
@@ -214,5 +243,213 @@ fn removal_kind(row: &Row) -> Option<RemovalKind> {
 }
 
 #[cfg(test)]
-#[path = "tree_state_tests.rs"]
-mod tests;
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::lock::Lock;
+
+    fn rows() -> Vec<Row> {
+        let mut repo = Row::new("repo", RowKind::RepoHeader, 0, "demo");
+        repo.nesting = Nesting::Parent;
+        let mut main = Row::new("main", RowKind::Branch, 1, "main");
+        main.nesting = Nesting::Parent;
+        vec![
+            repo,
+            main,
+            Row::new("chat", RowKind::Chat, 2, "Untitled"),
+            Row::new("other", RowKind::Chat, 1, "Other"),
+        ]
+    }
+
+    fn indices(
+        state: &TreeState,
+        rows: &[Row],
+    ) -> Vec<usize> {
+        state.visible(rows).iter().map(|row| row.index).collect()
+    }
+
+    type FoldCase = (&'static str, &'static [&'static str], &'static [usize]);
+
+    const FOLD_CASES: &[FoldCase] = &[
+        ("all shown", &[], &[0, 1, 2, 3]),
+        ("main's chat hidden", &["main"], &[0, 1, 3]),
+        ("everything under the repo hidden", &["main", "repo"], &[0]),
+        (
+            "unfolding restores",
+            &["main", "repo", "repo", "main"],
+            &[0, 1, 2, 3],
+        ),
+    ];
+
+    fn toggled(ids: &[&str]) -> TreeState {
+        let mut state = TreeState::default();
+        for id in ids {
+            state.toggle_fold(&RowId::from(*id));
+        }
+        state
+    }
+
+    #[test]
+    fn folding_hides_descendants_only() {
+        let rows = rows();
+        for (name, toggles, expected) in FOLD_CASES {
+            let state = toggled(toggles);
+            assert_eq!(indices(&state, &rows), *expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn rename_and_branching_exclude_each_other_and_locked_branches_refuse() {
+        let rows = rows();
+        let mut state = TreeState::default();
+        state.start_rename(&rows[2]);
+        assert_eq!(
+            state.editing(),
+            &Editing::Renaming(RowId::from("chat")),
+            "renaming"
+        );
+        state.start_branching(&RowId::from("other"));
+        assert_eq!(
+            state.editing(),
+            &Editing::Branching(RowId::from("other")),
+            "branching replaced it"
+        );
+        let mut locked = rows[1].clone();
+        locked.lock = Lock::Locked;
+        state.stop_editing();
+        state.start_rename(&locked);
+        assert_eq!(state.editing(), &Editing::Nothing, "locked branch refuses");
+    }
+
+    #[test]
+    fn a_draft_unfolds_its_parent() {
+        let rows = rows();
+        let mut state = TreeState::default();
+        state.toggle_fold(&rows[1].id);
+        state.start_draft(&rows[1].id);
+        assert_eq!(indices(&state, &rows), vec![0, 1, 2, 3], "parent unfolded");
+        assert_eq!(
+            state.editing(),
+            &Editing::Drafting(RowId::from("main")),
+            "draft open"
+        );
+    }
+
+    #[test]
+    fn a_chat_removal_counts_down_keeps_its_slot_and_hides_children() {
+        let rows = rows();
+        let now = Instant::now();
+        let mut state = TreeState::default();
+        state.request_removal(&rows[1], now);
+        let visible = state.visible(&rows);
+        assert_eq!(
+            visible.iter().map(|row| row.index).collect::<Vec<_>>(),
+            vec![0, 1, 3],
+            "children hide"
+        );
+        assert!(
+            visible[1].removal.is_some(),
+            "the held row is drawn as a countdown"
+        );
+        state.keep(&rows[1].id);
+        assert_eq!(
+            indices(&state, &rows),
+            vec![0, 1, 2, 3],
+            "keep restores exactly"
+        );
+    }
+
+    #[test]
+    fn due_removals_are_sent_and_then_hidden_until_the_tombstone() {
+        let rows = rows();
+        let now = Instant::now();
+        let mut state = TreeState::default();
+        state.request_removal(&rows[3], now);
+        assert!(
+            state.take_due(now + Duration::from_secs(1)).is_empty(),
+            "too early"
+        );
+        let due = state.take_due(now + RemovalTray::DRAIN);
+        assert_eq!(due, vec![RowId::from("other")], "sent");
+        assert_eq!(
+            indices(&state, &rows),
+            vec![0, 1, 2],
+            "committed row hidden"
+        );
+        state.reconcile(&rows[..3]);
+        assert!(
+            state.tray().get(&rows[3].id).is_none(),
+            "tombstone releases the hold"
+        );
+    }
+
+    #[test]
+    fn repositories_ask_and_cancelling_brings_the_row_back() {
+        let rows = rows();
+        let mut state = TreeState::default();
+        state.request_removal(&rows[0], Instant::now());
+        assert_eq!(
+            state.confirmation().map(Confirmation::title),
+            Some("Delete repository “demo”?".into()),
+            "asks"
+        );
+        state.cancel_confirmation();
+        assert!(
+            state.confirmation().is_none() && state.tray().get(&rows[0].id).is_none(),
+            "cancelled"
+        );
+        state.request_removal(&rows[0], Instant::now());
+        let accepted = state.accept_confirmation();
+        assert_eq!(
+            accepted.map(|confirmation| confirmation.target),
+            Some(RemovalTarget::Row(RowId::from("repo"))),
+            "accepted"
+        );
+        assert_eq!(
+            indices(&state, &rows),
+            Vec::<usize>::new(),
+            "repo and children hidden after sending"
+        );
+    }
+
+    #[test]
+    fn a_refused_delete_asks_again_naming_the_loss() {
+        let rows = rows();
+        let mut state = TreeState::default();
+        state.request_removal(&rows[2], Instant::now());
+        let risk = WorkAtRisk {
+            branch: "b".into(),
+            uncommitted_files: 2,
+            unmerged_commits: 0,
+        };
+        state.ask_to_discard(&rows[2].id, vec![risk]);
+        let title = state.confirmation().map(Confirmation::title);
+        assert_eq!(
+            title,
+            Some("Delete chat “Untitled” and lose work?".into()),
+            "second question"
+        );
+        assert!(!state.tray().is_counting(), "no clock while asking");
+    }
+
+    #[test]
+    fn locked_branches_cannot_be_removed() {
+        let mut locked = rows()[1].clone();
+        locked.lock = Lock::Locked;
+        let mut state = TreeState::default();
+        state.request_removal(&locked, Instant::now());
+        assert!(state.tray().get(&locked.id).is_none(), "no hold");
+    }
+
+    #[test]
+    fn spaces_ask_without_a_row() {
+        let mut state = TreeState::default();
+        state.request_project_removal(ProjectId::from("p"), "inv");
+        assert_eq!(
+            state.confirmation().map(Confirmation::title),
+            Some("Delete space “inv”?".into()),
+            "asks"
+        );
+    }
+}

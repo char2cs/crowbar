@@ -21,19 +21,32 @@ impl Default for Peek {
 }
 
 impl Peek {
-    pub(crate) fn slide_to(&mut self, target: f32, motion: Motion) {
+    pub(crate) fn slide_to(
+        &mut self,
+        target: f32,
+        motion: Motion,
+    ) {
         self.glide.go_to(target, Instant::now(), motion);
     }
 
-    pub(crate) fn position(&self, motion: Motion) -> f32 {
+    pub(crate) fn position(
+        &self,
+        motion: Motion,
+    ) -> f32 {
         self.glide.value(Instant::now(), motion)
     }
 
-    pub(crate) fn is_moving(&self, motion: Motion) -> bool {
+    pub(crate) fn is_moving(
+        &self,
+        motion: Motion,
+    ) -> bool {
         self.glide.is_running(Instant::now(), motion)
     }
 
-    pub(crate) fn is_shown(&self, motion: Motion) -> bool {
+    pub(crate) fn is_shown(
+        &self,
+        motion: Motion,
+    ) -> bool {
         self.is_wanted() || self.is_moving(motion)
     }
 
@@ -43,5 +56,22 @@ impl Peek {
 }
 
 #[cfg(test)]
-#[path = "peek_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sliding_in_takes_two_hundred_milliseconds_and_reduced_motion_is_instant() {
+        let mut peek = Peek::default();
+        assert!(!peek.is_wanted(), "parked at start");
+        peek.slide_to(1.0, Motion::default());
+        assert!(peek.is_wanted(), "wanted after slide in");
+        assert!(
+            peek.is_moving(Motion::default()),
+            "moving right after the request"
+        );
+        assert!(peek.position(Motion::default()) < 0.1, "barely started");
+        let mut instant = Peek::default();
+        instant.slide_to(1.0, Motion::reduced());
+        assert!(instant.position(Motion::reduced()) < 0.1, "starts at zero");
+    }
+}

@@ -35,7 +35,11 @@ pub(crate) struct TreeRow {
 }
 
 impl RenderOnce for TreeRow {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let group = SharedString::from(format!("row-{}", self.row.id.as_str()));
         let idle = palette.sidebar_element_idle();
@@ -59,14 +63,24 @@ impl RenderOnce for TreeRow {
     }
 }
 
-fn with_menu(shell: Stateful<gpui::Div>, row: &RowId, handler: &RowHandler) -> Stateful<gpui::Div> {
+fn menu_action(
+    row: &RowId,
+    at: gpui::Point<gpui::Pixels>,
+) -> RowAction {
+    RowAction::Menu {
+        row: row.clone(),
+        at,
+    }
+}
+
+fn with_menu(
+    shell: Stateful<gpui::Div>,
+    row: &RowId,
+    handler: &RowHandler,
+) -> Stateful<gpui::Div> {
     let (row, handler) = (row.clone(), Rc::clone(handler));
     shell.on_mouse_down(MouseButton::Right, move |event, window, cx| {
-        let action = RowAction::Menu {
-            row: row.clone(),
-            at: event.position,
-        };
-        handler(action, window, cx);
+        handler(menu_action(&row, event.position), window, cx);
     })
 }
 
@@ -84,7 +98,11 @@ fn open_on_click(
     })
 }
 
-fn glyph_box(row: &Row, expansion: Expansion, cx: &App) -> gpui::AnyElement {
+fn glyph_box(
+    row: &Row,
+    expansion: Expansion,
+    cx: &App,
+) -> gpui::AnyElement {
     let palette = Theme::of(cx).palette(Surface::Chrome);
     let frame = div().flex().flex_none().items_center().justify_center();
     match RowGlyph::of(row, expansion) {
@@ -111,5 +129,21 @@ fn glyph_box(row: &Row, expansion: Expansion, cx: &App) -> gpui::AnyElement {
 }
 
 #[cfg(test)]
-#[path = "tree_row_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::test_support::{chat, measure, recording_handler};
+
+    #[gpui::test]
+    fn a_row_is_the_spec_height_plus_its_vertical_margin(cx: &mut TestAppContext) {
+        let (handler, _) = recording_handler();
+        let bounds = measure(cx, move |_, _| TreeRow {
+            row: chat("Refactor"),
+            expansion: Expansion::Expanded,
+            input: None,
+            handler: Rc::clone(&handler),
+        });
+        assert_eq!(f32::from(bounds.size.height), 38.0);
+    }
+}

@@ -15,7 +15,11 @@ pub(crate) struct FrameGeometry {
 }
 
 impl FrameGeometry {
-    pub(crate) fn new(container: f32, width: f32, panel: Panel) -> Self {
+    pub(crate) fn new(
+        container: f32,
+        width: f32,
+        panel: Panel,
+    ) -> Self {
         Self {
             container,
             presentation: Panel::presentation(container),
@@ -37,5 +41,56 @@ impl FrameGeometry {
 }
 
 #[cfg(test)]
-#[path = "frame_geometry_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn panel(visibility: Visibility) -> Panel {
+        Panel::restore(visibility, 294.0, DockSide::Left)
+    }
+
+    type Case = (&'static str, f32, f32, Visibility, bool, bool);
+
+    const CASES: &[Case] = &[
+        (
+            "open in a wide window docks",
+            1200.0,
+            294.0,
+            Visibility::Open,
+            true,
+            false,
+        ),
+        (
+            "open in a narrow window is a drawer",
+            600.0,
+            294.0,
+            Visibility::Open,
+            false,
+            true,
+        ),
+        (
+            "closed is neither",
+            1200.0,
+            0.0,
+            Visibility::Closed,
+            false,
+            false,
+        ),
+        (
+            "zero width never docks",
+            1200.0,
+            0.0,
+            Visibility::Open,
+            false,
+            false,
+        ),
+    ];
+
+    #[test]
+    fn the_window_and_panel_choose_dock_or_drawer() {
+        for (name, window, width, visibility, docked, drawer) in CASES {
+            let geometry = FrameGeometry::new(*window, *width, panel(*visibility));
+            assert_eq!(geometry.is_docked(), *docked, "{name}: docked");
+            assert_eq!(geometry.is_drawer(), *drawer, "{name}: drawer");
+        }
+    }
+}

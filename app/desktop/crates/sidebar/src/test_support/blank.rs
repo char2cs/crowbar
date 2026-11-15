@@ -1,11 +1,18 @@
 //! A flat view standing in for the panes area.
 
-use gpui::{Context, IntoElement, Render, Styled, Window, div};
+use gpui::{Context, Hsla, IntoElement, Render, Styled, Window, div};
 
-pub(crate) struct Blank;
+#[derive(Default)]
+pub(crate) struct Blank {
+    pub(crate) background: Hsla,
+}
 
 impl Render for Blank {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<'_, Self>) -> impl IntoElement {
-        div().size_full()
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
+        div().size_full().bg(self.background)
     }
 }

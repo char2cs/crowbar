@@ -8,7 +8,11 @@ use crate::metrics::{INDENT_STEP, ROW_HEIGHT, ROW_MARGIN_X, ROW_MARGIN_Y};
 const GAP: f32 = 6.0;
 const PADDING: f32 = 6.0;
 
-pub(crate) fn row_shell(id: ElementId, depth: u8, palette: &Palette) -> Stateful<Div> {
+pub(crate) fn row_shell(
+    id: ElementId,
+    depth: u8,
+    palette: &Palette,
+) -> Stateful<Div> {
     div()
         .id(id)
         .relative()
@@ -27,5 +31,19 @@ pub(crate) fn row_shell(id: ElementId, depth: u8, palette: &Palette) -> Stateful
 }
 
 #[cfg(test)]
-#[path = "row_shell_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{ParentElement, TestAppContext};
+    use ui::{Surface, Theme};
+
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn a_row_is_the_spec_height_plus_its_vertical_margin(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, cx| {
+            let palette = Theme::of(cx).palette(Surface::Chrome);
+            row_shell("row".into(), 0, palette).child("label")
+        });
+        assert_eq!(f32::from(bounds.size.height), ROW_HEIGHT + ROW_MARGIN_Y);
+    }
+}

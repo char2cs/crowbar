@@ -1,25 +1,35 @@
 //! Whether threads can start in a terminal.
 
-/// The provider's capability.
+use crate::sidebar_data::SidebarData;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TerminalThreads {
-    /// The provider cannot.
+pub(crate) enum TerminalThreads {
     #[default]
     Unavailable,
-    /// The provider can.
     Available,
 }
 
-impl From<bool> for TerminalThreads {
-    fn from(available: bool) -> Self {
-        if available {
-            Self::Available
-        } else {
-            Self::Unavailable
+impl TerminalThreads {
+    pub(crate) fn of(data: &dyn SidebarData) -> Self {
+        if data.can_start_terminal_thread() {
+            return Self::Available;
         }
+        Self::Unavailable
     }
 }
 
 #[cfg(test)]
-#[path = "terminal_threads_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_provider_that_can_start_terminal_threads_is_available() {
+        let data = crate::demo_data::DemoData::reference();
+        assert_eq!(TerminalThreads::of(&data), TerminalThreads::Available);
+    }
+
+    #[test]
+    fn unavailable_is_the_default() {
+        assert_eq!(TerminalThreads::default(), TerminalThreads::Unavailable);
+    }
+}

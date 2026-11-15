@@ -49,6 +49,16 @@ impl Default for Preferences {
     }
 }
 
+fn unreadable(
+    path: &Path,
+    source: std::io::Error,
+) -> Error {
+    Error::ReadPreferences {
+        path: path.to_owned(),
+        source,
+    }
+}
+
 impl Preferences {
     /// Reads the file; a missing file yields the defaults.
     ///
@@ -62,12 +72,7 @@ impl Preferences {
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self::default());
             },
-            Err(source) => {
-                return Err(Error::ReadPreferences {
-                    path: path.to_owned(),
-                    source,
-                });
-            },
+            Err(source) => return Err(unreadable(path, source)),
         };
         serde_json::from_str(&text).map_err(|source| Error::ParsePreferences {
             path: path.to_owned(),
@@ -80,7 +85,10 @@ impl Preferences {
     /// # Errors
     ///
     /// [`Error::WritePreferences`] when the file cannot be written.
-    pub fn save(&self, path: &Path) -> Result<(), Error> {
+    pub fn save(
+        &self,
+        path: &Path,
+    ) -> Result<(), Error> {
         let write = |source| Error::WritePreferences {
             path: path.to_owned(),
             source,
@@ -90,19 +98,21 @@ impl Preferences {
         std::fs::write(path, json).map_err(write)
     }
 
-    /// The panel geometry these preferences describe; the width is clamped.
-    pub fn panel(&self) -> Panel {
+    pub(crate) fn panel(&self) -> Panel {
         Panel::restore(self.visibility, self.width, self.side)
     }
 
-    /// The tree state with the stored folds applied.
-    pub fn tree(&self) -> TreeState {
+    pub(crate) fn tree(&self) -> TreeState {
         TreeState::with_folded(self.folded.iter().map(|id| RowId::from(id.as_str())))
     }
 
-    /// These preferences after the panel, mode and tree changed.
     #[must_use]
-    pub fn updated(&self, panel: &Panel, mode: Mode, tree: &TreeState) -> Self {
+    pub(crate) fn updated(
+        &self,
+        panel: Panel,
+        mode: Mode,
+        tree: &TreeState,
+    ) -> Self {
         Self {
             visibility: panel.visibility(),
             width: panel.preferred(),
@@ -115,5 +125,83 @@ impl Preferences {
 }
 
 #[cfg(test)]
-#[path = "preferences_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("sidebar-prefs-{}-{name}.json", std::process::id()))
+    }
+
+    type Check = fn(&Result<Preferences, Error>) -> bool;
+
+    fn is_default(loaded: &Result<Preferences, Error>) -> bool {
+        matches!(loaded, Ok(prefs) if *prefs == Preferences::default())
+    }
+
+    fn is_parse_error(loaded: &Result<Preferences, Error>) -> bool {
+        matches!(loaded, Err(Error::ParsePreferences { .. }))
+    }
+
+    fn is_clamped(loaded: &Result<Preferences, Error>) -> bool {
+        matches!(loaded, Ok(prefs) if prefs.mode == Mode::Chats
+            && (prefs.panel().preferred() - 640.0).abs() < 0.01)
+    }
+
+    type LoadCase = (&'static str, Option<&'static str>, Check);
+
+    const LOAD_CASES: &[LoadCase] = &[
+        ("a missing file yields the defaults", None, is_default),
+        (
+            "a corrupt file is an error, not a reset",
+            Some("not json"),
+            is_parse_error,
+        ),
+        (
+            "partial files fall back per field and widths are clamped",
+            Some(r#"{"width": 9000.0}"#),
+            is_clamped,
+        ),
+    ];
+
+    fn load_file(
+        name: &str,
+        content: Option<&str>,
+    ) -> Result<Preferences, Error> {
+        let path = scratch(name);
+        if let Some(text) = content {
+            std::fs::write(&path, text).expect("write");
+        }
+        let loaded = Preferences::load(&path);
+        std::fs::remove_file(&path).ok();
+        loaded
+    }
+
+    #[test]
+    fn loading_handles_missing_corrupt_and_partial_files() {
+        for (name, content, check) in LOAD_CASES {
+            let loaded = load_file(name, *content);
+            assert!(check(&loaded), "{name}");
+        }
+    }
+
+    #[test]
+    fn saving_and_loading_round_trips_every_field() {
+        let path = scratch("roundtrip");
+        let mut tree = TreeState::default();
+        tree.toggle_fold(&RowId::from("row"));
+        let mut panel = Panel::default();
+        panel.commit(400.0);
+        panel.dock_to(DockSide::Right);
+        let mut prefs = Preferences::default().updated(panel, Mode::Files, &tree);
+        prefs
+            .last_project_by_host
+            .insert("local".into(), "p1".into());
+        prefs.save(&path).expect("save");
+        let loaded = Preferences::load(&path).expect("load");
+        std::fs::remove_file(&path).expect("cleanup");
+        assert_eq!(loaded, prefs, "round trip");
+        assert_eq!(loaded.panel().side(), DockSide::Right, "side");
+        assert!((loaded.panel().preferred() - 400.0).abs() < 0.01, "width");
+        assert_eq!(loaded.tree().folded().count(), 1, "folds");
+    }
+}

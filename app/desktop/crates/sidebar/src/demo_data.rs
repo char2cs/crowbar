@@ -37,6 +37,12 @@ use crate::workspace::Workspace;
 use crate::workspace_status::WorkspaceStatus;
 use crate::worktree::Worktree;
 
+const RICH_COUNTS: (usize, usize) = (3, 2);
+const SYNC_LOOP_ADDED: u32 = 42;
+const SYNC_LOOP_DELETED: u32 = 7;
+const SPIKE_ADDED: u32 = 3;
+const SPIKE_DELETED: u32 = 1;
+
 /// The fixed workspace of the gallery; rows can be renamed and removed through the sink.
 #[derive(Debug)]
 pub struct DemoData {
@@ -57,10 +63,13 @@ impl DemoData {
 
     /// Several spaces and a tree that uses every row kind, state and badge.
     pub fn rich() -> Self {
-        Self::with_rows(rich_rows(), (3, 2))
+        Self::with_rows(rich_rows(), RICH_COUNTS)
     }
 
-    fn with_rows(rows: Vec<Row>, (spaces, hosts): (usize, usize)) -> Self {
+    fn with_rows(
+        rows: Vec<Row>,
+        (spaces, hosts): (usize, usize),
+    ) -> Self {
         Self {
             rows: RefCell::new(rows),
             active: RefCell::new(ProjectId::from("inv")),
@@ -73,7 +82,10 @@ impl DemoData {
 
     /// What the focused pane shows; only a repository enables every mode.
     #[must_use]
-    pub fn with_focus(mut self, focus: Focus) -> Self {
+    pub fn with_focus(
+        mut self,
+        focus: Focus,
+    ) -> Self {
         self.focus = focus;
         self
     }
@@ -87,13 +99,23 @@ impl DemoData {
     }
 }
 
-fn branch(id: &str, depth: u8, label: &str, workspace: Workspace) -> Row {
+fn branch(
+    id: &str,
+    depth: u8,
+    label: &str,
+    workspace: Workspace,
+) -> Row {
     let mut row = Row::new(id, RowKind::Branch, depth, label);
     row.workspace = Some(workspace);
     row
 }
 
-fn landed(status: WorkspaceStatus, branch: &str, added: u32, deleted: u32) -> Workspace {
+fn landed(
+    status: WorkspaceStatus,
+    branch: &str,
+    added: u32,
+    deleted: u32,
+) -> Workspace {
     Workspace {
         status,
         branch: branch.to_owned(),
@@ -103,7 +125,12 @@ fn landed(status: WorkspaceStatus, branch: &str, added: u32, deleted: u32) -> Wo
     }
 }
 
-fn repo_header(id: &str, label: &str, letter: char, tint: AvatarTint) -> Row {
+fn repo_header(
+    id: &str,
+    label: &str,
+    letter: char,
+    tint: AvatarTint,
+) -> Row {
     let mut row = Row::new(id, RowKind::RepoHeader, 0, label);
     row.mark = Some(Mark::Letter { letter, tint });
     row.nesting = Nesting::Parent;
@@ -134,14 +161,24 @@ fn rich_rows() -> Vec<Row> {
     let mut rows = reference_rows();
     let mut working = Row::new("working", RowKind::Chat, 1, "Refactor the sync loop");
     working.activity = Activity::Working;
-    working.workspace = Some(landed(WorkspaceStatus::PrOpen, "sync-loop", 42, 7));
+    working.workspace = Some(landed(
+        WorkspaceStatus::PrOpen,
+        "sync-loop",
+        SYNC_LOOP_ADDED,
+        SYNC_LOOP_DELETED,
+    ));
     let mut folder = Row::new("folder", RowKind::Folder, 1, "Experiments");
     folder.nesting = Nesting::Parent;
     let child = branch(
         "child",
         2,
         "spike",
-        landed(WorkspaceStatus::PrMerged, "spike", 3, 1),
+        landed(
+            WorkspaceStatus::PrMerged,
+            "spike",
+            SPIKE_ADDED,
+            SPIKE_DELETED,
+        ),
     );
     rows.extend([working, folder, child]);
     rows
@@ -201,23 +238,25 @@ impl SidebarData for DemoData {
         Some(self.active.borrow().clone())
     }
 
-    fn tree(&self, project: &ProjectId) -> ProjectTree {
-        let rows = if project == &*self.active.borrow() {
-            self.rows.borrow().clone()
-        } else {
-            Vec::new()
-        };
-        ProjectTree {
-            rows,
-            ..ProjectTree::default()
+    fn tree(
+        &self,
+        project: &ProjectId,
+    ) -> ProjectTree {
+        let mut tree = ProjectTree::default();
+        if project == &*self.active.borrow() {
+            tree.rows.clone_from(&self.rows.borrow());
         }
+        tree
     }
 
     fn focus(&self) -> Focus {
         self.focus
     }
 
-    fn move_targets(&self, _row: &RowId) -> Vec<MoveTarget> {
+    fn move_targets(
+        &self,
+        _row: &RowId,
+    ) -> Vec<MoveTarget> {
         Vec::new()
     }
 
@@ -260,29 +299,38 @@ impl SidebarData for DemoData {
     }
 
     fn changes(&self) -> Changes {
+        let file = ChangedFile {
+            path: "src/lib.rs".into(),
+            status: GitStatus::Added,
+            added: 1,
+            deleted: 0,
+        };
         Changes {
             branch: "inv-rb".into(),
             parent: Some("main".into()),
-            files: vec![ChangedFile {
-                path: "src/lib.rs".into(),
-                status: GitStatus::Added,
-                added: 1,
-                deleted: 0,
-            }],
+            files: vec![file],
         }
     }
 }
 
+fn already_exists(name: &str) -> Error {
+    Error::Refused {
+        reason: format!("\"{name}\" already exists"),
+    }
+}
+
 impl DemoData {
-    fn rename(&self, row: &RowId, name: &str) -> Result<(), Error> {
+    fn rename(
+        &self,
+        row: &RowId,
+        name: &str,
+    ) -> Result<(), Error> {
         let mut rows = self.rows.borrow_mut();
-        if rows
+        let taken = rows
             .iter()
-            .any(|other| &other.id != row && other.label == name)
-        {
-            return Err(Error::Refused {
-                reason: format!("\"{name}\" already exists"),
-            });
+            .any(|other| &other.id != row && other.label == name);
+        if taken {
+            return Err(already_exists(name));
         }
         for found in rows.iter_mut().filter(|other| &other.id == row) {
             name.clone_into(&mut found.label);
@@ -293,7 +341,10 @@ impl DemoData {
 }
 
 impl CommandSink for DemoData {
-    fn dispatch(&self, command: Command) -> Result<(), Error> {
+    fn dispatch(
+        &self,
+        command: Command,
+    ) -> Result<(), Error> {
         match command {
             Command::SelectProject(project) => *self.active.borrow_mut() = project,
             Command::Rename { row, name } => return self.rename(&row, &name),
@@ -305,5 +356,53 @@ impl CommandSink for DemoData {
 }
 
 #[cfg(test)]
-#[path = "demo_data_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renaming_to_a_taken_name_is_refused_and_leaves_the_tree_alone() {
+        let data = DemoData::reference();
+        let refused = data.dispatch(Command::Rename {
+            row: RowId::from("chat"),
+            name: "main".into(),
+        });
+        assert!(
+            matches!(refused, Err(Error::Refused { .. })),
+            "got {refused:?}"
+        );
+        let tree = data.tree(&ProjectId::from("inv"));
+        assert!(
+            tree.rows.iter().any(|row| row.label == "Untitled chat"),
+            "label kept"
+        );
+    }
+
+    #[test]
+    fn committing_a_removal_drops_the_row() {
+        let data = DemoData::reference();
+        data.dispatch(Command::CommitRemoval(RowId::from("chat")))
+            .expect("accepted");
+        assert!(
+            data.tree(&ProjectId::from("inv"))
+                .rows
+                .iter()
+                .all(|row| row.id != RowId::from("chat"))
+        );
+    }
+
+    type CountCase = (&'static str, fn() -> DemoData, usize, usize);
+
+    const COUNT_CASES: &[CountCase] = &[
+        ("the reference data", DemoData::reference, 2, 1),
+        ("the rich data", DemoData::rich, 3, 2),
+    ];
+
+    #[test]
+    fn the_data_lists_its_spaces_and_hosts() {
+        for (name, build, spaces, hosts) in COUNT_CASES {
+            let data = build();
+            assert_eq!(data.projects().len(), *spaces, "{name}: spaces");
+            assert_eq!(data.hosts().len(), *hosts, "{name}: hosts");
+        }
+    }
+}

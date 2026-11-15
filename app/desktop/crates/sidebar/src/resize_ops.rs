@@ -1,6 +1,6 @@
 //! Pointer and keyboard control of the separator.
 
-use gpui::{Context, KeyDownEvent, MouseMoveEvent, Pixels, Window};
+use gpui::{Context, KeyDownEvent, Modifiers, MouseMoveEvent, Pixels, Window};
 
 use crate::key_step::KeyStep;
 use crate::panel::Panel;
@@ -11,12 +11,22 @@ use crate::resizing::Resizing;
 use crate::sidebar::Sidebar;
 use crate::visibility::Visibility;
 
+fn step_of(modifiers: Modifiers) -> KeyStep {
+    if modifiers.shift {
+        return KeyStep::Coarse;
+    }
+    KeyStep::Fine
+}
+
 impl Sidebar {
     pub(crate) fn container_width(window: &Window) -> f32 {
         f32::from(window.viewport_size().width)
     }
 
-    pub(crate) fn live_width(&self, container: f32) -> f32 {
+    pub(crate) fn live_width(
+        &self,
+        container: f32,
+    ) -> f32 {
         self.resizing.map_or_else(
             || self.panel.track_width(container),
             |resizing| resizing.width,
@@ -34,13 +44,17 @@ impl Sidebar {
             return;
         }
         let width = self.live_width(container);
-        let drag = ResizeDrag::begin(width, f32::from(press_x), &self.panel, container);
+        let drag = ResizeDrag::begin(width, f32::from(press_x), self.panel, container);
         self.resizing = Some(Resizing { drag, width });
         window.focus(&self.handle_focus);
         cx.notify();
     }
 
-    pub(crate) fn move_resize(&mut self, event: &MouseMoveEvent, cx: &mut Context<'_, Self>) {
+    pub(crate) fn move_resize(
+        &mut self,
+        event: &MouseMoveEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(resizing) = self.resizing.as_mut() else {
             return;
         };
@@ -52,7 +66,10 @@ impl Sidebar {
         cx.notify();
     }
 
-    pub(crate) fn end_resize(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn end_resize(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(resizing) = self.resizing.take() else {
             return;
         };
@@ -60,7 +77,10 @@ impl Sidebar {
         Self::changed(cx);
     }
 
-    pub(crate) fn toggle_collapsed(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn toggle_collapsed(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.panel.toggle();
         Self::changed(cx);
     }
@@ -79,11 +99,7 @@ impl Sidebar {
             "enter" => ResizeKey::Enter,
             _ => return,
         };
-        let step = if event.keystroke.modifiers.shift {
-            KeyStep::Coarse
-        } else {
-            KeyStep::Fine
-        };
+        let step = step_of(event.keystroke.modifiers);
         let container = Self::container_width(window);
         let current = self.live_width(container);
         let width = key.apply(step, self.panel, (current, container));
@@ -96,5 +112,79 @@ impl Sidebar {
 }
 
 #[cfg(test)]
-#[path = "resize_ops_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::prelude::*;
+
+    #[gpui::test]
+    fn dragging_changes_the_live_width_and_releasing_stores_it(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.begin_resize(px(294.0), window, cx);
+        });
+        let event = MouseMoveEvent {
+            position: point(px(400.0), px(300.0)),
+            pressed_button: Some(gpui::MouseButton::Left),
+            modifiers: Modifiers::none(),
+        };
+        sidebar.update(cx, |this, cx| this.move_resize(&event, cx));
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.live_width(1200.0)),
+            400.0
+        );
+        sidebar.update(cx, Sidebar::end_resize);
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.panel.preferred()),
+            400.0
+        );
+    }
+
+    #[gpui::test]
+    fn dragging_below_half_the_minimum_collapses(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.begin_resize(px(294.0), window, cx);
+        });
+        let event = MouseMoveEvent {
+            position: point(px(50.0), px(300.0)),
+            pressed_button: Some(gpui::MouseButton::Left),
+            modifiers: Modifiers::none(),
+        };
+        sidebar.update(cx, |this, cx| this.move_resize(&event, cx));
+        sidebar.update(cx, Sidebar::end_resize);
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.panel.visibility()),
+            Visibility::Closed
+        );
+    }
+
+    #[gpui::test]
+    fn the_home_key_collapses_and_end_widens(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let press = |key: &str| KeyDownEvent {
+            keystroke: gpui::Keystroke::parse(key).expect("a key"),
+            is_held: false,
+        };
+        sidebar.update_in(cx, |this, window, cx| {
+            this.press_separator(&press("end"), window, cx);
+        });
+        assert!(sidebar.read_with(cx, |this, _| this.panel.preferred()) > 294.0);
+        sidebar.update_in(cx, |this, window, cx| {
+            this.press_separator(&press("home"), window, cx);
+        });
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.panel.visibility()),
+            Visibility::Closed
+        );
+    }
+
+    #[gpui::test]
+    fn toggling_flips_between_open_and_closed(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update(cx, Sidebar::toggle_collapsed);
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.panel.visibility()),
+            Visibility::Closed
+        );
+    }
+}

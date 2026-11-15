@@ -23,11 +23,17 @@ pub trait SidebarData {
     /// The space shown, if any.
     fn active_project(&self) -> Option<ProjectId>;
     /// The chats tree of `project`.
-    fn tree(&self, project: &ProjectId) -> ProjectTree;
+    fn tree(
+        &self,
+        project: &ProjectId,
+    ) -> ProjectTree;
     /// What the focused pane shows, which decides the available modes.
     fn focus(&self) -> Focus;
     /// The folders and branches `row` can move into.
-    fn move_targets(&self, row: &RowId) -> Vec<MoveTarget>;
+    fn move_targets(
+        &self,
+        row: &RowId,
+    ) -> Vec<MoveTarget>;
     /// Whether a thread can start in a terminal.
     fn can_start_terminal_thread(&self) -> bool;
     /// The visible rows of the Files panel.
@@ -37,5 +43,20 @@ pub trait SidebarData {
 }
 
 #[cfg(test)]
-#[path = "sidebar_data_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::demo_data::DemoData;
+
+    #[test]
+    fn the_active_project_is_one_the_data_lists() {
+        let data = DemoData::rich();
+        let active = data.active_project().expect("an active project");
+        assert!(data.projects().iter().any(|project| project.id == active));
+    }
+
+    #[test]
+    fn a_loading_source_reports_pending_and_a_ready_one_ready() {
+        assert_eq!(DemoData::loading().sync(), ScopeSync::Pending);
+        assert_eq!(DemoData::reference().sync(), ScopeSync::Ready);
+    }
+}

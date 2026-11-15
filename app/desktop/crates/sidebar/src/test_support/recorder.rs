@@ -37,7 +37,10 @@ impl Recorder {
 }
 
 impl CommandSink for Recorder {
-    fn dispatch(&self, command: Command) -> Result<(), Error> {
+    fn dispatch(
+        &self,
+        command: Command,
+    ) -> Result<(), Error> {
         self.sent.borrow_mut().push(command.clone());
         self.data.dispatch(command)
     }
@@ -60,7 +63,10 @@ impl SidebarData for Recorder {
         self.data.active_project()
     }
 
-    fn tree(&self, project: &ProjectId) -> ProjectTree {
+    fn tree(
+        &self,
+        project: &ProjectId,
+    ) -> ProjectTree {
         self.data.tree(project)
     }
 
@@ -68,7 +74,10 @@ impl SidebarData for Recorder {
         self.data.focus()
     }
 
-    fn move_targets(&self, row: &RowId) -> Vec<MoveTarget> {
+    fn move_targets(
+        &self,
+        row: &RowId,
+    ) -> Vec<MoveTarget> {
         self.data.move_targets(row)
     }
 

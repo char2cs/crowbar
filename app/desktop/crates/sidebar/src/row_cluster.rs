@@ -11,6 +11,7 @@ use crate::expansion::Expansion;
 use crate::intent::Intent;
 use crate::nesting::Nesting;
 use crate::row_action::RowAction;
+use crate::row_id::RowId;
 use crate::row_report::report;
 use crate::row_verb::RowVerb;
 
@@ -43,7 +44,10 @@ pub(crate) fn cluster(spec: &ClusterSpec<'_>) -> Div {
         .children(fold)
 }
 
-fn button_frame(id: ElementId, spec: &ClusterSpec<'_>) -> Stateful<Div> {
+fn button_frame(
+    id: ElementId,
+    spec: &ClusterSpec<'_>,
+) -> Stateful<Div> {
     let palette = spec.palette;
     let hovered = move |style: StyleRefinement| {
         style
@@ -67,7 +71,10 @@ fn button_frame(id: ElementId, spec: &ClusterSpec<'_>) -> Stateful<Div> {
         })
 }
 
-fn verb_button(spec: &ClusterSpec<'_>, verb: RowVerb) -> impl IntoElement {
+fn verb_button(
+    spec: &ClusterSpec<'_>,
+    verb: RowVerb,
+) -> impl IntoElement {
     let (name, weight) = verb.icon();
     let size = match verb {
         RowVerb::RepoMenu => px(MENU_ICON),
@@ -81,17 +88,23 @@ fn verb_button(spec: &ClusterSpec<'_>, verb: RowVerb) -> impl IntoElement {
     }
 }
 
+fn repo_menu_action(
+    row: &RowId,
+    at: gpui::Point<gpui::Pixels>,
+) -> RowAction {
+    RowAction::RepoMenu {
+        row: row.clone(),
+        at,
+    }
+}
+
 fn repo_menu(
-    spec: &ClusterSpec<'_>,
+    spec: &ClusterSpec<'_>
 ) -> impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static {
     let (handler, row) = (std::rc::Rc::clone(&spec.handler), spec.row.id.clone());
     move |event, window, cx| {
         cx.stop_propagation();
-        let action = RowAction::RepoMenu {
-            row: row.clone(),
-            at: event.position(),
-        };
-        handler(action, window, cx);
+        handler(repo_menu_action(&row, event.position()), window, cx);
     }
 }
 
@@ -113,5 +126,40 @@ fn fold_button(spec: &ClusterSpec<'_>) -> impl IntoElement {
 }
 
 #[cfg(test)]
-#[path = "row_cluster_tests.rs"]
-mod tests;
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{SharedString, TestAppContext};
+    use ui::{Surface, Theme};
+
+    use super::*;
+    use crate::expansion::Expansion;
+    use crate::row::Row;
+    use crate::row_action::RowHandler;
+    use crate::test_support::{chat, measure, recording_handler};
+
+    fn spec_of<'a>(
+        row: &'a Row,
+        palette: &'static ui::Palette,
+        handler: &RowHandler,
+    ) -> ClusterSpec<'a> {
+        ClusterSpec {
+            row,
+            group: SharedString::from("row"),
+            expansion: Expansion::Expanded,
+            palette,
+            handler: Rc::clone(handler),
+        }
+    }
+
+    #[gpui::test]
+    fn the_cluster_is_laid_out_without_taking_flow_space(cx: &mut TestAppContext) {
+        let (handler, _) = recording_handler();
+        let row = chat("Refactor");
+        let bounds = measure(cx, move |_, cx| {
+            let palette = Theme::of(cx).palette(Surface::Chrome);
+            cluster(&spec_of(&row, palette, &handler))
+        });
+        assert_eq!(f32::from(bounds.size.height), 0.0);
+    }
+}

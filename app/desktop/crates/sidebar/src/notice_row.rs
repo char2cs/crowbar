@@ -8,6 +8,7 @@ use crate::intent::Intent;
 use crate::notice::Notice;
 use crate::project_id::ProjectId;
 use crate::row_action::{RowAction, RowHandler};
+use crate::scale::{ICON_MEDIUM, SPACE_LG, SPACE_MD, SPACE_SM, TEXT_SMALL};
 
 #[derive(IntoElement)]
 pub(crate) struct NoticeRow {
@@ -17,20 +18,24 @@ pub(crate) struct NoticeRow {
 }
 
 impl RenderOnce for NoticeRow {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let (project, handler) = (self.project, self.handler);
         div()
             .flex()
-            .gap(px(8.0))
-            .px(px(12.0))
-            .py(px(6.0))
-            .text_size(px(12.0))
+            .gap(SPACE_MD)
+            .px(SPACE_LG)
+            .py(SPACE_SM)
+            .text_size(TEXT_SMALL)
             .text_color(palette.muted_foreground())
             .child(
                 div().mt(px(2.0)).child(
                     Icon::new(IconName::WarningCircle)
-                        .size(px(14.0))
+                        .size(ICON_MEDIUM)
                         .color(palette.warning()),
                 ),
             )
@@ -49,5 +54,22 @@ impl RenderOnce for NoticeRow {
 }
 
 #[cfg(test)]
-#[path = "notice_row_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use std::rc::Rc;
+
+    use super::*;
+    use crate::test_support::{measure, recording_handler};
+
+    #[gpui::test]
+    fn the_notice_renders_its_sentence_above_a_retry_button(cx: &mut TestAppContext) {
+        let (handler, _) = recording_handler();
+        let bounds = measure(cx, move |_, _| NoticeRow {
+            notice: Notice::Project,
+            project: ProjectId::from("inv"),
+            handler: Rc::clone(&handler),
+        });
+        assert!(f32::from(bounds.size.height) > 0.0);
+    }
+}

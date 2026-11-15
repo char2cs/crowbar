@@ -15,8 +15,11 @@ use crate::mark_view::mark_view;
 use crate::metrics::SWITCHER_HEIGHT;
 use crate::project::Project;
 use crate::row_action::RowAction;
+use crate::scale::{SPACE_LG, SPACE_MD, SPACE_XS};
 use crate::sidebar::Sidebar;
 use crate::tile_shape::TileShape;
+
+const TILE_PULL: f32 = -4.0;
 
 const TILE: f32 = 28.0;
 const MARK: f32 = 20.0;
@@ -51,9 +54,9 @@ impl Sidebar {
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(px(8.0))
+                .gap(SPACE_MD)
                 .h(px(SWITCHER_HEIGHT))
-                .px(px(12.0))
+                .px(SPACE_LG)
                 .overflow_hidden()
                 .on_hover(hover_glide::listener(&glide))
                 .child(block)
@@ -95,7 +98,11 @@ impl Sidebar {
     }
 }
 
-fn mark_tile(project: &Project, group: &SharedString, palette: &Palette) -> Div {
+fn mark_tile(
+    project: &Project,
+    group: &SharedString,
+    palette: &Palette,
+) -> Div {
     let inner = div()
         .opacity(OTHER_MARK_ALPHA)
         .group_hover(group.clone(), |style| style.opacity(1.0))
@@ -112,14 +119,19 @@ fn mark_tile(project: &Project, group: &SharedString, palette: &Palette) -> Div 
         .child(inner)
 }
 
-fn active_block(current: &Project, add: IconButton, reveal: f32, palette: &Palette) -> Div {
+fn active_block(
+    current: &Project,
+    add: IconButton,
+    reveal: f32,
+    palette: &Palette,
+) -> Div {
     let tile = div()
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
         .size(px(TILE))
-        .ml(px(-4.0))
+        .ml(px(TILE_PULL))
         .rounded(radius::MD)
         .child(mark_view(&current.mark, px(MARK), palette));
     let name = div()
@@ -136,7 +148,7 @@ fn active_block(current: &Project, add: IconButton, reveal: f32, palette: &Palet
         .flex_none()
         .overflow_hidden()
         .w(px(TILE * reveal))
-        .ml(px(-4.0 * (1.0 - reveal)))
+        .ml(px(TILE_PULL * (1.0 - reveal)))
         .opacity(reveal)
         .child(add);
     div()
@@ -144,12 +156,30 @@ fn active_block(current: &Project, add: IconButton, reveal: f32, palette: &Palet
         .flex_1()
         .min_w_0()
         .items_center()
-        .gap(px(4.0))
+        .gap(SPACE_XS)
         .child(tile)
         .child(name)
         .child(slot)
 }
 
 #[cfg(test)]
-#[path = "switcher_tests.rs"]
-mod tests;
+mod tests {
+    use crate::intent::Intent;
+    use crate::test_support::prelude::*;
+
+    #[gpui::test]
+    fn several_spaces_render_the_other_marks(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        cx.run_until_parked();
+        assert!(sidebar.read_with(cx, |this, _| this.data.projects().len() > 1));
+    }
+
+    #[gpui::test]
+    fn the_add_button_starts_the_create_space_flow(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.apply(Intent::StartCreateSpace, window, cx);
+        });
+        assert!(sidebar.read_with(cx, |this, _| this.creating_space));
+    }
+}

@@ -7,15 +7,17 @@ use crate::intent::Intent;
 use crate::lock::Lock;
 use crate::menu_context::MenuContext;
 use crate::menu_entry::MenuEntry;
+use crate::move_target::MoveTarget;
 use crate::row::Row;
 use crate::row_kind::RowKind;
 use crate::terminal_threads::TerminalThreads;
 use crate::workspace_status::WorkspaceStatus;
 use crate::worktree::Worktree;
 
-/// The entries for a right click on `row`, top to bottom: rename, lock, import, creation,
-/// moves, then the destructive group after a separator.
-pub fn row_menu(row: &Row, context: &MenuContext) -> Vec<MenuEntry> {
+pub(crate) fn row_menu(
+    row: &Row,
+    context: &MenuContext,
+) -> Vec<MenuEntry> {
     let id = &row.id;
     let mut entries = Vec::new();
     if !is_locked_branch(row) {
@@ -75,7 +77,10 @@ fn lock_entry(row: &Row) -> Option<MenuEntry> {
     })
 }
 
-fn creation_entries(row: &Row, context: &MenuContext) -> Vec<MenuEntry> {
+fn creation_entries(
+    row: &Row,
+    context: &MenuContext,
+) -> Vec<MenuEntry> {
     if row.kind == RowKind::RepoHeader {
         return Vec::new();
     }
@@ -96,14 +101,13 @@ fn creation_entries(row: &Row, context: &MenuContext) -> Vec<MenuEntry> {
     entries
 }
 
-fn move_entries(row: &Row, context: &MenuContext) -> Vec<MenuEntry> {
+fn move_entries(
+    row: &Row,
+    context: &MenuContext,
+) -> Vec<MenuEntry> {
     let mut entries = Vec::new();
     if !context.targets.is_empty() {
-        entries.push(MenuEntry::Submenu {
-            label: "Move to…".into(),
-            icon: Some(IconName::ArrowsOutCardinal),
-            entries: move_targets(row, context),
-        });
+        entries.push(move_submenu(row, context));
     }
     entries.extend(make_branch_entry(row));
     if row.pending_move.is_some() {
@@ -113,22 +117,38 @@ fn move_entries(row: &Row, context: &MenuContext) -> Vec<MenuEntry> {
     entries
 }
 
-fn move_targets(row: &Row, context: &MenuContext) -> Vec<MenuEntry> {
-    context
-        .targets
-        .iter()
-        .map(|target| {
-            let icon = match target.kind {
-                RowKind::Folder => IconName::Folder,
-                _ => IconName::GitBranch,
-            };
-            let command = Command::MoveTo {
-                row: row.id.clone(),
-                target: target.id.clone(),
-            };
-            MenuEntry::action(&target.label, icon, Intent::Send(command))
-        })
-        .collect()
+fn move_targets(
+    row: &Row,
+    context: &MenuContext,
+) -> Vec<MenuEntry> {
+    let entry = |target: &MoveTarget| move_entry(row, target);
+    context.targets.iter().map(entry).collect()
+}
+
+fn move_entry(
+    row: &Row,
+    target: &MoveTarget,
+) -> MenuEntry {
+    let icon = match target.kind {
+        RowKind::Folder => IconName::Folder,
+        _ => IconName::GitBranch,
+    };
+    let command = Command::MoveTo {
+        row: row.id.clone(),
+        target: target.id.clone(),
+    };
+    MenuEntry::action(&target.label, icon, Intent::Send(command))
+}
+
+fn move_submenu(
+    row: &Row,
+    context: &MenuContext,
+) -> MenuEntry {
+    MenuEntry::Submenu {
+        label: "Move to…".into(),
+        icon: Some(IconName::ArrowsOutCardinal),
+        entries: move_targets(row, context),
+    }
 }
 
 fn make_branch_entry(row: &Row) -> Option<MenuEntry> {
@@ -139,5 +159,126 @@ fn make_branch_entry(row: &Row) -> Option<MenuEntry> {
 }
 
 #[cfg(test)]
-#[path = "row_menu_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::row_id::RowId;
+    use crate::workspace::Workspace;
+
+    fn labels(entries: &[MenuEntry]) -> Vec<String> {
+        entries
+            .iter()
+            .map(|entry| match entry {
+                MenuEntry::Action { label, .. } | MenuEntry::Submenu { label, .. } => label.clone(),
+                MenuEntry::Separator => "---".into(),
+            })
+            .collect()
+    }
+
+    fn workspace(status: WorkspaceStatus) -> Workspace {
+        Workspace {
+            status,
+            branch: "b".into(),
+            added: 0,
+            deleted: 0,
+            held_by_path: None,
+        }
+    }
+
+    fn repo() -> (Row, MenuContext) {
+        let row = Row::new("r", RowKind::RepoHeader, 0, "demo");
+        (row, MenuContext::default())
+    }
+
+    fn locked_branch() -> (Row, MenuContext) {
+        let mut row = Row::new("b", RowKind::Branch, 1, "main");
+        row.lock = Lock::Locked;
+        (row, MenuContext::default())
+    }
+
+    fn placeholder() -> (Row, MenuContext) {
+        let mut row = Row::new("b", RowKind::Branch, 1, "wip");
+        row.workspace = Some(workspace(WorkspaceStatus::Placeholder));
+        (row, MenuContext::default())
+    }
+
+    fn chat() -> (Row, MenuContext) {
+        let row = Row::new("c", RowKind::Chat, 2, "hi");
+        let target = MoveTarget {
+            id: RowId::from("f"),
+            label: "src".into(),
+            kind: RowKind::Folder,
+        };
+        let context = MenuContext {
+            targets: vec![target],
+            terminal: TerminalThreads::Available,
+        };
+        (row, context)
+    }
+
+    fn moving_chat() -> (Row, MenuContext) {
+        let mut row = Row::new("c", RowKind::Chat, 2, "hi");
+        row.pending_move = Some("src".into());
+        (row, MenuContext::default())
+    }
+
+    type Case = (
+        &'static str,
+        fn() -> (Row, MenuContext),
+        &'static [&'static str],
+    );
+
+    const CASES: &[Case] = &[
+        (
+            "a repo header gets import and a destructive tail",
+            repo,
+            &["Rename", "Import branches", "---", "Delete Repo"],
+        ),
+        (
+            "a locked branch cannot be renamed but can be unlocked",
+            locked_branch,
+            &["Unlock", "New folder"],
+        ),
+        (
+            "placeholders cannot be locked",
+            placeholder,
+            &["Rename", "New folder"],
+        ),
+        (
+            "chats offer terminal, move and branching in order",
+            chat,
+            &[
+                "Rename",
+                "New folder",
+                "New thread in Terminal",
+                "Move to…",
+                "Make a branch",
+            ],
+        ),
+        (
+            "a pending move replaces make a branch with cancel",
+            moving_chat,
+            &["Rename", "New folder", "Cancel move"],
+        ),
+    ];
+
+    #[test]
+    fn each_row_kind_gets_its_menu_in_order() {
+        for (name, build, expected) in CASES {
+            let (row, context) = build();
+            assert_eq!(labels(&row_menu(&row, &context)), *expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn move_to_lists_the_destinations() {
+        let (row, context) = chat();
+        let entries = row_menu(&row, &context);
+        let MenuEntry::Submenu {
+            entries: targets, ..
+        } = &entries[3]
+        else {
+            panic!("move to is a submenu");
+        };
+        assert_eq!(labels(targets), ["src"], "destinations");
+    }
+}

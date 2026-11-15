@@ -17,7 +17,7 @@ pub(crate) fn open(
     let recorder = Rc::new(Recorder::new(data));
     let shared = Rc::clone(&recorder);
     let (sidebar, cx) = cx.add_window_view(move |_, cx| {
-        let content = cx.new(|_| Blank).into();
+        let content = cx.new(|_| Blank::default()).into();
         Sidebar::new(
             Rc::clone(&shared) as _,
             shared,

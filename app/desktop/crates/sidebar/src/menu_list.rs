@@ -3,8 +3,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ClickEvent, Div, Entity, FocusHandle, FontWeight, InteractiveElement,
-    IntoElement, MouseMoveEvent, ParentElement, RenderOnce, Stateful, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    IntoElement, MouseMoveEvent, ParentElement, Pixels, RenderOnce, Stateful,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use ui::font::UI_FAMILY;
 use ui::{Icon, IconName, Palette, Surface, Theme, radius, shadow, text_size};
@@ -12,8 +12,15 @@ use ui::{Icon, IconName, Palette, Surface, Theme, radius, shadow, text_size};
 use crate::intent::Intent;
 use crate::item_look::ItemLook;
 use crate::menu_entry::MenuEntry;
+use crate::scale::{ICON_LARGE, SPACE_MD, SPACE_XS};
 use crate::sidebar::Sidebar;
 use crate::tone::Tone;
+
+const SHADOW_STRENGTH: f32 = 0.05;
+const SUBMENU_RISE: Pixels = px(-4.0);
+const CARET_ALPHA: f32 = 0.6;
+const DESTRUCTIVE_TINT: f32 = 0.1;
+const ICON_PULL: Pixels = px(-2.0);
 
 const MIN_WIDTH: f32 = 180.0;
 const ROW_MIN_HEIGHT: f32 = 28.0;
@@ -29,7 +36,11 @@ pub(crate) struct MenuList {
 }
 
 impl RenderOnce for MenuList {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
         let rows: Vec<AnyElement> = self
             .entries
@@ -50,7 +61,7 @@ impl RenderOnce for MenuList {
             .flex()
             .flex_col()
             .min_w(px(MIN_WIDTH))
-            .p(px(4.0))
+            .p(SPACE_XS)
             .rounded(radius::LG)
             .border_1()
             .border_color(palette.border())
@@ -58,13 +69,31 @@ impl RenderOnce for MenuList {
             .text_color(palette.foreground())
             .font_family(UI_FAMILY)
             .text_size(text_size::SM)
-            .shadow(shadow::lg(0.05))
+            .shadow(shadow::lg(SHADOW_STRENGTH))
             .children(rows)
     }
 }
 
+fn look(
+    icon: Option<IconName>,
+    tone: Tone,
+    (active, palette): (bool, &'static Palette),
+) -> ItemLook {
+    ItemLook {
+        icon,
+        tone,
+        active,
+        palette,
+    }
+}
+
 impl MenuList {
-    fn row(&self, index: usize, entry: &MenuEntry, palette: &'static Palette) -> AnyElement {
+    fn row(
+        &self,
+        index: usize,
+        entry: &MenuEntry,
+        palette: &'static Palette,
+    ) -> AnyElement {
         let active = self.highlighted == Some(index);
         match entry {
             MenuEntry::Separator => separator(palette).into_any_element(),
@@ -73,41 +102,55 @@ impl MenuList {
                 icon,
                 tone,
                 intent,
-            } => {
-                let look = ItemLook {
-                    icon: *icon,
-                    tone: *tone,
-                    active,
-                    palette,
-                };
-                item(index, label, look)
-                    .on_mouse_move(highlighter(&self.sidebar, index))
-                    .on_click(chooser(&self.sidebar, intent.clone()))
-                    .into_any_element()
-            },
+            } => self.action_row(
+                index,
+                (label, intent),
+                look(*icon, *tone, (active, palette)),
+            ),
             MenuEntry::Submenu {
                 label,
                 icon,
                 entries,
-            } => {
-                let look = ItemLook {
-                    icon: *icon,
-                    tone: Tone::Normal,
-                    active,
-                    palette,
-                };
-                let nested = (self.submenu == Some(index)).then(|| self.nested(entries));
-                item(index, label, look)
-                    .on_mouse_move(highlighter(&self.sidebar, index))
-                    .relative()
-                    .child(caret(palette))
-                    .children(nested)
-                    .into_any_element()
-            },
+            } => self.submenu_row(
+                index,
+                (label, entries),
+                look(*icon, Tone::Normal, (active, palette)),
+            ),
         }
     }
 
-    fn nested(&self, entries: &[MenuEntry]) -> Div {
+    fn action_row(
+        &self,
+        index: usize,
+        (label, intent): (&str, &Intent),
+        look: ItemLook,
+    ) -> AnyElement {
+        item(index, label, look)
+            .on_mouse_move(highlighter(&self.sidebar, index))
+            .on_click(chooser(&self.sidebar, intent.clone()))
+            .into_any_element()
+    }
+
+    fn submenu_row(
+        &self,
+        index: usize,
+        (label, entries): (&str, &[MenuEntry]),
+        look: ItemLook,
+    ) -> AnyElement {
+        let palette = look.palette;
+        let nested = (self.submenu == Some(index)).then(|| self.nested(entries));
+        item(index, label, look)
+            .on_mouse_move(highlighter(&self.sidebar, index))
+            .relative()
+            .child(caret(palette))
+            .children(nested)
+            .into_any_element()
+    }
+
+    fn nested(
+        &self,
+        entries: &[MenuEntry],
+    ) -> Div {
         let list = MenuList {
             sidebar: self.sidebar.clone(),
             entries: entries.to_vec(),
@@ -115,22 +158,22 @@ impl MenuList {
             submenu: None,
             focus: None,
         };
-        div().absolute().left_full().top(px(-4.0)).child(list)
+        div().absolute().left_full().top(SUBMENU_RISE).child(list)
     }
 }
 
 fn separator(palette: &Palette) -> Div {
     div()
-        .mx(px(8.0))
-        .my(px(4.0))
+        .mx(SPACE_MD)
+        .my(SPACE_XS)
         .h(px(1.0))
         .bg(palette.border())
 }
 
 fn caret(palette: &Palette) -> Div {
     let icon = Icon::new(IconName::CaretRight)
-        .size(px(16.0))
-        .color(palette.foreground().opacity(0.6));
+        .size(ICON_LARGE)
+        .color(palette.foreground().opacity(CARET_ALPHA));
     div().ml_auto().child(icon)
 }
 
@@ -152,26 +195,33 @@ fn chooser(
     }
 }
 
-fn item(index: usize, label: &str, look: ItemLook) -> Stateful<Div> {
+fn item(
+    index: usize,
+    label: &str,
+    look: ItemLook,
+) -> Stateful<Div> {
     let palette = look.palette;
     let (fill, text) = match (look.tone, look.active) {
-        (Tone::Destructive, true) => (palette.destructive().opacity(0.1), palette.destructive()),
+        (Tone::Destructive, true) => (
+            palette.destructive().opacity(DESTRUCTIVE_TINT),
+            palette.destructive(),
+        ),
         (Tone::Destructive, false) => (gpui::transparent_black(), palette.destructive()),
         (Tone::Normal, true) => (palette.accent(), palette.accent_foreground()),
         (Tone::Normal, false) => (gpui::transparent_black(), palette.foreground()),
     };
     let icon = look.icon.map(|name| {
-        let glyph = Icon::new(name).size(px(16.0)).color(text);
-        div().mx(px(-2.0)).opacity(ICON_ALPHA).child(glyph)
+        let glyph = Icon::new(name).size(ICON_LARGE).color(text);
+        div().mx(ICON_PULL).opacity(ICON_ALPHA).child(glyph)
     });
     div()
         .id(("sidebar-menu-item", index))
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(SPACE_MD)
         .min_h(px(ROW_MIN_HEIGHT))
-        .px(px(8.0))
-        .py(px(4.0))
+        .px(SPACE_MD)
+        .py(SPACE_XS)
         .rounded(radius::SM)
         .bg(fill)
         .text_color(text)
@@ -182,5 +232,33 @@ fn item(index: usize, label: &str, look: ItemLook) -> Stateful<Div> {
 }
 
 #[cfg(test)]
-#[path = "menu_list_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{TestAppContext, point, px};
+    use ui::IconName;
+
+    use super::*;
+    use crate::demo_data::DemoData;
+    use crate::row_id::RowId;
+    use crate::test_support::open;
+
+    #[gpui::test]
+    fn hovering_an_entry_highlights_it_and_clicking_applies_it(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let entries = vec![MenuEntry::action(
+            "Keep",
+            IconName::Check,
+            Intent::Keep(RowId::from("chat")),
+        )];
+        sidebar.update_in(cx, |this, window, cx| {
+            this.open_menu((entries, point(px(50.0), px(200.0))), window, cx);
+        });
+        cx.run_until_parked();
+        sidebar.update(cx, |this, cx| this.highlight(Some(0), cx));
+        let highlighted = sidebar.read_with(cx, |this, _| {
+            this.menu
+                .as_ref()
+                .and_then(|menu| menu.cursor.highlighted())
+        });
+        assert_eq!(highlighted, Some(0));
+    }
+}

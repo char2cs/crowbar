@@ -55,7 +55,10 @@ impl Arguments {
         }
     }
 
-    pub(crate) fn apply(&self, cx: &mut App) {
+    pub(crate) fn apply(
+        &self,
+        cx: &mut App,
+    ) {
         Theme::of(cx)
             .with_id(self.theme)
             .with_mode(self.mode)
@@ -74,16 +77,22 @@ impl Arguments {
         }
     }
 
+    fn visibility(
+        &self,
+        default: Visibility,
+    ) -> Visibility {
+        if self.closed {
+            return Visibility::Closed;
+        }
+        default
+    }
+
     pub(crate) fn preferences(&self) -> Preferences {
         let default = Preferences::default();
         Preferences {
             mode: self.panel,
             width: self.width.unwrap_or(default.width),
-            visibility: if self.closed {
-                Visibility::Closed
-            } else {
-                default.visibility
-            },
+            visibility: self.visibility(default.visibility),
             ..default
         }
     }

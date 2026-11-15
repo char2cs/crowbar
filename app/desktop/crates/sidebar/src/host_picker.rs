@@ -2,7 +2,9 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyElement, App, Div, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
+use gpui::{
+    AnyElement, App, Div, InteractiveElement, IntoElement, ParentElement, Pixels, Styled, div, px,
+};
 use ui::{DropdownMenu, Icon, IconName, IconWeight, MenuAction, MenuItem, Palette, radius};
 
 use crate::command::Command;
@@ -11,15 +13,24 @@ use crate::host_kind::HostKind;
 use crate::host_tone::HostTone;
 use crate::intent::Intent;
 use crate::row_action::{RowAction, RowHandler};
+use crate::scale::{ICON_LARGE, SPACE_MD, SPACE_SM, TEXT_SMALL};
+
+const DOT_OFFSET: f32 = -1.0;
+const TRIGGER_HEIGHT: Pixels = px(24.0);
+const NAME_MAX_WIDTH: Pixels = px(96.0);
+const MENU_MIN_WIDTH: Pixels = px(224.0);
 
 const DOT: f32 = 5.0;
 const UNSETTLED_ALPHA: f32 = 0.65;
 
-fn dot(host: &Host, palette: &Palette) -> Div {
+fn dot(
+    host: &Host,
+    palette: &Palette,
+) -> Div {
     let base = div()
         .absolute()
-        .right(px(-1.0))
-        .bottom(px(-1.0))
+        .right(px(DOT_OFFSET))
+        .bottom(px(DOT_OFFSET))
         .size(px(DOT))
         .rounded(radius::FULL)
         .border_1();
@@ -35,7 +46,10 @@ fn dot(host: &Host, palette: &Palette) -> Div {
     }
 }
 
-pub(crate) fn host_icon(host: &Host, palette: &Palette) -> Div {
+pub(crate) fn host_icon(
+    host: &Host,
+    palette: &Palette,
+) -> Div {
     let name = match host.kind {
         HostKind::Local => IconName::Desktop,
         HostKind::Remote => IconName::Cloud,
@@ -43,12 +57,16 @@ pub(crate) fn host_icon(host: &Host, palette: &Palette) -> Div {
     div()
         .relative()
         .flex_none()
-        .size(px(16.0))
-        .child(Icon::new(name).weight(IconWeight::Regular).size(px(16.0)))
+        .size(ICON_LARGE)
+        .child(Icon::new(name).weight(IconWeight::Regular).size(ICON_LARGE))
         .child(dot(host, palette))
 }
 
-fn item(host: &Host, current: &Host, handler: &RowHandler) -> MenuItem {
+fn item(
+    host: &Host,
+    current: &Host,
+    handler: &RowHandler,
+) -> MenuItem {
     let (id, handler) = (host.id.clone(), Rc::clone(handler));
     let action = MenuAction::new(host.name.clone(), move |window, cx: &mut App| {
         let command = Command::SelectHost(id.clone());
@@ -78,20 +96,52 @@ pub(crate) fn host_picker(
     let trigger = div()
         .flex()
         .items_center()
-        .gap(px(6.0))
-        .h(px(24.0))
-        .px(px(8.0))
+        .gap(SPACE_SM)
+        .h(TRIGGER_HEIGHT)
+        .px(SPACE_MD)
         .rounded(radius::FULL)
-        .text_size(px(12.0))
+        .text_size(TEXT_SMALL)
         .text_color(palette.muted_foreground())
         .hover(hovered)
         .child(host_icon(current, palette))
-        .child(div().max_w(px(96.0)).truncate().child(current.name.clone()));
+        .child(
+            div()
+                .max_w(NAME_MAX_WIDTH)
+                .truncate()
+                .child(current.name.clone()),
+        );
     DropdownMenu::new("host-picker", trigger, items)
-        .min_width(px(224.0))
+        .min_width(MENU_MIN_WIDTH)
         .into_any_element()
 }
 
 #[cfg(test)]
-#[path = "host_picker_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::prelude::*;
+
+    use crate::host::Host;
+    use crate::host_id::HostId;
+    use crate::host_kind::HostKind;
+    use crate::host_state::HostState;
+    use crate::test_support::measure;
+
+    fn host(kind: HostKind) -> Host {
+        Host {
+            id: HostId::from("h"),
+            name: "h".into(),
+            kind,
+            state: HostState::Up,
+            endpoint: None,
+        }
+    }
+
+    #[gpui::test]
+    fn the_host_icon_is_sixteen_pixels_tall(cx: &mut TestAppContext) {
+        let bounds = measure(cx, |_, cx| {
+            let palette = ui::Theme::of(cx).palette(ui::Surface::Chrome);
+            host_icon(&host(HostKind::Remote), palette)
+        });
+        assert_eq!(f32::from(bounds.size.height), 16.0);
+    }
+}

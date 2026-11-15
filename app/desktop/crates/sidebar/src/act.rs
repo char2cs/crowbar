@@ -14,6 +14,7 @@ use crate::row_action::RowAction;
 use crate::row_id::RowId;
 use crate::row_menu::row_menu;
 use crate::sidebar::Sidebar;
+use crate::terminal_threads::TerminalThreads;
 
 impl Sidebar {
     pub(crate) fn act(
@@ -71,13 +72,20 @@ impl Sidebar {
         cx.notify();
     }
 
-    pub(crate) fn send(&mut self, command: Command, cx: &mut Context<'_, Self>) {
+    pub(crate) fn send(
+        &mut self,
+        command: Command,
+        cx: &mut Context<'_, Self>,
+    ) {
         if self.sink.dispatch(command).is_ok() {
             cx.notify();
         }
     }
 
-    pub(crate) fn row(&self, id: &RowId) -> Option<Row> {
+    pub(crate) fn row(
+        &self,
+        id: &RowId,
+    ) -> Option<Row> {
         let project = self.data.active_project()?;
         self.data
             .tree(&project)
@@ -86,14 +94,20 @@ impl Sidebar {
             .find(|row| &row.id == id)
     }
 
-    fn menu_context(&self, row: &RowId) -> MenuContext {
+    fn menu_context(
+        &self,
+        row: &RowId,
+    ) -> MenuContext {
         MenuContext {
             targets: self.data.move_targets(row),
-            terminal: self.data.can_start_terminal_thread().into(),
+            terminal: TerminalThreads::of(self.data.as_ref()),
         }
     }
 
-    fn request_project_removal(&mut self, project: ProjectId) {
+    fn request_project_removal(
+        &mut self,
+        project: ProjectId,
+    ) {
         let name = self
             .data
             .projects()
@@ -105,7 +119,11 @@ impl Sidebar {
         }
     }
 
-    fn request_removal(&mut self, id: &RowId, cx: &mut Context<'_, Self>) {
+    fn request_removal(
+        &mut self,
+        id: &RowId,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(row) = self.row(id) else {
             return;
         };
@@ -113,7 +131,10 @@ impl Sidebar {
         self.schedule_removals(cx);
     }
 
-    pub(crate) fn schedule_removals(&mut self, cx: &mut Context<'_, Self>) {
+    pub(crate) fn schedule_removals(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(deadline) = self.tree.tray().next_deadline() else {
             return;
         };
@@ -125,7 +146,10 @@ impl Sidebar {
         .detach_and_log_err(cx);
     }
 
-    fn send_due_removals(&mut self, cx: &mut Context<'_, Self>) {
+    fn send_due_removals(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         for row in self.tree.take_due(Instant::now()) {
             self.send(Command::CommitRemoval(row), cx);
         }
@@ -135,5 +159,65 @@ impl Sidebar {
 }
 
 #[cfg(test)]
-#[path = "act_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::prelude::*;
+
+    #[gpui::test]
+    fn opening_a_row_sends_the_open_command(cx: &mut TestAppContext) {
+        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.act(RowAction::Open(RowId::from("chat")), window, cx);
+        });
+        assert_eq!(recorder.sent(), vec![Command::OpenRow(RowId::from("chat"))]);
+    }
+
+    #[gpui::test]
+    fn the_row_menu_opens_at_the_pointer(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let at = point(px(40.0), px(200.0));
+        let action = RowAction::Menu {
+            row: RowId::from("chat"),
+            at,
+        };
+        sidebar.update_in(cx, |this, window, cx| this.act(action, window, cx));
+        let menu_at = sidebar.read_with(cx, |this, _| this.menu.as_ref().map(|menu| menu.at));
+        assert_eq!(menu_at, Some(at));
+    }
+
+    #[gpui::test]
+    fn a_menu_for_a_missing_row_stays_closed(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let action = RowAction::Menu {
+            row: RowId::from("gone"),
+            at: point(px(0.0), px(0.0)),
+        };
+        sidebar.update_in(cx, |this, window, cx| this.act(action, window, cx));
+        assert!(sidebar.read_with(cx, |this, _| this.menu.is_none()));
+    }
+
+    #[gpui::test]
+    fn toggling_a_fold_hides_the_children_and_is_remembered(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.apply(Intent::ToggleFold(RowId::from("demo")), window, cx);
+        });
+        let folded = sidebar.read_with(cx, |this, _| this.tree.folded().count());
+        assert_eq!(folded, 1);
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.preferences().folded.len()),
+            1
+        );
+    }
+
+    #[gpui::test]
+    fn a_refused_command_leaves_the_sidebar_unchanged(cx: &mut TestAppContext) {
+        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let command = Command::Rename {
+            row: RowId::from("chat"),
+            name: "main".into(),
+        };
+        sidebar.update(cx, |this, cx| this.send(command.clone(), cx));
+        assert_eq!(recorder.sent(), vec![command]);
+    }
+}

@@ -1,5 +1,6 @@
 //! The text part of a tree row: title, optional branch line and line counts, or the inline input.
 
+use gpui::prelude::FluentBuilder;
 use gpui::{Div, FontWeight, ParentElement, Styled, div, px};
 use ui::Palette;
 use ui::font::MONO_FAMILY;
@@ -7,6 +8,7 @@ use ui::font::MONO_FAMILY;
 use crate::row::Row;
 use crate::row_input::RowInput;
 use crate::row_kind::RowKind;
+use crate::scale::SPACE_XS;
 use crate::titling::Titling;
 
 const TITLE_SIZE: f32 = 13.0;
@@ -16,7 +18,11 @@ const SUBLABEL_LINE: f32 = 13.0;
 const TITLE_NUDGE: f32 = 1.0;
 const SUBLABEL_NUDGE: f32 = -0.5;
 
-pub(crate) fn label(row: &Row, input: Option<&RowInput>, palette: &Palette) -> Div {
+pub(crate) fn label(
+    row: &Row,
+    input: Option<&RowInput>,
+    palette: &Palette,
+) -> Div {
     let column = div()
         .flex()
         .flex_col()
@@ -34,7 +40,10 @@ pub(crate) fn label(row: &Row, input: Option<&RowInput>, palette: &Palette) -> D
     column.child(title).child(sublabel(row, palette))
 }
 
-fn input_view(input: &RowInput, palette: &Palette) -> Div {
+fn input_view(
+    input: &RowInput,
+    palette: &Palette,
+) -> Div {
     let line = div().flex().min_w_0().child(input.field.clone());
     match &input.error {
         Some(reason) => div()
@@ -46,7 +55,10 @@ fn input_view(input: &RowInput, palette: &Palette) -> Div {
     }
 }
 
-fn error_line(reason: &str, palette: &Palette) -> Div {
+fn error_line(
+    reason: &str,
+    palette: &Palette,
+) -> Div {
     div()
         .truncate()
         .font_family(MONO_FAMILY)
@@ -64,11 +76,7 @@ fn title(row: &Row) -> Div {
         .relative()
         .top(px(TITLE_NUDGE))
         .child(row.label.clone());
-    let title = if row.titling == Titling::Provisional {
-        title.italic()
-    } else {
-        title
-    };
+    let title = title.when(row.titling == Titling::Provisional, Styled::italic);
     let mono =
         row.kind == RowKind::RepoHeader || (row.kind == RowKind::Branch && !row.is_two_line());
     if mono {
@@ -77,7 +85,10 @@ fn title(row: &Row) -> Div {
     title
 }
 
-fn sublabel(row: &Row, palette: &Palette) -> Div {
+fn sublabel(
+    row: &Row,
+    palette: &Palette,
+) -> Div {
     let counts = row.workspace.iter().flat_map(|workspace| {
         [
             (workspace.added, '+', palette.sidebar_count_added()),
@@ -90,7 +101,7 @@ fn sublabel(row: &Row, palette: &Palette) -> Div {
         .map_or_default(|workspace| workspace.branch.clone());
     let line = div()
         .flex()
-        .gap(px(4.0))
+        .gap(SPACE_XS)
         .truncate()
         .font_family(MONO_FAMILY)
         .text_size(px(SUBLABEL_SIZE))
@@ -107,5 +118,37 @@ fn sublabel(row: &Row, palette: &Palette) -> Div {
 }
 
 #[cfg(test)]
-#[path = "row_label_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+    use ui::{Surface, Theme};
+
+    use super::*;
+    use crate::test_support::{chat, measure};
+    use crate::workspace::Workspace;
+    use crate::workspace_status::WorkspaceStatus;
+
+    fn height(
+        cx: &mut TestAppContext,
+        row: Row,
+    ) -> f32 {
+        let bounds = measure(cx, move |_, cx| {
+            let palette = Theme::of(cx).palette(Surface::Chrome);
+            label(&row, None, palette)
+        });
+        f32::from(bounds.size.height)
+    }
+
+    #[gpui::test]
+    fn a_row_with_a_workspace_shows_a_second_line(cx: &mut TestAppContext) {
+        let plain = height(cx, chat("Refactor"));
+        let mut two = Row::new("b", RowKind::Branch, 1, "Branch");
+        two.workspace = Some(Workspace {
+            status: WorkspaceStatus::New,
+            branch: "feature".into(),
+            added: 1,
+            deleted: 0,
+            held_by_path: None,
+        });
+        assert!(height(cx, two) > plain);
+    }
+}

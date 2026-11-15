@@ -1,23 +1,16 @@
 //! What a removal deletes.
 
-/// The noun of a removal; repositories and spaces ask before deleting, the rest count down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RemovalKind {
-    /// A whole space.
+pub(crate) enum RemovalKind {
     Project,
-    /// A repository.
     Repo,
-    /// A branch workspace.
     Workspace,
-    /// A chat.
     Chat,
-    /// A folder.
     Folder,
 }
 
 impl RemovalKind {
-    /// The word used in titles and buttons.
-    pub fn noun(self) -> &'static str {
+    pub(crate) fn noun(self) -> &'static str {
         match self {
             Self::Project => "space",
             Self::Repo => "repository",
@@ -33,5 +26,21 @@ impl RemovalKind {
 }
 
 #[cfg(test)]
-#[path = "removal_kind_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_repositories_and_spaces_ask_first() {
+        let cases = [
+            (RemovalKind::Project, "space", true),
+            (RemovalKind::Repo, "repository", true),
+            (RemovalKind::Workspace, "workspace", false),
+            (RemovalKind::Chat, "chat", false),
+            (RemovalKind::Folder, "folder", false),
+        ];
+        for (kind, noun, confirms) in cases {
+            assert_eq!(kind.noun(), noun, "{kind:?} noun");
+            assert_eq!(kind.needs_confirmation(), confirms, "{kind:?} confirmation");
+        }
+    }
+}

@@ -8,26 +8,22 @@ use crate::metrics::REMOVAL_DRAIN_SECONDS;
 use crate::removal_kind::RemovalKind;
 use crate::row_id::RowId;
 
-/// Every removal in flight. The deleting itself is the daemon's; the tray only remembers which
-/// rows are waiting, until when, and which have been sent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RemovalTray {
+pub(crate) struct RemovalTray {
     holds: Vec<Hold>,
 }
 
 impl RemovalTray {
-    /// The span a countdown takes.
-    pub const DRAIN: Duration = Duration::from_secs(REMOVAL_DRAIN_SECONDS);
+    pub(crate) const DRAIN: Duration = Duration::from_secs(REMOVAL_DRAIN_SECONDS);
 
-    /// Holds `row`: a countdown from `now` for workspaces, folders and chats, no clock for
-    /// repositories and spaces.
-    pub fn hold(&mut self, row: RowId, (kind, label): (RemovalKind, String), now: Instant) {
+    pub(crate) fn hold(
+        &mut self,
+        row: RowId,
+        (kind, label): (RemovalKind, String),
+        now: Instant,
+    ) {
         self.holds.retain(|hold| hold.row != row);
-        let deadline = if kind.needs_confirmation() {
-            Deadline::AwaitsConfirmation
-        } else {
-            Deadline::At(now + Self::DRAIN)
-        };
+        let deadline = Self::deadline_for(kind, now);
         self.holds.push(Hold {
             row,
             kind,
@@ -36,18 +32,34 @@ impl RemovalTray {
         });
     }
 
-    /// The hold of `row`, if it has one.
-    pub fn get(&self, row: &RowId) -> Option<&Hold> {
+    fn deadline_for(
+        kind: RemovalKind,
+        now: Instant,
+    ) -> Deadline {
+        if kind.needs_confirmation() {
+            return Deadline::AwaitsConfirmation;
+        }
+        Deadline::At(now + Self::DRAIN)
+    }
+
+    pub(crate) fn get(
+        &self,
+        row: &RowId,
+    ) -> Option<&Hold> {
         self.holds.iter().find(|hold| &hold.row == row)
     }
 
-    /// Cancels the hold: the row reappears exactly as it was.
-    pub fn keep(&mut self, row: &RowId) {
+    pub(crate) fn keep(
+        &mut self,
+        row: &RowId,
+    ) {
         self.holds.retain(|hold| &hold.row != row);
     }
 
-    /// Marks every countdown that reached `now` as sent and returns their rows.
-    pub fn take_due(&mut self, now: Instant) -> Vec<RowId> {
+    pub(crate) fn take_due(
+        &mut self,
+        now: Instant,
+    ) -> Vec<RowId> {
         let mut due = Vec::new();
         for hold in self.holds.iter_mut().filter(|hold| hold.is_due(now)) {
             hold.deadline = Deadline::Committed;
@@ -56,22 +68,25 @@ impl RemovalTray {
         due
     }
 
-    /// Marks the hold as sent, for a confirmed deletion.
-    pub fn commit(&mut self, row: &RowId) {
+    pub(crate) fn commit(
+        &mut self,
+        row: &RowId,
+    ) {
         for hold in self.holds.iter_mut().filter(|hold| &hold.row == row) {
             hold.deadline = Deadline::Committed;
         }
     }
 
-    /// Turns a countdown into a wait for the confirm dialog, after the daemon refused the delete.
-    pub fn await_confirmation(&mut self, row: &RowId) {
+    pub(crate) fn await_confirmation(
+        &mut self,
+        row: &RowId,
+    ) {
         for hold in self.holds.iter_mut().filter(|hold| &hold.row == row) {
             hold.deadline = Deadline::AwaitsConfirmation;
         }
     }
 
-    /// The soonest running deadline, for the one timer.
-    pub fn next_deadline(&self) -> Option<Instant> {
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.holds
             .iter()
             .filter_map(|hold| match hold.deadline {
@@ -81,24 +96,87 @@ impl RemovalTray {
             .min()
     }
 
-    /// Forgets holds whose row the daemon no longer lists: the tombstone arrived.
-    pub fn release_gone(&mut self, mut exists: impl FnMut(&RowId) -> bool) {
+    pub(crate) fn release_gone(
+        &mut self,
+        mut exists: impl FnMut(&RowId) -> bool,
+    ) {
         self.holds.retain(|hold| exists(&hold.row));
     }
 
-    /// Whether any countdown is still running, so the view keeps animating.
-    pub fn is_counting(&self) -> bool {
+    pub(crate) fn is_counting(&self) -> bool {
         self.holds
             .iter()
             .any(|hold| matches!(hold.deadline, Deadline::At(_)))
     }
-
-    /// All holds.
-    pub fn holds(&self) -> &[Hold] {
-        &self.holds
-    }
 }
 
 #[cfg(test)]
-#[path = "removal_tray_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn chat(id: &str) -> (RowId, (RemovalKind, String)) {
+        (RowId::from(id), (RemovalKind::Chat, id.to_owned()))
+    }
+
+    type HoldCase = (&'static str, RemovalKind, Option<u64>);
+
+    const HOLD_CASES: &[HoldCase] = &[
+        ("chats count down eight seconds", RemovalKind::Chat, Some(8)),
+        ("repos wait for confirmation", RemovalKind::Repo, None),
+    ];
+
+    #[test]
+    fn holds_count_down_or_wait_for_confirmation() {
+        let now = Instant::now();
+        for (name, kind, seconds) in HOLD_CASES {
+            let mut tray = RemovalTray::default();
+            tray.hold(RowId::from("x"), (*kind, "x".into()), now);
+            let hold = tray.get(&RowId::from("x")).expect("held");
+            assert_eq!(hold.seconds_left(now), *seconds, "{name}");
+        }
+    }
+
+    #[test]
+    fn one_timer_serves_every_countdown() {
+        let now = Instant::now();
+        let mut tray = RemovalTray::default();
+        let (id, info) = chat("c");
+        tray.hold(id, info, now);
+        tray.hold(RowId::from("r"), (RemovalKind::Repo, "demo".into()), now);
+        assert_eq!(tray.next_deadline(), Some(now + RemovalTray::DRAIN));
+    }
+
+    #[test]
+    fn keep_restores_the_row_and_due_holds_are_sent_once() {
+        let now = Instant::now();
+        let mut tray = RemovalTray::default();
+        for id in ["a", "b"] {
+            let (row, info) = chat(id);
+            tray.hold(row, info, now);
+        }
+        tray.keep(&RowId::from("a"));
+        assert!(
+            tray.get(&RowId::from("a")).is_none(),
+            "kept row is no longer held"
+        );
+        assert!(tray.take_due(now).is_empty(), "nothing due yet");
+        let due = tray.take_due(now + RemovalTray::DRAIN);
+        assert_eq!(due, vec![RowId::from("b")], "b is sent");
+        assert!(
+            tray.take_due(now + RemovalTray::DRAIN).is_empty(),
+            "never sent twice"
+        );
+        assert!(!tray.is_counting(), "no countdown left");
+    }
+
+    #[test]
+    fn tombstones_release_committed_holds() {
+        let now = Instant::now();
+        let mut tray = RemovalTray::default();
+        let (row, info) = chat("c");
+        tray.hold(row.clone(), info, now);
+        tray.commit(&row);
+        tray.release_gone(|id| id.as_str() != "c");
+        assert!(tray.get(&row).is_none(), "released when the row is gone");
+    }
+}

@@ -20,6 +20,7 @@ use crate::row_glyph::RowGlyph;
 use crate::row_kind::RowKind;
 use crate::row_report::report;
 use crate::row_shell::row_shell;
+use crate::scale::{ICON_LARGE, ICON_SMALL, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_SMALL};
 use crate::titling::Titling;
 
 const BAR_INSET: f32 = 8.0;
@@ -36,7 +37,11 @@ pub(crate) struct RemovingRow {
 }
 
 impl RenderOnce for RemovingRow {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let drain = self.hold.drain(self.now, RemovalTray::DRAIN);
         if drain > 0.0 {
@@ -66,14 +71,17 @@ fn title(row: &Row) -> Div {
         .flex_1()
         .min_w_0()
         .truncate()
-        .text_size(px(13.0))
+        .text_size(TEXT_BODY)
         .font_weight(FontWeight::MEDIUM)
         .when(row.kind == RowKind::Branch, |d| d.font_family(MONO_FAMILY))
         .when(row.titling == Titling::Provisional, Styled::italic)
         .child(row.label.clone())
 }
 
-fn drain_bar(drain: f32, palette: &Palette) -> Div {
+fn drain_bar(
+    drain: f32,
+    palette: &Palette,
+) -> Div {
     let fill = div()
         .h_full()
         .w(relative(drain))
@@ -88,13 +96,16 @@ fn drain_bar(drain: f32, palette: &Palette) -> Div {
         .child(fill)
 }
 
-fn glyph(row: &Row, palette: &Palette) -> impl IntoElement {
+fn glyph(
+    row: &Row,
+    palette: &Palette,
+) -> impl IntoElement {
     let frame = div()
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
-        .size(px(16.0));
+        .size(ICON_LARGE);
     match RowGlyph::of(row, Expansion::Expanded) {
         RowGlyph::Icon(name, weight) => {
             frame.child(Icon::new(name).weight(weight).color(palette.foreground()))
@@ -103,7 +114,10 @@ fn glyph(row: &Row, palette: &Palette) -> impl IntoElement {
     }
 }
 
-fn figure(text: String, palette: &Palette) -> impl IntoElement {
+fn figure(
+    text: String,
+    palette: &Palette,
+) -> impl IntoElement {
     div()
         .flex_none()
         .text_size(px(FIGURE))
@@ -120,18 +134,18 @@ fn keep_button(palette: &'static Palette) -> Stateful<Div> {
     };
     let undo = Icon::new(IconName::ArrowCounterClockwise)
         .weight(IconWeight::Bold)
-        .size(px(12.0));
+        .size(ICON_SMALL);
     div()
         .id("keep")
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(4.0))
-        .px(px(6.0))
-        .py(px(4.0))
+        .gap(SPACE_XS)
+        .px(SPACE_SM)
+        .py(SPACE_XS)
         .rounded(radius::LG)
         .cursor_pointer()
-        .text_size(px(12.0))
+        .text_size(TEXT_SMALL)
         .text_color(palette.muted_foreground())
         .hover(hovered)
         .child(undo)
@@ -139,5 +153,35 @@ fn keep_button(palette: &'static Palette) -> Stateful<Div> {
 }
 
 #[cfg(test)]
-#[path = "removing_row_tests.rs"]
-mod tests;
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use gpui::TestAppContext;
+
+    use std::rc::Rc;
+
+    use super::*;
+    use crate::deadline::Deadline;
+    use crate::removal_kind::RemovalKind;
+    use crate::row_id::RowId;
+    use crate::test_support::{chat, measure, recording_handler};
+
+    #[gpui::test]
+    fn a_held_row_keeps_its_height_while_it_drains(cx: &mut TestAppContext) {
+        let (handler, _) = recording_handler();
+        let now = Instant::now();
+        let hold = Hold {
+            row: RowId::from("chat"),
+            kind: RemovalKind::Chat,
+            label: "x".into(),
+            deadline: Deadline::At(now + Duration::from_secs(4)),
+        };
+        let bounds = measure(cx, move |_, _| RemovingRow {
+            row: chat("x"),
+            hold: hold.clone(),
+            now,
+            handler: Rc::clone(&handler),
+        });
+        assert_eq!(f32::from(bounds.size.height), 38.0);
+    }
+}

@@ -8,11 +8,13 @@ use gpui::{
 };
 use ui::{Motion, ScrollArea};
 
+use crate::notice::Notice;
 use crate::notice_row::NoticeRow;
 use crate::project::Project;
 use crate::project_tree::ProjectTree;
 use crate::row::Row;
 use crate::row_action::RowHandler;
+use crate::scale::SPACE_MD;
 use crate::scope_sync::ScopeSync;
 use crate::sidebar::Sidebar;
 use crate::skeleton_rows::skeleton_rows;
@@ -22,6 +24,19 @@ const SKELETON_MARGIN: f32 = 24.0;
 
 fn count_as_f32(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
+}
+
+fn notice_view(
+    notice: Notice,
+    project: &Project,
+    handler: &RowHandler,
+) -> AnyElement {
+    NoticeRow {
+        notice,
+        project: project.id.clone(),
+        handler: Rc::clone(handler),
+    }
+    .into_any_element()
 }
 
 impl Sidebar {
@@ -93,14 +108,10 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
         let handler = Self::row_handler(cx);
-        let notice = tree.notice.clone().map(|notice| {
-            NoticeRow {
-                notice,
-                project: project.id.clone(),
-                handler: Rc::clone(&handler),
-            }
-            .into_any_element()
-        });
+        let notice = tree
+            .notice
+            .clone()
+            .map(|notice| notice_view(notice, project, &handler));
         let foot = TreeFoot {
             project: project.id.clone(),
             handler: Rc::clone(&handler),
@@ -109,7 +120,7 @@ impl Sidebar {
         let list = div()
             .flex()
             .flex_col()
-            .pb(px(8.0))
+            .pb(SPACE_MD)
             .children(notice)
             .children(rows)
             .child(foot);
@@ -125,5 +136,45 @@ impl Sidebar {
 }
 
 #[cfg(test)]
-#[path = "chats_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::prelude::*;
+
+    #[gpui::test]
+    fn the_row_handler_forwards_actions_to_the_sidebar(cx: &mut TestAppContext) {
+        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        let handler = sidebar.update(cx, |_, cx| Sidebar::row_handler(cx));
+        cx.update(|window, cx| handler(RowAction::Open(RowId::from("main")), window, cx));
+        cx.run_until_parked();
+        assert_eq!(recorder.sent(), vec![Command::OpenRow(RowId::from("main"))]);
+    }
+
+    #[gpui::test]
+    fn selecting_a_space_makes_it_the_active_one(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let other = sidebar.read_with(cx, |this, _| {
+            let active = this.data.active_project();
+            this.data
+                .projects()
+                .into_iter()
+                .map(|project| project.id)
+                .find(|id| Some(id) != active.as_ref())
+        });
+        let other = other.expect("a second space");
+        sidebar.update(cx, |this, cx| {
+            this.send(Command::SelectProject(other.clone()), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.data.active_project()),
+            Some(other)
+        );
+    }
+
+    #[gpui::test]
+    fn the_loading_state_renders_a_skeleton_instead_of_rows(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::loading());
+        cx.run_until_parked();
+        assert_eq!(sidebar.read_with(cx, |this, _| this.mode), Mode::Chats);
+    }
+}

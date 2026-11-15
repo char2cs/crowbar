@@ -32,14 +32,21 @@ impl DropModes {
     }
 
     /// Whether `mode` is allowed.
-    pub fn contains(self, mode: DropMode) -> bool {
+    pub fn contains(
+        self,
+        mode: DropMode,
+    ) -> bool {
         self.0 & Self::bit(mode) != 0
     }
 
     /// The mode the pointer's height inside the target row selects. `ratio` is the pointer's
     /// distance from the row top over the row height; `folder` widens the middle band. A mode
     /// the policy refuses yields no drop.
-    pub fn at(self, ratio: f32, folder: FolderTarget) -> Option<DropMode> {
+    pub fn at(
+        self,
+        ratio: f32,
+        folder: FolderTarget,
+    ) -> Option<DropMode> {
         if self == Self::NONE {
             return None;
         }
@@ -47,29 +54,88 @@ impl DropModes {
             FolderTarget::Yes => FOLDER_BAND,
             FolderTarget::No => OTHER_BAND,
         };
-        let mode = if !self.contains(DropMode::Into) {
-            Self::half(ratio)
-        } else if self == Self::INTO {
-            DropMode::Into
-        } else if ratio < band {
-            DropMode::Before
-        } else if ratio > 1.0 - band {
-            DropMode::After
-        } else {
-            DropMode::Into
-        };
+        let mode = self.pick(ratio, band);
         self.contains(mode).then_some(mode)
+    }
+
+    fn pick(
+        self,
+        ratio: f32,
+        band: f32,
+    ) -> DropMode {
+        if !self.contains(DropMode::Into) {
+            return Self::half(ratio);
+        }
+        if self == Self::INTO {
+            return DropMode::Into;
+        }
+        if ratio < band {
+            return DropMode::Before;
+        }
+        if ratio > 1.0 - band {
+            return DropMode::After;
+        }
+        DropMode::Into
     }
 
     fn half(ratio: f32) -> DropMode {
         if ratio < 0.5 {
-            DropMode::Before
-        } else {
-            DropMode::After
+            return DropMode::Before;
         }
+        DropMode::After
     }
 }
 
 #[cfg(test)]
-#[path = "drop_modes_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn without_nesting_the_halves_decide() {
+        assert_eq!(
+            DropModes::REORDER.at(0.49, FolderTarget::No),
+            Some(DropMode::Before),
+            "upper half"
+        );
+        assert_eq!(
+            DropModes::REORDER.at(0.5, FolderTarget::No),
+            Some(DropMode::After),
+            "lower half"
+        );
+    }
+
+    #[test]
+    fn only_nesting_always_nests() {
+        for ratio in [0.0, 0.5, 1.0] {
+            assert_eq!(
+                DropModes::INTO.at(ratio, FolderTarget::Yes),
+                Some(DropMode::Into),
+                "ratio {ratio}"
+            );
+        }
+    }
+
+    #[test]
+    fn bands_are_twenty_percent_for_folders_and_thirty_for_the_rest() {
+        let cases = [
+            (0.19, FolderTarget::Yes, DropMode::Before),
+            (0.21, FolderTarget::Yes, DropMode::Into),
+            (0.81, FolderTarget::Yes, DropMode::After),
+            (0.29, FolderTarget::No, DropMode::Before),
+            (0.31, FolderTarget::No, DropMode::Into),
+            (0.71, FolderTarget::No, DropMode::After),
+        ];
+        for (ratio, folder, expected) in cases {
+            assert_eq!(
+                DropModes::ALL.at(ratio, folder),
+                Some(expected),
+                "ratio {ratio} {folder:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_allowed_means_no_drop() {
+        assert_eq!(DropModes::NONE.at(0.5, FolderTarget::No), None, "refused");
+    }
+}

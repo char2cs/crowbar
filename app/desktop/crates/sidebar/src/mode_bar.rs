@@ -1,14 +1,19 @@
 //! The Chats, Files and Changes switch.
 
-use gpui::{AnyElement, App, Context, Entity, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{AnyElement, App, Context, Entity, IntoElement, ParentElement, Styled, Window, div};
 use ui::{IconName, Surface, TabItem, Tabs};
 
 use crate::focus::Focus;
 use crate::label_visibility::LabelVisibility;
 use crate::mode::Mode;
+use crate::scale::{SPACE_MD, SPACE_SM};
 use crate::sidebar::Sidebar;
 
-fn item(mode: Mode, labels: LabelVisibility, (shown, focus): (Mode, Focus)) -> TabItem {
+fn item(
+    mode: Mode,
+    labels: LabelVisibility,
+    (shown, focus): (Mode, Focus),
+) -> TabItem {
     let (icon, label) = match mode {
         Mode::Chats => (IconName::ChatsCircle, "Chats"),
         Mode::Files => (IconName::FolderOpen, "Files"),
@@ -30,15 +35,26 @@ fn selector(
     sidebar: Entity<Sidebar>,
     listed: Vec<Mode>,
 ) -> impl Fn(usize, &mut Window, &mut App) + 'static {
-    move |index, _, cx| {
-        if let Some(mode) = listed.get(index).copied() {
-            sidebar.update(cx, |this, cx| this.set_mode(mode, cx));
-        }
-    }
+    move |index, _, cx| select(&sidebar, listed.get(index).copied(), cx)
+}
+
+fn select(
+    sidebar: &Entity<Sidebar>,
+    mode: Option<Mode>,
+    cx: &mut App,
+) {
+    let Some(mode) = mode else {
+        return;
+    };
+    sidebar.update(cx, |this, cx| this.set_mode(mode, cx));
 }
 
 impl Sidebar {
-    pub(crate) fn mode_bar(&mut self, width: f32, cx: &mut Context<'_, Self>) -> AnyElement {
+    pub(crate) fn mode_bar(
+        &mut self,
+        width: f32,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         let focus = self.data.focus();
         let shown = self.mode.shown(focus);
         let labels = LabelVisibility::for_sidebar(width);
@@ -59,13 +75,49 @@ impl Sidebar {
             .flex()
             .flex_none()
             .items_center()
-            .px(px(8.0))
-            .py(px(6.0))
+            .px(SPACE_MD)
+            .py(SPACE_SM)
             .child(tabs)
             .into_any_element()
     }
 }
 
 #[cfg(test)]
-#[path = "mode_bar_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::prelude::*;
+
+    use crate::focus::Focus;
+
+    #[gpui::test]
+    fn choosing_a_mode_in_a_repository_shows_it(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update(cx, |this, cx| this.set_mode(Mode::Changes, cx));
+        cx.run_until_parked();
+        assert_eq!(sidebar.read_with(cx, |this, _| this.mode), Mode::Changes);
+    }
+
+    #[gpui::test]
+    fn a_mode_the_focus_cannot_use_is_refused(cx: &mut TestAppContext) {
+        let data = DemoData::reference().with_focus(Focus::Nothing);
+        let (_, sidebar, cx) = open(cx, data);
+        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
+        assert_eq!(sidebar.read_with(cx, |this, _| this.mode), Mode::Chats);
+    }
+
+    #[test]
+    fn the_active_tab_alone_keeps_its_label_in_a_narrow_column() {
+        let focus = Focus::Repository;
+        let active = item(
+            Mode::Files,
+            LabelVisibility::ActiveOnly,
+            (Mode::Files, focus),
+        );
+        let idle = item(
+            Mode::Chats,
+            LabelVisibility::ActiveOnly,
+            (Mode::Files, focus),
+        );
+        assert_ne!(format!("{active:?}"), format!("{idle:?}"));
+    }
+}

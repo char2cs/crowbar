@@ -2,12 +2,9 @@
 
 use crate::metrics::{KEY_STEP, KEY_STEP_LARGE};
 
-/// An arrow key moves 16px; with Shift, 64px.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyStep {
-    /// 16px.
+pub(crate) enum KeyStep {
     Fine,
-    /// 64px.
     Coarse,
 }
 
@@ -21,5 +18,15 @@ impl KeyStep {
 }
 
 #[cfg(test)]
-#[path = "key_step_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    const CASES: [(KeyStep, f32); 2] = [(KeyStep::Fine, 16.0), (KeyStep::Coarse, 64.0)];
+
+    #[test]
+    fn shift_quadruples_the_step() {
+        for (step, pixels) in CASES {
+            assert!((step.pixels() - pixels).abs() < f32::EPSILON, "{step:?}");
+        }
+    }
+}

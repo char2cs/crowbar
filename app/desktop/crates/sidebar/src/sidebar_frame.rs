@@ -13,10 +13,16 @@ use crate::metrics::{HANDLE_HIT, PEEK_INSET};
 use crate::sidebar::Sidebar;
 use crate::visibility::Visibility;
 
+const FRAME_SHADOW: f32 = 0.2;
+
 const SCRIM_ALPHA: f32 = 0.4;
 
 impl Render for Sidebar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let container = Self::container_width(window);
         let geometry = FrameGeometry::new(container, self.live_width(container), self.panel);
@@ -46,14 +52,19 @@ impl Render for Sidebar {
             DockSide::Left => row.child(side_column).child(handle).child(content),
             DockSide::Right => row.child(content).child(handle).child(side_column),
         };
-        row.children(self.floating(&geometry, window, cx))
+        row.child(Self::exit_listener(cx))
+            .children(self.floating(&geometry, window, cx))
             .children(self.confirm_layer(cx))
             .children(self.menu_layer(window, cx))
     }
 }
 
 impl Sidebar {
-    fn handle(&self, geometry: &FrameGeometry, cx: &mut Context<'_, Self>) -> Stateful<Div> {
+    fn handle(
+        &self,
+        geometry: &FrameGeometry,
+        cx: &mut Context<'_, Self>,
+    ) -> Stateful<Div> {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let line = div()
             .h_full()
@@ -99,6 +110,17 @@ impl Sidebar {
         self.begin_resize(event.position.x, window, cx);
     }
 
+    fn slide(
+        &self,
+        geometry: &FrameGeometry,
+        motion: Motion,
+    ) -> f32 {
+        if geometry.is_drawer() {
+            return 1.0;
+        }
+        self.peek.position(motion)
+    }
+
     fn floating(
         &mut self,
         geometry: &FrameGeometry,
@@ -116,11 +138,7 @@ impl Sidebar {
             .panel
             .preferred()
             .min(geometry.container - 2.0 * PEEK_INSET);
-        let slide = if geometry.is_drawer() {
-            1.0
-        } else {
-            self.peek.position(motion)
-        };
+        let slide = self.slide(geometry, motion);
         let card = self.card((geometry.side, width, slide), window, cx);
         let layer = div().absolute().size_full();
         if geometry.is_drawer() {
@@ -153,7 +171,7 @@ impl Sidebar {
             .border_1()
             .border_color(palette.border())
             .bg(palette.chrome_bg())
-            .shadow(ui::shadow::lg(0.2))
+            .shadow(ui::shadow::lg(FRAME_SHADOW))
             .when(side == DockSide::Left, |d| d.left(px(inset)))
             .when(side == DockSide::Right, |d| d.right(px(inset)))
             .occlude()
@@ -172,7 +190,10 @@ impl Sidebar {
             )
     }
 
-    fn dismiss_floating(&mut self, cx: &mut Context<'_, Self>) {
+    fn dismiss_floating(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.peek.slide_to(0.0, Motion::of(cx));
         if self.panel.visibility() == Visibility::Open {
             self.panel.toggle();
@@ -183,5 +204,48 @@ impl Sidebar {
 }
 
 #[cfg(test)]
-#[path = "sidebar_frame_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::prelude::*;
+    use crate::visibility::Visibility;
+
+    use crate::dock_side::DockSide;
+
+    #[gpui::test]
+    fn an_open_sidebar_in_a_wide_window_renders_docked(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        cx.run_until_parked();
+        let width = sidebar.read_with(cx, |this, _| this.live_width(1200.0));
+        assert_eq!(width, 294.0);
+    }
+
+    #[gpui::test]
+    fn the_scrim_closes_a_drawer(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update(cx, Sidebar::dismiss_floating);
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.preferences().visibility),
+            Visibility::Closed
+        );
+    }
+
+    #[gpui::test]
+    fn a_right_dock_renders_without_panicking(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        sidebar.update(cx, |this, cx| this.dock_to(DockSide::Right, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            sidebar.read_with(cx, |this, _| this.preferences().side),
+            DockSide::Right
+        );
+    }
+
+    #[gpui::test]
+    fn a_single_click_on_the_separator_starts_a_drag(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.begin_resize(px(294.0), window, cx);
+        });
+        assert!(sidebar.read_with(cx, |this, _| this.resizing.is_some()));
+    }
+}

@@ -18,21 +18,19 @@ const WORK_AT_RISK_LEAD: (&str, &str) = (
     "Deleting removes it for good. Your own checkout is never touched.",
 );
 
-/// A pending delete confirmation, with the unsaved work a refusal named.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Confirmation {
-    /// What gets deleted.
-    pub target: RemovalTarget,
-    /// What kind of thing it is.
-    pub kind: RemovalKind,
-    /// Its name.
-    pub label: String,
-    /// Work lost by deleting; empty for the first question.
-    pub at_risk: Vec<WorkAtRisk>,
+pub(crate) struct Confirmation {
+    pub(crate) target: RemovalTarget,
+    pub(crate) kind: RemovalKind,
+    pub(crate) label: String,
+    pub(crate) at_risk: Vec<WorkAtRisk>,
 }
 
 impl Confirmation {
-    pub(crate) fn for_hold(hold: &Hold, at_risk: Vec<WorkAtRisk>) -> Self {
+    pub(crate) fn for_hold(
+        hold: &Hold,
+        at_risk: Vec<WorkAtRisk>,
+    ) -> Self {
         Self {
             target: RemovalTarget::Row(hold.row.clone()),
             kind: hold.kind,
@@ -41,8 +39,7 @@ impl Confirmation {
         }
     }
 
-    /// `Delete repository “demo”?`, or `… and lose work?` when work is at risk.
-    pub fn title(&self) -> String {
+    pub(crate) fn title(&self) -> String {
         let (noun, label) = (self.kind.noun(), &self.label);
         if self.at_risk.is_empty() {
             return format!("Delete {noun} “{label}”?");
@@ -50,8 +47,7 @@ impl Confirmation {
         format!("Delete {noun} “{label}” and lose work?")
     }
 
-    /// The bold lead and the rest of the description.
-    pub fn lead(&self) -> (&'static str, &'static str) {
+    pub(crate) fn lead(&self) -> (&'static str, &'static str) {
         if !self.at_risk.is_empty() {
             return WORK_AT_RISK_LEAD;
         }
@@ -61,8 +57,7 @@ impl Confirmation {
         }
     }
 
-    /// `Delete repository`, or `Delete anyway` when work is at risk.
-    pub fn confirm_label(&self) -> String {
+    pub(crate) fn confirm_label(&self) -> String {
         if self.at_risk.is_empty() {
             return format!("Delete {}", self.kind.noun());
         }
@@ -71,5 +66,71 @@ impl Confirmation {
 }
 
 #[cfg(test)]
-#[path = "confirmation_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::project_id::ProjectId;
+    use crate::row_id::RowId;
+
+    fn repo(at_risk: Vec<WorkAtRisk>) -> Confirmation {
+        Confirmation {
+            target: RemovalTarget::Row(RowId::from("r")),
+            kind: RemovalKind::Repo,
+            label: "demo".into(),
+            at_risk,
+        }
+    }
+
+    fn risky() -> Confirmation {
+        let risk = WorkAtRisk {
+            branch: "b".into(),
+            uncommitted_files: 1,
+            unmerged_commits: 0,
+        };
+        repo(vec![risk])
+    }
+
+    fn space() -> Confirmation {
+        let mut confirmation = repo(Vec::new());
+        confirmation.kind = RemovalKind::Project;
+        confirmation.target = RemovalTarget::Project(ProjectId::from("p"));
+        confirmation
+    }
+
+    type Case = (&'static str, fn() -> Confirmation, [&'static str; 3]);
+
+    const CASES: &[Case] = &[
+        (
+            "a clean repository names the cascade",
+            || repo(Vec::new()),
+            [
+                "Delete repository “demo”?",
+                "Delete repository",
+                "All workspaces",
+            ],
+        ),
+        (
+            "work at risk changes every line",
+            risky,
+            [
+                "Delete repository “demo” and lose work?",
+                "Delete anyway",
+                "This work exists nowhere else",
+            ],
+        ),
+        (
+            "a space uses the space cascade",
+            space,
+            ["Delete space “demo”?", "Delete space", "All repositories"],
+        ),
+    ];
+
+    #[test]
+    fn the_questions_name_the_noun_and_the_risk() {
+        for (name, build, [title, button, lead]) in CASES {
+            let confirmation = build();
+            assert_eq!(confirmation.title(), *title, "{name}: title");
+            assert_eq!(confirmation.confirm_label(), *button, "{name}: button");
+            assert!(confirmation.lead().0.starts_with(lead), "{name}: lead");
+        }
+    }
+}

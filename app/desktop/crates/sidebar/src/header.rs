@@ -15,25 +15,29 @@ use crate::icon_button::IconButton;
 use crate::intent::Intent;
 use crate::metrics::HEADER_HEIGHT;
 use crate::row_action::RowAction;
+use crate::scale::{SPACE_LG, SPACE_MD, SPACE_XS};
 use crate::sidebar::Sidebar;
 use crate::visibility::Visibility;
 
 impl Sidebar {
-    pub(crate) fn header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
+    pub(crate) fn header(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         let side = self.panel.side();
         let picker = self.host_choice(cx);
         div()
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(4.0))
+            .gap(SPACE_XS)
             .h(px(HEADER_HEIGHT))
             .w_full()
             .overflow_hidden()
             .window_control_area(WindowControlArea::Drag)
-            .when(side == DockSide::Left, |d| d.pl(px(12.0)).pr(px(8.0)))
+            .when(side == DockSide::Left, |d| d.pl(SPACE_LG).pr(SPACE_MD))
             .when(side == DockSide::Right, |d| {
-                d.flex_row_reverse().pr(px(12.0)).pl(px(8.0))
+                d.flex_row_reverse().pr(SPACE_LG).pl(SPACE_MD)
             })
             .child(Self::settings_button(cx))
             .child(div().flex().flex_1().justify_center().children(picker))
@@ -50,7 +54,10 @@ impl Sidebar {
             }))
     }
 
-    fn toggle_button(&self, cx: &mut Context<'_, Self>) -> IconButton {
+    fn toggle_button(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> IconButton {
         let icon = match self.panel.side() {
             DockSide::Left => IconName::SidebarToggle,
             DockSide::Right => IconName::SidebarToggleRight,
@@ -64,7 +71,10 @@ impl Sidebar {
             .on_click(cx.listener(|this, _, _, cx| this.toggle(cx)))
     }
 
-    fn host_choice(&self, cx: &mut Context<'_, Self>) -> Option<AnyElement> {
+    fn host_choice(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<AnyElement> {
         let hosts = self.data.hosts();
         let current = self.current_host(&hosts)?;
         if hosts.len() < 2 {
@@ -79,7 +89,10 @@ impl Sidebar {
         ))
     }
 
-    fn current_host(&self, hosts: &[Host]) -> Option<Host> {
+    fn current_host(
+        &self,
+        hosts: &[Host],
+    ) -> Option<Host> {
         let active = self.data.active_project()?;
         let project = self
             .data
@@ -91,5 +104,34 @@ impl Sidebar {
 }
 
 #[cfg(test)]
-#[path = "header_tests.rs"]
-mod tests;
+mod tests {
+    use crate::sidebar::Sidebar;
+    use crate::test_support::prelude::*;
+    use crate::visibility::Visibility;
+
+    #[gpui::test]
+    fn the_toggle_closes_and_reopens_the_sidebar(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update(cx, Sidebar::toggle);
+        assert!(sidebar.read_with(cx, |this, _| this.panel.visibility() == Visibility::Closed));
+        sidebar.update(cx, Sidebar::toggle);
+        assert!(sidebar.read_with(cx, |this, _| this.panel.visibility() == Visibility::Open));
+    }
+
+    #[gpui::test]
+    fn the_current_host_is_the_one_of_the_active_space(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        let name = sidebar.read_with(cx, |this, _| {
+            let hosts = this.data.hosts();
+            this.current_host(&hosts).map(|host| host.name)
+        });
+        assert!(name.is_some());
+    }
+
+    #[gpui::test]
+    fn a_single_host_shows_no_picker(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::reference());
+        let picker = sidebar.update(cx, |this, cx| this.host_choice(cx));
+        assert!(picker.is_none());
+    }
+}
