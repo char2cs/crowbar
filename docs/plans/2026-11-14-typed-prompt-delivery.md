@@ -1,6 +1,19 @@
 # Typed Prompt Delivery — Plan
 
-**Status:** Proposed · **Date:** 2026-11-14
+**Status:** Implemented · **Date:** 2026-11-14
+
+Deviations from the plan: the gate runs ahead of `requirePromptIdle` rather than
+after it, because that check refuses on `State.Busy()`, which a running subagent
+holds; the ledger half of the gate (no main-scope turn, no pending prompt or
+move, the text with its move note still typeable) is decided inside the commit
+that records the prompt, and the gate, the record and the paste all run in the
+runner's turn order. A runner with an attached view is never typed into: that
+view is an attach client of an api session, which the api path delivers to.
+`skip_prefixes` is judged on the dispatch text, after the sigil guard, so a
+message opening with an attachment is typed escaped. Fixing the black-box test
+surfaced a terminal bug: a fresh PTY's first foreground sample cleared the modes
+its app set in its first output (bracketed paste among them); a fresh birth now
+latches its own process group, and only a restore keeps that startup reset.
 
 ## 1. The problem
 

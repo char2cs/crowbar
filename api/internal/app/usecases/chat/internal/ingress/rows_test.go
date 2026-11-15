@@ -218,6 +218,35 @@ func TestMap_TypedWordsOfAnotherRunnersPromptAreItsOwn(t *testing.T) {
 	assert.Empty(t, bodyOf[ledger.TurnStarted](t, rows[1]).RequestID)
 }
 
+// A prompt typed into the live CLI's composer is received exactly as one
+// launched with it: its hook claims it, and an idle that never took it settles it.
+func TestMap_ATypedPromptIsReceivedAsARestartedOneIs(t *testing.T) {
+	const text = "![shot](chats/chat-1/attachments/a.png) what is this"
+	for _, delivery := range []string{ledger.DeliveryRestart, ledger.DeliveryType} {
+		t.Run(delivery+"/by its words", func(t *testing.T) {
+			c := liveChatRows(t)
+			c.commit(crowbarPrompt(t, "req-1", text, delivery))
+			s := hooksSource()
+			s.Prompt = Prompt{Text: text, Origin: ledger.OriginProvider}
+
+			rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, TurnID: "pt-1"}, s)
+
+			require.Equal(t, []ledger.Kind{ledger.KindTurnStarted}, kinds(rows))
+			assert.Equal(t, "req-1", bodyOf[ledger.TurnStarted](t, rows[0]).RequestID)
+			assert.Empty(t, c.st.PendingPrompts())
+		})
+		t.Run(delivery+"/never taken", func(t *testing.T) {
+			c := liveChatRows(t)
+			c.commit(crowbarPrompt(t, "req-1", text, delivery))
+
+			rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, hooksSource())
+
+			require.Equal(t, []ledger.Kind{ledger.KindPromptSettled}, kinds(rows))
+			assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[0]).Reason)
+		})
+	}
+}
+
 func TestMap_AnInjectedPromptIsHarnessNotUser(t *testing.T) {
 	c := liveChatRows(t)
 	s := hooksSource()
