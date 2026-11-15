@@ -12,7 +12,6 @@ use crate::button_size::ButtonSize;
 use crate::button_variant::ButtonVariant;
 use crate::click_handler::ClickHandler;
 use crate::focus_ring::focus_ring;
-use crate::font::UI_FAMILY;
 use crate::hover;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
@@ -159,7 +158,6 @@ impl Button {
             .bg(background)
             .text_color(colors.foreground)
             .text_size(size.text())
-            .font_family(UI_FAMILY)
             .font_weight(FontWeight::MEDIUM)
             .line_height(text_size::LINE_HEIGHT)
             .whitespace_nowrap()
@@ -210,6 +208,7 @@ impl RenderOnce for Button {
             .then(|| indicator(&self.id, &colors, self.size));
         let (ring, enabled) = (focus_ring(palette), self.enabled());
         self.frame(&colors, background)
+            .font_family(theme.ui_family())
             .relative()
             .id(self.id)
             .when(enabled, |d| {

@@ -10,7 +10,6 @@ use gpui::{
 };
 
 use crate::cubic_bezier::CubicBezier;
-use crate::font::UI_FAMILY;
 use crate::hover;
 use crate::kbd::Kbd;
 use crate::layer;
@@ -99,7 +98,7 @@ impl Tooltip {
             .bg(palette.card().opacity(FILL_OPACITY))
             .text_color(palette.foreground())
             .text_size(UiText::Sm.size(&theme))
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .whitespace_nowrap()
             .shadow(shadow::lg(opacity::PERCENT_10))
             .opacity(opacity)

@@ -4,7 +4,6 @@ use gpui::{
     AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
 };
 
-use crate::font::UI_FAMILY;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::opaque_debug::opaque_debug;
@@ -98,7 +97,7 @@ impl RenderOnce for EmptyState {
             .px(spacing::STEP_3)
             .py(spacing::STEP_6)
             .text_color(muted)
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .children(self.icon.map(|icon| {
                 div()
                     .mb(px(2.0))

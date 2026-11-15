@@ -7,7 +7,6 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
-use crate::font::UI_FAMILY;
 use crate::opaque_debug::opaque_debug;
 use crate::popover_actions::{CONTEXT, ClosePopover};
 use crate::popover_state::PopoverState;
@@ -81,7 +80,8 @@ fn panel(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let palette = Theme::of(cx).palette(Surface::Window);
+    let theme = *Theme::of(cx);
+    let palette = theme.palette(Surface::Window);
     let focus = state.read(cx).focus.clone();
     let closer = state.clone();
     div()
@@ -96,7 +96,7 @@ fn panel(
         .border_color(palette.border())
         .bg(palette.popover())
         .text_color(palette.foreground())
-        .font_family(UI_FAMILY)
+        .font_family(theme.ui_family())
         .shadow(shadow::lg(SHADOW_ALPHA))
         .child(content(window, cx))
         .into_any_element()

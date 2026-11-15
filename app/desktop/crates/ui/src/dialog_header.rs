@@ -10,7 +10,6 @@ use crate::button::Button;
 use crate::button_size::ButtonSize;
 use crate::button_variant::ButtonVariant;
 use crate::close_handler::CloseHandler;
-use crate::font::HEADING_FAMILY;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::opaque_debug::opaque_debug;
@@ -114,7 +113,7 @@ impl RenderOnce for DialogHeader {
             )
             .children(self.title.map(|title| {
                 div()
-                    .font_family(HEADING_FAMILY)
+                    .font_family(theme.heading_family())
                     .text_size(text_size::SM)
                     .line_height(spacing::STEP_3_5)
                     .child(title)

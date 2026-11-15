@@ -13,7 +13,6 @@ use crate::cubic_bezier::CubicBezier;
 use crate::dialog_extent::DialogExtent;
 use crate::dialog_header::DialogHeader;
 use crate::dialog_size::DialogSize;
-use crate::font::UI_FAMILY;
 use crate::icon_name::IconName;
 use crate::layer;
 use crate::motion::Motion;
@@ -169,7 +168,7 @@ impl Dialog {
             .rounded(radius::XL)
             .bg(palette.popover())
             .text_color(palette.foreground())
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .shadow(shadow::lg(opacity::PERCENT_5))
             .children(header)
             .children(

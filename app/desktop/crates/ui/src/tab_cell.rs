@@ -7,7 +7,6 @@ use gpui::{
 };
 
 use crate::focus_ring::focus_ring;
-use crate::font::UI_FAMILY;
 use crate::hover;
 use crate::icon::Icon;
 use crate::icon_weight::IconWeight;
@@ -20,6 +19,7 @@ use crate::spacing;
 use crate::tab_item::TabItem;
 use crate::tabs_style::TabsStyle;
 use crate::text_size;
+use crate::theme::Theme;
 use crate::toggle_state::ToggleState;
 
 const DISABLED_OPACITY: f32 = 0.64;
@@ -91,7 +91,6 @@ impl TabCell {
             .rounded(radius::MD)
             .text_color(color)
             .text_size(text_size::SM)
-            .font_family(UI_FAMILY)
             .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap();
         frame
@@ -151,6 +150,7 @@ impl RenderOnce for TabCell {
         let (index, disabled) = (self.index, self.item.disabled);
         let handler = self.on_select.clone().filter(|_| !selected && !disabled);
         self.frame(color)
+            .font_family(Theme::of(cx).ui_family())
             .when(!disabled, |d| {
                 d.cursor_pointer()
                     .tab_stop(true)

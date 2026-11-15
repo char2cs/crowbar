@@ -126,6 +126,8 @@ mod tooltip_side;
 mod tween;
 mod ui;
 mod ui_text;
+mod vibrancy;
+mod wordmark;
 
 pub use appearance::Appearance;
 pub use assets::assets;
@@ -191,3 +193,5 @@ pub use tooltip::Tooltip;
 pub use tooltip_side::TooltipSide;
 pub use ui::init;
 pub use ui_text::UiText;
+pub use vibrancy::Vibrancy;
+pub use wordmark::Wordmark;

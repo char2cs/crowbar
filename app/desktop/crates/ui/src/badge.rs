@@ -7,7 +7,6 @@ use gpui::{
 use crate::badge_paint::BadgePaint;
 use crate::badge_size::BadgeSize;
 use crate::badge_variant::BadgeVariant;
-use crate::font::UI_FAMILY;
 use crate::surface::Surface;
 use crate::theme::Theme;
 
@@ -88,7 +87,7 @@ impl RenderOnce for Badge {
             .bg(paint.fill)
             .text_color(paint.text)
             .text_size(self.size.text())
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap()
             .child(self.label)

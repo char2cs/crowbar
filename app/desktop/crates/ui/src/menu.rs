@@ -9,7 +9,6 @@ use gpui::{
 };
 
 use crate::direction::Direction;
-use crate::font::UI_FAMILY;
 use crate::menu_actions::{
     CONTEXT, CloseSubmenu, Confirm, Dismiss, OpenSubmenu as OpenSubmenuAction, SelectNext,
     SelectPrevious,
@@ -290,7 +289,7 @@ impl Render for Menu {
             .border_color(palette.foreground().opacity(opacity::PERCENT_10))
             .bg(palette.popover())
             .text_color(palette.foreground())
-            .font_family(UI_FAMILY)
+            .font_family(Theme::of(cx).ui_family())
             .shadow(shadow::md(opacity::PERCENT_10))
             .child(bounds_probe(guard))
             .children(rows)

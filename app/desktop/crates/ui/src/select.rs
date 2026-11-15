@@ -9,7 +9,6 @@ use gpui::{
 
 use crate::appearance::Appearance;
 use crate::dropdown_menu::DropdownMenu;
-use crate::font::UI_FAMILY;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::index_handler::IndexHandler;
@@ -138,7 +137,7 @@ impl Select {
             .border_color(palette.input())
             .bg(fill)
             .text_size(text_size::SM)
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .font_weight(FontWeight::NORMAL)
             .text_color(color)
             .cursor_pointer()

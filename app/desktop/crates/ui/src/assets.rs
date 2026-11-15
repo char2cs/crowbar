@@ -7,7 +7,10 @@ use gpui::{AssetSource, SharedString};
 use crate::icon_file::IconFile;
 use crate::icon_files::FILES;
 
-/// The [`AssetSource`] for `icons/<weight>/<stem>.svg`; pass it to `Application::with_assets`.
+pub(crate) const WORDMARK_PATH: &str = "brand/crowbar-wordmark.svg";
+const WORDMARK: &[u8] = include_bytes!("../assets/brand/crowbar-wordmark.svg");
+
+/// The [`AssetSource`] for `icons/<weight>/<stem>.svg` and the Crowbar wordmark; pass it to `Application::with_assets`.
 pub fn assets() -> impl AssetSource {
     Assets { files: FILES }
 }
@@ -21,6 +24,9 @@ impl AssetSource for Assets {
         &self,
         path: &str,
     ) -> gpui::Result<Option<Cow<'static, [u8]>>> {
+        if path == WORDMARK_PATH {
+            return Ok(Some(Cow::Borrowed(WORDMARK)));
+        }
         let found = self.files.iter().find(|file| file.path == path);
         Ok(found.map(|file| Cow::Borrowed(file.bytes)))
     }
@@ -69,6 +75,7 @@ mod tests {
         const CASES: &[(&str, bool)] = &[
             ("icons/regular/gear.svg", true),
             ("icons/regular/nope.svg", false),
+            ("brand/crowbar-wordmark.svg", true),
         ];
         for &(path, embedded) in CASES {
             let found = assets().load(path).expect("load");

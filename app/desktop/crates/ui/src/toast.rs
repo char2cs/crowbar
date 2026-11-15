@@ -7,7 +7,6 @@ use gpui::{
     SharedString, Styled, Window, div, px,
 };
 
-use crate::font::UI_FAMILY;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::icon_weight::IconWeight;
@@ -90,7 +89,7 @@ impl RenderOnce for Toast {
             .bg(palette.popover())
             .text_color(palette.foreground())
             .text_size(text_size::SM)
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .shadow(shadow::lg(opacity::PERCENT_5))
             .child(glyph)
             .child(self.message);

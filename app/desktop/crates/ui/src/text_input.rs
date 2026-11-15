@@ -11,7 +11,6 @@ use gpui::{
 };
 
 use crate::chrome::chrome;
-use crate::font::UI_FAMILY;
 use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::opaque_debug::opaque_debug;
@@ -214,7 +213,7 @@ impl Render for TextInput {
             .text_color(palette.foreground())
             .text_size(self.style.text(theme))
             .line_height(text_size::LINE_HEIGHT)
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .when(self.style == TextInputStyle::Bare, |d| {
                 d.font_weight(gpui::FontWeight::MEDIUM)
             })

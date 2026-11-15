@@ -3,10 +3,12 @@
 use gpui::{App, Global};
 
 use crate::appearance::Appearance;
+use crate::font::{HEADING_FAMILY, UI_FAMILY};
 use crate::palette::Palette;
 use crate::surface::Surface;
 use crate::theme_id::ThemeId;
 use crate::theme_mode::ThemeMode;
+use crate::vibrancy::Vibrancy;
 
 /// Global holding the theme every component reads; switching it repaints all windows.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -15,6 +17,9 @@ pub struct Theme {
     mode: ThemeMode,
     system: Appearance,
     ui_scale: f32,
+    vibrancy: Vibrancy,
+    ui_family: Option<&'static str>,
+    heading_family: Option<&'static str>,
 }
 
 impl Global for Theme {}
@@ -26,6 +31,9 @@ impl Default for Theme {
             mode: ThemeMode::default(),
             system: Appearance::default(),
             ui_scale: 1.0,
+            vibrancy: Vibrancy::None,
+            ui_family: None,
+            heading_family: None,
         }
     }
 }
@@ -65,6 +73,16 @@ impl Theme {
         self.ui_scale
     }
 
+    /// Family of the UI text: the chosen one, else the embedded [`UI_FAMILY`].
+    pub fn ui_family(&self) -> &'static str {
+        self.ui_family.unwrap_or(UI_FAMILY)
+    }
+
+    /// Family of headings: the chosen one, else the embedded [`HEADING_FAMILY`].
+    pub fn heading_family(&self) -> &'static str {
+        self.heading_family.unwrap_or(HEADING_FAMILY)
+    }
+
     /// The same theme with another id.
     #[must_use]
     pub fn with_id(
@@ -92,6 +110,15 @@ impl Theme {
         Self { system, ..self }
     }
 
+    /// The same theme for a window with or without a blurred backdrop.
+    #[must_use]
+    pub fn with_vibrancy(
+        self,
+        vibrancy: Vibrancy,
+    ) -> Self {
+        Self { vibrancy, ..self }
+    }
+
     /// The same theme for a UI font size in points (`uiFontSize` setting, 10 to 24).
     #[must_use]
     pub fn with_ui_font_size(
@@ -104,12 +131,41 @@ impl Theme {
         }
     }
 
+    /// The same theme with `family` for the UI text (`uiFontFamily` setting).
+    #[must_use]
+    pub fn with_ui_family(
+        self,
+        family: &'static str,
+    ) -> Self {
+        Self {
+            ui_family: Some(family),
+            ..self
+        }
+    }
+
+    /// The same theme with `family` for headings (`headingFontFamily` setting).
+    #[must_use]
+    pub fn with_heading_family(
+        self,
+        family: &'static str,
+    ) -> Self {
+        Self {
+            heading_family: Some(family),
+            ..self
+        }
+    }
+
     /// Palette for a region of the window.
     pub fn palette(
         &self,
         surface: Surface,
     ) -> &'static Palette {
         match (self.id, self.appearance(), surface) {
+            (ThemeId::Crowbar, Appearance::Light, Surface::Chrome)
+                if self.vibrancy == Vibrancy::None =>
+            {
+                &Palette::CROWBAR_CHROME_LIGHT_FLAT
+            },
             (ThemeId::Crowbar, Appearance::Light, Surface::Window) => &Palette::CROWBAR_LIGHT,
             (ThemeId::Crowbar, Appearance::Light, Surface::Chrome) => {
                 &Palette::CROWBAR_CHROME_LIGHT
@@ -169,6 +225,27 @@ mod tests {
     }
 
     #[test]
+    fn chrome_washes_keep_their_alpha_only_where_the_window_is_translucent() {
+        const CASES: &[(Vibrancy, bool)] =
+            &[(Vibrancy::None, true), (Vibrancy::Translucent, false)];
+        for &(vibrancy, opaque) in CASES {
+            let themed = theme(ThemeId::Crowbar, ThemeMode::Light, Appearance::Light)
+                .with_vibrancy(vibrancy);
+            let chrome = themed.palette(Surface::Chrome);
+            assert_eq!(
+                ((chrome.chrome_bg().a - 1.0).abs() < f32::EPSILON),
+                opaque,
+                "{vibrancy:?} chrome_bg"
+            );
+            assert_eq!(
+                ((chrome.pane_chrome_bg().a - 1.0).abs() < f32::EPSILON),
+                opaque,
+                "{vibrancy:?} pane_chrome_bg"
+            );
+        }
+    }
+
+    #[test]
     fn frosted_has_no_special_chrome() {
         let light = theme(ThemeId::Frosted, ThemeMode::Light, Appearance::Light);
         assert_eq!(
@@ -184,6 +261,43 @@ mod tests {
             let actual = Theme::default().with_ui_font_size(size).ui_scale();
             assert!((actual - scale).abs() < 1e-6, "size {size}: {actual}");
         }
+    }
+
+    #[gpui::test]
+    fn installed_families_are_what_components_read(cx: &mut gpui::TestAppContext) {
+        type Case = (Theme, &'static str, &'static str);
+        let cases: [Case; 4] = [
+            (Theme::default(), UI_FAMILY, HEADING_FAMILY),
+            (
+                Theme::default().with_ui_family("Inter"),
+                "Inter",
+                HEADING_FAMILY,
+            ),
+            (
+                Theme::default().with_heading_family("Lora"),
+                UI_FAMILY,
+                "Lora",
+            ),
+            (
+                Theme::default()
+                    .with_ui_family("Inter")
+                    .with_heading_family("Lora"),
+                "Inter",
+                "Lora",
+            ),
+        ];
+        for (themed, ui, heading) in cases {
+            let read = cx.update(|cx| installed(themed, cx));
+            assert_eq!(read, (ui, heading));
+        }
+    }
+
+    fn installed(
+        themed: Theme,
+        cx: &mut App,
+    ) -> (&'static str, &'static str) {
+        themed.install(cx);
+        (Theme::of(cx).ui_family(), Theme::of(cx).heading_family())
     }
 
     #[test]

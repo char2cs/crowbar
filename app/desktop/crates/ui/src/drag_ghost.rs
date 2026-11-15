@@ -4,7 +4,6 @@ use gpui::{
     Context, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Window, div, px,
 };
 
-use crate::font::UI_FAMILY;
 use crate::opaque_debug::opaque_debug;
 use crate::radius;
 use crate::shadow;
@@ -42,7 +41,8 @@ impl Render for DragGhost {
         _window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let palette = Theme::of(cx).palette(Surface::Window);
+        let theme = *Theme::of(cx);
+        let palette = theme.palette(Surface::Window);
         div()
             .w(px(self.width))
             .h(px(HEIGHT))
@@ -56,7 +56,7 @@ impl Render for DragGhost {
             .border_color(palette.border())
             .shadow(shadow::md(SHADOW_ALPHA))
             .text_color(palette.control_foreground())
-            .font_family(UI_FAMILY)
+            .font_family(theme.ui_family())
             .text_size(text_size::SM)
             .font_weight(FontWeight::MEDIUM)
             .child(self.label.clone())

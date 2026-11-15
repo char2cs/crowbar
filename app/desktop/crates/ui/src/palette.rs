@@ -85,6 +85,11 @@ impl Palette {
     pub(crate) const CROWBAR_LIGHT: Self = crowbar_light::PALETTE;
     pub(crate) const CROWBAR_DARK: Self = crowbar_dark::PALETTE;
     pub(crate) const CROWBAR_CHROME_LIGHT: Self = crowbar_chrome_light::PALETTE;
+    pub(crate) const CROWBAR_CHROME_LIGHT_FLAT: Self = Self {
+        pane_chrome_bg: crate::color::hex(0x1212_10ff),
+        chrome_bg: crate::color::hex(0x1212_10ff),
+        ..crowbar_chrome_light::PALETTE
+    };
     pub(crate) const FROSTED_LIGHT: Self = frosted_light::PALETTE;
     pub(crate) const FROSTED_DARK: Self = frosted_dark::PALETTE;
 }
