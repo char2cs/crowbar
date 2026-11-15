@@ -125,9 +125,12 @@ fn instance(
     }
 }
 
-#[allow(clippy::too_many_lines, reason = "one flat arm per Step variant")]
 fn command(step: &Step) -> Command {
-    match step.clone() {
+    tab_command(step).unwrap_or_else(|| pane_command(step))
+}
+
+fn tab_command(step: &Step) -> Option<Command> {
+    let command = match step.clone() {
         Step::AddTab(t) => Command::AddTab {
             id: tab_id(t),
             title: format!("tab {t}"),
@@ -142,6 +145,23 @@ fn command(step: &Step) -> Command {
             tab: tab_id(t),
             title: format!("renamed {t}"),
         },
+        Step::Resize(path, extent) => Command::ResizeSplit {
+            tab: tab_id(0),
+            path,
+            bounds: SCREEN,
+            first_extent: extent,
+        },
+        Step::Reset(path) => Command::ResetSplit {
+            tab: tab_id(0),
+            path,
+        },
+        _ => return None,
+    };
+    Some(command)
+}
+
+fn pane_command(step: &Step) -> Command {
+    match step.clone() {
         Step::Open {
             tab,
             pane,
@@ -172,20 +192,11 @@ fn command(step: &Step) -> Command {
             a: pane_id(a),
             b: pane_id(b),
         },
-        Step::Resize(path, extent) => Command::ResizeSplit {
-            tab: tab_id(0),
-            path,
-            bounds: SCREEN,
-            first_extent: extent,
-        },
-        Step::Reset(path) => Command::ResetSplit {
-            tab: tab_id(0),
-            path,
-        },
         Step::SetState(p, s) => Command::SetPaneState {
             pane: pane_id(p),
             state: PaneState::new(json!({ "s": s })).unwrap(),
         },
+        other => unreachable!("{other:?} is a tab step"),
     }
 }
 
@@ -362,9 +373,9 @@ proptest! {
         let mut before_each = Vec::new();
         for step in &structural {
             let before = history.layout().clone();
-            if history.apply(command(step)).is_ok() && history.layout() != &before {
-                before_each.push(before);
-            }
+            let applied = history.apply(command(step)).is_ok();
+            let changed = history.layout() != &before;
+            before_each.extend((applied && changed).then_some(before));
         }
         for before in before_each.iter().rev() {
             prop_assert!(history.undo());
@@ -377,23 +388,48 @@ proptest! {
         let layout = run(&steps);
         for tab in layout.tabs() {
             let slots = tab.layout(SCREEN);
-            for slot in &slots {
-                let r = slot.rect;
-                prop_assert!(r.width >= 0.0 && r.height >= 0.0);
-                prop_assert!(r.x >= -0.01 && r.y >= -0.01);
-                prop_assert!(r.x + r.width <= SCREEN.width + 0.01 && r.y + r.height <= SCREEN.height + 0.01);
-            }
-            for (i, a) in slots.iter().enumerate() {
-                for b in slots.iter().skip(i + 1) {
-                    let apart = a.rect.x + a.rect.width <= b.rect.x + 0.01
-                        || b.rect.x + b.rect.width <= a.rect.x + 0.01
-                        || a.rect.y + a.rect.height <= b.rect.y + 0.01
-                        || b.rect.y + b.rect.height <= a.rect.y + 0.01;
-                    prop_assert!(apart, "{a:?} overlaps {b:?}");
-                }
-            }
+            prop_assert!(slots.iter().all(|slot| on_screen(slot.rect)), "a pane left the screen");
+            prop_assert!(first_overlap(&slots).is_none(), "{:?}", first_overlap(&slots));
         }
     }
+}
+
+fn on_screen(r: Rect) -> bool {
+    let inside_x = r.x >= -0.01 && r.x + r.width <= SCREEN.width + 0.01;
+    let inside_y = r.y >= -0.01 && r.y + r.height <= SCREEN.height + 0.01;
+    r.width >= 0.0 && r.height >= 0.0 && inside_x && inside_y
+}
+
+fn apart(
+    a: Rect,
+    b: Rect,
+) -> bool {
+    a.x + a.width <= b.x + 0.01
+        || b.x + b.width <= a.x + 0.01
+        || a.y + a.height <= b.y + 0.01
+        || b.y + b.height <= a.y + 0.01
+}
+
+fn first_overlap(slots: &[model::PaneSlot]) -> Option<String> {
+    slots.iter().enumerate().find_map(|(i, a)| {
+        slots
+            .iter()
+            .skip(i + 1)
+            .find(|b| !apart(a.rect, b.rect))
+            .map(|b| format!("{a:?} overlaps {b:?}"))
+    })
+}
+
+fn type_into_pane(
+    history: &mut LayoutHistory,
+    keystroke: u32,
+) {
+    let draft = "x".repeat(usize::try_from(keystroke % 512).unwrap());
+    let command = Command::SetPaneState {
+        pane: pane_id(2),
+        state: PaneState::new(json!({ "draft": draft })).unwrap(),
+    };
+    history.apply(command).unwrap();
 }
 
 #[test]
@@ -401,29 +437,23 @@ fn state_sent_per_keystroke_never_grows_history_or_copies_the_layout() {
     let mut history = LayoutHistory::default();
     history.apply(command(&Step::AddTab(0))).unwrap();
     for pane in 0..4 {
-        history
-            .apply(command(&Step::Open {
-                tab: 0,
-                pane,
-                chat: None,
-                placement: None,
-            }))
-            .unwrap();
+        history.apply(command(&open_step(pane))).unwrap();
     }
     for keystroke in 0..2000_u32 {
-        history
-            .apply(Command::SetPaneState {
-                pane: pane_id(2),
-                state: PaneState::new(
-                    json!({ "draft": "x".repeat(usize::try_from(keystroke % 512).unwrap()) }),
-                )
-                .unwrap(),
-            })
-            .unwrap();
+        type_into_pane(&mut history, keystroke);
     }
     let mut undone = 0;
     while history.undo() {
         undone += 1;
     }
     assert_eq!(undone, 5, "only the five structural commands are undoable");
+}
+
+fn open_step(pane: u8) -> Step {
+    Step::Open {
+        tab: 0,
+        pane,
+        chat: None,
+        placement: None,
+    }
 }

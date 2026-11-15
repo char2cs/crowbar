@@ -45,12 +45,13 @@ pub(crate) fn move_to(
     to_index: usize,
 ) -> Result<()> {
     let index = layout.index_of(id)?;
-    if to_index >= layout.tabs.len() {
-        return Err(Error::IndexOutOfRange {
+    let len = layout.tabs.len();
+    (to_index < len)
+        .then_some(())
+        .ok_or(Error::IndexOutOfRange {
             index: to_index,
-            len: layout.tabs.len(),
-        });
-    }
+            len,
+        })?;
     let tab = layout.tabs.remove(index);
     layout.tabs.insert(to_index, tab);
     Ok(())
@@ -132,14 +133,54 @@ mod tests {
         assert_eq!(layout.tabs().len(), 2, "count");
     }
 
+    fn refusal_cases() -> Vec<(&'static str, Command, Error)> {
+        vec![
+            ("duplicate id", add(1), Error::DuplicateTab(TabId(1))),
+            (
+                "close missing",
+                Command::CloseTab { tab: TabId(9) },
+                Error::TabNotFound(TabId(9)),
+            ),
+            (
+                "activate missing",
+                Command::ActivateTab { tab: TabId(9) },
+                Error::TabNotFound(TabId(9)),
+            ),
+            (
+                "move out of range",
+                Command::MoveTab {
+                    tab: TabId(3),
+                    to_index: 3,
+                },
+                Error::IndexOutOfRange { index: 3, len: 3 },
+            ),
+            (
+                "move missing",
+                Command::MoveTab {
+                    tab: TabId(7),
+                    to_index: 0,
+                },
+                Error::TabNotFound(TabId(7)),
+            ),
+            (
+                "rename missing",
+                Command::RenameTab {
+                    tab: TabId(8),
+                    title: "x".into(),
+                },
+                Error::TabNotFound(TabId(8)),
+            ),
+        ]
+    }
+
     #[test]
-    fn duplicate_tab_ids_are_refused() {
-        let mut layout = layout(vec![add(1)]);
-        assert_eq!(
-            layout.apply(add(1)),
-            Err(Error::DuplicateTab(TabId(1))),
-            "duplicate"
-        );
+    fn commands_naming_a_missing_tab_or_bad_target_are_refused() {
+        for (name, command, error) in refusal_cases() {
+            let mut layout = layout(vec![add(1), add(2), add(3)]);
+            let before = layout.clone();
+            assert_eq!(layout.apply(command), Err(error), "{name}");
+            assert_eq!(layout, before, "{name}: unchanged");
+        }
     }
 
     #[test]
@@ -206,12 +247,6 @@ mod tests {
             .apply(Command::ActivateTab { tab: TabId(1) })
             .unwrap();
         assert_eq!(active(&layout), Some(TabId(1)), "switched");
-        assert_eq!(
-            layout.apply(Command::ActivateTab { tab: TabId(9) }),
-            Err(Error::TabNotFound(TabId(9))),
-            "missing"
-        );
-        assert_eq!(active(&layout), Some(TabId(1)), "unchanged");
     }
 
     #[test]
@@ -225,22 +260,6 @@ mod tests {
             .unwrap();
         let ids: Vec<u64> = layout.tabs().iter().map(|t| t.id().0).collect();
         assert_eq!(ids, [3, 1, 2], "moved to front");
-        assert_eq!(
-            layout.apply(Command::MoveTab {
-                tab: TabId(3),
-                to_index: 3
-            }),
-            Err(Error::IndexOutOfRange { index: 3, len: 3 }),
-            "out of range"
-        );
-        assert_eq!(
-            layout.apply(Command::MoveTab {
-                tab: TabId(7),
-                to_index: 0
-            }),
-            Err(Error::TabNotFound(TabId(7))),
-            "missing"
-        );
     }
 
     #[test]
@@ -253,14 +272,6 @@ mod tests {
             })
             .unwrap();
         assert_eq!(layout.tab(TabId(1)).map(Tab::title), Some("new"), "title");
-        assert_eq!(
-            layout.apply(Command::RenameTab {
-                tab: TabId(2),
-                title: "x".into()
-            }),
-            Err(Error::TabNotFound(TabId(2))),
-            "missing"
-        );
     }
 
     const BOUNDS: Rect = Rect {
@@ -300,22 +311,29 @@ mod tests {
 
     #[test]
     fn resize_and_reset_refuse_a_missing_tab_or_path() {
-        let mut layout = layout(vec![add(1), open(1, "a"), open(1, "b")]);
-        let refused = Command::ResizeSplit {
-            tab: TabId(5),
-            path: Vec::new(),
-            bounds: BOUNDS,
-            first_extent: 1.0,
-        };
-        assert_eq!(
-            layout.apply(refused),
-            Err(Error::TabNotFound(TabId(5))),
-            "tab"
-        );
-        let refused = Command::ResetSplit {
-            tab: TabId(1),
-            path: vec![crate::branch::Branch::First],
-        };
-        assert_eq!(layout.apply(refused), Err(Error::NoSuchSplit), "path");
+        let cases = [
+            (
+                "tab",
+                Command::ResizeSplit {
+                    tab: TabId(5),
+                    path: Vec::new(),
+                    bounds: BOUNDS,
+                    first_extent: 1.0,
+                },
+                Error::TabNotFound(TabId(5)),
+            ),
+            (
+                "path",
+                Command::ResetSplit {
+                    tab: TabId(1),
+                    path: vec![crate::branch::Branch::First],
+                },
+                Error::NoSuchSplit,
+            ),
+        ];
+        for (name, command, error) in cases {
+            let mut layout = layout(vec![add(1), open(1, "a"), open(1, "b")]);
+            assert_eq!(layout.apply(command), Err(error), "{name}");
+        }
     }
 }

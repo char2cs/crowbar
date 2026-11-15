@@ -203,6 +203,70 @@ mod tests {
         PaneState::new(value).unwrap()
     }
 
+    fn set_state(
+        name: &str,
+        value: serde_json::Value,
+    ) -> Command {
+        Command::SetPaneState {
+            pane: id(name),
+            state: state(value),
+        }
+    }
+
+    fn move_left_of(
+        pane: &str,
+        target: &str,
+    ) -> Command {
+        let placement = Placement {
+            target: id(target),
+            edge: Edge::Left,
+        };
+        Command::MovePane {
+            pane: id(pane),
+            placement,
+        }
+    }
+
+    fn fill_tab(
+        layout: &mut Layout,
+        tab: u64,
+    ) {
+        layout.apply(add(tab)).unwrap();
+        for pane in 0..crate::tab::MAX_PANES_PER_TAB {
+            layout
+                .apply(open_in(tab, &format!("p{tab}-{pane}")))
+                .unwrap();
+        }
+    }
+
+    fn open_in(
+        tab: u64,
+        name: &str,
+    ) -> Command {
+        Command::OpenPane {
+            tab: TabId(tab),
+            instance: instance(name),
+            placement: None,
+        }
+    }
+
+    fn rename(
+        tab: u64,
+        title: String,
+    ) -> Command {
+        Command::RenameTab {
+            tab: TabId(tab),
+            title,
+        }
+    }
+
+    fn swap(
+        a: &str,
+        b: &str,
+    ) -> Command {
+        Command::SwapPanes { a: id(a), b: id(b) }
+    }
+
     #[test]
     fn undo_and_redo_walk_structural_changes() {
         let mut history = history();
@@ -232,22 +296,15 @@ mod tests {
     }
 
     #[test]
-    fn focus_resize_and_state_are_not_undo_steps() {
+    fn typing_into_a_pane_is_not_an_undo_step() {
         let mut history = LayoutHistory::default();
         history.apply(add(1)).unwrap();
         history.apply(open("a")).unwrap();
         let steps = history.undo.len();
-        history.apply(Command::FocusPane { pane: id("a") }).unwrap();
-        history
-            .apply(Command::ActivateTab { tab: TabId(1) })
-            .unwrap();
         for keystroke in 0..500 {
             let text = format!("typed {keystroke}");
             history
-                .apply(Command::SetPaneState {
-                    pane: id("a"),
-                    state: state(json!({ "draft": text })),
-                })
+                .apply(set_state("a", json!({ "draft": text })))
                 .unwrap();
         }
         assert_eq!(history.undo.len(), steps, "history did not grow");
@@ -256,43 +313,50 @@ mod tests {
 
     #[test]
     fn commands_that_change_nothing_are_not_recorded() {
+        let cases = [
+            ("focus", Command::FocusPane { pane: id("a") }),
+            (
+                "activate the active tab",
+                Command::ActivateTab { tab: TabId(1) },
+            ),
+            (
+                "move a tab to where it is",
+                Command::MoveTab {
+                    tab: TabId(1),
+                    to_index: 0,
+                },
+            ),
+            (
+                "rename to the same title",
+                Command::RenameTab {
+                    tab: TabId(1),
+                    title: "t1".into(),
+                },
+            ),
+        ];
+        for (name, command) in cases {
+            let mut history = history();
+            let steps = history.undo.len();
+            history.apply(command).unwrap();
+            assert_eq!(history.undo.len(), steps, "{name}");
+        }
+    }
+
+    #[test]
+    fn every_swap_of_panes_is_an_undo_step() {
         let mut history = history();
         let steps = history.undo.len();
-        history
-            .apply(Command::MoveTab {
-                tab: TabId(1),
-                to_index: 0,
-            })
-            .unwrap();
-        history
-            .apply(Command::RenameTab {
-                tab: TabId(1),
-                title: "t1".into(),
-            })
-            .unwrap();
-        history
-            .apply(Command::SwapPanes {
-                a: id("a"),
-                b: id("b"),
-            })
-            .unwrap();
-        history
-            .apply(Command::SwapPanes {
-                a: id("a"),
-                b: id("b"),
-            })
-            .unwrap();
-        assert_eq!(history.undo.len(), steps + 2, "only the two swaps");
+        for _ in 0..2 {
+            history.apply(swap("a", "b")).unwrap();
+        }
+        assert_eq!(history.undo.len(), steps + 2, "both swaps");
     }
 
     #[test]
     fn undoing_a_close_restores_the_pane_with_the_state_it_had_when_it_closed() {
         let mut history = history();
         history
-            .apply(Command::SetPaneState {
-                pane: id("b"),
-                state: state(json!({"draft": "unsent"})),
-            })
+            .apply(set_state("b", json!({"draft": "unsent"})))
             .unwrap();
         history.apply(Command::ClosePane { pane: id("b") }).unwrap();
         assert_eq!(count(&history, 1), Some(1), "closed");
@@ -310,12 +374,7 @@ mod tests {
     fn undo_keeps_the_latest_state_of_panes_that_stay_open() {
         let mut history = history();
         history.apply(Command::ClosePane { pane: id("b") }).unwrap();
-        history
-            .apply(Command::SetPaneState {
-                pane: id("a"),
-                state: state(json!({"scroll": 7})),
-            })
-            .unwrap();
+        history.apply(set_state("a", json!({"scroll": 7}))).unwrap();
         assert!(history.undo(), "undo the close");
         assert_eq!(
             history.layout().pane(&id("a")).map(|p| p.state.clone()),
@@ -344,35 +403,42 @@ mod tests {
     }
 
     #[test]
-    fn detaching_is_one_undo_step() {
-        let mut history = history();
-        let before = history.layout().clone();
-        history
-            .apply(Command::DetachPane {
-                pane: id("b"),
-                new_tab: TabId(2),
-                title: "b".into(),
-            })
-            .unwrap();
-        assert_eq!(history.layout().tabs().len(), 2, "detached");
-        assert!(history.undo(), "one undo");
-        assert_eq!(history.layout(), &before, "back");
-    }
-
-    #[test]
-    fn moving_a_pane_to_another_tab_is_one_undo_step() {
-        let mut history = history();
-        history.apply(add(2)).unwrap();
-        let before = history.layout().clone();
-        history
-            .apply(Command::MovePaneToTab {
-                pane: id("a"),
-                to: TabId(2),
-                placement: None,
-            })
-            .unwrap();
-        assert!(history.undo(), "one undo");
-        assert_eq!(history.layout(), &before, "back");
+    fn a_cross_tab_change_is_one_undo_step() {
+        let cases = [
+            (
+                "detaching",
+                vec![],
+                Command::DetachPane {
+                    pane: id("b"),
+                    new_tab: TabId(2),
+                    title: "b".into(),
+                },
+                "b",
+            ),
+            (
+                "moving to another tab",
+                vec![add(2)],
+                Command::MovePaneToTab {
+                    pane: id("a"),
+                    to: TabId(2),
+                    placement: None,
+                },
+                "a",
+            ),
+        ];
+        for (name, prelude, command, moved) in cases {
+            let mut history = history();
+            prelude
+                .into_iter()
+                .for_each(|step| history.apply(step).unwrap());
+            let before = history.layout().clone();
+            history.apply(command).unwrap();
+            assert_eq!(history.layout().tabs().len(), 2, "{name}: two tabs");
+            let holder = history.layout().tab_of(&id(moved)).map(crate::tab::Tab::id);
+            assert_eq!(holder, Some(TabId(2)), "{name}: pane is in the other tab");
+            assert!(history.undo(), "{name}: one undo");
+            assert_eq!(history.layout(), &before, "{name}: back");
+        }
     }
 
     #[test]
@@ -380,12 +446,7 @@ mod tests {
         let mut history = LayoutHistory::default();
         history.apply(add(1)).unwrap();
         for index in 0..(MAX_UNDO_STEPS + 40) {
-            history
-                .apply(Command::RenameTab {
-                    tab: TabId(1),
-                    title: format!("title {index}"),
-                })
-                .unwrap();
+            history.apply(rename(1, format!("title {index}"))).unwrap();
         }
         assert_eq!(history.undo.len(), MAX_UNDO_STEPS, "oldest forgotten");
         let mut undone = 0;
@@ -400,15 +461,7 @@ mod tests {
         let mut layout = Layout::default();
         let tabs = 5_u64;
         for tab in 0..tabs {
-            layout.apply(add(tab)).unwrap();
-            for pane in 0..crate::tab::MAX_PANES_PER_TAB {
-                let open = Command::OpenPane {
-                    tab: TabId(tab),
-                    instance: instance(&format!("p{tab}-{pane}")),
-                    placement: None,
-                };
-                layout.apply(open).unwrap();
-            }
+            fill_tab(&mut layout, tab);
         }
         let mut history = LayoutHistory::new(layout);
         for tab in 0..tabs {
@@ -452,15 +505,7 @@ mod tests {
         let mut history = history();
         history.apply(add(2)).unwrap();
         history.apply(Command::FocusPane { pane: id("a") }).unwrap();
-        history
-            .apply(Command::MovePane {
-                pane: id("b"),
-                placement: Placement {
-                    target: id("a"),
-                    edge: Edge::Left,
-                },
-            })
-            .unwrap();
+        history.apply(move_left_of("b", "a")).unwrap();
         assert!(history.undo(), "undo the move");
         assert_eq!(
             history.layout().active_tab().map(crate::tab::Tab::id),

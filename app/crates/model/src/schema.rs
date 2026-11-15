@@ -28,12 +28,12 @@ pub(crate) fn upgrade(mut value: Value) -> Result<Value> {
         .as_object_mut()
         .ok_or(Error::Invalid("layout is not an object"))?;
     let found = version_of(document)?;
-    if found > SCHEMA_VERSION {
-        return Err(Error::UnsupportedSchema {
+    (found <= SCHEMA_VERSION)
+        .then_some(())
+        .ok_or(Error::UnsupportedSchema {
             found,
             supported: SCHEMA_VERSION,
-        });
-    }
+        })?;
     let skip = usize::try_from(found).unwrap_or(usize::MAX);
     for migration in MIGRATIONS.iter().skip(skip) {
         migration(document);
@@ -48,19 +48,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_unversioned_document_is_stamped_with_the_first_version() {
-        let upgraded = upgrade(json!({"tabs": [], "active": null})).unwrap();
-        assert_eq!(
-            upgraded,
-            json!({"version": 1, "tabs": [], "active": null}),
-            "migrated"
-        );
-    }
-
-    #[test]
-    fn a_current_document_is_left_alone() {
+    fn documents_are_brought_to_the_current_version() {
         let current = json!({"version": SCHEMA_VERSION, "tabs": [], "active": null});
-        assert_eq!(upgrade(current.clone()).unwrap(), current, "unchanged");
+        let cases = [
+            (
+                "unversioned is stamped with the first version",
+                json!({"tabs": [], "active": null}),
+                json!({"version": 1, "tabs": [], "active": null}),
+            ),
+            ("current is left alone", current.clone(), current),
+        ];
+        for (name, input, expected) in cases {
+            assert_eq!(upgrade(input).unwrap(), expected, "{name}");
+        }
     }
 
     #[test]
@@ -77,13 +77,14 @@ mod tests {
 
     #[test]
     fn malformed_documents_are_refused() {
-        for bad in [
+        let cases = [
             json!([]),
             json!("x"),
             json!({"version": "one"}),
             json!({"version": -1}),
             json!({"version": 1.5}),
-        ] {
+        ];
+        for bad in cases {
             assert!(
                 matches!(upgrade(bad.clone()), Err(Error::Invalid(_))),
                 "{bad}"

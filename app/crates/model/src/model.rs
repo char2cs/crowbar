@@ -45,31 +45,52 @@ mod tests {
     }
 
     #[test]
-    fn a_stored_layout_loads_back_identical() {
-        let bytes = store(&layout()).unwrap();
-        assert_eq!(load(&bytes).unwrap(), layout(), "round trip");
+    fn stored_and_legacy_documents_load_as_the_same_layout() {
+        let legacy = json!({"tabs": [{"id": 1, "title": "one", "panes": {}, "tree": null, "focused": null}], "active": 1});
+        let cases = [
+            ("round trip", store(&layout()).unwrap()),
+            (
+                "unversioned format migrated",
+                legacy.to_string().into_bytes(),
+            ),
+        ];
+        for (name, bytes) in cases {
+            assert_eq!(load(&bytes).unwrap(), layout(), "{name}");
+        }
     }
 
     #[test]
-    fn the_first_unversioned_format_is_migrated_on_load() {
-        let old = json!({"tabs": [{"id": 1, "title": "one", "panes": {}, "tree": null, "focused": null}], "active": 1});
-        assert_eq!(
-            load(old.to_string().as_bytes()).unwrap(),
-            layout(),
-            "migrated"
-        );
+    fn unreadable_and_broken_data_are_distinct_errors() {
+        let broken = json!({"version": 1, "tabs": [], "active": 4});
+        let cases = [
+            (
+                "syntax",
+                b"not json".to_vec(),
+                Error::Unreadable(String::new()),
+            ),
+            (
+                "shape",
+                b"{\"tabs\": 3}".to_vec(),
+                Error::Unreadable(String::new()),
+            ),
+            (
+                "invariant",
+                broken.to_string().into_bytes(),
+                Error::Invalid(""),
+            ),
+        ];
+        for (name, bytes, kind) in cases {
+            let error = load(&bytes).unwrap_err();
+            assert_eq!(
+                std::mem::discriminant(&error),
+                std::mem::discriminant(&kind),
+                "{name}"
+            );
+        }
     }
 
     #[test]
-    fn unreadable_newer_and_broken_data_are_distinct_errors() {
-        assert!(
-            matches!(load(b"not json"), Err(Error::Unreadable(_))),
-            "syntax"
-        );
-        assert!(
-            matches!(load(b"{\"tabs\": 3}"), Err(Error::Unreadable(_))),
-            "shape"
-        );
+    fn newer_data_is_refused_with_the_supported_version() {
         let newer = json!({"version": SCHEMA_VERSION + 1, "tabs": [], "active": null});
         assert_eq!(
             load(newer.to_string().as_bytes()),
@@ -78,11 +99,6 @@ mod tests {
                 supported: SCHEMA_VERSION
             }),
             "newer"
-        );
-        let broken = json!({"version": 1, "tabs": [], "active": 4});
-        assert!(
-            matches!(load(broken.to_string().as_bytes()), Err(Error::Invalid(_))),
-            "invariant"
         );
     }
 }

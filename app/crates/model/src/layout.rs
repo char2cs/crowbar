@@ -138,11 +138,9 @@ impl Layout {
             Some(id) => self.tab(id).is_some(),
             None => self.tabs.is_empty(),
         };
-        if active_ok {
-            Ok(())
-        } else {
-            Err(Error::Invalid("active tab does not match the tabs"))
-        }
+        active_ok
+            .then_some(())
+            .ok_or(Error::Invalid("active tab does not match the tabs"))
     }
 
     pub(crate) fn arrangement(&self) -> Arrangement {
@@ -347,6 +345,17 @@ mod tests {
         layout
     }
 
+    fn move_onto_itself(name: &str) -> Command {
+        let placement = Placement {
+            target: id(name),
+            edge: Edge::Left,
+        };
+        Command::MovePane {
+            pane: id(name),
+            placement,
+        }
+    }
+
     fn sample() -> Layout {
         layout(vec![
             add(1),
@@ -400,40 +409,23 @@ mod tests {
     fn a_refused_command_changes_nothing() {
         let mut layout = sample();
         let before = layout.clone();
-        let refused = [
-            open(9, instance("n")),
-            open(1, instance("a")),
-            Command::CloseTab { tab: TabId(9) },
-            Command::ClosePane { pane: id("zz") },
-            Command::MovePane {
-                pane: id("a"),
-                placement: Placement {
-                    target: id("a"),
-                    edge: Edge::Left,
-                },
-            },
+        let cases = [
+            ("unknown tab", open(9, instance("n"))),
+            ("duplicate pane", open(1, instance("a"))),
+            ("close unknown tab", Command::CloseTab { tab: TabId(9) }),
+            ("close unknown pane", Command::ClosePane { pane: id("zz") }),
+            ("move onto itself", move_onto_itself("a")),
         ];
-        for command in refused {
-            assert!(layout.apply(command).is_err());
-            assert_eq!(layout, before, "unchanged");
+        for (name, command) in cases {
+            assert!(layout.apply(command).is_err(), "{name}");
+            assert_eq!(layout, before, "{name}: unchanged");
         }
     }
 
     #[test]
     fn validate_names_broken_invariants() {
-        let broken_active = Layout {
-            active: Some(TabId(9)),
-            ..sample()
-        };
-        assert!(broken_active.validate().is_err(), "active tab missing");
-        let no_active = Layout {
-            active: None,
-            ..sample()
-        };
-        assert!(no_active.validate().is_err(), "tabs but no active");
         let mut duplicated = sample();
         duplicated.tabs.push(duplicated.tabs[0].clone());
-        assert!(duplicated.validate().is_err(), "tab id and panes twice");
         let mut same_chat = sample();
         same_chat.tabs[1] = Tab::restored(
             crate::tab_shape::TabShape {
@@ -444,7 +436,27 @@ mod tests {
             },
             [(id("d"), chat("d", "c1"))].into_iter().collect(),
         );
-        assert!(same_chat.validate().is_err(), "one chat open twice");
+        let cases = [
+            (
+                "active tab missing",
+                Layout {
+                    active: Some(TabId(9)),
+                    ..sample()
+                },
+            ),
+            (
+                "tabs but no active",
+                Layout {
+                    active: None,
+                    ..sample()
+                },
+            ),
+            ("tab id and panes twice", duplicated),
+            ("one chat open twice", same_chat),
+        ];
+        for (name, broken) in cases {
+            assert!(broken.validate().is_err(), "{name}");
+        }
     }
 
     #[test]
@@ -467,24 +479,19 @@ mod tests {
     #[test]
     fn a_layout_from_a_newer_app_or_with_stray_data_is_refused() {
         let value = serde_json::to_value(sample()).unwrap();
-        let mut newer = value.clone();
-        newer["version"] = json!(SCHEMA_VERSION + 1);
-        let error = serde_json::from_value::<Layout>(newer)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("newer"), "{error}");
-        let mut stray = value.clone();
-        stray["surprise"] = json!(true);
-        assert!(
-            serde_json::from_value::<Layout>(stray).is_err(),
-            "unknown field"
-        );
-        let mut ghost = value;
-        ghost["active"] = json!(77);
-        let error = serde_json::from_value::<Layout>(ghost)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("invalid layout"), "{error}");
+        let cases = [
+            ("newer", "version", json!(SCHEMA_VERSION + 1), "newer"),
+            ("unknown field", "surprise", json!(true), ""),
+            ("dangling active tab", "active", json!(77), "invalid layout"),
+        ];
+        for (name, field, bad, expected) in cases {
+            let mut document = value.clone();
+            document[field] = bad;
+            let error = serde_json::from_value::<Layout>(document)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(expected), "{name}: {error}");
+        }
     }
 
     #[test]

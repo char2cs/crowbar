@@ -106,14 +106,21 @@ impl SplitNode {
         edge: Edge,
     ) -> Self {
         let (existing, fresh) = (Self::leaf(existing), Self::leaf(new));
-        let (first, second) = if edge.new_pane_first() {
-            (fresh, existing)
-        } else {
-            (existing, fresh)
-        };
+        if edge.new_pane_first() {
+            return Self::split(edge.axis(), EQUAL_SHARE, fresh, existing);
+        }
+        Self::split(edge.axis(), EQUAL_SHARE, existing, fresh)
+    }
+
+    fn split(
+        axis: Axis,
+        ratio: f32,
+        first: Self,
+        second: Self,
+    ) -> Self {
         Self::Split {
-            axis: edge.axis(),
-            ratio: EQUAL_SHARE,
+            axis,
+            ratio,
             first: Box::new(first),
             second: Box::new(second),
         }
@@ -132,12 +139,7 @@ impl SplitNode {
                 first,
                 second,
             } => match (first.without(pane), second.without(pane)) {
-                (Some(first), Some(second)) => Some(Self::Split {
-                    axis,
-                    ratio,
-                    first: Box::new(first),
-                    second: Box::new(second),
-                }),
+                (Some(first), Some(second)) => Some(Self::split(axis, ratio, first, second)),
                 (kept, None) | (None, kept) => kept,
             },
         }
@@ -342,38 +344,60 @@ fn divide(
     let first = first_extent(extent_of(bounds, axis), ratio);
     let rest = (extent_of(bounds, axis) - first - SASH_THICKNESS).max(0.0);
     match axis {
-        Axis::Horizontal => Division {
-            first: Rect {
-                width: first,
-                ..bounds
-            },
-            sash: Rect {
-                x: bounds.x + first,
-                width: SASH_THICKNESS,
-                ..bounds
-            },
-            second: Rect {
-                x: bounds.x + first + SASH_THICKNESS,
-                width: rest,
-                ..bounds
-            },
-        },
-        Axis::Vertical => Division {
-            first: Rect {
-                height: first,
-                ..bounds
-            },
-            sash: Rect {
-                y: bounds.y + first,
-                height: SASH_THICKNESS,
-                ..bounds
-            },
-            second: Rect {
-                y: bounds.y + first + SASH_THICKNESS,
-                height: rest,
-                ..bounds
-            },
-        },
+        Axis::Horizontal => divide_across(bounds, first, rest),
+        Axis::Vertical => divide_down(bounds, first, rest),
+    }
+}
+
+fn divide_across(
+    bounds: Rect,
+    first: f32,
+    rest: f32,
+) -> Division {
+    let before = Rect {
+        width: first,
+        ..bounds
+    };
+    let sash = Rect {
+        x: bounds.x + first,
+        width: SASH_THICKNESS,
+        ..bounds
+    };
+    let after = Rect {
+        x: bounds.x + first + SASH_THICKNESS,
+        width: rest,
+        ..bounds
+    };
+    Division {
+        first: before,
+        sash,
+        second: after,
+    }
+}
+
+fn divide_down(
+    bounds: Rect,
+    first: f32,
+    rest: f32,
+) -> Division {
+    let before = Rect {
+        height: first,
+        ..bounds
+    };
+    let sash = Rect {
+        y: bounds.y + first,
+        height: SASH_THICKNESS,
+        ..bounds
+    };
+    let after = Rect {
+        y: bounds.y + first + SASH_THICKNESS,
+        height: rest,
+        ..bounds
+    };
+    Division {
+        first: before,
+        sash,
+        second: after,
     }
 }
 

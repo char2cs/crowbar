@@ -202,12 +202,12 @@ impl Tab {
         if self.panes.contains_key(id) {
             return Err(Error::DuplicatePane(id.clone()));
         }
-        if self.panes.len() >= MAX_PANES_PER_TAB {
-            return Err(Error::TooManyPanes {
+        (self.panes.len() < MAX_PANES_PER_TAB)
+            .then_some(())
+            .ok_or(Error::TooManyPanes {
                 tab: self.id,
                 limit: MAX_PANES_PER_TAB,
-            });
-        }
+            })?;
         if self.tree.is_none() {
             return Ok(());
         }
@@ -242,11 +242,9 @@ impl Tab {
             .tree
             .as_mut()
             .is_some_and(|tree| tree.split_leaf(&placement.target, id, placement.edge));
-        if split {
-            Ok(())
-        } else {
-            Err(Error::PaneNotFound(placement.target))
-        }
+        split
+            .then_some(())
+            .ok_or_else(|| Error::PaneNotFound(placement.target))
     }
 
     pub(crate) fn remove(
@@ -336,7 +334,8 @@ impl Tab {
         bounds: Rect,
         first_extent: f32,
     ) -> Result<()> {
-        if !first_extent.is_finite() || first_extent < 0.0 || !bounds.is_valid() {
+        let is_invalid = !first_extent.is_finite() || first_extent < 0.0 || !bounds.is_valid();
+        if is_invalid {
             return Err(Error::InvalidGeometry);
         }
         let tree = self.tree.as_mut().ok_or(Error::NoSuchSplit)?;
@@ -382,11 +381,9 @@ impl Tab {
             Some(id) => self.panes.contains_key(id),
             None => self.panes.is_empty(),
         };
-        if focus_ok {
-            Ok(())
-        } else {
-            Err(Error::Invalid("focus does not match the panes"))
-        }
+        focus_ok
+            .then_some(())
+            .ok_or(Error::Invalid("focus does not match the panes"))
     }
 
     fn target_of(
@@ -419,11 +416,10 @@ impl Tab {
         &self,
         pane: &PaneId,
     ) -> Result<()> {
-        if self.panes.contains_key(pane) {
-            Ok(())
-        } else {
-            Err(Error::PaneNotFound(pane.clone()))
-        }
+        self.panes
+            .contains_key(pane)
+            .then_some(())
+            .ok_or_else(|| Error::PaneNotFound(pane.clone()))
     }
 }
 
@@ -517,19 +513,21 @@ mod tests {
 
     #[test]
     fn open_validates_before_changing_anything() {
-        let mut tab = tab_with(&["a"]);
-        let before = tab.clone();
-        assert_eq!(
-            tab.open(pane("a"), None),
-            Err(Error::DuplicatePane(id("a"))),
-            "duplicate"
-        );
-        assert_eq!(
-            tab.open(pane("b"), Some(at("zz", Edge::Left))),
-            Err(Error::PaneNotFound(id("zz"))),
-            "unknown target"
-        );
-        assert_eq!(tab, before, "unchanged after refusals");
+        let cases = [
+            ("duplicate", pane("a"), None, Error::DuplicatePane(id("a"))),
+            (
+                "unknown target",
+                pane("b"),
+                Some(at("zz", Edge::Left)),
+                Error::PaneNotFound(id("zz")),
+            ),
+        ];
+        for (name, instance, placement, error) in cases {
+            let mut tab = tab_with(&["a"]);
+            let before = tab.clone();
+            assert_eq!(tab.open(instance, placement), Err(error), "{name}");
+            assert_eq!(tab, before, "{name}: unchanged after refusal");
+        }
     }
 
     #[test]
@@ -622,24 +620,27 @@ mod tests {
 
     #[test]
     fn relocate_rejects_bad_requests_without_changes() {
-        let mut tab = tab_with(&["a", "b"]);
-        let before = tab.clone();
-        assert_eq!(
-            tab.relocate(&id("a"), &at("a", Edge::Left)),
-            Err(Error::SamePane(id("a"))),
-            "self"
-        );
-        assert_eq!(
-            tab.relocate(&id("a"), &at("zz", Edge::Left)),
-            Err(Error::PaneNotFound(id("zz"))),
-            "target"
-        );
-        assert_eq!(
-            tab.relocate(&id("zz"), &at("a", Edge::Left)),
-            Err(Error::PaneNotFound(id("zz"))),
-            "pane"
-        );
-        assert_eq!(tab, before, "unchanged");
+        let cases = [
+            ("self", "a", at("a", Edge::Left), Error::SamePane(id("a"))),
+            (
+                "target",
+                "a",
+                at("zz", Edge::Left),
+                Error::PaneNotFound(id("zz")),
+            ),
+            (
+                "pane",
+                "zz",
+                at("a", Edge::Left),
+                Error::PaneNotFound(id("zz")),
+            ),
+        ];
+        for (name, moved, placement, error) in cases {
+            let mut tab = tab_with(&["a", "b"]);
+            let before = tab.clone();
+            assert_eq!(tab.relocate(&id(moved), &placement), Err(error), "{name}");
+            assert_eq!(tab, before, "{name}: unchanged");
+        }
     }
 
     #[test]
@@ -664,24 +665,19 @@ mod tests {
         let mut tab = tab_with(&["a", "b"]);
         let bounds = screen(1006.0, 600.0);
         let first_width = |tab: &Tab| tab.layout(bounds).first().map(|slot| slot.rect.width);
-        tab.resize(&[], bounds, 300.0).unwrap();
-        assert_eq!(
-            first_width(&tab),
-            Some(300.0),
-            "exactly where it was dragged"
-        );
-        tab.resize(&[], bounds, 1.0).unwrap();
-        assert_eq!(
-            first_width(&tab),
-            Some(MIN_PANE_EXTENT),
-            "dragged past the minimum"
-        );
-        tab.resize(&[], bounds, 5000.0).unwrap();
-        assert_eq!(
-            first_width(&tab),
-            Some(1000.0 - MIN_PANE_EXTENT),
-            "the other side keeps the minimum"
-        );
+        let cases = [
+            ("exactly where it was dragged", 300.0, 300.0),
+            ("dragged past the minimum", 1.0, MIN_PANE_EXTENT),
+            (
+                "the other side keeps the minimum",
+                5000.0,
+                1000.0 - MIN_PANE_EXTENT,
+            ),
+        ];
+        for (name, pointer, expected) in cases {
+            tab.resize(&[], bounds, pointer).unwrap();
+            assert_eq!(first_width(&tab), Some(expected), "{name}");
+        }
         tab.validate().unwrap();
     }
 
@@ -713,27 +709,39 @@ mod tests {
 
     #[test]
     fn resize_rejects_bad_input() {
-        let mut tab = tab_with(&["a", "b"]);
-        let before = tab.clone();
         let bounds = screen(1006.0, 600.0);
-        for extent in [f32::NAN, f32::INFINITY, -1.0] {
-            assert_eq!(
-                tab.resize(&[], bounds, extent),
-                Err(Error::InvalidGeometry),
-                "{extent}"
-            );
+        let nan_bounds = screen(f32::NAN, 1.0);
+        let cases = [
+            (
+                "NaN extent",
+                &[][..],
+                bounds,
+                f32::NAN,
+                Error::InvalidGeometry,
+            ),
+            (
+                "infinite extent",
+                &[],
+                bounds,
+                f32::INFINITY,
+                Error::InvalidGeometry,
+            ),
+            ("negative extent", &[], bounds, -1.0, Error::InvalidGeometry),
+            ("bounds", &[], nan_bounds, 10.0, Error::InvalidGeometry),
+            (
+                "leaf path",
+                &[Branch::First],
+                bounds,
+                300.0,
+                Error::NoSuchSplit,
+            ),
+        ];
+        for (name, path, area, extent, error) in cases {
+            let mut tab = tab_with(&["a", "b"]);
+            let before = tab.clone();
+            assert_eq!(tab.resize(path, area, extent), Err(error), "{name}");
+            assert_eq!(tab, before, "{name}: unchanged");
         }
-        assert_eq!(
-            tab.resize(&[], screen(f32::NAN, 1.0), 10.0),
-            Err(Error::InvalidGeometry),
-            "bounds"
-        );
-        assert_eq!(
-            tab.resize(&[Branch::First], bounds, 300.0),
-            Err(Error::NoSuchSplit),
-            "leaf path"
-        );
-        assert_eq!(tab, before, "unchanged");
         assert_eq!(
             Tab::new(TabId(2), "e").resize(&[], bounds, 1.0),
             Err(Error::NoSuchSplit),
@@ -806,15 +814,22 @@ mod tests {
 
     #[test]
     fn validate_names_broken_invariants() {
-        let mut tab = tab_with(&["a", "b"]);
-        tab.focused = Some(id("zz"));
-        assert!(tab.validate().is_err(), "focus on a missing pane");
-        let mut tab = tab_with(&["a", "b"]);
-        tab.panes.remove(&id("b"));
-        assert!(tab.validate().is_err(), "orphan leaf");
-        let mut tab = tab_with(&["a", "b"]);
-        tab.tree.as_mut().unwrap().set_ratio(2.0);
-        assert!(tab.validate().is_err(), "ratio");
+        let cases: [(&str, fn(&mut Tab)); 3] = [
+            ("focus on a missing pane", |tab| {
+                tab.focused = Some(id("zz"))
+            }),
+            ("orphan leaf", |tab| {
+                tab.panes.remove(&id("b"));
+            }),
+            ("ratio", |tab| {
+                tab.tree.as_mut().unwrap().set_ratio(2.0);
+            }),
+        ];
+        for (name, break_it) in cases {
+            let mut tab = tab_with(&["a", "b"]);
+            break_it(&mut tab);
+            assert!(tab.validate().is_err(), "{name}");
+        }
     }
 
     #[test]

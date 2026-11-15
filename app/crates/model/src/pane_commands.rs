@@ -561,41 +561,28 @@ mod tests {
         assert_eq!(order(&layout, 2), ["c", "a"], "right of the focused pane");
     }
 
+    fn move_to_tab(
+        pane: &str,
+        to: u64,
+        placement: Option<Placement>,
+    ) -> Command {
+        Command::MovePaneToTab {
+            pane: id(pane),
+            to: TabId(to),
+            placement,
+        }
+    }
+
     #[test]
     fn moving_to_another_tab_validates_everything_before_changing_anything() {
         let mut layout = layout(vec![add(1), open(1, "a"), add(2), open(2, "c")]);
         let before = layout.clone();
         let cases = [
+            (move_to_tab("a", 1, None), Error::SameTab(TabId(1))),
+            (move_to_tab("a", 9, None), Error::TabNotFound(TabId(9))),
+            (move_to_tab("z", 2, None), Error::PaneNotFound(id("z"))),
             (
-                Command::MovePaneToTab {
-                    pane: id("a"),
-                    to: TabId(1),
-                    placement: None,
-                },
-                Error::SameTab(TabId(1)),
-            ),
-            (
-                Command::MovePaneToTab {
-                    pane: id("a"),
-                    to: TabId(9),
-                    placement: None,
-                },
-                Error::TabNotFound(TabId(9)),
-            ),
-            (
-                Command::MovePaneToTab {
-                    pane: id("z"),
-                    to: TabId(2),
-                    placement: None,
-                },
-                Error::PaneNotFound(id("z")),
-            ),
-            (
-                Command::MovePaneToTab {
-                    pane: id("a"),
-                    to: TabId(2),
-                    placement: Some(at("ghost", Edge::Left)),
-                },
+                move_to_tab("a", 2, Some(at("ghost", Edge::Left))),
                 Error::PaneNotFound(id("ghost")),
             ),
         ];
