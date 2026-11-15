@@ -10,7 +10,7 @@ set -euo pipefail
 name=${RBUILD_NAME:-crowbar-build}
 image=${RBUILD_IMAGE:-a-gpui}
 registry_volume=${RBUILD_REGISTRY:-a-cargo}
-target_size=${RBUILD_TARGET_SIZE:-8g}
+target_size=${RBUILD_TARGET_SIZE:-10g}
 lock=${RBUILD_LOCK:-/tmp/claude-1000/cargo.lock}
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
