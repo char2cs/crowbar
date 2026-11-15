@@ -9,7 +9,10 @@ pub(crate) struct RemoteHost {
 }
 
 impl RemoteHost {
-    pub(crate) fn paired(endpoint: Endpoint, credential: &Credential) -> Self {
+    pub(crate) fn paired(
+        endpoint: Endpoint,
+        credential: &Credential,
+    ) -> Self {
         Self {
             endpoint,
             pin: Pin::Paired(credential.pin()),
@@ -18,5 +21,15 @@ impl RemoteHost {
 }
 
 #[cfg(test)]
-#[path = "remote_host_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::fingerprint::certificate_digest;
+
+    #[test]
+    fn a_paired_host_is_pinned_to_the_digest_stored_with_its_credential() {
+        let pin = certificate_digest(b"cert");
+        let credential = Credential::new("t".into(), pin);
+        let host = RemoteHost::paired(Endpoint::parse("10.0.0.2:7000").unwrap(), &credential);
+        assert_eq!(host.pin, Pin::Paired(pin));
+    }
+}

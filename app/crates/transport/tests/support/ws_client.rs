@@ -18,7 +18,12 @@ pub(crate) struct Dial {
 }
 
 impl Dial {
-    pub(crate) fn good(port: u16, origin: &str, token: &str, path: &str) -> Self {
+    pub(crate) fn good(
+        port: u16,
+        origin: &str,
+        token: &str,
+        path: &str,
+    ) -> Self {
         Self {
             port,
             host: None,

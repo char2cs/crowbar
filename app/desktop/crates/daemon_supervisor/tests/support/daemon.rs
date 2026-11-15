@@ -21,7 +21,10 @@ pub(crate) fn fast_timings() -> Timings {
 
 /// A supervisor config whose `crowbar-api` is a script that runs the fake daemon in `mode`. The
 /// returned directory holds the socket, script and log and is removed when it is dropped.
-pub(crate) fn config(mode: &str, timings: Timings) -> (SupervisorConfig, TempDir) {
+pub(crate) fn config(
+    mode: &str,
+    timings: Timings,
+) -> (SupervisorConfig, TempDir) {
     let dir = tempfile::Builder::new()
         .prefix("cb-sup-")
         .tempdir()

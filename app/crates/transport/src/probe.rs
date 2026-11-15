@@ -25,13 +25,13 @@ pub async fn probe_fingerprint(endpoint: &str) -> Result<String, Error> {
     let endpoint = Endpoint::parse(endpoint)?;
     match tokio::time::timeout(PROBE_TIMEOUT, read_fingerprint(&endpoint)).await {
         Ok(result) => result,
-        Err(_) => Err(Error::ProbeTimeout(endpoint)),
+        Err(_) => Err(Error::ProbeTimeout(endpoint.to_string())),
     }
 }
 
 async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, Error> {
     let handshake = |reason: String| Error::Handshake {
-        endpoint: endpoint.clone(),
+        endpoint: endpoint.to_string(),
         reason,
     };
     let tcp = endpoint.connect().await?;
@@ -50,11 +50,25 @@ async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, Error> {
         .peer_certificates()
         .and_then(|chain| chain.first())
         .map(|cert| fingerprint_of(cert))
-        .ok_or_else(|| Error::NoCertificate(endpoint.clone()))?;
+        .ok_or_else(|| Error::NoCertificate(endpoint.to_string()))?;
     tls.shutdown().await.ok();
     Ok(fingerprint)
 }
 
 #[cfg(test)]
-#[path = "probe_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn an_address_that_is_not_host_and_port_is_refused_before_anything_is_dialed() {
+        for text in ["", "example.com", "https://example.com:443", "1.2.3.4:0"] {
+            assert!(
+                matches!(
+                    probe_fingerprint(text).await,
+                    Err(Error::MalformedEndpoint { .. })
+                ),
+                "{text}"
+            );
+        }
+    }
+}

@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use protocol::HostId;
 use thiserror::Error;
 
-use crate::endpoint::Endpoint;
 use crate::response::{HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, NO_CREDENTIAL, UNKNOWN_HOST};
 
 type Cause = Box<dyn std::error::Error + Send + Sync>;
@@ -44,7 +43,7 @@ pub enum Error {
     #[error("cannot reach {endpoint}: {source}")]
     Unreachable {
         /// The address that was dialled.
-        endpoint: Endpoint,
+        endpoint: String,
         /// The last connect error.
         #[source]
         source: io::Error,
@@ -123,26 +122,26 @@ pub enum Error {
     BlockingTask(String),
     /// The probe did not finish in time.
     #[error("{0} did not answer within the probe deadline")]
-    ProbeTimeout(Endpoint),
+    ProbeTimeout(String),
     /// A TLS handshake failed.
     #[error("TLS handshake with {endpoint} failed: {reason}")]
     Handshake {
         /// The host dialled.
-        endpoint: Endpoint,
+        endpoint: String,
         /// What went wrong.
         reason: String,
     },
     /// The handshake completed without a certificate.
     #[error("{0} presented no certificate")]
-    NoCertificate(Endpoint),
+    NoCertificate(String),
     /// Pairing did not finish in time.
     #[error("{0} did not finish pairing in time")]
-    PairTimeout(Endpoint),
+    PairTimeout(String),
     /// The exchange with a host being paired failed.
     #[error("pairing with {endpoint} failed: {source}")]
     PairExchange {
         /// The host paired with.
-        endpoint: Endpoint,
+        endpoint: String,
         /// The failure.
         #[source]
         source: Box<Error>,
@@ -162,7 +161,7 @@ pub enum Error {
     #[error("pairing with {endpoint} could not be recorded ({stage}: {cause}); {cleanup}")]
     NotRecorded {
         /// The host paired with.
-        endpoint: Endpoint,
+        endpoint: String,
         /// What could not be written: the host list or the keychain.
         stage: &'static str,
         /// The store's failure.
@@ -227,5 +226,36 @@ impl Error {
 }
 
 #[cfg(test)]
-#[path = "error_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::response::{HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, NO_CREDENTIAL, UNKNOWN_HOST};
+
+    #[test]
+    fn a_page_gets_a_marker_for_failures_it_can_act_on() {
+        let host = HostId::new("host-1").unwrap();
+        for (error, marker) in [
+            (
+                Error::IdentityChanged("x".into()),
+                Some(HOST_IDENTITY_CHANGED),
+            ),
+            (Error::HostUnreachable("x".into()), Some(HOST_UNREACHABLE)),
+            (Error::UpgradeTimeout, Some(HOST_UNREACHABLE)),
+            (Error::NoCredential, Some(NO_CREDENTIAL)),
+            (Error::UnknownHost(host), Some(UNKNOWN_HOST)),
+            (Error::Forbidden("x".into()), None),
+            (Error::TooLarge, None),
+        ] {
+            assert_eq!(error.marker(), marker, "{error}");
+        }
+    }
+
+    #[test]
+    fn local_socket_errors_never_print_a_path() {
+        let error = Error::LocalSocket(io::Error::new(io::ErrorKind::NotFound, "no such file"));
+        assert!(!error.to_string().contains('/'), "{error}");
+        assert!(
+            std::error::Error::source(&error).is_some(),
+            "the io error stays the source"
+        );
+    }
+}

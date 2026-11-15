@@ -36,7 +36,10 @@ async fn rig() -> RelayRig {
     RelayRig::start(RelayConfig::default()).await
 }
 
-fn good(rig: &RelayRig, token: &str) -> Dial {
+fn good(
+    rig: &RelayRig,
+    token: &str,
+) -> Dial {
     Dial::good(rig.relay.addr().port(), CORE_ORIGIN, token, STREAM)
 }
 
@@ -72,7 +75,10 @@ async fn echoes(ws: &mut Client) -> bool {
     ws.send(text("probe")).await.is_ok() && matches!(ws.next().await, Some(Ok(Message::Text(_))))
 }
 
-async fn reconnect(rig: &RelayRig, token: &str) -> Client {
+async fn reconnect(
+    rig: &RelayRig,
+    token: &str,
+) -> Client {
     loop {
         if let Ok(mut ws) = good(rig, token).connect().await
             && echoes(&mut ws).await
@@ -83,7 +89,10 @@ async fn reconnect(rig: &RelayRig, token: &str) -> Client {
     }
 }
 
-async fn refused_once_revoked(rig: &RelayRig, token: &str) -> u16 {
+async fn refused_once_revoked(
+    rig: &RelayRig,
+    token: &str,
+) -> u16 {
     loop {
         match good(rig, token).connect().await {
             Err(error) => return status_of(&error).expect("an HTTP refusal"),

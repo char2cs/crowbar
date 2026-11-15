@@ -13,7 +13,11 @@ pub struct RelayScope {
 impl RelayScope {
     /// The scope of `pane`, of `origin`, on `host`.
     #[must_use]
-    pub fn new(host: HostId, pane: PaneId, origin: PaneOrigin) -> Self {
+    pub fn new(
+        host: HostId,
+        pane: PaneId,
+        origin: PaneOrigin,
+    ) -> Self {
         Self { host, pane, origin }
     }
 
@@ -37,5 +41,18 @@ impl RelayScope {
 }
 
 #[cfg(test)]
-#[path = "relay_scope_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn getters_return_what_was_built() {
+        let scope = RelayScope::new(
+            HostId::new("host-1").unwrap(),
+            PaneId::new("p1").unwrap(),
+            PaneOrigin::Core,
+        );
+        assert_eq!(scope.host().as_str(), "host-1", "host");
+        assert_eq!(scope.pane().as_str(), "p1", "pane");
+        assert_eq!(scope.origin(), &PaneOrigin::Core, "origin");
+    }
+}

@@ -18,7 +18,6 @@ path = "src/bin/fake_daemon.rs"
 required-features = ["test-daemon"]
 
 [dependencies]
-bytes = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }

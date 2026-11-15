@@ -12,7 +12,10 @@ pub(crate) struct Credential {
 }
 
 impl fmt::Debug for Credential {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
         f.debug_struct("Credential")
             .field("token", &"<redacted>")
             .field("pin", &hex(&self.pin))
@@ -21,7 +24,10 @@ impl fmt::Debug for Credential {
 }
 
 impl Credential {
-    pub(crate) fn new(token: String, pin: CertificateDigest) -> Self {
+    pub(crate) fn new(
+        token: String,
+        pin: CertificateDigest,
+    ) -> Self {
         Self {
             token: Zeroizing::new(token),
             pin,
@@ -63,5 +69,35 @@ fn parse_digest(text: &str) -> Option<CertificateDigest> {
 }
 
 #[cfg(test)]
-#[path = "credential_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_credential_round_trips_and_hides_its_token_from_debug() {
+        let credential = Credential::new("secret-token".into(), [7; 32]);
+        assert_eq!(
+            Credential::decode(&credential.encode()),
+            Some(credential.clone())
+        );
+        assert!(!format!("{credential:?}").contains("secret-token"));
+        assert_eq!(credential.token(), "secret-token");
+        assert_eq!(credential.pin(), [7; 32]);
+    }
+
+    #[test]
+    fn anything_pairing_did_not_write_decodes_to_nothing() {
+        let pin = "00".repeat(32);
+        for stored in [
+            "sometoken".to_owned(),
+            String::new(),
+            format!(r#"{{"token":"","pin":"{pin}"}}"#),
+            format!(r#"{{"token":" \t","pin":"{pin}"}}"#),
+            r#"{"token":"t","pin":"abcd"}"#.to_owned(),
+            format!(r#"{{"token":"t","pin":"{}"}}"#, "zz".repeat(32)),
+            format!(r#"{{"token":"t","pin":"{}é"}}"#, "0".repeat(63)),
+            format!(r#"{{"pin":"{pin}"}}"#),
+        ] {
+            assert_eq!(Credential::decode(&stored), None, "{stored}");
+        }
+    }
+}

@@ -13,7 +13,10 @@ pub(crate) struct Seen {
 }
 
 impl Seen {
-    pub(crate) fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(
+        &self,
+        name: &str,
+    ) -> Option<&str> {
         self.headers
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case(name))
@@ -25,7 +28,10 @@ pub(crate) type Log = Arc<Mutex<Vec<Seen>>>;
 pub(crate) type Reply = (u16, Vec<(String, String)>, String);
 pub(crate) type Handler = Arc<dyn Fn(&Seen) -> Reply + Send + Sync>;
 
-async fn fill<S: AsyncRead + Unpin>(stream: &mut S, buffered: &mut Vec<u8>) -> Option<()> {
+async fn fill<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    buffered: &mut Vec<u8>,
+) -> Option<()> {
     let mut chunk = [0u8; 8192];
     let read = stream.read(&mut chunk).await.ok()?;
     if read == 0 {
@@ -78,8 +84,11 @@ async fn read_request<S: AsyncRead + Unpin>(
 }
 
 /// Serves HTTP/1.1 with keep-alive on `stream` until it closes, recording what it saw.
-pub(crate) async fn serve_http<S>(mut stream: S, handler: Handler, log: Log)
-where
+pub(crate) async fn serve_http<S>(
+    mut stream: S,
+    handler: Handler,
+    log: Log,
+) where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut buffered = Vec::new();

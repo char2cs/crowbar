@@ -35,7 +35,11 @@ impl RelayRig {
         }
     }
 
-    pub(crate) fn token(&self, pane: &str, origin: PaneOrigin) -> String {
+    pub(crate) fn token(
+        &self,
+        pane: &str,
+        origin: PaneOrigin,
+    ) -> String {
         let scope = RelayScope::new(
             HostId::new("local").expect("host id"),
             PaneId::new(pane).expect("pane id"),
@@ -48,12 +52,19 @@ impl RelayRig {
             .to_owned()
     }
 
-    pub(crate) fn extension_token(&self, pane: &str, extension: &str) -> String {
+    pub(crate) fn extension_token(
+        &self,
+        pane: &str,
+        extension: &str,
+    ) -> String {
         let id = ExtensionId::new(extension).expect("extension id");
         self.token(pane, PaneOrigin::Extension(id))
     }
 
-    pub(crate) fn core_token(&self, pane: &str) -> String {
+    pub(crate) fn core_token(
+        &self,
+        pane: &str,
+    ) -> String {
         self.token(pane, PaneOrigin::Core)
     }
 }

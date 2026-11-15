@@ -1,7 +1,5 @@
 use thiserror::Error;
 
-use crate::host_id::HostId;
-
 /// Everything that can go wrong in this crate and through [`DaemonTransport`](crate::DaemonTransport).
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -79,7 +77,7 @@ pub enum Error {
     },
     /// The host id is not known to the transport.
     #[error("unknown host {0}")]
-    UnknownHost(HostId),
+    UnknownHost(String),
     /// The daemon or remote host cannot be reached; the cause is the transport's own error.
     #[error("host unavailable: {0}")]
     HostUnavailable(#[source] Box<dyn std::error::Error + Send + Sync>),

@@ -38,7 +38,10 @@ fn store_error(error: &keyring::Error) -> Error {
 }
 
 impl Keychain for OsKeychain {
-    fn read(&self, host_id: &str) -> Result<Option<String>, ReadError> {
+    fn read(
+        &self,
+        host_id: &str,
+    ) -> Result<Option<String>, ReadError> {
         let entry = keyring::Entry::new(SERVICE, host_id).map_err(|e| read_error(&e))?;
         match entry.get_password() {
             Ok(secret) => Ok(Some(secret)),
@@ -47,12 +50,19 @@ impl Keychain for OsKeychain {
         }
     }
 
-    fn write(&self, host_id: &str, entry: &str) -> Result<(), Error> {
+    fn write(
+        &self,
+        host_id: &str,
+        entry: &str,
+    ) -> Result<(), Error> {
         let item = keyring::Entry::new(SERVICE, host_id).map_err(|e| store_error(&e))?;
         item.set_password(entry).map_err(|e| store_error(&e))
     }
 
-    fn remove(&self, host_id: &str) -> Result<(), Error> {
+    fn remove(
+        &self,
+        host_id: &str,
+    ) -> Result<(), Error> {
         let item = keyring::Entry::new(SERVICE, host_id).map_err(|e| store_error(&e))?;
         match item.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -62,5 +72,14 @@ impl Keychain for OsKeychain {
 }
 
 #[cfg(test)]
-#[path = "os_keychain_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_unknown_failure_class_is_remembered_as_a_denial() {
+        let locked = keyring::Error::NoStorageAccess("locked".into());
+        assert!(!is_denial(&locked));
+        assert!(is_denial(&keyring::Error::NoEntry));
+        assert!(is_denial(&keyring::Error::TooLong("x".into(), 1)));
+    }
+}

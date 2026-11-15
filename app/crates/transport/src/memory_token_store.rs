@@ -17,21 +17,41 @@ impl MemoryTokenStore {
 }
 
 impl TokenStore for MemoryTokenStore {
-    fn get(&self, host_id: &str) -> Result<Option<String>, Error> {
+    fn get(
+        &self,
+        host_id: &str,
+    ) -> Result<Option<String>, Error> {
         Ok(self.entries().get(host_id).cloned())
     }
 
-    fn set(&self, host_id: &str, entry: &str) -> Result<(), Error> {
+    fn set(
+        &self,
+        host_id: &str,
+        entry: &str,
+    ) -> Result<(), Error> {
         self.entries().insert(host_id.to_owned(), entry.to_owned());
         Ok(())
     }
 
-    fn delete(&self, host_id: &str) -> Result<(), Error> {
+    fn delete(
+        &self,
+        host_id: &str,
+    ) -> Result<(), Error> {
         self.entries().remove(host_id);
         Ok(())
     }
 }
 
 #[cfg(test)]
-#[path = "memory_token_store_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_memory_store_round_trips() {
+        let store = MemoryTokenStore::default();
+        store.set("h", "e").unwrap();
+        assert_eq!(store.get("h").unwrap(), Some("e".into()));
+        store.delete("h").unwrap();
+        assert_eq!(store.get("h").unwrap(), None);
+    }
+}

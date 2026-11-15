@@ -27,7 +27,10 @@ fn socket_arg() -> Option<String> {
     host.strip_prefix("unix://").map(str::to_owned)
 }
 
-fn health_body(mode: &str, served: u32) -> String {
+fn health_body(
+    mode: &str,
+    served: u32,
+) -> String {
     match (mode, served) {
         ("migrating", _) => MIGRATING.to_owned(),
         ("halted", _) => HALTED.to_owned(),
@@ -38,7 +41,11 @@ fn health_body(mode: &str, served: u32) -> String {
     }
 }
 
-async fn answer(mut stream: UnixStream, mode: &str, served: u32) {
+async fn answer(
+    mut stream: UnixStream,
+    mode: &str,
+    served: u32,
+) {
     let mut buf = vec![0u8; 4096];
     let Ok(read) = stream.read(&mut buf).await else {
         return;
@@ -61,7 +68,10 @@ async fn hold(stream: UnixStream) {
     std::future::pending::<()>().await;
 }
 
-async fn serve(listener: UnixListener, mode: String) -> ExitCode {
+async fn serve(
+    listener: UnixListener,
+    mode: String,
+) -> ExitCode {
     let mut served = 0u32;
     loop {
         let Ok((stream, _)) = listener.accept().await else {

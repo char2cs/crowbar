@@ -14,7 +14,10 @@ async fn proc_stat(pid: u32) -> Option<String> {
         .ok()
 }
 
-async fn ps(args: [&str; 3], pid: u32) -> Option<String> {
+async fn ps(
+    args: [&str; 3],
+    pid: u32,
+) -> Option<String> {
     let run = Command::new(PS)
         .args(args)
         .arg(pid.to_string())
@@ -54,5 +57,20 @@ pub(crate) async fn is_suspended(pid: u32) -> bool {
 }
 
 #[cfg(test)]
-#[path = "process_cpu_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_running_process_has_cpu_time_and_is_not_suspended() {
+        let pid = std::process::id();
+        assert!(cpu_time(pid).await.is_some());
+        assert!(!is_suspended(pid).await);
+    }
+
+    #[tokio::test]
+    async fn a_process_that_does_not_exist_reads_as_unknown_and_running() {
+        let gone = i32::MAX as u32;
+        assert_eq!(cpu_time(gone).await, None);
+        assert!(!is_suspended(gone).await);
+    }
+}

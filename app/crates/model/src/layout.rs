@@ -9,11 +9,9 @@ use crate::arrangement::Arrangement;
 use crate::command::Command;
 use crate::error::{Error, Result};
 use crate::layout_document::LayoutDocument;
-use crate::pane_commands;
 use crate::pane_instance::PaneInstance;
 use crate::schema::{SCHEMA_VERSION, upgrade};
 use crate::tab::Tab;
-use crate::tab_commands;
 use crate::tab_id::TabId;
 use crate::undo_step::UndoStep;
 
@@ -41,7 +39,10 @@ impl Layout {
 
     /// Looks up a tab.
     #[must_use]
-    pub fn tab(&self, id: TabId) -> Option<&Tab> {
+    pub fn tab(
+        &self,
+        id: TabId,
+    ) -> Option<&Tab> {
         self.tabs.iter().find(|tab| tab.id() == id)
     }
 
@@ -53,20 +54,30 @@ impl Layout {
 
     /// The tab holding a pane.
     #[must_use]
-    pub fn tab_of(&self, pane: &PaneId) -> Option<&Tab> {
+    pub fn tab_of(
+        &self,
+        pane: &PaneId,
+    ) -> Option<&Tab> {
         self.tabs.iter().find(|tab| tab.contains(pane))
     }
 
     /// Looks up a pane in any tab.
     #[must_use]
-    pub fn pane(&self, id: &PaneId) -> Option<&PaneInstance> {
+    pub fn pane(
+        &self,
+        id: &PaneId,
+    ) -> Option<&PaneInstance> {
         self.tab_of(id).and_then(|tab| tab.pane(id))
     }
 
     /// The open pane with this type and these parameters, if any. Parameters identify a pane:
     /// a chat is open once, whichever tab it is in.
     #[must_use]
-    pub fn find_pane(&self, type_id: &PaneTypeId, params: &Params) -> Option<&PaneInstance> {
+    pub fn find_pane(
+        &self,
+        type_id: &PaneTypeId,
+        params: &Params,
+    ) -> Option<&PaneInstance> {
         self.tabs
             .iter()
             .flat_map(Tab::instances)
@@ -83,7 +94,10 @@ impl Layout {
     ///
     /// # Errors
     /// The [`Error`] that refused the command.
-    pub fn apply(&mut self, command: Command) -> Result<()> {
+    pub fn apply(
+        &mut self,
+        command: Command,
+    ) -> Result<()> {
         self.execute(command).map(drop)
     }
 
@@ -131,63 +145,6 @@ impl Layout {
         }
     }
 
-    pub(crate) fn execute(&mut self, command: Command) -> Result<Vec<PaneInstance>> {
-        match command {
-            Command::AddTab { id, title } => tab_commands::add(self, id, title).map(none_removed),
-            Command::CloseTab { tab } => tab_commands::close(self, tab),
-            Command::ActivateTab { tab } => tab_commands::activate(self, tab).map(none_removed),
-            Command::MoveTab { tab, to_index } => {
-                tab_commands::move_to(self, tab, to_index).map(none_removed)
-            },
-            Command::RenameTab { tab, title } => {
-                tab_commands::rename(self, tab, title).map(none_removed)
-            },
-            Command::ResizeSplit {
-                tab,
-                path,
-                bounds,
-                first_extent,
-            } => self
-                .tab_mut(tab)
-                .and_then(|t| t.resize(&path, bounds, first_extent))
-                .map(none_removed),
-            Command::ResetSplit { tab, path } => {
-                tab_commands::equalize(self, tab, &path).map(none_removed)
-            },
-            pane_command => self.execute_pane(pane_command),
-        }
-    }
-
-    fn execute_pane(&mut self, command: Command) -> Result<Vec<PaneInstance>> {
-        match command {
-            Command::OpenPane {
-                tab,
-                instance,
-                placement,
-            } => pane_commands::open(self, tab, instance, placement).map(none_removed),
-            Command::ClosePane { pane } => pane_commands::close(self, &pane),
-            Command::FocusPane { pane } => pane_commands::focus(self, &pane).map(none_removed),
-            Command::MovePane { pane, placement } => {
-                pane_commands::relocate(self, &pane, &placement).map(none_removed)
-            },
-            Command::MovePaneToTab {
-                pane,
-                to,
-                placement,
-            } => pane_commands::move_to_tab(self, &pane, to, placement).map(none_removed),
-            Command::DetachPane {
-                pane,
-                new_tab,
-                title,
-            } => pane_commands::detach(self, &pane, new_tab, title).map(none_removed),
-            Command::SwapPanes { a, b } => pane_commands::swap(self, &a, &b).map(none_removed),
-            Command::SetPaneState { pane, state } => {
-                pane_commands::set_state(self, &pane, state).map(none_removed)
-            },
-            _ => Ok(Vec::new()),
-        }
-    }
-
     pub(crate) fn arrangement(&self) -> Arrangement {
         Arrangement {
             tabs: self.tabs.iter().map(Tab::shape).collect(),
@@ -224,35 +181,50 @@ impl Layout {
         })
     }
 
-    pub(crate) fn index_of(&self, id: TabId) -> Result<usize> {
+    pub(crate) fn index_of(
+        &self,
+        id: TabId,
+    ) -> Result<usize> {
         self.tabs
             .iter()
             .position(|tab| tab.id() == id)
             .ok_or(Error::TabNotFound(id))
     }
 
-    pub(crate) fn index_of_pane(&self, pane: &PaneId) -> Result<usize> {
+    pub(crate) fn index_of_pane(
+        &self,
+        pane: &PaneId,
+    ) -> Result<usize> {
         self.tabs
             .iter()
             .position(|tab| tab.contains(pane))
             .ok_or_else(|| Error::PaneNotFound(pane.clone()))
     }
 
-    pub(crate) fn tab_mut(&mut self, id: TabId) -> Result<&mut Tab> {
+    pub(crate) fn tab_mut(
+        &mut self,
+        id: TabId,
+    ) -> Result<&mut Tab> {
         self.tabs
             .iter_mut()
             .find(|tab| tab.id() == id)
             .ok_or(Error::TabNotFound(id))
     }
 
-    pub(crate) fn tab_of_mut(&mut self, pane: &PaneId) -> Result<&mut Tab> {
+    pub(crate) fn tab_of_mut(
+        &mut self,
+        pane: &PaneId,
+    ) -> Result<&mut Tab> {
         self.tabs
             .iter_mut()
             .find(|tab| tab.contains(pane))
             .ok_or_else(|| Error::PaneNotFound(pane.clone()))
     }
 
-    pub(crate) fn remove_tab_at(&mut self, index: usize) -> Option<Tab> {
+    pub(crate) fn remove_tab_at(
+        &mut self,
+        index: usize,
+    ) -> Option<Tab> {
         if index >= self.tabs.len() {
             return None;
         }
@@ -265,11 +237,11 @@ impl Layout {
     }
 }
 
-fn none_removed(_: ()) -> Vec<PaneInstance> {
-    Vec::new()
-}
-
-fn is_same_thing(instance: &PaneInstance, type_id: &PaneTypeId, params: &Params) -> bool {
+fn is_same_thing(
+    instance: &PaneInstance,
+    type_id: &PaneTypeId,
+    params: &Params,
+) -> bool {
     !params.is_empty() && &instance.type_id == type_id && &instance.params == params
 }
 
@@ -279,7 +251,10 @@ fn has_duplicates<T: Ord>(items: &mut [T]) -> bool {
 }
 
 impl Serialize for Layout {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+    fn serialize<S: Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
         LayoutDocument {
             version: SCHEMA_VERSION,
             tabs: Cow::Borrowed(&self.tabs),
@@ -311,5 +286,243 @@ impl Layout {
 }
 
 #[cfg(test)]
-#[path = "layout_tests.rs"]
-mod tests;
+mod tests {
+    use std::collections::BTreeMap;
+
+    use protocol::{PaneState, PaneTypeId, Params};
+    use serde_json::json;
+
+    use super::*;
+    use crate::edge::Edge;
+    use crate::placement::Placement;
+
+    fn id(name: &str) -> PaneId {
+        PaneId::new(name).unwrap()
+    }
+
+    fn instance(name: &str) -> PaneInstance {
+        PaneInstance {
+            pane_id: id(name),
+            type_id: PaneTypeId::new("core.terminal").unwrap(),
+            params: Params::default(),
+            state: PaneState::default(),
+        }
+    }
+
+    fn chat(
+        name: &str,
+        chat_id: &str,
+    ) -> PaneInstance {
+        PaneInstance {
+            type_id: PaneTypeId::new("core.chat").unwrap(),
+            params: Params::default().with("chatId", chat_id).unwrap(),
+            ..instance(name)
+        }
+    }
+
+    fn open(
+        tab: u64,
+        instance: PaneInstance,
+    ) -> Command {
+        Command::OpenPane {
+            tab: TabId(tab),
+            instance,
+            placement: None,
+        }
+    }
+
+    fn add(tab: u64) -> Command {
+        Command::AddTab {
+            id: TabId(tab),
+            title: format!("tab {tab}"),
+        }
+    }
+
+    fn layout(commands: Vec<Command>) -> Layout {
+        let mut layout = Layout::default();
+        for command in commands {
+            layout.apply(command).unwrap();
+        }
+        layout.validate().unwrap();
+        layout
+    }
+
+    fn sample() -> Layout {
+        layout(vec![
+            add(1),
+            open(1, chat("a", "c1")),
+            open(1, instance("b")),
+            add(2),
+            open(2, instance("c")),
+        ])
+    }
+
+    #[test]
+    fn queries_find_tabs_and_panes() {
+        let layout = sample();
+        assert_eq!(layout.pane_count(), 3, "count");
+        assert_eq!(
+            layout.tab_of(&id("c")).map(Tab::id),
+            Some(TabId(2)),
+            "tab of"
+        );
+        assert_eq!(
+            layout.pane(&id("b")).map(|p| p.pane_id.clone()),
+            Some(id("b")),
+            "pane"
+        );
+        assert!(
+            layout.pane(&id("zz")).is_none() && layout.tab(TabId(9)).is_none(),
+            "missing"
+        );
+        let found = layout.find_pane(
+            &PaneTypeId::new("core.chat").unwrap(),
+            &Params::default().with("chatId", "c1").unwrap(),
+        );
+        assert_eq!(
+            found.map(|p| p.pane_id.clone()),
+            Some(id("a")),
+            "by identity"
+        );
+        let other_type = layout.find_pane(
+            &PaneTypeId::new("core.terminal").unwrap(),
+            &Params::default().with("chatId", "c1").unwrap(),
+        );
+        assert!(other_type.is_none(), "type is part of the identity");
+        let no_params = layout.find_pane(
+            &PaneTypeId::new("core.terminal").unwrap(),
+            &Params::default(),
+        );
+        assert!(no_params.is_none(), "empty parameters identify nothing");
+    }
+
+    #[test]
+    fn a_refused_command_changes_nothing() {
+        let mut layout = sample();
+        let before = layout.clone();
+        let refused = [
+            open(9, instance("n")),
+            open(1, instance("a")),
+            Command::CloseTab { tab: TabId(9) },
+            Command::ClosePane { pane: id("zz") },
+            Command::MovePane {
+                pane: id("a"),
+                placement: Placement {
+                    target: id("a"),
+                    edge: Edge::Left,
+                },
+            },
+        ];
+        for command in refused {
+            assert!(layout.apply(command).is_err());
+            assert_eq!(layout, before, "unchanged");
+        }
+    }
+
+    #[test]
+    fn validate_names_broken_invariants() {
+        let broken_active = Layout {
+            active: Some(TabId(9)),
+            ..sample()
+        };
+        assert!(broken_active.validate().is_err(), "active tab missing");
+        let no_active = Layout {
+            active: None,
+            ..sample()
+        };
+        assert!(no_active.validate().is_err(), "tabs but no active");
+        let mut duplicated = sample();
+        duplicated.tabs.push(duplicated.tabs[0].clone());
+        assert!(duplicated.validate().is_err(), "tab id and panes twice");
+        let mut same_chat = sample();
+        same_chat.tabs[1] = Tab::restored(
+            crate::tab_shape::TabShape {
+                id: TabId(2),
+                title: "two".into(),
+                tree: Some(crate::split_node::SplitNode::Leaf { pane: id("d") }),
+                focused: Some(id("d")),
+            },
+            [(id("d"), chat("d", "c1"))].into_iter().collect(),
+        );
+        assert!(same_chat.validate().is_err(), "one chat open twice");
+    }
+
+    #[test]
+    fn a_layout_round_trips_through_json_with_its_version() {
+        let layout = sample();
+        let value = serde_json::to_value(&layout).unwrap();
+        assert_eq!(value["version"], json!(SCHEMA_VERSION), "versioned");
+        let back: Layout = serde_json::from_value(value).unwrap();
+        assert_eq!(back, layout, "round trip");
+    }
+
+    #[test]
+    fn an_unversioned_layout_from_the_first_format_is_migrated() {
+        let mut value = serde_json::to_value(sample()).unwrap();
+        value.as_object_mut().unwrap().remove("version");
+        let migrated: Layout = serde_json::from_value(value).unwrap();
+        assert_eq!(migrated, sample(), "same layout");
+    }
+
+    #[test]
+    fn a_layout_from_a_newer_app_or_with_stray_data_is_refused() {
+        let value = serde_json::to_value(sample()).unwrap();
+        let mut newer = value.clone();
+        newer["version"] = json!(SCHEMA_VERSION + 1);
+        let error = serde_json::from_value::<Layout>(newer)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("newer"), "{error}");
+        let mut stray = value.clone();
+        stray["surprise"] = json!(true);
+        assert!(
+            serde_json::from_value::<Layout>(stray).is_err(),
+            "unknown field"
+        );
+        let mut ghost = value;
+        ghost["active"] = json!(77);
+        let error = serde_json::from_value::<Layout>(ghost)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid layout"), "{error}");
+    }
+
+    #[test]
+    fn swapping_in_an_arrangement_keeps_live_panes_and_parks_the_rest() {
+        let mut layout = sample();
+        let before = layout.arrangement();
+        let removed = layout
+            .execute(Command::ClosePane { pane: id("b") })
+            .unwrap();
+        let step = UndoStep {
+            arrangement: before.clone(),
+            parked: removed
+                .into_iter()
+                .map(|p| (p.pane_id.clone(), p))
+                .collect(),
+        };
+        let after_close = layout.arrangement();
+        let inverse = layout.swap_arrangement(step).unwrap();
+        assert_eq!(layout.arrangement(), before, "arrangement back");
+        assert_eq!(layout.pane_count(), 3, "pane back");
+        assert!(
+            inverse.parked.is_empty() && inverse.arrangement == after_close,
+            "inverse: {inverse:?}"
+        );
+        layout.validate().unwrap();
+    }
+
+    #[test]
+    fn an_arrangement_naming_a_vanished_pane_is_refused_untouched() {
+        let mut layout = sample();
+        let before = layout.clone();
+        let mut arrangement = layout.arrangement();
+        arrangement.tabs[0].tree = Some(crate::split_node::SplitNode::Leaf { pane: id("ghost") });
+        let step = UndoStep {
+            arrangement,
+            parked: BTreeMap::new(),
+        };
+        assert!(layout.swap_arrangement(step).is_err(), "refused");
+        assert_eq!(layout, before, "layout untouched");
+    }
+}

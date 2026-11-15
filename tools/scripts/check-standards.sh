@@ -9,7 +9,8 @@ for checker in check-rust-rules.sh check-swift-rules.sh check-ts-rules.sh; do
   echo "== $checker ${args[*]}"
   if [[ " ${args[*]} " == *" --self-test "* ]]; then bash "$here/$checker" --self-test || status=1; fi
   [[ " ${args[*]} " == *" --self-test "* ]] && continue
-  bash "$here/$checker" "${args[@]}" || status=1
+  extra=(); [[ $checker == check-rust-rules.sh ]] && extra=(--mobile)
+  bash "$here/$checker" "${extra[@]}" "${args[@]}" || status=1
 done
 ((status)) && echo "check-standards: FAILED" || echo "check-standards: clean"
 exit $status

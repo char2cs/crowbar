@@ -59,7 +59,7 @@ async fn within_deadline<T>(
 ) -> Result<T, Error> {
     match tokio::time::timeout(PAIR_TIMEOUT, step).await {
         Ok(result) => result,
-        Err(_) => Err(Error::PairTimeout(endpoint.clone())),
+        Err(_) => Err(Error::PairTimeout(endpoint.to_string())),
     }
 }
 
@@ -103,7 +103,10 @@ async fn restore(
     }
 }
 
-async fn undo(redeemed: &mut Redeemed, unrecorded: Unrecorded) -> Error {
+async fn undo(
+    redeemed: &mut Redeemed,
+    unrecorded: Unrecorded,
+) -> Error {
     let endpoint = redeemed.endpoint.clone();
     let revoked = within_deadline(&endpoint, revoke(redeemed)).await;
     let revoke_note = match revoked {
@@ -111,7 +114,7 @@ async fn undo(redeemed: &mut Redeemed, unrecorded: Unrecorded) -> Error {
         Err(why) => format!("revoking the token on the host failed: {why}"),
     };
     Error::NotRecorded {
-        endpoint,
+        endpoint: endpoint.to_string(),
         stage: unrecorded.stage,
         cause: unrecorded.cause,
         cleanup: format!("{}; {revoke_note}", unrecorded.rollback),
@@ -120,7 +123,7 @@ async fn undo(redeemed: &mut Redeemed, unrecorded: Unrecorded) -> Error {
 
 async fn revoke(redeemed: &mut Redeemed) -> Result<(), Error> {
     let exchange_failed = |source| Error::PairExchange {
-        endpoint: redeemed.endpoint.clone(),
+        endpoint: redeemed.endpoint.to_string(),
         source: Box::new(source),
     };
     let request = Request::builder()
@@ -141,13 +144,16 @@ async fn revoke(redeemed: &mut Redeemed) -> Result<(), Error> {
     })
 }
 
-async fn redeem(host: &RemoteHost, request: &PairRequest<'_>) -> Result<Redeemed, Error> {
+async fn redeem(
+    host: &RemoteHost,
+    request: &PairRequest<'_>,
+) -> Result<Redeemed, Error> {
     let exchange_failed = |source| Error::PairExchange {
-        endpoint: host.endpoint.clone(),
+        endpoint: host.endpoint.to_string(),
         source: Box::new(source),
     };
     let tls = dial(host).await?;
-    let pin = peer_digest(&tls).ok_or_else(|| Error::NoCertificate(host.endpoint.clone()))?;
+    let pin = peer_digest(&tls).ok_or_else(|| Error::NoCertificate(host.endpoint.to_string()))?;
     let body = serde_json::json!({ "code": request.code, "name": request.name }).to_string();
     let http_request = Request::builder()
         .method(Method::POST)
@@ -197,5 +203,46 @@ fn pairing_answer(response: &Response<Vec<u8>>) -> Result<(String, String), Erro
 }
 
 #[cfg(test)]
-#[path = "pairing_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn answer(
+        status: u16,
+        body: &str,
+    ) -> Response<Vec<u8>> {
+        let mut response = Response::new(body.as_bytes().to_vec());
+        *response.status_mut() = http::StatusCode::from_u16(status).unwrap();
+        response
+    }
+
+    #[test]
+    fn a_pairing_answer_yields_its_token_and_client_id() {
+        let ok = answer(200, r#"{"data":{"token":"t","clientId":"c1"}}"#);
+        assert_eq!(pairing_answer(&ok).unwrap(), ("t".into(), "c1".into()));
+    }
+
+    #[test]
+    fn a_refusal_carries_the_hosts_reason() {
+        let refused = answer(403, r#"{"error":"code expired"}"#);
+        let err = pairing_answer(&refused).unwrap_err();
+        assert!(err.to_string().contains("code expired"), "{err}");
+    }
+
+    #[test]
+    fn an_answer_without_a_token_or_client_id_is_refused() {
+        for body in [
+            r#"{"data":{"clientId":"c"}}"#,
+            r#"{"data":{"token":" ","clientId":"c"}}"#,
+            r#"{"data":{"token":"t"}}"#,
+            "nonsense",
+        ] {
+            assert!(
+                matches!(
+                    pairing_answer(&answer(200, body)),
+                    Err(Error::MissingField(_))
+                ),
+                "{body}"
+            );
+        }
+    }
+}

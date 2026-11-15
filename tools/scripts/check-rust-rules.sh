@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Enforces the structure rules of docs/rust-style.md that rustfmt and clippy cannot.
-# Usage: check-rust-rules.sh [--full] [ROOT...]   |   check-rust-rules.sh --self-test
+# Usage: check-rust-rules.sh [--full] [--mobile] [ROOT...]   (--mobile adds app/mobile/ios-plugin, reported separately)   |   check-rust-rules.sh --self-test
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
@@ -75,12 +75,16 @@ scan_source() {
   awk -v file="$rel" -v lang=rust -v mode=src -f "$here/brace-rules.awk" "$path" || status=1
 }
 
+exports_entry_function() {
+  sed -nE 's/^pub use [a-z_]+::(.*);$/\1/p' "$1" | tr -d '{} ' | tr ',' '\n' | grep -qE '^[a-z_]+$'
+}
+
 scan_cargo() {
   local root=$1 toml rel dir
   while IFS= read -r toml; do
     rel=${toml#"$root"/}
     dir=$(dirname "$rel")
-    [[ -f $root/$dir/src/lib.rs && ! -f $root/$dir/src/$(basename "$dir" | tr - _).rs ]] && fail "$rel:1: [entry-file] crate entry lives in src/$(basename "$dir" | tr - _).rs (manifest 10)"
+    [[ -f $root/$dir/src/lib.rs && ! -f $root/$dir/src/$(basename "$dir" | tr - _).rs ]] && exports_entry_function "$root/$dir/src/lib.rs" && fail "$rel:1: [entry-file] crate entry lives in src/$(basename "$dir" | tr - _).rs (manifest 10)"
     grep -qE '^\[lints' "$toml" || [[ $dir == . ]] || fail "$rel:1: [cargo-lints] missing [lints] workspace = true"
     case "/$dir/" in
       */crates/*|*/app/*|*/ios-plugin/*)
@@ -135,15 +139,18 @@ full() {
 }
 
 do_full=0
+mobile=0
 roots=()
 for a in "$@"; do
   case $a in
     --self-test) self_test ;;
     --full) do_full=1 ;;
+    --mobile) mobile=1 ;;
     *) roots+=("$a") ;;
   esac
 done
-((${#roots[@]})) || roots=("$repo/app/crates" "$repo/app/desktop" "$repo/app/mobile/ios-plugin")
+((${#roots[@]})) || roots=("$repo/app/crates" "$repo/app/desktop")
+  ((mobile)) && roots+=("$repo/app/mobile/ios-plugin")
 for r in "${roots[@]}"; do [[ -d $r ]] && run_dir "$(cd "$r" && pwd)"; done
 ((do_full)) && full
 ((status)) && echo "check-rust-rules: violations found (see docs/rust-style.md)"

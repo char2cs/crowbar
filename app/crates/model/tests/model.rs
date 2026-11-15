@@ -104,7 +104,10 @@ fn placement((target, edge): (u8, Edge)) -> Placement {
     }
 }
 
-fn instance(pane: u8, chat: Option<u8>) -> PaneInstance {
+fn instance(
+    pane: u8,
+    chat: Option<u8>,
+) -> PaneInstance {
     let (type_id, params) = match chat {
         Some(chat) => (
             "core.chat",
@@ -217,7 +220,11 @@ fn states(layout: &Layout) -> BTreeMap<PaneId, PaneState> {
         .collect()
 }
 
-fn check_transition(step: &Step, before: &Layout, after: &Layout) {
+fn check_transition(
+    step: &Step,
+    before: &Layout,
+    after: &Layout,
+) {
     let (was, now) = (panes(before), panes(after));
     match step {
         Step::Close(p) => {
@@ -247,7 +254,11 @@ fn check_transition(step: &Step, before: &Layout, after: &Layout) {
     check_focus(step, after);
 }
 
-fn check_what_stayed(step: &Step, before: &Layout, after: &Layout) {
+fn check_what_stayed(
+    step: &Step,
+    before: &Layout,
+    after: &Layout,
+) {
     let mut allowed = empty_tabs(before);
     if let Step::AddTab(t) = step {
         allowed.insert(tab_id(*t));
@@ -273,7 +284,10 @@ fn check_what_stayed(step: &Step, before: &Layout, after: &Layout) {
     }
 }
 
-fn check_focus(step: &Step, after: &Layout) {
+fn check_focus(
+    step: &Step,
+    after: &Layout,
+) {
     let shown = |pane: u8| {
         let id = pane_id(pane);
         after.active_tab().is_some_and(|t| t.focused() == Some(&id))

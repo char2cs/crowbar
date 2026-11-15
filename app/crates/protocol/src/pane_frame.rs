@@ -5,6 +5,8 @@ use crate::attachment_id::AttachmentId;
 use crate::attachment_type::AttachmentType;
 use crate::command_id::CommandId;
 use crate::event_name::EventName;
+use crate::external_url::ExternalUrl;
+use crate::fs_path::FsPath;
 use crate::method_name::MethodName;
 use crate::pane_state::PaneState;
 use crate::pane_title::PaneTitle;
@@ -120,4 +122,46 @@ pub enum PaneFrame {
         /// The attachment to open.
         attachment_id: AttachmentId,
     },
+    /// `shell.openExternal`: opens a web, mail or phone link in the system's default
+    /// application. Nothing is answered; a refused link is only logged.
+    #[serde(rename = "shell.openExternal")]
+    OpenExternal {
+        /// The link.
+        url: ExternalUrl,
+    },
+    /// `shell.reveal`: shows a file or directory in the system file manager. Nothing is
+    /// answered; a path that does not exist is only logged.
+    #[serde(rename = "shell.reveal")]
+    Reveal {
+        /// The absolute path.
+        path: FsPath,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shell_service_frames_round_trip() {
+        let cases = [
+            r#"{"kind":"shell.openExternal","url":"https://example.com/"}"#,
+            r#"{"kind":"shell.reveal","path":"/tmp/a b"}"#,
+        ];
+        for text in cases {
+            let frame: PaneFrame = serde_json::from_str(text).unwrap();
+            assert_eq!(serde_json::to_string(&frame).unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn a_service_frame_with_a_bad_argument_is_refused() {
+        let cases = [
+            r#"{"kind":"shell.openExternal","url":"file:///etc/passwd"}"#,
+            r#"{"kind":"shell.reveal","path":"relative"}"#,
+        ];
+        for text in cases {
+            assert!(serde_json::from_str::<PaneFrame>(text).is_err(), "{text}");
+        }
+    }
 }

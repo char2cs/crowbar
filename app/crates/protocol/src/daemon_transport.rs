@@ -25,15 +25,67 @@ pub trait DaemonTransport: Send + Sync + 'static {
     /// The platform's custom protocol task (WebKit's URL scheme task) may only be completed on
     /// the UI thread, so the `respond` the shell passes in hops there; an implementation never
     /// assumes it runs on the caller's thread.
-    fn request(&self, request: DaemonRequest, respond: Responder);
+    fn request(
+        &self,
+        request: DaemonRequest,
+        respond: Responder,
+    );
 
     /// Issues a relay endpoint and token for a pane's WebSocket streams.
     ///
     /// # Errors
     /// An [`Error`](crate::Error) when the host is unknown or unreachable.
-    fn relay_endpoint(&self, scope: &RelayScope) -> Result<RelayEndpoint>;
+    fn relay_endpoint(
+        &self,
+        scope: &RelayScope,
+    ) -> Result<RelayEndpoint>;
 }
 
 #[cfg(test)]
-#[path = "daemon_transport_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::error::Error;
+    use crate::host_id::HostId;
+    use crate::http_method::HttpMethod;
+    use crate::pane_origin::PaneOrigin;
+    use crate::request_target::RequestTarget;
+
+    struct Refusing;
+
+    impl DaemonTransport for Refusing {
+        fn request(
+            &self,
+            _request: DaemonRequest,
+            respond: Responder,
+        ) {
+            respond(Err(Error::Denied("no")));
+        }
+
+        fn relay_endpoint(
+            &self,
+            _scope: &RelayScope,
+        ) -> Result<RelayEndpoint> {
+            Err(Error::Timeout)
+        }
+    }
+
+    #[test]
+    fn a_transport_is_usable_as_a_shared_trait_object() {
+        let transport: std::sync::Arc<dyn DaemonTransport> = std::sync::Arc::new(Refusing);
+        let request = DaemonRequest::new(
+            HostId::new("local").unwrap(),
+            PaneOrigin::Core,
+            HttpMethod::new("GET").unwrap(),
+            RequestTarget::new("/v0/health").unwrap(),
+        );
+        let (sender, receiver) = std::sync::mpsc::channel();
+        transport.request(
+            request,
+            Box::new(move |result| sender.send(result).unwrap()),
+        );
+        assert!(
+            matches!(receiver.recv().unwrap(), Err(Error::Denied(_))),
+            "responder called once"
+        );
+    }
+}

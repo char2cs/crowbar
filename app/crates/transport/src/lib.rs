@@ -16,6 +16,7 @@ mod bridge_limits;
 mod cached_token_store;
 mod connection_book;
 mod connection_guard;
+mod connection_release;
 mod credential;
 mod credential_io;
 mod daemon_wire;

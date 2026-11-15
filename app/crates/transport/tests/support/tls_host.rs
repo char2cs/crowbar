@@ -62,13 +62,23 @@ impl TlsHost {
     }
 }
 
-async fn serve_tls(acceptor: TlsAcceptor, tcp: TcpStream, handler: Handler, log: Log) {
+async fn serve_tls(
+    acceptor: TlsAcceptor,
+    tcp: TcpStream,
+    handler: Handler,
+    log: Log,
+) {
     if let Ok(tls) = acceptor.accept(tcp).await {
         serve_http(tls, handler, log).await;
     }
 }
 
-async fn accept(listener: TcpListener, acceptor: TlsAcceptor, handler: Handler, log: Log) {
+async fn accept(
+    listener: TcpListener,
+    acceptor: TlsAcceptor,
+    handler: Handler,
+    log: Log,
+) {
     loop {
         let Ok((tcp, _)) = listener.accept().await else {
             return;

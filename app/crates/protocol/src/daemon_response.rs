@@ -12,7 +12,11 @@ pub struct DaemonResponse {
 impl DaemonResponse {
     /// An answer with `status`, `headers` and `body`.
     #[must_use]
-    pub fn new(status: u16, headers: Vec<(String, String)>, body: Vec<u8>) -> Self {
+    pub fn new(
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    ) -> Self {
         Self {
             status,
             headers,
@@ -46,5 +50,19 @@ impl DaemonResponse {
 }
 
 #[cfg(test)]
-#[path = "daemon_response_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn getters_return_what_was_built() {
+        let response = DaemonResponse::new(201, vec![("x-a".into(), "1".into())], b"ok".to_vec());
+        assert_eq!(response.status(), 201, "status");
+        assert_eq!(
+            response.headers(),
+            [("x-a".to_owned(), "1".to_owned())],
+            "headers"
+        );
+        assert_eq!(response.body(), b"ok", "body");
+        assert_eq!(response.into_body(), b"ok".to_vec(), "moved body");
+    }
+}

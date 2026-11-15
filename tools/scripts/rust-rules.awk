@@ -63,7 +63,7 @@ BEGIN { pend_doc = 0; cfg_line = 0; in_t = 0; t_depth = 0; loc = 0 }
   }
   s = strip(raw)
   code = s
-  if (s ~ /(^|[^A-Za-z_])fn[ \t]+[A-Za-z_]/) has_fn = 1
+  if (s ~ /^[ \t]*\)[^;{]*\{[ \t]*$/ || s ~ /(^|[^A-Za-z_])fn[ \t]+[A-Za-z_][^;]*\{/) has_fn = 1
   i = index(s, "//")
   if (i) {
     rest = substr(s, i)

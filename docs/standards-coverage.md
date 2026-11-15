@@ -15,7 +15,7 @@ Rust: rustfmt (`app/rustfmt.toml`), clippy (`app/Cargo.toml` lint table, `app/cl
 | 7 comments | script `comment`, `doc-private`; clippy `missing_docs`, `missing_errors_doc` | script `comment`, `doc-private`, `doc-missing`; SwiftLint `no_inline_comment`, `missing_docs` | script `comment`, `doc-missing`, `doc-private`, `todo` |
 | 8 one type per file | script `multi-type`, `type-name` | script `multi-type`, `type-name`; SwiftLint `one_declaration_per_file`, `file_name` | script `multi-concept`, `type-name`, `file-name` |
 | 9 error with its struct | script `type-name` (`Error` in `error.rs`) | script `type-name` | script `type-name` |
-| 10 entry in file named after module | script `lib-decl`, `entry-file` | one type per file named after it (8) | sample |
+| 10 entry in file named after module | script `lib-decl`, `entry-file` (only crates whose lib.rs re-exports a free function; an entry type lives in its own file by rule 8) | one type per file named after it (8) | sample |
 | 11 stateless type is a function | script `stateless-type` | sample | script `new-stateless` (empty constructor); sample |
 | 12 `new` only with state | script `new-stateless`; clippy `new_without_default` | script `new-stateless` | script `new-stateless` |
 | 13 public API exposes interfaces | clippy `unreachable_pub`; sample | SwiftLint `missing_docs`; sample | knip (unused exports); sample |

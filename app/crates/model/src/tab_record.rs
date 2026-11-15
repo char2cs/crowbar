@@ -3,39 +3,60 @@ use std::collections::BTreeMap;
 use protocol::PaneId;
 use serde::Deserialize;
 
-use crate::error::Error;
 use crate::pane_instance::PaneInstance;
 use crate::split_node::SplitNode;
-use crate::tab::Tab;
 use crate::tab_id::TabId;
-use crate::tab_shape::TabShape;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TabRecord {
-    id: TabId,
-    title: String,
-    panes: BTreeMap<PaneId, PaneInstance>,
-    tree: Option<SplitNode>,
-    focused: Option<PaneId>,
-}
-
-impl TryFrom<TabRecord> for Tab {
-    type Error = Error;
-
-    fn try_from(record: TabRecord) -> Result<Self, Error> {
-        let shape = TabShape {
-            id: record.id,
-            title: record.title,
-            tree: record.tree,
-            focused: record.focused,
-        };
-        let tab = Self::restored(shape, record.panes);
-        tab.validate()?;
-        Ok(tab)
-    }
+    pub(crate) id: TabId,
+    pub(crate) title: String,
+    pub(crate) panes: BTreeMap<PaneId, PaneInstance>,
+    pub(crate) tree: Option<SplitNode>,
+    pub(crate) focused: Option<PaneId>,
 }
 
 #[cfg(test)]
-#[path = "tab_record_tests.rs"]
-mod tests;
+mod tests {
+    use serde_json::json;
+
+    use crate::tab::Tab;
+
+    fn stored(
+        tree: &serde_json::Value,
+        focused: &serde_json::Value,
+    ) -> serde_json::Value {
+        json!({
+            "id": 1,
+            "title": "t",
+            "panes": {"a": {"paneId": "a", "type": "core.terminal", "params": {}, "state": null}},
+            "tree": tree,
+            "focused": focused,
+        })
+    }
+
+    #[test]
+    fn a_consistent_record_becomes_a_tab() {
+        let record = stored(&json!({"node": "leaf", "pane": "a"}), &json!("a"));
+        let tab: Tab = serde_json::from_value(record).unwrap();
+        assert_eq!(tab.len(), 1);
+    }
+
+    #[test]
+    fn a_record_that_breaks_a_tab_invariant_is_refused() {
+        let leaf = json!({"node": "leaf", "pane": "a"});
+        let cases = [
+            ("tree missing", stored(&json!(null), &json!("a"))),
+            ("focus on nothing", stored(&leaf, &json!(null))),
+            ("focus elsewhere", stored(&leaf, &json!("zz"))),
+            (
+                "leaf without a pane",
+                stored(&json!({"node": "leaf", "pane": "zz"}), &json!("a")),
+            ),
+        ];
+        for (name, record) in cases {
+            assert!(serde_json::from_value::<Tab>(record).is_err(), "{name}");
+        }
+    }
+}

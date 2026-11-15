@@ -33,7 +33,10 @@ impl EchoDaemon {
     }
 }
 
-async fn accept(listener: UnixListener, paths: Arc<Mutex<Vec<String>>>) {
+async fn accept(
+    listener: UnixListener,
+    paths: Arc<Mutex<Vec<String>>>,
+) {
     loop {
         let Ok((stream, _)) = listener.accept().await else {
             return;
@@ -42,7 +45,10 @@ async fn accept(listener: UnixListener, paths: Arc<Mutex<Vec<String>>>) {
     }
 }
 
-async fn echo(stream: UnixStream, paths: Arc<Mutex<Vec<String>>>) {
+async fn echo(
+    stream: UnixStream,
+    paths: Arc<Mutex<Vec<String>>>,
+) {
     let record = |request: &Request, response: Response| {
         if let Ok(mut seen) = paths.lock() {
             seen.push(request.uri().to_string());

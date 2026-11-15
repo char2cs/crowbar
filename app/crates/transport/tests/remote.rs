@@ -47,7 +47,11 @@ async fn host() -> TlsHost {
     TlsHost::start(identity(), &[&rustls::version::TLS13], handler()).await
 }
 
-fn request<'a>(endpoint: &'a str, fingerprint: &'a str, code: &'a str) -> PairRequest<'a> {
+fn request<'a>(
+    endpoint: &'a str,
+    fingerprint: &'a str,
+    code: &'a str,
+) -> PairRequest<'a> {
     PairRequest {
         host_id: "host-1",
         endpoint,
@@ -78,7 +82,12 @@ fn rig() -> Rig {
     }
 }
 
-async fn pair(rig: &Rig, host: &TlsHost, fingerprint: &str, code: &str) -> Result<String, Error> {
+async fn pair(
+    rig: &Rig,
+    host: &TlsHost,
+    fingerprint: &str,
+    code: &str,
+) -> Result<String, Error> {
     let endpoint = host.endpoint();
     pair_remote_host(
         &rig.registry,
@@ -209,15 +218,25 @@ async fn an_unreachable_host_is_marked_unreachable() {
 struct FullKeychain;
 
 impl TokenStore for FullKeychain {
-    fn get(&self, _host_id: &str) -> Result<Option<String>, Error> {
+    fn get(
+        &self,
+        _host_id: &str,
+    ) -> Result<Option<String>, Error> {
         Ok(None)
     }
 
-    fn set(&self, _host_id: &str, _entry: &str) -> Result<(), Error> {
+    fn set(
+        &self,
+        _host_id: &str,
+        _entry: &str,
+    ) -> Result<(), Error> {
         Err(Error::Store("the keychain is full".into()))
     }
 
-    fn delete(&self, _host_id: &str) -> Result<(), Error> {
+    fn delete(
+        &self,
+        _host_id: &str,
+    ) -> Result<(), Error> {
         Ok(())
     }
 }

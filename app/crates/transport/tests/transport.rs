@@ -36,7 +36,10 @@ fn transport_at(path: std::path::PathBuf) -> Transport {
     )
 }
 
-fn daemon(path: &std::path::Path, handler: Handler) -> Log {
+fn daemon(
+    path: &std::path::Path,
+    handler: Handler,
+) -> Log {
     let listener = UnixListener::bind(path).expect("bind daemon");
     let log: Log = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&log);
@@ -44,7 +47,11 @@ fn daemon(path: &std::path::Path, handler: Handler) -> Log {
     log
 }
 
-async fn accept_loop(listener: UnixListener, handler: Handler, seen: Log) {
+async fn accept_loop(
+    listener: UnixListener,
+    handler: Handler,
+    seen: Log,
+) {
     loop {
         let Ok((stream, _)) = listener.accept().await else {
             return;
@@ -53,7 +60,11 @@ async fn accept_loop(listener: UnixListener, handler: Handler, seen: Log) {
     }
 }
 
-fn request(method: Method, uri: &str, body: &[u8]) -> Request<Vec<u8>> {
+fn request(
+    method: Method,
+    uri: &str,
+    body: &[u8],
+) -> Request<Vec<u8>> {
     Request::builder()
         .method(method)
         .uri(uri)

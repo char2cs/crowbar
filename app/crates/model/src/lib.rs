@@ -36,6 +36,7 @@ mod edge;
 mod error;
 mod layout;
 mod layout_document;
+mod layout_execute;
 mod layout_history;
 mod model;
 mod pane_commands;
