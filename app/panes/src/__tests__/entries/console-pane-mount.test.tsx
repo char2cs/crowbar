@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useConsoleStore } from '@/features/console/stores/console-store'
 import type { LifecycleMessage } from '@/sdk/lifecycle-message'
-import type { PaneClient } from '@/sdk/pane-client'
+import { lifecycleDriver } from '../__fixtures__/lifecycle-client'
 
 const stream = vi.hoisted(() => ({ opened: 0, closed: 0 }))
 
@@ -16,13 +16,7 @@ vi.mock('@/entries/console-pane', () => ({ ConsolePane: () => null }))
 const { ConsolePaneMount } = await import('@/entries/console-pane-mount')
 
 function startedMount() {
-  let deliver: (message: LifecycleMessage) => void = () => {}
-  const client = {
-    onLifecycle: (listener: (message: LifecycleMessage) => void) => {
-      deliver = listener
-      return () => {}
-    },
-  } as unknown as PaneClient
+  const { client, deliver } = lifecycleDriver()
   new ConsolePaneMount(document.createElement('div'), client).start()
   return (event: LifecycleMessage['event']) =>
     deliver({ paneId: 'p1', event, params: {}, state: null })

@@ -4,7 +4,8 @@ import { MotionConfig } from 'framer-motion'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { PrimitiveDialogProvider } from '@/components/ui/primitive-dialog-service'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { makePane } from '@/features/panes/lib/view-state'
+import { initialViewState } from '@/features/panes/lib/view-state'
+import { fillPane } from '@/features/panes/lib/view-ops'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { LifecycleMessage } from '@/sdk/lifecycle-message'
 import type { PaneClient } from '@/sdk/pane-client'
@@ -34,9 +35,11 @@ export class ChatPaneMount {
 
   private mount(chatId: string | undefined): void {
     if (!chatId) throw new Error('the chat pane was opened without a threadId')
-    const { panes } = windowPaneStore.getState()
-    windowPaneStore.setState({
-      panes: { ...panes, [ROOT_PANE_ID]: makePane(ROOT_PANE_ID, null, { chatId }) },
+    // SPEC: a chat lives in a view (view-integrity), so seat it by promoting the stage.
+    windowPaneStore.setState((state) => {
+      Object.assign(state, initialViewState())
+      fillPane(state, ROOT_PANE_ID, chatId, null, '')
+      return state
     })
     chatSession.setState({ chatId, active: false })
     this.root ??= createRoot(this.container)

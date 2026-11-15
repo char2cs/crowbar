@@ -14,9 +14,7 @@ import {
 import { report } from '@/lib/errors/report'
 import type { PaneClient } from '@/sdk/pane-client'
 import { bufferSession } from './buffer-session'
-
-/** Opens the pane's buffer in the workspace `wsId` into the root pane, from the state the shell saved. */
-export type OpenBuffer = (wsId: string, saved: unknown) => Promise<unknown>
+import type { OpenBuffer } from './open-buffer'
 
 /** A file or a review in the pane's one tab, placed in the workspace of the chat the shell named, with the tab's name sent to the shell as the pane title. */
 export function BufferPaneHost({
@@ -37,7 +35,7 @@ export function BufferPaneHost({
   useEffect(() => {
     if (!wsId) return
     setActiveWorkspaceId(wsId)
-    // A remount of the effect must not open a second tab.
+    // SPEC: a remount of the effect must not open a second tab.
     if (windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds.length) return
     open(wsId, saved).catch((error: unknown) => report(error, { action: 'Open the pane' }))
   }, [wsId, saved, open])

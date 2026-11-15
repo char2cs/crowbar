@@ -7,6 +7,11 @@ import type { LifecycleMessage } from '@/sdk/lifecycle-message'
 import type { PaneClient } from '@/sdk/pane-client'
 import { ConsolePane } from './console-pane'
 
+const BROWSER_TIMERS = {
+  set: (fn: () => void, ms: number) => setTimeout(fn, ms),
+  clear: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+}
+
 /** Shows the daemon log while the pane is mounted: the log stream is open exactly then. */
 export class ConsolePaneMount {
   private root: Root | null = null
@@ -30,10 +35,7 @@ export class ConsolePaneMount {
     this.controller ??= createConsoleController({
       store: useConsoleStore,
       open: createTransport,
-      timers: {
-        set: (fn, ms) => setTimeout(fn, ms),
-        clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-      },
+      timers: BROWSER_TIMERS,
     })
     this.root ??= createRoot(this.container)
     this.root.render(

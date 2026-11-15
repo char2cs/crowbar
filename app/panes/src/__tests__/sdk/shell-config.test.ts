@@ -10,7 +10,12 @@ afterEach(() => {
 
 describe('shellConfig', () => {
   it.each([
-    ['is null when the page is not hosted by the shell', false, { api: 'crowbar://local', host: 'local' }, null],
+    [
+      'is null when the page is not hosted by the shell',
+      false,
+      { api: 'crowbar://local', host: 'local' },
+      null,
+    ],
     ['is null when the shell injected no endpoints', true, undefined, null],
     [
       'returns the endpoints, with no relay when none was issued',

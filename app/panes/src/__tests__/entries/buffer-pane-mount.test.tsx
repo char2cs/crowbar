@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LifecycleMessage } from '@/sdk/lifecycle-message'
-import type { PaneClient } from '@/sdk/pane-client'
+import { lifecycleDriver } from '../__fixtures__/lifecycle-client'
 import { bufferSession } from '@/entries/buffer-session'
 
 vi.mock('@/entries/buffer-pane-host', () => ({ BufferPaneHost: () => null }))
@@ -8,13 +8,7 @@ vi.mock('@/entries/buffer-pane-host', () => ({ BufferPaneHost: () => null }))
 const { BufferPaneMount } = await import('@/entries/buffer-pane-mount')
 
 function startedMount() {
-  let deliver: (message: LifecycleMessage) => void = () => {}
-  const client = {
-    onLifecycle: (listener: (message: LifecycleMessage) => void) => {
-      deliver = listener
-      return () => {}
-    },
-  } as unknown as PaneClient
+  const { client, deliver } = lifecycleDriver()
   new BufferPaneMount(document.createElement('div'), client, () => Promise.resolve(null)).start()
   return (
     event: LifecycleMessage['event'],

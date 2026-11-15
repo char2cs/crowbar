@@ -9,6 +9,7 @@ export interface BufferSession {
   active: boolean
 }
 
+/** The shell's word about the buffer page's pane, set when the shell pushes pane params and state. */
 export const bufferSession = createStore<BufferSession>()(() => ({
   chatId: null,
   saved: null,

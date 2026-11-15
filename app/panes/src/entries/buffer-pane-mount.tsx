@@ -8,8 +8,9 @@ import { makePane } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { LifecycleMessage } from '@/sdk/lifecycle-message'
 import type { PaneClient } from '@/sdk/pane-client'
-import { BufferPaneHost, type OpenBuffer } from './buffer-pane-host'
+import { BufferPaneHost } from './buffer-pane-host'
 import { bufferSession } from './buffer-session'
+import type { OpenBuffer } from './open-buffer'
 
 /** Mounts and unmounts a buffer page's React tree (a file or a review in the pane's one tab) as the shell's lifecycle messages arrive. */
 export class BufferPaneMount {

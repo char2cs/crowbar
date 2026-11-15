@@ -11,21 +11,25 @@ const { openEditorBuffer } = await import('@/entries/open-editor-buffer')
 
 beforeEach(() => vi.clearAllMocks())
 
-describe('openEditorBuffer', () => {
-  it('opens a workspace file in the workspace of the chat', async () => {
-    await openEditorBuffer('ws1', { path: 'src/a.ts' })
-    expect(opened.document).toHaveBeenCalledWith(
-      { authority: 'workspace', workspaceId: 'ws1', path: 'src/a.ts' },
-      { paneId: 'root-pane' },
-    )
-  })
+const ROOT = { paneId: 'root-pane' }
 
-  it('opens a picked file by its absolute path', async () => {
-    await openEditorBuffer('ws1', { path: '/home/a.ts', absolute: true })
-    expect(opened.document).toHaveBeenCalledWith(
-      { absolutePath: '/home/a.ts' },
-      { paneId: 'root-pane' },
-    )
+const CASES = [
+  {
+    name: 'a workspace file in the workspace of the chat',
+    saved: { path: 'src/a.ts' },
+    spec: { authority: 'workspace', workspaceId: 'ws1', path: 'src/a.ts' },
+  },
+  {
+    name: 'a picked file by its absolute path',
+    saved: { path: '/home/a.ts', absolute: true },
+    spec: { absolutePath: '/home/a.ts' },
+  },
+]
+
+describe('openEditorBuffer', () => {
+  it.each(CASES)('opens $name', async ({ saved, spec }) => {
+    await openEditorBuffer('ws1', saved)
+    expect(opened.document).toHaveBeenCalledWith(spec, ROOT)
   })
 
   it('opens an untitled file', async () => {

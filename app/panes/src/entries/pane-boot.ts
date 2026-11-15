@@ -10,13 +10,8 @@ import { startStream } from '@/core/stream/stream'
 import { shellChannel } from '@/sdk/shell-channel'
 import { PaneClient } from '@/sdk/pane-client'
 import { followTheme } from '@/sdk/theme'
+import type { BootedPane } from './booted-pane'
 import { followShellAppearance } from './follow-shell-appearance'
-
-/** What a pane page needs once the shell's runtime is up. */
-export interface BootedPane {
-  client: PaneClient
-  container: HTMLElement
-}
 
 /** Starts the runtime every pane page shares (appearance, reporting, the daemon stream and events, settings) and connects it to the shell as the `typeId` pane. The caller mounts its UI on `container` and then calls `client.register()`. */
 export function bootPane(typeId: string): BootedPane {

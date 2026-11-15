@@ -2,7 +2,7 @@ import { workspaceRef } from '@/lib/api/documents'
 import { openDocument, openUntitledDocument } from '@/features/editor/documents/open-document'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { editorTarget } from './editor-target'
-import type { OpenBuffer } from './buffer-pane-host'
+import type { OpenBuffer } from './open-buffer'
 
 /** Opens the file a file pane was saved with. */
 export const openEditorBuffer: OpenBuffer = async (wsId, saved) => {
