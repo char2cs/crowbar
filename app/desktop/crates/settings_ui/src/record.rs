@@ -21,7 +21,10 @@ pub struct Record {
 
 impl Record {
     /// A record `id` titled `title`.
-    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             title: title.into(),
@@ -37,42 +40,60 @@ impl Record {
 
     /// Draws the Phosphor icon with this file stem before the title.
     #[must_use]
-    pub fn icon(mut self, stem: impl Into<String>) -> Self {
+    pub fn icon(
+        mut self,
+        stem: impl Into<String>,
+    ) -> Self {
         self.icon = Some(stem.into());
         self
     }
 
     /// Shows a status dot of `tone` on the icon.
     #[must_use]
-    pub fn status(mut self, tone: Tone) -> Self {
+    pub fn status(
+        mut self,
+        tone: Tone,
+    ) -> Self {
         self.status = Some(tone);
         self
     }
 
     /// Appends a detail line.
     #[must_use]
-    pub fn line(mut self, line: Line) -> Self {
+    pub fn line(
+        mut self,
+        line: Line,
+    ) -> Self {
         self.lines.push(line);
         self
     }
 
     /// Shows a badge after the title.
     #[must_use]
-    pub fn badge(mut self, badge: Line) -> Self {
+    pub fn badge(
+        mut self,
+        badge: Line,
+    ) -> Self {
         self.badge = Some(badge);
         self
     }
 
     /// Appends a switch.
     #[must_use]
-    pub fn flag(mut self, flag: RecordFlag) -> Self {
+    pub fn flag(
+        mut self,
+        flag: RecordFlag,
+    ) -> Self {
         self.flags.push(flag);
         self
     }
 
     /// Offers `action` on the record.
     #[must_use]
-    pub fn action(mut self, action: RecordAction) -> Self {
+    pub fn action(
+        mut self,
+        action: RecordAction,
+    ) -> Self {
         self.action = Some(action);
         self
     }
@@ -91,5 +112,23 @@ impl Record {
 }
 
 #[cfg(test)]
-#[path = "record_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builders_compose_a_full_record() {
+        let record = Record::new("claude", "Claude Code")
+            .icon("robot")
+            .status(Tone::Success)
+            .line(Line::plain("v2.1"))
+            .badge(Line::plain("OK").toned(Tone::Success))
+            .flag(RecordFlag::new("enabled", "Enable").on())
+            .action(RecordAction::new("kill", "skull", "Kill"))
+            .movable();
+        assert_eq!(record.id(), "claude");
+        assert_eq!(record.icon.as_deref(), Some("robot"));
+        assert_eq!(record.status, Some(Tone::Success));
+        assert_eq!((record.lines.len(), record.flags.len()), (1, 1));
+        assert!(record.badge.is_some() && record.action.is_some() && record.movable);
+    }
+}

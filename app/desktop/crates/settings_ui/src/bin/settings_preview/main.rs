@@ -16,7 +16,10 @@ use settings_ui::{ModalConfig, SettingsModal, default_schema};
 
 use crate::arguments::Arguments;
 
-fn open(cx: &mut App, arguments: &Arguments) -> Result<(), String> {
+fn open(
+    cx: &mut App,
+    arguments: &Arguments,
+) -> Result<(), String> {
     let (width, height) = arguments.size();
     let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
     let options = WindowOptions {
@@ -38,22 +41,31 @@ fn open(cx: &mut App, arguments: &Arguments) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
+fn start(
+    cx: &mut App,
+    arguments: &Arguments,
+) -> Result<(), String> {
+    ui::init(cx).map_err(|error| error.to_string())?;
+    arguments.apply(cx);
+    open(cx, arguments)?;
+    cx.activate(true);
+    Ok(())
+}
+
+fn launch(
+    cx: &mut App,
+    arguments: &Arguments,
+) {
+    let Err(error) = start(cx, arguments) else {
+        return;
+    };
+    eprintln!("settings_preview: {error}");
+    cx.quit();
+}
+
 fn main() {
     let arguments = Arguments::from_env();
     Application::new()
         .with_assets(ui::Assets)
-        .run(move |cx: &mut App| {
-            if let Err(error) = ui::init(cx) {
-                eprintln!("settings_preview: {error}");
-                cx.quit();
-                return;
-            }
-            arguments.apply(cx);
-            if let Err(error) = open(cx, &arguments) {
-                eprintln!("settings_preview: {error}");
-                cx.quit();
-                return;
-            }
-            cx.activate(true);
-        });
+        .run(move |cx: &mut App| launch(cx, &arguments));
 }

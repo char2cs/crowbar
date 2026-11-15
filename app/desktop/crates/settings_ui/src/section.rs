@@ -31,19 +31,41 @@ impl Section {
 
     /// The text under the heading.
     #[must_use]
-    pub fn describe(mut self, text: impl Into<String>) -> Self {
+    pub fn describe(
+        mut self,
+        text: impl Into<String>,
+    ) -> Self {
         self.description = Some(text.into());
         self
     }
 
     /// Appends a row.
     #[must_use]
-    pub fn row(mut self, row: Row) -> Self {
+    pub fn row(
+        mut self,
+        row: Row,
+    ) -> Self {
         self.rows.push(row);
         self
     }
 }
 
 #[cfg(test)]
-#[path = "section_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::control::Control;
+
+    #[test]
+    fn headerless_keeps_the_title_and_rows_keep_their_order() {
+        let section = Section::new("Theme")
+            .headerless()
+            .describe("Colours")
+            .row(Row::new("a", "A", Control::switch()))
+            .row(Row::new("b", "B", Control::switch()));
+        assert!(!section.show_header);
+        assert_eq!(section.title, "Theme");
+        assert_eq!(section.description.as_deref(), Some("Colours"));
+        let keys: Vec<&str> = section.rows.iter().map(|row| row.key().as_str()).collect();
+        assert_eq!(keys, ["a", "b"]);
+    }
+}

@@ -1,8 +1,6 @@
 //! Short constructors for the rows of the built-in pages.
 
 use crate::control::Control;
-use crate::control_width::ControlWidth;
-use crate::number_range::NumberRange;
 use crate::row::Row;
 use crate::value::Value;
 
@@ -17,14 +15,23 @@ pub(super) fn row(
         .default_value(default)
 }
 
-pub(super) fn number((min, max, step): (f64, f64, f64), width: ControlWidth) -> Control {
-    Control::number(NumberRange::new(min, max, step), width)
-}
-
-pub(super) fn snapped((min, max, step): (f64, f64, f64), width: ControlWidth) -> Control {
-    Control::number(NumberRange::new(min, max, step).snapping(), width)
-}
-
 #[cfg(test)]
-#[path = "rows_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rows_carry_label_description_and_default() {
+        let built = row(
+            ("wordWrap", "Word Wrap"),
+            "Wrap lines",
+            Control::switch(),
+            Value::Bool(false),
+        );
+        assert_eq!(
+            (built.key().as_str(), built.label()),
+            ("wordWrap", "Word Wrap")
+        );
+        assert_eq!(built.description.as_deref(), Some("Wrap lines"));
+        assert_eq!(built.default, Some(Value::Bool(false)));
+    }
+}

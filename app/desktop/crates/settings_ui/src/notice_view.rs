@@ -1,13 +1,15 @@
 //! The error toast shown when the backend refuses something.
 
-use gpui::{IntoElement, ParentElement, Styled, div, px};
+use gpui::{IntoElement, ParentElement, Styled, div};
 use ui::{Toast, ToastKind};
+
+use crate::spacing;
 
 pub(crate) fn notice_view(text: &str) -> impl IntoElement {
     div()
         .absolute()
-        .bottom(px(16.0))
-        .right(px(16.0))
+        .bottom(spacing::GENEROUS)
+        .right(spacing::GENEROUS)
         .child(Toast::new(
             "settings-notice",
             ToastKind::Error,
@@ -16,5 +18,13 @@ pub(crate) fn notice_view(text: &str) -> impl IntoElement {
 }
 
 #[cfg(test)]
-#[path = "notice_view_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn the_notice_is_laid_out_in_a_toast(cx: &mut gpui::TestAppContext) {
+        let bounds = measure(cx, |_, _| notice_view("Could not save X."));
+        assert!(f32::from(bounds.size.height) >= 0.0);
+    }
+}

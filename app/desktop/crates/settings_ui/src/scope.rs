@@ -14,11 +14,32 @@ pub(crate) struct Scope<'a> {
 }
 
 impl Scope<'_> {
-    pub(crate) fn lookup(&self, key: &Key) -> Option<&Value> {
+    pub(crate) fn lookup(
+        &self,
+        key: &Key,
+    ) -> Option<&Value> {
         self.values.get(key).or_else(|| self.defaults.get(key))
     }
 }
 
 #[cfg(test)]
-#[path = "scope_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_values_win_over_defaults() {
+        let values = Values::default().with("a", Value::Bool(true));
+        let defaults = Values::default()
+            .with("a", Value::Bool(false))
+            .with("b", 3.0);
+        let capabilities = BTreeSet::new();
+        let scope = Scope {
+            values: &values,
+            defaults: &defaults,
+            capabilities: &capabilities,
+        };
+        assert_eq!(scope.lookup(&Key::from("a")), Some(&Value::Bool(true)));
+        assert_eq!(scope.lookup(&Key::from("b")), Some(&Value::Number(3.0)));
+        assert_eq!(scope.lookup(&Key::from("c")), None);
+    }
+}

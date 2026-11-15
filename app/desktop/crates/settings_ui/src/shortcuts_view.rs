@@ -1,10 +1,11 @@
 //! A titled group of rebindable shortcuts.
 
-use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div};
 
 use crate::frame::Frame;
 use crate::shortcut_group::ShortcutGroup;
 use crate::shortcut_row::shortcut_row;
+use crate::spacing;
 use crate::title_block::title_block;
 
 pub(crate) fn shortcuts_view(
@@ -29,7 +30,7 @@ pub(crate) fn shortcuts_view(
     let title = title_block(&group.title, None, cx);
     Some(
         div()
-            .px(px(4.0))
+            .px(spacing::TIGHT)
             .child(title)
             .child(div().flex().flex_col().children(rows))
             .into_any_element(),
@@ -37,5 +38,34 @@ pub(crate) fn shortcuts_view(
 }
 
 #[cfg(test)]
-#[path = "shortcuts_view_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::intent::Intent;
+    use crate::test_support::{inspect, open, run};
+    use ui::TextInputEvent;
+
+    fn visible_shortcuts(modal: &crate::settings_modal::SettingsModal) -> usize {
+        modal
+            .state
+            .schema()
+            .shortcuts()
+            .filter(|(_, shortcut)| modal.state.shortcut_visible(shortcut))
+            .count()
+    }
+
+    #[gpui::test]
+    fn a_search_keeps_only_the_matching_shortcuts(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "keybindings");
+        let count = |harness: &crate::test_support::Harness, cx: &mut gpui::VisualTestContext| {
+            inspect(harness, cx, visible_shortcuts)
+        };
+        let all = count(&harness, cx);
+        run(
+            &harness,
+            Intent::Search(TextInputEvent::Changed("console".to_owned())),
+            cx,
+        );
+        assert_eq!((all, count(&harness, cx)), (24, 1));
+    }
+}

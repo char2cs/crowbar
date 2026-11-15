@@ -8,6 +8,7 @@ mod files;
 mod git;
 mod hosts;
 mod keybindings;
+mod number_setting;
 mod rows;
 mod sessions;
 mod terminal;
@@ -47,5 +48,129 @@ pub fn default_schema() -> Result<Schema, Error> {
 }
 
 #[cfg(test)]
-#[path = "catalog_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::choice::Choice;
+    use crate::choice_source::ChoiceSource;
+    use crate::control::Control;
+    use crate::row::Row;
+    use crate::test_support::{Case, run_cases};
+    use crate::value::Value;
+
+    fn ten_pages_in_rail_order_with_unique_keys() {
+        let schema = default_schema().unwrap();
+        let ids: Vec<&str> = schema
+            .pages()
+            .iter()
+            .map(|page| page.id().as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "appearance",
+                "editor",
+                "file-explorer",
+                "git",
+                "terminal",
+                "browser",
+                "providers",
+                "active-sessions",
+                "keybindings",
+                "hosts",
+            ]
+        );
+    }
+
+    fn default_fits(row: &Row) -> bool {
+        let Some(default) = &row.default else {
+            return true;
+        };
+        match (&row.control, default) {
+            (Control::Number { range, .. }, Value::Number(n)) => {
+                (range.min..=range.max).contains(n)
+            },
+            (Control::Switch { .. }, Value::Bool(_))
+            | (Control::Text { .. } | Control::Select { .. }, Value::Text(_))
+            | (Control::TextList { .. }, Value::List(_)) => true,
+            _ => false,
+        }
+    }
+
+    fn every_default_matches_the_shape_its_control_stores() {
+        let schema = default_schema().unwrap();
+        let misfits: Vec<&str> = schema
+            .rows()
+            .filter(|row| !default_fits(row))
+            .map(|row| row.key().as_str())
+            .collect();
+        assert!(misfits.is_empty(), "{misfits:?}");
+    }
+
+    fn fixed_options(row: &Row) -> Option<(&[Choice], &str)> {
+        let (
+            Control::Select {
+                source: ChoiceSource::Fixed(choices),
+                ..
+            },
+            Some(Value::Text(default)),
+        ) = (&row.control, &row.default)
+        else {
+            return None;
+        };
+        Some((choices.as_slice(), default))
+    }
+
+    fn fixed_select_defaults_are_among_the_options() {
+        let schema = default_schema().unwrap();
+        let strays: Vec<&str> = schema
+            .rows()
+            .filter_map(|row| Some((row, fixed_options(row)?)))
+            .filter(|(_, (choices, default))| !choices.iter().any(|c| c.value() == *default))
+            .map(|(row, _)| row.key().as_str())
+            .collect();
+        assert!(strays.is_empty(), "{strays:?}");
+    }
+
+    fn every_page_icon_is_a_known_phosphor_stem() {
+        let schema = default_schema().unwrap();
+        let stems = [
+            "paint-brush",
+            "code-block",
+            "tree-structure",
+            "git-branch",
+            "terminal-window",
+            "globe",
+            "robot",
+            "pulse",
+            "keyboard",
+            "hard-drives",
+        ];
+        for page in schema.pages() {
+            assert!(stems.contains(&page.icon.as_str()), "{}", page.icon);
+        }
+    }
+
+    const CASES: &[Case] = &[
+        (
+            "ten pages in rail order with unique keys",
+            ten_pages_in_rail_order_with_unique_keys,
+        ),
+        (
+            "every default matches the shape its control stores",
+            every_default_matches_the_shape_its_control_stores,
+        ),
+        (
+            "fixed select defaults are among the options",
+            fixed_select_defaults_are_among_the_options,
+        ),
+        (
+            "every page icon is a known phosphor stem",
+            every_page_icon_is_a_known_phosphor_stem,
+        ),
+    ];
+
+    #[test]
+    fn every_scenario_holds() {
+        run_cases(CASES);
+    }
+}

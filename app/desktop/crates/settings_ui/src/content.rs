@@ -1,33 +1,22 @@
 //! The scrolling page on the right.
 
-use gpui::{AnyElement, App, IntoElement, ParentElement, ScrollHandle, Styled, Window, div, px};
+use gpui::{AnyElement, App, IntoElement, ParentElement, ScrollHandle, Styled, Window, div};
 use ui::ScrollArea;
 
+use crate::block::Block;
 use crate::block_view::block_view;
 use crate::empty_view::empty_view;
 use crate::frame::Frame;
+use crate::spacing;
 
 pub(crate) fn content(
     frame: &Frame<'_>,
     scroll: &ScrollHandle,
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
-    let mut blocks: Vec<AnyElement> = Vec::new();
-    if let Some(page) = frame.state.page() {
-        for (index, block) in page.blocks.iter().enumerate() {
-            blocks.extend(block_view(frame, (index, block), (&mut *window, &mut *cx)));
-        }
-    }
-    let page = div()
-        .flex()
-        .flex_col()
-        .gap(px(16.0))
-        .p(px(12.0))
-        .children(blocks);
-    let inner = if frame.state.page().is_some() {
-        page.into_any_element()
-    } else {
-        empty_view(cx).into_any_element()
+    let inner = match frame.state.page() {
+        Some(page) => blocks(frame, &page.blocks, (window, cx)).into_any_element(),
+        None => empty_view(cx).into_any_element(),
     };
     div()
         .flex_1()
@@ -36,6 +25,43 @@ pub(crate) fn content(
         .child(ScrollArea::new("settings-page", scroll, inner))
 }
 
+fn blocks(
+    frame: &Frame<'_>,
+    blocks: &[Block],
+    (window, cx): (&mut Window, &mut App),
+) -> impl IntoElement {
+    let drawn: Vec<AnyElement> = blocks
+        .iter()
+        .enumerate()
+        .filter_map(|block| block_view(frame, block, (&mut *window, &mut *cx)))
+        .collect();
+    div()
+        .flex()
+        .flex_col()
+        .gap(spacing::GENEROUS)
+        .p(spacing::ROOMY)
+        .children(drawn)
+}
+
 #[cfg(test)]
-#[path = "content_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::intent::Intent;
+    use crate::test_support::{inspect, open, run};
+    use ui::TextInputEvent;
+
+    #[gpui::test]
+    fn a_search_with_no_match_leaves_no_page_to_show(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        run(
+            &harness,
+            Intent::Search(TextInputEvent::Changed("zzzz".to_owned())),
+            cx,
+        );
+        assert!(inspect(&harness, cx, |modal| modal
+            .state
+            .visible_pages()
+            .is_empty()));
+    }
+}

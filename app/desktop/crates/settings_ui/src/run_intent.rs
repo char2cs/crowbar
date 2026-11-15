@@ -5,16 +5,71 @@ use ui::TextInputEvent;
 
 use crate::effect::Effect;
 use crate::intent::Intent;
+use crate::intent_runner::IntentRunner;
+use crate::key::Key;
 use crate::record_command::RecordCommand;
 use crate::settings_modal::SettingsModal;
+use crate::value::Value;
 
-impl SettingsModal {
-    pub(crate) fn run(&mut self, intent: Intent, window: &mut Window, cx: &mut Context<'_, Self>) {
+impl IntentRunner for SettingsModal {
+    fn run(
+        &mut self,
+        intent: Intent,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         self.notice = None;
         let effect = self.apply(intent, window, cx);
         self.perform(effect);
         self.fields.sync(&self.state, cx);
         cx.notify();
+    }
+}
+
+impl SettingsModal {
+    fn perform(
+        &mut self,
+        effect: Option<Effect>,
+    ) {
+        let Some(effect) = effect else {
+            return;
+        };
+        let failure = match effect {
+            Effect::Write(key, value) => self.write(&key, value),
+            Effect::Invoke(id) => self
+                .settings
+                .invoke(&id)
+                .err()
+                .map(|error| error.to_string()),
+            Effect::Record {
+                source,
+                record,
+                command,
+            } => self
+                .records
+                .apply(&source, &record, command)
+                .err()
+                .map(|error| error.to_string()),
+        };
+        if failure.is_some() {
+            self.notice = failure;
+        }
+    }
+
+    fn write(
+        &mut self,
+        key: &Key,
+        value: Value,
+    ) -> Option<String> {
+        let Err(error) = self.settings.set(key, value) else {
+            self.state.acknowledged(key);
+            return None;
+        };
+        self.state.write_failed(key);
+        Some(format!(
+            "Could not save {}. {error}",
+            self.state.label_of(key)
+        ))
     }
 
     fn apply(
@@ -57,7 +112,11 @@ impl SettingsModal {
         }
     }
 
-    fn edit(&mut self, row: &crate::row::Row, event: &TextInputEvent) -> Option<Effect> {
+    fn edit(
+        &mut self,
+        row: &crate::row::Row,
+        event: &TextInputEvent,
+    ) -> Option<Effect> {
         match event {
             TextInputEvent::Changed(text) => {
                 self.state.edit(row, text);
@@ -91,7 +150,11 @@ impl SettingsModal {
         None
     }
 
-    fn close(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> Option<Effect> {
+    fn close(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<Effect> {
         if let Some(handler) = self.on_close.clone() {
             handler(window, cx);
         }
@@ -124,5 +187,61 @@ impl SettingsModal {
 }
 
 #[cfg(test)]
-#[path = "run_intent_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::intent::Intent;
+    use crate::key::Key;
+    use crate::settings_backend::SettingsBackend;
+    use crate::test_support::{inspect, open, row, run};
+    use ui::TextInputEvent;
+
+    #[gpui::test]
+    fn a_cancelled_search_clears_the_query(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        run(
+            &harness,
+            Intent::Search(TextInputEvent::Changed("git".to_owned())),
+            cx,
+        );
+        run(&harness, Intent::Search(TextInputEvent::Cancelled), cx);
+        assert_eq!(
+            inspect(&harness, cx, |modal| modal.state.query().to_owned()),
+            ""
+        );
+    }
+
+    #[gpui::test]
+    fn submitted_text_commits_and_cancelled_text_reverts(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "browser");
+        let target = row("browserHomepage");
+        run(
+            &harness,
+            Intent::Edit(
+                target.clone(),
+                TextInputEvent::Changed("https://a.test".to_owned()),
+            ),
+            cx,
+        );
+        run(
+            &harness,
+            Intent::Edit(target.clone(), TextInputEvent::Cancelled),
+            cx,
+        );
+        assert_eq!(harness.backend.get(&Key::new("browserHomepage")), None);
+        run(
+            &harness,
+            Intent::Edit(
+                target.clone(),
+                TextInputEvent::Changed("https://b.test".to_owned()),
+            ),
+            cx,
+        );
+        run(
+            &harness,
+            Intent::Edit(target, TextInputEvent::Submitted),
+            cx,
+        );
+        assert!(harness.backend.get(&Key::new("browserHomepage")).is_some());
+    }
+}

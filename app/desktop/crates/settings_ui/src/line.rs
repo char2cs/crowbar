@@ -29,12 +29,26 @@ impl Line {
 
     /// The same line in `tone`.
     #[must_use]
-    pub fn toned(mut self, tone: Tone) -> Self {
+    pub fn toned(
+        mut self,
+        tone: Tone,
+    ) -> Self {
         self.tone = tone;
         self
     }
 }
 
 #[cfg(test)]
-#[path = "line_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builders_change_family_and_tone() {
+        let line = Line::plain("homelab:3737").mono().toned(Tone::Error);
+        assert_eq!(
+            (line.text.as_str(), line.mono, line.tone),
+            ("homelab:3737", true, Tone::Error)
+        );
+        assert_eq!(Line::plain("x").tone, Tone::Neutral);
+    }
+}

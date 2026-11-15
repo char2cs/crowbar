@@ -10,7 +10,10 @@ pub struct RecordFlag {
 
 impl RecordFlag {
     /// A flag `id`, off; `label` names it for assistive technology and tooltips.
-    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        label: impl Into<String>,
+    ) -> Self {
         Self {
             id: id.into(),
             label: label.into(),
@@ -27,5 +30,15 @@ impl RecordFlag {
 }
 
 #[cfg(test)]
-#[path = "record_flag_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_its_fields() {
+        let flag = RecordFlag::new("enabled", "Enable Claude Code").on();
+        assert_eq!(
+            (flag.id.as_str(), flag.label.as_str(), flag.on),
+            ("enabled", "Enable Claude Code", true)
+        );
+    }
+}

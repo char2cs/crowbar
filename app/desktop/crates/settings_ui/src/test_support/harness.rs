@@ -10,6 +10,7 @@ use crate::catalog::{
 };
 use crate::fake_backend::FakeBackend;
 use crate::intent::Intent;
+use crate::intent_runner::IntentRunner as _;
 use crate::modal_config::ModalConfig;
 use crate::page_id::PageId;
 use crate::record::Record;
@@ -76,7 +77,11 @@ pub(crate) fn row(key: &str) -> Row {
         .unwrap()
 }
 
-pub(crate) fn run(harness: &Harness, intent: Intent, cx: &mut VisualTestContext) {
+pub(crate) fn run(
+    harness: &Harness,
+    intent: Intent,
+    cx: &mut VisualTestContext,
+) {
     harness
         .modal
         .update_in(cx, |modal, window, cx| modal.run(intent, window, cx));

@@ -1,12 +1,20 @@
 //! The Terminal page.
 
-use super::rows::{number, row, snapped};
+use super::number_setting::NumberSetting;
+use super::rows::row;
 use crate::control::Control;
 use crate::control_width::ControlWidth;
 use crate::page::Page;
 use crate::section::Section;
+use crate::value::Value;
 
 const FONT_HINT: &str = "Note: Selected font must be installed on your system to work correctly. If icons are missing, try installing a Nerd Font.";
+
+const FONT_SIZE: NumberSetting = NumberSetting::new((8.0, 32.0, 1.0), 14.0);
+const LINE_HEIGHT: NumberSetting = NumberSetting::new((1.0, 2.0, 0.1), 1.0);
+const LETTER_SPACING: NumberSetting = NumberSetting::new((-5.0, 5.0, 0.1), 0.0);
+const SCROLLBACK: NumberSetting = NumberSetting::new((1000.0, 100_000.0, 1000.0), 10_000.0);
+const CURSOR_WIDTH: NumberSetting = NumberSetting::new((1.0, 6.0, 1.0), 2.0);
 
 pub(super) fn page() -> Page {
     Page::new("terminal", "Terminal", "terminal-window")
@@ -29,26 +37,26 @@ fn typography() -> Section {
         .row(row(
             ("terminalFontSize", "Font Size"),
             "Terminal font size in pixels",
-            number((8.0, 32.0, 1.0), compact),
-            14.0,
+            FONT_SIZE.plain(compact),
+            FONT_SIZE.default,
         ))
         .row(row(
             ("terminalLineHeight", "Line Height"),
             "Line height multiplier",
-            snapped((1.0, 2.0, 0.1), compact),
-            1.0,
+            LINE_HEIGHT.snapped(compact),
+            LINE_HEIGHT.default,
         ))
         .row(row(
             ("terminalLetterSpacing", "Letter Spacing"),
             "Additional spacing between characters",
-            snapped((-5.0, 5.0, 0.1), compact),
-            0.0,
+            LETTER_SPACING.snapped(compact),
+            LETTER_SPACING.default,
         ))
         .row(row(
             ("terminalScrollback", "Scrollback"),
             "How many lines of terminal history to keep in memory",
-            number((1000.0, 100_000.0, 1000.0), ControlWidth::Default),
-            10_000.0,
+            SCROLLBACK.plain(ControlWidth::Default),
+            SCROLLBACK.default,
         ))
 }
 
@@ -71,16 +79,32 @@ fn cursor() -> Section {
             ("terminalCursorBlink", "Blinking Cursor"),
             "Whether the cursor should blink",
             Control::switch(),
-            true,
+            Value::Bool(true),
         ))
         .row(row(
             ("terminalCursorWidth", "Cursor Width"),
             "Thickness of the bar or block cursor",
-            number((1.0, 6.0, 1.0), ControlWidth::Compact),
-            2.0,
+            CURSOR_WIDTH.plain(ControlWidth::Compact),
+            CURSOR_WIDTH.default,
         ))
 }
 
 #[cfg(test)]
-#[path = "terminal_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_font_row_explains_nerd_fonts_and_all_eight_consumers_have_rows() {
+        let page = page();
+        assert_eq!(page.rows().count(), 8);
+        let font = page.rows().next().map(|row| &row.control);
+        assert!(matches!(
+            font,
+            Some(Control::Select {
+                hint: Some(_),
+                placeholder: Some(_),
+                ..
+            })
+        ));
+    }
+}

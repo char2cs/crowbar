@@ -1,13 +1,15 @@
 //! The text shown when a search matches nothing.
 
-use gpui::{App, IntoElement, ParentElement, Styled, div, px};
+use gpui::{App, IntoElement, ParentElement, Styled, div};
 use ui::font::UI_FAMILY;
 use ui::{Surface, Theme, UiText};
+
+use crate::spacing;
 
 pub(crate) fn empty_view(cx: &App) -> impl IntoElement {
     let theme = *Theme::of(cx);
     div()
-        .p(px(8.0))
+        .p(spacing::COMFORTABLE)
         .flex()
         .justify_center()
         .font_family(UI_FAMILY)
@@ -17,5 +19,13 @@ pub(crate) fn empty_view(cx: &App) -> impl IntoElement {
 }
 
 #[cfg(test)]
-#[path = "empty_view_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::measure;
+
+    #[gpui::test]
+    fn the_empty_text_is_padded_and_visible(cx: &mut gpui::TestAppContext) {
+        let bounds = measure(cx, |_, cx| empty_view(cx).into_any_element());
+        assert!(f32::from(bounds.size.height) > 16.0);
+    }
+}

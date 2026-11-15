@@ -25,11 +25,24 @@ impl From<&str> for PageId {
 }
 
 impl fmt::Display for PageId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(
+        &self,
+        formatter: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
         formatter.write_str(&self.0)
     }
 }
 
 #[cfg(test)]
-#[path = "page_id_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round_trips_its_text() {
+        let id = PageId::from("keybindings");
+        assert_eq!(
+            (id.as_str(), id.to_string()),
+            ("keybindings", "keybindings".to_owned())
+        );
+    }
+}

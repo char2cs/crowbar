@@ -6,7 +6,6 @@ use ui::{Surface, Switch, Theme, UiText};
 
 use crate::button_control::button_control;
 use crate::control::Control;
-use crate::dispatch::deliver;
 use crate::element_id::element_id;
 use crate::field_control::field_control;
 use crate::frame::Frame;
@@ -14,6 +13,8 @@ use crate::intent::Intent;
 use crate::number_control::number_control;
 use crate::row::Row;
 use crate::select_control::select_control;
+
+const READOUT_WIDTH: f32 = 320.0;
 
 pub(crate) fn control_view(
     frame: &Frame<'_>,
@@ -28,39 +29,66 @@ pub(crate) fn control_view(
             field_control(frame, row).into_any_element()
         },
         Control::Button(spec) => button_control(frame, row, spec).into_any_element(),
-        Control::Readout { mono } => {
-            readout_control(frame, (row, *mono), (window, cx)).into_any_element()
-        },
+        Control::Readout { .. } => readout_control(frame, row, (window, cx)).into_any_element(),
     }
 }
 
-fn switch_control(frame: &Frame<'_>, row: &Row) -> impl IntoElement {
-    let owner = frame.owner.clone();
+fn switch_control(
+    frame: &Frame<'_>,
+    row: &Row,
+) -> impl IntoElement {
+    let sink = frame.sink.clone();
     let target = row.clone();
     Switch::new(
         element_id("switch", row.key.as_str()),
         frame.state.switch_on(row),
     )
     .on_change(move |_, window, cx| {
-        deliver(&owner, Intent::Toggle(target.clone()), (window, cx));
+        sink.deliver(Intent::Toggle(target.clone()), (window, cx));
     })
+}
+
+fn readout_family(control: &Control) -> &'static str {
+    match control {
+        Control::Readout { mono: true } => MONO_FAMILY,
+        _ => UI_FAMILY,
+    }
 }
 
 fn readout_control(
     frame: &Frame<'_>,
-    (row, mono): (&Row, bool),
+    row: &Row,
     (_, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let theme = *Theme::of(cx);
-    let family = if mono { MONO_FAMILY } else { UI_FAMILY };
     div()
-        .max_w(px(320.0))
-        .font_family(family)
+        .max_w(px(READOUT_WIDTH))
+        .font_family(readout_family(&row.control))
         .text_size(UiText::Sm.size(&theme))
         .text_color(theme.palette(Surface::Window).muted_foreground())
         .child(frame.state.field_text(row))
 }
 
 #[cfg(test)]
-#[path = "control_view_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::catalog::default_schema;
+    use crate::intent::Intent;
+    use crate::test_support::{inspect, open, run};
+
+    #[gpui::test]
+    fn every_control_kind_of_the_catalog_renders_without_a_notice(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        let ids: Vec<_> = default_schema()
+            .unwrap()
+            .pages()
+            .iter()
+            .map(|page| page.id.clone())
+            .collect();
+        for id in ids {
+            run(&harness, Intent::Select(id), cx);
+        }
+        assert!(inspect(&harness, cx, |modal| modal.notice.is_none()));
+    }
+}

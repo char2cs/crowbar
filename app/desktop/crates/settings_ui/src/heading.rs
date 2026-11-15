@@ -9,7 +9,10 @@ pub struct Heading {
 
 impl Heading {
     /// A heading with its description.
-    pub fn new(title: impl Into<String>, description: impl Into<String>) -> Self {
+    pub fn new(
+        title: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
         Self {
             title: title.into(),
             description: description.into(),
@@ -18,5 +21,15 @@ impl Heading {
 }
 
 #[cfg(test)]
-#[path = "heading_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_title_and_description() {
+        let heading = Heading::new("Hosts", "Add another machine.");
+        assert_eq!(
+            (heading.title.as_str(), heading.description.as_str()),
+            ("Hosts", "Add another machine.")
+        );
+    }
+}

@@ -11,18 +11,33 @@ pub struct Pressed {
 
 impl Pressed {
     /// `key` pressed while `held` were down.
-    pub fn new(key: impl Into<String>, held: &[Modifier]) -> Self {
+    pub fn new(
+        key: impl Into<String>,
+        held: &[Modifier],
+    ) -> Self {
         Self {
             key: key.into().to_lowercase(),
             held: held.to_vec(),
         }
     }
 
-    pub(crate) fn has(&self, modifier: Modifier) -> bool {
+    pub(crate) fn has(
+        &self,
+        modifier: Modifier,
+    ) -> bool {
         self.held.contains(&modifier)
     }
 }
 
 #[cfg(test)]
-#[path = "pressed_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys_are_lowercased_and_modifiers_queryable() {
+        let pressed = Pressed::new("ArrowLeft", &[Modifier::Alt]);
+        assert_eq!(pressed.key, "arrowleft");
+        assert!(pressed.has(Modifier::Alt));
+        assert!(!pressed.has(Modifier::Shift));
+    }
+}

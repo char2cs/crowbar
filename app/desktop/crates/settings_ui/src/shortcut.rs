@@ -12,7 +12,11 @@ pub struct Shortcut {
 
 impl Shortcut {
     /// A shortcut for `command`; an empty or unparsable `default` leaves it unbound.
-    pub fn new(command: impl Into<String>, label: impl Into<String>, default: &str) -> Self {
+    pub fn new(
+        command: impl Into<String>,
+        label: impl Into<String>,
+        default: &str,
+    ) -> Self {
         Self {
             command: command.into(),
             label: label.into(),
@@ -27,5 +31,22 @@ impl Shortcut {
 }
 
 #[cfg(test)]
-#[path = "shortcut_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_default_is_unbound() {
+        assert_eq!(Shortcut::new("tabs.new", "New tab", "").default, None);
+        assert_eq!(
+            Shortcut::new("tabs.new", "New tab", "Mod+T")
+                .default
+                .as_ref()
+                .map(Chord::as_str),
+            Some("mod+t")
+        );
+        assert_eq!(
+            Shortcut::new("tabs.new", "New tab", "").command(),
+            "tabs.new"
+        );
+    }
+}

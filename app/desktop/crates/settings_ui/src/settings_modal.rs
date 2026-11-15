@@ -11,21 +11,23 @@ use ui::{Dialog, IconName, TextInput, TextInputEvent, TextInputStyle};
 use crate::body::body;
 use crate::change::Change;
 use crate::close_handler::CloseHandler;
-use crate::dispatch::deliver;
-use crate::effect::Effect;
 use crate::field_input;
 use crate::fields::Fields;
 use crate::frame::Frame;
 use crate::header::{extent, search_field};
 use crate::intent::Intent;
+use crate::intent_runner::IntentRunner as _;
+use crate::intent_sink::IntentSink;
 use crate::modal_config::ModalConfig;
 use crate::notice_view::notice_view;
-use crate::primary::Primary;
 use crate::prompt_view::prompt_view;
 use crate::record_backend::RecordBackend;
 use crate::settings_backend::SettingsBackend;
 use crate::settings_state::SettingsState;
 use crate::subscription::Subscription;
+
+const SEARCH_PLACEHOLDER: &str = "Search settings...";
+const TITLE: &str = "Settings";
 
 /// The settings modal view. Render it as the root of a window or as an overlay; it draws its own scrim.
 pub struct SettingsModal {
@@ -44,16 +46,20 @@ pub struct SettingsModal {
 
 impl SettingsModal {
     /// Builds the modal over `config`, reading the backend snapshot once.
-    pub fn new(config: ModalConfig, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
+    pub fn new(
+        config: ModalConfig,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
         let snapshot = config.settings.snapshot();
         let state = SettingsState::new(
             config.schema,
             snapshot,
             config.page.as_ref(),
-            Primary::native(),
+            config.primary,
         );
         let search = cx.new(|cx| {
-            TextInput::new("Search settings...", cx)
+            TextInput::new(SEARCH_PLACEHOLDER, cx)
                 .style(TextInputStyle::Compact)
                 .leading_icon(IconName::MagnifyingGlass)
         });
@@ -82,7 +88,11 @@ impl SettingsModal {
 
     /// Starts with `query` typed into the search field.
     #[must_use]
-    pub fn with_query(mut self, query: Option<&str>, cx: &mut Context<'_, Self>) -> Self {
+    pub fn with_query(
+        mut self,
+        query: Option<&str>,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
         let Some(query) = query else {
             return self;
         };
@@ -92,7 +102,11 @@ impl SettingsModal {
         self
     }
 
-    fn on_change(&mut self, change: &Change, cx: &mut Context<'_, Self>) {
+    fn on_change(
+        &mut self,
+        change: &Change,
+        cx: &mut Context<'_, Self>,
+    ) {
         if let Change::Setting(key, value) = change {
             self.state.remote_changed(key, value.clone());
             self.fields.sync(&self.state, cx);
@@ -100,42 +114,11 @@ impl SettingsModal {
         cx.notify();
     }
 
-    pub(crate) fn perform(&mut self, effect: Option<Effect>) {
-        let Some(effect) = effect else {
-            return;
-        };
-        let failure = match effect {
-            Effect::Write(key, value) => match self.settings.set(&key, value) {
-                Ok(()) => {
-                    self.state.acknowledged(&key);
-                    None
-                },
-                Err(error) => {
-                    let label = self.state.write_failed(&key).unwrap_or_default();
-                    Some(format!("Could not save {label}. {error}"))
-                },
-            },
-            Effect::Invoke(id) => self
-                .settings
-                .invoke(&id)
-                .err()
-                .map(|error| error.to_string()),
-            Effect::Record {
-                source,
-                record,
-                command,
-            } => self
-                .records
-                .apply(&source, &record, command)
-                .err()
-                .map(|error| error.to_string()),
-        };
-        if failure.is_some() {
-            self.notice = failure;
-        }
-    }
-
-    pub(crate) fn ensure_fields(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+    fn ensure_fields(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         let missing: Vec<crate::row::Row> = self.state.page().map_or_else(Vec::new, |page| {
             page.rows()
                 .filter(|row| self.fields.get(&row.key).is_none())
@@ -152,6 +135,12 @@ impl SettingsModal {
     }
 }
 
+fn sink_to(owner: Entity<SettingsModal>) -> IntentSink {
+    IntentSink::new(move |intent, window, cx| {
+        owner.update(cx, |modal, cx| modal.run(intent, window, cx));
+    })
+}
+
 fn follow_backend(
     settings: &dyn SettingsBackend,
     cx: &mut Context<'_, SettingsModal>,
@@ -166,41 +155,48 @@ fn follow_backend(
     }))
 }
 
-fn forward(weak: &WeakEntity<SettingsModal>, change: &Change, cx: &mut AsyncApp) {
+fn forward(
+    weak: &WeakEntity<SettingsModal>,
+    change: &Change,
+    cx: &mut AsyncApp,
+) {
     drop(weak.update(cx, |modal, cx| modal.on_change(change, cx)));
 }
 
 impl Render for SettingsModal {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         self.ensure_fields(window, cx);
-        let owner = cx.entity();
-        let closer = owner.clone();
+        let sink = sink_to(cx.entity());
+        let closer = sink.clone();
         let frame = Frame {
             state: &self.state,
-            owner: &owner,
+            sink: &sink,
             fields: &self.fields,
             records: self.records.as_ref(),
         };
         let content = body(&frame, (&self.focus, &self.scroll), (window, cx));
         let dialog = Dialog::new("settings")
-            .title("Settings")
+            .title(TITLE)
             .flush(extent(window))
             .header_actions(search_field(&self.search, window))
             .body(content)
-            .on_close(move |window, cx| deliver(&closer, Intent::Close, (window, cx)));
+            .on_close(move |window, cx| closer.deliver(Intent::Close, (window, cx)));
         div()
             .child(dialog)
-            .children(
-                self.state
-                    .prompt()
-                    .map(|prompt| prompt_view(&owner, prompt)),
-            )
+            .children(self.state.prompt().map(|prompt| prompt_view(&sink, prompt)))
             .children(self.notice.as_deref().map(notice_view))
     }
 }
 
 impl std::fmt::Debug for SettingsModal {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         formatter
             .debug_struct("SettingsModal")
             .finish_non_exhaustive()
@@ -208,5 +204,110 @@ impl std::fmt::Debug for SettingsModal {
 }
 
 #[cfg(test)]
-#[path = "settings_modal_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::intent::Intent;
+    use crate::key::Key;
+    use crate::settings_backend::SettingsBackend;
+    use crate::test_support::{inspect, open, row, run};
+    use crate::value::Value;
+
+    #[gpui::test]
+    fn a_toggle_reaches_the_backend_and_the_row_becomes_resettable(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        let target = row("sidebarFollowsFocus");
+        run(&harness, Intent::Toggle(target.clone()), cx);
+        assert_eq!(
+            harness.backend.get(&Key::new("sidebarFollowsFocus")),
+            Some(Value::Bool(true))
+        );
+        assert!(inspect(&harness, cx, |modal| modal
+            .state
+            .resettable(&target)));
+    }
+
+    #[gpui::test]
+    fn a_refused_write_goes_back_and_says_so(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        let target = row("sidebarFollowsFocus");
+        harness.backend.refuse_writes();
+        run(&harness, Intent::Toggle(target.clone()), cx);
+        assert_eq!(harness.backend.get(&target.key), None);
+        assert!(!inspect(&harness, cx, |modal| modal
+            .state
+            .switch_on(&target)));
+        assert!(inspect(&harness, cx, |modal| modal.notice.is_some()));
+        run(&harness, Intent::Select("editor".into()), cx);
+        assert!(inspect(&harness, cx, |modal| modal.notice.is_none()));
+    }
+
+    #[gpui::test]
+    fn a_change_made_elsewhere_shows_up(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        harness
+            .backend
+            .publish(&Key::new("sidebarFollowsFocus"), Value::Bool(true));
+        cx.run_until_parked();
+        assert!(inspect(&harness, cx, |modal| modal
+            .state
+            .switch_on(&row("sidebarFollowsFocus"))));
+    }
+
+    #[gpui::test]
+    fn closing_calls_the_close_handler_once(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        run(&harness, Intent::Close, cx);
+        assert_eq!(harness.closed.get(), 1);
+    }
+
+    #[gpui::test]
+    fn every_page_renders_with_and_without_a_search(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        let pages: Vec<_> = inspect(&harness, cx, |modal| {
+            modal
+                .state
+                .visible_pages()
+                .iter()
+                .map(|page| page.id.clone())
+                .collect()
+        });
+        assert_eq!(pages.len(), 10);
+        for page in pages {
+            run(&harness, Intent::Select(page.clone()), cx);
+            assert_eq!(
+                inspect(&harness, cx, |modal| modal
+                    .state
+                    .page()
+                    .map(|page| page.id.clone())),
+                Some(page)
+            );
+        }
+        let typed = Intent::Search(ui::TextInputEvent::Changed("zzzzzz".to_owned()));
+        run(&harness, typed, cx);
+        assert!(inspect(&harness, cx, |modal| modal
+            .state
+            .visible_pages()
+            .is_empty()));
+    }
+
+    #[gpui::test]
+    fn the_query_option_fills_the_search_field(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        let backend = crate::test_support::backend();
+        let config = crate::modal_config::ModalConfig::new(
+            crate::catalog::default_schema().unwrap(),
+            std::rc::Rc::new(backend.clone()),
+            std::rc::Rc::new(backend),
+        );
+        let (modal, cx) = cx.add_window_view(|window, cx| {
+            crate::settings_modal::SettingsModal::new(config, window, cx)
+                .with_query(Some("font"), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            modal.read_with(cx, |modal, _| modal.state.query().to_owned()),
+            "font"
+        );
+    }
+}

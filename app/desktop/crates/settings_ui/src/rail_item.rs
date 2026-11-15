@@ -8,11 +8,11 @@ use gpui::{
 use ui::font::HEADING_FAMILY;
 use ui::{Icon, IconWeight, Surface, Theme, hover_fill, radius};
 
-use crate::dispatch::send;
 use crate::frame::Frame;
 use crate::icon_stem::icon_named;
 use crate::intent::Intent;
 use crate::page::Page;
+use crate::spacing;
 
 const HEIGHT: f32 = 32.0;
 const ICON: f32 = 18.0;
@@ -25,30 +25,20 @@ pub(crate) fn rail_item(
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let palette = Theme::of(cx).palette(Surface::Window);
-    let active = frame
-        .state
-        .page()
-        .is_some_and(|selected| selected.id == page.id);
+    let selected = frame.state.page().filter(|selected| selected.id == page.id);
+    let active = selected.is_some();
     let id = ElementId::from(SharedString::from(format!("rail-{}", page.id)));
-    let color = if active {
-        palette.foreground()
-    } else {
-        palette.muted_foreground()
-    };
+    let color = selected.map_or(palette.muted_foreground(), |_| palette.foreground());
     let base = div()
         .flex()
         .items_center()
-        .gap(px(10.0))
+        .gap(spacing::ITEM)
         .w_full()
         .h(px(HEIGHT))
-        .px(px(10.0))
+        .px(spacing::ITEM)
         .rounded(radius::XL)
         .text_color(color);
-    let fill = if active {
-        palette.primary().opacity(ACTIVE_TINT)
-    } else {
-        palette.accent()
-    };
+    let fill = selected.map_or(palette.accent(), |_| palette.primary().opacity(ACTIVE_TINT));
     let item = hover_fill(base, id, fill, (window, cx));
     let foreground = palette.foreground();
     item.when(active, |item| item.bg(fill))
@@ -56,7 +46,7 @@ pub(crate) fn rail_item(
             item.hover(move |style| style.text_color(foreground))
         })
         .cursor_pointer()
-        .on_click(send(frame.owner, Intent::Select(page.id.clone())))
+        .on_click(frame.sink.send(Intent::Select(page.id.clone())))
         .children(
             icon_named(&page.icon)
                 .map(|icon| Icon::new(icon).weight(IconWeight::Duotone).size(px(ICON))),
@@ -75,5 +65,26 @@ fn label(page: &Page) -> impl IntoElement {
 }
 
 #[cfg(test)]
-#[path = "rail_item_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::intent::Intent;
+    use crate::rail_move::RailMove;
+    use crate::test_support::{inspect, open, run};
+
+    fn selected_page(modal: &crate::settings_modal::SettingsModal) -> Option<String> {
+        modal.state.page().map(|page| page.id.to_string())
+    }
+
+    #[gpui::test]
+    fn selecting_and_moving_change_the_active_item(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "appearance");
+        let active = |harness: &crate::test_support::Harness, cx: &mut gpui::VisualTestContext| {
+            inspect(harness, cx, selected_page)
+        };
+        run(&harness, Intent::Select("terminal".into()), cx);
+        assert_eq!(active(&harness, cx), Some("terminal".to_owned()));
+        run(&harness, Intent::Move(RailMove::Next), cx);
+        assert_eq!(active(&harness, cx), Some("browser".to_owned()));
+    }
+}

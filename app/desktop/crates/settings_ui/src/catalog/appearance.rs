@@ -1,10 +1,14 @@
 //! The Appearance page.
 
-use super::rows::{row, snapped};
+use super::number_setting::NumberSetting;
+use super::rows::row;
 use crate::control::Control;
 use crate::control_width::ControlWidth;
 use crate::page::Page;
 use crate::section::Section;
+use crate::value::Value;
+
+const UI_FONT_SIZE: NumberSetting = NumberSetting::new((10.0, 24.0, 0.5), 15.0);
 
 pub(super) fn page() -> Page {
     Page::new("appearance", "Appearance", "paint-brush")
@@ -74,8 +78,8 @@ fn typography() -> Section {
         .row(row(
             ("uiFontSize", "UI Font Size"),
             "Adjust UI text and icon scale in 0.5px steps",
-            snapped((10.0, 24.0, 0.5), ControlWidth::Compact),
-            15.0,
+            UI_FONT_SIZE.snapped(ControlWidth::Compact),
+            UI_FONT_SIZE.default,
         ))
 }
 
@@ -100,16 +104,47 @@ fn layout() -> Section {
             ("sidebarFollowsFocus", "Sidebar follows focus"),
             "Switch the sidebar between Chats, Files and Git as focus moves between chats, editors and diffs.",
             Control::switch(),
-            false,
+            Value::Bool(false),
         ))
         .row(row(
             ("buildReadout", "Build readout"),
             "Show the build, daemon connection, frame rate and open terminal, agent and workspace counts at the foot of the sidebar, or in the tab strip while it is hidden",
             Control::switch(),
-            false,
+            Value::Bool(false),
         ))
 }
 
 #[cfg(test)]
-#[path = "appearance_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rows_follow_the_spec_order_and_only_the_first_section_hides_its_header() {
+        let page = page();
+        let keys: Vec<&str> = page.rows().map(|row| row.key().as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "theme",
+                "themeMode",
+                "iconTheme",
+                "uiFontFamily",
+                "headingFontFamily",
+                "uiFontSize",
+                "sidebarPosition",
+                "tabListScope",
+                "sidebarFollowsFocus",
+                "buildReadout",
+            ]
+        );
+        let headers: Vec<bool> = page
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                crate::block::Block::Section(section) => Some(section.show_header),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(headers, [false, true, true, true]);
+    }
+}

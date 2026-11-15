@@ -9,7 +9,10 @@ pub struct Choice {
 
 impl Choice {
     /// A choice storing `value` and showing `label`.
-    pub fn new(value: impl Into<String>, label: impl Into<String>) -> Self {
+    pub fn new(
+        value: impl Into<String>,
+        label: impl Into<String>,
+    ) -> Self {
         Self {
             value: value.into(),
             label: label.into(),
@@ -28,5 +31,15 @@ impl Choice {
 }
 
 #[cfg(test)]
-#[path = "choice_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_value_and_label_apart() {
+        let choice = Choice::new("system", "Sync with System");
+        assert_eq!(
+            (choice.value(), choice.label()),
+            ("system", "Sync with System")
+        );
+    }
+}

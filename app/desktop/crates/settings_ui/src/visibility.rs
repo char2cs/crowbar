@@ -27,12 +27,18 @@ fn words(query: &str) -> Vec<String> {
     query.split_whitespace().map(str::to_lowercase).collect()
 }
 
-fn matches(words: &[String], texts: &[&str]) -> bool {
+fn matches(
+    words: &[String],
+    texts: &[&str],
+) -> bool {
     let haystack = texts.join("\n").to_lowercase();
     words.iter().all(|word| haystack.contains(word.as_str()))
 }
 
-fn row_texts(row: &Row, section: &Section) -> String {
+fn row_texts(
+    row: &Row,
+    section: &Section,
+) -> String {
     let mut texts = vec![row.label.as_str(), section.title.as_str()];
     texts.extend(row.description.as_deref());
     texts.extend(row.keywords.iter().map(String::as_str));
@@ -40,7 +46,11 @@ fn row_texts(row: &Row, section: &Section) -> String {
 }
 
 impl Visibility {
-    pub(crate) fn compute(schema: &Schema, scope: &Scope<'_>, query: &str) -> Self {
+    pub(crate) fn compute(
+        schema: &Schema,
+        scope: &Scope<'_>,
+        query: &str,
+    ) -> Self {
         let words = words(query);
         let mut visibility = Self {
             searching: !words.is_empty(),
@@ -56,7 +66,12 @@ impl Visibility {
         visibility
     }
 
-    fn add_page(&mut self, page: &Page, scope: &Scope<'_>, words: &[String]) {
+    fn add_page(
+        &mut self,
+        page: &Page,
+        scope: &Scope<'_>,
+        words: &[String],
+    ) {
         let whole = !self.searching || matches(words, &[&page.label]);
         let mut any = whole;
         for (index, block) in page.blocks.iter().enumerate() {
@@ -108,7 +123,11 @@ impl Visibility {
         !shown.is_empty()
     }
 
-    fn add_shortcuts(&mut self, group: &ShortcutGroup, (words, whole): (&[String], bool)) -> bool {
+    fn add_shortcuts(
+        &mut self,
+        group: &ShortcutGroup,
+        (words, whole): (&[String], bool),
+    ) -> bool {
         let shown: Vec<&Shortcut> = group
             .shortcuts
             .iter()
@@ -130,15 +149,25 @@ impl Visibility {
         &self.pages
     }
 
-    pub(crate) fn row(&self, row: &Row) -> bool {
+    pub(crate) fn row(
+        &self,
+        row: &Row,
+    ) -> bool {
         self.rows.contains(&row.key)
     }
 
-    pub(crate) fn shortcut(&self, shortcut: &Shortcut) -> bool {
+    pub(crate) fn shortcut(
+        &self,
+        shortcut: &Shortcut,
+    ) -> bool {
         self.shortcuts.contains(&shortcut.command)
     }
 
-    pub(crate) fn block(&self, page: &PageId, index: usize) -> bool {
+    pub(crate) fn block(
+        &self,
+        page: &PageId,
+        index: usize,
+    ) -> bool {
         self.blocks.contains(&(page.clone(), index))
     }
 }
@@ -156,10 +185,142 @@ fn block_text(block: &Block) -> String {
     }
 }
 
-fn holds(rule: Option<&Condition>, scope: &Scope<'_>) -> bool {
+fn holds(
+    rule: Option<&Condition>,
+    scope: &Scope<'_>,
+) -> bool {
     rule.is_none_or(|rule| rule.holds(scope))
 }
 
 #[cfg(test)]
-#[path = "visibility_tests.rs"]
-mod tests;
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+    use crate::condition::Condition;
+    use crate::control::Control;
+    use crate::heading::Heading;
+    use crate::values::Values;
+
+    fn schema() -> Schema {
+        let appearance = Page::new("appearance", "Appearance", "paint-brush").block(
+            Section::new("Typography")
+                .row(
+                    Row::new("uiFontSize", "UI Font Size", Control::switch())
+                        .describe("Adjust UI text")
+                        .keywords(&["zoom"]),
+                )
+                .row(Row::new(
+                    "sidebarPosition",
+                    "Sidebar Position",
+                    Control::switch(),
+                )),
+        );
+        let browser = Page::new("browser", "Browser", "globe").block(
+            Section::new("Navigation")
+                .row(Row::new("browserHomepage", "Homepage", Control::switch()))
+                .row(
+                    Row::new("customUrl", "Custom Search URL", Control::switch())
+                        .when(Condition::equals("engine", "custom")),
+                ),
+        );
+        let keys = Page::new("keybindings", "Keybindings", "keyboard").block(
+            ShortcutGroup::new("Tabs", "overrides")
+                .shortcut(Shortcut::new("tabs.new", "New tab", "mod+t")),
+        );
+        let hosts = Page::new("hosts", "Hosts", "hard-drives")
+            .block(Heading::new("Hosts", "Add another machine."));
+        let hidden = Page::new("dev", "Developer", "bug").when(Condition::capability("dev"));
+        Schema::new(vec![appearance, browser, keys, hosts, hidden]).unwrap()
+    }
+
+    fn compute(
+        schema: &Schema,
+        query: &str,
+    ) -> Visibility {
+        let values = Values::default();
+        let capabilities = BTreeSet::new();
+        let scope = Scope {
+            values: &values,
+            defaults: schema.defaults(),
+            capabilities: &capabilities,
+        };
+        Visibility::compute(schema, &scope, query)
+    }
+
+    fn page_ids(visibility: &Visibility) -> Vec<&str> {
+        visibility.pages().iter().map(PageId::as_str).collect()
+    }
+
+    #[test]
+    fn without_a_query_every_applicable_page_and_row_shows() {
+        let schema = schema();
+        let visibility = compute(&schema, "  ");
+        assert_eq!(
+            page_ids(&visibility),
+            ["appearance", "browser", "keybindings", "hosts"]
+        );
+        let shown: Vec<&str> = schema
+            .rows()
+            .filter(|row| visibility.row(row))
+            .map(|row| row.key.as_str())
+            .collect();
+        assert_eq!(
+            shown,
+            ["uiFontSize", "sidebarPosition", "browserHomepage"],
+            "the conditional row is hidden"
+        );
+    }
+
+    #[test]
+    fn one_matcher_decides_pages_and_rows_together() {
+        type Case = (
+            &'static str,
+            &'static [&'static str],
+            &'static [&'static str],
+        );
+        const CASES: &[Case] = &[
+            ("font", &["appearance"], &["uiFontSize"]),
+            ("zoom", &["appearance"], &["uiFontSize"]),
+            ("adjust text", &["appearance"], &["uiFontSize"]),
+            (
+                "typography",
+                &["appearance"],
+                &["uiFontSize", "sidebarPosition"],
+            ),
+            ("browser", &["browser"], &["browserHomepage"]),
+            ("zzz", &[], &[]),
+        ];
+        let schema = schema();
+        for &(query, pages, rows) in CASES {
+            let visibility = compute(&schema, query);
+            assert_eq!(page_ids(&visibility), pages, "pages for {query:?}");
+            let shown: Vec<&str> = schema
+                .rows()
+                .filter(|row| visibility.row(row))
+                .map(|row| row.key.as_str())
+                .collect();
+            assert_eq!(shown, rows, "rows for {query:?}");
+        }
+    }
+
+    #[test]
+    fn shortcuts_and_heading_pages_are_searchable_too() {
+        let schema = schema();
+        let by_label = compute(&schema, "new tab");
+        assert_eq!(page_ids(&by_label), ["keybindings"]);
+        assert!(
+            schema
+                .shortcuts()
+                .all(|(_, shortcut)| by_label.shortcut(shortcut))
+        );
+        let by_text = compute(&schema, "another machine");
+        assert_eq!(page_ids(&by_text), ["hosts"]);
+        assert!(by_text.block(&PageId::from("hosts"), 0));
+        let by_page = compute(&schema, "hosts");
+        assert!(
+            by_page.block(&PageId::from("hosts"), 0),
+            "a matching page label shows all its blocks"
+        );
+    }
+}

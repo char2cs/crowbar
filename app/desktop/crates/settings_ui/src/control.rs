@@ -72,17 +72,26 @@ impl Control {
     }
 
     /// A select over fixed `(value, label)` options.
-    pub fn select(options: &[(&str, &str)], width: ControlWidth) -> Self {
+    pub fn select(
+        options: &[(&str, &str)],
+        width: ControlWidth,
+    ) -> Self {
         Self::select_from(ChoiceSource::fixed(options), width)
     }
 
     /// A select over the options the backend lists as `provider`.
-    pub fn provided_select(provider: &str, width: ControlWidth) -> Self {
+    pub fn provided_select(
+        provider: &str,
+        width: ControlWidth,
+    ) -> Self {
         Self::select_from(ChoiceSource::provided(provider), width)
     }
 
     /// A select over `source`.
-    pub fn select_from(source: ChoiceSource, width: ControlWidth) -> Self {
+    pub fn select_from(
+        source: ChoiceSource,
+        width: ControlWidth,
+    ) -> Self {
         Self::Select {
             source,
             width,
@@ -92,12 +101,18 @@ impl Control {
     }
 
     /// A number stepper.
-    pub fn number(range: NumberRange, width: ControlWidth) -> Self {
+    pub fn number(
+        range: NumberRange,
+        width: ControlWidth,
+    ) -> Self {
         Self::Number { range, width }
     }
 
     /// A text field.
-    pub fn text(placeholder: &str, width: ControlWidth) -> Self {
+    pub fn text(
+        placeholder: &str,
+        width: ControlWidth,
+    ) -> Self {
         Self::Text {
             placeholder: placeholder.to_owned(),
             width,
@@ -106,7 +121,10 @@ impl Control {
     }
 
     /// A comma-separated list field.
-    pub fn text_list(placeholder: &str, width: ControlWidth) -> Self {
+    pub fn text_list(
+        placeholder: &str,
+        width: ControlWidth,
+    ) -> Self {
         Self::TextList {
             placeholder: placeholder.to_owned(),
             width,
@@ -115,7 +133,10 @@ impl Control {
 
     /// Flags text that fails `validator`.
     #[must_use]
-    pub fn validated(mut self, validator: Validator) -> Self {
+    pub fn validated(
+        mut self,
+        validator: Validator,
+    ) -> Self {
         if let Self::Text {
             validator: slot, ..
         } = &mut self
@@ -127,7 +148,10 @@ impl Control {
 
     /// Text a select shows while no option matches.
     #[must_use]
-    pub fn placeholder(mut self, text: &str) -> Self {
+    pub fn placeholder(
+        mut self,
+        text: &str,
+    ) -> Self {
         if let Self::Select { placeholder, .. } = &mut self {
             *placeholder = Some(text.to_owned());
         }
@@ -136,14 +160,20 @@ impl Control {
 
     /// Adds an info icon with `text` as its tooltip after a select.
     #[must_use]
-    pub fn hint(mut self, text: &str) -> Self {
+    pub fn hint(
+        mut self,
+        text: &str,
+    ) -> Self {
         if let Self::Select { hint, .. } = &mut self {
             *hint = Some(text.to_owned());
         }
         self
     }
 
-    pub(crate) fn text_of(&self, value: Option<&Value>) -> String {
+    pub(crate) fn text_of(
+        &self,
+        value: Option<&Value>,
+    ) -> String {
         match (self, value) {
             (Self::Number { range, .. }, Some(Value::Number(number))) => range.format(*number),
             (Self::Text { .. }, Some(Value::Text(text))) => text.clone(),
@@ -152,7 +182,10 @@ impl Control {
         }
     }
 
-    pub(crate) fn parse(&self, text: &str) -> Result<Value, Issue> {
+    pub(crate) fn parse(
+        &self,
+        text: &str,
+    ) -> Result<Value, Issue> {
         match self {
             Self::Number { range, .. } => range
                 .parse(text)
@@ -163,7 +196,10 @@ impl Control {
         }
     }
 
-    pub(crate) fn issue(&self, text: &str) -> Option<Issue> {
+    pub(crate) fn issue(
+        &self,
+        text: &str,
+    ) -> Option<Issue> {
         match self {
             Self::Text {
                 validator: Some(validator),
@@ -184,5 +220,80 @@ fn split_list(text: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-#[path = "control_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::test_support::{Case, run_cases};
+
+    fn number() -> Control {
+        Control::number(
+            NumberRange::new(8.0, 32.0, 1.0),
+            ControlWidth::NumberCompact,
+        )
+    }
+
+    fn text_round_trips_through_the_value() {
+        let list = Control::text_list("*.log", ControlWidth::Text);
+        let value = Value::List(vec!["a".to_owned(), "b/".to_owned()]);
+        assert_eq!(list.text_of(Some(&value)), "a, b/");
+        assert_eq!(list.parse(" a , ,b/ ,"), Ok(value));
+        assert_eq!(number().text_of(Some(&Value::Number(14.0))), "14");
+        assert_eq!(number().text_of(None), "");
+    }
+
+    fn numbers_are_normalised_when_parsed() {
+        assert_eq!(number().parse("99"), Ok(Value::Number(32.0)));
+        assert_eq!(number().parse("x"), Err(Issue::NotANumber));
+        assert_eq!(number().issue("x"), Some(Issue::NotANumber));
+        assert_eq!(number().issue("12"), None);
+    }
+
+    fn text_is_kept_as_typed_but_flagged() {
+        let url = Control::text("https://kagi.com/search?q=%s", ControlWidth::TextWide)
+            .validated(Validator::SearchTemplate);
+        assert_eq!(url.parse("nope"), Ok(Value::Text("nope".to_owned())));
+        assert_eq!(url.issue("nope"), Some(Issue::BadSearchTemplate));
+        assert_eq!(url.issue(""), None);
+    }
+
+    fn modifiers_apply_only_to_their_control() {
+        let select = Control::provided_select("themes", ControlWidth::Wide)
+            .placeholder("Select font...")
+            .hint("Install a Nerd Font");
+        assert!(matches!(
+            select,
+            Control::Select {
+                placeholder: Some(_),
+                hint: Some(_),
+                ..
+            }
+        ));
+        assert_eq!(
+            Control::switch().placeholder("x").hint("y"),
+            Control::switch()
+        );
+    }
+
+    const CASES: &[Case] = &[
+        (
+            "text round trips through the value",
+            text_round_trips_through_the_value,
+        ),
+        (
+            "numbers are normalised when parsed",
+            numbers_are_normalised_when_parsed,
+        ),
+        (
+            "text is kept as typed but flagged",
+            text_is_kept_as_typed_but_flagged,
+        ),
+        (
+            "modifiers apply only to their control",
+            modifiers_apply_only_to_their_control,
+        ),
+    ];
+
+    #[test]
+    fn every_scenario_holds() {
+        run_cases(CASES);
+    }
+}

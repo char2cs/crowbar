@@ -9,6 +9,7 @@ use crate::element_id::element_id;
 use crate::frame::Frame;
 use crate::reset_button::reset_button;
 use crate::row::Row;
+use crate::spacing;
 
 const LABEL_LINE: f32 = 20.0;
 const TEXT_LINE: f32 = 18.0;
@@ -33,10 +34,10 @@ pub(crate) fn row_view(
         .flex()
         .items_center()
         .justify_between()
-        .gap(px(12.0))
+        .gap(spacing::ROOMY)
         .rounded(radius::LG)
-        .px(px(4.0))
-        .py(px(8.0))
+        .px(spacing::TIGHT)
+        .py(spacing::COMFORTABLE)
         .font_family(UI_FAMILY)
         .text_size(text_size);
     hover_fill(
@@ -53,12 +54,16 @@ pub(crate) fn row_view(
     )
 }
 
-fn label_line(frame: &Frame<'_>, row: &Row, cx: &App) -> gpui::AnyElement {
+fn label_line(
+    frame: &Frame<'_>,
+    row: &Row,
+    cx: &App,
+) -> gpui::AnyElement {
     let palette = Theme::of(cx).palette(Surface::Window);
     div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(spacing::SNUG)
         .h(px(LABEL_LINE))
         .child(
             div()
@@ -70,5 +75,24 @@ fn label_line(frame: &Frame<'_>, row: &Row, cx: &App) -> gpui::AnyElement {
 }
 
 #[cfg(test)]
-#[path = "row_view_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::intent::Intent;
+    use crate::test_support::{inspect, open, row, run};
+
+    #[gpui::test]
+    fn an_invalid_row_swaps_its_description_for_the_invalid_text(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "browser");
+        let target = row("browserCustomSearchUrl");
+        let normal = inspect(&harness, cx, |modal| {
+            modal.state.description(&target).map(str::to_owned)
+        });
+        let typed = ui::TextInputEvent::Changed("nope".to_owned());
+        run(&harness, Intent::Edit(target.clone(), typed), cx);
+        let invalid = inspect(&harness, cx, |modal| {
+            modal.state.description(&target).map(str::to_owned)
+        });
+        assert_ne!(normal, invalid);
+    }
+}

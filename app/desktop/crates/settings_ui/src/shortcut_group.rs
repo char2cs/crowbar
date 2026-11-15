@@ -13,7 +13,10 @@ pub struct ShortcutGroup {
 
 impl ShortcutGroup {
     /// An empty group titled `title`.
-    pub fn new(title: impl Into<String>, overrides: impl Into<Key>) -> Self {
+    pub fn new(
+        title: impl Into<String>,
+        overrides: impl Into<Key>,
+    ) -> Self {
         Self {
             title: title.into(),
             overrides: overrides.into(),
@@ -23,12 +26,26 @@ impl ShortcutGroup {
 
     /// Appends a shortcut.
     #[must_use]
-    pub fn shortcut(mut self, shortcut: Shortcut) -> Self {
+    pub fn shortcut(
+        mut self,
+        shortcut: Shortcut,
+    ) -> Self {
         self.shortcuts.push(shortcut);
         self
     }
 }
 
 #[cfg(test)]
-#[path = "shortcut_group_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcuts_keep_their_order() {
+        let group = ShortcutGroup::new("Tabs", "overrides")
+            .shortcut(Shortcut::new("a", "A", "mod+a"))
+            .shortcut(Shortcut::new("b", "B", ""));
+        let commands: Vec<&str> = group.shortcuts.iter().map(Shortcut::command).collect();
+        assert_eq!(commands, ["a", "b"]);
+        assert_eq!(group.overrides.as_str(), "overrides");
+    }
+}

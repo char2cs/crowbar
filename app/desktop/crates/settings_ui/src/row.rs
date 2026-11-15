@@ -20,7 +20,11 @@ pub struct Row {
 
 impl Row {
     /// A row for `key` shown as `label` with `control`.
-    pub fn new(key: impl Into<Key>, label: impl Into<String>, control: Control) -> Self {
+    pub fn new(
+        key: impl Into<Key>,
+        label: impl Into<String>,
+        control: Control,
+    ) -> Self {
         Self {
             key: key.into(),
             label: label.into(),
@@ -35,35 +39,50 @@ impl Row {
 
     /// The text under the label.
     #[must_use]
-    pub fn describe(mut self, text: impl Into<String>) -> Self {
+    pub fn describe(
+        mut self,
+        text: impl Into<String>,
+    ) -> Self {
         self.description = Some(text.into());
         self
     }
 
     /// The text under the label while the field holds an invalid value.
     #[must_use]
-    pub fn describe_invalid(mut self, text: impl Into<String>) -> Self {
+    pub fn describe_invalid(
+        mut self,
+        text: impl Into<String>,
+    ) -> Self {
         self.invalid_description = Some(text.into());
         self
     }
 
     /// The default, which also makes the row resettable.
     #[must_use]
-    pub fn default_value(mut self, value: impl Into<Value>) -> Self {
+    pub fn default_value(
+        mut self,
+        value: impl Into<Value>,
+    ) -> Self {
         self.default = Some(value.into());
         self
     }
 
     /// Shows the row only while `condition` holds.
     #[must_use]
-    pub fn when(mut self, condition: Condition) -> Self {
+    pub fn when(
+        mut self,
+        condition: Condition,
+    ) -> Self {
         self.when = Some(condition);
         self
     }
 
     /// Extra search terms.
     #[must_use]
-    pub fn keywords(mut self, words: &[&str]) -> Self {
+    pub fn keywords(
+        mut self,
+        words: &[&str],
+    ) -> Self {
         self.keywords = words.iter().map(|&word| word.to_owned()).collect();
         self
     }
@@ -80,5 +99,22 @@ impl Row {
 }
 
 #[cfg(test)]
-#[path = "row_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builders_fill_the_row() {
+        let row = Row::new("tabSize", "Tab Size", Control::switch())
+            .describe("Spaces per tab")
+            .describe_invalid("Bad")
+            .default_value(2.0)
+            .when(Condition::capability("editor"))
+            .keywords(&["indent", "spaces"]);
+        assert_eq!((row.key().as_str(), row.label()), ("tabSize", "Tab Size"));
+        assert_eq!(row.description.as_deref(), Some("Spaces per tab"));
+        assert_eq!(row.invalid_description.as_deref(), Some("Bad"));
+        assert_eq!(row.default, Some(Value::Number(2.0)));
+        assert!(row.when.is_some());
+        assert_eq!(row.keywords, ["indent", "spaces"]);
+    }
+}

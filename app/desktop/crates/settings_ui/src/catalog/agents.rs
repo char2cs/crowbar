@@ -9,6 +9,7 @@ use crate::list_block::ListBlock;
 use crate::page::Page;
 use crate::row::Row;
 use crate::section::Section;
+use crate::value::Value;
 
 pub(super) const AGENTS: &str = "agents";
 pub(super) const DESCRIPTORS: &str = "descriptors";
@@ -35,7 +36,7 @@ pub(super) fn page() -> Page {
             ("chatIsDefaultPresentation", "Chat By Default"),
             "Open a chat on Chat rather than Terminal. Both surfaces stay in every chat either way - this only picks the one you land on.",
             Control::switch(),
-            true,
+            Value::Bool(true),
         )))
 }
 
@@ -72,5 +73,26 @@ fn upload() -> Row {
 }
 
 #[cfg(test)]
-#[path = "agents_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::block::Block;
+
+    #[test]
+    fn the_page_lists_agents_then_descriptor_checks_then_the_chat_section() {
+        let page = page();
+        let lists: Vec<&str> = page
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::List(list) => Some(list.source.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lists, [AGENTS, DESCRIPTORS]);
+        assert!(matches!(page.blocks.first(), Some(Block::Heading(_))));
+        assert!(
+            page.rows()
+                .any(|row| row.key().as_str() == "defaultPermissionLevel")
+        );
+    }
+}

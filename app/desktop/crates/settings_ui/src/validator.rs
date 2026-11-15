@@ -15,7 +15,10 @@ impl Validator {
     ///
     /// # Errors
     /// Returns the [`Issue`] found in a non-empty `text`.
-    pub fn check(self, text: &str) -> Result<(), Issue> {
+    pub fn check(
+        self,
+        text: &str,
+    ) -> Result<(), Issue> {
         match self {
             Self::SearchTemplate => check_template(text),
         }
@@ -32,13 +35,31 @@ fn check_template(text: &str) -> Result<(), Issue> {
     let usable = rest.is_some_and(|rest| !rest.is_empty())
         && !text.chars().any(char::is_whitespace)
         && text.contains("%s");
-    if usable {
-        Ok(())
-    } else {
-        Err(Issue::BadSearchTemplate)
-    }
+    usable.then_some(()).ok_or(Issue::BadSearchTemplate)
 }
 
 #[cfg(test)]
-#[path = "validator_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_template_rules() {
+        const CASES: &[(&str, bool)] = &[
+            ("", true),
+            ("https://kagi.com/search?q=%s", true),
+            ("http://example.com/?q=%s", true),
+            ("https://kagi.com/search", false),
+            ("ftp://example.com/%s", false),
+            ("https://", false),
+            ("https://a b/%s", false),
+            ("kagi.com/%s", false),
+        ];
+        for &(text, valid) in CASES {
+            assert_eq!(
+                Validator::SearchTemplate.check(text).is_ok(),
+                valid,
+                "{text:?}"
+            );
+        }
+    }
+}

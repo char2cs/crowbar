@@ -14,13 +14,20 @@ impl Primary {
     /// The primary modifier of the platform this build runs on.
     pub fn native() -> Self {
         if cfg!(target_os = "macos") {
-            Self::Platform
-        } else {
-            Self::Control
+            return Self::Platform;
         }
+        Self::Control
     }
 }
 
 #[cfg(test)]
-#[path = "primary_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linux_uses_control() {
+        if cfg!(target_os = "linux") {
+            assert_eq!(Primary::native(), Primary::Control);
+        }
+    }
+}

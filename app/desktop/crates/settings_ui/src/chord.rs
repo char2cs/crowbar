@@ -2,7 +2,8 @@
 
 use crate::primary::Primary;
 
-const MODIFIERS: [&str; 3] = ["mod", "shift", "alt"];
+const MODIFIER_COUNT: usize = 3;
+const MODIFIERS: [&str; MODIFIER_COUNT] = ["mod", "shift", "alt"];
 
 /// A chord in the canonical grammar: lowercase, `+`-separated, order `mod`, `shift`, `alt`, key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -13,13 +14,14 @@ impl Chord {
     pub fn parse(text: &str) -> Option<Self> {
         let lowered = text.trim().to_lowercase();
         let mut rest = lowered.as_str();
-        let mut present = [false; 3];
+        let mut present = [false; MODIFIER_COUNT];
         while let Some((slot, tail)) = take_modifier(rest) {
             claim(&mut present, slot)?;
             rest = tail;
         }
         let dangling = rest.len() > 1 && rest.ends_with('+');
-        if rest.is_empty() || dangling || MODIFIERS.contains(&rest) {
+        let keyless = rest.is_empty() || MODIFIERS.contains(&rest);
+        if keyless || dangling {
             return None;
         }
         let words = MODIFIERS
@@ -36,7 +38,10 @@ impl Chord {
     }
 
     /// The chord as shown to the user: `Ctrl+Shift+T`, or `⇧⌘T` where `mod` is Command.
-    pub fn label(&self, primary: Primary) -> String {
+    pub fn label(
+        &self,
+        primary: Primary,
+    ) -> String {
         let parts: Vec<String> = self.0.split('+').map(|part| word(part, primary)).collect();
         match primary {
             Primary::Control => parts.join("+"),
@@ -45,7 +50,10 @@ impl Chord {
     }
 }
 
-fn claim(present: &mut [bool; 3], slot: usize) -> Option<()> {
+fn claim(
+    present: &mut [bool; MODIFIER_COUNT],
+    slot: usize,
+) -> Option<()> {
     let flag = present.get_mut(slot)?;
     let repeated = std::mem::replace(flag, true);
     (!repeated).then_some(())
@@ -58,7 +66,10 @@ fn take_modifier(text: &str) -> Option<(usize, &str)> {
     })
 }
 
-fn word(part: &str, primary: Primary) -> String {
+fn word(
+    part: &str,
+    primary: Primary,
+) -> String {
     match (part, primary) {
         ("mod", Primary::Control) => "Ctrl".to_owned(),
         ("mod", Primary::Platform) => "\u{2318}".to_owned(),
@@ -81,5 +92,43 @@ fn key_label(key: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "chord_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_normalises_order_and_case() {
+        const CASES: &[(&str, Option<&str>)] = &[
+            ("Mod+Shift+T", Some("mod+shift+t")),
+            ("alt+mod+n", Some("mod+alt+n")),
+            ("shift+alt+mod+arrowLeft", Some("mod+shift+alt+arrowleft")),
+            ("mod+`", Some("mod+`")),
+            ("mod++", Some("mod++")),
+            ("f5", Some("f5")),
+            ("mod+mod+t", None),
+            ("mod+", None),
+            ("", None),
+            ("shift", None),
+        ];
+        for &(text, expected) in CASES {
+            assert_eq!(
+                Chord::parse(text).as_ref().map(Chord::as_str),
+                expected,
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn labels_follow_the_platform() {
+        let chord = Chord::parse("mod+shift+alt+arrowleft").unwrap();
+        assert_eq!(chord.label(Primary::Control), "Ctrl+Shift+Alt+\u{2190}");
+        assert_eq!(
+            chord.label(Primary::Platform),
+            "\u{2318}\u{21e7}\u{2325}\u{2190}"
+        );
+        assert_eq!(
+            Chord::parse("mod+t").unwrap().label(Primary::Control),
+            "Ctrl+T"
+        );
+    }
+}
