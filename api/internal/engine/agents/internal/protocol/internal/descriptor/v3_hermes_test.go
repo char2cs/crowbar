@@ -74,6 +74,7 @@ func TestHermesDescriptor_ABackgroundedCommandNamesTheShellItStarted(t *testing.
 	expectEq(t, "shell", notify.SpawnsShell, "proc_f056200612e2")
 	expectEq(t, "kind", notify.Kind, "execute")
 	expectEq(t, "a command that ends is a shell", notify.ShellKind, "shell")
+	expectEq(t, "the shell shows its command", notify.Target, "sleep 4")
 
 	watch := parseRaw(t, d, "tool_post", processFrame("terminal", `{"background":true,"command":"tail -f app.log","notify":["READY"]}`,
 		`{"output": "Background process started", "session_id": "proc_651f3f2ad1c0", "pid": 17274, "exit_code": 0, "error": null, "watch_patterns": ["READY"]}`),

@@ -150,6 +150,7 @@ events:
         mcp_server:  { from: payload.name, pattern: '^mcp__editor_(?P<v>.+?)_[0-9a-f]+__' }
         mcp_tool:    { from: payload.name, pattern: '^mcp__.+?__(?P<v>.+)$' }
         tool_title:  payload.summary
+        tool_target: { first_present: [payload.args.command, payload.context, payload.preview] }
         tool_result: { first_present: [payload.result_text, payload.result] }
         tool_output: payload.result_text
         # A background command answers "Background process started" with its process id, and a
