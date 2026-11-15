@@ -56,6 +56,26 @@ func TestMatchInjectedPrompt_ADeclaringlessProviderAnswersNo(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestMatchInjectedPrompt_AsyncDelegationBatchIsHarnessText(t *testing.T) {
+	hermes := get(t, "hermes")
+
+	got, ok := agents.MatchInjectedPrompt(hermes,
+		"[ASYNC DELEGATION BATCH COMPLETE — deleg_03104a1c]\nA background fan-out unit you dispatched earlier has finished.")
+	assert.True(t, ok)
+	assert.Equal(t, "[ASYNC DELEGATION BATCH COMPLETE", got.Needle)
+
+	for name, prompt := range map[string]string{
+		"typed into the composer": "say only the word ACK",
+		"quoting the marker":      "What does [ASYNC DELEGATION BATCH COMPLETE — deleg_1] mean?",
+		"lowercase marker":        "[async delegation batch complete — deleg_1]",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, ok := agents.MatchInjectedPrompt(hermes, prompt)
+			assert.False(t, ok)
+		})
+	}
+}
+
 func TestMatchInjectedPrompt_AnythingThatIsNotADescriptorBackedAgentIsTheUser(t *testing.T) {
 	_, ok := agents.MatchInjectedPrompt(nil, injectedTaskNotification)
 

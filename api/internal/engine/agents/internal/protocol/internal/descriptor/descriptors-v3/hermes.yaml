@@ -110,7 +110,10 @@ events:
       unverified: true
       map: { session_id: session_id, message_id: { join: [admission_id, captured.step] }, text: payload.text }
 
+  # delegate_task is meta, not subagent: its spawns are announced by subagent.start, and a
+  # subagent call binds one scope which the call's reply never names.
   tool_pre:
+    kind_map: { terminal: execute, read_file: read, search_files: search, web_search: search, delegate_task: meta }
     required: [session_id, tool_id, tool_name]
     api:
       in: event
@@ -120,10 +123,15 @@ events:
         session_id:  session_id
         tool_id:     payload.tool_id
         tool_name:   payload.name
+        tool_kind:   { first_present: [{ from: payload.name, pattern: '^(?P<v>mcp)__' }, payload.name] }
+        # The gateway names a per-session MCP tool mcp__editor_<server>_<runner hash>__<tool>.
+        mcp_server:  { from: payload.name, pattern: '^mcp__editor_(?P<v>.+?)_[0-9a-f]+__' }
+        mcp_tool:    { from: payload.name, pattern: '^mcp__.+?__(?P<v>.+)$' }
         tool_target: { first_present: [payload.context, payload.preview] }
         tool_input:  payload.args
 
   tool_post:
+    kind_map: { terminal: execute, read_file: read, search_files: search, web_search: search, delegate_task: meta }
     required: [session_id, tool_id, tool_name]
     api:
       in: event
@@ -133,6 +141,9 @@ events:
         session_id:  session_id
         tool_id:     payload.tool_id
         tool_name:   payload.name
+        tool_kind:   { first_present: [{ from: payload.name, pattern: '^(?P<v>mcp)__' }, payload.name] }
+        mcp_server:  { from: payload.name, pattern: '^mcp__editor_(?P<v>.+?)_[0-9a-f]+__' }
+        mcp_tool:    { from: payload.name, pattern: '^mcp__.+?__(?P<v>.+)$' }
         tool_title:  payload.summary
         tool_result: { first_present: [payload.result_text, payload.result] }
         tool_output: payload.result_text
@@ -245,6 +256,11 @@ events:
   interrupt:
     out: session.interrupt
     send: { session_id: "{session_id}", execution_generation: "{execution_generation}" }
+
+# TEXT MATCH on the prompt's start: after background delegation the gateway sends a
+# harness message as a prompt; no frame field tells it from a person's.
+injected_prompts:
+  - needle: "[ASYNC DELEGATION BATCH COMPLETE"
 
 # A dialed server takes no argv, so only this write_file runs: the token rides a 0600 file, never a body.
 mcp_injection:
