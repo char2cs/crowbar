@@ -23,11 +23,11 @@ func TestFakeProvider_WithoutAComposerTheFakeCLIEchoesInput(t *testing.T) {
 func TestInstallFakeProvider_ComposerKnobsPassDescriptorValidation(t *testing.T) {
 	home := t.TempDir()
 
-	InstallFakeProvider(t, home, FakeSpec{Base: "claude", ID: "composer", Composer: &Composer{Prefix: "❯ ", Draft: "d", Ghost: "g", Busy: true}})
+	InstallFakeProvider(t, home, FakeSpec{Base: "claude", ID: "composer", Composer: &Composer{Prefix: "❯ ", Draft: "d", Ghost: "g", Busy: true, CaretHome: true}})
 
 	raw, err := os.ReadFile(filepath.Join(home, "descriptors", "composer.yaml"))
 	require.NoError(t, err)
-	for _, name := range []string{"FAKECLI_COMPOSER", "FAKECLI_COMPOSER_PREFIX", "FAKECLI_COMPOSER_DRAFT", "FAKECLI_COMPOSER_GHOST", "FAKECLI_COMPOSER_BUSY"} {
+	for _, name := range []string{"FAKECLI_COMPOSER", "FAKECLI_COMPOSER_PREFIX", "FAKECLI_COMPOSER_DRAFT", "FAKECLI_COMPOSER_GHOST", "FAKECLI_COMPOSER_BUSY", "FAKECLI_COMPOSER_CARET_HOME"} {
 		require.Contains(t, string(raw), name)
 	}
 }

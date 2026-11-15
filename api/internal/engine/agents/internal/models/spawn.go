@@ -74,6 +74,7 @@ type PromptTyping struct {
 	Paste             string
 	Submit            string
 	ComposerRowPrefix string
+	ComposerGhost     string
 	// SkipPrefixes opens a message that keeps its meaning under paste.
 	SkipPrefixes []string
 }

@@ -91,6 +91,17 @@ func TestVtModel_ScreenState_GhostTextLeavesTheCursorBehindIt(t *testing.T) {
 	assert.Equal(t, 5, m.ScreenState().CursorCol, "a typed draft pushes the cursor past the prompt")
 }
 
+func TestVtModel_ScreenState_MarksFaintCells(t *testing.T) {
+	m := newVTModel(20, 3, 100)
+	m.Write([]byte("❯ \x1b[2mghost\x1b[22m hi"))
+
+	st := m.ScreenState()
+	require.Len(t, st.Faint, 3, "one mask per visible row")
+	require.Len(t, st.Faint[0], 20, "one cell per column")
+	assert.Equal(t, []bool{false, false, true, true, true, true, true, false, false, false}, st.Faint[0][:10])
+	assert.NotContains(t, st.Faint[1], true, "an unpainted row is not faint")
+}
+
 func TestVtModel_ScreenState_WideCharacterCountsTwoCells(t *testing.T) {
 	m := newVTModel(20, 3, 100)
 	m.Write([]byte("日本"))

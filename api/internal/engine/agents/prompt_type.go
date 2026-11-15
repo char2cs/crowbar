@@ -23,6 +23,7 @@ func (a *agent) PromptType() (PromptTyping, bool) {
 		Paste:             ps.Type.Paste,
 		Submit:            ps.Type.Submit,
 		ComposerRowPrefix: ps.Type.Composer.RowPrefix,
+		ComposerGhost:     ps.Type.Composer.Ghost,
 		SkipPrefixes:      slices.Clone(ps.Type.SkipPrefixes),
 	}, true
 }
@@ -39,19 +40,46 @@ func (a *agent) CanType(text string) bool {
 	})
 }
 
-// ComposerEmpty tests the cursor column, not the row's text: a ghost suggestion
-// paints after the cursor, while a draft pushes the cursor past the prefix.
-func (a *agent) ComposerEmpty(text string, cursorRow, cursorCol int) bool {
+// ComposerScreen is the terminal read ComposerEmpty judges: text rows split on
+// newlines, a 0-based cursor cell, and Faint as [row][col] over the grid.
+type ComposerScreen struct {
+	Text                 string
+	CursorRow, CursorCol int
+	Faint                [][]bool
+}
+
+func (a *agent) ComposerEmpty(screen ComposerScreen) bool {
 	typing, ok := a.PromptType()
 	if !ok {
 		return false
 	}
-	rows := strings.Split(text, "\n")
-	if cursorRow < 0 || cursorRow >= len(rows) {
+	rows := strings.Split(screen.Text, "\n")
+	if screen.CursorRow < 0 || screen.CursorRow >= len(rows) {
 		return false
 	}
-	return strings.HasPrefix(rows[cursorRow], typing.ComposerRowPrefix) &&
-		cursorCol == uniseg.StringWidth(typing.ComposerRowPrefix)
+	row := rows[screen.CursorRow]
+	if !strings.HasPrefix(row, typing.ComposerRowPrefix) || screen.CursorCol != uniseg.StringWidth(typing.ComposerRowPrefix) {
+		return false
+	}
+	var faint []bool
+	if screen.CursorRow < len(screen.Faint) {
+		faint = screen.Faint[screen.CursorRow]
+	}
+	return restIsGhost(row[len(typing.ComposerRowPrefix):], screen.CursorCol, faint, typing.ComposerGhost == spec.GhostFaint)
+}
+
+// restIsGhost reports whether every cell of rest, from col on, is blank or, when
+// ghostFaint, drawn faint: anything else is a draft the cursor sits before.
+func restIsGhost(rest string, col int, faint []bool, ghostFaint bool) bool {
+	for g := uniseg.NewGraphemes(rest); g.Next(); col += g.Width() {
+		if strings.TrimSpace(g.Str()) == "" {
+			continue
+		}
+		if !ghostFaint || col >= len(faint) || !faint[col] {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *agent) PromptTypeBytes(text string) ([]byte, bool) {

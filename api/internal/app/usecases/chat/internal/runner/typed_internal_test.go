@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -145,6 +146,10 @@ func TestSubmitPrompt_AnIdleCLIWithAnEmptyComposerIsTypedInto(t *testing.T) {
 		"idle": func(*testing.T, typedFixture) {},
 		// Background work outliving its turn is what typing keeps alive.
 		"only a subagent running": func(t *testing.T, f typedFixture) { t.Helper(); f.subagentOutlivingTurn(t) },
+		"a faint suggestion after the cursor": func(t *testing.T, f typedFixture) {
+			t.Helper()
+			f.setScreen(func(s *engineterminal.ScreenState) { f.typeAfterCursor(s, "run the tests", true) })
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newTypedFixture(t, &typingTerm{screen: emptyComposer(t)})
@@ -201,6 +206,10 @@ func TestSubmitPrompt_ACLIThatCannotBeTypedIntoIsNotTyped(t *testing.T) {
 			t.Helper()
 			f.setScreen(func(s *engineterminal.ScreenState) { s.CursorCol += len("half") })
 		}},
+		"the cursor sits before a draft": {text: "hello", delivery: ledger.DeliveryRestart, setup: func(t *testing.T, f typedFixture) {
+			t.Helper()
+			f.setScreen(func(s *engineterminal.ScreenState) { f.typeAfterCursor(s, "half", false) })
+		}},
 		"a slash command":            {text: "/compact", delivery: ledger.DeliveryRestart},
 		"a shell command":            {text: "!ls", delivery: ledger.DeliveryRestart},
 		"the end-paste sequence":     {text: "a\x1b[201~b", delivery: ledger.DeliveryRestart},
@@ -236,6 +245,18 @@ func pendingMove(t *testing.T, f typedFixture) {
 	f.appendRows(t, row)
 	_, pending := chatState(t, f.h.rs.ledger).PendingMove()
 	require.True(t, pending, "precondition: a move is pending")
+}
+
+// typeAfterCursor paints text on the composer row after the cursor, which stays put.
+func (f typedFixture) typeAfterCursor(s *engineterminal.ScreenState, text string, faint bool) {
+	rows := strings.Split(s.Text, "\n")
+	rows[s.CursorRow] += text
+	s.Text = strings.Join(rows, "\n")
+	s.Faint = make([][]bool, len(rows))
+	s.Faint[s.CursorRow] = make([]bool, s.CursorCol+len(text))
+	for col := s.CursorCol; col < len(s.Faint[s.CursorRow]); col++ {
+		s.Faint[s.CursorRow][col] = faint
+	}
 }
 
 func (f typedFixture) setScreen(edit func(*engineterminal.ScreenState)) {

@@ -86,6 +86,8 @@ type ScreenState struct {
 	Text      string
 	CursorRow int
 	CursorCol int
+	// Faint is [row][col] over the visible grid: whether the cell is drawn faint (SGR 2).
+	Faint [][]bool
 	// BracketedPaste reports DEC mode 2004: the app wants pasted text wrapped in ESC[200~ ... ESC[201~.
 	BracketedPaste bool
 }

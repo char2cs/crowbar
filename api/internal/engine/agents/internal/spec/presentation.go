@@ -58,11 +58,15 @@ type PromptTypeSpec struct {
 	Composer     PromptComposerSpec `yaml:"composer"`
 }
 
-// PromptComposerSpec: the composer is empty when the cursor's row starts with
-// RowPrefix and the cursor column is exactly that prefix's width.
+// PromptComposerSpec: the composer is empty when the cursor sits right after
+// RowPrefix and the rest of its row is blank or drawn as Ghost (a suggestion).
 type PromptComposerSpec struct {
 	RowPrefix string `yaml:"row_prefix"`
+	Ghost     string `yaml:"ghost"`
 }
+
+// GhostFaint is a suggestion drawn faint (SGR 2).
+const GhostFaint = "faint"
 
 // SteerSpec lets a mid-turn message ride the CLI's turn-end hook instead of a
 // restart: Frame wraps {message}, Reply is the hook stdout with {message_json}.

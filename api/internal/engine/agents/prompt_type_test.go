@@ -2,6 +2,7 @@ package agents_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -76,7 +77,7 @@ func TestAgent_ClaudeDeclaresTypedDeliveryWithItsNoBreakSpacePrefix(t *testing.T
 
 	require.True(t, ok)
 	assert.Equal(t, agents.PromptTyping{
-		Paste: "bracketed", Submit: "\r", ComposerRowPrefix: "❯ ", SkipPrefixes: []string{"/", "!"},
+		Paste: "bracketed", Submit: "\r", ComposerRowPrefix: "❯ ", ComposerGhost: "faint", SkipPrefixes: []string{"/", "!"},
 	}, typing)
 	assert.Equal(t, []byte{0xe2, 0x9d, 0xaf, 0xc2, 0xa0}, []byte(typing.ComposerRowPrefix))
 }
@@ -126,24 +127,48 @@ func TestAgent_CanTypeIsFalseForSkippedOrUnsafeMessages(t *testing.T) {
 }
 
 // composerRecording is a screen recorded from the real CLI through our emulator
-// plus the cursor it left, as the terminal read reports them.
-func composerRecording(t *testing.T, state string) (screen string, row, col int) {
+// with the cursor and faint cells it left; a recording without a .faint sidecar has none.
+func composerRecording(t *testing.T, state string) agents.ComposerScreen {
 	t.Helper()
-	text, err := os.ReadFile("testdata/claude-composer-" + state + "-2.1.325.screen")
+	base := "testdata/claude-composer-" + state + "-2.1.325"
+	text, err := os.ReadFile(base + ".screen")
 	require.NoError(t, err)
-	cursor, err := os.ReadFile("testdata/claude-composer-" + state + "-2.1.325.cursor")
+	cursor, err := os.ReadFile(base + ".cursor")
 	require.NoError(t, err)
+	screen := agents.ComposerScreen{Text: string(text)}
 	var paste bool
-	_, err = fmt.Sscanf(string(cursor), "%d %d %t", &row, &col, &paste)
+	_, err = fmt.Sscanf(string(cursor), "%d %d %t", &screen.CursorRow, &screen.CursorCol, &paste)
 	require.NoError(t, err)
-	return string(text), row, col
+	mask, err := os.ReadFile(base + ".faint")
+	if errors.Is(err, os.ErrNotExist) {
+		return screen
+	}
+	require.NoError(t, err)
+	for _, row := range strings.Split(string(mask), "\n") {
+		screen.Faint = append(screen.Faint, faintRow(row))
+	}
+	return screen
 }
 
-// typistWithPrefix is the typist descriptor with its composer row prefix swapped.
-func typistWithPrefix(t *testing.T, prefix string) agents.Agent {
+// faintRow is a mask row as the sidecar writes it: 'f' a faint cell, '.' any other.
+func faintRow(mask string) []bool {
+	row := make([]bool, len(mask))
+	for i := range mask {
+		row[i] = mask[i] == 'f'
+	}
+	return row
+}
+
+// typistWith is the typist descriptor with its composer row prefix swapped and
+// ghost, when not empty, declared.
+func typistWith(t *testing.T, prefix, ghost string) agents.Agent {
 	t.Helper()
 	home := t.TempDir()
-	body := strings.Replace(typedPromptDescriptor, `row_prefix: "❯ "`, "row_prefix: "+strconv.Quote(prefix), 1)
+	composer := "row_prefix: " + strconv.Quote(prefix)
+	if ghost != "" {
+		composer += "\n        ghost: " + ghost
+	}
+	body := strings.Replace(typedPromptDescriptor, "row_prefix: \"❯ \"", composer, 1)
 	require.NotEqual(t, typedPromptDescriptor, body)
 	writeDescriptor(t, home, "typist", body)
 	a, err := agents.New().Get(context.Background(), home, "typist")
@@ -164,6 +189,10 @@ func TestComposerEmpty_ClaudeReadsEachRecordedScreen(t *testing.T) {
 		{"midturn-80x24", true},
 		{"draft-80x24", false},
 		{"draft-120x40", false},
+		// Home pressed on a draft: the cursor is back at the prefix, the draft after it is not faint.
+		{"draft-home-80x24", false},
+		{"draft-home-120x40", false},
+		{"ghost-draft-home-80x24", false},
 		{"help-dialog-80x24", false},
 		{"paste-bang-80x24", false},
 		{"paste-escaped-bang-80x24", false},
@@ -172,34 +201,53 @@ func TestComposerEmpty_ClaudeReadsEachRecordedScreen(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.state, func(t *testing.T) {
-			screen, row, col := composerRecording(t, tc.state)
-
-			assert.Equal(t, tc.empty, get(t, "claude").ComposerEmpty(screen, row, col))
+			assert.Equal(t, tc.empty, get(t, "claude").ComposerEmpty(composerRecording(t, tc.state)))
 		})
 	}
 }
 
 func TestComposerEmpty_APlainSpacePrefixNeverMatchesTheNoBreakSpaceRecording(t *testing.T) {
-	screen, row, col := composerRecording(t, "idle-fresh-80x24")
+	screen := composerRecording(t, "idle-fresh-80x24")
 
-	assert.False(t, typistWithPrefix(t, "❯ ").ComposerEmpty(screen, row, col))
-	assert.True(t, typistWithPrefix(t, "❯ ").ComposerEmpty(screen, row, col))
+	assert.False(t, typistWith(t, "❯ ", "faint").ComposerEmpty(screen))
+	assert.True(t, typistWith(t, "❯ ", "faint").ComposerEmpty(screen))
+}
+
+func TestComposerEmpty_WithNoGhostDeclaredAnyTextAfterTheCursorIsADraft(t *testing.T) {
+	a := typistWith(t, "❯ ", "")
+
+	assert.False(t, a.ComposerEmpty(composerRecording(t, "idle-ghost-80x24")), "faint text is a draft unless declared ghost")
+	assert.True(t, a.ComposerEmpty(composerRecording(t, "midturn-80x24")), "a blank rest of row is empty")
+}
+
+func TestComposerEmpty_TextAfterTheCursorMustAllBeFaint(t *testing.T) {
+	a := typistWith(t, "> ", "faint")
+	screen := agents.ComposerScreen{Text: "> ab  日x", CursorRow: 0, CursorCol: 2}
+
+	screen.Faint = [][]bool{faintRow("..ff..ff.")}
+	assert.False(t, a.ComposerEmpty(screen), "a cell after a wide glyph is still a cell of the row")
+	screen.Faint = [][]bool{faintRow("..f..fff")}
+	assert.False(t, a.ComposerEmpty(screen), "one plain letter is a draft")
+	screen.Faint = [][]bool{faintRow("..ff..fff")}
+	assert.True(t, a.ComposerEmpty(screen), "blanks need not be faint")
+	screen.Faint = [][]bool{faintRow("..ff")}
+	assert.False(t, a.ComposerEmpty(screen), "a cell past the mask is not faint")
 }
 
 func TestComposerEmpty_JudgesTheCursorRowAgainstThePrefixDisplayWidth(t *testing.T) {
-	a := typistWithPrefix(t, "あ> ")
-	screen := "banner\nあ> \nfooter"
+	a := typistWith(t, "あ> ", "faint")
+	at := func(row, col int) agents.ComposerScreen {
+		return agents.ComposerScreen{Text: "banner\nあ> \nfooter", CursorRow: row, CursorCol: col}
+	}
 
-	assert.True(t, a.ComposerEmpty(screen, 1, 4), "a wide glyph takes two cells: 2 + '>' + ' '")
-	assert.False(t, a.ComposerEmpty(screen, 1, 3), "the rune count is not the width")
-	assert.False(t, a.ComposerEmpty(screen, 1, 5))
-	assert.False(t, a.ComposerEmpty(screen, 0, 4), "another row does not start with the prefix")
-	assert.False(t, a.ComposerEmpty(screen, 3, 4), "past the last row")
-	assert.False(t, a.ComposerEmpty(screen, -1, 4), "before the first row")
+	assert.True(t, a.ComposerEmpty(at(1, 4)), "a wide glyph takes two cells: 2 + '>' + ' '")
+	assert.False(t, a.ComposerEmpty(at(1, 3)), "the rune count is not the width")
+	assert.False(t, a.ComposerEmpty(at(1, 5)))
+	assert.False(t, a.ComposerEmpty(at(0, 4)), "another row does not start with the prefix")
+	assert.False(t, a.ComposerEmpty(at(3, 4)), "past the last row")
+	assert.False(t, a.ComposerEmpty(at(-1, 4)), "before the first row")
 }
 
 func TestComposerEmpty_ProviderDeclaringNoTypeBlockIsNeverEmpty(t *testing.T) {
-	screen, row, col := composerRecording(t, "idle-fresh-80x24")
-
-	assert.False(t, get(t, "codex").ComposerEmpty(screen, row, col))
+	assert.False(t, get(t, "codex").ComposerEmpty(composerRecording(t, "idle-fresh-80x24")))
 }

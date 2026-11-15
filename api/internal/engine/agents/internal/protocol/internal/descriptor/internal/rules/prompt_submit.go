@@ -54,6 +54,9 @@ func checkType(id string, typing *spec.PromptTypeSpec) error {
 	if typing.Composer.RowPrefix == "" {
 		return invalid(id, "presentation.prompt_submit.type.composer.row_prefix is required")
 	}
+	if g := typing.Composer.Ghost; g != "" && g != spec.GhostFaint {
+		return invalid(id, "presentation.prompt_submit.type.composer.ghost %q is not a known ghost style", g)
+	}
 	if slices.Contains(typing.SkipPrefixes, "") {
 		return invalid(id, "presentation.prompt_submit.type.skip_prefixes holds an empty entry")
 	}

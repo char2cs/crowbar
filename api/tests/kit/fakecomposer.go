@@ -21,6 +21,8 @@ type Composer struct {
 	Draft  string // text already in the box at start, so the cursor sits past the prefix
 	Ghost  string // dim suggestion painted after the cursor, which stays right after the prefix
 	Busy   bool   // paints no composer and discards input, as a TUI does mid-turn
+	// CaretHome leaves the cursor right after the prefix, before the draft, as Home does.
+	CaretHome bool
 }
 
 // composerEnv is the env the fake CLI reads its composer mode from.
@@ -40,6 +42,9 @@ func composerEnv(c *Composer) [][2]string {
 	}
 	if c.Busy {
 		env = append(env, [2]string{"FAKECLI_COMPOSER_BUSY", "1"})
+	}
+	if c.CaretHome {
+		env = append(env, [2]string{"FAKECLI_COMPOSER_CARET_HOME", "1"})
 	}
 	return env
 }

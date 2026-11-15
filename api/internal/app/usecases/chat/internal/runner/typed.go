@@ -125,7 +125,9 @@ func (rs *Runners) typeLocked(
 func composerReady(screens engineterminal.ScreenStateReader, sessionID string, descriptor engineagents.Agent) bool {
 	state, err := screens.ScreenState(sessionID)
 	return err == nil && state.BracketedPaste &&
-		descriptor.ComposerEmpty(state.Text, state.CursorRow, state.CursorCol)
+		descriptor.ComposerEmpty(engineagents.ComposerScreen{
+			Text: state.Text, CursorRow: state.CursorRow, CursorCol: state.CursorCol, Faint: state.Faint,
+		})
 }
 
 // requireTypeable admits a typed prompt only while no main-scope turn runs, no

@@ -32,6 +32,7 @@ type composer struct {
 	prefix      string
 	ghost       string
 	busy        bool
+	caretHome   bool
 	draft       string
 	inPaste     bool
 	unprocessed string // input held back because it may be the start of a paste marker
@@ -48,6 +49,7 @@ func composerFromEnv(out io.Writer, dir, seg string) *composer {
 		prefix:    prefix,
 		ghost:     os.Getenv("FAKECLI_COMPOSER_GHOST"),
 		busy:      os.Getenv("FAKECLI_COMPOSER_BUSY") != "",
+		caretHome: os.Getenv("FAKECLI_COMPOSER_CARET_HOME") != "",
 		draft:     os.Getenv("FAKECLI_COMPOSER_DRAFT"),
 	}
 }
@@ -101,8 +103,12 @@ func (c *composer) paint() error {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\x1b[%d;1H\x1b[J%s%s", composerRow, c.prefix, strings.ReplaceAll(c.draft, "\n", "\r\n"))
-	if c.ghost != "" && c.draft == "" {
-		fmt.Fprintf(&b, "\x1b[2m%s\x1b[22m\x1b[%d;%dH", c.ghost, composerRow, uniseg.StringWidth(c.prefix)+1)
+	ghost := c.ghost != "" && c.draft == ""
+	if ghost {
+		fmt.Fprintf(&b, "\x1b[2m%s\x1b[22m", c.ghost)
+	}
+	if ghost || (c.caretHome && c.draft != "") {
+		fmt.Fprintf(&b, "\x1b[%d;%dH", composerRow, uniseg.StringWidth(c.prefix)+1)
 	}
 	_, err := io.WriteString(c.out, b.String())
 	return err

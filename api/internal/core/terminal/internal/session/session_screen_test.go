@@ -86,13 +86,14 @@ func TestSession_ScreenState_ReadsTextCursorAndPasteModeTogether(t *testing.T) {
 	s.model = m
 	parkFrameClock(t, s)
 
-	s.PumpChunkForTest([]byte("\x1b[?2004h❯ "))
+	s.PumpChunkForTest([]byte("\x1b[?2004h❯ \x1b[2mgo\x1b[22m\x1b[2D"))
 
 	st, ok := s.ScreenState()
 	require.True(t, ok)
-	assert.Equal(t, "❯", strings.SplitN(st.Text, "\n", 2)[0], "first visible row, trailing blanks trimmed")
+	assert.Equal(t, "❯ go", strings.SplitN(st.Text, "\n", 2)[0], "first visible row, trailing blanks trimmed")
 	assert.Equal(t, 0, st.CursorRow)
 	assert.Equal(t, 2, st.CursorCol)
+	assert.Equal(t, []bool{false, false, true, true, false}, st.Faint[0][:5], "faint cells ride the same read")
 	assert.True(t, st.BracketedPaste)
 }
 

@@ -201,6 +201,16 @@ func TestFakeComposer_SeededDraftStartsWithTheCursorPastThePrefix(t *testing.T) 
 	require.Equal(t, []string{"half written"}, p.launch.AwaitSubmitted(t, 1))
 }
 
+func TestFakeComposer_CaretHomeLeavesTheCursorBeforeTheDraft(t *testing.T) {
+	p := startComposer(t, Composer{Draft: "half written", CaretHome: true})
+
+	p.await("draft painted and cursor back after the prefix", func(s string) bool {
+		return strings.Contains(s, "half written") && cursorCol(s) == len("> ")
+	})
+	p.write("\r")
+	require.Equal(t, []string{"half written"}, p.launch.AwaitSubmitted(t, 1))
+}
+
 func TestFakeComposer_GhostTextIsPaintedButTheCursorStaysAfterThePrefix(t *testing.T) {
 	p := startComposer(t, Composer{Ghost: "try asking about tests"})
 

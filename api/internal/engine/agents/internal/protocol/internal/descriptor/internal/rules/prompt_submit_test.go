@@ -47,6 +47,7 @@ func TestPromptSubmit_RejectsTheBrokenTypeShapes(t *testing.T) {
 		{"no paste", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Paste = "" }, "type.paste"},
 		{"no submit key", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Submit = "" }, "type.submit"},
 		{"no composer row prefix", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Composer.RowPrefix = "" }, "type.composer.row_prefix"},
+		{"an unknown ghost", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.Composer.Ghost = "grey" }, "type.composer.ghost"},
 		{"an empty skip prefix", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Type.SkipPrefixes = []string{""} }, "type.skip_prefixes"},
 		{"no restart fallback", func(d *spec.Descriptor) { d.Presentation.PromptSubmit.Strategy = "" }, "unsupported strategy"},
 		{"no resume fallback", func(d *spec.Descriptor) { d.Session.Resume = nil }, "requires session.resume"},

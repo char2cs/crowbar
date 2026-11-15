@@ -44,8 +44,8 @@ var ErrCommandNotFound = problem.New(problem.FailedDependency, "terminal: comman
 // terminal model cannot report cursor and mode.
 var ErrScreenStateUnavailable = errors.New("terminal: screen state unavailable")
 
-// ScreenState is one atomic read of a session's screen: visible text, 0-based cursor cell and whether
-// bracketed paste (DEC mode 2004) is on.
+// ScreenState is one atomic read of a session's screen: visible text, 0-based cursor cell, which cells
+// are faint and whether bracketed paste (DEC mode 2004) is on.
 type ScreenState = model.ScreenState
 
 // ScreenStateReader is implemented by the engine beside Engine, so existing Engine fakes keep compiling.

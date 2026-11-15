@@ -55,9 +55,10 @@ presentation:
 ```
 
 "Composer empty" is generic: the screen row holding the cursor starts with
-`row_prefix` and the cursor column is exactly the prefix's width. Ghost-text
-suggestions paint after the cursor and a draft pushes the cursor past it, so the
-cursor column, not the row's text, is the test. No Go code names a provider.
+`row_prefix`, the cursor column is exactly the prefix's width, and every cell
+after it is blank or drawn as `composer.ghost` (`faint`: SGR 2). The cursor
+column alone is not enough: Home on a draft puts the cursor where an empty box
+has it, with the (non-faint) draft after it. No Go code names a provider.
 
 The rule (`rules/prompt_submit.go`) validates the block: `paste` is a known
 value, `submit` and `row_prefix` are non-empty. `type` requires `strategy:
@@ -123,7 +124,9 @@ launch divider.
    the row `❯\u00a0…`; a draft puts the cursor past col 2 (`hello` → col 7); a
    dialog or shell mode moves the cursor off that row. Same at 80x24 and
    120x40. Mode 2004 was on in every state. Ghost text is faint and starts at
-   col 2, so the cursor column is the test, as planned.
+   col 2. Re-recorded with cell attributes (`.faint` sidecars): the fresh
+   placeholder and the repeated-prompt suggestion are faint; `hello` then Home
+   (Ctrl-A) reads col 2 with a non-faint draft after it.
 2. **Submit.** Paste plus `\r` in one write submitted 3 of 3; two back-to-back
    writes also 3 of 3. No wait signal is needed.
 3. **Sigils.** Under paste a leading `!` still enters shell mode and a leading

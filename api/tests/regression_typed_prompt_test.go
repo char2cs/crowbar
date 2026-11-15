@@ -45,7 +45,11 @@ func newTypedChat(t *testing.T, composer kit.Composer) typedChat {
 	c.session = argAfter(c.launch.Argv, "--session-id")
 	require.NotEmpty(t, c.session)
 	c.hook(t, "session_start", map[string]any{"source": "startup"})
-	c.awaitCursor(t, uniseg.StringWidth(composerPrefix)+uniseg.StringWidth(composer.Draft))
+	col := uniseg.StringWidth(composerPrefix)
+	if !composer.CaretHome {
+		col += uniseg.StringWidth(composer.Draft)
+	}
+	c.awaitCursor(t, col)
 	return c
 }
 
@@ -107,6 +111,16 @@ func TestRegression_AnIdlePromptIsTypedIntoTheRunningCLI(t *testing.T) {
 	assert.Equal(t, requestID, turn.RequestID, "the typed prompt opened its own turn")
 }
 
+// A faint suggestion after the cursor is no draft: the prompt is typed over it.
+func TestRegression_AFaintSuggestionIsTypedOver(t *testing.T) {
+	c := newTypedChat(t, kit.Composer{Ghost: "run the tests"})
+
+	c.send(t, "rename the helper", uuid.NewString())
+
+	assert.Equal(t, []string{"rename the helper"}, c.launch.AwaitSubmitted(t, 1))
+	assert.Len(t, c.fake.LaunchedRunners(t), 1, "the CLI is not relaunched")
+}
+
 // A leading attachment is typed escaped and materialised, and its echo is
 // still recognised as the prompt that was sent.
 func TestRegression_ATypedAttachmentIsReceivedAsThePromptSent(t *testing.T) {
@@ -135,7 +149,9 @@ func TestRegression_AnUntypeablePromptStillRestartsTheCLI(t *testing.T) {
 		text     string
 	}{
 		"a draft in the box": {composer: kit.Composer{Draft: "half"}, text: "hello"},
-		"a slash command":    {text: "/compact"},
+		// Home on a draft puts the cursor where an empty box has it; the draft is not faint.
+		"a draft behind the cursor": {composer: kit.Composer{Draft: "half", CaretHome: true}, text: "hello"},
+		"a slash command":           {text: "/compact"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := newTypedChat(t, tc.composer)

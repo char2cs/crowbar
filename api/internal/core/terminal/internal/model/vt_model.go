@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 )
@@ -310,8 +311,23 @@ func (m *vtModel) ScreenState() ScreenState {
 		Text:           m.ScreenText(),
 		CursorRow:      pos.Y,
 		CursorCol:      pos.X,
+		Faint:          m.faintCells(),
 		BracketedPaste: m.shadow.modes[decModeBracketedPaste],
 	}
+}
+
+func (m *vtModel) faintCells() [][]bool {
+	cols, rows := m.emu.Width(), m.emu.Height()
+	faint := make([][]bool, rows)
+	for y := range rows {
+		faint[y] = make([]bool, cols)
+		for x := range cols {
+			if cell := m.emu.CellAt(x, y); cell != nil {
+				faint[y][x] = cell.Style.Attrs&uv.AttrFaint != 0
+			}
+		}
+	}
+	return faint
 }
 
 func (m *vtModel) HeaderState() (cols, rows int, alt bool, scrollbackLines int) {
