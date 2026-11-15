@@ -1,6 +1,5 @@
-// Prevents additional console window on Windows in release
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//! Process entry; the phone starts through `run` in the library.
 
 fn main() {
-    crowbar_desktop_lib::run()
+    crowbar_desktop_lib::run();
 }

@@ -1,7 +1,7 @@
 [package]
 name = "crowbar-desktop"
 version = "0.0.0"
-description = "Crowbar Desktop"
+description = "Crowbar mobile shell"
 authors = ["Rabbyte Software"]
 edition = "2021"
 rust-version = "1.85"
@@ -17,8 +17,6 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset", "macos-private-api", "unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
-# Reveal-in-Finder: used as a library (reveal_item_in_dir) behind our own
-# command, so no .plugin() registration or capability path-scope is needed.
 tauri-plugin-opener = "2"
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -28,72 +26,19 @@ http-body-util = "0.1"
 tokio-tungstenite = "0.30"
 rustls = "0.23"
 tokio-rustls = "0.26"
-# TCP keepalive on remote dials; already in the tree through tokio.
 socket2 = "0.6"
 sha2 = "0.10"
-# No default backend: bare "keyring = 3" silently resolves to keyring's
-# in-memory mock store on every platform (nothing persists). These are the
-# crate's own per-OS native-backend features (its docs.rs metadata enables
-# this exact set) — each is target-gated in keyring's own Cargo.toml, so
-# enabling all of them here only pulls in the one relevant to whatever OS
-# is actually being built for.
-keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
+keyring = { version = "3", features = ["apple-native"] }
 futures-util = "0.3"
 bytes = "1"
 log = "0.4"
-# Diagnostics-bundle export (Settings -> Export diagnostics): deflate only.
-zip = { version = "9", default-features = false, features = ["deflate"] }
-# browser_screenshot's PNG travels as base64 JSON; compiled on every target.
-base64 = "0.22"
+tauri-plugin-crowbar-chrome = { path = "../ios-plugin" }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 rcgen = "0.13"
-# "all" adds the keepalive getters the remote-dial tests read back.
 socket2 = { version = "0.6", features = ["all"] }
 tokio = { version = "1", features = ["test-util"] }
-
-# Not built for iOS: the sidecar shell, window chrome, and the MCP bridge
-# (which calls window.minimize/maximize) have no mobile implementation.
-[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
-tauri-plugin-shell = "2"
-window-vibrancy = "0.8"
-tauri-plugin-macos-fps = "0.1.0"
-# Dev-only: lets the Tauri MCP server drive/inspect the webview. Registered
-# behind cfg(debug_assertions) in lib.rs so it is never active in release builds.
-tauri-plugin-mcp-bridge = "0.13"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-tauri-plugin-crowbar-chrome = { path = "../ios-plugin" }
-
-[target."cfg(unix)".dependencies]
-libc = "0.2"
-
-[target."cfg(target_os = \"macos\")".dependencies]
-objc2 = "0.6"
-# NSPoint/NSRect only, for set_traffic_light_position's msg_send! calls —
-# already resolved at this exact version transitively (wry/window-vibrancy),
-# so this adds no new version to the tree.
-objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSError", "NSString", "NSValue", "block2"] }
-# Agent control of browser tabs: WKWebView's evaluate-with-completion and
-# snapshot, so page results come back natively and the page gets no IPC channel.
-# Same versions wry/tauri already resolve.
-objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKContentWorld", "WKFrameInfo", "WKSnapshotConfiguration"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSPasteboard"] }
-block2 = "0.6"
-# keyring's macOS backend wraps security-framework errors; downcasting them
-# needs the same version keyring already resolves.
-security-framework = "3"
-
-# Agent control of browser tabs on Linux: WebKitGTK's async script call and
-# snapshot. Same versions tauri/wry already resolve; the png feature is for the
-# snapshot encoder.
-[target.'cfg(target_os = "linux")'.dependencies]
-# Places tab webviews, which Tauri packs into the window's vbox on GTK.
-gtk = "0.18"
-webkit2gtk = { version = "2", features = ["v2_40"] }
-javascriptcore-rs = "1"
-cairo-rs = { version = "0.18", features = ["png"] }
 
 [profile.release]
 panic = "abort"
@@ -101,3 +46,56 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+[lints.rust]
+rust_2018_idioms = { level = "deny", priority = -1 }
+future_incompatible = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
+dead_code = "deny"
+missing_docs = "deny"
+unreachable_pub = "deny"
+missing_debug_implementations = "deny"
+unused_must_use = "deny"
+unused_qualifications = "deny"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+static_mut_refs = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+must_use_candidate = "allow"
+similar_names = "allow"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+exit = "deny"
+mem_forget = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+let_underscore_must_use = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+allow_attributes_without_reason = "deny"
+mod_module_files = "deny"
+missing_assert_message = "deny"
+clone_on_ref_ptr = "deny"
+rc_mutex = "deny"
+same_name_method = "deny"
+str_to_string = "deny"
+empty_drop = "deny"
+cognitive_complexity = "deny"
+excessive_nesting = "deny"
+large_futures = "deny"
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"

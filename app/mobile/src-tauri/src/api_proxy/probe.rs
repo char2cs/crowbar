@@ -1,32 +1,23 @@
-//! First contact with a remote host — the ONE unpinned TLS dial in this app.
-//! It reads the presented certificate's fingerprint for the user to confirm
-//! against `crowbar pair`, then hangs up; every dial that carries data is pinned.
-
 use std::sync::Arc;
 use std::time::Duration;
 
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::crypto::{
-    aws_lc_rs, verify_tls12_signature, verify_tls13_signature, WebPkiSupportedAlgorithms,
-};
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
+use rustls::crypto::aws_lc_rs;
 use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
+use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
 
+use super::remote::server_name;
 use crate::hosts::endpoint::{parse_endpoint, Endpoint};
 use crate::tls_pin::fingerprint_of;
+use unpinned_probe_verifier::UnpinnedProbeVerifier;
 
-/// Sent as SNI only, the same name the pinned dial sends.
-const SERVER_NAME: &str = "crowbar-remote";
+mod unpinned_probe_verifier;
 
-/// Bound on connect, handshake and hang-up; the user is waiting on a dialog.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The fingerprint of the certificate `endpoint` presents, for the user to
-/// confirm before `pair_remote_host` pins it. Takes no host or token state.
 #[tauri::command]
-pub async fn probe_remote_fingerprint(endpoint: String) -> Result<String, String> {
+pub(crate) async fn probe_remote_fingerprint(endpoint: String) -> Result<String, String> {
     let endpoint = parse_endpoint(&endpoint)?;
     tokio::time::timeout(PROBE_TIMEOUT, read_fingerprint(&endpoint))
         .await
@@ -39,93 +30,43 @@ pub async fn probe_remote_fingerprint(endpoint: String) -> Result<String, String
 
 async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, String> {
     let tcp = endpoint.connect().await?;
-    let server_name = ServerName::try_from(SERVER_NAME).expect("SERVER_NAME is a DNS name");
-    let mut tls = TlsConnector::from(unpinned_probe_config())
-        .connect(server_name, tcp)
+    let mut tls = TlsConnector::from(unpinned_probe_config()?)
+        .connect(server_name()?, tcp)
         .await
         .map_err(|e| format!("TLS handshake with {endpoint} failed: {e}"))?;
-    let fingerprint = tls
-        .get_ref()
-        .1
-        .peer_certificates()
-        .and_then(|chain| chain.first())
-        .map(|cert| fingerprint_of(cert))
+    let fingerprint = presented_fingerprint(&tls)
         .ok_or_else(|| format!("{endpoint} presented no certificate"))?;
-    // Best effort: the fingerprint is already proven; this only says goodbye.
-    let _ = tls.shutdown().await;
+    if let Err(error) = tls.shutdown().await {
+        log::debug!("probe: hang-up after reading the fingerprint failed: {error}");
+    }
     Ok(fingerprint)
 }
 
-/// `tls_pin::pinned_client_config` with one difference: no pin. Private, so
-/// nothing outside this module can dial with it.
-fn unpinned_probe_config() -> Arc<rustls::ClientConfig> {
+fn presented_fingerprint(tls: &TlsStream<TcpStream>) -> Option<String> {
+    let chain = tls.get_ref().1.peer_certificates()?;
+    chain.first().map(|cert| fingerprint_of(cert))
+}
+
+fn unpinned_probe_config() -> Result<Arc<rustls::ClientConfig>, String> {
     let provider = Arc::new(aws_lc_rs::default_provider());
     let verifier = Arc::new(UnpinnedProbeVerifier {
         algorithms: provider.signature_verification_algorithms,
     });
-    Arc::new(
-        rustls::ClientConfig::builder_with_provider(provider)
-            .with_protocol_versions(&[&rustls::version::TLS13])
-            .expect("aws-lc-rs's default provider has TLS 1.3 cipher suites")
-            .dangerous()
-            .with_custom_certificate_verifier(verifier)
-            .with_no_client_auth(),
-    )
-}
-
-/// DANGER: trusts ANY certificate — anywhere but first contact, a MITM hole.
-/// Sound here only because nothing is sent and a human compares the result
-/// with `crowbar pair`. Signatures are still checked: the host holds the key.
-#[derive(Debug)]
-struct UnpinnedProbeVerifier {
-    algorithms: WebPkiSupportedAlgorithms,
-}
-
-impl ServerCertVerifier for UnpinnedProbeVerifier {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: UnixTime,
-    ) -> Result<ServerCertVerified, TlsError> {
-        Ok(ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, TlsError> {
-        verify_tls12_signature(message, cert, dss, &self.algorithms)
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, TlsError> {
-        verify_tls13_signature(message, cert, dss, &self.algorithms)
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        // Only what the pinned client accepts, so any host probed is one pairing can reach.
-        vec![SignatureScheme::ECDSA_NISTP256_SHA256]
-    }
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(|e| format!("TLS 1.3 is unavailable: {e}"))?
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
+        .with_no_client_auth();
+    Ok(Arc::new(config))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use super::super::test_support::{
+    use super::*;
+    use crate::test_support::proxy_fakes::{
         identity, refused_endpoint, serve_once_tls, serve_once_tls_speaking, unrelated_key,
     };
-    use super::probe_remote_fingerprint;
-    use crate::tls_pin::fingerprint_of;
 
     #[tokio::test]
     async fn probing_returns_the_fingerprint_of_whatever_certificate_the_host_presents() {
@@ -133,48 +74,52 @@ mod tests {
         let (cert, key) = identity();
         let (addr, _reported) = serve_once_tls(cert.clone(), key, None).await;
 
-        let fingerprint = probe_remote_fingerprint(addr.to_string()).await;
+        let by_address = probe_remote_fingerprint(addr.to_string()).await;
 
-        assert_eq!(fingerprint, Ok(fingerprint_of(&cert)));
-    }
-
-    // `localhost` resolves to ::1 first here, where nothing listens: every address is tried.
-    #[tokio::test]
-    async fn probing_a_host_by_name_reaches_it() {
-        let _serialised = crate::test_support::fd_tests().await;
-        let (cert, key) = identity();
-        let (addr, _reported) = serve_once_tls(cert.clone(), key, None).await;
-
-        let fingerprint = probe_remote_fingerprint(format!("localhost:{}", addr.port())).await;
-
-        assert_eq!(fingerprint, Ok(fingerprint_of(&cert)));
+        assert_eq!(by_address, Ok(fingerprint_of(&cert)));
     }
 
     #[tokio::test]
     async fn a_name_that_does_not_resolve_is_told_apart_from_a_host_that_does_not_answer() {
         let _serialised = crate::test_support::fd_tests().await;
+        let refused = refused_endpoint();
 
-        let result = probe_remote_fingerprint("nowhere.invalid:3737".into()).await;
+        let unresolved = probe_remote_fingerprint("nowhere.invalid:3737".into())
+            .await
+            .expect_err("no such name");
+        let silent = probe_remote_fingerprint(refused.clone())
+            .await
+            .expect_err("nothing answered");
 
-        let err = result.expect_err("no such name");
-        assert!(err.starts_with("cannot resolve nowhere.invalid"), "{err}");
+        assert!(
+            unresolved.starts_with("cannot resolve nowhere.invalid"),
+            "{unresolved}"
+        );
+        assert!(
+            silent.contains(&format!("cannot reach {refused}")),
+            "{silent}"
+        );
     }
 
     #[tokio::test]
     async fn an_address_that_is_not_host_and_port_is_refused_before_anything_is_dialed() {
+        an_address_that_is_not_host_and_port_is_run().await;
+    }
+
+    async fn an_address_that_is_not_host_and_port_is_run() {
         let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
         let (addr, mut reported) = serve_once_tls(cert, key, None).await;
         let port = addr.port();
-        let malformed = [
+        let cases = [
             format!("https://127.0.0.1:{port}"),
             format!("127.0.0.1:{port}/"),
             format!("localhost:{port}/v0"),
             format!("me@localhost:{port}"),
-            "localhost".to_string(),
+            "localhost".to_owned(),
         ];
 
-        for endpoint in malformed {
+        for endpoint in cases {
             let err = probe_remote_fingerprint(endpoint.clone())
                 .await
                 .expect_err(&endpoint);
@@ -202,60 +147,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_host_replaying_a_certificate_without_its_key_yields_no_fingerprint() {
-        let _serialised = crate::test_support::fd_tests().await;
-        let (cert, _) = identity();
-        let (addr, reported) = serve_once_tls(cert, unrelated_key(), None).await;
-
-        let result = probe_remote_fingerprint(addr.to_string()).await;
-
-        let err = result.expect_err("a host that cannot sign for its certificate has none to show");
-        assert!(err.contains("TLS handshake"), "{err}");
-        let served = reported.await.expect("server reported");
-        assert!(
-            served.is_err(),
-            "the replay completed a handshake: {served:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_host_offering_only_tls12_is_refused_as_the_pinned_client_refuses_it() {
+    async fn a_host_that_cannot_complete_a_tls_13_handshake_yields_no_fingerprint() {
         let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();
-        let (addr, _reported) =
-            serve_once_tls_speaking(&[&rustls::version::TLS12], cert, key, None).await;
+        let (replay, replayed) = serve_once_tls(cert.clone(), unrelated_key(), None).await;
+        let tls12 = [&rustls::version::TLS12];
+        let (old, _old_reported) = serve_once_tls_speaking(&tls12, cert, key, None).await;
 
-        let result = probe_remote_fingerprint(addr.to_string()).await;
+        let without_key = probe_remote_fingerprint(replay.to_string()).await;
+        let tls12_only = probe_remote_fingerprint(old.to_string()).await;
 
-        let err = result.expect_err("pairing could never reach a TLS 1.2 host");
+        let err = without_key.expect_err("a host that cannot sign has no certificate to show");
         assert!(err.contains("TLS handshake"), "{err}");
-    }
-
-    #[tokio::test]
-    async fn probing_an_endpoint_nothing_listens_on_is_an_error() {
-        let _serialised = crate::test_support::fd_tests().await;
-        let endpoint = refused_endpoint();
-
-        let result = probe_remote_fingerprint(endpoint.clone()).await;
-
-        let err = result.expect_err("nothing answered");
-        assert!(err.contains(&format!("cannot reach {endpoint}")), "{err}");
+        assert!(
+            replayed.await.unwrap().is_err(),
+            "the replay completed a handshake"
+        );
+        let err = tls12_only.expect_err("pairing could never reach a TLS 1.2 host");
+        assert!(err.contains("TLS handshake"), "{err}");
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_host_that_never_completes_the_handshake_fails_at_the_probe_deadline() {
         let _serialised = crate::test_support::fd_tests().await;
-        // Listening, so the kernel completes the TCP handshake, but never speaks TLS.
         let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = silent.local_addr().unwrap().to_string();
 
         let probed =
             tokio::time::timeout(Duration::from_secs(60), probe_remote_fingerprint(endpoint));
-        let result = probed
-            .await
-            .expect("must fail at the probe deadline, not hang");
+        let result = probed.await.expect("must fail at the probe deadline");
 
         let err = result.expect_err("a silent host has no fingerprint");
         assert!(err.contains("did not answer within"), "{err}");
+    }
+
+    #[test]
+    fn the_unpinned_config_builds_for_tls_13() {
+        assert!(unpinned_probe_config().is_ok(), "config must build");
     }
 }

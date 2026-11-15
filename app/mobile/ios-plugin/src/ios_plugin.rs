@@ -2,7 +2,7 @@ use crate::frontend::Frontend;
 use crate::frontend_asset::FrontendAsset;
 use std::error::Error;
 use tauri::plugin::{Builder, PluginApi, TauriPlugin};
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Asset, Runtime};
 
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_crowbar_chrome);
@@ -14,16 +14,23 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .build()
 }
 
-fn attach<R: Runtime>(app: &AppHandle<R>, api: &PluginApi<R, ()>) -> Result<(), Box<dyn Error>> {
+fn into_frontend_asset(asset: Asset) -> FrontendAsset {
+    FrontendAsset {
+        bytes: asset.bytes,
+        mime_type: asset.mime_type,
+    }
+}
+
+fn attach<R: Runtime>(
+    app: &AppHandle<R>,
+    api: &PluginApi<R, ()>,
+) -> Result<(), Box<dyn Error>> {
     let dev_url = tauri::is_dev()
         .then(|| app.config().build.dev_url.clone())
         .flatten();
     let resolver = app.asset_resolver();
     Frontend::install(dev_url, move |path| {
-        resolver.get(path).map(|asset| FrontendAsset {
-            bytes: asset.bytes,
-            mime_type: asset.mime_type,
-        })
+        resolver.get(path).map(into_frontend_asset)
     });
     register_swift_plugin(api)
 }
@@ -37,11 +44,27 @@ fn register_swift_plugin<R: Runtime>(api: &PluginApi<R, ()>) -> Result<(), Box<d
 }
 
 #[cfg(not(target_os = "ios"))]
-#[expect(clippy::unnecessary_wraps, reason = "same signature as the iOS registration")]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "same signature as the iOS registration"
+)]
 fn register_swift_plugin<R: Runtime>(_api: &PluginApi<R, ()>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
 #[cfg(test)]
-#[path = "tauri_plugin_crowbar_chrome_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use tauri::plugin::Plugin;
+    use tauri::test::MockRuntime;
+
+    #[test]
+    fn plugin_name_is_the_capability_namespace() {
+        let plugin = init::<MockRuntime>();
+        assert_eq!(
+            Plugin::<MockRuntime>::name(&plugin),
+            "crowbar-chrome",
+            "capabilities reference the plugin by this name"
+        );
+    }
+}

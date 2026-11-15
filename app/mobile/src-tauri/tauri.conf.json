@@ -37,9 +37,6 @@
       }
     ]
   },
-  "plugins": {
-    "macos-fps": {}
-  },
   "bundle": {
     "active": true,
     "targets": "all",
@@ -49,9 +46,6 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "externalBin": [
-      "binaries/crowbar-api"
     ],
     "macOS": {
       "signingIdentity": "-",

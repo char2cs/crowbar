@@ -1,24 +1,24 @@
-//! The webview only ever shows Crowbar's own UI; any other URL is handed to the
-//! OS default browser instead of replacing the app.
-use tauri::Url;
+use tauri::plugin::{Builder, TauriPlugin};
+use tauri::{Manager, Runtime, Url};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Navigation {
+pub(crate) enum Navigation {
     Allow,
     OpenExternally,
     Block,
 }
 
-// No `data:`/`blob:`: a document of either has an opaque origin and must never replace the
-// app. Downloads of them never reach here (the webview hands those to its download path).
+// PLATFORM: no `data:`/`blob:` here: a document of either has an opaque origin and must never
+// PLATFORM: replace the app; their downloads never reach this check.
 const APP_SCHEMES: [&str; 5] = ["tauri", "crowbar", "asset", "ipc", "about"];
 const EXTERNAL_SCHEMES: [&str; 4] = ["http", "https", "mailto", "tel"];
+const APP_HOST: &str = "tauri.localhost";
 
-pub fn classify(url: &Url, dev_url: Option<&Url>) -> Navigation {
-    if APP_SCHEMES.contains(&url.scheme()) {
-        return Navigation::Allow;
-    }
-    if url.host_str() == Some("tauri.localhost") {
+pub(crate) fn classify(
+    url: &Url,
+    dev_url: Option<&Url>,
+) -> Navigation {
+    if APP_SCHEMES.contains(&url.scheme()) || url.host_str() == Some(APP_HOST) {
         return Navigation::Allow;
     }
     if dev_url.is_some_and(|dev| dev.origin() == url.origin()) {
@@ -30,30 +30,29 @@ pub fn classify(url: &Url, dev_url: Option<&Url>) -> Navigation {
     Navigation::Block
 }
 
-/// Decides one webview navigation; returns whether the webview may proceed.
-pub fn guard(url: &Url, dev_url: Option<&Url>) -> bool {
+fn open_externally(url: &Url) {
+    if let Err(error) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
+        log::warn!("navigation: could not open {url} externally: {error}");
+    }
+}
+
+fn guard(
+    url: &Url,
+    dev_url: Option<&Url>,
+) -> bool {
     match classify(url, dev_url) {
         Navigation::Allow => true,
         Navigation::OpenExternally => {
-            if let Err(e) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
-                log::warn!("navigation: could not open {url} externally: {e}");
-            }
+            open_externally(url);
             false
-        }
+        },
         Navigation::Block => false,
     }
 }
 
-/// Applies [`guard`] to every app webview (browser panes have their own policy).
-pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
-    use tauri::Manager;
-
-    tauri::plugin::Builder::<tauri::Wry, ()>::new("navigation-guard")
+pub(crate) fn plugin<R: Runtime>() -> TauriPlugin<R> {
+    Builder::<R, ()>::new("navigation-guard")
         .on_navigation(|webview, url| {
-            #[cfg(desktop)]
-            if crate::browser::exempt_from_app_guard(webview.label()) {
-                return true;
-            }
             let dev_url = webview.app_handle().config().build.dev_url.clone();
             guard(url, dev_url.as_ref())
         })
@@ -63,77 +62,60 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri::plugin::Plugin;
+    use tauri::test::MockRuntime;
 
-    fn url(s: &str) -> Url {
-        Url::parse(s).unwrap()
-    }
-
-    #[test]
-    fn app_origins_stay_in_the_webview() {
-        let dev = url("http://localhost:5173");
-        assert_eq!(
-            classify(&url("tauri://localhost/index.html"), None),
-            Navigation::Allow
-        );
-        assert_eq!(
-            classify(&url("http://tauri.localhost/"), None),
-            Navigation::Allow
-        );
-        assert_eq!(
-            classify(&url("crowbar://localhost/v0/x"), None),
-            Navigation::Allow
-        );
-        assert_eq!(
-            classify(&url("http://localhost:5173/#/a"), Some(&dev)),
-            Navigation::Allow
-        );
-    }
+    const DEV: &str = "http://localhost:5173";
 
     #[test]
-    fn web_links_leave_the_app() {
-        let dev = url("http://localhost:5173");
-        assert_eq!(
-            classify(&url("https://example.com/a"), Some(&dev)),
-            Navigation::OpenExternally
-        );
-        assert_eq!(
-            classify(&url("http://localhost:3000/"), Some(&dev)),
-            Navigation::OpenExternally
-        );
-        assert_eq!(
-            classify(&url("mailto:a@b.c"), None),
-            Navigation::OpenExternally
-        );
-    }
-
-    // On macOS the handler also sees each subframe's navigation: the HTML preview's srcdoc
-    // frame is `about:srcdoc` and must stay.
-    #[test]
-    fn the_preview_frame_stays_but_an_opaque_document_never_replaces_the_app() {
-        assert_eq!(classify(&url("about:srcdoc"), None), Navigation::Allow);
-        assert_eq!(classify(&url("about:blank"), None), Navigation::Allow);
-        assert_eq!(
-            classify(&url("data:text/html,<script>alert(1)</script>"), None),
-            Navigation::Block
-        );
-        assert_eq!(
-            classify(
-                &url("blob:tauri://localhost/0b1c6a52-4f0e-4f43-9d8e-1f2a3b4c5d6e"),
-                None
+    fn classify_sorts_every_origin_into_stay_leave_or_block() {
+        const CASES: &[(&str, bool, Navigation)] = &[
+            ("tauri://localhost/index.html", false, Navigation::Allow),
+            ("http://tauri.localhost/", false, Navigation::Allow),
+            ("crowbar://localhost/v0/x", false, Navigation::Allow),
+            ("http://localhost:5173/#/a", true, Navigation::Allow),
+            ("about:srcdoc", false, Navigation::Allow),
+            ("about:blank", false, Navigation::Allow),
+            ("https://example.com/a", true, Navigation::OpenExternally),
+            ("http://localhost:3000/", true, Navigation::OpenExternally),
+            ("mailto:a@b.c", false, Navigation::OpenExternally),
+            (
+                "data:text/html,<script>alert(1)</script>",
+                false,
+                Navigation::Block,
             ),
-            Navigation::Block
-        );
+            (
+                "blob:tauri://localhost/0b1c6a52-4f0e-4f43-9d8e-1f2a3b4c5d6e",
+                false,
+                Navigation::Block,
+            ),
+            ("file:///etc/passwd", false, Navigation::Block),
+            ("javascript:alert(1)", false, Navigation::Block),
+        ];
+        let dev = Url::parse(DEV).unwrap();
+        for (target, with_dev, expected) in CASES {
+            let url = Url::parse(target).unwrap();
+            let actual = classify(&url, with_dev.then_some(&dev));
+            assert_eq!(&actual, expected, "{target}");
+        }
     }
 
     #[test]
-    fn unknown_schemes_are_blocked() {
-        assert_eq!(
-            classify(&url("file:///etc/passwd"), None),
-            Navigation::Block
-        );
-        assert_eq!(
-            classify(&url("javascript:alert(1)"), None),
-            Navigation::Block
-        );
+    fn guard_lets_the_app_stay_and_refuses_everything_else() {
+        const CASES: &[(&str, bool)] = &[
+            ("crowbar://localhost/v0/x", true),
+            ("file:///etc/passwd", false),
+            ("javascript:alert(1)", false),
+        ];
+        for (target, stays) in CASES {
+            let url = Url::parse(target).unwrap();
+            assert_eq!(guard(&url, None), *stays, "{target}");
+        }
+    }
+
+    #[test]
+    fn the_plugin_is_named_for_its_capability() {
+        let plugin = plugin::<MockRuntime>();
+        assert_eq!(Plugin::<MockRuntime>::name(&plugin), "navigation-guard");
     }
 }
