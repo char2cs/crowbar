@@ -118,7 +118,7 @@ events:
   # delegate_task is meta, not subagent: its spawns are announced by subagent.start, and a
   # subagent call binds one scope which the call's reply never names.
   tool_pre:
-    kind_map: { terminal: execute, read_file: read, search_files: search, web_search: search, delegate_task: meta }
+    kind_map: { terminal: execute, read_file: read, search_files: search, web_search: search, delegate_task: meta, process_manage: meta }
     required: [session_id, tool_id, tool_name]
     api:
       in: event
@@ -136,7 +136,7 @@ events:
         tool_input:  payload.args
 
   tool_post:
-    kind_map: { terminal: execute, read_file: read, search_files: search, web_search: search, delegate_task: meta }
+    kind_map: { terminal: execute, read_file: read, search_files: search, web_search: search, delegate_task: meta, process_manage: meta }
     required: [session_id, tool_id, tool_name]
     api:
       in: event
@@ -152,6 +152,12 @@ events:
         tool_title:  payload.summary
         tool_result: { first_present: [payload.result_text, payload.result] }
         tool_output: payload.result_text
+        # A background command answers "Background process started" with its process id, and a
+        # watch pattern makes it a monitor; process_manage answers a kill with "status": "killed".
+        spawns_shell: { from: payload.result, pattern: '"output": "Background process started", "session_id": "(?P<v>proc_[^"]+)"' }
+        stops_shell:  { from: payload.result, pattern: '"status": "killed", "session_id": "(?P<v>proc_[^"]+)"' }
+        shell_kind:   { first_present: [{ from: payload.result, pattern: '"(?P<v>watch_patterns)"' }, payload.name] }
+    shell_kind_map: { watch_patterns: monitor, terminal: shell }
     patch: { unified: payload.inline_diff }
 
   subagent_pre:
@@ -265,6 +271,12 @@ events:
 # harness message as a prompt; no frame field tells it from a person's.
 injected_prompts:
   - needle: "[ASYNC DELEGATION BATCH COMPLETE"
+  # Ends a background command by its process id; "matched watch pattern" is neither of these.
+  - kind: task_notification
+    needle: "[IMPORTANT: Background process"
+    task_id: { pattern: 'Background process (?P<v>proc_\w+)' }
+    status:  { pattern: 'Background process \S+ (?P<v>completed normally|exited)' }
+    status_map: { completed normally: finished, exited: failed }
 
 # A dialed server takes no argv, so only this write_file runs: the token rides a 0600 file, never a body.
 mcp_injection:
