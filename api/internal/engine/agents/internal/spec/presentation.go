@@ -48,11 +48,9 @@ type PromptSubmitSpec struct {
 	Type          *PromptTypeSpec    `yaml:"type"`
 }
 
-// PromptTypeSpec lets an idle CLI take a prompt typed into its own composer
-// instead of a restart. Submit is the key bytes that send it; Composer says how
-// the empty input box looks, so the runner can tell it is empty. A message
-// opening with a SkipPrefixes entry keeps its meaning under paste (a command or
-// a mode switch) and is restarted instead of typed.
+// PromptTypeSpec types a prompt into an idle CLI's composer instead of
+// restarting it. A message opening with a SkipPrefixes entry keeps its meaning
+// under paste (a command, a mode switch), so it restarts instead.
 type PromptTypeSpec struct {
 	Paste        string             `yaml:"paste"`
 	Submit       string             `yaml:"submit"`
