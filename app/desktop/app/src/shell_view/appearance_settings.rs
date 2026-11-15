@@ -3,8 +3,10 @@ use settings_ui::{Change, Key, SettingsBackend, Value};
 use ui::{Theme, ThemeId, ThemeMode};
 
 use super::ShellView;
+use super::sidebar_position::SIDEBAR_POSITION;
 use crate::family_names::FamilyNames;
 use crate::shell_request::ShellRequest;
+use crate::terminal_preferences::{KEYS, terminal_settings};
 
 const THEME: &str = "theme";
 const MODE: &str = "themeMode";
@@ -14,7 +16,17 @@ const HEADING_FAMILY: &str = "headingFontFamily";
 const MONO_FAMILY: &str = "fontFamily";
 
 fn is_appearance(key: &Key) -> bool {
-    [THEME, MODE, SIZE, UI_FAMILY, HEADING_FAMILY, MONO_FAMILY].contains(&key.as_str())
+    [
+        THEME,
+        MODE,
+        SIZE,
+        UI_FAMILY,
+        HEADING_FAMILY,
+        MONO_FAMILY,
+        SIDEBAR_POSITION,
+    ]
+    .contains(&key.as_str())
+        || KEYS.contains(&key.as_str())
 }
 
 fn notify_when_appearance_moves(
@@ -117,6 +129,9 @@ impl ShellView {
         );
         let theme = themed(*Theme::of(cx), (stored, &mut self.family_names));
         theme.install(cx);
+        let terminal = terminal_settings(|key| backend.get(&Key::new(key)));
+        self.source.apply_terminal_settings(terminal, cx);
+        self.apply_sidebar_position(cx);
         self.refresh(cx);
     }
 }

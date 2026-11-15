@@ -28,6 +28,7 @@ pub(crate) fn view(
             label: (*name).to_owned().into(),
             provisional: false,
             working: false,
+            kind: crate::member_kind::MemberKind::Chat,
         })
         .collect();
     TabView {

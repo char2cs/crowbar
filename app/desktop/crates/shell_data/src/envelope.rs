@@ -18,7 +18,7 @@ struct Envelope {
     code: Option<String>,
 }
 
-const FIRST_ERROR_STATUS: u16 = 400;
+pub(crate) const FIRST_ERROR_STATUS: u16 = 400;
 
 pub(crate) fn unwrap(
     path: &str,

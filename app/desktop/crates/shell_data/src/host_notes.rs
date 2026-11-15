@@ -15,6 +15,12 @@ pub struct HostNotes {
 }
 
 impl HostNotes {
+    /// The folder the notes file lives in.
+    #[must_use]
+    pub fn directory(&self) -> PathBuf {
+        self.path.parent().map_or_else(PathBuf::new, PathBuf::from)
+    }
+
     /// The notes stored at `path`; a missing file is no notes.
     ///
     /// # Errors

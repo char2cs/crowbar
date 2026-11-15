@@ -29,6 +29,14 @@ impl ShellPaneSource {
         }
     }
 
+    pub(crate) fn apply_terminal_settings(
+        &self,
+        settings: terminal_view::TerminalSettings,
+        cx: &mut App,
+    ) {
+        self.terminals.apply(settings, cx);
+    }
+
     pub(crate) fn show_address(
         &self,
         pane: &PaneId,

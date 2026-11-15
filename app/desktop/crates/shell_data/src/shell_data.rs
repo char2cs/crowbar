@@ -17,6 +17,7 @@ use crate::folder_choice::{self, FolderChoice};
 use crate::host_desk::HostDesk;
 use crate::host_spec::HostSpec;
 use crate::hub::Hub;
+use crate::icon_cache::IconCache;
 use crate::outcome::OutcomeSink;
 use crate::pairing_session::PairingSession;
 use crate::panel_loader;
@@ -79,7 +80,9 @@ impl ShellData {
             .iter()
             .map(|slot| (slot.spec.id.clone(), slot.client.clone()))
             .collect();
-        let hub = Hub::new(State::new(slots), signal);
+        let mut state = State::new(slots);
+        state.icons = IconCache::in_dir(desk.notes.directory().join("space-icons"));
+        let hub = Hub::new(state, signal);
         let fleet = Fleet::new(handle, &hub, transport);
         followed
             .into_iter()

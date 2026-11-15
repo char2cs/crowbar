@@ -57,6 +57,7 @@ impl Render for Sidebar {
             .children(self.floating(&geometry, window, cx))
             .children(self.confirm_layer(cx))
             .children(self.file_dialog_layer(cx))
+            .children(self.question_layer(cx))
             .children(self.drop_line_layer(window, cx))
             .children(self.menu_layer(window, cx))
     }

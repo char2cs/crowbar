@@ -2,6 +2,7 @@
 
 use crate::after::After;
 use crate::call::Call;
+use crate::changes_reload;
 use crate::daemon_client::DaemonClient;
 use crate::error::Error;
 use crate::hub::Hub;
@@ -25,7 +26,7 @@ pub(crate) async fn run(
         hub.edit(|state| state.add_local(row));
     }
     let Err(reason) = carry_out(hub, &plan).await else {
-        finish(hub, plan.after, outcome);
+        finish(hub, plan.after, outcome).await;
         return;
     };
     fail(hub, row_id.as_deref(), outcome, &reason);
@@ -102,7 +103,7 @@ async fn pick_provider(
         .ok_or_else(|| "no agent is enabled on this host; enable one in Settings".to_owned())
 }
 
-fn finish(
+async fn finish(
     hub: &Hub,
     after: After,
     outcome: &OutcomeSink,
@@ -111,6 +112,7 @@ fn finish(
         After::Nothing => {},
         After::OpenChat(id) => outcome(Outcome::OpenChat(id)),
         After::SelectProject(id) => hub.edit(|state| state.active_project = Some(id)),
+        After::ReloadChanges => changes_reload::reload(hub).await,
     }
 }
 

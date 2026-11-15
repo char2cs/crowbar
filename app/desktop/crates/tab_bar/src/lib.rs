@@ -9,6 +9,7 @@
 mod clock;
 mod drag_session;
 mod incoming_drop;
+mod member_kind;
 mod member_view;
 mod new_tab;
 mod press;
@@ -32,6 +33,7 @@ mod tab_view;
 mod test_support;
 
 pub use clock::Clock;
+pub use member_kind::MemberKind;
 pub use member_view::MemberView;
 pub use new_tab::NewTab;
 pub use shell_look::ShellLook;

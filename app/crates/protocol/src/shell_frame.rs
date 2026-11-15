@@ -12,6 +12,7 @@ use crate::params::Params;
 use crate::request_id::RequestId;
 use crate::rpc_response::RpcResponse;
 use crate::setting_key::SettingKey;
+use crate::setting_values::SettingValues;
 use crate::space_id::SpaceId;
 use crate::theme_tokens::ThemeTokens;
 
@@ -72,5 +73,13 @@ pub enum ShellFrame {
     Theme {
         /// The tokens.
         tokens: ThemeTokens,
+    },
+    /// `settings`: the settings every pane follows, sent on mount and whenever one changes. It
+    /// is the whole set each time: a key that is missing has its default.
+    Settings {
+        /// The vocabulary version, [`SETTINGS_FRAME_VERSION`](crate::SETTINGS_FRAME_VERSION).
+        version: u32,
+        /// The values.
+        values: SettingValues,
     },
 }

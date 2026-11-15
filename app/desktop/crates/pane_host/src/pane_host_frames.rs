@@ -44,6 +44,21 @@ impl PaneHost {
             .try_for_each(|(pane, stage)| self.set_activation(&pane, stage, layout))
     }
 
+    pub(crate) fn hand_focus_to_native(&self) -> Result<()> {
+        let Some(focused) = self.focused.as_ref().and_then(|pane| self.panes.get(pane)) else {
+            return Ok(());
+        };
+        if focused.slot.is_some() {
+            return Ok(());
+        }
+        let holder = self
+            .panes
+            .values()
+            .filter(|runtime| runtime.is_visible())
+            .find_map(|runtime| runtime.slot.and_then(|id| self.pool.get(id)));
+        Ok(holder.map_or(Ok(()), |slot| slot.handle.focus_parent())?)
+    }
+
     pub(crate) fn set_activation(
         &mut self,
         pane: &PaneId,

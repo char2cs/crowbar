@@ -123,6 +123,7 @@ impl Sidebar {
             .flex()
             .flex_col()
             .child(branch_pill(&changes, Theme::of(cx).mono_family(), palette))
+            .children(self.merge_card(cx))
             .child(count_line(changes.files.len(), palette))
             .children(rows(changes.files, (&handler, &scope)));
         ScrollArea::new("changes-scroll", &self.scrolls.changes, list).into_any_element()

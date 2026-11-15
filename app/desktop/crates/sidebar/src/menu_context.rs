@@ -7,4 +7,5 @@ use crate::terminal_threads::TerminalThreads;
 pub(crate) struct MenuContext {
     pub(crate) targets: Vec<MoveTarget>,
     pub(crate) terminal: TerminalThreads,
+    pub(crate) running: Option<String>,
 }

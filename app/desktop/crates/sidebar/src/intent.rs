@@ -4,6 +4,7 @@ use crate::clip_mode::ClipMode;
 use crate::command::Command;
 use crate::new_entry::NewEntry;
 use crate::project_id::ProjectId;
+use crate::question::Question;
 use crate::row_id::RowId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,5 +24,6 @@ pub(crate) enum Intent {
     StageFile { path: String, mode: ClipMode },
     PasteFiles { dir: String },
     SelectFile(String),
+    Ask(Question),
     Send(Command),
 }

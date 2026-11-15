@@ -10,11 +10,13 @@ use crate::error::Error;
 use crate::file_row::FileRow;
 use crate::focus::Focus;
 use crate::host::Host;
+use crate::merge_box::MergeBox;
 use crate::move_target::MoveTarget;
 use crate::project::Project;
 use crate::project_id::ProjectId;
 use crate::project_tree::ProjectTree;
 use crate::row_id::RowId;
+use crate::running_agent::RunningAgent;
 use crate::scope_sync::ScopeSync;
 use crate::sidebar_data::SidebarData;
 
@@ -109,5 +111,13 @@ impl SidebarData for Recorder {
 
     fn changes(&self) -> Changes {
         self.data.changes()
+    }
+
+    fn merge_box(&self) -> Option<MergeBox> {
+        self.data.merge_box()
+    }
+
+    fn running_agents(&self) -> Vec<RunningAgent> {
+        self.data.running_agents()
     }
 }

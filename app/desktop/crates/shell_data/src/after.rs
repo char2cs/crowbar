@@ -8,4 +8,6 @@ pub(crate) enum After {
     OpenChat(String),
     /// Show the new space.
     SelectProject(String),
+    /// Read the followed chat's changes again.
+    ReloadChanges,
 }

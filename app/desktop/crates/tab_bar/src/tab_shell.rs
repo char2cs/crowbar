@@ -7,6 +7,7 @@ use gpui::{
 };
 use ui::{Icon, IconName, IconWeight, Palette, Spinner, Surface, Theme, radius, shadow, text_size};
 
+use crate::member_kind::MemberKind;
 use crate::member_view::MemberView;
 use crate::shell_look::ShellLook;
 use crate::strip_metrics::TAB_HEIGHT;
@@ -125,7 +126,7 @@ fn member_ink(
 
 fn member_glyph(
     spinner_id: Option<ElementId>,
-    color: Hsla,
+    (kind, color): (MemberKind, Hsla),
 ) -> AnyElement {
     if let Some(spinner_id) = spinner_id {
         return Spinner::new(spinner_id)
@@ -133,7 +134,11 @@ fn member_glyph(
             .on(Surface::Chrome)
             .into_any_element();
     }
-    Icon::new(IconName::ChatsCircle)
+    let icon = match kind {
+        MemberKind::Chat => IconName::ChatsCircle,
+        MemberKind::Terminal => IconName::Terminal,
+    };
+    Icon::new(icon)
         .weight(IconWeight::Regular)
         .size(px(GLYPH))
         .color(color)
@@ -152,7 +157,7 @@ fn member_row(
     let spinner = member
         .working
         .then(|| ElementId::from((id.clone(), format!("spin{index}"))));
-    let glyph = member_glyph(spinner, text);
+    let glyph = member_glyph(spinner, (member.kind, text));
     div()
         .relative()
         .flex()

@@ -15,6 +15,7 @@ pub(crate) struct TerminalPanes {
     ids: TerminalIds,
     sessions: TerminalSessions,
     views: RefCell<BTreeMap<PaneId, Entity<TerminalView>>>,
+    settings: RefCell<TerminalSettings>,
 }
 
 impl TerminalPanes {
@@ -26,7 +27,20 @@ impl TerminalPanes {
             ids,
             sessions,
             views: RefCell::default(),
+            settings: RefCell::default(),
         }
+    }
+
+    pub(crate) fn apply(
+        &self,
+        settings: TerminalSettings,
+        cx: &mut App,
+    ) {
+        let views: Vec<_> = self.views.borrow().values().cloned().collect();
+        for view in views {
+            view.update(cx, |view, cx| view.set_settings(settings.clone(), cx));
+        }
+        *self.settings.borrow_mut() = settings;
     }
 
     pub(crate) fn is_terminal(
@@ -61,7 +75,7 @@ impl TerminalPanes {
         cx: &mut App,
     ) -> Entity<TerminalView> {
         let (link, peer) = TerminalLink::open();
-        let view = cx.new(|cx| TerminalView::new(link, TerminalSettings::default(), window, cx));
+        let view = cx.new(|cx| TerminalView::new(link, self.settings.borrow().clone(), window, cx));
         let (frames, messages) = peer.into_channels();
         self.connect(pane, chat, Ends { frames, messages });
         self.views.borrow_mut().insert(pane.clone(), view.clone());
@@ -157,6 +171,45 @@ mod tests {
         assert!(
             cx.update(|window, cx| panes.view(&other, window, cx))
                 .is_none()
+        );
+    }
+
+    struct Shown(AnyView);
+
+    impl gpui::Render for Shown {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut gpui::Context<'_, Self>,
+        ) -> impl gpui::IntoElement {
+            self.0.clone()
+        }
+    }
+
+    #[gpui::test]
+    fn a_larger_font_applied_live_shrinks_the_grid(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        let panes = panes_for(&layout_with_terminal(Some("c1")));
+        let pane = PaneId::new("t1").unwrap();
+        let (shown, cx) =
+            cx.add_window_view(|window, cx| Shown(panes.view(&pane, window, cx).unwrap()));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear());
+        let terminal = cx.read_entity(&shown, |shown, _| {
+            shown.0.clone().downcast::<TerminalView>().unwrap()
+        });
+        let before = cx.read_entity(&terminal, |view, _| view.grid_size());
+        let larger = TerminalSettings {
+            font_size: 28.0,
+            ..TerminalSettings::default()
+        };
+        cx.update(|_, cx| panes.apply(larger, cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear());
+        let after = cx.read_entity(&terminal, |view, _| view.grid_size());
+        assert!(
+            after.0 < before.0,
+            "{after:?} should have fewer columns than {before:?}"
         );
     }
 }

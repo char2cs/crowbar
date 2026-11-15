@@ -10,7 +10,7 @@ use crate::host_slot::HostSlot;
 use crate::link_state::LinkState;
 use crate::pending_rows;
 use crate::project_rows;
-use crate::repo_mark;
+use crate::space_icons;
 use crate::state::State;
 
 pub(crate) fn shown(state: &State) -> Option<&HostSlot> {
@@ -76,7 +76,7 @@ pub(crate) fn projects(state: &State) -> Vec<Project> {
         .map(|record| Project {
             id: ProjectId::from(record.id.as_str()),
             name: record.name.clone(),
-            mark: repo_mark::of((&record.name, ""), (&record.avatar_emoji, "")),
+            mark: space_icons::mark(state, record),
             host: HostId::from(slot.spec.id.as_str()),
         })
         .collect()

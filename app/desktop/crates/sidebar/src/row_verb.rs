@@ -5,6 +5,7 @@ use ui::{IconName, IconWeight};
 use crate::command::Command;
 use crate::intent::Intent;
 use crate::lock::Lock;
+use crate::question::Question;
 use crate::row::Row;
 use crate::row_kind::RowKind;
 use crate::workspace_status::WorkspaceStatus;
@@ -66,7 +67,11 @@ impl RowVerb {
     ) -> Option<Intent> {
         let id = row.id.clone();
         match self {
-            Self::Detach => Some(Intent::Send(Command::Detach(id))),
+            Self::Detach => Some(Intent::Ask(Question::detach(
+                id,
+                &detached_branch(row),
+                held_path(row),
+            ))),
             Self::Retry => Some(Intent::Send(Command::Retry(id))),
             Self::RepoMenu => None,
             Self::Remove => Some(Intent::RequestRemoval(id)),
@@ -75,6 +80,18 @@ impl RowVerb {
             Self::MakeBranch => Some(Intent::StartBranching(id)),
         }
     }
+}
+
+fn detached_branch(row: &Row) -> String {
+    row.workspace
+        .as_ref()
+        .map_or_else(|| row.label.clone(), |workspace| workspace.branch.clone())
+}
+
+fn held_path(row: &Row) -> Option<&str> {
+    row.workspace
+        .as_ref()
+        .and_then(|workspace| workspace.held_by_path.as_deref())
 }
 
 fn is_placeholder(row: &Row) -> bool {
@@ -213,6 +230,14 @@ mod tests {
         for (name, build, expected) in CASES {
             assert_eq!(RowVerb::for_row(&build()), *expected, "{name}");
         }
+    }
+
+    #[test]
+    fn detaching_asks_with_the_branch_and_the_holder_path() {
+        let row = branch(WorkspaceStatus::New, Some("/w/main"));
+        let asked = RowVerb::Detach.intent(&row);
+        let want = Question::detach(row.id.clone(), "feature", Some("/w/main"));
+        assert_eq!(asked, Some(Intent::Ask(want)));
     }
 
     #[test]

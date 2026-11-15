@@ -17,10 +17,13 @@ impl Sidebar {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let family = Theme::of(cx).ui_family();
         let shown = self.mode.shown(self.data.focus());
-        let panel = match shown {
-            Mode::Chats => self.chats_panel(width, window, cx),
-            Mode::Files => self.files_panel(cx),
-            Mode::Changes => self.changes_panel(cx),
+        let panel = match self.create_space_panel(cx) {
+            Some(creating) => creating,
+            None => match shown {
+                Mode::Chats => self.chats_panel(width, window, cx),
+                Mode::Files => self.files_panel(cx),
+                Mode::Changes => self.changes_panel(cx),
+            },
         };
         let header = self.header(cx);
         let switcher = self.switcher(window, cx);

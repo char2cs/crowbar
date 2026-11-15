@@ -24,6 +24,7 @@ pub(crate) fn member(pane: &PaneId) -> MemberView {
         label: title.to_owned().into(),
         provisional: pane.as_str() == "p1",
         working: pane.as_str() == "p3",
+        kind: tab_bar::MemberKind::Chat,
     }
 }
 

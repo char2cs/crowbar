@@ -67,6 +67,7 @@ mod tests {
             label: pane.as_str().to_uppercase().into(),
             provisional: false,
             working: false,
+            kind: crate::member_kind::MemberKind::Chat,
         }
     }
 

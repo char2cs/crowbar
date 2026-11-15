@@ -46,6 +46,7 @@ mod pixels;
 mod prompt_event;
 mod request_queue;
 mod reveal_target;
+mod search_engine_setting;
 mod serials;
 mod settings_modal;
 mod shell_pane_source;
@@ -60,6 +61,7 @@ mod startup_command;
 mod startup_requests;
 mod terminal_ids;
 mod terminal_panes;
+mod terminal_preferences;
 #[cfg(test)]
 mod test_support;
 mod titles;

@@ -4,7 +4,10 @@ use gpui::Context;
 use pane_host::BrowseAction;
 use protocol::PaneId;
 
+use settings_ui::{Key, SettingsBackend as _, Value};
+
 use super::ShellView;
+use crate::search_engine_setting::{CUSTOM_URL_KEY, ENGINE_KEY, engine_from};
 
 impl ShellView {
     pub(super) fn browse(
@@ -13,19 +16,35 @@ impl ShellView {
         event: BrowserBarEvent,
         _cx: &mut Context<'_, Self>,
     ) {
-        let Some(action) = action_for(event) else {
+        let engine = self.search_engine();
+        let Some(action) = action_for(event, &engine) else {
             return;
         };
         if let Err(error) = self.state.host().browse(pane, &action) {
             tracing::warn!(%error, "the browser pane could not be driven");
         }
     }
+
+    fn search_engine(&mut self) -> SearchEngine {
+        let Some(backend) = self.settings_backend() else {
+            return SearchEngine::DuckDuckGo;
+        };
+        let engine = backend.get(&Key::new(ENGINE_KEY));
+        let custom = backend.get(&Key::new(CUSTOM_URL_KEY));
+        engine_from(
+            engine.as_ref().and_then(Value::as_text),
+            custom.as_ref().and_then(Value::as_text),
+        )
+    }
 }
 
-fn action_for(event: BrowserBarEvent) -> Option<BrowseAction> {
+fn action_for(
+    event: BrowserBarEvent,
+    engine: &SearchEngine,
+) -> Option<BrowseAction> {
     match event {
         BrowserBarEvent::Go(typed) => {
-            let address = resolve_address(&typed, &SearchEngine::DuckDuckGo)?;
+            let address = resolve_address(&typed, engine)?;
             BrowserUrl::parse(&address).ok().map(BrowseAction::Go)
         },
         BrowserBarEvent::Back => Some(BrowseAction::Back),
@@ -47,9 +66,15 @@ mod tests {
             ("  ", false),
         ];
         for (typed, acts) in CASES {
-            let action = action_for(BrowserBarEvent::Go((*typed).to_owned()));
+            let action = action_for(
+                BrowserBarEvent::Go((*typed).to_owned()),
+                &SearchEngine::DuckDuckGo,
+            );
             assert_eq!(action.is_some(), *acts, "{typed:?}");
         }
-        assert_eq!(action_for(BrowserBarEvent::Back), Some(BrowseAction::Back));
+        assert_eq!(
+            action_for(BrowserBarEvent::Back, &SearchEngine::DuckDuckGo),
+            Some(BrowseAction::Back)
+        );
     }
 }

@@ -10,4 +10,5 @@ pub(crate) struct ProjectRecord {
     pub(crate) path: String,
     pub(crate) order: i64,
     pub(crate) avatar_emoji: String,
+    pub(crate) avatar_url: String,
 }

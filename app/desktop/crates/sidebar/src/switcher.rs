@@ -1,14 +1,15 @@
 //! The 44px space switcher: active space name, add button and the other spaces.
 
 use gpui::{
-    AnyElement, Context, Div, ElementId, FontWeight, InteractiveElement, IntoElement,
+    AnyElement, Context, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Palette, Surface, Theme, Tooltip, hover_fill, radius};
+use ui::{Palette, Popover, Surface, Theme, Tooltip, hover_fill, radius};
 
 use crate::command::Command;
 use crate::hover_glide;
 use crate::icon_button::IconButton;
+use crate::icon_editor::IconEditor;
 use crate::intent::Intent;
 use crate::mark_view::mark_view;
 use crate::metrics::SWITCHER_HEIGHT;
@@ -47,7 +48,14 @@ impl Sidebar {
             .map(|project| Self::other_mark(project, palette, window, cx))
             .collect();
         let family = Theme::of(cx).heading_family();
-        let block = active_block(current, Self::add_button(cx), (reveal, family), palette);
+        self.sync_space_icon(cx);
+        let editor = self.offers_space_icon().then(|| self.icon_editor.clone());
+        let block = active_block(
+            current,
+            (Self::add_button(cx), editor),
+            (reveal, family),
+            palette,
+        );
         Some(
             div()
                 .id("switcher")
@@ -119,9 +127,26 @@ fn mark_tile(
         .child(inner)
 }
 
+fn name_cell(
+    current: &Project,
+    family: &'static str,
+    palette: &Palette,
+) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .font_family(family)
+        .text_size(px(NAME_SIZE))
+        .line_height(px(NAME_LINE))
+        .font_weight(FontWeight::NORMAL)
+        .text_color(palette.foreground())
+        .child(current.name.clone())
+}
+
 fn active_block(
     current: &Project,
-    add: IconButton,
+    (add, editor): (IconButton, Option<Entity<IconEditor>>),
     (reveal, family): (f32, &'static str),
     palette: &Palette,
 ) -> Div {
@@ -134,16 +159,13 @@ fn active_block(
         .ml(px(TILE_PULL))
         .rounded(radius::MD)
         .child(mark_view(&current.mark, px(MARK), palette));
-    let name = div()
-        .flex_1()
-        .min_w_0()
-        .truncate()
-        .font_family(family)
-        .text_size(px(NAME_SIZE))
-        .line_height(px(NAME_LINE))
-        .font_weight(FontWeight::NORMAL)
-        .text_color(palette.foreground())
-        .child(current.name.clone());
+    let tile = match editor {
+        Some(editor) => {
+            Popover::new("space-icon", tile, move |_, _| editor.clone()).into_any_element()
+        },
+        None => tile.into_any_element(),
+    };
+    let name = name_cell(current, family, palette);
     let slot = div()
         .flex_none()
         .overflow_hidden()
@@ -180,6 +202,6 @@ mod tests {
         sidebar.update_in(cx, |this, window, cx| {
             this.apply(Intent::StartCreateSpace, window, cx);
         });
-        assert!(sidebar.read_with(cx, |this, _| this.creating_space));
+        assert!(sidebar.read_with(cx, |this, _| this.space.is_some()));
     }
 }

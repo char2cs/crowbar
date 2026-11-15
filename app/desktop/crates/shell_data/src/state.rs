@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use crate::daemon_client::DaemonClient;
 use crate::frame::Frame;
 use crate::host_slot::HostSlot;
+use crate::icon_cache::IconCache;
 use crate::link_state::LinkState;
 use crate::panel_state::PanelState;
 use crate::pending_row::PendingRow;
@@ -18,6 +19,7 @@ pub(crate) struct State {
     pub(crate) local_rows: Vec<PendingRow>,
     pub(crate) panels: PanelState,
     pub(crate) unrevoked: BTreeMap<String, String>,
+    pub(crate) icons: IconCache,
 }
 
 impl State {
@@ -29,6 +31,7 @@ impl State {
             local_rows: Vec::new(),
             panels: PanelState::default(),
             unrevoked: BTreeMap::new(),
+            icons: IconCache::default(),
         }
     }
 

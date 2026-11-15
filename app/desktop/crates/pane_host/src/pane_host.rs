@@ -161,6 +161,7 @@ impl PaneHost {
         }
         self.focused.clone_from(&snapshot.focused);
         failures.note(self.route_activation(snapshot.layout));
+        failures.note(self.hand_focus_to_native());
         SyncReport {
             events,
             failure: failures.into_first(),
@@ -179,8 +180,6 @@ impl PaneHost {
         message: IpcMessage,
         layout: &Layout,
     ) -> Result<Vec<HostEvent>> {
-        tracing::warn!(text = %message.text.chars().take(300).collect::<String>(), "TEMP-DEBUG ipc");
-        if message.text.contains("\"kind\":\"dbg\"") { return Ok(Vec::new()); }
         let live = self
             .panes
             .get(&message.pane)
@@ -826,6 +825,24 @@ mod tests {
         );
         f.sync(&[pane], &[], None);
         assert!(f.mock.calls().is_empty(), "still none after hiding");
+    }
+
+    #[test]
+    fn focusing_a_native_pane_takes_keyboard_focus_from_the_web_view() {
+        let mut f = fixture();
+        let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
+        native.kind = PaneKind::Native;
+        f.host.registry_mut().register(native).unwrap();
+        let panes = [instance("c1", "core.chat"), instance("n1", "core.native")];
+        f.sync(&panes, &["c1", "n1"], Some("c1"));
+        let before = f.mock.calls().len();
+        f.sync(&panes, &["c1", "n1"], Some("n1"));
+        let calls = f.mock.calls();
+        let returned = calls
+            .iter()
+            .skip(before)
+            .any(|call| matches!(call, Call::FocusParent { .. }));
+        assert!(returned, "{calls:?}");
     }
 
     #[test]

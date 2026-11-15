@@ -19,7 +19,6 @@ use crate::theme::Theme;
 pub fn init(cx: &mut App) -> Result<(), Error> {
     font::register(cx)?;
     let system = Appearance::from(cx.window_appearance());
-    eprintln!("TEMP-DEBUG appearance {system:?} {:?}", cx.window_appearance());
     cx.set_global(Theme::default().with_system(system));
     cx.set_global(Motion::default());
     cx.bind_keys(crate::menu_actions::bindings());

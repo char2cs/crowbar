@@ -10,6 +10,7 @@ use sidebar::{
 use crate::files_reads;
 use crate::hub::Hub;
 use crate::sidebar_reads as reads;
+use crate::space_icons;
 
 /// What `sidebar::SidebarData` reads, answered from the entities the streams delivered.
 #[derive(Debug, Clone)]
@@ -72,6 +73,13 @@ impl SidebarData for SidebarView {
 
     fn files_are_local(&self) -> bool {
         self.hub.read(files_reads::local)
+    }
+
+    fn space_icon(
+        &self,
+        project: &ProjectId,
+    ) -> sidebar::SpaceIcon {
+        self.hub.read(|state| space_icons::of(state, project))
     }
 
     fn focus(&self) -> Focus {

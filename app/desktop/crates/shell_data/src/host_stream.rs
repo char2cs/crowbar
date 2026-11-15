@@ -6,6 +6,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::backoff::Backoff;
+use crate::changes_reload;
 use crate::connection::Connection;
 use crate::daemon_client::DaemonClient;
 use crate::dial::Dial;
@@ -13,6 +14,7 @@ use crate::ended::Ended;
 use crate::entity_store::PROJECTS_SCOPE;
 use crate::frame::{Frame, decode};
 use crate::hub::Hub;
+use crate::icon_fetch;
 use crate::link_state::LinkState;
 use crate::provider::Provider;
 use crate::providers;
@@ -170,7 +172,12 @@ impl HostStream {
         &self,
         frame: Frame,
     ) {
+        let operation = changes_reload::is_operation(&frame);
         self.hub.edit(|state| state.apply(&self.host, frame));
+        if operation {
+            changes_reload::follow(&self.hub);
+        }
+        icon_fetch::follow(&self.hub, &self.host, &self.client);
     }
 
     fn subscribe(

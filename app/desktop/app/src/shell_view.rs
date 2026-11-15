@@ -30,6 +30,7 @@ mod pane_commands;
 mod pump;
 mod remote_folder;
 mod shell_commands;
+mod sidebar_position;
 
 use crate::daemon_link::DaemonLink;
 use crate::focused_chat::focused_chat;
@@ -138,16 +139,16 @@ impl ShellView {
             subscriptions,
         };
         view.begin(queue, window, cx);
-        window.focus(&view.focus);
         view
     }
 
     fn begin(
         &mut self,
         queue: async_channel::Receiver<ShellRequest>,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        window.focus(&self.focus);
         self.system_fonts = crate::installed_fonts::installed(cx);
         self.announce_start();
         self.spawn_tasks(queue, window, cx);
@@ -215,6 +216,7 @@ impl ShellView {
             ShellRequest::Outcome(outcome) => self.on_data_outcome(outcome, window, cx),
             ShellRequest::CloseSettings => {
                 self.settings = None;
+                window.focus(&self.focus);
                 self.update_overlay(cx);
             },
             ShellRequest::KeymapChanged => self.on_keymap_changed(cx),
@@ -389,7 +391,7 @@ impl ShellView {
         let tabs: Vec<TabView> = layout
             .tabs()
             .iter()
-            .map(|tab| TabView::from_tab(tab, |pane| member(&titles, pane)))
+            .map(|tab| TabView::from_tab(tab, |pane| member((&titles, layout), pane)))
             .collect();
         let active = layout.active_tab().map(model::Tab::id);
         let tab = layout.active_tab().cloned();
@@ -482,14 +484,14 @@ mod tests {
     fn member_labels_fall_back_to_new_chat_until_a_title_arrives() {
         let titles = crate::titles::Titles::default();
         let pane = protocol::PaneId::new("p1").unwrap();
-        let before = member(&titles, &pane);
+        let before = member((&titles, &model::Layout::default()), &pane);
         assert_eq!(
             (before.label.as_ref(), before.provisional),
             (NEW_CHAT, true),
             "unnamed"
         );
         titles.set(pane.clone(), protocol::PaneTitle::new("Fix").unwrap());
-        let after = member(&titles, &pane);
+        let after = member((&titles, &model::Layout::default()), &pane);
         assert_eq!(
             (after.label.as_ref(), after.provisional),
             ("Fix", false),

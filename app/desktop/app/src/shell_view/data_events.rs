@@ -140,6 +140,9 @@ impl ShellView {
         self.settings = opened
             .inspect_err(|error| tracing::error!(%error, "could not open settings"))
             .ok();
+        if let Some(modal) = &self.settings {
+            modal.read(cx).focus(window);
+        }
         self.update_overlay(cx);
     }
 }

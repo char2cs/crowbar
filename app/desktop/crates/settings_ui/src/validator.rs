@@ -26,16 +26,21 @@ impl Validator {
 }
 
 fn check_template(text: &str) -> Result<(), Issue> {
+    let text = text.trim();
     if text.is_empty() {
         return Ok(());
     }
-    let rest = text
-        .strip_prefix("https://")
-        .or_else(|| text.strip_prefix("http://"));
-    let usable = rest.is_some_and(|rest| !rest.is_empty())
-        && !text.chars().any(char::is_whitespace)
-        && text.contains("%s");
+    let usable =
+        has_web_scheme(text) && !text.chars().any(char::is_whitespace) && text.contains("%s");
     usable.then_some(()).ok_or(Issue::BadSearchTemplate)
+}
+
+fn has_web_scheme(text: &str) -> bool {
+    ["https://", "http://"].iter().any(|scheme| {
+        text.get(..scheme.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(scheme))
+            && text.len() > scheme.len()
+    })
 }
 
 #[cfg(test)]
@@ -53,6 +58,11 @@ mod tests {
             ("https://", false),
             ("https://a b/%s", false),
             ("kagi.com/%s", false),
+            ("  https://kagi.com/search?q=%s  ", true),
+            ("HTTPS://Kagi.com/?q=%s", true),
+            ("   ", true),
+            ("https://%s", true),
+            ("é://x/%s", false),
         ];
         for &(text, valid) in CASES {
             assert_eq!(

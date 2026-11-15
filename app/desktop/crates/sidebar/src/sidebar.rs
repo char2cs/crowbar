@@ -2,24 +2,28 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyView, Context, EventEmitter, FocusHandle};
+use gpui::{AnyView, Context, Entity, EventEmitter, FocusHandle};
 use ui::{CubicBezier, Glide};
 
 use crate::command_sink::CommandSink;
 use crate::drag_state::DragState;
 use crate::file_search::FileSearch;
+use crate::icon_editor::IconEditor;
 use crate::inline_edit::InlineEdit;
+use crate::merge_draft::MergeDraft;
 use crate::mode::Mode;
 use crate::open_menu::OpenMenu;
 use crate::panel::Panel;
 use crate::peek::Peek;
 use crate::preferences::Preferences;
+use crate::question::Question;
 use crate::resizing::Resizing;
 use crate::row_bounds::RowBounds;
 use crate::row_id::RowId;
 use crate::scrolls::Scrolls;
 use crate::sidebar_data::SidebarData;
 use crate::sidebar_event::SidebarEvent;
+use crate::space_draft::SpaceDraft;
 use crate::toast_stack::ToastStack;
 use crate::tree_state::TreeState;
 use crate::work_at_risk::WorkAtRisk;
@@ -44,7 +48,10 @@ pub struct Sidebar {
     pub(crate) scrolls: Scrolls,
     pub(crate) handle_focus: FocusHandle,
     pub(crate) files_focus: FocusHandle,
-    pub(crate) creating_space: bool,
+    pub(crate) space: Option<SpaceDraft>,
+    pub(crate) icon_editor: Entity<IconEditor>,
+    pub(crate) question: Option<Question>,
+    pub(crate) merge: MergeDraft,
     pub(crate) search: Option<FileSearch>,
     pub(crate) toasts: ToastStack,
     pub(crate) drag: DragState,
@@ -78,7 +85,10 @@ impl Sidebar {
             scrolls: Scrolls::default(),
             handle_focus: cx.focus_handle(),
             files_focus: cx.focus_handle(),
-            creating_space: false,
+            space: None,
+            icon_editor: Self::space_icon_editor(cx),
+            question: None,
+            merge: MergeDraft::new(cx),
             search: None,
             toasts: ToastStack::default(),
             drag: DragState::default(),

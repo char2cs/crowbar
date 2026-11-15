@@ -2,6 +2,7 @@
 
 use sidebar::{RowId, RunningAgent};
 
+use crate::after::After;
 use crate::call::Call;
 use crate::chat_record::ChatRecord;
 use crate::host_slot::HostSlot;
@@ -21,7 +22,7 @@ pub(crate) fn kill(
         .find(|slot| slot.store.chats.get(chat).is_some())
         .ok_or("this chat is not loaded any more")?;
     let call = Call::post(format!("/v0/chats/{chat}/kill"));
-    Ok(Plan::of(&slot.spec.id, vec![call]))
+    Ok(Plan::of(&slot.spec.id, vec![call]).then(After::ReloadChanges))
 }
 
 fn agent_of(
@@ -76,6 +77,7 @@ mod tests {
                 .any(|agent| agent.row.as_str() == "hc" && agent.viewers == 0)
         );
         let plan = kill(&state, &RowId::from("hc")).unwrap();
+        assert_eq!(plan.after, After::ReloadChanges);
         assert_eq!(plan.calls[0].path, "/v0/chats/hc/kill");
         assert!(kill(&state, &RowId::from("gone")).is_err());
     }

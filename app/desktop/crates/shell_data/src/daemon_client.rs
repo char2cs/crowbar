@@ -51,6 +51,21 @@ impl DaemonClient {
         envelope::unwrap(&path, &response)
     }
 
+    pub(crate) async fn bytes(
+        &self,
+        call: Call,
+    ) -> Result<Vec<u8>> {
+        let path = call.path.clone();
+        let response = self.raw(call).await.map_err(|source| Error::Request {
+            path: path.clone(),
+            source,
+        })?;
+        match response.status() {
+            status if status >= envelope::FIRST_ERROR_STATUS => Err(refused_with(path, status)),
+            _ => Ok(response.body().to_vec()),
+        }
+    }
+
     async fn raw(
         &self,
         call: Call,
@@ -90,6 +105,18 @@ impl DaemonClient {
     }
 }
 
+fn refused_with(
+    path: String,
+    status: u16,
+) -> Error {
+    Error::Refused {
+        path,
+        status,
+        code: None,
+        message: format!("the daemon answered {status}"),
+    }
+}
+
 fn reply(respond: oneshot::Sender<protocol::Result<DaemonResponse>>) -> Responder {
     Box::new(move |result| deliver(respond, result))
 }
@@ -113,6 +140,7 @@ mod tests {
     #[tokio::test]
     async fn a_call_reaches_the_route_with_its_body_and_headers() {
         let daemon = FakeDaemon::shared();
+        daemon.answer(("GET", "/img"), 200, "rawbytes");
         daemon.ok("POST", "/v0/projects", r#"{"id":"p"}"#);
         let client = DaemonClient::new(Arc::<FakeDaemon>::clone(&daemon), local());
         let data = client
@@ -124,6 +152,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(data, json!({"id": "p"}));
+        let raw = client.bytes(Call::get("/img")).await.unwrap();
+        assert_eq!(raw, b"rawbytes");
         let seen = daemon.seen();
         assert_eq!(seen[0].body, Some(json!({"name": "A"})));
         assert!(
@@ -143,5 +173,7 @@ mod tests {
         );
         let bad = client.send(Call::get("no-slash")).await.unwrap_err();
         assert!(matches!(bad, Error::Request { .. }), "{bad}");
+        let none = client.bytes(Call::get("/v0/none")).await.unwrap_err();
+        assert!(matches!(none, Error::Refused { status: 404, .. }), "{none}");
     }
 }

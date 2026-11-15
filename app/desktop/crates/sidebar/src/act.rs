@@ -74,7 +74,7 @@ impl Sidebar {
                 self.tree.toggle_fold(&id);
                 Self::changed(cx);
             },
-            Intent::StartCreateSpace => self.creating_space = true,
+            Intent::StartCreateSpace => self.start_create_space(window, cx),
             Intent::StartFileRename(path) => self.start_file_rename(path, window, cx),
             Intent::StartFileCreate { dir, entry } => {
                 self.start_file_create((dir, entry), window, cx);
@@ -92,9 +92,21 @@ impl Sidebar {
                 self.files_focus.focus(window);
                 self.tree.files.selected = Some(path);
             },
-            Intent::Send(command) => self.send(command, cx),
+            Intent::Ask(question) => self.question = Some(question),
+            Intent::Send(command) => self.send_intent(command, cx),
         }
         cx.notify();
+    }
+
+    fn send_intent(
+        &mut self,
+        command: Command,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if matches!(command, Command::SelectProject(_)) {
+            self.space = None;
+        }
+        self.send(command, cx);
     }
 
     pub(crate) fn send(
@@ -102,10 +114,24 @@ impl Sidebar {
         command: Command,
         cx: &mut Context<'_, Self>,
     ) {
+        self.send_checked(command, cx);
+    }
+
+    pub(crate) fn send_checked(
+        &mut self,
+        command: Command,
+        cx: &mut Context<'_, Self>,
+    ) -> bool {
         match self.sink.dispatch(command) {
-            Ok(()) => cx.notify(),
-            Err(Error::Refused { reason }) => self.toast((ToastKind::Error, reason), None, cx),
-            Err(_) => {},
+            Ok(()) => {
+                cx.notify();
+                true
+            },
+            Err(Error::Refused { reason }) => {
+                self.toast((ToastKind::Error, reason), None, cx);
+                false
+            },
+            Err(_) => false,
         }
     }
 
@@ -128,6 +154,12 @@ impl Sidebar {
         MenuContext {
             targets: self.data.move_targets(row),
             terminal: TerminalThreads::of(self.data.as_ref()),
+            running: self
+                .data
+                .running_agents()
+                .into_iter()
+                .find(|agent| &agent.row == row)
+                .map(|agent| agent.title),
         }
     }
 

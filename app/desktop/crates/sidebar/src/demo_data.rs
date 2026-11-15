@@ -21,6 +21,7 @@ use crate::host_kind::HostKind;
 use crate::host_state::HostState;
 use crate::lock::Lock;
 use crate::mark::Mark;
+use crate::merge_box::MergeBox;
 use crate::move_target::MoveTarget;
 use crate::nesting::Nesting;
 use crate::presence::Presence;
@@ -30,6 +31,7 @@ use crate::project_tree::ProjectTree;
 use crate::row::Row;
 use crate::row_id::RowId;
 use crate::row_kind::RowKind;
+use crate::running_agent::RunningAgent;
 use crate::scope_sync::ScopeSync;
 use crate::sidebar_data::SidebarData;
 use crate::titling::Titling;
@@ -54,6 +56,8 @@ pub struct DemoData {
     focus: Focus,
     refused: Vec<Command>,
     removable: Vec<String>,
+    merge: Option<MergeBox>,
+    running: Vec<RunningAgent>,
 }
 
 impl DemoData {
@@ -81,6 +85,8 @@ impl DemoData {
             focus: Focus::Repository,
             refused: Vec::new(),
             removable: Vec::new(),
+            merge: None,
+            running: Vec::new(),
         }
     }
 
@@ -111,6 +117,31 @@ impl DemoData {
         path: &str,
     ) -> Self {
         self.removable.push(path.to_owned());
+        self
+    }
+
+    /// The same data with `merge` as the merge box of the focused workspace.
+    #[must_use]
+    pub fn with_merge_box(
+        mut self,
+        merge: MergeBox,
+    ) -> Self {
+        self.merge = Some(merge);
+        self
+    }
+
+    /// The same data with a running agent on `row` titled `title`.
+    #[must_use]
+    pub fn with_running_agent(
+        mut self,
+        row: &str,
+        title: &str,
+    ) -> Self {
+        self.running.push(RunningAgent {
+            row: RowId::from(row),
+            title: title.to_owned(),
+            viewers: 0,
+        });
         self
     }
 
@@ -338,6 +369,14 @@ impl SidebarData for DemoData {
 
     fn workspace_root(&self) -> Option<String> {
         Some("/work/demo".to_owned())
+    }
+
+    fn merge_box(&self) -> Option<MergeBox> {
+        self.merge.clone()
+    }
+
+    fn running_agents(&self) -> Vec<RunningAgent> {
+        self.running.clone()
     }
 
     fn changes(&self) -> Changes {

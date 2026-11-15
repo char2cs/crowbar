@@ -3,6 +3,7 @@
 use serde_json::json;
 use sidebar::{AfterMerge, MergeStrategy};
 
+use crate::after::After;
 use crate::call::Call;
 use crate::files_reads::followed_workspace;
 use crate::merge_reads::strategy_wire;
@@ -43,7 +44,7 @@ pub(crate) fn merge(
 ) -> Result<Plan, String> {
     let held = OpenChat::of(state)?;
     let call = merge_call(state, held.chat, after)?;
-    Ok(Plan::of(held.host, vec![call]))
+    Ok(Plan::of(held.host, vec![call]).then(After::ReloadChanges))
 }
 
 pub(crate) fn stop_and_merge(state: &State) -> Result<Plan, String> {
@@ -57,7 +58,7 @@ pub(crate) fn stop_and_merge(state: &State) -> Result<Plan, String> {
         .map(|chat| Call::post(format!("/v0/chats/{}/stop", chat.id)))
         .collect();
     calls.push(merge_call(state, held.chat, AfterMerge::DeleteBranch)?);
-    Ok(Plan::of(held.host, calls))
+    Ok(Plan::of(held.host, calls).then(After::ReloadChanges))
 }
 
 pub(crate) fn commit(
@@ -84,7 +85,7 @@ pub(crate) fn commit(
         Call::post(format!("{base}/commit"))
             .json(json!({"subject": subject.trim(), "body": body.trim()})),
     );
-    Ok(Plan::of(held.host, calls))
+    Ok(Plan::of(held.host, calls).then(After::ReloadChanges))
 }
 
 #[cfg(test)]
@@ -108,6 +109,17 @@ mod tests {
     #[test]
     fn the_merge_box_commands_become_their_daemon_calls() {
         let state = open();
+        let reloading = [
+            merge(&state, AfterMerge::Keep),
+            stop_and_merge(&state),
+            commit(&state, ("m", &[])),
+        ];
+        assert!(
+            reloading
+                .iter()
+                .all(|plan| plan.as_ref().unwrap().after == After::ReloadChanges),
+            "the Changes panel is read again once the work changed"
+        );
         let strategy = set_strategy(&state, MergeStrategy::Squash).unwrap();
         assert_eq!(routes(&strategy), [("PATCH", "/v0/chats/hc/review")]);
         assert_eq!(

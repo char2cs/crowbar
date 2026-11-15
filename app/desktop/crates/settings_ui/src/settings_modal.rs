@@ -86,6 +86,14 @@ impl SettingsModal {
         }
     }
 
+    /// Moves keyboard focus into the modal so that Escape and the arrow keys reach it.
+    pub fn focus(
+        &self,
+        window: &mut Window,
+    ) {
+        self.focus.focus(window);
+    }
+
     /// Starts with `query` typed into the search field.
     #[must_use]
     pub fn with_query(

@@ -8,6 +8,7 @@ use crate::lock::Lock;
 use crate::menu_context::MenuContext;
 use crate::menu_entry::MenuEntry;
 use crate::move_target::MoveTarget;
+use crate::question::Question;
 use crate::row::Row;
 use crate::row_kind::RowKind;
 use crate::terminal_threads::TerminalThreads;
@@ -110,6 +111,7 @@ fn move_entries(
         entries.push(move_submenu(row, context));
     }
     entries.extend(make_branch_entry(row));
+    entries.extend(kill_entry(row, context));
     if row.pending_move.is_some() {
         let intent = Intent::Send(Command::CancelMove(row.id.clone()));
         entries.push(MenuEntry::action("Cancel move", IconName::XCircle, intent));
@@ -149,6 +151,19 @@ fn move_submenu(
         icon: Some(IconName::ArrowsOutCardinal),
         entries: move_targets(row, context),
     }
+}
+
+fn kill_entry(
+    row: &Row,
+    context: &MenuContext,
+) -> Option<MenuEntry> {
+    let title = context.running.as_deref()?;
+    let question = Question::kill(row.id.clone(), title);
+    Some(MenuEntry::action(
+        "Kill agent",
+        IconName::XCircle,
+        Intent::Ask(question),
+    ))
 }
 
 fn make_branch_entry(row: &Row) -> Option<MenuEntry> {
@@ -211,6 +226,7 @@ mod tests {
         let context = MenuContext {
             targets: vec![target],
             terminal: TerminalThreads::Available,
+            running: None,
         };
         (row, context)
     }
@@ -219,6 +235,15 @@ mod tests {
         let mut row = Row::new("c", RowKind::Chat, 2, "hi");
         row.pending_move = Some("src".into());
         (row, MenuContext::default())
+    }
+
+    fn running_chat() -> (Row, MenuContext) {
+        let row = Row::new("c", RowKind::Chat, 2, "hi");
+        let context = MenuContext {
+            running: Some("hi".into()),
+            ..MenuContext::default()
+        };
+        (row, context)
     }
 
     type Case = (
@@ -253,6 +278,11 @@ mod tests {
                 "Move to…",
                 "Make a branch",
             ],
+        ),
+        (
+            "a running agent can be killed",
+            running_chat,
+            &["Rename", "New folder", "Make a branch", "Kill agent"],
         ),
         (
             "a pending move replaces make a branch with cancel",
