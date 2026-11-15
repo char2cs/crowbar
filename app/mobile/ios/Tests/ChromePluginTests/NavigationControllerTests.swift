@@ -8,7 +8,10 @@ import XCTest
 final class NavigationControllerTests: XCTestCase {
   private let screen = CGRect(x: 0, y: 0, width: 400, height: 800)
 
-  private func makeHost() -> (host: UIView, webview: WKWebView) {
+  private func makeHost() -> (
+    host: UIView,
+    webview: WKWebView
+  ) {
     let host = UIView(frame: screen)
     let webview = WKWebView(frame: screen)
     host.addSubview(webview)
@@ -22,8 +25,7 @@ final class NavigationControllerTests: XCTestCase {
     let navigation = NavigationController(
       host: host,
       webview: webview,
-      list: list,
-      files: files,
+      layers: NavigationLayers(list: list, files: files),
       send: { _ in }
     )
     let webIndex = try XCTUnwrap(host.subviews.firstIndex(of: webview))
@@ -37,8 +39,7 @@ final class NavigationControllerTests: XCTestCase {
     let navigation = NavigationController(
       host: host,
       webview: webview,
-      list: UIView(),
-      files: UIView(),
+      layers: NavigationLayers(list: UIView(), files: UIView()),
       send: { _ in }
     )
     let before = host.subviews.count

@@ -2,6 +2,7 @@
 # vars: file (display path), mode (src|test), stem, allow_unwrap (0|1), allow_types (0|1)
 function report(line, tag, msg) { printf "%s:%d: [%s] %s\n", file, line, tag, msg; bad = 1 }
 function strip(s) {
+  gsub(/r#+"[^\n]*"#+/, "\"\"", s)
   gsub(/\\"/, "", s)
   gsub(/"[^"]*"/, "\"\"", s)
   gsub(/'.'/, "''", s)
@@ -32,7 +33,9 @@ BEGIN { pend_doc = 0; cfg_line = 0; in_t = 0; t_depth = 0; loc = 0 }
   }
   if (raw ~ /^[ \t]*#\[(tokio::)?test\]/ && (mode == "test" || in_t)) ntests++
   if ((mode == "test" || in_t) && raw ~ /CASES|cases/) table = 1
-  if ((mode == "test" || in_t) && raw ~ /thread::sleep|time::sleep|TcpStream::connect|UdpSocket::bind|Command::new|home_dir\(\)|env::var\("HOME"\)|std::net::/ && raw !~ /^[ \t]*\/\//)
+  if ((mode == "test" || in_t) && raw ~ /start_paused|time::pause/) paused = 1
+  if ((mode == "test" || in_t) && raw ~ /time::sleep/ && raw !~ /^[ \t]*\/\//) { nsleep++; sleep_line[nsleep] = NR }
+  if ((mode == "test" || in_t) && raw ~ /thread::sleep|TcpStream::connect|UdpSocket::bind|Command::new|home_dir\(\)|env::var\("HOME"\)|std::net::UdpSocket/ && raw !~ /^[ \t]*\/\//)
     report(NR, "real-infra", "test touches real infrastructure: use an in-memory fake, a channel or a paused clock")
   if (mode == "test") next
   if (in_t) {
@@ -87,6 +90,7 @@ BEGIN { pend_doc = 0; cfg_line = 0; in_t = 0; t_depth = 0; loc = 0 }
   }
 }
 END {
+  if (!paused) for (i = 1; i <= nsleep; i++) report(sleep_line[i], "real-infra", "real sleep in a test: use a paused clock (start_paused) or a channel")
   if (ntests > 2 && !table) report(1, "table-driven", ntests " #[test] fns and no CASES table: one table, one behaviour per case")
   if (mode == "src" && loc > 500) report(1, "size", loc " non-test lines (max 500); split by concept")
   if (mode == "src" && !has_tests && has_fn && !exempt + 0 && !is_entry + 0) report(1, "test-missing", "source file with functions needs an inline #[cfg(test)] mod tests")

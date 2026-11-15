@@ -63,8 +63,8 @@ scan_integration() {
 scan_source() {
   local rel=$1 path=$2 base=$3 stem=$4 root=$5 allow_unwrap=0 allow_types=0 entry=0 exempt=0
   [[ $base == mod.rs ]] && fail "$rel:1: [mod-rs] mod.rs is banned; use foo.rs next to foo/"
-  [[ $base == main.rs || $rel == */src/bin/* ]] && allow_unwrap=1
-  [[ $base == lib.rs || $base == main.rs || $base == build.rs || $rel == */src/bin/* ]] && allow_types=1 && entry=1
+  [[ $base == main.rs || "/$rel" == */src/bin/* ]] && allow_unwrap=1
+  [[ $base == lib.rs || $base == main.rs || $base == build.rs || "/$rel" == */src/bin/* ]] && allow_types=1 && entry=1
   if [[ $base == lib.rs ]]; then
     grep -nE '^[[:space:]]*(pub(\([^)]*\))? )?(async |const |unsafe )*(fn|impl|struct|enum|trait|union)[[:space:]<]' "$path" | while IFS=: read -r n _; do
       echo "$rel:$n: [lib-decl] lib.rs holds only mod/pub use/crate docs"

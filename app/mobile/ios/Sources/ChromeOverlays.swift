@@ -18,14 +18,14 @@ final class ChromeOverlays {
   private weak var webview: WKWebView?
   private var navigation: NavigationController?
   private var keyboard: KeyboardFit?
-  private lazy var sheets = SheetPresenter(undimmed: true) { [model] in
+  private lazy var sheets = SheetPresenter(dimming: .undimmed) { [model] in
     let controller = UIHostingController(rootView: ConnectSheet(model: model))
     controller.view.backgroundColor = .clear
     return controller
   } onUserDismiss: { [model] in
     model.send(.dismiss)
   }
-  private lazy var settingsSheet = SheetPresenter(undimmed: false, detents: [.large()]) {
+  private lazy var settingsSheet = SheetPresenter(dimming: .dimmed, detents: [.large()]) {
     [model, settingsModel, weak self] in
     UIHostingController(
       rootView: SettingsSheet(
@@ -39,14 +39,14 @@ final class ChromeOverlays {
   } onUserDismiss: { [model] in
     model.send(.of("closeSettings"))
   }
-  private lazy var pickerSheet = SheetPresenter(undimmed: false, detents: [.large()]) {
+  private lazy var pickerSheet = SheetPresenter(dimming: .dimmed, detents: [.large()]) {
     [picker, model] in
     UIHostingController(rootView: ModelPickerSheet(model: picker, chrome: model))
   } onUserDismiss: { [picker] in
     picker.send(.of("closeModelPicker"))
   }
   private lazy var plusSheet: SheetPresenter = SheetPresenter(
-    undimmed: false,
+    dimming: .dimmed,
     detents: [.medium(), .large()]
   ) { [plus, model, weak self] in
     UIHostingController(
@@ -63,7 +63,7 @@ final class ChromeOverlays {
     model.send(.of("closePlusMenu"))
   }
   private lazy var attachSheet: SheetPresenter = SheetPresenter(
-    undimmed: false,
+    dimming: .dimmed,
     detents: [.medium(), .large()]
   ) { [attach, model, weak self] in
     UIHostingController(
@@ -78,7 +78,7 @@ final class ChromeOverlays {
   } onUserDismiss: { [model] in
     model.send(.of("closeAttachSheet"))
   }
-  private lazy var hostSheet = SheetPresenter(undimmed: false, detents: [.large()]) {
+  private lazy var hostSheet = SheetPresenter(dimming: .dimmed, detents: [.large()]) {
     [hostPicker, model] in
     UIHostingController(rootView: HostPickerSheet(model: hostPicker, chrome: model))
   } onUserDismiss: { [hostPicker] in
@@ -87,11 +87,16 @@ final class ChromeOverlays {
   private lazy var welcome = mount(WelcomeButton(model: model)) { view, host in
     [
       view.centerXAnchor.constraint(equalTo: host.centerXAnchor),
-      view.centerYAnchor.constraint(equalTo: host.centerYAnchor, constant: 84),
+      view.centerYAnchor.constraint(equalTo: host.centerYAnchor, constant: Metric.welcomeLift),
     ]
   }
-  private func corner(_ header: Header, _ side: String) -> UIView? {
-    mount(CornerButtons(model: model, header: header, side: side), hidden: false) { view, host in
+  private func corner(
+    _ header: Header,
+    _ side: String
+  ) -> UIView? {
+    mount(CornerButtons(model: model, header: header, side: side), style: .intrinsicShown) {
+      view,
+      host in
       [
         view.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
         side == "leading"
@@ -108,24 +113,28 @@ final class ChromeOverlays {
   }
 
   private let tabs = TabsModel()
-  private lazy var tabStrip = mount(TabStrip(model: tabs, chrome: model), sized: false) {
+  private lazy var tabStrip = mount(TabStrip(model: tabs, chrome: model), style: .fillHidden) {
     view,
     host in
     [
       view.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
-      view.heightAnchor.constraint(equalToConstant: 44),
+      view.heightAnchor.constraint(equalToConstant: Metric.tapTarget),
       view.leadingAnchor.constraint(
         equalTo: host.leadingAnchor,
-        constant: GlassCircle.edgeInset + 44 + 8
+        constant: GlassCircle.edgeInset + GlassCircle.diameter + Spacing.small
       ),
       view.trailingAnchor.constraint(
         equalTo: host.trailingAnchor,
-        constant: -GlassCircle.edgeInset - 44 - 8
+        constant: -GlassCircle.edgeInset - GlassCircle.diameter - Spacing.small
       ),
     ]
   }
 
-  init(model: ChromeModel, webview: WKWebView, send: @escaping (ChromeIntent) -> Void) {
+  init(
+    model: ChromeModel,
+    webview: WKWebView,
+    send: @escaping (ChromeIntent) -> Void
+  ) {
     self.model = model
     self.webview = webview
     sidebar = PageChannel(
@@ -142,6 +151,13 @@ final class ChromeOverlays {
       send: send
     )
     files = PageChannel(handler: "files", feeds: ["filesReady": "__crowbarFiles"], send: send)
+    wire(webview: webview, send: send)
+  }
+
+  private func wire(
+    webview: WKWebView,
+    send: @escaping (ChromeIntent) -> Void
+  ) {
     picker.send = send
     hostPicker.send = send
     settingsModel.send = send
@@ -154,48 +170,55 @@ final class ChromeOverlays {
       guard let root = webview?.window?.rootViewController else { return }
       Dialogs.topmost(root).present(dialog, animated: true)
     }
-    if let host = webview.superview {
-      let page = SecondaryPage.make(
-        like: webview,
-        fragment: "/mobile-sidebar",
-        controller: sidebar.controller(),
-        scheme: scheme
-      )
-      let list = listLayer(page)
-      let menu = RowMenu(page: page, host: list, send: send)
-      sidebar.intercept = { type, body, _ in menu.take(type, body) }
-      rowMenu = menu
-      keyboard = KeyboardFit(webview: webview)
-      keyboard?.fitted = { [weak self] in self?.placeJumpButton() }
-      paintSurface(under: webview, host: host)
-      FormAccessory.hide(in: webview)
-      let filesPage = SecondaryPage.make(
-        like: webview,
-        fragment: "/mobile-files",
-        controller: files.controller(),
-        scheme: scheme
-      )
-      let navigation = NavigationController(
-        host: host,
-        webview: webview,
-        list: list,
-        files: pageLayer(filesPage, leading: NavigationController.strip),
-        send: send
-      )
-      navigation.chatHeader = [corner(.chat, "leading"), corner(.chat, "trailing")]
-        .compactMap { $0 }
-      navigation.ideHeader =
-        [corner(.ide, "leading"), corner(.ide, "trailing"), tabStrip].compactMap { $0 }
-      navigation.canOpenIde = { [model] in
-        model.headers.chat.first { $0.id == "ide" }?.enabled ?? false
-      }
-      navigation.swipesEnabled = { [model] in model.welcome == nil }
-      self.navigation = navigation
-    }
+    if let host = webview.superview { mountNavigation(in: host, webview: webview, send: send) }
     model.send = { [weak self] intent in
       if intent.payload["id"] as? String == "ide" { self?.navigation?.willOpenIde() }
       send(intent)
     }
+  }
+
+  private func mountNavigation(
+    in host: UIView,
+    webview: WKWebView,
+    send: @escaping (ChromeIntent) -> Void
+  ) {
+    let page = SecondaryPage.make(
+      like: webview,
+      fragment: "/mobile-sidebar",
+      controller: sidebar.controller(),
+      scheme: scheme
+    )
+    let list = listLayer(page)
+    let menu = RowMenu(page: page, host: list, send: send)
+    sidebar.intercept = { type, body, _ in menu.take(type, body) }
+    rowMenu = menu
+    keyboard = KeyboardFit(webview: webview)
+    keyboard?.fitted = { [weak self] in self?.placeJumpButton() }
+    paintSurface(under: webview, host: host)
+    FormAccessory.hide(in: webview)
+    let filesPage = SecondaryPage.make(
+      like: webview,
+      fragment: "/mobile-files",
+      controller: files.controller(),
+      scheme: scheme
+    )
+    let navigation = NavigationController(
+      host: host,
+      webview: webview,
+      layers: NavigationLayers(
+        list: list,
+        files: pageLayer(filesPage, leading: NavigationController.strip)
+      ),
+      send: send
+    )
+    navigation.chatHeader = [corner(.chat, "leading"), corner(.chat, "trailing")].compactMap { $0 }
+    navigation.ideHeader =
+      [corner(.ide, "leading"), corner(.ide, "trailing"), tabStrip].compactMap { $0 }
+    navigation.canOpenIde = { [model] in
+      model.headers.chat.first { $0.id == "ide" }?.enabled ?? false
+    }
+    navigation.swipesEnabled = { [model] in model.welcome == nil }
+    self.navigation = navigation
   }
 
   func applySidebar(_ snapshot: String) {
@@ -221,49 +244,56 @@ final class ChromeOverlays {
 
   func applyModelPicker(_ state: ModelPickerState) {
     picker.apply(state)
-    pickerSheet.update(SheetOpening(isOpen: state.open), over: webview?.window?.rootViewController)
+    pickerSheet.update(state.open ? .open : .closed, over: webview?.window?.rootViewController)
   }
 
   func applyPlusMenu(_ state: PlusMenuState) {
     if state.open { plus.state = state }
-    plusSheet.update(SheetOpening(isOpen: state.open), over: webview?.window?.rootViewController)
+    plusSheet.update(state.open ? .open : .closed, over: webview?.window?.rootViewController)
   }
 
   func applyAttachSheet(_ state: AttachSheetState) {
     if state.open { attach.state = state }
-    attachSheet.update(SheetOpening(isOpen: state.open), over: webview?.window?.rootViewController)
+    attachSheet.update(state.open ? .open : .closed, over: webview?.window?.rootViewController)
   }
 
   func applyJumpToLatest(_ state: JumpToLatestState) {
     guard let view = jumpButton else { return }
     if state.visible { model.jumpOwner = state.owner }
     if !state.visible && state.owner != model.jumpOwner { return }
-    if state.visible {
-      model.jumpLabel = state.label
-      jumpBottom = CGFloat(state.bottom)
-      if view.isHidden || view.alpha == 0 {
-        placeJumpButton()
-        view.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
-        view.isHidden = false
-      }
-      UIView.animate(
-        withDuration: 0.2,
-        delay: 0,
-        options: [.curveEaseOut, .beginFromCurrentState]
-      ) {
-        self.placeJumpButton()
-        view.alpha = 1
-        view.transform = .identity
-      }
-      return
-    }
+    guard state.visible else { return hideJumpButton(view) }
+    model.jumpLabel = state.label
+    jumpBottom = CGFloat(state.bottom)
+    showJumpButton(view)
+  }
+
+  private func showJumpButton(_ view: UIView) {
+    if view.isHidden || view.alpha == 0 { prepareJumpButton(view) }
     UIView.animate(
-      withDuration: 0.2,
+      withDuration: Metric.fastDuration,
+      delay: 0,
+      options: [.curveEaseOut, .beginFromCurrentState]
+    ) {
+      self.placeJumpButton()
+      view.alpha = 1
+      view.transform = .identity
+    }
+  }
+
+  private func prepareJumpButton(_ view: UIView) {
+    placeJumpButton()
+    view.transform = CGAffineTransform(scaleX: Metric.popScale, y: Metric.popScale)
+    view.isHidden = false
+  }
+
+  private func hideJumpButton(_ view: UIView) {
+    UIView.animate(
+      withDuration: Metric.fastDuration,
       delay: 0,
       options: [.curveEaseIn, .beginFromCurrentState],
       animations: {
         view.alpha = 0
-        view.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        view.transform = CGAffineTransform(scaleX: Metric.popScale, y: Metric.popScale)
       },
       completion: { _ in view.isHidden = view.alpha == 0 }
     )
@@ -296,7 +326,7 @@ final class ChromeOverlays {
 
   func applyHostPicker(_ state: HostPickerState) {
     hostPicker.state = state
-    hostSheet.update(SheetOpening(isOpen: state.open), over: webview?.window?.rootViewController)
+    hostSheet.update(state.open ? .open : .closed, over: webview?.window?.rootViewController)
   }
 
   private func listLayer(_ page: WKWebView) -> UIView {
@@ -315,7 +345,10 @@ final class ChromeOverlays {
     return layer
   }
 
-  private func paintSurface(under webview: WKWebView, host: UIView) {
+  private func paintSurface(
+    under webview: WKWebView,
+    host: UIView
+  ) {
     surfaces.append(
       webview.observe(\.themeColor, options: [.initial, .new]) { [weak host] page, _ in
         let surface = page.themeColor ?? UIColor(named: "LaunchBackground") ?? .systemBackground
@@ -372,19 +405,19 @@ final class ChromeOverlays {
     if let connect = state.connect { model.connect = connect }
     model.headers = state.headers ?? ChromeHeaders(chat: [], ide: [])
     welcome?.layer.zPosition = NavigationController.welcomeZ
-    if state.welcome?.visible ?? false { fadeIn(welcome) } else { fadeOut(welcome) }
+    (state.welcome?.visible ?? false ? fadeIn : fadeOut)(welcome)
     let reveal = state.reveal ?? .none
     if reveal != .none { webview?.endEditing(true) }
     navigation?.web(reports: reveal, ack: state.ack ?? 0)
     settingsModel.themeMode = state.appearance ?? "system"
     settingsModel.state = state.settings
     settingsSheet.update(
-      SheetOpening(isOpen: state.settings?.open ?? false),
+      state.settings?.open ?? false ? .open : .closed,
       over: webview?.window?.rootViewController
     )
     sheets.update(
-      SheetOpening(isOpen: state.connect?.open ?? false),
-      dismissal: SheetDismissal(isBlocked: state.connect?.busy ?? false),
+      state.connect?.open ?? false ? .open : .closed,
+      dismissal: state.connect?.busy ?? false ? .blocked : .allowed,
       over: webview?.window?.rootViewController
     )
   }
@@ -408,7 +441,7 @@ final class ChromeOverlays {
     guard let view else { return }
     view.isHidden = false
     UIView.animate(
-      withDuration: 0.2,
+      withDuration: Metric.fastDuration,
       animations: { view.alpha = 1 },
       completion: { _ in view.isHidden = view.alpha == 0 }
     )
@@ -417,7 +450,7 @@ final class ChromeOverlays {
   private func fadeOut(_ view: UIView?) {
     guard let view else { return }
     UIView.animate(
-      withDuration: 0.2,
+      withDuration: Metric.fastDuration,
       animations: { view.alpha = 0 },
       completion: { _ in view.isHidden = view.alpha == 0 }
     )
@@ -425,17 +458,16 @@ final class ChromeOverlays {
 
   private func mount<Content: View>(
     _ content: Content,
-    sized: Bool = true,
-    hidden: Bool = true,
+    style: MountStyle = .intrinsicHidden,
     place: (UIView, UIView) -> [NSLayoutConstraint]
   ) -> UIView? {
     guard let host = webview?.superview ?? webview else { return nil }
     let controller = UIHostingController(rootView: content)
     controller.view.backgroundColor = .clear
-    if sized { controller.sizingOptions = .intrinsicContentSize }
+    if style.sized { controller.sizingOptions = .intrinsicContentSize }
     controller.view.translatesAutoresizingMaskIntoConstraints = false
     controller.view.alpha = 0
-    controller.view.isHidden = hidden
+    controller.view.isHidden = style.hidden
     host.addSubview(controller.view)
     NSLayoutConstraint.activate(place(controller.view, host))
     hosted.append(controller)

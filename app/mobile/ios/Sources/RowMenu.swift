@@ -46,16 +46,23 @@ final class RowMenu: NSObject {
   private var menuUp = false
   private var pendingConfirm: UIAlertController?
 
-  init(page: WKWebView, host: UIView, send: @escaping (ChromeIntent) -> Void) {
+  init(
+    page: WKWebView,
+    host: UIView,
+    send: @escaping (ChromeIntent) -> Void
+  ) {
     self.page = page
     self.host = host
     self.send = send
   }
 
-  func take(_ type: String, _ body: [String: Any]) -> Bool {
+  func take(
+    _ type: String,
+    _ body: [String: Any]
+  ) -> Bool {
     switch type {
     case "rowDrag":
-      if body["active"] as? Bool ?? false { Haptics.lift() } else { Haptics.tap() }
+      (body["active"] as? Bool ?? false ? Haptics.lift : Haptics.tap)()
       return true
     case "rowMenu":
       guard let rowId = body["rowId"] as? String else { return true }
@@ -91,7 +98,11 @@ final class RowMenu: NSObject {
     )
   }
 
-  private func open(row: String, rect: CGRect, actions: [Action]) {
+  private func open(
+    row: String,
+    rect: CGRect,
+    actions: [Action]
+  ) {
     guard !menuUp, !actions.isEmpty, let page, let host else { return }
     let anchor = Anchor(frame: page.convert(rect, to: host))
     anchor.menu = menu(actions, row: row)
@@ -107,11 +118,14 @@ final class RowMenu: NSObject {
     anchor.performPrimaryAction()
   }
 
-  private func menu(_ actions: [Action], row: String) -> UIMenu {
+  private func menu(
+    _ actions: [Action],
+    row: String
+  ) -> UIMenu {
     let item = { [weak self] (action: Action) in
       UIAction(
         title: action.title,
-        image: action.icon.flatMap(CrowbarIcon.init(named:))?.image(size: 20),
+        image: action.icon.flatMap(CrowbarIcon.init(named:))?.image(size: IconSize.large),
         attributes: action.destructive ? .destructive : []
       ) { [weak self] _ in self?.pick(action, row: row) }
     }
@@ -135,7 +149,10 @@ final class RowMenu: NSObject {
     }
   }
 
-  private func pick(_ action: Action, row: String) {
+  private func pick(
+    _ action: Action,
+    row: String
+  ) {
     let picked = ChromeIntent.of("rowAction", ["rowId": row, "actionId": action.id])
     guard let confirm = action.confirm else { return send(picked) }
     let alert = UIAlertController(
@@ -150,7 +167,8 @@ final class RowMenu: NSObject {
       }
     )
     // PLATFORM: Presenting while the menu is still dismissing is silently dropped by UIKit.
-    if menuUp { pendingConfirm = alert } else { present(alert) }
+    guard menuUp else { return present(alert) }
+    pendingConfirm = alert
   }
 
   private func present(_ alert: UIAlertController) {

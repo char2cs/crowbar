@@ -44,7 +44,22 @@ final class ChromeStateTests: XCTestCase {
   }
 
   func testUnknownRevealAndStageAreRejected() {
-    XCTAssertThrowsError(try decode(Reveal.self, #""sideways""#))
-    XCTAssertThrowsError(try decode(ConnectStage.self, #""done""#))
+    for rejected in rejectedCases {
+      XCTAssertThrowsError(try rejected.decode(), rejected.name)
+    }
   }
+
+  private struct RejectedCase {
+    let name: String
+    let decode: () throws -> Any
+  }
+
+  private let rejectedCases = [
+    RejectedCase(name: "reveal") {
+      try JSONDecoder().decode(Reveal.self, from: Data(#""sideways""#.utf8))
+    },
+    RejectedCase(name: "stage") {
+      try JSONDecoder().decode(ConnectStage.self, from: Data(#""done""#.utf8))
+    },
+  ]
 }

@@ -24,6 +24,6 @@ final class ModelPickerModel: ObservableObject {
     guard let comma = dataURL.firstIndex(of: ","),
       let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...]))
     else { return nil }
-    return UIImage(data: data, scale: 3)
+    return UIImage(data: data, scale: Metric.iconScale)
   }
 }

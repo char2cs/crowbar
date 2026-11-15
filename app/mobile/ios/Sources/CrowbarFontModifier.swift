@@ -7,7 +7,10 @@ struct CrowbarFontModifier: ViewModifier {
   @ScaledMetric private var size: CGFloat
   let weight: Font.Weight
 
-  init(style: Font.TextStyle, weight: Font.Weight) {
+  init(
+    style: Font.TextStyle,
+    weight: Font.Weight
+  ) {
     _size = ScaledMetric(wrappedValue: Self.baseSize(style), relativeTo: style)
     self.weight = weight
   }
@@ -27,7 +30,7 @@ struct CrowbarFontModifier: ViewModifier {
     case .subheadline: 15
     case .footnote: 13
     case .caption: 12
-    default: 11
+    default: Metric.fallbackTextSize
     }
   }
 

@@ -11,22 +11,55 @@ struct HostListSection: View {
 
   var body: some View {
     Section {
-      ForEach(list.hosts) { host in
-        Row(
-          host: host,
-          shown: list.shownHost == host.id,
-          revoking: list.revoking.contains(host.id),
-          text: text,
-          secondaryText: secondaryText,
-          palette: palette,
-          send: send
-        )
+      rows
+      add
+    }
+  }
+
+  private var rows: some View {
+    ForEach(list.hosts) { host in
+      Row(
+        host: host,
+        shown: list.shownHost == host.id,
+        revoking: list.revoking.contains(host.id),
+        text: text,
+        secondaryText: secondaryText,
+        palette: palette,
+        send: send
+      )
+    }
+  }
+
+  private var add: some View {
+    Button(action: addHost) { IconRow(icon: .plus, title: "Add host", text: text) }
+  }
+
+  private var addHost: () -> Void {
+    {
+      Haptics.select()
+      send(.of("addHost"))
+    }
+  }
+
+  private struct Trailing: View {
+    let revoking: Bool
+    let shown: Bool
+
+    var body: some View {
+      switch (revoking, shown) {
+      case (true, _): ProgressView()
+      case (false, true): PhosphorIcon(.check, size: IconSize.standard)
+      case (false, false): EmptyView()
       }
-      Button {
-        Haptics.select()
-        send(.of("addHost"))
-      } label: {
-        IconRow(icon: .plus, title: "Add host", text: text)
+    }
+  }
+
+  private struct RevokeLabel: View {
+    var body: some View {
+      Label {
+        Text("Revoke")
+      } icon: {
+        Image(uiImage: CrowbarIcon.trash.image(size: IconSize.xlarge))
       }
     }
   }
@@ -41,36 +74,32 @@ struct HostListSection: View {
     let send: (ChromeIntent) -> Void
 
     var body: some View {
-      Button {
+      Button(action: select) { line }
+        .tint(text)
+        .disabled(revoking)
+        // PLATFORM: Not `role: .destructive`: that has the list drop the row at once, while the host stays in
+        // PLATFORM: the model until the web has asked and revoked, and the next update then miscounts.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) { revoke }
+        .accessibilityAddTraits(shown ? .isSelected : [])
+    }
+
+    private var select: () -> Void {
+      {
         Haptics.select()
         send(.of("selectHost", ["id": host.id]))
-      } label: {
-        HostLine(host: host, text: text, secondaryText: secondaryText, palette: palette) {
-          if revoking {
-            ProgressView()
-          } else if shown {
-            PhosphorIcon(.check, size: 18)
-          }
-        }
-        .contentShape(.rect)
       }
-      .tint(text)
-      .disabled(revoking)
-      // PLATFORM: Not `role: .destructive`: that has the list drop the row at once, while the host stays in
-      // PLATFORM: the model until the web has asked and revoked, and the next update then miscounts.
-      .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-        Button {
-          send(.of("revokeHost", ["id": host.id]))
-        } label: {
-          Label {
-            Text("Revoke")
-          } icon: {
-            Image(uiImage: CrowbarIcon.trash.image(size: 22))
-          }
-        }
+    }
+
+    private var line: some View {
+      HostLine(host: host, text: text, secondaryText: secondaryText, palette: palette) {
+        Trailing(revoking: revoking, shown: shown)
+      }
+      .contentShape(.rect)
+    }
+
+    private var revoke: some View {
+      Button(action: { send(.of("revokeHost", ["id": host.id])) }) { RevokeLabel() }
         .tint(.red)
-      }
-      .accessibilityAddTraits(shown ? .isSelected : [])
     }
   }
 }

@@ -6,7 +6,10 @@ import UIKit
 struct CrowbarHeadingModifier: ViewModifier {
   @ScaledMetric private var size: CGFloat
 
-  init(size: CGFloat, style: Font.TextStyle) {
+  init(
+    size: CGFloat,
+    style: Font.TextStyle
+  ) {
     _size = ScaledMetric(wrappedValue: size, relativeTo: style)
   }
 

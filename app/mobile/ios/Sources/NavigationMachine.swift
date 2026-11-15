@@ -25,7 +25,10 @@ struct NavigationMachine {
   private var origin = 1.0
   private var travel = 0.0...3.0
 
-  init(width: Double, strip: Double) {
+  init(
+    width: Double,
+    strip: Double
+  ) {
     self.width = width
     self.strip = strip
   }
@@ -34,7 +37,7 @@ struct NavigationMachine {
   var isAwaitingWeb: Bool { acked < sent }
 
   private func span(_ gap: Int) -> Double { gap == 1 ? width : width - strip }
-  private var atScreen: Bool { abs(position - position.rounded()) < 1e-9 }
+  private var atScreen: Bool { abs(position - position.rounded()) < Motion.settleTolerance }
 
   mutating func beginDrag(toward: Swipe) -> [NavigationCommand]? {
     let from = Int(position.rounded())
@@ -57,10 +60,13 @@ struct NavigationMachine {
     position = min(Double(gap + 1), max(Double(gap), origin - translation / span(gap)))
   }
 
-  mutating func endDrag(velocity: Double, ending: DragEnd) -> [NavigationCommand] {
+  mutating func endDrag(
+    velocity: Double,
+    ending: DragEnd
+  ) -> [NavigationCommand] {
     guard phase == .dragging else { return [] }
     let units = -velocity / span(gap)
-    let thrown = ending == .cancelled ? position : position + units * 0.15
+    let thrown = ending == .cancelled ? position : position + units * Motion.throwSeconds
     let landing = thrown - Double(gap) > 0.5 ? gap + 1 : gap
     return settle(to: Screen(rawValue: landing) ?? .chat, velocity: units)
   }
@@ -78,7 +84,10 @@ struct NavigationMachine {
     position <= 1 ? freezeIfNeeded() : []
   }
 
-  mutating func web(reports screen: Screen, ack: Int) -> [NavigationCommand] {
+  mutating func web(
+    reports screen: Screen,
+    ack: Int
+  ) -> [NavigationCommand] {
     if ack < acked { sent = ack }
     acked = ack
     web = screen
@@ -101,14 +110,20 @@ struct NavigationMachine {
     start(settling: screen, velocity: 0)
   }
 
-  private mutating func settle(to screen: Screen, velocity: Double) -> [NavigationCommand] {
+  private mutating func settle(
+    to screen: Screen,
+    velocity: Double
+  ) -> [NavigationCommand] {
     var commands = screen >= .ide ? freezeIfNeeded() : []
     commands += tell(screen)
     start(settling: screen, velocity: velocity)
     return commands + releaseSnapshot()
   }
 
-  private mutating func start(settling screen: Screen, velocity: Double) {
+  private mutating func start(
+    settling screen: Screen,
+    velocity: Double
+  ) {
     let target = Double(screen.rawValue)
     travel = min(position, target)...max(position, target)
     self.velocity = velocity
@@ -128,7 +143,7 @@ struct NavigationMachine {
     let omega = 2 * Double.pi / Self.response
     var remaining = dt
     while remaining > 0 {
-      let step = min(remaining, 1.0 / 240)
+      let step = min(remaining, 1.0 / Motion.stepsPerSecond)
       let accel = -omega * omega * (position - target) - 2 * omega * velocity
       velocity += accel * step
       position += velocity * step
@@ -138,16 +153,20 @@ struct NavigationMachine {
       position = min(travel.upperBound, max(travel.lowerBound, position))
       velocity = 0
     }
-    if abs(position - target) < Self.rest, abs(velocity) < 0.05 { arrive(at: screen) }
+    if abs(position - target) < Self.rest, abs(velocity) < Motion.atRestVelocity {
+      arrive(at: screen)
+    }
     return releaseSnapshot()
+  }
+
+  private func step(toward screen: Screen) -> Screen? {
+    Screen(rawValue: intended.rawValue + (intended < screen ? 1 : -1))
   }
 
   private mutating func tell(_ screen: Screen) -> [NavigationCommand] {
     var commands: [NavigationCommand] = []
     while intended != screen {
-      guard let next = Screen(rawValue: intended.rawValue + (intended < screen ? 1 : -1)) else {
-        break
-      }
+      guard let next = step(toward: screen) else { break }
       sent += 1
       commands.append(.send(Self.intent(from: intended, to: next), seq: sent))
       intended = next
@@ -155,7 +174,10 @@ struct NavigationMachine {
     return commands
   }
 
-  private static func intent(from: Screen, to: Screen) -> String {
+  private static func intent(
+    from: Screen,
+    to: Screen
+  ) -> String {
     switch (from, to) {
     case (.chat, .chatList): return "openChatList"
     case (.chatList, .chat): return "closeChatList"
@@ -204,9 +226,9 @@ struct NavigationMachine {
       ideOffset: ideOffset,
       amount: amount,
       dim: dim,
-      shadow: 0.18 * min(1, amount * 4),
+      shadow: Motion.shadowAlpha * min(1, amount * Motion.rampFactor),
       chatHeaderAlpha: x >= 2 ? 0 : min(1, x),
-      ideHeaderAlpha: x <= 1 ? 0 : x <= 2 ? 1 : 3 - x
+      ideHeaderAlpha: x <= 1 ? 0 : x <= 2 ? 1 : Double(Screen.files.rawValue) - x
     )
   }
 }

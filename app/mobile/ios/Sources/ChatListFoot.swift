@@ -6,62 +6,74 @@ struct ChatListFoot: View {
   @Environment(\.colorScheme) private var colorScheme
 
   private var sidebar: SidebarPalette? { model.palette?.sidebar }
+  private var ink: Color { sidebar?.text ?? .primary }
 
   var body: some View {
-    GlassEffectContainer(spacing: 12) {
-      HStack(spacing: 12) {
-        Button {
-          Haptics.tap()
-          model.send(.of("openSettings"))
-        } label: {
-          PhosphorIcon(.gear)
-            .frame(width: 44, height: 44)
-            .foregroundStyle(sidebar?.text ?? .primary)
-            .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
-        .accessibilityLabel("Settings")
+    GlassEffectContainer(spacing: Spacing.medium) { row }
+      .padding(.horizontal, Spacing.large)
+      .padding(.bottom, Spacing.small)
+      .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+      .environment(\.colorScheme, sidebar == nil ? colorScheme : .dark)
+  }
 
-        Button {
-          Haptics.tap()
-          model.send(.of("openHostPicker"))
-        } label: {
-          HostPlaceIcon(
-            hostId: model.hostPlace == "local" ? "local" : "remote",
-            state: model.hostStatus,
-            palette: model.palette
-          )
-          .frame(width: 44, height: 44)
-          .foregroundStyle(sidebar?.text ?? .primary)
-          .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
-        .accessibilityLabel("Hosts")
-
-        Spacer(minLength: 0)
-
-        Button {
-          Haptics.tap()
-          model.send(.of("newThread"))
-        } label: {
-          HStack(spacing: 6) {
-            PhosphorIcon(.plus, size: 16)
-            Text("New thread")
-          }
-          .font(.subheadline.weight(.semibold))
-          .padding(.horizontal, 6)
-          .foregroundStyle(sidebar?.brandText ?? .white)
-        }
-        .buttonStyle(.glassProminent)
-        .tint(sidebar?.brand ?? model.brandGround ?? .green)
-        .controlSize(.large)
-      }
+  private var row: some View {
+    HStack(spacing: Spacing.medium) {
+      settings
+      hosts
+      Spacer(minLength: 0)
+      newThread
     }
-    .padding(.horizontal, 16)
-    .padding(.bottom, 8)
-    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-    .environment(\.colorScheme, sidebar == nil ? colorScheme : .dark)
+  }
+
+  private var settings: some View {
+    Button(action: { open("openSettings") }) {
+      PhosphorIcon(.gear)
+        .frame(width: Metric.tapTarget, height: Metric.tapTarget)
+        .foregroundStyle(ink)
+        .contentShape(.circle)
+    }
+    .buttonStyle(.plain)
+    .glassEffect(.regular.interactive(), in: .circle)
+    .accessibilityLabel("Settings")
+  }
+
+  private var hosts: some View {
+    Button(action: { open("openHostPicker") }) {
+      HostPlaceIcon(
+        hostId: model.hostPlace == "local" ? "local" : "remote",
+        state: model.hostStatus,
+        palette: model.palette
+      )
+      .frame(width: Metric.tapTarget, height: Metric.tapTarget)
+      .foregroundStyle(ink)
+      .contentShape(.circle)
+    }
+    .buttonStyle(.plain)
+    .glassEffect(.regular.interactive(), in: .circle)
+    .accessibilityLabel("Hosts")
+  }
+
+  private var newThread: some View {
+    Button(action: { open("newThread") }) { newThreadLabel }
+      .buttonStyle(.glassProminent)
+      .tint(sidebar?.brand ?? model.brandGround ?? .green)
+      .controlSize(.large)
+  }
+
+  private var newThreadLabel: some View {
+    HStack(spacing: Spacing.snug) {
+      PhosphorIcon(.plus, size: IconSize.compact)
+      Text("New thread")
+    }
+    .font(.subheadline.weight(.semibold))
+    .padding(.horizontal, Spacing.snug)
+    .foregroundStyle(sidebar?.brandText ?? .white)
+  }
+
+  private var open: (String) -> Void {
+    { intent in
+      Haptics.tap()
+      model.send(.of(intent))
+    }
   }
 }

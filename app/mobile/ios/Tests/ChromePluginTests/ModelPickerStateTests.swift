@@ -54,10 +54,23 @@ final class ModelPickerStateTests: XCTestCase {
       effort: nil,
       permission: nil
     )
-    XCTAssertEqual(state.filtered(by: "  ").map(\.id), ["a", "b"])
-    XCTAssertEqual(state.filtered(by: "deep").map(\.id), ["a"])
-    XCTAssertEqual(state.filtered(by: "deep").first?.models.map(\.id), ["2"])
-    XCTAssertEqual(state.filtered(by: "BETA").first?.models.map(\.id), ["3"])
-    XCTAssertTrue(state.filtered(by: "zzz").isEmpty)
+    for item in filterCases {
+      let shown = state.filtered(by: item.query)
+      XCTAssertEqual(shown.map(\.id), item.providerIds, item.query)
+      XCTAssertEqual(shown.first?.models.map(\.id) ?? [], item.firstModelIds, item.query)
+    }
   }
+
+  private struct FilterCase {
+    let query: String
+    let providerIds: [String]
+    let firstModelIds: [String]
+  }
+
+  private let filterCases = [
+    FilterCase(query: "  ", providerIds: ["a", "b"], firstModelIds: ["1", "2"]),
+    FilterCase(query: "deep", providerIds: ["a"], firstModelIds: ["2"]),
+    FilterCase(query: "BETA", providerIds: ["b"], firstModelIds: ["3"]),
+    FilterCase(query: "zzz", providerIds: [], firstModelIds: []),
+  ]
 }

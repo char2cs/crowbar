@@ -14,7 +14,12 @@ private struct FakeWeb {
   }
 
   /// Applies the next `count` intents and returns the report the web would push after them.
-  mutating func apply(_ count: Int = .max) -> (Screen, Int) {
+  mutating func apply(
+    _ count: Int = .max
+  ) -> (
+    Screen,
+    Int
+  ) {
     for (name, seq) in inbox.prefix(count) {
       switch name {
       case "openChatList": screen = .chatList
@@ -47,7 +52,11 @@ final class NavigationMachineTests: XCTestCase {
   }
 
   /// A full swipe: down, travel, up with a fling.
-  private func swipe(_ toward: Swipe, distance: Double, velocity: Double) {
+  private func swipe(
+    _ toward: Swipe,
+    distance: Double,
+    velocity: Double
+  ) {
     guard let began = machine.beginDrag(toward: toward) else { return }
     run(began)
     machine.drag(translation: toward == .rightward ? distance : -distance)
@@ -248,28 +257,48 @@ final class NavigationMachineTests: XCTestCase {
     XCTAssertEqual(frames.chatHeaderAlpha, 0, accuracy: 1e-9)
   }
 
-  func testShadowStaysOnTheSlidAsideCardWhenADrawerRestsOpen() {
-    XCTAssertEqual(machine.frames.shadow, 0)
-    swipe(.rightward, distance: 400, velocity: 900)
-    settleFully()
-    XCTAssertEqual(machine.position, 0)
-    var frames = machine.frames
-    XCTAssertEqual(frames.gap, 0)
-    XCTAssertEqual(frames.shadow, 0.18, accuracy: 1e-9)
-    XCTAssertEqual(frames.amount, 1)
+  private enum Aftermath { case settle, settleAndReport }
+
+  private struct DrawerCase {
+    let name: String
+    let swipes: [(toward: Swipe, then: Aftermath)]
+    let position: Double
+    let gap: Int
+    var amount: Double?
   }
 
-  func testShadowStaysWhenTheFilesDrawerRestsOpen() {
-    swipe(.leftward, distance: 400, velocity: 900)
+  private let drawerCases = [
+    DrawerCase(
+      name: "the chat list rests open",
+      swipes: [(.rightward, .settle)],
+      position: 0,
+      gap: 0,
+      amount: 1
+    ),
+    DrawerCase(
+      name: "the files drawer rests open",
+      swipes: [(.leftward, .settleAndReport), (.leftward, .settleAndReport)],
+      position: 3,
+      gap: 2
+    ),
+  ]
+
+  func testShadowStaysOnTheSlidAsideCardWhenADrawerRestsOpen() {
+    for item in drawerCases {
+      setUp()
+      XCTAssertEqual(machine.frames.shadow, 0, item.name)
+      item.swipes.forEach(fling)
+      XCTAssertEqual(machine.position, item.position, item.name)
+      XCTAssertEqual(machine.frames.gap, item.gap, item.name)
+      XCTAssertEqual(machine.frames.shadow, 0.18, accuracy: 1e-9, item.name)
+      XCTAssertEqual(machine.frames.amount, item.amount ?? machine.frames.amount, item.name)
+    }
+  }
+
+  private func fling(_ step: (toward: Swipe, then: Aftermath)) {
+    swipe(step.toward, distance: 400, velocity: 900)
     settleFully()
-    report()
-    swipe(.leftward, distance: 400, velocity: 900)
-    settleFully()
-    report()
-    XCTAssertEqual(machine.position, 3)
-    let frames = machine.frames
-    XCTAssertEqual(frames.gap, 2)
-    XCTAssertEqual(frames.shadow, 0.18, accuracy: 1e-9)
+    if step.then == .settleAndReport { report() }
   }
 
   func testFramesSlideTheIDEAwayFromTheFilesWithItsHeader() {

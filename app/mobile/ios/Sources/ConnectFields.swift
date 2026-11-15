@@ -24,32 +24,40 @@ struct ConnectFields: View {
   }
 
   private var address: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: Spacing.roomy) {
       Text("Run crowbar pair on the host first: it shows the fingerprint and the code you’ll need.")
         .font(.subheadline)
         .foregroundStyle(secondaryText)
-      Field(label: "Name", raised: raised) {
-        TextField("homelab", text: $drafts.name)
-          .accessibilityLabel("Name")
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-      }
-      Field(label: "Address", raised: raised) {
-        TextField("homelab.example.com or 1.2.3.4", text: $drafts.address)
-          .accessibilityLabel("Address")
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .keyboardType(.URL)
-          .font(.body.monospaced())
-      }
+      nameField
+      addressField
       Text("Add a port, like :4000, if the host is not on the default one.")
         .font(.footnote)
         .foregroundStyle(secondaryText)
     }
   }
 
+  private var nameField: some View {
+    Field(label: "Name", raised: raised) {
+      TextField("homelab", text: $drafts.name)
+        .accessibilityLabel("Name")
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+    }
+  }
+
+  private var addressField: some View {
+    Field(label: "Address", raised: raised) {
+      TextField("homelab.example.com or 1.2.3.4", text: $drafts.address)
+        .accessibilityLabel("Address")
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .keyboardType(.URL)
+        .font(.body.monospaced())
+    }
+  }
+
   private var fingerprintCheck: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: Spacing.medium) {
       Text("Confirm this matches the fingerprint printed by that host’s CLI:")
         .font(.subheadline)
         .foregroundStyle(secondaryText)
@@ -57,8 +65,8 @@ struct ConnectFields: View {
         .font(.footnote.monospaced())
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(raised, in: .rect(cornerRadius: 16))
+        .padding(Spacing.roomy)
+        .background(raised, in: .rect(cornerRadius: Corner.card))
     }
   }
 
@@ -80,12 +88,12 @@ struct ConnectFields: View {
     @ViewBuilder let input: () -> Input
 
     var body: some View {
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Spacing.snug) {
         Text(label).font(.subheadline.weight(.medium))
         input()
-          .padding(.horizontal, 14)
-          .frame(minHeight: 48)
-          .background(raised, in: .rect(cornerRadius: 14))
+          .padding(.horizontal, Spacing.roomy)
+          .frame(minHeight: Metric.controlHeight)
+          .background(raised, in: .rect(cornerRadius: Corner.row))
       }
     }
   }

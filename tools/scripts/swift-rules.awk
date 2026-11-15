@@ -7,7 +7,7 @@ function strip(s) { gsub(/\\"/, "", s); gsub(/"[^"]*"/, "\"\"", s); return s }
   if (raw ~ /swiftlint:disable|swift-format-ignore/ && raw !~ / - /) report(NR, "lint-reason", "lint suppression without ' - reason'")
   if (mode == "test") {
     if (raw ~ /^[ \t]*func test[A-Za-z0-9_]*\(/) ntests++
-    if (raw ~ /cases|CASES/) table = 1
+    tmp = raw; gsub(/allCases/, "", tmp); if (tmp ~ /[Cc]ases|CASES/) table = 1
     if (raw ~ /Thread\.sleep|Task\.sleep|URLSession\.shared|homeDirectoryForCurrentUser|NSHomeDirectory|Process\(\)/ && raw !~ /^[ \t]*\/\//) report(NR, "real-infra", "test touches real infrastructure: use an in-memory fake")
     next
   }

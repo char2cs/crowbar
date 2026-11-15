@@ -5,14 +5,6 @@ struct ConnectDrafts {
   var address = ""
   var code = ""
 
-  init() {}
-
-  init(from state: ConnectState?) {
-    name = state?.name ?? ""
-    address = state?.address ?? ""
-    code = state?.code ?? ""
-  }
-
   var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
   var trimmedAddress: String { address.trimmingCharacters(in: .whitespaces) }
 
@@ -30,5 +22,11 @@ struct ConnectDrafts {
     case .fingerprint: return .confirmFingerprint
     case .code: return .submitCode(code)
     }
+  }
+}
+
+extension ConnectDrafts {
+  init(from state: ConnectState?) {
+    self.init(name: state?.name ?? "", address: state?.address ?? "", code: state?.code ?? "")
   }
 }

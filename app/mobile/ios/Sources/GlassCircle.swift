@@ -12,22 +12,30 @@ struct GlassCircle: View {
   static let diameter: CGFloat = 44
 
   var body: some View {
-    Button {
+    Button(action: tap) { face }
+      .buttonStyle(.plain)
+      .disabled(!enabled)
+      .opacity(enabled ? 1 : Alpha.muted)
+      .accessibilityLabel(label)
+      .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+  }
+
+  private var tap: () -> Void {
+    {
       Haptics.tap()
       action()
-    } label: {
-      Group {
-        if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon, emphasis: 0.5) }
-      }
+    }
+  }
+
+  private var face: some View {
+    Group { glyph }
       .foregroundStyle(tint ?? .primary)
       .frame(width: Self.diameter, height: Self.diameter)
       .contentShape(.circle)
       .glassEffect(.regular.interactive(), in: .circle)
-    }
-    .buttonStyle(.plain)
-    .disabled(!enabled)
-    .opacity(enabled ? 1 : 0.4)
-    .accessibilityLabel(label)
-    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+  }
+
+  @ViewBuilder private var glyph: some View {
+    if let icon = CrowbarIcon(named: icon) { PhosphorIcon(icon, emphasis: 0.5) }
   }
 }

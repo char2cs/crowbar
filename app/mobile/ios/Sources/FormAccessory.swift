@@ -19,7 +19,10 @@ enum FormAccessory {
     object_setClass(content, bare)
   }
 
-  private static func subclass(of base: AnyClass, named name: String) -> AnyClass? {
+  private static func subclass(
+    of base: AnyClass,
+    named name: String
+  ) -> AnyClass? {
     if let existing = NSClassFromString(name) { return existing }
     guard let made = objc_allocateClassPair(base, name, 0) else { return nil }
     let selector = #selector(getter: UIResponder.inputAccessoryView)

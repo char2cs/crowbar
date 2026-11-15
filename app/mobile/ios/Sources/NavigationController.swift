@@ -27,14 +27,13 @@ final class NavigationController: NSObject {
   init(
     host: UIView,
     webview: WKWebView,
-    list: UIView,
-    files: UIView,
+    layers: NavigationLayers,
     send: @escaping (ChromeIntent) -> Void
   ) {
     self.host = host
     self.webview = webview
-    self.list = list
-    self.files = files
+    list = layers.list
+    files = layers.files
     self.send = send
     machine = NavigationMachine(width: Double(host.bounds.width), strip: Double(Self.strip))
     super.init()
@@ -44,7 +43,10 @@ final class NavigationController: NSObject {
 
   deinit { link?.invalidate() }
 
-  func web(reports reveal: Reveal, ack: Int) {
+  func web(
+    reports reveal: Reveal,
+    ack: Int
+  ) {
     run(machine.web(reports: reveal.screen, ack: ack))
     resume()
   }
@@ -53,7 +55,10 @@ final class NavigationController: NSObject {
     run(machine.willOpenIde())
   }
 
-  private func install(in host: UIView, webview: WKWebView) {
+  private func install(
+    in host: UIView,
+    webview: WKWebView
+  ) {
     for layer in [list, files] {
       layer.frame = host.bounds
       layer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -67,7 +72,7 @@ final class NavigationController: NSObject {
     host.insertSubview(dim, belowSubview: webview)
 
     shadow.layer.shadowColor = UIColor.black.cgColor
-    shadow.layer.shadowRadius = 24
+    shadow.layer.shadowRadius = Metric.cardShadowRadius
     shadow.layer.cornerCurve = .continuous
     shadow.isUserInteractionEnabled = false
     host.insertSubview(shadow, belowSubview: webview)
@@ -151,7 +156,11 @@ final class NavigationController: NSObject {
     }
     lastTick = 0
     let link = CADisplayLink(target: LinkTarget(self), selector: #selector(LinkTarget.step(_:)))
-    link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+    link.preferredFrameRateRange = CAFrameRateRange(
+      minimum: Motion.minFrameRate,
+      maximum: Motion.maxFrameRate,
+      preferred: Motion.maxFrameRate
+    )
     link.add(to: .main, forMode: .common)
     self.link = link
     render()
@@ -160,7 +169,7 @@ final class NavigationController: NSObject {
   func step(_ link: CADisplayLink) {
     let dt = lastTick == 0 ? link.duration : link.timestamp - lastTick
     lastTick = link.timestamp
-    run(machine.tick(min(dt, 1.0 / 30)))
+    run(machine.tick(min(dt, Motion.maxFrameStep)))
     render()
     if case .settling = machine.phase { return }
     link.invalidate()
@@ -181,15 +190,15 @@ final class NavigationController: NSObject {
     }
   }
 
+  private func blank(like webview: WKWebView) -> UIView {
+    let view = UIView()
+    view.backgroundColor = webview.backgroundColor
+    return view
+  }
+
   private func freezeChat() {
     guard snapshot == nil, let webview, let host else { return }
-    let frozen: UIView
-    if let taken = webview.snapshotView(afterScreenUpdates: false) {
-      frozen = taken
-    } else {
-      frozen = UIView()
-      frozen.backgroundColor = webview.backgroundColor
-    }
+    let frozen = webview.snapshotView(afterScreenUpdates: false) ?? blank(like: webview)
     frozen.bounds = webview.bounds
     frozen.center = webview.center
     frozen.layer.cornerCurve = .continuous
@@ -226,19 +235,44 @@ final class NavigationController: NSObject {
     let frames = machine.frames
     let width = host.bounds.width
 
+    let radius = renderCards(frames, webview: webview)
+    renderShadow(frames, host: host, webview: webview, radius: radius)
+
+    park(list, by: machine.position < 1 ? 0 : width)
+    park(files, by: machine.position > 2 ? 0 : width)
+    list.layer.zPosition = Z.underlay
+    files.layer.zPosition = Z.underlay
+
+    place(chatHeader, offset: frames.chatOffset, alpha: frames.chatHeaderAlpha, z: Z.chatHeader)
+    place(ideHeader, offset: frames.ideOffset, alpha: frames.ideHeaderAlpha, z: Z.ideHeader)
+    placeCatcher(width: width, height: host.bounds.height)
+  }
+
+  private func renderCards(
+    _ frames: Frames,
+    webview: WKWebView
+  ) -> CGFloat {
     let webIsIde = machine.hasSnapshot || machine.web >= .ide
     webview.transform = transform(webIsIde ? frames.ideOffset : frames.chatOffset)
     snapshot?.transform = transform(frames.chatOffset)
 
     let moving: UIView? =
       frames.gap == nil ? nil : (frames.gap == 2 ? webview : (snapshot ?? webview))
-    let radius = CGFloat(44 * min(1, frames.amount * 4))
+    let radius = Metric.tapTarget * CGFloat(min(1, frames.amount * Motion.rampFactor))
     for card in [webview, snapshot].compactMap({ $0 }) {
       let rounded = card === moving
       card.layer.cornerRadius = rounded ? radius : 0
       card.clipsToBounds = rounded || card === snapshot
     }
+    return radius
+  }
 
+  private func renderShadow(
+    _ frames: Frames,
+    host: UIView,
+    webview: WKWebView,
+    radius: CGFloat
+  ) {
     let offset = CGFloat(frames.gap == 2 ? frames.ideOffset : frames.chatOffset)
     shadow.bounds = CGRect(origin: .zero, size: host.bounds.size)
     shadow.center = CGPoint(x: host.bounds.midX + offset, y: host.bounds.midY)
@@ -255,22 +289,21 @@ final class NavigationController: NSObject {
     let overIde = frames.gap == 1
     dim.layer.zPosition = overIde ? Z.scrimOverIde : Z.scrim
     shadow.layer.zPosition = overIde ? Z.shadowOverIde : Z.shadow
-
-    park(list, by: machine.position < 1 ? 0 : width)
-    park(files, by: machine.position > 2 ? 0 : width)
-    list.layer.zPosition = Z.underlay
-    files.layer.zPosition = Z.underlay
-
-    place(chatHeader, offset: frames.chatOffset, alpha: frames.chatHeaderAlpha, z: Z.chatHeader)
-    place(ideHeader, offset: frames.ideOffset, alpha: frames.ideHeaderAlpha, z: Z.ideHeader)
-    placeCatcher(width: width, height: host.bounds.height)
   }
 
-  private func park(_ layer: UIView, by offset: CGFloat) {
+  private func park(
+    _ layer: UIView,
+    by offset: CGFloat
+  ) {
     layer.transform = CGAffineTransform(translationX: offset, y: 0)
   }
 
-  private func place(_ views: [UIView], offset: Double, alpha: Double, z: CGFloat) {
+  private func place(
+    _ views: [UIView],
+    offset: Double,
+    alpha: Double,
+    z: CGFloat
+  ) {
     for view in views {
       view.transform = transform(offset)
       view.alpha = CGFloat(alpha)
@@ -279,14 +312,19 @@ final class NavigationController: NSObject {
     }
   }
 
-  private func placeCatcher(width: CGFloat, height: CGFloat) {
+  private func placeCatcher(
+    width: CGFloat,
+    height: CGFloat
+  ) {
     let at = machine.phase == .rest ? Int(machine.position.rounded()) : -1
-    catcher.isHidden = at != 0 && at != 3
+    let closesList = Screen.chatList.rawValue
+    let closesFiles = Screen.files.rawValue
+    catcher.isHidden = at != closesList && at != closesFiles
     switch at {
-    case 0:
+    case closesList:
       catcher.frame = CGRect(x: width - Self.strip, y: 0, width: Self.strip, height: height)
       catcher.accessibilityLabel = "Close chat list"
-    case 3:
+    case closesFiles:
       catcher.frame = CGRect(x: 0, y: 0, width: Self.strip, height: height)
       catcher.accessibilityLabel = "Close files"
     default:
@@ -294,7 +332,7 @@ final class NavigationController: NSObject {
     }
     // PLATFORM: The status bar's glyphs are drawn for the drawer, so the card's strip under them takes the
     // PLATFORM: drawer's colour; the card's own white would swallow the clock where it straddles the edge.
-    catcher.band.backgroundColor = (at == 3 ? files : list).backgroundColor
+    catcher.band.backgroundColor = (at == closesFiles ? files : list).backgroundColor
     catcher.band.frame = CGRect(
       x: 0,
       y: 0,

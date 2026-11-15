@@ -7,7 +7,7 @@ import XCTest
 final class SheetPresenterTests: XCTestCase {
   func testClosingWithNothingPresentedFinishesAtOnce() {
     let presenter = SheetPresenter(
-      undimmed: false,
+      dimming: .dimmed,
       content: { UIViewController() },
       onUserDismiss: {}
     )
@@ -19,7 +19,7 @@ final class SheetPresenterTests: XCTestCase {
   func testOpeningWithoutARootBuildsNoContent() {
     var built = 0
     let presenter = SheetPresenter(
-      undimmed: false,
+      dimming: .dimmed,
       content: {
         built += 1
         return UIViewController()

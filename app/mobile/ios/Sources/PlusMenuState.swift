@@ -7,11 +7,9 @@ struct PlusMenuState: Decodable, Equatable {
 
   var groups: [[PlusMenuItem]] {
     items.reduce(into: [[PlusMenuItem]]()) { groups, item in
-      if item.divider || groups.isEmpty {
-        groups.append([item])
-      } else {
-        groups[groups.count - 1].append(item)
-      }
+      let startsGroup = item.divider || groups.isEmpty
+      let next = startsGroup ? [item] : groups.removeLast() + [item]
+      groups.append(next)
     }
   }
 }

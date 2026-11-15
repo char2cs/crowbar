@@ -10,13 +10,21 @@ struct IconRow: View {
 
   var body: some View {
     HStack(spacing: RowMetrics.gap) {
-      Group { if let icon { PhosphorIcon(icon) } }.frame(width: RowMetrics.icon)
+      glyph.frame(width: RowMetrics.icon)
       Text(title).lineLimit(1)
-      if let value {
-        Spacer(minLength: 8)
-        Text(value).foregroundStyle(secondaryText).lineLimit(1)
-      }
+      valueText
     }
     .foregroundStyle(text)
+  }
+
+  private var glyph: some View {
+    Group { if let icon { PhosphorIcon(icon) } }
+  }
+
+  @ViewBuilder private var valueText: some View {
+    if let value {
+      Spacer(minLength: Spacing.small)
+      Text(value).foregroundStyle(secondaryText).lineLimit(1)
+    }
   }
 }

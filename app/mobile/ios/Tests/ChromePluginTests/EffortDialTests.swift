@@ -45,4 +45,35 @@ final class EffortDialTests: XCTestCase {
     XCTAssertEqual(EffortDial.label("xhigh"), "XHigh")
     XCTAssertEqual(EffortDial.label("max"), "Max")
   }
+
+  private struct StepCase {
+    let name: String
+    let delta: Int
+    let handed: String?
+    let expected: String?
+  }
+
+  private let stepCases = [
+    StepCase(name: "down from medium", delta: -1, handed: "medium", expected: "low"),
+    StepCase(name: "down at the bottom", delta: -1, handed: "low", expected: nil),
+    StepCase(name: "up at the top", delta: 1, handed: "max", expected: nil),
+    StepCase(name: "nothing handed", delta: 1, handed: nil, expected: nil),
+  ]
+
+  func testSteppingMovesOneLevelAndStopsAtTheEnds() {
+    for item in stepCases {
+      var dial = EffortDial()
+      XCTAssertEqual(
+        dial.step(by: item.delta, levels: levels, handed: item.handed),
+        item.expected,
+        item.name
+      )
+    }
+  }
+
+  func testPickingAtAPositionReleasesThatLevelOnce() {
+    var dial = EffortDial()
+    XCTAssertEqual(dial.pick(at: 10, width: 300, levels: levels, handed: "max"), "low")
+    XCTAssertNil(dial.pick(at: 10, width: 300, levels: levels, handed: "max"))
+  }
 }

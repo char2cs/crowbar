@@ -11,20 +11,24 @@ struct ModelPickerState: Decodable, Equatable {
   func filtered(by query: String) -> [PickerProvider] {
     let needle = query.trimmingCharacters(in: .whitespaces)
     guard !needle.isEmpty else { return providers }
-    return providers.compactMap { provider in
-      let models = provider.models.filter {
-        $0.name.localizedCaseInsensitiveContains(needle)
-          || provider.name.localizedCaseInsensitiveContains(needle)
-      }
-      return models.isEmpty
-        ? nil
-        : PickerProvider(
-          id: provider.id,
-          name: provider.name,
-          icon: provider.icon,
-          fallbackIcon: provider.fallbackIcon,
-          models: models
-        )
+    return providers.compactMap { narrowed($0, to: needle) }
+  }
+
+  private func narrowed(
+    _ provider: PickerProvider,
+    to needle: String
+  ) -> PickerProvider? {
+    let models = provider.models.filter {
+      $0.name.localizedCaseInsensitiveContains(needle)
+        || provider.name.localizedCaseInsensitiveContains(needle)
     }
+    guard !models.isEmpty else { return nil }
+    return PickerProvider(
+      id: provider.id,
+      name: provider.name,
+      icon: provider.icon,
+      fallbackIcon: provider.fallbackIcon,
+      models: models
+    )
   }
 }

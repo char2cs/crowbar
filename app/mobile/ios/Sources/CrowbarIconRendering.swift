@@ -20,60 +20,34 @@ extension CrowbarIcon {
   func image(size: CGFloat) -> UIImage {
     let key = "\(rawValue)@\(size)"
     if let cached = Self.rendered.object(forKey: key as NSString) { return cached }
-    let art = art
     let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
-      .image { context in
+      .image { _ in
         UIColor.black.setFill()
         UIColor.black.setStroke()
-        let outline = UIBezierPath(cgPath: path(in: size).cgPath)
-        if art.stroke > 0 {
-          outline.lineWidth = art.stroke * size / art.viewBox
-          outline.lineCapStyle = .round
-          outline.lineJoinStyle = .round
-          outline.stroke()
-        } else {
-          outline.fill()
-        }
+        paint(UIBezierPath(cgPath: path(in: size).cgPath), size: size)
       }
       .withRenderingMode(.alwaysTemplate)
     Self.rendered.setObject(image, forKey: key as NSString)
     return image
   }
 
+  private func paint(
+    _ outline: UIBezierPath,
+    size: CGFloat
+  ) {
+    guard art.stroke > 0 else { return outline.fill() }
+    outline.lineWidth = art.stroke * size / art.viewBox
+    outline.lineCapStyle = .round
+    outline.lineJoinStyle = .round
+    outline.stroke()
+  }
+
   private static let rendered = NSCache<NSString, UIImage>()
 
   static func parse(_ data: String) -> Path {
-    var path = Path()
-    var numbers: [CGFloat] = []
-    var command: Character = "M"
-    func flush() {
-      switch command {
-      case "M" where numbers.count == 2: path.move(to: CGPoint(x: numbers[0], y: numbers[1]))
-      case "L" where numbers.count == 2: path.addLine(to: CGPoint(x: numbers[0], y: numbers[1]))
-      case "C" where numbers.count == 6:
-        path.addCurve(
-          to: CGPoint(x: numbers[4], y: numbers[5]),
-          control1: CGPoint(x: numbers[0], y: numbers[1]),
-          control2: CGPoint(x: numbers[2], y: numbers[3])
-        )
-      case "Z": path.closeSubpath()
-      default: break
-      }
-      numbers = []
-    }
-    for token in data.split(separator: " ") {
-      guard let first = token.first else { continue }
-      if first.isLetter {
-        flush()
-        command = first
-        if first == "Z" { flush() }
-        let rest = token.dropFirst()
-        if let value = Double(rest) { numbers.append(CGFloat(value)) }
-      } else if let value = Double(token) {
-        numbers.append(CGFloat(value))
-      }
-    }
-    flush()
-    return path
+    var parser = PathParser()
+    for token in data.split(separator: " ") { parser.feed(token) }
+    parser.flush()
+    return parser.path
   }
 }

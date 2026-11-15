@@ -1,7 +1,10 @@
 import SwiftUI
 
 enum TabIcon {
-  static func of(kind: String, path: String?) -> CrowbarIcon {
+  static func of(
+    kind: String,
+    path: String?
+  ) -> CrowbarIcon {
     switch kind {
     case "terminal": .terminalWindow
     case "review": .gitPullRequest

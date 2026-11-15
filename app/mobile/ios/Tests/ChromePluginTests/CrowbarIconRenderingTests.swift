@@ -27,8 +27,14 @@ final class CrowbarIconRenderingTests: XCTestCase {
     }
   }
 
+  private let nameCases: [(name: String, icon: CrowbarIcon?)] = [
+    ("PencilSimpleLine", .pencilSimpleLine),
+    ("pencil", nil),
+  ]
+
   func testNamesAreTheWebsPhosphorNames() {
-    XCTAssertEqual(CrowbarIcon(named: "PencilSimpleLine"), .pencilSimpleLine)
-    XCTAssertNil(CrowbarIcon(named: "pencil"))
+    for item in nameCases {
+      XCTAssertEqual(CrowbarIcon(named: item.name), item.icon, item.name)
+    }
   }
 }

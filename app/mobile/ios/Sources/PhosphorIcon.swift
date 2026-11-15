@@ -6,29 +6,37 @@ struct PhosphorIcon: View {
   let emphasis: CGFloat
   @ScaledMetric private var side: CGFloat
 
-  init(_ icon: CrowbarIcon, size: CGFloat = 20, emphasis: CGFloat = 0) {
+  init(
+    _ icon: CrowbarIcon,
+    size: CGFloat = IconSize.large,
+    emphasis: CGFloat = 0
+  ) {
     self.icon = icon
     self.emphasis = emphasis
     _side = ScaledMetric(wrappedValue: size, relativeTo: .body)
   }
 
   var body: some View {
-    let art = icon.art
-    let outline = icon.path(in: side)
-    Group {
-      if art.stroke > 0 {
-        outline.stroke(
-          style: StrokeStyle(
-            lineWidth: art.stroke * side / art.viewBox,
-            lineCap: .round,
-            lineJoin: .round
-          )
-        )
-      } else {
-        outline.fill().overlay { if emphasis > 0 { outline.stroke(lineWidth: emphasis) } }
-      }
+    Group { drawing }
+      .frame(width: side, height: side)
+      .accessibilityHidden(true)
+  }
+
+  private var art: CrowbarIconArt { icon.art }
+  private var outline: Path { icon.path(in: side) }
+
+  @ViewBuilder private var drawing: some View {
+    switch art.stroke > 0 {
+    case true: outline.stroke(style: strokeStyle)
+    case false: outline.fill().overlay { edge }
     }
-    .frame(width: side, height: side)
-    .accessibilityHidden(true)
+  }
+
+  private var strokeStyle: StrokeStyle {
+    StrokeStyle(lineWidth: art.stroke * side / art.viewBox, lineCap: .round, lineJoin: .round)
+  }
+
+  @ViewBuilder private var edge: some View {
+    if emphasis > 0 { outline.stroke(lineWidth: emphasis) }
   }
 }

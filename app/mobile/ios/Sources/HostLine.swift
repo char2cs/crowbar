@@ -12,12 +12,16 @@ struct HostLine<Trailing: View>: View {
     HStack(spacing: RowMetrics.gap) {
       HostPlaceIcon(hostId: host.id, state: host.state, palette: palette)
         .frame(width: RowMetrics.icon)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(host.name).foregroundStyle(text).lineLimit(1)
-        Text(host.endpoint).crowbarUI(.footnote).foregroundStyle(secondaryText).lineLimit(1)
-      }
-      Spacer(minLength: 8)
+      labels
+      Spacer(minLength: Spacing.small)
       trailing().frame(width: RowMetrics.trailing)
+    }
+  }
+
+  private var labels: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(host.name).foregroundStyle(text).lineLimit(1)
+      Text(host.endpoint).crowbarUI(.footnote).foregroundStyle(secondaryText).lineLimit(1)
     }
   }
 }

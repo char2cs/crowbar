@@ -11,7 +11,7 @@ struct WelcomeButton: View {
     } label: {
       Text(model.welcome?.label ?? "")
         .font(.headline)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, Spacing.snug)
     }
     .buttonStyle(.glassProminent)
     .tint(.white)

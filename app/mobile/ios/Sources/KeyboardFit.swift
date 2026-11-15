@@ -51,12 +51,13 @@ final class KeyboardFit: NSObject, UIGestureRecognizerDelegate {
     let keyboard = host.convert(end, from: nil)
     let overlap = hiding ? 0 : max(0, host.bounds.maxY - keyboard.minY)
     up = overlap > 0
-    let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-    let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+    let duration =
+      info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? Motion.keyboardDuration
+    let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? Motion.keyboardCurve
     UIView.animate(
       withDuration: duration,
       delay: 0,
-      options: UIView.AnimationOptions(rawValue: curve << 16)
+      options: UIView.AnimationOptions(rawValue: curve << Motion.curveShift)
     ) {
       // PLATFORM: Bounds and centre, not frame: the reveal may have the webview transformed.
       let height = host.bounds.height - overlap

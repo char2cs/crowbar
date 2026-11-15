@@ -21,6 +21,23 @@ Everything that imports UIKit, SwiftUI, WebKit or Tauri was edited mechanically 
 - `swift-format lint --strict` was run (Swift 6.0.3 toolchain in Docker) and is clean for every file except the generated `Sources/CrowbarIcon.swift` (very long string literals; `LineLength`).
 - `node ios-plugin/scripts/gen-icons.mjs --check` needs `app/panes/node_modules`; the generator output was edited by hand to match the committed file.
 
+## Rabbyte burndown edits (uncompiled, for CI and owner verification)
+
+All of these are mechanical, behaviour-preserving rewrites to satisfy the shared awk rules (`tools/scripts/check-swift-rules.sh` is now clean). None was compiled. Check each on the macOS job and a device:
+
+- Parameter lists: every multi-parameter `func`/`init` is one parameter per line (script-applied across `Sources/` and `Tests/`).
+- Named constants replace literals: `Spacing`, `IconSize`, `Corner`, `Alpha`, `Metric`, `Motion`, `HTTPStatus` (new files). Types are CGFloat except `Alpha` and the `Motion` ratios (Double); `emphasis:` takes `Metric.dimEmphasis`/`strongEmphasis` (CGFloat), never `Alpha`.
+- OKLab conversion: `CSSColor.oklch` now multiplies the matrices in `OKLabMatrix` (new, with `OKLabMatrixTests`); the arithmetic order is the same as before. `CSSColorTests` still pins the results.
+- View nesting: `AttachSheet`, `SettingsSheet`, `ModelPickerSheet`, `HostListSection`, `TabStrip`, `TabPill`, `ConnectSheet`, `ChatListFoot`, `AppearanceCards`, `PlusMenuSheet`, `HostPickerSheet`, `HostPlaceIcon`, `CornerButtons`, `ConnectFields`, `GlassCircle`, `IconRow`, `HostLine`, `PhosphorIcon`, `ViewStyles` were split into small computed properties and nested structs. Button actions that were `{ Haptics...; send(...) }` blocks are now closure-valued properties. Check: sheet toolbars, swipe actions on host rows (the PLATFORM comment moved with them), tab strip auto-scroll to the active tab, the Appearance split card, `ProgressView` for attachments (the indeterminate case now uses `.progressViewStyle(.linear)` for both).
+- `EffortControl`: its gesture state moved into a nested `Track` view; the pick and step logic is now `EffortDial.pick(at:...)` and `EffortDial.step(by:...)` (tested). Check the drag, the haptic tick, and VoiceOver increment/decrement.
+- `CrowbarIconRendering`: the path parser is `PathParser` (new file, with tests); `CrowbarIcon.image(size:)` paints through `paint(_:size:)`.
+- `AppScheme`: `respond` takes a `SchemeReply` (new); the dev-server reply is built in `delivery(...)` and dispatched with `DispatchQueue.main.async(execute:)`.
+- `ChromeOverlays`: the initializer is split into `wire` and `mountNavigation`; the jump-to-latest button into `showJumpButton`, `prepareJumpButton`, `hideJumpButton`; `mount(...)` takes a `MountStyle`; `SheetPresenter(dimming:)` takes `SheetDimming`; `SheetOpening`/`SheetDismissal` lost their Bool initializers (call sites use a ternary).
+- `NavigationController`: `init(host:webview:layers:send:)` with `NavigationLayers`; `render()` split into `renderCards` and `renderShadow`; `freezeChat` uses `blank(like:)`. `NavigationMachine.tell` uses `step(toward:)`.
+- `ConnectDrafts.init(from:)` moved to an extension so the implicit `init()` and memberwise init stay; `HostPickerState`'s decoding initializer moved to an extension for the same reason.
+- Tests turned into case tables: `CSSArgsTests`, `CSSColorTests`, `ConnectDraftsTests`, `EffortDialTests`, `ChromePaletteTests`, `ChromeStateTests`, `ModelPickerStateTests`, `SheetPlanTests`, `NavigationMachineTests` (the two resting-drawer tests), `CrowbarIconRenderingTests`.
+- `swift-format` (Swift 6.0 toolchain in Docker) was run over `Sources/` and `Tests/` after these edits; the generated `CrowbarIcon.swift` is excluded.
+
 ## Verified here
 
 - `tools/scripts/check-swift-rules.sh --self-test` passes. On `ios/` the structure rules are clean except the `test-missing` findings listed below.

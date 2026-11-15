@@ -20,16 +20,27 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
   private let devURL = crowbarChromeDevURL().map { String(cString: $0) }
   private var stopped = Set<ObjectIdentifier>()
 
-  func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
+  func webView(
+    _ webView: WKWebView,
+    start task: WKURLSchemeTask
+  ) {
     guard let url = task.request.url else { return }
-    if let devURL { proxy(task, url: url, to: devURL) } else { serve(task, url: url) }
+    guard let devURL else { return serve(task, url: url) }
+    proxy(task, url: url, to: devURL)
   }
 
-  func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
+  func webView(
+    _ webView: WKWebView,
+    stop task: WKURLSchemeTask
+  ) {
     stopped.insert(ObjectIdentifier(task))
   }
 
-  private func proxy(_ task: WKURLSchemeTask, url: URL, to devURL: String) {
+  private func proxy(
+    _ task: WKURLSchemeTask,
+    url: URL,
+    to devURL: String
+  ) {
     var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
     parts?.fragment = nil
     let path =
@@ -37,47 +48,65 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
     guard let source = URL(string: devURL + path) else { return fail(task) }
     URLSession.shared
       .dataTask(with: source) { data, response, _ in
-        DispatchQueue.main.async {
-          guard let data, let http = response as? HTTPURLResponse else { return self.fail(task) }
-          let headers = http.allHeaderFields as? [String: String]
-          self.respond(task, url: url, status: http.statusCode, headers: headers ?? [:], body: data)
-        }
+        DispatchQueue.main.async(execute: self.delivery(task, url, data, response))
       }
       .resume()
   }
 
-  private func serve(_ task: WKURLSchemeTask, url: URL) {
+  private func delivery(
+    _ task: WKURLSchemeTask,
+    _ url: URL,
+    _ data: Data?,
+    _ response: URLResponse?
+  ) -> () -> Void {
+    {
+      guard let data, let http = response as? HTTPURLResponse else { return self.fail(task) }
+      let headers = http.allHeaderFields as? [String: String]
+      let reply = SchemeReply(
+        url: url,
+        status: http.statusCode,
+        headers: headers ?? [:],
+        body: data
+      )
+      self.respond(task, reply)
+    }
+  }
+
+  private func serve(
+    _ task: WKURLSchemeTask,
+    url: URL
+  ) {
     var len = 0
     var mime: UnsafeMutablePointer<CChar>?
     let path = url.path.isEmpty ? "/" : url.path
     guard let bytes = path.withCString({ crowbarChromeAsset($0, &len, &mime) }) else {
-      return respond(task, url: url, status: 404, headers: [:], body: Data())
+      return respond(task, SchemeReply(url: url, status: HTTPStatus.notFound))
     }
     let body = Data(bytes: bytes, count: len)
     let type = mime.map { String(cString: $0) } ?? "application/octet-stream"
     crowbarChromeAssetFree(bytes, len, mime)
-    respond(task, url: url, status: 200, headers: ["Content-Type": type], body: body)
+    respond(
+      task,
+      SchemeReply(url: url, status: HTTPStatus.ok, headers: ["Content-Type": type], body: body)
+    )
   }
 
   private func respond(
     _ task: WKURLSchemeTask,
-    url: URL,
-    status: Int,
-    headers: [String: String],
-    body: Data
+    _ reply: SchemeReply
   ) {
     // PLATFORM: WebKit raises if a task it already stopped is answered.
     guard stopped.remove(ObjectIdentifier(task)) == nil else { return }
     guard
       let response = HTTPURLResponse(
-        url: url,
-        statusCode: status,
+        url: reply.url,
+        statusCode: reply.status,
         httpVersion: "HTTP/1.1",
-        headerFields: headers
+        headerFields: reply.headers
       )
     else { return task.didFailWithError(URLError(.badServerResponse)) }
     task.didReceive(response)
-    task.didReceive(body)
+    task.didReceive(reply.body)
     task.didFinish()
   }
 

@@ -8,21 +8,25 @@ struct HostPickerSheet: View {
   private var palette: ChromePalette? { chrome.palette }
 
   var body: some View {
-    NavigationStack {
-      List { HostListSection(list: model.state.list, palette: palette, send: model.send) }
-        .nativeList(palette)
-        .nativeTitle("Hosts")
-        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .toolbar {
-          ToolbarItem(placement: .topBarLeading) {
-            Button {
-              model.send(.of("closeHostPicker"))
-            } label: {
-              PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(palette?.text ?? .primary)
-            }
-            .accessibilityLabel("Close")
-          }
-        }
+    NavigationStack { list }
+  }
+
+  private var list: some View {
+    List { HostListSection(list: model.state.list, palette: palette, send: model.send) }
+      .nativeList(palette)
+      .nativeTitle("Hosts")
+      .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+      .toolbar { toolbarContent }
+  }
+
+  @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
+    ToolbarItem(placement: .topBarLeading) { closeButton }
+  }
+
+  private var closeButton: some View {
+    Button(action: { model.send(.of("closeHostPicker")) }) {
+      PhosphorIcon(.x, emphasis: 0.5).foregroundStyle(palette?.text ?? .primary)
     }
+    .accessibilityLabel("Close")
   }
 }

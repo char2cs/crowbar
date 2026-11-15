@@ -3,7 +3,10 @@ import SwiftUI
 import UIKit
 
 @_silgen_name("crowbar_chrome_font")
-private func crowbarChromeFont(_ index: Int, _ length: UnsafeMutablePointer<Int>)
+private func crowbarChromeFont(
+  _ index: Int,
+  _ length: UnsafeMutablePointer<Int>
+)
 enum CrowbarFont {
   static let ui = "CalSansUI-Regular"
   static let heading = "InstrumentSerif-Regular"
@@ -28,7 +31,10 @@ enum CrowbarFont {
 
   private static let weightAxis = 0x7767_6874
 
-  static func uiFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
+  static func uiFont(
+    size: CGFloat,
+    weight: UIFont.Weight
+  ) -> UIFont {
     _ = registered
     let wght = Self.wght(weight)
     let descriptor = UIFontDescriptor(fontAttributes: [
@@ -54,7 +60,7 @@ enum CrowbarFont {
     case ..<UIFont.Weight.medium: 400
     case ..<UIFont.Weight.semibold: 500
     case ..<UIFont.Weight.bold: 600
-    default: 700
+    default: Metric.boldWght
     }
   }
 }

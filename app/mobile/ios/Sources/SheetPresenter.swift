@@ -5,7 +5,7 @@ import UIKit
 final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
   private let makeContent: () -> UIViewController
   private let onUserDismiss: () -> Void
-  private let undimmed: Bool
+  private let dimming: SheetDimming
   private let detents: [UISheetPresentationController.Detent]
   private var sheet: UIViewController?
   private var busy = false
@@ -13,12 +13,12 @@ final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
   private weak var root: UIViewController?
 
   init(
-    undimmed: Bool,
+    dimming: SheetDimming,
     detents: [UISheetPresentationController.Detent] = [.medium(), .large()],
     content: @escaping () -> UIViewController,
     onUserDismiss: @escaping () -> Void
   ) {
-    self.undimmed = undimmed
+    self.dimming = dimming
     self.detents = detents
     makeContent = content
     self.onUserDismiss = onUserDismiss
@@ -67,7 +67,7 @@ final class SheetPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
     if let sheet = controller.sheetPresentationController {
       sheet.detents = detents
       sheet.prefersGrabberVisible = true
-      if undimmed { sheet.largestUndimmedDetentIdentifier = .medium }
+      if dimming == .undimmed { sheet.largestUndimmedDetentIdentifier = .medium }
       sheet.prefersScrollingExpandsWhenScrolledToEdge = false
     }
     controller.presentationController?.delegate = self

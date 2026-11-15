@@ -3,28 +3,46 @@ import XCTest
 @testable import tauri_plugin_crowbar_chrome
 
 final class CSSArgsTests: XCTestCase {
-  func testCommaSeparatedPartsHaveOpaqueAlpha() {
-    let args = CSSArgs("255, 128, 0")
-    XCTAssertEqual(args.parts, ["255", "128", "0"])
-    XCTAssertEqual(args.alpha, 1)
+  private struct ParseCase {
+    let name: String
+    let input: String
+    let parts: [String]
+    let alpha: Double
   }
 
-  func testSlashIntroducesTheAlpha() {
-    let args = CSSArgs("0 255 0 / 25%")
-    XCTAssertEqual(args.parts, ["0", "255", "0"])
-    XCTAssertEqual(args.alpha, 0.25, accuracy: 0.0001)
-  }
+  private let parseCases = [
+    ParseCase(
+      name: "comma parts are opaque",
+      input: "255, 128, 0",
+      parts: ["255", "128", "0"],
+      alpha: 1
+    ),
+    ParseCase(
+      name: "slash introduces alpha",
+      input: "0 255 0 / 25%",
+      parts: ["0", "255", "0"],
+      alpha: 0.25
+    ),
+    ParseCase(
+      name: "legacy fourth number is alpha",
+      input: "255, 0, 0, 0.5",
+      parts: ["255", "0", "0"],
+      alpha: 0.5
+    ),
+    ParseCase(
+      name: "leading keyword keeps all parts",
+      input: "srgb 0 1 0",
+      parts: ["srgb", "0", "1", "0"],
+      alpha: 1
+    ),
+  ]
 
-  func testLegacyFourthNumberIsTheAlpha() {
-    let args = CSSArgs("255, 0, 0, 0.5")
-    XCTAssertEqual(args.parts, ["255", "0", "0"])
-    XCTAssertEqual(args.alpha, 0.5, accuracy: 0.0001)
-  }
-
-  func testLeadingKeywordKeepsAllFourParts() {
-    let args = CSSArgs("srgb 0 1 0")
-    XCTAssertEqual(args.parts, ["srgb", "0", "1", "0"])
-    XCTAssertEqual(args.alpha, 1)
+  func testPartsAndAlphaFollowTheSyntax() {
+    for item in parseCases {
+      let args = CSSArgs(item.input)
+      XCTAssertEqual(args.parts, item.parts, item.name)
+      XCTAssertEqual(args.alpha, item.alpha, accuracy: 0.0001, item.name)
+    }
   }
 
   func testChannelsScaleAndPercent() {

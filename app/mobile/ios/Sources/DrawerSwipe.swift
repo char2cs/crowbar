@@ -19,7 +19,12 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
   private var start: CGPoint = .zero
   private var touched: TimeInterval = 0
 
-  init(host: UIView, webview: WKWebView, target: Any, action: Selector) {
+  init(
+    host: UIView,
+    webview: WKWebView,
+    target: Any,
+    action: Selector
+  ) {
     self.webview = webview
     super.init()
     pan.addTarget(target, action: action)
@@ -27,7 +32,10 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
     host.addGestureRecognizer(pan)
   }
 
-  func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+  func gestureRecognizer(
+    _ gesture: UIGestureRecognizer,
+    shouldReceive touch: UITouch
+  ) -> Bool {
     guard let host = pan.view else { return false }
     start = touch.location(in: host)
     touched = touch.timestamp
@@ -38,7 +46,7 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
   func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
     guard let expected, let host = pan.view else { return false }
     let velocity = pan.velocity(in: host)
-    guard abs(velocity.x) > abs(velocity.y) * 1.2 else { return false }
+    guard abs(velocity.x) > abs(velocity.y) * Motion.swipeBias else { return false }
     let direction: Motion = velocity.x > 0 ? .rightward : .leftward
     guard expected.motion == .either || expected.motion == direction else { return false }
     guard expected.overridesScrollers || ProcessInfo.processInfo.systemUptime - touched < Self.hold
@@ -56,17 +64,26 @@ final class DrawerSwipe: NSObject, UIGestureRecognizerDelegate {
     return view.isDescendant(of: webview)
   }
 
-  private func scrollsSideways(at point: CGPoint, in host: UIView) -> Bool {
+  private func scrollsSideways(
+    at point: CGPoint,
+    in host: UIView
+  ) -> Bool {
     guard let webview else { return false }
     var view = webview.hitTest(host.convert(point, to: webview), with: nil)
     while let current = view, current !== webview {
-      if let scroller = current as? UIScrollView, scroller !== webview.scrollView,
-        scroller.contentSize.width > scroller.bounds.width + 1
-      {
-        return true
-      }
+      if scrollsSideways(current, within: webview) { return true }
       view = current.superview
     }
     return false
+  }
+
+  private func scrollsSideways(
+    _ view: UIView,
+    within webview: WKWebView
+  ) -> Bool {
+    guard let scroller = view as? UIScrollView, scroller !== webview.scrollView else {
+      return false
+    }
+    return scroller.contentSize.width > scroller.bounds.width + 1
   }
 }

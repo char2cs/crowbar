@@ -12,7 +12,11 @@ final class PageChannel: NSObject, WKScriptMessageHandler {
     false
   }
 
-  init(handler: String, feeds: [String: String], send: @escaping (ChromeIntent) -> Void) {
+  init(
+    handler: String,
+    feeds: [String: String],
+    send: @escaping (ChromeIntent) -> Void
+  ) {
     self.handler = handler
     self.feeds = feeds
     self.send = send
@@ -24,12 +28,18 @@ final class PageChannel: NSObject, WKScriptMessageHandler {
     return controller
   }
 
-  func render(_ snapshot: String, to global: String) {
+  func render(
+    _ snapshot: String,
+    to global: String
+  ) {
     latest[global] = snapshot
     for page in pages[global]?.allObjects ?? [] { push(global, to: page) }
   }
 
-  private func push(_ global: String, to page: WKWebView) {
+  private func push(
+    _ global: String,
+    to page: WKWebView
+  ) {
     page.evaluateJavaScript("window.\(global)?.(\(latest[global] ?? "null"))")
   }
 

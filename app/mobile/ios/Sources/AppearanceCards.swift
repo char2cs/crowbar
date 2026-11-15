@@ -14,36 +14,65 @@ struct AppearanceCards: View {
   ]
 
   var body: some View {
-    HStack(spacing: 12) {
-      ForEach(Self.modes, id: \.id) { item in
-        let selected = mode == item.id
-        Button {
-          choose(item.id)
-        } label: {
-          VStack(spacing: 6) {
-            // PLATFORM: strokeBorder draws inside the shape, over the clipped face: nothing leaves the card.
-            Preview(mode: item.id, palette: palette)
-              .frame(height: 64)
-              .clipShape(.rect(cornerRadius: 10))
-              .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                  .strokeBorder(
-                    selected ? ring : Color.secondary.opacity(0.3),
-                    lineWidth: selected ? 2.5 : 1
-                  )
-              }
-            Text(item.label)
-              .crowbarUI(.footnote)
-              .lineLimit(1)
-              .minimumScaleFactor(0.8)
-              .foregroundStyle(selected ? ring : palette?.secondaryText ?? .secondary)
-          }
-          .contentShape(.rect)
-        }
+    HStack(spacing: Spacing.medium) { cards }
+  }
+
+  private var cards: some View {
+    ForEach(Self.modes, id: \.id) { item in
+      Card(
+        item: item,
+        selected: mode == item.id,
+        palette: palette,
+        ring: ring,
+        choose: choose
+      )
+    }
+  }
+
+  private struct Card: View {
+    let item: (id: String, label: String)
+    let selected: Bool
+    let palette: ChromePalette?
+    let ring: Color
+    let choose: (String) -> Void
+
+    var body: some View {
+      Button(action: { choose(item.id) }) { label }
         .buttonStyle(.plain)
         .accessibilityLabel(item.label)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var label: some View {
+      VStack(spacing: Spacing.snug) {
+        preview
+        title
       }
+      .contentShape(.rect)
+    }
+
+    // PLATFORM: strokeBorder draws inside the shape, over the clipped face: nothing leaves the card.
+    private var preview: some View {
+      Preview(mode: item.id, palette: palette)
+        .frame(height: Metric.previewHeight)
+        .clipShape(.rect(cornerRadius: Corner.preview))
+        .overlay { border }
+    }
+
+    private var border: some View {
+      RoundedRectangle(cornerRadius: Corner.preview)
+        .strokeBorder(
+          selected ? ring : Color.secondary.opacity(Alpha.dim),
+          lineWidth: selected ? Metric.selectedBorder : 1
+        )
+    }
+
+    private var title: some View {
+      Text(item.label)
+        .crowbarUI(.footnote)
+        .lineLimit(1)
+        .minimumScaleFactor(Metric.titleShrink)
+        .foregroundStyle(selected ? ring : palette?.secondaryText ?? .secondary)
     }
   }
 
@@ -52,49 +81,71 @@ struct AppearanceCards: View {
     let palette: ChromePalette?
 
     var body: some View {
-      ZStack {
-        switch mode {
-        case "light": Face(scheme: .light, brand: lightBrand)
-        case "dark": Face(scheme: .dark, brand: darkBrand)
-        default:
-          Face(scheme: .light, brand: lightBrand)
-          Face(scheme: .dark, brand: darkBrand)
-            .mask {
-              GeometryReader { geometry in
-                Path { path in
-                  path.move(to: CGPoint(x: geometry.size.width, y: 0))
-                  path.addLine(to: CGPoint(x: geometry.size.width, y: geometry.size.height))
-                  path.addLine(to: CGPoint(x: 0, y: geometry.size.height))
-                  path.closeSubpath()
-                }
-              }
-            }
-        }
+      ZStack { faces }
+    }
+
+    @ViewBuilder private var faces: some View {
+      switch mode {
+      case "light": Face(scheme: .light, brand: lightBrand)
+      case "dark": Face(scheme: .dark, brand: darkBrand)
+      default: split
       }
+    }
+
+    @ViewBuilder private var split: some View {
+      Face(scheme: .light, brand: lightBrand)
+      Face(scheme: .dark, brand: darkBrand).mask { GeometryReader { Diagonal(size: $0.size) } }
     }
 
     private var lightBrand: Color { palette?.brandLight ?? .green }
     private var darkBrand: Color { palette?.brandDark ?? .green }
   }
 
+  private struct Diagonal: View {
+    let size: CGSize
+
+    var body: some View {
+      Path { path in
+        path.move(to: CGPoint(x: size.width, y: 0))
+        path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.addLine(to: CGPoint(x: 0, y: size.height))
+        path.closeSubpath()
+      }
+    }
+  }
+
   private struct Face: View {
     let scheme: ColorScheme
     let brand: Color
 
+    private var light: Bool { scheme == .light }
+    private var ink: Color { light ? Color.black : Color.white }
+    private var ground: Color {
+      light ? Color(white: Metric.lightGround) : Color(white: Metric.darkGround)
+    }
+
     var body: some View {
-      let light = scheme == .light
-      let ink = light ? Color.black : Color.white
       ZStack(alignment: .topLeading) {
-        (light ? Color(white: 0.97) : Color(white: 0.1))
-        VStack(alignment: .leading, spacing: 5) {
-          Capsule().fill(ink.opacity(0.55)).frame(width: 34, height: 4)
-          Capsule().fill(ink.opacity(0.3)).frame(width: 22, height: 4)
-        }
-        .padding(10)
-        Circle().fill(brand).frame(width: 7, height: 7)
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-          .padding(8)
+        ground
+        lines
+        dot
       }
+    }
+
+    private var lines: some View {
+      VStack(alignment: .leading, spacing: Spacing.chip) {
+        Capsule().fill(ink.opacity(Alpha.ink))
+          .frame(width: Metric.longLine, height: Metric.lineHeight)
+        Capsule().fill(ink.opacity(Alpha.dim))
+          .frame(width: Metric.shortLine, height: Metric.lineHeight)
+      }
+      .padding(10)
+    }
+
+    private var dot: some View {
+      Circle().fill(brand).frame(width: Metric.statusDot, height: Metric.statusDot)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .padding(Spacing.small)
     }
   }
 }

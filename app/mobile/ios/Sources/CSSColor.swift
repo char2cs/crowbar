@@ -1,6 +1,20 @@
 import SwiftUI
 
 extension Color {
+  private static let byteMax = 255.0
+  private static let halfTurnDegrees = 180.0
+  private static let fullChroma = 0.4
+  private static let hexRadix = 16
+  private static let shortHexMax = 4
+  private static let alphaBits: UInt64 = 8
+  private static let rgbChannelCount = 3
+  private static let rgbDigits = 6
+  private static let rgbaDigits = 8
+  private static let redShift: UInt64 = 24
+  private static let greenShift: UInt64 = 16
+  private static let blueShift: UInt64 = 8
+  private static let alphaShift: UInt64 = 0
+
   init?(css raw: String) {
     let css = raw.trimmingCharacters(in: .whitespaces).lowercased()
     if css.hasPrefix("#") {
@@ -15,11 +29,15 @@ extension Color {
     self = color
   }
 
-  private static func function(_ name: String, _ args: CSSArgs) -> Color? {
+  private static func function(
+    _ name: String,
+    _ args: CSSArgs
+  ) -> Color? {
     switch name {
     case "rgb", "rgba":
-      guard let r = args.channel(0, scale: 255), let g = args.channel(1, scale: 255),
-        let b = args.channel(2, scale: 255)
+      guard let r = args.channel(0, scale: Self.byteMax),
+        let g = args.channel(1, scale: Self.byteMax),
+        let b = args.channel(2, scale: Self.byteMax)
       else { return nil }
       return Color(.sRGB, red: r, green: g, blue: b, opacity: args.alpha)
     case "color":
@@ -29,11 +47,19 @@ extension Color {
         case "display-p3": .displayP3
         default: nil
         }
-      guard let space, let r = args.channel(1), let g = args.channel(2), let b = args.channel(3)
-      else { return nil }
-      return Color(space, red: r, green: g, blue: b, opacity: args.alpha)
+      let channels = (1...Self.rgbChannelCount).compactMap { args.channel($0) }
+      guard let space, channels.count == Self.rgbChannelCount else { return nil }
+      return Color(
+        space,
+        red: channels[0],
+        green: channels[1],
+        blue: channels[2],
+        opacity: args.alpha
+      )
     case "oklch":
-      guard let l = args.channel(0), let c = args.channel(1, percentOf: 0.4) else { return nil }
+      guard let l = args.channel(0), let c = args.channel(1, percentOf: Self.fullChroma) else {
+        return nil
+      }
       return oklch(l, c, args.number(2) ?? 0, args.alpha)
     default:
       return nil
@@ -42,29 +68,39 @@ extension Color {
 
   private static func hex(_ digits: Substring) -> Color? {
     let full =
-      digits.count <= 4 ? digits.map { "\($0)\($0)" }.joined() : String(digits)
-    guard full.count == 6 || full.count == 8, let value = UInt64(full, radix: 16) else {
+      digits.count <= Self.shortHexMax ? digits.map { "\($0)\($0)" }.joined() : String(digits)
+    guard full.count == Self.rgbDigits || full.count == Self.rgbaDigits,
+      let value = UInt64(full, radix: Self.hexRadix)
+    else {
       return nil
     }
-    let rgba = full.count == 6 ? value << 8 | 0xFF : value
-    let byte = { (shift: UInt64) in Double((rgba >> shift) & 0xFF) / 255 }
-    return Color(.sRGB, red: byte(24), green: byte(16), blue: byte(8), opacity: byte(0))
+    let rgba = full.count == Self.rgbDigits ? value << Self.alphaBits | 0xFF : value
+    let byte = { (shift: UInt64) in Double((rgba >> shift) & 0xFF) / Self.byteMax }
+    return Color(
+      .sRGB,
+      red: byte(Self.redShift),
+      green: byte(Self.greenShift),
+      blue: byte(Self.blueShift),
+      opacity: byte(Self.alphaShift)
+    )
   }
 
-  private static func oklch(_ l: Double, _ c: Double, _ hue: Double, _ alpha: Double) -> Color {
-    let a = c * cos(hue * .pi / 180)
-    let b = c * sin(hue * .pi / 180)
-    let lms = [
-      l + 0.3963377774 * a + 0.2158037573 * b,
-      l - 0.1055613458 * a - 0.0638541728 * b,
-      l - 0.0894841775 * a - 1.2914855480 * b,
-    ]
-    .map { $0 * $0 * $0 }
+  private static func oklch(
+    _ l: Double,
+    _ c: Double,
+    _ hue: Double,
+    _ alpha: Double
+  ) -> Color {
+    let radians = hue * .pi / Self.halfTurnDegrees
+    let lms =
+      OKLabMatrix.apply(OKLabMatrix.lmsFromLab, to: [l, c * cos(radians), c * sin(radians)])
+      .map { $0 * $0 * $0 }
+    let rgb = OKLabMatrix.apply(OKLabMatrix.linearRGBFromLms, to: lms)
     return Color(
       .sRGBLinear,
-      red: 4.0767416621 * lms[0] - 3.3077115913 * lms[1] + 0.2309699292 * lms[2],
-      green: -1.2684380046 * lms[0] + 2.6097574011 * lms[1] - 0.3413193965 * lms[2],
-      blue: -0.0041960863 * lms[0] - 0.7034186147 * lms[1] + 1.7076147010 * lms[2],
+      red: rgb[0],
+      green: rgb[1],
+      blue: rgb[2],
       opacity: alpha
     )
   }

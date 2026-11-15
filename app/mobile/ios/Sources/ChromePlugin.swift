@@ -106,9 +106,8 @@ class ChromePlugin: Plugin {
   @objc public func confirm(_ invoke: Invoke) throws {
     let options = try invoke.parseArgs(Dialogs.ConfirmOptions.self)
     DispatchQueue.main.async {
-      guard let root = self.webview?.window?.rootViewController else {
-        return invoke.resolve(["confirmed": false])
-      }
+      let root = self.webview?.window?.rootViewController
+      guard let root else { return invoke.resolve(["confirmed": false]) }
       Dialogs.confirm(options, over: root) { invoke.resolve(["confirmed": $0]) }
     }
   }
@@ -116,9 +115,8 @@ class ChromePlugin: Plugin {
   @objc public func prompt(_ invoke: Invoke) throws {
     let options = try invoke.parseArgs(Dialogs.PromptOptions.self)
     DispatchQueue.main.async {
-      guard let root = self.webview?.window?.rootViewController else {
-        return invoke.resolve(["value": NSNull()])
-      }
+      let root = self.webview?.window?.rootViewController
+      guard let root else { return invoke.resolve(["value": NSNull()]) }
       Dialogs.prompt(options, over: root) { invoke.resolve(["value": $0 ?? NSNull()]) }
     }
   }

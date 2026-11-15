@@ -3,7 +3,11 @@ import XCTest
 @testable import tauri_plugin_crowbar_chrome
 
 final class ConnectDraftsTests: XCTestCase {
-  private func state(name: String, address: String, code: String) -> ConnectState {
+  private func state(
+    name: String,
+    address: String,
+    code: String
+  ) -> ConnectState {
     ConnectState(
       open: true,
       stage: .address,
@@ -23,23 +27,50 @@ final class ConnectDraftsTests: XCTestCase {
     XCTAssertEqual([empty.name, empty.address, empty.code], ["", "", ""])
   }
 
-  func testAddressStageNeedsANameAndAnAddress() {
-    var drafts = ConnectDrafts()
-    XCTAssertFalse(drafts.canSubmit(at: .address))
-    drafts.name = "  "
-    drafts.address = "lab.example"
-    XCTAssertFalse(drafts.canSubmit(at: .address))
-    drafts.name = " lab "
-    XCTAssertTrue(drafts.canSubmit(at: .address))
-    XCTAssertEqual(drafts.trimmedName, "lab")
+  private struct SubmitCase {
+    let name: String
+    let stage: ConnectStage
+    var draftName = ""
+    var address = ""
+    var code = ""
+    let canSubmit: Bool
   }
 
-  func testFingerprintStageIsAlwaysConfirmableAndCodeStageNeedsACode() {
+  private let submitCases = [
+    SubmitCase(name: "empty address stage", stage: .address, canSubmit: false),
+    SubmitCase(
+      name: "blank name",
+      stage: .address,
+      draftName: "  ",
+      address: "lab.example",
+      canSubmit: false
+    ),
+    SubmitCase(
+      name: "name and address",
+      stage: .address,
+      draftName: " lab ",
+      address: "lab.example",
+      canSubmit: true
+    ),
+    SubmitCase(name: "fingerprint is always confirmable", stage: .fingerprint, canSubmit: true),
+    SubmitCase(name: "code stage needs a code", stage: .code, canSubmit: false),
+    SubmitCase(name: "code present", stage: .code, code: "123456", canSubmit: true),
+  ]
+
+  func testEachStageSubmitsOnlyWhenItsFieldsAreFilled() {
+    for item in submitCases {
+      var drafts = ConnectDrafts()
+      drafts.name = item.draftName
+      drafts.address = item.address
+      drafts.code = item.code
+      XCTAssertEqual(drafts.canSubmit(at: item.stage), item.canSubmit, item.name)
+    }
+  }
+
+  func testNamesAreTrimmed() {
     var drafts = ConnectDrafts()
-    XCTAssertTrue(drafts.canSubmit(at: .fingerprint))
-    XCTAssertFalse(drafts.canSubmit(at: .code))
-    drafts.code = "123456"
-    XCTAssertTrue(drafts.canSubmit(at: .code))
+    drafts.name = " lab "
+    XCTAssertEqual(drafts.trimmedName, "lab")
   }
 
   func testSubmissionIsTheIntentOfTheStage() {
