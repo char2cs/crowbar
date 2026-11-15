@@ -29,12 +29,15 @@ shell_data = { path = "desktop/crates/shell_data" }
 shell_keys = { path = "desktop/crates/shell_keys" }
 browser_chrome = { path = "desktop/crates/browser_chrome" }
 branch_import_view = { path = "desktop/crates/branch_import_view" }
+pairing_view = { path = "desktop/crates/pairing_view" }
+remote_folder_picker = { path = "desktop/crates/remote_folder_picker" }
 command_palette = { path = "desktop/crates/command_palette" }
 window_state = { path = "desktop/crates/window_state" }
 shell_platform = { path = "desktop/crates/shell_platform" }
 shell_diagnostics = { path = "desktop/crates/shell_diagnostics" }
 terminal = { path = "desktop/crates/terminal" }
 terminal_view = { path = "desktop/crates/terminal_view" }
+terminal_session = { path = "desktop/crates/terminal_session" }
 
 async-channel = "2"
 gpui = "=0.2.2"
@@ -104,6 +107,7 @@ await_holding_refcell_ref = "deny"
 [patch.crates-io]
 gpui = { path = "desktop/vendor/gpui" }
 xattr = { path = "desktop/vendor/xattr" }
+cosmic-text = { path = "desktop/vendor/cosmic-text" }
 
 [profile.dev.package."*"]
 opt-level = 3

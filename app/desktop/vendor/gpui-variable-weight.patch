@@ -1,0 +1,186 @@
+--- a/src/platform/linux/text_system.rs
++++ b/src/platform/linux/text_system.rs
+@@ -6,8 +6,9 @@
+ use anyhow::{Context as _, Ok, Result};
+ use collections::HashMap;
+ use cosmic_text::{
+-    Attrs, AttrsList, CacheKey, Family, Font as CosmicTextFont, FontFeatures as CosmicFontFeatures,
+-    FontSystem, ShapeBuffer, ShapeLine, SwashCache,
++    Attrs, AttrsList, CacheKey, CacheKeyFlags, Family, Font as CosmicTextFont,
++    FontFeatures as CosmicFontFeatures, FontSystem, Format, Render, ScaleContext, ShapeBuffer,
++    ShapeLine, Source, StrikeWith, SwashCache, SwashImage, Vector, tag_from_bytes,
+ };
+ 
+ use itertools::Itertools;
+@@ -35,6 +36,7 @@
+ 
+ struct CosmicTextSystemState {
+     swash_cache: SwashCache,
++    scale_context: ScaleContext,
+     font_system: FontSystem,
+     scratch: ShapeBuffer,
+     /// Contains all already loaded fonts, including all faces. Indexed by `FontId`.
+@@ -48,6 +50,8 @@
+     font: Arc<CosmicTextFont>,
+     features: CosmicFontFeatures,
+     is_known_emoji_font: bool,
++    /// Requested `wght` of a variable face; `None` renders the face at its default instance.
++    weight: Option<u16>,
+ }
+ 
+ impl CosmicTextSystem {
+@@ -58,6 +62,7 @@
+         Self(RwLock::new(CosmicTextSystemState {
+             font_system,
+             swash_cache: SwashCache::new(),
++            scale_context: ScaleContext::new(),
+             scratch: ShapeBuffer::default(),
+             loaded_fonts: Vec::new(),
+             font_ids_by_family_cache: HashMap::default(),
+@@ -116,7 +121,8 @@
+             font_kit::matching::find_best_match(&candidate_properties, &font_into_properties(font))
+                 .context("requested font family contains no font matching the other parameters")?;
+ 
+-        Ok(candidates[ix])
++        let base = candidates[ix];
++        Ok(state.with_weight(base, font.weight))
+     }
+ 
+     fn font_metrics(&self, font_id: FontId) -> FontMetrics {
+@@ -249,6 +255,7 @@
+                 font,
+                 features: features.try_into()?,
+                 is_known_emoji_font: check_is_known_emoji_font(&postscript_name),
++                weight: None,
+             });
+         }
+ 
+@@ -272,27 +279,75 @@
+         }
+     }
+ 
+-    fn raster_bounds(&mut self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
+-        let font = &self.loaded_fonts[params.font_id.0].font;
++    /// Rasterizes one glyph. A variable face requested at a weight is scaled with that `wght`
++    /// instance; every other face goes through cosmic-text's cache unchanged.
++    fn glyph_image(&mut self, params: &RenderGlyphParams) -> Option<SwashImage> {
++        let loaded = &self.loaded_fonts[params.font_id.0];
++        let (font, weight) = (Arc::clone(&loaded.font), loaded.weight);
+         let subpixel_shift = point(
+             params.subpixel_variant.x as f32 / SUBPIXEL_VARIANTS_X as f32 / params.scale_factor,
+             params.subpixel_variant.y as f32 / SUBPIXEL_VARIANTS_Y as f32 / params.scale_factor,
+         );
++        let (key, _, _) = CacheKey::new(
++            font.id(),
++            params.glyph_id.0 as u16,
++            (params.font_size * params.scale_factor).into(),
++            (subpixel_shift.x, subpixel_shift.y.trunc()),
++            CacheKeyFlags::empty(),
++        );
++        let Some(weight) = weight else {
++            return self.swash_cache.get_image(&mut self.font_system, key).clone();
++        };
++        let mut scaler = self
++            .scale_context
++            .builder(font.as_swash())
++            .size(f32::from_bits(key.font_size_bits))
++            .hint(true)
++            .variations([("wght", f32::from(weight))])
++            .build();
++        Render::new(&[
++            Source::ColorOutline(0),
++            Source::ColorBitmap(StrikeWith::BestFit),
++            Source::Outline,
++        ])
++        .format(Format::Alpha)
++        .offset(Vector::new(key.x_bin.as_float(), key.y_bin.as_float()))
++        .render(&mut scaler, key.glyph_id)
++    }
++
++    /// The `FontId` that draws the face `base` at `weight`: variable faces get one entry per
++    /// requested weight, since gpui keys shaping and glyph caches by `FontId`.
++    fn with_weight(&mut self, base: FontId, weight: FontWeight) -> FontId {
++        let loaded = self.loaded_font(base);
++        let axis = tag_from_bytes(b"wght");
++        if loaded.weight.is_some() || loaded.font.as_swash().variations().find_by_tag(axis).is_none()
++        {
++            return base;
++        }
++        let (id, wght) = (loaded.font.id(), weight.0 as u16);
++        if let Some(ix) = self
++            .loaded_fonts
++            .iter()
++            .position(|font| font.font.id() == id && font.weight == Some(wght))
++        {
++            return FontId(ix);
++        }
++        let mut features = loaded.features.clone();
++        features.set(cosmic_text::FeatureTag::new(b"wght"), u32::from(wght));
++        let derived = LoadedFont {
++            font: Arc::clone(&loaded.font),
++            features,
++            is_known_emoji_font: loaded.is_known_emoji_font,
++            weight: Some(wght),
++        };
++        self.loaded_fonts.push(derived);
++        FontId(self.loaded_fonts.len() - 1)
++    }
++
++    fn raster_bounds(&mut self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
+         let image = self
+-            .swash_cache
+-            .get_image(
+-                &mut self.font_system,
+-                CacheKey::new(
+-                    font.id(),
+-                    params.glyph_id.0 as u16,
+-                    (params.font_size * params.scale_factor).into(),
+-                    (subpixel_shift.x, subpixel_shift.y.trunc()),
+-                    cosmic_text::CacheKeyFlags::empty(),
+-                )
+-                .0,
+-            )
+-            .clone()
+-            .with_context(|| format!("no image for {params:?} in font {font:?}"))?;
++            .glyph_image(params)
++            .with_context(|| format!("no image for {params:?}"))?;
+         Ok(Bounds {
+             origin: point(image.placement.left.into(), (-image.placement.top).into()),
+             size: size(image.placement.width.into(), image.placement.height.into()),
+@@ -309,26 +364,9 @@
+             anyhow::bail!("glyph bounds are empty");
+         } else {
+             let bitmap_size = glyph_bounds.size;
+-            let font = &self.loaded_fonts[params.font_id.0].font;
+-            let subpixel_shift = point(
+-                params.subpixel_variant.x as f32 / SUBPIXEL_VARIANTS_X as f32 / params.scale_factor,
+-                params.subpixel_variant.y as f32 / SUBPIXEL_VARIANTS_Y as f32 / params.scale_factor,
+-            );
+             let mut image = self
+-                .swash_cache
+-                .get_image(
+-                    &mut self.font_system,
+-                    CacheKey::new(
+-                        font.id(),
+-                        params.glyph_id.0 as u16,
+-                        (params.font_size * params.scale_factor).into(),
+-                        (subpixel_shift.x, subpixel_shift.y.trunc()),
+-                        cosmic_text::CacheKeyFlags::empty(),
+-                    )
+-                    .0,
+-                )
+-                .clone()
+-                .with_context(|| format!("no image for {params:?} in font {font:?}"))?;
++                .glyph_image(params)
++                .with_context(|| format!("no image for {params:?}"))?;
+ 
+             if params.is_emoji {
+                 // Convert from RGBA to BGRA.
+@@ -365,6 +403,7 @@
+                 font,
+                 features: CosmicFontFeatures::new(),
+                 is_known_emoji_font: check_is_known_emoji_font(&face.post_script_name),
++                weight: None,
+             });
+ 
+             font_id
