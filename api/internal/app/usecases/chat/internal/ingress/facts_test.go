@@ -34,7 +34,7 @@ func TestMap_UnsequencedDeltaWritesNoRow(t *testing.T) {
 
 	assert.Empty(t, rows)
 	require.NotNil(t, fx.Live)
-	assert.Equal(t, LiveDelta{TurnID: turnID, ID: "m1", Text: "hel", Channel: engineagents.ChannelHooks}, *fx.Live)
+	assert.Equal(t, LiveDelta{TurnID: turnID, ID: "m1", Text: "hel"}, *fx.Live)
 }
 
 // What is only shown while it happens is one stream per block, else per turn.

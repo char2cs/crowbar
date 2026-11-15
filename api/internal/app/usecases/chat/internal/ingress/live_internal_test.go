@@ -388,10 +388,10 @@ func answer(messageID, text string) engineagents.CanonicalEvent {
 	return delta(engineagents.HookMessageDelta, messageID, false, false, text)
 }
 
-// A provider that streams each step's text and never completes it records
-// that text above the calls the step made, once, and its thought with it.
+// A provider whose messages end at an action, and are never completed, has
+// each recorded above the calls that follow it, once, with its thought.
 func TestRecorder_TextStreamedBeforeACallIsRecordedAboveIt(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
+	f := newRecorderFixture(t, "hermes")
 	f.dispatchOn(t, engineagents.ChannelAPI,
 		engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"},
 		delta(engineagents.HookReasoningDelta, "s1", false, false, "plan"),
@@ -410,24 +410,19 @@ func TestRecorder_TextStreamedBeforeACallIsRecordedAboveIt(t *testing.T) {
 	assert.Equal(t, []string{"Listing files", "Reading", "50 lines"}, said(f.rows(t)))
 }
 
-// Text another channel streams may still be arriving when a call comes in on
-// this one: only its own channel's order says the text was done.
-func TestRecorder_ACallOnAnotherChannelLeavesTheStreamOpen(t *testing.T) {
+// A provider that never said its messages end at an action may say more of one
+// after a call: its turn's end still records the whole of it.
+func TestRecorder_ACallLeavesOpenAStreamNotDeclaredToEndAtIt(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	f.dispatchOn(t, engineagents.ChannelAPI,
-		engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"}, answer("m1", "Running"))
-	f.dispatchOn(t, engineagents.ChannelHooks, toolEvent(engineagents.HookToolPre, "t1", "ls"))
-	f.dispatchOn(t, engineagents.ChannelAPI,
-		answer("m1", " ls now"),
-		engineagents.CanonicalEvent{Kind: engineagents.HookMessageComplete, Complete: &engineagents.MessageComplete{
-			MessageID: "m1", Text: "Running ls now",
-		}},
-		toolEvent(engineagents.HookToolPost, "t1", "ls"),
-		engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop},
+		engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "hi"},
+		answer("m1", "hel"),
+		toolEvent(engineagents.HookToolPre, "t1", "Bash"), toolEvent(engineagents.HookToolPost, "t1", "Bash"),
+		engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "hello"},
 	)
 
-	assert.Equal(t, []string{"pre t1", "text m1", "post t1"}, transcript(t, f.rows(t)))
-	assert.Equal(t, []string{"Running ls now"}, said(f.rows(t)))
+	assert.Equal(t, []string{"pre t1", "post t1", "text m1"}, transcript(t, f.rows(t)))
+	assert.Equal(t, []string{"hello"}, said(f.rows(t)))
 }
 
 // A numbered stream's chunks are rows of their own: a call between them
@@ -449,8 +444,8 @@ func TestRecorder_ACallBetweenNumberedChunksRecordsTheMessageOnce(t *testing.T) 
 
 // A subagent's start and an ask end the text before them as a call does.
 func TestRecorder_TextStreamedBeforeASubagentOrAnAskIsRecordedAboveIt(t *testing.T) {
-	f := newRecorderFixture(t, "claude")
-	f.dispatchOn(t, engineagents.ChannelHooks,
+	f := newRecorderFixture(t, "hermes")
+	f.dispatchOn(t, engineagents.ChannelAPI,
 		engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"},
 		answer("m1", "Delegating"),
 		engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre, Subagent: &engineagents.SubagentEvent{ID: "A"}},

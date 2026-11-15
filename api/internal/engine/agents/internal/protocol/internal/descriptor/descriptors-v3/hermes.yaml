@@ -77,8 +77,10 @@ events:
       unverified: true
       map: { session_id: session_id, message: payload.message }
 
+  # A step's text is streamed whole before its tool.start; message.interim never came.
   message_delta:
     surfaces: [chat]
+    ends_at_action: true
     required: [session_id, message_id, text]
     api:
       in: event

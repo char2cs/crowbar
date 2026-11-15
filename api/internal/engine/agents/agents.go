@@ -186,6 +186,10 @@ type Agent interface {
 	// way.
 	EventSurfaces(canonical string) []string
 
+	// AnswerEndsAtAction is message_delta's ends_at_action: the text streamed
+	// before a call, a subagent or an ask is that message's whole text.
+	AnswerEndsAtAction() bool
+
 	// SurfaceChannel is spec.Descriptor.SurfaceChannel, exposed the same
 	// narrow way: which delivery channel drives one SURFACE's facts
 	// (the descriptor's surfaces.<name>.channel), "" for an undeclared surface.
@@ -400,6 +404,10 @@ func (a *agent) TransportFor(canonical string) string {
 
 func (a *agent) EventSurfaces(canonical string) []string {
 	return a.spec.EventSurfaces(canonical)
+}
+
+func (a *agent) AnswerEndsAtAction() bool {
+	return a.spec.Events[HookMessageDelta].EndsAtAction
 }
 
 func (a *agent) SurfaceChannel(surface string) string {

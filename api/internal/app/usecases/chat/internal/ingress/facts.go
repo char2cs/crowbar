@@ -33,7 +33,7 @@ func mapText(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 		return mapChunk(st, ev, src, scope)
 	}
 	turnID, _ := turnFor(st, src, scope, d.TurnID)
-	delta := LiveDelta{TurnID: turnID, Scope: scope, ID: d.MessageID, Index: d.Index, Text: d.Text, Channel: src.Channel}
+	delta := LiveDelta{TurnID: turnID, Scope: scope, ID: d.MessageID, Index: d.Index, Text: d.Text}
 	switch ev.Kind {
 	case engineagents.HookReasoningDelta:
 		delta.Kind = KindReasoning
@@ -108,8 +108,8 @@ func mapComplete(st ledger.State, ev engineagents.CanonicalEvent, src Source, sc
 	return []ledger.Row{row}, err
 }
 
-// endsText reports whether an event of kind follows, on its channel, the text
-// streamed before it: the agent acts only once it is done saying it.
+// endsText reports whether an event of kind is the agent acting: what it
+// streamed before is whole when its descriptor says messages end at an action.
 func endsText(kind string) bool {
 	switch kind {
 	case engineagents.HookToolPre, engineagents.HookSubagentPre, engineagents.HookPermission, engineagents.HookElicitation:

@@ -11,7 +11,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // The kinds of streamed text. The answer's own kind is "": the only one a row
@@ -41,8 +40,6 @@ type LiveDelta struct {
 	// Replace: Text is the stream's whole text, not an increment of it.
 	Replace bool
 	Text    string
-	// Channel is the one the stream arrives on: only its order says when the text is done.
-	Channel engineagents.Channel
 }
 
 func (r *Recorder) unrecorded(chatID, runnerID string) Unrecorded {
@@ -99,7 +96,6 @@ type liveBlock struct {
 	order    int // when it began among the chat's streams: the order it was said in
 	dropped  int // the bytes of a tool output trimmed off its head
 	n        int // the feed frames its stream has had
-	channel  engineagents.Channel
 }
 
 // live is the text streamed so far that no row holds, per chat, so every frame
@@ -120,7 +116,6 @@ func (l *live) observe(chatID, runnerID string, d LiveDelta) *ledger.FeedDelta {
 	defer l.mu.Unlock()
 	k := liveKey{runnerID: runnerID, turnID: d.TurnID, scope: d.Scope, id: d.ID, kind: d.Kind}
 	b := l.blockLocked(chatID, k)
-	b.channel = d.Channel
 	before := b.join(d.Kind)
 	b.fold(d)
 	after := b.join(d.Kind)
@@ -274,33 +269,19 @@ type liveText struct {
 // unrecorded is runnerID's answers no row holds and the turn's other text of
 // kind, of turnID's turn when it is named.
 func (l *live) unrecorded(chatID, runnerID, turnID, kind string) []liveText {
-	return l.collect(chatID, func(k liveKey, b *liveBlock) bool {
-		return k.runnerID == runnerID && k.kind == kind && (turnID == "" || k.turnID == turnID) && !b.numbered
-	})
-}
-
-// answersOn is runnerID's answers no row holds that streamed over channel.
-func (l *live) answersOn(chatID, runnerID string, channel engineagents.Channel) []liveText {
-	return l.collect(chatID, func(k liveKey, b *liveBlock) bool {
-		return k.runnerID == runnerID && k.kind == KindAnswer && !b.numbered && b.channel == channel
-	})
-}
-
-// collect is the text of chatID's streams keep picks, in the order they began.
-func (l *live) collect(chatID string, keep func(liveKey, *liveBlock) bool) []liveText {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var keys []liveKey
 	blocks := l.byChat[chatID]
 	for k, b := range blocks {
-		if keep(k, b) {
+		if k.runnerID == runnerID && k.kind == kind && (turnID == "" || k.turnID == turnID) && !b.numbered {
 			keys = append(keys, k)
 		}
 	}
 	slices.SortFunc(keys, func(a, b liveKey) int { return blocks[a].order - blocks[b].order })
 	var out []liveText
 	for _, k := range keys {
-		if text := blocks[k].text(k.kind); text != "" {
+		if text := blocks[k].text(kind); text != "" {
 			out = append(out, liveText{TurnID: k.turnID, Scope: k.scope, ID: k.id, Text: text})
 		}
 	}

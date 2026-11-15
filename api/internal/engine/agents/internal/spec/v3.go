@@ -149,6 +149,10 @@ type EventSpec struct {
 	// to, so one wire frame can report two facts.
 	Also bool `yaml:"also"`
 
+	// EndsAtAction is message_delta's: the provider finishes a message before it
+	// acts, so a call, subagent or ask after its text records that text whole.
+	EndsAtAction bool `yaml:"ends_at_action"`
+
 	// Map pulls canonical fields out of an inbound payload.
 	Map FieldMap `yaml:"map"`
 
