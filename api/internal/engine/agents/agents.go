@@ -141,7 +141,7 @@ type Agent interface {
 	// delivery actually arrived on, never the event's declared transport (see spec.Channel).
 	ParseHook(canonical string, raw []byte, channel Channel) (CanonicalEvent, error)
 
-	ParseTelemetry(raw []byte, now time.Time) (Telemetry, error)
+	ParseTelemetry(raw []byte, now time.Time, channel Channel) (Telemetry, error)
 
 	AnswerCapability(canonical string) (AnswerCapability, bool)
 
@@ -350,8 +350,8 @@ func (a *agent) ParseHook(canonical string, raw []byte, channel Channel) (Canoni
 	return protocol.Recv(a.spec, canonical, raw, channel)
 }
 
-func (a *agent) ParseTelemetry(raw []byte, now time.Time) (Telemetry, error) {
-	return protocol.RecvTelemetry(a.spec, raw, now)
+func (a *agent) ParseTelemetry(raw []byte, now time.Time, channel Channel) (Telemetry, error) {
+	return protocol.RecvTelemetry(a.spec, raw, now, channel)
 }
 
 func (a *agent) AnswerCapability(canonical string) (AnswerCapability, bool) {

@@ -391,16 +391,17 @@ func (r *Recorder) Mark(ctx context.Context, runner engineagents.Runner, row led
 	return nil
 }
 
-// RecordTelemetry records a usage report runner sent over its hook channel. It
-// is no conversation event, so it is never judged by session.
+// RecordTelemetry records a usage report runner sent over channel. It is no
+// conversation event, so it is never judged by session.
 func (r *Recorder) RecordTelemetry(
 	ctx context.Context, runner engineagents.Runner, agent engineagents.Agent, raw []byte,
+	channel engineagents.Channel,
 ) error {
 	chat, err := r.chatForRunner(ctx, runner)
 	if err != nil {
 		return err
 	}
-	report, err := agent.ParseTelemetry(raw, time.Now())
+	report, err := agent.ParseTelemetry(raw, time.Now(), channel)
 	if err != nil {
 		return fmt.Errorf("agent: telemetry: %w: %w", problem.ErrUnprocessable, err)
 	}

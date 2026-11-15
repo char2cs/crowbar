@@ -47,7 +47,10 @@ type Descriptors interface {
 // hook's rows are committed, or for a kind it filters by design; a write that
 // failed is its error, and a hook it keeps nothing of is seam.ErrHookNotRecorded.
 type Turns interface {
-	RecordTelemetry(ctx context.Context, runner engineagents.Runner, agent engineagents.Agent, raw []byte) error
+	RecordTelemetry(
+		ctx context.Context, runner engineagents.Runner, agent engineagents.Agent, raw []byte,
+		channel engineagents.Channel,
+	) error
 	// Mark records row, the trace of a hook nothing else is kept of, on runner's chat.
 	Mark(ctx context.Context, runner engineagents.Runner, row ledger.Row) error
 	Dispatch(
@@ -116,7 +119,7 @@ func (i *Ingress) Hook(
 	}
 	if event == engineagents.HookTelemetry {
 		return Reply{}, i.record(ctx, h, runner, func() error {
-			return i.turns.RecordTelemetry(ctx, runner, agent, raw)
+			return i.turns.RecordTelemetry(ctx, runner, agent, raw, channel)
 		})
 	}
 	ev, err := agent.ParseHook(event, raw, channel)

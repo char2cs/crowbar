@@ -142,9 +142,12 @@ func Recv(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel
 // Observes lists the canonical events this provider reports, sorted.
 func Observes(d *spec.Descriptor) []string { return inbound.Declared(d) }
 
-// RecvTelemetry maps the provider's own cost and capacity report.
-func RecvTelemetry(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry, error) {
-	return telemetry.ParseCallback(d, raw, now)
+// RecvTelemetry maps the provider's own cost and capacity report, reading the field
+// map of the channel it arrived on.
+func RecvTelemetry(
+	d *spec.Descriptor, raw []byte, now time.Time, channel spec.Channel,
+) (models.Telemetry, error) {
+	return telemetry.ParseCallback(d, raw, now, channel)
 }
 
 // ProbeTelemetry runs the provider's telemetry probe, for providers that have no

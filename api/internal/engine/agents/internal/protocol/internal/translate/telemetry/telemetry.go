@@ -22,11 +22,13 @@ var (
 	ErrUnsupportedFormat = errors.New("agents: unsupported telemetry format")
 )
 
-func ParseCallback(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry, error) {
+func ParseCallback(
+	d *spec.Descriptor, raw []byte, now time.Time, channel spec.Channel,
+) (models.Telemetry, error) {
 	if d == nil {
 		return models.Telemetry{}, ErrUnsupported
 	}
-	format, fields, windows, ok := callbackMapping(d)
+	format, fields, windows, ok := callbackMapping(d, channel)
 	if !ok {
 		return models.Telemetry{}, ErrUnsupported
 	}
@@ -43,8 +45,9 @@ func ParseCallback(d *spec.Descriptor, raw []byte, now time.Time) (models.Teleme
 
 // callbackMapping finds the field map for a pushed telemetry report: the
 // `telemetry.callback:` block, else the `events.telemetry` event's map: and
-// rate_limits:. The callback block wins where both exist.
-func callbackMapping(d *spec.Descriptor) (
+// rate_limits:, its fields read from the block of the channel the report arrived on.
+// The callback block wins where both exist.
+func callbackMapping(d *spec.Descriptor, channel spec.Channel) (
 	format string,
 	fields spec.FieldMap,
 	windows []spec.TelemetryRateLimitMap,
@@ -54,18 +57,18 @@ func callbackMapping(d *spec.Descriptor) (
 		cb := d.Telemetry.Callback
 		return cb.Format, wrapFields(cb.Fields), cb.RateLimits, true
 	}
-	ev, declared := d.Events[spec.HookTelemetry]
-	if !declared || len(ev.Map) == 0 {
+	fields, declared := d.EventFieldsFor(spec.HookTelemetry, channel)
+	if !declared || len(fields) == 0 {
 		return "", nil, nil, false
 	}
-	for _, w := range ev.RateLimits {
+	for _, w := range d.Events[spec.HookTelemetry].RateLimits {
 		windows = append(windows, spec.TelemetryRateLimitMap{
 			ID: w.ID, Label: w.Label, UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt,
 		})
 	}
 	// A v3 event payload is the decoded wire frame either transport hands over,
 	// and decode speaks only JSON — which is what both of them carry.
-	return "json", ev.Map, windows, true
+	return "json", fields, windows, true
 }
 
 func Probe(
