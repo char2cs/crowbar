@@ -1,13 +1,15 @@
 use std::sync::Mutex;
 use std::sync::mpsc;
 
-use protocol::{DaemonResponse, ExtensionId, PaneKind, RelayEndpoint, RelayScope};
+use protocol::{DaemonResponse, ExtensionId, PaneOrigin, RelayEndpoint, RelayScope};
 use webview::{
     Bounds, ParentWindow, Visibility, WebViewConfig, WebViewHost, WebViewId, WebViewKind,
 };
 
 use super::*;
 use crate::bundle_asset::BundleAsset;
+use crate::bundle_source::BundleSource;
+use crate::extension_bundles::ExtensionBundles;
 
 struct Recording {
     seen: Mutex<Vec<DaemonRequest>>,
@@ -75,23 +77,19 @@ fn fixture() -> Fixture {
     let ids = view_ids(2);
     origins.set(
         ids[0],
-        Origin {
-            kind: PaneKind::Core,
-            extension: None,
-        },
+        PaneOrigin::Core,
     );
     origins.set(
         ids[1],
-        Origin {
-            kind: PaneKind::Extension,
-            extension: ExtensionId::new("git").ok(),
-        },
+        PaneOrigin::Extension(ExtensionId::new("git").unwrap()),
     );
     let protocol = PaneProtocol::new(
         "crowbar",
-        transport.clone(),
-        Arc::new(Files),
-        ExtensionBundles::default(),
+        Arc::clone(&transport) as Arc<dyn DaemonTransport>,
+        PaneBundles {
+            core: Arc::new(Files),
+            extensions: ExtensionBundles::default(),
+        },
         origins,
     );
     Fixture {
@@ -140,11 +138,7 @@ fn core_bundle_files_are_served_with_their_media_type() {
 #[test]
 fn daemon_requests_carry_the_origin_of_the_web_view() {
     let f = fixture();
-    *f.transport.answer.lock().unwrap() = Some(Ok(DaemonResponse {
-        status: 200,
-        headers: Vec::new(),
-        body: b"ok".to_vec(),
-    }));
+    *f.transport.answer.lock().unwrap() = Some(Ok(DaemonResponse::new(200, Vec::new(), b"ok".to_vec())));
     let response = ask(&f, f.core, "crowbar://local/v0/health?x=1");
     assert_eq!(
         (response.status, response.body),
@@ -152,8 +146,8 @@ fn daemon_requests_carry_the_origin_of_the_web_view() {
         "passed through"
     );
     let seen = f.transport.seen.lock().unwrap();
-    assert_eq!(seen[0].path_and_query, "/v0/health?x=1", "path");
-    assert_eq!(seen[0].origin, PaneKind::Core, "origin");
+    assert_eq!(seen[0].target().as_str(), "/v0/health?x=1", "path");
+    assert_eq!(seen[0].origin(), &PaneOrigin::Core, "origin");
 }
 
 #[test]
@@ -173,11 +167,7 @@ fn extension_webviews_are_confined_to_their_own_routes() {
         f.transport.seen.lock().unwrap().is_empty(),
         "nothing reached the daemon"
     );
-    *f.transport.answer.lock().unwrap() = Some(Ok(DaemonResponse {
-        status: 204,
-        headers: Vec::new(),
-        body: Vec::new(),
-    }));
+    *f.transport.answer.lock().unwrap() = Some(Ok(DaemonResponse::new(204, Vec::new(), Vec::new())));
     assert_eq!(
         ask(&f, f.ext, "crowbar://local/v0/ext/git/review.diff").status,
         204,
@@ -185,8 +175,8 @@ fn extension_webviews_are_confined_to_their_own_routes() {
     );
     let seen = f.transport.seen.lock().unwrap();
     assert_eq!(
-        seen[0].extension,
-        ExtensionId::new("git").ok(),
+        seen[0].origin().extension(),
+        ExtensionId::new("git").ok().as_ref(),
         "extension id forwarded"
     );
 }
@@ -212,7 +202,7 @@ fn transport_errors_map_to_http_statuses() {
     let f = fixture();
     let cases = [
         (TransportError::UnknownHost(HostId::new("x").unwrap()), 404),
-        (TransportError::Denied("no".into()), 403),
+        (TransportError::Denied("no"), 403),
         (TransportError::Timeout, 504),
         (TransportError::HostUnavailable("down".into()), 502),
     ];

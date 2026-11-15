@@ -15,8 +15,6 @@ use crate::web_view_id::WebViewId;
 
 type Job = Box<dyn FnOnce(&mut GtkState) + Send>;
 
-/// Linux backend. WebKitGTK may only be touched from the thread that initialised GTK, so
-/// every web view lives on a dedicated GTK thread and calls are jobs posted to it.
 #[derive(Debug)]
 pub(crate) struct LinuxPlatform {
     jobs: async_channel::Sender<Job>,
@@ -92,7 +90,7 @@ fn run_gtk_thread(
 impl Platform for LinuxPlatform {
     fn create(&self, id: WebViewId, parent: ParentWindow, config: WebViewConfig) -> Result<()> {
         let (reply, answer) = mpsc::channel();
-        self.post(move |state| answer_create(&reply, state.create(id, parent, config)))?;
+        self.post(move |state| answer_create(&reply, state.create(id, parent, &config)))?;
         answer.recv().map_err(|_| Error::HostStopped)?
     }
 

@@ -14,6 +14,7 @@
 //! Pages talk to the host with the `sdk@1` frames of the `protocol` crate over ipc. The sender
 //! is the pane that owns the web view (a [`PaneHost`] decision), never a pane-supplied id.
 
+mod authorized;
 mod bootstrap;
 mod bundle_asset;
 mod bundle_source;
@@ -22,15 +23,17 @@ mod entry_url;
 mod error;
 mod extension_bundles;
 mod host_event;
+mod hover_message;
 mod ipc_message;
 mod layout_snapshot;
 mod mime;
 mod multiplicity;
-mod origin;
 mod origin_table;
 mod overlay;
+mod pane_bundles;
 mod pane_display;
 mod pane_host;
+mod pane_host_frames;
 mod pane_host_config;
 mod pane_lifecycle;
 mod pane_phase;
@@ -45,6 +48,8 @@ mod slot_factory;
 mod slot_id;
 mod slot_owner;
 mod slot_pool;
+mod slot_request;
+mod stage;
 mod visible_pane;
 
 pub use bundle_asset::BundleAsset;
@@ -56,9 +61,10 @@ pub use host_event::HostEvent;
 pub use ipc_message::IpcMessage;
 pub use layout_snapshot::LayoutSnapshot;
 pub use multiplicity::Multiplicity;
-pub use origin::Origin;
+pub use protocol::PaneOrigin;
 pub use origin_table::OriginTable;
 pub use overlay::Overlay;
+pub use pane_bundles::PaneBundles;
 pub use pane_display::PaneDisplay;
 pub use pane_host::PaneHost;
 pub use pane_host_config::PaneHostConfig;

@@ -2,8 +2,7 @@ use model::Command;
 use pane_host::HostEvent;
 use protocol::PaneState;
 
-/// The layout commands the events of the pane host imply. Events that need a shell decision
-/// (opening panes, running commands, extension requests) are logged by the caller instead.
+/// The layout commands that keep persisted pane state in step with what the host reported.
 pub(crate) fn commands_for(events: &[HostEvent]) -> Vec<Command> {
     events
         .iter()

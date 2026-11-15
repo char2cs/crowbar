@@ -5,11 +5,13 @@ use protocol::ExtensionId;
 
 use crate::bundle_source::BundleSource;
 
+type Sources = Arc<RwLock<HashMap<ExtensionId, Arc<dyn BundleSource>>>>;
+
 /// The pane bundles of enabled extensions, shared between the host that registers them and
 /// the protocol router that serves them.
 #[derive(Clone, Default)]
 pub struct ExtensionBundles {
-    sources: Arc<RwLock<HashMap<ExtensionId, Arc<dyn BundleSource>>>>,
+    sources: Sources,
 }
 
 impl std::fmt::Debug for ExtensionBundles {

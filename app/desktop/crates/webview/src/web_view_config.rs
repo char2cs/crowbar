@@ -36,3 +36,7 @@ impl std::fmt::Debug for WebViewConfig {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "web_view_config_tests.rs"]
+mod tests;

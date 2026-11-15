@@ -2,17 +2,17 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use protocol::{
-    DaemonTransport, ExtensionStatus, KeyBinding, Lifecycle, PaneFrame, PaneId, PaneTypeId,
-    ShellFrame, StatusKind, decode_pane_frame, encode,
+    DaemonTransport, ExtensionStatus, KeyBinding, Lifecycle, PaneId, PaneTypeId, ShellFrame,
+    decode_pane_frame, encode,
 };
-use webview::{Bounds, ParentWindow, WebViewHost, WebViewKind};
+use webview::{ParentWindow, WebViewHost, WebViewKind};
 
 use crate::entry_url::entry_url;
 use crate::error::{Error, Result};
 use crate::host_event::HostEvent;
+use crate::hover_message::parse_hover;
 use crate::ipc_message::IpcMessage;
 use crate::layout_snapshot::LayoutSnapshot;
-use crate::origin::Origin;
 use crate::origin_table::OriginTable;
 use crate::overlay::Overlay;
 use crate::pane_display::PaneDisplay;
@@ -25,6 +25,8 @@ use crate::pane_type::PaneType;
 use crate::slot_factory::SlotFactory;
 use crate::slot_id::SlotId;
 use crate::slot_pool::SlotPool;
+use crate::slot_request::SlotRequest;
+use crate::stage::Stage;
 use crate::visible_pane::VisiblePane;
 
 /// Owns every pane web view: places them from the layout, pools and parks them, delivers
@@ -33,16 +35,16 @@ use crate::visible_pane::VisiblePane;
 /// The host keeps no copy of pane state. The model owns it; the host reads it from each
 /// [`LayoutSnapshot`] and reports changes as events.
 pub struct PaneHost {
-    registry: PaneRegistry,
-    factory: SlotFactory,
-    pool: SlotPool,
-    origins: OriginTable,
-    panes: BTreeMap<PaneId, PaneRuntime>,
-    keybindings: Vec<KeyBinding>,
-    overlay: Overlay,
-    focused: Option<PaneId>,
-    inbox: async_channel::Receiver<IpcMessage>,
-    config: PaneHostConfig,
+    pub(crate) registry: PaneRegistry,
+    pub(crate) factory: SlotFactory,
+    pub(crate) pool: SlotPool,
+    pub(crate) origins: OriginTable,
+    pub(crate) panes: BTreeMap<PaneId, PaneRuntime>,
+    pub(crate) keybindings: Vec<KeyBinding>,
+    pub(crate) overlay: Overlay,
+    pub(crate) focused: Option<PaneId>,
+    pub(crate) inbox: async_channel::Receiver<IpcMessage>,
+    pub(crate) config: PaneHostConfig,
 }
 
 impl std::fmt::Debug for PaneHost {
@@ -116,7 +118,7 @@ impl PaneHost {
             PanePhase::Failed(message) => PaneDisplay::Error {
                 message: message.clone(),
             },
-            _ if runtime.slot.is_some() && runtime.visible => PaneDisplay::Web,
+            _ if runtime.slot.is_some() && runtime.is_visible() => PaneDisplay::Web,
             _ => PaneDisplay::Empty,
         }
     }
@@ -159,6 +161,12 @@ impl PaneHost {
         if !live {
             return Ok(Vec::new());
         }
+        if let Some(hovered) = parse_hover(&message.text) {
+            return Ok(vec![HostEvent::HoverChanged {
+                pane: message.pane,
+                hovered,
+            }]);
+        }
         match decode_pane_frame(&message.text) {
             Ok(frame) => self.on_frame(message.pane, frame),
             Err(error) => {
@@ -189,10 +197,10 @@ impl PaneHost {
     /// [`Error::WebView`] when a web view cannot be driven.
     pub fn set_overlay(&mut self, overlay: Overlay) -> Result<()> {
         self.overlay = overlay;
-        for runtime in self.panes.values().filter(|runtime| runtime.visible) {
-            self.set_native_visibility(runtime)?;
-        }
-        Ok(())
+        self.panes
+            .values()
+            .filter(|runtime| runtime.is_visible())
+            .try_for_each(|runtime| self.set_native_visibility(runtime))
     }
 
     /// Replaces the active keybindings and pushes them to mounted panes.
@@ -204,12 +212,10 @@ impl PaneHost {
         let frame = ShellFrame::Keybindings {
             bindings: self.keybindings.clone(),
         };
-        for (id, runtime) in &self.panes {
-            if runtime.is_mounted() {
-                self.send(id, &frame)?;
-            }
-        }
-        Ok(())
+        self.panes
+            .iter()
+            .filter(|(_, runtime)| runtime.is_mounted())
+            .try_for_each(|(id, _)| self.send(id, &frame))
     }
 
     /// Applies an extension's new status to its panes: errors in their frames while it is
@@ -222,7 +228,7 @@ impl PaneHost {
             .panes
             .iter()
             .filter(|(_, runtime)| {
-                runtime.instance.type_id.extension().as_ref() == Some(&status.extension_id)
+                runtime.instance.type_id.extension().as_ref() == Some(status.extension_id())
             })
             .map(|(id, _)| id.clone())
             .collect();
@@ -281,7 +287,7 @@ impl PaneHost {
         let leaving: Vec<PaneId> = self
             .panes
             .iter()
-            .filter(|(id, runtime)| runtime.visible && !listed.contains(id))
+            .filter(|(id, runtime)| runtime.is_visible() && !listed.contains(id))
             .map(|(id, _)| id.clone())
             .collect();
         for pane in leaving {
@@ -316,10 +322,13 @@ impl PaneHost {
     }
 
     fn hide_in_place(&mut self, pane: &PaneId) -> Result<()> {
+        if self.panes.get(pane).is_some_and(|r| r.stage == Stage::Active) {
+            self.set_activation(pane, Stage::Shown)?;
+        }
         let Some(runtime) = self.panes.get_mut(pane) else {
             return Ok(());
         };
-        runtime.visible = false;
+        runtime.stage = Stage::Hidden;
         match runtime.slot.and_then(|id| self.pool.get(id)) {
             Some(slot) => Ok(slot.handle.hide()?),
             None => Ok(()),
@@ -370,11 +379,11 @@ impl PaneHost {
             Some(slot) => self
                 .pool
                 .get(slot)
-                .map_or(Ok(()), |slot| Ok(slot.handle.set_bounds(visible.bounds)?))?,
+                .map_or(Ok(()), |slot| slot.handle.set_bounds(visible.bounds))?,
             None => self.assign_slot(parent, &pane_type, visible)?,
         }
         if let Some(runtime) = self.panes.get_mut(&visible.pane) {
-            runtime.visible = true;
+            runtime.reveal();
         }
         self.refresh_native_visibility(&visible.pane)
     }
@@ -389,41 +398,40 @@ impl PaneHost {
             Some(extension) => WebViewKind::Extension(extension),
             None => WebViewKind::Core,
         };
-        let url = entry_url(&self.config.scheme, &self.config.host, pane_type);
-        let slot_id = self.take_slot(parent, kind, &url, visible.bounds)?;
+        let request = SlotRequest {
+            parent,
+            kind,
+            url: entry_url(&self.config.scheme, &self.config.host, pane_type),
+            bounds: visible.bounds,
+        };
+        let slot_id = self.take_slot(request)?;
         let Some(slot) = self.pool.get(slot_id) else {
             return Ok(());
         };
         slot.owner.assign(visible.pane.clone());
         self.origins
-            .set(slot.handle.id(), Origin::of(&pane_type.id));
+            .set(slot.handle.id(), pane_type.id.origin().clone());
         if let Some(runtime) = self.panes.get_mut(&visible.pane) {
             runtime.slot = Some(slot_id);
             runtime.phase = PanePhase::Loading;
-            runtime.activated = false;
+            runtime.stage = Stage::Hidden;
         }
         Ok(())
     }
 
-    fn take_slot(
-        &mut self,
-        parent: ParentWindow,
-        kind: WebViewKind,
-        url: &str,
-        bounds: Bounds,
-    ) -> Result<SlotId> {
-        let Some(free) = self.pool.find_free(&kind) else {
-            let slot = self.factory.create(parent, kind, url, bounds)?;
+    fn take_slot(&mut self, request: SlotRequest) -> Result<SlotId> {
+        let Some(free) = self.pool.find_free(&request.kind) else {
+            let slot = self.factory.create(request)?;
             return Ok(self.pool.insert(slot));
         };
         if let Some(slot) = self.pool.get(free) {
-            slot.handle.set_bounds(bounds)?;
-            slot.handle.navigate(url)?;
+            slot.handle.set_bounds(request.bounds)?;
+            slot.handle.navigate(&request.url)?;
         }
         Ok(free)
     }
 
-    fn refresh_native_visibility(&self, pane: &PaneId) -> Result<()> {
+    pub(crate) fn refresh_native_visibility(&self, pane: &PaneId) -> Result<()> {
         self.panes
             .get(pane)
             .map_or(Ok(()), |runtime| self.set_native_visibility(runtime))
@@ -434,7 +442,7 @@ impl PaneHost {
             return Ok(());
         };
         let failed = matches!(runtime.phase, PanePhase::Failed(_));
-        if self.overlay == Overlay::Inactive && runtime.visible && !failed {
+        if self.overlay == Overlay::Inactive && runtime.is_visible() && !failed {
             Ok(slot.handle.show()?)
         } else {
             Ok(slot.handle.hide()?)
@@ -442,141 +450,6 @@ impl PaneHost {
     }
 }
 
-impl PaneHost {
-    fn route_activation(&mut self) -> Result<()> {
-        let mut changes = Vec::new();
-        for (id, runtime) in &self.panes {
-            let wanted =
-                runtime.visible && runtime.is_mounted() && self.focused.as_ref() == Some(id);
-            if wanted != runtime.activated {
-                changes.push((id.clone(), wanted));
-            }
-        }
-        for (pane, activate) in changes {
-            self.set_activation(&pane, activate)?;
-        }
-        Ok(())
-    }
-
-    fn set_activation(&mut self, pane: &PaneId, activate: bool) -> Result<()> {
-        let Some(runtime) = self.panes.get_mut(pane) else {
-            return Ok(());
-        };
-        runtime.activated = activate;
-        let event = if activate {
-            Lifecycle::Activate
-        } else {
-            Lifecycle::Deactivate
-        };
-        let frame = runtime.lifecycle_frame(event);
-        self.send(pane, &frame)?;
-        match (
-            activate,
-            self.panes.get(pane).and_then(|runtime| runtime.slot),
-        ) {
-            (true, Some(slot)) => self
-                .pool
-                .get(slot)
-                .map_or(Ok(()), |slot| Ok(slot.handle.focus()?)),
-            _ => Ok(()),
-        }
-    }
-
-    fn on_frame(&mut self, pane: PaneId, frame: PaneFrame) -> Result<Vec<HostEvent>> {
-        let event = match frame {
-            PaneFrame::Register { type_id } => {
-                return self.on_register(&pane, &type_id).map(|()| Vec::new());
-            },
-            PaneFrame::SetTitle { title } => HostEvent::TitleChanged { pane, title },
-            PaneFrame::SetState { state } => {
-                if let Some(runtime) = self.panes.get_mut(&pane) {
-                    runtime.instance.state = state.clone();
-                }
-                HostEvent::StateChanged { pane, state }
-            },
-            PaneFrame::Open { type_id, params } => HostEvent::OpenRequested {
-                from: pane,
-                type_id,
-                params,
-            },
-            PaneFrame::Request { id, method, params } => HostEvent::RequestMade {
-                pane,
-                id,
-                method,
-                params,
-            },
-            PaneFrame::Subscribe { id, event } => HostEvent::Subscribed { pane, id, event },
-            PaneFrame::Unsubscribe { id } => HostEvent::Unsubscribed { pane, id },
-            PaneFrame::RunCommand { command } => HostEvent::CommandRequested { pane, command },
-        };
-        Ok(vec![event])
-    }
-
-    fn on_register(&mut self, pane: &PaneId, type_id: &PaneTypeId) -> Result<()> {
-        let Some(runtime) = self.panes.get_mut(pane) else {
-            return Ok(());
-        };
-        if &runtime.instance.type_id != type_id {
-            let message = format!(
-                "page registered as {type_id} but was opened as {}",
-                runtime.instance.type_id
-            );
-            return self.fail(pane, message);
-        }
-        runtime.phase = PanePhase::Mounted;
-        let mount = runtime.lifecycle_frame(Lifecycle::Mount);
-        runtime.discard_state = false;
-        self.send(pane, &mount)?;
-        if !self.keybindings.is_empty() {
-            self.send(
-                pane,
-                &ShellFrame::Keybindings {
-                    bindings: self.keybindings.clone(),
-                },
-            )?;
-        }
-        self.route_activation()
-    }
-
-    fn fail(&mut self, pane: &PaneId, message: String) -> Result<()> {
-        let Some(runtime) = self.panes.get_mut(pane) else {
-            return Ok(());
-        };
-        runtime.phase = PanePhase::Failed(message);
-        runtime.activated = false;
-        self.refresh_native_visibility(pane)
-    }
-
-    fn apply_status(&mut self, pane: &PaneId, status: &ExtensionStatus) -> Result<()> {
-        if self.panes.get(pane).is_some_and(PaneRuntime::is_mounted) {
-            self.send(pane, &ShellFrame::ExtensionStatus(status.clone()))?;
-        }
-        match status.status {
-            StatusKind::Unavailable | StatusKind::Disabled => {
-                let reason = status
-                    .reason
-                    .clone()
-                    .unwrap_or_else(|| format!("extension {:?}", status.status));
-                self.fail(pane, reason)
-            },
-            StatusKind::Running | StatusKind::Back => self.recover(pane),
-        }
-    }
-
-    fn recover(&mut self, pane: &PaneId) -> Result<()> {
-        let Some(runtime) = self.panes.get_mut(pane) else {
-            return Ok(());
-        };
-        if !matches!(runtime.phase, PanePhase::Failed(_)) || runtime.slot.is_none() {
-            return Ok(());
-        }
-        runtime.phase = PanePhase::Mounted;
-        let mount = runtime.lifecycle_frame(Lifecycle::Mount);
-        self.send(pane, &mount)?;
-        self.refresh_native_visibility(pane)
-    }
-}
-
 #[cfg(test)]
 #[path = "pane_host_tests.rs"]
-mod tests;
+pub(crate) mod tests;

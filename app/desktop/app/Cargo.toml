@@ -15,16 +15,27 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 async-channel.workspace = true
+daemon_supervisor.workspace = true
 gpui.workspace = true
+layout_view.workspace = true
 model.workspace = true
 pane_host.workspace = true
 protocol.workspace = true
+serde_json.workspace = true
+settings_ui.workspace = true
+sidebar.workspace = true
+startup_view.workspace = true
+tab_bar.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
+transport.workspace = true
+ui.workspace = true
 webview.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+tempfile = "3"
 webview = { workspace = true, features = ["mock"] }
 
 [lints]

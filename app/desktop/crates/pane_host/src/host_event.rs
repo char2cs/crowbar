@@ -1,4 +1,7 @@
-use protocol::{PaneId, PaneState, PaneTypeId, Params, RequestId};
+use protocol::{
+    CommandId, EventName, MethodName, PaneFrame, PaneId, PaneState, PaneTitle, PaneTypeId, Params,
+    RequestId,
+};
 use serde_json::Value;
 
 /// Something a pane asked for or the host decided, for the shell to act on. The host never
@@ -10,7 +13,7 @@ pub enum HostEvent {
         /// The pane.
         pane: PaneId,
         /// The new title.
-        title: String,
+        title: PaneTitle,
     },
     /// A pane replaced its persisted state.
     StateChanged {
@@ -38,7 +41,7 @@ pub enum HostEvent {
         /// The pane the keypress or call came from.
         pane: PaneId,
         /// The command id.
-        command: String,
+        command: CommandId,
     },
     /// A pane called its extension backend; answer with [`PaneHost::send`](crate::PaneHost::send).
     RequestMade {
@@ -47,7 +50,7 @@ pub enum HostEvent {
         /// Correlation id.
         id: RequestId,
         /// Method name.
-        method: String,
+        method: MethodName,
         /// Method parameters.
         params: Value,
     },
@@ -58,7 +61,7 @@ pub enum HostEvent {
         /// Subscription id.
         id: RequestId,
         /// Event name.
-        event: String,
+        event: EventName,
     },
     /// A pane ended a subscription.
     Unsubscribed {
@@ -66,5 +69,20 @@ pub enum HostEvent {
         pane: PaneId,
         /// Subscription id.
         id: RequestId,
+    },
+    /// A pane sent a frame the shell answers itself: a setting read or subscription, or a
+    /// composer or attachment call.
+    ShellCall {
+        /// The pane.
+        pane: PaneId,
+        /// The frame as received.
+        frame: PaneFrame,
+    },
+    /// The pointer entered or left a pane's page, which GPUI cannot see over a web view.
+    HoverChanged {
+        /// The pane.
+        pane: PaneId,
+        /// Whether the pointer is over it.
+        hovered: bool,
     },
 }

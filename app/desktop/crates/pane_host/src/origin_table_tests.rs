@@ -1,4 +1,4 @@
-use protocol::PaneKind;
+use protocol::{ExtensionId, PaneOrigin};
 use webview::{Bounds, ParentWindow, Visibility, WebViewConfig, WebViewHost, WebViewKind};
 
 use super::*;
@@ -28,21 +28,15 @@ fn set_replace_and_remove() {
     assert_eq!(table.get(id), None, "unknown view");
     table.set(
         id,
-        Origin {
-            kind: PaneKind::Core,
-            extension: None,
-        },
+        PaneOrigin::Core,
     );
     table.set(
         id,
-        Origin {
-            kind: PaneKind::Extension,
-            extension: None,
-        },
+        PaneOrigin::Extension(ExtensionId::new("git").unwrap()),
     );
     assert_eq!(
-        table.get(id).map(|o| o.kind),
-        Some(PaneKind::Extension),
+        table.get(id),
+        Some(PaneOrigin::Extension(ExtensionId::new("git").unwrap())),
         "replaced"
     );
     table.remove(id);
@@ -56,10 +50,7 @@ fn clones_share_the_same_entries() {
     let id = view_id();
     copy.set(
         id,
-        Origin {
-            kind: PaneKind::Core,
-            extension: None,
-        },
+        PaneOrigin::Core,
     );
     assert!(table.get(id).is_some(), "visible through the other clone");
 }

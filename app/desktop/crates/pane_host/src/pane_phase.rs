@@ -1,4 +1,3 @@
-/// Where a pane is in its life with respect to a web view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PanePhase {
     /// No web view; the pane is parked or was never shown.

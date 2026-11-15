@@ -1,6 +1,6 @@
-use model::{Layout, PaneInstance, PaneSlot, Rect};
+use model::{Layout, PaneInstance};
 use protocol::PaneId;
-use webview::{Bounds, ParentWindow};
+use webview::ParentWindow;
 
 use crate::visible_pane::VisiblePane;
 
@@ -18,49 +18,27 @@ pub struct LayoutSnapshot {
 }
 
 impl LayoutSnapshot {
-    /// Snapshot of `layout` for a content area `content` inside `parent`: every pane of every
-    /// tab, and the panes of the active tab with their rectangles.
+    /// Snapshot of `layout` whose active tab shows its panes in `visible`: every pane of every
+    /// tab, the focus of the active tab, and the rectangles the shell's chrome leaves open.
     #[must_use]
-    pub fn from_layout(layout: &Layout, parent: ParentWindow, content: Bounds) -> Self {
+    pub fn from_layout(layout: &Layout, parent: ParentWindow, visible: Vec<VisiblePane>) -> Self {
         let panes = layout
             .tabs()
             .iter()
-            .flat_map(|tab| tab.pane_ids().into_iter().filter_map(|id| tab.pane(&id).cloned()))
+            .flat_map(|tab| {
+                tab.pane_ids()
+                    .into_iter()
+                    .filter_map(|id| tab.pane(&id).cloned())
+            })
             .collect();
-        let active = layout.active_tab();
-        let visible = active.map(|tab| tab.layout(content_rect(content))).unwrap_or_default();
         Self {
             parent,
             panes,
-            visible: visible.into_iter().map(|slot| place(slot)).collect(),
-            focused: active.and_then(|tab| tab.focused().cloned()),
+            visible,
+            focused: layout
+                .active_tab()
+                .and_then(|tab| tab.focused().cloned()),
         }
-    }
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "layout rectangles are logical pixels, far below f32 precision limits"
-)]
-fn content_rect(content: Bounds) -> Rect {
-    Rect {
-        x: content.x as f32,
-        y: content.y as f32,
-        width: content.width as f32,
-        height: content.height as f32,
-    }
-}
-
-fn place(slot: PaneSlot) -> VisiblePane {
-    VisiblePane {
-        pane: slot.pane,
-        bounds: Bounds {
-            x: f64::from(slot.rect.x),
-            y: f64::from(slot.rect.y),
-            width: f64::from(slot.rect.width),
-            height: f64::from(slot.rect.height),
-        }
-        ,
     }
 }
 

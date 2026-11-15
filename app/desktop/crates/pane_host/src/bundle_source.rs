@@ -7,3 +7,7 @@ pub trait BundleSource: Send + Sync + 'static {
     /// no leading slash and may be empty, which names the bundle's `index.html`.
     fn read(&self, path: &str) -> Option<BundleAsset>;
 }
+
+#[cfg(test)]
+#[path = "bundle_source_tests.rs"]
+mod tests;

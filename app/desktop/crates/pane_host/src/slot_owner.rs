@@ -2,8 +2,6 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use protocol::PaneId;
 
-/// Which pane currently owns a pooled web view. The web view's ipc handler reads it, so a
-/// message is attributed to the pane the shell assigned, never to anything the page claims.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SlotOwner {
     pane: Arc<Mutex<Option<PaneId>>>,

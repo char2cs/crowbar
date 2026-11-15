@@ -44,3 +44,4 @@ app/mobile/src-tauri/icons/crowbar.icns
 app/mobile/icons-compiler/.build/
 app/mobile/.tauri/
 app/mobile/ios/.build/
+core

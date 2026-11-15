@@ -5,8 +5,6 @@ use webview::WebViewKind;
 use crate::slot::Slot;
 use crate::slot_id::SlotId;
 
-/// The web views the host owns. Views follow visible panes: a pane borrows a free slot of
-/// its kind, and a released slot is reused until more than `max_idle` are free.
 #[derive(Debug)]
 pub(crate) struct SlotPool {
     slots: BTreeMap<SlotId, Slot>,

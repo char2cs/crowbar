@@ -22,3 +22,7 @@ impl std::fmt::Debug for HostConfig {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "host_config_tests.rs"]
+mod tests;

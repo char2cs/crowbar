@@ -1,9 +1,9 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use protocol::{DaemonTransport, PaneId, PaneKind, RelayScope};
+use protocol::{DaemonTransport, PaneId, PaneOrigin, RelayScope};
 use webview::{
-    Bounds, IpcHandler, ParentWindow, Visibility, WebViewConfig, WebViewHost, WebViewKind,
+    IpcHandler, Visibility, WebViewConfig, WebViewHost, WebViewKind,
 };
 
 use crate::bootstrap::bootstrap_script;
@@ -13,9 +13,8 @@ use crate::pane_host_config::PaneHostConfig;
 use crate::slot::Slot;
 use crate::slot_id::SlotId;
 use crate::slot_owner::SlotOwner;
+use crate::slot_request::SlotRequest;
 
-/// Creates pooled web views: wires their ipc to the pane that owns them and injects the
-/// bootstrap script with the relay endpoint of the new slot.
 pub(crate) struct SlotFactory {
     webviews: WebViewHost,
     transport: Arc<dyn DaemonTransport>,
@@ -40,18 +39,18 @@ impl SlotFactory {
         }
     }
 
-    pub(crate) fn create(
-        &self,
-        parent: ParentWindow,
-        kind: WebViewKind,
-        url: &str,
-        bounds: Bounds,
-    ) -> Result<Slot> {
+    pub(crate) fn create(&self, request: SlotRequest) -> Result<Slot> {
+        let SlotRequest {
+            parent,
+            kind,
+            url,
+            bounds,
+        } = request;
         let id = SlotId(self.next.get());
         self.next.set(id.0 + 1);
         let owner = SlotOwner::default();
         let config = WebViewConfig {
-            url: url.to_owned(),
+            url,
             bounds,
             kind: kind.clone(),
             visibility: Visibility::Hidden,
@@ -68,18 +67,13 @@ impl SlotFactory {
     }
 
     fn script_for(&self, id: SlotId, kind: &WebViewKind) -> String {
-        let (pane_kind, extension) = match kind {
-            WebViewKind::Core => (PaneKind::Core, None),
-            WebViewKind::Extension(extension) => (PaneKind::Extension, Some(extension.clone())),
+        let origin = match kind {
+            WebViewKind::Core => PaneOrigin::Core,
+            WebViewKind::Extension(extension) => PaneOrigin::Extension(extension.clone()),
         };
         let scope = PaneId::new(format!("slot-{}", id.0))
             .ok()
-            .map(|pane| RelayScope {
-                host: self.config.host.clone(),
-                pane,
-                kind: pane_kind,
-                extension,
-            });
+            .map(|pane| RelayScope::new(self.config.host.clone(), pane, origin));
         let relay = scope.and_then(|scope| self.transport.relay_endpoint(&scope).ok());
         bootstrap_script(&self.config.scheme, &self.config.host, relay.as_ref())
     }
@@ -87,14 +81,16 @@ impl SlotFactory {
     fn ipc_for(&self, owner: &SlotOwner) -> IpcHandler {
         let owner = owner.clone();
         let sink = self.sink.clone();
-        Arc::new(move |text| {
-            let Some(pane) = owner.current() else {
-                return;
-            };
-            if sink.try_send(IpcMessage { pane, text }).is_err() {
-                tracing::warn!("pane host inbox is closed; dropping a pane message");
-            }
-        })
+        Arc::new(move |text| deliver(&owner, &sink, text))
+    }
+}
+
+fn deliver(owner: &SlotOwner, sink: &async_channel::Sender<IpcMessage>, text: String) {
+    let Some(pane) = owner.current() else {
+        return;
+    };
+    if sink.try_send(IpcMessage { pane, text }).is_err() {
+        tracing::warn!("pane host inbox is closed; dropping a pane message");
     }
 }
 

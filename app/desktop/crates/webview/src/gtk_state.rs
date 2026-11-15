@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use protocol::ExtensionId;
-use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
+use wry::{WebContext, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
 use crate::bounds::Bounds;
 use crate::builder_support::{common_attributes, register_scheme, to_rect};
 use crate::error::{Error, Result};
 use crate::host_config::HostConfig;
+use crate::live_view::LiveView;
 use crate::parent_window::ParentWindow;
 use crate::protocol_handler::ProtocolHandler;
 use crate::visibility::Visibility;
@@ -17,12 +18,6 @@ use crate::web_view_id::WebViewId;
 use crate::web_view_kind::WebViewKind;
 use crate::xlib_parent::XlibParent;
 
-struct LiveView {
-    view: WebView,
-    kind: WebViewKind,
-}
-
-/// Everything the GTK thread owns: web contexts and live views. Never leaves that thread.
 pub(crate) struct GtkState {
     scheme: String,
     protocol: Arc<dyn ProtocolHandler>,
@@ -49,7 +44,7 @@ impl GtkState {
         &mut self,
         id: WebViewId,
         parent: ParentWindow,
-        config: WebViewConfig,
+        config: &WebViewConfig,
     ) -> Result<()> {
         let ParentWindow::X11(window) = parent else {
             return Err(Error::UnsupportedParent("a Linux host needs an X11 window"));
@@ -58,7 +53,7 @@ impl GtkState {
         let builder = self.builder_for(&kind);
         let id_text = id.to_string();
         let view =
-            common_attributes(builder, &id_text, &config).build_as_child(&XlibParent(window))?;
+            common_attributes(builder, &id_text, config).build_as_child(&XlibParent(window))?;
         self.views.insert(id, LiveView { view, kind });
         Ok(())
     }
@@ -132,3 +127,7 @@ impl GtkState {
         builder
     }
 }
+
+#[cfg(test)]
+#[path = "gtk_state_tests.rs"]
+mod tests;

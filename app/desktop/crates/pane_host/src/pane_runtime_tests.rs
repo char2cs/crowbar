@@ -7,7 +7,7 @@ fn runtime() -> PaneRuntime {
     PaneRuntime::new(PaneInstance {
         pane_id: PaneId::new("p1").unwrap(),
         type_id: PaneTypeId::new("core.chat").unwrap(),
-        params: Params::default().with("threadId", "t"),
+        params: Params::default().with("threadId", "t").unwrap(),
         state: PaneState::new(json!({"scroll": 3})).unwrap(),
     })
 }
@@ -52,18 +52,16 @@ fn detach_returns_the_pane_to_parked() {
     let mut runtime = runtime();
     runtime.phase = PanePhase::Mounted;
     runtime.slot = Some(SlotId(1));
-    runtime.visible = true;
-    runtime.activated = true;
+    runtime.stage = Stage::Active;
     assert!(runtime.is_mounted(), "mounted");
     runtime.detach();
     assert_eq!(
         (
             runtime.slot,
-            runtime.visible,
-            runtime.activated,
+            runtime.stage,
             runtime.phase.clone()
         ),
-        (None, false, false, PanePhase::Parked),
+        (None, Stage::Hidden, PanePhase::Parked),
         "reset"
     );
 }

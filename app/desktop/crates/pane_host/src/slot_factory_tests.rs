@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use protocol::{DaemonRequest, HostId, RelayEndpoint, Responder};
-use webview::{Call, MockPlatform};
+use webview::{Bounds, Call, MockPlatform, ParentWindow, WebViewKind};
 
 use super::*;
 
@@ -13,10 +13,7 @@ impl DaemonTransport for Relay {
     }
 
     fn relay_endpoint(&self, scope: &RelayScope) -> protocol::Result<RelayEndpoint> {
-        Ok(RelayEndpoint {
-            url: format!("ws://127.0.0.1:1/{}", scope.pane),
-            token: "t".into(),
-        })
+        Ok(RelayEndpoint::new(format!("ws://127.0.0.1:1/{}", scope.pane()), "t"))
     }
 }
 
@@ -27,7 +24,7 @@ fn factory(mock: &Rc<MockPlatform>) -> (SlotFactory, async_channel::Receiver<Ipc
         host: HostId::new("local").unwrap(),
         max_idle_slots: 1,
     };
-    let webviews = WebViewHost::with_platform(mock.clone());
+    let webviews = WebViewHost::with_platform(Rc::<MockPlatform>::clone(mock));
     (
         SlotFactory::new(webviews, Arc::new(Relay), config, sink),
         inbox,
@@ -41,17 +38,21 @@ const BOUNDS: Bounds = Bounds {
     height: 10.0,
 };
 
+fn request(url: &str) -> SlotRequest {
+    SlotRequest {
+        parent: ParentWindow::X11(3),
+        kind: WebViewKind::Core,
+        url: url.into(),
+        bounds: BOUNDS,
+    }
+}
+
 #[test]
 fn slots_start_hidden_with_a_bootstrap_naming_their_relay() {
     let mock = Rc::new(MockPlatform::default());
     let (factory, _inbox) = factory(&mock);
     let slot = factory
-        .create(
-            ParentWindow::X11(3),
-            WebViewKind::Core,
-            "crowbar://local/x",
-            BOUNDS,
-        )
+        .create(request("crowbar://local/x"))
         .unwrap();
     assert!(
         matches!(
@@ -66,7 +67,7 @@ fn slots_start_hidden_with_a_bootstrap_naming_their_relay() {
     );
     assert_eq!(slot.id, SlotId(0), "first slot id");
     let second = factory
-        .create(ParentWindow::X11(3), WebViewKind::Core, "x", BOUNDS)
+        .create(request("x"))
         .unwrap();
     assert_eq!(second.id, SlotId(1), "ids advance");
 }
@@ -76,7 +77,7 @@ fn ipc_is_attributed_to_the_current_owner() {
     let mock = Rc::new(MockPlatform::default());
     let (factory, inbox) = factory(&mock);
     let slot = factory
-        .create(ParentWindow::X11(3), WebViewKind::Core, "x", BOUNDS)
+        .create(request("x"))
         .unwrap();
     mock.simulate_ipc(slot.handle.id(), "dropped: nobody owns the slot")
         .unwrap();

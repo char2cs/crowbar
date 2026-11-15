@@ -58,3 +58,7 @@ pub trait Platform {
     /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
     fn destroy(&self, id: WebViewId) -> Result<()>;
 }
+
+#[cfg(test)]
+#[path = "platform_tests.rs"]
+mod tests;

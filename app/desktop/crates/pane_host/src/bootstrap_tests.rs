@@ -3,12 +3,9 @@ use super::*;
 #[test]
 fn config_names_the_api_base_and_relay() {
     let host = HostId::new("local").unwrap();
-    let relay = RelayEndpoint {
-        url: "ws://127.0.0.1:9".into(),
-        token: "t".into(),
-    };
+    let relay = RelayEndpoint::new("ws://127.0.0.1:9", "t");
     let script = bootstrap_script("crowbar", &host, Some(&relay));
-    assert!(script.starts_with(r#"window.__CROWBAR__ = {"api":"crowbar://local","host":"local","ws":{"token":"t","url":"ws://127.0.0.1:9"}};"#), "{script}");
+    assert!(script.starts_with(r#"window.__CROWBAR__ = {"api":"crowbar://local","host":"local","ws":{"url":"ws://127.0.0.1:9","token":"t"}};"#), "{script}");
     assert!(
         script.contains("__crowbarReceive"),
         "channel script is appended"

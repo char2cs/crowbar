@@ -3,15 +3,14 @@ use protocol::{Lifecycle, PaneState, ShellFrame};
 
 use crate::pane_phase::PanePhase;
 use crate::slot_id::SlotId;
+use crate::stage::Stage;
 
-/// What the host knows about one pane beyond its model data.
 #[derive(Debug)]
 pub(crate) struct PaneRuntime {
     pub(crate) instance: PaneInstance,
     pub(crate) phase: PanePhase,
     pub(crate) slot: Option<SlotId>,
-    pub(crate) visible: bool,
-    pub(crate) activated: bool,
+    pub(crate) stage: Stage,
     pub(crate) discard_state: bool,
 }
 
@@ -21,8 +20,7 @@ impl PaneRuntime {
             instance,
             phase: PanePhase::Parked,
             slot: None,
-            visible: false,
-            activated: false,
+            stage: Stage::Hidden,
             discard_state: false,
         }
     }
@@ -40,14 +38,23 @@ impl PaneRuntime {
         }
     }
 
+    pub(crate) fn reveal(&mut self) {
+        if self.stage == Stage::Hidden {
+            self.stage = Stage::Shown;
+        }
+    }
+
+    pub(crate) fn is_visible(&self) -> bool {
+        self.stage != Stage::Hidden
+    }
+
     pub(crate) fn is_mounted(&self) -> bool {
         self.phase == PanePhase::Mounted
     }
 
     pub(crate) fn detach(&mut self) {
         self.slot = None;
-        self.visible = false;
-        self.activated = false;
+        self.stage = Stage::Hidden;
         self.phase = PanePhase::Parked;
     }
 }

@@ -25,7 +25,7 @@ fn protocol_responses_keep_status_headers_and_body() {
     });
     assert_eq!(response.status().as_u16(), 201, "status");
     assert_eq!(
-        response.headers().get("content-type").map(|v| v.as_bytes()),
+        response.headers().get("content-type").map(wry::http::HeaderValue::as_bytes),
         Some(&b"text/plain"[..]),
         "header"
     );

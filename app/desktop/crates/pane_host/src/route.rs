@@ -1,6 +1,5 @@
 use protocol::{ExtensionId, HostId};
 
-/// Where a `crowbar://` request goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Route {
     /// A file of the core pane bundle.
@@ -19,7 +18,6 @@ pub(crate) enum Route {
 
 const PANES_PREFIX: &str = "/panes/";
 
-/// Splits a request URI of the form `<scheme>://<host>/<path>`; `None` for anything else.
 pub(crate) fn parse(scheme: &str, uri: &str) -> Option<Route> {
     let rest = uri.strip_prefix(scheme)?.strip_prefix("://")?;
     let (authority, path_and_query) = rest

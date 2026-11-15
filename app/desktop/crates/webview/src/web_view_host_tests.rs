@@ -26,7 +26,7 @@ fn config(kind: WebViewKind) -> WebViewConfig {
 #[test]
 fn every_view_gets_a_fresh_id() {
     let mock = Rc::new(MockPlatform::default());
-    let host = WebViewHost::with_platform(mock.clone());
+    let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
     let a = host
         .create_in(ParentWindow::X11(7), config(WebViewKind::Core))
         .unwrap();
@@ -40,7 +40,7 @@ fn every_view_gets_a_fresh_id() {
 #[test]
 fn a_failed_create_registers_nothing() {
     let mock = Rc::new(MockPlatform::default());
-    let host = WebViewHost::with_platform(mock.clone());
+    let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
     mock.fail_next_create();
     assert!(
         host.create_in(ParentWindow::X11(7), config(WebViewKind::Core))
@@ -56,7 +56,7 @@ fn a_failed_create_registers_nothing() {
 #[test]
 fn the_config_reaches_the_backend_unchanged() {
     let mock = Rc::new(MockPlatform::default());
-    let host = WebViewHost::with_platform(mock.clone());
+    let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
     let extension = protocol::ExtensionId::new("git").unwrap();
     let _view = host
         .create_in(

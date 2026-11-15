@@ -7,7 +7,7 @@ use objc2_foundation::MainThreadMarker;
 use protocol::ExtensionId;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
-use crate::appkit_parent::AppKitParent;
+use crate::appkit_parent::AppkitParent;
 use crate::bounds::Bounds;
 use crate::builder_support::{common_attributes, register_scheme, to_rect};
 use crate::error::{Error, Result};
@@ -20,8 +20,6 @@ use crate::web_view_config::WebViewConfig;
 use crate::web_view_id::WebViewId;
 use crate::web_view_kind::WebViewKind;
 
-/// macOS backend. WKWebViews are created and used on the main thread with the window's own
-/// `NSView`; there is no toolkit thread. Extension views get their own persistent data store.
 pub(crate) struct MacosPlatform {
     scheme: String,
     protocol: Arc<dyn ProtocolHandler>,
@@ -71,7 +69,7 @@ impl Platform for MacosPlatform {
         };
         let id_text = id.to_string();
         let web_view =
-            common_attributes(builder, &id_text, &config).build_as_child(&AppKitParent(view))?;
+            common_attributes(builder, &id_text, &config).build_as_child(&AppkitParent(view))?;
         self.views.borrow_mut().insert(id, web_view);
         Ok(())
     }

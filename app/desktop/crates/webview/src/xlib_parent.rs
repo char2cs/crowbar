@@ -2,11 +2,6 @@ use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, WindowHandle, XlibWindowHandle,
 };
 
-/// An X11 window id presented as an Xlib window.
-///
-/// GPUI hands out an XCB handle, wry's X11 backend only accepts Xlib. X window ids are
-/// server-wide, so the same id names the same window on both connections; wry opens its own
-/// display through GDK and never uses a connection from this handle.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct XlibParent(pub(crate) u32);
 

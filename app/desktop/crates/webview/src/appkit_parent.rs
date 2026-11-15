@@ -4,14 +4,10 @@ use raw_window_handle::{
     AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle,
 };
 
-/// An `NSView` address presented as a window handle.
-///
-/// The view belongs to GPUI's window and outlives every web view embedded in it, because
-/// web views are destroyed before their window closes.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct AppKitParent(pub(crate) NonNull<std::ffi::c_void>);
+pub(crate) struct AppkitParent(pub(crate) NonNull<std::ffi::c_void>);
 
-impl HasWindowHandle for AppKitParent {
+impl HasWindowHandle for AppkitParent {
     #[allow(
         unsafe_code,
         reason = "WindowHandle::borrow_raw is unsafe; the view outlives its web views"

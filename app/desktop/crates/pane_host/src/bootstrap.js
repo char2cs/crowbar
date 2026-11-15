@@ -24,6 +24,14 @@
     },
     true,
   );
+  let hovered = false;
+  const hover = (value) => {
+    if (hovered === value) return;
+    hovered = value;
+    crowbar.post(JSON.stringify({ sdk: 1, kind: 'shell.hover', hovered: value }));
+  };
+  document.documentElement.addEventListener('mouseenter', () => hover(true));
+  document.documentElement.addEventListener('mouseleave', () => hover(false));
   window.__crowbarReceive = (text) => {
     try {
       const frame = JSON.parse(text);

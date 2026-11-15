@@ -4,7 +4,7 @@
 //! [`WebViewHost::create`] returns a [`WebViewHandle`] with `set_bounds`, `show`, `hide`,
 //! `eval`, `post_message` and `destroy`.
 //!
-//! * Linux: web views are X11 children of the GPUI window. WebKitGTK is single-threaded, so a
+//! * Linux: web views are X11 children of the GPUI window. `WebKitGTK` is single-threaded, so a
 //!   dedicated GTK thread owns every view. Core panes are related views that share one web
 //!   process; each extension gets its own web context and process. Contexts live as long as
 //!   the host, so destroying views never leaks a network process.
@@ -64,6 +64,8 @@ mod web_view_kind;
 mod gtk_state;
 #[cfg(target_os = "linux")]
 mod linux_platform;
+#[cfg(target_os = "linux")]
+mod live_view;
 #[cfg(target_os = "linux")]
 mod xlib_parent;
 

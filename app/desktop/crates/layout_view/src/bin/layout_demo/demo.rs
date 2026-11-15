@@ -45,12 +45,7 @@ impl Demo {
 }
 
 impl Demo {
-    fn on_event(
-        &mut self,
-        _: Entity<LayoutView>,
-        event: &LayoutEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
+    fn on_event(&mut self, _: Entity<LayoutView>, event: &LayoutEvent, cx: &mut Context<'_, Self>) {
         let LayoutEvent::Apply(command) = event else {
             return;
         };

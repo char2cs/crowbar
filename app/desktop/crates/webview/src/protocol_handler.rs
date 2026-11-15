@@ -12,3 +12,7 @@ pub trait ProtocolHandler: Send + Sync + 'static {
     /// Handles one request.
     fn handle(&self, request: ProtocolRequest, respond: ProtocolResponder);
 }
+
+#[cfg(test)]
+#[path = "protocol_handler_tests.rs"]
+mod tests;

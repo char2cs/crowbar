@@ -2,16 +2,17 @@ use std::rc::Rc;
 
 use model::PaneInstance;
 use protocol::{
-    DaemonRequest, ExtensionId, HostId, PaneState, Params, RelayEndpoint, RelayScope, Responder,
+    CommandId, DaemonRequest, HostId, KeyChord, PaneState, Params,
+    RelayEndpoint, RelayScope, Responder,
     decode_shell_frame,
 };
 use serde_json::json;
-use webview::{Call, MockPlatform, Visibility};
+use webview::{Bounds, Call, MockPlatform, Visibility, WebViewKind};
 
 use super::*;
 use crate::multiplicity::Multiplicity;
 
-struct NoDaemon;
+pub(crate) struct NoDaemon;
 
 impl DaemonTransport for NoDaemon {
     fn request(&self, _request: DaemonRequest, respond: Responder) {
@@ -23,14 +24,14 @@ impl DaemonTransport for NoDaemon {
     }
 }
 
-struct Fixture {
-    host: PaneHost,
-    mock: Rc<MockPlatform>,
+pub(crate) struct Fixture {
+    pub(crate) host: PaneHost,
+    pub(crate) mock: Rc<MockPlatform>,
 }
 
 const WINDOW: ParentWindow = ParentWindow::X11(1);
 
-fn pane_type(id: &str, lifecycle: PaneLifecycle) -> PaneType {
+pub(crate) fn pane_type(id: &str, lifecycle: PaneLifecycle) -> PaneType {
     PaneType {
         id: PaneTypeId::new(id).unwrap(),
         title: id.into(),
@@ -40,14 +41,14 @@ fn pane_type(id: &str, lifecycle: PaneLifecycle) -> PaneType {
     }
 }
 
-fn fixture() -> Fixture {
+pub(crate) fn fixture() -> Fixture {
     let mock = Rc::new(MockPlatform::default());
     let config = PaneHostConfig {
         scheme: "crowbar".into(),
         host: HostId::new("local").unwrap(),
         max_idle_slots: 1,
     };
-    let webviews = WebViewHost::with_platform(mock.clone());
+    let webviews = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
     let mut host = PaneHost::new(config, webviews, Arc::new(NoDaemon), OriginTable::default());
     host.registry_mut()
         .register(pane_type("core.chat", PaneLifecycle::Parkable))
@@ -64,16 +65,16 @@ fn fixture() -> Fixture {
     Fixture { host, mock }
 }
 
-fn instance(id: &str, type_id: &str) -> PaneInstance {
+pub(crate) fn instance(id: &str, type_id: &str) -> PaneInstance {
     PaneInstance {
         pane_id: PaneId::new(id).unwrap(),
         type_id: PaneTypeId::new(type_id).unwrap(),
-        params: Params::default().with("threadId", id),
+        params: Params::default().with("threadId", id).unwrap(),
         state: PaneState::new(json!({"from": id})).unwrap(),
     }
 }
 
-fn bounds() -> Bounds {
+pub(crate) fn bounds() -> Bounds {
     Bounds {
         x: 10.0,
         y: 20.0,
@@ -82,7 +83,7 @@ fn bounds() -> Bounds {
     }
 }
 
-fn snapshot(panes: &[PaneInstance], visible: &[&str], focused: Option<&str>) -> LayoutSnapshot {
+pub(crate) fn snapshot(panes: &[PaneInstance], visible: &[&str], focused: Option<&str>) -> LayoutSnapshot {
     LayoutSnapshot {
         parent: WINDOW,
         panes: panes.to_vec(),
@@ -97,7 +98,7 @@ fn snapshot(panes: &[PaneInstance], visible: &[&str], focused: Option<&str>) -> 
     }
 }
 
-fn frames_sent(mock: &MockPlatform) -> Vec<ShellFrame> {
+pub(crate) fn frames_sent(mock: &MockPlatform) -> Vec<ShellFrame> {
     let mut frames = Vec::new();
     for call in mock.calls() {
         let Call::Eval { script, .. } = call else {
@@ -112,7 +113,7 @@ fn frames_sent(mock: &MockPlatform) -> Vec<ShellFrame> {
     frames
 }
 
-fn lifecycle_events(mock: &MockPlatform) -> Vec<Lifecycle> {
+pub(crate) fn lifecycle_events(mock: &MockPlatform) -> Vec<Lifecycle> {
     frames_sent(mock)
         .into_iter()
         .filter_map(|frame| match frame {
@@ -122,9 +123,10 @@ fn lifecycle_events(mock: &MockPlatform) -> Vec<Lifecycle> {
         .collect()
 }
 
-fn register(host: &mut PaneHost, pane: &str, type_id: &str) -> Vec<HostEvent> {
-    let text = encode(&PaneFrame::Register {
+pub(crate) fn register(host: &mut PaneHost, pane: &str, type_id: &str) -> Vec<HostEvent> {
+    let text = encode(&protocol::PaneFrame::Register {
         type_id: PaneTypeId::new(type_id).unwrap(),
+        sdk: protocol::SDK_VERSION,
     })
     .unwrap();
     host.handle_ipc(IpcMessage {
@@ -134,7 +136,7 @@ fn register(host: &mut PaneHost, pane: &str, type_id: &str) -> Vec<HostEvent> {
     .unwrap()
 }
 
-fn shown(mock: &MockPlatform) -> usize {
+pub(crate) fn shown(mock: &MockPlatform) -> usize {
     mock.calls()
         .iter()
         .filter(|call| {
@@ -224,7 +226,7 @@ fn focus_moves_activation_between_panes() {
 }
 
 #[test]
-fn a_parkable_pane_gives_its_web_view_to_the_next_pane_and_restores_from_state() {
+fn a_parkable_pane_gives_its_web_view_to_the_next_pane() {
     let mut f = fixture();
     let panes = [instance("a", "core.chat"), instance("b", "core.chat")];
     f.host.sync(&snapshot(&panes, &["a"], Some("a"))).unwrap();
@@ -250,6 +252,15 @@ fn a_parkable_pane_gives_its_web_view_to_the_next_pane_and_restores_from_state()
         lifecycle_events(&f.mock).contains(&Lifecycle::Park),
         "a was parked"
     );
+}
+
+#[test]
+fn a_parked_pane_is_restored_from_its_state() {
+    let mut f = fixture();
+    let panes = [instance("a", "core.chat"), instance("b", "core.chat")];
+    f.host.sync(&snapshot(&panes, &["a"], Some("a"))).unwrap();
+    register(&mut f.host, "a", "core.chat");
+    f.host.sync(&snapshot(&panes, &["b"], Some("b"))).unwrap();
     register(&mut f.host, "b", "core.chat");
     f.host.sync(&snapshot(&panes, &["a"], Some("a"))).unwrap();
     register(&mut f.host, "a", "core.chat");
@@ -379,7 +390,7 @@ fn a_pane_of_an_unregistered_type_shows_a_placeholder_and_keeps_its_state() {
     let mut f = fixture();
     let orphan = instance("o", "ext.gone.thing");
     f.host
-        .sync(&snapshot(&[orphan.clone()], &["o"], Some("o")))
+        .sync(&snapshot(std::slice::from_ref(&orphan), &["o"], Some("o")))
         .unwrap();
     assert!(f.mock.calls().is_empty(), "no web view for a missing type");
     assert_eq!(
@@ -390,123 +401,6 @@ fn a_pane_of_an_unregistered_type_shows_a_placeholder_and_keeps_its_state() {
         "placeholder"
     );
     f.host.sync(&snapshot(&[orphan], &[], None)).unwrap();
-}
-
-#[test]
-fn a_page_that_registers_the_wrong_type_fails_inside_its_own_frame() {
-    let mut f = fixture();
-    f.host
-        .sync(&snapshot(
-            &[instance("p1", "core.chat")],
-            &["p1"],
-            Some("p1"),
-        ))
-        .unwrap();
-    register(&mut f.host, "p1", "core.term");
-    assert!(
-        matches!(
-            f.host.display(&PaneId::new("p1").unwrap()),
-            PaneDisplay::Error { .. }
-        ),
-        "error display"
-    );
-    assert!(
-        matches!(
-            f.mock.calls().last(),
-            Some(Call::SetVisibility {
-                visibility: Visibility::Hidden,
-                ..
-            })
-        ),
-        "web view hidden"
-    );
-    assert!(lifecycle_events(&f.mock).is_empty(), "never mounted");
-}
-
-#[test]
-fn malformed_and_stale_messages_are_contained() {
-    let mut f = fixture();
-    let panes = [instance("p1", "core.chat"), instance("p2", "core.chat")];
-    f.host.sync(&snapshot(&panes, &["p1"], Some("p1"))).unwrap();
-    let junk = IpcMessage {
-        pane: PaneId::new("p1").unwrap(),
-        text: "not json".into(),
-    };
-    assert!(f.host.handle_ipc(junk).unwrap().is_empty(), "no events");
-    assert!(
-        matches!(
-            f.host.display(&PaneId::new("p1").unwrap()),
-            PaneDisplay::Error { .. }
-        ),
-        "p1 fails"
-    );
-    let stale = IpcMessage {
-        pane: PaneId::new("p2").unwrap(),
-        text: "{}".into(),
-    };
-    assert!(
-        f.host.handle_ipc(stale).unwrap().is_empty(),
-        "p2 has no web view; ignored"
-    );
-    assert_eq!(
-        f.host.display(&PaneId::new("p2").unwrap()),
-        PaneDisplay::Empty,
-        "p2 untouched"
-    );
-}
-
-#[test]
-fn frames_from_a_pane_become_events() {
-    let mut f = fixture();
-    f.host
-        .sync(&snapshot(
-            &[instance("p1", "core.chat")],
-            &["p1"],
-            Some("p1"),
-        ))
-        .unwrap();
-    let send = |host: &mut PaneHost, frame: PaneFrame| {
-        let text = encode(&frame).unwrap();
-        host.handle_ipc(IpcMessage {
-            pane: PaneId::new("p1").unwrap(),
-            text,
-        })
-        .unwrap()
-    };
-    let title = send(&mut f.host, PaneFrame::SetTitle { title: "Hi".into() });
-    assert_eq!(
-        title,
-        [HostEvent::TitleChanged {
-            pane: PaneId::new("p1").unwrap(),
-            title: "Hi".into()
-        }],
-        "title"
-    );
-    let state = PaneState::new(json!({"k": 1})).unwrap();
-    let changed = send(
-        &mut f.host,
-        PaneFrame::SetState {
-            state: state.clone(),
-        },
-    );
-    assert_eq!(
-        changed,
-        [HostEvent::StateChanged {
-            pane: PaneId::new("p1").unwrap(),
-            state
-        }],
-        "state"
-    );
-    let command = send(
-        &mut f.host,
-        PaneFrame::RunCommand {
-            command: "palette.open".into(),
-        },
-    );
-    assert!(
-        matches!(&command[..], [HostEvent::CommandRequested { command, .. }] if command == "palette.open"),
-        "command"
-    );
 }
 
 #[test]
@@ -528,58 +422,14 @@ fn removing_a_pane_from_the_layout_destroys_it_and_frees_its_view() {
 }
 
 #[test]
-fn extension_panes_get_their_own_web_view_kind_and_react_to_status() {
-    let mut f = fixture();
-    let review = instance("r", "ext.git.review");
-    f.host
-        .sync(&snapshot(&[review], &["r"], Some("r")))
-        .unwrap();
-    let git = ExtensionId::new("git").unwrap();
-    assert!(
-        matches!(&f.mock.calls()[0], Call::Create { kind: WebViewKind::Extension(e), url, .. } if *e == git && url == "crowbar://local/panes/ext/git/x/index.html"),
-        "extension view"
-    );
-    register(&mut f.host, "r", "ext.git.review");
-    let down = ExtensionStatus {
-        extension_id: git.clone(),
-        status: StatusKind::Unavailable,
-        reason: Some("crashed".into()),
-    };
-    f.host.extension_status(&down).unwrap();
-    assert_eq!(
-        f.host.display(&PaneId::new("r").unwrap()),
-        PaneDisplay::Error {
-            message: "crashed".into()
-        },
-        "error in frame"
-    );
-    let back = ExtensionStatus {
-        extension_id: git,
-        status: StatusKind::Back,
-        reason: None,
-    };
-    f.host.extension_status(&back).unwrap();
-    assert_eq!(
-        f.host.display(&PaneId::new("r").unwrap()),
-        PaneDisplay::Web,
-        "recovered"
-    );
-    let mounts = lifecycle_events(&f.mock)
-        .iter()
-        .filter(|e| **e == Lifecycle::Mount)
-        .count();
-    assert_eq!(mounts, 2, "mount re-sent with the saved state");
-}
-
-#[test]
 fn keybindings_reach_mounted_panes_now_and_later() {
     let mut f = fixture();
     let panes = [instance("p1", "core.chat")];
     f.host.sync(&snapshot(&panes, &["p1"], Some("p1"))).unwrap();
-    let binding = KeyBinding {
-        keys: "mod+k".into(),
-        command: "palette.open".into(),
-    };
+    let binding = KeyBinding::new(
+        KeyChord::new("mod+k").unwrap(),
+        CommandId::new("palette.open").unwrap(),
+    );
     f.host.set_keybindings(vec![binding.clone()]).unwrap();
     assert!(
         frames_sent(&f.mock).is_empty(),
