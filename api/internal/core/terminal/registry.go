@@ -172,12 +172,24 @@ func (e *terminalEngine) ScreenState(sessionID string) (ScreenState, error) {
 	return st, nil
 }
 
-func (e *terminalEngine) Write(_ context.Context, sessionID string, data []byte) error {
+// Write gives up when ctx ends: a PTY whose app stopped reading blocks the write
+// for as long as the app lives. The abandoned write ends when the PTY closes.
+func (e *terminalEngine) Write(ctx context.Context, sessionID string, data []byte) error {
 	s := e.liveSession(sessionID)
 	if s == nil {
 		return fmt.Errorf("terminal: write: %w: %s", ErrSessionNotFound, sessionID)
 	}
-	return s.Write(data)
+	if err := context.Cause(ctx); err != nil {
+		return fmt.Errorf("terminal: write: %w", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Write(data) }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("terminal: write: %w", context.Cause(ctx))
+	}
 }
 
 func (e *terminalEngine) Resize(_ context.Context, sessionID string, cols, rows uint16) error {

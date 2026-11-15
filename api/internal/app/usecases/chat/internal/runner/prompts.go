@@ -73,7 +73,7 @@ func (rs *Runners) submitPromptLocked(
 	}
 
 	if submission, handled, typeErr := rs.submitPromptTyped(
-		ctx, chat, clientRequestID, live, descriptor, text,
+		ctx, h.park, chat, clientRequestID, live, descriptor, text,
 	); handled {
 		return submission, typeErr
 	}

@@ -299,6 +299,39 @@ func TestSubmitPrompt_AFailedTypeSettlesThePrompt(t *testing.T) {
 	assert.Equal(t, 1, f.term.callCount(), "a failed type is not retried as a restart")
 }
 
+// stuckTerm is a PTY whose app stopped reading: a write blocks until its context ends.
+type stuckTerm struct {
+	typingTerm
+	writing chan struct{}
+}
+
+func (f *stuckTerm) Write(ctx context.Context, _ string, _ []byte) error {
+	close(f.writing)
+	<-ctx.Done()
+	return context.Cause(ctx)
+}
+
+// A paste the CLI never reads holds the chat only until Stop: Stop ends the wait,
+// the prompt settles delivery_failed, and the stop goes through.
+func TestSubmitPrompt_StopEndsATypeTheCLINeverReads(t *testing.T) {
+	term := &stuckTerm{typingTerm: typingTerm{screen: emptyComposer(t)}, writing: make(chan struct{})}
+	f := newTypedFixture(t, term)
+	requestID := uuid.NewString()
+	submitted := make(chan error, 1)
+	go func() {
+		_, err := f.h.rs.SubmitPrompt(t.Context(), f.h.chatID, "hello", requestID)
+		submitted <- err
+	}()
+	<-term.writing
+
+	require.NoError(t, f.h.rs.StopChat(t.Context(), f.h.chatID))
+
+	require.ErrorIs(t, <-submitted, ErrPromptOutcomeUnknown)
+	p := promptReceipt(t, f.h.rs.ledger, requestID)
+	assert.Equal(t, ledger.PromptStatusSettled, p.Status)
+	assert.Equal(t, ledger.ReasonDeliveryFailed, p.Reason)
+}
+
 func TestSubmitPrompt_AResendIsNeverTypedTwice(t *testing.T) {
 	f := newTypedFixture(t, &typingTerm{screen: emptyComposer(t)})
 	requestID := uuid.NewString()
@@ -342,7 +375,7 @@ func TestSubmitPromptTyped_ARunnerOverAnAPIConnectionOrAttachedViewIsNotTyped(t 
 			setup(t, f)
 			chat := domain.Chat{ID: f.h.chatID}
 
-			_, handled, err := f.h.rs.submitPromptTyped(t.Context(), chat, uuid.NewString(), f.live,
+			_, handled, err := f.h.rs.submitPromptTyped(t.Context(), t.Context(), chat, uuid.NewString(), f.live,
 				testAgent(t, "claude"), "hello")
 
 			require.NoError(t, err)

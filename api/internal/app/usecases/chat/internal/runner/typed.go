@@ -20,8 +20,9 @@ var errNotTypeable = errors.New("agent: type: the chat is not idle for typing")
 // submitPromptTyped pastes text into live's own composer when the descriptor
 // declares typing and the CLI is idle at an empty input box, so whatever it
 // runs in the background survives. handled=false leaves the ordinary path to decide.
+// The paste waits on park, which a stop cancels: a CLI that never reads it holds no lock past a Stop.
 func (rs *Runners) submitPromptTyped(
-	ctx context.Context,
+	ctx, park context.Context,
 	chat domain.Chat,
 	clientRequestID string,
 	live engineagents.Runner,
@@ -52,7 +53,7 @@ func (rs *Runners) submitPromptTyped(
 	var handled bool
 	// In turn order from the gate to the paste: no turn opens on the CLI meanwhile.
 	rs.live.inTurnOrder(chat.ID, func() {
-		handled, err = rs.typeLocked(ctx, chat.ID, screens, in)
+		handled, err = rs.typeLocked(ctx, park, chat.ID, screens, in)
 	})
 	if !handled || err != nil {
 		return domain.AgentPromptSubmission{}, handled, err
@@ -90,7 +91,7 @@ type typedPrompt struct {
 // typeLocked is the gate's turn-ordered half, then the record and the paste:
 // handled=false records nothing.
 func (rs *Runners) typeLocked(
-	ctx context.Context, chatID string, screens engineterminal.ScreenStateReader, in typedPrompt,
+	ctx, park context.Context, chatID string, screens engineterminal.ScreenStateReader, in typedPrompt,
 ) (bool, error) {
 	if current, ok := rs.live.unending(in.live.ID); !ok || current.CurrentChatID != chatID {
 		return false, nil
@@ -114,7 +115,7 @@ func (rs *Runners) typeLocked(
 	if note != "" {
 		rs.agents.RecordInjection(in.live.ID, strings.TrimSpace(note))
 	}
-	if err := rs.term.Write(ctx, in.live.TerminalSession, payload); err != nil {
+	if err := rs.term.Write(park, in.live.TerminalSession, payload); err != nil {
 		return true, rs.failPrompt(ctx, chatID, in.requestID, typeFailure(ctx, err))
 	}
 	return true, nil
