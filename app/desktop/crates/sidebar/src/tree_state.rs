@@ -3,28 +3,22 @@
 use std::collections::BTreeSet;
 use std::time::Instant;
 
-use crate::confirmation::Confirmation;
 use crate::deadline::Deadline;
 use crate::editing::Editing;
 use crate::expansion::Expansion;
 use crate::lock::Lock;
 use crate::nesting::Nesting;
-use crate::project_id::ProjectId;
-use crate::removal_kind::RemovalKind;
-use crate::removal_target::RemovalTarget;
-use crate::removal_tray::RemovalTray;
+use crate::removals::Removals;
 use crate::row::Row;
 use crate::row_id::RowId;
 use crate::row_kind::RowKind;
 use crate::visible_row::VisibleRow;
-use crate::work_at_risk::WorkAtRisk;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct TreeState {
     folded: BTreeSet<RowId>,
     editing: Editing,
-    tray: RemovalTray,
-    confirmation: Option<Confirmation>,
+    pub(crate) removals: Removals,
 }
 
 impl TreeState {
@@ -81,89 +75,14 @@ impl TreeState {
         self.editing = Editing::Nothing;
     }
 
-    pub(crate) fn tray(&self) -> &RemovalTray {
-        &self.tray
-    }
-
-    pub(crate) fn confirmation(&self) -> Option<&Confirmation> {
-        self.confirmation.as_ref()
-    }
-
     pub(crate) fn request_removal(
         &mut self,
         row: &Row,
         now: Instant,
     ) {
-        let Some(kind) = removal_kind(row) else {
-            return;
-        };
-        if self.editing.row() == Some(&row.id) {
+        if self.removals.request(row, now) && self.editing.row() == Some(&row.id) {
             self.editing = Editing::Nothing;
         }
-        self.tray
-            .hold(row.id.clone(), (kind, row.label.clone()), now);
-        if kind.needs_confirmation() {
-            self.confirmation = self
-                .tray
-                .get(&row.id)
-                .map(|hold| Confirmation::for_hold(hold, Vec::new()));
-        }
-    }
-
-    pub(crate) fn request_project_removal(
-        &mut self,
-        project: ProjectId,
-        label: &str,
-    ) {
-        self.confirmation = Some(Confirmation {
-            target: RemovalTarget::Project(project),
-            kind: RemovalKind::Project,
-            label: label.to_owned(),
-            at_risk: Vec::new(),
-        });
-    }
-
-    pub(crate) fn ask_to_discard(
-        &mut self,
-        row: &RowId,
-        at_risk: Vec<WorkAtRisk>,
-    ) {
-        let Some(hold) = self.tray.get(row).cloned() else {
-            return;
-        };
-        self.tray.await_confirmation(row);
-        self.confirmation = Some(Confirmation::for_hold(&hold, at_risk));
-    }
-
-    pub(crate) fn keep(
-        &mut self,
-        row: &RowId,
-    ) {
-        self.tray.keep(row);
-    }
-
-    pub(crate) fn cancel_confirmation(&mut self) {
-        let Some(confirmation) = self.confirmation.take() else {
-            return;
-        };
-        if let RemovalTarget::Row(row) = confirmation.target {
-            self.tray.keep(&row);
-        }
-    }
-
-    pub(crate) fn accept_confirmation(&mut self) -> Option<Confirmation> {
-        let confirmation = self.confirmation.take()?;
-        if let RemovalTarget::Row(row) = &confirmation.target {
-            self.tray.commit(row);
-        }
-        Some(confirmation)
-    }
-
-    pub(crate) fn take_due(
-        &mut self,
-        now: Instant,
-    ) -> Vec<RowId> {
-        self.tray.take_due(now)
     }
 
     pub(crate) fn reconcile(
@@ -171,7 +90,7 @@ impl TreeState {
         rows: &[Row],
     ) {
         let exists = |id: &RowId| rows.iter().any(|row| &row.id == id);
-        self.tray.release_gone(exists);
+        self.removals.release_gone(exists);
         self.folded.retain(exists);
     }
 
@@ -196,7 +115,8 @@ impl TreeState {
         if hidden_below.is_some_and(|depth| row.depth > depth) {
             return true;
         }
-        let hides_children = self.tray.get(&row.id).is_some() || self.folded.contains(&row.id);
+        let hides_children =
+            self.removals.tray().get(&row.id).is_some() || self.folded.contains(&row.id);
         *hidden_below = hides_children.then_some(row.depth);
         false
     }
@@ -205,7 +125,7 @@ impl TreeState {
         &self,
         row: &Row,
     ) -> bool {
-        let hold = self.tray.get(&row.id);
+        let hold = self.removals.tray().get(&row.id);
         hold.is_some_and(|hold| hold.deadline == Deadline::Committed)
     }
 
@@ -227,18 +147,8 @@ impl TreeState {
         VisibleRow {
             index,
             expansion: self.expansion_of(row),
-            removal: self.tray.get(&row.id).cloned(),
+            removal: self.removals.tray().get(&row.id).cloned(),
         }
-    }
-}
-
-fn removal_kind(row: &Row) -> Option<RemovalKind> {
-    match row.kind {
-        RowKind::RepoHeader => Some(RemovalKind::Repo),
-        RowKind::Folder => Some(RemovalKind::Folder),
-        RowKind::Chat => Some(RemovalKind::Chat),
-        RowKind::Branch if row.lock == Lock::Locked => None,
-        RowKind::Branch => Some(RemovalKind::Workspace),
     }
 }
 
@@ -247,7 +157,9 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::lock::Lock;
+    use crate::confirmation::Confirmation;
+    use crate::removal_target::RemovalTarget;
+    use crate::removal_tray::RemovalTray;
 
     fn rows() -> Vec<Row> {
         let mut repo = Row::new("repo", RowKind::RepoHeader, 0, "demo");
@@ -352,7 +264,7 @@ mod tests {
             visible[1].removal.is_some(),
             "the held row is drawn as a countdown"
         );
-        state.keep(&rows[1].id);
+        state.removals.keep(&rows[1].id);
         assert_eq!(
             indices(&state, &rows),
             vec![0, 1, 2, 3],
@@ -367,10 +279,13 @@ mod tests {
         let mut state = TreeState::default();
         state.request_removal(&rows[3], now);
         assert!(
-            state.take_due(now + Duration::from_secs(1)).is_empty(),
+            state
+                .removals
+                .take_due(now + Duration::from_secs(1))
+                .is_empty(),
             "too early"
         );
-        let due = state.take_due(now + RemovalTray::DRAIN);
+        let due = state.removals.take_due(now + RemovalTray::DRAIN);
         assert_eq!(due, vec![RowId::from("other")], "sent");
         assert_eq!(
             indices(&state, &rows),
@@ -379,7 +294,7 @@ mod tests {
         );
         state.reconcile(&rows[..3]);
         assert!(
-            state.tray().get(&rows[3].id).is_none(),
+            state.removals.tray().get(&rows[3].id).is_none(),
             "tombstone releases the hold"
         );
     }
@@ -390,17 +305,18 @@ mod tests {
         let mut state = TreeState::default();
         state.request_removal(&rows[0], Instant::now());
         assert_eq!(
-            state.confirmation().map(Confirmation::title),
+            state.removals.confirmation().map(Confirmation::title),
             Some("Delete repository “demo”?".into()),
             "asks"
         );
-        state.cancel_confirmation();
+        state.removals.cancel();
         assert!(
-            state.confirmation().is_none() && state.tray().get(&rows[0].id).is_none(),
+            state.removals.confirmation().is_none()
+                && state.removals.tray().get(&rows[0].id).is_none(),
             "cancelled"
         );
         state.request_removal(&rows[0], Instant::now());
-        let accepted = state.accept_confirmation();
+        let accepted = state.removals.accept();
         assert_eq!(
             accepted.map(|confirmation| confirmation.target),
             Some(RemovalTarget::Row(RowId::from("repo"))),
@@ -410,46 +326,6 @@ mod tests {
             indices(&state, &rows),
             Vec::<usize>::new(),
             "repo and children hidden after sending"
-        );
-    }
-
-    #[test]
-    fn a_refused_delete_asks_again_naming_the_loss() {
-        let rows = rows();
-        let mut state = TreeState::default();
-        state.request_removal(&rows[2], Instant::now());
-        let risk = WorkAtRisk {
-            branch: "b".into(),
-            uncommitted_files: 2,
-            unmerged_commits: 0,
-        };
-        state.ask_to_discard(&rows[2].id, vec![risk]);
-        let title = state.confirmation().map(Confirmation::title);
-        assert_eq!(
-            title,
-            Some("Delete chat “Untitled” and lose work?".into()),
-            "second question"
-        );
-        assert!(!state.tray().is_counting(), "no clock while asking");
-    }
-
-    #[test]
-    fn locked_branches_cannot_be_removed() {
-        let mut locked = rows()[1].clone();
-        locked.lock = Lock::Locked;
-        let mut state = TreeState::default();
-        state.request_removal(&locked, Instant::now());
-        assert!(state.tray().get(&locked.id).is_none(), "no hold");
-    }
-
-    #[test]
-    fn spaces_ask_without_a_row() {
-        let mut state = TreeState::default();
-        state.request_project_removal(ProjectId::from("p"), "inv");
-        assert_eq!(
-            state.confirmation().map(Confirmation::title),
-            Some("Delete space “inv”?".into()),
-            "asks"
         );
     }
 }

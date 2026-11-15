@@ -40,6 +40,7 @@ impl Render for Sidebar {
             .flex()
             .size_full()
             .bg(palette.chrome_bg())
+            .when(self.drag.lifted.is_some(), Styled::cursor_grabbing)
             .on_mouse_move(cx.listener(|this, event, window, cx| {
                 this.move_resize(event, cx);
                 this.track_peek(event.position, window, cx);
@@ -55,6 +56,7 @@ impl Render for Sidebar {
         row.child(Self::exit_listener(cx))
             .children(self.floating(&geometry, window, cx))
             .children(self.confirm_layer(cx))
+            .children(self.drop_line_layer(window, cx))
             .children(self.menu_layer(window, cx))
     }
 }

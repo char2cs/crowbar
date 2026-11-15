@@ -88,14 +88,17 @@ fn container(
     if repo_of(rows, subject) != repo_of(rows, target) {
         return DropModes::NONE;
     }
-    let ownerless = dragged.kind == RowKind::Branch
-        && (dragged.lock == Lock::Locked || dragged.worktree == Worktree::Shared);
+    let ownerless = is_ownerless(dragged);
     let siblings = parent_of(rows, subject) == parent_of(rows, target);
     match (siblings, over.kind, ownerless) {
         (true, _, _) => DropModes::REORDER,
         (false, RowKind::Folder, false) => DropModes::INTO,
         _ => DropModes::NONE,
     }
+}
+
+pub(crate) fn is_ownerless(row: &Row) -> bool {
+    row.kind == RowKind::Branch && (row.lock == Lock::Locked || row.worktree == Worktree::Shared)
 }
 
 fn parent_of(

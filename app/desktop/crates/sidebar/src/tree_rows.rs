@@ -8,6 +8,7 @@ use gpui::{AnyElement, IntoElement};
 use crate::editing::Editing;
 use crate::expansion::Expansion;
 use crate::hold::Hold;
+use crate::metrics::{INDENT_STEP, ROW_MARGIN_X};
 use crate::operation_row::OperationRow;
 use crate::project_tree::ProjectTree;
 use crate::removing_row::RemovingRow;
@@ -39,7 +40,7 @@ impl Sidebar {
     pub(crate) fn tree_rows(
         &self,
         tree: &ProjectTree,
-        handler: &RowHandler,
+        (handler, width): (&RowHandler, f32),
     ) -> Vec<AnyElement> {
         let now = Instant::now();
         self.tree
@@ -48,7 +49,10 @@ impl Sidebar {
             .filter_map(|visible| Some((tree.rows.get(visible.index)?.clone(), visible)))
             .flat_map(|(row, visible)| {
                 let draft = self.draft_below(&row, handler);
-                [Some(self.row_element((row, visible), now, handler)), draft]
+                [
+                    Some(self.row_element((row, visible), now, (handler, width))),
+                    draft,
+                ]
             })
             .flatten()
             .collect()
@@ -58,7 +62,7 @@ impl Sidebar {
         &self,
         (row, visible): (Row, VisibleRow),
         now: Instant,
-        handler: &RowHandler,
+        (handler, width): (&RowHandler, f32),
     ) -> AnyElement {
         let handler = Rc::clone(handler);
         if let Some(hold) = visible.removal {
@@ -72,13 +76,17 @@ impl Sidebar {
         let drag = RowDrag {
             lifted: self.drag.is_lifted(&row.id),
             mode: self.drag.mode_on(&row.id),
+            ghost: None,
         };
+        let width = width - 2.0 * ROW_MARGIN_X - f32::from(row.depth) * INDENT_STEP;
         TreeRow {
             row,
             expansion,
             input,
             handler,
             drag,
+            bounds: self.row_bounds.clone(),
+            width,
         }
         .into_any_element()
     }
@@ -126,6 +134,8 @@ impl Sidebar {
                 input: Some(input),
                 handler,
                 drag: RowDrag::default(),
+                bounds: self.row_bounds.clone(),
+                width: 0.0,
             }
             .into_any_element(),
         )
@@ -145,7 +155,10 @@ mod tests {
             let project = this.data.active_project().expect("an active space");
             let tree = this.data.tree(&project);
             let handler = Sidebar::row_handler(cx);
-            (this.tree_rows(&tree, &handler).len(), tree.rows.len())
+            (
+                this.tree_rows(&tree, (&handler, 294.0)).len(),
+                tree.rows.len(),
+            )
         })
     }
 

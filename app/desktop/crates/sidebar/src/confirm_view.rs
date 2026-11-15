@@ -58,7 +58,7 @@ impl Sidebar {
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {
-        let confirmation = self.tree.confirmation()?;
+        let confirmation = self.tree.removals.confirmation()?;
         let palette = Theme::of(cx).palette(Surface::Window);
         let cancel = Button::new("confirm-cancel", "Cancel")
             .variant(ButtonVariant::Ghost)
@@ -82,7 +82,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        self.tree.cancel_confirmation();
+        self.tree.removals.cancel();
         cx.notify();
     }
 
@@ -90,7 +90,7 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(Confirmation { target, .. }) = self.tree.accept_confirmation() else {
+        let Some(Confirmation { target, .. }) = self.tree.removals.accept() else {
             return;
         };
         let command = match target {
@@ -113,7 +113,8 @@ mod tests {
     ) {
         sidebar.update(cx, |this, cx| {
             this.tree
-                .request_project_removal(ProjectId::from("inv"), "inv");
+                .removals
+                .request_project(ProjectId::from("inv"), "inv");
             cx.notify();
         });
         cx.run_until_parked();
@@ -124,7 +125,7 @@ mod tests {
         let (recorder, sidebar, cx) = open(cx, DemoData::rich());
         ask(&sidebar, cx);
         sidebar.update(cx, Sidebar::cancel_confirmation);
-        assert!(sidebar.read_with(cx, |this, _| this.tree.confirmation().is_none()));
+        assert!(sidebar.read_with(cx, |this, _| this.tree.removals.confirmation().is_none()));
         assert_eq!(recorder.sent(), Vec::<Command>::new());
     }
 
@@ -142,8 +143,8 @@ mod tests {
     #[gpui::test]
     fn the_layer_exists_only_while_a_question_is_pending(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoData::rich());
-        assert!(!sidebar.read_with(cx, |this, _| this.tree.confirmation().is_some()));
+        assert!(!sidebar.read_with(cx, |this, _| this.tree.removals.confirmation().is_some()));
         ask(&sidebar, cx);
-        assert!(sidebar.read_with(cx, |this, _| this.tree.confirmation().is_some()));
+        assert!(sidebar.read_with(cx, |this, _| this.tree.removals.confirmation().is_some()));
     }
 }

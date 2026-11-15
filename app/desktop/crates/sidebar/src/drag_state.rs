@@ -3,6 +3,7 @@
 use crate::drag_press::DragPress;
 use crate::drop_hint::DropHint;
 use crate::drop_mode::DropMode;
+use crate::line_slide::LineSlide;
 use crate::row_id::RowId;
 
 #[derive(Debug, Default)]
@@ -11,6 +12,7 @@ pub(crate) struct DragState {
     pub(crate) lifted: Option<RowId>,
     pub(crate) hint: Option<DropHint>,
     pub(crate) pull: f32,
+    pub(crate) slide: Option<LineSlide>,
 }
 
 impl DragState {

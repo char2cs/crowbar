@@ -120,7 +120,7 @@ impl Sidebar {
             .child(branch_pill(&changes, palette))
             .child(count_line(changes.files.len(), palette))
             .children(rows(changes.files, &handler));
-        ScrollArea::new("changes-scroll", &self.changes_scroll, list).into_any_element()
+        ScrollArea::new("changes-scroll", &self.scrolls.changes, list).into_any_element()
     }
 }
 

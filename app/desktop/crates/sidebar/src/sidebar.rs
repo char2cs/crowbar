@@ -1,9 +1,8 @@
 //! The sidebar entity: frame, header, space switcher, mode bar and the three panels.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{AnyView, Context, EventEmitter, FocusHandle, ScrollHandle};
+use gpui::{AnyView, Context, EventEmitter, FocusHandle};
 use ui::{CubicBezier, Glide};
 
 use crate::command_sink::CommandSink;
@@ -14,9 +13,10 @@ use crate::open_menu::OpenMenu;
 use crate::panel::Panel;
 use crate::peek::Peek;
 use crate::preferences::Preferences;
-use crate::project_id::ProjectId;
 use crate::resizing::Resizing;
+use crate::row_bounds::RowBounds;
 use crate::row_id::RowId;
+use crate::scrolls::Scrolls;
 use crate::sidebar_data::SidebarData;
 use crate::sidebar_event::SidebarEvent;
 use crate::tree_state::TreeState;
@@ -39,12 +39,11 @@ pub struct Sidebar {
     pub(crate) menu: Option<OpenMenu>,
     pub(crate) carousel: Glide,
     pub(crate) peek: Peek,
-    pub(crate) scrolls: HashMap<ProjectId, ScrollHandle>,
-    pub(crate) files_scroll: ScrollHandle,
-    pub(crate) changes_scroll: ScrollHandle,
+    pub(crate) scrolls: Scrolls,
     pub(crate) handle_focus: FocusHandle,
     pub(crate) creating_space: bool,
     pub(crate) drag: DragState,
+    pub(crate) row_bounds: RowBounds,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -71,12 +70,11 @@ impl Sidebar {
             menu: None,
             carousel: Glide::resting(0.0, CAROUSEL_SPAN, CubicBezier::EASE),
             peek: Peek::default(),
-            scrolls: HashMap::new(),
-            files_scroll: ScrollHandle::new(),
-            changes_scroll: ScrollHandle::new(),
+            scrolls: Scrolls::default(),
             handle_focus: cx.focus_handle(),
             creating_space: false,
             drag: DragState::default(),
+            row_bounds: RowBounds::default(),
         }
     }
 
@@ -102,7 +100,7 @@ impl Sidebar {
         at_risk: Vec<WorkAtRisk>,
         cx: &mut Context<'_, Self>,
     ) {
-        self.tree.ask_to_discard(row, at_risk);
+        self.tree.removals.ask_to_discard(row, at_risk);
         cx.notify();
     }
 
@@ -132,13 +130,6 @@ impl Sidebar {
     pub(crate) fn changed(cx: &mut Context<'_, Self>) {
         cx.emit(SidebarEvent::PreferencesChanged);
         cx.notify();
-    }
-
-    pub(crate) fn scroll_for(
-        &mut self,
-        project: &ProjectId,
-    ) -> ScrollHandle {
-        self.scrolls.entry(project.clone()).or_default().clone()
     }
 }
 
@@ -195,22 +186,9 @@ mod tests {
             this.ask_to_discard(&RowId::from("chat"), vec![risk], cx);
         });
         let title = sidebar.read_with(cx, |this, _| {
-            this.tree.confirmation().map(Confirmation::title)
+            this.tree.removals.confirmation().map(Confirmation::title)
         });
         assert!(title.is_some_and(|text| text.ends_with("and lose work?")));
-    }
-
-    #[gpui::test]
-    fn each_space_keeps_its_own_scroll_position(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoData::rich());
-        let (a, b) = sidebar.update(cx, |this, _| {
-            (
-                this.scroll_for(&ProjectId::from("inv")),
-                this.scroll_for(&ProjectId::from("other")),
-            )
-        });
-        a.set_offset(point(px(0.0), px(-10.0)));
-        assert_ne!(a.offset(), b.offset());
     }
 
     #[gpui::test]

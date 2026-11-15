@@ -1,11 +1,10 @@
 //! The payload gpui carries while a tree row is dragged.
 
-use gpui::SharedString;
-
+use crate::row_ghost::GhostBuild;
 use crate::row_id::RowId;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct DraggedRow {
     pub(crate) row: RowId,
-    pub(crate) label: SharedString,
+    pub(crate) ghost: GhostBuild,
 }

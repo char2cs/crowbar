@@ -75,7 +75,7 @@ impl Sidebar {
         let Some(project) = self.data.active_project() else {
             return;
         };
-        let handle = self.scroll_for(&project);
+        let handle = self.scrolls.of_space(&project);
         let mut offset = handle.offset();
         offset.y -= px(self.drag.pull);
         handle.set_offset(offset);
@@ -115,7 +115,8 @@ impl Sidebar {
         point: &DragPoint,
     ) -> Option<DropHint> {
         let project = self.data.active_project()?;
-        DropHint::resolve(&self.data.tree(&project).rows, point)
+        let folded = |row: &RowId| self.tree.folded().any(|id| id == row);
+        DropHint::resolve(&self.data.tree(&project).rows, point, folded)
     }
 }
 

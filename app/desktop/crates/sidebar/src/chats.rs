@@ -99,7 +99,7 @@ impl Sidebar {
         let (now, motion) = (Instant::now(), Motion::of(cx));
         self.carousel
             .go_to(count_as_f32(index.unwrap_or(0)), now, motion);
-        if self.carousel.is_running(now, motion) || self.tree.tray().is_counting() {
+        if self.carousel.is_running(now, motion) || self.tree.removals.tray().is_counting() {
             window.request_animation_frame();
         }
         self.carousel.value(now, motion) * width
@@ -120,7 +120,7 @@ impl Sidebar {
             project: project.id.clone(),
             handler: Rc::clone(&handler),
         };
-        let rows = self.tree_rows(&tree, &handler);
+        let rows = self.tree_rows(&tree, (&handler, width));
         let list = div()
             .flex()
             .flex_col()
@@ -128,7 +128,7 @@ impl Sidebar {
             .children(notice)
             .children(rows)
             .child(foot);
-        let handle = self.scroll_for(&project.id);
+        let handle = self.scrolls.of_space(&project.id);
         let edge_handler = Rc::clone(&handler);
         let id = SharedString::from(format!("space-scroll-{}", project.id.as_str()));
         div()

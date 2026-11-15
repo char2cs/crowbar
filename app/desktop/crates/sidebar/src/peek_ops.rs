@@ -39,7 +39,7 @@ impl Sidebar {
     }
 
     fn overlay_open(&self) -> bool {
-        self.menu.is_some() || self.tree.confirmation().is_some()
+        self.menu.is_some() || self.tree.removals.confirmation().is_some()
     }
 
     fn slide_peek(

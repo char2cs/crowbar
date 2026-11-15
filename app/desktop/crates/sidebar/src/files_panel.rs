@@ -47,7 +47,7 @@ impl Sidebar {
             .flex_col()
             .py(SPACE_XS)
             .children(rows(files, &handler));
-        ScrollArea::new("files-scroll", &self.files_scroll, list).into_any_element()
+        ScrollArea::new("files-scroll", &self.scrolls.files, list).into_any_element()
     }
 }
 

@@ -1,40 +1,47 @@
-//! The 2px line that marks a between-rows drop slot.
+//! The 2px drop line with its end cap.
 
-use gpui::{Div, Hsla, Styled, div, px};
+use gpui::{Div, Hsla, ParentElement, Styled, div, px};
 
-use crate::drop_mode::DropMode;
+use crate::line_box::LineBox;
 
 const HEIGHT: f32 = 2.0;
-const INSET: f32 = 7.0;
-const EDGE: f32 = 1.0;
-const OFFSET: f32 = -2.0;
+const CAP: f32 = 4.0;
+const CAP_REACH: f32 = -8.0;
+const CAP_RISE: f32 = -1.0;
 
 pub(crate) fn drop_line(
-    mode: DropMode,
+    at: LineBox,
     color: Hsla,
-) -> Option<Div> {
-    let base = div()
+) -> Div {
+    let cap = div()
         .absolute()
-        .left(px(INSET))
-        .right(px(EDGE))
-        .h(px(HEIGHT))
+        .left(px(CAP_REACH))
+        .top(px(CAP_RISE))
+        .size(px(CAP))
         .rounded_full()
         .bg(color);
-    match mode {
-        DropMode::Before => Some(base.top(px(OFFSET))),
-        DropMode::After => Some(base.bottom(px(OFFSET))),
-        DropMode::Into => None,
-    }
+    div()
+        .relative()
+        .w(px(at.width))
+        .h(px(HEIGHT))
+        .rounded_full()
+        .bg(color)
+        .child(cap)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::measure;
 
-    #[test]
-    fn nesting_draws_no_line() {
-        let drawn = |mode| drop_line(mode, gpui::black()).is_some();
-        assert!(drawn(DropMode::Before) && drawn(DropMode::After), "slots");
-        assert!(!drawn(DropMode::Into), "into");
+    #[gpui::test]
+    fn the_line_is_two_pixels_thick_and_as_wide_as_asked(cx: &mut gpui::TestAppContext) {
+        let at = LineBox {
+            left: 0.0,
+            top: 0.0,
+            width: 120.0,
+        };
+        let bounds = measure(cx, move |_, _| drop_line(at, gpui::black()));
+        assert_eq!(f32::from(bounds.size.height), HEIGHT);
     }
 }
