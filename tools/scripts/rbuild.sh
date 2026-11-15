@@ -50,4 +50,4 @@ fi
 if [[ $(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || echo false) != true ]]; then
   create_builder
 fi
-exec docker exec -w "${RBUILD_CWD:-/w/app}" "$name" "$@"
+exec docker exec -e CARGO_BUILD_JOBS="${RBUILD_JOBS:-4}" -w "${RBUILD_CWD:-/w/app}" "$name" "$@"
