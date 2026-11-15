@@ -90,7 +90,8 @@ fn permitted(
     if !state.policy.allows(scope, origin) {
         return Err(StatusCode::FORBIDDEN);
     }
-    access_scope::ensure_path_allowed(scope.origin(), path_and_query).map_err(|_| StatusCode::FORBIDDEN)
+    access_scope::ensure_path_allowed(scope.origin(), path_and_query)
+        .map_err(|_| StatusCode::FORBIDDEN)
 }
 
 fn requested_idle(offered: &[String]) -> Result<Option<Duration>, StatusCode> {

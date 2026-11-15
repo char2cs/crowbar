@@ -6,18 +6,21 @@ use transport::{
 };
 
 use crate::echo_daemon::EchoDaemon;
+use crate::memory_listener::{MemoryDialer, memory_listener};
 
 pub(crate) const CORE_ORIGIN: &str = "crowbar://app";
+const RELAY_PORT: u16 = 4343;
 
 /// A relay in front of an echo daemon, with the shell's origins configured.
 pub(crate) struct RelayRig {
     pub(crate) relay: Relay,
+    pub(crate) dialer: MemoryDialer,
     pub(crate) daemon: EchoDaemon,
     pub(crate) transport: Arc<Transport>,
 }
 
 impl RelayRig {
-    pub(crate) async fn start(config: RelayConfig) -> Self {
+    pub(crate) fn start(config: RelayConfig) -> Self {
         let daemon = EchoDaemon::start();
         let transport = Arc::new(Transport::new(
             Arc::new(daemon.socket.clone()),
@@ -25,11 +28,12 @@ impl RelayRig {
             Arc::new(MemoryTokenStore::default()),
         ));
         let origins = ExactOrigins::new(vec![CORE_ORIGIN.to_owned()], "crowbar-ext://{extension}");
-        let relay = Relay::start(Arc::clone(&transport), Arc::new(origins), config)
-            .await
+        let (acceptor, dialer) = memory_listener(RELAY_PORT);
+        let relay = Relay::start_on(acceptor, Arc::clone(&transport), Arc::new(origins), config)
             .expect("relay starts");
         Self {
             relay,
+            dialer,
             daemon,
             transport,
         }

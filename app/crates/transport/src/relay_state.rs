@@ -147,7 +147,9 @@ mod tests {
         let state = state_with(HostRegistry::in_memory());
         let token = issue(&state, scope("p1", "local"));
         assert_eq!(
-            state.admit_stream(&token, |_| Err(StatusCode::FORBIDDEN)).err(),
+            state
+                .admit_stream(&token, |_| Err(StatusCode::FORBIDDEN))
+                .err(),
             Some(StatusCode::FORBIDDEN)
         );
         assert!(

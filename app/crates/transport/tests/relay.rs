@@ -1,4 +1,4 @@
-//! Public-API tests of `transport` against real sockets and fake daemons.
+//! Public-API tests of the relay over in-memory pipes and a fake daemon.
 #![allow(
     clippy::expect_used,
     clippy::unwrap_used,
@@ -11,6 +11,8 @@
 
 #[path = "support/echo_daemon.rs"]
 mod echo_daemon;
+#[path = "support/memory_listener.rs"]
+mod memory_listener;
 #[path = "support/relay_rig.rs"]
 mod relay_rig;
 #[path = "support/ws_client.rs"]
@@ -26,21 +28,22 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use transport::{RelayConfig, StreamAccess, TOKEN_SUBPROTOCOL_PREFIX};
 
 use crate::echo_daemon::text;
+use crate::memory_listener::MemoryDialer;
 use crate::relay_rig::{CORE_ORIGIN, RelayRig};
-use crate::ws_client::{Client, Dial, open_tcp, status_of};
+use crate::ws_client::{Client, Dial, status_of};
 
 const STREAM: &str = "/v0/terminals/t1/stream";
 const BUDGET: Duration = Duration::from_secs(30);
 
-async fn rig() -> RelayRig {
-    RelayRig::start(RelayConfig::default()).await
+fn rig() -> RelayRig {
+    RelayRig::start(RelayConfig::default())
 }
 
 fn good(
     rig: &RelayRig,
     token: &str,
 ) -> Dial {
-    Dial::good(rig.relay.addr().port(), CORE_ORIGIN, token, STREAM)
+    Dial::good(rig.dialer.clone(), CORE_ORIGIN, token, STREAM)
 }
 
 async fn refused_with(dial: Dial) -> u16 {
@@ -116,7 +119,7 @@ async fn within<T>(future: impl Future<Output = T>) -> T {
 
 #[tokio::test]
 async fn text_and_binary_frames_round_trip_and_keep_their_kind() {
-    let rig = rig().await;
+    let rig = rig();
     let token = rig.core_token("p1");
     let mut ws = good(&rig, &token).connect().await.expect("admitted");
     ws.send(text("hello")).await.unwrap();
@@ -133,7 +136,7 @@ async fn text_and_binary_frames_round_trip_and_keep_their_kind() {
 
 #[tokio::test]
 async fn large_binary_frames_arrive_byte_identical() {
-    let rig = rig().await;
+    let rig = rig();
     let token = rig.core_token("p1");
     let mut ws = good(&rig, &token).connect().await.expect("admitted");
     let frame: Vec<u8> = (0..8 * 1024 * 1024)
@@ -157,7 +160,7 @@ async fn a_message_over_the_cap_ends_the_stream_instead_of_being_buffered() {
         max_message_bytes: 1024,
         ..RelayConfig::default()
     };
-    let rig = RelayRig::start(config).await;
+    let rig = RelayRig::start(config);
     let token = rig.core_token("p1");
     let mut ws = good(&rig, &token).connect().await.expect("admitted");
     ws.send(Message::Binary(vec![7u8; 4096].into()))
@@ -169,7 +172,7 @@ async fn a_message_over_the_cap_ends_the_stream_instead_of_being_buffered() {
 
 #[tokio::test]
 async fn a_close_from_the_pane_is_echoed_with_its_code() {
-    let rig = rig().await;
+    let rig = rig();
     let token = rig.core_token("p1");
     let mut ws = good(&rig, &token).connect().await.expect("admitted");
     ws.close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
@@ -254,7 +257,7 @@ const CASES: [(&str, Spoil, u16); 14] = [
 
 #[tokio::test]
 async fn a_dial_that_breaks_one_rule_is_refused_with_that_rules_status() {
-    let rig = rig().await;
+    let rig = rig();
     let token = rig.core_token("p1");
     for (name, spoil, status) in CASES {
         let mut dial = good(&rig, &token);
@@ -270,11 +273,12 @@ async fn a_dial_that_breaks_one_rule_is_refused_with_that_rules_status() {
 
 #[tokio::test]
 async fn an_extension_token_reaches_only_its_own_extension_routes() {
-    let rig = rig().await;
+    let rig = rig();
     let token = rig.extension_token("x1", "acme");
-    let port = rig.relay.addr().port();
     let origin = "crowbar-ext://acme";
-    let dial = |path: &str, origin: &str| Dial::good(port, origin, &token, path);
+    let dial = |path: &str, origin: &str| {
+        Dial::good(rig.dialer.clone(), origin, &token, path)
+    };
     assert!(dial("/v0/ext/acme/events", origin).connect().await.is_ok());
     let cases = [
         "/v0/terminals/t1/stream",
@@ -297,10 +301,10 @@ async fn an_extension_token_reaches_only_its_own_extension_routes() {
 
 #[tokio::test]
 async fn a_core_token_cannot_be_used_from_an_extension_origin() {
-    let rig = rig().await;
+    let rig = rig();
     let token = rig.core_token("p1");
     let dial = Dial::good(
-        rig.relay.addr().port(),
+        rig.dialer.clone(),
         "crowbar-ext://acme",
         &token,
         "/v0/ext/acme/events",
@@ -310,7 +314,7 @@ async fn a_core_token_cannot_be_used_from_an_extension_origin() {
 
 #[tokio::test]
 async fn issuing_again_replaces_the_old_token() {
-    let rig = rig().await;
+    let rig = rig();
     let old = rig.core_token("p1");
     let fresh = rig.core_token("p1");
     assert_eq!(refused_with(good(&rig, &old)).await, 401);
@@ -319,7 +323,7 @@ async fn issuing_again_replaces_the_old_token() {
 
 #[tokio::test]
 async fn revoking_a_pane_closes_its_open_streams_with_a_policy_close_and_kills_its_token() {
-    let rig = rig().await;
+    let rig = rig();
     let token = rig.core_token("p1");
     let other = rig.core_token("p2");
     let mut ws = good(&rig, &token).connect().await.expect("admitted");
@@ -343,7 +347,7 @@ async fn the_connection_caps_hold_and_free_up_when_a_stream_closes() {
         max_per_pane: 2,
         ..RelayConfig::default()
     };
-    let rig = RelayRig::start(config).await;
+    let rig = RelayRig::start(config);
     let token = rig.core_token("p1");
     let mut first = good(&rig, &token).connect().await.expect("first");
     let _second = good(&rig, &token).connect().await.expect("second");
@@ -364,7 +368,7 @@ async fn an_expired_token_is_refused() {
         token_ttl: Duration::from_secs(60),
         ..RelayConfig::default()
     };
-    let rig = RelayRig::start(config).await;
+    let rig = RelayRig::start(config);
     let token = rig.core_token("p1");
     tokio::time::advance(Duration::from_secs(61)).await;
     assert_eq!(refused_with(good(&rig, &token)).await, 401);
@@ -372,7 +376,7 @@ async fn an_expired_token_is_refused() {
 
 #[tokio::test]
 async fn removing_a_host_revokes_its_tokens() {
-    let rig = rig().await;
+    let rig = rig();
     let id = HostId::new("host-1").unwrap();
     let scope = protocol::RelayScope::new(id.clone(), PaneId::new("p1").unwrap(), PaneOrigin::Core);
     let token = rig.relay.issue(&scope).unwrap().token().to_owned();
@@ -382,7 +386,7 @@ async fn removing_a_host_revokes_its_tokens() {
 
 #[tokio::test]
 async fn the_relay_listens_on_loopback_only_and_names_its_port_in_the_endpoint() {
-    let rig = rig().await;
+    let rig = rig();
     assert!(rig.relay.addr().is_ipv4() && rig.relay.addr().ip().is_loopback());
     let scope = protocol::RelayScope::new(
         HostId::new("local").unwrap(),
@@ -397,17 +401,17 @@ async fn the_relay_listens_on_loopback_only_and_names_its_port_in_the_endpoint()
     assert_eq!(endpoint.token().len(), 43);
 }
 
-async fn until_refused(port: u16) {
-    while open_tcp(port).await.is_ok() {
+async fn until_refused(dialer: &MemoryDialer) {
+    while dialer.connect().await.is_ok() {
         tokio::task::yield_now().await;
     }
 }
 
 #[tokio::test]
 async fn shutting_down_stops_accepting_connections() {
-    let rig = rig().await;
+    let rig = rig();
     rig.relay.shutdown();
-    within(until_refused(rig.relay.addr().port())).await;
+    within(until_refused(&rig.dialer)).await;
 }
 
 #[tokio::test]
@@ -417,8 +421,8 @@ async fn a_handshake_beyond_the_limit_is_answered_503_not_left_hanging() {
         handshake_timeout: BUDGET,
         ..RelayConfig::default()
     };
-    let rig = RelayRig::start(config).await;
-    let silent = open_tcp(rig.relay.addr().port()).await.unwrap();
+    let rig = RelayRig::start(config);
+    let silent = rig.dialer.connect().await.unwrap();
     let token = rig.core_token("p1");
     assert_eq!(refused_with(good(&rig, &token)).await, 503);
     drop(silent);

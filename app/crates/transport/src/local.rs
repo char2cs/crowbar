@@ -1,12 +1,14 @@
 use std::future::Future;
 use std::time::Duration;
 
-use http::{Method, Request, Response, StatusCode};
+use http::{Method, Request, StatusCode};
 use tokio::net::UnixStream;
 
 use crate::error::Error;
 use crate::http_conn::exchange;
-use crate::response::{DAEMON_UNAVAILABLE, error_response, marked_response};
+use crate::response::{
+    DAEMON_UNAVAILABLE, Forwarded, error_response, marked_response, proxy_answer,
+};
 use crate::socket_locator::SocketLocator;
 
 pub(crate) const CONNECT_ATTEMPTS: u32 = CONNECT_FAST_STEPS + 7;
@@ -77,7 +79,7 @@ pub(crate) async fn forward_local<W, F>(
     locator: &dyn SocketLocator,
     request: Request<Vec<u8>>,
     wait: W,
-) -> Response<Vec<u8>>
+) -> Forwarded
 where
     W: FnMut(u32) -> F,
     F: Future<Output = ()>,
@@ -86,19 +88,25 @@ where
         Ok(stream) => stream,
         Err(e) => {
             tracing::debug!("local daemon unreachable: {e}");
-            return marked_response(
+            return proxy_answer(marked_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 DAEMON_UNAVAILABLE,
                 UNREACHABLE_TEXT,
-            );
+            ));
         },
     };
     match exchange(Box::new(stream), request, LOCAL_BODY_LIMIT).await {
-        Ok(response) => response,
-        Err(Error::TooLarge) => error_response(StatusCode::BAD_GATEWAY, "local response too large"),
+        Ok(response) => Ok(response),
+        Err(Error::TooLarge) => proxy_answer(error_response(
+            StatusCode::BAD_GATEWAY,
+            "local response too large",
+        )),
         Err(e) => {
             tracing::debug!("local daemon exchange failed: {e}");
-            error_response(StatusCode::BAD_GATEWAY, "crowbar proxy error")
+            proxy_answer(error_response(
+                StatusCode::BAD_GATEWAY,
+                "crowbar proxy error",
+            ))
         },
     }
 }
@@ -169,7 +177,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = socket(&dir);
 
-        let answer = forward_local(&path, request(Method::GET), counting(&waits)).await;
+        let answer = forward_local(&path, request(Method::GET), counting(&waits))
+            .await
+            .unwrap_err();
 
         assert_eq!(answer.status(), 503);
         assert_eq!(marker_of(&answer), Some(DAEMON_UNAVAILABLE));
@@ -187,7 +197,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = socket(&dir);
 
-        let answer = forward_local(&path, request(Method::POST), counting(&waits)).await;
+        let answer = forward_local(&path, request(Method::POST), counting(&waits))
+            .await
+            .unwrap_err();
 
         assert_eq!(answer.status(), 503);
         assert_eq!(waits.load(Ordering::SeqCst), 0);
@@ -224,7 +236,9 @@ mod tests {
         let attempts = AtomicU32::new(0);
 
         let wait = binding_late(&attempts, &listener_path);
-        let answer = forward_local(&path, request(Method::GET), wait).await;
+        let answer = forward_local(&path, request(Method::GET), wait)
+            .await
+            .unwrap();
 
         assert_eq!(answer.status(), 200);
         assert_eq!(answer.body(), b"ok");

@@ -13,7 +13,7 @@ use crate::host_target::HostTarget;
 use crate::http_conn::strip_pane_headers;
 use crate::local::{connect_retry_delay, forward_local};
 use crate::remote::forward_remote;
-use crate::response::{error_response, readable_by};
+use crate::response::{Forwarded, error_response, proxy_answer, readable_by};
 use crate::socket_locator::SocketLocator;
 use crate::token_store::TokenStore;
 
@@ -107,35 +107,30 @@ impl Transport {
         request: Request<Vec<u8>>,
     ) -> Response<Vec<u8>> {
         let page_origin = request.headers().get(header::ORIGIN).cloned();
-        let response = match tokio::time::timeout(PROXY_TIMEOUT, self.route(origin, request)).await
-        {
-            Ok(response) => response,
-            Err(_) => error_response(
-                StatusCode::GATEWAY_TIMEOUT,
-                "crowbar daemon did not answer in time",
-            ),
-        };
-        readable_by(page_origin, response)
+        let forwarded = tokio::time::timeout(PROXY_TIMEOUT, self.route(origin, request))
+            .await
+            .unwrap_or_else(|_| proxy_answer(timed_out()));
+        forwarded.unwrap_or_else(|own| readable_by(page_origin, *own))
     }
 
     async fn route(
         &self,
         origin: &PaneOrigin,
         mut request: Request<Vec<u8>>,
-    ) -> Response<Vec<u8>> {
+) -> Forwarded {
         let target_text = request.uri().path_and_query().map_or_else(
             || request.uri().path().to_owned(),
             |pq| pq.as_str().to_owned(),
         );
         if access_scope::ensure_path_allowed(origin, &target_text).is_err() {
-            return error_response(
+            return proxy_answer(error_response(
                 StatusCode::FORBIDDEN,
                 "crowbar api is not available to this origin",
-            );
+            ));
         }
         let target = match target_of(request.uri()) {
             Ok(target) => target,
-            Err(e) => return error_response(StatusCode::BAD_REQUEST, &e.to_string()),
+            Err(e) => return proxy_answer(error_response(StatusCode::BAD_REQUEST, &e.to_string())),
         };
         strip_pane_headers(request.headers_mut());
         access_scope::stamp_extension_header(request.headers_mut(), origin);
@@ -150,12 +145,19 @@ impl Transport {
     async fn forward_to_local(
         &self,
         request: Request<Vec<u8>>,
-    ) -> Response<Vec<u8>> {
+    ) -> Forwarded {
         forward_local(self.locator.as_ref(), request, |attempt| {
             tokio::time::sleep(connect_retry_delay(attempt))
         })
         .await
     }
+}
+
+fn timed_out() -> Response<Vec<u8>> {
+    error_response(
+        StatusCode::GATEWAY_TIMEOUT,
+        "crowbar daemon did not answer in time",
+    )
 }
 
 fn target_of(uri: &http::Uri) -> Result<HostTarget, Error> {

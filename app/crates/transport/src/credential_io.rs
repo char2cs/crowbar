@@ -52,7 +52,9 @@ mod tests {
         let store = Arc::new(MemoryTokenStore::default());
         let tokens = Arc::clone(&store) as Arc<dyn TokenStore>;
         let credential = Credential::new("t".into(), [1; 32]);
-        persist_credential(&tokens, &host(), &credential).await.unwrap();
+        persist_credential(&tokens, &host(), &credential)
+            .await
+            .unwrap();
         assert_eq!(load(&tokens, &host()).await.unwrap(), credential);
         forget(&tokens, &host()).await.unwrap();
         assert!(matches!(

@@ -1,7 +1,5 @@
 use http::{HeaderValue, Response, StatusCode, header};
 
-use crate::proxy_answer::ProxyAnswer;
-
 /// Marks a response that is the proxy's, not the daemon's; the value says why.
 pub const PROXY_HEADER: &str = "x-crowbar-proxy";
 /// The local daemon socket: nothing was listening.
@@ -26,7 +24,6 @@ pub(crate) fn error_response(
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
-    response.extensions_mut().insert(ProxyAnswer::Proxy);
     response
 }
 
@@ -43,6 +40,12 @@ pub(crate) fn marked_response(
     response
 }
 
+pub(crate) type Forwarded = Result<Response<Vec<u8>>, Box<Response<Vec<u8>>>>;
+
+pub(crate) fn proxy_answer(response: Response<Vec<u8>>) -> Forwarded {
+    Err(Box::new(response))
+}
+
 #[must_use]
 pub(crate) fn readable_by(
     origin: Option<HeaderValue>,
@@ -51,9 +54,6 @@ pub(crate) fn readable_by(
     let Some(origin) = origin else {
         return response;
     };
-    if response.extensions().get::<ProxyAnswer>().is_none() {
-        return response;
-    }
     let headers = response.headers_mut();
     headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
     headers.insert(
@@ -78,7 +78,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_proxys_own_answers_are_granted_to_the_page() {
+    fn the_proxys_own_answers_are_granted_to_the_page() {
         let page = HeaderValue::from_static("crowbar-pane://app");
         let own = readable_by(
             Some(page.clone()),
@@ -89,14 +89,6 @@ mod tests {
             Some(&page)
         );
         assert_eq!(own.headers().get(PROXY_HEADER).unwrap(), HOST_UNREACHABLE);
-
-        let daemon = readable_by(Some(page), Response::new(Vec::new()));
-        assert!(
-            daemon
-                .headers()
-                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
-                .is_none()
-        );
     }
 
     #[test]

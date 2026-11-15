@@ -145,7 +145,11 @@ mod tests {
                 Who::Core => PaneOrigin::Core,
                 Who::Extension(id) => ext(id),
             };
-            assert_eq!(ensure_path_allowed(&origin, target).is_ok(), allowed, "{target}");
+            assert_eq!(
+                ensure_path_allowed(&origin, target).is_ok(),
+                allowed,
+                "{target}"
+            );
         }
     }
 

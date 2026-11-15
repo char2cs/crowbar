@@ -78,7 +78,8 @@ async fn record(
             cause: e.to_string(),
             rollback: "the host list is unchanged".to_owned(),
         })?;
-    let Err(e) = credential_io::persist_credential(tokens, host_id, &redeemed.credential).await else {
+    let Err(e) = credential_io::persist_credential(tokens, host_id, &redeemed.credential).await
+    else {
         return Ok(());
     };
     Err(Unrecorded {

@@ -4,12 +4,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use protocol::{HostId, PaneId, RelayEndpoint, RelayScope};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::acceptor::Acceptor;
 use crate::connection_book::ConnectionBook;
 use crate::error::Error;
 use crate::origin_policy::OriginPolicy;
@@ -39,11 +41,26 @@ impl Relay {
         policy: Arc<dyn OriginPolicy>,
         config: RelayConfig,
     ) -> Result<Self, Error> {
-        let removals = transport.removed_hosts();
-        let listener = TcpListener::bind(("127.0.0.1", 0))
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .await
             .map_err(Error::Bind)?;
-        let port = listener.local_addr().map_err(Error::Bind)?.port();
+        Self::start_on(listener, transport, policy, config)
+    }
+
+    /// Starts serving connections from `acceptor`, which panes reach at `127.0.0.1` on its
+    /// [`Acceptor::local_port`]. [`Relay::start`] is this over a loopback TCP listener; tests
+    /// pass an in-memory acceptor.
+    ///
+    /// # Errors
+    /// [`Error::Bind`] when the acceptor does not know its port.
+    pub fn start_on(
+        acceptor: impl Acceptor,
+        transport: Arc<Transport>,
+        policy: Arc<dyn OriginPolicy>,
+        config: RelayConfig,
+    ) -> Result<Self, Error> {
+        let port = acceptor.local_port().map_err(Error::Bind)?;
+        let removals = transport.removed_hosts();
         let state = Arc::new(RelayState {
             connections: ConnectionBook::new(config.max_connections, config.max_per_pane),
             tokens: Mutex::new(TokenBook::new(config.token_ttl)),
@@ -53,7 +70,7 @@ impl Relay {
             policy,
             port,
         });
-        tokio::spawn(accept_loop(listener, Arc::clone(&state)));
+        tokio::spawn(accept_loop(acceptor, Arc::clone(&state)));
         tokio::spawn(follow_removals(Arc::clone(&state), removals));
         Ok(Self { state })
     }
@@ -107,35 +124,66 @@ impl StreamAccess for Relay {
     }
 }
 
-async fn accept_loop(
-    listener: TcpListener,
+async fn accept_loop<A: Acceptor>(
+    mut acceptor: A,
     state: Arc<RelayState>,
 ) {
     let handshakes = Arc::new(Semaphore::new(state.config.max_handshakes));
-    while let Some(accepted) = state.shutdown.run_until_cancelled(listener.accept()).await {
+    while let Some(accepted) = state.shutdown.run_until_cancelled(acceptor.accept()).await {
         greet(&state, &handshakes, accepted).await;
     }
 }
 
-async fn greet(
+impl Acceptor for TcpListener {
+    type Stream = TcpStream;
+
+    fn local_port(&self) -> io::Result<u16> {
+        Ok(self.local_addr()?.port())
+    }
+
+    async fn accept(&mut self) -> io::Result<TcpStream> {
+        let (stream, _peer) = TcpListener::accept(self).await?;
+        Ok(stream)
+    }
+}
+
+async fn greet<S>(
     state: &Arc<RelayState>,
     handshakes: &Arc<Semaphore>,
-    accepted: io::Result<(TcpStream, SocketAddr)>,
-) {
-    let Ok((tcp, _peer)) = accepted else {
+    accepted: io::Result<S>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let Ok(stream) = accepted else {
         return tokio::time::sleep(ACCEPT_BACKOFF).await;
     };
     let Ok(permit) = Arc::clone(handshakes).try_acquire_owned() else {
-        return turn_away(&tcp);
+        return turn_away(stream, state.config.close_grace);
     };
-    tokio::spawn(session::run(Arc::clone(state), tcp, permit));
+    tokio::spawn(session::run(Arc::clone(state), stream, permit));
 }
 
-fn turn_away(tcp: &TcpStream) {
+fn turn_away<S>(
+    stream: S,
+    grace: Duration,
+) where
+    S: AsyncWrite + Unpin + Send + 'static,
+{
+    tokio::spawn(refuse_busy(stream, grace));
+}
+
+async fn refuse_busy<S>(
+    mut stream: S,
+    grace: Duration,
+) where
+    S: AsyncWrite + Unpin,
+{
     const BUSY: &[u8] =
         b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-    if let Err(e) = tcp.try_write(BUSY) {
-        tracing::debug!("relay is busy and the refusal was not delivered: {e}");
+    match tokio::time::timeout(grace, stream.write_all(BUSY)).await {
+        Ok(Ok(())) => {},
+        Ok(Err(e)) => tracing::debug!("relay is busy and the refusal was not delivered: {e}"),
+        Err(_) => tracing::debug!("relay is busy and the refusal was not taken in time"),
     }
 }
 
@@ -170,15 +218,46 @@ mod tests {
         ))
     }
 
-    async fn relay_over(transport: Arc<Transport>) -> Relay {
-        let policy = Arc::new(ExactOrigins::new(vec![], "crowbar-ext://{extension}"));
-        Relay::start(transport, policy, RelayConfig::default())
-            .await
-            .unwrap()
+    const PORT: u16 = 4242;
+
+    /// An acceptor nobody dials: the unit tests drive the relay's state directly.
+    struct Idle {
+        port: u16,
+        incoming: tokio::sync::mpsc::Receiver<tokio::io::DuplexStream>,
+        _dialer: tokio::sync::mpsc::Sender<tokio::io::DuplexStream>,
     }
 
-    async fn relay() -> Relay {
-        relay_over(transport()).await
+    fn idle(port: u16) -> Idle {
+        let (dialer, incoming) = tokio::sync::mpsc::channel(1);
+        Idle {
+            port,
+            incoming,
+            _dialer: dialer,
+        }
+    }
+
+    impl Acceptor for Idle {
+        type Stream = tokio::io::DuplexStream;
+
+        fn local_port(&self) -> io::Result<u16> {
+            Ok(self.port)
+        }
+
+        async fn accept(&mut self) -> io::Result<Self::Stream> {
+            self.incoming
+                .recv()
+                .await
+                .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+    }
+
+    fn relay_over(transport: Arc<Transport>) -> Relay {
+        let policy = Arc::new(ExactOrigins::new(vec![], "crowbar-ext://{extension}"));
+        Relay::start_on(idle(PORT), transport, policy, RelayConfig::default()).unwrap()
+    }
+
+    fn relay() -> Relay {
+        relay_over(transport())
     }
 
     fn scope_on(
@@ -199,7 +278,7 @@ mod tests {
     #[tokio::test]
     async fn removing_a_host_cancels_its_open_streams_and_leaves_others_alone() {
         let transport = transport();
-        let relay = relay_over(Arc::clone(&transport)).await;
+        let relay = relay_over(Arc::clone(&transport));
         let remote = scope_on("host-1", PaneOrigin::Core);
         let other = scope(PaneOrigin::Core);
         let connections = &relay.state.connections;
@@ -225,7 +304,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_follower_that_fell_behind_revokes_every_host_the_registry_no_longer_lists() {
-        let relay = relay().await;
+        let relay = relay();
         let state = Arc::clone(&relay.state);
         let gone = scope_on("host-9", PaneOrigin::Core);
         let guard = state.connections.register(&gone, &state.shutdown).unwrap();

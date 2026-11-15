@@ -10,7 +10,7 @@ use crate::host_registry::HostRegistry;
 use crate::http_conn::exchange;
 use crate::paired_host::PairedHost;
 use crate::remote_host::RemoteHost;
-use crate::response::{error_response, marked_response};
+use crate::response::{Forwarded, error_response, marked_response, proxy_answer};
 use crate::token_store::TokenStore;
 
 pub(crate) const REMOTE_BODY_LIMIT: usize = 256 * 1024 * 1024;
@@ -69,26 +69,30 @@ pub(crate) async fn forward_remote(
     tokens: &Arc<dyn TokenStore>,
     host_id: &HostId,
     mut request: Request<Vec<u8>>,
-) -> Response<Vec<u8>> {
+) -> Forwarded {
     let paired = match paired_host(registry, tokens, host_id).await {
         Ok(paired) => paired,
-        Err(e) => return credential_response(&e),
+        Err(e) => return proxy_answer(credential_response(&e)),
     };
     request
         .headers_mut()
         .insert(header::AUTHORIZATION, paired.authorization);
     let tls = match dial(&paired.host).await {
         Ok(tls) => tls,
-        Err(e) => return dial_response(&e),
+        Err(e) => return proxy_answer(dial_response(&e)),
     };
     match exchange(Box::new(tls), request, REMOTE_BODY_LIMIT).await {
-        Ok(response) => response,
-        Err(Error::TooLarge) => {
-            error_response(StatusCode::BAD_GATEWAY, "remote response too large")
-        },
+        Ok(response) => Ok(response),
+        Err(Error::TooLarge) => proxy_answer(error_response(
+            StatusCode::BAD_GATEWAY,
+            "remote response too large",
+        )),
         Err(e) => {
             tracing::debug!("remote exchange failed: {e}");
-            error_response(StatusCode::BAD_GATEWAY, "crowbar proxy error")
+            proxy_answer(error_response(
+                StatusCode::BAD_GATEWAY,
+                "crowbar proxy error",
+            ))
         },
     }
 }

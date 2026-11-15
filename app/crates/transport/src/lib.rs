@@ -7,6 +7,7 @@
 //! binary. [`ShellTransport`] implements `protocol::DaemonTransport` over both. Replacing the
 //! relay with daemon-issued tokens changes only the [`StreamAccess`] implementor.
 
+mod acceptor;
 mod access_scope;
 mod admission;
 mod async_stream;
@@ -47,7 +48,6 @@ mod pairing;
 mod pin;
 mod pinned_verifier;
 mod probe;
-mod proxy_answer;
 mod read_error;
 mod redeemed;
 mod registry;
@@ -75,6 +75,7 @@ mod upstream_request;
 #[cfg(feature = "os-keychain")]
 mod os_keychain;
 
+pub use acceptor::Acceptor;
 pub use access_scope::EXTENSION_HEADER;
 pub use cached_token_store::CachedTokenStore;
 pub use endpoint::Endpoint;
