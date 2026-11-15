@@ -10,5 +10,7 @@ export type PaneFrame =
   | { kind: 'subscribe'; id: number; event: string }
   | { kind: 'unsubscribe'; id: number }
   | { kind: 'command.run'; command: string }
+  | { kind: 'shell.openExternal'; url: string }
+  | { kind: 'shell.reveal'; path: string }
   | { kind: 'settings.get'; id: number; key: string }
   | { kind: 'settings.subscribe'; id: number; key: string }

@@ -48,4 +48,17 @@ describe('crowbar-bridge revealItemInFinder timeout guard', () => {
     await expect(revealItemInFinder('/tmp')).resolves.toBeUndefined()
     expect(invoke).not.toHaveBeenCalled()
   })
+
+  it('posts a shell.reveal frame inside the shell and never invokes Tauri', async () => {
+    const post = vi.fn()
+    ;(window as unknown as Record<string, unknown>).crowbar = { post, onmessage: null }
+    await revealItemInFinder('/tmp/a')
+    delete (window as unknown as Record<string, unknown>).crowbar
+    expect(JSON.parse(post.mock.calls[0][0])).toEqual({
+      sdk: 1,
+      kind: 'shell.reveal',
+      path: '/tmp/a',
+    })
+    expect(invoke).not.toHaveBeenCalled()
+  })
 })

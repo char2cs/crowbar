@@ -75,4 +75,17 @@ describe('openExternalUrl in the phone app', () => {
     expect(shellOpen).not.toHaveBeenCalled()
     expect(open).not.toHaveBeenCalled()
   })
+
+  it('posts a shell.openExternal frame inside the shell instead of opening it itself', async () => {
+    const post = vi.fn()
+    ;(window as unknown as Record<string, unknown>).crowbar = { post, onmessage: null }
+    await openExternalUrl('https://example.com/a')
+    delete (window as unknown as Record<string, unknown>).crowbar
+    expect(JSON.parse(post.mock.calls[0][0])).toEqual({
+      sdk: 1,
+      kind: 'shell.openExternal',
+      url: 'https://example.com/a',
+    })
+    expect(shellOpen).not.toHaveBeenCalled()
+  })
 })

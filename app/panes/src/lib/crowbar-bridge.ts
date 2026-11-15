@@ -10,6 +10,7 @@ import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import { inShell } from '@/lib/ws/in-shell'
 import { openShellSocket } from '@/lib/ws/shell-socket'
+import { postShellFrame } from '@/sdk/post-shell-frame'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { IS_MOBILE } from '@/utils/platform'
@@ -240,6 +241,7 @@ const REVEAL_IN_FINDER_TIMEOUT_MS = 3_000
 /** Reveal a file or directory in the OS file manager (Finder on macOS) with the
  *  item selected. `path` must be absolute. No-op outside Tauri (browser dev). */
 export async function revealItemInFinder(path: string): Promise<void> {
+  if (postShellFrame({ kind: 'shell.reveal', path })) return
   if (!isDesktopApp()) return
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
@@ -436,6 +438,7 @@ export async function restartDaemon(): Promise<void> {
 
 /** Shows the daemon log in the OS file manager. */
 export async function revealDaemonLog(): Promise<void> {
+  if (postShellFrame({ kind: 'command.run', command: 'app.openLog' })) return
   await tauriInvoke('reveal_daemon_log')
 }
 
