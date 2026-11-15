@@ -1,6 +1,8 @@
 package ingress
 
 import (
+	"strings"
+
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
@@ -352,19 +354,7 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 // own, the hook's reply and its thought, and every ask nothing will answer now. One
 // message is one whole row; the reply is its last message's.
 func closingRows(st ledger.State, turnID, reply string, src Source, outlived bool) ([]ledger.Row, error) {
-	said := unsaid(st, turnID, src.Live.Answers)
-	last, hasLast := st.LastMessage(turnID)
-	whole := hasLast && st.HasChunk("", last, ledger.IndexComplete)
-	if n := len(said); n > 0 {
-		last, hasLast, whole = said[n-1].ID, true, false
-		said[n-1].Text = fuller(reply, said[n-1].Text)
-	}
-	if !hasLast {
-		last = ledger.ReplyID(turnID)
-	}
-	if reply != "" && !whole && len(said) == 0 {
-		said = append(said, liveText{ID: last, Text: reply})
-	}
+	said, last := withReply(st, turnID, reply, unsaid(st, turnID, src.Live.Answers))
 	rows, err := answerRows(turnID, said)
 	if err != nil {
 		return nil, err
@@ -376,6 +366,44 @@ func closingRows(st ledger.State, turnID, reply string, src Source, outlived boo
 	rows = append(rows, thoughts...)
 	abandoned, err := abandonAsks(st, turnID, outlived)
 	return append(rows, abandoned...), err
+}
+
+// withReply is said with the turn's reply in it, and the turn's last message. The
+// reply joins the last message still open; after a whole one it is said only as
+// far as that message did not already say it.
+func withReply(st ledger.State, turnID, reply string, said []liveText) ([]liveText, string) {
+	if n := len(said); n > 0 {
+		said[n-1].Text = fuller(reply, said[n-1].Text)
+		return said, said[n-1].ID
+	}
+	last, hasLast := st.LastMessage(turnID)
+	if !hasLast {
+		last = ledger.ReplyID(turnID)
+	} else if st.HasChunk("", last, ledger.IndexComplete) {
+		if _, _, replied := st.Reply(turnID); replied {
+			return said, last
+		}
+		if reply = notYetSaid(reply, st.WholeText("", last)); reply != "" {
+			last = ledger.ReplyID(turnID)
+		}
+	}
+	if reply == "" {
+		return said, last
+	}
+	return append(said, liveText{ID: last, Text: reply}), last
+}
+
+// notYetSaid is the part of reply a whole message's text does not hold, edge
+// spaces aside: nothing when the message says it, the rest when it extends it.
+func notYetSaid(reply, whole string) string {
+	r, w := strings.TrimSpace(reply), strings.TrimSpace(whole)
+	if strings.HasPrefix(w, r) {
+		return ""
+	}
+	if w != "" && strings.HasPrefix(r, w) {
+		return strings.TrimSpace(r[len(w):])
+	}
+	return reply
 }
 
 // fuller is the longer of a turn end's reply and the stream it names: the

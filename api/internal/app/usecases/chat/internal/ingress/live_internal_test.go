@@ -455,3 +455,30 @@ func TestRecorder_TextStreamedBeforeASubagentOrAnAskIsRecordedAboveIt(t *testing
 
 	assert.Equal(t, []string{"text m1", "subagent", "text m2", "ask"}, transcript(t, f.rows(t)))
 }
+
+// A turn's reply that never streamed is said after the call that ended the text
+// before it, once; a reply repeating that text says nothing more.
+func TestRecorder_AReplyThatNeverStreamedIsRecordedAfterTheCall(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reply string
+		said  []string
+	}{
+		"new words":         {"Done", []string{"Listing", "Done"}},
+		"the words it said": {"Listing", []string{"Listing"}},
+		"more of them":      {"Listing all", []string{"Listing", "all"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newRecorderFixture(t, "hermes")
+			f.dispatchOn(t, engineagents.ChannelAPI,
+				engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"},
+				answer("s1", "Listing"),
+				toolEvent(engineagents.HookToolPre, "t1", "ls"), toolEvent(engineagents.HookToolPost, "t1", "ls"),
+				engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: tc.reply},
+			)
+
+			rows := f.rows(t)
+			assert.Equal(t, tc.said, said(rows))
+			assert.Equal(t, []string{"text s1", "pre t1", "post t1"}, transcript(t, rows)[:3])
+		})
+	}
+}

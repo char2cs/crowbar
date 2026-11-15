@@ -230,6 +230,8 @@ func TestState_KeepsWhatARetriedChunkIsRecognisedBy(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, ledger.ReplyID("T1"), id)
 	assert.Equal(t, "R", reply)
+	assert.Equal(t, "R", st.WholeText("", id))
+	assert.Empty(t, st.WholeText("", "m"), "a message with no complete row holds no whole text")
 }
 
 func TestCheck_AnAssistantTextNeedsAMessageAndATurn(t *testing.T) {
