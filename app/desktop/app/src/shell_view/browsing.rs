@@ -1,0 +1,55 @@
+use browser_chrome::BrowserBarEvent;
+use browser_nav::{BrowserUrl, SearchEngine, resolve_address};
+use gpui::Context;
+use pane_host::BrowseAction;
+use protocol::PaneId;
+
+use super::ShellView;
+
+impl ShellView {
+    pub(super) fn browse(
+        &mut self,
+        pane: &PaneId,
+        event: BrowserBarEvent,
+        _cx: &mut Context<'_, Self>,
+    ) {
+        let Some(action) = action_for(event) else {
+            return;
+        };
+        if let Err(error) = self.state.host().browse(pane, &action) {
+            tracing::warn!(%error, "the browser pane could not be driven");
+        }
+    }
+}
+
+fn action_for(event: BrowserBarEvent) -> Option<BrowseAction> {
+    match event {
+        BrowserBarEvent::Go(typed) => {
+            let address = resolve_address(&typed, &SearchEngine::DuckDuckGo)?;
+            BrowserUrl::parse(&address).ok().map(BrowseAction::Go)
+        },
+        BrowserBarEvent::Back => Some(BrowseAction::Back),
+        BrowserBarEvent::Forward => Some(BrowseAction::Forward),
+        BrowserBarEvent::Reload => Some(BrowseAction::Reload),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_text_becomes_a_page_or_a_search_and_blank_input_does_nothing() {
+        const CASES: &[(&str, bool)] = &[
+            ("example.com", true),
+            ("rust lifetimes", true),
+            ("  ", false),
+        ];
+        for (typed, acts) in CASES {
+            let action = action_for(BrowserBarEvent::Go((*typed).to_owned()));
+            assert_eq!(action.is_some(), *acts, "{typed:?}");
+        }
+        assert_eq!(action_for(BrowserBarEvent::Back), Some(BrowseAction::Back));
+    }
+}

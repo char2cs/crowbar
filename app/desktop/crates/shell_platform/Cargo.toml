@@ -1,0 +1,20 @@
+[package]
+name = "shell_platform"
+description = "Desktop services of the Crowbar shell: open a link in the system browser, reveal a path in the file manager, and the rule that decides where a link may go."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

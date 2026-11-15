@@ -1,6 +1,5 @@
 use gpui::{Bounds, Pixels};
 
-/// A GPUI rectangle as the web view layer's logical rectangle.
 pub(crate) fn to_bounds(bounds: Bounds<Pixels>) -> webview::Bounds {
     webview::Bounds {
         x: f64::from(f32::from(bounds.origin.x)),
@@ -11,5 +10,26 @@ pub(crate) fn to_bounds(bounds: Bounds<Pixels>) -> webview::Bounds {
 }
 
 #[cfg(test)]
-#[path = "pixels_tests.rs"]
-mod tests;
+mod tests {
+    use gpui::{point, px, size};
+
+    use super::*;
+
+    #[test]
+    fn gpui_bounds_become_logical_web_view_bounds() {
+        let bounds = Bounds {
+            origin: point(px(294.0), px(42.0)),
+            size: size(px(800.0), px(600.0)),
+        };
+        assert_eq!(
+            to_bounds(bounds),
+            webview::Bounds {
+                x: 294.0,
+                y: 42.0,
+                width: 800.0,
+                height: 600.0
+            },
+            "converted"
+        );
+    }
+}

@@ -1,9 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-/// Settings read from the environment.
+use crate::error::{Error, Result};
+
+const DEFAULT_PANES_DIR: &str = "panes";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AppOptions {
-    pub(crate) panes_dir: PathBuf,
+    pub(crate) panes_dir: Option<PathBuf>,
     pub(crate) chat_entry: String,
     pub(crate) home: PathBuf,
     pub(crate) daemon_binary: Option<PathBuf>,
@@ -17,19 +20,190 @@ impl AppOptions {
             .map_or_else(|| PathBuf::from(".crowbar"), PathBuf::from);
         Self {
             panes_dir: vars("CROWBAR_PANES_DIR")
-                .map_or_else(|| PathBuf::from("panes"), PathBuf::from),
+                .filter(|dir| !dir.is_empty())
+                .map(PathBuf::from),
             chat_entry: vars("CROWBAR_CHAT_ENTRY").unwrap_or_else(|| "chat/index.html".into()),
             home,
             daemon_binary: vars("CROWBAR_API_BIN").map(PathBuf::from),
         }
     }
 
-    /// Where the shell keeps its own files: layout, sidebar preferences, web view data.
+    pub(crate) fn resolve_panes_dir(
+        &self,
+        exe: Option<&Path>,
+    ) -> Result<PathBuf> {
+        let dir = match (&self.panes_dir, exe.and_then(Path::parent)) {
+            (Some(dir), _) => {
+                std::path::absolute(dir).map_err(|source| Error::Read(dir.clone(), source))?
+            },
+            (None, Some(beside_exe)) => beside_exe.join(DEFAULT_PANES_DIR),
+            (None, None) => PathBuf::from(DEFAULT_PANES_DIR),
+        };
+        let entry = dir.join(&self.chat_entry);
+        entry
+            .is_file()
+            .then_some(dir)
+            .ok_or(Error::PanesMissing(entry))
+    }
+
     pub(crate) fn state_dir(&self) -> PathBuf {
         self.home.join("shell")
     }
 }
 
 #[cfg(test)]
-#[path = "app_options_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    type Expected = (
+        &'static str,
+        Option<&'static str>,
+        &'static str,
+        Option<&'static str>,
+    );
+    type EnvCase = (
+        &'static str,
+        &'static [(&'static str, &'static str)],
+        Expected,
+    );
+
+    const ENV_CASES: &[EnvCase] = &[
+        (
+            "defaults follow the home directory",
+            &[("HOME", "/home/u")],
+            ("/home/u/.crowbar", None, "chat/index.html", None),
+        ),
+        (
+            "the environment overrides everything",
+            &[
+                ("CROWBAR_HOME", "/h"),
+                ("CROWBAR_PANES_DIR", "/p"),
+                ("CROWBAR_CHAT_ENTRY", "index.html"),
+                ("CROWBAR_API_BIN", "/bin/api"),
+            ],
+            ("/h", Some("/p"), "index.html", Some("/bin/api")),
+        ),
+        (
+            "an empty home variable counts as unset",
+            &[("CROWBAR_HOME", ""), ("HOME", "/home/u")],
+            ("/home/u/.crowbar", None, "chat/index.html", None),
+        ),
+        (
+            "an empty panes directory counts as unset",
+            &[("CROWBAR_PANES_DIR", "")],
+            (".crowbar", None, "chat/index.html", None),
+        ),
+    ];
+
+    fn env_of(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let vars: Vec<(String, String)> = vars
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect();
+        move |key| {
+            vars.iter()
+                .find(|(known, _)| known == key)
+                .map(|(_, value)| value.clone())
+        }
+    }
+
+    fn options_of(expected: &Expected) -> AppOptions {
+        let (home, panes, entry, binary) = expected;
+        AppOptions {
+            panes_dir: panes.map(PathBuf::from),
+            chat_entry: (*entry).to_owned(),
+            home: PathBuf::from(home),
+            daemon_binary: binary.map(PathBuf::from),
+        }
+    }
+
+    #[test]
+    fn the_environment_decides_the_options() {
+        for (name, vars, expected) in ENV_CASES {
+            let options = AppOptions::from_env(env_of(vars));
+            let expected = options_of(expected);
+            assert_eq!(options, expected, "{name}");
+            assert_eq!(options.state_dir(), expected.home.join("shell"), "{name}");
+        }
+    }
+
+    fn options_with(panes: Option<PathBuf>) -> AppOptions {
+        AppOptions {
+            panes_dir: panes,
+            chat_entry: "chat/index.html".into(),
+            home: PathBuf::from("/h"),
+            daemon_binary: None,
+        }
+    }
+
+    fn bundle(root: &Path) {
+        std::fs::create_dir_all(root.join("chat")).unwrap();
+        std::fs::write(root.join("chat/index.html"), "<p>").unwrap();
+    }
+
+    type ResolveCase = (
+        &'static str,
+        Option<&'static str>,
+        Option<&'static str>,
+        Option<&'static str>,
+        Option<&'static str>,
+    );
+
+    const RESOLVE_CASES: &[ResolveCase] = &[
+        (
+            "the panes default to a directory beside the executable",
+            None,
+            Some("crowbar"),
+            Some("panes"),
+            Some("panes"),
+        ),
+        (
+            "an explicit directory wins",
+            Some("explicit"),
+            None,
+            Some("explicit"),
+            Some("explicit"),
+        ),
+        (
+            "a missing bundle is an error naming the entry page",
+            Some("empty"),
+            None,
+            None,
+            None,
+        ),
+    ];
+
+    fn check_resolved(
+        name: &str,
+        found: Result<PathBuf>,
+        expected: Option<PathBuf>,
+    ) {
+        let Some(expected) = expected else {
+            let error = found.unwrap_err();
+            assert!(
+                error.to_string().contains("chat/index.html"),
+                "{name}: {error}"
+            );
+            return;
+        };
+        let dir = found.unwrap();
+        assert_eq!(dir, expected, "{name}");
+        assert!(dir.is_absolute(), "{name}: absolute");
+    }
+
+    fn run_case(case: &ResolveCase) {
+        let (name, configured, exe, bundled, resolved) = case;
+        let root = tempfile::tempdir().unwrap();
+        if let Some(dir) = bundled {
+            bundle(&root.path().join(dir));
+        }
+        let options = options_with(configured.map(|dir| root.path().join(dir)));
+        let found = options.resolve_panes_dir(exe.map(|exe| root.path().join(exe)).as_deref());
+        check_resolved(name, found, resolved.map(|dir| root.path().join(dir)));
+    }
+
+    #[test]
+    fn the_panes_directory_is_found_or_the_missing_entry_is_named() {
+        RESOLVE_CASES.iter().for_each(run_case);
+    }
+}

@@ -15,6 +15,10 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 async-channel.workspace = true
+browser_chrome.workspace = true
+browser_nav.workspace = true
+branch_import_view.workspace = true
+command_palette.workspace = true
 daemon_supervisor.workspace = true
 gpui.workspace = true
 layout_view.workspace = true
@@ -23,18 +27,23 @@ pane_host.workspace = true
 protocol.workspace = true
 serde_json.workspace = true
 settings_ui.workspace = true
+shell_diagnostics.workspace = true
+shell_keys.workspace = true
+shell_platform.workspace = true
+shell_data.workspace = true
 sidebar.workspace = true
 startup_view.workspace = true
 tab_bar.workspace = true
 thiserror.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tracing.workspace = true
-tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
 transport.workspace = true
 ui.workspace = true
 webview.workspace = true
+window_state.workspace = true
 
 [dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
 tempfile = "3"
 webview = { workspace = true, features = ["mock"] }
 

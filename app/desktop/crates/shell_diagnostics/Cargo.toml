@@ -1,0 +1,21 @@
+[package]
+name = "shell_diagnostics"
+description = "Logging and crash reports of the Crowbar shell: a rotated log file in the shell data directory and a report file for every panic."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
+zip.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

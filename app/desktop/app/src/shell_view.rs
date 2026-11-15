@@ -1,38 +1,53 @@
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
+use command_palette::PalettePanel;
 use gpui::{
-    AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription,
+    Context, Entity, InteractiveElement, IntoElement, ParentElement, Render, Styled, Subscription,
     Window, div,
 };
 use layout_view::{ChromeContext, LayoutEvent, LayoutView};
 use pane_host::{IpcMessage, Overlay};
 use settings_ui::SettingsModal;
-use sidebar::{DemoData, Preferences, Sidebar, SidebarData, SidebarEvent};
-use startup_view::{MonotonicClock, StartupEvent, StartupInput, StartupTiming, StartupView};
-use tab_bar::{MemberView, SidebarState, TabBar, TabBarEvent, TabView};
-use ui::{Overlays, Surface, Theme};
+use shell_data::{SettingsAdapter, ShellData};
+use shell_keys::Keymap;
+use sidebar::{Sidebar, SidebarEvent};
+use startup_view::{StartupEvent, StartupInput, StartupView};
+use tab_bar::{SidebarState, TabBar, TabBarEvent, TabView};
+use ui::{Surface, Theme, ToastKind};
 
-use crate::chat_label::NEW_CHAT;
+mod appearance_settings;
+mod browsing;
+mod children;
+mod data_events;
+mod keymap_settings;
+mod notices;
+mod outcomes;
+mod pane_commands;
+mod pump;
+mod shell_commands;
+
 use crate::daemon_link::DaemonLink;
+use crate::focused_chat::focused_chat;
 use crate::holes::visible_panes;
-use crate::pane_source::ShellPaneSource;
-use crate::request_sinks::{OverlayRequests, SidebarRequests, StartupRequests};
-use crate::settings_modal::open_settings;
-use crate::shell_outcome::Outcome;
+use crate::hover_tracker::HoverTracker;
+use crate::notice_key::NoticeKey;
+use crate::notices::Notices;
+use crate::shell_pane_source::ShellPaneSource;
+use crate::shell_parts::ShellParts;
 use crate::shell_request::ShellRequest;
 use crate::shell_state::ShellState;
-use crate::workspace::{Workspace, WorkspaceEvent};
+use crate::workspace_event::WorkspaceEvent;
 
-/// Everything the root view is built from.
-pub(crate) struct ShellParts {
-    pub(crate) state: ShellState,
-    pub(crate) link: Rc<DaemonLink>,
-    pub(crate) preferences_path: PathBuf,
-}
+use self::children::{
+    build_panes, build_sidebar, build_startup, overlay_channel, start_data, subscribe_all,
+};
+use self::pump::{drain, member};
 
-/// The window's root view: the sidebar around the workspace, with the startup view and the
-/// settings modal layered over it.
+const WINDOW_CANNOT_HOST: &str = "This window cannot show panes: it is not an X11 window. Restart Crowbar under X11 or XWayland.";
+
 pub(crate) struct ShellView {
     state: ShellState,
     link: Rc<DaemonLink>,
@@ -42,37 +57,48 @@ pub(crate) struct ShellView {
     layout: Entity<LayoutView>,
     startup: Option<Entity<StartupView>>,
     settings: Option<Entity<SettingsModal>>,
+    palette: Option<Entity<PalettePanel>>,
+    branch_import: Option<Entity<branch_import_view::BranchImportView>>,
+    source: Rc<ShellPaneSource>,
+    keymap: Keymap,
+    keymap_watch: Option<settings_ui::Subscription>,
+    appearance_watch: Option<settings_ui::Subscription>,
+    system_fonts: shell_data::SystemFonts,
     requests: async_channel::Sender<ShellRequest>,
+    data: ShellData,
+    data_queued: Arc<AtomicBool>,
+    settings_backend: Option<SettingsAdapter>,
     placement: Option<(webview::ParentWindow, webview::Bounds)>,
     overlays_open: bool,
-    _subscriptions: Vec<Subscription>,
+    hover: HoverTracker,
+    notices: Notices,
+    subscriptions: Vec<Subscription>,
+}
+
+fn warn_unserved(command: &sidebar::Command) {
+    tracing::warn!(
+        ?command,
+        "the sidebar command needs daemon data the shell does not read yet"
+    );
 }
 
 impl ShellView {
-    pub(crate) fn new(parts: ShellParts, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
-        let ShellParts {
+    pub(crate) fn new(
+        ShellParts {
             state,
             link,
             preferences_path,
-        } = parts;
-        let (requests, queue) = async_channel::unbounded();
-        Overlays::install(Rc::new(OverlayRequests::new(requests.clone())), cx);
-        let source = Rc::new(ShellPaneSource::new(state.titles(), state.serials()));
-        let layout = cx.new(|_| LayoutView::new(source));
-        let first_tab = state.serials().next_tab();
-        let tabs = cx.new(|_| TabBar::new(first_tab));
-        let workspace = cx.new(|_| Workspace::new(tabs.clone(), layout.clone()));
-        let sidebar = build_sidebar(&requests, &preferences_path, &workspace, cx);
+        }: ShellParts,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
+        let (requests, queue) = overlay_channel(cx);
+        let (layout, tabs, workspace, source) = build_panes(&state, &requests, cx);
+        let (data, data_queued) = start_data(&link, &requests);
+        let sidebar = build_sidebar((&requests, &data), &preferences_path, &workspace, cx);
         let startup = build_startup(&requests, cx);
-        let subscriptions = vec![
-            cx.subscribe_in(&workspace, window, |this, _, event, window, cx| {
-                this.on_workspace(event, window, cx);
-            }),
-            cx.subscribe(&tabs, Self::on_tabs),
-            cx.subscribe(&layout, Self::on_layout),
-            cx.subscribe(&sidebar, Self::on_sidebar),
-            cx.subscribe(&startup, Self::on_startup),
-        ];
+        let subscriptions =
+            subscribe_all((&workspace, &tabs, &layout, &sidebar, &startup), window, cx);
         let mut view = Self {
             state,
             link,
@@ -80,16 +106,41 @@ impl ShellView {
             sidebar,
             tabs,
             layout,
+            source,
             startup: Some(startup),
             settings: None,
+            palette: None,
+            branch_import: None,
+            keymap: Keymap::defaults(),
+            keymap_watch: None,
+            appearance_watch: None,
+            system_fonts: shell_data::SystemFonts::default(),
             requests,
+            data,
+            data_queued,
+            settings_backend: None,
             placement: None,
             overlays_open: false,
-            _subscriptions: subscriptions,
+            hover: HoverTracker::default(),
+            notices: Notices::default(),
+            subscriptions,
         };
-        view.spawn_tasks(queue, window, cx);
-        view.refresh(cx);
+        view.begin(queue, window, cx);
         view
+    }
+
+    fn begin(
+        &mut self,
+        queue: async_channel::Receiver<ShellRequest>,
+        window: &Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.system_fonts = crate::installed_fonts::installed(cx);
+        self.announce_start();
+        self.spawn_tasks(queue, window, cx);
+        self.refresh(cx);
+        self.watch_keymap();
+        self.watch_appearance(cx);
     }
 
     fn spawn_tasks(
@@ -114,27 +165,49 @@ impl ShellView {
         .detach();
     }
 
-    fn on_ipc(&mut self, message: IpcMessage, _: &mut Window, cx: &mut Context<'_, Self>) {
+    fn on_ipc(
+        &mut self,
+        message: IpcMessage,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         let outcome = self.state.handle_ipc(message);
         self.apply_outcome(outcome, cx);
     }
 
-    fn feed_startup(&mut self, input: StartupInput, _: &mut Window, cx: &mut Context<'_, Self>) {
-        if let Some(startup) = &self.startup {
-            startup.update(cx, |startup, cx| startup.apply(input, cx));
+    fn feed_startup(
+        &mut self,
+        input: StartupInput,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match &self.startup {
+            Some(startup) => startup.update(cx, |startup, cx| startup.apply(input, cx)),
+            None => self.track_daemon(&input, cx),
         }
     }
 
-    fn handle(&mut self, request: ShellRequest, window: &mut Window, cx: &mut Context<'_, Self>) {
+    fn handle(
+        &mut self,
+        request: ShellRequest,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         match request {
             ShellRequest::Sidebar(command) => self.on_sidebar_command(&command, window, cx),
             ShellRequest::Startup(command) => {
                 crate::startup_command::perform(command, &self.link, cx);
             },
+            ShellRequest::DataChanged => self.on_data_changed(cx),
+            ShellRequest::Outcome(outcome) => self.on_data_outcome(outcome, cx),
             ShellRequest::CloseSettings => {
                 self.settings = None;
                 self.update_overlay(cx);
             },
+            ShellRequest::KeymapChanged => self.on_keymap_changed(cx),
+            ShellRequest::AppearanceChanged => self.apply_appearance(cx),
+            ShellRequest::Browse { pane, event } => self.browse(&pane, event, cx),
+            ShellRequest::Command(command) => self.run_shell_command(command, window, cx),
             ShellRequest::Overlays { open } => {
                 self.overlays_open = open;
                 self.update_overlay(cx);
@@ -151,37 +224,43 @@ impl ShellView {
         use crate::sidebar_action::{SidebarAction, action_for};
         match action_for(command) {
             Ok(SidebarAction::Open(type_id, params)) => {
-                self.state.open_pane(type_id, params);
-                self.refresh(cx);
+                self.open_from_sidebar((type_id, params), cx);
             },
             Ok(SidebarAction::OpenSettings) => self.show_settings(window, cx),
-            Ok(SidebarAction::Unserved) => {
-                tracing::warn!(
-                    ?command,
-                    "the sidebar command needs daemon data the shell does not read yet"
-                );
-            },
+            Ok(SidebarAction::OpenFile(path)) => self.open_workspace_file(&path, cx),
+            Ok(SidebarAction::ImportRepo) => Self::import_repo(window, cx),
+            Ok(SidebarAction::ImportBranches(row)) => self.show_branch_import(&row, window, cx),
+            Ok(SidebarAction::Unserved) => warn_unserved(command),
             Err(error) => tracing::warn!(%error, "a sidebar command was invalid"),
         }
     }
 
-    fn show_settings(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        match open_settings(self.requests.clone(), window, cx) {
-            Ok(modal) => {
-                self.settings = Some(modal);
-                self.update_overlay(cx);
-            },
-            Err(error) => tracing::error!(%error, "could not open settings"),
-        }
+    fn open_from_sidebar(
+        &mut self,
+        (type_id, params): (protocol::PaneTypeId, protocol::Params),
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.state.open_pane(type_id, params);
+        self.refresh(cx);
     }
 
-    fn update_overlay(&mut self, cx: &mut Context<'_, Self>) {
-        let covered = self.startup.is_some() || self.settings.is_some() || self.overlays_open;
-        self.state.set_overlay(if covered {
-            Overlay::Active
-        } else {
-            Overlay::Inactive
-        });
+    fn overlay(&self) -> Overlay {
+        let covered = self.startup.is_some()
+            || self.settings.is_some()
+            || self.palette.is_some()
+            || self.branch_import.is_some()
+            || self.overlays_open;
+        if covered {
+            return Overlay::Active;
+        }
+        Overlay::Inactive
+    }
+
+    fn update_overlay(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.state.set_overlay(self.overlay());
         cx.notify();
     }
 
@@ -197,11 +276,23 @@ impl ShellView {
                 self.placement = Some((parent, crate::pixels::to_bounds(*bounds)));
                 self.sync(cx);
             },
-            Err(error) => tracing::error!(%error, "the window cannot host web views"),
+            Err(error) => {
+                tracing::error!(%error, "the window cannot host web views");
+                self.show_notice(
+                    NoticeKey::Window,
+                    (ToastKind::Error, WINDOW_CANNOT_HOST.into()),
+                    cx,
+                );
+            },
         }
     }
 
-    fn on_tabs(&mut self, _: Entity<TabBar>, event: &TabBarEvent, cx: &mut Context<'_, Self>) {
+    fn on_tabs(
+        &mut self,
+        _: Entity<TabBar>,
+        event: &TabBarEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
         match event {
             TabBarEvent::Apply(commands) => {
                 self.state.apply(commands.clone());
@@ -229,7 +320,12 @@ impl ShellView {
         clippy::trivially_copy_pass_by_ref,
         reason = "gpui subscription handlers receive the event by reference"
     )]
-    fn on_sidebar(&mut self, _: Entity<Sidebar>, event: &SidebarEvent, cx: &mut Context<'_, Self>) {
+    fn on_sidebar(
+        &mut self,
+        _: Entity<Sidebar>,
+        event: &SidebarEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
         if !matches!(event, SidebarEvent::PreferencesChanged) {
             return;
         }
@@ -246,25 +342,30 @@ impl ShellView {
     )]
     fn on_startup(
         &mut self,
-        _: Entity<StartupView>,
         event: &StartupEvent,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         if !matches!(event, StartupEvent::HandedOver) {
             return;
         }
+        window.set_window_title(crate::window_memory::WINDOW_TITLE);
         self.startup = None;
         self.update_overlay(cx);
     }
 
-    fn chrome(&self, cx: &Context<'_, Self>) -> (ChromeContext, SidebarState) {
+    fn chrome(
+        &self,
+        cx: &Context<'_, Self>,
+    ) -> (ChromeContext, SidebarState) {
         let preferences = self.sidebar.read(cx).preferences();
         crate::chrome::of(&preferences)
     }
 
-    /// Pushes the layout into the tab strip and the layout view, then follows it with the
-    /// web views.
-    fn refresh(&mut self, cx: &mut Context<'_, Self>) {
+    fn refresh(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         let (chrome, sidebar_state) = self.chrome(cx);
         let titles = self.state.titles();
         let layout = self.state.layout();
@@ -275,6 +376,7 @@ impl ShellView {
             .collect();
         let active = layout.active_tab().map(model::Tab::id);
         let tab = layout.active_tab().cloned();
+        self.data.focus_chat(focused_chat(layout).as_deref());
         self.tabs.update(cx, |bar, cx| {
             bar.set_tabs(tabs, active, cx);
             bar.set_sidebar(sidebar_state, cx);
@@ -286,113 +388,35 @@ impl ShellView {
         self.sync(cx);
     }
 
-    fn sync(&mut self, cx: &mut Context<'_, Self>) {
+    fn sync(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some((parent, area)) = self.placement else {
             return;
         };
         let (chrome, _) = self.chrome(cx);
-        let visible = visible_panes(self.state.layout().active_tab(), area, chrome);
+        let visible = visible_panes(
+            self.state.layout().active_tab(),
+            area,
+            (chrome, self.source.as_ref()),
+        );
+        self.state.set_theme(*Theme::of(cx));
         let outcome = self.state.sync(parent, visible);
         self.apply_outcome(outcome, cx);
     }
-
-    fn apply_outcome(&mut self, outcome: Outcome, cx: &mut Context<'_, Self>) {
-        let Outcome {
-            titles_changed,
-            hover,
-            commands,
-        } = outcome;
-        for (pane, hovered) in hover {
-            let hovered = hovered.then_some(pane);
-            self.layout
-                .update(cx, |view, cx| view.set_hovered_pane(hovered, cx));
-        }
-        for command in commands {
-            tracing::debug!(%command, "a pane ran a shell command the shell does not serve yet");
-        }
-        if titles_changed {
-            self.refresh(cx);
-        }
-    }
-}
-
-fn build_sidebar(
-    requests: &async_channel::Sender<ShellRequest>,
-    preferences_path: &std::path::Path,
-    workspace: &Entity<Workspace>,
-    cx: &mut Context<'_, ShellView>,
-) -> Entity<Sidebar> {
-    cx.new(|cx| {
-        let data = Rc::new(DemoData::reference());
-        let sink = Rc::new(SidebarRequests(requests.clone()));
-        let preferences = load_preferences(preferences_path);
-        Sidebar::new(
-            data as Rc<dyn SidebarData>,
-            sink,
-            workspace.clone().into(),
-            (preferences, cx),
-        )
-    })
-}
-
-fn build_startup(
-    requests: &async_channel::Sender<ShellRequest>,
-    cx: &mut Context<'_, ShellView>,
-) -> Entity<StartupView> {
-    cx.new(|cx| {
-        let actions = Rc::new(StartupRequests(requests.clone()));
-        StartupView::new(
-            StartupTiming::default(),
-            Rc::new(MonotonicClock::start()),
-            actions,
-            cx,
-        )
-    })
-}
-
-fn member(titles: &crate::titles::Titles, pane: &protocol::PaneId) -> MemberView {
-    let title = titles.get(pane);
-    MemberView {
-        pane: pane.clone(),
-        label: title
-            .as_ref()
-            .map_or_else(|| NEW_CHAT.into(), |title| title.to_string().into()),
-        provisional: title.is_none(),
-        working: false,
-    }
-}
-
-type Step<T> = fn(&mut ShellView, T, &mut Window, &mut Context<'_, ShellView>);
-
-/// Feeds every item of `source` to `step` on the main thread until either side closes.
-async fn drain<T>(
-    source: async_channel::Receiver<T>,
-    this: gpui::WeakEntity<ShellView>,
-    cx: &mut gpui::AsyncWindowContext,
-    step: Step<T>,
-) {
-    while let Ok(item) = source.recv().await {
-        if this
-            .update_in(cx, |view, window, cx| step(view, item, window, cx))
-            .is_err()
-        {
-            return;
-        }
-    }
-}
-
-fn load_preferences(path: &std::path::Path) -> Preferences {
-    Preferences::load(path).unwrap_or_else(|error| {
-        tracing::warn!(%error, "sidebar preferences unreadable, using defaults");
-        Preferences::default()
-    })
 }
 
 impl Render for ShellView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
         div()
             .size_full()
+            .on_key_down(cx.listener(Self::on_key_down))
             .relative()
             .bg(palette.background())
             .child(self.sidebar.clone())
@@ -402,13 +426,45 @@ impl Render for ShellView {
                     .map(|modal| div().absolute().size_full().child(modal)),
             )
             .children(
+                self.palette
+                    .clone()
+                    .map(|panel| div().absolute().size_full().child(panel)),
+            )
+            .children(
+                self.branch_import
+                    .clone()
+                    .map(|dialog| div().absolute().size_full().child(dialog)),
+            )
+            .children(
                 self.startup
                     .clone()
                     .map(|startup| div().absolute().size_full().child(startup)),
             )
+            .children(self.notices_element(cx))
     }
 }
 
 #[cfg(test)]
-#[path = "shell_view_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::chat_label::NEW_CHAT;
+
+    #[test]
+    fn member_labels_fall_back_to_new_chat_until_a_title_arrives() {
+        let titles = crate::titles::Titles::default();
+        let pane = protocol::PaneId::new("p1").unwrap();
+        let before = member(&titles, &pane);
+        assert_eq!(
+            (before.label.as_ref(), before.provisional),
+            (NEW_CHAT, true),
+            "unnamed"
+        );
+        titles.set(pane.clone(), protocol::PaneTitle::new("Fix").unwrap());
+        let after = member(&titles, &pane);
+        assert_eq!(
+            (after.label.as_ref(), after.provisional),
+            ("Fix", false),
+            "named"
+        );
+    }
+}

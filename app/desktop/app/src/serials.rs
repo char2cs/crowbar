@@ -3,8 +3,6 @@ use std::rc::Rc;
 
 use model::Layout;
 
-/// Counters for the ids the shell invents: tabs and panes it opens itself. Clones share the
-/// same counters.
 #[derive(Debug, Clone)]
 pub(crate) struct Serials {
     tab: Rc<Cell<u64>>,
@@ -12,7 +10,6 @@ pub(crate) struct Serials {
 }
 
 impl Serials {
-    /// Counters that start above every id `layout` already uses.
     pub(crate) fn above(layout: &Layout) -> Self {
         let tab = layout
             .tabs()
@@ -49,5 +46,47 @@ impl Serials {
 }
 
 #[cfg(test)]
-#[path = "serials_tests.rs"]
-mod tests;
+mod tests {
+    use model::{Command, PaneInstance, TabId};
+    use protocol::{PaneId, PaneState, PaneTypeId, Params};
+
+    use super::*;
+
+    fn chat_instance(id: &str) -> PaneInstance {
+        PaneInstance {
+            pane_id: PaneId::new(id).unwrap(),
+            type_id: PaneTypeId::new("core.chat").unwrap(),
+            params: Params::default(),
+            state: PaneState::default(),
+        }
+    }
+
+    #[test]
+    fn an_empty_layout_starts_at_one() {
+        let serials = Serials::above(&Layout::default());
+        assert_eq!(serials.next_tab(), TabId(1), "tab");
+        assert_eq!(serials.next_pane(), "p1", "pane");
+    }
+
+    #[test]
+    fn counters_start_above_the_ids_in_use() {
+        let mut layout = Layout::default();
+        layout
+            .apply(Command::AddTab {
+                id: TabId(7),
+                title: "t".into(),
+            })
+            .unwrap();
+        layout
+            .apply(Command::OpenPane {
+                tab: TabId(7),
+                instance: chat_instance("p12"),
+                placement: None,
+            })
+            .unwrap();
+        let serials = Serials::above(&layout);
+        assert_eq!(serials.next_tab(), TabId(8), "tab");
+        assert_eq!(serials.next_pane(), "p13", "pane");
+        assert_eq!(serials.next_pane(), "p14", "advances");
+    }
+}

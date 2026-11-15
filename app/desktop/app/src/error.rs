@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-/// What can go wrong in the desktop shell outside its views.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error("reading {0}: {1}")]
@@ -9,6 +8,10 @@ pub(crate) enum Error {
     Write(PathBuf, #[source] std::io::Error),
     #[error("{0} is not a valid layout document: {1}")]
     Parse(PathBuf, #[source] serde_json::Error),
+    #[error("the pane pages are missing: {0} does not exist (set CROWBAR_PANES_DIR)")]
+    PanesMissing(PathBuf),
+    #[error("starting the layout writer: {0}")]
+    LayoutWriter(#[source] std::io::Error),
     #[error("starting the daemon link: {0}")]
     Daemon(String),
     #[error(transparent)]

@@ -2,7 +2,6 @@ use layout_view::{ChromeContext, SidebarEdge};
 use sidebar::{DockSide, Preferences, Visibility};
 use tab_bar::SidebarState;
 
-/// What surrounds the pane layout for these sidebar preferences.
 pub(crate) fn of(preferences: &Preferences) -> (ChromeContext, SidebarState) {
     let (edge, state) = match (preferences.visibility, preferences.side) {
         (Visibility::Open, DockSide::Left) => (SidebarEdge::Left, SidebarState::Open),
@@ -20,5 +19,38 @@ pub(crate) fn of(preferences: &Preferences) -> (ChromeContext, SidebarState) {
 }
 
 #[cfg(test)]
-#[path = "chrome_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn preferences(
+        visibility: Visibility,
+        side: DockSide,
+    ) -> Preferences {
+        Preferences {
+            visibility,
+            side,
+            ..Preferences::default()
+        }
+    }
+
+    #[test]
+    fn an_open_sidebar_frames_the_layout_on_its_side() {
+        let (chrome, state) = of(&preferences(Visibility::Open, DockSide::Right));
+        assert_eq!(
+            (chrome.sidebar, state),
+            (SidebarEdge::Right, SidebarState::Open),
+            "right"
+        );
+        assert!(chrome.tab_strip, "the strip is always drawn");
+    }
+
+    #[test]
+    fn a_closed_sidebar_leaves_a_toggle_on_its_side() {
+        let (chrome, state) = of(&preferences(Visibility::Closed, DockSide::Left));
+        assert_eq!(
+            (chrome.sidebar, state),
+            (SidebarEdge::Closed, SidebarState::ClosedLeft),
+            "left"
+        );
+    }
+}

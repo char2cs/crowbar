@@ -42,7 +42,7 @@ function check_params(text, start, last,   n, i, c, d, cur, np, bad_line, params
   }
   np += (cur ~ /[A-Za-z]/ && cur !~ /^[ \t&]*(mut )?self[ \t]*$/ && cur !~ /^[ \t]*(file|line)[ \t]*:[ \t]*(StaticString|UInt)/) ? 1 : 0
   if (np > 4 && !in_trait_impl()) report(start, "param-count", np " parameters (max 4): pass a struct/options object")
-  if (text ~ /(:[ \t]*(&?(mut )?)?[bB]ool(ean)?[ \t]*[,)=]|:[ \t]*boolean[ \t]*[,)])/) report(start, "bool-param", "boolean flag parameter: use an enum or two functions")
+  if (!(lang == "rust" && in_trait_impl()) && text ~ /(:[ \t]*(&?(mut )?)?[bB]ool(ean)?[ \t]*[,)=]|:[ \t]*boolean[ \t]*[,)])/) report(start, "bool-param", "boolean flag parameter: use an enum or two functions")
   if (np >= 2 && start == last && lang != "ts") report(start, "param-layout", "one parameter per line, '(' on the signature line and ')' on its own line")
 }
 function decl_start(code) {

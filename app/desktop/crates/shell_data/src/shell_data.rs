@@ -1,0 +1,437 @@
+//! The shell's daemon data: one stream per host feeding the sidebar, and the commands back.
+
+use std::sync::Arc;
+
+use protocol::{DaemonTransport, HostId};
+use sidebar::{Command, RowId};
+use tokio::runtime::Handle;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+use crate::branch_import::BranchImport;
+use crate::change_signal::ChangeSignal;
+use crate::daemon_client::DaemonClient;
+use crate::dial::{Dial, Dialled};
+use crate::error::{Error, Result};
+use crate::host_slot::HostSlot;
+use crate::host_spec::HostSpec;
+use crate::host_stream::HostStream;
+use crate::hub::Hub;
+use crate::outcome::OutcomeSink;
+use crate::panel_loader;
+use crate::relay_dial::RelayDial;
+use crate::setting_file::SettingFile;
+use crate::settings_core::SettingsCore;
+use crate::sidebar_commands::SidebarCommands;
+use crate::sidebar_view::SidebarView;
+use crate::state::State;
+use crate::stream_control::StreamControl;
+use crate::system_fonts::SystemFonts;
+
+/// The origin the relay's policy allows for the shell's own requests.
+pub const CORE_ORIGIN: &str = "crowbar://local";
+
+/// Owns the stream tasks; dropping it stops them.
+pub struct ShellData {
+    hub: Arc<Hub>,
+    commands: SidebarCommands,
+    tasks: Vec<JoinHandle<()>>,
+}
+
+impl std::fmt::Debug for ShellData {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        formatter
+            .debug_struct("ShellData")
+            .field("streams", &self.tasks.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ShellData {
+    /// Follows `hosts` through `transport`'s relay. `signal` is called after every change and
+    /// `outcome` when a command needs the shell to act.
+    ///
+    /// A host whose id the transport cannot address is skipped and logged.
+    pub fn start(
+        handle: &Handle,
+        transport: &Arc<dyn DaemonTransport>,
+        hosts: Vec<HostSpec>,
+        (signal, outcome): (ChangeSignal, OutcomeSink),
+    ) -> Self {
+        let dialled = hosts
+            .into_iter()
+            .filter_map(|spec| relay_for(transport, spec))
+            .collect();
+        Self::start_with(handle, transport, dialled, (signal, outcome))
+    }
+
+    pub(crate) fn start_with(
+        handle: &Handle,
+        transport: &Arc<dyn DaemonTransport>,
+        hosts: Vec<Dialled>,
+        (signal, outcome): (ChangeSignal, OutcomeSink),
+    ) -> Self {
+        let (slots, dials): (Vec<_>, Vec<_>) = hosts
+            .into_iter()
+            .filter_map(|(spec, dial)| slot_for(transport, spec).map(|slot| (slot, dial)))
+            .unzip();
+        let followed: Vec<(String, DaemonClient)> = slots
+            .iter()
+            .map(|slot| (slot.spec.id.clone(), slot.client.clone()))
+            .collect();
+        let hub = Hub::new(State::new(slots), signal);
+        let (controls, tasks) = followed
+            .into_iter()
+            .zip(dials)
+            .map(|(followed, dial)| follow(handle, &hub, followed, dial))
+            .unzip();
+        let commands = SidebarCommands {
+            hub: Arc::clone(&hub),
+            handle: handle.clone(),
+            outcome,
+            controls: Arc::new(controls),
+        };
+        Self {
+            hub,
+            commands,
+            tasks,
+        }
+    }
+
+    /// The sidebar's read side.
+    pub fn view(&self) -> SidebarView {
+        SidebarView::new(Arc::clone(&self.hub))
+    }
+
+    /// The sidebar's write side.
+    pub fn commands(&self) -> SidebarCommands {
+        self.commands.clone()
+    }
+
+    /// Whether `command` is carried out here; the others are the shell's own.
+    pub fn serves(command: &Command) -> bool {
+        !matches!(
+            command,
+            Command::OpenSettings
+                | Command::OpenHostSettings(_)
+                | Command::OpenRow(_)
+                | Command::ImportRepo
+                | Command::ImportBranches(_)
+                | Command::OpenFile(_)
+        )
+    }
+
+    /// The import dialog's data for the repository header or branch `row`; the dialog loads the
+    /// remote branches and calls `signal` as they arrive.
+    ///
+    /// # Errors
+    /// [`Error::Stream`] when `row` is not a repository of a followed host.
+    pub fn branch_import(
+        &self,
+        row: &RowId,
+        signal: ChangeSignal,
+    ) -> Result<Arc<BranchImport>> {
+        let parts = (&self.hub, &self.commands.handle, &self.commands.outcome);
+        BranchImport::open(parts, row.as_str(), signal)
+    }
+
+    /// The settings the modal edits: the shell's file at `file`, and this computer's daemon.
+    ///
+    /// # Errors
+    /// [`Error::File`] or [`Error::Json`] when the settings file exists and cannot be read, and
+    /// [`Error::Stream`] when no local host is followed.
+    pub fn settings(
+        &self,
+        file: std::path::PathBuf,
+        signal: ChangeSignal,
+        fonts: SystemFonts,
+    ) -> Result<Arc<SettingsCore>> {
+        let local = self
+            .hub
+            .read(State::local_client)
+            .ok_or_else(|| Error::Stream("no local host is followed".to_owned()))?;
+        let parts = (
+            SettingFile::new(file),
+            Arc::clone(&self.hub),
+            self.commands.handle.clone(),
+        );
+        SettingsCore::open(
+            parts,
+            (local, signal),
+            (fonts, Arc::clone(&self.commands.outcome)),
+        )
+    }
+
+    /// Follows the chat of the focused pane: the Files and Changes panels show its workspace.
+    /// Following the chat already followed does nothing.
+    pub fn focus_chat(
+        &self,
+        chat: Option<&str>,
+    ) {
+        let client = self.hub.edit(|state| {
+            let followed = state.panels.chat.as_deref() == chat;
+            state.panels.follow(chat.map(str::to_owned));
+            chat.filter(|_| !followed)
+                .and_then(|chat| state.client_of_chat(chat))
+        });
+        let (Some(chat), Some(client)) = (chat.map(str::to_owned), client) else {
+            return;
+        };
+        let hub = Arc::clone(&self.hub);
+        self.commands.handle.spawn(async move {
+            panel_loader::load_directory(&hub, &client, (&chat, "")).await;
+            panel_loader::load_changes(&hub, &client, &chat).await;
+        });
+    }
+}
+
+impl Drop for ShellData {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
+}
+
+fn relay_for(
+    transport: &Arc<dyn DaemonTransport>,
+    spec: HostSpec,
+) -> Option<Dialled> {
+    let id = addressable(&spec.id)?;
+    let dial: Arc<dyn Dial> = Arc::new(RelayDial::new(Arc::clone(transport), id, CORE_ORIGIN));
+    Some((spec, dial))
+}
+
+fn slot_for(
+    transport: &Arc<dyn DaemonTransport>,
+    spec: HostSpec,
+) -> Option<HostSlot> {
+    let id = addressable(&spec.id)?;
+    let client = DaemonClient::new(Arc::clone(transport), id);
+    Some(HostSlot::new(spec, client))
+}
+
+type Followed = (
+    (String, mpsc::UnboundedSender<StreamControl>),
+    JoinHandle<()>,
+);
+
+fn follow(
+    handle: &Handle,
+    hub: &Arc<Hub>,
+    (host, client): (String, DaemonClient),
+    dial: Arc<dyn Dial>,
+) -> Followed {
+    let (control, inbox) = mpsc::unbounded_channel();
+    let stream = HostStream {
+        hub: Arc::clone(hub),
+        host: host.clone(),
+        dial,
+        client,
+    };
+    ((host, control), handle.spawn(stream.run(inbox)))
+}
+
+fn addressable(text: &str) -> Option<HostId> {
+    HostId::new(text)
+        .inspect_err(|error| tracing::warn!(host = text, %error, "a host id the transport cannot address is skipped"))
+        .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use protocol::DaemonTransport;
+    use sidebar::{Command, CommandSink as _, ProjectId, RowId, ScopeSync, SidebarData as _};
+    use tokio::sync::{Notify, mpsc};
+
+    use super::*;
+    use crate::connection::Connection;
+    use crate::dial::Opening;
+    use crate::outcome::Outcome;
+    use crate::test_support::{FakeDaemon, frames};
+
+    fn refused_when_used(taken: Option<Connection>) -> Result<Connection> {
+        taken.ok_or_else(|| Error::Stream("used".into()))
+    }
+
+    /// One connection, taken on the first dial.
+    struct Once(Mutex<Option<Connection>>);
+
+    impl Dial for Once {
+        fn open(&self) -> Opening<'_> {
+            let taken = self.0.lock().ok().and_then(|mut slot| slot.take());
+            Box::pin(std::future::ready(refused_when_used(taken)))
+        }
+    }
+
+    fn entity_texts() -> Vec<String> {
+        frames()
+        .into_iter()
+        .filter_map(|frame| match frame {
+            crate::frame::Frame::Entity { kind, id, data, .. } => Some(
+                serde_json::json!({"t": "entity", "scope": "projects", "kind": kind, "id": id, "v": 1, "data": data})
+                    .to_string(),
+            ),
+            _ => None,
+        })
+        .collect()
+    }
+
+    type Opened = Arc<Mutex<Vec<Outcome>>>;
+
+    struct Rig {
+        data: ShellData,
+        frames_in: mpsc::Sender<String>,
+        requests: mpsc::UnboundedReceiver<String>,
+        changed: Arc<Notify>,
+        opened: Opened,
+    }
+
+    fn start() -> Rig {
+        let daemon = FakeDaemon::shared();
+        daemon.ok(
+            "GET",
+            "/v0/settings/chat/providers",
+            r#"[{"id":"claude","enabled":true,"connected":true}]"#,
+        );
+        daemon.ok("POST", "/v0/projects/p/home/chats", "{}");
+        let transport: Arc<dyn DaemonTransport> = daemon;
+        let (frames_in, incoming) = mpsc::channel(64);
+        let (outgoing, requests) = mpsc::unbounded_channel();
+        let changed = Arc::new(Notify::new());
+        let wake = Arc::clone(&changed);
+        let opened = Opened::default();
+        let keep = Arc::clone(&opened);
+        let sinks: (ChangeSignal, OutcomeSink) = (
+            Arc::new(move || wake.notify_one()),
+            Arc::new(move |outcome| keep.lock().unwrap().push(outcome)),
+        );
+        let spec = HostSpec {
+            id: "local".into(),
+            name: "This computer".into(),
+            endpoint: None,
+        };
+        let dial: Arc<dyn Dial> =
+            Arc::new(Once(Mutex::new(Some(Connection { incoming, outgoing }))));
+        let data = ShellData::start_with(&Handle::current(), &transport, vec![(spec, dial)], sinks);
+        Rig {
+            data,
+            frames_in,
+            requests,
+            changed,
+            opened,
+        }
+    }
+
+    impl Rig {
+        async fn hear_the_space(&mut self) {
+            self.frames_in
+                .send(r#"{"t":"ready","epoch":"e"}"#.to_owned())
+                .await
+                .unwrap();
+            self.requests.recv().await.unwrap();
+            send_entities(&self.frames_in).await;
+            self.frames_in
+                .send(r#"{"t":"synced","scope":"projects","unread":[]}"#.into())
+                .await
+                .unwrap();
+            until_ready(&self.data, &self.changed).await;
+        }
+    }
+
+    async fn send_entities(frames_in: &mpsc::Sender<String>) {
+        for text in entity_texts() {
+            frames_in.send(text).await.unwrap();
+        }
+    }
+
+    async fn until_ready(
+        data: &ShellData,
+        changed: &Notify,
+    ) {
+        let view = data.view();
+        while view.sync() != ScopeSync::Ready {
+            changed.notified().await;
+        }
+    }
+
+    async fn until_opened(
+        opened: &Opened,
+        changed: &Notify,
+    ) {
+        while opened.lock().unwrap().is_empty() {
+            changed.notified().await;
+        }
+    }
+
+    async fn entities_from_the_stream_reach_the_sidebar() {
+        let mut rig = start();
+        let view = rig.data.view();
+        assert_eq!(
+            view.sync(),
+            ScopeSync::Pending,
+            "nothing has been heard yet"
+        );
+        rig.hear_the_space().await;
+        let rows = view.tree(&ProjectId::from("p")).rows;
+        assert!(
+            rows.iter()
+                .any(|row| row.id.as_str() == "hc" && row.label == "Hello")
+        );
+    }
+
+    async fn commands_reach_the_daemon_and_the_shells_own_are_refused() {
+        let mut rig = start();
+        rig.hear_the_space().await;
+        let commands = rig.data.commands();
+        commands
+            .dispatch(Command::NewThread(ProjectId::from("p")))
+            .unwrap();
+        until_opened(&rig.opened, &rig.changed).await;
+        assert!(matches!(
+            rig.opened.lock().unwrap()[0],
+            Outcome::OpenChat(_)
+        ));
+        assert!(
+            commands
+                .dispatch(Command::Lock(RowId::from("ghost")))
+                .is_err()
+        );
+        assert!(commands.dispatch(Command::ImportRepo).is_err());
+    }
+
+    fn the_shells_own_commands_are_not_served_here() {
+        assert!(!ShellData::serves(&Command::OpenSettings));
+        assert!(!ShellData::serves(&Command::OpenRow(RowId::from("x"))));
+        assert!(ShellData::serves(&Command::NewThread(ProjectId::from("p"))));
+    }
+
+    type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
+
+    fn the_shells_own_as_a_case() -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
+        the_shells_own_commands_are_not_served_here();
+        Box::pin(std::future::ready(()))
+    }
+
+    const CASES: [Case; 3] = [
+        || Box::pin(entities_from_the_stream_reach_the_sidebar()),
+        || Box::pin(commands_reach_the_daemon_and_the_shells_own_are_refused()),
+        the_shells_own_as_a_case,
+    ];
+
+    async fn run_all() {
+        for case in CASES {
+            case().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn every_gateway_call_reaches_its_layer() {
+        run_all().await;
+    }
+}

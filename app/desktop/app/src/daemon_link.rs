@@ -1,41 +1,44 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use daemon_supervisor::{DaemonEvent, DaemonPaths, Supervisor, SupervisorConfig, locate_binary};
 use protocol::DaemonTransport;
 use startup_view::StartupInput;
 use tokio::runtime::Runtime;
+use tokio::sync::watch;
 use transport::{
     ExactOrigins, HostRegistry, MemoryTokenStore, Relay, RelayConfig, ShellTransport, Transport,
 };
 
 use crate::app_options::AppOptions;
 use crate::error::{Error, Result};
+use crate::link_state::{LinkState, linked};
 use crate::phase_input::phase_input;
 
 const CORE_ORIGIN: &str = "crowbar://local";
 
-/// The running daemon and the way panes reach it: the supervisor that keeps it alive, the
-/// transport that carries requests to it, and the phases the startup view follows.
 pub(crate) struct DaemonLink {
     runtime: Runtime,
-    supervisor: Option<Arc<Supervisor>>,
+    options: AppOptions,
+    state: Arc<LinkState>,
     transport: Arc<dyn DaemonTransport>,
+    registry: Arc<HostRegistry>,
     phases: async_channel::Receiver<StartupInput>,
-    log: Option<PathBuf>,
+    sender: async_channel::Sender<StartupInput>,
 }
 
 impl std::fmt::Debug for DaemonLink {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         f.debug_struct("DaemonLink")
-            .field("supervised", &self.supervisor.is_some())
+            .field("supervised", &self.supervisor().is_some())
             .finish_non_exhaustive()
     }
 }
 
 impl DaemonLink {
-    /// Starts the daemon named by `options` and the transport to it. A missing daemon binary is
-    /// not an error here: the phases report it as a halt so the startup view explains it.
     pub(crate) fn start(options: &AppOptions) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -43,21 +46,18 @@ impl DaemonLink {
             .build()
             .map_err(|e| Error::Daemon(e.to_string()))?;
         let (sender, phases) = async_channel::unbounded();
-        let launch = runtime.block_on(launch(options, sender.clone()));
-        let (supervisor, socket, log) = match launch {
-            Ok((supervisor, paths)) => (Some(supervisor), paths.socket, Some(paths.log)),
-            Err(error) => {
-                report_halt(&sender, &error);
-                (None, options.state_dir().join("no-daemon.sock"), None)
-            },
-        };
-        let transport = runtime.block_on(build_transport(options, socket))?;
+        let (state, locator) = linked();
+        let state = Arc::new(state);
+        runtime.block_on(try_launch(options, &state, &sender));
+        let (transport, registry) = runtime.block_on(build_transport(options, locator))?;
         Ok(Self {
             runtime,
-            supervisor,
+            options: options.clone(),
+            state,
             transport,
+            registry,
             phases,
-            log,
+            sender,
         })
     }
 
@@ -65,18 +65,59 @@ impl DaemonLink {
         Arc::clone(&self.transport)
     }
 
+    pub(crate) fn handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
+    }
+
+    pub(crate) fn hosts(&self) -> Vec<shell_data::HostSpec> {
+        let local = shell_data::HostSpec {
+            id: "local".to_owned(),
+            name: "This computer".to_owned(),
+            endpoint: None,
+        };
+        let paired = self
+            .registry
+            .list()
+            .into_iter()
+            .map(|(id, endpoint)| shell_data::HostSpec {
+                id: id.as_str().to_owned(),
+                name: id.as_str().to_owned(),
+                endpoint: Some(String::from(endpoint)),
+            });
+        std::iter::once(local).chain(paired).collect()
+    }
+
     pub(crate) fn phases(&self) -> async_channel::Receiver<StartupInput> {
         self.phases.clone()
     }
 
-    pub(crate) fn log(&self) -> Option<&Path> {
-        self.log.as_deref()
+    pub(crate) fn socket(&self) -> Option<PathBuf> {
+        self.state.socket()
     }
 
-    /// Starts the daemon again after it halted or gave up.
-    pub(crate) fn restart(&self) {
-        let Some(supervisor) = self.supervisor.clone() else {
+    pub(crate) fn log(&self) -> Option<PathBuf> {
+        self.state.log()
+    }
+
+    fn supervisor(&self) -> Option<Arc<Supervisor>> {
+        self.state.supervisor()
+    }
+
+    pub(crate) fn shutdown(&self) {
+        let Some(supervisor) = self.state.take_supervisor() else {
             return;
+        };
+        match Arc::try_unwrap(supervisor) {
+            Ok(owned) => self.runtime.block_on(owned.stop()),
+            Err(_) => {
+                tracing::warn!("a restart is still running; the daemon will be killed on exit");
+            },
+        }
+    }
+
+    pub(crate) fn restart(&self) {
+        let Some(supervisor) = self.supervisor() else {
+            return self.relaunch();
         };
         self.runtime.spawn(async move {
             supervisor
@@ -85,15 +126,48 @@ impl DaemonLink {
                 .unwrap_or_else(|error| tracing::warn!(%error, "restarting the daemon failed"));
         });
     }
+
+    fn relaunch(&self) {
+        let options = self.options.clone();
+        let state = Arc::clone(&self.state);
+        let sender = self.sender.clone();
+        self.runtime
+            .spawn(async move { relaunch_unless_running(&options, &state, &sender).await });
+    }
 }
 
-fn report_halt(sender: &async_channel::Sender<StartupInput>, error: &Error) {
+async fn relaunch_unless_running(
+    options: &AppOptions,
+    state: &LinkState,
+    sender: &async_channel::Sender<StartupInput>,
+) {
+    let _turn = state.turn().await;
+    if state.supervisor().is_none() {
+        try_launch(options, state, sender).await;
+    }
+}
+
+fn report_halt(
+    sender: &async_channel::Sender<StartupInput>,
+    error: &Error,
+) {
     let halted = StartupInput::Halted {
         reason: None,
         message: error.to_string(),
     };
     if sender.try_send(halted).is_err() {
         tracing::warn!("the startup view is gone; the daemon failure goes unreported");
+    }
+}
+
+async fn try_launch(
+    options: &AppOptions,
+    state: &LinkState,
+    sender: &async_channel::Sender<StartupInput>,
+) {
+    match launch(options, sender.clone()).await {
+        Ok((supervisor, paths)) => state.adopt(supervisor, paths),
+        Err(error) => report_halt(sender, &error),
     }
 }
 
@@ -123,14 +197,17 @@ async fn launch(
     Ok((supervisor, paths))
 }
 
-fn forward_phases(supervisor: &Supervisor, sender: async_channel::Sender<StartupInput>) {
+fn forward_phases(
+    supervisor: &Supervisor,
+    sender: async_channel::Sender<StartupInput>,
+) {
     let mut current = supervisor.current();
     tokio::spawn(async move { while relay_phase(&sender, &mut current).await {} });
 }
 
 async fn relay_phase(
     sender: &async_channel::Sender<StartupInput>,
-    current: &mut tokio::sync::watch::Receiver<DaemonEvent>,
+    current: &mut watch::Receiver<DaemonEvent>,
 ) -> bool {
     let input = phase_input(&current.borrow_and_update());
     sender.send(input).await.is_ok() && current.changed().await.is_ok()
@@ -138,13 +215,15 @@ async fn relay_phase(
 
 async fn build_transport(
     options: &AppOptions,
-    socket: PathBuf,
-) -> Result<Arc<dyn DaemonTransport>> {
-    let registry = HostRegistry::open(options.state_dir().join("hosts.json"))
-        .map_err(|e| Error::Daemon(e.to_string()))?;
+    locator: watch::Receiver<Option<PathBuf>>,
+) -> Result<(Arc<dyn DaemonTransport>, Arc<HostRegistry>)> {
+    let registry = Arc::new(
+        HostRegistry::open(options.state_dir().join("hosts.json"))
+            .map_err(|e| Error::Daemon(e.to_string()))?,
+    );
     let transport = Arc::new(Transport::new(
-        Arc::new(socket),
-        Arc::new(registry),
+        Arc::new(locator),
+        Arc::clone(&registry) as _,
         Arc::new(MemoryTokenStore::default()),
     ));
     let origins = ExactOrigins::new(vec![CORE_ORIGIN.to_owned()], CORE_ORIGIN);
@@ -155,13 +234,61 @@ async fn build_transport(
     )
     .await
     .map_err(|e| Error::Daemon(e.to_string()))?;
-    Ok(Arc::new(ShellTransport::new(
+    let shell = ShellTransport::new(
         tokio::runtime::Handle::current(),
         transport,
         Arc::new(relay),
-    )))
+    );
+    Ok((Arc::new(shell), registry))
 }
 
 #[cfg(test)]
-#[path = "daemon_link_tests.rs"]
-mod tests;
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    fn options(home: &Path) -> AppOptions {
+        AppOptions {
+            panes_dir: None,
+            chat_entry: "chat/index.html".into(),
+            home: home.to_path_buf(),
+            daemon_binary: Some(home.join("missing-daemon")),
+        }
+    }
+
+    fn retry_after_a_halt(link: &DaemonLink) {
+        link.phases().recv_blocking().unwrap();
+        link.restart();
+    }
+
+    const CASES: &[(&str, usize)] = &[
+        ("a missing daemon binary is reported as a halt", 0),
+        ("Retry after a failed launch makes a fresh attempt", 1),
+        ("every Retry reports its own failed attempt", 2),
+    ];
+
+    #[test]
+    fn every_failed_launch_is_reported_as_a_halt() {
+        for (name, retries) in CASES {
+            let home = tempfile::tempdir().unwrap();
+            let link = DaemonLink::start(&options(home.path())).unwrap();
+            (0..*retries).for_each(|_| retry_after_a_halt(&link));
+            let phase = link.phases().recv_blocking().unwrap();
+            assert!(
+                matches!(phase, StartupInput::Halted { .. }),
+                "{name}: the startup view explains it: {phase:?}"
+            );
+            assert!(link.log().is_none(), "{name}: nothing to open");
+        }
+    }
+
+    #[test]
+    fn shutdown_without_a_daemon_is_a_no_op_and_repeatable() {
+        let home = tempfile::tempdir().unwrap();
+        let link = DaemonLink::start(&options(home.path())).unwrap();
+        link.shutdown();
+        link.shutdown();
+        assert!(link.supervisor().is_none(), "nothing left to stop");
+    }
+}

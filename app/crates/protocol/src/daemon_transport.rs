@@ -39,6 +39,14 @@ pub trait DaemonTransport: Send + Sync + 'static {
         &self,
         scope: &RelayScope,
     ) -> Result<RelayEndpoint>;
+
+    /// Revokes the relay token issued for `scope`'s pane and closes its open streams, so a token
+    /// does not outlive the pane. A transport that issues no tokens has nothing to revoke.
+    fn revoke_pane(
+        &self,
+        _scope: &RelayScope,
+    ) {
+    }
 }
 
 #[cfg(test)]
@@ -67,6 +75,18 @@ mod tests {
         ) -> Result<RelayEndpoint> {
             Err(Error::Timeout)
         }
+    }
+
+    #[test]
+    fn a_transport_that_issues_no_tokens_has_nothing_to_revoke() {
+        let transport: std::sync::Arc<dyn DaemonTransport> = std::sync::Arc::new(Refusing);
+        let scope = RelayScope::new(
+            HostId::new("local").unwrap(),
+            crate::pane_id::PaneId::new("p1").unwrap(),
+            PaneOrigin::Core,
+        );
+        transport.revoke_pane(&scope);
+        assert!(transport.relay_endpoint(&scope).is_err(), "still refusing");
     }
 
     #[test]

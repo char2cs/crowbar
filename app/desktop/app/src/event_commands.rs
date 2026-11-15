@@ -2,7 +2,6 @@ use model::Command;
 use pane_host::HostEvent;
 use protocol::PaneState;
 
-/// The layout commands that keep persisted pane state in step with what the host reported.
 pub(crate) fn commands_for(events: &[HostEvent]) -> Vec<Command> {
     events
         .iter()
@@ -21,5 +20,40 @@ pub(crate) fn commands_for(events: &[HostEvent]) -> Vec<Command> {
 }
 
 #[cfg(test)]
-#[path = "event_commands_tests.rs"]
-mod tests;
+mod tests {
+    use protocol::PaneId;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn state_events_become_set_state_commands() {
+        let pane = PaneId::new("p").unwrap();
+        let state = PaneState::new(json!({"k": 1})).unwrap();
+        let events = [
+            HostEvent::StateChanged {
+                pane: pane.clone(),
+                state: state.clone(),
+            },
+            HostEvent::StateDiscarded { pane: pane.clone() },
+            HostEvent::TitleChanged {
+                pane: pane.clone(),
+                title: protocol::PaneTitle::new("t").unwrap(),
+            },
+        ];
+        assert_eq!(
+            commands_for(&events),
+            [
+                Command::SetPaneState {
+                    pane: pane.clone(),
+                    state
+                },
+                Command::SetPaneState {
+                    pane,
+                    state: PaneState::default()
+                },
+            ],
+            "only state events map to commands"
+        );
+    }
+}

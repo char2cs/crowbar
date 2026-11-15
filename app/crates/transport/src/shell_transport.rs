@@ -103,6 +103,13 @@ impl DaemonTransport for ShellTransport {
         }
         self.access.issue(scope).map_err(into_protocol)
     }
+
+    fn revoke_pane(
+        &self,
+        scope: &RelayScope,
+    ) {
+        self.access.revoke_pane(scope.pane());
+    }
 }
 
 #[cfg(test)]
@@ -118,6 +125,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingAccess {
         issued: Mutex<Vec<RelayScope>>,
+        revoked: Mutex<Vec<PaneId>>,
     }
 
     impl StreamAccess for RecordingAccess {
@@ -131,8 +139,9 @@ mod tests {
 
         fn revoke_pane(
             &self,
-            _pane: &PaneId,
+            pane: &PaneId,
         ) {
+            self.revoked.lock().unwrap().push(pane.clone());
         }
     }
 
@@ -240,6 +249,13 @@ mod tests {
                 matches!(mapped, protocol::Error::HostUnavailable(_))
             }),
         ]
+    }
+
+    #[tokio::test]
+    async fn revoking_a_pane_scope_revokes_that_pane_in_the_stream_access() {
+        let (shell, access) = shell();
+        shell.revoke_pane(&scope("local"));
+        assert_eq!(*access.revoked.lock().unwrap(), [PaneId::new("p1").unwrap()]);
     }
 
     #[test]
