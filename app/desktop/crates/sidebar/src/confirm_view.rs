@@ -1,7 +1,6 @@
 //! The delete confirmation dialog.
 
 use gpui::{AnyElement, Context, Div, FontWeight, IntoElement, ParentElement, Styled, div};
-use ui::font::MONO_FAMILY;
 use ui::{Button, ButtonVariant, Dialog, DialogSize, Palette, Surface, Theme};
 
 use crate::command::Command;
@@ -13,10 +12,11 @@ use crate::work_at_risk::WorkAtRisk;
 
 fn risk_row(
     work: &WorkAtRisk,
+    mono: &'static str,
     palette: &Palette,
 ) -> Div {
     let branch = div()
-        .font_family(MONO_FAMILY)
+        .font_family(mono)
         .text_color(palette.foreground())
         .child(work.branch.clone());
     let summary = div()
@@ -27,6 +27,7 @@ fn risk_row(
 
 fn body(
     confirmation: &Confirmation,
+    mono: &'static str,
     palette: &Palette,
 ) -> Div {
     let (strong, rest) = confirmation.lead();
@@ -49,7 +50,7 @@ fn body(
             confirmation
                 .at_risk
                 .iter()
-                .map(|work| risk_row(work, palette)),
+                .map(|work| risk_row(work, mono, palette)),
         )
 }
 
@@ -59,7 +60,8 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {
         let confirmation = self.tree.removals.confirmation()?;
-        let palette = Theme::of(cx).palette(Surface::Window);
+        let theme = *Theme::of(cx);
+        let palette = theme.palette(Surface::Window);
         let cancel = Button::new("confirm-cancel", "Cancel")
             .variant(ButtonVariant::Ghost)
             .on_click(cx.listener(|this, _, _, cx| this.cancel_confirmation(cx)));
@@ -71,7 +73,7 @@ impl Sidebar {
             Dialog::new("sidebar-confirm")
                 .title(confirmation.title())
                 .size(DialogSize::Md)
-                .body(body(confirmation, palette))
+                .body(body(confirmation, theme.mono_family(), palette))
                 .footer(div().flex().gap(SPACE_MD).child(cancel).child(delete))
                 .on_close(move |_, cx| sidebar.update(cx, Self::cancel_confirmation))
                 .into_any_element(),

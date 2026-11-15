@@ -7,7 +7,6 @@ use gpui::{
     App, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px, relative,
 };
-use ui::font::MONO_FAMILY;
 use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
 
 use crate::expansion::Expansion;
@@ -42,6 +41,7 @@ impl RenderOnce for RemovingRow {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
+        let mono = Theme::of(cx).mono_family();
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let drain = self.hold.drain(self.now, RemovalTray::DRAIN);
         if drain > 0.0 {
@@ -50,7 +50,7 @@ impl RenderOnce for RemovingRow {
         let seconds = self
             .hold
             .seconds_left(self.now)
-            .map(|left| figure(left.to_string(), palette));
+            .map(|left| figure(left.to_string(), mono, palette));
         let keep = RowAction::Intent(Intent::Keep(self.row.id.clone()));
         let id = ElementId::from(SharedString::from(format!(
             "removing-{}",
@@ -59,21 +59,24 @@ impl RenderOnce for RemovingRow {
         row_shell(id, self.row.depth, palette)
             .hover(move |style| style.bg(palette.sidebar_element_idle()))
             .child(glyph(&self.row, palette))
-            .child(title(&self.row))
+            .child(title(&self.row, mono))
             .children(seconds)
             .child(keep_button(palette).on_click(report(&self.handler, keep)))
             .child(drain_bar(drain, palette))
     }
 }
 
-fn title(row: &Row) -> Div {
+fn title(
+    row: &Row,
+    mono: &'static str,
+) -> Div {
     div()
         .flex_1()
         .min_w_0()
         .truncate()
         .text_size(TEXT_BODY)
         .font_weight(FontWeight::MEDIUM)
-        .when(row.kind == RowKind::Branch, |d| d.font_family(MONO_FAMILY))
+        .when(row.kind == RowKind::Branch, |d| d.font_family(mono))
         .when(row.titling == Titling::Provisional, Styled::italic)
         .child(row.label.clone())
 }
@@ -116,12 +119,13 @@ fn glyph(
 
 fn figure(
     text: String,
+    mono: &'static str,
     palette: &Palette,
 ) -> impl IntoElement {
     div()
         .flex_none()
         .text_size(px(FIGURE))
-        .font_family(MONO_FAMILY)
+        .font_family(mono)
         .text_color(palette.muted_foreground())
         .child(text)
 }

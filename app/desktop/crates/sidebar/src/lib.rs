@@ -133,6 +133,7 @@ mod row_bounds;
 mod row_cluster;
 mod row_drag;
 mod row_draggable;
+mod row_focus;
 mod row_ghost;
 mod row_glyph;
 mod row_id;

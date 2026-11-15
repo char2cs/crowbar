@@ -3,9 +3,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::font::MONO_FAMILY;
 use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
 
 use crate::command::Command;
@@ -18,6 +17,7 @@ use crate::git_status::GitStatus;
 use crate::intent::Intent;
 use crate::menu_scope::MenuScope;
 use crate::row_action::{RowAction, RowHandler};
+use crate::row_focus::{ringed, row_focus};
 use crate::row_input::RowInput;
 use crate::row_label::input_view;
 use crate::scale::{
@@ -41,9 +41,10 @@ pub(crate) struct FileTreeRow {
 impl RenderOnce for FileTreeRow {
     fn render(
         self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
+        let mono = Theme::of(cx).mono_family();
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let entry = self.entry;
         let id = ElementId::from(SharedString::from(format!("file-{}", entry.path)));
@@ -52,31 +53,18 @@ impl RenderOnce for FileTreeRow {
         let letter = entry.status.letter().map(letter_badge);
         let menu = file_menu(&entry, &self.scope, &self.handler);
         let editing = self.input.is_some();
-        let name = name_cell(&entry, self.input.as_ref(), palette);
-        let row = div()
-            .id(id)
-            .flex()
-            .items_center()
-            .gap(SPACE_SM)
-            .min_h(px(ROW_HEIGHT))
-            .mx(SPACE_SM)
-            .pl(px(BASE_PADDING + f32::from(entry.depth) * INDENT))
-            .pr(SPACE_SM)
-            .rounded(radius::LG)
-            .border_1()
-            .border_color(gpui::transparent_black())
-            .text_size(TEXT_BODY)
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(status_color(entry.status, palette))
-            .opacity(faded(entry.status))
-            .cursor_pointer()
-            .when(self.selected, |row| row.bg(palette.sidebar_element_idle()))
-            .hover(move |style| style.bg(palette.sidebar_element_idle()))
+        let name = name_cell(&entry, self.input.as_ref(), (mono, palette));
+        let focus = row_focus(&id, window, cx);
+        let row = ringed(frame(id, (&entry, self.selected), palette), &focus, palette)
             .child(chevron(&entry, palette))
             .child(glyph(&entry))
             .child(name)
             .children(letter)
-            .children(entry.counts.map(|counts| counts_view(counts, palette)))
+            .children(
+                entry
+                    .counts
+                    .map(|counts| counts_view(counts, mono, palette)),
+            )
             .on_click(select_then(&self.handler, (entry.path.clone(), action)));
         if editing {
             return row.into_any_element();
@@ -85,14 +73,40 @@ impl RenderOnce for FileTreeRow {
     }
 }
 
+fn frame(
+    id: ElementId,
+    (entry, selected): (&FileTreeEntry, bool),
+    palette: &Palette,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(SPACE_SM)
+        .min_h(px(ROW_HEIGHT))
+        .mx(SPACE_SM)
+        .pl(px(BASE_PADDING + f32::from(entry.depth) * INDENT))
+        .pr(SPACE_SM)
+        .rounded(radius::LG)
+        .border_1()
+        .border_color(gpui::transparent_black())
+        .text_size(TEXT_BODY)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(status_color(entry.status, palette))
+        .opacity(faded(entry.status))
+        .cursor_pointer()
+        .when(selected, |row| row.bg(palette.sidebar_element_idle()))
+        .hover(move |style| style.bg(palette.sidebar_element_idle()))
+}
+
 fn name_cell(
     entry: &FileTreeEntry,
     input: Option<&RowInput>,
-    palette: &Palette,
+    look: (&'static str, &Palette),
 ) -> Div {
     let cell = div().flex_1().min_w_0();
     match input {
-        Some(input) => cell.child(input_view(input, palette)),
+        Some(input) => cell.child(input_view(input, look)),
         None => cell.truncate().child(entry.name.clone()),
     }
 }
@@ -189,12 +203,13 @@ fn letter_badge(letter: char) -> Div {
 
 fn counts_view(
     (added, deleted): (u32, u32),
+    mono: &'static str,
     palette: &Palette,
 ) -> Div {
     div()
         .flex()
         .gap(SPACE_XS)
-        .font_family(MONO_FAMILY)
+        .font_family(mono)
         .text_size(TEXT_CAPTION)
         .child(
             div()

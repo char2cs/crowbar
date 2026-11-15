@@ -4,7 +4,6 @@ use gpui::{
     AnyElement, App, Div, ElementId, InteractiveElement, IntoElement, ParentElement, Pixels,
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::font::MONO_FAMILY;
 use ui::{Icon, IconName, IconWeight, Palette, Spinner, Surface, Theme};
 
 use crate::command::Command;
@@ -49,7 +48,7 @@ impl RenderOnce for OperationRow {
         row_shell(id, self.row.depth, palette)
             .opacity(DISABLED_OPACITY)
             .child(leading(&self.row, &operation.phase, palette))
-            .child(label(operation.label, palette))
+            .child(label(operation.label, Theme::of(cx).mono_family(), palette))
             .children(tail)
             .into_any_element()
     }
@@ -84,13 +83,14 @@ fn leading(
 
 fn label(
     text: String,
+    mono: &'static str,
     palette: &Palette,
 ) -> Div {
     div()
         .flex_1()
         .min_w_0()
         .truncate()
-        .font_family(MONO_FAMILY)
+        .font_family(mono)
         .text_size(TEXT_BODY)
         .text_color(palette.muted_foreground())
         .child(text)

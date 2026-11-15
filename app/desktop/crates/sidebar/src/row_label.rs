@@ -3,7 +3,6 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, FontWeight, ParentElement, Styled, div, px};
 use ui::Palette;
-use ui::font::MONO_FAMILY;
 
 use crate::row::Row;
 use crate::row_input::RowInput;
@@ -21,7 +20,7 @@ const SUBLABEL_NUDGE: f32 = -0.5;
 pub(crate) fn label(
     row: &Row,
     input: Option<&RowInput>,
-    palette: &Palette,
+    (mono, palette): (&'static str, &Palette),
 ) -> Div {
     let column = div()
         .flex()
@@ -31,18 +30,18 @@ pub(crate) fn label(
         .justify_center()
         .overflow_hidden();
     if let Some(input) = input {
-        return column.child(input_view(input, palette));
+        return column.child(input_view(input, (mono, palette)));
     }
-    let title = title(row);
+    let title = title(row, mono);
     if !row.is_two_line() {
         return column.child(title);
     }
-    column.child(title).child(sublabel(row, palette))
+    column.child(title).child(sublabel(row, mono, palette))
 }
 
 pub(crate) fn input_view(
     input: &RowInput,
-    palette: &Palette,
+    (mono, palette): (&'static str, &Palette),
 ) -> Div {
     let line = div().flex().min_w_0().child(input.field.clone());
     match &input.error {
@@ -50,25 +49,29 @@ pub(crate) fn input_view(
             .flex()
             .flex_col()
             .child(line)
-            .child(error_line(reason, palette)),
+            .child(error_line(reason, mono, palette)),
         None => line,
     }
 }
 
 fn error_line(
     reason: &str,
+    mono: &'static str,
     palette: &Palette,
 ) -> Div {
     div()
         .truncate()
-        .font_family(MONO_FAMILY)
+        .font_family(mono)
         .text_size(px(SUBLABEL_SIZE))
         .line_height(px(SUBLABEL_LINE))
         .text_color(palette.destructive())
         .child(reason.to_owned())
 }
 
-fn title(row: &Row) -> Div {
+fn title(
+    row: &Row,
+    mono: &'static str,
+) -> Div {
     let title = div()
         .truncate()
         .text_size(px(TITLE_SIZE))
@@ -77,16 +80,17 @@ fn title(row: &Row) -> Div {
         .top(px(TITLE_NUDGE))
         .child(row.label.clone());
     let title = title.when(row.titling == Titling::Provisional, Styled::italic);
-    let mono =
+    let monospaced =
         row.kind == RowKind::RepoHeader || (row.kind == RowKind::Branch && !row.is_two_line());
-    if mono {
-        return title.font_family(MONO_FAMILY);
+    if monospaced {
+        return title.font_family(mono);
     }
     title
 }
 
 fn sublabel(
     row: &Row,
+    mono: &'static str,
     palette: &Palette,
 ) -> Div {
     let counts = row.workspace.iter().flat_map(|workspace| {
@@ -103,7 +107,7 @@ fn sublabel(
         .flex()
         .gap(SPACE_XS)
         .truncate()
-        .font_family(MONO_FAMILY)
+        .font_family(mono)
         .text_size(px(SUBLABEL_SIZE))
         .line_height(px(SUBLABEL_LINE))
         .relative()
@@ -133,7 +137,7 @@ mod tests {
     ) -> f32 {
         let bounds = measure(cx, move |_, cx| {
             let palette = Theme::of(cx).palette(Surface::Chrome);
-            label(&row, None, palette)
+            label(&row, None, (Theme::of(cx).mono_family(), palette))
         });
         f32::from(bounds.size.height)
     }

@@ -20,6 +20,7 @@ use crate::row_bounds::RowBounds;
 use crate::row_cluster::cluster;
 use crate::row_drag::{RowDrag, tracked};
 use crate::row_draggable::draggable;
+use crate::row_focus::{ringed, row_focus};
 use crate::row_ghost::GhostBuild;
 use crate::row_glyph::RowGlyph;
 use crate::row_id::RowId;
@@ -45,7 +46,7 @@ pub(crate) struct TreeRow {
 impl RenderOnce for TreeRow {
     fn render(
         self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
         let theme = self.drag.theme(cx);
@@ -59,12 +60,18 @@ impl RenderOnce for TreeRow {
             palette,
             handler: Rc::clone(&self.handler),
         };
-        let shell = row_shell(ElementId::from(group.clone()), self.row.depth, palette)
+        let id = ElementId::from(group.clone());
+        let focus = row_focus(&id, window, cx);
+        let shell = ringed(row_shell(id, self.row.depth, palette), &focus, palette)
             .group(group)
             .hover(move |style| style.bg(idle))
             .when(self.row.presence == Presence::Open, move |d| d.bg(idle))
             .child(glyph_box(&self.row, self.expansion, palette))
-            .child(label(&self.row, self.input.as_ref(), palette))
+            .child(label(
+                &self.row,
+                self.input.as_ref(),
+                (theme.mono_family(), palette),
+            ))
             .child(cluster(&spec));
         let shell = self.drag.style(shell, palette);
         let shell = tracked(shell, &self.row.id, &self.bounds);

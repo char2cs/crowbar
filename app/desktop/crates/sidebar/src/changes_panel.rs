@@ -1,7 +1,6 @@
 //! The Changes panel: branch pill, file count and the changed files.
 
 use gpui::{AnyElement, Context, Div, IntoElement, ParentElement, Pixels, Styled, div, px};
-use ui::font::MONO_FAMILY;
 use ui::{Icon, IconName, Palette, ScrollArea, Surface, Theme, radius, shadow};
 
 use crate::changed_file::ChangedFile;
@@ -40,6 +39,7 @@ fn entry(file: ChangedFile) -> FileTreeEntry {
 
 fn branch_pill(
     changes: &Changes,
+    mono: &'static str,
     palette: &Palette,
 ) -> Div {
     let parent = changes.parent.clone().map(|parent| {
@@ -48,7 +48,7 @@ fn branch_pill(
             .gap(SPACE_MD)
             .text_color(palette.control_muted_foreground())
             .child("→")
-            .child(div().font_family(MONO_FAMILY).truncate().child(parent))
+            .child(div().font_family(mono).truncate().child(parent))
     });
     div()
         .mx(SPACE_SM)
@@ -70,7 +70,7 @@ fn branch_pill(
         )
         .child(
             div()
-                .font_family(MONO_FAMILY)
+                .font_family(mono)
                 .truncate()
                 .child(changes.branch.clone()),
         )
@@ -122,7 +122,7 @@ impl Sidebar {
         let list = div()
             .flex()
             .flex_col()
-            .child(branch_pill(&changes, palette))
+            .child(branch_pill(&changes, Theme::of(cx).mono_family(), palette))
             .child(count_line(changes.files.len(), palette))
             .children(rows(changes.files, (&handler, &scope)));
         ScrollArea::new("changes-scroll", &self.scrolls.changes, list).into_any_element()
