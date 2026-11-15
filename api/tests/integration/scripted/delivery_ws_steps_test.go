@@ -37,8 +37,37 @@ func hermesOverSocket(t *testing.T) func(endpoint string) []byte {
 // event pushes one frame of a prompt in the envelope the gateway wraps every event in.
 func (s *socketRig) event(t *testing.T, typ, payload string) {
 	t.Helper()
-	s.push(t, fmt.Sprintf(`{"method":"event","params":{"type":%q,"session_id":"sess-1","admission_id":"adm-1","payload":%s}}`,
-		typ, payload))
+	s.eventAt(t, 1, typ, payload)
+}
+
+// eventAt is event run by execution generation gen.
+func (s *socketRig) eventAt(t *testing.T, gen int, typ, payload string) {
+	t.Helper()
+	s.push(t, fmt.Sprintf(`{"method":"event","params":{"type":%q,"session_id":"sess-1","admission_id":"adm-1",`+
+		`"execution_generation":%d,"payload":%s}}`, typ, gen, payload))
+}
+
+// Stop fences the interrupt on the generation the running turn's frames name, as a
+// JSON number: the admission receipts carry none the gateway accepts.
+func TestRegression_HermesStopInterruptsTheGenerationItsFramesName(t *testing.T) {
+	s := newSocketRigFor(t, "hermes", hermesOverSocket(t))
+	s.results.Store("session.create", `{"session_id":"sess-1","execution_generation":0}`)
+	s.results.Store("prompt.submit", `{"admission_id":"adm-1","execution_generation":null}`)
+	chatID := s.spawn("hermes")
+	require.NoError(t, s.send(chatID, "run something long"))
+	s.nextMethod(t, "prompt.submit")
+	s.eventAt(t, 2, "message.start", `{}`)
+	s.eventAt(t, 2, "tool.start", `{"tool_id":"call-1","name":"terminal","context":"sleep 60","args":{"command":"sleep 60"}}`)
+	s.eventually(func() bool {
+		return s.working(chatID) && len(kit.Bodies[ledger.ToolCall](s.rows(chatID), ledger.KindToolCall)) > 0
+	}, "the turn's frames never landed")
+
+	require.NoError(t, s.runners().StopChat(context.Background(), chatID))
+
+	var params map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(s.nextMethod(t, "session.interrupt").Params, &params))
+	assert.JSONEq(t, `2`, string(params["execution_generation"]), "the running turn's generation, as a number")
+	assert.JSONEq(t, `"sess-1"`, string(params["session_id"]))
 }
 
 // A gateway that numbers its model calls and ids no text or thought of its own: each

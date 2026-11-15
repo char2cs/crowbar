@@ -74,7 +74,7 @@ type Driver struct {
 	established bool
 	remembered  map[string]string
 	literals    map[string]bool
-	frameValues map[string]string
+	frameValues map[string]frameValue
 	birth       map[string]string
 	inflight    bool
 	lastEvent   string
@@ -98,7 +98,7 @@ func newDriver(
 	}
 	drv := &Driver{
 		conn: conn, d: d, out: make(chan Event, 64), origin: origin,
-		remembered: map[string]string{}, literals: map[string]bool{}, frameValues: map[string]string{}, dial: dial, rc: rc,
+		remembered: map[string]string{}, literals: map[string]bool{}, frameValues: map[string]frameValue{}, dial: dial, rc: rc,
 	}
 	// Detached from ctx: a caller's start deadline must not end a long-lived link.
 	drv.ctx, drv.cancel = context.WithCancel(context.Background())
@@ -247,13 +247,15 @@ func (drv *Driver) Reply(askID json.RawMessage, rendered []byte) error {
 }
 
 // Send calls an outbound canonical event (interrupt, compact_start) resolved via
-// outbound.Resolve over remembered values, and waits for the reply so a malformed call
-// surfaces as an error. Events needing a session or nested payload use Dispatch.
+// outbound.Resolve over remembered values and frame values (as captured.NAME), and
+// waits for the reply so a malformed call surfaces as an error. Events needing a
+// session or nested payload use Dispatch.
 func (drv *Driver) Send(ctx context.Context, canonical string, values map[string]string) error {
 	drv.mu.Lock()
 	merged := cloneValues(drv.remembered)
 	merged[callIDKey] = newCallID()
 	literals := maps.Clone(drv.literals)
+	drv.addFrameValues(merged, literals)
 	drv.mu.Unlock()
 	for k, v := range values {
 		merged[k] = v

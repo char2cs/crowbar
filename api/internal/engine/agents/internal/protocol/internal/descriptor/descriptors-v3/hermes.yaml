@@ -15,6 +15,8 @@ runtime:
     # The gateway ids no text or thought; each model call (agent.step) is one message of its prompt.
     remember:
       - { in: event, when: { type: agent.step }, capture: { step: payload.iteration } }
+      # Every event frame names the generation running it; interrupt is fenced on it.
+      - { in: event, capture: { execution_generation: execution_generation } }
     # Without server_requests the gateway withdraws approvals instead of sending them.
     handshake: { call: client.capabilities, params: { server_requests: true } }
   spawn:
@@ -239,23 +241,22 @@ events:
           editor: { mcp_servers: [{ name: crowbar, command: "{crowbar}", args: [mcp, --segment, "{segid}", --token-file, "{tmp}/mcp.token", --project, "{project_id}", --workspace, "{workspace_id}", --repo, "{repo_id}", --host, "{daemon_host}"], env: [{ name: CROWBAR_HOME, value: "{crowbar_home}" }] }] }
         # The chat's pick is absent, not empty, so an unchosen model inherits the profile's.
         optional: [model, provider]
-        capture: { session_id: session_id, execution_generation: execution_generation }
+        capture: { session_id: session_id }
     resume:
       - call: session.resume
         send:
           session_id: "{session_id}"
           omit_messages: true
           editor: { mcp_servers: [{ name: crowbar, command: "{crowbar}", args: [mcp, --segment, "{segid}", --token-file, "{tmp}/mcp.token", --project, "{project_id}", --workspace, "{workspace_id}", --repo, "{repo_id}", --host, "{daemon_host}"], env: [{ name: CROWBAR_HOME, value: "{crowbar_home}" }] }] }
-        capture: { execution_generation: execution_generation }
     action:
       - call: prompt.submit
         send: { session_id: "{session_id}", text: "{text}", submission_id: "{call_id}" }
-        capture: { execution_generation: execution_generation }
 
-  # interrupt is fenced on execution_generation, a number captured from every admission receipt.
+  # Fenced on the running turn's own frames: a value echoed from an admission receipt
+  # was refused as stale_generation every time.
   interrupt:
     out: session.interrupt
-    send: { session_id: "{session_id}", execution_generation: "{execution_generation}" }
+    send: { session_id: "{session_id}", execution_generation: "{captured.execution_generation}" }
 
 # TEXT MATCH on the prompt's start: after background delegation the gateway sends a
 # harness message as a prompt; no frame field tells it from a person's.

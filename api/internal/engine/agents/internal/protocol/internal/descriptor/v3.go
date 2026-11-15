@@ -28,7 +28,7 @@ func ParseV0(raw []byte) (*spec.Descriptor, error) {
 		return nil, err
 	}
 
-	maps := eventFieldPresence(d.Events)
+	maps := eventFieldPresence(d)
 	if err := vocab.Validate(d.ID, maps); err != nil {
 		return nil, fmt.Errorf("descriptor: %w", err)
 	}
@@ -67,12 +67,13 @@ func decodeDescriptor(raw []byte) (*spec.Descriptor, error) {
 }
 
 // eventFieldPresence reads, per event, which canonical fields its descriptor declares.
-func eventFieldPresence(events map[string]spec.EventSpec) map[string]map[string][]string {
+func eventFieldPresence(d *spec.Descriptor) map[string]map[string][]string {
 	// An inbound event's canonical fields are the KEYS of map:. An outbound event's
 	// send: trees are keyed by PROVIDER field names and reference canonical names as
 	// {braced} templates, so its canonical set is read out of the values. A name some
-	// step captures is the descriptor's own variable, not a vocabulary slot.
-	captured := capturedNames(events)
+	// step or remember: entry captures is the descriptor's own variable, not a vocabulary slot.
+	events := d.Events
+	captured := capturedNames(d)
 	out := make(map[string]map[string][]string, len(events))
 	for name, e := range events {
 		switch {
@@ -98,10 +99,16 @@ func eventFieldPresence(events map[string]spec.EventSpec) map[string]map[string]
 	return out
 }
 
-// capturedNames is every value a Fresh/Resume/Action step captures from a response.
-func capturedNames(events map[string]spec.EventSpec) map[string]bool {
+// capturedNames is every value a Fresh/Resume/Action step captures from a response,
+// and every remember: value as captured.NAME.
+func capturedNames(d *spec.Descriptor) map[string]bool {
 	out := map[string]bool{}
-	for _, e := range events {
+	for _, r := range d.Runtime.API.Remember {
+		for name := range r.Capture {
+			out[spec.CapturedNamespace+"."+name] = true
+		}
+	}
+	for _, e := range d.Events {
 		for _, steps := range [][]spec.CallStep{e.Fresh, e.Resume, e.Action} {
 			for _, step := range steps {
 				for name := range step.Capture {

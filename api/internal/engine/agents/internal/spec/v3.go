@@ -53,6 +53,10 @@ type APISpec struct {
 	Remember []FrameCapture `yaml:"remember"`
 }
 
+// CapturedNamespace is where FrameCapture values are read: an event map's
+// captured.NAME path, an outbound send's {captured.NAME} placeholder.
+const CapturedNamespace = "captured"
+
 // FrameCapture picks a frame by In and When as an event does, and keeps its Capture paths by
 // name; a null or absent path keeps the last value.
 type FrameCapture struct {
