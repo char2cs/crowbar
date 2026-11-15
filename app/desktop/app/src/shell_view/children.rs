@@ -8,6 +8,7 @@ use shell_data::ShellData;
 use sidebar::{Preferences, Sidebar, SidebarData};
 use startup_view::{MonotonicClock, StartupTiming, StartupView};
 use tab_bar::TabBar;
+use terminal_session::TerminalSessions;
 use ui::Overlays;
 
 use super::ShellView;
@@ -19,6 +20,7 @@ use crate::shell_request::ShellRequest;
 use crate::shell_state::ShellState;
 use crate::sidebar_requests::SidebarRequests;
 use crate::startup_requests::StartupRequests;
+use crate::terminal_panes::TerminalPanes;
 use crate::workspace::Workspace;
 
 pub(super) fn overlay_channel(
@@ -38,8 +40,18 @@ pub(super) fn start_data(
 ) -> (ShellData, Arc<AtomicBool>) {
     let queued = Arc::new(AtomicBool::new(false));
     let callbacks = crate::data_signal::callbacks(requests, &queued);
-    let data = ShellData::start(&link.handle(), &link.transport(), link.hosts(), callbacks);
+    let data = ShellData::start(
+        &link.handle(),
+        &link.transport(),
+        (link.hosts(), link.desk()),
+        callbacks,
+    );
     (data, queued)
+}
+
+fn terminal_sessions(link: &DaemonLink) -> TerminalSessions {
+    let (transport, host) = (link.transport(), link.local_host());
+    TerminalSessions::new(transport, host, link.handle(), shell_data::CORE_ORIGIN)
 }
 
 pub(super) type Panes = (
@@ -50,12 +62,18 @@ pub(super) type Panes = (
 );
 
 pub(super) fn build_panes(
-    state: &ShellState,
+    (state, link): (&ShellState, &DaemonLink),
     requests: &async_channel::Sender<ShellRequest>,
     cx: &mut Context<'_, ShellView>,
 ) -> Panes {
     let bars = BrowserBars::new(state.browsers(), requests.clone());
-    let source = Rc::new(ShellPaneSource::new(state.titles(), state.serials(), bars));
+    let terminals = TerminalPanes::new(state.terminals(), terminal_sessions(link));
+    let source = Rc::new(ShellPaneSource::new(
+        state.titles(),
+        state.serials(),
+        bars,
+        terminals,
+    ));
     let view_source = Rc::clone(&source);
     let layout = cx.new(|_| LayoutView::new(view_source));
     let first_tab = state.serials().next_tab();

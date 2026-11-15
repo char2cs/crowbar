@@ -95,7 +95,8 @@ mod tests {
     #[test]
     fn size_and_maximized_follow_the_saved_state() {
         const SMALL: WindowState = state(0.0, 0.0, 100.0, 100.0);
-        let cases: [(WindowState, &[Rect], (f32, f32), bool); 3] = [
+        type Case<'a> = (WindowState, &'a [Rect], (f32, f32), bool);
+        let cases: [Case<'_>; 3] = [
             (
                 state(100.0, 80.0, 1000.0, 700.0),
                 &[DISPLAY],
@@ -127,7 +128,8 @@ mod tests {
 
     #[test]
     fn a_window_stays_on_a_display_or_is_centred_on_the_primary() {
-        let cases: [(WindowState, &[Rect], (f32, f32)); 3] = [
+        type Case<'a> = (WindowState, &'a [Rect], (f32, f32));
+        let cases: [Case<'_>; 3] = [
             (state(100.0, 80.0, 1000.0, 700.0), &[DISPLAY], (100.0, 80.0)),
             (
                 state(4000.0, 0.0, 1000.0, 700.0),

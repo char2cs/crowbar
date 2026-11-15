@@ -1385,8 +1385,6 @@ dependencies = [
 [[package]]
 name = "cosmic-text"
 version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da46a9d5a8905cc538a4a5bceb6a4510de7a51049c5588c0114efce102bcbbe8"
 dependencies = [
  "bitflags 2.13.2",
  "fontdb 0.16.2",
@@ -1489,8 +1487,10 @@ dependencies = [
  "gpui",
  "layout_view",
  "model",
+ "pairing_view",
  "pane_host",
  "protocol",
+ "remote_folder_picker",
  "serde_json",
  "settings_ui",
  "shell_data",
@@ -1501,6 +1501,9 @@ dependencies = [
  "startup_view",
  "tab_bar",
  "tempfile",
+ "terminal",
+ "terminal_session",
+ "terminal_view",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -4673,6 +4676,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pairing_view"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "shell_data",
+ "ui",
+]
+
+[[package]]
 name = "pane_host"
 version = "0.1.0"
 dependencies = [
@@ -5687,6 +5699,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "remote_folder_picker"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "shell_data",
+ "ui",
+]
+
+[[package]]
 name = "resvg"
 version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6318,6 +6339,7 @@ dependencies = [
 name = "shell_data"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "futures-util",
  "getrandom 0.3.4",
  "protocol",
@@ -6379,7 +6401,17 @@ dependencies = [
  "gpui",
  "serde",
  "serde_json",
+ "sidebar",
  "thiserror 2.0.21",
+ "ui",
+]
+
+[[package]]
+name = "sidebar_gallery"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "sidebar",
  "ui",
 ]
 
@@ -7010,6 +7042,22 @@ dependencies = [
  "alacritty_terminal",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "terminal_session"
+version = "0.1.0"
+dependencies = [
+ "async-channel 2.5.0",
+ "futures-util",
+ "protocol",
+ "serde",
+ "serde_json",
+ "terminal",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
 ]
 
 [[package]]

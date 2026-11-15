@@ -161,6 +161,16 @@ mod tests {
     }
 
     #[gpui::test]
+    fn without_a_tab_the_view_shows_the_logo_and_with_one_it_does_not(cx: &mut TestAppContext) {
+        let empty = open(cx, &model::Layout::default());
+        let (view, cx) = (empty.view, empty.cx);
+        view.read_with(cx, |view, _| assert!(view.shows_logo(), "no tab"));
+        let populated = open(cx, &side_by_side());
+        let (view, cx) = (populated.view, populated.cx);
+        view.read_with(cx, |view, _| assert!(!view.shows_logo(), "a tab is open"));
+    }
+
+    #[gpui::test]
     fn the_view_measures_itself_and_lays_the_panes_out_in_its_bounds(cx: &mut TestAppContext) {
         let layout = side_by_side();
         let harness = open(cx, &layout);

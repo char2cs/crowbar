@@ -117,7 +117,7 @@ impl Transport {
         &self,
         origin: &PaneOrigin,
         mut request: Request<Vec<u8>>,
-) -> Forwarded {
+    ) -> Forwarded {
         let target_text = request.uri().path_and_query().map_or_else(
             || request.uri().path().to_owned(),
             |pq| pq.as_str().to_owned(),

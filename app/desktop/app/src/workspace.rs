@@ -80,6 +80,8 @@ mod tests {
     use crate::browser_ids::BrowserIds;
     use crate::serials::Serials;
     use crate::shell_pane_source::ShellPaneSource;
+    use crate::terminal_ids::TerminalIds;
+    use crate::test_support::idle_terminals;
     use crate::titles::Titles;
 
     fn source() -> Rc<ShellPaneSource> {
@@ -88,6 +90,7 @@ mod tests {
             Titles::default(),
             Serials::above(&Layout::default()),
             bars,
+            idle_terminals(TerminalIds::default()),
         ))
     }
 

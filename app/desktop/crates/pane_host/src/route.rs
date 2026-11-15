@@ -18,6 +18,7 @@ pub(crate) enum Route {
 }
 
 const PANES_PREFIX: &str = "/panes/";
+const FONTS_PREFIX: &str = "/fonts/";
 const RELAY_PATH: &str = "/__crowbar/relay";
 
 pub(crate) fn parse(
@@ -32,6 +33,11 @@ pub(crate) fn parse(
     let host = HostId::new(authority).ok()?;
     if path_and_query == RELAY_PATH {
         return Some(Route::Relay { host });
+    }
+    if path_and_query.starts_with(FONTS_PREFIX) {
+        return Some(Route::CoreBundle {
+            path: path_and_query.trim_start_matches('/').to_owned(),
+        });
     }
     let Some(panes) = path_and_query.strip_prefix(PANES_PREFIX) else {
         return Some(daemon_route(host, path_and_query));
@@ -69,21 +75,32 @@ mod tests {
 
     type Case = (&'static str, Option<Route>);
 
-    fn route_cases() -> [Case; 5] {
+    fn core(path: &str) -> Route {
+        Route::CoreBundle { path: path.into() }
+    }
+
+    fn daemon(
+        host: &str,
+        path_and_query: &str,
+    ) -> Route {
+        Route::Daemon {
+            host: HostId::new(host).unwrap(),
+            path_and_query: path_and_query.into(),
+        }
+    }
+
+    fn route_cases() -> [Case; 6] {
         let git = ExtensionId::new("git").unwrap();
         [
             (
                 "crowbar://local/panes/core/chat/index.html",
-                Some(Route::CoreBundle {
-                    path: "chat/index.html".into(),
-                }),
+                Some(core("chat/index.html")),
             ),
             (
-                "crowbar://local/panes/core/",
-                Some(Route::CoreBundle {
-                    path: String::new(),
-                }),
+                "crowbar://local/fonts/CalSansUI.woff2",
+                Some(core("fonts/CalSansUI.woff2")),
             ),
+            ("crowbar://local/panes/core/", Some(core(""))),
             (
                 "crowbar://local/panes/ext/git/review/index.html?x=1",
                 Some(Route::ExtensionBundle {
@@ -93,18 +110,9 @@ mod tests {
             ),
             (
                 "crowbar://paired-1/v0/threads?limit=5",
-                Some(Route::Daemon {
-                    host: HostId::new("paired-1").unwrap(),
-                    path_and_query: "/v0/threads?limit=5".into(),
-                }),
+                Some(daemon("paired-1", "/v0/threads?limit=5")),
             ),
-            (
-                "crowbar://local",
-                Some(Route::Daemon {
-                    host: HostId::new("local").unwrap(),
-                    path_and_query: "/".into(),
-                }),
-            ),
+            ("crowbar://local", Some(daemon("local", "/"))),
         ]
     }
 

@@ -13,9 +13,12 @@ use crate::daemon_client::DaemonClient;
 use crate::descriptor_records;
 use crate::descriptor_report::DescriptorReport;
 use crate::descriptors;
+use crate::fleet::Fleet;
 use crate::font_choices;
+use crate::host_desk::HostDesk;
+use crate::host_roster::HostRoster;
 use crate::hub::Hub;
-use crate::live_records::{self, KILL};
+use crate::live_records::{self, KILL, REMOVE_ANYWAY, REVOKE};
 use crate::loadable::Loadable;
 use crate::outcome::{Outcome, OutcomeSink};
 use crate::provider::Provider;
@@ -34,6 +37,7 @@ const SESSIONS: &str = "sessions";
 const HOSTS: &str = "hosts";
 const DESCRIPTORS: &str = "descriptors";
 const UPLOAD_DESCRIPTOR: &str = "agents.uploadDescriptor";
+const ADD_HOST: &str = "hosts.add";
 
 /// Thread-safe state behind the settings modal's backend: it holds the values, the agent list,
 /// and the changes the UI thread has yet to be told about.
@@ -49,6 +53,7 @@ pub struct SettingsCore {
     signal: ChangeSignal,
     fonts: SystemFonts,
     outcome: OutcomeSink,
+    roster: Arc<HostRoster>,
 }
 
 impl std::fmt::Debug for SettingsCore {
@@ -71,8 +76,13 @@ impl SettingsCore {
         (file, hub, handle): (SettingFile, Arc<Hub>, Handle),
         (local, signal): (DaemonClient, ChangeSignal),
         (fonts, outcome): (SystemFonts, OutcomeSink),
+        (fleet, desk): (Arc<Fleet>, HostDesk),
     ) -> Result<Arc<Self>, crate::error::Error> {
         let values = file.load()?;
+        let roster = HostRoster::new(
+            (Arc::clone(&hub), fleet, desk),
+            (Arc::clone(&outcome), Arc::clone(&signal)),
+        );
         let core = Arc::new(Self {
             file,
             values: Mutex::new(values),
@@ -85,6 +95,7 @@ impl SettingsCore {
             signal,
             fonts,
             outcome,
+            roster,
         });
         core.refresh();
         Ok(core)
@@ -281,6 +292,10 @@ impl SettingsCore {
             (self.outcome)(Outcome::PickDescriptor);
             return Ok(());
         }
+        if id == ADD_HOST {
+            (self.outcome)(Outcome::PairHost);
+            return Ok(());
+        }
         Err(Error::Unavailable(format!("{id} is not available here")))
     }
 
@@ -311,6 +326,14 @@ impl SettingsCore {
         match (source, command) {
             (AGENTS, command) => self.edit_agents(record, command),
             (SESSIONS, RecordCommand::Run { action }) if action == KILL => self.kill(record),
+            (HOSTS, RecordCommand::Run { action }) if action == REVOKE => {
+                self.roster.revoke(&self.handle, record);
+                Ok(())
+            },
+            (HOSTS, RecordCommand::Run { action }) if action == REMOVE_ANYWAY => {
+                self.roster.remove_anyway(&self.handle, record);
+                Ok(())
+            },
             (_, RecordCommand::Refresh) => {
                 self.refresh();
                 Ok(())
@@ -453,6 +476,7 @@ mod tests {
         daemon: Arc<FakeDaemon>,
         changed: Arc<Notify>,
         dir: tempfile::TempDir,
+        told: Arc<Mutex<Vec<Outcome>>>,
     }
 
     const PROVIDERS: &str = r#"[{"id":"claude","displayName":"Claude","enabled":true,"mcpEnabled":true,"connected":true},{"id":"codex","enabled":true,"mcpEnabled":true}]"#;
@@ -464,13 +488,25 @@ mod tests {
         let changed = Arc::new(Notify::new());
         let wake = Arc::clone(&changed);
         let signal: ChangeSignal = Arc::new(move || wake.notify_one());
+        let told = Arc::new(Mutex::new(Vec::new()));
+        let heard = Arc::clone(&told);
+        let sink: OutcomeSink = Arc::new(move |outcome| locked(&heard).push(outcome));
         let hub = Hub::new(state, Arc::clone(&signal));
         let local = hub.read(|state| state.hosts[0].client.clone());
+        let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
+        let fleet = Fleet::new(&Handle::current(), &hub, &transport);
+        let desk = HostDesk {
+            book: Arc::new(crate::test_support::FakeBook::default()),
+            notes: Arc::new(
+                crate::host_notes::HostNotes::open(dir.path().join("hosts.json")).unwrap(),
+            ),
+        };
         let file = SettingFile::new(dir.path().join("settings.json"));
         let core = SettingsCore::open(
             (file, hub, Handle::current()),
             (local, signal),
-            (SystemFonts::default(), Arc::new(|_| {})),
+            (SystemFonts::default(), sink),
+            (fleet, desk),
         )
         .unwrap();
         Rig {
@@ -478,6 +514,7 @@ mod tests {
             daemon,
             changed,
             dir,
+            told,
         }
     }
 
@@ -667,9 +704,17 @@ mod tests {
                 .apply("hosts", "local", RecordCommand::Refresh)
                 .is_ok()
         );
-        assert!(rig.core.invoke("hosts.add").is_err());
+        assert!(rig.core.invoke("hosts.bogus").is_err());
         assert!(matches!(rig.core.records("sessions"), Records::Ready(list) if list.len() == 1));
         assert!(matches!(rig.core.records("hosts"), Records::Ready(list) if list.len() == 1));
+    }
+
+    fn adding_a_host_asks_the_shell_to_open_the_pairing_dialog()
+    -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
+        let rig = open(|_| {});
+        assert!(rig.core.invoke("hosts.add").is_ok());
+        assert_eq!(*locked(&rig.told), [Outcome::PairHost]);
+        Box::pin(std::future::ready(()))
     }
 
     type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
@@ -679,7 +724,8 @@ mod tests {
         Box::pin(std::future::ready(()))
     }
 
-    const CASES: [Case; 7] = [
+    const CASES: [Case; 8] = [
+        adding_a_host_asks_the_shell_to_open_the_pairing_dialog,
         || Box::pin(the_agents_and_the_permission_level_come_from_the_daemon()),
         || Box::pin(an_unreachable_daemon_fails_the_agent_list()),
         || {

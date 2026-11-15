@@ -2,7 +2,6 @@
 
 use gpui::{ClickEvent, Div, ElementId, ParentElement, SharedString, Styled, div};
 use shell_data::{Availability, ImportBranch};
-use ui::font::MONO_FAMILY;
 use ui::{Button, Checkbox, Icon, IconName, Palette, Pose};
 
 use crate::row_choice::{RowChoice, Toggle};
@@ -13,7 +12,6 @@ fn name(branch: &ImportBranch) -> Div {
         .flex_1()
         .min_w_0()
         .truncate()
-        .font_family(MONO_FAMILY)
         .text_size(TEXT)
         .child(SharedString::from(branch.name.clone()))
 }

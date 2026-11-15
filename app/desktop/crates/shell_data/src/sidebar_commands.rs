@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use sidebar::{Command, CommandSink, Error};
 use tokio::runtime::Handle;
-use tokio::sync::mpsc;
 
+use crate::fleet::Fleet;
 use crate::hub::Hub;
 use crate::new_id;
 use crate::outcome::OutcomeSink;
@@ -15,7 +15,6 @@ use crate::plan_create;
 use crate::planner;
 use crate::runner;
 use crate::sidebar_reads::{active_project, host_of};
-use crate::stream_control::{Controls, StreamControl};
 
 /// Plans each command from the current entities and runs it on the runtime; the stream shows the
 /// result. Commands that are the shell's own (dialogs, opening a pane) are refused here.
@@ -24,7 +23,7 @@ pub struct SidebarCommands {
     pub(crate) hub: Arc<Hub>,
     pub(crate) handle: Handle,
     pub(crate) outcome: OutcomeSink,
-    pub(crate) controls: Arc<Controls>,
+    pub(crate) fleet: Arc<Fleet>,
 }
 
 impl std::fmt::Debug for SidebarCommands {
@@ -62,10 +61,7 @@ impl SidebarCommands {
         let host = self
             .hub
             .read(|state| host_of(state, project).map(|slot| slot.spec.id.clone()));
-        self.controls
-            .iter()
-            .filter(|(id, _)| host.as_ref().is_none_or(|held| held == id))
-            .for_each(|(id, control)| resubscribe(id, control));
+        self.fleet.resubscribe(host.as_deref());
     }
 
     fn toggle(
@@ -90,10 +86,10 @@ impl SidebarCommands {
         });
     }
 
-    /// Adds the repository at `path`, a folder of this computer, to the open space.
+    /// Adds the repository at `path`, a folder of the open space's own host, to that space.
     ///
     /// # Errors
-    /// [`Error::Refused`] when no space is open or its host is another computer.
+    /// [`Error::Refused`] when no space is open, its host is not loaded, or the folder has no name.
     pub fn import_repo(
         &self,
         path: &str,
@@ -124,15 +120,6 @@ impl SidebarCommands {
     }
 }
 
-fn resubscribe(
-    id: &str,
-    control: &mpsc::UnboundedSender<StreamControl>,
-) {
-    if control.send(StreamControl::Resubscribe).is_err() {
-        tracing::warn!(host = %id, "the stream task is gone; the chats cannot be reloaded");
-    }
-}
-
 impl CommandSink for SidebarCommands {
     fn dispatch(
         &self,
@@ -146,7 +133,11 @@ impl CommandSink for SidebarCommands {
             },
             Command::RetryChats(project) => self.retry(project.as_str()),
             Command::ToggleDirectory(path) => self.toggle(path),
-            other => return self.plan_and_run(other),
+            other => {
+                return self
+                    .file_command(other)
+                    .unwrap_or_else(|| self.plan_and_run(other));
+            },
         }
         Ok(())
     }
@@ -155,19 +146,20 @@ impl CommandSink for SidebarCommands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell_data::ShellData;
     use crate::test_support::state;
     use sidebar::{HostId, ProjectId};
 
     fn commands() -> (SidebarCommands, Arc<crate::test_support::FakeDaemon>) {
         let (mut state, daemon) = state();
         state.panels.follow(Some("hc".into()));
+        let transport: Arc<dyn protocol::DaemonTransport> =
+            Arc::<crate::test_support::FakeDaemon>::clone(&daemon);
         let hub = Hub::new(state, Arc::new(|| {}));
         let commands = SidebarCommands {
+            fleet: Fleet::new(&Handle::current(), &hub, &transport),
             hub,
             handle: Handle::current(),
             outcome: Arc::new(|_| {}),
-            controls: Arc::new(Vec::new()),
         };
         (commands, daemon)
     }
@@ -234,7 +226,6 @@ mod tests {
             Command::ImportBranches(sidebar::RowId::from("r")),
             Command::OpenFile("a".into()),
         ];
-        assert!(!cases.iter().any(ShellData::serves));
         assert!(
             !cases
                 .into_iter()

@@ -276,9 +276,7 @@ async fn an_extension_token_reaches_only_its_own_extension_routes() {
     let rig = rig();
     let token = rig.extension_token("x1", "acme");
     let origin = "crowbar-ext://acme";
-    let dial = |path: &str, origin: &str| {
-        Dial::good(rig.dialer.clone(), origin, &token, path)
-    };
+    let dial = |path: &str, origin: &str| Dial::good(rig.dialer.clone(), origin, &token, path);
     assert!(dial("/v0/ext/acme/events", origin).connect().await.is_ok());
     let cases = [
         "/v0/terminals/t1/stream",

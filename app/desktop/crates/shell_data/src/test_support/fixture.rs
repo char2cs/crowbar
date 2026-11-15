@@ -99,16 +99,22 @@ pub(crate) fn store_of(rows: &[(&str, &str, &str)]) -> EntityStore {
 
 /// A state of one local host that has heard [`frames`], and the daemon its client talks to.
 pub(crate) fn state() -> (State, Arc<FakeDaemon>) {
-    let daemon = FakeDaemon::shared();
-    let client = DaemonClient::new(Arc::<FakeDaemon>::clone(&daemon), local());
     let spec = HostSpec {
         id: "local".into(),
         name: "This computer".into(),
         endpoint: None,
     };
+    state_on(spec)
+}
+
+/// A state of the one host `spec` that has heard [`frames`], and the daemon its client talks to.
+pub(crate) fn state_on(spec: HostSpec) -> (State, Arc<FakeDaemon>) {
+    let daemon = FakeDaemon::shared();
+    let client = DaemonClient::new(Arc::<FakeDaemon>::clone(&daemon), local());
+    let id = spec.id.clone();
     let mut state = State::new(vec![HostSlot::new(spec, client)]);
     for frame in frames() {
-        state.apply("local", frame);
+        state.apply(&id, frame);
     }
     (state, daemon)
 }

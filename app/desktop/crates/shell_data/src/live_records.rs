@@ -1,6 +1,6 @@
 //! The Active sessions and Hosts lists, read from what the streams hold.
 
-use settings_ui::{Line, Record, RecordAction, Tone};
+use settings_ui::{Confirm, Line, Record, RecordAction, Tone};
 
 use crate::chat_record::ChatRecord;
 use crate::host_slot::HostSlot;
@@ -10,6 +10,8 @@ use crate::state::State;
 use crate::switch::Switch;
 
 pub(crate) const KILL: &str = "kill";
+pub(crate) const REVOKE: &str = "revoke";
+pub(crate) const REMOVE_ANYWAY: &str = "remove-anyway";
 const THIS_COMPUTER: &str = "This computer";
 
 pub(crate) fn sessions(state: &State) -> Vec<Record> {
@@ -48,14 +50,53 @@ fn session_tone(chat: &ChatRecord) -> Tone {
 }
 
 pub(crate) fn hosts(state: &State) -> Vec<Record> {
-    state.hosts.iter().map(host).collect()
+    state.hosts.iter().map(|slot| host(state, slot)).collect()
 }
 
-fn host(slot: &HostSlot) -> Record {
+fn host(
+    state: &State,
+    slot: &HostSlot,
+) -> Record {
     let address = slot.spec.endpoint.as_deref().unwrap_or(THIS_COMPUTER);
-    Record::new(slot.spec.id.as_str(), slot.spec.name.as_str())
+    let record = Record::new(slot.spec.id.as_str(), slot.spec.name.as_str())
         .status(link_tone(slot.link))
-        .line(Line::plain(address).mono())
+        .line(Line::plain(address).mono());
+    if slot.spec.endpoint.is_none() {
+        return record;
+    }
+    match state.unrevoked.get(slot.spec.id.as_str()) {
+        Some(why) => record.action(remove_anyway(slot, why)),
+        None => record.action(revoke(slot)),
+    }
+}
+
+fn revoke(slot: &HostSlot) -> RecordAction {
+    let confirm = Confirm::new(
+        format!("Revoke {}?", slot.spec.name),
+        "To use it again you’ll need to run crowbar pair on it.",
+        "Revoke",
+    );
+    RecordAction::new(REVOKE, "x", "Revoke this computer’s access to the host")
+        .labelled("Revoke")
+        .confirm(confirm)
+}
+
+fn remove_anyway(
+    slot: &HostSlot,
+    why: &str,
+) -> RecordAction {
+    let confirm = Confirm::new(
+        format!("Remove {} anyway?", slot.spec.name),
+        format!("{why} This computer forgets its key now, so nothing here can use it."),
+        "Remove anyway",
+    );
+    RecordAction::new(
+        REMOVE_ANYWAY,
+        "x",
+        "Remove the host from this app without revoking it",
+    )
+    .labelled("Remove anyway")
+    .confirm(confirm)
 }
 
 fn link_tone(link: LinkState) -> Tone {

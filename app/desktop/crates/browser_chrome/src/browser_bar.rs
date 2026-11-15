@@ -36,7 +36,7 @@ impl BrowserBar {
                 .on(Surface::Window)
                 .style(TextInputStyle::Compact)
         });
-        let subscription = cx.subscribe(&input, Self::on_input);
+        let subscription = cx.subscribe(&input, |_, input, event, cx| submitted(&input, event, cx));
         Self {
             input,
             _input_events: subscription,
@@ -52,17 +52,16 @@ impl BrowserBar {
         self.input
             .update(cx, |input, cx| input.set_text(address, cx));
     }
+}
 
-    fn on_input(
-        &mut self,
-        input: Entity<TextInput>,
-        event: &TextInputEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if matches!(event, TextInputEvent::Submitted) {
-            let typed = input.read(cx).text().to_owned();
-            cx.emit(BrowserBarEvent::Go(typed));
-        }
+fn submitted(
+    input: &Entity<TextInput>,
+    event: &TextInputEvent,
+    cx: &mut Context<'_, BrowserBar>,
+) {
+    if matches!(event, TextInputEvent::Submitted) {
+        let typed = input.read(cx).text().to_owned();
+        cx.emit(BrowserBarEvent::Go(typed));
     }
 }
 

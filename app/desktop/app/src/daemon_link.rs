@@ -2,19 +2,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use daemon_supervisor::{DaemonEvent, DaemonPaths, Supervisor, SupervisorConfig, locate_binary};
-use protocol::DaemonTransport;
+use protocol::{DaemonTransport, HostId};
 use startup_view::StartupInput;
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
 use transport::{
-    ExactOrigins, HostRegistry, MemoryTokenStore, Relay, RelayConfig, ShellTransport, Transport,
+    CachedTokenStore, ExactOrigins, HostRegistry, OsKeychain, Relay, RelayConfig, ShellTransport,
+    TokenStore, Transport,
 };
 
 use crate::app_options::AppOptions;
 use crate::error::{Error, Result};
 use crate::link_state::{LinkState, linked};
 use crate::phase_input::phase_input;
+use crate::transport_book::TransportBook;
 
+const LOCAL_HOST: &str = "local";
 const CORE_ORIGIN: &str = "crowbar://local";
 
 pub(crate) struct DaemonLink {
@@ -23,8 +26,10 @@ pub(crate) struct DaemonLink {
     state: Arc<LinkState>,
     transport: Arc<dyn DaemonTransport>,
     registry: Arc<HostRegistry>,
+    desk: shell_data::HostDesk,
     phases: async_channel::Receiver<StartupInput>,
     sender: async_channel::Sender<StartupInput>,
+    host: HostId,
 }
 
 impl std::fmt::Debug for DaemonLink {
@@ -49,15 +54,18 @@ impl DaemonLink {
         let (state, locator) = linked();
         let state = Arc::new(state);
         runtime.block_on(try_launch(options, &state, &sender));
-        let (transport, registry) = runtime.block_on(build_transport(options, locator))?;
+        let (transport, registry, tokens) = runtime.block_on(build_transport(options, locator))?;
+        let desk = host_desk(options, &registry, tokens)?;
         Ok(Self {
             runtime,
             options: options.clone(),
             state,
             transport,
             registry,
+            desk,
             phases,
             sender,
+            host: HostId::new(LOCAL_HOST).map_err(|e| Error::Daemon(e.to_string()))?,
         })
     }
 
@@ -65,8 +73,26 @@ impl DaemonLink {
         Arc::clone(&self.transport)
     }
 
+    pub(crate) fn local_host(&self) -> HostId {
+        self.host.clone()
+    }
+
     pub(crate) fn handle(&self) -> tokio::runtime::Handle {
         self.runtime.handle().clone()
+    }
+
+    pub(crate) fn desk(&self) -> shell_data::HostDesk {
+        self.desk.clone()
+    }
+
+    fn name_of(
+        &self,
+        id: &str,
+    ) -> String {
+        self.desk
+            .notes
+            .get(id)
+            .map_or_else(|| id.to_owned(), |note| note.name)
     }
 
     pub(crate) fn hosts(&self) -> Vec<shell_data::HostSpec> {
@@ -80,8 +106,8 @@ impl DaemonLink {
             .list()
             .into_iter()
             .map(|(id, endpoint)| shell_data::HostSpec {
+                name: self.name_of(id.as_str()),
                 id: id.as_str().to_owned(),
-                name: id.as_str().to_owned(),
                 endpoint: Some(String::from(endpoint)),
             });
         std::iter::once(local).chain(paired).collect()
@@ -213,18 +239,36 @@ async fn relay_phase(
     sender.send(input).await.is_ok() && current.changed().await.is_ok()
 }
 
+fn host_desk(
+    options: &AppOptions,
+    registry: &Arc<HostRegistry>,
+    tokens: Arc<dyn TokenStore>,
+) -> Result<shell_data::HostDesk> {
+    let notes = shell_data::HostNotes::open(options.state_dir().join("host-notes.json"))
+        .map_err(|e| Error::Daemon(e.to_string()))?;
+    Ok(shell_data::HostDesk {
+        book: Arc::new(TransportBook::new(Arc::clone(registry), tokens)),
+        notes: Arc::new(notes),
+    })
+}
+
 async fn build_transport(
     options: &AppOptions,
     locator: watch::Receiver<Option<PathBuf>>,
-) -> Result<(Arc<dyn DaemonTransport>, Arc<HostRegistry>)> {
+) -> Result<(
+    Arc<dyn DaemonTransport>,
+    Arc<HostRegistry>,
+    Arc<dyn TokenStore>,
+)> {
     let registry = Arc::new(
         HostRegistry::open(options.state_dir().join("hosts.json"))
             .map_err(|e| Error::Daemon(e.to_string()))?,
     );
+    let tokens: Arc<dyn TokenStore> = Arc::new(CachedTokenStore::new(OsKeychain::desktop()));
     let transport = Arc::new(Transport::new(
         Arc::new(locator),
         Arc::clone(&registry) as _,
-        Arc::new(MemoryTokenStore::default()),
+        Arc::clone(&tokens),
     ));
     let origins = ExactOrigins::new(vec![CORE_ORIGIN.to_owned()], CORE_ORIGIN);
     let relay = Relay::start(
@@ -239,7 +283,7 @@ async fn build_transport(
         transport,
         Arc::new(relay),
     );
-    Ok((Arc::new(shell), registry))
+    Ok((Arc::new(shell), registry, tokens))
 }
 
 #[cfg(test)]

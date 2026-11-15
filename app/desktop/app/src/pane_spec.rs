@@ -89,9 +89,14 @@ impl PaneSpec {
 
     pub(crate) fn terminal(
         id: &str,
+        chat: Option<&str>,
         directory: Option<&str>,
     ) -> Result<Self> {
         let params = Params::default().with("terminalId", id)?;
+        let params = match chat {
+            Some(chat) => params.with("threadId", chat)?,
+            None => params,
+        };
         let state = directory.map_or_else(PaneState::default, |dir| {
             PaneState::new(json!({ "directory": dir })).unwrap_or_default()
         });
@@ -151,7 +156,7 @@ mod tests {
         ),
         (
             "terminal",
-            || PaneSpec::terminal("t1", Some("/work")),
+            || PaneSpec::terminal("t1", None, Some("/work")),
             "directory",
             "\"/work\"",
         ),
@@ -219,7 +224,7 @@ mod tests {
     #[test]
     fn a_terminal_without_a_directory_starts_with_the_default_state() {
         assert_eq!(
-            PaneSpec::terminal("t2", None).unwrap().state,
+            PaneSpec::terminal("t2", None, None).unwrap().state,
             PaneState::default()
         );
     }

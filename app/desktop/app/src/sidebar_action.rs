@@ -10,6 +10,7 @@ pub(crate) enum SidebarAction {
     OpenFile(String),
     ImportRepo,
     ImportBranches(String),
+    Reveal(String),
     Unserved,
 }
 
@@ -27,6 +28,7 @@ pub(crate) fn action_for(command: &sidebar::Command) -> Result<SidebarAction> {
         sidebar::Command::ImportBranches(row) => {
             Ok(SidebarAction::ImportBranches(row.as_str().to_owned()))
         },
+        sidebar::Command::RevealFile { path } => Ok(SidebarAction::Reveal(path.clone())),
         _ => Ok(SidebarAction::Unserved),
     }
 }
@@ -38,26 +40,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opening_a_row_opens_its_chat() {
-        let action = action_for(&Command::OpenRow(RowId::from("t1"))).unwrap();
-        assert_eq!(
-            action,
-            SidebarAction::Open(chat_type().unwrap(), chat_params("t1").unwrap()),
-            "chat of the thread"
-        );
-    }
-
-    #[test]
-    fn settings_open_the_modal_and_the_branch_importer_names_its_row() {
-        assert_eq!(
-            action_for(&Command::OpenSettings).unwrap(),
-            SidebarAction::OpenSettings,
-            "settings"
-        );
-        assert_eq!(
-            action_for(&Command::ImportBranches(RowId::from("r"))).unwrap(),
-            SidebarAction::ImportBranches("r".into()),
-            "import branches"
-        );
+    fn sidebar_commands_become_the_actions_the_shell_carries_out() {
+        let cases = [
+            (
+                Command::OpenRow(RowId::from("t1")),
+                SidebarAction::Open(chat_type().unwrap(), chat_params("t1").unwrap()),
+            ),
+            (Command::OpenSettings, SidebarAction::OpenSettings),
+            (
+                Command::ImportBranches(RowId::from("r")),
+                SidebarAction::ImportBranches("r".into()),
+            ),
+            (
+                Command::RevealFile {
+                    path: "src/a.rs".into(),
+                },
+                SidebarAction::Reveal("src/a.rs".into()),
+            ),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(action_for(&command).unwrap(), expected, "{command:?}");
+        }
     }
 }

@@ -14,6 +14,7 @@ use crate::sidebar_glyph::SidebarGlyph;
 use crate::sidebar_state::SidebarState;
 use crate::strip_metrics::{
     ROW_GAP, ROW_HEIGHT, ROW_PADDING, SCROLLER_PADDING, SHELL_MARGIN, TAB_HEIGHT, TOGGLE_SIZE,
+    TRAFFIC_LIGHT_INSET,
 };
 use crate::tab_bar::TabBar;
 use crate::tab_bar_event::TabBarEvent;
@@ -73,7 +74,8 @@ impl TabBar {
             .size_full()
             .px(px(ROW_PADDING))
             .when(self.sidebar == SidebarState::ClosedLeft, |row| {
-                row.child(Self::toggle(SidebarState::ClosedLeft, cx))
+                row.pl(px(ROW_PADDING + TRAFFIC_LIGHT_INSET))
+                    .child(Self::toggle(SidebarState::ClosedLeft, cx))
             })
             .child(self.scroller(now, motion, cx))
             .when(self.sidebar == SidebarState::ClosedRight, |row| {

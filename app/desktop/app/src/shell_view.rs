@@ -22,11 +22,13 @@ mod appearance_settings;
 mod browsing;
 mod children;
 mod data_events;
+mod file_actions;
 mod keymap_settings;
 mod notices;
 mod outcomes;
 mod pane_commands;
 mod pump;
+mod remote_folder;
 mod shell_commands;
 
 use crate::daemon_link::DaemonLink;
@@ -59,10 +61,14 @@ pub(crate) struct ShellView {
     settings: Option<Entity<SettingsModal>>,
     palette: Option<Entity<PalettePanel>>,
     branch_import: Option<Entity<branch_import_view::BranchImportView>>,
+    remote_folders: Option<Entity<remote_folder_picker::RemoteFolderPicker>>,
+    file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
+    pairing: Option<Entity<pairing_view::PairingView>>,
     source: Rc<ShellPaneSource>,
     keymap: Keymap,
     keymap_watch: Option<settings_ui::Subscription>,
     appearance_watch: Option<settings_ui::Subscription>,
+    family_names: crate::family_names::FamilyNames,
     system_fonts: shell_data::SystemFonts,
     requests: async_channel::Sender<ShellRequest>,
     data: ShellData,
@@ -93,7 +99,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let (requests, queue) = overlay_channel(cx);
-        let (layout, tabs, workspace, source) = build_panes(&state, &requests, cx);
+        let (layout, tabs, workspace, source) = build_panes((&state, &link), &requests, cx);
         let (data, data_queued) = start_data(&link, &requests);
         let sidebar = build_sidebar((&requests, &data), &preferences_path, &workspace, cx);
         let startup = build_startup(&requests, cx);
@@ -111,9 +117,13 @@ impl ShellView {
             settings: None,
             palette: None,
             branch_import: None,
+            remote_folders: None,
+            file_prompt: None,
+            pairing: None,
             keymap: Keymap::defaults(),
             keymap_watch: None,
             appearance_watch: None,
+            family_names: crate::family_names::FamilyNames::default(),
             system_fonts: shell_data::SystemFonts::default(),
             requests,
             data,
@@ -199,7 +209,7 @@ impl ShellView {
                 crate::startup_command::perform(command, &self.link, cx);
             },
             ShellRequest::DataChanged => self.on_data_changed(cx),
-            ShellRequest::Outcome(outcome) => self.on_data_outcome(outcome, cx),
+            ShellRequest::Outcome(outcome) => self.on_data_outcome(outcome, window, cx),
             ShellRequest::CloseSettings => {
                 self.settings = None;
                 self.update_overlay(cx);
@@ -228,9 +238,10 @@ impl ShellView {
             },
             Ok(SidebarAction::OpenSettings) => self.show_settings(window, cx),
             Ok(SidebarAction::OpenFile(path)) => self.open_workspace_file(&path, cx),
-            Ok(SidebarAction::ImportRepo) => Self::import_repo(window, cx),
+            Ok(SidebarAction::ImportRepo) => self.choose_repo_folder(window, cx),
             Ok(SidebarAction::ImportBranches(row)) => self.show_branch_import(&row, window, cx),
-            Ok(SidebarAction::Unserved) => warn_unserved(command),
+            Ok(SidebarAction::Reveal(path)) => self.reveal_workspace_path(&path),
+            Ok(SidebarAction::Unserved) => self.perform_file_action(command, window, cx),
             Err(error) => tracing::warn!(%error, "a sidebar command was invalid"),
         }
     }
@@ -249,6 +260,9 @@ impl ShellView {
             || self.settings.is_some()
             || self.palette.is_some()
             || self.branch_import.is_some()
+            || self.remote_folders.is_some()
+            || self.file_prompt.is_some()
+            || self.pairing.is_some()
             || self.overlays_open;
         if covered {
             return Overlay::Active;
@@ -432,6 +446,17 @@ impl Render for ShellView {
             )
             .children(
                 self.branch_import
+                    .clone()
+                    .map(|dialog| div().absolute().size_full().child(dialog)),
+            )
+            .children(
+                self.remote_folders
+                    .clone()
+                    .map(|dialog| div().absolute().size_full().child(dialog)),
+            )
+            .children(self.prompt_layer())
+            .children(
+                self.pairing
                     .clone()
                     .map(|dialog| div().absolute().size_full().child(dialog)),
             )

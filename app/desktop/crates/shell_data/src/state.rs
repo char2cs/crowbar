@@ -1,5 +1,7 @@
 //! The shared state the sidebar reads and the stream and commands write.
 
+use std::collections::BTreeMap;
+
 use crate::daemon_client::DaemonClient;
 use crate::frame::Frame;
 use crate::host_slot::HostSlot;
@@ -15,6 +17,7 @@ pub(crate) struct State {
     pub(crate) active_project: Option<String>,
     pub(crate) local_rows: Vec<PendingRow>,
     pub(crate) panels: PanelState,
+    pub(crate) unrevoked: BTreeMap<String, String>,
 }
 
 impl State {
@@ -25,6 +28,37 @@ impl State {
             active_project: None,
             local_rows: Vec::new(),
             panels: PanelState::default(),
+            unrevoked: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn add_host(
+        &mut self,
+        slot: HostSlot,
+    ) {
+        self.hosts.push(slot);
+    }
+
+    pub(crate) fn remove_host(
+        &mut self,
+        id: &str,
+    ) {
+        let owned_project = self
+            .active_project
+            .as_deref()
+            .and_then(|project| {
+                self.hosts
+                    .iter()
+                    .find(|slot| slot.store.projects.get(project).is_some())
+            })
+            .is_some_and(|slot| slot.spec.id == id);
+        self.hosts.retain(|slot| slot.spec.id != id);
+        self.unrevoked.remove(id);
+        if self.selected_host.as_deref() == Some(id) {
+            self.selected_host = None;
+        }
+        if owned_project {
+            self.active_project = None;
         }
     }
 

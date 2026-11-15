@@ -35,7 +35,7 @@ fn push_char(
 pub(crate) fn row(
     hit: &RankedEntry,
     state: RowState,
-    palette: Palette,
+    palette: &Palette,
 ) -> gpui::Div {
     let title = title_runs(&hit.entry.title, &hit.positions)
         .into_iter()

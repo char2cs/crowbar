@@ -160,6 +160,7 @@ mod tests {
             (file, Arc::clone(&hub), tokio::runtime::Handle::current()),
             (local, quiet_signal()),
             (crate::system_fonts::SystemFonts::default(), quiet_outcome()),
+            crate::test_support::fleet_and_desk(&hub),
         )
         .unwrap();
         let adapter = SettingsAdapter::new(Arc::clone(&core));
@@ -177,6 +178,6 @@ mod tests {
             .set(&Key::new("tabSize"), Value::Number(4.0))
             .unwrap();
         assert_eq!(adapter.get(&Key::new("tabSize")), Some(Value::Number(4.0)));
-        assert!(adapter.invoke("hosts.add").is_err());
+        assert!(adapter.invoke("hosts.add").is_ok());
     }
 }

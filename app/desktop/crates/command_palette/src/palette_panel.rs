@@ -119,7 +119,7 @@ impl Render for PalettePanel {
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
         let rows = self.ranked.iter().enumerate().map(|(index, hit)| {
-            row(hit, RowState::at(index, self.selected), *palette)
+            row(hit, RowState::at(index, self.selected), palette)
                 .id(("palette-row", index))
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, _, cx| this.run(index, cx)))
@@ -181,10 +181,10 @@ mod tests {
         move |_, event, _| sink.borrow_mut().push(event.clone())
     }
 
-    fn open(
-        cx: &mut TestAppContext,
+    fn open<'a>(
+        cx: &'a mut TestAppContext,
         events: &Rc<RefCell<Vec<PaletteEvent>>>,
-    ) -> &mut VisualTestContext {
+    ) -> &'a mut VisualTestContext {
         cx.update(|cx| ui::init(cx).unwrap());
         let entries = vec![entry("a", "Zoom"), entry("b", "New tab")];
         let (panel, cx) = cx.add_window_view(|window, cx| PalettePanel::new(entries, window, cx));

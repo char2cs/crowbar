@@ -50,15 +50,15 @@ mod tests {
 
     #[test]
     fn matches_come_best_first_and_non_matches_are_dropped() {
-        let entries = [
-            entry("far", "Toggle all bars"),
-            entry("none", "Quit"),
-            entry("near", "New tab"),
-        ];
         const CASES: &[(&str, &[&str])] = &[
             ("", &["far", "none", "near"]),
             ("tab", &["near", "far"]),
             ("zzz", &[]),
+        ];
+        let entries = [
+            entry("far", "Toggle all bars"),
+            entry("none", "Quit"),
+            entry("near", "New tab"),
         ];
         for (query, expected) in CASES {
             assert_eq!(ids(&rank(&entries, query)), *expected, "{query:?}");

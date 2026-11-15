@@ -4,7 +4,6 @@ use gpui::{
     App, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, Window, div, px,
 };
-use ui::font::MONO_FAMILY;
 use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, UiText, hover_fill, radius};
 
 use crate::chord::Chord;
@@ -124,7 +123,7 @@ fn chord_button(
         .border_1()
         .border_color(border)
         .bg(palette.background())
-        .font_family(MONO_FAMILY)
+        .font_family(theme.mono_family())
         .text_size(UiText::Sm.size(theme))
         .text_color(color)
         .cursor_pointer()

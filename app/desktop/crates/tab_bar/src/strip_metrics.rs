@@ -6,6 +6,12 @@ pub(crate) const SLOT_MIN: f32 = 112.0;
 pub(crate) const SLOT_MAX: f32 = 240.0;
 pub(crate) const SHELL_MARGIN: f32 = 2.0;
 pub(crate) const ROW_PADDING: f32 = 8.0;
+
+// PLATFORM: macOS draws its traffic lights over the top-left of the strip.
+#[cfg(target_os = "macos")]
+pub(crate) const TRAFFIC_LIGHT_INSET: f32 = 88.0;
+#[cfg(not(target_os = "macos"))]
+pub(crate) const TRAFFIC_LIGHT_INSET: f32 = 0.0;
 pub(crate) const ROW_GAP: f32 = 6.0;
 pub(crate) const TOGGLE_SIZE: f32 = 28.0;
 pub(crate) const SCROLLER_PADDING: f32 = 4.0;

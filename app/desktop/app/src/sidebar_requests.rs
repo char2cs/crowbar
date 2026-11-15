@@ -51,11 +51,28 @@ mod tests {
         }
     }
 
-    fn data(runtime: &tokio::runtime::Runtime) -> shell_data::ShellData {
+    fn desk(dir: &std::path::Path) -> shell_data::HostDesk {
+        let registry = Arc::new(transport::HostRegistry::open(dir.join("hosts.json")).unwrap());
+        let tokens = Arc::new(transport::MemoryTokenStore::default());
+        shell_data::HostDesk {
+            book: Arc::new(crate::transport_book::TransportBook::new(registry, tokens)),
+            notes: Arc::new(shell_data::HostNotes::open(dir.join("notes.json")).unwrap()),
+        }
+    }
+
+    fn data(
+        runtime: &tokio::runtime::Runtime,
+        dir: &std::path::Path,
+    ) -> shell_data::ShellData {
         let transport: Arc<dyn DaemonTransport> = Arc::new(NoDaemon);
         let callbacks: (shell_data::ChangeSignal, shell_data::OutcomeSink) =
             (Arc::new(|| {}), Arc::new(|_| {}));
-        shell_data::ShellData::start(runtime.handle(), &transport, Vec::new(), callbacks)
+        shell_data::ShellData::start(
+            runtime.handle(),
+            &transport,
+            (Vec::new(), desk(dir)),
+            callbacks,
+        )
     }
 
     #[test]
@@ -63,7 +80,8 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap();
-        let data = data(&runtime);
+        let dir = tempfile::tempdir().unwrap();
+        let data = data(&runtime, dir.path());
         let (sender, receiver) = async_channel::unbounded();
         let sink = SidebarRequests {
             requests: sender,

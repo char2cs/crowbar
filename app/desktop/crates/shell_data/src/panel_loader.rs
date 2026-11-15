@@ -12,7 +12,7 @@ use crate::typed::typed;
 
 const ROOT_QUERY: &str = ".";
 
-fn tree_path(
+pub(crate) fn tree_path(
     chat: &str,
     directory: &str,
 ) -> String {

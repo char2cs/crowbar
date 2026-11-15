@@ -160,9 +160,6 @@ pub(crate) fn repo(
 ) -> Result<Plan, String> {
     let project = project.ok_or("no space is open")?;
     let slot = host_of(state, project.as_str()).ok_or("this space is not loaded yet")?;
-    if slot.spec.endpoint.is_some() {
-        return Err("a folder of a remote computer cannot be chosen from here yet".to_owned());
-    }
     let name = std::path::Path::new(path)
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
@@ -248,8 +245,9 @@ mod tests {
     use sidebar::ProjectId;
 
     use super::*;
+    use crate::host_spec::HostSpec;
     use crate::surface::Surface;
-    use crate::test_support::state;
+    use crate::test_support::{state, state_on};
 
     fn a_thread_under_a_chat_runs_in_its_workspace_and_a_home_thread_in_the_home() {
         let (state, _) = state();
@@ -277,7 +275,35 @@ mod tests {
         assert_eq!(plan.calls[0].body.clone().unwrap()["branch"], "topic");
     }
 
-    const CASES: [fn(); 3] = [
+    fn a_repo_is_added_on_the_host_of_its_space_local_or_remote() {
+        let remote = HostSpec {
+            id: "box".into(),
+            name: "Box".into(),
+            endpoint: Some("box.lan:7000".into()),
+        };
+        for spec in [None, Some(remote)] {
+            let (state, _) = spec.map_or_else(state, state_on);
+            let host = state.hosts[0].spec.id.clone();
+            let project = ProjectId::from("p");
+            let plan = repo(&state, Some(&project), ("/srv/app/", "k1")).unwrap();
+            let call = &plan.calls[0];
+            assert_eq!(plan.host, host);
+            assert_eq!(call.path, "/v0/projects/p/repos");
+            assert_eq!(call.body.clone().unwrap()["name"], "app");
+            assert_eq!(call.body.clone().unwrap()["path"], "/srv/app/");
+        }
+    }
+
+    fn a_repo_needs_an_open_space_and_a_named_folder() {
+        let (state, _) = state();
+        assert!(repo(&state, None, ("/srv/app", "k")).is_err());
+        assert!(repo(&state, Some(&ProjectId::from("p")), ("/", "k")).is_err());
+        assert!(repo(&state, Some(&ProjectId::from("gone")), ("/srv/app", "k")).is_err());
+    }
+
+    const CASES: [fn(); 5] = [
+        a_repo_is_added_on_the_host_of_its_space_local_or_remote,
+        a_repo_needs_an_open_space_and_a_named_folder,
         a_thread_under_a_chat_runs_in_its_workspace_and_a_home_thread_in_the_home,
         a_fork_of_a_home_row_is_refused_and_a_folder_with_no_row_needs_a_space,
         make_branch_names_the_branch,

@@ -11,7 +11,10 @@ impl Emphasis {
         index: usize,
         positions: &[usize],
     ) -> Self {
-        [Self::Plain, Self::Matched][usize::from(positions.contains(&index))]
+        if positions.contains(&index) {
+            return Self::Matched;
+        }
+        Self::Plain
     }
 
     pub(crate) fn weight(self) -> FontWeight {

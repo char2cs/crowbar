@@ -18,6 +18,12 @@ impl TerminalPeer {
         Self { frames, messages }
     }
 
+    /// The raw channel ends, for a host that pumps them from its own tasks.
+    #[must_use]
+    pub fn into_channels(self) -> (Sender<DaemonFrame>, Receiver<ClientMessage>) {
+        (self.frames, self.messages)
+    }
+
     /// Hands a frame from the daemon to the view; false once the view is gone.
     pub async fn deliver(
         &self,
@@ -55,6 +61,15 @@ mod tests {
     use crate::terminal_link::TerminalLink;
 
     use super::*;
+
+    #[test]
+    fn the_channel_ends_carry_the_same_traffic() {
+        let (link, peer) = TerminalLink::open();
+        let (frames, _messages) = peer.into_channels();
+        assert!(frames.send_blocking(DaemonFrame::Exit(1)).is_ok());
+        drop(link);
+        assert!(frames.send_blocking(DaemonFrame::Exit(2)).is_err());
+    }
 
     #[test]
     fn a_dropped_view_ends_both_directions() {

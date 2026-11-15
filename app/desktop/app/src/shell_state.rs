@@ -16,6 +16,7 @@ use crate::outcome::Outcome;
 use crate::pane_opener::open_commands;
 use crate::pane_spec::PaneSpec;
 use crate::serials::Serials;
+use crate::terminal_ids::TerminalIds;
 use crate::titles::Titles;
 
 pub(crate) struct ShellState {
@@ -25,6 +26,7 @@ pub(crate) struct ShellState {
     host: PaneHost,
     titles: Titles,
     browsers: BrowserIds,
+    terminals: TerminalIds,
     serials: Serials,
     closed: ClosedPanes,
 }
@@ -51,6 +53,10 @@ impl ShellState {
         } = store.load_or_quarantine()?;
         let browsers = BrowserIds::default();
         browsers.follow(&layout);
+        let terminals = TerminalIds::default();
+        terminals.follow(&layout);
+        let titles = Titles::default();
+        terminals.name_into(&titles);
         let serials = Serials::above(&layout);
         let writer = LayoutWriter::start(store).map_err(Error::LayoutWriter)?;
         Ok(Self {
@@ -58,8 +64,9 @@ impl ShellState {
             writer,
             notice: quarantined.map(|path| notice_for(&path)),
             host,
-            titles: Titles::default(),
+            titles,
             browsers,
+            terminals,
             serials,
             closed: ClosedPanes::default(),
         })
@@ -79,6 +86,10 @@ impl ShellState {
 
     pub(crate) fn browsers(&self) -> BrowserIds {
         self.browsers.clone()
+    }
+
+    pub(crate) fn terminals(&self) -> TerminalIds {
+        self.terminals.clone()
     }
 
     pub(crate) fn serials(&self) -> Serials {
@@ -111,6 +122,8 @@ impl ShellState {
         }
         self.forget_titles_of_closed_panes();
         self.browsers.follow(self.history.layout());
+        self.terminals.follow(self.history.layout());
+        self.terminals.name_into(&self.titles);
         self.writer.submit(self.history.layout().clone());
     }
 
@@ -492,6 +505,18 @@ mod tests {
         assert!(
             rig.shell.titles().get(&pane).is_none(),
             "forgotten with the pane"
+        );
+    }
+
+    #[test]
+    fn a_terminal_opened_from_a_folder_is_titled_by_it() {
+        let mut rig = rig();
+        let spec = PaneSpec::terminal("t1", None, Some("/work/src")).unwrap();
+        rig.shell.open_spec(spec);
+        let pane = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
+        assert_eq!(
+            rig.shell.titles().get(&pane).map(|t| t.to_string()),
+            Some("src".into())
         );
     }
 

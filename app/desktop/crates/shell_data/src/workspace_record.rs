@@ -19,6 +19,7 @@ pub(crate) struct WorkspaceRecord {
     pub(crate) deleted: u32,
     pub(crate) provisioning: String,
     pub(crate) held_by_path: String,
+    pub(crate) local_path: String,
     pub(crate) created_at: String,
     pub(crate) owning_chat_id: String,
     pub(crate) folder_id: String,

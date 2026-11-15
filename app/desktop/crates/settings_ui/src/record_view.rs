@@ -2,7 +2,6 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
-use ui::font::MONO_FAMILY;
 use ui::{
     Badge, Button, ButtonSize, ButtonVariant, Icon, IconName, Surface, Switch, Theme, UiText,
 };
@@ -104,7 +103,7 @@ fn line_family(
     theme: &Theme,
 ) -> &'static str {
     if line.mono {
-        return MONO_FAMILY;
+        return theme.mono_family();
     }
     theme.ui_family()
 }

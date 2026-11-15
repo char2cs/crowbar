@@ -4,12 +4,14 @@ use protocol::PaneId;
 
 use crate::browser_bars::BrowserBars;
 use crate::serials::Serials;
+use crate::terminal_panes::TerminalPanes;
 use crate::titles::Titles;
 
 pub(crate) struct ShellPaneSource {
     titles: Titles,
     serials: Serials,
     bars: BrowserBars,
+    terminals: TerminalPanes,
 }
 
 impl ShellPaneSource {
@@ -17,11 +19,13 @@ impl ShellPaneSource {
         titles: Titles,
         serials: Serials,
         bars: BrowserBars,
+        terminals: TerminalPanes,
     ) -> Self {
         Self {
             titles,
             serials,
             bars,
+            terminals,
         }
     }
 
@@ -38,11 +42,21 @@ impl ShellPaneSource {
 impl layout_view::PaneSource for ShellPaneSource {
     fn content(
         &self,
-        _pane: &PaneId,
-        _window: &mut Window,
-        _cx: &mut App,
+        pane: &PaneId,
+        window: &mut Window,
+        cx: &mut App,
     ) -> AnyElement {
-        div().into_any_element()
+        match self.terminals.view(pane, window, cx) {
+            Some(view) => view.into_any_element(),
+            None => div().into_any_element(),
+        }
+    }
+
+    fn is_native(
+        &self,
+        pane: &PaneId,
+    ) -> bool {
+        self.terminals.is_terminal(pane)
     }
 
     fn chrome_height(
@@ -85,6 +99,8 @@ mod tests {
     use protocol::PaneTitle;
 
     use super::*;
+    use crate::terminal_ids::TerminalIds;
+    use crate::test_support::idle_terminals;
 
     fn no_bars() -> BrowserBars {
         BrowserBars::new(
@@ -100,6 +116,7 @@ mod tests {
             titles.clone(),
             Serials::above(&model::Layout::default()),
             no_bars(),
+            idle_terminals(TerminalIds::default()),
         );
         let pane = PaneId::new("p1").unwrap();
         assert_eq!(source.label(&pane).as_ref(), "New chat", "unnamed");
@@ -113,6 +130,7 @@ mod tests {
             Titles::default(),
             Serials::above(&model::Layout::default()),
             no_bars(),
+            idle_terminals(TerminalIds::default()),
         );
         let pane = PaneId::new("p1").unwrap();
         let (first, _) = source.fresh_tab(&pane);

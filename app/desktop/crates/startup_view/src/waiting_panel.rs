@@ -1,7 +1,7 @@
 use gpui::{
     App, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
 };
-use ui::{ProgressBar, Surface, Theme, UiText, font};
+use ui::{ProgressBar, Surface, Theme, UiText};
 
 use crate::migration_step::MigrationStep;
 
@@ -64,7 +64,7 @@ impl WaitingPanel {
         let count = self.count.clone().map(|count| {
             div()
                 .flex_none()
-                .font_family(font::MONO_FAMILY)
+                .font_family(theme.mono_family())
                 .text_size(UiText::Xs.size(theme))
                 .child(count)
         });

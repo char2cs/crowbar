@@ -26,7 +26,10 @@ pub fn fuzzy_match(
         .flat_map(char::to_lowercase)
         .collect();
     let chars: Vec<char> = text.chars().collect();
-    let lowered: Vec<char> = chars.iter().flat_map(|c| c.to_lowercase().next()).collect();
+    let lowered: Vec<char> = chars
+        .iter()
+        .filter_map(|c| c.to_lowercase().next())
+        .collect();
     let end = leftmost_end(&wanted, &lowered)?;
     let start = tightest_start(&wanted, &lowered, end);
     let positions = forward_positions(&wanted, &lowered, start);
@@ -126,7 +129,8 @@ mod tests {
 
     #[test]
     fn query_letters_land_in_order_ignoring_case_and_spaces() {
-        const CASES: &[(&str, &str, Option<&[usize]>)] = &[
+        type Case = (&'static str, &'static str, Option<&'static [usize]>);
+        const CASES: &[Case] = &[
             ("nt", "New tab", Some(&[0, 4])),
             ("NEW T", "New tab", Some(&[0, 1, 2, 4])),
             ("ab", "a xxxx ab", Some(&[7, 8])),

@@ -2,40 +2,37 @@
 
 use std::sync::Arc;
 
-use protocol::{DaemonTransport, HostId};
+use protocol::DaemonTransport;
 use sidebar::{Command, RowId};
 use tokio::runtime::Handle;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 
 use crate::branch_import::BranchImport;
 use crate::change_signal::ChangeSignal;
 use crate::daemon_client::DaemonClient;
-use crate::dial::{Dial, Dialled};
+use crate::dial::Dialled;
 use crate::error::{Error, Result};
-use crate::host_slot::HostSlot;
+use crate::fleet::{Fleet, relay_for, slot_for};
+use crate::folder_browse::FolderBrowse;
+use crate::folder_choice::{self, FolderChoice};
+use crate::host_desk::HostDesk;
 use crate::host_spec::HostSpec;
-use crate::host_stream::HostStream;
 use crate::hub::Hub;
 use crate::outcome::OutcomeSink;
+use crate::pairing_session::PairingSession;
 use crate::panel_loader;
-use crate::relay_dial::RelayDial;
 use crate::setting_file::SettingFile;
 use crate::settings_core::SettingsCore;
 use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_view::SidebarView;
 use crate::state::State;
-use crate::stream_control::StreamControl;
 use crate::system_fonts::SystemFonts;
-
-/// The origin the relay's policy allows for the shell's own requests.
-pub const CORE_ORIGIN: &str = "crowbar://local";
 
 /// Owns the stream tasks; dropping it stops them.
 pub struct ShellData {
     hub: Arc<Hub>,
     commands: SidebarCommands,
-    tasks: Vec<JoinHandle<()>>,
+    fleet: Arc<Fleet>,
+    desk: HostDesk,
 }
 
 impl std::fmt::Debug for ShellData {
@@ -45,7 +42,7 @@ impl std::fmt::Debug for ShellData {
     ) -> std::fmt::Result {
         formatter
             .debug_struct("ShellData")
-            .field("streams", &self.tasks.len())
+            .field("streams", &self.fleet.len())
             .finish_non_exhaustive()
     }
 }
@@ -58,20 +55,20 @@ impl ShellData {
     pub fn start(
         handle: &Handle,
         transport: &Arc<dyn DaemonTransport>,
-        hosts: Vec<HostSpec>,
+        (hosts, desk): (Vec<HostSpec>, HostDesk),
         (signal, outcome): (ChangeSignal, OutcomeSink),
     ) -> Self {
         let dialled = hosts
             .into_iter()
             .filter_map(|spec| relay_for(transport, spec))
             .collect();
-        Self::start_with(handle, transport, dialled, (signal, outcome))
+        Self::start_with(handle, transport, (dialled, desk), (signal, outcome))
     }
 
     pub(crate) fn start_with(
         handle: &Handle,
         transport: &Arc<dyn DaemonTransport>,
-        hosts: Vec<Dialled>,
+        (hosts, desk): (Vec<Dialled>, HostDesk),
         (signal, outcome): (ChangeSignal, OutcomeSink),
     ) -> Self {
         let (slots, dials): (Vec<_>, Vec<_>) = hosts
@@ -83,27 +80,34 @@ impl ShellData {
             .map(|slot| (slot.spec.id.clone(), slot.client.clone()))
             .collect();
         let hub = Hub::new(State::new(slots), signal);
-        let (controls, tasks) = followed
+        let fleet = Fleet::new(handle, &hub, transport);
+        followed
             .into_iter()
             .zip(dials)
-            .map(|(followed, dial)| follow(handle, &hub, followed, dial))
-            .unzip();
+            .for_each(|(followed, dial)| fleet.run(followed, dial));
         let commands = SidebarCommands {
             hub: Arc::clone(&hub),
             handle: handle.clone(),
             outcome,
-            controls: Arc::new(controls),
+            fleet: Arc::clone(&fleet),
         };
         Self {
             hub,
             commands,
-            tasks,
+            fleet,
+            desk,
         }
     }
 
     /// The sidebar's read side.
     pub fn view(&self) -> SidebarView {
         SidebarView::new(Arc::clone(&self.hub))
+    }
+
+    /// The on-disk root of the workspace the Files panel follows; `None` when none is followed
+    /// or its host is another computer.
+    pub fn workspace_root(&self) -> Option<std::path::PathBuf> {
+        self.hub.read(crate::workspace_root::of)
     }
 
     /// The sidebar's write side.
@@ -121,6 +125,13 @@ impl ShellData {
                 | Command::ImportRepo
                 | Command::ImportBranches(_)
                 | Command::OpenFile(_)
+                | Command::RevealFile { .. }
+                | Command::OpenAllFiles { .. }
+                | Command::OpenTerminalAt { .. }
+                | Command::UploadFile { .. }
+                | Command::GenerateImage { .. }
+                | Command::AddFolderToWorkspace
+                | Command::CreateEnvTemplate { .. }
         )
     }
 
@@ -136,6 +147,23 @@ impl ShellData {
     ) -> Result<Arc<BranchImport>> {
         let parts = (&self.hub, &self.commands.handle, &self.commands.outcome);
         BranchImport::open(parts, row.as_str(), signal)
+    }
+
+    /// How the folder of a new repository is chosen for the open space.
+    pub fn folder_choice(&self) -> FolderChoice {
+        self.hub.read(folder_choice::of)
+    }
+
+    /// The remote folder picker's data for the host of the open space; the picker lists
+    /// directories as they are opened and calls `signal` as the answers arrive.
+    ///
+    /// # Errors
+    /// [`Error::Stream`] when no space is open.
+    pub fn folder_browse(
+        &self,
+        signal: ChangeSignal,
+    ) -> Result<Arc<FolderBrowse>> {
+        FolderBrowse::open((&self.hub, &self.commands.handle), signal)
     }
 
     /// The settings the modal edits: the shell's file at `file`, and this computer's daemon.
@@ -162,6 +190,23 @@ impl ShellData {
             parts,
             (local, signal),
             (fonts, Arc::clone(&self.commands.outcome)),
+            (Arc::clone(&self.fleet), self.desk.clone()),
+        )
+    }
+
+    /// A fresh attempt at pairing a host, signalling `signal` after each of its steps.
+    pub fn pairing(
+        &self,
+        signal: ChangeSignal,
+    ) -> Arc<PairingSession> {
+        PairingSession::new(
+            (
+                Arc::clone(&self.hub),
+                Arc::clone(&self.fleet),
+                self.desk.clone(),
+            ),
+            self.commands.handle.clone(),
+            signal,
         )
     }
 
@@ -190,61 +235,15 @@ impl ShellData {
 
 impl Drop for ShellData {
     fn drop(&mut self) {
-        for task in &self.tasks {
-            task.abort();
-        }
+        self.fleet.stop_all();
     }
-}
-
-fn relay_for(
-    transport: &Arc<dyn DaemonTransport>,
-    spec: HostSpec,
-) -> Option<Dialled> {
-    let id = addressable(&spec.id)?;
-    let dial: Arc<dyn Dial> = Arc::new(RelayDial::new(Arc::clone(transport), id, CORE_ORIGIN));
-    Some((spec, dial))
-}
-
-fn slot_for(
-    transport: &Arc<dyn DaemonTransport>,
-    spec: HostSpec,
-) -> Option<HostSlot> {
-    let id = addressable(&spec.id)?;
-    let client = DaemonClient::new(Arc::clone(transport), id);
-    Some(HostSlot::new(spec, client))
-}
-
-type Followed = (
-    (String, mpsc::UnboundedSender<StreamControl>),
-    JoinHandle<()>,
-);
-
-fn follow(
-    handle: &Handle,
-    hub: &Arc<Hub>,
-    (host, client): (String, DaemonClient),
-    dial: Arc<dyn Dial>,
-) -> Followed {
-    let (control, inbox) = mpsc::unbounded_channel();
-    let stream = HostStream {
-        hub: Arc::clone(hub),
-        host: host.clone(),
-        dial,
-        client,
-    };
-    ((host, control), handle.spawn(stream.run(inbox)))
-}
-
-fn addressable(text: &str) -> Option<HostId> {
-    HostId::new(text)
-        .inspect_err(|error| tracing::warn!(host = text, %error, "a host id the transport cannot address is skipped"))
-        .ok()
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use crate::dial::Dial;
     use protocol::DaemonTransport;
     use sidebar::{Command, CommandSink as _, ProjectId, RowId, ScopeSync, SidebarData as _};
     use tokio::sync::{Notify, mpsc};
@@ -290,6 +289,7 @@ mod tests {
         requests: mpsc::UnboundedReceiver<String>,
         changed: Arc<Notify>,
         opened: Opened,
+        _dir: tempfile::TempDir,
     }
 
     fn start() -> Rig {
@@ -318,8 +318,11 @@ mod tests {
         };
         let dial: Arc<dyn Dial> =
             Arc::new(Once(Mutex::new(Some(Connection { incoming, outgoing }))));
-        let data = ShellData::start_with(&Handle::current(), &transport, vec![(spec, dial)], sinks);
+        let (desk, dir) = crate::test_support::desk();
+        let hosts = (vec![(spec, dial)], desk);
+        let data = ShellData::start_with(&Handle::current(), &transport, hosts, sinks);
         Rig {
+            _dir: dir,
             data,
             frames_in,
             requests,

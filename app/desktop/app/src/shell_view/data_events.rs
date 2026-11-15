@@ -42,16 +42,27 @@ impl ShellView {
         if let Some(dialog) = &self.branch_import {
             dialog.update(cx, |_, cx| cx.notify());
         }
+        if let Some(dialog) = &self.remote_folders {
+            dialog.update(cx, |_, cx| cx.notify());
+        }
+        if let Some(dialog) = &self.pairing {
+            dialog.update(cx, pairing_view::PairingView::changed);
+        }
     }
 
     pub(super) fn on_data_outcome(
         &mut self,
         outcome: DataOutcome,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         match outcome {
             DataOutcome::OpenChat(chat) => self.open_chat(&chat, cx),
             DataOutcome::PickDescriptor => Self::pick_descriptor(cx),
+            DataOutcome::PairHost => self.show_pairing(window, cx),
+            DataOutcome::CopyText(text) => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+            },
             DataOutcome::Failed(reason) => {
                 tracing::warn!(%reason, "a command failed");
                 self.show_notice(NoticeKey::Command, (ToastKind::Error, reason), cx);

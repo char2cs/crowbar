@@ -11,7 +11,10 @@ impl Desktop {
     /// The desktop this binary was built for.
     #[must_use]
     pub fn current() -> Self {
-        [Self::Linux, Self::MacOs][usize::from(cfg!(target_os = "macos"))]
+        if cfg!(target_os = "macos") {
+            return Self::MacOs;
+        }
+        Self::Linux
     }
 }
 

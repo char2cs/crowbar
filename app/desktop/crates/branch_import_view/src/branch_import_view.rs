@@ -216,7 +216,7 @@ impl BranchImportView {
             toggle: pick_handler(&view, &branch.name),
             toggle_lock: lock_handler(&view, &branch.name),
         };
-        branch_row(index, branch, (choice, palette))
+        branch_row(index, branch, (choice, palette)).font_family(Theme::of(cx).mono_family())
     }
 
     fn row_if(

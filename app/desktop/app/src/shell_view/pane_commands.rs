@@ -22,7 +22,8 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let id = format!("t{}", self.state.serials().next_pane());
-        self.open_spec(PaneSpec::terminal(&id, None), cx);
+        let chat = focused_chat(self.state.layout());
+        self.open_spec(PaneSpec::terminal(&id, chat.as_deref(), None), cx);
     }
 
     pub(super) fn new_browser(
@@ -69,6 +70,23 @@ impl ShellView {
             None => self.state.open_spec(spec),
         }
         self.refresh(cx);
+    }
+
+    pub(super) fn reveal_workspace_path(
+        &self,
+        relative: &str,
+    ) {
+        let Some(root) = self.data.workspace_root() else {
+            tracing::info!("revealing needs a workspace on this computer");
+            return;
+        };
+        let Some(target) = crate::reveal_target::reveal_target(&root, relative) else {
+            tracing::warn!(path = relative, "a reveal path left the workspace");
+            return;
+        };
+        if let Err(error) = shell_platform::reveal_in_file_manager(&target) {
+            tracing::warn!(%error, "the file manager could not be opened");
+        }
     }
 
     pub(super) fn open_workspace_file(
@@ -143,7 +161,7 @@ impl ShellView {
         self.open_spec(PaneSpec::host_file(chat, path), cx);
     }
 
-    fn add_repo(
+    pub(super) fn add_repo(
         &self,
         path: &str,
     ) {
@@ -163,7 +181,7 @@ impl ShellView {
         chat
     }
 
-    fn open_spec(
+    pub(super) fn open_spec(
         &mut self,
         spec: crate::error::Result<PaneSpec>,
         cx: &mut Context<'_, Self>,

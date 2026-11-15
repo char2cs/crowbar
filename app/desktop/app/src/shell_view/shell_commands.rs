@@ -4,6 +4,7 @@ use branch_import_view::{BranchImportView, ImportEvent};
 use command_palette::{PaletteEntry, PaletteEvent, PalettePanel};
 use gpui::{AppContext as _, Context, Entity, KeyDownEvent, Window};
 use model::Command;
+use pairing_view::{PairingEvent, PairingView};
 use settings_ui::{Chord, Primary};
 use shell_diagnostics::LogPaths;
 use shell_keys::{Keystroke, ShellCommand};
@@ -212,6 +213,39 @@ fn palette_entries(keymap: &shell_keys::Keymap) -> Vec<PaletteEntry> {
 }
 
 impl ShellView {
+    pub(super) fn show_pairing(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.pairing.is_some() {
+            return;
+        }
+        let (signal, _) = crate::data_signal::callbacks(&self.requests, &self.data_queued);
+        let session = self.data.pairing(signal);
+        let dialog = cx.new(|cx| PairingView::new(session, window, cx));
+        self.subscriptions
+            .push(cx.subscribe(&dialog, Self::on_pairing));
+        self.pairing = Some(dialog);
+        self.update_overlay(cx);
+    }
+
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "gpui subscribe passes the event by reference"
+    )]
+    fn on_pairing(
+        &mut self,
+        _: Entity<PairingView>,
+        event: &PairingEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if matches!(event, PairingEvent::Close) {
+            self.pairing = None;
+            self.update_overlay(cx);
+        }
+    }
+
     pub(super) fn show_branch_import(
         &mut self,
         row: &str,

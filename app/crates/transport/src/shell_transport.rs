@@ -255,7 +255,10 @@ mod tests {
     async fn revoking_a_pane_scope_revokes_that_pane_in_the_stream_access() {
         let (shell, access) = shell();
         shell.revoke_pane(&scope("local"));
-        assert_eq!(*access.revoked.lock().unwrap(), [PaneId::new("p1").unwrap()]);
+        assert_eq!(
+            *access.revoked.lock().unwrap(),
+            [PaneId::new("p1").unwrap()]
+        );
     }
 
     #[test]

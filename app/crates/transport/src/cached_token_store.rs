@@ -107,6 +107,7 @@ mod tests {
         entries: Mutex<HashMap<String, String>>,
         reads: AtomicUsize,
         failure: Mutex<Option<Failure>>,
+        refuse_writes: Mutex<bool>,
     }
 
     impl Counting {
@@ -116,6 +117,17 @@ mod tests {
         ) {
             *self.failure.lock().unwrap() = failure;
         }
+
+        fn refuse_writes(&self) {
+            *self.refuse_writes.lock().unwrap() = true;
+        }
+    }
+
+    fn writable(refused: &Mutex<bool>) -> Result<(), Error> {
+        let refused = *refused.lock().unwrap();
+        (!refused)
+            .then_some(())
+            .ok_or_else(|| Error::Store("no secret service".into()))
     }
 
     impl Keychain for Arc<Counting> {
@@ -136,6 +148,7 @@ mod tests {
             host_id: &str,
             entry: &str,
         ) -> Result<(), Error> {
+            writable(&self.refuse_writes)?;
             self.entries
                 .lock()
                 .unwrap()
@@ -202,6 +215,16 @@ mod tests {
         assert!(store.load_entry("h").is_err());
         keychain.fail_with(None);
         assert_eq!(store.load_entry("h").unwrap(), None);
+    }
+
+    #[test]
+    fn a_keychain_that_refuses_the_write_is_an_error_and_nothing_is_kept_in_memory() {
+        let (keychain, store) = store();
+        keychain.refuse_writes();
+        let refused = store.set("h", "e").unwrap_err();
+        assert!(refused.to_string().contains("no secret service"));
+        assert_eq!(store.load_entry("h").unwrap(), None);
+        assert_eq!(keychain.reads.load(Ordering::SeqCst), 1);
     }
 
     #[test]

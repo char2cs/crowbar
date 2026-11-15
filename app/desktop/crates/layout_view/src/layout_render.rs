@@ -7,7 +7,7 @@ use gpui::{
 };
 use model::{Axis, DragSubject, PaneSlot, Rect, Sash as ModelSash};
 use protocol::PaneId;
-use ui::{Motion, Sash, SashDrag, Surface, Theme};
+use ui::{Motion, Sash, SashDrag, Surface, Theme, Wordmark};
 
 use crate::layout_view::LayoutView;
 use crate::pane_cell::{CellAction, PaneCell};
@@ -17,6 +17,9 @@ use crate::pane_handle::PaneHandle;
 const PREVIEW_BORDER: f32 = 2.0;
 const PREVIEW_FILL: f32 = 0.14;
 const PREVIEW_RING: f32 = 0.25;
+const LOGO_SHARE: f32 = 0.14;
+const LOGO_MIN_WIDTH: f32 = 96.0;
+const LOGO_MAX_WIDTH: f32 = 148.0;
 
 impl Render for LayoutView {
     fn render(
@@ -46,6 +49,7 @@ impl Render for LayoutView {
                 .absolute()
                 .size_full(),
             )
+            .children(self.logo())
             .children(self.pane_cells(window, cx))
             .children(self.sashes(cx))
             .children(self.preview(now, motion, cx))
@@ -58,6 +62,26 @@ impl Render for LayoutView {
 }
 
 impl LayoutView {
+    pub(crate) fn shows_logo(&self) -> bool {
+        self.tab.is_none()
+    }
+
+    fn logo(&self) -> Option<AnyElement> {
+        if !self.shows_logo() {
+            return None;
+        }
+        let smaller_side = f32::from(self.bounds.size.width.min(self.bounds.size.height));
+        let width = (smaller_side * LOGO_SHARE).clamp(LOGO_MIN_WIDTH, LOGO_MAX_WIDTH);
+        let centred = div()
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(Wordmark::new(px(width)));
+        Some(centred.into_any_element())
+    }
+
     fn pane_cells(
         &self,
         window: &mut Window,

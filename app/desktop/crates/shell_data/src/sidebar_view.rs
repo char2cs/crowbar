@@ -7,6 +7,7 @@ use sidebar::{
     SidebarData,
 };
 
+use crate::files_reads;
 use crate::hub::Hub;
 use crate::sidebar_reads as reads;
 
@@ -44,6 +45,25 @@ impl SidebarData for SidebarView {
         project: &ProjectId,
     ) -> ProjectTree {
         self.hub.read(|state| reads::tree(state, project))
+    }
+
+    fn workspace_root(&self) -> Option<String> {
+        self.hub.read(files_reads::root)
+    }
+
+    fn serves(
+        &self,
+        command: &sidebar::Command,
+    ) -> bool {
+        files_reads::shown(command)
+    }
+
+    fn files_locked(&self) -> bool {
+        self.hub.read(files_reads::locked)
+    }
+
+    fn files_are_local(&self) -> bool {
+        self.hub.read(files_reads::local)
     }
 
     fn focus(&self) -> Focus {

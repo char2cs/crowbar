@@ -206,15 +206,15 @@ mod tests {
 
     #[test]
     fn only_shell_commands_parse_and_the_documented_chords_are_the_defaults() {
-        const NOT_SHELL: &[&str] = &["editor.save", "agent.zoomIn", "ext.git.openReview", ""];
-        for id in NOT_SHELL {
-            assert_eq!(ShellCommand::parse(id), None, "{id:?}");
-        }
         const CHORD_CASES: &[(ShellCommand, &str)] = &[
             (ShellCommand::NewTab, "mod+t"),
             (ShellCommand::CloseTab, "mod+w"),
             (ShellCommand::NewChat, "mod+n"),
         ];
+        const NOT_SHELL: &[&str] = &["editor.save", "agent.zoomIn", "ext.git.openReview", ""];
+        for id in NOT_SHELL {
+            assert_eq!(ShellCommand::parse(id), None, "{id:?}");
+        }
         for (command, chord) in CHORD_CASES {
             assert_eq!(command.default_chord(), *chord, "{command:?}");
         }

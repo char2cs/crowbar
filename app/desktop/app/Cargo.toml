@@ -18,6 +18,8 @@ async-channel.workspace = true
 browser_chrome.workspace = true
 browser_nav.workspace = true
 branch_import_view.workspace = true
+pairing_view.workspace = true
+remote_folder_picker.workspace = true
 command_palette.workspace = true
 daemon_supervisor.workspace = true
 gpui.workspace = true
@@ -35,9 +37,12 @@ sidebar.workspace = true
 startup_view.workspace = true
 tab_bar.workspace = true
 thiserror.workspace = true
+terminal.workspace = true
+terminal_session.workspace = true
+terminal_view.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 tracing.workspace = true
-transport.workspace = true
+transport = { workspace = true, features = ["os-keychain"] }
 ui.workspace = true
 webview.workspace = true
 window_state.workspace = true

@@ -2,7 +2,7 @@ use gpui::{
     App, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Surface, Theme, font, radius};
+use ui::{Surface, Theme, radius};
 
 const MAX_HEIGHT: f32 = 160.0;
 const TEXT_SIZE: f32 = 12.0;
@@ -46,7 +46,7 @@ impl RenderOnce for DetailBox {
             .border_1()
             .border_color(palette.border())
             .bg(palette.muted())
-            .font_family(font::MONO_FAMILY)
+            .font_family(Theme::of(cx).mono_family())
             .text_size(px(TEXT_SIZE))
             .line_height(px(TEXT_SIZE * LINE_HEIGHT_RATIO))
             .text_color(palette.foreground())

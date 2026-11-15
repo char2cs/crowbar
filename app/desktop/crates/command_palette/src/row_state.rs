@@ -12,12 +12,15 @@ impl RowState {
         index: usize,
         selected: usize,
     ) -> Self {
-        [Self::Idle, Self::Selected][usize::from(index == selected)]
+        if index == selected {
+            return Self::Selected;
+        }
+        Self::Idle
     }
 
     pub(crate) fn fill(
         self,
-        palette: Palette,
+        palette: &Palette,
     ) -> Hsla {
         match self {
             Self::Selected => palette.accent(),

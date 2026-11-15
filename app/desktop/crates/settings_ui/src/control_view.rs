@@ -1,7 +1,6 @@
 //! Draws the control of a row.
 
 use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
-use ui::font::MONO_FAMILY;
 use ui::{Surface, Switch, Theme, UiText};
 
 use crate::button_control::button_control;
@@ -53,7 +52,7 @@ fn readout_family(
     theme: &Theme,
 ) -> &'static str {
     match control {
-        Control::Readout { mono: true } => MONO_FAMILY,
+        Control::Readout { mono: true } => theme.mono_family(),
         _ => theme.ui_family(),
     }
 }

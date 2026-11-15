@@ -2,6 +2,10 @@ use crate::chord_text::dom_key;
 
 /// One key press as the shell's windowing layer reports it, free of any toolkit type.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "three independent modifier keys mirror what the windowing layer reports"
+)]
 pub struct Keystroke {
     /// The platform primary modifier is down: Command on macOS, Control elsewhere.
     pub primary: bool,
