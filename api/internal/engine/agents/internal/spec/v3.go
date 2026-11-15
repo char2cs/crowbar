@@ -53,6 +53,10 @@ type APISpec struct {
 	Remember []FrameCapture `yaml:"remember"`
 }
 
+// CapturedNamespace is where FrameCapture values are read: an event map's
+// captured.NAME path, an outbound send's {captured.NAME} placeholder.
+const CapturedNamespace = "captured"
+
 // FrameCapture picks a frame by In and When as an event does, and keeps its Capture paths by
 // name; a null or absent path keeps the last value.
 type FrameCapture struct {
@@ -144,6 +148,10 @@ type EventSpec struct {
 	// Also makes the event a rider: it fires beside the event its frame resolves
 	// to, so one wire frame can report two facts.
 	Also bool `yaml:"also"`
+
+	// EndsAtAction is message_delta's: the provider finishes a message before it
+	// acts, so a call, subagent or ask after its text records that text whole.
+	EndsAtAction bool `yaml:"ends_at_action"`
 
 	// Map pulls canonical fields out of an inbound payload.
 	Map FieldMap `yaml:"map"`
@@ -289,6 +297,10 @@ type InjectSpec struct {
 	Call  string         `yaml:"call"`
 	Send  map[string]any `yaml:"send"`
 	Steps InjectSteps    `yaml:"steps"`
+	// PromptLead, for at: context, replaces the call: the rendered template leads the first
+	// prompt's text of the session that is owed the document, for a provider with no other
+	// channel to carry it.
+	PromptLead string `yaml:"prompt_lead"`
 }
 
 // TransportFor returns the transport an event uses: its own if it declares one, the

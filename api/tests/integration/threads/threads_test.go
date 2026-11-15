@@ -157,7 +157,7 @@ func (s *ThreadsSuite) TestThreads_EditMessage_Broadcasts() {
 }
 
 // TestThreads_DeleteMessage_Broadcasts verifies DELETE .../messages/:mid removes
-// a reply (200 + updated DTO) and rejects deleting the root comment with a 400.
+// a reply (200 + updated DTO) and rejects deleting the root comment with a 422.
 func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
 	t := s.T()
 
@@ -173,9 +173,9 @@ func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
 	s.Require().Len(replies, 1)
 	replyID := replies[0].(map[string]any)["id"].(string)
 
-	// Deleting the root via the message route is rejected with 400 — use DELETE thread.
+	// Deleting the root via the message route is a command validation failure — use DELETE thread.
 	rejectResp := s.Env.DELETE(t, s.threadsBase()+"/"+threadID+"/messages/"+rootMessageID)
-	kit.RequireStatus(t, rejectResp, http.StatusBadRequest)
+	kit.RequireStatus(t, rejectResp, http.StatusUnprocessableEntity)
 
 	watcher := s.Env.HoldScope(t, "ws:"+s.wsID)
 

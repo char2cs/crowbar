@@ -4,6 +4,9 @@ const (
 	DeliveryRestartTUI = "restart_tui"
 )
 
+// PasteBracketed wraps typed text in ESC[200~ ... ESC[201~.
+const PasteBracketed = "bracketed"
+
 const (
 	CatalogAdapterJSONTextSection      = "json_text_section"
 	CatalogAdapterJSONInventoryDetails = "json_inventory_text_detail"
@@ -42,7 +45,28 @@ type PromptSubmitSpec struct {
 	Resume        InjectSteps        `yaml:"resume"`
 	LeadingSigils *LeadingSigilsSpec `yaml:"leading_sigils"`
 	Steer         *SteerSpec         `yaml:"steer"`
+	Type          *PromptTypeSpec    `yaml:"type"`
 }
+
+// PromptTypeSpec types a prompt into an idle CLI's composer instead of
+// restarting it. A message opening with a SkipPrefixes entry keeps its meaning
+// under paste (a command, a mode switch), so it restarts instead.
+type PromptTypeSpec struct {
+	Paste        string             `yaml:"paste"`
+	Submit       string             `yaml:"submit"`
+	SkipPrefixes []string           `yaml:"skip_prefixes"`
+	Composer     PromptComposerSpec `yaml:"composer"`
+}
+
+// PromptComposerSpec: the composer is empty when the cursor sits right after
+// RowPrefix and the rest of its row is blank or drawn as Ghost (a suggestion).
+type PromptComposerSpec struct {
+	RowPrefix string `yaml:"row_prefix"`
+	Ghost     string `yaml:"ghost"`
+}
+
+// GhostFaint is a suggestion drawn faint (SGR 2).
+const GhostFaint = "faint"
 
 // SteerSpec lets a mid-turn message ride the CLI's turn-end hook instead of a
 // restart: Frame wraps {message}, Reply is the hook stdout with {message_json}.

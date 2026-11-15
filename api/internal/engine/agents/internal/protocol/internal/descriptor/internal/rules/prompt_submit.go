@@ -2,6 +2,7 @@ package rules
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -34,7 +35,32 @@ func (r promptSubmit) Check(d *spec.Descriptor) error {
 	if err := r.checkLeadingSigils(d.ID, ps.LeadingSigils); err != nil {
 		return err
 	}
-	return checkSteer(d, ps.Steer)
+	if err := checkSteer(d, ps.Steer); err != nil {
+		return err
+	}
+	return checkType(d.ID, ps.Type)
+}
+
+func checkType(id string, typing *spec.PromptTypeSpec) error {
+	if typing == nil {
+		return nil
+	}
+	if typing.Paste != spec.PasteBracketed {
+		return invalid(id, "presentation.prompt_submit.type.paste %q is not a known paste mode", typing.Paste)
+	}
+	if typing.Submit == "" {
+		return invalid(id, "presentation.prompt_submit.type.submit is required")
+	}
+	if typing.Composer.RowPrefix == "" {
+		return invalid(id, "presentation.prompt_submit.type.composer.row_prefix is required")
+	}
+	if g := typing.Composer.Ghost; g != "" && g != spec.GhostFaint {
+		return invalid(id, "presentation.prompt_submit.type.composer.ghost %q is not a known ghost style", g)
+	}
+	if slices.Contains(typing.SkipPrefixes, "") {
+		return invalid(id, "presentation.prompt_submit.type.skip_prefixes holds an empty entry")
+	}
+	return nil
 }
 
 func checkSteer(d *spec.Descriptor, steer *spec.SteerSpec) error {

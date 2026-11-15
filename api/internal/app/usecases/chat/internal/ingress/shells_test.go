@@ -19,7 +19,7 @@ func backgroundCall(id, shell string) engineagents.CanonicalEvent {
 
 func shellEnded(id, status string) engineagents.CanonicalEvent {
 	return engineagents.CanonicalEvent{
-		Kind: engineagents.HookUserPrompt, Shell: &engineagents.ShellEvent{ID: id, Status: status},
+		Kind: engineagents.HookUserPrompt, Shells: []engineagents.ShellEvent{{ID: id, Status: status}},
 	}
 }
 
@@ -130,14 +130,14 @@ func TestMap_ANotificationWithoutAnEndIsALineOfTheShellNotItsEnd(t *testing.T) {
 	c.typed("watch")
 	c.mapped(backgroundCall("call-1", "mon-1"), hooksSource())
 
-	line := engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Shell: &engineagents.ShellEvent{ID: "mon-1", Note: "ERROR db down"}}
+	line := engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Shells: []engineagents.ShellEvent{{ID: "mon-1", Note: "ERROR db down"}}}
 	rows, _ := c.mapped(line, hooksSource())
 	assert.Equal(t, []ledger.ShellBody{{Phase: ledger.ShellNote, ShellID: "mon-1", Tail: "ERROR db down"}}, shellRowsOf(t, rows))
 	c.commit(rows...)
 	shell, _ := c.st.ShellOf("mon-1")
 	assert.True(t, shell.Live())
 
-	other := engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Shell: &engineagents.ShellEvent{ID: "agent-9", Note: "x"}}
+	other := engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Shells: []engineagents.ShellEvent{{ID: "agent-9", Note: "x"}}}
 	rows, _ = c.mapped(other, hooksSource())
 	assert.Empty(t, shellRowsOf(t, rows), "a line of no shell of the chat's says nothing")
 }
@@ -148,12 +148,38 @@ func TestMap_ANotificationsSummaryRidesItsEnd(t *testing.T) {
 	c.mapped(backgroundCall("call-1", "sh-1"), hooksSource())
 
 	rows, _ := c.mapped(engineagents.CanonicalEvent{
-		Kind:  engineagents.HookUserPrompt,
-		Shell: &engineagents.ShellEvent{ID: "sh-1", Status: "finished", Summary: "Background command finished"},
+		Kind:   engineagents.HookUserPrompt,
+		Shells: []engineagents.ShellEvent{{ID: "sh-1", Status: "finished", Summary: "Background command finished"}},
 	}, hooksSource())
 
 	assert.Equal(t, []ledger.ShellBody{{Phase: ledger.ShellEnd, ShellID: "sh-1", Status: ledger.ShellFinished, Summary: "Background command finished"}},
 		shellRowsOf(t, rows))
+}
+
+// One notice can end several shells; a bare exit code ends each as its status, a given status wins.
+func TestMap_ANoticeNamingManyTasksEndsEachWithItsExitCode(t *testing.T) {
+	c := liveChatRows(t)
+	c.typed("serve them")
+	for _, id := range []string{"sh-1", "sh-2", "sh-3"} {
+		c.mapped(backgroundCall("call-"+id, id), hooksSource())
+	}
+	three, zero := 3, 0
+
+	rows, _ := c.mapped(engineagents.CanonicalEvent{
+		Kind: engineagents.HookUserPrompt,
+		Shells: []engineagents.ShellEvent{
+			{ID: "sh-1", ExitCode: &three},
+			{ID: "sh-2", ExitCode: &zero},
+			{ID: "sh-3", Status: "stopped", ExitCode: &three},
+			{ID: "agent-9", ExitCode: &three},
+		},
+	}, hooksSource())
+
+	assert.Equal(t, []ledger.ShellBody{
+		{Phase: ledger.ShellEnd, ShellID: "sh-1", Status: ledger.ShellFailed, ExitCode: &three},
+		{Phase: ledger.ShellEnd, ShellID: "sh-2", Status: ledger.ShellFinished, ExitCode: &zero},
+		{Phase: ledger.ShellEnd, ShellID: "sh-3", Status: ledger.ShellStopped, ExitCode: &three},
+	}, shellRowsOf(t, rows))
 }
 
 func commandPre() engineagents.CanonicalEvent {

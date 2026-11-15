@@ -79,3 +79,35 @@ injected_prompts:
 	assert.Equal(t, "completed", p.Status.Find(prompt))
 	assert.Equal(t, map[string]string{"completed": "finished"}, p.StatusMap)
 }
+
+func TestInjectedPrompts_ANoticeNamingManyTasksReadsEachOutOfThePrompt(t *testing.T) {
+	var d spec.Descriptor
+	require.NoError(t, yaml.Unmarshal([]byte(`
+id: probe
+injected_prompts:
+  - kind: task_notification
+    match: '^\[BATCH \d+ done'
+    items:
+      - pattern: '- (?P<id>\w+): exit_code=(?P<exit_code>-?\d+)'
+      - pattern: 'task (?P<id>\w+) (?P<status>ok|bad)'
+`), &d))
+
+	p := d.InjectedPrompts[0]
+	prompt := "[BATCH 3 done\n- a1: exit_code=3\n- b2: exit_code=0\ntask c3 bad"
+	assert.True(t, p.Match.Anchored())
+	assert.True(t, p.Match.Matches(prompt))
+	assert.False(t, p.Match.Matches("see [BATCH 3 done"))
+	three, zero := 3, 0
+	assert.Equal(t, []spec.TaskRef{{ID: "a1", ExitCode: &three}, {ID: "b2", ExitCode: &zero}}, p.Items[0].FindAll(prompt))
+	assert.Equal(t, []spec.TaskRef{{ID: "c3", Status: "bad"}}, p.Items[1].FindAll(prompt))
+	assert.Empty(t, spec.TaskPattern{}.FindAll(prompt), "an unloaded pattern names nothing")
+}
+
+func TestInjectedPrompts_AnItemsPatternNeedsItsIDGroupAndCompiles(t *testing.T) {
+	var d spec.Descriptor
+
+	require.Error(t, yaml.Unmarshal([]byte("injected_prompts:\n  - items:\n      - pattern: '(?P<v>x)'\n"), &d),
+		"items name tasks by an id group")
+	require.Error(t, yaml.Unmarshal([]byte("injected_prompts:\n  - items:\n      - pattern: '(?P<id>'\n"), &d))
+	require.Error(t, yaml.Unmarshal([]byte("injected_prompts:\n  - match: '^('\n"), &d))
+}

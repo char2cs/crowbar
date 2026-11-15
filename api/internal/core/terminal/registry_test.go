@@ -1,8 +1,12 @@
 package terminal_test
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,6 +84,29 @@ func TestEngine_Write(t *testing.T) {
 
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo ok\n")))
 	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// A CLI that stops reading its stdin fills the PTY: the write gives up with its
+// context instead of holding its caller for as long as the CLI lives.
+func TestEngine_Write_IntoAStdinNobodyReadsEndsWithItsContext(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	defer eng.Shutdown()
+	sid, err := eng.CreateCommand(t.Context(), "chat-stuck", t.TempDir(),
+		[]string{"/bin/sh", "-c", "stty raw -echo; printf STDIN-IGNORED; exec sleep 9999"}, os.Environ(), nil)
+	require.NoError(t, err)
+	conn := newMockConn()
+	go func() { _ = eng.Attach(t.Context(), sid, conn) }()
+	waitForMsg(t, conn, func(data string) bool { return strings.Contains(data, "STDIN-IGNORED") })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, eng.Write(ctx, sid, []byte("x")), context.Canceled, "a cancelled write writes nothing")
+
+	ctx, cancel = context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, eng.Write(ctx, sid, bytes.Repeat([]byte("x"), 4<<20)), context.DeadlineExceeded)
+	_ = conn.Close()
 }
 
 func TestEngine_Resize(t *testing.T) {

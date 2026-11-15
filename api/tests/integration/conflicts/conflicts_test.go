@@ -206,19 +206,16 @@ func (s *ConflictsSuite) keptRebaseConflictOnChild() (childID, chatID string) {
 	watcher := s.Env.HoldProjects(s.T())
 	// Move under parentB: conflict → moved-but-conflicting, clean worktree.
 	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/reparent", map[string]any{"newParentId": parentBID})
-	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
-	resp.Body.Close()
+	// The row reads moved-and-conflicting before the reparent settles; a workspace
+	// runs one hierarchy verb at a time, so the next one waits on the operation.
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(s.T(), resp, 30*time.Second).State)
 	kit.WaitForWorkspace(s.T(), watcher, childID, 10*time.Second, func(m map[string]any) bool {
 		return m["parentId"] == parentBID && m["mergeConflicts"] == true
 	})
 
 	// Rebase onto parentB: KEEPS the conflicting rebase in the child's worktree.
-	// The row is already pr-conflicts from the reparent above and the working
-	// overlay re-broadcasts it when the async op begins, so wait on the op's
-	// real outcome (the persisted fork point), not the status alone.
 	resp2 := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/rebase-onto-parent", map[string]any{})
-	kit.RequireStatus(s.T(), resp2, http.StatusAccepted)
-	resp2.Body.Close()
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(s.T(), resp2, 30*time.Second).State)
 	kit.WaitForWorkspace(s.T(), watcher, childID, 10*time.Second, func(m map[string]any) bool {
 		return m["status"] == "pr-conflicts" && m["forkPointSha"] == parentBTip
 	})
@@ -296,8 +293,7 @@ func (s *ConflictsSuite) TestConflicts_mergeDeleteSourceKeepsConflictedChild() {
 		"strategy":     "merge",
 		"deleteSource": true,
 	})
-	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
-	resp.Body.Close()
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(s.T(), resp, 30*time.Second).State)
 	kit.WaitForWorkspaceState(s.T(), watcher, childID, "pr-conflicts", 5*time.Second)
 
 	// Despite deleteSource:true, the conflicted child must survive.

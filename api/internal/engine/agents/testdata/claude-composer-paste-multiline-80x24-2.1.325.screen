@@ -1,0 +1,24 @@
+
+✻ Crunched for 1s · done 8:39 PM
+
+❯ Say only: OK
+
+⏺ OK
+
+✻ Baked for 1s · done 8:39 PM
+
+❯ Run the shell command: sleep 20 (foreground, via your Bash tool), then say
+  only: OK
+
+  Ran 1 shell command
+
+⏺ OK
+
+✻ Sautéed for 23s · done 8:39 PM
+                                                         ctrl+g to edit in Vim
+────────────────────────────────────────────────────────────────────────────────
+❯ Say only: OK
+  line two
+────────────────────────────────────────────────────────────────────────────────
+  Est. usage: $0.19
+  ⏵⏵ auto mode on (shift+tab to cycle)

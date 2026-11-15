@@ -119,7 +119,7 @@ func (l *live) hookStep() Step {
 
 func (l *live) parseHook(rec hookRecord) error {
 	if rec.event == "telemetry" {
-		_, err := l.agent.ParseTelemetry(rec.payload, time.Now())
+		_, err := l.agent.ParseTelemetry(rec.payload, time.Now(), agents.ChannelHooks)
 		return err
 	}
 	if _, declared := l.d.Events[rec.event]; !declared {

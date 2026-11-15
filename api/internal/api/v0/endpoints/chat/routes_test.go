@@ -232,6 +232,17 @@ func (s stubUsecase) DispatchMCP(
 	return []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`), true, nil
 }
 
+func (s stubUsecase) DispatchRelayMCP(
+	_ context.Context,
+	relayID, token string,
+	message []byte,
+) ([]byte, bool, error) {
+	if s.dispatch != nil {
+		*s.dispatch = dispatchRecord{runnerID: relayID, token: token, message: message}
+	}
+	return []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`), true, nil
+}
+
 func (stubUsecase) PurgeChat(context.Context, string) error { return nil }
 
 func (stubUsecase) DescriptorReports(
@@ -371,6 +382,28 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	assert.Equal(t, "seg-42", got.runnerID, "the handler must read the URL's :segid")
 	assert.Equal(t, "TOK", got.token)
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, string(got.message))
+}
+
+// The relay route names no project, repo or workspace, and its :relay reaches the usecase.
+func TestRegisterBindsTheRelayIDFromAPlacementFreeURL(
+	t *testing.T,
+) {
+	got := &dispatchRecord{}
+	r := gin.New()
+	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
+	settingsRG := r.Group("/v0")
+	uc := stubUsecase{dispatch: got}
+	chat.Register(repoScoped, r.Group("/v0/chats/:chatId"), settingsRG, uc, uc, uc, uc, uc, stubChatTree{}, nil, nil, nil)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v0/relays/relay-42/mcp",
+		strings.NewReader(`{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "relay-42", got.runnerID, "the handler must read the URL's :relay")
+	assert.Equal(t, "TOK", got.token)
 }
 
 // TerminalWait: this stub is never blocked on anything, which is what every

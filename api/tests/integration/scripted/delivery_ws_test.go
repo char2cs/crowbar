@@ -82,7 +82,7 @@ events:
       deny: '{"decision":"decline"}'
   prompt:
     fresh:
-      - { call: session/new, send: { cwd: "{cwd}" }, capture: { session_id: id, gen: generation } }
+      - { call: session/new, send: { cwd: "{cwd}", context: "{context}" }, capture: { session_id: id, gen: generation } }
     resume:
       - { call: session/resume, send: { id: "{session_id}" } }
     action:

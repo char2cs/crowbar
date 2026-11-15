@@ -218,6 +218,35 @@ func TestMap_TypedWordsOfAnotherRunnersPromptAreItsOwn(t *testing.T) {
 	assert.Empty(t, bodyOf[ledger.TurnStarted](t, rows[1]).RequestID)
 }
 
+// A prompt typed into the live CLI's composer is received exactly as one
+// launched with it: its hook claims it, and an idle that never took it settles it.
+func TestMap_ATypedPromptIsReceivedAsARestartedOneIs(t *testing.T) {
+	const text = "![shot](chats/chat-1/attachments/a.png) what is this"
+	for _, delivery := range []string{ledger.DeliveryRestart, ledger.DeliveryType} {
+		t.Run(delivery+"/by its words", func(t *testing.T) {
+			c := liveChatRows(t)
+			c.commit(crowbarPrompt(t, "req-1", text, delivery))
+			s := hooksSource()
+			s.Prompt = Prompt{Text: text, Origin: ledger.OriginProvider}
+
+			rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, TurnID: "pt-1"}, s)
+
+			require.Equal(t, []ledger.Kind{ledger.KindTurnStarted}, kinds(rows))
+			assert.Equal(t, "req-1", bodyOf[ledger.TurnStarted](t, rows[0]).RequestID)
+			assert.Empty(t, c.st.PendingPrompts())
+		})
+		t.Run(delivery+"/never taken", func(t *testing.T) {
+			c := liveChatRows(t)
+			c.commit(crowbarPrompt(t, "req-1", text, delivery))
+
+			rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookIdle}, hooksSource())
+
+			require.Equal(t, []ledger.Kind{ledger.KindPromptSettled}, kinds(rows))
+			assert.Equal(t, ledger.ReasonNotAcknowledged, bodyOf[ledger.PromptSettled](t, rows[0]).Reason)
+		})
+	}
+}
+
 func TestMap_AnInjectedPromptIsHarnessNotUser(t *testing.T) {
 	c := liveChatRows(t)
 	s := hooksSource()
@@ -260,32 +289,6 @@ func TestMap_ATurnStopRecordsItsReplyWithItsEnd(t *testing.T) {
 	assert.Equal(t, turnID, fx.Ended)
 	_, running := c.st.RunningTurn()
 	assert.False(t, running)
-}
-
-// A thought that names the message it came with is that message's; the turn keeps
-// each, and every thought naming none is the turn's last, the newest standing.
-func TestMap_ATurnStopRecordsEachThoughtWithTheMessageItNames(t *testing.T) {
-	c := liveChatRows(t)
-	turnID := c.typed("go")
-	s := hooksSource()
-	s.Live = Unrecorded{
-		Answers: []liveText{{TurnID: turnID, ID: "a1", Text: "one"}, {TurnID: turnID, ID: "a2", Text: "two"}},
-		Reasoning: []liveText{
-			{TurnID: turnID, ID: "a1", Text: "first"},
-			{TurnID: turnID, ID: "a2", Text: "second"},
-			{TurnID: turnID, ID: "x", Text: "unnamed"},
-			{TurnID: "other", ID: "a1", Text: "of another turn"},
-		},
-	}
-
-	rows, _ := c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, TurnID: "pt-1", Message: "two"}, s)
-
-	require.Equal(t, []ledger.Kind{
-		ledger.KindAssistantText, ledger.KindAssistantText, ledger.KindReasoning, ledger.KindReasoning, ledger.KindTurnEnded,
-	}, kinds(rows))
-	assert.Equal(t, ledger.Reasoning{MessageID: "a1", Text: "first"}, bodyOf[ledger.Reasoning](t, rows[2]))
-	assert.Equal(t, ledger.Reasoning{MessageID: "a2", Text: "unnamed"}, bodyOf[ledger.Reasoning](t, rows[3]),
-		"a thought naming no message is the last message's, and the newest of them stands")
 }
 
 func TestMap_AReplyWithNothingStreamedIsTheTurnsReply(t *testing.T) {

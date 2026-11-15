@@ -18,6 +18,7 @@ const (
 	DeliveryRestart = "restart" // a replacement CLI launched with the prompt
 	DeliverySteer   = "steer"   // parked on the running turn's end hook
 	DeliveryAPI     = "api"     // pushed over the live api connection
+	DeliveryType    = "type"    // pasted into the live CLI's own composer
 )
 
 // Why a prompt ended without a turn.
@@ -119,6 +120,14 @@ func SettleUntaken(st State, match func(Prompt) bool, command func(text string) 
 	}
 	rest, err := Settle(st, func(p Prompt) bool { return match(p) && !isCommand(p) }, false, ReasonNotAcknowledged)
 	return append(ran, rest...), err
+}
+
+// SettleOvertaken settles the typed prompts runnerID carries once a turn opens
+// there on other words: its composer took something else in their place.
+func SettleOvertaken(st State, runnerID string) ([]Row, error) {
+	return Settle(st, func(p Prompt) bool {
+		return p.RunnerID == runnerID && p.Delivery == DeliveryType
+	}, false, ReasonNotAcknowledged)
 }
 
 // SettleOrphaned settles, as runner_exited, every pending prompt whose carrier

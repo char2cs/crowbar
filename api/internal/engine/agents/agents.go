@@ -106,6 +106,20 @@ type Agent interface {
 	// into a RUNNING turn (presentation.prompt_submit.steer); ok is false when
 	// the provider declares none or text is a command the descriptor excludes.
 	PromptSteer(text string) (stdout string, ok bool)
+	// PromptType is presentation.prompt_submit.type: how a prompt is typed into
+	// an idle CLI's composer; ok is false when the provider declares none.
+	PromptType() (typing PromptTyping, ok bool)
+	// CanType reports whether text may be typed: the provider declares a type
+	// block, text opens with none of its skip_prefixes, and text holds no
+	// sequence that would end the paste early. When false the caller restarts.
+	CanType(text string) bool
+	// PromptTypeBytes renders text as the bytes written to the PTY to type it:
+	// a paste, then the submit key. ok is CanType(text).
+	PromptTypeBytes(text string) (bytes []byte, ok bool)
+	// ComposerEmpty reports whether the composer holds no draft: the cursor sits
+	// right after the type block's row prefix and the rest of the row is blank or
+	// ghost. False when no type block is declared or the row is out of range.
+	ComposerEmpty(screen ComposerScreen) bool
 	// ToolDenial renders the reply that refuses one tool call before it runs,
 	// with reason shown to the model; ok is false when the provider declares none.
 	ToolDenial(reason string) (stdout string, ok bool)
@@ -117,6 +131,9 @@ type Agent interface {
 
 	ResumeArg() (string, bool)
 	SessionAssignArg() (string, bool)
+	// SessionPinsRelay is whether a session's calls carry {relay_id}: the provider
+	// keeps that block for the session, so a launch must repeat it byte for byte.
+	SessionPinsRelay() bool
 	// RefusedResume is the line by which the CLI refused a resume, even wrapped.
 	RefusedResume(exitCode int, output string) (line string, refused bool)
 	// SessionPersists is session.persists: "turn_start" (or "") or "turn_end".
@@ -126,7 +143,7 @@ type Agent interface {
 	// delivery actually arrived on, never the event's declared transport (see spec.Channel).
 	ParseHook(canonical string, raw []byte, channel Channel) (CanonicalEvent, error)
 
-	ParseTelemetry(raw []byte, now time.Time) (Telemetry, error)
+	ParseTelemetry(raw []byte, now time.Time, channel Channel) (Telemetry, error)
 
 	AnswerCapability(canonical string) (AnswerCapability, bool)
 
@@ -170,6 +187,10 @@ type Agent interface {
 	// EventSurfaces is spec.Descriptor.EventSurfaces, exposed the same narrow
 	// way.
 	EventSurfaces(canonical string) []string
+
+	// AnswerEndsAtAction is message_delta's ends_at_action: the text streamed
+	// before a call, a subagent or an ask is that message's whole text.
+	AnswerEndsAtAction() bool
 
 	// SurfaceChannel is spec.Descriptor.SurfaceChannel, exposed the same
 	// narrow way: which delivery channel drives one SURFACE's facts
@@ -335,8 +356,8 @@ func (a *agent) ParseHook(canonical string, raw []byte, channel Channel) (Canoni
 	return protocol.Recv(a.spec, canonical, raw, channel)
 }
 
-func (a *agent) ParseTelemetry(raw []byte, now time.Time) (Telemetry, error) {
-	return protocol.RecvTelemetry(a.spec, raw, now)
+func (a *agent) ParseTelemetry(raw []byte, now time.Time, channel Channel) (Telemetry, error) {
+	return protocol.RecvTelemetry(a.spec, raw, now, channel)
 }
 
 func (a *agent) AnswerCapability(canonical string) (AnswerCapability, bool) {
@@ -366,10 +387,6 @@ func (a *agent) OutboundCall(
 	return protocol.Send(a.spec, canonical, values)
 }
 
-func (a *agent) MatchTerminalPrompt(screen string) (TerminalPrompt, bool) {
-	return protocol.MatchTerminalPrompt(a.spec, screen)
-}
-
 func (a *agent) ProbeTelemetry(
 	ctx context.Context,
 	opts ProbeOptions,
@@ -385,6 +402,10 @@ func (a *agent) TransportFor(canonical string) string {
 
 func (a *agent) EventSurfaces(canonical string) []string {
 	return a.spec.EventSurfaces(canonical)
+}
+
+func (a *agent) AnswerEndsAtAction() bool {
+	return a.spec.Events[HookMessageDelta].EndsAtAction
 }
 
 func (a *agent) SurfaceChannel(surface string) string {

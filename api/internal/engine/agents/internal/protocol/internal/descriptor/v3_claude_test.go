@@ -197,11 +197,11 @@ func TestClaudeDescriptor_ATaskNotificationNamesTheShellItEnds(t *testing.T) {
 			t.Fatal(err)
 		}
 		ev, err := inbound.Parse(d, spec.HookUserPrompt, raw, spec.ChannelHooks)
-		if err != nil || ev.Shell == nil {
-			t.Fatalf("shell %v, err %v", ev.Shell, err)
+		if err != nil || len(ev.Shells) != 1 {
+			t.Fatalf("shells %v, err %v", ev.Shells, err)
 		}
 		expectEq(t, "kind", ev.Kind, spec.HookUserPrompt)
-		expectEq(t, "shell", *ev.Shell, models.ShellEvent{ID: "bg1a2b3c4", Status: want, Summary: "Background command finished"})
+		expectEq(t, "shell", ev.Shells[0], models.ShellEvent{ID: "bg1a2b3c4", Status: want, Summary: "Background command finished"})
 	}
 
 	event := "<task-notification>\n<task-id>mon9z8y7</task-id>\n<summary>Monitor event</summary>\n<event>ERROR: db down\nretrying</event>\n</task-notification>"
@@ -210,10 +210,10 @@ func TestClaudeDescriptor_ATaskNotificationNamesTheShellItEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 	line, err := inbound.Parse(d, spec.HookUserPrompt, raw, spec.ChannelHooks)
-	if err != nil || line.Shell == nil {
-		t.Fatalf("shell %v, err %v", line.Shell, err)
+	if err != nil || len(line.Shells) != 1 {
+		t.Fatalf("shells %v, err %v", line.Shells, err)
 	}
-	expectEq(t, "a monitor's line ends nothing", *line.Shell, models.ShellEvent{
+	expectEq(t, "a monitor's line ends nothing", line.Shells[0], models.ShellEvent{
 		ID: "mon9z8y7", Summary: "Monitor event", Note: "ERROR: db down\nretrying",
 	})
 
@@ -221,7 +221,7 @@ func TestClaudeDescriptor_ATaskNotificationNamesTheShellItEnds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectEq(t, "a typed prompt ends none", typed.Shell == nil, true)
+	expectEq(t, "a typed prompt ends none", len(typed.Shells), 0)
 }
 
 // A failed turn is classified by the descriptor, so nothing downstream reads the provider's words.

@@ -22,17 +22,13 @@ import (
 const mcpRelayTimeout = 120 * time.Second
 
 func newMCPCmd() *cobra.Command {
-	var project, repo, workspace, segment, tokenFile, home, host string
+	var project, repo, workspace, segment, relay, tokenFile, home, host string
 	cmd := &cobra.Command{
 		Use:    "mcp",
 		Short:  "Relay MCP stdio traffic to the Crowbar daemon",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := applyHomeOverride(home); err != nil {
-				return err
-			}
-			token, err := readRunnerToken(tokenFile)
-			if err != nil {
 				return err
 			}
 			client, err := ipc.NewClientWithTimeout(host, mcpRelayTimeout)
@@ -42,17 +38,30 @@ func newMCPCmd() *cobra.Command {
 			post := func(path string, body any) (int, []byte, error) {
 				return client.PostJSON(context.Background(), path, body)
 			}
-			return runMCPRelay(cmd.InOrStdin(), cmd.OutOrStdout(), post, segment, project, repo, workspace, token)
+			path := mcpPath(relay, segment, project, repo, workspace)
+			return runMCPRelay(cmd.InOrStdin(), cmd.OutOrStdout(), post, path, func() (string, error) {
+				return readRunnerToken(tokenFile)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&segment, "segment", "", "Crowbar segment id")
+	cmd.Flags().StringVar(&relay, "relay", "", "relay id of the session this relay serves, in place of --segment and the scope flags")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "file holding the runner token minted at spawn")
 	bindScopeFlags(cmd, &project, &repo, &workspace, &home, &host)
 	return cmd
 }
 
-// readRunnerToken reads the token the spawn wrote for this runner. It travels in
-// a 0600 file, not argv, because any local user can read a process's argv.
+// mcpPath is where this relay posts: the placement-free route of its session when it has a
+// relay id, else its runner's route, which sits under the runner's project and repo.
+func mcpPath(relay, segment, project, repo, workspace string) string {
+	if relay != "" {
+		return "/v0/relays/" + relay + "/mcp"
+	}
+	return scopedAgentPath(project, repo, workspace, "/runners/"+segment+"/mcp")
+}
+
+// readRunnerToken reads the token the spawn wrote. It travels in a 0600 file, not
+// argv, because any local user can read a process's argv.
 func readRunnerToken(path string) (string, error) {
 	if path == "" {
 		return "", nil
@@ -66,14 +75,15 @@ func readRunnerToken(path string) (string, error) {
 
 // runMCPRelay reads one JSON-RPC message per line, hands it to the daemon and
 // writes back whatever the daemon says. All MCP semantics live daemon-side, so a
-// stale crowbar binary can never disagree with its daemon.
+// stale crowbar binary can never disagree with its daemon. token is read for every
+// message: a relay can outlive the daemon boot that minted its token, and each spawn
+// rewrites the file.
 func runMCPRelay(
 	in io.Reader, out io.Writer,
 	post func(path string, body any) (int, []byte, error),
-	segment, project, repo, workspace, token string,
+	path string,
+	token func() (string, error),
 ) error {
-	path := scopedAgentPath(project, repo, workspace, "/runners/"+segment+"/mcp")
-
 	scanner := bufio.NewScanner(in)
 	// Tool results and chat logs routinely exceed the 64 KiB default; without
 	// raising it a long line truncates into a bogus JSON parse error.
@@ -99,7 +109,8 @@ func runMCPRelay(
 // if any. Split out of runMCPRelay's loop so neither function nests past one
 // level of control flow.
 func relayLine(
-	line, path, token string,
+	line, path string,
+	token func() (string, error),
 	post func(path string, body any) (int, []byte, error),
 	writer *bufio.Writer,
 ) {
@@ -108,7 +119,12 @@ func relayLine(
 		return
 	}
 
-	status, raw, err := post(path, map[string]any{"token": token, "rpc": json.RawMessage(line)})
+	tok, err := token()
+	if err != nil {
+		writeTransportError(writer, line, err)
+		return
+	}
+	status, raw, err := post(path, map[string]any{"token": tok, "rpc": json.RawMessage(line)})
 	if err != nil {
 		// A daemon blip must not end the session: report it against the
 		// request's own id and keep serving the next line.

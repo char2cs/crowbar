@@ -67,6 +67,9 @@ func (drv *Driver) EstablishSession(
 	}
 	drv.markEstablished(out)
 	settle(out["session_id"])
+	if !resuming {
+		drv.armLead(out)
+	}
 	return out, nil
 }
 
@@ -98,14 +101,15 @@ func (drv *Driver) sessionLost(err error) bool {
 }
 
 // reopen is the value set a re-establish runs with: the session's birth values
-// overlaid with the caller's. It clears established and all of remembered (a
-// turn_id among them), which belong to the session being left.
+// overlaid with the caller's. It clears established, all of remembered (a
+// turn_id among them) and the frame values, which belong to the session being left.
 func (drv *Driver) reopen(values map[string]string) map[string]string {
 	drv.mu.Lock()
 	out := cloneValues(drv.birth)
 	drv.established = false
 	drv.remembered = map[string]string{}
 	drv.literals = map[string]bool{}
+	drv.frameValues = map[string]frameValue{}
 	drv.mu.Unlock()
 
 	for k, v := range values {
@@ -176,8 +180,13 @@ func (drv *Driver) Dispatch(
 	}
 	ev := drv.d.Events[canonical]
 	drv.setInflight(len(ev.Action) > 0)
+	values, lead := drv.leadValues(values)
+	if lead != "" {
+		out["text"] = values["text"]
+	}
 	err = drv.runSteps(ctx, ev.Action, out)
 	if err == nil {
+		drv.spendLead(lead)
 		return out, nil
 	}
 	drv.setInflight(false)
@@ -192,19 +201,19 @@ func (drv *Driver) Dispatch(
 		return nil, fmt.Errorf("%w (after %w)", recoverErr, err)
 	}
 	drv.setInflight(len(ev.Action) > 0)
+	drv.spendLead(lead)
 	return recovered, nil
 }
 
 // InjectAt runs the inject step declared for lifecycle moment at, if any. A
 // context inject runs once, right after a resume loads a session that existed
-// before this connection: a fresh one's creating call already carries it.
+// before this connection: a fresh one's creating call already carries it. A step
+// that leads a prompt makes no call: its document waits for the next prompt.
 func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]string) error {
-	var step *spec.InjectSpec
-	for i := range drv.d.Inject {
-		if drv.d.Inject[i].At == at {
-			step = &drv.d.Inject[i]
-			break
-		}
+	step := drv.injectAt(at)
+	if step != nil && step.PromptLead != "" {
+		drv.armLead(values)
+		return nil
 	}
 	if step == nil || step.Call == "" {
 		return nil

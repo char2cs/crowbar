@@ -56,7 +56,7 @@ func claudeDescriptor() *spec.Descriptor {
 }
 
 func TestParseCallback_MapsEveryReportedFact(t *testing.T) {
-	got, err := telemetry.ParseCallback(claudeDescriptor(), []byte(claudeStatusLine), at)
+	got, err := telemetry.ParseCallback(claudeDescriptor(), []byte(claudeStatusLine), at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	assert.Equal(t, at, got.ObservedAt)
@@ -83,7 +83,7 @@ func TestParseCallback_MapsEveryReportedFact(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 8, 17, 15, 0, 0, 0, time.UTC), got.RateLimits[0].ResetsAt.UTC())
 
 	iso, err := telemetry.ParseCallback(claudeDescriptor(),
-		[]byte(`{"rate_limits":{"five_hour":{"used_percentage":1,"resets_at":"2026-08-17T15:00:00Z"}}}`), at)
+		[]byte(`{"rate_limits":{"five_hour":{"used_percentage":1,"resets_at":"2026-08-17T15:00:00Z"}}}`), at, spec.ChannelHooks)
 	require.NoError(t, err)
 	require.Len(t, iso.RateLimits, 1)
 	assert.Equal(t, *got.RateLimits[0].ResetsAt, iso.RateLimits[0].ResetsAt.UTC(), "an RFC 3339 time reads the same")
@@ -91,7 +91,7 @@ func TestParseCallback_MapsEveryReportedFact(t *testing.T) {
 
 func TestParseCallback_AFreshSessionReportsNothingRatherThanZero(t *testing.T) {
 	got, err := telemetry.ParseCallback(claudeDescriptor(),
-		[]byte(`{"context_window":null,"cost":null,"model":null,"rate_limits":null}`), at)
+		[]byte(`{"context_window":null,"cost":null,"model":null,"rate_limits":null}`), at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	assert.True(t, got.Empty())
@@ -104,7 +104,7 @@ func TestParseCallback_AFreshSessionReportsNothingRatherThanZero(t *testing.T) {
 func TestParseCallback_AGroupWithOneReportedFactIsPresent(t *testing.T) {
 	d := withCallback(map[string]string{spec.FactCostTotalUSD: "cost.total_cost_usd"})
 
-	got, err := telemetry.ParseCallback(d, []byte(`{"cost":{"total_cost_usd":1.5}}`), at)
+	got, err := telemetry.ParseCallback(d, []byte(`{"cost":{"total_cost_usd":1.5}}`), at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	require.NotNil(t, got.Cost)
@@ -119,7 +119,7 @@ func TestParseCallback_DerivesOnlyWhatFollowsArithmeticallyFromReportedFacts(t *
 		spec.FactContextUsedTokens:     "used",
 	})
 
-	got, err := telemetry.ParseCallback(d, []byte(`{"cap":1000,"used":250}`), at)
+	got, err := telemetry.ParseCallback(d, []byte(`{"cap":1000,"used":250}`), at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	require.NotNil(t, got.Context)
@@ -135,12 +135,12 @@ func TestParseCallback_DoesNotDivideByAnUnknownOrZeroCapacity(t *testing.T) {
 		spec.FactContextUsedTokens:     "used",
 	})
 
-	zero, err := telemetry.ParseCallback(d, []byte(`{"cap":0,"used":250}`), at)
+	zero, err := telemetry.ParseCallback(d, []byte(`{"cap":0,"used":250}`), at, spec.ChannelHooks)
 	require.NoError(t, err)
 	require.NotNil(t, zero.Context)
 	assert.Nil(t, zero.Context.UsedPercent)
 
-	unknown, err := telemetry.ParseCallback(d, []byte(`{"used":250}`), at)
+	unknown, err := telemetry.ParseCallback(d, []byte(`{"used":250}`), at, spec.ChannelHooks)
 	require.NoError(t, err)
 	require.NotNil(t, unknown.Context)
 	assert.Nil(t, unknown.Context.UsedPercent)
@@ -153,7 +153,7 @@ func TestParseCallback_AReportedPercentageIsNeverOverwritten(t *testing.T) {
 		spec.FactContextUsedPercent:    "pct",
 	})
 
-	got, err := telemetry.ParseCallback(d, []byte(`{"cap":1000,"used":250,"pct":31}`), at)
+	got, err := telemetry.ParseCallback(d, []byte(`{"cap":1000,"used":250,"pct":31}`), at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	assert.InDelta(t, 31, *got.Context.UsedPercent, 0.0001,
@@ -167,7 +167,7 @@ func TestParseCallback_OmitsAnUnreportedRateLimitWindow(t *testing.T) {
 		spec.TelemetryRateLimitMap{ID: "weekly", UsedPercent: "rl.weekly.pct"},
 	)
 
-	got, err := telemetry.ParseCallback(d, []byte(`{"model":{"id":"m"},"rl":{"five":{"pct":3}}}`), at)
+	got, err := telemetry.ParseCallback(d, []byte(`{"model":{"id":"m"},"rl":{"five":{"pct":3}}}`), at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	require.Len(t, got.RateLimits, 1)
@@ -179,7 +179,7 @@ func TestParseCallback_AnUnparseableResetTimeIsAbsentRatherThanZero(t *testing.T
 		ID: "w", UsedPercent: "pct", ResetsAt: "resets",
 	})
 
-	got, err := telemetry.ParseCallback(d, []byte(`{"pct":5,"resets":"soon"}`), at)
+	got, err := telemetry.ParseCallback(d, []byte(`{"pct":5,"resets":"soon"}`), at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	require.Len(t, got.RateLimits, 1)
@@ -188,26 +188,26 @@ func TestParseCallback_AnUnparseableResetTimeIsAbsentRatherThanZero(t *testing.T
 }
 
 func TestParseCallback_UnsupportedWhenTheProviderDeclaresNoTelemetry(t *testing.T) {
-	_, err := telemetry.ParseCallback(&spec.Descriptor{ID: "codex"}, []byte(`{}`), at)
+	_, err := telemetry.ParseCallback(&spec.Descriptor{ID: "codex"}, []byte(`{}`), at, spec.ChannelHooks)
 	assert.ErrorIs(t, err, telemetry.ErrUnsupported)
 
-	_, err = telemetry.ParseCallback(nil, []byte(`{}`), at)
+	_, err = telemetry.ParseCallback(nil, []byte(`{}`), at, spec.ChannelHooks)
 	assert.ErrorIs(t, err, telemetry.ErrUnsupported)
 }
 
 func TestParseCallback_RejectsAnUnsupportedFormatAndMalformedBytes(t *testing.T) {
 	d := withCallback(map[string]string{spec.FactModelID: "m"})
 	d.Telemetry.Callback.Format = "toml"
-	_, err := telemetry.ParseCallback(d, []byte(`{}`), at)
+	_, err := telemetry.ParseCallback(d, []byte(`{}`), at, spec.ChannelHooks)
 	assert.ErrorIs(t, err, telemetry.ErrUnsupportedFormat)
 
 	_, err = telemetry.ParseCallback(withCallback(map[string]string{spec.FactModelID: "m"}),
-		[]byte(`{not json`), at)
+		[]byte(`{not json`), at, spec.ChannelHooks)
 	assert.Error(t, err)
 }
 
 func TestParseCallback_AnEmptyPayloadIsEmptyRatherThanAnError(t *testing.T) {
-	got, err := telemetry.ParseCallback(withCallback(map[string]string{spec.FactModelID: "m"}), nil, at)
+	got, err := telemetry.ParseCallback(withCallback(map[string]string{spec.FactModelID: "m"}), nil, at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	assert.True(t, got.Empty())
@@ -256,7 +256,7 @@ func TestParseCallback_FallsBackToTheV3TelemetryEvent(t *testing.T) {
 	  "total":{"totalTokens":120,"inputTokens":100,"outputTokens":20},
 	  "modelContextWindow":272000}}`)
 
-	got, err := telemetry.ParseCallback(d, raw, at)
+	got, err := telemetry.ParseCallback(d, raw, at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	assert.Equal(t, models.TelemetrySourceCallback, got.Source)
@@ -267,6 +267,40 @@ func TestParseCallback_FallsBackToTheV3TelemetryEvent(t *testing.T) {
 	assert.Equal(t, 272000, *got.Context.CapacityTokens)
 }
 
+// A provider that declares events.telemetry under an api: block has an empty flat
+// map:, so reading only the flat map dropped every report as unsupported.
+func TestParseCallback_ReadsTheChannelBlockOfTheTelemetryEvent(t *testing.T) {
+	d := &spec.Descriptor{ID: "wsprovider", Events: map[string]spec.EventSpec{
+		"telemetry": {API: &spec.ChannelBlock{
+			In: spec.WireRef{"session.usage"},
+			Map: spec.FieldMap{
+				spec.FactContextUsedTokens:     mapping.Paths("payload.usage.context_used"),
+				spec.FactContextCapacityTokens: mapping.Paths("payload.usage.context_max"),
+				spec.FactContextUsedPercent:    mapping.Paths("payload.usage.context_percent"),
+				spec.FactCostTotalUSD:          mapping.Paths("payload.usage.cost_usd"),
+				spec.FactModelID:               mapping.Paths("payload.usage.model"),
+			},
+		}},
+	}}
+	raw := []byte(`{"session_id":"s1","type":"session.usage","payload":{"usage":{
+	  "context_max":1000000,"context_percent":2,"context_used":19510,
+	  "input":2,"output":4,"model":"m-1"}}}`)
+
+	got, err := telemetry.ParseCallback(d, raw, at, spec.ChannelAPI)
+
+	require.NoError(t, err)
+	require.NotNil(t, got.Context)
+	assert.Equal(t, 19510, *got.Context.UsedTokens)
+	assert.Equal(t, 1000000, *got.Context.CapacityTokens)
+	assert.InDelta(t, 2, *got.Context.UsedPercent, 0.001)
+	assert.Nil(t, got.Cost, "a report without cost_usd carries no cost")
+	require.NotNil(t, got.Model)
+	assert.Equal(t, "m-1", got.Model.ID)
+
+	_, err = telemetry.ParseCallback(d, raw, at, spec.ChannelHooks)
+	assert.ErrorIs(t, err, telemetry.ErrUnsupported, "another channel's block never stands in")
+}
+
 // The v2 block still wins where a descriptor declares one, so claude is untouched.
 func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
 	d := withCallback(map[string]string{spec.FactContextUsedTokens: "v2.used"})
@@ -275,7 +309,7 @@ func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
 		Map: spec.FieldMap{spec.FactContextUsedTokens: mapping.Paths("v3.used")},
 	}}
 
-	got, err := telemetry.ParseCallback(d, []byte(`{"v2":{"used":7},"v3":{"used":9}}`), at)
+	got, err := telemetry.ParseCallback(d, []byte(`{"v2":{"used":7},"v3":{"used":9}}`), at, spec.ChannelHooks)
 
 	require.NoError(t, err)
 	require.NotNil(t, got.Context.UsedTokens)
@@ -289,7 +323,7 @@ func TestParseCallback_UnsupportedWhenNeitherFormIsDeclared(t *testing.T) {
 		"turn_stop": {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": mapping.Paths("m")}},
 	}}
 
-	_, err := telemetry.ParseCallback(d, []byte(`{}`), at)
+	_, err := telemetry.ParseCallback(d, []byte(`{}`), at, spec.ChannelHooks)
 
 	assert.ErrorIs(t, err, telemetry.ErrUnsupported)
 }

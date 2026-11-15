@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/promptorigin"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
@@ -113,6 +115,34 @@ func TestMatch_ASpecificDeclarationWinsRegardlessOfOrder(t *testing.T) {
 
 	assert.True(t, ok)
 	assert.Equal(t, spec.InjectedPromptTaskNotification, got.Kind)
+}
+
+func TestMatch_AnAnchoredMatchOpensWhatNoNeedleCanSpell(t *testing.T) {
+	var d spec.Descriptor
+	require.NoError(t, yaml.Unmarshal([]byte(`
+id: probe
+injected_prompts:
+  - kind: task_notification
+    match: '^\[IMPORTANT: \d+ background processes completed'
+`), &d))
+	batch := "[IMPORTANT: 2 background processes completed for this session.\n\n- proc_a: exit_code=3\n]"
+
+	got, ok := promptorigin.Match(&d, batch)
+	assert.True(t, ok)
+	assert.Equal(t, spec.InjectedPromptTaskNotification, got.Kind)
+	_, ok = promptorigin.Match(&d, "\n  [IMPORTANT: 12 background processes completed")
+	assert.True(t, ok, "leading whitespace does not hide the notice")
+	_, ok = promptorigin.Match(&d, "<wrapper>\n"+batch+"\n</wrapper>")
+	assert.True(t, ok, "the notice under one wrapping tag is still the harness")
+
+	for _, prompt := range []string{
+		"please review [IMPORTANT: 2 background processes completed",
+		"[IMPORTANT: two background processes completed",
+		"say only the word ACK",
+	} {
+		_, ok := promptorigin.Match(&d, prompt)
+		assert.False(t, ok, prompt)
+	}
 }
 
 func TestMatch_EmptyInputsAreTheUsers(t *testing.T) {

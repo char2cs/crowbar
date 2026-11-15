@@ -53,14 +53,13 @@ type MessageText struct {
 	At        time.Time // time of its first row
 }
 
-// messageKeys is what a retried chunk of one message is recognised by.
+// messageKeys is what a retried chunk of one message is recognised by, and
+// the text its complete rows hold, which a turn's end compares its reply with.
 type messageKeys struct {
 	turnID  string
 	indexes []int
+	whole   string
 }
-
-// reply is the reply a turn's end recorded while nothing of it had streamed.
-type reply struct{ messageID, text string }
 
 // MessageTurn is the turn the message messageID of scope was first recorded in.
 func (s State) MessageTurn(scope, messageID string) (string, bool) {
@@ -81,8 +80,16 @@ func (s State) LastMessage(turnID string) (string, bool) {
 
 // Reply is the reply turnID's end recorded while nothing of it had streamed.
 func (s State) Reply(turnID string) (messageID, text string, ok bool) {
-	r, ok := s.keys.replies[turnID]
-	return r.messageID, r.text, ok
+	id := ReplyID(turnID)
+	if !s.HasChunk("", id, IndexComplete) {
+		return "", "", false
+	}
+	return id, s.WholeText("", id), true
+}
+
+// WholeText is the text the message's complete rows hold; "" when it has none.
+func (s State) WholeText(scope, messageID string) string {
+	return s.keys.messages[ref(scope, messageID)].whole
 }
 
 func (s *State) applyAssistantText(r Row) {
@@ -102,10 +109,10 @@ func (s *State) applyAssistantText(r Row) {
 	if !slices.Contains(m.indexes, body.Index) {
 		m.indexes = append(slices.Clip(m.indexes), body.Index)
 	}
-	k.messages[key] = m
-	if body.Index == IndexComplete && body.MessageID == ReplyID(r.TurnID) {
-		k.replies[r.TurnID] = reply{messageID: body.MessageID, text: body.Text}
+	if body.Index == IndexComplete {
+		m.whole = fuller(m.whole, body.Text)
 	}
+	k.messages[key] = m
 }
 
 // MessageFold folds assistant_text rows one committed row at a time. A text is

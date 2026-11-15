@@ -40,6 +40,7 @@ type harness struct {
 	url       string
 	home      string
 	app       *app.Container
+	eng       *engine.Container
 	stopOnce  sync.Once
 	stop      func()
 	crashDie  func()
@@ -104,6 +105,7 @@ func bootHarness(t *testing.T, home, fingerprint string) *harness {
 		t:       t,
 		home:    home,
 		app:     appContainer,
+		eng:     engines,
 		handler: apiContainer.Handler(),
 	}
 	h.server = srv

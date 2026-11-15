@@ -296,6 +296,15 @@ type ProviderUsecase interface {
 		message []byte,
 	) ([]byte, bool, error)
 
+	// DispatchRelayMCP is DispatchMCP for a session's relay, keyed by the relay id its
+	// binding holds instead of a runner.
+	DispatchRelayMCP(
+		ctx context.Context,
+		relayID string,
+		token string,
+		message []byte,
+	) ([]byte, bool, error)
+
 	// VerifyRunnerToken reports whether token is the one minted for runnerID: the
 	// credential a vendor CLI's HTTP hook proves itself with.
 	VerifyRunnerToken(runnerID, token string) bool

@@ -2,6 +2,7 @@ package session
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,31 @@ func TestNewCommand_RunsArgv(t *testing.T) {
 	// fanned it out after the attach) or inside the attach snapshot serialized from the model —
 	// both are real deliveries of the command's output, and neither needs a deadline.
 	waitFrameContaining(t, ch, "CMDMARKER")
+}
+
+// A fresh command's first output is no foreground app's exit: the paste mode it
+// sets at startup survives the pump's first foreground sample.
+func TestNewCommand_KeepsTheBracketedPasteItsAppSetsAtStartup(t *testing.T) {
+	s, err := NewCommand(t.Context(), "cmd-paste", []string{"/bin/sh", "-c", `printf '\033[?2004hPASTEREADY'; sleep 9999`},
+		t.TempDir(), os.Environ(), 80, 24, 0)
+	require.NoError(t, err)
+	t.Cleanup(s.Kill)
+
+	// No attach: its own foreground sample would run before the output does.
+	notify := s.PumpNotifyForTest()
+	for {
+		st, ok := s.ScreenState()
+		require.True(t, ok)
+		if strings.Contains(st.Text, "PASTEREADY") {
+			assert.True(t, st.BracketedPaste)
+			return
+		}
+		select {
+		case <-notify:
+		case <-s.Done():
+			t.Fatal("the command exited before painting")
+		}
+	}
 }
 
 func TestNewCommand_EmptyArgvErrors(t *testing.T) {

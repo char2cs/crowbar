@@ -46,7 +46,6 @@ type keys struct {
 	provider   map[string]string // provider turn id → turn id
 	messages   map[string]messageKeys
 	lastMain   map[string]string // turn → its newest main-scope message
-	replies    map[string]reply
 	tools      map[string]toolKeys
 	asks       map[string]PendingAsk
 	compaction compaction
@@ -57,8 +56,7 @@ type keptTurn struct{ id, runnerID string }
 func (k *keys) init() *keys {
 	if k.provider == nil {
 		k.provider, k.messages, k.lastMain = map[string]string{}, map[string]messageKeys{}, map[string]string{}
-		k.replies, k.tools = map[string]reply{}, map[string]toolKeys{}
-		k.asks = map[string]PendingAsk{}
+		k.tools, k.asks = map[string]toolKeys{}, map[string]PendingAsk{}
 	}
 	return k
 }
@@ -66,8 +64,7 @@ func (k *keys) init() *keys {
 func (k keys) clone() keys {
 	k.turns = slices.Clone(k.turns)
 	k.provider, k.messages, k.lastMain = maps.Clone(k.provider), maps.Clone(k.messages), maps.Clone(k.lastMain)
-	k.replies, k.tools = maps.Clone(k.replies), maps.Clone(k.tools)
-	k.asks = maps.Clone(k.asks)
+	k.tools, k.asks = maps.Clone(k.tools), maps.Clone(k.asks)
 	return k
 }
 
@@ -89,7 +86,6 @@ func (k *keys) openTurn(turnID, providerTurnID, runnerID string) string {
 	maps.DeleteFunc(k.tools, func(_ string, t toolKeys) bool { return t.turnID == gone })
 	maps.DeleteFunc(k.asks, func(_ string, a PendingAsk) bool { return a.TurnID == gone })
 	delete(k.lastMain, gone)
-	delete(k.replies, gone)
 	return gone
 }
 

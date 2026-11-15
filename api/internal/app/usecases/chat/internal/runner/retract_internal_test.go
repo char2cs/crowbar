@@ -99,6 +99,10 @@ func TestRetract_APromptItsLiveCLIAlreadyHoldsIsAConflict(t *testing.T) {
 			rs.apiConns.set("runner-1", interruptServer(t, make(chan struct{}), nil))
 			sent(t, rs, ledger.DeliveryRestart)
 		},
+		"typed into its composer": func(t *testing.T, rs *Runners) {
+			t.Helper()
+			sent(t, rs, ledger.DeliveryType)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rs, term := retracting(t)

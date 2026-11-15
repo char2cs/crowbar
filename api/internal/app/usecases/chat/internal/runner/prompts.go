@@ -72,6 +72,12 @@ func (rs *Runners) submitPromptLocked(
 		return submission, steerErr
 	}
 
+	if submission, handled, typeErr := rs.submitPromptTyped(
+		ctx, h.park, chat, clientRequestID, live, descriptor, text,
+	); handled {
+		return submission, typeErr
+	}
+
 	if err := rs.requirePromptIdle(ctx, chatID, live.ID); err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}

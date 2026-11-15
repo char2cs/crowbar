@@ -61,7 +61,7 @@ export function ledger(chatId = 'chat-1', from = 1) {
     answer: (askId: string, ...optionIds: string[]) =>
       row('ask_resolved', { askId, resolution: 'answered', optionIds }),
     /** A prompt delivered some other way than as a turn's opener. */
-    delivered: (requestId: string, text: string, delivery: 'api' | 'restart') =>
+    delivered: (requestId: string, text: string, delivery: 'api' | 'restart' | 'type') =>
       row('user_message', { requestId, text, origin: 'crowbar', delivery }),
     /** A prompt steered into a running turn (`turnId`), or parked for the next one. */
     steer: (requestId: string, text: string, turnId: string) =>

@@ -68,3 +68,13 @@ func (c Capabilities) Declares(kind string) bool {
 	}
 	return false
 }
+
+// PromptTyping is how a prompt is typed into an idle CLI's own composer.
+type PromptTyping struct {
+	Paste             string
+	Submit            string
+	ComposerRowPrefix string
+	ComposerGhost     string
+	// SkipPrefixes opens a message that keeps its meaning under paste.
+	SkipPrefixes []string
+}

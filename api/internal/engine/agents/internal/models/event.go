@@ -40,8 +40,8 @@ type CanonicalEvent struct {
 	// Step is one step of the plan, changed alone (plan_step).
 	Step *PlanStepEvent
 
-	// Shell is the background command a harness-injected prompt reports ended.
-	Shell *ShellEvent
+	// Shells are the background commands a harness-injected prompt reports on.
+	Shells []ShellEvent
 
 	Raw map[string]any
 }
@@ -161,10 +161,11 @@ type SubagentUsage struct {
 
 // ShellEvent is what a harness-injected prompt reports of a background command:
 // Status is Crowbar's word (finished, failed, stopped) by the injected prompt's
-// status_map, empty for a report that is not an end; Summary is the provider's
-// account of it and Note a line the command printed.
+// status_map, empty for a report that gives none; ExitCode is how it exited, when
+// the report says. Summary is the provider's account and Note a line it printed.
 type ShellEvent struct {
 	ID, Status, Summary, Note string
+	ExitCode                  *int
 }
 
 // PlanStepEvent is one step of a plan changed alone, in the scope that keeps it.

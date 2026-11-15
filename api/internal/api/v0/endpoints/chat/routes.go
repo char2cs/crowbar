@@ -84,6 +84,8 @@ func Register(
 
 	// Provider priority and enablement are machine-wide (the CLIs are), so they sit outside the
 	// entity hierarchy and load with no active workspace.
+	// A relay is bound to a session, not to where its chat sits, so its route names no placement.
+	settingsRG.POST("/relays/:relay/mcp", h.RelayMCP)
 	settingsRG.PUT("/settings/chat/providers", h.UpdateProviderPreferences)
 	settingsRG.GET("/settings/chat/providers", h.Providers)
 	settingsRG.GET("/settings/chat/descriptors", h.DescriptorReports)

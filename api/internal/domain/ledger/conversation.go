@@ -22,6 +22,9 @@ type SessionBound struct {
 	Cause     string `json:"cause"` // CauseAssigned | CauseAnnounced | CauseFresh | CauseMoved | CauseCleared
 	Previous  string `json:"previous,omitempty"`
 	From      string `json:"from,omitempty"` // CauseMoved: the chat that gave the session up
+	// RelayID is the identity the session's MCP relay presents, for a provider whose
+	// server pins that block at creation; it lives and dies with this binding.
+	RelayID string `json:"relayId,omitempty"`
 }
 
 // SessionLost is the body of a session_lost row: the CLI refused to resume
@@ -67,6 +70,7 @@ type Conversation struct {
 	State               ConversationState
 	BoundAt             time.Time
 	Cause               string // of its latest binding
+	RelayID             string // of its latest binding; "" for a provider that pins no relay
 	// Turned: a turn started on it, so its CLI has written it and can resume it.
 	Turned bool
 }
@@ -83,6 +87,20 @@ func (s State) Conversation(provider string) (Conversation, bool) {
 		return Conversation{}, false
 	}
 	return s.conversations[i], true
+}
+
+// RelayConversation is the bound conversation whose binding holds relayID. A
+// lost or replaced one holds nothing, so its relay resolves to no chat.
+func (s State) RelayConversation(relayID string) (Conversation, bool) {
+	if relayID == "" {
+		return Conversation{}, false
+	}
+	for _, i := range s.current {
+		if c := s.conversations[i]; c.State == ConversationBound && c.RelayID == relayID {
+			return c, true
+		}
+	}
+	return Conversation{}, false
 }
 
 // ClearedAt is when the person last cleared the chat's conversation; zero if never.
@@ -110,6 +128,7 @@ func (s *State) applySessionBound(r Row) {
 		i = len(s.conversations) - 1
 	}
 	s.conversations[i].State, s.conversations[i].BoundAt, s.conversations[i].Cause = ConversationBound, r.At, body.Cause
+	s.conversations[i].RelayID = body.RelayID
 	if body.Cause == CauseCleared {
 		s.clearedAt = r.At
 	}
@@ -156,18 +175,19 @@ func Assign(st State, provider, sessionID string) (Row, error) {
 
 // Announce is what a CLI announcing sessionID adds: nothing for the bound session, a
 // binding, a change, or a move/conflict when owner (another chat) holds it. Only leaving
-// a session that turned is a change; an unturned one takes owner's session.
-func Announce(st State, provider, sessionID, owner string) ([]Row, error) {
-	return announce(st, provider, sessionID, owner, CauseAnnounced)
+// a session that turned is a change; an unturned one takes owner's session. relayID is
+// the identity a new binding carries; a session moved here keeps the one it had.
+func Announce(st State, provider, sessionID, owner, relayID string) ([]Row, error) {
+	return announce(st, provider, sessionID, owner, relayID, CauseAnnounced)
 }
 
 // AnnounceCleared is Announce for a session the CLI started because the person
 // cleared the conversation: what was said before it is no conversation of its.
 func AnnounceCleared(st State, provider, sessionID string) ([]Row, error) {
-	return announce(st, provider, sessionID, "", CauseCleared)
+	return announce(st, provider, sessionID, "", "", CauseCleared)
 }
 
-func announce(st State, provider, sessionID, owner, cause string) ([]Row, error) {
+func announce(st State, provider, sessionID, owner, relayID, cause string) ([]Row, error) {
 	c, ok := st.Conversation(provider)
 	if ok && c.SessionID == sessionID && c.State == ConversationBound {
 		return nil, nil
@@ -177,7 +197,7 @@ func announce(st State, provider, sessionID, owner, cause string) ([]Row, error)
 		r, err := NewRow(KindMarker, "", "", Marker{Kind: MarkerSessionConflict, Detail: sessionID, Owner: owner})
 		return []Row{r}, err
 	}
-	bound := SessionBound{Provider: provider, SessionID: sessionID, Cause: cause}
+	bound := SessionBound{Provider: provider, SessionID: sessionID, Cause: cause, RelayID: relayID}
 	if owner != "" {
 		bound.Cause, bound.From = CauseMoved, owner
 	}

@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -130,6 +132,102 @@ func TestLaunchSession_AProviderThatTakesNoIDLaunchesFreshUnlessItTurned(t *test
 	resumed, err := launchSession(chatState(t, turnedTestLedger(t, "codex", "X1")), codex)
 	require.NoError(t, err)
 	assert.Equal(t, sessionLaunch{resumeID: "X1"}, resumed)
+}
+
+// pinsRelay is a provider whose session calls name {relay_id}, so it keeps that identity for
+// the session's life.
+const pinsRelayDescriptor = `
+id: pins-relay
+spawn:
+  cmd: acme
+  interactive_required: true
+events:
+  prompt:
+    fresh:
+      - call: thread/start
+        send: { relay: { id: "{relay_id}" }, developerInstructions: "{context}" }
+        capture: { session_id: thread.id }
+    resume:
+      - call: thread/resume
+        send: { threadId: "{session_id}", relay: { id: "{relay_id}" } }
+    action:
+      - call: turn/start
+        send: { threadId: "{session_id}", text: "{text}" }
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    delivery: stdio
+    format: ndjson
+    serve: [acme, serve]
+    handshake: { call: initialize, notify: initialized }
+`
+
+func pinsRelayAgent(t *testing.T) engineagents.Agent {
+	t.Helper()
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "pins-relay.yaml"), []byte(pinsRelayDescriptor), 0o600))
+	agent, err := engineagents.New().Get(t.Context(), home, "pins-relay")
+	require.NoError(t, err)
+	return agent
+}
+
+// bindWithRelay is chat-1 bound to the provider's session "S1" with relay id relay, after a
+// finished turn.
+func bindWithRelay(t *testing.T, provider, relay string) ledger.State {
+	t.Helper()
+	l := newTestLedger(t)
+	bound, err := ledger.NewRow(ledger.KindSessionBound, "", "", ledger.SessionBound{
+		Provider: provider, SessionID: "S1", Cause: ledger.CauseAnnounced, RelayID: relay,
+	})
+	require.NoError(t, err)
+	started, err := ledger.NewRow(ledger.KindTurnStarted, "T-turned", "", ledger.TurnStarted{Provider: provider, SessionID: "S1"})
+	require.NoError(t, err)
+	ended, err := ledger.NewRow(ledger.KindTurnEnded, "T-turned", "", ledger.TurnEnded{Status: string(ledger.TurnStatusDone)})
+	require.NoError(t, err)
+	_, _, err = l.Append(t.Context(), "chat-1", bound, started, ended)
+	require.NoError(t, err)
+	return chatState(t, l)
+}
+
+// Every launch on one binding names the relay id the session was created with; a session
+// created anew is the only one that gets a new id.
+func TestLaunchSession_AResumeKeepsTheRelayIDOfItsBindingAndAFreshSessionMintsOne(t *testing.T) {
+	agent := pinsRelayAgent(t)
+	require.True(t, agent.SessionPinsRelay())
+	st := bindWithRelay(t, "pins-relay", "R1")
+
+	first, err := launchSession(st, agent)
+	require.NoError(t, err)
+	second, err := launchSession(st, agent)
+	require.NoError(t, err)
+	assert.Equal(t, sessionLaunch{resumeID: "S1", relayID: "R1"}, first)
+	assert.Equal(t, first, second, "two runners on one binding are launched the same way")
+
+	fresh, err := launchSession(ledger.State{}, agent)
+	require.NoError(t, err)
+	assert.NotEmpty(t, fresh.relayID)
+	other, err := launchSession(ledger.State{}, agent)
+	require.NoError(t, err)
+	assert.NotEqual(t, fresh.relayID, other.relayID, "a binding of its own has an identity of its own")
+	assert.NotEqual(t, "R1", fresh.relayID)
+}
+
+// A session bound before its provider pinned a relay has none to resume with.
+func TestLaunchSession_ASessionBoundBeforeTheRelayHasNoRelayID(t *testing.T) {
+	launch, err := launchSession(bindWithRelay(t, "pins-relay", ""), pinsRelayAgent(t))
+	require.NoError(t, err)
+	assert.Equal(t, sessionLaunch{resumeID: "S1"}, launch)
+}
+
+// A provider that pins no block is launched exactly as before.
+func TestLaunchSession_AProviderThatPinsNoRelayIsGivenNone(t *testing.T) {
+	agent := testAgent(t, "codex")
+	require.False(t, agent.SessionPinsRelay())
+	fresh, err := launchSession(ledger.State{}, agent)
+	require.NoError(t, err)
+	assert.Empty(t, fresh.relayID)
 }
 
 // A launch that displaces a CLI is planned once that CLI has quit: its refusal

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,42 @@ func TestSession_ScreenText_NonScreenReaderModelDegradesGracefully(t *testing.T)
 	assert.Empty(t, text, "a non-ScreenReader model must never surface text")
 	assert.NotZero(t, gen, "screenGen still advances even though no reader can render it")
 	assert.False(t, changed)
+}
+
+func TestSession_ScreenState_NoModelIsUnavailable(t *testing.T) {
+	s := newBareSession("sid-state-placeholder", "/bin/sh", t.TempDir(), "")
+
+	_, ok := s.ScreenState()
+	assert.False(t, ok)
+}
+
+func TestSession_ScreenState_ReadsTextCursorAndPasteModeTogether(t *testing.T) {
+	s := newBareSession("sid-state-live", "/bin/sh", t.TempDir(), "")
+	m, _ := model.New(80, 24, 0)
+	s.model = m
+	parkFrameClock(t, s)
+
+	s.PumpChunkForTest([]byte("\x1b[?2004h❯ \x1b[2mgo\x1b[22m\x1b[2D"))
+
+	st, ok := s.ScreenState()
+	require.True(t, ok)
+	assert.Equal(t, "❯ go", strings.SplitN(st.Text, "\n", 2)[0], "first visible row, trailing blanks trimmed")
+	assert.Equal(t, 0, st.CursorRow)
+	assert.Equal(t, 2, st.CursorCol)
+	assert.Equal(t, []bool{false, false, true, true, false}, st.Faint[0][:5], "faint cells ride the same read")
+	assert.True(t, st.BracketedPaste)
+}
+
+func TestSession_ScreenState_NonReaderModelDegradesGracefully(t *testing.T) {
+	s := newBareSession("sid-state-no-reader", "/bin/sh", t.TempDir(), "")
+	s.model = &fakeModel{cols: 80, rows: 24}
+	parkFrameClock(t, s)
+
+	s.PumpChunkForTest([]byte("irrelevant"))
+
+	st, ok := s.ScreenState()
+	assert.False(t, ok, "a model that cannot report state must not fabricate one")
+	assert.Equal(t, model.ScreenState{}, st)
 }
 
 // parkFrameClock defers every emit to a trailing timer that cannot fire during the test,

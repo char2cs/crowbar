@@ -31,6 +31,7 @@ func All() []Rule {
 		selectionStrategy{},
 		selectionApply{},
 		selectionAPICarrier{},
+		contextChannel{},
 		modelCatalog{},
 		modelDiscover{},
 		modelManifest{},

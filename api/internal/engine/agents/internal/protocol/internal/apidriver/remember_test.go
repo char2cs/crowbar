@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/apidriver"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
@@ -80,4 +81,65 @@ func TestStart_NothingRememberedAddsNothingToAFrame(t *testing.T) {
 
 	_, ok := capturedStep(t, ev.Raw)
 	assert.False(t, ok)
+}
+
+// An outbound call fences on the running turn's own frames: the latest number a
+// remember: entry kept is sent back as a JSON number, not as text.
+func TestSend_ExpandsTheLatestRememberedFrameNumberAsANumber(t *testing.T) {
+	d, err := descriptor.ParseV0([]byte(`
+id: neutral
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve: [x]
+    handshake: { call: hello, notify: ready }
+    remember:
+      - { in: progress, capture: { fence: generation, label: name } }
+  spawn:
+    cmd: x
+events:
+  warning:
+    api:
+      in: progress
+      map: { message: name }
+  interrupt:
+    out: cancel
+    send: { fence: "{captured.fence}", label: "{captured.label}", tag: "g{captured.fence}" }
+`))
+	require.NoError(t, err)
+	cancelParams := make(chan string, 1)
+	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
+		for gen := 1; gen <= 3; gen++ {
+			require.NoError(t, conn.WriteJSON(map[string]any{
+				"method": "progress", "params": map[string]any{"generation": gen, "name": "step"},
+			}))
+		}
+		msg, err := conn.Read()
+		require.NoError(t, err)
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Params json.RawMessage `json:"params"`
+		}
+		require.NoError(t, json.Unmarshal(msg, &req))
+		cancelParams <- string(req.Params)
+		require.NoError(t, conn.WriteJSON(map[string]any{"id": req.ID, "result": map[string]any{}}))
+		_, _ = conn.Read()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	drv, err := apidriver.Start(ctx, d, stdio, nil)
+	require.NoError(t, err)
+	defer func() { _ = drv.Close() }()
+	for range 3 {
+		select {
+		case <-drv.Events():
+		case <-ctx.Done():
+			require.FailNow(t, "a frame never arrived")
+		}
+	}
+
+	require.NoError(t, drv.Send(ctx, "interrupt", nil))
+
+	require.JSONEq(t, `{"fence":3,"label":"step","tag":"g3"}`, <-cancelParams)
 }

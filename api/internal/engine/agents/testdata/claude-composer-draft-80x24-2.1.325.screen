@@ -1,0 +1,23 @@
+Claude Code's fullscreen renderer didn't finish starting last time on this machi
+ne, so this launch is using the classic renderer. It will try fullscreen again n
+ext launch; /tui default keeps the classic renderer.
+ ▐▛███▛█   Claude Code v2.1.325
+▝▜██████▀  Sonnet 5.5 · Claude Ultra
+ ▝▝   ▝▝   /…/var/folders/3k/dm5s9q9j6y7_6z69f5yyyvmw0000gn/T/typedrec/cwd2
+
+
+────────────────────────────────────────────────────────────────────────────────
+❯ hello
+────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · r…
+  Est. usage: $0.00
+  ⏵⏵ auto mode on (shift+tab to cycle)
+
+
+
+
+
+
+
+
+

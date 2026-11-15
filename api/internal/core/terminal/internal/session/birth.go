@@ -196,6 +196,10 @@ func (s *Session) spawn(
 	s.model = m
 	s.serializer = ser
 	s.cols, s.rows, s.scrollback = cols, rows, sbLines
+	// A restore keeps its startup reset: the replayed modes belong to an app that is gone.
+	if len(redraw) == 0 {
+		s.latchForeground()
+	}
 	s.startResponseSink(s.ptmx)
 
 	go s.pump()

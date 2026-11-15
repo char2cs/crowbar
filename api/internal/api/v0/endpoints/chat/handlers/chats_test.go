@@ -348,6 +348,14 @@ func (configurableListGetUsecase) DispatchMCP(
 	return nil, false, nil
 }
 
+func (configurableListGetUsecase) DispatchRelayMCP(
+	_ context.Context,
+	_, _ string,
+	_ []byte,
+) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
 func (configurableListGetUsecase) PurgeChat(context.Context, string) error { return nil }
 
 func (configurableListGetUsecase) DescriptorReports(

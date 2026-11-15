@@ -80,14 +80,14 @@ func (rs *Runners) signal(ctx context.Context, carrier agents.Runner, r retracti
 }
 
 // cliHolds reports whether runnerID, the chat's live CLI, already holds pending
-// p: pushed over its connection, or launched over one, the provider has it. A
+// p: pushed or launched over its connection, or typed into its composer. A
 // steered prompt waits in the ledger for its turn's end; a PTY launch, its hook.
 func (rs *Runners) cliHolds(runnerID string, p ledger.Prompt) bool {
 	if p.RunnerID != runnerID {
 		return false
 	}
 	switch p.Delivery {
-	case ledger.DeliveryAPI:
+	case ledger.DeliveryAPI, ledger.DeliveryType:
 		return true
 	case ledger.DeliveryRestart:
 		return rs.HasLiveAPIConnection(runnerID)
