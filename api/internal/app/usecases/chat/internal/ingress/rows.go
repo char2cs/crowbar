@@ -38,6 +38,9 @@ type Source struct {
 	// Live is the runner's streamed text no row holds, for a turn's end, or
 	// what an event that ends the text before it records first.
 	Live Unrecorded
+	// EndsAtAction: the provider's messages are whole at its next action, so a
+	// whole row an action wrote is Crowbar's cut, and text after it continues it.
+	EndsAtAction bool
 }
 
 // Prompt is a user_prompt's words. Origin is OriginProvider for words a person
@@ -354,7 +357,7 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 // own, the hook's reply and its thought, and every ask nothing will answer now. One
 // message is one whole row; the reply is its last message's.
 func closingRows(st ledger.State, turnID, reply string, src Source, outlived bool) ([]ledger.Row, error) {
-	said, last := withReply(st, turnID, reply, unsaid(st, turnID, src.Live.Answers))
+	said, last := withReply(st, turnID, reply, unsaid(st, turnID, src))
 	rows, err := answerRows(turnID, said)
 	if err != nil {
 		return nil, err
@@ -415,13 +418,22 @@ func fuller(reply, streamed string) string {
 	return streamed
 }
 
-// unsaid are turnID's main-scope answers that streamed with no whole row.
-func unsaid(st ledger.State, turnID string, answers []liveText) []liveText {
+// unsaid are turnID's main-scope answers that streamed with no whole row. A
+// whole row cut at an action is said again with what streamed after it, which
+// is all a stream holds once its row is in.
+func unsaid(st ledger.State, turnID string, src Source) []liveText {
 	var out []liveText
-	for _, a := range answers {
-		if a.TurnID == turnID && a.Scope == "" && !st.HasChunk("", a.ID, ledger.IndexComplete) {
-			out = append(out, a)
+	for _, a := range src.Live.Answers {
+		if a.TurnID != turnID || a.Scope != "" {
+			continue
 		}
+		if st.HasChunk("", a.ID, ledger.IndexComplete) {
+			if !src.EndsAtAction {
+				continue
+			}
+			a.Text = st.WholeText("", a.ID) + a.Text
+		}
+		out = append(out, a)
 	}
 	return out
 }

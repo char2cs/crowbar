@@ -228,7 +228,8 @@ func (r *Recorder) prepare(
 		return []byte(stdout), ok && src.Channel == engineagents.ChannelHooks
 	}
 	src.Command = agent.PromptIsCommand
-	if endsText(ev.Kind) && agent.AnswerEndsAtAction() {
+	src.EndsAtAction = agent.AnswerEndsAtAction()
+	if endsText(ev.Kind) && src.EndsAtAction {
 		src.Live.Answers = r.live.unrecorded(chat.ID, runner.ID, "", KindAnswer)
 	}
 	var capability engineagents.AnswerCapability

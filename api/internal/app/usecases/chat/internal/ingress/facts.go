@@ -125,7 +125,7 @@ func textBefore(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 	if !ok {
 		return nil, nil
 	}
-	return answerRows(turnID, unsaid(st, turnID, src.Live.Answers))
+	return answerRows(turnID, unsaid(st, turnID, src))
 }
 
 // answerRows are turnID's main-scope messages as whole rows.

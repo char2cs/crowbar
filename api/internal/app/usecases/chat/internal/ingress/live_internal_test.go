@@ -482,3 +482,29 @@ func TestRecorder_AReplyThatNeverStreamedIsRecordedAfterTheCall(t *testing.T) {
 		})
 	}
 }
+
+// A call that ends a message too early, as a child's unscoped call can, leaves
+// the rest of it to stream: the message still reads whole, once.
+func TestRecorder_TextAfterAnEarlyCallStillJoinsItsMessage(t *testing.T) {
+	for name, tc := range map[string]struct {
+		then []engineagents.CanonicalEvent
+		said []string
+	}{
+		"at the next call": {[]engineagents.CanonicalEvent{
+			toolEvent(engineagents.HookToolPre, "t1", "ls"), toolEvent(engineagents.HookToolPost, "t1", "ls"),
+			answer("s2", "Done"), {Kind: engineagents.HookTurnStop, Message: "Done"},
+		}, []string{"Listing files", "Done"}},
+		"at the turn's end": {[]engineagents.CanonicalEvent{{Kind: engineagents.HookTurnStop}}, []string{"Listing files"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newRecorderFixture(t, "hermes")
+			f.dispatchOn(t, engineagents.ChannelAPI,
+				engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"},
+				answer("s1", "Listing "), toolEvent(engineagents.HookToolPre, "c1", "child"), answer("s1", "files"),
+			)
+			f.dispatchOn(t, engineagents.ChannelAPI, tc.then...)
+
+			assert.Equal(t, tc.said, said(f.rows(t)))
+		})
+	}
+}
