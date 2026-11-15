@@ -9,6 +9,8 @@ import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 import { wsUrl, isWebSocketCapable } from './url'
 import { reportChannelState, reportChannelFailure, reportChannelGone } from './connection-store'
 import { TauriWebSocket } from './tauri-transport'
+import { inShell } from './in-shell'
+import { openShellSocket } from './shell-socket'
 import { noteSocketOpened, probeDaemon } from './daemon-probe'
 import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 
@@ -71,11 +73,15 @@ function mayDial(hostId: string): boolean {
 // read as live forever. The local daemon is a unix socket away, with no network to lose.
 const REMOTE_READ_IDLE_TIMEOUT_MS = 60_000
 
-// The live transport for the active environment: the native WebSocket in the
-// browser, the unix-socket-bridged shim on desktop (where `crowbar://` has no
+// The live transport for the active environment: the shell's relay socket in the GPUI shell, the
+// native WebSocket in the browser, the unix-socket-bridged shim on desktop (where `crowbar://` has no
 // native WebSocket). A host-qualified endpoint dials that host.
 export function createTransport(endpoint: string): WSLike {
   const { hostId, path } = splitHostPath(endpoint)
+  if (inShell()) {
+    if (hostId !== LOCAL_HOST.id) throw new Error(`host "${hostId}" has no relay for this pane`)
+    return openShellSocket(path) as WSLike
+  }
   if (isTauri()) {
     if (hostId === LOCAL_HOST.id) return new TauriWebSocket(path)
     return new TauriWebSocket(path, { hostId, idleTimeoutMs: REMOTE_READ_IDLE_TIMEOUT_MS })

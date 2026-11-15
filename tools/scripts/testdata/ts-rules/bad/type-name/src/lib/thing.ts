@@ -1,0 +1,2 @@
+/** Doc. */
+export class Other {}

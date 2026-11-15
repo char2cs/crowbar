@@ -5,7 +5,12 @@ function strip(s) { gsub(/\\"/, "", s); gsub(/"[^"]*"/, "\"\"", s); return s }
 {
   raw = $0
   if (raw ~ /swiftlint:disable|swift-format-ignore/ && raw !~ / - /) report(NR, "lint-reason", "lint suppression without ' - reason'")
-  if (mode == "test") next
+  if (mode == "test") {
+    if (raw ~ /^[ \t]*func test[A-Za-z0-9_]*\(/) ntests++
+    if (raw ~ /cases|CASES/) table = 1
+    if (raw ~ /Thread\.sleep|Task\.sleep|URLSession\.shared|homeDirectoryForCurrentUser|NSHomeDirectory|Process\(\)/ && raw !~ /^[ \t]*\/\//) report(NR, "real-infra", "test touches real infrastructure: use an in-memory fake")
+    next
+  }
   if (raw ~ /^[ \t]*\/\/\//) { if (!pend) doc_line = NR; pend = 1; next }
   if (raw ~ /^[ \t]*@/ && raw !~ /(func|var|let|struct|class|enum) /) next
   isdecl = raw ~ /^[ \t]*((public|open|internal|private|fileprivate|final|static|override|mutating|indirect) +)*(func|struct|class|enum|actor|protocol|typealias|init|var|let|subscript)[ (]/
@@ -33,6 +38,7 @@ function strip(s) { gsub(/\\"/, "", s); gsub(/"[^"]*"/, "\"\"", s); return s }
   }
 }
 END {
+  if (mode == "test" && ntests > 2 && !table) report(1, "table-driven", ntests " test funcs and no cases table: one table, one behaviour per case")
   if (mode == "src") {
     if (n > 1) report(1, "multi-type", n " top-level types in one file: " names[1] ", " names[2] (n > 2 ? ", ..." : ""))
     if (n == 1 && names[1] != stem) report(1, "type-name", "type " names[1] " must live in " names[1] ".swift")

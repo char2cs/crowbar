@@ -21,5 +21,11 @@ impl HostToken {
 }
 
 #[cfg(test)]
-#[path = "host_token_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_blank_tokens() {
+        assert!(HostToken::parse("  ").is_none());
+    }
+}

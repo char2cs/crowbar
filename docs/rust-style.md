@@ -14,11 +14,11 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 
 | # | Rule | Enforcement |
 |---|------|-------------|
-| M1 | A signature or call that does not fit on one line puts one parameter or argument per line. Functions take at most 4 parameters; more means a struct (C-BUILDER). | fmt (`fn_params_layout = "Tall"`), lint `too_many_arguments` (threshold 4) |
-| M2 | At most 2 nesting levels inside a function body. | lint `excessive_nesting` (threshold in `clippy.toml`), `cognitive_complexity` <= 10 |
-| M3 | Guard clauses and early returns; no `else` after a branch that leaves. Use `let ... else`, `?`, `matches!`. | lint `redundant_else`, `manual_let_else`, `if_not_else`, `needless_continue`, `question_mark`, `collapsible_else_if` |
-| M4 | (Go named returns) Replaced by C-CUSTOM-TYPE and C-NEWTYPE: return named types, never anonymous tuples of more than two fields; no out-parameters (C-NO-OUT). | lint `type_complexity`, `needless_pass_by_ref_mut`; review |
-| M5 | A compound condition is bound to a named `let`/`fn` before the `if`. | lint `nonminimal_bool`; review |
+| M1 | Parameters: one per line, always (two or more parameters; `(` on the signature line, `)` on its own line). Functions take at most 4 parameters; more means a struct (C-BUILDER). | fmt (`fn_params_layout = "Vertical"`), lint `too_many_arguments` (threshold 4); script `param-layout`, `param-count` |
+| M2 | At most 2 nesting levels inside a function body (the body is level 1, a block inside it level 2, a block inside that is rejected). `match` itself adds no level (arms are aligned with it, like Go `switch`); an arm block does. The `mod tests` wrapper is not a level: depth is counted from the function. | script `depth` (authority); lint `excessive_nesting` (threshold 3, a backstop: clippy counts the fn body as depth 1), `cognitive_complexity` <= 10 |
+| M3 | Guard clauses and early returns; no `else` at all (`let ... else` is a guard and allowed). Use `?`, `matches!`, early `return`. | script `else`; lint `redundant_else`, `manual_let_else`, `question_mark`, `collapsible_else_if` |
+| M4 | (Go named returns) Rust analog: no mutable accumulator (`let mut result/out/acc ...`) returned at the end; return a named expression or type, never an anonymous tuple of more than two fields; no out-parameters (C-NO-OUT). Rust has no naked returns. | script `named-return`; lint `let_and_return`, `type_complexity`, `needless_pass_by_ref_mut` |
+| M5 | A compound condition (two or more `&&`/`||`) is bound to a named `let`/`fn` before the `if`. | script `long-condition`; lint `nonminimal_bool` |
 | M6 | Prefer iterator adapters over hand loops (`map`, `filter`, `find`, `any`, `fold`, `collect`). | lint `needless_range_loop`, `manual_filter_map`, `manual_find`, `manual_flatten`, `explicit_iter_loop` (all in `all`/`pedantic`) |
 | M7 | Comments: no inline narrative `//` comments, no doc comments on private items, a doc comment on every `pub` item (summary line, `# Errors`, `# Panics`, `# Safety`, example where it clarifies; C-CRATE-DOC, C-FAILURE, C-LINK). The only allowed `//` comments start with `SAFETY:`, `SPEC:` (link to a spec or RFC), `PLATFORM:` (platform constraint) or `DEPRECATED:`. | lint `missing_docs`, `missing_errors_doc`, `missing_panics_doc`, `missing_safety_doc`, `undocumented_unsafe_blocks`; script `comment`, `doc-private` |
 
@@ -29,8 +29,8 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 | M8 | One type (`struct`, `enum`, `trait`, `union`) per file, in a file named after it in `snake_case` (`HostToken` in `host_token.rs`). A type alias, constants and the type's `impl` blocks live with it. An error type lives in `error.rs` as `Error` (path `transport::Error`, C-GOOD-ERR). | script `multi-type`, `type-name`; lint `module_name_repetitions` |
 | M9 | Errors are a `thiserror` enum named `Error` in `error.rs`; variants carry the source (`#[from]`/`#[source]`) and context fields. `anyhow` only in binary crates (`app/desktop/app`). | lint `error_impl_error` is not enabled on purpose; script `cargo-anyhow`; review |
 | M10 | A crate's entry function or entry type lives in a file named after the crate (`transport.rs` in crate `transport`); `lib.rs` contains only `mod`, `pub use` and crate docs (`//!`). `main.rs` stays thin (parse, build, run). | script `lib-decl`; review |
-| M11 | A type with no state (no fields, or only unit use) is a free function in a module, not a struct with methods. | lint `unused_self`, `trivially_copy_pass_by_ref`; review |
-| M12 | `new()` exists only when the type has real state to validate or establish; otherwise a struct literal or `Default` (C-CTOR). Fallible construction returns `Result`. | lint `new_without_default`, `new_ret_no_self`; review |
+| M11 | A type with no state (no fields, or only unit use) is a free function in a module, not a struct with methods. | script `stateless-type`; lint `unused_self`; review |
+| M12 | `new()` exists only when the type has real state to validate or establish (a parameterless `new()` is rejected); otherwise a struct literal or `Default` (C-CTOR). Fallible construction returns `Result`. | script `new-stateless`; lint `new_without_default`, `new_ret_no_self` |
 | M13 | The public API exposes traits (or concrete types with private fields, C-STRUCT-PRIVATE) and keeps implementations private; sealed traits where downstream impls must be blocked (C-SEALED). | lint `unreachable_pub`; review |
 
 ### III. Modules (Rust form of Go `internal/`)
@@ -57,10 +57,10 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 | # | Rule | Enforcement |
 |---|------|-------------|
 | M29 | Intent-revealing names; no abbreviations, no `tmp`/`data`/`info` (`foo`, `baz`, `tmp` rejected). | lint `disallowed_names`; review |
-| M30 | A function does one thing and is under 40 lines. | lint `too_many_lines` (threshold 40), `cognitive_complexity` |
+| M30 | A function does one thing and is under 40 lines. | lint `too_many_lines` (threshold 40), `cognitive_complexity`; script `fn-length` |
 | M31 | Single responsibility per type and module (M8 makes it visible). | review |
-| M32 | No magic numbers or strings: named `const` or a config field with a doc. | review (no lint exists) |
-| M33 | No `bool` flag parameters: use an enum or two functions (C-CUSTOM-TYPE). At most 2 bools per struct. | lint `fn_params_excessive_bools` (max 0), `struct_excessive_bools` (max 2) |
+| M32 | No magic numbers or strings: named `const` or a config field with a doc. Numbers other than 0, 1, 2, 10, 100 outside `const`/`static` and tests are rejected; magic strings are found by sampled review. | script `magic-number`; review |
+| M33 | No `bool` flag parameters: use an enum or two functions (C-CUSTOM-TYPE). At most 2 bools per struct. | script `bool-param`; lint `fn_params_excessive_bools` (max 0), `struct_excessive_bools` (max 2) |
 | M34 | Command-query separation: a fn either returns a value or changes state, not both; getters take `&self` (C-GETTER). | review; lint `needless_pass_by_ref_mut` |
 | M35 | No hidden side effects: a fn named like a query does no I/O; I/O sits behind a trait. | review |
 | M36 | Duplicate once, extract on the third repetition. | review |
@@ -71,48 +71,31 @@ Numbers match the owner manifest (M#) so a finding can cite either.
 
 | # | Rule | Enforcement |
 |---|------|-------------|
-| M39 | Table-driven: a `const CASES: &[(...)]` or array of structs and one loop, `rstest`-style only if already a dependency. | review |
-| M40 | Test the public interface. Unit tests in `foo_tests.rs` may use `use super::*` to reach the file's items, but assert on observable behaviour; integration tests in `tests/` use the crate API only. | review |
-| M41 | No real infrastructure by default (no network, daemon, display, home directory). Fakes in `tests/support/` or `src/test_support/`. Tests needing a real service are `#[ignore = "needs <thing>"]` and run by an explicit CI job. No `sleep`; wait on channels, `tokio::time::pause`, or a deadline loop. | lint `disallowed_methods` is configured for `std::thread::sleep`/`tokio::time::sleep` in tests; review |
+| M39 | Table-driven: a `const CASES: &[(...)]` or array of structs and one loop, one behaviour per case. A test module with more than two `#[test]` fns and no `CASES`/`cases` table is rejected. | script `table-driven` |
+| M40 | Test the public interface: unit tests sit in the file's `mod tests` and assert observable behaviour of the file's public items; integration tests in `tests/` use the crate API only. | review (sampled) |
+| M41 | No real infrastructure by default (no network, daemon, display, home directory, child process). Fakes in `tests/support/` or `src/test_support/`. Tests needing a real service are `#[ignore = "needs <thing>"]` and run by an explicit CI job. No `sleep`; wait on channels, `tokio::time::pause`, or a deadline loop. | script `real-infra`; lint `disallowed_methods` for sleep |
 
 ### VII. Files
 
 | # | Rule | Enforcement |
 |---|------|-------------|
-| M42 | Every source file `src/foo.rs` that contains a function has exactly one test file beside it: `src/foo_tests.rs`, wired in `foo.rs` by the three lines below. All of `foo.rs`'s unit tests live there. | script `test-missing`, `test-unwired` |
-| M43 | No free test files: a `*_tests.rs` without its `foo.rs`, `#[test]` inside a source file, an inline `mod tests { }`, `#[cfg(test)]` helpers in source, or a `tests/x.rs` without a source counterpart is rejected. | script `test-orphan`, `test-inline`, `test-in-src`, `cfg-test` |
-| M44 | A source file is at most **500 lines**, no exceptions (tests, the fixture directory and vendored code excepted). | script `size` |
+| M42 | 1:1 tests: every source file `src/foo.rs` that contains a function holds its unit tests in `#[cfg(test)] mod tests { use super::*; ... }` at the bottom of that same file. Glue files with no logic are listed in `tools/scripts/rust-test-exemptions.txt`, which only shrinks. | script `test-missing` |
+| M43 | No free test files: `*_tests.rs`, `tests.rs`, `#[path]` wiring, `#[test]` outside the file's `mod tests`, and any `#[cfg(test)]` other than `mod tests {` / `mod test_support;` are rejected. `tests/<concern>.rs` is allowed only for public-API integration tests and needs `src/<concern>.rs` or the crate name. | script `test-sibling`, `test-in-src`, `cfg-test`, `test-orphan` |
+| M44 | A source file is at most **500 lines**, counted without blank lines, doc comments and the `#[cfg(test)] mod tests` block. No exceptions. | script `size` |
 | M45 | A file that outgrows 500 lines is the wrong abstraction: split by concept (M8), never by trimming comments or lines. | review |
 
-## The test-file mapping (decision)
+## The test-file mapping (decision of 2026-11-15)
 
 ```
-crates/transport/src/host_token.rs        the code
-crates/transport/src/host_token_tests.rs  all unit tests for host_token.rs
-crates/transport/tests/transport.rs       public-API tests of the crate entry (src/transport.rs, or the crate name)
-crates/transport/tests/host_token.rs      public-API tests aimed at host_token.rs, only if it is part of the public API
+crates/transport/src/host_token.rs        the code, with `#[cfg(test)] mod tests { use super::*; ... }` at the bottom
+crates/transport/tests/transport.rs       public-API tests of the crate (needs src/transport.rs or the crate name)
 crates/transport/tests/support/*.rs       shared fakes and fixtures for tests/
-crates/transport/src/test_support/*.rs    shared fakes for unit tests (declared once under #[cfg(test)] in lib.rs)
+crates/transport/src/test_support/*.rs    shared fakes for unit tests (declared once as `#[cfg(test)] mod test_support;` in lib.rs)
 ```
 
-`host_token.rs` ends with exactly:
+The unit tests of a file live in that file, so the test is always beside the code it covers and reaches its private items. The 500-line ceiling does not count the test module. Test code is still subject to the structure rules (depth, parameters, comments, `else`); only `unwrap`/`expect`/`panic` and magic numbers are allowed in tests (`clippy.toml` `allow-*-in-tests`, script test regions).
 
-```rust
-#[cfg(test)]
-#[path = "host_token_tests.rs"]
-mod tests;
-```
-
-Why this shape: the test file sits beside the code (the owner's "beside" rule, like Go's `foo_test.go`); `#[path]` keeps the modern `foo.rs` + `foo/` layout without `foo/tests.rs` hiding it in a folder, and the child module can reach private items of its parent, so unit tests stay unit tests. `mod.rs` is banned (lint `mod_module_files`).
-
-Exceptions, all enforced by the same script (nothing else is exempt):
-
-- `lib.rs`: declaration-only (`mod`, `pub use`, `//!`); the script rejects any `fn`/`impl`/type in it, so it needs no test file. Its public surface is covered by `tests/<crate>.rs`.
-- `main.rs`, `build.rs`, `src/bin/*.rs`: thin entry points, no counterpart required (any logic they hold moves to a module).
-- A source file with no `fn` at all (pure type or constants file) needs no test file.
-- `tests/support/` and `src/test_support/`: shared fakes, not test files; they hold no `#[test]`.
-- An integration test `tests/x.rs` must have `src/x.rs` or `x` must be the crate directory name.
-- Source files may hold no `#[test]`; test files hold no non-test code.
+Exceptions, all in the script: `lib.rs` is declaration-only; `main.rs`, `build.rs`, `src/bin/*.rs` are thin entry points; a file with no `fn` needs no tests; `rust-test-exemptions.txt` lists glue files (GPUI view wiring) that cannot be unit tested, and only shrinks. `tools/scripts/inline-rust-tests.sh DIR...` migrates sibling `*_tests.rs` files mechanically.
 
 ## Public surface
 
@@ -183,9 +166,10 @@ await_holding_refcell_ref = "deny"
 tools/scripts/check-rust-rules.sh              # structure rules over app/
 tools/scripts/check-rust-rules.sh --self-test  # checker against its fixtures
 tools/scripts/check-rust-rules.sh --full       # also fmt, clippy, deny, machete when installed (missing tool = failure)
+tools/scripts/check-standards.sh              # Rust + Swift + TypeScript in one run
 ```
 
-CI wiring belongs to the CI agent: run `--full` on the Linux and macOS runners.
+`check-standards.sh` is a required CI job; `--full` also runs on the Linux and macOS runners.
 
 ## Notes
 

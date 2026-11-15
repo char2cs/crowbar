@@ -43,7 +43,7 @@ Output per crate: verdict (pass / fail), findings table (severity, file:line, ru
 - Intra-doc links resolve (`cargo doc --no-deps` clean with `-D warnings`).
 
 ## 7. Tests (M39-M43)
-- Every source file with a function has `<file>_tests.rs`; no free tests, no inline `mod tests {}`.
+- Every source file with a function has an inline `#[cfg(test)] mod tests { use super::*; }` at the bottom; no `*_tests.rs`, no `#[path]` wiring, no `#[test]` outside that module.
 - Tests are table-driven and assert behaviour through the public interface; errors paths and cancellation are covered, not only the happy path.
 - No real network, daemon, display or home directory by default; no `sleep`; deterministic clocks and channels.
 - No test written only for coverage; no `#[ignore]` without a reason and a CI job that runs it.

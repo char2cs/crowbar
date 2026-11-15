@@ -8,6 +8,8 @@ import { problemOf } from '@/lib/errors/problem'
 import { splitHostPath } from '@/lib/host-path'
 import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
+import { inShell } from '@/lib/ws/in-shell'
+import { openShellSocket } from '@/lib/ws/shell-socket'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { IS_MOBILE } from '@/utils/platform'
@@ -166,6 +168,11 @@ export class TerminalConnection {
 // remote chat's terminals are built on carries its host.
 function openSocket(qualified: string): TerminalSocket {
   const { hostId, path } = splitHostPath(qualified)
+  if (inShell()) {
+    const shellSocket = openShellSocket(path)
+    shellSocket.binaryType = 'arraybuffer'
+    return shellSocket as unknown as TerminalSocket
+  }
   if (isTauri()) {
     return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS, hostId })
   }

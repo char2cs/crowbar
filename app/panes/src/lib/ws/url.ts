@@ -1,5 +1,6 @@
 import { isTauri } from '@/lib/crowbar-bridge'
 import { apiBaseFor } from '@/lib/api/fetch'
+import { inShell } from '@/lib/ws/in-shell'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 
@@ -20,10 +21,10 @@ export function wsUrl(path: string, hostId = 'local'): string {
 }
 
 // Whether live streaming is available: on desktop ws_bridge carries any `/v0/...` WS route over
-// the unix socket via TauriWebSocket; in the browser only http(s)/ws(s) bases can. When false,
+// the unix socket via TauriWebSocket, and the GPUI shell's relay carries them for its panes; in the browser only http(s)/ws(s) bases can. When false,
 // callers skip live channels and features degrade to HTTP only.
 export function isWebSocketCapable(): boolean {
-  if (isTauri()) return true
+  if (isTauri() || inShell()) return true
   const base = crowbar?.api || import.meta.env.VITE_API_URL || window.location.origin
   return /^(https?|wss?):\/\//i.test(base)
 }

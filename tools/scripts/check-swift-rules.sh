@@ -10,7 +10,10 @@ max_lines=500
 status=0
 
 fail() { echo "$1"; status=1; }
-check_file() { awk -v file="$1" -v mode="$3" -v stem="$4" -f "$awk_file" "$2" || status=1; }
+check_file() {
+  awk -v file="$1" -v mode="$3" -v stem="$4" -f "$awk_file" "$2" || status=1
+  awk -v file="$1" -v lang=swift -v mode="$3" -f "$here/brace-rules.awk" "$2" || status=1
+}
 
 scan_package() {
   local root=${1%/} rel base stem lines tdir comp
@@ -28,7 +31,7 @@ scan_package() {
         check_file "$rel" "$root/$rel" test "$stem"; continue ;;
       Tests/*) fail "$rel:1: [test-orphan] test files are named <Source>Tests.swift"; continue ;;
     esac
-    lines=$(wc -l <"$root/$rel")
+    lines=$(grep -cvE '^[[:space:]]*(///?.*)?$' "$root/$rel")
     ((lines > max_lines)) && fail "$rel:1: [size] $lines lines (max $max_lines); split by concept"
     check_file "$rel" "$root/$rel" src "$stem"
     if grep -qE '^[[:space:]]*((public|open|internal|private|fileprivate|static|override|mutating) +)*func[[:space:]]' "$root/$rel" \

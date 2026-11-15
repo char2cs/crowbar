@@ -1,0 +1,46 @@
+/// Works.
+pub fn work() {
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+    run();
+}
+#[cfg(test)]
+mod tests {}

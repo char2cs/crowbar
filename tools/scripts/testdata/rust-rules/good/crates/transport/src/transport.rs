@@ -14,5 +14,12 @@ pub fn connect(token: &HostToken) -> Result<(), Error> {
 }
 
 #[cfg(test)]
-#[path = "transport_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_a_valid_token() {
+        let token = HostToken::parse("ok").unwrap();
+        assert!(connect(&token).is_ok());
+    }
+}

@@ -4,6 +4,7 @@ import { UNREACHED } from '@/lib/errors/report'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 import { isTauri } from '@/lib/crowbar-bridge'
+import { inShell } from '@/lib/ws/in-shell'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 import { LOCAL_HOST } from '@/features/hosts/types'
@@ -20,7 +21,7 @@ function localApiBase(): string {
  *  the desktop app (its bridge, crowbar://<hostId>, completes the pinned-TLS dial). */
 export function apiBaseFor(hostId: string): string {
   if (hostId === LOCAL_HOST.id) return localApiBase()
-  if (!isTauri()) {
+  if (!isTauri() && !inShell()) {
     throw new Error(`remote host "${hostId}" is only reachable from the desktop app`)
   }
   const known = useHostConfigStore.getState().hosts.some((h) => h.id === hostId)

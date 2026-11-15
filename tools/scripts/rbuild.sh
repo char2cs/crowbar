@@ -39,8 +39,14 @@ fi
 
 (($# > 0)) || { echo "usage: rbuild.sh <command...> | --reset" >&2; exit 2; }
 
-exec 9>"$lock"
-flock 9
+needs_lock=1
+case "${1:-} ${2:-}" in
+  "cargo fmt" | "rustfmt "*) needs_lock=0 ;;
+esac
+if ((needs_lock)); then
+  exec 9>"$lock"
+  flock 9
+fi
 if [[ $(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || echo false) != true ]]; then
   create_builder
 fi

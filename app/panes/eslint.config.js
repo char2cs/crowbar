@@ -126,7 +126,7 @@ export default tseslint.config(
   // Build output — a standalone `ignores` entry is a global ignore in flat
   // config. Without it `eslint .` walks compiled bundles in dist/.
   // Generated files are ignored too: their headers carry blanket disables.
-  { ignores: ['dist/**', 'public/mockServiceWorker.js', 'src/routeTree.gen.ts'] },
+  { ignores: ['dist/**', 'dist-panes/**', 'public/mockServiceWorker.js', 'src/routeTree.gen.ts'] },
   {
     // Node build scripts run under Node, not the browser — give them the Node
     // globals (console/process/__dirname) so no-undef doesn't flag them.

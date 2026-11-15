@@ -22,7 +22,10 @@ class MockNativeWebSocket {
   send = vi.fn()
   close = vi.fn()
   addEventListener = vi.fn()
-  constructor(public url: string) {
+  constructor(
+    public url: string,
+    public protocols?: string[],
+  ) {
     MockNativeWebSocket.instances.push(this)
   }
 }
@@ -95,6 +98,30 @@ describe('WSManager transport selection', () => {
     mgr.subscribe('/v0/projects/p/repos/r/workspaces', cb)
     tauriInstances[0].onmessage?.({ data: '{"id":"ws-1"}' })
     expect(cb).toHaveBeenCalledWith({ id: 'ws-1' })
+  })
+})
+
+describe('WSManager in the GPUI shell', () => {
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).crowbar
+    delete (window as unknown as Record<string, unknown>).__CROWBAR__
+  })
+
+  it('dials the shell relay with the pane token as a subprotocol', () => {
+    const win = window as unknown as Record<string, unknown>
+    win.crowbar = { post: vi.fn(), onmessage: null }
+    win.__CROWBAR__ = {
+      api: 'crowbar://local',
+      host: 'local',
+      ws: { url: 'ws://127.0.0.1:4100', token: 'abc' },
+    }
+    createWSManager().subscribe('/v0/stream', vi.fn())
+    expect(MockNativeWebSocket.instances).toHaveLength(1)
+    expect(MockNativeWebSocket.instances[0]).toMatchObject({
+      url: 'ws://127.0.0.1:4100/v0/stream',
+      protocols: ['crowbar.relay.v1', 'crowbar.token.abc'],
+    })
+    expect(tauriInstances).toHaveLength(0)
   })
 })
 

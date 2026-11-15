@@ -56,6 +56,8 @@ Source of truth for every language in this repository. The owner does not merge 
 41. No test touches real infrastructure by default. Use in-memory fakes.
 
 ## VII. Files
+Note for Rust (owner decision 2026-11-15): `x_test.go` maps to an inline `#[cfg(test)] mod tests { ... }` at the bottom of `x.rs`; the 500-line ceiling counts only the non-test part of the file; `tests/<concern>.rs` is for public-API integration tests only.
+
 42. 1:1 tests. Every source file `x.go` has exactly one test file `x_test.go` beside it. All tests for the code in `x.go` live in `x_test.go`.
 43. No free test files. A `_test.go` file with no matching source file must not exist. No `misc_test.go`, `integration_test.go`, or tests grouped by feature.
 44. Size ceiling. Source files stay under 500 to 600 lines of code, with no exceptions. Test files are exempt.
