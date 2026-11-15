@@ -129,8 +129,7 @@ func (s *WorktreeSuite) mergeIntoParent(childID, chatID, strategy string) string
 	resp := s.Env.POST(s.T(), s.repoChatBase(chatID)+"/merge-into-parent", map[string]any{
 		"strategy": strategy,
 	})
-	kit.RequireStatus(s.T(), resp, http.StatusAccepted)
-	resp.Body.Close()
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(s.T(), resp, 30*time.Second).State)
 	merged := kit.WaitForWorkspace(s.T(), watcher, childID, 10*time.Second, func(m map[string]any) bool {
 		fp, _ := m["forkPointSha"].(string)
 		return fp != "" && fp != preMergeFork
@@ -199,8 +198,7 @@ func (s *WorktreeSuite) TestWorktree_mergeDeleteSourceRemovesChild() {
 		"strategy":     "merge",
 		"deleteSource": true,
 	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(t, resp, 30*time.Second).State)
 
 	// Merge runs, then the child is cascade-deleted: its owning chat's purge,
 	// the cascade's last step, is the completion signal.
@@ -235,8 +233,7 @@ func (s *WorktreeSuite) TestWorktree_mergeDeleteSourceKeepsNonLeafChild() {
 		"strategy":     "merge",
 		"deleteSource": true,
 	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(t, resp, 30*time.Second).State)
 
 	// Wait for the merge to finalize (child fork point advances). The non-leaf
 	// child is then kept — no deleted tombstone follows.
@@ -304,8 +301,7 @@ func (s *WorktreeSuite) TestWorktree_reparent() {
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{
 		"newParentId": parentBID,
 	})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(t, resp, 30*time.Second).State)
 	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
 		return m["parentId"] == parentBID && m["forkPointSha"] == parentBTip
 	})
@@ -334,8 +330,7 @@ func (s *WorktreeSuite) TestWorktree_reparentConflictMovesButStaysClean() {
 
 	watcher := s.Env.HoldProjects(t)
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{"newParentId": parentBID})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(t, resp, 30*time.Second).State)
 
 	// Moved under parentB AND flagged as conflicting.
 	moved := kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
@@ -372,18 +367,16 @@ func (s *WorktreeSuite) TestWorktree_rebaseOntoParentConflictKeepsForResolve() {
 	watcher := s.Env.HoldProjects(t)
 	// Move it under parentB: conflict → moved-but-conflicting, clean worktree.
 	resp := s.Env.POST(t, s.repoChatBase(childChatID)+"/reparent", map[string]any{"newParentId": parentBID})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
+	// The row reads moved-and-conflicting before the reparent settles; a workspace
+	// runs one hierarchy verb at a time, so the next one waits on the operation.
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(t, resp, 30*time.Second).State)
 	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
 		return m["parentId"] == parentBID && m["mergeConflicts"] == true
 	})
 
 	// User clicks "Rebase onto parent" → keep the conflict for resolution.
-	// The row is already pr-conflicts from the reparent above, so wait on the
-	// op's real outcome (the persisted fork point), not the status alone.
 	resp2 := s.Env.POST(t, s.repoChatBase(childChatID)+"/rebase-onto-parent", map[string]any{})
-	kit.RequireStatus(t, resp2, http.StatusAccepted)
-	resp2.Body.Close()
+	s.Require().Equal(domain.OpSucceeded, s.Env.AwaitOperation(t, resp2, 30*time.Second).State)
 	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
 		return m["status"] == "pr-conflicts" && m["forkPointSha"] == parentBTip
 	})
@@ -552,8 +545,10 @@ func (s *WorktreeSuite) TestWorktree_deleteCascadeSkipsLockedChild() {
 
 	rootWatcher := s.Env.HoldProjects(t)
 	resp := s.Env.DELETE(t, s.repoChatBase(rootChatID))
-	kit.RequireStatus(t, resp, http.StatusAccepted)
-	resp.Body.Close()
+	kit.RequireStatus(t, resp, http.StatusOK)
+	var deleted map[string]any
+	kit.DecodeEnvData(t, resp, &deleted)
+	s.Require().Empty(deleted["takenChatIds"], "the locked child's chat is not taken with the root")
 	// DeleteChat reaps rootID's worktree, then purges rootChatID: the chat
 	// going is the signal the delete landed.
 	rootWatcher.Next(t, 5*time.Second, stream.KindChatEntity, func(m map[string]any) bool {
