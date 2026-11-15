@@ -4,12 +4,14 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/apidriver"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
 // A captured number reaches a later call as a JSON number when its template is exactly
@@ -117,4 +119,30 @@ func TestEstablishSession_TheShippedGatewayRefusalIsALostSession(t *testing.T) {
 			assert.Equal(t, tc.lost, errors.Is(err, apidriver.ErrSessionLost), err.Error())
 		})
 	}
+}
+
+// A value remembered from the dropped connection's frames belongs to the session as it
+// ran there: after the resume an outbound call must not fence on it.
+func TestReconnect_ARememberedFrameValueDoesNotOutliveTheConnection(t *testing.T) {
+	first, second := newLink(), newLink()
+	d := reconnectDescriptor()
+	d.Runtime.API.Remember = []spec.FrameCapture{{In: spec.WireRef{"note"}, Capture: map[string]string{"fence": "gen"}}}
+	d.Events["interrupt"] = spec.EventSpec{Out: spec.WireRef{"cancel"}, Send: map[string]any{"id": "{captured.fence}"}}
+	rc := apidriver.Reconnect{Max: 3, Backoff: time.Second, Sleep: instantSleep(make(chan time.Duration, 4))}
+	drv, err := apidriver.StartDial(t.Context(), d, dialer(first, second), rc, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = drv.Close() })
+	handshakeCalls(t, first)
+	_, err = drv.EstablishSession(t.Context(), "prompt", nil)
+	require.NoError(t, err)
+	first.next(t, "open:")
+	first.in <- []byte(`{"method":"note","params":{"gen":"g3"}}`)
+	require.Equal(t, "notification", nextEvent(t, drv).Canonical)
+
+	first.drop()
+	handshakeCalls(t, second)
+	second.next(t, "enter:s1")
+	require.NoError(t, drv.Send(t.Context(), "interrupt", nil))
+
+	second.next(t, "cancel:")
 }

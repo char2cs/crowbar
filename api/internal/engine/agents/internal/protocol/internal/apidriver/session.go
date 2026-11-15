@@ -98,14 +98,15 @@ func (drv *Driver) sessionLost(err error) bool {
 }
 
 // reopen is the value set a re-establish runs with: the session's birth values
-// overlaid with the caller's. It clears established and all of remembered (a
-// turn_id among them), which belong to the session being left.
+// overlaid with the caller's. It clears established, all of remembered (a
+// turn_id among them) and the frame values, which belong to the session being left.
 func (drv *Driver) reopen(values map[string]string) map[string]string {
 	drv.mu.Lock()
 	out := cloneValues(drv.birth)
 	drv.established = false
 	drv.remembered = map[string]string{}
 	drv.literals = map[string]bool{}
+	drv.frameValues = map[string]frameValue{}
 	drv.mu.Unlock()
 
 	for k, v := range values {

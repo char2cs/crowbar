@@ -56,3 +56,21 @@ a failed interrupt would brick the chat. Until resume identity is stable, Stop k
 its current order: the turn is recorded as stopped first, and a failed interrupt
 leaves the provider running. The Stop-ordering change lands after the resume-identity
 fix (separate plan).
+
+## To verify live
+
+The fence keeps the last `execution_generation` any event frame on the connection carried.
+`remember:` runs on every frame before the ingress filters by session, and it keeps the
+latest value, not the highest. Neither is a risk in the code or the recorded frames (each
+runner's frames name only its own session, and generations only rise), but both depend on
+gateway behaviour nobody has checked:
+
+- whether one `gateway attach` connection ever carries frames of another session
+  (a second chat on the same gateway, or a delegated child under its own session id);
+- whether a late frame of an interrupted generation can arrive after the next
+  generation's first frame;
+- whether a delegated child's `agent.step` frames, which carry the parent's session id,
+  move the parent's `step` capture.
+
+If any of these happens, the generic guard is a `remember:` entry that only keeps a frame
+whose session field equals the connection's session id.
