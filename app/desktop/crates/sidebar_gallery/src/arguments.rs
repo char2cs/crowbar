@@ -110,3 +110,38 @@ impl Arguments {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_drag(drag: Option<&str>) -> Arguments {
+        Arguments {
+            theme: ThemeId::Crowbar,
+            mode: ThemeMode::Dark,
+            size: DEFAULT_SIZE,
+            data: String::new(),
+            panel: Mode::Chats,
+            width: None,
+            closed: false,
+            drag: drag.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn sizes_and_drags_parse_from_their_flags() {
+        assert_eq!(parse_size("800x600"), Some((800.0, 600.0)));
+        assert_eq!(parse_size("800"), None);
+        let want = Some((RowId::from("a"), RowId::from("b"), DropMode::After));
+        assert_eq!(with_drag(Some("a:b:after")).drag(), want);
+        assert_eq!(with_drag(Some("a")).drag(), None);
+        assert_eq!(with_drag(None).drag(), None);
+    }
+
+    #[test]
+    fn a_closed_gallery_starts_with_the_sidebar_closed() {
+        let mut arguments = with_drag(None);
+        arguments.closed = true;
+        assert_eq!(arguments.preferences().visibility, Visibility::Closed);
+    }
+}

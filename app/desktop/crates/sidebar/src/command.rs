@@ -104,4 +104,87 @@ pub enum Command {
     },
     /// Fold or unfold a directory of the Files panel.
     ToggleDirectory(String),
+    /// Create an empty file; the path is workspace-relative.
+    CreateFile {
+        /// The new file's path.
+        path: String,
+    },
+    /// Create a directory; the path is workspace-relative.
+    CreateDirectory {
+        /// The new directory's path.
+        path: String,
+    },
+    /// Copy a file or directory next to itself under a free name.
+    DuplicateFile {
+        /// The path to copy.
+        path: String,
+    },
+    /// Move a file or directory to `new_path`.
+    RenameFile {
+        /// The current path.
+        path: String,
+        /// The path after the rename.
+        new_path: String,
+    },
+    /// Delete a file or directory, after the sidebar's confirmation.
+    DeleteFile {
+        /// The path to delete.
+        path: String,
+    },
+    /// Copy a file or directory to `destination`, which must not exist yet.
+    CopyFile {
+        /// The path to copy.
+        path: String,
+        /// The path of the copy.
+        destination: String,
+    },
+    /// Take a folder out of a multi-folder workspace; its files stay on disk.
+    RemoveFolderFromWorkspace {
+        /// The folder.
+        path: String,
+    },
+    /// Put the file's text on the clipboard, read through the daemon.
+    CopyFileContent {
+        /// The file.
+        path: String,
+    },
+    /// Reload the listing of a directory; an empty path is the workspace root.
+    RefreshDirectory {
+        /// The directory.
+        path: String,
+    },
+    /// Open every file of a directory in tabs; an empty path is the workspace root.
+    OpenAllFiles {
+        /// The directory.
+        path: String,
+    },
+    /// Fold a directory and its subdirectories; an empty path folds the whole tree.
+    CollapseDirectory {
+        /// The directory.
+        path: String,
+    },
+    /// Open a terminal in a directory; an empty path is the workspace root.
+    OpenTerminalAt {
+        /// The directory.
+        path: String,
+    },
+    /// Pick a local file and copy it into a directory; an empty path is the workspace root.
+    UploadFile {
+        /// The destination directory.
+        path: String,
+    },
+    /// Open image generation for a directory.
+    GenerateImage {
+        /// The directory the image is saved in.
+        path: String,
+    },
+    /// Pick a folder to add to the workspace.
+    AddFolderToWorkspace,
+    /// Create `target` next to the env file `path`, with its values emptied.
+    CreateEnvTemplate {
+        /// The env file the template is made from.
+        path: String,
+        /// The file name to create, such as `.env.example`.
+        target: String,
+    },
 }

@@ -5,6 +5,8 @@ use std::time::Instant;
 use gpui::{Context, Pixels, Point, Window};
 
 use crate::command::Command;
+use crate::file_dialog::FileDialog;
+use crate::file_properties::FileProperties;
 use crate::foot_menu::foot_menu;
 use crate::intent::Intent;
 use crate::menu_context::MenuContext;
@@ -71,6 +73,23 @@ impl Sidebar {
                 Self::changed(cx);
             },
             Intent::StartCreateSpace => self.creating_space = true,
+            Intent::StartFileRename(path) => self.start_file_rename(path, window, cx),
+            Intent::StartFileCreate { dir, entry } => {
+                self.start_file_create((dir, entry), window, cx);
+            },
+            Intent::RequestFileDelete { path, is_dir } => {
+                self.tree.files.show(FileDialog::Delete { path, is_dir });
+            },
+            Intent::ShowProperties(path) => {
+                let properties = FileProperties::of(&path);
+                self.tree.files.show(FileDialog::Properties(properties));
+            },
+            Intent::StageFile { path, mode } => self.stage_file(path, mode),
+            Intent::PasteFiles { dir } => self.paste_files(&dir, cx),
+            Intent::SelectFile(path) => {
+                self.files_focus.focus(window);
+                self.tree.files.selected = Some(path);
+            },
             Intent::Send(command) => self.send(command, cx),
         }
         cx.notify();

@@ -7,11 +7,25 @@ use crate::command::Command;
 use crate::edit_outcome::EditOutcome;
 use crate::editing::Editing;
 use crate::error::Error;
+use crate::expansion::Expansion;
+use crate::file_kind::FileKind;
 use crate::inline_edit::InlineEdit;
+use crate::new_entry::NewEntry;
+use crate::path_text::{base, join, parent};
 use crate::row_id::RowId;
 use crate::sidebar::Sidebar;
 
 const BRANCH_PLACEHOLDER: &str = "branch-name";
+
+fn creation(
+    path: String,
+    entry: NewEntry,
+) -> Command {
+    match entry {
+        NewEntry::File => Command::CreateFile { path },
+        NewEntry::Folder => Command::CreateDirectory { path },
+    }
+}
 
 impl Sidebar {
     pub(crate) fn start_rename(
@@ -47,6 +61,39 @@ impl Sidebar {
     ) {
         self.tree.start_draft(id);
         self.open_field((id.clone(), "", BRANCH_PLACEHOLDER), window, cx);
+    }
+
+    pub(crate) fn start_file_rename(
+        &mut self,
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let name = base(&path).to_owned();
+        let owner = RowId::from(path.as_str());
+        self.tree.start_file_rename(path);
+        self.open_field((owner, &name, ""), window, cx);
+    }
+
+    pub(crate) fn start_file_create(
+        &mut self,
+        (dir, entry): (String, NewEntry),
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let collapsed = FileKind::Directory(Expansion::Collapsed);
+        if self
+            .data
+            .files()
+            .iter()
+            .any(|row| row.path == dir && row.kind == collapsed)
+        {
+            self.send(Command::ToggleDirectory(dir.clone()), cx);
+        }
+        let owner = RowId::from(dir.as_str());
+        self.tree.start_file_create(dir, entry);
+        let placeholder = entry.placeholder();
+        self.open_field((owner, "", placeholder), window, cx);
     }
 
     fn open_field(
@@ -133,6 +180,11 @@ impl Sidebar {
                 parent: parent.clone(),
                 name,
             },
+            Editing::RenamingFile(path) => Command::RenameFile {
+                path: path.clone(),
+                new_path: join(parent(path), &name),
+            },
+            Editing::Creating { dir, entry } => creation(join(dir, &name), *entry),
             _ => Command::Rename {
                 row: row.clone(),
                 name,
@@ -251,5 +303,78 @@ mod tests {
             name: "spike".into(),
         };
         assert_eq!(recorder.sent(), vec![expected]);
+    }
+    #[gpui::test]
+    fn renaming_a_file_sends_the_new_path_beside_the_old_one(cx: &mut TestAppContext) {
+        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.start_file_rename("src/lib.rs".into(), window, cx);
+        });
+        type_name(&sidebar, "core.rs", cx);
+        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        let expected = Command::RenameFile {
+            path: "src/lib.rs".into(),
+            new_path: "src/core.rs".into(),
+        };
+        assert_eq!(recorder.sent(), vec![expected]);
+    }
+
+    fn create_named(
+        sidebar: &gpui::Entity<Sidebar>,
+        (entry, name): (NewEntry, &str),
+        cx: &mut gpui::VisualTestContext,
+    ) {
+        sidebar.update_in(cx, |this, window, cx| {
+            this.start_file_create(("src".into(), entry), window, cx);
+        });
+        type_name(sidebar, name, cx);
+        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+    }
+
+    #[gpui::test]
+    fn creating_in_a_directory_sends_a_file_or_a_folder_path(cx: &mut TestAppContext) {
+        let cases = [
+            (
+                NewEntry::File,
+                Command::CreateFile {
+                    path: "src/new".into(),
+                },
+            ),
+            (
+                NewEntry::Folder,
+                Command::CreateDirectory {
+                    path: "src/new".into(),
+                },
+            ),
+        ];
+        for (entry, expected) in cases {
+            let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+            create_named(&sidebar, (entry, "new"), cx);
+            assert_eq!(recorder.sent(), vec![expected], "{entry:?}");
+        }
+    }
+
+    #[gpui::test]
+    fn creating_at_the_root_uses_the_bare_name_and_an_empty_name_creates_nothing(
+        cx: &mut TestAppContext
+    ) {
+        let (recorder, sidebar, cx) = open(cx, DemoData::reference());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.start_file_create((String::new(), NewEntry::File), window, cx);
+        });
+        type_name(&sidebar, "  ", cx);
+        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        assert_eq!(recorder.sent(), Vec::<Command>::new());
+        sidebar.update_in(cx, |this, window, cx| {
+            this.start_file_create((String::new(), NewEntry::File), window, cx);
+        });
+        type_name(&sidebar, "top.rs", cx);
+        sidebar.update(cx, |this, cx| this.finish_edit(EditOutcome::Confirm, cx));
+        assert_eq!(
+            recorder.sent(),
+            vec![Command::CreateFile {
+                path: "top.rs".into()
+            }]
+        );
     }
 }

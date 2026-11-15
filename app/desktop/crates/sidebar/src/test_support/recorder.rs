@@ -85,6 +85,24 @@ impl SidebarData for Recorder {
         self.data.can_start_terminal_thread()
     }
 
+    fn serves(
+        &self,
+        command: &Command,
+    ) -> bool {
+        self.data.serves(command)
+    }
+
+    fn can_remove_folder(
+        &self,
+        path: &str,
+    ) -> bool {
+        self.data.can_remove_folder(path)
+    }
+
+    fn workspace_root(&self) -> Option<String> {
+        self.data.workspace_root()
+    }
+
     fn files(&self) -> Vec<FileRow> {
         self.data.files()
     }

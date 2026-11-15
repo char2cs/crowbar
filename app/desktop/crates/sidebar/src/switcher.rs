@@ -4,7 +4,6 @@ use gpui::{
     AnyElement, Context, Div, ElementId, FontWeight, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::font::HEADING_FAMILY;
 use ui::{Palette, Surface, Theme, Tooltip, hover_fill, radius};
 
 use crate::command::Command;
@@ -47,7 +46,8 @@ impl Sidebar {
             .filter(|project| project.id != current.id)
             .map(|project| Self::other_mark(project, palette, window, cx))
             .collect();
-        let block = active_block(current, Self::add_button(cx), reveal, palette);
+        let family = Theme::of(cx).heading_family();
+        let block = active_block(current, Self::add_button(cx), (reveal, family), palette);
         Some(
             div()
                 .id("switcher")
@@ -122,7 +122,7 @@ fn mark_tile(
 fn active_block(
     current: &Project,
     add: IconButton,
-    reveal: f32,
+    (reveal, family): (f32, &'static str),
     palette: &Palette,
 ) -> Div {
     let tile = div()
@@ -138,7 +138,7 @@ fn active_block(
         .flex_1()
         .min_w_0()
         .truncate()
-        .font_family(HEADING_FAMILY)
+        .font_family(family)
         .text_size(px(NAME_SIZE))
         .line_height(px(NAME_LINE))
         .font_weight(FontWeight::NORMAL)

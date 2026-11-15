@@ -15,6 +15,7 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
         let palette = Theme::of(cx).palette(Surface::Chrome);
+        let family = Theme::of(cx).ui_family();
         let shown = self.mode.shown(self.data.focus());
         let panel = match shown {
             Mode::Chats => self.chats_panel(width, window, cx),
@@ -32,7 +33,7 @@ impl Sidebar {
             .flex_none()
             .overflow_hidden()
             .text_color(palette.foreground())
-            .font_family(ui::font::UI_FAMILY)
+            .font_family(family)
             .child(header)
             .children(switcher)
             .child(bar)

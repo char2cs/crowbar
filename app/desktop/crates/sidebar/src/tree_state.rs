@@ -6,8 +6,10 @@ use std::time::Instant;
 use crate::deadline::Deadline;
 use crate::editing::Editing;
 use crate::expansion::Expansion;
+use crate::files_state::FilesState;
 use crate::lock::Lock;
 use crate::nesting::Nesting;
+use crate::new_entry::NewEntry;
 use crate::removals::Removals;
 use crate::row::Row;
 use crate::row_id::RowId;
@@ -18,6 +20,7 @@ use crate::visible_row::VisibleRow;
 pub(crate) struct TreeState {
     folded: BTreeSet<RowId>,
     editing: Editing,
+    pub(crate) files: FilesState,
     pub(crate) removals: Removals,
 }
 
@@ -69,6 +72,21 @@ impl TreeState {
     ) {
         self.folded.remove(parent);
         self.editing = Editing::Drafting(parent.clone());
+    }
+
+    pub(crate) fn start_file_rename(
+        &mut self,
+        path: String,
+    ) {
+        self.editing = Editing::RenamingFile(path);
+    }
+
+    pub(crate) fn start_file_create(
+        &mut self,
+        dir: String,
+        entry: NewEntry,
+    ) {
+        self.editing = Editing::Creating { dir, entry };
     }
 
     pub(crate) fn stop_editing(&mut self) {

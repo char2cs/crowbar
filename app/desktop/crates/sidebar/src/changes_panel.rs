@@ -10,6 +10,7 @@ use crate::file_kind::FileKind;
 use crate::file_tree_entry::FileTreeEntry;
 use crate::file_tree_row::FileTreeRow;
 use crate::git_status::GitStatus;
+use crate::menu_scope::MenuScope;
 use crate::panel_message::panel_message;
 use crate::row_action::RowHandler;
 use crate::scale::{ICON_MEDIUM, SPACE_MD, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_CAPTION};
@@ -93,12 +94,15 @@ fn count_line(
         .child(format!("Changed — {count} file{plural}"))
 }
 
-fn rows(
+fn rows<'a>(
     files: Vec<ChangedFile>,
-    handler: &RowHandler,
-) -> impl Iterator<Item = FileTreeRow> + '_ {
+    (handler, scope): (&'a RowHandler, &'a std::rc::Rc<MenuScope>),
+) -> impl Iterator<Item = FileTreeRow> + 'a {
     files.into_iter().map(|file| FileTreeRow {
         entry: entry(file),
+        input: None,
+        selected: false,
+        scope: std::rc::Rc::clone(scope),
         handler: std::rc::Rc::clone(handler),
     })
 }
@@ -114,12 +118,13 @@ impl Sidebar {
             return panel_message("No repository open", cx);
         }
         let handler = Self::row_handler(cx);
+        let scope = std::rc::Rc::new(self.menu_scope());
         let list = div()
             .flex()
             .flex_col()
             .child(branch_pill(&changes, palette))
             .child(count_line(changes.files.len(), palette))
-            .children(rows(changes.files, &handler));
+            .children(rows(changes.files, (&handler, &scope)));
         ScrollArea::new("changes-scroll", &self.scrolls.changes, list).into_any_element()
     }
 }

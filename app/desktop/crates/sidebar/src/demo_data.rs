@@ -52,6 +52,8 @@ pub struct DemoData {
     hosts: usize,
     sync: ScopeSync,
     focus: Focus,
+    refused: Vec<Command>,
+    removable: Vec<String>,
 }
 
 impl DemoData {
@@ -77,6 +79,8 @@ impl DemoData {
             hosts,
             sync: ScopeSync::Ready,
             focus: Focus::Repository,
+            refused: Vec::new(),
+            removable: Vec::new(),
         }
     }
 
@@ -87,6 +91,26 @@ impl DemoData {
         focus: Focus,
     ) -> Self {
         self.focus = focus;
+        self
+    }
+
+    /// The same data with a shell that declines `command`, which hides its menu entries.
+    #[must_use]
+    pub fn refusing(
+        mut self,
+        command: Command,
+    ) -> Self {
+        self.refused.push(command);
+        self
+    }
+
+    /// The same data with `path` as one of several folders of the workspace.
+    #[must_use]
+    pub fn with_removable_folder(
+        mut self,
+        path: &str,
+    ) -> Self {
+        self.removable.push(path.to_owned());
         self
     }
 
@@ -296,6 +320,24 @@ impl SidebarData for DemoData {
                 GitStatus::Clean,
             ),
         ]
+    }
+
+    fn serves(
+        &self,
+        command: &Command,
+    ) -> bool {
+        !self.refused.contains(command)
+    }
+
+    fn can_remove_folder(
+        &self,
+        path: &str,
+    ) -> bool {
+        self.removable.iter().any(|folder| folder == path)
+    }
+
+    fn workspace_root(&self) -> Option<String> {
+        Some("/work/demo".to_owned())
     }
 
     fn changes(&self) -> Changes {

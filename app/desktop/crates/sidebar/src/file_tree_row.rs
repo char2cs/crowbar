@@ -1,8 +1,9 @@
 //! A 26px row of the Files and Changes panels.
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use ui::font::MONO_FAMILY;
 use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
@@ -14,8 +15,10 @@ use crate::file_menu::file_menu;
 use crate::file_tree_entry::FileTreeEntry;
 use crate::git_status::GitStatus;
 use crate::intent::Intent;
+use crate::menu_scope::MenuScope;
 use crate::row_action::{RowAction, RowHandler};
-use crate::row_report::report;
+use crate::row_input::RowInput;
+use crate::row_label::input_view;
 use crate::scale::{
     ICON_LARGE, ICON_MEDIUM, ICON_TINY, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_CAPTION,
 };
@@ -28,6 +31,9 @@ const IGNORED_OPACITY: f32 = 0.5;
 #[derive(IntoElement)]
 pub(crate) struct FileTreeRow {
     pub(crate) entry: FileTreeEntry,
+    pub(crate) input: Option<RowInput>,
+    pub(crate) selected: bool,
+    pub(crate) scope: std::rc::Rc<MenuScope>,
     pub(crate) handler: RowHandler,
 }
 
@@ -43,13 +49,15 @@ impl RenderOnce for FileTreeRow {
         let menu_id = SharedString::from(format!("file-menu-{}", entry.path));
         let action = RowAction::Intent(Intent::Send(command(&entry)));
         let letter = entry.status.letter().map(letter_badge);
-        let menu = file_menu(&entry, &self.handler);
+        let menu = file_menu(&entry, &self.scope, &self.handler);
+        let editing = self.input.is_some();
+        let name = name_cell(&entry, self.input.as_ref(), palette);
         let row = div()
             .id(id)
             .flex()
             .items_center()
             .gap(SPACE_SM)
-            .h(px(ROW_HEIGHT))
+            .min_h(px(ROW_HEIGHT))
             .mx(SPACE_SM)
             .pl(px(BASE_PADDING + f32::from(entry.depth) * INDENT))
             .pr(SPACE_SM)
@@ -61,20 +69,46 @@ impl RenderOnce for FileTreeRow {
             .text_color(status_color(entry.status, palette))
             .opacity(faded(entry.status))
             .cursor_pointer()
+            .when(self.selected, |row| row.bg(palette.sidebar_element_idle()))
             .hover(move |style| style.bg(palette.sidebar_element_idle()))
             .child(chevron(&entry, palette))
             .child(glyph(&entry))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .child(entry.name.clone()),
-            )
+            .child(name)
             .children(letter)
             .children(entry.counts.map(|counts| counts_view(counts, palette)))
-            .on_click(report(&self.handler, action));
-        ContextMenu::new(menu_id, row, menu)
+            .on_click(select_then(&self.handler, (entry.path.clone(), action)));
+        if editing {
+            return row.into_any_element();
+        }
+        ContextMenu::new(menu_id, row, menu).into_any_element()
+    }
+}
+
+fn name_cell(
+    entry: &FileTreeEntry,
+    input: Option<&RowInput>,
+    palette: &Palette,
+) -> Div {
+    let cell = div().flex_1().min_w_0();
+    match input {
+        Some(input) => cell.child(input_view(input, palette)),
+        None => cell.truncate().child(entry.name.clone()),
+    }
+}
+
+fn select_then(
+    handler: &RowHandler,
+    (path, action): (String, RowAction),
+) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+    let handler = std::rc::Rc::clone(handler);
+    move |_, window, cx| {
+        cx.stop_propagation();
+        handler(
+            RowAction::Intent(Intent::SelectFile(path.clone())),
+            window,
+            cx,
+        );
+        handler(action.clone(), window, cx);
     }
 }
 
@@ -201,6 +235,9 @@ mod tests {
     fn a_row_is_twenty_six_pixels_tall(cx: &mut TestAppContext) {
         let bounds = measure(cx, |_, _| FileTreeRow {
             entry: entry(FileKind::File, "main.rs"),
+            input: None,
+            selected: false,
+            scope: std::rc::Rc::default(),
             handler: std::rc::Rc::new(|_, _, _| {}),
         });
         assert_eq!(f32::from(bounds.size.height), ROW_HEIGHT);

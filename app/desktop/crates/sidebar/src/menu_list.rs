@@ -6,7 +6,6 @@ use gpui::{
     IntoElement, MouseMoveEvent, ParentElement, Pixels, RenderOnce, Stateful,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::font::UI_FAMILY;
 use ui::{Icon, IconName, Palette, Surface, Theme, radius, shadow, text_size};
 
 use crate::intent::Intent;
@@ -42,6 +41,7 @@ impl RenderOnce for MenuList {
         cx: &mut App,
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
+        let family = Theme::of(cx).ui_family();
         let rows: Vec<AnyElement> = self
             .entries
             .iter()
@@ -67,7 +67,7 @@ impl RenderOnce for MenuList {
             .border_color(palette.border())
             .bg(palette.popover())
             .text_color(palette.foreground())
-            .font_family(UI_FAMILY)
+            .font_family(family)
             .text_size(text_size::SM)
             .shadow(shadow::lg(SHADOW_STRENGTH))
             .children(rows)

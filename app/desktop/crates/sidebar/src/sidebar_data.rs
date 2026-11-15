@@ -1,6 +1,7 @@
 //! What the sidebar reads from the shell.
 
 use crate::changes::Changes;
+use crate::command::Command;
 use crate::file_row::FileRow;
 use crate::focus::Focus;
 use crate::host::Host;
@@ -40,6 +41,38 @@ pub trait SidebarData {
     fn files(&self) -> Vec<FileRow>;
     /// What the Changes panel draws.
     fn changes(&self) -> Changes;
+    /// The absolute folder the Files panel shows; without it Copy Path copies the relative path.
+    fn workspace_root(&self) -> Option<String> {
+        None
+    }
+    /// Whether the focused workspace refuses writes, which hides the entries that change files.
+    fn files_locked(&self) -> bool {
+        false
+    }
+    /// Whether the workspace is on this machine, which shows the file manager entry.
+    fn files_are_local(&self) -> bool {
+        true
+    }
+    /// Whether the shell carries out `command`; the sidebar hides the entries whose command it
+    /// does not.
+    fn serves(
+        &self,
+        _command: &Command,
+    ) -> bool {
+        true
+    }
+    /// Whether `path` is one of several folders of the workspace, which offers Remove From
+    /// Workspace.
+    fn can_remove_folder(
+        &self,
+        _path: &str,
+    ) -> bool {
+        false
+    }
+    /// Whether the shell can generate images, which shows that entry on directories.
+    fn can_generate_image(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

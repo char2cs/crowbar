@@ -40,7 +40,7 @@ pub(crate) fn label(
     column.child(title).child(sublabel(row, palette))
 }
 
-fn input_view(
+pub(crate) fn input_view(
     input: &RowInput,
     palette: &Palette,
 ) -> Div {
