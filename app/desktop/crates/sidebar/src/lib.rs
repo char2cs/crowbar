@@ -38,6 +38,7 @@ mod drop_policy;
 mod edge_scroll;
 mod edit;
 mod edit_outcome;
+mod edit_pencil;
 mod editing;
 mod error;
 mod expansion;

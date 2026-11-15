@@ -33,6 +33,26 @@ pub(crate) fn below(
         .into_any_element()
 }
 
+pub(crate) fn right_of(
+    offset: f32,
+    content: impl IntoElement,
+) -> AnyElement {
+    div()
+        .absolute()
+        .left_full()
+        .top_0()
+        .ml(px(offset))
+        .child(
+            deferred(
+                anchored()
+                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
+                    .child(content),
+            )
+            .with_priority(layer::MENU),
+        )
+        .into_any_element()
+}
+
 pub(crate) fn beside(content: impl IntoElement) -> AnyElement {
     div()
         .absolute()
@@ -112,6 +132,26 @@ mod tests {
         assert_eq!(presses.get(), 1);
         cx.simulate_click(point(px(5.0), px(5.0)), gpui::Modifiers::none());
         assert_eq!(presses.get(), 2);
+    }
+
+    #[gpui::test]
+    fn content_is_laid_out_right_of_the_trigger_top_aligned(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            div().relative().w(px(100.0)).h(px(30.0)).child(right_of(
+                4.0,
+                div()
+                    .w(px(80.0))
+                    .h(px(20.0))
+                    .debug_selector(|| "popup-content".into()),
+            ))
+        });
+        let trigger = cx.debug_bounds("probe").unwrap_or_default();
+        let content = cx.debug_bounds("popup-content").unwrap_or_default();
+        assert!(
+            content.origin.x >= trigger.right() + px(4.0) - px(0.5),
+            "{content:?} right of {trigger:?}"
+        );
+        assert!((content.origin.y - trigger.origin.y).abs() < px(0.5));
     }
 
     #[gpui::test]

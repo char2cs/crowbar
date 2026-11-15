@@ -1,17 +1,20 @@
 //! The create-space panel that replaces the panels while a space is being made.
 
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, AppContext as _, Context, Div, FontWeight, IntoElement, ParentElement, Styled,
-    Window, div, px,
+    AnyElement, AppContext as _, Context, Div, FontWeight, IntoElement, ParentElement,
+    PathPromptOptions, Styled, Window, div, px,
 };
 use ui::{
-    Button, ButtonVariant, Icon, IconName, Palette, Popover, Select, Surface, TextInput,
+    Button, ButtonVariant, Icon, IconName, Palette, Placement, Popover, Select, Surface, TextInput,
     TextInputEvent, Theme, radius,
 };
 
+use crate::command::Command;
+use crate::host_kind::HostKind;
 use crate::icon_editor::IconEditor;
 use crate::mode::Mode;
 use crate::scale::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_XL, SPACE_XS, TEXT_LARGE, TEXT_SMALL};
@@ -26,6 +29,7 @@ const HEAD_GAP: f32 = 10.0;
 const ROW_PADDING: f32 = 10.0;
 const SELECT_WIDTH: f32 = 150.0;
 const TITLE: &str = "Create a Space";
+const CHOOSE_FOLDER: &str = "Choose folder";
 const SUBTITLE: &str = "Spaces are used to organize your tabs and sessions.";
 
 fn field_row(
@@ -66,11 +70,6 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         let name = cx.new(|cx| TextInput::new("Space Name", cx).on(Surface::Chrome));
-        let folder = cx.new(|cx| {
-            TextInput::new("/absolute/path/to/folder", cx)
-                .on(Surface::Chrome)
-                .leading_icon(IconName::FolderOpen)
-        });
         let sidebar = cx.weak_entity();
         let staged = Rc::new(move |icon: SpaceIcon, cx: &mut gpui::App| {
             sidebar
@@ -78,29 +77,24 @@ impl Sidebar {
                 .ok();
         });
         let editor = cx.new(|cx| IconEditor::new(staged, cx));
-        let subscriptions = [&name, &folder]
-            .into_iter()
-            .map(|field| {
-                cx.subscribe_in(
-                    field,
-                    window,
-                    |this, _, event: &TextInputEvent, window, cx| match event {
-                        TextInputEvent::Submitted => this.create_space(cx),
-                        TextInputEvent::Cancelled => this.cancel_create_space(window, cx),
-                        _ => cx.notify(),
-                    },
-                )
-            })
-            .collect();
+        let subscription = cx.subscribe_in(
+            &name,
+            window,
+            |this, _, event: &TextInputEvent, window, cx| match event {
+                TextInputEvent::Submitted => this.create_space(cx),
+                TextInputEvent::Cancelled => this.cancel_create_space(window, cx),
+                _ => cx.notify(),
+            },
+        );
         name.read(cx).focus(window);
         self.mode = Mode::Chats;
         self.space = Some(SpaceDraft {
             name,
-            folder,
+            folder: String::new(),
             host: 0,
             icon: SpaceIcon::Default,
             editor,
-            _subscriptions: subscriptions,
+            _subscriptions: vec![subscription],
         });
         cx.notify();
     }
@@ -139,9 +133,58 @@ impl Sidebar {
         };
         draft.host = index;
         if changed {
-            draft.folder.update(cx, |field, cx| field.set_text("", cx));
+            draft.folder.clear();
         }
         cx.notify();
+    }
+
+    /// Fills the create-space form's folder; the answer to [`Command::ChooseSpaceFolder`].
+    pub fn set_space_folder(
+        &mut self,
+        folder: String,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if let Some(draft) = self.space.as_mut() {
+            draft.folder = folder;
+        }
+        cx.notify();
+    }
+
+    fn choose_space_folder(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let hosts = self.data.hosts();
+        let Some(host) = self.space.as_ref().and_then(|draft| hosts.get(draft.host)) else {
+            return;
+        };
+        if host.kind == HostKind::Remote {
+            self.send_checked(Command::ChooseSpaceFolder(host.id.clone()), cx);
+            return;
+        }
+        let options = PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: None,
+        };
+        let picked = cx.prompt_for_paths(options);
+        cx.spawn(async move |this, cx| {
+            let paths = picked.await.ok().and_then(Result::ok).flatten();
+            let folder = paths.and_then(|paths| paths.into_iter().next());
+            this.update(cx, |this, cx| this.folder_picked(folder, cx))
+        })
+        .detach_and_log_err(cx);
+    }
+
+    fn folder_picked(
+        &mut self,
+        folder: Option<PathBuf>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if let Some(folder) = folder {
+            self.set_space_folder(folder.to_string_lossy().into_owned(), cx);
+        }
     }
 
     pub(crate) fn create_space(
@@ -155,7 +198,7 @@ impl Sidebar {
         let Some(host) = hosts.get(draft.host) else {
             return;
         };
-        let folder = draft.folder.read(cx).text().to_owned();
+        let folder = draft.folder.clone();
         if !SpaceFacts::of(host, &folder).can_create {
             return;
         }
@@ -175,8 +218,7 @@ impl Sidebar {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let hosts = self.data.hosts();
         let host = hosts.get(draft.host)?;
-        let folder = draft.folder.read(cx).text().to_owned();
-        let facts = SpaceFacts::of(host, &folder);
+        let facts = SpaceFacts::of(host, &draft.folder);
         let names = hosts.iter().map(|host| host.name.clone().into()).collect();
         let sidebar = cx.entity();
         let select = Select::new("space-host", names, Some(draft.host))
@@ -201,13 +243,26 @@ impl Sidebar {
                 .child(field_row(IconName::HardDrives, "Daemon", palette).child(select))
                 .child(
                     field_row(IconName::FolderOpen, "Folder", palette)
-                        .child(div().flex_1().child(draft.folder.clone())),
+                        .child(folder_button(&draft.folder, cx)),
                 )
                 .child(div().flex_1())
                 .child(footer)
                 .into_any_element(),
         )
     }
+}
+
+fn folder_button(
+    folder: &str,
+    cx: &mut Context<'_, Sidebar>,
+) -> Button {
+    let label = Some(folder)
+        .filter(|folder| !folder.is_empty())
+        .unwrap_or(CHOOSE_FOLDER);
+    Button::new("space-folder", label.to_owned())
+        .variant(ButtonVariant::Ghost)
+        .on(Surface::Chrome)
+        .on_click(cx.listener(|this, _, _, cx| this.choose_space_folder(cx)))
 }
 
 fn heading(palette: &Palette) -> Div {
@@ -238,7 +293,8 @@ fn space_head(
         "create-space-icon",
         icon_tile(&draft.icon, palette),
         move |_, _| editor.clone(),
-    );
+    )
+    .placement(Placement::Right);
     div()
         .flex()
         .items_center()
@@ -306,14 +362,6 @@ mod tests {
     use crate::intent::Intent;
     use crate::test_support::prelude::*;
 
-    fn type_into(
-        field: &gpui::Entity<TextInput>,
-        text: &str,
-        cx: &mut gpui::VisualTestContext,
-    ) {
-        field.update(cx, |field, cx| field.set_text(text, cx));
-    }
-
     #[gpui::test]
     fn creating_a_space_needs_a_folder_then_sends_and_closes(cx: &mut TestAppContext) {
         let (recorder, sidebar, cx) = open(cx, DemoData::reference());
@@ -322,8 +370,7 @@ mod tests {
         });
         sidebar.update(cx, Sidebar::create_space);
         assert!(recorder.sent().is_empty(), "no folder, nothing sent");
-        let folder = sidebar.read_with(cx, |this, _| this.space.as_ref().map(|d| d.folder.clone()));
-        type_into(&folder.expect("panel open"), "/w/app", cx);
+        sidebar.update(cx, |this, cx| this.set_space_folder("/w/app".into(), cx));
         sidebar.update(cx, Sidebar::create_space);
         let want = Command::CreateSpace {
             name: "app".into(),
@@ -361,5 +408,23 @@ mod tests {
             this.apply(Intent::Send(select), window, cx);
         });
         assert!(sidebar.read_with(cx, |this, _| this.space.is_none()));
+    }
+
+    #[gpui::test]
+    fn a_remote_host_asks_the_shell_to_browse_its_disk_and_the_answer_fills_the_folder(
+        cx: &mut TestAppContext
+    ) {
+        let (recorder, sidebar, cx) = open(cx, DemoData::rich());
+        assert!(start(&sidebar, cx));
+        let remote = sidebar.update(cx, |this, cx| {
+            let remote = this.data.hosts()[1].id.clone();
+            this.select_space_host(1, cx);
+            this.choose_space_folder(cx);
+            remote
+        });
+        assert_eq!(recorder.sent(), vec![Command::ChooseSpaceFolder(remote)]);
+        sidebar.update(cx, |this, cx| this.set_space_folder("/srv/app".into(), cx));
+        let folder = sidebar.read_with(cx, |this, _| this.space.as_ref().map(|d| d.folder.clone()));
+        assert_eq!(folder.as_deref(), Some("/srv/app"));
     }
 }

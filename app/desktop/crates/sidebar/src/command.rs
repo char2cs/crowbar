@@ -29,6 +29,9 @@ pub enum Command {
         /// The host the space lives on.
         host: HostId,
     },
+    /// Ask for a folder on the host's own disk for the create-space form; the answer goes to
+    /// `Sidebar::set_space_folder`.
+    ChooseSpaceFolder(HostId),
     /// Delete a space after its confirmation.
     DeleteProject(ProjectId),
     /// Subscribe to the space's chats again.

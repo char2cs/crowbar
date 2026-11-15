@@ -12,7 +12,7 @@ use crate::space_icon::SpaceIcon;
 #[derive(Debug)]
 pub(crate) struct SpaceDraft {
     pub(crate) name: Entity<TextInput>,
-    pub(crate) folder: Entity<TextInput>,
+    pub(crate) folder: String,
     pub(crate) host: usize,
     pub(crate) icon: SpaceIcon,
     pub(crate) editor: Entity<IconEditor>,

@@ -4,9 +4,10 @@ use gpui::{
     AnyElement, Context, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Palette, Popover, Surface, Theme, Tooltip, hover_fill, radius};
+use ui::{Palette, Placement, Popover, Surface, Theme, Tooltip, hover_fill, radius};
 
 use crate::command::Command;
+use crate::edit_pencil::{GROUP, edit_pencil};
 use crate::hover_glide;
 use crate::icon_button::IconButton;
 use crate::icon_editor::IconEditor;
@@ -144,12 +145,35 @@ fn name_cell(
         .child(current.name.clone())
 }
 
+fn editable_tile(
+    tile: Div,
+    mark: AnyElement,
+    editor: Option<Entity<IconEditor>>,
+) -> AnyElement {
+    let Some(editor) = editor else {
+        return tile.child(mark).into_any_element();
+    };
+    let marked = div()
+        .relative()
+        .size(px(MARK))
+        .child(mark)
+        .child(edit_pencil(px(MARK)));
+    Popover::new(
+        "space-icon",
+        tile.group(GROUP).child(marked),
+        move |_, _| editor.clone(),
+    )
+    .placement(Placement::Right)
+    .into_any_element()
+}
+
 fn active_block(
     current: &Project,
     (add, editor): (IconButton, Option<Entity<IconEditor>>),
     (reveal, family): (f32, &'static str),
     palette: &Palette,
 ) -> Div {
+    let mark = mark_view(&current.mark, px(MARK), palette);
     let tile = div()
         .flex()
         .flex_none()
@@ -157,14 +181,8 @@ fn active_block(
         .justify_center()
         .size(px(TILE))
         .ml(px(TILE_PULL))
-        .rounded(radius::MD)
-        .child(mark_view(&current.mark, px(MARK), palette));
-    let tile = match editor {
-        Some(editor) => {
-            Popover::new("space-icon", tile, move |_, _| editor.clone()).into_any_element()
-        },
-        None => tile.into_any_element(),
-    };
+        .rounded(radius::MD);
+    let tile = editable_tile(tile, mark, editor);
     let name = name_cell(current, family, palette);
     let slot = div()
         .flex_none()

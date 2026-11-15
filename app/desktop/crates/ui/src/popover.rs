@@ -1,4 +1,4 @@
-//! A panel of arbitrary content anchored below a trigger.
+//! A panel of arbitrary content anchored to a trigger.
 
 use std::rc::Rc;
 
@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use crate::opaque_debug::opaque_debug;
+use crate::placement::Placement;
 use crate::popover_actions::{CONTEXT, ClosePopover};
 use crate::popover_state::PopoverState;
 use crate::popup;
@@ -28,6 +29,7 @@ pub struct Popover {
     id: ElementId,
     trigger: AnyElement,
     content: Content,
+    placement: Placement,
 }
 
 impl Popover {
@@ -41,7 +43,18 @@ impl Popover {
             id: id.into(),
             trigger: trigger.into_any_element(),
             content: Rc::new(move |window, cx| content(window, cx).into_any_element()),
+            placement: Placement::default(),
         }
+    }
+
+    /// Opens the panel on `placement` of the trigger instead of below it.
+    #[must_use]
+    pub fn placement(
+        mut self,
+        placement: Placement,
+    ) -> Self {
+        self.placement = placement;
+        self
     }
 }
 
@@ -69,7 +82,10 @@ impl RenderOnce for Popover {
         let panel = panel(&state, &self.content, window, cx);
         wrapper
             .child(popup::click_away(window, move |_, cx| close(&closer, cx)))
-            .child(popup::below(OFFSET, panel))
+            .child(match self.placement {
+                Placement::Below => popup::below(OFFSET, panel),
+                Placement::Right => popup::right_of(OFFSET, panel),
+            })
             .into_any_element()
     }
 }
@@ -160,6 +176,21 @@ mod tests {
         assert!(cx.debug_bounds("popover-body").is_some());
         cx.simulate_keystrokes("escape");
         assert!(cx.debug_bounds("popover-body").is_none());
+    }
+
+    #[gpui::test]
+    fn a_right_placement_opens_beside_the_trigger(cx: &mut TestAppContext) {
+        let cx = open(cx, |window, cx| {
+            build(window, cx).placement(Placement::Right)
+        });
+        cx.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
+        cx.run_until_parked();
+        let trigger = cx.debug_bounds("probe").unwrap_or_default();
+        let body = cx.debug_bounds("popover-body").unwrap_or_default();
+        assert!(
+            body.origin.x >= trigger.right(),
+            "{body:?} right of {trigger:?}"
+        );
     }
 
     #[gpui::test]
