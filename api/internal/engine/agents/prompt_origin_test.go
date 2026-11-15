@@ -76,6 +76,19 @@ func TestMatchInjectedPrompt_AsyncDelegationBatchIsHarnessText(t *testing.T) {
 	}
 }
 
+func TestMatchInjectedPrompt_ABackgroundProcessBatchIsHarnessText(t *testing.T) {
+	hermes := get(t, "hermes")
+
+	got, ok := agents.MatchInjectedPrompt(hermes,
+		"[IMPORTANT: 3 background processes completed for this session.\n\n- proc_a: exit_code=0, reason=exited\n]")
+	assert.True(t, ok)
+	assert.Equal(t, "task_notification", got.Kind)
+	assert.Empty(t, got.Needle, "an anchored match has no literal prefix to report")
+
+	_, ok = agents.MatchInjectedPrompt(hermes, "please review [IMPORTANT: 3 background processes completed")
+	assert.False(t, ok)
+}
+
 func TestMatchInjectedPrompt_AnythingThatIsNotADescriptorBackedAgentIsTheUser(t *testing.T) {
 	_, ok := agents.MatchInjectedPrompt(nil, injectedTaskNotification)
 

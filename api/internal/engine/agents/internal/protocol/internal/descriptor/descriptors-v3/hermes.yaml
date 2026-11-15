@@ -271,12 +271,17 @@ events:
 # harness message as a prompt; no frame field tells it from a person's.
 injected_prompts:
   - needle: "[ASYNC DELEGATION BATCH COMPLETE"
-  # Ends a background command by its process id; "matched watch pattern" is neither of these.
+  # Each ends a background command by process id; "matched watch pattern" is neither.
+  # The batch's count varies, so it opens by an anchored match, never a needle.
   - kind: task_notification
     needle: "[IMPORTANT: Background process"
-    task_id: { pattern: 'Background process (?P<v>proc_\w+)' }
-    status:  { pattern: 'Background process \S+ (?P<v>completed normally|exited)' }
+    items:
+      - pattern: 'Background process (?P<id>proc_\w+) (?P<status>completed normally|exited) \(exit code (?P<exit_code>-?\d+)\)'
     status_map: { completed normally: finished, exited: failed }
+  - kind: task_notification
+    match: '^\[IMPORTANT: \d+ background processes completed'
+    items:
+      - pattern: '- (?P<id>proc_\w+): exit_code=(?P<exit_code>-?\d+)'
 
 # A dialed server takes no argv, so only this write_file runs: the token rides a 0600 file, never a body.
 mcp_injection:

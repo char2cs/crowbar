@@ -160,7 +160,7 @@ func mapPromptEvent(st ledger.State, ev engineagents.CanonicalEvent, src Source,
 	rows, err := mapPrompt(st, ev, src)
 	if err == nil && ev.Subagent == nil {
 		var ended []ledger.Row
-		ended, err = promptShellRows(st, ev.Shell)
+		ended, err = promptShellRows(st, ev.Shells)
 		rows = append(rows, ended...)
 	}
 	fx := Effects{}

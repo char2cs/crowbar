@@ -89,24 +89,44 @@ func mapTerminalInput(st ledger.State, ev engineagents.CanonicalEvent, _ Source,
 	return []ledger.Row{row}, Effects{}, err
 }
 
-// promptShellRows are what a harness-injected prompt reports of a background
-// command: its end, or a line it printed. A task that is no live shell of the
-// chat's (a subagent's, say) ends and says nothing.
-func promptShellRows(st ledger.State, shell *engineagents.ShellEvent) ([]ledger.Row, error) {
-	if shell == nil {
-		return nil, nil
+// promptShellRows are what a harness-injected prompt reports of its background
+// commands: each one's end, or a line it printed. A task that is no live shell
+// of the chat's (a subagent's, say) ends and says nothing.
+func promptShellRows(st ledger.State, shells []engineagents.ShellEvent) ([]ledger.Row, error) {
+	var rows []ledger.Row
+	for _, shell := range shells {
+		got, err := promptShellRow(st, shell)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, got...)
 	}
-	if shell.Status == "" {
+	return rows, nil
+}
+
+func promptShellRow(st ledger.State, shell engineagents.ShellEvent) ([]ledger.Row, error) {
+	status := cmp.Or(shell.Status, statusOfExit(shell.ExitCode))
+	if status == "" {
 		return noteShell(st, shell)
 	}
-	status := shell.Status
 	if !ledger.ShellStatusEnds(status) {
 		status = ledger.ShellFinished
 	}
-	return endShell(st, shell.ID, ledger.ShellEnding{Status: status, Summary: shell.Summary})
+	return endShell(st, shell.ID, ledger.ShellEnding{Status: status, ExitCode: shell.ExitCode, Summary: shell.Summary})
 }
 
-func noteShell(st ledger.State, shell *engineagents.ShellEvent) ([]ledger.Row, error) {
+// statusOfExit is how a notice that gave only an exit code ended its shell.
+func statusOfExit(code *int) string {
+	switch {
+	case code == nil:
+		return ""
+	case *code == 0:
+		return ledger.ShellFinished
+	}
+	return ledger.ShellFailed
+}
+
+func noteShell(st ledger.State, shell engineagents.ShellEvent) ([]ledger.Row, error) {
 	known, ok := st.ShellOf(shell.ID)
 	line := ledger.ShellTail(cmp.Or(shell.Note, shell.Summary))
 	if !ok || !known.Live() || line == "" {
