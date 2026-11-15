@@ -1,8 +1,11 @@
 package apidriver_test
 
 import (
+	"errors"
+	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/apidriver"
@@ -80,6 +83,38 @@ func TestEstablishSession_AnOptionalSendKeyIsOmittedWhileEmpty(t *testing.T) {
 				return
 			}
 			require.Contains(t, (*seen)[0], tc.want)
+		})
+	}
+}
+
+// The gateway refuses a resume whose pinned editor block changed with this code and
+// reason (live-captured): the chat's session is lost. Anything else under the code,
+// or the reason under another code, is an ordinary failure.
+func TestEstablishSession_TheShippedGatewayRefusalIsALostSession(t *testing.T) {
+	for name, tc := range map[string]struct {
+		refusal scriptedCall
+		lost    bool
+	}{
+		"the pinned-block refusal": {scriptedCall{method: "session.resume", errCode: 4001, errMessage: "acp_mcp_policy_conflict"}, true},
+		"another error, same code": {scriptedCall{method: "session.resume", errCode: 4001, errMessage: "invalid params"}, false},
+		"the reason, another code": {scriptedCall{method: "session.resume", errCode: -32603, errMessage: "acp_mcp_policy_conflict"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile("../descriptor/descriptors-v3/hermes.yaml")
+			require.NoError(t, err)
+			d, err := descriptor.ParseV0(raw)
+			require.NoError(t, err)
+			// scriptedServer answers a call-then-notify handshake; the session block is under test.
+			d.Runtime.API.Handshake.Notify = "ready"
+			stdio, _ := scriptedServer(t, []scriptedCall{tc.refusal})
+			drv, err := apidriver.Start(t.Context(), d, stdio, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = drv.Close() })
+
+			_, err = drv.EstablishSession(t.Context(), "prompt", map[string]string{"session_id": "s-1"})
+
+			require.Error(t, err)
+			assert.Equal(t, tc.lost, errors.Is(err, apidriver.ErrSessionLost), err.Error())
 		})
 	}
 }

@@ -266,6 +266,11 @@ injected_prompts:
 mcp_injection:
   - write_file: { path: "{tmp}/mcp.token", content: "{runner_token}" }
 
+# Live-captured: a resume whose editor block differs from the one the gateway pinned
+# for the session is refused with this code; the session cannot be resumed again.
+session:
+  refused: { rpc_code: 4001, needles: [acp_mcp_policy_conflict] }
+
 # model.options lists every provider row with its models as bare ids; only rows the
 # profile is authenticated for are kept. Unverified: the shape comes from the typed contract
 # and an unauthenticated profile, no authenticated catalogue was read. The chosen id is

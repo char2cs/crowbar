@@ -41,6 +41,11 @@ func sessionRules(doc document, d *spec.Descriptor) []Finding {
 			"a refused resume is never recognised: a chat keeps a session the CLI cannot load",
 			"declare session.refused (exit_code, needles) with the line the CLI prints when it cannot resume"))
 	}
+	if event, ok := connectionResume(d); ok && s.Refused == nil {
+		out = append(out, doc.finding("session.refusal_unrecognised", SeverityError, "events."+event+".resume",
+			"a refused resume is never recognised: a chat keeps a session the server cannot load",
+			"declare session.refused (rpc_code, needles) with the error the server answers a resume it refuses"))
+	}
 	if s.Resume != nil && s.Persists == "" {
 		out = append(out, doc.finding("session.persists_missing", SeverityError, "session.resume",
 			"a resumable session never says when the CLI has written it: a chat may resume one that is not there",
@@ -66,7 +71,8 @@ func refusalRules(doc document, d *spec.Descriptor) []Finding {
 			"an api provider's refused resume names no rpc_code: a refusal over the connection is never recognised",
 			"set session.refused.rpc_code to the JSON-RPC error code the server answers a lost session with"))
 	}
-	if s.Refused.ExitCode == 0 {
+	// Only a CLI resumed by argv refuses by exiting; a connection's refusal is its rpc rule.
+	if s.Resume != nil && s.Refused.ExitCode == 0 {
 		out = append(out, doc.finding("session.refused_exit", SeverityError, "session.refused",
 			"session.refused.exit_code is 0, the code of a CLI that succeeded", "set the code the CLI exits with when it refuses"))
 	}
@@ -75,6 +81,17 @@ func refusalRules(doc document, d *spec.Descriptor) []Finding {
 			"session.refused needs non-empty needles", "add the text of the line the CLI prints when it refuses a resume"))
 	}
 	return out
+}
+
+// connectionResume is the first event, by name, that resumes a session over the
+// api connection.
+func connectionResume(d *spec.Descriptor) (string, bool) {
+	for _, name := range sortedKeys(d.Events) {
+		if len(d.Events[name].Resume) > 0 {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 var templateVarRE = regexp.MustCompile(`\{([a-z_][a-z0-9_.]*)\}`)
