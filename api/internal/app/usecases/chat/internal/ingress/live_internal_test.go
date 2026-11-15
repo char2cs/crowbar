@@ -352,3 +352,111 @@ func TestLive_TheSnapshotLeavesOutWhatTheStateRecorded(t *testing.T) {
 	require.Len(t, f.r.Snapshot(testChat, ledger.State{}), 1, "the buffer still holds it")
 	assert.Empty(t, f.r.Snapshot(testChat, f.state(t)))
 }
+
+func (f *recorderFixture) dispatchOn(t *testing.T, channel engineagents.Channel, evs ...engineagents.CanonicalEvent) {
+	t.Helper()
+	for _, ev := range evs {
+		_, _, err := f.r.Dispatch(t.Context(), f.runner, f.agent, ev, []byte(`{}`), channel)
+		require.NoError(t, err)
+	}
+}
+
+// transcript names the agent's rows in ledger order: a message by its id, a
+// call by its phase and id, a thought by the message it names.
+func transcript(t *testing.T, rows []ledger.Row) []string {
+	t.Helper()
+	name := map[ledger.Kind]func(ledger.Row) string{
+		ledger.KindAssistantText: func(r ledger.Row) string { return "text " + bodyOf[ledger.AssistantText](t, r).MessageID },
+		ledger.KindToolCall: func(r ledger.Row) string {
+			c := bodyOf[ledger.ToolCall](t, r)
+			return c.Phase + " " + c.ToolID
+		},
+		ledger.KindReasoning: func(r ledger.Row) string { return "thought " + bodyOf[ledger.Reasoning](t, r).MessageID },
+		ledger.KindSubagent:  func(ledger.Row) string { return "subagent" },
+		ledger.KindAsk:       func(ledger.Row) string { return "ask" },
+	}
+	var out []string
+	for _, r := range rows {
+		if f, ok := name[r.Kind]; ok {
+			out = append(out, f(r))
+		}
+	}
+	return out
+}
+
+func answer(messageID, text string) engineagents.CanonicalEvent {
+	return delta(engineagents.HookMessageDelta, messageID, false, false, text)
+}
+
+// A provider that streams each step's text and never completes it records
+// that text above the calls the step made, once, and its thought with it.
+func TestRecorder_TextStreamedBeforeACallIsRecordedAboveIt(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	f.dispatchOn(t, engineagents.ChannelAPI,
+		engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"},
+		delta(engineagents.HookReasoningDelta, "s1", false, false, "plan"),
+		answer("s1", "Listing "), answer("s1", "files"),
+		toolEvent(engineagents.HookToolPre, "t1", "ls"), toolEvent(engineagents.HookToolPost, "t1", "ls"),
+		answer("s2", "Reading"),
+		toolEvent(engineagents.HookToolPre, "t2", "cat"), toolEvent(engineagents.HookToolPost, "t2", "cat"),
+		toolEvent(engineagents.HookToolPre, "t3", "wc"), toolEvent(engineagents.HookToolPost, "t3", "wc"),
+		answer("s3", "50 lines"),
+		engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "50 lines"},
+	)
+
+	assert.Equal(t, []string{
+		"text s1", "pre t1", "post t1", "text s2", "pre t2", "post t2", "pre t3", "post t3", "text s3", "thought s1",
+	}, transcript(t, f.rows(t)))
+	assert.Equal(t, []string{"Listing files", "Reading", "50 lines"}, said(f.rows(t)))
+}
+
+// Text another channel streams may still be arriving when a call comes in on
+// this one: only its own channel's order says the text was done.
+func TestRecorder_ACallOnAnotherChannelLeavesTheStreamOpen(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	f.dispatchOn(t, engineagents.ChannelAPI,
+		engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"}, answer("m1", "Running"))
+	f.dispatchOn(t, engineagents.ChannelHooks, toolEvent(engineagents.HookToolPre, "t1", "ls"))
+	f.dispatchOn(t, engineagents.ChannelAPI,
+		answer("m1", " ls now"),
+		engineagents.CanonicalEvent{Kind: engineagents.HookMessageComplete, Complete: &engineagents.MessageComplete{
+			MessageID: "m1", Text: "Running ls now",
+		}},
+		toolEvent(engineagents.HookToolPost, "t1", "ls"),
+		engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop},
+	)
+
+	assert.Equal(t, []string{"pre t1", "text m1", "post t1"}, transcript(t, f.rows(t)))
+	assert.Equal(t, []string{"Running ls now"}, said(f.rows(t)))
+}
+
+// A numbered stream's chunks are rows of their own: a call between them
+// records nothing more of it, and its message reads once.
+func TestRecorder_ACallBetweenNumberedChunksRecordsTheMessageOnce(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	first := delta(engineagents.HookMessageDelta, "m1", true, false, "Running ")
+	last := delta(engineagents.HookMessageDelta, "m1", true, true, "ls")
+	last.Delta.Index = 1
+	f.dispatchOn(t, engineagents.ChannelHooks,
+		engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"},
+		first, toolEvent(engineagents.HookToolPre, "t1", "ls"), last, toolEvent(engineagents.HookToolPost, "t1", "ls"),
+		engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "Running ls"},
+	)
+
+	assert.Equal(t, []string{"text m1", "pre t1", "text m1", "post t1", "text m1"}, transcript(t, f.rows(t)))
+	assert.Equal(t, []string{"Running ls"}, said(f.rows(t)))
+}
+
+// A subagent's start and an ask end the text before them as a call does.
+func TestRecorder_TextStreamedBeforeASubagentOrAnAskIsRecordedAboveIt(t *testing.T) {
+	f := newRecorderFixture(t, "claude")
+	f.dispatchOn(t, engineagents.ChannelHooks,
+		engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"},
+		answer("m1", "Delegating"),
+		engineagents.CanonicalEvent{Kind: engineagents.HookSubagentPre, Subagent: &engineagents.SubagentEvent{ID: "A"}},
+		answer("m2", "May I?"),
+		permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"}),
+	)
+
+	assert.Equal(t, []string{"text m1", "subagent", "text m2", "ask"}, transcript(t, f.rows(t)))
+}

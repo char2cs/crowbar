@@ -228,6 +228,9 @@ func (r *Recorder) prepare(
 		return []byte(stdout), ok && src.Channel == engineagents.ChannelHooks
 	}
 	src.Command = agent.PromptIsCommand
+	if endsText(ev.Kind) {
+		src.Live.Answers = r.live.answersOn(chat.ID, runner.ID, src.Channel)
+	}
 	var capability engineagents.AnswerCapability
 	switch ev.Kind {
 	case engineagents.HookUserPrompt:

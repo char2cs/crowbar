@@ -33,7 +33,8 @@ type Source struct {
 	CompactsByPrompt bool
 	// Manual: a person asked for the chat's next compaction.
 	Manual bool
-	// Live is the runner's streamed text no row holds, for a turn's end.
+	// Live is the runner's streamed text no row holds, for a turn's end, or
+	// what an event that ends the text before it records first.
 	Live Unrecorded
 }
 
@@ -75,10 +76,16 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	if src.Scope != "" {
 		return mapNested(st, ev, src, refs)
 	}
-	if m, ok := mappers[ev.Kind]; ok {
-		return m(st, ev, src, refs)
+	m, ok := mappers[ev.Kind]
+	if !ok {
+		return nil, Effects{}, nil
 	}
-	return nil, Effects{}, nil
+	rows, fx, err := m(st, ev, src, refs)
+	if err != nil || !endsText(ev.Kind) {
+		return rows, fx, err
+	}
+	said, err := textBefore(st, ev, src)
+	return append(said, rows...), fx, err
 }
 
 // records is whether Map decides rows for an event of kind.
@@ -358,16 +365,11 @@ func closingRows(st ledger.State, turnID, reply string, src Source, outlived boo
 	if reply != "" && !whole && len(said) == 0 {
 		said = append(said, liveText{ID: last, Text: reply})
 	}
-	var rows []ledger.Row
-	for _, a := range said {
-		row, err := ledger.NewRow(ledger.KindAssistantText, turnID, "",
-			ledger.AssistantText{MessageID: a.ID, Index: ledger.IndexComplete, Text: a.Text})
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
+	rows, err := answerRows(turnID, said)
+	if err != nil {
+		return nil, err
 	}
-	thoughts, err := thoughtRows(turnID, last, said, src.Live.Reasoning)
+	thoughts, err := thoughtRows(st, turnID, last, said, src.Live.Reasoning)
 	if err != nil {
 		return nil, err
 	}

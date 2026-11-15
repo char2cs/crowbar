@@ -33,7 +33,7 @@ func mapText(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 		return mapChunk(st, ev, src, scope)
 	}
 	turnID, _ := turnFor(st, src, scope, d.TurnID)
-	delta := LiveDelta{TurnID: turnID, Scope: scope, ID: d.MessageID, Index: d.Index, Text: d.Text}
+	delta := LiveDelta{TurnID: turnID, Scope: scope, ID: d.MessageID, Index: d.Index, Text: d.Text, Channel: src.Channel}
 	switch ev.Kind {
 	case engineagents.HookReasoningDelta:
 		delta.Kind = KindReasoning
@@ -106,6 +106,40 @@ func mapComplete(st ledger.State, ev engineagents.CanonicalEvent, src Source, sc
 		MessageID: c.MessageID, Index: ledger.IndexComplete, Text: c.Text, Phase: c.Phase,
 	})
 	return []ledger.Row{row}, err
+}
+
+// endsText reports whether an event of kind follows, on its channel, the text
+// streamed before it: the agent acts only once it is done saying it.
+func endsText(kind string) bool {
+	switch kind {
+	case engineagents.HookToolPre, engineagents.HookSubagentPre, engineagents.HookPermission, engineagents.HookElicitation:
+		return true
+	}
+	return false
+}
+
+// textBefore records the answers src streamed with no row of their own before
+// ev ended them, so they read above what ev records.
+func textBefore(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
+	turnID, ok := turnFor(st, src, "", ev.TurnID)
+	if !ok {
+		return nil, nil
+	}
+	return answerRows(turnID, unsaid(st, turnID, src.Live.Answers))
+}
+
+// answerRows are turnID's main-scope messages as whole rows.
+func answerRows(turnID string, said []liveText) ([]ledger.Row, error) {
+	rows := make([]ledger.Row, 0, len(said))
+	for _, a := range said {
+		row, err := ledger.NewRow(ledger.KindAssistantText, turnID, "",
+			ledger.AssistantText{MessageID: a.ID, Index: ledger.IndexComplete, Text: a.Text})
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 func toolPhase(kind string) string {
@@ -269,9 +303,9 @@ func mapCompaction(st ledger.State, ev engineagents.CanonicalEvent, src Source) 
 	return append(rows, settled...), err
 }
 
-// thoughtRows are the thoughts of a turn as rows: one per message among said that a
-// thought names, and one for the last message holding the newest of the rest.
-func thoughtRows(turnID, last string, said, thoughts []liveText) ([]ledger.Row, error) {
+// thoughtRows are the thoughts of a turn as rows: one per message of it, said or
+// recorded, that a thought names, and one for the last message holding the newest of the rest.
+func thoughtRows(st ledger.State, turnID, last string, said, thoughts []liveText) ([]ledger.Row, error) {
 	named := map[string]bool{}
 	for _, a := range said {
 		named[a.ID] = true
@@ -283,7 +317,7 @@ func thoughtRows(turnID, last string, said, thoughts []liveText) ([]ledger.Row, 
 			continue
 		}
 		id := last
-		if named[t.ID] {
+		if of, recorded := st.MessageTurn("", t.ID); named[t.ID] || recorded && of == turnID {
 			id = t.ID
 		}
 		if _, seen := text[id]; !seen {
