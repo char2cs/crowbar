@@ -9,6 +9,7 @@
     reason = "the manifest limit does not count self; clippy's does"
 )]
 
+mod binding;
 mod ends;
 mod error;
 mod rest;

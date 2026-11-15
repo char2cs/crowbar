@@ -40,14 +40,22 @@ impl std::fmt::Debug for FolderBrowse {
     }
 }
 
-fn host_of_open_space(state: &crate::state::State) -> Option<Followed> {
-    let project = active_project(state)?;
-    let slot = host_of(state, project.as_str())?;
+fn followed(
+    state: &crate::state::State,
+    host: &str,
+) -> Option<Followed> {
+    let slot = state.hosts.iter().find(|slot| slot.spec.id == host)?;
     Some(Followed {
         id: slot.spec.id.clone(),
         name: slot.spec.name.clone(),
         client: slot.client.clone(),
     })
+}
+
+fn host_of_open_space(state: &crate::state::State) -> Option<Followed> {
+    let project = active_project(state)?;
+    let slot = host_of(state, project.as_str())?;
+    followed(state, &slot.spec.id)
 }
 
 impl FolderBrowse {
@@ -58,13 +66,32 @@ impl FolderBrowse {
         let host = hub
             .read(host_of_open_space)
             .ok_or_else(|| Error::Stream("no space is open".to_owned()))?;
-        Ok(Arc::new(Self {
+        Ok(Self::on(host, (hub, handle), signal))
+    }
+
+    pub(crate) fn open_on(
+        (hub, handle): (&Arc<Hub>, &Handle),
+        host: &str,
+        signal: ChangeSignal,
+    ) -> Result<Arc<Self>, Error> {
+        let found = hub
+            .read(|state| followed(state, host))
+            .ok_or_else(|| Error::Stream(format!("host {host} is not followed")))?;
+        Ok(Self::on(found, (hub, handle), signal))
+    }
+
+    fn on(
+        host: Followed,
+        (hub, handle): (&Arc<Hub>, &Handle),
+        signal: ChangeSignal,
+    ) -> Arc<Self> {
+        Arc::new(Self {
             host,
             hub: Arc::clone(hub),
             handle: handle.clone(),
             signal,
             held: Mutex::new(FolderHeld::default()),
-        }))
+        })
     }
 
     /// The name the host is shown under.
@@ -173,6 +200,10 @@ mod tests {
 
     fn hush() {}
 
+    fn quiet() -> ChangeSignal {
+        Arc::new(hush)
+    }
+
     fn open_with(setup: impl FnOnce(&FakeDaemon)) -> Opened {
         let (state, daemon) = state();
         setup(&daemon);
@@ -210,6 +241,9 @@ mod tests {
     #[tokio::test]
     async fn a_directory_is_listed_once_a_refusal_shows_its_reason_and_retry_asks_again() {
         let (browse, daemon, changed) = open_with(setup_routes);
+        let parts = (&browse.hub, &browse.handle);
+        assert!(FolderBrowse::open_on(parts, "local", quiet()).is_ok());
+        assert!(FolderBrowse::open_on(parts, "nowhere", quiet()).is_err());
         assert_eq!(browse.listing(ROOT_PATH), None);
         browse.request(ROOT_PATH);
         browse.request(ROOT_PATH);

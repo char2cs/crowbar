@@ -20,25 +20,45 @@ pub(crate) fn engine_from(
 mod tests {
     use super::*;
 
+    const KAGI: &str = "https://kagi.com/search?q=%s";
+    const DUCK: &str = "https://duckduckgo.com/?q=%s";
+
+    struct Row {
+        engine: Option<&'static str>,
+        custom: Option<&'static str>,
+        expected: &'static str,
+    }
+
+    const fn row(
+        engine: Option<&'static str>,
+        custom: Option<&'static str>,
+        expected: &'static str,
+    ) -> Row {
+        Row {
+            engine,
+            custom,
+            expected,
+        }
+    }
+
+    const CASES: &[Row] = &[
+        row(None, None, DUCK),
+        row(Some("duckduckgo"), None, DUCK),
+        row(Some("google"), None, "https://www.google.com/search?q=%s"),
+        row(Some("custom"), Some(" https://kagi.com/search?q=%s "), KAGI),
+        row(Some("custom"), Some("https://kagi.com/search"), DUCK),
+        row(Some("custom"), None, DUCK),
+        row(Some("unknown"), Some(KAGI), DUCK),
+    ];
+
     #[test]
     fn the_stored_engine_picks_its_template_and_a_broken_custom_one_falls_back() {
-        const KAGI: &str = "https://kagi.com/search?q=%s";
-        const DUCK: &str = "https://duckduckgo.com/?q=%s";
-        type Case = (Option<&'static str>, Option<&'static str>, &'static str);
-        const CASES: &[Case] = &[
-            (None, None, DUCK),
-            (Some("duckduckgo"), None, DUCK),
-            (Some("google"), None, "https://www.google.com/search?q=%s"),
-            (Some("custom"), Some(" https://kagi.com/search?q=%s "), KAGI),
-            (Some("custom"), Some("https://kagi.com/search"), DUCK),
-            (Some("custom"), None, DUCK),
-            (Some("unknown"), Some(KAGI), DUCK),
-        ];
-        for (engine, custom, expected) in CASES {
+        for case in CASES {
+            let template = engine_from(case.engine, case.custom).template().to_owned();
             assert_eq!(
-                engine_from(*engine, *custom).template(),
-                *expected,
-                "{engine:?} {custom:?}"
+                template, case.expected,
+                "{:?} {:?}",
+                case.engine, case.custom
             );
         }
     }

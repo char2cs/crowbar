@@ -213,6 +213,15 @@ impl ShellState {
         }
     }
 
+    pub(crate) fn set_pane_settings(
+        &mut self,
+        values: protocol::SettingValues,
+    ) {
+        if let Err(error) = self.host.set_settings(values) {
+            tracing::warn!(%error, "sending the settings to panes failed");
+        }
+    }
+
     pub(crate) fn set_overlay(
         &mut self,
         overlay: Overlay,

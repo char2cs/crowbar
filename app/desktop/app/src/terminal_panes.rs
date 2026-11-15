@@ -7,13 +7,17 @@ use terminal::DaemonFrame;
 use terminal_session::{Ends, SessionBase, TerminalSessions};
 use terminal_view::{TerminalLink, TerminalSettings, TerminalView};
 
+use crate::chat_terminals::ChatTerminals;
+use crate::plan::Plan;
 use crate::terminal_ids::TerminalIds;
 
+const STARTING: &str = "Starting the chat's terminal...\r\n";
 const NO_CHAT: &str = "Open a chat first: a terminal runs in a chat's workspace.\r\n";
 
 pub(crate) struct TerminalPanes {
     ids: TerminalIds,
     sessions: TerminalSessions,
+    chats: ChatTerminals,
     views: RefCell<BTreeMap<PaneId, Entity<TerminalView>>>,
     settings: RefCell<TerminalSettings>,
 }
@@ -21,11 +25,12 @@ pub(crate) struct TerminalPanes {
 impl TerminalPanes {
     pub(crate) fn new(
         ids: TerminalIds,
-        sessions: TerminalSessions,
+        (sessions, chats): (TerminalSessions, ChatTerminals),
     ) -> Self {
         Self {
             ids,
             sessions,
+            chats,
             views: RefCell::default(),
             settings: RefCell::default(),
         }
@@ -88,9 +93,27 @@ impl TerminalPanes {
         chat: Option<&str>,
         ends: Ends,
     ) {
-        match chat.map(SessionBase::chat) {
-            Some(Ok(base)) => self.sessions.start(base, pane.clone(), ends),
-            _ => notify(&ends, NO_CHAT),
+        let Some(Ok(base)) = chat.map(SessionBase::chat) else {
+            notify(&ends, NO_CHAT);
+            return;
+        };
+        let pane = pane.clone();
+        let state = chat.and_then(|chat| self.chats.state(chat));
+        match Plan::of(state.as_ref()) {
+            Plan::Own => self.sessions.start(base, pane, ends),
+            Plan::Watch(session) => self.sessions.watch((base, session), pane, ends),
+            Plan::Resume => self.resume(&ends, chat),
+        }
+    }
+
+    fn resume(
+        &self,
+        ends: &Ends,
+        chat: Option<&str>,
+    ) {
+        notify(ends, STARTING);
+        if let Some(chat) = chat {
+            self.chats.resume(chat);
         }
     }
 }

@@ -13,6 +13,7 @@ use ui::Overlays;
 
 use super::ShellView;
 use crate::browser_bars::BrowserBars;
+use crate::chat_terminals::ChatTerminals;
 use crate::daemon_link::DaemonLink;
 use crate::overlay_requests::OverlayRequests;
 use crate::shell_pane_source::ShellPaneSource;
@@ -37,7 +38,7 @@ pub(super) fn overlay_channel(
 pub(super) fn start_data(
     link: &DaemonLink,
     requests: &async_channel::Sender<ShellRequest>,
-) -> (ShellData, Arc<AtomicBool>) {
+) -> (Rc<ShellData>, Arc<AtomicBool>) {
     let queued = Arc::new(AtomicBool::new(false));
     let callbacks = crate::data_signal::callbacks(requests, &queued);
     let data = ShellData::start(
@@ -46,7 +47,7 @@ pub(super) fn start_data(
         (link.hosts(), link.desk()),
         callbacks,
     );
-    (data, queued)
+    (Rc::new(data), queued)
 }
 
 fn terminal_sessions(link: &DaemonLink) -> TerminalSessions {
@@ -62,12 +63,15 @@ pub(super) type Panes = (
 );
 
 pub(super) fn build_panes(
-    (state, link): (&ShellState, &DaemonLink),
+    (state, link, data): (&ShellState, &DaemonLink, &Rc<ShellData>),
     requests: &async_channel::Sender<ShellRequest>,
     cx: &mut Context<'_, ShellView>,
 ) -> Panes {
     let bars = BrowserBars::new(state.browsers(), requests.clone());
-    let terminals = TerminalPanes::new(state.terminals(), terminal_sessions(link));
+    let terminals = TerminalPanes::new(
+        state.terminals(),
+        (terminal_sessions(link), ChatTerminals::of(data)),
+    );
     let source = Rc::new(ShellPaneSource::new(
         state.titles(),
         state.serials(),

@@ -223,6 +223,7 @@ impl SettingsCore {
         value: Value,
     ) -> Result<(), Error> {
         let level = value.as_text().unwrap_or_default().to_owned();
+        let announced = value.clone();
         let previous = locked(&self.values).insert(key.as_str().to_owned(), value);
         if key.as_str() == PERMISSION {
             self.send_permission(previous, level);
@@ -233,6 +234,7 @@ impl SettingsCore {
             self.restore(key.as_str(), previous);
             return Err(Error::Unavailable(error.to_string()));
         }
+        self.push(Change::Setting(key.clone(), announced));
         Ok(())
     }
 
@@ -569,6 +571,15 @@ mod tests {
         assert_eq!(rig.core.records("agents"), Records::Failed);
     }
 
+    fn announced(
+        core: &SettingsCore,
+        key: &str,
+        text: &str,
+    ) -> bool {
+        core.take_changes()
+            .contains(&Change::Setting(Key::new(key), Value::Text(text.into())))
+    }
+
     async fn shell_settings_persist_to_the_file_and_the_permission_level_reverts_when_refused() {
         let rig = open(|daemon| {
             daemon.ok(
@@ -584,6 +595,10 @@ mod tests {
             .unwrap();
         let saved = std::fs::read_to_string(rig.dir.path().join("settings.json")).unwrap();
         assert!(saved.contains("dark") && !saved.contains("defaultPermissionLevel"));
+        assert!(
+            announced(&rig.core, "theme", "dark"),
+            "stored settings are announced"
+        );
         rig.core
             .set(
                 &Key::new("defaultPermissionLevel"),

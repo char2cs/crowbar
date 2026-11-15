@@ -78,8 +78,7 @@ impl ShellView {
         let (Ok(type_id), Ok(params)) = (chat_type(), chat_params(chat)) else {
             return;
         };
-        self.state.open_pane(type_id, params);
-        self.refresh(cx);
+        self.open_from_sidebar((type_id, params), cx);
     }
 
     fn pick_descriptor(cx: &mut Context<'_, Self>) {

@@ -10,6 +10,7 @@ use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 
+use crate::binding::Binding;
 use crate::ends::Ends;
 use crate::error::{Error, Result};
 use crate::rest::Rest;
@@ -64,21 +65,41 @@ impl TerminalSessions {
         pane: PaneId,
         ends: Ends,
     ) {
+        self.spawn((base, Binding::Create), pane, ends);
+    }
+
+    /// Connects `ends` to the existing `session` of `base` without creating or killing anything,
+    /// for the PTY of an agent runner.
+    pub fn watch(
+        &self,
+        (base, session): (SessionBase, String),
+        pane: PaneId,
+        ends: Ends,
+    ) {
+        self.spawn((base, Binding::Existing(session)), pane, ends);
+    }
+
+    fn spawn(
+        &self,
+        (base, binding): (SessionBase, Binding),
+        pane: PaneId,
+        ends: Ends,
+    ) {
         let session = self.clone();
         self.runtime.spawn(async move {
-            session.run(&base, pane, ends).await;
+            session.run((&base, &binding), pane, ends).await;
         });
     }
 
     async fn run(
         &self,
-        base: &SessionBase,
+        (base, binding): (&SessionBase, &Binding),
         pane: PaneId,
         ends: Ends,
     ) {
         let scope = RelayScope::new(self.rest.host.clone(), pane, PaneOrigin::Core);
         let notice = ends.frames.clone();
-        if let Err(error) = self.attach(base, &scope, ends).await {
+        if let Err(error) = self.attach((base, binding), &scope, ends).await {
             tracing::warn!(%error, "terminal session failed");
             let text = format!("{FAILURE_COLOR}{error}{RESET}\r\n");
             let reported = notice.send(DaemonFrame::Output(text.into_bytes())).await;
@@ -89,15 +110,13 @@ impl TerminalSessions {
 
     async fn attach(
         &self,
-        base: &SessionBase,
+        (base, binding): (&SessionBase, &Binding),
         scope: &RelayScope,
         ends: Ends,
     ) -> Result<()> {
-        let session = self.rest.create(base).await?;
+        let session = binding.session(&self.rest, base).await?;
         let outcome = self.stream(base, &session, scope, ends).await;
-        if let Err(error) = self.rest.kill(base, &session).await {
-            tracing::debug!(%error, "the terminal session was already gone");
-        }
+        binding.release(&self.rest, base, &session).await;
         outcome
     }
 
@@ -222,6 +241,8 @@ mod tests {
         String::from_utf8(bytes).unwrap()
     }
 
+    const CASES: [&str; 1] = ["agent"];
+
     #[tokio::test]
     async fn a_session_is_created_streamed_and_killed() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -263,5 +284,26 @@ mod tests {
         sessions(&daemon).start(base, pane, Ends { frames, messages });
         let notice = notice_text(&view_frames).await;
         assert!(notice.contains("stream"), "names the stage");
+    }
+
+    #[tokio::test]
+    async fn watching_an_existing_session_creates_and_kills_nothing() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let relay = format!("ws://{}", listener.local_addr().unwrap());
+        let daemon = Arc::new(Daemon {
+            relay,
+            seen: Mutex::default(),
+        });
+        let server = tokio::spawn(serve_output(listener));
+        let (frames, view_frames) = unbounded();
+        let (_view_messages, messages) = unbounded();
+        let base = SessionBase::chat("c1").unwrap();
+        let pane = PaneId::new("t1").unwrap();
+        sessions(&daemon).watch((base, CASES[0].into()), pane, Ends { frames, messages });
+        let first = view_frames.recv().await.unwrap();
+        assert_eq!(first, DaemonFrame::Output(b"ok".to_vec()));
+        server.await.unwrap();
+        until_closed(&view_frames).await;
+        assert!(daemon.seen.lock().unwrap().is_empty(), "no REST calls");
     }
 }

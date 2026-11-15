@@ -8,6 +8,7 @@ use tokio::runtime::Handle;
 
 use crate::branch_import::BranchImport;
 use crate::change_signal::ChangeSignal;
+use crate::chat_terminal::ChatTerminal;
 use crate::daemon_client::DaemonClient;
 use crate::dial::Dialled;
 use crate::error::{Error, Result};
@@ -102,6 +103,14 @@ impl ShellData {
         }
     }
 
+    /// The surface, runner, terminal session and phase of `chat`; `None` when it is not loaded.
+    pub fn chat_terminal(
+        &self,
+        chat: &str,
+    ) -> Option<ChatTerminal> {
+        self.hub.read(|state| ChatTerminal::of(state, chat))
+    }
+
     /// The sidebar's read side.
     pub fn view(&self) -> SidebarView {
         SidebarView::new(Arc::clone(&self.hub))
@@ -111,6 +120,13 @@ impl ShellData {
     /// or its host is another computer.
     pub fn workspace_root(&self) -> Option<std::path::PathBuf> {
         self.hub.read(crate::workspace_root::of)
+    }
+
+    /// The project the sidebar considers current: the selected one, else the first listed.
+    pub fn active_project(&self) -> Option<String> {
+        self.hub.read(|state| {
+            crate::sidebar_reads::active_project(state).map(|id| id.as_str().to_owned())
+        })
     }
 
     /// The sidebar's write side.
@@ -126,6 +142,7 @@ impl ShellData {
                 | Command::OpenHostSettings(_)
                 | Command::OpenRow(_)
                 | Command::ImportRepo
+                | Command::ChooseSpaceFolder(_)
                 | Command::ImportBranches(_)
                 | Command::OpenFile(_)
                 | Command::RevealFile { .. }
@@ -167,6 +184,18 @@ impl ShellData {
         signal: ChangeSignal,
     ) -> Result<Arc<FolderBrowse>> {
         FolderBrowse::open((&self.hub, &self.commands.handle), signal)
+    }
+
+    /// The remote folder picker's data for the paired host `host`, for a space not yet made.
+    ///
+    /// # Errors
+    /// [`Error::Stream`] when `host` is not followed.
+    pub fn folder_browse_on(
+        &self,
+        host: &str,
+        signal: ChangeSignal,
+    ) -> Result<Arc<FolderBrowse>> {
+        FolderBrowse::open_on((&self.hub, &self.commands.handle), host, signal)
     }
 
     /// The settings the modal edits: the shell's file at `file`, and this computer's daemon.

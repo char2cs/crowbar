@@ -13,6 +13,8 @@ pub(crate) enum ShellRequest {
     Command(shell_keys::ShellCommand),
     /// The stored keybinding overrides changed.
     KeymapChanged,
+    /// A setting the panes follow changed.
+    PaneSettingsChanged,
     /// The stored theme, theme mode or UI font size changed.
     AppearanceChanged,
     Browse {

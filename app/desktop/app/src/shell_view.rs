@@ -5,8 +5,8 @@ use std::sync::atomic::AtomicBool;
 
 use command_palette::PalettePanel;
 use gpui::{
-    Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render, Styled,
-    Subscription, Window, div,
+    Context, Div, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render,
+    Styled, Subscription, Window, div,
 };
 use layout_view::{ChromeContext, LayoutEvent, LayoutView};
 use pane_host::{IpcMessage, Overlay};
@@ -27,6 +27,7 @@ mod keymap_settings;
 mod notices;
 mod outcomes;
 mod pane_commands;
+mod pane_settings_watch;
 mod pump;
 mod remote_folder;
 mod shell_commands;
@@ -70,10 +71,11 @@ pub(crate) struct ShellView {
     keymap: Keymap,
     keymap_watch: Option<settings_ui::Subscription>,
     appearance_watch: Option<settings_ui::Subscription>,
+    pane_settings_watch: Option<settings_ui::Subscription>,
     family_names: crate::family_names::FamilyNames,
     system_fonts: shell_data::SystemFonts,
     requests: async_channel::Sender<ShellRequest>,
-    data: ShellData,
+    data: Rc<ShellData>,
     data_queued: Arc<AtomicBool>,
     settings_backend: Option<SettingsAdapter>,
     placement: Option<(webview::ParentWindow, webview::Bounds)>,
@@ -101,12 +103,11 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let (requests, queue) = overlay_channel(cx);
-        let (layout, tabs, workspace, source) = build_panes((&state, &link), &requests, cx);
         let (data, data_queued) = start_data(&link, &requests);
+        let (layout, tabs, workspace, source) = build_panes((&state, &link, &data), &requests, cx);
         let sidebar = build_sidebar((&requests, &data), &preferences_path, &workspace, cx);
         let startup = build_startup(&requests, cx);
-        let subscriptions =
-            subscribe_all((&workspace, &tabs, &layout, &sidebar, &startup), window, cx);
+        let subs = subscribe_all((&workspace, &tabs, &layout, &sidebar, &startup), window, cx);
         let mut view = Self {
             state,
             link,
@@ -126,6 +127,7 @@ impl ShellView {
             keymap: Keymap::defaults(),
             keymap_watch: None,
             appearance_watch: None,
+            pane_settings_watch: None,
             family_names: crate::family_names::FamilyNames::default(),
             system_fonts: shell_data::SystemFonts::default(),
             requests,
@@ -136,7 +138,7 @@ impl ShellView {
             overlays_open: false,
             hover: HoverTracker::default(),
             notices: Notices::default(),
-            subscriptions,
+            subscriptions: subs,
         };
         view.begin(queue, window, cx);
         view
@@ -155,6 +157,7 @@ impl ShellView {
         self.refresh(cx);
         self.watch_keymap();
         self.watch_appearance(cx);
+        self.watch_pane_settings();
     }
 
     fn spawn_tasks(
@@ -221,6 +224,7 @@ impl ShellView {
             },
             ShellRequest::KeymapChanged => self.on_keymap_changed(cx),
             ShellRequest::AppearanceChanged => self.apply_appearance(cx),
+            ShellRequest::PaneSettingsChanged => self.push_pane_settings(),
             ShellRequest::Browse { pane, event } => self.browse(&pane, event, cx),
             ShellRequest::Command(command) => self.run_shell_command(command, window, cx),
             ShellRequest::Overlays { open } => {
@@ -244,6 +248,7 @@ impl ShellView {
             Ok(SidebarAction::OpenSettings) => self.show_settings(window, cx),
             Ok(SidebarAction::OpenFile(path)) => self.open_workspace_file(&path, cx),
             Ok(SidebarAction::ImportRepo) => self.choose_repo_folder(window, cx),
+            Ok(SidebarAction::ChooseSpaceFolder(host)) => self.choose_space_folder(&host, cx),
             Ok(SidebarAction::ImportBranches(row)) => self.show_branch_import(&row, window, cx),
             Ok(SidebarAction::Reveal(path)) => self.reveal_workspace_path(&path),
             Ok(SidebarAction::Unserved) => self.perform_file_action(command, window, cx),
@@ -256,6 +261,10 @@ impl ShellView {
         (type_id, params): (protocol::PaneTypeId, protocol::Params),
         cx: &mut Context<'_, Self>,
     ) {
+        let chat = params
+            .get("threadId")
+            .and_then(|chat| self.data.chat_terminal(chat));
+        let (type_id, params) = crate::chat_route::route((type_id, params), chat);
         self.state.open_pane(type_id, params);
         self.refresh(cx);
     }
@@ -426,6 +435,10 @@ impl ShellView {
     }
 }
 
+fn layer<V: Render>(view: Option<&Entity<V>>) -> Option<Div> {
+    view.map(|view| div().absolute().size_full().child(view.clone()))
+}
+
 impl Render for ShellView {
     fn render(
         &mut self,
@@ -440,37 +453,13 @@ impl Render for ShellView {
             .relative()
             .bg(palette.background())
             .child(self.sidebar.clone())
-            .children(
-                self.settings
-                    .clone()
-                    .map(|modal| div().absolute().size_full().child(modal)),
-            )
-            .children(
-                self.palette
-                    .clone()
-                    .map(|panel| div().absolute().size_full().child(panel)),
-            )
-            .children(
-                self.branch_import
-                    .clone()
-                    .map(|dialog| div().absolute().size_full().child(dialog)),
-            )
-            .children(
-                self.remote_folders
-                    .clone()
-                    .map(|dialog| div().absolute().size_full().child(dialog)),
-            )
+            .children(layer(self.settings.as_ref()))
+            .children(layer(self.palette.as_ref()))
+            .children(layer(self.branch_import.as_ref()))
+            .children(layer(self.remote_folders.as_ref()))
             .children(self.prompt_layer())
-            .children(
-                self.pairing
-                    .clone()
-                    .map(|dialog| div().absolute().size_full().child(dialog)),
-            )
-            .children(
-                self.startup
-                    .clone()
-                    .map(|startup| div().absolute().size_full().child(startup)),
-            )
+            .children(layer(self.pairing.as_ref()))
+            .children(layer(self.startup.as_ref()))
             .children(self.notices_element(cx))
     }
 }

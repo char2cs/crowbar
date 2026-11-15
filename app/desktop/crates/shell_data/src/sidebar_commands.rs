@@ -11,6 +11,7 @@ use crate::new_id;
 use crate::outcome::OutcomeSink;
 use crate::panel_loader;
 use crate::plan::Plan;
+use crate::plan_agent;
 use crate::plan_create;
 use crate::planner;
 use crate::runner;
@@ -99,6 +100,17 @@ impl SidebarCommands {
             plan_create::repo(state, project.as_ref(), (path, &new_id::uuid()))
         });
         self.run(plan)
+    }
+
+    /// Starts the runner of `chat` again; a live chat answers with its runner and nothing changes.
+    ///
+    /// # Errors
+    /// [`Error::Refused`] when the chat is not loaded.
+    pub fn resume_chat(
+        &self,
+        chat: &str,
+    ) -> Result<(), Error> {
+        self.run(self.hub.read(|state| plan_agent::resume(state, chat)))
     }
 
     fn plan_and_run(

@@ -25,6 +25,19 @@ pub(crate) fn kill(
     Ok(Plan::of(&slot.spec.id, vec![call]).then(After::ReloadChanges))
 }
 
+pub(crate) fn resume(
+    state: &State,
+    chat: &str,
+) -> Result<Plan, String> {
+    let slot = state
+        .hosts
+        .iter()
+        .find(|slot| slot.store.chats.get(chat).is_some())
+        .ok_or("this chat is not loaded any more")?;
+    let call = Call::post(format!("/v0/chats/{chat}/resume"));
+    Ok(Plan::of(&slot.spec.id, vec![call]))
+}
+
 fn agent_of(
     slot: &HostSlot,
     chat: &ChatRecord,
@@ -78,6 +91,9 @@ mod tests {
         );
         let plan = kill(&state, &RowId::from("hc")).unwrap();
         assert_eq!(plan.after, After::ReloadChanges);
+        let resumed = resume(&state, "hc").unwrap();
+        assert_eq!(resumed.calls[0].path, "/v0/chats/hc/resume");
+        assert!(resume(&state, "gone").is_err());
         assert_eq!(plan.calls[0].path, "/v0/chats/hc/kill");
         assert!(kill(&state, &RowId::from("gone")).is_err());
     }

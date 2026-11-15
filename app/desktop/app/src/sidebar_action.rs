@@ -9,6 +9,7 @@ pub(crate) enum SidebarAction {
     OpenSettings,
     OpenFile(String),
     ImportRepo,
+    ChooseSpaceFolder(String),
     ImportBranches(String),
     Reveal(String),
     Unserved,
@@ -25,6 +26,9 @@ pub(crate) fn action_for(command: &sidebar::Command) -> Result<SidebarAction> {
         },
         sidebar::Command::OpenFile(path) => Ok(SidebarAction::OpenFile(path.clone())),
         sidebar::Command::ImportRepo => Ok(SidebarAction::ImportRepo),
+        sidebar::Command::ChooseSpaceFolder(host) => {
+            Ok(SidebarAction::ChooseSpaceFolder(host.as_str().to_owned()))
+        },
         sidebar::Command::ImportBranches(row) => {
             Ok(SidebarAction::ImportBranches(row.as_str().to_owned()))
         },
@@ -47,6 +51,10 @@ mod tests {
                 SidebarAction::Open(chat_type().unwrap(), chat_params("t1").unwrap()),
             ),
             (Command::OpenSettings, SidebarAction::OpenSettings),
+            (
+                Command::ChooseSpaceFolder(sidebar::HostId::from("box")),
+                SidebarAction::ChooseSpaceFolder("box".into()),
+            ),
             (
                 Command::ImportBranches(RowId::from("r")),
                 SidebarAction::ImportBranches("r".into()),
