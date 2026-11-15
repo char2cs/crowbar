@@ -10,6 +10,7 @@ use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radiu
 
 use crate::command::Command;
 use crate::expansion::Expansion;
+use crate::file_glyph::file_icon;
 use crate::file_kind::FileKind;
 use crate::file_menu::file_menu;
 use crate::file_tree_entry::FileTreeEntry;
@@ -168,7 +169,7 @@ fn glyph(entry: &FileTreeEntry) -> Div {
     let name = match entry.kind {
         FileKind::Directory(Expansion::Expanded) => IconName::FolderOpen,
         FileKind::Directory(Expansion::Collapsed) => IconName::Folder,
-        FileKind::File => IconName::Code,
+        FileKind::File => file_icon(&entry.name),
     };
     div()
         .flex()

@@ -28,6 +28,7 @@ impl Sidebar {
         div()
             .flex()
             .flex_col()
+            .relative()
             .w(px(width))
             .h_full()
             .flex_none()
@@ -39,6 +40,7 @@ impl Sidebar {
             .child(bar)
             .child(div().flex_1().min_h_0().child(panel))
             .child(div().flex_none().h(px(FOOT_HEIGHT)))
+            .children(self.toast_layer())
             .into_any_element()
     }
 }

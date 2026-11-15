@@ -20,6 +20,7 @@ use crate::shell_answers::ShellAnswers;
 use crate::sidebar::Sidebar;
 
 const ROOT_STRIP: f32 = 48.0;
+const NO_MATCH: &str = "No matching files";
 
 fn root_entry() -> FileTreeEntry {
     FileTreeEntry {
@@ -59,9 +60,12 @@ impl Sidebar {
         &mut self,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        let files = self.data.files();
-        if files.is_empty() {
+        if self.data.files().is_empty() {
             return panel_message("No folder open", cx);
+        }
+        let files = self.visible_files();
+        if files.is_empty() {
+            return self.panel_frame(panel_message(NO_MATCH, cx), cx);
         }
         let scope = self.menu_scope();
         let handler = Self::row_handler(cx);
@@ -81,12 +85,23 @@ impl Sidebar {
             .children(context.rows(files))
             .child(strip);
         let scroll = ScrollArea::new("files-scroll", &self.scrolls.files, list);
+        self.panel_frame(scroll.into_any_element(), cx)
+    }
+
+    fn panel_frame(
+        &self,
+        body: AnyElement,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         div()
             .id("files-panel")
+            .flex()
+            .flex_col()
             .size_full()
             .track_focus(&self.files_focus)
             .on_key_down(cx.listener(Self::files_key))
-            .child(scroll)
+            .children(self.file_search_box())
+            .child(div().flex_1().min_h_0().child(body))
             .into_any_element()
     }
 }

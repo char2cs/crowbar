@@ -5,6 +5,7 @@ use gpui::{Context, KeyDownEvent, Window};
 use crate::clip_mode::ClipMode;
 use crate::file_clipboard::FileClipboard;
 use crate::file_key::FileKey;
+use crate::file_search::opens_search;
 use crate::file_steps::step;
 use crate::sidebar::Sidebar;
 
@@ -48,11 +49,16 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.inline.is_some() {
+        if self.inline.is_some() || self.search.is_some() {
             return;
         }
         let modifiers = event.keystroke.modifiers;
         let key = &event.keystroke.key;
+        if opens_search(key, modifiers) {
+            cx.stop_propagation();
+            self.open_file_search(window, cx);
+            return;
+        }
         let secondary = modifiers.secondary();
         let parsed = FileKey::plain(key)
             .filter(|_| !secondary)

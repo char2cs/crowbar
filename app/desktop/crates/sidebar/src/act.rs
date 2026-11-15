@@ -3,8 +3,10 @@
 use std::time::Instant;
 
 use gpui::{Context, Pixels, Point, Window};
+use ui::ToastKind;
 
 use crate::command::Command;
+use crate::error::Error;
 use crate::file_dialog::FileDialog;
 use crate::file_properties::FileProperties;
 use crate::foot_menu::foot_menu;
@@ -100,8 +102,10 @@ impl Sidebar {
         command: Command,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.sink.dispatch(command).is_ok() {
-            cx.notify();
+        match self.sink.dispatch(command) {
+            Ok(()) => cx.notify(),
+            Err(Error::Refused { reason }) => self.toast((ToastKind::Error, reason), None, cx),
+            Err(_) => {},
         }
     }
 

@@ -7,6 +7,7 @@ use ui::{CubicBezier, Glide};
 
 use crate::command_sink::CommandSink;
 use crate::drag_state::DragState;
+use crate::file_search::FileSearch;
 use crate::inline_edit::InlineEdit;
 use crate::mode::Mode;
 use crate::open_menu::OpenMenu;
@@ -19,6 +20,7 @@ use crate::row_id::RowId;
 use crate::scrolls::Scrolls;
 use crate::sidebar_data::SidebarData;
 use crate::sidebar_event::SidebarEvent;
+use crate::toast_stack::ToastStack;
 use crate::tree_state::TreeState;
 use crate::work_at_risk::WorkAtRisk;
 
@@ -43,6 +45,8 @@ pub struct Sidebar {
     pub(crate) handle_focus: FocusHandle,
     pub(crate) files_focus: FocusHandle,
     pub(crate) creating_space: bool,
+    pub(crate) search: Option<FileSearch>,
+    pub(crate) toasts: ToastStack,
     pub(crate) drag: DragState,
     pub(crate) row_bounds: RowBounds,
 }
@@ -75,6 +79,8 @@ impl Sidebar {
             handle_focus: cx.focus_handle(),
             files_focus: cx.focus_handle(),
             creating_space: false,
+            search: None,
+            toasts: ToastStack::default(),
             drag: DragState::default(),
             row_bounds: RowBounds::default(),
         }

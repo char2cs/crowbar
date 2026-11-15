@@ -21,6 +21,8 @@ const NAME_MAX_WIDTH: Pixels = px(96.0);
 const MENU_MIN_WIDTH: Pixels = px(224.0);
 
 const DOT: f32 = 5.0;
+const CUTOUT: f32 = 8.0;
+const TRIGGER_GROUP: &str = "host-trigger";
 const UNSETTLED_ALPHA: f32 = 0.65;
 
 fn dot(
@@ -59,7 +61,24 @@ pub(crate) fn host_icon(
         .flex_none()
         .size(ICON_LARGE)
         .child(Icon::new(name).weight(IconWeight::Regular).size(ICON_LARGE))
+        .child(cutout(palette))
         .child(dot(host, palette))
+}
+
+fn cutout_offset() -> f32 {
+    DOT_OFFSET - (CUTOUT - DOT) / 2.0
+}
+
+fn cutout(palette: &Palette) -> Div {
+    let hovered = palette.chrome_bg().blend(palette.sidebar_element_hover());
+    div()
+        .absolute()
+        .right(px(cutout_offset()))
+        .bottom(px(cutout_offset()))
+        .size(px(CUTOUT))
+        .rounded(radius::FULL)
+        .bg(palette.chrome_bg())
+        .group_hover(TRIGGER_GROUP, move |style| style.bg(hovered))
 }
 
 fn item(
@@ -94,6 +113,7 @@ pub(crate) fn host_picker(
             .text_color(palette.foreground())
     };
     let trigger = div()
+        .group(TRIGGER_GROUP)
         .flex()
         .items_center()
         .gap(SPACE_SM)
@@ -134,6 +154,13 @@ mod tests {
             state: HostState::Up,
             endpoint: None,
         }
+    }
+
+    #[test]
+    fn the_cutout_is_centred_on_the_dot() {
+        let dot_centre = DOT_OFFSET + DOT / 2.0;
+        let cutout_centre = cutout_offset() + CUTOUT / 2.0;
+        assert!((dot_centre - cutout_centre).abs() < f32::EPSILON);
     }
 
     #[gpui::test]
