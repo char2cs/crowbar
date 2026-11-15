@@ -76,7 +76,7 @@ events:
     required: [session_id]
     api: { in: turn/done, map: { session_id: session_id, message: text } }
   prompt:
-    fresh: [{ call: session/new, capture: { session_id: id } }]
+    fresh: [{ call: session/new, send: { instructions: "{context}" }, capture: { session_id: id } }]
     resume: [{ call: session/resume, send: { id: "{session_id}" } }]
     action: [{ call: turn/send, send: { id: "{session_id}", text: "{text}" } }]
 `

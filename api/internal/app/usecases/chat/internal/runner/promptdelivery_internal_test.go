@@ -145,7 +145,7 @@ events:
   prompt:
     fresh:
       - call: thread/start
-        send: { relay: { id: "{relay_id}" } }
+        send: { relay: { id: "{relay_id}" }, developerInstructions: "{context}" }
         capture: { session_id: thread.id }
     resume:
       - call: thread/resume
