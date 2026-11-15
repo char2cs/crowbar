@@ -5,8 +5,8 @@ use std::sync::atomic::AtomicBool;
 
 use command_palette::PalettePanel;
 use gpui::{
-    Context, Entity, InteractiveElement, IntoElement, ParentElement, Render, Styled, Subscription,
-    Window, div,
+    Context, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render, Styled,
+    Subscription, Window, div,
 };
 use layout_view::{ChromeContext, LayoutEvent, LayoutView};
 use pane_host::{IpcMessage, Overlay};
@@ -65,6 +65,7 @@ pub(crate) struct ShellView {
     file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
     pairing: Option<Entity<pairing_view::PairingView>>,
     source: Rc<ShellPaneSource>,
+    focus: FocusHandle,
     keymap: Keymap,
     keymap_watch: Option<settings_ui::Subscription>,
     appearance_watch: Option<settings_ui::Subscription>,
@@ -120,6 +121,7 @@ impl ShellView {
             remote_folders: None,
             file_prompt: None,
             pairing: None,
+            focus: cx.focus_handle(),
             keymap: Keymap::defaults(),
             keymap_watch: None,
             appearance_watch: None,
@@ -136,6 +138,7 @@ impl ShellView {
             subscriptions,
         };
         view.begin(queue, window, cx);
+        window.focus(&view.focus);
         view
     }
 
@@ -430,6 +433,7 @@ impl Render for ShellView {
         let palette = Theme::of(cx).palette(Surface::Window);
         div()
             .size_full()
+            .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
             .relative()
             .bg(palette.background())

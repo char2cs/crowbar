@@ -11,9 +11,10 @@ const MODE: &str = "themeMode";
 const SIZE: &str = "uiFontSize";
 const UI_FAMILY: &str = "uiFontFamily";
 const HEADING_FAMILY: &str = "headingFontFamily";
+const MONO_FAMILY: &str = "fontFamily";
 
 fn is_appearance(key: &Key) -> bool {
-    [THEME, MODE, SIZE, UI_FAMILY, HEADING_FAMILY].contains(&key.as_str())
+    [THEME, MODE, SIZE, UI_FAMILY, HEADING_FAMILY, MONO_FAMILY].contains(&key.as_str())
 }
 
 fn notify_when_appearance_moves(
@@ -43,7 +44,7 @@ fn mode_of(stored: Option<&Value>) -> ThemeMode {
 
 type Stored<'a> = (
     (Option<&'a Value>, Option<&'a Value>, Option<&'a Value>),
-    (Option<&'a Value>, Option<&'a Value>),
+    (Option<&'a Value>, Option<&'a Value>, Option<&'a Value>),
 );
 
 fn family_of(
@@ -63,13 +64,15 @@ pub(super) fn themed(
     base: Theme,
     (stored, names): (Stored<'_>, &mut FamilyNames),
 ) -> Theme {
-    let ((theme, mode, size), (ui, heading)) = stored;
+    let ((theme, mode, size), (ui, heading, mono)) = stored;
     let themed = base.with_id(id_of(theme)).with_mode(mode_of(mode));
     let sized = size
         .and_then(Value::as_number)
         .map_or(themed, |points| themed.with_ui_font_size(points as f32));
     let faced = family_of(names, ui).map_or(sized, |family| sized.with_ui_family(family));
-    family_of(names, heading).map_or(faced, |family| faced.with_heading_family(family))
+    let headed =
+        family_of(names, heading).map_or(faced, |family| faced.with_heading_family(family));
+    family_of(names, mono).map_or(headed, |family| headed.with_mono_family(family))
 }
 
 impl ShellView {
@@ -104,12 +107,13 @@ impl ShellView {
             (
                 backend.get(&Key::new(UI_FAMILY)),
                 backend.get(&Key::new(HEADING_FAMILY)),
+                backend.get(&Key::new(MONO_FAMILY)),
             ),
         );
-        let ((theme, mode, size), (ui, heading)) = stored;
+        let ((theme, mode, size), (ui, heading, mono)) = stored;
         let stored = (
             (theme.as_ref(), mode.as_ref(), size.as_ref()),
-            (ui.as_ref(), heading.as_ref()),
+            (ui.as_ref(), heading.as_ref(), mono.as_ref()),
         );
         let theme = themed(*Theme::of(cx), (stored, &mut self.family_names));
         theme.install(cx);
@@ -129,16 +133,20 @@ mod tests {
         let size = Value::Number(30.0);
         let ui = Value::Text("Inter".into());
         let heading = Value::Text("Lora".into());
+        let mono = Value::Text("Fira Code".into());
         let mut names = FamilyNames::default();
         let stored = (
             (Some(&frosted), Some(&dark), Some(&size)),
-            (Some(&ui), Some(&heading)),
+            (Some(&ui), Some(&heading), Some(&mono)),
         );
         let set = themed(base, (stored, &mut names));
-        assert_eq!((set.ui_family(), set.heading_family()), ("Inter", "Lora"));
+        assert_eq!(
+            (set.ui_family(), set.heading_family(), set.mono_family()),
+            ("Inter", "Lora", "Fira Code")
+        );
         assert_eq!((set.id(), set.mode()), (ThemeId::Frosted, ThemeMode::Dark));
         assert!(set.ui_scale() > base.ui_scale());
-        let unset = themed(base, (((None, None, None), (None, None)), &mut names));
+        let unset = themed(base, (((None, None, None), (None, None, None)), &mut names));
         assert_eq!(
             (unset.ui_family(), unset.heading_family()),
             (base.ui_family(), base.heading_family())

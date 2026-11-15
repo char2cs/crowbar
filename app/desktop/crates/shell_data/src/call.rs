@@ -66,6 +66,20 @@ impl Call {
     }
 
     #[must_use]
+    pub(crate) fn form(
+        mut self,
+        body: Vec<u8>,
+        boundary: &str,
+    ) -> Self {
+        self.raw = Some(body);
+        self.headers.push((
+            "content-type".into(),
+            format!("multipart/form-data; boundary={boundary}"),
+        ));
+        self
+    }
+
+    #[must_use]
     pub(crate) fn idempotent(
         mut self,
         key: &str,

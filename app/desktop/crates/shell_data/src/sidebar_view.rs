@@ -51,6 +51,14 @@ impl SidebarData for SidebarView {
         self.hub.read(files_reads::root)
     }
 
+    fn merge_box(&self) -> Option<sidebar::MergeBox> {
+        self.hub.read(crate::merge_reads::merge_box)
+    }
+
+    fn running_agents(&self) -> Vec<sidebar::RunningAgent> {
+        self.hub.read(crate::plan_agent::running)
+    }
+
     fn serves(
         &self,
         command: &sidebar::Command,

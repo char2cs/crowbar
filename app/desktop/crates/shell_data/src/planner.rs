@@ -5,8 +5,11 @@ use sidebar::Command;
 
 use crate::new_id;
 use crate::plan::Plan;
+use crate::plan_agent;
 use crate::plan_create;
 use crate::plan_edit;
+use crate::plan_icon;
+use crate::plan_merge;
 use crate::plan_move;
 use crate::sidebar_reads::active_project;
 use crate::state::State;
@@ -24,7 +27,8 @@ pub(crate) fn plan(
         | Command::Fork { .. }
         | Command::MakeBranch { .. }
         | Command::CreateFolder(_)
-        | Command::CreateSpace { .. } => creation(state, command, &id),
+        | Command::CreateSpace { .. }
+        | Command::CreateSpaceWithIcon { .. } => creation(state, command, &id),
         other => edit(state, other),
     }
 }
@@ -53,8 +57,31 @@ fn creation(
         Command::CreateSpace { name, folder, host } => {
             Ok(plan_create::space((name, folder), host, id))
         },
+        Command::CreateSpaceWithIcon {
+            name,
+            folder,
+            host,
+            icon,
+        } => {
+            let mut plan = plan_create::space((name, folder), host, id);
+            plan.calls.extend(plan_icon::calls(id, icon)?);
+            Ok(plan)
+        },
         other => Err(format!("{other:?} is not a data command")),
     }
+}
+
+fn space_icon(
+    state: &State,
+    project: &sidebar::ProjectId,
+    icon: &sidebar::SpaceIcon,
+) -> Result<Plan, String> {
+    let slot = crate::sidebar_reads::host_of(state, project.as_str())
+        .ok_or("this space is not loaded yet")?;
+    Ok(Plan::of(
+        &slot.spec.id,
+        plan_icon::calls(project.as_str(), icon)?,
+    ))
 }
 
 fn edit(
@@ -75,6 +102,12 @@ fn edit(
         ),
         Command::Detach(row) => plan_edit::verb(state, row.as_str(), ("detach-holder", None)),
         Command::Retry(row) => plan_edit::verb(state, row.as_str(), ("retry-provision", None)),
+        Command::SetSpaceIcon { project, icon } => space_icon(state, project, icon),
+        Command::SetMergeStrategy(strategy) => plan_merge::set_strategy(state, *strategy),
+        Command::Merge { after } => plan_merge::merge(state, *after),
+        Command::StopAndMerge => plan_merge::stop_and_merge(state),
+        Command::CommitChanges { message, paths } => plan_merge::commit(state, (message, paths)),
+        Command::KillAgent(row) => plan_agent::kill(state, row),
         Command::CancelMove(row) => plan_edit::verb(state, row.as_str(), ("move/cancel", None)),
         Command::Dismiss(row) => plan_edit::dismiss(state, row.as_str()),
         Command::MoveTo { row, target } => plan_move::drop_row(

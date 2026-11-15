@@ -1,9 +1,12 @@
 //! Everything the sidebar asks the rest of the shell to do.
 
+use crate::after_merge::AfterMerge;
 use crate::drop_mode::DropMode;
 use crate::host_id::HostId;
+use crate::merge_strategy::MergeStrategy;
 use crate::project_id::ProjectId;
 use crate::row_id::RowId;
+use crate::space_icon::SpaceIcon;
 
 /// A request from the sidebar. The data source decides what happens and answers through the
 /// entity stream; the sidebar never guesses the result.
@@ -180,6 +183,43 @@ pub enum Command {
     },
     /// Pick a folder to add to the workspace.
     AddFolderToWorkspace,
+    /// Create a space like [`Command::CreateSpace`], then set `icon` on it; a failure to set the icon
+    /// does not undo the space.
+    CreateSpaceWithIcon {
+        /// The trimmed name, or the folder's base name when empty.
+        name: String,
+        /// The chosen folder.
+        folder: String,
+        /// The host the space lives on.
+        host: HostId,
+        /// The icon staged in the form.
+        icon: SpaceIcon,
+    },
+    /// Set the icon of a space; [`SpaceIcon::Default`] resets it.
+    SetSpaceIcon {
+        /// The space.
+        project: ProjectId,
+        /// The new icon.
+        icon: SpaceIcon,
+    },
+    /// Remember the strategy the focused workspace merges with.
+    SetMergeStrategy(MergeStrategy),
+    /// Merge the focused workspace into its parent with the chosen strategy.
+    Merge {
+        /// Whether the branch and its chats are deleted afterwards.
+        after: AfterMerge,
+    },
+    /// Stop the agents working in the focused workspace, then merge and delete the branch.
+    StopAndMerge,
+    /// Commit `paths` of the focused workspace with `message`.
+    CommitChanges {
+        /// The commit message.
+        message: String,
+        /// The changed files to commit.
+        paths: Vec<String>,
+    },
+    /// Force-end the agent running on the chat `row`, after the sidebar's confirmation.
+    KillAgent(RowId),
     /// Create `target` next to the env file `path`, with its values emptied.
     CreateEnvTemplate {
         /// The env file the template is made from.

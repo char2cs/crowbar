@@ -8,6 +8,7 @@ use crate::git_diff_body::GitDiffBody;
 use crate::git_status_body::GitStatusBody;
 use crate::hub::Hub;
 use crate::line_counts::{self, LineCounts};
+use crate::thread_body::{self, ThreadBody};
 use crate::typed::typed;
 
 const ROOT_QUERY: &str = ".";
@@ -56,7 +57,42 @@ pub(crate) async fn load_changes(
         return;
     };
     let counts = load_counts(client, chat).await;
-    hub.edit(|state| state.panels.change(chat, body.changes(&counts)));
+    let open = load_open_threads(hub, client, chat).await;
+    hub.edit(|state| {
+        state.panels.change(chat, body.changes(&counts));
+        state
+            .panels
+            .staged_and_threads(chat, (body.staged_paths(), open));
+    });
+}
+
+async fn load_open_threads(
+    hub: &Hub,
+    client: &DaemonClient,
+    chat: &str,
+) -> u32 {
+    let Some(path) = hub.read(|state| threads_path(state, chat)) else {
+        return 0;
+    };
+    read::<Vec<ThreadBody>>(client, path)
+        .await
+        .inspect_err(|error| tracing::warn!(chat, %error, "review threads could not be read"))
+        .map_or(0, |threads| thread_body::open_in(&threads))
+}
+
+fn threads_path(
+    state: &crate::state::State,
+    chat: &str,
+) -> Option<String> {
+    let record = state
+        .hosts
+        .iter()
+        .find_map(|slot| slot.store.chats.get(chat))?;
+    let scope = crate::routes::scope(&record.project_id, &record.repo_id);
+    Some(format!(
+        "{scope}/workspaces/{}/threads",
+        record.workspace_id
+    ))
 }
 
 async fn load_counts(

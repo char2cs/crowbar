@@ -7,4 +7,5 @@ use serde::Deserialize;
 pub(crate) struct GitFileBody {
     pub(crate) path: String,
     pub(crate) status: String,
+    pub(crate) staged: bool,
 }

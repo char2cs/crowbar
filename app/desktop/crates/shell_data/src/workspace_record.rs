@@ -13,6 +13,8 @@ pub(crate) struct WorkspaceRecord {
     pub(crate) branch: String,
     pub(crate) parent_id: String,
     pub(crate) status: String,
+    pub(crate) merge_strategy: String,
+    pub(crate) can_merge_locally: bool,
     pub(crate) working: Switch,
     pub(crate) is_default: bool,
     pub(crate) added: u32,

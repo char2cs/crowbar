@@ -179,6 +179,8 @@ impl PaneHost {
         message: IpcMessage,
         layout: &Layout,
     ) -> Result<Vec<HostEvent>> {
+        tracing::warn!(text = %message.text.chars().take(300).collect::<String>(), "TEMP-DEBUG ipc");
+        if message.text.contains("\"kind\":\"dbg\"") { return Ok(Vec::new()); }
         let live = self
             .panes
             .get(&message.pane)

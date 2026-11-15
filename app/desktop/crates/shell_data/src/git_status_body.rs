@@ -15,6 +15,14 @@ pub(crate) struct GitStatusBody {
 }
 
 impl GitStatusBody {
+    pub(crate) fn staged_paths(&self) -> std::collections::HashSet<String> {
+        self.files
+            .iter()
+            .filter(|file| file.staged)
+            .map(|file| file.path.clone())
+            .collect()
+    }
+
     pub(crate) fn changes(
         &self,
         counts: &LineCounts,

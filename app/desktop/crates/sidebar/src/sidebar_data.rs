@@ -5,12 +5,15 @@ use crate::command::Command;
 use crate::file_row::FileRow;
 use crate::focus::Focus;
 use crate::host::Host;
+use crate::merge_box::MergeBox;
 use crate::move_target::MoveTarget;
 use crate::project::Project;
 use crate::project_id::ProjectId;
 use crate::project_tree::ProjectTree;
 use crate::row_id::RowId;
+use crate::running_agent::RunningAgent;
 use crate::scope_sync::ScopeSync;
+use crate::space_icon::SpaceIcon;
 
 /// The read side of the sidebar, implemented by the shell over the daemon's entity streams. The
 /// view calls it on every render and never keeps a copy of what it returns.
@@ -68,6 +71,21 @@ pub trait SidebarData {
         _path: &str,
     ) -> bool {
         false
+    }
+    /// The merge box of the focused workspace, or `None` without a branch workspace.
+    fn merge_box(&self) -> Option<MergeBox> {
+        None
+    }
+    /// The chats whose agent is running now, on every host.
+    fn running_agents(&self) -> Vec<RunningAgent> {
+        Vec::new()
+    }
+    /// The icon `project` shows.
+    fn space_icon(
+        &self,
+        _project: &ProjectId,
+    ) -> SpaceIcon {
+        SpaceIcon::Default
     }
     /// Whether the shell can generate images, which shows that entry on directories.
     fn can_generate_image(&self) -> bool {

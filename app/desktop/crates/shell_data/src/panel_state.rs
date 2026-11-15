@@ -13,6 +13,8 @@ pub(crate) struct PanelState {
     pub(crate) expanded: HashSet<String>,
     pub(crate) statuses: HashMap<String, GitStatus>,
     pub(crate) changes: Changes,
+    pub(crate) staged: HashSet<String>,
+    pub(crate) open_threads: u32,
 }
 
 impl PanelState {
@@ -54,6 +56,17 @@ impl PanelState {
             .map(|file| (file.path.clone(), file.status))
             .collect();
         self.changes = changes;
+    }
+
+    pub(crate) fn staged_and_threads(
+        &mut self,
+        chat: &str,
+        (staged, open_threads): (HashSet<String>, u32),
+    ) {
+        if self.chat.as_deref() == Some(chat) {
+            self.staged = staged;
+            self.open_threads = open_threads;
+        }
     }
 
     pub(crate) fn toggle(

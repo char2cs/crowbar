@@ -9,6 +9,7 @@ use crate::chat_record::ChatRecord;
 use crate::folder_record::FolderRecord;
 use crate::frame::Frame;
 use crate::operation_record::OperationRecord;
+use crate::presence_record::PresenceRecord;
 use crate::project_record::ProjectRecord;
 use crate::repo_record::RepoRecord;
 use crate::table::Table;
@@ -24,6 +25,7 @@ pub(crate) struct EntityStore {
     pub(crate) chats: Table<ChatRecord>,
     pub(crate) folders: Table<FolderRecord>,
     pub(crate) operations: Table<OperationRecord>,
+    pub(crate) presence: Table<PresenceRecord>,
     epoch: Option<String>,
     unread: Vec<String>,
     fresh: Option<HashSet<String>>,
@@ -101,6 +103,7 @@ impl EntityStore {
             "chat" => put(&mut self.chats, (id, version), data),
             "folder" => put(&mut self.folders, (id, version), data),
             "operation" => put(&mut self.operations, (id, version), data),
+            "presence" => put(&mut self.presence, (id, version), data),
             _ => {},
         }
     }
@@ -117,6 +120,7 @@ impl EntityStore {
             "chat" => self.chats.remove(id),
             "folder" => self.folders.remove(id),
             "operation" => self.operations.remove(id),
+            "presence" => self.presence.remove(id),
             _ => {},
         }
     }
@@ -142,6 +146,7 @@ impl EntityStore {
         self.projects.retain(|id, _| held("project", id));
         self.repos.retain(|id, _| held("repo", id));
         self.operations.retain(|id, _| held("operation", id));
+        self.presence.retain(|id, _| held("presence", id));
         self.workspaces.retain(|id, row| {
             held("workspace", id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
         });

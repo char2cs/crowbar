@@ -173,7 +173,10 @@ pub(crate) fn files(state: &State) -> Vec<FileRow> {
 }
 
 pub(crate) fn changes(state: &State) -> Changes {
-    state.panels.changes.clone()
+    let mut changes = state.panels.changes.clone();
+    changes.parent = crate::files_reads::followed_workspace(state)
+        .and_then(|workspace| crate::merge_reads::parent_branch(state, workspace));
+    changes
 }
 
 #[cfg(test)]

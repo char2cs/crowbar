@@ -35,7 +35,10 @@ impl TlsHost {
         handler: Handler,
     ) -> Self {
         let cert_der = identity.cert.to_vec();
-        let config = rustls::ServerConfig::builder_with_protocol_versions(versions)
+        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let config = rustls::ServerConfig::builder_with_provider(provider)
+            .with_protocol_versions(versions)
+            .expect("protocol versions")
             .with_no_client_auth()
             .with_single_cert(vec![identity.cert], identity.key)
             .expect("server config");

@@ -16,7 +16,7 @@ fn host_of_followed(state: &State) -> Option<&HostSlot> {
         .find(|slot| slot.store.chats.get(chat).is_some())
 }
 
-fn followed_workspace(state: &State) -> Option<&WorkspaceRecord> {
+pub(crate) fn followed_workspace(state: &State) -> Option<&WorkspaceRecord> {
     let slot = host_of_followed(state)?;
     let chat = slot.store.chats.get(state.panels.chat.as_deref()?)?;
     slot.store.workspaces.get(&chat.workspace_id)
