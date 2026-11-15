@@ -259,10 +259,7 @@ jobs:
       - name: Swift rules (docs/swift-style.md)
         run: |
           bash tools/scripts/check-swift-rules.sh --self-test
-          # Package location differs until the iOS move lands everywhere.
-          ROOT=app/mobile/ios
-          [ -d "$ROOT" ] || ROOT=app/mobile/ios-chrome/ios
-          bash tools/scripts/check-swift-rules.sh --full "$ROOT"
+          bash tools/scripts/check-swift-rules.sh --full app/mobile/ios
       # The package depends on the generated .tauri/tauri-api, so building and
       # testing it needs the cargo build and runs in ci.yml (ios-checks).
 
