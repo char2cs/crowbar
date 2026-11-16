@@ -1,19 +1,13 @@
 //! Terminal emulation for the Crowbar shell: an alacritty grid fed by the daemon's PTY frames, read as
 //! render snapshots, with selection, search, links and key, mouse and paste encoding. No GPUI.
 
-#![allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "cell and pixel geometry stays far below f32 precision and the usize range"
-)]
-
 mod address_runs;
 mod background_span;
 mod cell_hit;
 mod cell_metrics;
 mod cell_ref;
 mod cell_side;
+mod cell_units;
 mod click_tracker;
 mod client_message;
 mod color_source;
@@ -68,7 +62,11 @@ mod style_span;
 mod terminal;
 mod terminal_config;
 mod terminal_event;
+mod terminal_modes;
 mod terminal_palette;
+mod terminal_scroll;
+mod terminal_search;
+mod terminal_selection;
 #[cfg(test)]
 mod test_support;
 mod title;
@@ -83,6 +81,7 @@ pub use background_span::BackgroundSpan;
 pub use cell_hit::CellHit;
 pub use cell_metrics::CellMetrics;
 pub use cell_side::CellSide;
+pub use cell_units::{cells_f32, floor_cells};
 pub use click_tracker::ClickTracker;
 pub use client_message::ClientMessage;
 pub use cursor_cell::CursorCell;

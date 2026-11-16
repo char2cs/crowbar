@@ -3,6 +3,7 @@ use serde_json::json;
 use crate::pick_report::PickReport;
 
 const QUOTE_LABEL_CHARS: usize = 40;
+const ELEMENT: &str = "element";
 const DATA_VERSION: u8 = 1;
 
 /// The text a pick leaves on the clipboard: readable lines, then one `⌖data` JSON line an agent
@@ -13,7 +14,7 @@ pub fn pointer_text(
     tab: &str,
 ) -> String {
     let mut lines = vec![headline(report, tab)];
-    if report.kind != "element" {
+    if report.kind != ELEMENT {
         lines.extend(
             report
                 .items
@@ -62,14 +63,14 @@ fn headline(
 ) -> String {
     let first = report.items.first();
     let kind = match (report.kind.as_str(), first) {
-        ("element", Some(first)) if !first.role.is_empty() => first.role.clone(),
-        ("element", Some(first)) => first.tag.clone(),
-        ("element", None) => "element".to_owned(),
+        (ELEMENT, Some(first)) if !first.role.is_empty() => first.role.clone(),
+        (ELEMENT, Some(first)) => first.tag.clone(),
+        (ELEMENT, None) => ELEMENT.to_owned(),
         (other, _) => other.to_owned(),
     };
     let count = pick_count(report);
     let tail = match (report.kind.as_str(), count) {
-        ("element", _) => String::new(),
+        (ELEMENT, _) => String::new(),
         (_, 1) => " · 1 item".to_owned(),
         (_, count) => format!(" · {count} items"),
     };
@@ -159,7 +160,7 @@ mod tests {
         quote.quote = Some("x".repeat(60));
         let cases = [
             (
-                report("element", vec![item("button", "Go")]),
+                report(ELEMENT, vec![item("button", "Go")]),
                 vec!["⌖ button \"Go\" · https://a.test/ · tab p1"],
             ),
             (

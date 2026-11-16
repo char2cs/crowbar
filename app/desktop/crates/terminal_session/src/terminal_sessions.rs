@@ -1,25 +1,21 @@
 //! One terminal session from creation to the end of its stream.
 
-use std::pin::pin;
 use std::sync::Arc;
-use std::time::Duration;
 
-use async_channel::Receiver;
-use futures_util::StreamExt;
-use futures_util::future::ready;
 use protocol::{DaemonTransport, HostId, PaneId, PaneOrigin, RelayScope};
-use terminal::{ClientMessage, DaemonFrame};
 use tokio::net::TcpStream;
 use tokio::runtime::Handle;
-use tokio::time::{sleep, timeout};
+use tokio::time::timeout;
 use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::http::HeaderValue;
 
+use crate::attachment::Attachment;
 use crate::binding::Binding;
 use crate::ends::Ends;
 use crate::error::{Error, Result};
+use crate::handshake::{CONNECT_TIMEOUT, header, stream_error, within};
 use crate::reconnect::Reconnect;
+use crate::recovery::{notice, recover};
 use crate::rest::Rest;
 use crate::session_base::SessionBase;
 use crate::stream::pump;
@@ -28,8 +24,6 @@ use crate::stream_end::StreamEnd;
 const RELAY_SUBPROTOCOL: &str = "crowbar.relay.v1";
 const TOKEN_PREFIX: &str = "crowbar.token.";
 const FAILURE_COLOR: &str = "\x1b[31m";
-const WARNING_COLOR: &str = "\x1b[33m";
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const RESET: &str = "\x1b[0m";
 
 /// Starts terminal sessions on one daemon host.
@@ -122,10 +116,15 @@ impl TerminalSessions {
         ends: &Ends,
     ) -> Result<()> {
         let created = timeout(CONNECT_TIMEOUT, binding.session(&self.rest, base));
-        let session = created
-            .await
-            .map_err(|_| timed_out("creating the session"))??;
-        self.keep_attached((base, &session), scope, ends).await;
+        let session = created.await.map_err(|source| Error::TimedOut {
+            stage: "creating the session",
+            source,
+        })??;
+        let attachment = Attachment {
+            scope: scope.clone(),
+            ends: ends.clone(),
+        };
+        self.keep_attached((base, &session), &attachment).await;
         binding.release(&self.rest, base, &session).await;
         Ok(())
     }
@@ -133,21 +132,19 @@ impl TerminalSessions {
     async fn keep_attached(
         &self,
         target: (&SessionBase, &str),
-        scope: &RelayScope,
-        ends: &Ends,
+        attachment: &Attachment,
     ) {
         let mut reconnect = Reconnect::default();
-        while !self.round(target, scope, ends, &mut reconnect).await {}
+        while !self.round(target, attachment, &mut reconnect).await {}
     }
 
     async fn round(
         &self,
-        (base, session): (&SessionBase, &str),
-        scope: &RelayScope,
-        ends: &Ends,
+        target: (&SessionBase, &str),
+        attachment: &Attachment,
         reconnect: &mut Reconnect,
     ) -> bool {
-        let outcome = self.stream(base, session, scope, ends.clone()).await;
+        let outcome = self.stream(target, attachment).await;
         let reason = match outcome {
             Ok(StreamEnd::ViewGone | StreamEnd::Exited) => return true,
             Ok(StreamEnd::Lost) => {
@@ -157,20 +154,18 @@ impl TerminalSessions {
             Err(error) => error.to_string(),
         };
         tracing::warn!(%reason, "terminal stream lost");
-        !recover(ends, reconnect, &reason).await
+        !recover(&attachment.ends, reconnect, &reason).await
     }
 
     async fn stream(
         &self,
-        base: &SessionBase,
-        session: &str,
-        scope: &RelayScope,
-        ends: Ends,
+        (base, session): (&SessionBase, &str),
+        attachment: &Attachment,
     ) -> Result<StreamEnd> {
         let endpoint = self
             .rest
             .transport
-            .relay_endpoint(scope)
+            .relay_endpoint(&attachment.scope)
             .map_err(stream_error)?;
         let address = endpoint.url().trim_start_matches("ws://").to_owned();
         let tcp = within(TcpStream::connect(&address)).await?;
@@ -181,90 +176,27 @@ impl TerminalSessions {
         headers.insert("sec-websocket-protocol", header(&protocols)?);
         headers.insert("origin", header(&self.origin)?);
         let (socket, _) = within(client_async(request, tcp)).await?;
-        Ok(pump(socket, ends).await)
+        Ok(pump(socket, attachment.ends.clone()).await)
     }
-}
-
-async fn within<T, E>(attempt: impl Future<Output = std::result::Result<T, E>>) -> Result<T>
-where
-    E: std::fmt::Display,
-{
-    match timeout(CONNECT_TIMEOUT, attempt).await {
-        Ok(done) => done.map_err(stream_error),
-        Err(_) => Err(timed_out("connecting")),
-    }
-}
-
-fn timed_out(stage: &str) -> Error {
-    Error::Stream(format!("timed out {stage}"))
-}
-
-async fn recover(
-    ends: &Ends,
-    reconnect: &mut Reconnect,
-    reason: &str,
-) -> bool {
-    if ends.messages.is_closed() {
-        return false;
-    }
-    let Some(delay) = reconnect.next_delay() else {
-        notice(
-            ends,
-            &format!(
-                "{WARNING_COLOR}terminal disconnected ({reason}); press a key to reconnect{RESET}"
-            ),
-        )
-        .await;
-        let pressed = next_input(&ends.messages).await;
-        reconnect.connected();
-        return pressed;
-    };
-    notice(
-        ends,
-        &format!("{WARNING_COLOR}terminal disconnected ({reason}); reconnecting{RESET}"),
-    )
-    .await;
-    sleep(delay).await;
-    true
-}
-
-async fn next_input(messages: &Receiver<ClientMessage>) -> bool {
-    let inputs = messages
-        .clone()
-        .filter(|message| ready(matches!(message, ClientMessage::Input(_))));
-    pin!(inputs).next().await.is_some()
-}
-
-async fn notice(
-    ends: &Ends,
-    text: &str,
-) {
-    let frame = DaemonFrame::Output(format!("\r\n{text}\r\n").into_bytes());
-    if ends.frames.send(frame).await.is_err() {
-        tracing::debug!("the terminal closed before its notice");
-    }
-}
-
-fn header(value: &str) -> Result<HeaderValue> {
-    HeaderValue::from_str(value).map_err(stream_error)
-}
-
-fn stream_error(error: impl std::fmt::Display) -> Error {
-    Error::Stream(error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
 
-    use async_channel::unbounded;
+    use async_channel::{Receiver, unbounded};
     use futures_util::SinkExt as _;
+    use futures_util::StreamExt;
     use protocol::{DaemonRequest, DaemonResponse, RelayEndpoint, Responder};
+    use terminal::DaemonFrame;
     use tokio::net::TcpListener;
     use tokio::sync::Notify;
     use tokio_tungstenite::accept_hdr_async;
     use tokio_tungstenite::tungstenite::Message;
-    use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+    use tokio_tungstenite::tungstenite::handshake::server::{
+        Callback, ErrorResponse, Request, Response,
+    };
+    use tokio_tungstenite::tungstenite::http::HeaderValue;
 
     use super::*;
 
@@ -311,20 +243,20 @@ mod tests {
         }
     }
 
-    #[allow(
-        clippy::result_large_err,
-        clippy::unnecessary_wraps,
-        reason = "the signature is fixed by tungstenite's Callback"
-    )]
-    fn select_relay(
-        _request: &Request,
-        mut response: Response,
-    ) -> std::result::Result<Response, ErrorResponse> {
-        let selected = HeaderValue::from_static(RELAY_SUBPROTOCOL);
-        response
-            .headers_mut()
-            .insert("sec-websocket-protocol", selected);
-        Ok(response)
+    struct SelectRelay;
+
+    impl Callback for SelectRelay {
+        fn on_request(
+            self,
+            _request: &Request,
+            mut response: Response,
+        ) -> std::result::Result<Response, ErrorResponse> {
+            let selected = HeaderValue::from_static(RELAY_SUBPROTOCOL);
+            response
+                .headers_mut()
+                .insert("sec-websocket-protocol", selected);
+            Ok(response)
+        }
     }
 
     fn sessions(daemon: &Arc<Daemon>) -> TerminalSessions {
@@ -335,7 +267,7 @@ mod tests {
 
     async fn serve_output(listener: TcpListener) {
         let (tcp, _) = listener.accept().await.unwrap();
-        let mut socket = accept_hdr_async(tcp, select_relay).await.unwrap();
+        let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
         let output = Message::binary(vec![0, b'o', b'k']);
         socket.send(output).await.unwrap();
         let exit = Message::text(r#"{"type":"exit","code":0}"#);
@@ -345,14 +277,14 @@ mod tests {
 
     async fn serve_then_drop(listener: TcpListener) {
         let (tcp, _) = listener.accept().await.unwrap();
-        let mut socket = accept_hdr_async(tcp, select_relay).await.unwrap();
+        let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
         socket.close(None).await.unwrap();
         serve_output(listener).await;
     }
 
     async fn serve_held(listener: TcpListener) {
         let (tcp, _) = listener.accept().await.unwrap();
-        let mut socket = accept_hdr_async(tcp, select_relay).await.unwrap();
+        let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
         let output = Message::binary(vec![0, b'o', b'k']);
         socket.send(output).await.unwrap();
         while socket.next().await.is_some_and(|message| message.is_ok()) {}
@@ -374,10 +306,6 @@ mod tests {
         text
     }
 
-    async fn until_closed(frames: &Receiver<DaemonFrame>) {
-        while frames.recv().await.is_ok() {}
-    }
-
     async fn notice_text(frames: &Receiver<DaemonFrame>) -> String {
         let frame = frames.recv().await.unwrap();
         let DaemonFrame::Output(bytes) = frame else {
@@ -386,59 +314,89 @@ mod tests {
         String::from_utf8(bytes).unwrap()
     }
 
-    const CASES: [&str; 1] = ["agent"];
+    #[derive(Clone, Copy)]
+    enum Relay {
+        Output,
+        DropsOnce,
+    }
 
-    #[tokio::test]
-    async fn a_session_is_created_streamed_and_killed() {
+    struct Case {
+        name: &'static str,
+        relay: Relay,
+        watching: Option<&'static str>,
+        shown: &'static str,
+        rest_calls: &'static [&'static str],
+    }
+
+    const CREATE: &[&str] = &[
+        "POST /v0/chats/c1/terminals",
+        "DELETE /v0/chats/c1/terminals/s1",
+    ];
+
+    const CASES: &[Case] = &[
+        Case {
+            name: "a session is created, streamed and killed",
+            relay: Relay::Output,
+            watching: None,
+            shown: "ok",
+            rest_calls: CREATE,
+        },
+        Case {
+            name: "a dropped stream reattaches to the same session without killing it",
+            relay: Relay::DropsOnce,
+            watching: None,
+            shown: "reconnecting",
+            rest_calls: CREATE,
+        },
+        Case {
+            name: "watching an existing session creates and kills nothing",
+            relay: Relay::Output,
+            watching: Some("agent"),
+            shown: "ok",
+            rest_calls: &[],
+        },
+    ];
+
+    async fn all_frames(frames: &Receiver<DaemonFrame>) -> String {
+        let mut text = String::new();
+        while let Ok(DaemonFrame::Output(bytes)) = frames.recv().await {
+            text.push_str(&String::from_utf8_lossy(&bytes));
+        }
+        text
+    }
+
+    async fn run_case(case: &Case) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let relay = format!("ws://{}", listener.local_addr().unwrap());
-        let daemon = Arc::new(Daemon {
-            relay,
-            seen: Mutex::default(),
-            deleted: Notify::new(),
-        });
-        let server = tokio::spawn(serve_output(listener));
+        let daemon = daemon_on(&listener);
+        let server = match case.relay {
+            Relay::Output => tokio::spawn(serve_output(listener)),
+            Relay::DropsOnce => tokio::spawn(serve_then_drop(listener)),
+        };
         let (frames, view_frames) = unbounded();
         let (_view_messages, messages) = unbounded();
         let base = SessionBase::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
-        sessions(&daemon).start(base, pane, Ends { frames, messages });
-        let first = view_frames.recv().await.unwrap();
-        assert_eq!(first, DaemonFrame::Output(b"ok".to_vec()));
+        let ends = Ends { frames, messages };
+        match case.watching {
+            Some(session) => sessions(&daemon).watch((base, session.into()), pane, ends),
+            None => sessions(&daemon).start(base, pane, ends),
+        }
+        let shown = all_frames(&view_frames).await;
         server.await.unwrap();
-        until_closed(&view_frames).await;
+        assert!(shown.contains(case.shown), "{}: {shown}", case.name);
         let seen = daemon.seen.lock().unwrap().clone();
-        assert_eq!(
-            seen,
-            [
-                "POST /v0/chats/c1/terminals",
-                "DELETE /v0/chats/c1/terminals/s1"
-            ]
-        );
+        assert_eq!(seen, case.rest_calls, "{}", case.name);
     }
 
     #[tokio::test]
-    async fn a_dropped_stream_reattaches_to_the_same_session_without_killing_it() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let daemon = daemon_on(&listener);
-        let server = tokio::spawn(serve_then_drop(listener));
-        let (frames, view_frames) = unbounded();
-        let (_view_messages, messages) = unbounded();
-        let base = SessionBase::chat("c1").unwrap();
-        let pane = PaneId::new("t1").unwrap();
-        sessions(&daemon).start(base, pane, Ends { frames, messages });
-        let shown = first_output(&view_frames).await;
-        assert!(shown.contains("reconnecting"), "{shown}");
-        server.await.unwrap();
-        daemon.deleted.notified().await;
-        let seen = daemon.seen.lock().unwrap().clone();
-        assert_eq!(
-            seen,
-            [
-                "POST /v0/chats/c1/terminals",
-                "DELETE /v0/chats/c1/terminals/s1"
-            ]
-        );
+    async fn sessions_report_their_rest_calls_and_output() {
+        run_all().await;
+    }
+
+    async fn run_all() {
+        for case in CASES {
+            run_case(case).await;
+        }
     }
 
     #[tokio::test]
@@ -474,27 +432,5 @@ mod tests {
         sessions(&daemon).start(base, pane, Ends { frames, messages });
         let notice = notice_text(&view_frames).await;
         assert!(notice.contains("stream"), "names the stage");
-    }
-
-    #[tokio::test]
-    async fn watching_an_existing_session_creates_and_kills_nothing() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let relay = format!("ws://{}", listener.local_addr().unwrap());
-        let daemon = Arc::new(Daemon {
-            relay,
-            seen: Mutex::default(),
-            deleted: Notify::new(),
-        });
-        let server = tokio::spawn(serve_output(listener));
-        let (frames, view_frames) = unbounded();
-        let (_view_messages, messages) = unbounded();
-        let base = SessionBase::chat("c1").unwrap();
-        let pane = PaneId::new("t1").unwrap();
-        sessions(&daemon).watch((base, CASES[0].into()), pane, Ends { frames, messages });
-        let first = view_frames.recv().await.unwrap();
-        assert_eq!(first, DaemonFrame::Output(b"ok".to_vec()));
-        server.await.unwrap();
-        until_closed(&view_frames).await;
-        assert!(daemon.seen.lock().unwrap().is_empty(), "no REST calls");
     }
 }

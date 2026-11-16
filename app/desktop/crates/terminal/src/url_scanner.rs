@@ -8,14 +8,19 @@ const FORBIDDEN_LAST: &str = "\"':,.!?{}|\\^~[]`()<>";
 
 pub(crate) fn find_urls(text: &str) -> Vec<Range<usize>> {
     let lower = text.to_ascii_lowercase();
-    let mut found = Vec::new();
     let mut from = 0;
-    while let Some(start) = next_scheme(&lower, from) {
-        let end = url_end(text, start);
-        from = end.max(start + 1);
-        found.extend(address_range(text, start, end));
-    }
-    found
+    std::iter::from_fn(|| next_url(text, &lower, &mut from)).collect()
+}
+
+fn next_url(
+    text: &str,
+    lower: &str,
+    from: &mut usize,
+) -> Option<Range<usize>> {
+    let start = next_scheme(lower, *from)?;
+    let end = url_end(text, start);
+    *from = end.max(start + 1);
+    address_range(text, start, end).or_else(|| next_url(text, lower, from))
 }
 
 fn address_range(

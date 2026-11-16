@@ -3,7 +3,6 @@
 const DIM_NUMERATOR: u32 = 2;
 const DIM_DENOMINATOR: u32 = 3;
 const BYTE_BITS: u32 = 8;
-const BYTE_MASK: u32 = 0xff;
 
 /// A colour as the emulator reports it: three 8-bit channels, no alpha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,11 +18,8 @@ pub struct Rgb {
 impl Rgb {
     /// Builds a colour from `0xRRGGBB`.
     pub const fn from_hex(hex: u32) -> Self {
-        Self {
-            red: ((hex >> (2 * BYTE_BITS)) & BYTE_MASK) as u8,
-            green: ((hex >> BYTE_BITS) & BYTE_MASK) as u8,
-            blue: (hex & BYTE_MASK) as u8,
-        }
+        let [_, red, green, blue] = hex.to_be_bytes();
+        Self { red, green, blue }
     }
 
     /// The colour as `0xRRGGBB`.

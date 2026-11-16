@@ -1,10 +1,12 @@
 //! The terminal palette of the installed theme.
 
 use gpui::{App, Hsla, Rgba};
-use terminal::{Rgb, TerminalPalette};
+use terminal::{Rgb, TerminalConfig, TerminalPalette};
 use ui::{Surface, Theme};
 
 use crate::ansi_colors::ansi_colors;
+use crate::channel_byte::channel_byte;
+use crate::terminal_settings::TerminalSettings;
 
 const BYTE_RANGE: f32 = 255.0;
 
@@ -38,11 +40,27 @@ pub(crate) fn hsla_of(color: Rgb) -> Hsla {
 
 fn rgb_of(color: Hsla) -> Rgb {
     let rgba = Rgba::from(color);
-    let channel = |value: f32| (value.clamp(0.0, 1.0) * BYTE_RANGE).round() as u8;
     Rgb {
-        red: channel(rgba.r),
-        green: channel(rgba.g),
-        blue: channel(rgba.b),
+        red: channel_byte(rgba.r),
+        green: channel_byte(rgba.g),
+        blue: channel_byte(rgba.b),
+    }
+}
+
+const INITIAL_COLUMNS: usize = 80;
+const INITIAL_LINES: usize = 24;
+
+pub(crate) fn terminal_config(
+    settings: &TerminalSettings,
+    cx: &App,
+) -> TerminalConfig {
+    TerminalConfig {
+        columns: INITIAL_COLUMNS,
+        lines: INITIAL_LINES,
+        scrollback: settings.scrollback,
+        cursor_shape: settings.cursor_shape,
+        cursor_blink: settings.cursor_blink,
+        palette: terminal_palette(cx),
     }
 }
 

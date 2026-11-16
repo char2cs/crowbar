@@ -18,7 +18,10 @@ impl BrowserUrl {
         if text == BLANK {
             return Ok(Self(BLANK.to_owned()));
         }
-        let url = Url::parse(text).map_err(|_| Error::Invalid(text.to_owned()))?;
+        let url = Url::parse(text).map_err(|source| Error::Invalid {
+            text: text.to_owned(),
+            source,
+        })?;
         match url.scheme() {
             "http" | "https" => Ok(Self(url.into())),
             other => Err(Error::Scheme(other.to_owned())),

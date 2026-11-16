@@ -13,6 +13,7 @@ use terminal::{
 use terminal::{ClientMessage, MouseTracking};
 
 use crate::auto_scroll::AutoScroll;
+use crate::button_event::ButtonEvent;
 use crate::drag_state::DragState;
 use crate::key_conversion::terminal_modifiers;
 use crate::pointer_report::PointerReport;
@@ -48,11 +49,11 @@ impl TerminalView {
 
     pub(crate) fn on_mouse_down(
         &mut self,
-        button: MouseButton,
-        event: &MouseDownEvent,
+        press: ButtonEvent<'_, MouseDownEvent>,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let ButtonEvent { button, event } = press;
         window.focus(&self.focus);
         let Some(layout) = self.layout else {
             return;
@@ -71,7 +72,9 @@ impl TerminalView {
             return;
         };
         if self.program_tracks_mouse(event.modifiers) {
-            self.report_press(button, hit.point, event.modifiers, cx);
+            let report = reported_button(button)
+                .map(|reported| pointer_report(reported, hit.point, event.modifiers));
+            self.report_press(report, cx);
             return;
         }
         self.begin_selection_or_paste(button, hit, cx);
@@ -79,16 +82,13 @@ impl TerminalView {
 
     fn report_press(
         &mut self,
-        button: MouseButton,
-        point: ViewPoint,
-        modifiers: gpui::Modifiers,
+        report: Option<PointerReport>,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(reported) = reported_button(button) else {
+        let Some(report) = report else {
             return;
         };
-        self.drag = DragState::ReportingToProgram(reported);
-        let report = pointer_report(reported, point, modifiers);
+        self.drag = DragState::ReportingToProgram(report.button);
         self.report(MouseAction::Press, report, cx);
     }
 
@@ -158,7 +158,9 @@ impl TerminalView {
         };
         match self.drag {
             DragState::Selecting => self.extend_selection(hit, cx),
-            DragState::ReportingToProgram(button) => self.report_drag(button, hit.point, event, cx),
+            DragState::ReportingToProgram(button) => {
+                self.report_drag(pointer_report(button, hit.point, event.modifiers), cx);
+            },
             DragState::ScrollbarThumb { grab } => self.drag_thumb(event.position, grab, cx),
             DragState::Idle => self.hover(hit.point, event, cx),
         }
@@ -166,12 +168,9 @@ impl TerminalView {
 
     fn report_drag(
         &mut self,
-        button: terminal::MouseButton,
-        point: ViewPoint,
-        event: &MouseMoveEvent,
+        report: PointerReport,
         cx: &mut Context<'_, Self>,
     ) {
-        let report = pointer_report(button, point, event.modifiers);
         self.report(MouseAction::Drag, report, cx);
     }
 
@@ -250,11 +249,10 @@ impl TerminalView {
 
     pub(crate) fn on_mouse_up(
         &mut self,
-        button: MouseButton,
-        event: &MouseUpEvent,
-        _: &mut Window,
+        release: ButtonEvent<'_, MouseUpEvent>,
         cx: &mut Context<'_, Self>,
     ) {
+        let ButtonEvent { button, event } = release;
         let drag = std::mem::replace(&mut self.drag, DragState::Idle);
         self.auto_scroll = None;
         match drag {
@@ -407,7 +405,11 @@ impl TerminalView {
             .map_or_else(ViewPoint::default, |hit| hit.point);
         match route {
             WheelRoute::Scrollback => self.terminal.scroll_lines(whole),
-            WheelRoute::ReportToProgram => self.report_wheel(whole, point, event.modifiers, cx),
+            WheelRoute::ReportToProgram => {
+                let template =
+                    pointer_report(terminal::MouseButton::WheelUp, point, event.modifiers);
+                self.report_wheel(whole, template, cx);
+            },
             WheelRoute::ArrowKeys => self.send_arrows(whole, cx),
         }
         cx.stop_propagation();
@@ -417,8 +419,7 @@ impl TerminalView {
     fn report_wheel(
         &mut self,
         lines: i32,
-        point: ViewPoint,
-        modifiers: gpui::Modifiers,
+        template: PointerReport,
         cx: &mut Context<'_, Self>,
     ) {
         let button = match lines.cmp(&0) {
@@ -426,7 +427,7 @@ impl TerminalView {
             _ => terminal::MouseButton::WheelDown,
         };
         for _ in 0..lines.unsigned_abs() {
-            let report = pointer_report(button, point, modifiers);
+            let report = PointerReport { button, ..template };
             self.report(MouseAction::Press, report, cx);
         }
     }

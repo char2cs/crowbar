@@ -11,11 +11,11 @@ pub(crate) struct Arrangement {
 
 impl Arrangement {
     pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
-        let mut ids = Vec::new();
-        for tree in self.tabs.iter().filter_map(|tab| tab.tree.as_ref()) {
+        let trees = self.tabs.iter().filter_map(|tab| tab.tree.as_ref());
+        trees.fold(Vec::new(), |mut ids, tree| {
             tree.collect_panes(&mut ids);
-        }
-        ids
+            ids
+        })
     }
 }
 

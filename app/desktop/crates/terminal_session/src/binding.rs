@@ -41,16 +41,14 @@ impl Binding {
 mod tests {
     use super::*;
 
-    const CASES: [(&str, bool); 2] = [("none", true), ("agent", false)];
-
     #[test]
     fn only_a_created_session_is_the_views_to_kill() {
-        for (name, owned) in CASES {
-            let binding = match owned {
-                true => Binding::Create,
-                false => Binding::Existing(name.to_owned()),
-            };
-            assert_eq!(matches!(binding, Binding::Create), owned, "{name}");
+        let cases = [
+            (Binding::Create, true),
+            (Binding::Existing("agent".to_owned()), false),
+        ];
+        for (binding, owned) in cases {
+            assert_eq!(matches!(binding, Binding::Create), owned, "{binding:?}");
         }
     }
 }

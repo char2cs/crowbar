@@ -16,11 +16,10 @@ impl Tab {
         &self,
         bounds: Rect,
     ) -> Vec<GroupSlot> {
-        let mut slots = Vec::new();
-        if let Some(tree) = &self.tree {
+        self.tree.iter().fold(Vec::new(), |mut slots, tree| {
             tree.place_groups(bounds, &mut slots);
-        }
-        slots
+            slots
+        })
     }
 
     /// The group that holds `pane`.

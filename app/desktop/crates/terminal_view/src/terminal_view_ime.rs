@@ -6,10 +6,10 @@ use gpui::{
     App, Bounds, Context, EntityInputHandler, Pixels, Point, SharedString, TextRun, UTF16Selection,
     UnderlineStyle, Window, fill, point, px, size,
 };
-use terminal::CursorCell;
 
 use crate::cursor_look::CursorLook;
 use crate::paint_cursor::cursor_bounds;
+use crate::preedit_site::PreeditSite;
 use crate::terminal_view::TerminalView;
 
 const COMPOSITION_UNDERLINE: f32 = 1.0;
@@ -17,18 +17,18 @@ const COMPOSITION_UNDERLINE: f32 = 1.0;
 impl TerminalView {
     pub(crate) fn paint_preedit(
         &self,
-        cell: &CursorCell,
-        look: &CursorLook<'_>,
+        site: PreeditSite<'_>,
         window: &mut Window,
         cx: &mut App,
     ) {
+        let PreeditSite { cell, look } = site;
         let Some(text) = self.preedit.as_ref().filter(|text| !text.is_empty()) else {
             return;
         };
         let metrics = look.layout.metrics;
         let origin = cursor_bounds(cell, &look.layout).origin;
         let cells = text.chars().count();
-        let width = px(metrics.cell_width * cells as f32);
+        let width = px(metrics.cell_width * terminal::cells_f32(cells));
         let backdrop = Bounds::new(origin, size(width, px(metrics.line_height)));
         window.paint_quad(fill(backdrop, look.backdrop));
         let line = shape_preedit(text, look, window);
@@ -151,8 +151,8 @@ impl EntityInputHandler for TerminalView {
         let metrics = layout.metrics;
         Some(Bounds::new(
             point(
-                layout.origin.x + px(metrics.cell_width * cell.column as f32),
-                layout.origin.y + px(metrics.line_height * cell.row as f32),
+                layout.origin.x + px(metrics.cell_width * terminal::cells_f32(cell.column)),
+                layout.origin.y + px(metrics.line_height * terminal::cells_f32(cell.row)),
             ),
             size(px(metrics.cell_width), px(metrics.line_height)),
         ))

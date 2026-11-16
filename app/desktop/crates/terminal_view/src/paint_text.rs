@@ -5,6 +5,8 @@ use terminal::{BackgroundSpan, Row};
 
 use crate::frame::Frame;
 use crate::line_cache::LineCache;
+use crate::row_input::RowInput;
+use crate::row_lines::RowLines;
 use crate::theme_palette::hsla_of;
 use crate::view_layout::ViewLayout;
 
@@ -33,7 +35,7 @@ fn row_top(
     layout: &ViewLayout,
     index: usize,
 ) -> Pixels {
-    layout.origin.y + px(layout.metrics.line_height * index as f32)
+    layout.origin.y + px(layout.metrics.line_height * terminal::cells_f32(index))
 }
 
 fn paint_background(
@@ -43,9 +45,9 @@ fn paint_background(
     window: &mut Window,
 ) {
     let metrics = layout.metrics;
-    let left = layout.origin.x + px(metrics.cell_width * span.column as f32);
+    let left = layout.origin.x + px(metrics.cell_width * terminal::cells_f32(span.column));
     let extent = size(
-        px(metrics.cell_width * span.columns as f32),
+        px(metrics.cell_width * terminal::cells_f32(span.columns)),
         px(metrics.line_height),
     );
     window.paint_quad(fill(
@@ -61,21 +63,24 @@ pub(crate) fn paint_rows(
     cx: &mut App,
 ) {
     for (index, row) in frame.snapshot.rows.iter().enumerate() {
-        let lines = cache.lines(index, row, &frame.shaping, window).to_vec();
-        paint_row_lines(&frame.layout, (index, row, &lines), window, cx);
+        let input = RowInput::new(index, row, &frame.shaping);
+        let lines = cache.lines(input, window).to_vec();
+        let top = row_top(&frame.layout, index);
+        let painted = RowLines::new(top, row, &lines);
+        paint_row_lines(&frame.layout, painted, window, cx);
     }
 }
 
 fn paint_row_lines(
     layout: &ViewLayout,
-    (index, row, lines): (usize, &Row, &[ShapedLine]),
+    painted: RowLines<'_>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let top = row_top(layout, index);
+    let RowLines { top, row, lines } = painted;
     let height = px(layout.metrics.line_height);
     for (column, line) in segment_columns(row).zip(lines) {
-        let left = layout.origin.x + px(layout.metrics.cell_width * column as f32);
+        let left = layout.origin.x + px(layout.metrics.cell_width * terminal::cells_f32(column));
         let bounds = Bounds::new(point(left, top), size(px(0.0), height));
         paint_line(line, bounds, window, cx);
     }

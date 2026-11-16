@@ -2,6 +2,8 @@ use serde_json::{Map, Value};
 
 use crate::error::{Error, Result};
 
+const VERSION_KEY: &str = "version";
+
 /// The version of the stored layout format this build writes.
 pub const SCHEMA_VERSION: u32 = 2;
 
@@ -10,7 +12,7 @@ type Migration = fn(&mut Map<String, Value>);
 const MIGRATIONS: [Migration; 2] = [stamp_first_version, leaves_become_groups];
 
 fn stamp_first_version(document: &mut Map<String, Value>) {
-    document.insert("version".to_owned(), Value::from(1));
+    document.insert(VERSION_KEY.to_owned(), Value::from(1));
 }
 
 fn leaves_become_groups(document: &mut Map<String, Value>) {
@@ -23,7 +25,7 @@ fn leaves_become_groups(document: &mut Map<String, Value>) {
     for tree in trees {
         group_leaves(tree);
     }
-    document.insert("version".to_owned(), Value::from(2));
+    document.insert(VERSION_KEY.to_owned(), Value::from(2));
 }
 
 fn group_leaves(node: &mut Value) {
@@ -44,7 +46,7 @@ fn group_leaves(node: &mut Value) {
 }
 
 fn version_of(document: &Map<String, Value>) -> Result<u32> {
-    let Some(found) = document.get("version") else {
+    let Some(found) = document.get(VERSION_KEY) else {
         return Ok(0);
     };
     found

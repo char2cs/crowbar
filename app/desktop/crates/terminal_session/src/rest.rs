@@ -51,7 +51,7 @@ impl Rest {
         self.transport.request(request, reply(respond));
         let response = answer
             .await
-            .map_err(|_| Error::Daemon("the transport stopped".into()))?
+            .map_err(Error::TransportStopped)?
             .map_err(daemon_error)?;
         checked(response)
     }

@@ -2,6 +2,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::file_store::FileStore;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CrashReport {
     pub(crate) version: String,
@@ -25,13 +27,15 @@ impl CrashReport {
 
     pub(crate) fn write(
         &self,
+        files: &dyn FileStore,
         dir: &Path,
+        now: SystemTime,
     ) -> io::Result<PathBuf> {
-        let seconds = SystemTime::now()
+        let seconds = now
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_secs());
         let path = dir.join(format!("crash-{seconds}.txt"));
-        std::fs::write(&path, self.render())?;
+        files.write(&path, self.render().as_bytes())?;
         Ok(path)
     }
 }
@@ -39,6 +43,7 @@ impl CrashReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::in_memory_files::InMemoryFiles;
 
     fn report() -> CrashReport {
         CrashReport {
@@ -64,11 +69,13 @@ mod tests {
 
     #[test]
     fn the_report_file_is_written_into_the_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = report().write(dir.path()).unwrap();
-        assert_eq!(path.parent(), Some(dir.path()));
+        let files = InMemoryFiles::default();
+        let now = UNIX_EPOCH + std::time::Duration::from_secs(7);
+        let path = report().write(&files, Path::new("logs"), now).unwrap();
+        assert_eq!(path, Path::new("logs/crash-7.txt"));
+        let written = files.read(&path).unwrap();
         assert!(
-            std::fs::read_to_string(path)
+            String::from_utf8(written)
                 .unwrap()
                 .contains("index out of bounds")
         );

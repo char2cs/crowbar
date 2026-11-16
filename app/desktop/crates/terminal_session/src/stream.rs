@@ -80,10 +80,10 @@ where
     while sent && let Ok(message) = messages.recv().await {
         sent = sink.send(message_of(&message)).await.is_ok();
     }
-    match sent {
-        true => StreamEnd::ViewGone,
-        false => StreamEnd::Lost,
+    if sent {
+        return StreamEnd::ViewGone;
     }
+    StreamEnd::Lost
 }
 
 #[cfg(test)]

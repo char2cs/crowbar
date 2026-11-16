@@ -1,20 +1,11 @@
 //! GPUI view of the Crowbar terminal: grid painting, keyboard, mouse and IME input, selection, links,
 //! find bar and scrollbar, over the `terminal` crate's emulator.
 
-#![allow(
-    clippy::too_many_arguments,
-    reason = "the four-parameter limit of the manifest does not count `self`"
-)]
-#![allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "cell and pixel geometry stays far below f32 precision and the usize range"
-)]
-
 mod ansi_colors;
 mod auto_scroll;
+mod button_event;
 mod cached_row;
+mod channel_byte;
 mod cursor_blink;
 mod cursor_look;
 mod drag_state;
@@ -27,9 +18,14 @@ mod page_direction;
 mod paint_colors;
 mod paint_cursor;
 mod paint_highlights;
+mod paint_layers;
+mod paint_request;
 mod paint_scrollbar;
 mod paint_text;
 mod pointer_report;
+mod preedit_site;
+mod row_input;
+mod row_lines;
 mod search_bar;
 mod search_bar_event;
 mod search_session;
@@ -51,6 +47,7 @@ mod terminal_view_session;
 #[cfg(test)]
 mod test_support;
 mod theme_palette;
+mod toggle_spec;
 mod view_layout;
 
 pub use terminal_link::TerminalLink;

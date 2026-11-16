@@ -1,5 +1,7 @@
 //! Turns fractional wheel and trackpad deltas into whole lines.
 
+use crate::cell_units::floor_cells;
+
 /// Carries the remainder of a scroll delta between events so slow trackpad motion is not lost.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ScrollAccumulator {
@@ -15,7 +17,11 @@ impl ScrollAccumulator {
         self.remainder += lines;
         let whole = self.remainder.trunc();
         self.remainder -= whole;
-        whole as i32
+        let moved = i32::try_from(floor_cells(whole.abs())).unwrap_or(i32::MAX);
+        if whole < 0.0 {
+            return -moved;
+        }
+        moved
     }
 
     /// Forgets the remainder.

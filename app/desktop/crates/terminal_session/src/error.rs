@@ -12,6 +12,18 @@ pub enum Error {
     /// The daemon answered without a session id.
     #[error("terminal session: the daemon answered without a session id")]
     NoSessionId,
+    /// A stage of the connection did not finish in time.
+    #[error("terminal session: timed out {stage}")]
+    TimedOut {
+        /// What was being attempted.
+        stage: &'static str,
+        /// The elapsed deadline.
+        #[source]
+        source: tokio::time::error::Elapsed,
+    },
+    /// The transport dropped the request before answering.
+    #[error("terminal session: the transport stopped")]
+    TransportStopped(#[source] tokio::sync::oneshot::error::RecvError),
     /// The websocket could not be opened.
     #[error("terminal session: stream: {0}")]
     Stream(String),

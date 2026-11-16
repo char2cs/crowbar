@@ -1,5 +1,7 @@
 //! Geometry of the scrollbar thumb.
 
+use crate::cell_units::{cells_f32, floor_cells};
+
 const MIN_THUMB: f32 = 24.0;
 
 /// The thumb's offset and length along a track, in pixels.
@@ -23,10 +25,10 @@ impl ScrollbarThumb {
         if history == 0 || track <= 0.0 {
             return None;
         }
-        let total = (lines + history) as f32;
-        let length = (track * lines as f32 / total).max(MIN_THUMB).min(track);
-        let from_top = history.saturating_sub(display_offset) as f32;
-        let top = (track - length) * from_top / history as f32;
+        let total = cells_f32(lines + history);
+        let length = (track * cells_f32(lines) / total).max(MIN_THUMB).min(track);
+        let from_top = cells_f32(history.saturating_sub(display_offset));
+        let top = (track - length) * from_top / cells_f32(history);
         Some(Self { top, length })
     }
 
@@ -39,7 +41,7 @@ impl ScrollbarThumb {
     ) -> usize {
         let travel = (track - length).max(f32::EPSILON);
         let fraction = (top / travel).clamp(0.0, 1.0);
-        let from_top = (fraction * history as f32).round() as usize;
+        let from_top = floor_cells((fraction * cells_f32(history)).round());
         history.saturating_sub(from_top)
     }
 }

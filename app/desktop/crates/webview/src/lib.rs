@@ -43,6 +43,8 @@
 //! # Ok::<(), webview::Error>(())
 //! ```
 
+#[cfg(target_os = "linux")]
+mod adapters;
 mod bitmap_rows;
 mod bounds;
 mod builder_support;

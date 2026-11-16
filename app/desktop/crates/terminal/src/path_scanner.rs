@@ -8,14 +8,8 @@ const PREFIXES: [&[u8]; 4] = [b"~/", b"../", b"./", b"/"];
 
 pub(crate) fn find_paths(text: &str) -> Vec<PathMatch> {
     let bytes = text.as_bytes();
-    let mut found = Vec::new();
-    let mut at = 0;
-    while at < bytes.len() {
-        let next = path_at(bytes, at);
-        at = next.as_ref().map_or(at + 1, |path| path.span.end);
-        found.extend(next);
-    }
-    found
+    let from = |at: usize| (at..bytes.len()).find_map(|start| path_at(bytes, start));
+    std::iter::successors(from(0), |previous| from(previous.span.end)).collect()
 }
 
 fn path_at(

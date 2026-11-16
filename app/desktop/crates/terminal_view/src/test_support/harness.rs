@@ -88,7 +88,7 @@ pub(crate) fn cell_position(
     let metrics = layout.metrics;
     layout.origin
         + point(
-            px(metrics.cell_width * (column as f32 + LEFT_OF_CENTER)),
+            px(metrics.cell_width * (terminal::cells_f32(column) + LEFT_OF_CENTER)),
             px(metrics.line_height * HALF_CELL),
         )
 }

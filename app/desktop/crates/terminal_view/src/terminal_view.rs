@@ -10,25 +10,24 @@ use gpui::{
 };
 use terminal::{
     ClickTracker, ClientMessage, CursorCell, DaemonFrame, Link, ScrollAccumulator, Terminal,
-    TerminalConfig,
 };
 use ui::Theme;
 
 use crate::auto_scroll::AutoScroll;
+use crate::button_event::ButtonEvent;
 use crate::cursor_blink::CursorBlink;
 use crate::drag_state::DragState;
 use crate::frame_batch::take_batch;
 use crate::line_cache::LineCache;
 use crate::paint_colors::PaintColors;
+use crate::paint_request::PaintRequest;
 use crate::search_session::SearchSession;
 use crate::terminal_link::TerminalLink;
 use crate::terminal_settings::TerminalSettings;
 use crate::terminal_view_event::TerminalViewEvent;
-use crate::theme_palette::terminal_palette;
+use crate::theme_palette::terminal_config;
 use crate::view_layout::ViewLayout;
 
-const INITIAL_COLUMNS: usize = 80;
-const INITIAL_LINES: usize = 24;
 const NOTICE_BACKDROP_ALPHA: f32 = 0.8;
 
 /// A terminal attached to a daemon PTY through a [`TerminalLink`].
@@ -166,20 +165,6 @@ impl TerminalView {
     }
 }
 
-pub(crate) fn terminal_config(
-    settings: &TerminalSettings,
-    cx: &App,
-) -> TerminalConfig {
-    TerminalConfig {
-        columns: INITIAL_COLUMNS,
-        lines: INITIAL_LINES,
-        scrollback: settings.scrollback,
-        cursor_shape: settings.cursor_shape,
-        cursor_blink: settings.cursor_blink,
-        palette: terminal_palette(cx),
-    }
-}
-
 impl Render for TerminalView {
     fn render(
         &mut self,
@@ -202,7 +187,8 @@ impl TerminalView {
                 laid_out.update(cx, |this, cx| this.lay_out(bounds, window, cx))
             },
             move |bounds, frame, window, cx| {
-                view.update(cx, |this, cx| this.paint_frame(bounds, frame, window, cx));
+                let request = PaintRequest::new(bounds, frame);
+                view.update(cx, |this, cx| this.paint_frame(request, window, cx));
             },
         )
         .size_full()
@@ -258,15 +244,17 @@ fn with_button(
 ) -> Stateful<Div> {
     root.on_mouse_down(
         button,
-        cx.listener(move |this, event, window, cx| this.on_mouse_down(button, event, window, cx)),
+        cx.listener(move |this, event, window, cx| {
+            this.on_mouse_down(ButtonEvent { button, event }, window, cx);
+        }),
     )
     .on_mouse_up(
         button,
-        cx.listener(move |this, event, window, cx| this.on_mouse_up(button, event, window, cx)),
+        cx.listener(move |this, event, _, cx| this.on_mouse_up(ButtonEvent { button, event }, cx)),
     )
     .on_mouse_up_out(
         button,
-        cx.listener(move |this, event, window, cx| this.on_mouse_up(button, event, window, cx)),
+        cx.listener(move |this, event, _, cx| this.on_mouse_up(ButtonEvent { button, event }, cx)),
     )
 }
 

@@ -4,7 +4,6 @@ use tracing_subscriber::fmt::MakeWriter;
 
 use crate::log_sink::LogSink;
 
-#[derive(Debug)]
 pub(crate) struct SinkWriter {
     pub(crate) sink: LogSink,
 }
@@ -34,17 +33,23 @@ impl MakeWriter<'_> for LogSink {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
     use super::*;
+    use crate::log_store::LogStore;
     use crate::rotating_log::RotatingLog;
+    use crate::test_support::in_memory_log_store::InMemoryLogStore;
 
     #[test]
     fn events_reach_the_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("crowbar.log");
-        let sink = LogSink::new(RotatingLog::open(&path, 1024, 1).unwrap());
+        let store = Arc::new(InMemoryLogStore::default());
+        let shared: Arc<dyn LogStore> = Arc::<InMemoryLogStore>::clone(&store);
+        let path = Path::new("crowbar.log");
+        let sink = LogSink::new(RotatingLog::open(shared, path, (1024, 1)).unwrap());
         let mut writer = sink.make_writer();
         writer.write_all(b"one event\n").unwrap();
         writer.flush().unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "one event\n");
+        assert_eq!(store.text(path).as_deref(), Some("one event\n"));
     }
 }

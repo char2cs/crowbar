@@ -83,19 +83,22 @@ fn ss3_key(
     format!("{ESC}O{final_byte}")
 }
 
+const TAB: &str = "tab";
+const BACKSPACE: &str = "backspace";
+
 fn simple_key(
     key: &str,
     modifiers: Modifiers,
 ) -> Option<Vec<u8>> {
     let alt = modifiers.contains(Modifiers::ALT);
     let sequence: &[u8] = match key {
-        "tab" if modifiers.contains(Modifiers::SHIFT) => b"\x1b[Z",
-        "tab" if alt => b"\x1b\t",
-        "tab" => b"\t",
+        TAB if modifiers.contains(Modifiers::SHIFT) => b"\x1b[Z",
+        TAB if alt => b"\x1b\t",
+        TAB => b"\t",
         "escape" => b"\x1b",
-        "backspace" if modifiers.contains(Modifiers::CONTROL) => b"\x08",
-        "backspace" if alt => b"\x1b\x7f",
-        "backspace" => b"\x7f",
+        BACKSPACE if modifiers.contains(Modifiers::CONTROL) => b"\x08",
+        BACKSPACE if alt => b"\x1b\x7f",
+        BACKSPACE => b"\x7f",
         _ => return None,
     };
     Some(sequence.to_vec())

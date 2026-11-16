@@ -36,11 +36,13 @@ mod tests {
     use super::*;
 
     fn palette() -> TerminalPalette {
+        let ansi =
+            std::array::from_fn(|index| Rgb::from_hex(u32::try_from(index).unwrap_or_default()));
         TerminalPalette {
             foreground: Rgb::from_hex(0xf2_f0ea),
             background: Rgb::from_hex(0x1c_1c1a),
             cursor: Rgb::from_hex(0xf2_f0ea),
-            ansi: std::array::from_fn(|index| Rgb::from_hex(index as u32)),
+            ansi,
         }
     }
 

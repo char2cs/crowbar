@@ -7,6 +7,7 @@ use protocol::ExtensionId;
 use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::{WebContext, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
+use crate::adapters::browser_data_dir;
 use crate::bounds::Bounds;
 use crate::builder_support::{common_attributes, register_scheme, to_rect};
 use crate::color::Color;
@@ -164,12 +165,7 @@ impl GtkState {
         let Some(dir) = self.data_dir.as_ref().map(|dir| dir.join(BROWSER_DIR)) else {
             return Ok(());
         };
-        match std::fs::remove_dir_all(&dir) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                Err(Error::PlatformThread(error.to_string()))
-            },
-            _ => Ok(()),
-        }
+        browser_data_dir::remove(&dir)
     }
 
     pub(crate) fn destroy(

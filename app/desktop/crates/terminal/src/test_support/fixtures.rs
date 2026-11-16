@@ -31,7 +31,7 @@ pub(crate) fn empty_terminal(
         foreground: Rgb::from_hex(FOREGROUND),
         background: Rgb::from_hex(BACKGROUND),
         cursor: Rgb::from_hex(FOREGROUND),
-        ansi: std::array::from_fn(|index| ansi(index as u32)),
+        ansi: std::array::from_fn(|index| ansi(u32::try_from(index).unwrap_or_default())),
     };
     Terminal::new(TerminalConfig {
         columns,

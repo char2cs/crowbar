@@ -40,13 +40,13 @@ fn cell_rectangle(
     layout: &ViewLayout,
 ) -> gpui::Bounds<gpui::Pixels> {
     let metrics = layout.metrics;
-    let x = layout.origin.x + px(metrics.cell_width * highlight.start_column as f32);
-    let y = layout.origin.y + px(metrics.line_height * highlight.row as f32);
+    let x = layout.origin.x + px(metrics.cell_width * terminal::cells_f32(highlight.start_column));
+    let y = layout.origin.y + px(metrics.line_height * terminal::cells_f32(highlight.row));
     let columns = highlight.end_column.saturating_sub(highlight.start_column);
     gpui::Bounds::new(
         point(x, y),
         size(
-            px(metrics.cell_width * columns as f32),
+            px(metrics.cell_width * terminal::cells_f32(columns)),
             px(metrics.line_height),
         ),
     )

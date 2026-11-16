@@ -9,17 +9,20 @@ pub(crate) fn take_batch(
     first: DaemonFrame,
     frames: &Receiver<DaemonFrame>,
 ) -> Vec<DaemonFrame> {
-    let mut batch = Vec::new();
     let mut bytes = 0;
-    let mut next = Some(first);
-    while let Some(frame) = next {
+    let mut pending = Some(first);
+    let drawn = std::iter::from_fn(|| {
+        let frame = pending.take()?;
         bytes += weight(&frame);
-        push(&mut batch, frame);
-        next = (bytes < BATCH_BYTES)
+        pending = (bytes < BATCH_BYTES)
             .then(|| frames.try_recv().ok())
             .flatten();
-    }
-    batch
+        Some(frame)
+    });
+    drawn.fold(Vec::new(), |mut batch, frame| {
+        push(&mut batch, frame);
+        batch
+    })
 }
 
 fn weight(frame: &DaemonFrame) -> usize {

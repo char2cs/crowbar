@@ -167,15 +167,12 @@ fn append_span(
 
 fn glyph_text(cell: &Cell) -> String {
     let hidden = cell.flags.contains(Flags::HIDDEN);
-    let mut text = String::new();
-    text.push(match (hidden, cell.c) {
+    let glyph = match (hidden, cell.c) {
         (true, _) | (false, '\0') => ' ',
         (false, other) => other,
-    });
-    if let Some(marks) = cell.zerowidth() {
-        text.extend(marks.iter());
-    }
-    text
+    };
+    let marks = cell.zerowidth().into_iter().flatten().copied();
+    std::iter::once(glyph).chain(marks).collect()
 }
 
 fn style_flags(flags: Flags) -> StyleFlags {

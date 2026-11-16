@@ -16,11 +16,11 @@ pub(crate) fn cursor_bounds(
     let metrics = layout.metrics;
     Bounds::new(
         point(
-            layout.origin.x + px(metrics.cell_width * cell.column as f32),
-            layout.origin.y + px(metrics.line_height * cell.row as f32),
+            layout.origin.x + px(metrics.cell_width * terminal::cells_f32(cell.column)),
+            layout.origin.y + px(metrics.line_height * terminal::cells_f32(cell.row)),
         ),
         size(
-            px(metrics.cell_width * cell.columns as f32),
+            px(metrics.cell_width * terminal::cells_f32(cell.columns)),
             px(metrics.line_height),
         ),
     )
@@ -72,7 +72,7 @@ fn paint_block(
         underline: None,
         strikethrough: None,
     };
-    let width = look.shaping.cell_width * cell.columns as f32;
+    let width = look.shaping.cell_width * terminal::cells_f32(cell.columns);
     let line = window
         .text_system()
         .shape_line(text, look.shaping.font_size, &[run], Some(width));

@@ -130,11 +130,11 @@ impl Tab {
     /// Pane ids in layout order (left to right, top to bottom).
     #[must_use]
     pub fn pane_ids(&self) -> Vec<PaneId> {
-        let mut ids = Vec::with_capacity(self.panes.len());
-        if let Some(tree) = &self.tree {
+        let ids = Vec::with_capacity(self.panes.len());
+        self.tree.iter().fold(ids, |mut ids, tree| {
             tree.collect_panes(&mut ids);
-        }
-        ids
+            ids
+        })
     }
 
     /// The rectangle of every pane when the tab is laid out in `bounds`. Panes are separated by
@@ -145,11 +145,11 @@ impl Tab {
         &self,
         bounds: Rect,
     ) -> Vec<PaneSlot> {
-        let mut slots = Vec::with_capacity(self.panes.len());
-        if let Some(tree) = &self.tree {
+        let slots = Vec::with_capacity(self.panes.len());
+        self.tree.iter().fold(slots, |mut slots, tree| {
             tree.place_panes(bounds, &mut slots);
-        }
-        slots
+            slots
+        })
     }
 
     /// The divider of every split when the tab is laid out in `bounds`, outermost first.
@@ -158,11 +158,10 @@ impl Tab {
         &self,
         bounds: Rect,
     ) -> Vec<Sash> {
-        let mut sashes = Vec::new();
-        if let Some(tree) = &self.tree {
+        self.tree.iter().fold(Vec::new(), |mut sashes, tree| {
             tree.place_sashes(bounds, &mut Vec::new(), &mut sashes);
-        }
-        sashes
+            sashes
+        })
     }
 
     pub(crate) fn contains(

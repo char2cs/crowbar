@@ -1,15 +1,19 @@
 use std::panic::{self, PanicHookInfo};
 use std::path::Path;
+use std::sync::Arc;
 
 use tracing_subscriber::EnvFilter;
 
+use crate::adapters::disk_files::DiskFiles;
+use crate::adapters::disk_log_store::DiskLogStore;
+use crate::adapters::system_clock;
 use crate::crash_report::CrashReport;
 use crate::error::Error;
 use crate::log_paths::LogPaths;
 use crate::log_sink::LogSink;
 use crate::rotating_log::RotatingLog;
 
-const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_LOG_BYTES: u64 = 5 * 1_048_576;
 const KEPT_GENERATIONS: u32 = 3;
 const DEFAULT_FILTER: &str = "info";
 
@@ -23,8 +27,9 @@ pub fn start(
     paths: &LogPaths,
     version: &str,
 ) -> Result<(), Error> {
-    std::fs::create_dir_all(paths.dir()).map_err(|source| log_error(paths.dir(), source))?;
-    let file = RotatingLog::open(&paths.current(), MAX_LOG_BYTES, KEPT_GENERATIONS)
+    let store = Arc::new(DiskLogStore::default());
+    let limits = (MAX_LOG_BYTES, KEPT_GENERATIONS);
+    let file = RotatingLog::open(store, &paths.current(), limits)
         .map_err(|source| log_error(paths.dir(), source))?;
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER));
@@ -33,7 +38,7 @@ pub fn start(
         .with_ansi(false)
         .with_writer(LogSink::new(file))
         .try_init()
-        .map_err(|_| Error::AlreadyInstalled)?;
+        .map_err(Error::AlreadyInstalled)?;
     install_crash_hook(paths.dir(), version);
     Ok(())
 }
@@ -65,7 +70,7 @@ fn record_panic(
     report: &CrashReport,
     dir: &Path,
 ) {
-    match report.write(dir) {
+    match report.write(&DiskFiles::default(), dir, system_clock::now()) {
         Ok(path) => tracing::error!(report = %path.display(), "the shell panicked"),
         Err(error) => {
             tracing::error!(%error, "the shell panicked and the report could not be written");

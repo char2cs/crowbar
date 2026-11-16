@@ -86,11 +86,10 @@ fn token_cells(
     let visible = covered
         .iter()
         .filter_map(|cell| Some((viewport.row_of(cell.line)?, cell)));
-    let mut cells: Vec<Highlight> = Vec::new();
-    for (row, cell) in visible {
+    visible.fold(Vec::new(), |mut cells, (row, cell)| {
         extend_or_push(&mut cells, row, cell.column, cell.column + cell.width);
-    }
-    cells
+        cells
+    })
 }
 
 fn extend_or_push(

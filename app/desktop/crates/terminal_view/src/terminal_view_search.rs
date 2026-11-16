@@ -19,7 +19,9 @@ impl TerminalView {
             return;
         }
         let bar = cx.new(|cx| SearchBar::new(window, cx));
-        let events = cx.subscribe_in(&bar, window, Self::on_search_event);
+        let events = cx.subscribe_in(&bar, window, |this, _bar, event, window, cx| {
+            this.on_search_event(event, window, cx);
+        });
         self.search = Some(SearchSession {
             bar,
             _events: events,
@@ -40,7 +42,6 @@ impl TerminalView {
 
     fn on_search_event(
         &mut self,
-        _: &gpui::Entity<SearchBar>,
         event: &SearchBarEvent,
         window: &mut Window,
         cx: &mut Context<'_, Self>,

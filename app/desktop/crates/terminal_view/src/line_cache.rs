@@ -4,6 +4,7 @@ use gpui::{ShapedLine, SharedString, TextRun, UnderlineStyle, Window, px};
 use terminal::{Row, Segment, StyleFlags, StyleSpan, Underline};
 
 use crate::cached_row::CachedRow;
+use crate::row_input::RowInput;
 use crate::shaping::Shaping;
 use crate::terminal_font::styled_font;
 use crate::theme_palette::hsla_of;
@@ -22,11 +23,14 @@ impl LineCache {
 
     pub(crate) fn lines(
         &mut self,
-        index: usize,
-        row: &Row,
-        shaping: &Shaping,
+        input: RowInput<'_>,
         window: &Window,
     ) -> &[ShapedLine] {
+        let RowInput {
+            index,
+            row,
+            shaping,
+        } = input;
         if self.rows.len() <= index {
             self.rows.resize_with(index + 1, || None);
         }
@@ -73,7 +77,7 @@ fn shape_segment(
         .iter()
         .map(|span| text_run(span, shaping))
         .collect();
-    let glyph_width = shaping.cell_width * segment.glyph_columns as f32;
+    let glyph_width = shaping.cell_width * terminal::cells_f32(segment.glyph_columns);
     window.text_system().shape_line(
         SharedString::from(segment.text.clone()),
         shaping.font_size,
@@ -152,7 +156,8 @@ mod tests {
         };
         let mut cache = LineCache::default();
         let row = first_row("ab\x1b[1mcd");
-        let shaped = cx.update(|window, _| cache.lines(0, &row, &shaping, window).len());
+        let shaped =
+            cx.update(|window, _| cache.lines(RowInput::new(0, &row, &shaping), window).len());
         assert_eq!(shaped, row.segments.len());
         cache.clear();
         assert!(cache.rows.is_empty());

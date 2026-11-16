@@ -1,4 +1,4 @@
-//! Writes a file beside its target, syncs it, renames it over the target and syncs the directory.
+//! Staging, syncing and renaming through the operating system.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Error, ErrorKind, Result, Write};

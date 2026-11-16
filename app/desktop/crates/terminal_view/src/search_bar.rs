@@ -11,6 +11,7 @@ use ui::{
 };
 
 use crate::search_bar_event::SearchBarEvent;
+use crate::toggle_spec::ToggleSpec;
 
 const BAR_INSET: f32 = 8.0;
 const INPUT_WIDTH: f32 = 220.0;
@@ -120,11 +121,10 @@ impl SearchBar {
 
     fn toggle_button(
         &self,
-        id: &'static str,
-        label: &'static str,
-        option: SearchOptions,
+        spec: ToggleSpec,
         cx: &mut Context<'_, Self>,
     ) -> Button {
+        let ToggleSpec { id, label, option } = spec;
         let pressed = self
             .options
             .contains(option)
@@ -157,9 +157,9 @@ impl SearchBar {
         cx: &mut Context<'_, Self>,
     ) -> Div {
         div()
-            .child(self.toggle_button("search-case", "Aa", SearchOptions::CASE_SENSITIVE, cx))
-            .child(self.toggle_button("search-word", "W", SearchOptions::WHOLE_WORD, cx))
-            .child(self.toggle_button("search-regex", ".*", SearchOptions::REGEX, cx))
+            .child(self.toggle_button(ToggleSpec::CASE_SENSITIVE, cx))
+            .child(self.toggle_button(ToggleSpec::WHOLE_WORD, cx))
+            .child(self.toggle_button(ToggleSpec::REGEX, cx))
             .child(Self::event_button(
                 "search-previous",
                 IconName::CaretUp,

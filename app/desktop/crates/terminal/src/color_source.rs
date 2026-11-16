@@ -95,11 +95,14 @@ mod tests {
     use super::*;
 
     fn palette() -> TerminalPalette {
+        let ansi = std::array::from_fn(|index| {
+            Rgb::from_hex(0x10_0000 + u32::try_from(index).unwrap_or_default())
+        });
         TerminalPalette {
             foreground: Rgb::from_hex(0xaa_aaaa),
             background: Rgb::from_hex(0x11_1111),
             cursor: Rgb::from_hex(0xcc_cccc),
-            ansi: std::array::from_fn(|index| Rgb::from_hex(0x10_0000 + index as u32)),
+            ansi,
         }
     }
 

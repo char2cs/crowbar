@@ -12,6 +12,15 @@ pub enum ParentWindow {
     AppKit(usize),
 }
 
+fn xlib_parent(window: std::ffi::c_ulong) -> Result<ParentWindow> {
+    u32::try_from(window)
+        .map(ParentWindow::X11)
+        .map_err(|error| {
+            tracing::debug!(%error, "xlib window id out of range");
+            Error::UnsupportedParent("xlib window id exceeds 32 bits")
+        })
+}
+
 impl ParentWindow {
     /// Extracts the parent from a window's raw handle.
     ///
@@ -21,9 +30,7 @@ impl ParentWindow {
     pub fn from_window(window: &impl HasWindowHandle) -> Result<Self> {
         match window.window_handle()?.as_raw() {
             RawWindowHandle::Xcb(handle) => Ok(Self::X11(handle.window.get())),
-            RawWindowHandle::Xlib(handle) => u32::try_from(handle.window)
-                .map(Self::X11)
-                .map_err(|_| Error::UnsupportedParent("xlib window id exceeds 32 bits")),
+            RawWindowHandle::Xlib(handle) => xlib_parent(handle.window),
             RawWindowHandle::AppKit(handle) => Ok(Self::AppKit(handle.ns_view.as_ptr().addr())),
             _ => Err(Error::UnsupportedParent(
                 "only X11 and AppKit windows can host web views",

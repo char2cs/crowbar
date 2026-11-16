@@ -2,6 +2,7 @@
 
 use crate::cell_hit::CellHit;
 use crate::cell_side::CellSide;
+use crate::cell_units::{cells_f32, floor_cells};
 use crate::drag_edge::DragEdge;
 use crate::view_point::ViewPoint;
 
@@ -59,7 +60,7 @@ impl CellMetrics {
         if y < 0.0 {
             return DragEdge::Above;
         }
-        if y >= self.line_height * self.lines as f32 {
+        if y >= self.line_height * cells_f32(self.lines) {
             return DragEdge::Below;
         }
         DragEdge::Inside
@@ -83,7 +84,7 @@ fn whole_cells(
     if cell <= 0.0 || length <= 0.0 {
         return 0;
     }
-    (length / cell).floor() as usize
+    floor_cells(length / cell)
 }
 
 #[cfg(test)]

@@ -24,5 +24,5 @@ pub enum Error {
     },
     /// Another subscriber is already installed.
     #[error("a logging subscriber is already installed")]
-    AlreadyInstalled,
+    AlreadyInstalled(#[source] Box<dyn std::error::Error + Send + Sync>),
 }

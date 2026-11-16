@@ -9,8 +9,11 @@ use crate::frame::Frame;
 use crate::paint_colors::PaintColors;
 use crate::paint_cursor::paint_cursor;
 use crate::paint_highlights::{paint_fills, paint_underlines};
+use crate::paint_layers::PaintLayers;
+use crate::paint_request::PaintRequest;
 use crate::paint_scrollbar::paint_scrollbar;
 use crate::paint_text::{paint_backgrounds, paint_rows};
+use crate::preedit_site::PreeditSite;
 use crate::shaping::Shaping;
 use crate::terminal_font::base_font;
 use crate::terminal_view::TerminalView;
@@ -108,11 +111,11 @@ impl TerminalView {
 
     pub(crate) fn paint_frame(
         &mut self,
-        bounds: Bounds<Pixels>,
-        frame: Option<Frame>,
+        request: PaintRequest,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let PaintRequest { bounds, frame } = request;
         let Some(frame) = frame else {
             return;
         };
@@ -121,7 +124,11 @@ impl TerminalView {
         Self::paint_highlights(&frame, &colors, window);
         paint_rows(&frame, &mut self.cache, window, cx);
         self.paint_links(&frame, &colors, window);
-        self.paint_cursor_cell(&frame, &colors, window, cx);
+        let layers = PaintLayers {
+            frame: &frame,
+            colors: &colors,
+        };
+        self.paint_cursor_cell(layers, window, cx);
         Self::paint_scrollbar_thumb(&frame, &colors, window);
         let handler = ElementInputHandler::new(bounds, cx.entity());
         window.handle_input(&self.focus, handler, cx);
@@ -158,11 +165,11 @@ impl TerminalView {
 
     fn paint_cursor_cell(
         &self,
-        frame: &Frame,
-        colors: &PaintColors,
+        layers: PaintLayers<'_>,
         window: &mut Window,
         cx: &mut App,
     ) {
+        let PaintLayers { frame, colors } = layers;
         let Some(cell) = frame.snapshot.cursor else {
             return;
         };
@@ -181,7 +188,11 @@ impl TerminalView {
             layout: frame.layout,
         };
         paint_cursor(&cell, &look, window, cx);
-        self.paint_preedit(&cell, &look, window, cx);
+        let site = PreeditSite {
+            cell: &cell,
+            look: &look,
+        };
+        self.paint_preedit(site, window, cx);
     }
 
     fn cursor_visible(

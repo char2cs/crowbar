@@ -37,7 +37,10 @@ impl LinuxPlatform {
             .name("crowbar-gtk".into())
             .spawn(move || run_gtk_thread(config, &inbox, &ready_tx))
             .map_err(|error| Error::PlatformThread(error.to_string()))?;
-        ready_rx.recv().map_err(|_| Error::HostStopped)??;
+        ready_rx.recv().map_err(|error| {
+            tracing::debug!(%error, "the platform thread stopped before it was ready");
+            Error::HostStopped
+        })??;
         Ok(Self {
             jobs,
             thread: Some(thread),
@@ -48,9 +51,10 @@ impl LinuxPlatform {
         &self,
         job: impl FnOnce(&mut GtkState) + Send + 'static,
     ) -> Result<()> {
-        self.jobs
-            .send_blocking(Box::new(job))
-            .map_err(|_| Error::HostStopped)
+        self.jobs.send_blocking(Box::new(job)).map_err(|error| {
+            tracing::debug!(%error, "the platform thread has stopped");
+            Error::HostStopped
+        })
     }
 
     fn ask_snapshot(

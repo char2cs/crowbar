@@ -93,11 +93,13 @@ fn claim_chords(
     let (chosen, defaults): (Vec<_>, Vec<_>) = wanted
         .into_iter()
         .partition(|(command, _)| overrides.contains_key(command));
-    let mut bound = BTreeMap::new();
-    for (command, chord) in chosen.into_iter().chain(defaults) {
-        bound.entry(chord).or_insert(command);
-    }
-    bound
+    chosen
+        .into_iter()
+        .chain(defaults)
+        .fold(BTreeMap::new(), |mut bound, (command, chord)| {
+            bound.entry(chord).or_insert(command);
+            bound
+        })
 }
 
 #[cfg(test)]

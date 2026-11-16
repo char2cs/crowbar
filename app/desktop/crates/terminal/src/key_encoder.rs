@@ -78,8 +78,9 @@ fn control_byte(key: &str) -> Option<u8> {
     }
     let mut characters = key.chars();
     let only = characters.next().filter(|_| characters.next().is_none())?;
-    if only.is_ascii_lowercase() {
-        return u8::try_from(u32::from(only) - u32::from('a') + 1).ok();
+    let letter = u8::try_from(only).ok().filter(u8::is_ascii_lowercase);
+    if let Some(letter) = letter {
+        return Some(letter - b'a' + 1);
     }
     CONTROL_SYMBOLS
         .iter()
