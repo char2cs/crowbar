@@ -26,6 +26,11 @@ pub struct Supervisor {
     task: Option<JoinHandle<()>>,
 }
 
+fn stopped(why: impl std::fmt::Display) -> Error {
+    tracing::debug!("the supervisor is no longer running: {why}");
+    Error::Stopped
+}
+
 impl Supervisor {
     /// Starts the daemon and supervises it until [`Supervisor::stop`].
     #[must_use]
@@ -63,8 +68,8 @@ impl Supervisor {
         self.commands
             .send(Command::Restart(reply))
             .await
-            .map_err(|_| Error::Stopped)?;
-        answer.await.map_err(|_| Error::Stopped)?
+            .map_err(stopped)?;
+        answer.await.map_err(stopped)?
     }
 
     /// Stops the daemon gracefully (SIGTERM, then SIGKILL after the grace period) and ends

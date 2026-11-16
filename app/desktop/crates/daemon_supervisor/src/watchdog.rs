@@ -1,6 +1,4 @@
-use std::time::{Duration, SystemTime};
-
-use tokio::time::Instant;
+use std::time::Duration;
 
 use crate::daemon_event::DaemonEvent;
 use crate::exoneration::Exoneration;
@@ -27,7 +25,7 @@ fn nap_or_sleep_interrupted(
     ctx: &WatchContext,
     state: &mut WatchState,
 ) -> bool {
-    let now = SystemTime::now();
+    let now = (ctx.clock.wall)();
     let cycle = now
         .duration_since(state.previous_cycle)
         .unwrap_or(Duration::ZERO);
@@ -51,7 +49,10 @@ async fn confirmed_wedge(
     };
     let exonerated =
         !suspended && probe_within(ctx, ctx.timings.grace_probe_timeout).await != Probe::Unserved;
-    let (silent_at, before) = state.silent_since.take().unwrap_or((Instant::now(), None));
+    let (silent_at, before) = state
+        .silent_since
+        .take()
+        .unwrap_or(((ctx.clock.instant)(), None));
     let working = made_progress(before, daemon_cpu(ctx).await, silent_at.elapsed());
     let mut exonerations = Vec::new();
     if suspended {
@@ -83,7 +84,7 @@ async fn track_silence(
         return;
     }
     if state.silent_since.is_none() {
-        state.silent_since = Some((Instant::now(), daemon_cpu(ctx).await));
+        state.silent_since = Some(((ctx.clock.instant)(), daemon_cpu(ctx).await));
     }
 }
 
@@ -106,7 +107,7 @@ async fn cycle(
 }
 
 pub(crate) async fn watch(ctx: WatchContext) {
-    let mut state = WatchState::new(ctx.timings.failure_threshold);
+    let mut state = WatchState::new(ctx.timings.failure_threshold, (ctx.clock.wall)());
     while watch_once(&ctx, &mut state).await {}
 }
 
@@ -142,6 +143,7 @@ async fn announce_wedge(ctx: &WatchContext) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::system_clock;
     use crate::bus::Bus;
     use crate::timings::Timings;
     use std::sync::Arc;
@@ -167,6 +169,7 @@ mod tests {
             bus: Arc::new(Bus::default()),
             wedged,
             cancel,
+            clock: system_clock(),
         }
     }
 

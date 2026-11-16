@@ -25,7 +25,9 @@ impl Bus {
     ) {
         tracing::info!("daemon: {event:?}");
         self.current.send_replace(event.clone());
-        self.stream.send(event).ok();
+        if self.stream.send(event).is_err() {
+            tracing::trace!("no one is subscribed to daemon events");
+        }
     }
 
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<DaemonEvent> {

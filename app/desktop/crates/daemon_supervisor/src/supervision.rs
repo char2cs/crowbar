@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use crate::adapters::system_clock;
 use crate::bus::Bus;
+use crate::clock::Clock;
 use crate::daemon_log::DaemonLog;
 use crate::restart_budget::RestartBudget;
 use crate::supervisor_config::SupervisorConfig;
@@ -10,6 +12,7 @@ pub(crate) struct Supervision {
     pub(crate) bus: Arc<Bus>,
     pub(crate) log: Option<Arc<DaemonLog>>,
     pub(crate) budget: RestartBudget,
+    pub(crate) clock: Clock,
 }
 
 impl Supervision {
@@ -30,6 +33,7 @@ impl Supervision {
             bus,
             log,
             budget,
+            clock: system_clock(),
         }
     }
 
@@ -83,8 +87,7 @@ mod tests {
 
     #[test]
     fn a_log_that_cannot_be_opened_does_not_stop_supervision() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut config = config(dir.path());
+        let mut config = config(std::path::Path::new("/nonexistent"));
         config.paths.log = "/proc/definitely/not/writable/daemon.log".into();
         let supervision = Supervision::new(config, Arc::new(Bus::default()));
         assert!(supervision.log.is_none());

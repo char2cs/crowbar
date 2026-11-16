@@ -11,11 +11,14 @@ pub(crate) struct WatchState {
 }
 
 impl WatchState {
-    pub(crate) fn new(threshold: u32) -> Self {
+    pub(crate) fn new(
+        threshold: u32,
+        started: SystemTime,
+    ) -> Self {
         Self {
             tracker: FailureTracker::new(threshold),
             silent_since: None,
-            previous_cycle: SystemTime::now(),
+            previous_cycle: started,
         }
     }
 
@@ -32,7 +35,7 @@ mod tests {
 
     #[test]
     fn forgetting_clears_the_streak_and_the_silent_stretch() {
-        let mut state = WatchState::new(2);
+        let mut state = WatchState::new(2, SystemTime::UNIX_EPOCH);
         state.tracker.observe(Probe::Unserved);
         state.silent_since = Some((Instant::now(), None));
         state.forget();

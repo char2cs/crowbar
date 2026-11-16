@@ -1,17 +1,15 @@
-use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::{mpsc, oneshot};
 
+use crate::adapters::{LogWriter, private_dir};
 use crate::error::Error;
 use crate::log_message::LogMessage;
-use crate::log_writer::LogWriter;
 use crate::reply::reply;
 
 const QUEUE_LINES: usize = 512;
-const DIR_MODE: u32 = 0o700;
 
 pub(crate) const MAX_LINE_BYTES: usize = 16 * 1024;
 
@@ -126,11 +124,7 @@ impl DaemonLog {
             source,
         };
         if let Some(dir) = path.parent() {
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(DIR_MODE)
-                .create(dir)
-                .map_err(log_error)?;
+            private_dir(dir).map_err(log_error)?;
         }
         let writer = LogWriter::open(path, max_bytes).map_err(log_error)?;
         let (queue, receiver) = mpsc::channel(QUEUE_LINES);

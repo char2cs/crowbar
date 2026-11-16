@@ -24,8 +24,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_socket_is_a_dial_error() {
-        let dir = tempfile::tempdir().unwrap();
-        let error = fetch(&dir.path().join("absent.sock"), "/v0/health", 16)
+        let error = fetch(Path::new("/nonexistent/absent.sock"), "/v0/health", 16)
             .await
             .unwrap_err();
         assert!(matches!(error, Error::Dial { .. }), "{error:?}");

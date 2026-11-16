@@ -1,8 +1,8 @@
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Duration;
 
-const LOG_TAIL_BYTES: u64 = 64 * 1024;
+use crate::adapters::read_tail;
+
 const LOG_TAIL_LINES: usize = 40;
 const SECONDS_PER_MINUTE: u64 = 60;
 const SPAWN_MARKER: &str = "=== daemon spawned";
@@ -19,15 +19,6 @@ pub(crate) fn last_run_tail(
         .get(lines.len().saturating_sub(max_lines)..)
         .unwrap_or_default()
         .join("\n")
-}
-
-fn read_tail(path: &Path) -> std::io::Result<String> {
-    let mut file = std::fs::File::open(path)?;
-    let len = file.metadata()?.len();
-    file.seek(SeekFrom::Start(len.saturating_sub(LOG_TAIL_BYTES)))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 pub(crate) fn crash_summary(

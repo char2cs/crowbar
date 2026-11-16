@@ -18,7 +18,9 @@ const STARTING: &str = r#"{"success":true,"data":{"status":"migrating","detail":
 const STEP_ONE: &str = r#"{"success":true,"data":{"status":"migrating","detail":{"phase":"pre-open","step":{"number":1,"name":"first"},"index":1,"total":2}}}"#;
 const STEP_TWO: &str = r#"{"success":true,"data":{"status":"migrating","detail":{"phase":"pre-open","step":{"number":2,"name":"second"},"index":2,"total":2}}}"#;
 const HALTED: &str = r#"{"success":true,"data":{"status":"halted","detail":{"reason":"layout_newer","message":"layout too new"}}}"#;
+const STEPS: &str = "steps";
 const NOISE_BYTES: usize = 1 << 20;
+const NOISE_BYTE: u8 = 0xff;
 const READ_BUFFER_BYTES: usize = 4096;
 const THIRD_REQUEST: u32 = 3;
 const EXIT_DIED: u8 = 3;
@@ -43,9 +45,9 @@ fn health_body(
     match (mode, served) {
         ("migrating", _) => MIGRATING.to_owned(),
         ("halted", _) => HALTED.to_owned(),
-        ("steps", 1) => STARTING.to_owned(),
-        ("steps", 2) => STEP_ONE.to_owned(),
-        ("steps", THIRD_REQUEST) => STEP_TWO.to_owned(),
+        (STEPS, 1) => STARTING.to_owned(),
+        (STEPS, 2) => STEP_ONE.to_owned(),
+        (STEPS, THIRD_REQUEST) => STEP_TWO.to_owned(),
         _ => OK.replace("PID", &std::process::id().to_string()),
     }
 }
@@ -76,7 +78,9 @@ async fn answer(
         "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
     );
-    stream.write_all(reply.as_bytes()).await.ok();
+    if let Err(error) = stream.write_all(reply.as_bytes()).await {
+        tracing::debug!("the client left before its answer: {error}");
+    }
 }
 
 async fn hold(stream: UnixStream) {
@@ -124,8 +128,15 @@ async fn serve(
 fn noise_failed(mode: &str) -> bool {
     mode == "noisy"
         && std::io::stderr()
-            .write_all(&vec![0xff; NOISE_BYTES])
+            .write_all(&vec![NOISE_BYTE; NOISE_BYTES])
             .is_err()
+}
+
+fn clear_stale_socket(path: &str) -> Result<(), rustix::io::Errno> {
+    match rustix::fs::unlink(path) {
+        Err(rustix::io::Errno::NOENT) => Ok(()),
+        other => other,
+    }
 }
 
 fn deaf_to_term(mode: &str) -> std::io::Result<Option<Signal>> {
@@ -150,7 +161,10 @@ async fn main() -> ExitCode {
     if noise_failed(&mode) {
         return ExitCode::from(EXIT_NOISE);
     }
-    std::fs::remove_file(&path).ok();
+    if let Err(error) = clear_stale_socket(&path) {
+        tracing::debug!("stale socket {path}: {error}");
+        return ExitCode::from(EXIT_BIND);
+    }
     let Ok(listener) = UnixListener::bind(&path) else {
         return ExitCode::from(EXIT_BIND);
     };

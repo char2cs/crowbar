@@ -4,6 +4,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 const LOG_MODE: u32 = 0o600;
+const MODE_BITS: u32 = 0o777;
 
 pub(crate) struct LogWriter {
     path: PathBuf,
@@ -18,7 +19,7 @@ fn open_append(path: &Path) -> std::io::Result<File> {
         .append(true)
         .mode(LOG_MODE)
         .open(path)?;
-    let mode = file.metadata()?.permissions().mode() & 0o777;
+    let mode = file.metadata()?.permissions().mode() & MODE_BITS;
     if mode != LOG_MODE {
         file.set_permissions(std::fs::Permissions::from_mode(LOG_MODE))?;
     }

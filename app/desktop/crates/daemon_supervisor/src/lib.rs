@@ -1,9 +1,11 @@
 //! Supervises the Crowbar daemon sidecar: finds, spawns, health-checks, recovers and stops it,
 //! and reports its state as a stream of [`DaemonEvent`]s.
 
+mod adapters;
 mod announced;
 mod attempt;
 mod bus;
+mod clock;
 mod command;
 mod crash_report;
 mod daemon_event;
@@ -20,12 +22,14 @@ mod fill;
 mod health;
 mod locate_binary;
 mod log_message;
-mod log_writer;
 mod migration_progress;
+mod monitoring;
 mod output_pump;
 mod phase;
 mod probe;
 mod process_cpu;
+mod readiness;
+mod recovery;
 mod reply;
 mod restart_budget;
 mod running;

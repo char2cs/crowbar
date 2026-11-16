@@ -2,17 +2,11 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
+use crate::adapters::proc_stat;
 use crate::wedge::{parse_proc_stat_cpu, parse_ps_cpu_time, proc_state_is_stopped};
 
 const PS: &str = "/bin/ps";
 const PS_TIMEOUT: Duration = Duration::from_secs(2);
-
-async fn proc_stat(pid: u32) -> Option<String> {
-    tokio::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .await
-        .map_err(|e| tracing::trace!("/proc/{pid}/stat: {e}"))
-        .ok()
-}
 
 async fn ps(
     args: &[&str],
@@ -29,8 +23,8 @@ async fn ps(
             tracing::debug!("{PS}: {e}");
             return None;
         },
-        Err(_) => {
-            tracing::warn!("{PS} did not answer within {PS_TIMEOUT:?}");
+        Err(elapsed) => {
+            tracing::warn!("{PS} did not answer within {PS_TIMEOUT:?}: {elapsed}");
             return None;
         },
     };

@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::bus::Bus;
+use crate::clock::Clock;
 use crate::timings::Timings;
 
 pub(crate) struct WatchContext {
@@ -14,4 +15,5 @@ pub(crate) struct WatchContext {
     pub(crate) bus: Arc<Bus>,
     pub(crate) wedged: mpsc::Sender<()>,
     pub(crate) cancel: CancellationToken,
+    pub(crate) clock: Clock,
 }

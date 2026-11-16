@@ -1,24 +1,18 @@
-use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 use std::process::Stdio;
 
 use tokio::process::{Child, Command};
 
+use crate::adapters::private_dir;
 use crate::error::Error;
 use crate::output_pump::capture;
 use crate::supervision::Supervision;
 
-const SOCKET_DIR_MODE: u32 = 0o700;
-
 fn make_socket_dir(dir: &Path) -> Result<(), Error> {
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(SOCKET_DIR_MODE)
-        .create(dir)
-        .map_err(|source| Error::Spawn {
-            path: dir.to_path_buf(),
-            source,
-        })
+    private_dir(dir).map_err(|source| Error::Spawn {
+        path: dir.to_path_buf(),
+        source,
+    })
 }
 
 fn output_sink(supervision: &Supervision) -> Stdio {

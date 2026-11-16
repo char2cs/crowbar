@@ -67,13 +67,13 @@ mod tests {
 
     fn stock(
         places: &[PathBuf],
-        flags: [bool; 2],
+        stocked: &[usize],
     ) {
         places
             .iter()
-            .zip(flags)
-            .filter(|(_, stocked)| *stocked)
-            .for_each(|(place, _)| {
+            .enumerate()
+            .filter(|(at, _)| stocked.contains(at))
+            .for_each(|(_, place)| {
                 let file = place.join(BINARY_NAME);
                 std::fs::write(&file, b"").unwrap();
                 std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -83,13 +83,13 @@ mod tests {
     #[test]
     fn the_binary_is_searched_beside_the_app_then_on_the_path() {
         let cases = [
-            ("beside beats path", [true, true], Some(0)),
-            ("path is searched", [false, true], Some(1)),
-            ("a miss", [false, false], None),
+            ("beside beats path", &[0, 1][..], Some(0)),
+            ("path is searched", &[1][..], Some(1)),
+            ("a miss", &[][..], None),
         ];
-        for (name, flags, winner) in cases {
+        for (name, stocked, winner) in cases {
             let places = [dir(&format!("{name}-app")), dir(&format!("{name}-path"))];
-            stock(&places, flags);
+            stock(&places, stocked);
             let exe = places[0].join("crowbar");
             let found = locate_binary(None, Some(&exe), Some(places[1].as_os_str()));
             let expected = winner.map(|at: usize| places[at].join(BINARY_NAME));

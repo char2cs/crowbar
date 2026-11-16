@@ -128,9 +128,9 @@ async fn attempt<D: Dial>(
             tracing::debug!("daemon health: {error}");
             Attempt::Failed
         },
-        Err(_) => {
+        Err(elapsed) => {
             tracing::debug!(
-                "daemon health: no answer in {:?}",
+                "daemon health: no answer in {:?} ({elapsed})",
                 timings.health_probe_timeout
             );
             Attempt::Failed

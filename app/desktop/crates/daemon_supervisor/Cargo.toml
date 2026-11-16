@@ -21,7 +21,7 @@ required-features = ["test-daemon"]
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-rustix = { version = "1", features = ["process", "param"] }
+rustix = { version = "1", features = ["process", "param", "fs"] }
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
