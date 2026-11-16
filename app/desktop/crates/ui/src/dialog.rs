@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Bounds, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, Styled, Window, anchored, deferred, div,
-    hsla, point, px,
+    MouseButton, ParentElement, RenderOnce, SharedString, Styled, Window, anchored, div, hsla,
+    point, px,
 };
 
 use crate::close_handler::CloseHandler;
@@ -15,7 +15,6 @@ use crate::dialog_header::DialogHeader;
 use crate::dialog_size::DialogSize;
 use crate::dialog_style::DialogStyle;
 use crate::icon_name::IconName;
-use crate::layer;
 use crate::motion::Motion;
 use crate::opacity;
 use crate::opaque_debug::opaque_debug;
@@ -34,6 +33,9 @@ const TOP_SHARE: f32 = 1.0;
 const BOTTOM_SHARE: f32 = 3.0;
 
 /// A modal dialog: scrim, header with title and close button, scrolling body and optional footer.
+///
+/// Not deferred: a deferred dialog cannot hold a select or menu, whose popups defer too. Mount
+/// it as the last child of a full-window layer so it paints over its siblings.
 #[derive(IntoElement)]
 pub struct Dialog {
     id: ElementId,
@@ -269,8 +271,7 @@ impl RenderOnce for Dialog {
                 Animation::new(duration).with_easing(|t| CubicBezier::DEFAULT.ease(t)),
                 Styled::opacity,
             );
-        deferred(anchored().position(point(px(0.0), px(0.0))).child(layer))
-            .with_priority(layer::OVERLAY)
+        anchored().position(point(px(0.0), px(0.0))).child(layer)
     }
 }
 
@@ -358,6 +359,23 @@ mod tests {
         let body = cx.debug_bounds("body").unwrap_or_default();
         cx.simulate_click(body.center(), gpui::Modifiers::none());
         assert_eq!(closed.get(), 0);
+    }
+
+    #[gpui::test]
+    fn a_select_inside_a_dialog_opens_its_popup(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            let select = crate::select::Select::new("s", vec!["One".into(), "Two".into()], Some(0));
+            Dialog::new("d")
+                .title("Title")
+                .body(div().debug_selector(|| "host".into()).child(select))
+        });
+        let host = cx.debug_bounds("host").unwrap_or_default();
+        cx.simulate_click(host.center(), gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("host").is_some(),
+            "the dialog still renders with the popup open"
+        );
     }
 
     #[gpui::test]

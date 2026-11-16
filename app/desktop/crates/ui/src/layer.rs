@@ -8,7 +8,7 @@ pub const HANDLE: usize = 10;
 pub const PANE_HANDLE: usize = 30;
 /// Sidebar peek card, drop tint.
 pub const PEEK: usize = 40;
-/// Dialog backdrop and viewport, popovers, selects, toasts.
+/// Popovers, selects, toasts.
 pub const OVERLAY: usize = 50;
 /// Tree drop indicator.
 pub const DROP_LINE: usize = 60;
