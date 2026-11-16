@@ -90,10 +90,13 @@ impl GtkState {
         id: WebViewId,
         visibility: Visibility,
     ) -> Result<()> {
-        Ok(self
-            .live(id)?
-            .view
-            .set_visible(visibility == Visibility::Shown)?)
+        let view = &self.live(id)?.view;
+        if visibility == Visibility::Hidden {
+            return Ok(view.set_visible(false)?);
+        }
+        let placed = view.bounds()?;
+        view.set_visible(true)?;
+        Ok(view.set_bounds(placed)?)
     }
 
     pub(crate) fn set_background(
