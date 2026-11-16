@@ -1,7 +1,6 @@
 use browser_nav::PageUpdate;
 use protocol::{
-    CommandId, EventName, MethodName, PaneFrame, PaneId, PaneState, PaneTitle, PaneTypeId, Params,
-    RequestId, SettingKey,
+    CommandId, ExternalUrl, FsPath, PaneId, PaneState, PaneTitle, PaneTypeId, Params, SettingKey,
 };
 use serde_json::Value;
 
@@ -22,6 +21,13 @@ pub enum HostEvent {
         pane: PaneId,
         /// The new state, at most 64 KB.
         state: PaneState,
+    },
+    /// A pane reported whether it holds unsaved work.
+    DirtyChanged {
+        /// The pane.
+        pane: PaneId,
+        /// Whether closing it would lose work.
+        dirty: bool,
     },
     /// A pane's state must be dropped because its type is destroy-on-hide.
     StateDiscarded {
@@ -44,40 +50,15 @@ pub enum HostEvent {
         /// The command id.
         command: CommandId,
     },
-    /// A pane called its extension backend; answer with [`PaneHost::send`](crate::PaneHost::send).
-    RequestMade {
-        /// The asking pane.
-        pane: PaneId,
-        /// Correlation id.
-        id: RequestId,
-        /// Method name.
-        method: MethodName,
-        /// Method parameters.
-        params: Value,
+    /// A pane asked the shell to open a web, mail or phone link in the system's application.
+    OpenExternal {
+        /// The link.
+        url: ExternalUrl,
     },
-    /// A pane subscribed to an extension event.
-    Subscribed {
-        /// The pane.
-        pane: PaneId,
-        /// Subscription id.
-        id: RequestId,
-        /// Event name.
-        event: EventName,
-    },
-    /// A pane ended a subscription.
-    Unsubscribed {
-        /// The pane.
-        pane: PaneId,
-        /// Subscription id.
-        id: RequestId,
-    },
-    /// A pane sent a frame the shell answers itself: a setting read or subscription, or a
-    /// composer or attachment call.
-    ShellCall {
-        /// The pane.
-        pane: PaneId,
-        /// The frame as received.
-        frame: PaneFrame,
+    /// A pane asked the shell to show a path in the system file manager.
+    Reveal {
+        /// The absolute path.
+        path: FsPath,
     },
     /// A pane asked the shell to store a setting; the shell writes it and pushes the set back.
     SettingRequested {
@@ -94,6 +75,13 @@ pub enum HostEvent {
         pane: PaneId,
         /// Whether the pointer is over it.
         hovered: bool,
+    },
+    /// Files from the operating system were dropped on a pane's page.
+    FilesDropped {
+        /// The pane.
+        pane: PaneId,
+        /// The dropped files that are absolute paths.
+        paths: Vec<FsPath>,
     },
     /// A browser pane's page reported its address, load state or title.
     BrowserPage {

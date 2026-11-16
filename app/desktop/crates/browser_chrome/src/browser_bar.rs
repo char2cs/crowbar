@@ -10,10 +10,11 @@ const PLACEHOLDER: &str = "Search or enter address";
 const BAR_PADDING: f32 = 6.0;
 const BAR_GAP: f32 = 4.0;
 
-/// Back, forward and reload buttons beside an address field. It emits [`BrowserBarEvent`] and
+/// Back, forward, reload and pick buttons beside an address field. It emits [`BrowserBarEvent`] and
 /// changes nothing else; the shell calls [`BrowserBar::set_address`] as the page navigates.
 pub struct BrowserBar {
     input: Entity<TextInput>,
+    picking: bool,
     _input_events: Subscription,
 }
 
@@ -39,6 +40,7 @@ impl BrowserBar {
         let subscription = cx.subscribe(&input, |_, input, event, cx| submitted(&input, event, cx));
         Self {
             input,
+            picking: false,
             _input_events: subscription,
         }
     }
@@ -51,6 +53,24 @@ impl BrowserBar {
     ) {
         self.input
             .update(cx, |input, cx| input.set_text(address, cx));
+    }
+
+    /// Lights the pick button: a pick is in progress.
+    pub fn begin_pick(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.picking = true;
+        cx.notify();
+    }
+
+    /// Puts the pick button out: the pick ended.
+    pub fn end_pick(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.picking = false;
+        cx.notify();
     }
 }
 
@@ -77,6 +97,10 @@ impl Render for BrowserBar {
                 .on(Surface::Window)
                 .on_click(cx.listener(move |_, _, _, cx| cx.emit(event.clone())))
         };
+        let mut pick_variant = ButtonVariant::Ghost;
+        if self.picking {
+            pick_variant = ButtonVariant::Secondary;
+        }
         div()
             .flex()
             .flex_row()
@@ -90,6 +114,12 @@ impl Render for BrowserBar {
                 Button::icon_only("browser-reload", IconName::ArrowClockwise)
                     .on(Surface::Window)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(BrowserBarEvent::Reload))),
+            )
+            .child(
+                Button::icon_only("browser-pick", IconName::Crosshair)
+                    .variant(pick_variant)
+                    .on(Surface::Window)
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(BrowserBarEvent::TogglePick))),
             )
             .child(div().flex_1().child(self.input.clone()))
     }
@@ -142,5 +172,41 @@ mod tests {
             *events.borrow(),
             vec![BrowserBarEvent::Go("example.com".to_owned())]
         );
+    }
+
+    #[gpui::test]
+    fn every_button_asks_for_its_own_event_and_the_pick_button_lights_while_picking(
+        cx: &mut TestAppContext
+    ) {
+        const STEP: f32 = 6.0;
+        const REACH: f32 = 1200.0;
+        const BAND: f32 = 16.0;
+        cx.update(|cx| ui::init(cx).unwrap());
+        let (bar, cx) = cx.add_window_view(|_, cx| BrowserBar::new(cx));
+        let events: Rc<RefCell<Vec<BrowserBarEvent>>> = Rc::default();
+        record(&bar, &events, cx);
+        cx.run_until_parked();
+        let middle = f32::from(cx.update(|window, _| window.viewport_size().height)) / 2.0;
+        let along = |from: f32, to: f32| {
+            std::iter::successors(Some(from), |at| Some(at + STEP)).take_while(move |at| *at < to)
+        };
+        let rows = along(middle - BAND, middle + BAND);
+        let grid = rows.flat_map(|y| along(0.0, REACH).map(move |x| (x, y)));
+        for (x, y) in grid {
+            cx.simulate_click(gpui::point(px(x), px(y)), gpui::Modifiers::none());
+        }
+        let seen = events.borrow().clone();
+        for expected in [
+            BrowserBarEvent::Back,
+            BrowserBarEvent::Forward,
+            BrowserBarEvent::Reload,
+            BrowserBarEvent::TogglePick,
+        ] {
+            assert!(seen.contains(&expected), "{expected:?} in {seen:?}");
+        }
+        bar.update(cx, BrowserBar::begin_pick);
+        assert!(bar.read_with(cx, |bar, _| bar.picking));
+        bar.update(cx, BrowserBar::end_pick);
+        assert!(!bar.read_with(cx, |bar, _| bar.picking));
     }
 }

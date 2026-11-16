@@ -1,8 +1,8 @@
 use gtk::cairo::{Format, ImageSurface, Surface};
 
+use crate::bitmap_rows::snapshot_of_rows;
+use crate::row_layout::RowLayout;
 use crate::snapshot::Snapshot;
-
-const BYTES_PER_PIXEL: usize = 4;
 
 pub(crate) fn snapshot_of(surface: Surface) -> Option<Snapshot> {
     let mut image = ImageSurface::try_from(surface).ok()?;
@@ -15,17 +15,7 @@ pub(crate) fn snapshot_of(surface: Surface) -> Option<Snapshot> {
     );
     let stride = usize::try_from(image.stride()).ok()?;
     let data = image.data().ok()?;
-    let row = width * BYTES_PER_PIXEL;
-    let bgra = data
-        .chunks(stride)
-        .take(height)
-        .flat_map(|line| line.iter().take(row))
-        .copied()
-        .collect();
-    Snapshot::new(
-        (u32::try_from(width).ok()?, u32::try_from(height).ok()?),
-        bgra,
-    )
+    snapshot_of_rows(&data, RowLayout::new(width, height, stride))
 }
 
 #[cfg(test)]

@@ -65,55 +65,57 @@ mod tests {
         icon: IconName,
     }
 
-    const fn case(
-        name: &'static str,
-        (kind, state, title): (&'static str, &'static str, Option<&'static str>),
-        (label, icon): (&'static str, IconName),
-    ) -> Case {
-        Case {
-            name,
-            kind,
-            state,
-            title,
-            label,
-            icon,
-        }
-    }
-
-    const TERMINAL_LOOK: (&str, IconName) = ("Terminal", IconName::TerminalWindow);
     const FILE_ICON: IconName = IconName::FileText;
 
     const CASES: [Case; 6] = [
-        case(
-            "a terminal without a title",
-            (TERMINAL, "null", None),
-            TERMINAL_LOOK,
-        ),
-        case(
-            "a reported title wins",
-            (TERMINAL, "null", Some("cargo test")),
-            ("cargo test", IconName::TerminalWindow),
-        ),
-        case(
-            "an empty title is ignored",
-            (BROWSER, "null", Some("")),
-            ("Browser", IconName::Globe),
-        ),
-        case(
-            "a file shows its name",
-            (EDITOR, r#"{"path": "src/lib/main.rs"}"#, None),
-            ("main.rs", FILE_ICON),
-        ),
-        case(
-            "an untitled file",
-            (EDITOR, r#"{"untitled": true}"#, None),
-            ("Untitled", FILE_ICON),
-        ),
-        case(
-            "the review",
-            (REVIEW, "null", None),
-            ("Branch Review", IconName::GitPullRequest),
-        ),
+        Case {
+            name: "a terminal without a title",
+            kind: TERMINAL,
+            state: "null",
+            title: None,
+            label: "Terminal",
+            icon: IconName::TerminalWindow,
+        },
+        Case {
+            name: "a reported title wins",
+            kind: TERMINAL,
+            state: "null",
+            title: Some("cargo test"),
+            label: "cargo test",
+            icon: IconName::TerminalWindow,
+        },
+        Case {
+            name: "an empty title is ignored",
+            kind: BROWSER,
+            state: "null",
+            title: Some(""),
+            label: "Browser",
+            icon: IconName::Globe,
+        },
+        Case {
+            name: "a file shows its name",
+            kind: EDITOR,
+            state: r#"{"path": "src/lib/main.rs"}"#,
+            title: None,
+            label: "main.rs",
+            icon: FILE_ICON,
+        },
+        Case {
+            name: "an untitled file",
+            kind: EDITOR,
+            state: r#"{"untitled": true}"#,
+            title: None,
+            label: "Untitled",
+            icon: FILE_ICON,
+        },
+        Case {
+            name: "the review",
+            kind: REVIEW,
+            state: "null",
+            title: None,
+            label: "Branch Review",
+            icon: IconName::GitPullRequest,
+        },
     ];
 
     #[test]

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::http::header::{HeaderName, HeaderValue};
 use wry::http::{Request, Response};
-use wry::{PageLoadEvent, Rect, RequestAsyncResponder, WebViewBuilder};
+use wry::{DragDropEvent, PageLoadEvent, Rect, RequestAsyncResponder, WebViewBuilder};
 
 use crate::bounds::Bounds;
 use crate::page_event::{PageEvent, PageHandler};
@@ -92,6 +92,7 @@ fn watch_pages<'a>(
     let on_navigate = Arc::clone(handler);
     let on_load = Arc::clone(handler);
     let on_title = Arc::clone(handler);
+    let on_drop = Arc::clone(handler);
     builder
         .with_navigation_handler(move |url| on_navigate(PageEvent::Navigating(url)))
         .with_on_page_load_handler(move |event, url| {
@@ -104,6 +105,28 @@ fn watch_pages<'a>(
         .with_document_title_changed_handler(move |title| {
             on_title(PageEvent::Title(title));
         })
+        .with_drag_drop_handler(move |event| {
+            forward_drop(&on_drop, event);
+            false
+        })
+}
+
+fn forward_drop(
+    handler: &PageHandler,
+    event: DragDropEvent,
+) {
+    if let Some(dropped) = files_dropped(event) {
+        handler(dropped);
+    }
+}
+
+fn files_dropped(event: DragDropEvent) -> Option<PageEvent> {
+    match event {
+        DragDropEvent::Drop { paths, .. } if !paths.is_empty() => {
+            Some(PageEvent::FilesDropped(paths))
+        },
+        _ => None,
+    }
 }
 
 pub(crate) fn to_rect(bounds: Bounds) -> Rect {
@@ -135,6 +158,39 @@ mod tests {
     use super::*;
 
     type Case = (&'static str, f64, f64, f64, f64);
+
+    #[test]
+    fn only_a_drop_with_files_is_reported() {
+        let path = std::path::PathBuf::from("/tmp/a.txt");
+        let at = (3, 4);
+        let cases = [
+            (
+                DragDropEvent::Drop {
+                    paths: vec![path.clone()],
+                    position: at,
+                },
+                Some(PageEvent::FilesDropped(vec![path.clone()])),
+            ),
+            (
+                DragDropEvent::Drop {
+                    paths: Vec::new(),
+                    position: at,
+                },
+                None,
+            ),
+            (
+                DragDropEvent::Enter {
+                    paths: vec![path],
+                    position: at,
+                },
+                None,
+            ),
+            (DragDropEvent::Leave, None),
+        ];
+        for (event, want) in cases {
+            assert_eq!(files_dropped(event), want);
+        }
+    }
 
     const CASES: &[Case] = &[
         ("zero width is lifted to one pixel", 0.0, 30.0, 1.0, 30.0),

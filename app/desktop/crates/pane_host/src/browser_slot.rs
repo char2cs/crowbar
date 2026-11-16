@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use browser_nav::{BROWSER_PANE_TYPE, BrowserUrl, PageUpdate};
 use protocol::{PaneState, PaneTypeId};
-use webview::{PageEvent, PageHandler};
+use webview::{IpcHandler, PageEvent, PageHandler};
 
 use crate::host_event::HostEvent;
 use crate::ipc_message::IpcMessage;
@@ -32,6 +32,40 @@ pub(crate) fn page_handler(
     Arc::new(move |event| on_page(&owner, &sink, event))
 }
 
+pub(crate) fn pick_handler(
+    owner: SlotOwner,
+    sink: async_channel::Sender<IpcMessage>,
+) -> IpcHandler {
+    Arc::new(move |text| forward_pick(&owner, &sink, &text))
+}
+
+fn forward_pick(
+    owner: &SlotOwner,
+    sink: &async_channel::Sender<IpcMessage>,
+    text: &str,
+) {
+    if let Some(update) = PageUpdate::from_pick_message(text) {
+        send_update(owner, sink, &update);
+    }
+}
+
+fn send_update(
+    owner: &SlotOwner,
+    sink: &async_channel::Sender<IpcMessage>,
+    update: &PageUpdate,
+) {
+    let Some(pane) = owner.current() else {
+        return;
+    };
+    let message = IpcMessage {
+        pane,
+        text: update.encode(),
+    };
+    if sink.try_send(message).is_err() {
+        tracing::debug!("pane host inbox is full or closed; dropping a page update");
+    }
+}
+
 fn on_page(
     owner: &SlotOwner,
     sink: &async_channel::Sender<IpcMessage>,
@@ -44,16 +78,7 @@ fn on_page(
         PageEvent::Title(title) => PageUpdate::title(&title),
         _ => return true,
     };
-    let Some(pane) = owner.current() else {
-        return true;
-    };
-    let message = IpcMessage {
-        pane,
-        text: update.encode(),
-    };
-    if sink.try_send(message).is_err() {
-        tracing::debug!("pane host inbox is full or closed; dropping a page update");
-    }
+    send_update(owner, sink, &update);
     true
 }
 
@@ -117,6 +142,24 @@ mod tests {
             assert!(!handler(PageEvent::Navigating(url.into())), "{url}");
         }
         assert!(handler(PageEvent::Navigating("https://a.test/".into())));
+    }
+
+    #[test]
+    fn a_page_can_post_only_the_result_of_a_pick() {
+        let (sink, inbox) = async_channel::bounded(8);
+        let owner = SlotOwner::default();
+        owner.assign(PaneId::new("p1").unwrap());
+        let handler = pick_handler(owner, sink);
+        handler(r#"{"page":"loaded","url":"https://a.test/"}"#.into());
+        handler(r#"{"sdk":1,"kind":"command.run","command":"x"}"#.into());
+        assert!(inbox.try_recv().is_err(), "foreign posts are dropped");
+        handler(r#"{"crowbarPick":{"result":null}}"#.into());
+        let message = inbox.try_recv().unwrap();
+        assert_eq!(message.pane.as_str(), "p1");
+        assert_eq!(
+            PageUpdate::decode(&message.text),
+            Some(PageUpdate::PickEnded)
+        );
     }
 
     #[test]

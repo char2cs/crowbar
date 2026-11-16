@@ -13,6 +13,10 @@ mod browser_url;
 mod error;
 mod page_state;
 mod page_update;
+mod pick_report;
+mod pick_script;
+mod pointer_item;
+mod pointer_text;
 mod search_engine;
 mod tab_name;
 
@@ -21,6 +25,10 @@ pub use browser_url::BrowserUrl;
 pub use error::Error;
 pub use page_state::PageState;
 pub use page_update::PageUpdate;
+pub use pick_report::PickReport;
+pub use pick_script::{cancel_pick_script, pick_script};
+pub use pointer_item::PointerItem;
+pub use pointer_text::{pick_count, pointer_text};
 pub use search_engine::SearchEngine;
 pub use tab_name::tab_name;
 

@@ -30,6 +30,8 @@ impl PaneHost {
             BrowseAction::Back => slot.handle.eval("history.back()")?,
             BrowseAction::Forward => slot.handle.eval("history.forward()")?,
             BrowseAction::Reload => slot.handle.eval("location.reload()")?,
+            BrowseAction::Pick => slot.handle.eval(&browser_nav::pick_script())?,
+            BrowseAction::CancelPick => slot.handle.eval(&browser_nav::cancel_pick_script())?,
         }
         Ok(())
     }

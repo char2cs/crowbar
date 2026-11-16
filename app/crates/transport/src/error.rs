@@ -184,6 +184,9 @@ pub enum Error {
     /// The local daemon's socket could not be connected.
     #[error("cannot connect to the local daemon socket: {0}")]
     LocalSocket(#[source] io::Error),
+    /// The local socket is not owned by the current user, so the daemon behind it is not trusted.
+    #[error("the local daemon socket is not ours: {0}")]
+    UntrustedSocket(String),
     /// The upstream did not complete a WebSocket upgrade in time.
     #[error("the daemon did not answer the upgrade in time")]
     UpgradeTimeout,

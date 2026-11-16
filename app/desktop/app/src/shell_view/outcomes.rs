@@ -15,12 +15,17 @@ impl ShellView {
     ) {
         let Outcome {
             titles_changed,
+            dirty_changed,
             hover,
+            dropped,
             commands,
             pages,
+            picks,
             settings,
         } = outcome;
         self.store_pane_settings(settings);
+        self.open_dropped(&dropped, cx);
+        self.finish_picks(picks, cx);
         for (pane, address) in pages {
             self.source.show_address(&pane, &address, cx);
         }
@@ -32,6 +37,15 @@ impl ShellView {
         }
         for command in served_commands(&commands) {
             self.queue_command(command);
+        }
+        for slot in commands
+            .iter()
+            .filter_map(|id| shell_keys::project_slot_of_command(id.as_str()))
+        {
+            send(&self.requests, ShellRequest::SelectProject(slot));
+        }
+        if dirty_changed {
+            send(&self.requests, ShellRequest::ResumeClosing);
         }
         if titles_changed {
             self.refresh(cx);

@@ -4,6 +4,8 @@ use super::ShellView;
 use crate::pane_settings::{follows, value_of, values_of};
 use crate::shell_request::ShellRequest;
 
+const MAX_OPEN_TABS: &str = "maxOpenTabs";
+
 fn notify_when_a_followed_setting_moves(
     requests: &async_channel::Sender<ShellRequest>,
     change: &Change,
@@ -60,6 +62,10 @@ impl ShellView {
         let Some(backend) = self.settings_backend() else {
             return;
         };
+        let limit = backend
+            .get(&settings_ui::Key::new(MAX_OPEN_TABS))
+            .and_then(|value| value.as_number());
+        self.state.set_open_limit(limit);
         match values_of(|key| backend.get(key)) {
             Ok(values) => self.state.set_pane_settings(values),
             Err(error) => tracing::warn!(%error, "the settings could not be described to panes"),

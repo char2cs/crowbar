@@ -7,14 +7,14 @@ use crate::frame::Frame;
 use crate::intent::Intent;
 use crate::list_block::ListBlock;
 use crate::note_text::note_text;
-use crate::record_view::{FLAG_COLUMN, record_view};
+use crate::record_marks::FLAG_COLUMN;
+use crate::record_view::record_view;
 use crate::records::Records;
 use crate::spacing;
 use crate::title_block::title_block;
 
 const SKELETON_WIDTH: f32 = 320.0;
 const SKELETON_HEIGHT: f32 = 56.0;
-const MOVER_WIDTH: f32 = 76.0;
 
 pub(crate) fn list_view(
     frame: &Frame<'_>,
@@ -79,12 +79,11 @@ fn table(
     (list, records): (&ListBlock, &[crate::record::Record]),
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
-    let count = records.len();
-    let mut rows: Vec<AnyElement> = Vec::with_capacity(count);
+    let mut rows: Vec<AnyElement> = Vec::with_capacity(records.len());
     for (index, record) in records.iter().enumerate() {
         let row = record_view(
             frame,
-            (&list.source, record, (index, count)),
+            (&list.source, record, index),
             (&mut *window, &mut *cx),
         );
         rows.push(row.into_any_element());
@@ -119,15 +118,11 @@ fn flag_header(
                 .into_any_element()
         })
         .collect();
-    let tail = records
-        .first()
-        .filter(|record| record.movable)
-        .map_or(spacing::TIGHT, |_| px(MOVER_WIDTH));
     div()
         .flex()
         .justify_end()
         .gap(spacing::ROOMY)
-        .pr(tail)
+        .pr(spacing::TIGHT)
         .children(cells)
 }
 

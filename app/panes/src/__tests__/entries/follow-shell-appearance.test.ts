@@ -20,8 +20,8 @@ describe('followShellAppearance', () => {
       'theme and mode',
       { 'theme-id': 'crowbar', 'theme-type': 'light' },
       [
-        ['theme', 'crowbar'],
         ['themeMode', 'light'],
+        ['theme', 'crowbar'],
       ],
     ],
     ['only the theme', { 'theme-id': 'nord' }, [['theme', 'nord']]],

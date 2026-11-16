@@ -1,11 +1,14 @@
 //! A switch on a record.
 
+use crate::flag_look::FlagLook;
+
 /// An on/off value a record carries, shown as a switch in the column of the same position.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordFlag {
     pub(crate) id: String,
     pub(crate) label: String,
     pub(crate) on: bool,
+    pub(crate) look: FlagLook,
 }
 
 impl RecordFlag {
@@ -18,7 +21,15 @@ impl RecordFlag {
             id: id.into(),
             label: label.into(),
             on: false,
+            look: FlagLook::Switch,
         }
+    }
+
+    /// The same flag, drawn as a small status dot the user cannot toggle.
+    #[must_use]
+    pub fn as_dot(mut self) -> Self {
+        self.look = FlagLook::Dot;
+        self
     }
 
     /// The same flag, switched on.
@@ -37,8 +48,9 @@ mod tests {
     fn keeps_its_fields() {
         let flag = RecordFlag::new("enabled", "Enable Claude Code").on();
         assert_eq!(
-            (flag.id.as_str(), flag.label.as_str(), flag.on),
-            ("enabled", "Enable Claude Code", true)
+            (flag.id.as_str(), flag.label.as_str(), flag.on, flag.look),
+            ("enabled", "Enable Claude Code", true, FlagLook::Switch)
         );
+        assert_eq!(flag.as_dot().look, FlagLook::Dot);
     }
 }

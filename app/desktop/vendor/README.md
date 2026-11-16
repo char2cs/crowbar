@@ -10,6 +10,12 @@ Drop the vendored copy when upstream gpui implements the X11 handles in a publis
 
 `gpui-variable-weight.patch` (`src/platform/linux/text_system.rs`) makes the Linux text backend honour the `wght` axis of variable faces (Cal Sans UI): gpui keeps one `LoadedFont` per requested weight of a variable face, passes that weight to shaping as a `wght` font feature, and rasterizes those glyphs with swash at that `wght` instance. Upstream always draws the default instance. macOS uses CoreText and is untouched.
 
+`gpui-svg-image-bgra.patch` (`src/platform.rs`): an SVG decoded through `Image::to_image_data` keeps tiny-skia's RGBA order while every other format is converted to the BGRA the renderer expects, so coloured SVG images drew with red and blue swapped. The shell draws provider icons this way.
+
+Drop it when a published gpui converts SVG images to BGRA. Tracking: zed-industries/zed, `Image::to_image_data`.
+
+`gpui-external-paths.patch` (`src/interactive.rs`): `ExternalPaths::from_paths` builds the file-drop payload `ExternalPaths` otherwise only gets from a platform, so the sidebar's file-drop test can drive its `on_drop` handler. Drop it when a published gpui exposes a constructor.
+
 ## cosmic-text 0.14.2
 
 `cosmic-text-variable-weight.patch`, reached through `gpui` on Linux and wired in through `[patch.crates-io]` in `app/Cargo.toml`:

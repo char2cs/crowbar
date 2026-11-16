@@ -13,6 +13,7 @@ use sidebar::{CommandSink as _, Mode, Sidebar, SidebarData as _};
 use super::ShellView;
 use crate::direction::Direction;
 use crate::focus_neighbour::focus_neighbour;
+use crate::project_slot::project_at;
 
 // SPEC: only the relative placement of panes matters when looking for a neighbour.
 const UNIT_EXTENT: f32 = 1000.0;
@@ -31,8 +32,9 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(command) = self.keymap.resolve(&keystroke_of(&event.keystroke)) else {
-            return;
+        let stroke = keystroke_of(&event.keystroke);
+        let Some(command) = self.keymap.resolve(&stroke) else {
+            return self.switch_project_on(&stroke, cx);
         };
         cx.stop_propagation();
         self.run_shell_command(command, window, cx);
@@ -62,7 +64,8 @@ impl ShellView {
             ShellCommand::OpenLog => self.open_log(),
             ShellCommand::ExportDiagnostics => self.export_diagnostics(),
             ShellCommand::NewTab => self.new_tab(cx),
-            ShellCommand::NewChat => self.new_chat(),
+            ShellCommand::NewChat => self.start_chat(sidebar::Command::NewThread),
+            ShellCommand::NewChatTerminal => self.new_terminal_chat(),
             ShellCommand::FocusPaneLeft => self.focus_towards(Direction::Left, cx),
             ShellCommand::FocusPaneRight => self.focus_towards(Direction::Right, cx),
             ShellCommand::FocusPaneUp => self.focus_towards(Direction::Up, cx),
@@ -70,17 +73,54 @@ impl ShellView {
         }
     }
 
-    // SPEC: the chat opens through `Outcome::OpenChat` once the daemon has created it.
-    fn new_chat(&self) {
-        let Some(project) = self.data.view().active_project() else {
-            tracing::info!("a new chat needs a project to be selected first");
+    fn switch_project_on(
+        &self,
+        stroke: &Keystroke,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(slot) = shell_keys::project_slot_of_stroke(stroke) else {
+            return;
+        };
+        cx.stop_propagation();
+        self.select_project(slot);
+    }
+
+    pub(super) fn select_project(
+        &self,
+        slot: u8,
+    ) {
+        let view = self.data.view();
+        let projects = view.projects();
+        let Some(project) = project_at(&projects, slot) else {
             return;
         };
         if let Err(error) = self
             .data
             .commands()
-            .dispatch(sidebar::Command::NewThread(project))
+            .dispatch(sidebar::Command::SelectProject(project.id.clone()))
         {
+            tracing::warn!(%error, "the project switch was refused");
+        }
+    }
+
+    // SPEC: the chat opens through `Outcome::OpenChat` once the daemon has created it.
+    fn new_terminal_chat(&self) {
+        let terminal_ok = self.data.view().can_start_terminal_thread();
+        if terminal_ok {
+            return self.start_chat(sidebar::Command::NewTerminalThread);
+        }
+        self.start_chat(sidebar::Command::NewThread);
+    }
+
+    fn start_chat(
+        &self,
+        create: fn(sidebar::ProjectId) -> sidebar::Command,
+    ) {
+        let Some(project) = self.data.view().active_project() else {
+            tracing::info!("a new chat needs a project to be selected first");
+            return;
+        };
+        if let Err(error) = self.data.commands().dispatch(create(project)) {
             tracing::warn!(%error, "the new chat was refused");
         }
     }
@@ -132,8 +172,7 @@ impl ShellView {
         let Some(tab) = self.state.layout().active_tab().map(model::Tab::id) else {
             return;
         };
-        self.state.apply(vec![Command::CloseTab { tab }]);
-        self.refresh(cx);
+        self.apply_guarded(vec![Command::CloseTab { tab }], cx);
     }
 
     fn show_palette(

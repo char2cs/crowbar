@@ -10,6 +10,7 @@ use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radiu
 
 use crate::command::Command;
 use crate::expansion::Expansion;
+use crate::file_drop;
 use crate::file_kind::FileKind;
 use crate::file_menu::file_menu;
 use crate::file_search::highlight;
@@ -52,7 +53,6 @@ impl RenderOnce for FileTreeRow {
         let palette = Theme::of(cx).palette(Surface::Chrome);
         let entry = self.entry;
         let id = ElementId::from(SharedString::from(format!("file-{}", entry.path)));
-        let menu_id = SharedString::from(format!("file-menu-{}", entry.path));
         let action = RowAction::Intent(Intent::Send(command(&entry)));
         let letter = entry.status.letter().map(letter_badge);
         let menu = file_menu(&entry, &self.scope, &self.handler);
@@ -78,12 +78,20 @@ impl RenderOnce for FileTreeRow {
                     .counts
                     .map(|counts| counts_view(counts, (mono, self.look.compact_badges), palette)),
             )
+            .on_drop(file_drop::on_drop(
+                &self.handler,
+                file_drop::drop_directory(&entry),
+            ))
             .on_click(select_then(&self.handler, (entry.path.clone(), action)));
         if editing {
             return row.into_any_element();
         }
-        ContextMenu::new(menu_id, row, menu).into_any_element()
+        ContextMenu::new(menu_id(&entry), row, menu).into_any_element()
     }
+}
+
+fn menu_id(entry: &FileTreeEntry) -> SharedString {
+    SharedString::from(format!("file-menu-{}", entry.path))
 }
 
 fn frame(

@@ -1,7 +1,7 @@
 use gpui::{
-    App, AppContext as _, CursorStyle, ElementId, FontWeight, Hsla, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    App, AppContext as _, CursorStyle, ElementId, FontWeight, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
+    Window, div, px,
 };
 use model::DragSubject;
 use protocol::PaneId;
@@ -43,8 +43,6 @@ impl RenderOnce for StripTab {
         let palette = theme.palette(Surface::Window);
         let ink = self.state.ink(palette);
         let name = self.pane.as_str().to_owned();
-        let group = SharedString::from(format!("strip-tab-{name}"));
-        let (fill, rest) = (self.state.fill(palette), self.state.rest_opacity());
         let TabActions {
             select,
             close,
@@ -53,7 +51,7 @@ impl RenderOnce for StripTab {
         let ghost = self.label.clone();
         let subject = DragSubject::Pane(self.pane);
         let line = palette.primary();
-        frame(&name, &group, (fill, ink, palette))
+        frame(&name, self.state, palette)
             .font_family(theme.ui_family())
             .on_mouse_down(MouseButton::Left, move |_, window, cx| select(window, cx))
             .on_drag(subject, move |_, _, _, cx| {
@@ -71,19 +69,24 @@ impl RenderOnce for StripTab {
                     .text_ellipsis()
                     .child(self.label),
             )
-            .child(close_button((&name, &group), (rest, ink), close))
+            .child(close_button(&name, self.state, palette, close))
     }
+}
+
+fn group_of(name: &str) -> SharedString {
+    SharedString::from(format!("strip-tab-{name}"))
 }
 
 fn frame(
     name: &str,
-    group: &SharedString,
-    (fill, ink, palette): (Hsla, Hsla, &Palette),
+    state: TabState,
+    palette: &Palette,
 ) -> gpui::Stateful<gpui::Div> {
+    let (fill, ink) = (state.fill(palette), state.ink(palette));
     let (hover_fill, hover_ink) = (palette.sidebar_element_hover(), palette.foreground());
     div()
         .id(ElementId::from(SharedString::from(format!("strip-{name}"))))
-        .group(group.clone())
+        .group(group_of(name))
         .relative()
         .flex()
         .items_center()
@@ -103,10 +106,12 @@ fn frame(
 }
 
 fn close_button(
-    (name, group): (&str, &SharedString),
-    (rest, ink): (f32, Hsla),
+    name: &str,
+    state: TabState,
+    palette: &Palette,
     on_close: TabAction,
 ) -> impl IntoElement {
+    let (rest, ink) = (state.rest_opacity(), state.ink(palette));
     div()
         .id(ElementId::from(SharedString::from(format!(
             "strip-close-{name}"
@@ -120,7 +125,7 @@ fn close_button(
         .justify_center()
         .rounded(ui::radius::MD)
         .opacity(rest)
-        .group_hover(group.clone(), |button| button.opacity(CLOSE_OPACITY))
+        .group_hover(group_of(name), |button| button.opacity(CLOSE_OPACITY))
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             cx.stop_propagation();
             on_close(window, cx);

@@ -115,7 +115,6 @@ app/desktop/app/src/focus_neighbour.rs	bool-param	1
 app/desktop/app/src/focus_neighbour.rs	param-count	1
 app/desktop/app/src/focus_neighbour.rs	spec-ref	1
 app/desktop/app/src/host_builder.rs	real-infra	1
-app/desktop/app/src/hosts.rs	bool-param	1
 app/desktop/app/src/installed_fonts.rs	bool-param	1
 app/desktop/app/src/layout_store.rs	direct-fs	2
 app/desktop/app/src/layout_store.rs	direct-time	1
@@ -137,7 +136,6 @@ app/desktop/app/src/readout_net.rs	bool-param	1
 app/desktop/app/src/readout_state.rs	direct-time	1
 app/desktop/app/src/save_health.rs	result-string	1
 app/desktop/app/src/settings_modal.rs	bool-param	3
-app/desktop/app/src/settings_modal.rs	param-count	1
 app/desktop/app/src/shell_pane_source.rs	bool-param	2
 app/desktop/app/src/shell_pane_source.rs	fn-count	1
 app/desktop/app/src/shell_pane_source.rs	param-count	1
@@ -146,10 +144,9 @@ app/desktop/app/src/shell_state.rs	fn-count	1
 app/desktop/app/src/shell_state.rs	real-infra	4
 app/desktop/app/src/shell_state.rs	table-driven	1
 app/desktop/app/src/shell_view.rs	fn-count	1
-app/desktop/app/src/shell_view.rs	param-count	1
 app/desktop/app/src/shell_view/appearance_settings.rs	bool-param	1
 app/desktop/app/src/shell_view/browsing_data.rs	swallowed-error	1
-app/desktop/app/src/shell_view/children.rs	param-count	4
+app/desktop/app/src/shell_view/children.rs	param-count	3
 app/desktop/app/src/shell_view/children.rs	real-infra	2
 app/desktop/app/src/shell_view/closing.rs	bool-param	1
 app/desktop/app/src/shell_view/data_events.rs	direct-fs	1
@@ -163,7 +160,6 @@ app/desktop/app/src/shell_view/focus_follow.rs	bool-param	1
 app/desktop/app/src/shell_view/new_tab.rs	bool-param	1
 app/desktop/app/src/shell_view/notices.rs	bool-param	1
 app/desktop/app/src/shell_view/pane_commands.rs	fn-count	1
-app/desktop/app/src/shell_view/picking.rs	bool-param	1
 app/desktop/app/src/shell_view/pump.rs	bool-param	1
 app/desktop/app/src/shell_view/readout.rs	bool-param	1
 app/desktop/app/src/shell_view/readout.rs	direct-time	1
@@ -177,7 +173,6 @@ app/desktop/app/src/stack_policy.rs	bool-param	1
 app/desktop/app/src/startup_command.rs	real-infra	2
 app/desktop/app/src/tab_cap.rs	bool-param	3
 app/desktop/app/src/tab_cap.rs	named-return	1
-app/desktop/app/src/tab_looks.rs	param-count	1
 app/desktop/app/src/tab_scope.rs	bool-param	1
 app/desktop/app/src/terminal_ids.rs	bool-param	1
 app/desktop/app/src/terminal_panes.rs	bool-param	3
@@ -241,7 +236,7 @@ app/desktop/crates/layout_view/src/edge_contact.rs	bool-param	2
 app/desktop/crates/layout_view/src/layout_input.rs	fn-count	1
 app/desktop/crates/layout_view/src/layout_render.rs	bool-param	1
 app/desktop/crates/layout_view/src/layout_render.rs	fn-count	1
-app/desktop/crates/layout_view/src/pane_cell.rs	param-count	2
+app/desktop/crates/layout_view/src/pane_cell.rs	param-count	1
 app/desktop/crates/layout_view/src/pane_fades.rs	bool-param	1
 app/desktop/crates/layout_view/src/pane_handle.rs	param-count	1
 app/desktop/crates/layout_view/src/pane_source.rs	bool-param	2
@@ -249,9 +244,7 @@ app/desktop/crates/layout_view/src/pane_source.rs	trait-size	1
 app/desktop/crates/layout_view/src/rect_tween.rs	bool-param	1
 app/desktop/crates/layout_view/src/strip_input.rs	bool-param	2
 app/desktop/crates/layout_view/src/strip_input.rs	fn-count	1
-app/desktop/crates/layout_view/src/strip_tab.rs	param-count	2
 app/desktop/crates/layout_view/src/test_support/fixtures.rs	param-count	1
-app/desktop/crates/oobe_view/src/check_status.rs	bool-param	1
 app/desktop/crates/oobe_view/src/oobe_view.rs	bool-param	3
 app/desktop/crates/oobe_view/src/oobe_view.rs	fn-count	1
 app/desktop/crates/pairing_view/src/pairing_source.rs	trait-size	1
@@ -303,7 +296,7 @@ app/desktop/crates/settings_ui/src/list_view.rs	param-count	1
 app/desktop/crates/settings_ui/src/number_control.rs	bool-param	1
 app/desktop/crates/settings_ui/src/number_range.rs	bool-param	1
 app/desktop/crates/settings_ui/src/pressed.rs	bool-param	1
-app/desktop/crates/settings_ui/src/record_view.rs	bool-param	2
+app/desktop/crates/settings_ui/src/record_view.rs	bool-param	1
 app/desktop/crates/settings_ui/src/record_view.rs	param-count	3
 app/desktop/crates/settings_ui/src/settings_backend.rs	trait-size	1
 app/desktop/crates/settings_ui/src/settings_state.rs	bool-param	8
@@ -375,7 +368,6 @@ app/desktop/crates/shell_data/src/legacy_import.rs	real-infra	2
 app/desktop/crates/shell_data/src/legacy_locate.rs	direct-fs	1
 app/desktop/crates/shell_data/src/legacy_locate.rs	real-infra	3
 app/desktop/crates/shell_data/src/legacy_merge.rs	bool-param	1
-app/desktop/crates/shell_data/src/legacy_merge.rs	named-return	1
 app/desktop/crates/shell_data/src/legacy_sqlite.rs	named-return	1
 app/desktop/crates/shell_data/src/legacy_sqlite.rs	real-infra	1
 app/desktop/crates/shell_data/src/legacy_sqlite.rs	result-string	1

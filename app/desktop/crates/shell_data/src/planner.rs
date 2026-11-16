@@ -23,6 +23,7 @@ pub(crate) fn plan(
     let id = new_id::uuid();
     match command {
         Command::NewThread(_)
+        | Command::NewTerminalThread(_)
         | Command::Thread(_)
         | Command::TerminalThread(_)
         | Command::Fork { .. }
@@ -42,10 +43,15 @@ fn creation(
     id: &str,
 ) -> Result<Plan, String> {
     match command {
-        Command::NewThread(project) => plan_create::home_thread(state, project, id),
-        Command::Thread(row) => plan_create::thread(state, row.as_str(), (id, Surface::Default)),
+        Command::NewThread(project) => {
+            plan_create::home_thread(state, project, id, Surface::Default)
+        },
+        Command::NewTerminalThread(project) => {
+            plan_create::home_thread(state, project, id, Surface::Terminal)
+        },
+        Command::Thread(row) => plan_create::thread(state, row.as_str(), id, Surface::Default),
         Command::TerminalThread(row) => {
-            plan_create::thread(state, row.as_str(), (id, Surface::Terminal))
+            plan_create::thread(state, row.as_str(), id, Surface::Terminal)
         },
         Command::Fork { parent, name } => plan_create::fork(state, (parent.as_str(), name), id),
         Command::MakeBranch { row, name } => plan_create::make_branch(state, (row.as_str(), name)),

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::display_text::DisplayText;
 use crate::event_name::EventName;
 use crate::extension_id::ExtensionId;
 use crate::extension_status::ExtensionStatus;
@@ -9,9 +10,7 @@ use crate::lifecycle::Lifecycle;
 use crate::pane_id::PaneId;
 use crate::pane_state::PaneState;
 use crate::params::Params;
-use crate::request_id::RequestId;
 use crate::rpc_response::RpcResponse;
-use crate::setting_key::SettingKey;
 use crate::setting_values::SettingValues;
 use crate::space_id::SpaceId;
 use crate::theme_tokens::ThemeTokens;
@@ -35,7 +34,12 @@ pub enum ShellFrame {
         /// The pane's persisted state.
         state: PaneState,
     },
-    /// The answer to a `request`, `settings.get` or `composer.draft`.
+    /// `pane.save`: the user chose to save before the shell closes the pane. The pane saves and
+    /// reports [`PaneFrame::SetDirty`](crate::PaneFrame::SetDirty) `false`; a failed save leaves
+    /// it dirty and the pane stays open.
+    #[serde(rename = "pane.save")]
+    Save,
+    /// The answer to a `request`.
     Response(RpcResponse),
     /// `extension.event`: an event an extension backend emitted.
     #[serde(rename = "extension.event")]
@@ -59,15 +63,12 @@ pub enum ShellFrame {
         /// Active bindings.
         bindings: Vec<KeyBinding>,
     },
-    /// `settings.changed`: a followed setting has a new value.
-    #[serde(rename = "settings.changed")]
-    SettingChanged {
-        /// The `settings.subscribe` this answers.
-        id: RequestId,
-        /// The setting that changed.
-        key: SettingKey,
-        /// Its new value.
-        value: Value,
+    /// `protocol.error`: the shell refused one frame and kept the pane. The pane learns why
+    /// instead of waiting for an answer that will not come.
+    #[serde(rename = "protocol.error")]
+    ProtocolError {
+        /// What was wrong with the frame.
+        message: DisplayText,
     },
     /// `theme`: the design tokens to style with; sent on mount and whenever the theme changes.
     Theme {

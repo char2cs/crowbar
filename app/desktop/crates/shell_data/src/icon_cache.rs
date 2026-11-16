@@ -3,6 +3,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+const MAX_NAME_PART: usize = 64;
+
+fn is_file_safe(part: &str) -> bool {
+    (1..=MAX_NAME_PART).contains(&part.len())
+        && part
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct IconCache {
     dir: PathBuf,
@@ -33,9 +42,10 @@ impl IconCache {
         &self,
         project: &str,
         url: &str,
-    ) -> PathBuf {
+    ) -> Option<PathBuf> {
         let version = url.rsplit_once("?v=").map_or("0", |(_, version)| version);
-        self.dir.join(format!("{project}-{version}"))
+        (is_file_safe(project) && is_file_safe(version))
+            .then(|| self.dir.join(format!("{project}-{version}")))
     }
 
     pub(crate) fn begin(
@@ -43,9 +53,10 @@ impl IconCache {
         project: &str,
         url: &str,
     ) -> Option<PathBuf> {
+        let path = self.path_of(project, url)?;
         let fresh = self.file_for(project, url).is_none()
             && self.asked.insert((project.to_owned(), url.to_owned()));
-        fresh.then(|| self.path_of(project, url))
+        fresh.then_some(path)
     }
 
     pub(crate) fn finish(
@@ -73,7 +84,7 @@ mod tests {
         assert_eq!(cache.begin("p", url), None, "already in flight");
         cache.finish("p", url, None);
         assert!(cache.begin("p", url).is_some(), "a failure may be retried");
-        let path = cache.path_of("p", url);
+        let path = cache.path_of("p", url).unwrap();
         assert_eq!(path, PathBuf::from("/c/p-3"));
         cache.finish("p", url, Some(path.clone()));
         assert_eq!(cache.file_for("p", url), Some(path.as_path()));
@@ -83,5 +94,31 @@ mod tests {
             "a new version"
         );
         assert_eq!(cache.file_for("p", "/v0/projects/p/icon?v=4"), None);
+    }
+
+    #[test]
+    fn a_daemon_text_that_could_leave_the_directory_is_never_turned_into_a_path() {
+        let mut cache = IconCache::in_dir(PathBuf::from("/c"));
+        let hostile = [
+            ("p", "/v0/projects/p/icon?v=../../../.ssh/authorized_keys"),
+            ("p", "/v0/projects/p/icon?v=a/b"),
+            ("p", "/v0/projects/p/icon?v=..%2fx"),
+            ("p", "/v0/projects/p/icon?v="),
+            ("p", "/v0/projects/p/icon?v=a\\b"),
+            ("../x", "/v0/projects/p/icon?v=1"),
+            ("a/b", "/v0/projects/p/icon?v=1"),
+            ("", "/v0/projects/p/icon?v=1"),
+            ("/etc/passwd", "/v0/projects/p/icon?v=1"),
+        ];
+        for (project, url) in hostile {
+            assert_eq!(cache.begin(project, url), None, "{project} {url}");
+        }
+        let long = "a".repeat(MAX_NAME_PART + 1);
+        assert_eq!(cache.begin(&long, "/i?v=1"), None, "too long");
+        assert_eq!(
+            cache.begin("p", &format!("/i?v={long}")),
+            None,
+            "version too long"
+        );
     }
 }

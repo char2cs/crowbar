@@ -9,7 +9,11 @@ mod chat_label;
 mod chat_route;
 mod chat_terminals;
 mod chrome;
+mod close_choice;
+mod close_guard;
+mod close_step;
 mod closed_panes;
+mod closing;
 mod core_panes;
 mod core_type;
 mod daemon_link;
@@ -17,6 +21,8 @@ mod daemon_notice;
 mod data_signal;
 mod diagnostics_export;
 mod direction;
+mod dirty_panes;
+mod dropped_files;
 mod env_change;
 mod error;
 mod event_commands;
@@ -30,11 +36,14 @@ mod frame_stats;
 mod frozen_layer;
 mod holes;
 mod host_builder;
+mod hosts;
 mod hover_tracker;
 mod installed_fonts;
+mod landing;
 mod launched;
 mod layout_store;
 mod layout_writer;
+mod legacy_settings;
 mod link_state;
 mod loaded_layout;
 mod new_tab_action;
@@ -49,11 +58,14 @@ mod pane_opener;
 mod pane_settings;
 mod pane_spec;
 mod pane_theme;
+mod pending_close;
 mod pending_file;
 mod pending_layout;
 mod phase_input;
+mod picking_panes;
 mod pixels;
 mod plan;
+mod project_slot;
 mod prompt_event;
 mod readout_dock;
 mod readout_lines;
@@ -64,6 +76,8 @@ mod readout_view;
 mod reconnect_count;
 mod request_queue;
 mod reveal_target;
+mod save_health;
+mod save_report;
 mod search_engine_setting;
 mod serials;
 mod settings_modal;
@@ -79,6 +93,7 @@ mod stack_policy;
 mod startup_action;
 mod startup_command;
 mod startup_requests;
+mod tab_cap;
 mod tab_looks;
 mod tab_scope;
 mod terminal_ids;
@@ -89,15 +104,18 @@ mod terminal_preferences;
 mod test_support;
 mod titles;
 mod transport_book;
+mod unsaved_dialog;
 mod window_memory;
+mod window_title;
 mod window_vibrancy;
 mod workspace;
 mod workspace_event;
 mod x11_session;
 
+use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::{App, AppContext as _, Application};
+use gpui::{App, AppContext as _, Application, Entity, Window};
 use shell_diagnostics::LogPaths;
 
 use crate::app_options::AppOptions;
@@ -118,6 +136,20 @@ fn quit_after(
     cx.quit();
 }
 
+fn remember_close(
+    memory: &WindowMemory,
+    window: &Window,
+    cx: &App,
+    view: &Entity<ShellView>,
+) {
+    let guard = view.downgrade();
+    memory.remember_on_close(window, cx, move |_, cx| {
+        guard
+            .update(cx, ShellView::allow_window_close)
+            .unwrap_or(true)
+    });
+}
+
 fn start(
     cx: &mut App,
     (options, parts): (&AppOptions, ShellParts),
@@ -130,8 +162,9 @@ fn start(
     let memory = WindowMemory::new(&options.state_dir().join("window.json"));
     let window_options = memory.options(cx);
     let opened = cx.open_window(window_options, |window, cx| {
-        memory.remember_on_close(window, cx);
-        cx.new(|cx| ShellView::new(parts, window, cx))
+        let view = cx.new(|cx| ShellView::new(parts, window, cx));
+        remember_close(&memory, window, cx, &view);
+        view
     });
     if let Err(error) = opened {
         return quit_after(cx, &error, "could not open the window");
@@ -146,6 +179,7 @@ fn main() -> anyhow::Result<()> {
         &LogPaths::in_data_dir(&options.state_dir()),
         env!("CARGO_PKG_VERSION"),
     )?;
+    legacy_settings::import_old_settings(std::env::var_os("HOME").map(PathBuf::from), &options);
     let link = Rc::new(DaemonLink::start(&options)?);
     let host = build_host(&options, link.transport())?;
     let store = LayoutStore::new(options.state_dir().join("layout.json"));

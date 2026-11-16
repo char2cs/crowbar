@@ -8,7 +8,7 @@ use shell_data::{Overwrite, TemplateOutcome};
 use sidebar::Command;
 use ui::ToastKind;
 
-use super::{ShellView, warn_unserved};
+use super::ShellView;
 use crate::file_prompt::FilePrompt;
 use crate::file_reply::{self, Reply};
 use crate::focused_chat::focused_chat;
@@ -17,6 +17,13 @@ use crate::open_all::{self, OpenAll};
 use crate::pane_spec::PaneSpec;
 use crate::pending_file::PendingFile;
 use crate::prompt_event::PromptEvent;
+
+fn warn_unserved(command: &Command) {
+    tracing::warn!(
+        ?command,
+        "the sidebar command needs daemon data the shell does not read yet"
+    );
+}
 
 impl ShellView {
     pub(super) fn perform_file_action(
@@ -29,6 +36,9 @@ impl ShellView {
             Command::OpenAllFiles { path } => self.list_to_open(path, window, cx),
             Command::OpenTerminalAt { path } => self.open_terminal_at(path, cx),
             Command::UploadFile { path } => Self::pick_uploads(path, window, cx),
+            Command::UploadPaths { path, files } => {
+                self.upload((path, files.clone()), (window, cx));
+            },
             Command::AddFolderToWorkspace => self.choose_repo_folder(window, cx),
             Command::CreateEnvTemplate { path, target } => {
                 self.make_env_template((path, target), Overwrite::Ask, (window, cx));

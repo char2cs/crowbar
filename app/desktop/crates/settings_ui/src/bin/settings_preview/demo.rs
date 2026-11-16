@@ -31,12 +31,15 @@ fn snapshot() -> Snapshot {
         )
 }
 
+const SPARK: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"#d97757\"/></svg>";
+
 fn agents() -> Records {
     let claude = Record::new("claude", "Claude Code")
-        .icon("terminal-window")
+        .artwork(SPARK)
         .status(Tone::Success)
         .line(Line::plain("Signed in"))
         .line(Line::plain("/usr/bin/claude").mono())
+        .flag(RecordFlag::new("connected", "Installed").on().as_dot())
         .flag(RecordFlag::new("enabled", "Enabled").on())
         .flag(RecordFlag::new("tools", "Tools").on())
         .movable();
@@ -44,6 +47,7 @@ fn agents() -> Records {
         .icon("terminal-window")
         .status(Tone::Warning)
         .line(Line::plain("Not signed in").toned(Tone::Warning))
+        .flag(RecordFlag::new("connected", "Installed").as_dot())
         .flag(RecordFlag::new("enabled", "Enabled").on())
         .flag(RecordFlag::new("tools", "Tools"))
         .movable();

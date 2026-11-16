@@ -62,6 +62,7 @@ mod response;
 mod session;
 mod shell_transport;
 mod socket_locator;
+mod socket_trust;
 mod stream_access;
 mod tls_config;
 mod token_book;

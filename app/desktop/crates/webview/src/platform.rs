@@ -92,6 +92,23 @@ pub trait Platform {
         Ok(None)
     }
 
+    /// The pixels of several views at once. A backend that has to ask each view for its pixels
+    /// asks them together and waits once, so a slow view costs one deadline, not one each.
+    /// The answers are in the order of `ids`.
+    fn snapshot_all(
+        &self,
+        ids: &[WebViewId],
+    ) -> Vec<Result<Option<Snapshot>>> {
+        ids.iter().map(|id| self.snapshot(*id)).collect()
+    }
+
+    /// Deletes cookies, cache and site storage of the browser views' own store. Core and
+    /// extension views keep theirs.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped or the engine refuses.
+    fn clear_browsing_data(&self) -> Result<()>;
+
     /// Destroys a web view and frees its resources.
     ///
     /// # Errors

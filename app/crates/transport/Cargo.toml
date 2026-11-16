@@ -24,6 +24,7 @@ hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 keyring = { version = "3", optional = true, default-features = false, features = ["apple-native", "linux-native-sync-persistent", "crypto-rust"] }
 rustls = "0.23"
+rustix = { version = "1", default-features = false, features = ["process"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"

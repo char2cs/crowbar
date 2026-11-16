@@ -24,7 +24,8 @@ impl DropTarget {
     pub fn resolve(
         subject: &DragSubject,
         point: (f32, f32),
-        (slots, joinable): (&[PaneSlot], &[PaneId]),
+        slots: &[PaneSlot],
+        joinable: &[PaneId],
     ) -> Option<Self> {
         let slot = slots.iter().find(|slot| contains(slot.rect, point))?;
         if own_pane(subject, &slot.pane) || matches!(subject, DragSubject::Tab(_)) {
@@ -196,7 +197,7 @@ mod tests {
         let layout = two_panes();
         let slots = layout.active_tab().expect("tab").layout(CONTENT);
         let subject = DragSubject::Open(chat("c"));
-        let target = DropTarget::resolve(&subject, (410.0, 200.0), (&slots, &[])).expect("target");
+        let target = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]).expect("target");
         assert_eq!(
             target,
             DropTarget {
@@ -214,7 +215,7 @@ mod tests {
         let slots = layout.active_tab().expect("tab").layout(CONTENT);
         let subject = DragSubject::Pane(pane_id("a"));
         assert_eq!(
-            DropTarget::resolve(&subject, (100.0, 200.0), (&slots, &[])),
+            DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]),
             None,
             "self drop"
         );
@@ -226,7 +227,7 @@ mod tests {
         let slots = layout.active_tab().expect("tab").layout(CONTENT);
         let subject = DragSubject::Tab(TabId(1));
         assert_eq!(
-            DropTarget::resolve(&subject, (100.0, 200.0), (&slots, &[])),
+            DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]),
             None,
             "tab drag"
         );
@@ -237,7 +238,7 @@ mod tests {
         let layout = two_panes();
         let slots = layout.active_tab().expect("tab").layout(CONTENT);
         let subject = DragSubject::Chat("t1".into());
-        let target = DropTarget::resolve(&subject, (600.0, 200.0), (&slots, &[])).expect("target");
+        let target = DropTarget::resolve(&subject, (600.0, 200.0), &slots, &[]).expect("target");
         assert_eq!(
             target,
             DropTarget {
@@ -255,7 +256,7 @@ mod tests {
         let slots = layout.active_tab().expect("tab").layout(CONTENT);
         let subject = DragSubject::Open(chat("c"));
         assert_eq!(
-            DropTarget::resolve(&subject, (403.0, 200.0), (&slots, &[])),
+            DropTarget::resolve(&subject, (403.0, 200.0), &slots, &[]),
             None,
             "sash gap"
         );
@@ -434,7 +435,7 @@ mod tests {
         let tab = layout.active_tab().expect("tab");
         let subject = DragSubject::Pane(pane_id("c"));
         let slots = DropTarget::slots_for(&subject, tab, CONTENT);
-        let target = DropTarget::resolve(&subject, (410.0, 200.0), (&slots, &[])).expect("target");
+        let target = DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[]).expect("target");
         assert_eq!(
             (target.pane.clone(), target.edge),
             (pane_id("b"), Edge::Left),
@@ -454,7 +455,7 @@ mod tests {
         let subject = DragSubject::Pane(pane_id("a"));
         let slots = DropTarget::slots_for(&subject, tab, CONTENT);
         assert_eq!(
-            DropTarget::resolve(&subject, (100.0, 200.0), (&slots, &[])),
+            DropTarget::resolve(&subject, (100.0, 200.0), &slots, &[]),
             None,
             "own lone group"
         );
@@ -466,8 +467,8 @@ mod tests {
         let tab = layout.active_tab().expect("tab");
         let subject = DragSubject::Pane(pane_id("a"));
         let slots = tab.layout(CONTENT);
-        let target = DropTarget::resolve(&subject, (600.0, 200.0), (&slots, &[pane_id("c")]))
-            .expect("target");
+        let target =
+            DropTarget::resolve(&subject, (600.0, 200.0), &slots, &[pane_id("c")]).expect("target");
         assert!(target.joins, "joins");
         let command = target.command(&subject, tab).expect("command");
         assert_eq!(
@@ -494,8 +495,8 @@ mod tests {
         let tab = layout.active_tab().expect("tab");
         let subject = DragSubject::Pane(pane_id("a"));
         let slots = tab.layout(CONTENT);
-        let target = DropTarget::resolve(&subject, (410.0, 200.0), (&slots, &[pane_id("c")]))
-            .expect("target");
+        let target =
+            DropTarget::resolve(&subject, (410.0, 200.0), &slots, &[pane_id("c")]).expect("target");
         assert!(!target.joins, "edge");
         assert!(
             matches!(

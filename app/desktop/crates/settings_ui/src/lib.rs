@@ -27,6 +27,7 @@ mod control;
 mod control_view;
 mod control_width;
 mod document;
+mod drag_record;
 mod effect;
 mod element_id;
 mod empty_view;
@@ -36,6 +37,7 @@ mod fake_state;
 mod field_control;
 mod field_input;
 mod fields;
+mod flag_look;
 mod frame;
 mod header;
 mod heading;
@@ -75,6 +77,7 @@ mod record_action;
 mod record_backend;
 mod record_command;
 mod record_flag;
+mod record_marks;
 mod record_view;
 mod records;
 mod refusal;
@@ -111,8 +114,8 @@ pub use block::Block;
 pub use button_spec::ButtonSpec;
 pub use capture::Capture;
 pub use catalog::{
-    AGENT_RECORDS, DESCRIPTOR_RECORDS, HOST_RECORDS, KEYBINDING_OVERRIDES, SESSION_RECORDS,
-    default_schema,
+    AGENT_RECORDS, DESCRIPTOR_RECORDS, HOST_RECORDS, KEYBINDING_OVERRIDES, KEYBINDING_PRESET,
+    SESSION_RECORDS, default_schema, preset_overrides,
 };
 pub use change::Change;
 pub use choice::Choice;

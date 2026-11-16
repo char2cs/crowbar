@@ -8,7 +8,7 @@ use ui::ToastKind;
 use super::ShellView;
 use crate::core_panes::{chat_params, chat_type};
 use crate::notice_key::NoticeKey;
-use crate::settings_modal::open_settings;
+use crate::settings_modal::{open_settings, settings_config};
 
 type Picked<E, C> = Result<Result<Option<Vec<PathBuf>>, E>, C>;
 
@@ -39,6 +39,7 @@ impl ShellView {
             backend.deliver_pending();
         }
         self.sidebar.update(cx, |_, cx| cx.notify());
+        self.update_landing(cx);
         if self.narrows_tabs() {
             self.push_tabs(cx);
         }
@@ -66,6 +67,7 @@ impl ShellView {
             DataOutcome::OpenChat(chat) => self.open_chat(&chat, cx),
             DataOutcome::PickDescriptor => Self::pick_descriptor(cx),
             DataOutcome::PairHost => self.show_pairing(window, cx),
+            DataOutcome::ClearBrowsingData => self.clear_browsing_data(cx),
             DataOutcome::CopyText(text) => {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
             },
@@ -138,10 +140,20 @@ impl ShellView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        self.show_settings_page(None, window, cx);
+    }
+
+    pub(super) fn show_settings_page(
+        &mut self,
+        page: Option<settings_ui::PageId>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(backend) = self.settings_backend() else {
             return;
         };
-        let opened = open_settings(self.requests.clone(), &backend, window, cx);
+        let opened = settings_config(self.requests.clone(), &backend, page)
+            .map(|config| open_settings(config, window, cx));
         self.settings = opened
             .inspect_err(|error| tracing::error!(%error, "could not open settings"))
             .ok();

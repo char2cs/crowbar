@@ -1,4 +1,4 @@
-use gpui::{AppContext as _, Context, Entity};
+use gpui::{AppContext as _, Context, Entity, Window};
 use sidebar::{Sidebar, Visibility};
 use startup_view::StartupInput;
 use ui::{ToastContent, ToastKind, ToastLifetime, ToastQueue};
@@ -7,6 +7,7 @@ use super::ShellView;
 use crate::daemon_notice::{DaemonNotice, daemon_notice};
 use crate::notice_key::NoticeKey;
 use crate::notices::floating_at;
+use crate::save_report::SaveReport;
 
 pub(super) fn build_notices(
     sidebar: &Entity<Sidebar>,
@@ -38,6 +39,21 @@ impl ShellView {
             return;
         };
         self.show_notice(NoticeKey::Layout, (ToastKind::Warning, text), cx);
+    }
+
+    pub(super) fn on_save_report(
+        &mut self,
+        report: SaveReport,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match report {
+            SaveReport::Failed(reason) => {
+                let text = format!("Your layout could not be saved: {reason}");
+                self.show_notice(NoticeKey::Storage, (ToastKind::Error, text), cx);
+            },
+            SaveReport::Recovered => self.clear_notice(NoticeKey::Storage, cx),
+        }
     }
 
     pub(super) fn show_notice(

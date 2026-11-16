@@ -6,6 +6,7 @@ use gpui::{AnyElement, Context, InteractiveElement, IntoElement, ParentElement, 
 use ui::{ContextMenu, ScrollArea};
 
 use crate::expansion::Expansion;
+use crate::file_drop;
 use crate::file_kind::FileKind;
 use crate::file_menu::file_menu;
 use crate::file_tree_entry::FileTreeEntry;
@@ -105,6 +106,7 @@ impl Sidebar {
             .size_full()
             .track_focus(&self.files_focus)
             .on_key_down(cx.listener(Self::files_key))
+            .on_drop(file_drop::on_drop(&Self::row_handler(cx), String::new()))
             .children(self.file_search_box(cx))
             .child(div().flex_1().min_h_0().child(body))
             .into_any_element()

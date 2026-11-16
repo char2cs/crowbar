@@ -12,7 +12,9 @@ mod command_table;
 mod keymap;
 mod keystroke;
 mod shell_command;
+mod shell_keys;
 
 pub use keymap::Keymap;
 pub use keystroke::Keystroke;
 pub use shell_command::ShellCommand;
+pub use shell_keys::{project_slot_of_command, project_slot_of_stroke};

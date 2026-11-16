@@ -93,28 +93,23 @@ impl PaneHost {
             },
             PaneFrame::SetTitle { title } => HostEvent::TitleChanged { pane, title },
             PaneFrame::SetState { state } => HostEvent::StateChanged { pane, state },
+            PaneFrame::SetDirty { dirty } => HostEvent::DirtyChanged { pane, dirty },
             PaneFrame::Open { type_id, params } => HostEvent::OpenRequested {
                 from: pane,
                 type_id,
                 params,
             },
-            PaneFrame::Request { id, method, params } => HostEvent::RequestMade {
-                pane,
-                id,
-                method,
-                params,
+            PaneFrame::Request { id, method, .. } => {
+                return self.refuse_request(&pane, id, &method);
             },
-            PaneFrame::Subscribe { id, event } => HostEvent::Subscribed { pane, id, event },
-            PaneFrame::Unsubscribe { id } => HostEvent::Unsubscribed { pane, id },
+            PaneFrame::Subscribe { event, .. } => {
+                return self.refuse(&pane, format!("no extension serves the event {event}"));
+            },
+            PaneFrame::Unsubscribe { .. } => return Ok(Vec::new()),
             frame @ PaneFrame::SettingsSet { .. } => return Ok(setting_event(pane, frame)),
             PaneFrame::RunCommand { command } => HostEvent::CommandRequested { pane, command },
-            frame @ (PaneFrame::SettingsGet { .. }
-            | PaneFrame::SettingsSubscribe { .. }
-            | PaneFrame::ComposerAttach { .. }
-            | PaneFrame::ComposerDraft { .. }
-            | PaneFrame::AttachmentOpen { .. }
-            | PaneFrame::OpenExternal { .. }
-            | PaneFrame::Reveal { .. }) => HostEvent::ShellCall { pane, frame },
+            PaneFrame::OpenExternal { url } => HostEvent::OpenExternal { url },
+            PaneFrame::Reveal { path } => HostEvent::Reveal { path },
         };
         Ok(vec![event])
     }
@@ -268,6 +263,25 @@ mod tests {
                     state,
                 },
             ),
+        ]
+        .into_iter()
+        .chain(control_cases(pane, command))
+        .collect()
+    }
+
+    fn control_cases(
+        pane: PaneId,
+        command: CommandId,
+    ) -> Vec<Case> {
+        vec![
+            (
+                "a dirty frame",
+                PaneFrame::SetDirty { dirty: true },
+                HostEvent::DirtyChanged {
+                    pane: pane.clone(),
+                    dirty: true,
+                },
+            ),
             (
                 "a command frame",
                 PaneFrame::RunCommand {
@@ -289,22 +303,10 @@ mod tests {
     }
 
     #[test]
-    fn malformed_and_stale_messages_are_contained() {
+    fn stale_messages_from_a_pane_without_a_web_view_are_ignored() {
         let mut f = fixture();
         let panes = [instance("p1", "core.chat"), instance("p2", "core.chat")];
         f.sync(&panes, &["p1"], Some("p1"));
-        let junk = IpcMessage {
-            pane: PaneId::new("p1").unwrap(),
-            text: "not json".into(),
-        };
-        assert!(f.ipc(junk).is_empty(), "no events");
-        assert!(
-            matches!(
-                f.host.display(&PaneId::new("p1").unwrap()),
-                PaneDisplay::Error { .. }
-            ),
-            "p1 fails"
-        );
         let stale = IpcMessage {
             pane: PaneId::new("p2").unwrap(),
             text: "{}".into(),

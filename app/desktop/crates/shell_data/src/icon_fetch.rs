@@ -1,12 +1,14 @@
 //! Bringing the daemon's space images to disk when a project says it has one.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::call::Call;
 use crate::daemon_client::DaemonClient;
 use crate::hub::Hub;
 use crate::state::State;
+
+const MAX_ICON_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) fn wanted(
     hub: &Hub,
@@ -81,12 +83,28 @@ async fn save(
         .await
         .inspect_err(|error| tracing::warn!(%error, url, "a space image could not be fetched"))
         .ok()?;
+    if bytes.len() > MAX_ICON_BYTES {
+        tracing::warn!(url, "a space image is larger than allowed");
+        return None;
+    }
+    tokio::task::spawn_blocking(move || write_atomically(&path, &bytes))
+        .await
+        .inspect_err(|error| tracing::warn!(%error, "keeping a space image failed"))
+        .ok()?
+}
+
+fn write_atomically(
+    path: &Path,
+    bytes: &[u8],
+) -> Option<PathBuf> {
     let parent = path.parent()?;
+    let staging = path.with_extension("part");
     std::fs::create_dir_all(parent)
-        .and_then(|()| std::fs::write(&path, bytes))
+        .and_then(|()| std::fs::write(&staging, bytes))
+        .and_then(|()| std::fs::rename(&staging, path))
         .inspect_err(|error| tracing::warn!(%error, ?path, "a space image could not be kept"))
         .ok()?;
-    Some(path)
+    Some(path.to_owned())
 }
 
 #[cfg(test)]
@@ -128,5 +146,34 @@ mod tests {
         assert!(wanted(&hub, "local").is_empty(), "held");
         let held = hub.read(|state| state.icons.file_for("p", URL).map(ToOwned::to_owned));
         assert_eq!(held, Some(path));
+    }
+
+    #[tokio::test]
+    async fn a_hostile_version_in_the_avatar_url_asks_for_nothing_and_writes_nothing() {
+        let (mut state, _daemon) = state();
+        let dir = tempfile::tempdir().unwrap();
+        let icons = dir.path().join("icons");
+        state.icons = IconCache::in_dir(icons.clone());
+        state.apply(
+            "local",
+            decode(
+                r#"{"t":"entity","scope":"projects","kind":"project","id":"p","v":9,"data":{"id":"p","name":"A","avatarUrl":"/v0/projects/p/icon?v=../../escaped"}}"#,
+            )
+            .unwrap(),
+        );
+        let hub = hub_of(state);
+        assert_eq!(wanted(&hub, "local").len(), 0, "no icon is requested");
+        assert!(!dir.path().join("escaped").exists());
+    }
+
+    #[tokio::test]
+    async fn an_image_over_the_cap_is_not_kept() {
+        let (mut state, daemon) = state();
+        let dir = tempfile::tempdir().unwrap();
+        state.icons = IconCache::in_dir(dir.path().to_owned());
+        daemon.answer(("GET", URL), 200, &"x".repeat(MAX_ICON_BYTES + 1));
+        let client = state.hosts[0].client.clone();
+        assert_eq!(save(&client, URL, dir.path().join("p-2")).await, None);
+        assert!(!dir.path().join("p-2").exists());
     }
 }

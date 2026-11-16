@@ -6,7 +6,13 @@ import type { PaneParams } from './pane-params'
 import type { SettingValues } from './setting-values'
 import type { ShellFrame } from './shell-frame'
 import type { ThemeTokens } from './theme-tokens'
-import { MAX_STATE_BYTES, SDK_MAJOR, SDK_VERSION, SETTINGS_FRAME_VERSION } from './sdk-limits'
+import {
+  MAX_STATE_BYTES,
+  REQUEST_TIMEOUT_MS,
+  SDK_MAJOR,
+  SDK_VERSION,
+  SETTINGS_FRAME_VERSION,
+} from './sdk-limits'
 import { PaneRequestError } from './pane-request-error'
 
 type Listener<T> = (value: T) => void
@@ -29,9 +35,9 @@ export class PaneClient {
   private readonly pending = new Map<number, Pending>()
   private readonly lifecycle = new Set<Listener<LifecycleMessage>>()
   private readonly themes = new Set<Listener<ThemeTokens>>()
+  private readonly saves = new Set<() => void>()
   private readonly shellSettings = new Set<Listener<SettingValues>>()
   private readonly events = new Map<string, EventSubscription>()
-  private readonly settings = new Map<number, Listener<unknown>>()
 
   constructor(
     private readonly channel: PaneChannel,
@@ -60,6 +66,16 @@ export class PaneClient {
     return this.listen(this.shellSettings, listener)
   }
 
+  /** Hears the shell's request to save before it closes the pane; returns the stop. */
+  onSave(listener: () => void): () => void {
+    return this.listen(this.saves, listener)
+  }
+
+  /** Tells the shell whether the pane holds work that closing would lose. */
+  setDirty(dirty: boolean): void {
+    this.send({ kind: 'pane.setDirty', dirty })
+  }
+
   /** Sets the pane's tab title, cutting it to the shell's limit. */
   setTitle(title: string): void {
     this.send({ kind: 'pane.setTitle', title: fitTitle(title) })
@@ -84,14 +100,9 @@ export class PaneClient {
     this.send({ kind: 'command.run', command })
   }
 
-  /** Calls a method of the pane's own backend; rejects with a PaneRequestError on failure. */
+  /** Calls a method of the pane's own backend; rejects with a PaneRequestError on failure or when no answer comes in time. */
   request(method: string, params: unknown = null): Promise<unknown> {
     return this.call((id) => ({ kind: 'request', id, method, params }))
-  }
-
-  /** Reads one setting. */
-  getSetting(key: string): Promise<unknown> {
-    return this.call((id) => ({ kind: 'settings.get', id, key }))
   }
 
   /** Asks the shell to store a setting it owns; the new value arrives with the shell's next `settings` frame. */
@@ -106,17 +117,6 @@ export class PaneClient {
     return () => this.release(event, held, listener)
   }
 
-  /** Follows one setting, delivering its new value on each change; returns the stop. */
-  subscribeSetting(key: string, listener: Listener<unknown>): () => void {
-    const id = this.nextId++
-    this.settings.set(id, listener)
-    this.send({ kind: 'settings.subscribe', id, key })
-    return () => {
-      this.settings.delete(id)
-      this.send({ kind: 'unsubscribe', id })
-    }
-  }
-
   private send(frame: PaneFrame): void {
     this.channel.post(JSON.stringify({ sdk: SDK_MAJOR, ...frame }))
   }
@@ -124,7 +124,22 @@ export class PaneClient {
   private call(frame: (id: number) => PaneFrame): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++
-      this.pending.set(id, { resolve, reject })
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(
+          new PaneRequestError({ code: 'Timeout', message: 'the shell did not answer in time' }),
+        )
+      }, REQUEST_TIMEOUT_MS)
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        reject: (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      })
       this.send(frame(id))
     })
   }
@@ -166,7 +181,9 @@ export class PaneClient {
     if (frame.kind === 'extension.event') {
       this.events.get(frame.name)?.listeners.forEach((listener) => listener(frame.payload))
     }
-    if (frame.kind === 'settings.changed') this.settings.get(frame.id)?.(frame.value)
+    if (frame.kind === 'protocol.error')
+      console.error('crowbar: the shell refused a frame', frame.message)
+    if (frame.kind === 'pane.save') this.saves.forEach((listener) => listener())
     if (frame.kind === 'theme') this.themes.forEach((listener) => listener(frame.tokens))
     if (frame.kind === 'settings' && frame.version === SETTINGS_FRAME_VERSION) {
       this.shellSettings.forEach((listener) => listener(frame.values))

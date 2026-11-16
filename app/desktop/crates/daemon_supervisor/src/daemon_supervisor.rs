@@ -19,6 +19,7 @@ use crate::reply::reply;
 use crate::running::Running;
 use crate::socket_dial::SocketDial;
 use crate::spawn_daemon::spawn_daemon;
+use crate::stale_daemon::refuse;
 use crate::startup::Startup;
 use crate::stop::{send, stop_with};
 use crate::supervision::Supervision;
@@ -183,13 +184,12 @@ fn halt(
 
 async fn become_ready(
     supervision: &mut Supervision,
-    child: tokio::process::Child,
+    mut child: tokio::process::Child,
     pid: Option<u32>,
     commands: &mut Commands,
 ) -> Phase {
-    if let Some(warning) = pid_mismatch(pid, child.id()) {
-        tracing::warn!("{warning}");
-        supervision.note("===", &warning);
+    if let Some(reason) = pid_mismatch(pid, child.id()) {
+        return refuse(supervision, &mut child, reason).await;
     }
     supervision.bus.emit(DaemonEvent::Ready { pid });
     let (wedged, watchdog) = start_watchdog(supervision, child.id());

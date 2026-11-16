@@ -20,11 +20,15 @@ use ui::{Surface, Theme, ToastKind, ToastQueue};
 
 mod appearance_settings;
 mod browsing;
+mod browsing_data;
 mod built;
 mod children;
+mod closing;
 mod data_events;
+mod evictions;
 mod file_actions;
 mod file_tree_flag;
+mod first_run;
 mod focus_follow;
 mod keymap_settings;
 mod new_tab;
@@ -32,6 +36,8 @@ mod notices;
 mod outcomes;
 mod pane_commands;
 mod pane_settings_watch;
+mod pick_effect;
+mod picking;
 mod pump;
 mod readout;
 mod remote_folder;
@@ -69,6 +75,10 @@ pub(crate) struct ShellView {
     remote_folders: Option<Entity<remote_folder_picker::RemoteFolderPicker>>,
     file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
     pairing: Option<Entity<pairing_view::PairingView>>,
+    first_run: Option<(crate::landing::Landing, Entity<oobe_view::OobeView>)>,
+    window_title: String,
+    unsaved: Option<Entity<crate::unsaved_dialog::UnsavedDialog>>,
+    pending_close: Option<crate::pending_close::PendingClose>,
     source: Rc<ShellPaneSource>,
     focus: FocusHandle,
     keymap: Keymap,
@@ -90,29 +100,29 @@ pub(crate) struct ShellView {
     subscriptions: Vec<Subscription>,
 }
 
-fn warn_unserved(command: &sidebar::Command) {
-    tracing::warn!(
-        ?command,
-        "the sidebar command needs daemon data the shell does not read yet"
-    );
-}
-
 impl ShellView {
     pub(crate) fn new(
-        ShellParts {
-            state,
-            link,
-            preferences_path,
-        }: ShellParts,
+        parts: ShellParts,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let (requests, queue) = overlay_channel(cx);
-        let built = build_children((&state, &link, &preferences_path), &requests, window, cx);
-        let mut view = Self {
-            state,
-            link,
-            preferences_path,
+        let built = build_children(&parts, &requests, window, cx);
+        let mut view = Self::assemble(parts, built, requests, cx.focus_handle());
+        view.begin(queue, window, cx);
+        view
+    }
+
+    fn assemble(
+        parts: ShellParts,
+        built: built::Built,
+        requests: async_channel::Sender<ShellRequest>,
+        focus: FocusHandle,
+    ) -> Self {
+        Self {
+            state: parts.state,
+            link: parts.link,
+            preferences_path: parts.preferences_path,
             sidebar: built.sidebar,
             tabs: built.tabs,
             layout: built.layout,
@@ -124,7 +134,11 @@ impl ShellView {
             remote_folders: None,
             file_prompt: None,
             pairing: None,
-            focus: cx.focus_handle(),
+            first_run: None,
+            unsaved: None,
+            window_title: crate::window_memory::WINDOW_TITLE.to_owned(),
+            pending_close: None,
+            focus,
             keymap: Keymap::defaults(),
             keymap_watch: None,
             appearance_watch: None,
@@ -142,9 +156,7 @@ impl ShellView {
             readout: crate::readout_state::ReadoutState::default(),
             notices: built.notices,
             subscriptions: built.subscriptions,
-        };
-        view.begin(queue, window, cx);
-        view
+        }
     }
 
     fn begin(
@@ -171,12 +183,17 @@ impl ShellView {
     ) {
         let inbox = self.state.host().inbox();
         let phases = self.link.phases();
+        let saves = self.state.save_reports();
         cx.spawn_in(window, async move |this, cx| {
             drain(inbox, this, cx, Self::on_ipc).await;
         })
         .detach();
         cx.spawn_in(window, async move |this, cx| {
             drain(phases, this, cx, Self::feed_startup).await;
+        })
+        .detach();
+        cx.spawn_in(window, async move |this, cx| {
+            drain(saves, this, cx, Self::on_save_report).await;
         })
         .detach();
         cx.spawn_in(window, async move |this, cx| {
@@ -225,6 +242,9 @@ impl ShellView {
                 window.focus(&self.focus);
                 self.update_overlay(cx);
             },
+            ShellRequest::Closing(choice) => self.choose_closing(choice, window, cx),
+            ShellRequest::SelectProject(slot) => self.select_project(slot),
+            ShellRequest::ResumeClosing => self.resume_closing(window, cx),
             ShellRequest::KeymapChanged => self.on_keymap_changed(cx),
             ShellRequest::AppearanceChanged => self.apply_appearance(cx),
             ShellRequest::PaneSettingsChanged => self.push_pane_settings(),
@@ -252,6 +272,10 @@ impl ShellView {
                 self.open_from_sidebar((type_id, params), cx);
             },
             Ok(SidebarAction::OpenSettings) => self.show_settings(window, cx),
+            Ok(SidebarAction::OpenHosts) => {
+                let hosts = settings_ui::PageId::from(crate::settings_modal::HOSTS_PAGE);
+                self.show_settings_page(Some(hosts), window, cx);
+            },
             Ok(SidebarAction::OpenFile(path)) => self.open_workspace_file(&path, cx),
             Ok(SidebarAction::ImportRepo) => self.choose_repo_folder(window, cx),
             Ok(SidebarAction::ChooseSpaceFolder(host)) => self.choose_space_folder(&host, cx),
@@ -286,6 +310,8 @@ impl ShellView {
             || self.remote_folders.is_some()
             || self.file_prompt.is_some()
             || self.pairing.is_some()
+            || self.first_run.is_some()
+            || self.unsaved.is_some()
             || self.overlays_open;
         if covered {
             return Overlay::Active;
@@ -331,10 +357,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            TabBarEvent::Apply(commands) => {
-                self.state.apply(commands.clone());
-                self.refresh(cx);
-            },
+            TabBarEvent::Apply(commands) => self.apply_guarded(commands.clone(), cx),
             TabBarEvent::ToggleSidebar => self.sidebar.update(cx, Sidebar::toggle),
             _ => {},
         }
@@ -347,7 +370,7 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            LayoutEvent::Apply(command) => self.state.apply(vec![command.clone()]),
+            LayoutEvent::Apply(command) => return self.apply_guarded(vec![command.clone()], cx),
             LayoutEvent::OpenChat {
                 chat,
                 tab,
@@ -372,8 +395,13 @@ impl ShellView {
             return;
         }
         let preferences = self.sidebar.read(cx).preferences();
-        if let Err(error) = preferences.save(&self.preferences_path) {
-            tracing::warn!(%error, "saving the sidebar preferences failed");
+        match preferences.save(&self.preferences_path) {
+            Ok(()) => self.clear_notice(NoticeKey::Preferences, cx),
+            Err(error) => {
+                tracing::warn!(%error, "saving the sidebar preferences failed");
+                let text = format!("Sidebar preferences could not be saved: {error}");
+                self.show_notice(NoticeKey::Preferences, (ToastKind::Error, text), cx);
+            },
         }
         self.place_notices(cx);
         self.refresh(cx);
@@ -392,7 +420,7 @@ impl ShellView {
         if !matches!(event, StartupEvent::HandedOver) {
             return;
         }
-        window.set_window_title(crate::window_memory::WINDOW_TITLE);
+        window.set_window_title(&self.window_title);
         self.startup = None;
         self.update_overlay(cx);
     }
@@ -423,7 +451,21 @@ impl ShellView {
             view.set_chrome(chrome, cx);
             view.set_tab(tab, cx);
         });
+        self.announce_evictions(cx);
         self.sync(cx);
+        cx.notify();
+    }
+
+    fn follow_window_title(
+        &mut self,
+        window: &mut Window,
+    ) {
+        let title = crate::window_title::window_title(self.state.layout(), &self.state.titles());
+        if title == self.window_title {
+            return;
+        }
+        window.set_window_title(&title);
+        self.window_title = title;
     }
 
     fn sync(
@@ -452,9 +494,10 @@ fn layer<V: Render>(view: Option<&Entity<V>>) -> Option<Div> {
 impl Render for ShellView {
     fn render(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
+        self.follow_window_title(window);
         let palette = Theme::of(cx).palette(Surface::Window);
         self.readout.paint();
         div()
@@ -471,7 +514,9 @@ impl Render for ShellView {
             .children(layer(self.branch_import.as_ref()))
             .children(layer(self.remote_folders.as_ref()))
             .children(self.prompt_layer())
+            .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)))
             .children(layer(self.pairing.as_ref()))
+            .children(layer(self.unsaved.as_ref()))
             .children(layer(self.startup.as_ref()))
             .children(self.readout.view.clone())
             .child(self.notices.clone())

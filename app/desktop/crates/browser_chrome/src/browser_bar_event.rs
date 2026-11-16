@@ -10,4 +10,6 @@ pub enum BrowserBarEvent {
     Forward,
     /// Load the current page again.
     Reload,
+    /// Start picking an element in the page, or end the pick in progress.
+    TogglePick,
 }

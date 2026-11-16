@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// What the web engine reports about the page of a view.
@@ -12,6 +13,9 @@ pub enum PageEvent {
     Loaded(String),
     /// The page set its title.
     Title(String),
+    /// Files from the operating system were dropped on the page; the page still gets its own
+    /// drop events.
+    FilesDropped(Vec<PathBuf>),
 }
 
 /// Receives every [`PageEvent`] of one web view on the platform thread. Its answer matters only

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PaneChannel } from '@/sdk/pane-channel'
 import { PaneClient } from '@/sdk/pane-client'
 import { PaneRequestError } from '@/sdk/pane-request-error'
+import { REQUEST_TIMEOUT_MS } from '@/sdk/sdk-limits'
 
 function fakeChannel() {
   const posted: Record<string, unknown>[] = []
@@ -34,6 +35,11 @@ describe('PaneClient', () => {
       'saves state',
       (client: PaneClient) => client.setState({ scroll: 4 }),
       { kind: 'pane.setState', state: { scroll: 4 } },
+    ],
+    [
+      'reports unsaved work',
+      (client: PaneClient) => client.setDirty(true),
+      { kind: 'pane.setDirty', dirty: true },
     ],
     [
       'opens a pane',
@@ -72,6 +78,16 @@ describe('PaneClient', () => {
     pane.deliver({ ...mount, event: 'activate' })
     expect(heard).toHaveBeenCalledTimes(1)
     expect(heard.mock.calls[0]![0]).toMatchObject({ paneId: 'p1', event: 'mount' })
+  })
+
+  it('hands the shell save request to its listeners until they stop', () => {
+    const client = new PaneClient(pane.channel, 'core.editor')
+    const heard = vi.fn()
+    const stop = client.onSave(heard)
+    pane.deliver({ sdk: 1, kind: 'pane.save' })
+    stop()
+    pane.deliver({ sdk: 1, kind: 'pane.save' })
+    expect(heard).toHaveBeenCalledTimes(1)
   })
 
   it('refuses state over the shell limit without sending it', () => {
@@ -121,27 +137,29 @@ describe('PaneClient', () => {
     expect(pane.posted[1]).toEqual({ sdk: 1, kind: 'unsubscribe', id })
   })
 
-  it('reads a setting and follows its changes', async () => {
-    const client = new PaneClient(pane.channel, 'core.chat')
-    const read = client.getSetting('editor.fontSize')
-    const { id } = pane.posted[0] as { id: number }
-    pane.deliver({ sdk: 1, kind: 'response', id, result: 14 })
-    await expect(read).resolves.toBe(14)
+  it('rejects a request the shell never answers instead of hanging', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = new PaneClient(pane.channel, 'core.chat')
+      const silent = client.request('ping')
+      const settled = expect(silent).rejects.toMatchObject({ code: 'Timeout' })
+      await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS)
+      await settled
+      const { id } = pane.posted[0] as { id: number }
+      pane.deliver({ sdk: 1, kind: 'response', id, result: 1 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
-    const changed = vi.fn()
-    const stop = client.subscribeSetting('editor.fontSize', changed)
-    const subscription = pane.posted[1] as { id: number; kind: string }
-    expect(subscription.kind).toBe('settings.subscribe')
-    pane.deliver({
-      sdk: 1,
-      kind: 'settings.changed',
-      id: subscription.id,
-      key: 'editor.fontSize',
-      value: 16,
-    })
-    expect(changed).toHaveBeenCalledWith(16)
-    stop()
-    expect(pane.posted[2]).toEqual({ sdk: 1, kind: 'unsubscribe', id: subscription.id })
+  it('reports a frame the shell refused without dropping the pane', () => {
+    const client = new PaneClient(pane.channel, 'core.chat')
+    const heard = vi.fn()
+    client.onLifecycle(heard)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    pane.deliver({ sdk: 1, kind: 'protocol.error', message: 'frame too large' })
+    expect(error).toHaveBeenCalledWith('crowbar: the shell refused a frame', 'frame too large')
+    error.mockRestore()
   })
 
   it('hears the shell settings of the version it speaks and no other', () => {

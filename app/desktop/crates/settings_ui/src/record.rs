@@ -11,6 +11,7 @@ pub struct Record {
     pub(crate) id: String,
     pub(crate) title: String,
     pub(crate) icon: Option<String>,
+    pub(crate) artwork: Option<String>,
     pub(crate) status: Option<Tone>,
     pub(crate) lines: Vec<Line>,
     pub(crate) badge: Option<Line>,
@@ -29,6 +30,7 @@ impl Record {
             id: id.into(),
             title: title.into(),
             icon: None,
+            artwork: None,
             status: None,
             lines: Vec::new(),
             badge: None,
@@ -45,6 +47,17 @@ impl Record {
         stem: impl Into<String>,
     ) -> Self {
         self.icon = Some(stem.into());
+        self
+    }
+
+    /// Draws the SVG `markup` before the title, in place of a Phosphor icon. The caller vets the
+    /// markup: it is drawn as given.
+    #[must_use]
+    pub fn artwork(
+        mut self,
+        markup: impl Into<String>,
+    ) -> Self {
+        self.artwork = Some(markup.into());
         self
     }
 
@@ -119,6 +132,7 @@ mod tests {
     fn builders_compose_a_full_record() {
         let record = Record::new("claude", "Claude Code")
             .icon("robot")
+            .artwork("<svg/>")
             .status(Tone::Success)
             .line(Line::plain("v2.1"))
             .badge(Line::plain("OK").toned(Tone::Success))
@@ -127,6 +141,7 @@ mod tests {
             .movable();
         assert_eq!(record.id(), "claude");
         assert_eq!(record.icon.as_deref(), Some("robot"));
+        assert_eq!(record.artwork.as_deref(), Some("<svg/>"));
         assert_eq!(record.status, Some(Tone::Success));
         assert_eq!((record.lines.len(), record.flags.len()), (1, 1));
         assert!(record.badge.is_some() && record.action.is_some() && record.movable);

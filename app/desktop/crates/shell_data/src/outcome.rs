@@ -11,6 +11,8 @@ pub enum Outcome {
     PickDescriptor,
     /// The user asked to add a host: the shell opens the pairing dialog.
     PairHost,
+    /// The user confirmed clearing browsing data: the shell clears the browser panes' storage.
+    ClearBrowsingData,
     /// A file was read for the clipboard: the shell puts this text on it.
     CopyText(String),
     /// The daemon refused or could not be reached; the reason is fit to show.

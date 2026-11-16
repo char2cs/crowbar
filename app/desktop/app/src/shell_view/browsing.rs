@@ -15,8 +15,12 @@ impl ShellView {
         &mut self,
         pane: &PaneId,
         event: BrowserBarEvent,
-        _cx: &mut Context<'_, Self>,
+        cx: &mut Context<'_, Self>,
     ) {
+        if event == BrowserBarEvent::TogglePick {
+            self.toggle_pick(pane, cx);
+            return;
+        }
         let engine = self.search_engine();
         let Some(action) = action_for(event, &engine) else {
             return;

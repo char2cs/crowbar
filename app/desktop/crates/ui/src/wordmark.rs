@@ -1,4 +1,4 @@
-use gpui::{App, IntoElement, Pixels, RenderOnce, Styled, Window, px, svg};
+use gpui::{App, Hsla, IntoElement, Pixels, RenderOnce, Styled, Window, px, svg};
 
 use crate::assets::WORDMARK_PATH;
 use crate::surface::Surface;
@@ -10,13 +10,24 @@ const ASPECT_WIDTH_OVER_HEIGHT: f32 = 453.0 / 115.0;
 #[derive(Debug, IntoElement)]
 pub struct Wordmark {
     width: Pixels,
+    color: Option<Hsla>,
 }
 
 impl Wordmark {
     /// A logo `width` wide; its height follows the artwork's proportions.
     #[must_use]
     pub fn new(width: Pixels) -> Self {
-        Self { width }
+        Self { width, color: None }
+    }
+
+    /// Draws the logo in `color` instead of the muted foreground, for a coloured ground.
+    #[must_use]
+    pub fn color(
+        mut self,
+        color: Hsla,
+    ) -> Self {
+        self.color = Some(color);
+        self
     }
 }
 
@@ -26,7 +37,8 @@ impl RenderOnce for Wordmark {
         _window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let color = Theme::of(cx).palette(Surface::Window).muted_foreground();
+        let muted = Theme::of(cx).palette(Surface::Window).muted_foreground();
+        let color = self.color.unwrap_or(muted);
         svg()
             .path(WORDMARK_PATH)
             .w(self.width)

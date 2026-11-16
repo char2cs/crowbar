@@ -26,6 +26,9 @@ fn submit_on<T: 'static>(
     this: &mut T,
     cx: &mut Context<'_, T>,
 ) {
+    if matches!(event, TextInputEvent::Changed(_)) {
+        cx.notify();
+    }
     if matches!(event, TextInputEvent::Submitted) {
         commit(this, cx);
     }

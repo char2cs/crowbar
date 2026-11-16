@@ -1,5 +1,6 @@
 use model::{Command, Layout};
 
+use crate::close_guard::closing_panes;
 use crate::pane_spec::PaneSpec;
 
 const REMEMBERED: usize = 20;
@@ -14,14 +15,7 @@ impl ClosedPanes {
         layout: &Layout,
         command: &Command,
     ) -> Vec<PaneSpec> {
-        let panes = match command {
-            Command::ClosePane { pane } => vec![pane.clone()],
-            Command::CloseTab { tab } => {
-                layout.tab(*tab).map_or_else(Vec::new, model::Tab::pane_ids)
-            },
-            _ => Vec::new(),
-        };
-        panes
+        closing_panes(layout, command)
             .iter()
             .filter_map(|pane| layout.pane(pane))
             .map(PaneSpec::of)

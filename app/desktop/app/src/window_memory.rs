@@ -41,11 +41,12 @@ impl WindowMemory {
         &self,
         window: &Window,
         cx: &App,
+        allowed: impl Fn(&mut Window, &mut App) -> bool + 'static,
     ) {
         let store = self.store.clone();
-        window.on_window_should_close(cx, move |window, _| {
+        window.on_window_should_close(cx, move |window, cx| {
             save(&store, window.window_bounds());
-            true
+            allowed(window, cx)
         });
     }
 

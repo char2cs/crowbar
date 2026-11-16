@@ -12,6 +12,7 @@ repository = "https://github.com/char2cs/crowbar"
 publish = false
 
 [workspace.dependencies]
+atomic_file = { path = "crates/atomic_file" }
 browser_nav = { path = "crates/browser_nav" }
 protocol = { path = "crates/protocol" }
 model = { path = "crates/model" }
@@ -30,6 +31,7 @@ shell_keys = { path = "desktop/crates/shell_keys" }
 browser_chrome = { path = "desktop/crates/browser_chrome" }
 branch_import_view = { path = "desktop/crates/branch_import_view" }
 pairing_view = { path = "desktop/crates/pairing_view" }
+oobe_view = { path = "desktop/crates/oobe_view" }
 remote_folder_picker = { path = "desktop/crates/remote_folder_picker" }
 command_palette = { path = "desktop/crates/command_palette" }
 window_state = { path = "desktop/crates/window_state" }

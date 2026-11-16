@@ -8,6 +8,7 @@ pub struct Shortcut {
     pub(crate) command: String,
     pub(crate) label: String,
     pub(crate) default: Option<Chord>,
+    pub(crate) presets: Vec<(String, Chord)>,
 }
 
 impl Shortcut {
@@ -21,7 +22,20 @@ impl Shortcut {
             command: command.into(),
             label: label.into(),
             default: Chord::parse(default),
+            presets: Vec::new(),
         }
+    }
+
+    /// The chord the preset `preset` binds instead of the default; an unparsable `chord` is ignored.
+    #[must_use]
+    pub fn in_preset(
+        mut self,
+        preset: &str,
+        chord: &str,
+    ) -> Self {
+        self.presets
+            .extend(Chord::parse(chord).map(|chord| (preset.to_owned(), chord)));
+        self
     }
 
     /// The command id.

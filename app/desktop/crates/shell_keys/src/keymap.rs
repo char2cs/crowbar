@@ -4,6 +4,7 @@ use protocol::{CommandId, KeyBinding, KeyChord};
 
 use crate::keystroke::Keystroke;
 use crate::shell_command::ShellCommand;
+use crate::shell_keys::project_bindings;
 
 /// The chords bound to shell commands: the defaults with the user's overrides applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +81,7 @@ impl Keymap {
                 let id = CommandId::new(command.id()).ok()?;
                 Some(KeyBinding::new(keys, id))
             })
+            .chain(project_bindings())
             .collect()
     }
 }
@@ -158,11 +160,12 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_bindings_cover_exactly_the_bound_shell_commands() {
+    fn forwarded_bindings_cover_the_bound_shell_commands_and_the_project_slots() {
         let bindings = Keymap::with_overrides([("tabs.new", "")]).forwarded();
         let commands: Vec<&str> = bindings.iter().map(|b| b.command().as_str()).collect();
         assert!(commands.contains(&"tabs.closeActive"));
         assert!(!commands.contains(&"tabs.new"));
+        assert!(commands.contains(&"navigation.selectProject.1"));
         assert!(bindings.iter().all(|b| !b.keys().as_str().contains(' ')));
     }
 }

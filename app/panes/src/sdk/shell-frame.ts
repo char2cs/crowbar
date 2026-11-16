@@ -14,6 +14,7 @@ export type ShellFrame =
       name: string
       payload: unknown
     }
-  | { kind: 'settings.changed'; id: number; key: string; value: unknown }
+  | { kind: 'protocol.error'; message: string }
+  | { kind: 'pane.save' }
   | { kind: 'theme'; tokens: ThemeTokens }
   | { kind: 'settings'; version: number; values: SettingValues }

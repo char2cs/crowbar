@@ -1,11 +1,11 @@
 //! Public-API tests: every frame survives encoding, and wire shapes stay stable.
 
 use protocol::{
-    AttachmentId, AttachmentType, CommandId, DisplayText, ErrorCode, EventName, ExtensionId,
-    ExtensionStatus, KeyBinding, KeyChord, Lifecycle, MethodName, PaneFrame, PaneId, PaneState,
-    PaneTitle, PaneTypeId, Params, RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION,
-    SETTINGS_FRAME_VERSION, SdkVersion, SettingKey, SettingValues, ShellFrame, SpaceId, StatusKind,
-    ThemeTokens, decode_pane_frame, decode_shell_frame, encode,
+    CommandId, DisplayText, ErrorCode, EventName, ExtensionId, ExtensionStatus, KeyBinding,
+    KeyChord, Lifecycle, MethodName, PaneFrame, PaneId, PaneState, PaneTitle, PaneTypeId, Params,
+    RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION, SETTINGS_FRAME_VERSION, SdkVersion,
+    SettingKey, SettingValues, ShellFrame, SpaceId, StatusKind, ThemeTokens, decode_pane_frame,
+    decode_shell_frame, encode,
 };
 use serde_json::{Value, json};
 
@@ -58,38 +58,18 @@ fn every_pane_frame_round_trips() {
         PaneFrame::RunCommand {
             command: CommandId::new("ext.git.openReview").unwrap(),
         },
+        PaneFrame::SetDirty { dirty: true },
     ];
     assert_pane_frames_round_trip(&cases).unwrap();
 }
 
 #[test]
-fn the_sdk_frames_for_settings_composer_and_attachments_round_trip() {
-    let key = SettingKey::new("diff.context").unwrap();
-    let cases = [
-        PaneFrame::SettingsGet {
-            id: RequestId::new(5),
-            key: key.clone(),
-        },
-        PaneFrame::SettingsSubscribe {
-            id: RequestId::new(6),
-            key,
-        },
-        PaneFrame::SettingsSet {
-            version: SETTINGS_FRAME_VERSION,
-            key: SettingKey::new("showMinimap").unwrap(),
-            value: json!(true),
-        },
-        PaneFrame::ComposerAttach {
-            attachment_type: AttachmentType::new("excalidraw.drawing").unwrap(),
-            payload: json!({"elements": []}),
-        },
-        PaneFrame::ComposerDraft {
-            id: RequestId::new(7),
-        },
-        PaneFrame::AttachmentOpen {
-            attachment_id: AttachmentId::new("att-1").unwrap(),
-        },
-    ];
+fn the_settings_set_frame_round_trips() {
+    let cases = [PaneFrame::SettingsSet {
+        version: SETTINGS_FRAME_VERSION,
+        key: SettingKey::new("showMinimap").unwrap(),
+        value: json!(true),
+    }];
     assert_pane_frames_round_trip(&cases).unwrap();
 }
 
@@ -120,6 +100,7 @@ fn every_shell_frame_round_trips() {
             name: EventName::new("review.updated").unwrap(),
             payload: json!({"n": 1}),
         },
+        ShellFrame::Save,
         ShellFrame::ExtensionStatus(ExtensionStatus::new(
             ext,
             StatusKind::Unavailable,
@@ -130,7 +111,7 @@ fn every_shell_frame_round_trips() {
 }
 
 #[test]
-fn the_sdk_push_frames_for_keybindings_settings_and_theme_round_trip() {
+fn the_sdk_push_frames_for_keybindings_settings_theme_and_protocol_errors_round_trip() {
     let cases = [
         ShellFrame::Keybindings {
             bindings: vec![KeyBinding::new(
@@ -138,10 +119,8 @@ fn the_sdk_push_frames_for_keybindings_settings_and_theme_round_trip() {
                 CommandId::new("palette.open").unwrap(),
             )],
         },
-        ShellFrame::SettingChanged {
-            id: RequestId::new(6),
-            key: SettingKey::new("diff.context").unwrap(),
-            value: json!(5),
+        ShellFrame::ProtocolError {
+            message: DisplayText::new("frame too large").unwrap(),
         },
         ShellFrame::Theme {
             tokens: ThemeTokens::default().with("color-bg", "#111").unwrap(),

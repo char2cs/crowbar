@@ -25,6 +25,9 @@ pub enum Error {
     /// `crowbar-api paths` failed or printed nothing usable.
     #[error("cannot resolve the Crowbar home: {0}")]
     Paths(String),
+    /// `crowbar-api paths` did not answer in time.
+    #[error("`crowbar-api paths` did not answer in time")]
+    PathsTimeout(#[source] tokio::time::error::Elapsed),
     /// The daemon halted on purpose, and no restart fixes it.
     #[error("the daemon halted: {message}")]
     Halted {

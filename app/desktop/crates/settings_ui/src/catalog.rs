@@ -26,6 +26,13 @@ pub const SESSION_RECORDS: &str = sessions::SESSIONS;
 pub const HOST_RECORDS: &str = hosts::HOSTS;
 /// The setting that stores custom keybindings.
 pub const KEYBINDING_OVERRIDES: &str = keybindings::OVERRIDES;
+/// The setting that stores the active keybinding preset.
+pub const KEYBINDING_PRESET: &str = keybindings::PRESET;
+
+/// The chords the preset `preset` binds, keyed by command id.
+pub fn preset_overrides(preset: &str) -> std::collections::BTreeMap<String, String> {
+    keybindings::preset_overrides(preset)
+}
 
 /// The ten pages of the shell: Appearance, Editor, Files, Git, Terminal, Browser, Agents, Active
 /// sessions, Keybindings and Hosts, in rail order.

@@ -29,6 +29,14 @@ function withOpenTab(s: ReturnType<typeof windowPaneStore.getState>) {
   return { buffers: [...s.buffers, buffer], panes: { ...s.panes, [ROOT_PANE_ID]: pane } }
 }
 
+function client(overrides: { setTitle?: (title: string) => void } = {}) {
+  return {
+    setTitle: overrides.setTitle ?? vi.fn(),
+    setDirty: vi.fn(),
+    onSave: vi.fn(() => () => undefined),
+  }
+}
+
 describe('BufferPaneHost', () => {
   it('opens the saved buffer in the chat workspace and titles the pane with the tab', async () => {
     const setTitle = vi.fn()
@@ -38,9 +46,26 @@ describe('BufferPaneHost', () => {
     })
     bufferSession.setState({ chatId: 'c1', saved: { path: 'a.ts' }, active: false })
     await act(async () => {
-      render(<BufferPaneHost client={{ setTitle }} open={open} />)
+      render(<BufferPaneHost client={client({ setTitle })} open={open} />)
     })
     expect(open).toHaveBeenCalledWith('ws1', { path: 'a.ts' })
     expect(setTitle).toHaveBeenCalledWith('a.ts')
+  })
+
+  it('reports unsaved edits to the shell', async () => {
+    const shell = client()
+    const open = vi.fn(() => {
+      windowPaneStore.setState((s) => {
+        const next = withOpenTab(s)
+        const dirty = { ...next.buffers[0]!, type: 'editor', isDirty: true } as PaneContent
+        return { ...next, buffers: [dirty] }
+      })
+      return Promise.resolve('b1')
+    })
+    bufferSession.setState({ chatId: 'c1', saved: { path: 'a.ts' }, active: false })
+    await act(async () => {
+      render(<BufferPaneHost client={shell} open={open} />)
+    })
+    expect(shell.setDirty).toHaveBeenLastCalledWith(true)
   })
 })

@@ -1,10 +1,14 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
 
 use serde_json::Value;
 use tokio::process::Command;
 
 use crate::error::Error;
+
+const PATHS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Where the daemon binds and logs for one Crowbar home, as the daemon binary itself reports
 /// them so Go's `core/home` is the only place either is decided.
@@ -47,24 +51,35 @@ impl DaemonPaths {
         })
     }
 
-    /// Runs `<binary> paths` with `CROWBAR_HOME` set to `home` when one is given.
+    /// Runs `<binary> paths`, giving up after ten seconds, with `CROWBAR_HOME` set to `home` when one is given.
     ///
     /// # Errors
-    /// [`Error::Spawn`] when the binary cannot run, [`Error::Paths`] when it fails or prints
-    /// something unusable.
+    /// [`Error::Spawn`] when the binary cannot run, [`Error::Paths`] when it fails, times out or
+    /// prints something unusable.
     pub async fn resolve(
         binary: &Path,
         home: Option<&Path>,
     ) -> Result<Self, Error> {
+        Self::resolve_within(binary, home, PATHS_TIMEOUT).await
+    }
+
+    async fn resolve_within(
+        binary: &Path,
+        home: Option<&Path>,
+        limit: Duration,
+    ) -> Result<Self, Error> {
         let mut command = Command::new(binary);
-        command.arg("paths");
+        command.arg("paths").stdin(Stdio::null()).kill_on_drop(true);
         if let Some(home) = home {
             command.env("CROWBAR_HOME", home);
         }
-        let finished = command.output().await.map_err(|source| Error::Spawn {
-            path: binary.to_path_buf(),
-            source,
-        })?;
+        let finished = tokio::time::timeout(limit, command.output())
+            .await
+            .map_err(Error::PathsTimeout)?
+            .map_err(|source| Error::Spawn {
+                path: binary.to_path_buf(),
+                source,
+            })?;
         if !finished.status.success() {
             let stderr = String::from_utf8_lossy(&finished.stderr);
             return Err(Error::Paths(stderr.trim().to_owned()));
@@ -142,5 +157,18 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, Error::Spawn { .. }), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_binary_that_never_answers_is_given_up_on() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("hang.sh");
+        std::fs::write(&script, "#!/bin/sh\nexec sleep 60\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let err = DaemonPaths::resolve_within(&script, None, Duration::from_millis(200))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::PathsTimeout(_)), "{err}");
     }
 }

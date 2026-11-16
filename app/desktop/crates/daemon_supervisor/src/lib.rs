@@ -31,6 +31,7 @@ mod restart_budget;
 mod running;
 mod socket_dial;
 mod spawn_daemon;
+mod stale_daemon;
 mod startup;
 mod stop;
 mod supervision;

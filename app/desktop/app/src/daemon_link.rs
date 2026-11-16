@@ -202,7 +202,7 @@ async fn launch(
     sender: async_channel::Sender<StartupInput>,
 ) -> Result<(Arc<Supervisor>, DaemonPaths)> {
     let current = std::env::current_exe().ok();
-    let path_var = std::env::var_os("PATH");
+    let path_var = std::env::var_os("PATH").filter(|_| cfg!(debug_assertions));
     let binary = locate_binary(
         options.daemon_binary.as_deref(),
         current.as_deref(),

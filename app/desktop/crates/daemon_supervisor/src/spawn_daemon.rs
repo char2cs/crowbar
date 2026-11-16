@@ -21,6 +21,13 @@ fn make_socket_dir(dir: &Path) -> Result<(), Error> {
         })
 }
 
+fn output_sink(supervision: &Supervision) -> Stdio {
+    match supervision.log {
+        Some(_) => Stdio::piped(),
+        None => Stdio::null(),
+    }
+}
+
 pub(crate) fn spawn_daemon(supervision: &Supervision) -> Result<Child, Error> {
     let config = &supervision.config;
     config
@@ -34,8 +41,8 @@ pub(crate) fn spawn_daemon(supervision: &Supervision) -> Result<Child, Error> {
     command
         .args(["serve", "--host", &host])
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(output_sink(supervision))
+        .stderr(output_sink(supervision))
         .kill_on_drop(true);
     if let Some(home) = &config.home {
         command.env("CROWBAR_HOME", home);
@@ -79,5 +86,30 @@ mod tests {
             0o700,
             "private"
         );
+    }
+
+    #[tokio::test]
+    async fn a_daemon_whose_log_cannot_be_opened_never_blocks_on_a_full_pipe() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("noisy.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nhead -c 1048576 /dev/zero >&2\nhead -c 1048576 /dev/zero\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let paths = DaemonPaths {
+            socket: dir.path().join("run").join("d.sock"),
+            log: dir.path().to_path_buf(),
+        };
+        let config = SupervisorConfig::new(script, paths, None, "test");
+        let supervision = Supervision::new(config, Arc::new(Bus::default()));
+        assert!(supervision.log.is_none(), "the log is not openable");
+        let mut child = spawn_daemon(&supervision).unwrap();
+        let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+            .await
+            .expect("the daemon is not wedged on its output")
+            .unwrap();
+        assert!(status.success());
     }
 }

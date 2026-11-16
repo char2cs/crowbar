@@ -22,6 +22,9 @@ pub enum Error {
     /// The toolkit thread has stopped.
     #[error("platform thread has stopped")]
     HostStopped,
+    /// The toolkit thread did not answer in time.
+    #[error("the platform thread did not answer in time")]
+    TimedOut,
     /// A call that must run on the main thread ran elsewhere.
     #[error("must be called on the main thread")]
     NotMainThread,

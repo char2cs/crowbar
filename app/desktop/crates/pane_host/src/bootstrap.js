@@ -21,7 +21,9 @@
     if (mac ? event.metaKey : event.ctrlKey) parts.push('mod');
     if (event.shiftKey) parts.push('shift');
     if (event.altKey) parts.push('alt');
-    parts.push(event.key.toLowerCase());
+    // Shift turns a digit into a symbol, so the physical digit key names the chord.
+    const digit = /^Digit([0-9])$/.exec(event.code);
+    parts.push(digit ? digit[1] : event.key.toLowerCase());
     return parts.join('+');
   };
   window.addEventListener(

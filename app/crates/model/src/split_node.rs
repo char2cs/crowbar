@@ -203,7 +203,7 @@ impl SplitNode {
         b: &PaneId,
     ) {
         match self {
-            Self::Leaf(group) => group.exchange((a, b)),
+            Self::Leaf(group) => group.exchange(a, b),
             Self::Split { first, second, .. } => {
                 first.swap_leaves(a, b);
                 second.swap_leaves(a, b);

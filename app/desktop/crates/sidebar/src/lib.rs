@@ -46,6 +46,7 @@ mod file_clipboard;
 mod file_density;
 mod file_dialog;
 mod file_dialog_view;
+mod file_drop;
 mod file_filter;
 mod file_glyph;
 mod file_key;

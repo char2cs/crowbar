@@ -2,6 +2,7 @@
 
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
     RenderOnce, SharedString, Styled, Window, div, px,
@@ -38,6 +39,7 @@ pub struct Select {
     selected: Option<usize>,
     placeholder: SharedString,
     width: Pixels,
+    fills: bool,
     height: Pixels,
     surface: Surface,
     on_change: Option<IndexHandler>,
@@ -56,6 +58,7 @@ impl Select {
             selected,
             placeholder: SharedString::default(),
             width: px(DEFAULT_WIDTH),
+            fills: false,
             height: px(STANDARD_HEIGHT),
             surface: Surface::default(),
             on_change: None,
@@ -79,6 +82,13 @@ impl Select {
         width: Pixels,
     ) -> Self {
         self.width = width;
+        self
+    }
+
+    /// Stretches the trigger to the width of its parent; the popup keeps the `width` as its minimum.
+    #[must_use]
+    pub fn fill(mut self) -> Self {
+        self.fills = true;
         self
     }
 
@@ -129,7 +139,8 @@ impl Select {
             .items_center()
             .justify_between()
             .gap(spacing::STEP_2)
-            .w(self.width)
+            .when(self.fills, Styled::w_full)
+            .when(!self.fills, |trigger| trigger.w(self.width))
             .min_h(self.height)
             .px(spacing::STEP_2_5)
             .rounded(radius::LG)

@@ -50,6 +50,8 @@ pub enum Command {
     CommitRemoval(RowId),
     /// Start a chat in the space's home workspace.
     NewThread(ProjectId),
+    /// Start a chat in the space that opens on its terminal.
+    NewTerminalThread(ProjectId),
     /// Start a thread under the row.
     Thread(RowId),
     /// Create a fork of the row.
@@ -179,6 +181,14 @@ pub enum Command {
     UploadFile {
         /// The destination directory.
         path: String,
+    },
+    /// Copy local files, dropped from the operating system, into a directory; an empty path is
+    /// the workspace root.
+    UploadPaths {
+        /// The destination directory.
+        path: String,
+        /// The dropped files.
+        files: Vec<std::path::PathBuf>,
     },
     /// Open image generation for a directory.
     GenerateImage {

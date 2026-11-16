@@ -111,10 +111,11 @@ impl Group {
 
     pub(crate) fn exchange(
         &mut self,
-        (a, b): (&PaneId, &PaneId),
+        a: &PaneId,
+        b: &PaneId,
     ) {
         for member in self.panes.iter_mut().chain([&mut self.active]) {
-            exchanged(member, (a, b));
+            exchanged(member, a, b);
         }
     }
 
@@ -128,7 +129,8 @@ impl Group {
 
 fn exchanged(
     member: &mut PaneId,
-    (a, b): (&PaneId, &PaneId),
+    a: &PaneId,
+    b: &PaneId,
 ) {
     if member == a {
         *member = b.clone();
@@ -245,7 +247,7 @@ mod tests {
     #[test]
     fn exchanging_swaps_members_and_the_active_mark() {
         let mut stack = group(&["a", "b", "c"], "a");
-        stack.exchange((&id("a"), &id("c")));
+        stack.exchange(&id("a"), &id("c"));
         assert_eq!(names(&stack), ["c", "b", "a"], "members");
         assert_eq!(stack.active(), &id("c"), "active follows the place");
     }

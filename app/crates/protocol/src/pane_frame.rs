@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::attachment_id::AttachmentId;
-use crate::attachment_type::AttachmentType;
 use crate::command_id::CommandId;
 use crate::event_name::EventName;
 use crate::external_url::ExternalUrl;
@@ -58,6 +56,14 @@ pub enum PaneFrame {
         /// The new state, at most 64 KB.
         state: PaneState,
     },
+    /// `pane.setDirty`: tells the shell whether the pane holds work that closing would lose.
+    /// The shell asks before it closes a dirty pane and sends [`ShellFrame::Save`](crate::ShellFrame::Save)
+    /// when the user chooses to save.
+    #[serde(rename = "pane.setDirty")]
+    SetDirty {
+        /// Whether the pane has unsaved work.
+        dirty: bool,
+    },
     /// `request`: a call routed to the pane's own extension backend.
     Request {
         /// Correlation id echoed by the `response` frame.
@@ -85,23 +91,6 @@ pub enum PaneFrame {
         /// Command id.
         command: CommandId,
     },
-    /// `settings.get`: reads one setting; answered by a `response`.
-    #[serde(rename = "settings.get")]
-    SettingsGet {
-        /// Correlation id echoed by the `response` frame.
-        id: RequestId,
-        /// The setting to read.
-        key: SettingKey,
-    },
-    /// `settings.subscribe`: delivers `settings.changed` frames for one setting until the
-    /// subscription is stopped with `unsubscribe`.
-    #[serde(rename = "settings.subscribe")]
-    SettingsSubscribe {
-        /// Subscription id, unique within the pane.
-        id: RequestId,
-        /// The setting to follow.
-        key: SettingKey,
-    },
     /// `settings.set`: asks the shell to store one of the settings a `settings` frame carries.
     /// The shell stays the owner: the pane sees the new value when the shell pushes the set
     /// again, and a key outside the frame's vocabulary or a `version` the shell does not speak
@@ -114,26 +103,6 @@ pub enum PaneFrame {
         key: SettingKey,
         /// Its new value.
         value: Value,
-    },
-    /// `composer.attach`: adds an attachment to the composer's draft.
-    #[serde(rename = "composer.attach")]
-    ComposerAttach {
-        /// The kind of attachment.
-        attachment_type: AttachmentType,
-        /// The attachment's data, bounded by the frame size cap.
-        payload: Value,
-    },
-    /// `composer.draft`: reads a read-only summary of the draft; answered by a `response`.
-    #[serde(rename = "composer.draft")]
-    ComposerDraft {
-        /// Correlation id echoed by the `response` frame.
-        id: RequestId,
-    },
-    /// `attachment.open`: opens an attachment in its editor pane.
-    #[serde(rename = "attachment.open")]
-    AttachmentOpen {
-        /// The attachment to open.
-        attachment_id: AttachmentId,
     },
     /// `shell.openExternal`: opens a web, mail or phone link in the system's default
     /// application. Nothing is answered; a refused link is only logged.

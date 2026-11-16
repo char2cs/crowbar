@@ -1,10 +1,19 @@
 //! One record of a list: icon, text, flags and actions.
 
-use gpui::prelude::FluentBuilder as _;
-use gpui::{AnyElement, App, IntoElement, ParentElement, Styled, Window, div, px};
-use ui::{
-    Badge, Button, ButtonSize, ButtonVariant, Icon, IconName, Surface, Switch, Theme, UiText,
+use gpui::AppContext as _;
+use gpui::{
+    AnyElement, App, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement,
+    Styled, Window, div, px,
 };
+use ui::{
+    Badge, Button, ButtonSize, ButtonVariant, DragGhost, Icon, IconName, Surface, Switch, Theme,
+    UiText,
+};
+
+use crate::drag_record::DragRecord;
+use crate::flag_look::FlagLook;
+use crate::record_flag::RecordFlag;
+use crate::record_marks::{FLAG_COLUMN, ICON, artwork_image, dot_box, grip};
 
 use crate::element_id::element_id;
 use crate::frame::Frame;
@@ -15,29 +24,28 @@ use crate::record::Record;
 use crate::spacing;
 use crate::tone_color::tone_color;
 
-const ICON: f32 = 18.0;
+const DROP_LINE: f32 = 2.0;
+const GHOST_WIDTH: f32 = 220.0;
 const ROW_MIN_HEIGHT: f32 = 44.0;
-pub(crate) const FLAG_COLUMN: f32 = 64.0;
 
 pub(crate) fn record_view(
     frame: &Frame<'_>,
-    (source, record, (index, count)): (&str, &Record, (usize, usize)),
+    (source, record, index): (&str, &Record, usize),
     (_, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
     let leading = leading_icon(record, palette);
+    let artwork = record.artwork.as_deref().map(artwork_image);
     let badge = record
         .badge
         .as_ref()
         .map(|line| Badge::new(line.text.clone()).variant(ui::BadgeVariant::Secondary));
     let text = text_column(record, &theme);
-    let flags: Vec<AnyElement> = record
-        .flags
-        .iter()
-        .map(|flag| flag_box(frame, (source, record), flag).into_any_element())
-        .collect();
-    div()
+    let flags = flag_boxes(frame, (source, record), palette);
+    let grip = record.movable.then(|| grip(palette));
+    let row = div()
+        .id(element_id("record", &format!("{source}-{}", record.id)))
         .flex()
         .items_center()
         .gap(spacing::ROOMY)
@@ -46,21 +54,59 @@ pub(crate) fn record_view(
         .py(spacing::SNUG)
         .font_family(theme.ui_family())
         .text_size(UiText::Sm.size(&theme))
+        .children(grip)
         .children(leading)
+        .children(artwork)
         .child(text)
         .children(badge)
         .children(flags)
         .children(
             record
-                .movable
-                .then(|| mover(frame, (source, record), (index, count))),
-        )
-        .children(
-            record
                 .action
                 .as_ref()
                 .map(|action| action_button(frame, (source, record), action)),
-        )
+        );
+    if record.movable {
+        return draggable(row, frame, (source, record, index)).into_any_element();
+    }
+    row.into_any_element()
+}
+
+fn flag_boxes(
+    frame: &Frame<'_>,
+    (source, record): (&str, &Record),
+    palette: &ui::Palette,
+) -> Vec<AnyElement> {
+    record
+        .flags
+        .iter()
+        .map(|flag| flag_box(frame, (source, record), (flag, palette)))
+        .collect()
+}
+
+fn draggable(
+    row: gpui::Stateful<gpui::Div>,
+    frame: &Frame<'_>,
+    (source, record, index): (&str, &Record, usize),
+) -> impl IntoElement {
+    let drag = DragRecord {
+        source: source.to_owned(),
+        record: record.id.clone(),
+        title: record.title.clone(),
+    };
+    let sink = frame.sink.clone();
+    let target = source.to_owned();
+    row.cursor_grab()
+        .on_drag(drag, |drag, _, _, cx| {
+            cx.new(|_| DragGhost::new(drag.title.clone(), GHOST_WIDTH))
+        })
+        .drag_over::<DragRecord>(|row, _, _, cx| {
+            let line = Theme::of(cx).palette(Surface::Window).ring();
+            row.border_t(px(DROP_LINE)).border_color(line)
+        })
+        .on_drop::<DragRecord>(move |drag, window, cx| {
+            drag.deliver(&sink, (&target, index), (window, cx));
+        })
 }
 
 fn leading_icon(
@@ -123,9 +169,12 @@ fn line_text(
 fn flag_box(
     frame: &Frame<'_>,
     (source, record): (&str, &Record),
-    flag: &crate::record_flag::RecordFlag,
-) -> impl IntoElement {
+    (flag, palette): (&RecordFlag, &ui::Palette),
+) -> AnyElement {
     let id = element_id("flag", &format!("{}-{}", record.id, flag.id));
+    if flag.look == FlagLook::Dot {
+        return dot_box(flag, palette).into_any_element();
+    }
     let toggled = flag_intent(source, record, &flag.id);
     let sink = frame.sink.clone();
     let switch = Switch::new(id, flag.on)
@@ -135,6 +184,7 @@ fn flag_box(
         .justify_center()
         .w(px(FLAG_COLUMN))
         .child(switch)
+        .into_any_element()
 }
 
 fn flag_intent(
@@ -149,35 +199,6 @@ fn flag_intent(
         flag: flag.clone(),
         on,
     }
-}
-
-fn reorder_intent(
-    (source, record): (&str, &Record),
-    to: usize,
-) -> Intent {
-    Intent::Reorder {
-        source: source.to_owned(),
-        record: record.id.clone(),
-        to,
-    }
-}
-
-fn mover(
-    frame: &Frame<'_>,
-    (source, record): (&str, &Record),
-    (index, count): (usize, usize),
-) -> impl IntoElement {
-    let step = |name: &str, icon: IconName, to: usize| {
-        let reorder = reorder_intent((source, record), to);
-        Button::icon_only(element_id(name, &record.id), icon).on_click(frame.sink.send(reorder))
-    };
-    let up = step("up", IconName::CaretUp, index.saturating_sub(1));
-    let down = step("down", IconName::CaretDown, index + 1);
-    div()
-        .flex()
-        .gap(spacing::HAIRLINE)
-        .child(up.when(index == 0, Button::disabled))
-        .child(down.when(index + 1 >= count, Button::disabled))
 }
 
 fn action_button(

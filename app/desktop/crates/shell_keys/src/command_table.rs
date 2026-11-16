@@ -22,6 +22,12 @@ const TABLE: &[CommandEntry] = &[
     NEW_TAB,
     entry(ShellCommand::NewChat, "agent.newChat", "New chat", "mod+n"),
     entry(
+        ShellCommand::NewChatTerminal,
+        "agent.newChatTerminal",
+        "New chat (Terminal)",
+        "mod+alt+n",
+    ),
+    entry(
         ShellCommand::CloseTab,
         "tabs.closeActive",
         "Close active tab",

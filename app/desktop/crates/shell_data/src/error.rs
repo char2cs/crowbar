@@ -48,6 +48,15 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    /// The settings database of the previous desktop app could not be read.
+    #[error("shell data: legacy settings {path}: {source}")]
+    Legacy {
+        /// The database.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: rusqlite::Error,
+    },
     /// A file of the shell holds invalid JSON.
     #[error("shell data: {path} is not valid JSON: {source}")]
     Json {

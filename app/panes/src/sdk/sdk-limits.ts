@@ -15,3 +15,6 @@ export const MAX_STATE_BYTES = STATE_LIMIT_KIB * BYTES_PER_KIB
 
 /** Longest tab title the shell accepts, in bytes. */
 export const MAX_TITLE_BYTES = 256
+
+/** How long a request waits for its response before it rejects with a `Timeout` error, in milliseconds. */
+export const REQUEST_TIMEOUT_MS = 30_000

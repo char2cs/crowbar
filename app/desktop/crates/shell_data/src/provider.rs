@@ -9,6 +9,7 @@ use crate::switch::Switch;
 pub(crate) struct Provider {
     pub(crate) id: String,
     pub(crate) display_name: String,
+    pub(crate) icon: String,
     pub(crate) mcp_enabled: Switch,
     pub(crate) connected: Switch,
     pub(crate) enabled: Switch,

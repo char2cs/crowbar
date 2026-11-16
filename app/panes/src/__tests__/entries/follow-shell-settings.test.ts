@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { followShellSettings } from '@/entries/follow-shell-settings'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import { useKeymapStore } from '@/features/keymaps/stores/store'
 import { useSettingsStore } from '@/features/settings/store'
 import type { SettingValues } from '@/sdk/setting-values'
 
@@ -59,5 +60,21 @@ describe('followShellSettings', () => {
   it('keeps the font variables in step with the shell', () => {
     followShellSettings(shellThatSends({ uiFontSize: 20 }))
     expect(document.documentElement.style.getPropertyValue('--app-ui-font-size')).toBe('20px')
+  })
+
+  it.each([
+    [
+      'takes the keybinding overrides the shell owns',
+      [{ keybindingUserOverrides: { 'agent.zoomIn': 'mod+k' } }],
+      { 'agent.zoomIn': 'mod+k' },
+    ],
+    [
+      'drops them when the shell sends none',
+      [{ keybindingUserOverrides: { 'agent.zoomIn': 'mod+k' } }, {}],
+      {},
+    ],
+  ])('%s', (_name, frames, expected) => {
+    followShellSettings(shellThatSends(...frames))
+    expect(useKeymapStore.getState().overrides).toEqual(expected)
   })
 })

@@ -18,7 +18,19 @@ function hostedByShell(ws: { url: string; token: string } | null) {
   win.__CROWBAR__ = { api: 'crowbar://local', host: 'local', ws }
 }
 
+function relayLookup(status: number, body: string) {
+  class FakeRequest {
+    status = status
+    responseText = body
+    open = vi.fn()
+    send = vi.fn()
+  }
+  vi.stubGlobal('XMLHttpRequest', FakeRequest)
+}
+
 afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.stubGlobal('WebSocket', FakeWebSocket)
   const win = window as unknown as Record<string, unknown>
   delete win.crowbar
   delete win.__CROWBAR__
@@ -41,5 +53,19 @@ describe('openShellSocket', () => {
   it('refuses when the shell issued no relay endpoint', () => {
     hostedByShell(null)
     expect(() => openShellSocket('/v0/stream')).toThrow(/no relay endpoint/)
+  })
+
+  it('asks the shell for a new token on every connect so a long-open pane can reconnect', () => {
+    hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'expired' })
+    relayLookup(200, '{"url":"ws://127.0.0.1:41233","token":"renewed"}')
+    openShellSocket('/v0/stream')
+    expect(sockets[0]!.protocols).toEqual(['crowbar.relay.v1', 'crowbar.token.renewed'])
+  })
+
+  it('falls back to the cached endpoint when the lookup fails', () => {
+    hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'cached' })
+    relayLookup(503, '')
+    openShellSocket('/v0/stream')
+    expect(sockets[0]!.protocols).toEqual(['crowbar.relay.v1', 'crowbar.token.cached'])
   })
 })

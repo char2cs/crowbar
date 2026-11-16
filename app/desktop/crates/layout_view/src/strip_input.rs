@@ -11,6 +11,7 @@ use crate::strip_index::insertion_index;
 use crate::strip_tab::StripTab;
 use crate::tab_actions::{TabAction, TabActions, TabDrop};
 use crate::tab_look::TabLook;
+use crate::tab_seat::TabSeat;
 use crate::tab_state::TabState;
 
 impl LayoutView {
@@ -35,7 +36,7 @@ impl LayoutView {
             .panes()
             .iter()
             .enumerate()
-            .map(|(index, pane)| self.strip_tab(group, (index, pane), cx))
+            .map(|(index, pane)| self.strip_tab(group, TabSeat::at(pane, index), cx))
             .collect();
         let end = group.panes().len();
         Some(PaneStrip {
@@ -47,28 +48,29 @@ impl LayoutView {
     fn strip_tab(
         &self,
         group: &Group,
-        (index, pane): (usize, &PaneId),
+        seat: TabSeat<'_>,
         cx: &mut Context<'_, Self>,
     ) -> StripTab {
+        let pane = seat.pane;
         let look = self.look_of(pane);
         StripTab {
             pane: pane.clone(),
             label: look.label,
             icon: look.icon,
             state: state_in(group, pane),
-            actions: Self::actions_of(group, (index, pane), cx),
+            actions: Self::actions_of(group, seat, cx),
         }
     }
 
     fn actions_of(
         group: &Group,
-        (index, pane): (usize, &PaneId),
+        seat: TabSeat<'_>,
         cx: &mut Context<'_, Self>,
     ) -> TabActions {
         TabActions {
-            select: Self::select_action(pane, cx),
-            close: Self::strip_close_action(pane, cx),
-            drop: Self::drop_action(group.active(), index, cx),
+            select: Self::select_action(seat.pane, cx),
+            close: Self::strip_close_action(seat.pane, cx),
+            drop: Self::drop_action(group.active(), seat.index, cx),
         }
     }
 
@@ -134,14 +136,14 @@ impl LayoutView {
         let (view, onto) = (cx.entity(), onto.clone());
         Rc::new(move |subject, _, cx| {
             cx.stop_propagation();
-            Self::drop_into(&view, subject, (&onto, before), cx);
+            Self::drop_into(&view, subject, TabSeat::at(&onto, before), cx);
         })
     }
 
     fn drop_into(
         view: &gpui::Entity<Self>,
         subject: &DragSubject,
-        seat: (&PaneId, usize),
+        seat: TabSeat<'_>,
         cx: &mut gpui::App,
     ) {
         view.update(cx, |this, cx| this.strip_dropped(subject, seat, cx));
@@ -150,9 +152,12 @@ impl LayoutView {
     fn strip_dropped(
         &mut self,
         subject: &DragSubject,
-        (onto, before): (&PaneId, usize),
+        seat: TabSeat<'_>,
         cx: &mut Context<'_, Self>,
     ) {
+        let (onto, before) = (seat.pane, seat.index);
+        self.drop.clear();
+        cx.notify();
         let DragSubject::Pane(pane) = subject else {
             return;
         };
@@ -204,7 +209,8 @@ mod tests {
 
     fn joins(
         view: &LayoutView,
-        (dragged, target): (&str, &str),
+        dragged: &str,
+        target: &str,
     ) -> bool {
         view.joins_strip(&DragSubject::Pane(pane_id(dragged)), &pane_id(target))
     }
@@ -249,13 +255,35 @@ mod tests {
     }
 
     #[gpui::test]
+    fn dropping_on_a_strip_tab_ends_the_drag_and_releases_the_overlay(cx: &mut TestAppContext) {
+        let harness = open_with(cx, &stacked_layout(), stacking());
+        let (view, cx) = (harness.view, harness.cx);
+        let subject = DragSubject::Pane(pane_id("a"));
+        let drop = view.update(cx, |view, cx| {
+            let centre = view.bounds.center();
+            view.hover(&subject, centre, cx);
+            let strip = view.strip_of(&pane_id("b"), cx).expect("strip");
+            Rc::clone(&strip.tabs[0].actions.drop)
+        });
+        let hovering = view.read_with(cx, |view, _| view.drop.is_dragging());
+        cx.update(|window, cx| drop(&subject, window, cx));
+        let still = view.read_with(cx, |view, _| view.drop.is_dragging());
+        assert_eq!(
+            (hovering, still),
+            (true, false),
+            "dragging before, then not"
+        );
+    }
+
+    #[gpui::test]
     fn a_pane_joins_a_strip_only_when_both_stack_and_it_is_not_already_a_member(
         cx: &mut TestAppContext
     ) {
         let harness = open_with(cx, &stacked_layout(), stacking());
         let (view, cx) = (harness.view, harness.cx);
         let joins = view.update(cx, |view, _| {
-            [("b", "c"), ("a", "c"), ("c", "b")].map(|pair| joins(view, pair))
+            [("b", "c"), ("a", "c"), ("c", "b")]
+                .map(|(dragged, target)| joins(view, dragged, target))
         });
         assert_eq!(
             joins,

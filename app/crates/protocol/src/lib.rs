@@ -22,8 +22,6 @@
 //! ```
 
 mod app_phase;
-mod attachment_id;
-mod attachment_type;
 mod byte_counter;
 mod command_id;
 mod daemon_request;
@@ -72,8 +70,6 @@ mod string_id;
 mod theme_tokens;
 
 pub use app_phase::AppPhase;
-pub use attachment_id::AttachmentId;
-pub use attachment_type::AttachmentType;
 pub use command_id::CommandId;
 pub use daemon_request::{DaemonRequest, MAX_HEADER_BYTES, MAX_HEADERS};
 pub use daemon_response::DaemonResponse;

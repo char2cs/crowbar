@@ -39,6 +39,7 @@ mod strip_input;
 mod strip_tab;
 mod tab_actions;
 mod tab_look;
+mod tab_seat;
 mod tab_state;
 mod test_support;
 

@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use model::Layout;
@@ -71,18 +70,7 @@ impl LayoutStore {
     ) -> Result<()> {
         let text = serde_json::to_string(layout)
             .map_err(|source| Error::Parse(self.path.clone(), source))?;
-        let staged = self.path.with_extension("json.tmp");
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir)
-                .map_err(|source| Error::Write(dir.to_path_buf(), source))?;
-        }
-        let write = |path: &PathBuf| -> std::io::Result<()> {
-            let mut file = std::fs::File::create(path)?;
-            file.write_all(text.as_bytes())?;
-            file.sync_all()
-        };
-        write(&staged).map_err(|source| Error::Write(staged.clone(), source))?;
-        std::fs::rename(&staged, &self.path)
+        atomic_file::write(&self.path, text.as_bytes())
             .map_err(|source| Error::Write(self.path.clone(), source))
     }
 }

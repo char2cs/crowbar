@@ -6,6 +6,8 @@
 pub enum ChordSource {
     /// The default chord of the command.
     Default,
+    /// The chord the active preset binds.
+    Preset,
     /// A chord the user chose.
     Custom,
 }

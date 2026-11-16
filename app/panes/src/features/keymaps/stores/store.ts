@@ -52,6 +52,8 @@ interface KeymapStoreState {
     setOverride: (commandId: string, chord: string) => void
     /** Remove a user override, falling back to preset/default. */
     clearOverride: (commandId: string) => void
+    /** Replaces the overrides with the ones the shell owns; anything that is not a chord map means none. */
+    adoptShellOverrides: (overrides: unknown) => void
     /** Clear every user override. */
     resetOverrides: () => void
   }
@@ -80,6 +82,11 @@ const useKeymapStoreBase = create<KeymapStoreState>((set) => ({
         persist(OVERRIDES_KEY, next)
         return { overrides: next }
       })
+    },
+    adoptShellOverrides: (overrides) => {
+      const isChordMap =
+        overrides !== null && typeof overrides === 'object' && !Array.isArray(overrides)
+      set({ overrides: isChordMap ? (overrides as KeymapOverrides) : {} })
     },
     resetOverrides: () => {
       persist(OVERRIDES_KEY, {})

@@ -161,11 +161,13 @@ pub(super) fn subscribe_all(
 }
 
 pub(super) fn build_children(
-    (state, link, preferences_path): (&ShellState, &DaemonLink, &std::path::Path),
+    parts: &crate::shell_parts::ShellParts,
     requests: &async_channel::Sender<ShellRequest>,
     window: &mut Window,
     cx: &mut Context<'_, ShellView>,
 ) -> Built {
+    let (state, link) = (&parts.state, &*parts.link);
+    let preferences_path = parts.preferences_path.as_path();
     let (data, data_queued) = start_data(link, requests);
     let (layout, tabs, workspace, source) = build_panes((state, link, &data), requests, cx);
     let sidebar = build_sidebar((requests, &data), preferences_path, &workspace, cx);

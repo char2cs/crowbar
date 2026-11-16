@@ -17,6 +17,7 @@ use ui::Theme;
 use crate::auto_scroll::AutoScroll;
 use crate::cursor_blink::CursorBlink;
 use crate::drag_state::DragState;
+use crate::frame_batch::take_batch;
 use crate::line_cache::LineCache;
 use crate::paint_colors::PaintColors;
 use crate::search_session::SearchSession;
@@ -276,9 +277,7 @@ async fn feed_frames(
 ) -> Option<()> {
     loop {
         let first = frames.recv().await.ok()?;
-        let batch: Vec<DaemonFrame> = std::iter::once(first)
-            .chain(std::iter::from_fn(|| frames.try_recv().ok()))
-            .collect();
+        let batch = take_batch(first, &frames);
         view.update(cx, |view, cx| view.apply_frames(&batch, cx))
             .ok()?;
     }

@@ -71,7 +71,7 @@ fn custom_search() -> Row {
 fn clear_data() -> Row {
     let spec = ButtonSpec::new("Clear data", Action::backend(CLEAR_DATA))
         .enabled_when(Condition::capability(CLEAR_DATA))
-        .disabled_note("Not available on this system: browser tabs share their storage with the app itself, so clearing it would erase app data too.")
+        .disabled_note("Not available on this system.")
         .confirm(Confirm::new(
             "Clear browsing data?",
             "This signs you out of every site and deletes cached files and site storage of all browser tabs. Open pages keep what they already loaded until they reload.",

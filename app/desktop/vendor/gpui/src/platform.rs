@@ -1779,9 +1779,13 @@ impl Image {
             ImageFormat::Svg => {
                 let pixmap = svg_renderer.render_pixmap(&self.bytes, SvgSize::ScaleFactor(1.0))?;
 
-                let buffer =
-                    image::ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
-                        .unwrap();
+                let (width, height) = (pixmap.width(), pixmap.height());
+                let mut pixels = pixmap.take();
+                // Convert from RGBA to BGRA.
+                for pixel in pixels.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+                let buffer = image::ImageBuffer::from_raw(width, height, pixels).unwrap();
 
                 SmallVec::from_elem(Frame::new(buffer), 1)
             }

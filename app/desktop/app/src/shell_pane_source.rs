@@ -60,6 +60,22 @@ impl ShellPaneSource {
     ) {
         self.bars.show_address(pane, address, cx);
     }
+
+    pub(crate) fn toggle_pick(
+        &self,
+        pane: &PaneId,
+        cx: &mut App,
+    ) -> pane_host::BrowseAction {
+        self.bars.toggle_pick(pane, cx)
+    }
+
+    pub(crate) fn finish_pick(
+        &self,
+        pane: &PaneId,
+        cx: &mut App,
+    ) -> bool {
+        self.bars.finish_pick(pane, cx)
+    }
 }
 
 impl layout_view::PaneSource for ShellPaneSource {

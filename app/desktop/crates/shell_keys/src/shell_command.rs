@@ -5,6 +5,8 @@ pub enum ShellCommand {
     NewTab,
     /// Start a chat.
     NewChat,
+    /// Start a chat that opens on its terminal.
+    NewChatTerminal,
     /// Close the active tab.
     CloseTab,
     /// Open the tab that was closed last again.

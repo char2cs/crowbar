@@ -12,9 +12,11 @@
 mod binding;
 mod ends;
 mod error;
+mod reconnect;
 mod rest;
 mod session_base;
 mod stream;
+mod stream_end;
 mod terminal_sessions;
 mod wire;
 

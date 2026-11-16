@@ -10,6 +10,7 @@ const INSET: f32 = 12.0;
 const TOP_WIDTH: f32 = 340.0;
 const WARNING_OPACITY: f32 = 1.0;
 const QUIET_OPACITY: f32 = 0.7;
+const SEGMENT_GAP: &str = "  ";
 
 #[derive(Debug, Default)]
 pub(crate) struct ReadoutView {
@@ -52,14 +53,16 @@ impl Render for ReadoutView {
             .absolute()
             .flex()
             .flex_col()
-            .items_center()
+            .items_start()
             .justify_end()
             .text_size(px(TEXT_SIZE))
             .font_family(theme.mono_family())
             .text_color(color)
             .opacity(opacity_of(&self.lines))
-            .child(self.lines.build.clone())
-            .child(self.lines.net.clone())
+            .child(format!(
+                "{}{SEGMENT_GAP}{}",
+                self.lines.build, self.lines.net
+            ))
             .child(self.lines.stats.clone());
         match self.dock {
             ReadoutDock::Left(width) => text

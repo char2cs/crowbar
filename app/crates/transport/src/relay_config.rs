@@ -5,8 +5,8 @@ const DEFAULT_MAX_PER_PANE: usize = 32;
 const DEFAULT_MAX_HANDSHAKES: usize = 64;
 const DEFAULT_HANDSHAKE_SECS: u64 = 3;
 const DEFAULT_IO_TIMEOUT_SECS: u64 = 10;
-const DEFAULT_TOKEN_TTL_HOURS: u64 = 12;
-const DEFAULT_MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+const DEFAULT_TOKEN_TTL_MINUTES: u64 = 5;
+const DEFAULT_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Limits and timeouts of the loopback relay.
 ///
@@ -52,7 +52,7 @@ impl Default for RelayConfig {
             open_timeout: Duration::from_secs(DEFAULT_IO_TIMEOUT_SECS),
             write_timeout: Duration::from_secs(DEFAULT_IO_TIMEOUT_SECS),
             close_grace: Duration::from_secs(2),
-            token_ttl: Duration::from_hours(DEFAULT_TOKEN_TTL_HOURS),
+            token_ttl: Duration::from_mins(DEFAULT_TOKEN_TTL_MINUTES),
             max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
             upstream_idle: None,
             client_idle: None,
@@ -70,6 +70,10 @@ mod tests {
         assert!(config.max_per_pane < config.max_connections);
         assert!(config.handshake_timeout > Duration::ZERO);
         assert!(config.token_ttl > config.handshake_timeout);
+        assert!(
+            config.token_ttl <= Duration::from_mins(15),
+            "a token only has to outlive the connect that uses it"
+        );
         assert!(
             config.max_message_bytes >= 16 * 1024 * 1024,
             "a terminal snapshot must fit"

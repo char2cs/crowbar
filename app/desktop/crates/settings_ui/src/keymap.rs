@@ -42,8 +42,24 @@ impl<'a> Keymap<'a> {
     ) -> Option<Chord> {
         match self.overrides(group).get(&shortcut.command) {
             Some(text) => Chord::parse(text),
-            None => shortcut.default.clone(),
+            None => self
+                .preset_chord(group, shortcut)
+                .or_else(|| shortcut.default.clone()),
         }
+    }
+
+    fn preset_chord(
+        &self,
+        group: &ShortcutGroup,
+        shortcut: &Shortcut,
+    ) -> Option<Chord> {
+        let active = self.document.value(group.preset.as_ref()?)?;
+        let active = active.as_text()?;
+        shortcut
+            .presets
+            .iter()
+            .find(|(preset, _)| preset == active)
+            .map(|(_, chord)| chord.clone())
     }
 
     pub(crate) fn source(
@@ -53,6 +69,9 @@ impl<'a> Keymap<'a> {
     ) -> ChordSource {
         if self.overrides(group).contains_key(&shortcut.command) {
             return ChordSource::Custom;
+        }
+        if self.preset_chord(group, shortcut).is_some() {
+            return ChordSource::Preset;
         }
         ChordSource::Default
     }
@@ -120,6 +139,14 @@ mod tests {
         )
     }
 
+    fn tabs_new_override(custom: Option<&str>) -> BTreeMap<String, String> {
+        let mut own = BTreeMap::new();
+        if let Some(text) = custom {
+            own.insert("tabs.new".to_owned(), text.to_owned());
+        }
+        own
+    }
+
     fn first_group(schema: &Schema) -> &ShortcutGroup {
         schema
             .pages()
@@ -182,6 +209,35 @@ mod tests {
         assert!(!Keymap::new(&schema, &document(&[])).has_custom());
     }
 
+    fn a_preset_binds_between_the_override_and_the_default() {
+        let group = ShortcutGroup::new("Tabs", "overrides")
+            .preset_from("preset")
+            .shortcut(Shortcut::new("tabs.new", "New tab", "mod+t").in_preset("compact", "mod+r"));
+        let pages = vec![Page::new("keybindings", "Keybindings", "keyboard").block(group)];
+        let schema = Schema::new(pages).unwrap();
+        let group = first_group(&schema);
+        let cases = [
+            ("default", None, "mod+t", ChordSource::Default),
+            ("compact", None, "mod+r", ChordSource::Preset),
+            ("compact", Some("mod+k"), "mod+k", ChordSource::Custom),
+        ];
+        for (preset, custom, chord, source) in cases {
+            let own = tabs_new_override(custom);
+            let values = Values::default()
+                .with("preset", Value::Text(preset.to_owned()))
+                .with("overrides", Value::Map(own));
+            let document = Document::new(values, Values::default());
+            let keymap = Keymap::new(&schema, &document);
+            let found = keymap.chord(group, &group.shortcuts[0]);
+            assert_eq!(found.as_ref().map(Chord::as_str), Some(chord), "{preset}");
+            assert_eq!(
+                keymap.source(group, &group.shortcuts[0]),
+                source,
+                "{preset}"
+            );
+        }
+    }
+
     fn a_chord_shared_by_two_commands_is_a_conflict_for_both() {
         let schema = schema();
         let group = first_group(&schema);
@@ -206,6 +262,10 @@ mod tests {
             overrides_win_over_defaults_and_empty_means_unbound,
         ),
         ("sources and custom detection", sources_and_custom_detection),
+        (
+            "a preset binds between the override and the default",
+            a_preset_binds_between_the_override_and_the_default,
+        ),
         (
             "a chord shared by two commands is a conflict for both",
             a_chord_shared_by_two_commands_is_a_conflict_for_both,

@@ -79,7 +79,8 @@ impl Arguments {
             "loading" => DemoData::loading(),
             "merge" => DemoData::reference().with_merge_box(MergeBox {
                 parent: Some("main".into()),
-                uncommitted: vec!["src/lib.rs".into(), "src/main.rs".into()],
+                uncommitted: vec!["README.md".into(), "new.txt".into()],
+                blocked: Some("2 uncommitted changes — commit them first.".into()),
                 ..MergeBox::default()
             }),
             _ => DemoData::reference(),

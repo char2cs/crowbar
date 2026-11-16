@@ -76,7 +76,7 @@ impl DropHover {
             .get_or_insert_with(|| Overlays::open(cx, hit.window_bounds));
         guard.update(hit.window_bounds);
         self.subject = Some(hit.subject.clone());
-        let target = DropTarget::resolve(hit.subject, hit.point, (hit.slots, hit.joinable));
+        let target = DropTarget::resolve(hit.subject, hit.point, hit.slots, hit.joinable);
         let rect = target
             .as_ref()
             .and_then(|target| preview_rect(target, hit.slots));

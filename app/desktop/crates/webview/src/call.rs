@@ -60,6 +60,13 @@ pub enum Call {
         /// The view that had focus.
         id: WebViewId,
     },
+    /// The pixels of these views were asked for together, in one batch.
+    SnapshotAll {
+        /// The views, in the order asked.
+        ids: Vec<WebViewId>,
+    },
+    /// The browser views' storage was cleared.
+    ClearBrowsingData,
     /// A view was destroyed.
     Destroy {
         /// The view.

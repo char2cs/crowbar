@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, IntoElement as _, ParentElement as _, Pixels, RenderImage, Styled, div, img, px,
+    AnyElement, IntoElement as _, ObjectFit, ParentElement as _, Pixels, RenderImage, Styled,
+    StyledImage as _, div, img, px,
 };
 use image::{Frame, RgbaImage};
 use pane_host::{FrozenPane, VisiblePane};
@@ -45,7 +46,11 @@ impl FrozenLayer {
                     .top(logical(bounds.y))
                     .w(logical(bounds.width))
                     .h(logical(bounds.height))
-                    .child(img(Arc::clone(image)).size_full())
+                    .child(
+                        img(Arc::clone(image))
+                            .size_full()
+                            .object_fit(ObjectFit::Fill),
+                    )
                     .into_any_element()
             })
             .collect()

@@ -9,8 +9,9 @@
 //!   process; each extension gets its own web context and process. Contexts live as long as
 //!   the host, so destroying views never leaks a network process.
 //! * macOS: web views are created on the main thread with the window's own `NSView`; each
-//!   extension gets its own data store. This path compiles on every CI run and is exercised
-//!   by the macOS job only.
+//!   extension gets its own data store (macOS 14+). `snapshot` returns no pixels yet, so overlays
+//!   hide the pane there; the macOS capture is tracked in docs/plans/2026-11-14-gpui-shell-pane-host.md.
+//!   This path compiles on every CI run and is exercised by the macOS job only.
 //!
 //! Pages talk to the shell through `window.ipc.postMessage` (one [`IpcHandler`] per view, so
 //! the closure is the sender's identity) and through the custom scheme served by a
@@ -41,6 +42,7 @@
 //! # Ok::<(), webview::Error>(())
 //! ```
 
+mod bitmap_rows;
 mod bounds;
 mod builder_support;
 #[cfg(feature = "mock")]
@@ -55,6 +57,7 @@ mod platform;
 mod protocol_handler;
 mod protocol_request;
 mod protocol_response;
+mod row_layout;
 mod snapshot;
 mod visibility;
 mod web_view_config;
@@ -63,6 +66,10 @@ mod web_view_host;
 mod web_view_id;
 mod web_view_kind;
 
+#[cfg(target_os = "linux")]
+mod bounded_wait;
+#[cfg(target_os = "linux")]
+mod create_reply;
 #[cfg(target_os = "linux")]
 mod gtk_state;
 #[cfg(target_os = "linux")]

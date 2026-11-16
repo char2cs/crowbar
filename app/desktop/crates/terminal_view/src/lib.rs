@@ -24,6 +24,7 @@ mod cursor_look;
 mod drag_state;
 mod focus_state;
 mod frame;
+mod frame_batch;
 mod key_conversion;
 mod line_cache;
 mod page_direction;

@@ -21,6 +21,7 @@ fn surface_for(
 ) -> Surface {
     let chat_first = stored.and_then(|value| value.as_bool()).unwrap_or(true);
     match command {
+        Command::NewTerminalThread(_) => Surface::Terminal,
         Command::NewThread(_) | Command::Thread(_) if !chat_first => Surface::Terminal,
         _ => Surface::Default,
     }
@@ -33,9 +34,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_plain_creates_follow_the_preference_and_chat_is_the_default() {
+    fn plain_creates_follow_the_preference_and_a_terminal_thread_always_opens_on_its_terminal() {
         let new = Command::NewThread(ProjectId::from("p"));
         let thread = Command::Thread(RowId::from("r"));
+        let terminal_thread = Command::NewTerminalThread(ProjectId::from("p"));
         let fork = Command::Fork {
             parent: RowId::from("r"),
             name: "f".into(),
@@ -44,10 +46,11 @@ mod tests {
         let chat_first = Some(Value::Bool(true));
         let cases = [
             (None, &new, Surface::Default),
-            (chat_first, &new, Surface::Default),
+            (chat_first.clone(), &new, Surface::Default),
             (terminal_first.clone(), &new, Surface::Terminal),
             (terminal_first.clone(), &thread, Surface::Terminal),
             (terminal_first.clone(), &fork, Surface::Default),
+            (chat_first, &terminal_thread, Surface::Terminal),
             (terminal_first, &Command::OpenSettings, Surface::Default),
         ];
         for (stored, command, expected) in cases {

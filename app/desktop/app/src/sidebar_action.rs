@@ -7,6 +7,7 @@ use crate::error::Result;
 pub(crate) enum SidebarAction {
     Open(PaneTypeId, Params),
     OpenSettings,
+    OpenHosts,
     OpenFile(String),
     ImportRepo,
     ChooseSpaceFolder(String),
@@ -22,9 +23,8 @@ pub(crate) fn action_for(command: &sidebar::Command) -> Result<SidebarAction> {
             chat_type()?,
             chat_params(row.as_str())?,
         )),
-        sidebar::Command::OpenSettings | sidebar::Command::OpenHostSettings(_) => {
-            Ok(SidebarAction::OpenSettings)
-        },
+        sidebar::Command::OpenSettings => Ok(SidebarAction::OpenSettings),
+        sidebar::Command::OpenHostSettings(_) => Ok(SidebarAction::OpenHosts),
         sidebar::Command::OpenFile(path) => Ok(SidebarAction::OpenFile(path.clone())),
         sidebar::Command::ImportRepo => Ok(SidebarAction::ImportRepo),
         sidebar::Command::ChooseSpaceFolder(host) => {
@@ -56,6 +56,10 @@ mod tests {
                 SidebarAction::Open(chat_type().unwrap(), chat_params("t1").unwrap()),
             ),
             (Command::OpenSettings, SidebarAction::OpenSettings),
+            (
+                Command::OpenHostSettings(sidebar::HostId::from("box")),
+                SidebarAction::OpenHosts,
+            ),
             (
                 Command::ChooseSpaceFolder(sidebar::HostId::from("box")),
                 SidebarAction::ChooseSpaceFolder("box".into()),

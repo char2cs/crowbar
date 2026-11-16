@@ -25,7 +25,20 @@ fn validate(value: &str) -> Result<()> {
             "the request target holds a backslash or a fragment",
         ));
     }
+    if has_dot_segment(value) {
+        return Err(invalid(
+            "the request target holds a `.` or `..` path segment",
+        ));
+    }
     Ok(())
+}
+
+fn has_dot_segment(value: &str) -> bool {
+    let path = value.split_once('?').map_or(value, |(path, _)| path);
+    path.split('/').any(|segment| {
+        let decoded = segment.to_ascii_lowercase().replace("%2e", ".");
+        decoded == "." || decoded == ".." || segment.to_ascii_lowercase().contains("%2f")
+    })
 }
 
 string_id!(
@@ -42,7 +55,13 @@ mod tests {
 
     #[test]
     fn accepts_absolute_paths_with_queries() {
-        for ok in ["/", "/v0/health", "/v0/threads?limit=5&q=a%20b"] {
+        for ok in [
+            "/",
+            "/v0/health",
+            "/v0/threads?limit=5&q=a%20b",
+            "/v0/x?v=../y",
+            "/v0/a..b",
+        ] {
             assert!(RequestTarget::new(ok).is_ok(), "{ok}");
         }
     }
@@ -63,6 +82,11 @@ mod tests {
             "/v0/\u{e9}",
             "/v0/x#frag",
             "/v0\\x",
+            "/v0/../etc",
+            "/v0/./x",
+            "/v0/%2e%2E/x",
+            "/v0/a%2Fb",
+            "/..",
         ] {
             assert!(RequestTarget::new(bad).is_err(), "{bad:?}");
         }

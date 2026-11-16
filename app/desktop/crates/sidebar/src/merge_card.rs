@@ -2,8 +2,8 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, Context, Div, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, div, px,
+    AnyElement, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, div, px,
 };
 use ui::{
     Button, ButtonSize, ButtonVariant, Checkbox, Icon, IconName, Palette, Select, Surface, Theme,
@@ -15,11 +15,11 @@ use crate::command::Command;
 use crate::merge_box::MergeBox;
 use crate::merge_facts::MergeFacts;
 use crate::merge_strategy::MergeStrategy;
-use crate::scale::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS, TEXT_LARGE, TEXT_SMALL};
+use crate::scale::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_SMALL};
 use crate::sidebar::Sidebar;
 
 const LIST_MAX_HEIGHT: f32 = 160.0;
-const SELECT_WIDTH: f32 = 250.0;
+const LINE_HEIGHT: f32 = 16.0;
 const DELETE_LABEL: &str = "Delete this branch and its chats after merging";
 
 fn path_row(
@@ -39,6 +39,7 @@ fn path_row(
         .items_center()
         .gap(SPACE_MD)
         .text_size(TEXT_SMALL)
+        .line_height(px(LINE_HEIGHT))
         .child(checkbox)
         .child(div().truncate().child(path.to_owned()))
 }
@@ -47,7 +48,11 @@ fn note(
     text: String,
     color: gpui::Hsla,
 ) -> Div {
-    div().text_size(TEXT_SMALL).text_color(color).child(text)
+    div()
+        .text_size(TEXT_SMALL)
+        .line_height(px(LINE_HEIGHT))
+        .text_color(color)
+        .child(text)
 }
 
 impl Sidebar {
@@ -63,7 +68,8 @@ impl Sidebar {
             .items_center()
             .gap(SPACE_MD)
             .p(SPACE_LG)
-            .text_size(TEXT_LARGE)
+            .text_size(TEXT_BODY)
+            .font_weight(FontWeight::MEDIUM)
             .child(
                 Icon::new(IconName::GitMerge)
                     .size(ICON_LARGE)
@@ -78,8 +84,8 @@ impl Sidebar {
             .rounded(radius::XL)
             .border_1()
             .border_color(palette.border())
-            .bg(palette.control_surface())
-            .text_color(palette.control_foreground())
+            .bg(palette.card())
+            .text_color(palette.foreground())
             .child(header);
         if facts.shows_content() {
             card = card.child(self.merge_content((&merge, facts), palette, cx));
@@ -152,7 +158,9 @@ impl Sidebar {
             .size(ButtonSize::Sm)
             .variant(ButtonVariant::Secondary)
             .on_click(cx.listener(|this, _, _, cx| this.commit_changes(cx)));
-        let commit = commit.when(!facts.can_commit(paths.len()), Button::disabled);
+        let drafted = !self.merge.message.read(cx).text().trim().is_empty();
+        let ready = drafted && facts.can_commit(paths.len());
+        let commit = commit.when(!ready, Button::disabled);
         div()
             .flex()
             .flex_col()
@@ -231,7 +239,7 @@ impl Sidebar {
         Select::new("merge-strategy", labels, at)
             .on(Surface::Chrome)
             .compact()
-            .width(px(SELECT_WIDTH))
+            .fill()
             .on_change(move |index, _, cx| {
                 sidebar.update(cx, |this, cx| this.choose_strategy(index, cx));
             })
@@ -263,11 +271,12 @@ impl Sidebar {
             });
         div()
             .flex()
-            .items_center()
+            .items_start()
             .gap(SPACE_MD)
             .text_size(TEXT_SMALL)
+            .line_height(px(LINE_HEIGHT))
             .child(checkbox)
-            .child(DELETE_LABEL)
+            .child(div().flex_1().min_w_0().child(DELETE_LABEL))
     }
 
     fn stop_button(cx: &mut Context<'_, Self>) -> Button {

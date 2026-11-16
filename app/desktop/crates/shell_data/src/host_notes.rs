@@ -107,14 +107,10 @@ impl HostNotes {
             path: self.path.clone(),
             source,
         })?;
-        let file = |source| Error::File {
+        atomic_file::write(&self.path, text.as_bytes()).map_err(|source| Error::File {
             path: self.path.clone(),
             source,
-        };
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(file)?;
-        }
-        std::fs::write(&self.path, text).map_err(file)
+        })
     }
 }
 

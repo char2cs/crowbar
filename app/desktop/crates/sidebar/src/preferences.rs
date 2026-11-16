@@ -95,7 +95,7 @@ impl Preferences {
         };
         let json = serde_json::to_string_pretty(self)
             .map_err(|error| write(std::io::Error::other(error)))?;
-        std::fs::write(path, json).map_err(write)
+        atomic_file::write(path, json.as_bytes()).map_err(write)
     }
 
     pub(crate) fn panel(&self) -> Panel {

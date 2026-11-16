@@ -48,6 +48,7 @@ impl RenderOnce for PaneCell {
         let (enter, leave, press) = (self.on_enter, self.on_leave, self.on_press);
         let id = ElementId::from(SharedString::from(self.pane.as_str().to_owned()));
         let (handle_left, _) = handle_origin(&frame);
+        let offset = f32::from(self.strip.is_some()) * STRIP_HEIGHT;
         div()
             .id(id)
             .absolute()
@@ -59,12 +60,14 @@ impl RenderOnce for PaneCell {
                 route([&leave, &enter], usize::from(*hovered), window, cx);
             })
             .on_mouse_down(MouseButton::Left, move |_, window, cx| press(window, cx))
-            .child(body(
-                &frame,
-                self.slot,
-                (self.chrome, self.strip, self.content),
-                palette,
-            ))
+            .child(
+                body(&frame, self.slot, palette)
+                    .when_some(self.chrome, |frame, (chrome, height)| {
+                        frame.child(chrome_strip(chrome, offset, height))
+                    })
+                    .when_some(self.strip, ParentElement::child)
+                    .child(self.content),
+            )
             .child(ring(
                 &frame,
                 self.slot,
@@ -81,21 +84,15 @@ impl RenderOnce for PaneCell {
 fn body(
     frame: &PaneFrame,
     slot: Rect,
-    (chrome, strip, content): (Chrome, Option<PaneStrip>, AnyElement),
     palette: &Palette,
-) -> impl IntoElement {
-    let offset = f32::from(strip.is_some()) * STRIP_HEIGHT;
+) -> gpui::Div {
     boxed(frame, slot, palette.pane_border(), palette.pane_chrome_bg())
-        .when_some(chrome, |frame, (chrome, height)| {
-            frame.child(chrome_strip(chrome, (offset, height)))
-        })
-        .when_some(strip, ParentElement::child)
-        .child(content)
 }
 
 fn chrome_strip(
     chrome: AnyView,
-    (top, height): (f32, f32),
+    top: f32,
+    height: f32,
 ) -> gpui::Div {
     div()
         .absolute()

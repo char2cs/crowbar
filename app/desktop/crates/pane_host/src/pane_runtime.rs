@@ -12,6 +12,7 @@ pub(crate) struct PaneRuntime {
     pub(crate) slot: Option<SlotId>,
     pub(crate) stage: Stage,
     pub(crate) discard_state: bool,
+    pub(crate) violations: u32,
 }
 
 impl PaneRuntime {
@@ -22,6 +23,7 @@ impl PaneRuntime {
             slot: None,
             stage: Stage::Hidden,
             discard_state: false,
+            violations: 0,
         }
     }
 

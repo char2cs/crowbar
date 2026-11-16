@@ -23,11 +23,12 @@ pub(crate) fn home_thread(
     state: &State,
     project: &ProjectId,
     id: &str,
+    surface: Surface,
 ) -> Result<Plan, String> {
     let slot = host_of(state, project.as_str()).ok_or("this space is not loaded yet")?;
     let home = default_workspace(&slot.store, (project.as_str(), ""))
         .ok_or("this space has no home to run a thread in yet")?;
-    let body = chat_body(id, (&home.id, ""), Surface::Default);
+    let body = chat_body(id, (&home.id, ""), surface);
     let path = routes::chats(project.as_str(), "");
     let row = pending(id, NEW_THREAD, ("", ""));
     Ok(Plan::of(&slot.spec.id, vec![Call::post(path).json(body)])
@@ -39,7 +40,8 @@ pub(crate) fn home_thread(
 pub(crate) fn thread(
     state: &State,
     row: &str,
-    (id, surface): (&str, Surface),
+    id: &str,
+    surface: Surface,
 ) -> Result<Plan, String> {
     let target = resolve(state, row).ok_or("this row is not loaded any more")?;
     let workspace = workspace_for(state, &target)?;
@@ -251,14 +253,17 @@ mod tests {
 
     fn a_thread_under_a_chat_runs_in_its_workspace_and_a_home_thread_in_the_home() {
         let (state, _) = state();
-        let plan = thread(&state, "t", ("n", Surface::Default)).unwrap();
+        let plan = thread(&state, "t", "n", Surface::Default).unwrap();
         let body = plan.calls[0].body.clone().unwrap();
         assert_eq!(
             (body["workspaceId"].as_str(), body["parentId"].as_str()),
             (Some("b"), Some("t"))
         );
-        let home = home_thread(&state, &ProjectId::from("p"), "n").unwrap();
+        let home = home_thread(&state, &ProjectId::from("p"), "n", Surface::Default).unwrap();
         assert_eq!(home.host, "local");
+        let terminal = home_thread(&state, &ProjectId::from("p"), "n", Surface::Terminal);
+        let body = terminal.unwrap().calls[0].body.clone().unwrap();
+        assert_eq!(body["surface"].as_str(), Some("terminal"));
     }
 
     fn a_fork_of_a_home_row_is_refused_and_a_folder_with_no_row_needs_a_space() {

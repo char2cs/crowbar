@@ -173,6 +173,19 @@ impl Platform for MockPlatform {
         Ok(())
     }
 
+    fn snapshot_all(
+        &self,
+        ids: &[WebViewId],
+    ) -> Vec<Result<Option<crate::snapshot::Snapshot>>> {
+        self.record(Call::SnapshotAll { ids: ids.to_vec() });
+        ids.iter().map(|_| Ok(None)).collect()
+    }
+
+    fn clear_browsing_data(&self) -> Result<()> {
+        self.record(Call::ClearBrowsingData);
+        Ok(())
+    }
+
     fn destroy(
         &self,
         id: WebViewId,

@@ -103,6 +103,8 @@ icon_names! {
     PencilSimple => "pencil-simple",
     SidebarToggle => "sidebar-toggle",
     SidebarToggleRight => "sidebar-toggle-right",
+    Crosshair => "crosshair",
+    ArrowRight => "arrow-right",
 }
 
 #[cfg(test)]

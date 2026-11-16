@@ -52,11 +52,16 @@ impl ShellView {
     ) {
         self.remote_folders = None;
         self.update_overlay(cx);
-        if let PickerEvent::Chosen(path) = event {
-            let path = path.clone();
-            self.sidebar
-                .update(cx, |sidebar, cx| sidebar.set_space_folder(path, cx));
+        let PickerEvent::Chosen(path) = event else {
+            return;
+        };
+        if self.first_run.is_some() {
+            self.create_first_space(path, cx);
+            return;
         }
+        let path = path.clone();
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.set_space_folder(path, cx));
     }
 
     fn show_remote_folders(

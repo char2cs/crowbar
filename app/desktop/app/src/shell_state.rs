@@ -8,6 +8,8 @@ use webview::ParentWindow;
 use crate::browser_ids::BrowserIds;
 use crate::closed_panes::ClosedPanes;
 use crate::core_panes::{chat_params, chat_type};
+use crate::dirty_panes::DirtyPanes;
+use crate::dropped_files;
 use crate::error::{Error, Result};
 use crate::event_commands::commands_for;
 use crate::frozen_layer::FrozenLayer;
@@ -17,6 +19,7 @@ use crate::loaded_layout::LoadedLayout;
 use crate::outcome::Outcome;
 use crate::pane_opener::{open_at, open_commands};
 use crate::pane_spec::PaneSpec;
+use crate::save_report::SaveReport;
 use crate::serials::Serials;
 use crate::terminal_ids::TerminalIds;
 use crate::titles::Titles;
@@ -27,6 +30,9 @@ pub(crate) struct ShellState {
     notice: Option<String>,
     host: PaneHost,
     titles: Titles,
+    dirty: DirtyPanes,
+    open_limit: usize,
+    evicted: Vec<String>,
     browsers: BrowserIds,
     terminals: TerminalIds,
     serials: Serials,
@@ -68,6 +74,9 @@ impl ShellState {
             notice: quarantined.map(|path| notice_for(&path)),
             host,
             titles,
+            dirty: DirtyPanes::default(),
+            open_limit: crate::tab_cap::limit(None),
+            evicted: Vec::new(),
             browsers,
             terminals,
             serials,
@@ -80,12 +89,20 @@ impl ShellState {
         self.notice.take()
     }
 
+    pub(crate) fn save_reports(&self) -> async_channel::Receiver<SaveReport> {
+        self.writer.reports()
+    }
+
     pub(crate) fn layout(&self) -> &Layout {
         self.history.layout()
     }
 
     pub(crate) fn titles(&self) -> Titles {
         self.titles.clone()
+    }
+
+    pub(crate) fn dirty(&self) -> DirtyPanes {
+        self.dirty.clone()
     }
 
     pub(crate) fn browsers(&self) -> BrowserIds {
@@ -113,10 +130,41 @@ impl ShellState {
         }
     }
 
+    pub(crate) fn set_open_limit(
+        &mut self,
+        setting: Option<f64>,
+    ) {
+        self.open_limit = crate::tab_cap::limit(setting);
+    }
+
+    pub(crate) fn take_evicted(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.evicted)
+    }
+
+    fn make_room(
+        &mut self,
+        commands: Vec<Command>,
+    ) -> Vec<Command> {
+        let layout = self.history.layout();
+        let victims = crate::tab_cap::evictions(layout, &commands, self.open_limit, &self.dirty);
+        let names: Vec<String> = victims
+            .iter()
+            .map(|pane| {
+                self.titles
+                    .get(pane)
+                    .map_or_else(|| pane.to_string(), |t| t.to_string())
+            })
+            .collect();
+        self.evicted.extend(names);
+        let closing = victims.into_iter().map(|pane| Command::ClosePane { pane });
+        closing.chain(commands).collect()
+    }
+
     pub(crate) fn apply(
         &mut self,
         commands: Vec<Command>,
     ) {
+        let commands = self.make_room(commands);
         let mut applied = 0_usize;
         for command in commands {
             applied += usize::from(self.try_apply(command));
@@ -290,19 +338,36 @@ impl ShellState {
                 self.titles.set(pane, title);
                 outcome.titles_changed = true;
             },
+            HostEvent::DirtyChanged { pane, dirty: true } => {
+                self.dirty.mark(pane);
+                outcome.dirty_changed = true;
+            },
+            HostEvent::DirtyChanged { pane, dirty: false } => {
+                self.dirty.clear(&pane);
+                outcome.dirty_changed = true;
+            },
             HostEvent::OpenRequested {
                 type_id, params, ..
             } => self.open_pane(type_id, params),
             HostEvent::CommandRequested { command, .. } => outcome.commands.push(command),
             HostEvent::HoverChanged { pane, hovered } => outcome.hover.push((pane, hovered)),
             HostEvent::SettingRequested { key, value, .. } => outcome.settings.push((key, value)),
-            HostEvent::StateChanged { .. } | HostEvent::StateDiscarded { .. } => {},
-            HostEvent::ShellCall { frame, .. } => serve_frame(&frame),
-            HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
-            other => tracing::debug!(
-                ?other,
-                "a pane asked for something the shell does not serve yet"
+            HostEvent::OpenExternal { url } => {
+                log_failure(shell_platform::open_external(url.as_str()).map_err(|e| e.to_string()));
+            },
+            HostEvent::Reveal { path } => log_failure(
+                shell_platform::reveal_in_file_manager(Path::new(path.as_str()))
+                    .map_err(|e| e.to_string()),
             ),
+            HostEvent::FilesDropped { pane, paths }
+                if dropped_files::opens_files(self.history.layout(), &pane) =>
+            {
+                outcome.dropped.extend(paths);
+            },
+            HostEvent::StateChanged { .. }
+            | HostEvent::StateDiscarded { .. }
+            | HostEvent::FilesDropped { .. } => {},
+            HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
         }
     }
 
@@ -319,7 +384,7 @@ impl ShellState {
                 self.save_address(pane, &url);
             },
             browser_nav::PageUpdate::Title { title } => self.set_page_title(pane, title, outcome),
-            _ => {},
+            pick => outcome.picks.push((pane, pick)),
         }
     }
 
@@ -350,26 +415,11 @@ impl ShellState {
     fn forget_titles_of_closed_panes(&mut self) {
         let layout = self.history.layout();
         self.titles.retain(|pane| layout.pane(pane).is_some());
+        self.dirty.retain(|pane| layout.pane(pane).is_some());
     }
 }
 
-fn serve_frame(frame: &protocol::PaneFrame) {
-    let served = match frame {
-        protocol::PaneFrame::OpenExternal { url } => {
-            shell_platform::open_external(url.as_str()).map_err(|e| e.to_string())
-        },
-        protocol::PaneFrame::Reveal { path } => {
-            shell_platform::reveal_in_file_manager(Path::new(path.as_str()))
-                .map_err(|e| e.to_string())
-        },
-        other => {
-            tracing::debug!(
-                ?other,
-                "a pane asked for something the shell does not serve yet"
-            );
-            return;
-        },
-    };
+fn log_failure<E: std::fmt::Display>(served: std::result::Result<(), E>) {
     if let Err(error) = served {
         tracing::warn!(%error, "a pane's request could not be served");
     }

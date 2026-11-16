@@ -31,6 +31,8 @@ fn answer(
     }
 }
 
+const BROWSER_DIR: &str = "browser";
+
 pub(crate) struct GtkState {
     scheme: String,
     protocol: Arc<dyn ProtocolHandler>,
@@ -44,7 +46,7 @@ pub(crate) struct GtkState {
 impl GtkState {
     pub(crate) fn new(config: HostConfig) -> Self {
         let core_dir = config.data_dir.as_ref().map(|dir| dir.join("core"));
-        let browser_dir = config.data_dir.as_ref().map(|dir| dir.join("browser"));
+        let browser_dir = config.data_dir.as_ref().map(|dir| dir.join(BROWSER_DIR));
         Self {
             scheme: config.scheme,
             protocol: config.protocol,
@@ -138,6 +140,25 @@ impl GtkState {
             None::<&gtk::gio::Cancellable>,
             move |surface| answer(&reply, Ok(surface.ok().and_then(snapshot_of))),
         );
+    }
+
+    pub(crate) fn clear_browsing_data(&mut self) -> Result<()> {
+        let open = self
+            .views
+            .values()
+            .find(|live| live.kind == WebViewKind::Browser);
+        if let Some(live) = open {
+            return Ok(live.view.clear_all_browsing_data()?);
+        }
+        let Some(dir) = self.data_dir.as_ref().map(|dir| dir.join(BROWSER_DIR)) else {
+            return Ok(());
+        };
+        match std::fs::remove_dir_all(&dir) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                Err(Error::PlatformThread(error.to_string()))
+            },
+            _ => Ok(()),
+        }
     }
 
     pub(crate) fn destroy(

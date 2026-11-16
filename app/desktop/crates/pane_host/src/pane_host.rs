@@ -9,11 +9,14 @@ use protocol::{
 use webview::WebViewHost;
 
 use crate::browser_slot::browser_event;
+use crate::drop_message::drop_report;
 use crate::error::{Error, Result};
 use crate::failures::Failures;
 use crate::host_event::HostEvent;
 use crate::hover_message::parse_hover;
+use crate::inbox_gate::InboxGate;
 use crate::ipc_message::IpcMessage;
+use crate::ipc_notice::IpcNotice;
 use crate::layout_snapshot::LayoutSnapshot;
 use crate::origin_table::OriginTable;
 use crate::overlay::Overlay;
@@ -24,7 +27,7 @@ use crate::pane_lifecycle::PaneLifecycle;
 use crate::pane_phase::PanePhase;
 use crate::pane_registry::PaneRegistry;
 use crate::pane_runtime::PaneRuntime;
-use crate::slot_factory::{INBOX_CAPACITY, SlotFactory};
+use crate::slot_factory::SlotFactory;
 use crate::slot_pool::SlotPool;
 use crate::stage::Stage;
 use crate::sync_report::SyncReport;
@@ -47,6 +50,7 @@ pub struct PaneHost {
     pub(crate) overlay: Overlay,
     pub(crate) focused: Option<PaneId>,
     pub(crate) inbox: async_channel::Receiver<IpcMessage>,
+    pub(crate) gate: Arc<InboxGate>,
     pub(crate) config: PaneHostConfig,
 }
 
@@ -78,11 +82,12 @@ impl PaneHost {
         origins: OriginTable,
         transport: Arc<dyn DaemonTransport>,
     ) -> Self {
-        let (sink, inbox) = async_channel::bounded(INBOX_CAPACITY);
+        let (sink, inbox) = async_channel::unbounded();
+        let gate = Arc::new(InboxGate::new(sink));
         Self {
             registry: PaneRegistry::default(),
             pool: SlotPool::new(config.max_idle_slots),
-            factory: SlotFactory::new(webviews, config.clone(), sink),
+            factory: SlotFactory::new(webviews, config.clone(), Arc::clone(&gate)),
             origins,
             transport,
             panes: BTreeMap::new(),
@@ -92,6 +97,7 @@ impl PaneHost {
             overlay: Overlay::Inactive,
             focused: None,
             inbox,
+            gate,
             config,
         }
     }
@@ -112,6 +118,14 @@ impl PaneHost {
     #[must_use]
     pub fn inbox(&self) -> async_channel::Receiver<IpcMessage> {
         self.inbox.clone()
+    }
+
+    /// Deletes cookies, cache and site storage of every browser pane.
+    ///
+    /// # Errors
+    /// [`Error::WebView`] when the engine refuses.
+    pub fn clear_browsing_data(&self) -> Result<()> {
+        Ok(self.factory.clear_browsing_data()?)
     }
 
     /// Number of live web views, in use or idle.
@@ -173,7 +187,8 @@ impl PaneHost {
     /// Handles one message a page posted. `layout` is the model the pane state lives in.
     ///
     /// A message from a pane that no longer has a web view is stale and ignored. A malformed
-    /// frame fails the pane: its frame shows the error and the window is unaffected.
+    /// or oversized frame is answered with a `protocol.error` frame and the pane stays; only a
+    /// run of them fails the pane, inside its own frame.
     ///
     /// # Errors
     /// [`Error::WebView`] when answering the pane fails.
@@ -196,23 +211,20 @@ impl PaneHost {
         if let Some(events) = type_id.and_then(|type_id| browser_event(&message, type_id)) {
             return Ok(events);
         }
-        if let Some(event) = hover_report(&message) {
+        if let Some(event) = hover_report(&message).or_else(|| drop_report(&message)) {
             return Ok(vec![event]);
+        }
+        if let Some(notice) = IpcNotice::parse(&message.text) {
+            return self.report_notice(&message.pane, notice);
         }
         let frame = match decode_pane_frame(&message.text) {
             Ok(frame) => frame,
-            Err(error) => return self.reject(&message.pane, &error),
+            Err(error) => return self.refuse(&message.pane, format!("invalid message: {error}")),
         };
+        if let Some(runtime) = self.panes.get_mut(&message.pane) {
+            runtime.violations = 0;
+        }
         self.on_frame(message.pane, frame, layout)
-    }
-
-    fn reject(
-        &mut self,
-        pane: &PaneId,
-        error: &protocol::Error,
-    ) -> Result<Vec<HostEvent>> {
-        self.fail(pane, format!("invalid message: {error}"))?;
-        Ok(Vec::new())
     }
 
     /// Sends a frame to a pane's page.
@@ -587,6 +599,13 @@ mod tests {
             ],
             "p1 mounted+active, p2 mounted, then focus moved"
         );
+    }
+
+    #[test]
+    fn clearing_browsing_data_is_forwarded_to_the_web_view_engine() {
+        let f = fixture();
+        assert!(f.host.clear_browsing_data().is_ok(), "accepted");
+        assert_eq!(f.mock.calls(), [Call::ClearBrowsingData]);
     }
 
     #[test]

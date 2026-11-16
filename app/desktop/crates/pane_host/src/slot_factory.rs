@@ -4,23 +4,21 @@ use std::sync::Arc;
 use webview::{Bounds, IpcHandler, Visibility, WebViewConfig, WebViewHost, WebViewKind};
 
 use crate::bootstrap::bootstrap_script;
-use crate::browser_slot::page_handler;
+use crate::browser_slot::{page_handler, pick_handler};
+use crate::drop_message::drop_handler;
 use crate::error::Result;
+use crate::inbox_gate::InboxGate;
 use crate::ipc_envelope::open_envelope;
-use crate::ipc_message::IpcMessage;
 use crate::pane_host_config::PaneHostConfig;
 use crate::slot::Slot;
 use crate::slot_id::SlotId;
 use crate::slot_owner::SlotOwner;
 use crate::slot_request::{BLANK_URL, SlotRequest};
 
-pub(crate) const INBOX_CAPACITY: usize = 256;
-const MAX_MESSAGE_BYTES: usize = 1 << 20;
-
 pub(crate) struct SlotFactory {
     webviews: WebViewHost,
     config: PaneHostConfig,
-    sink: async_channel::Sender<IpcMessage>,
+    gate: Arc<InboxGate>,
     next: Cell<u64>,
 }
 
@@ -28,14 +26,25 @@ impl SlotFactory {
     pub(crate) fn new(
         webviews: WebViewHost,
         config: PaneHostConfig,
-        sink: async_channel::Sender<IpcMessage>,
+        gate: Arc<InboxGate>,
     ) -> Self {
         Self {
             webviews,
             config,
-            sink,
+            gate,
             next: Cell::new(0),
         }
+    }
+
+    pub(crate) fn clear_browsing_data(&self) -> webview::Result<()> {
+        self.webviews.clear_browsing_data()
+    }
+
+    pub(crate) fn snapshot_all(
+        &self,
+        ids: &[webview::WebViewId],
+    ) -> Vec<webview::Result<Option<webview::Snapshot>>> {
+        self.webviews.snapshot_all(ids)
     }
 
     pub(crate) fn create(
@@ -72,7 +81,7 @@ impl SlotFactory {
         self.pane_config((kind.clone(), bounds), owner)
     }
 
-    // SPEC: a browser web view gets no bootstrap script, no script bridge and no relay token, so a page the user browses to can never reach the daemon.
+    // SPEC: a browser web view gets no bootstrap script and no relay token, and its ipc channel accepts only the result of a pick, so a page the user browses to can never reach the daemon.
     fn browser_config(
         &self,
         bounds: Bounds,
@@ -84,8 +93,8 @@ impl SlotFactory {
             kind: WebViewKind::Browser,
             visibility: Visibility::Hidden,
             initialization_script: None,
-            on_ipc: Arc::new(|_| {}),
-            on_page: Some(page_handler(owner.clone(), self.sink.clone())),
+            on_ipc: pick_handler(owner.clone(), self.gate.sink()),
+            on_page: Some(page_handler(owner.clone(), self.gate.sink())),
         }
     }
 
@@ -101,7 +110,11 @@ impl SlotFactory {
             visibility: Visibility::Hidden,
             initialization_script: Some(bootstrap_script(&self.config.scheme, &self.config.host)),
             on_ipc: self.ipc_for(owner),
-            on_page: self.config.page_handler.clone(),
+            on_page: self
+                .config
+                .page_handler
+                .clone()
+                .or_else(|| Some(drop_handler(owner.clone(), self.gate.sink()))),
         }
     }
 
@@ -110,33 +123,23 @@ impl SlotFactory {
         owner: &SlotOwner,
     ) -> IpcHandler {
         let owner = owner.clone();
-        let sink = self.sink.clone();
-        Arc::new(move |text| deliver(&owner, &sink, &text))
+        let gate = Arc::clone(&self.gate);
+        Arc::new(move |text| deliver(&owner, &gate, &text))
     }
 }
 
 fn deliver(
     owner: &SlotOwner,
-    sink: &async_channel::Sender<IpcMessage>,
+    gate: &InboxGate,
     text: &str,
 ) {
-    if text.len() > MAX_MESSAGE_BYTES {
-        tracing::warn!(bytes = text.len(), "dropping an oversized pane message");
-        return;
-    }
     let Some((generation, frame)) = open_envelope(text) else {
         return;
     };
     let Some(pane) = owner.resolve(generation) else {
         return;
     };
-    let message = IpcMessage {
-        pane,
-        text: frame.to_owned(),
-    };
-    if sink.try_send(message).is_err() {
-        tracing::warn!("pane host inbox is full or closed; dropping a pane message");
-    }
+    gate.admit(pane, frame);
 }
 
 #[cfg(test)]
@@ -147,9 +150,10 @@ mod tests {
     use webview::{Bounds, Call, MockPlatform, ParentWindow, WebViewKind};
 
     use super::*;
+    use crate::ipc_message::IpcMessage;
 
     fn factory(mock: &Rc<MockPlatform>) -> (SlotFactory, async_channel::Receiver<IpcMessage>) {
-        let (sink, inbox) = async_channel::bounded(INBOX_CAPACITY);
+        let (sink, inbox) = async_channel::unbounded();
         let config = PaneHostConfig {
             scheme: "crowbar".into(),
             host: HostId::new("local").unwrap(),
@@ -157,7 +161,10 @@ mod tests {
             page_handler: None,
         };
         let webviews = WebViewHost::with_platform(Rc::<MockPlatform>::clone(mock));
-        (SlotFactory::new(webviews, config, sink), inbox)
+        (
+            SlotFactory::new(webviews, config, Arc::new(InboxGate::new(sink))),
+            inbox,
+        )
     }
 
     fn square() -> Bounds {
@@ -276,21 +283,5 @@ mod tests {
             "p2",
             "the new page"
         );
-    }
-
-    #[test]
-    fn oversized_messages_are_dropped_and_a_full_inbox_does_not_block() {
-        let mock = Rc::new(MockPlatform::default());
-        let (factory, inbox) = factory(&mock);
-        let slot = factory.create(request()).unwrap();
-        let generation = slot.owner.assign(PaneId::new("p1").unwrap());
-        let huge = format!("{generation}:{}", "x".repeat(MAX_MESSAGE_BYTES));
-        mock.simulate_ipc(slot.handle.id(), &huge).unwrap();
-        assert!(inbox.try_recv().is_err(), "oversized");
-        for _ in 0..=INBOX_CAPACITY {
-            mock.simulate_ipc(slot.handle.id(), &format!("{generation}:m"))
-                .unwrap();
-        }
-        assert_eq!(inbox.len(), INBOX_CAPACITY, "excess messages are dropped");
     }
 }

@@ -10,6 +10,7 @@ use crate::response::{
     DAEMON_UNAVAILABLE, Forwarded, error_response, marked_response, proxy_answer,
 };
 use crate::socket_locator::SocketLocator;
+use crate::socket_trust::verify;
 
 pub(crate) const CONNECT_ATTEMPTS: u32 = CONNECT_FAST_STEPS + 7;
 const CONNECT_FAST_STEPS: u32 = 40;
@@ -17,7 +18,7 @@ const CONNECT_FAST_DELAY: Duration = Duration::from_millis(25);
 const CONNECT_RETRY_BASE: Duration = Duration::from_millis(100);
 const CONNECT_RETRY_CAP: Duration = Duration::from_secs(1);
 const MAX_BACKOFF_STEPS: u32 = 8;
-const LOCAL_BODY_LIMIT: usize = 1024 * 1024 * 1024;
+const LOCAL_BODY_LIMIT: usize = 64 * 1024 * 1024;
 const UNREACHABLE_TEXT: &str = "the crowbar daemon is not reachable";
 
 pub(crate) fn connect_retry_delay(attempt: u32) -> Duration {
@@ -34,10 +35,12 @@ fn is_idempotent_read(method: &Method) -> bool {
 
 pub(crate) async fn connect_once(locator: &dyn SocketLocator) -> Result<UnixStream, Error> {
     let path = locator.socket_path().ok_or(Error::NoSocket)?;
-    UnixStream::connect(&path).await.map_err(|e| {
+    let stream = UnixStream::connect(&path).await.map_err(|e| {
         tracing::debug!("daemon socket {} not connectable: {e}", path.display());
         Error::LocalSocket(e)
-    })
+    })?;
+    verify(&path, &stream)?;
+    Ok(stream)
 }
 
 pub(crate) async fn connect<W, F>(
@@ -84,6 +87,19 @@ where
     W: FnMut(u32) -> F,
     F: Future<Output = ()>,
 {
+    forward_limited(locator, request, wait, LOCAL_BODY_LIMIT).await
+}
+
+async fn forward_limited<W, F>(
+    locator: &dyn SocketLocator,
+    request: Request<Vec<u8>>,
+    wait: W,
+    limit: usize,
+) -> Forwarded
+where
+    W: FnMut(u32) -> F,
+    F: Future<Output = ()>,
+{
     let stream = match connect_for(request.method(), locator, wait).await {
         Ok(stream) => stream,
         Err(e) => {
@@ -95,7 +111,7 @@ where
             ));
         },
     };
-    match exchange(Box::new(stream), request, LOCAL_BODY_LIMIT).await {
+    match exchange(Box::new(stream), request, limit).await {
         Ok(response) => Ok(response),
         Err(Error::TooLarge) => proxy_answer(error_response(
             StatusCode::BAD_GATEWAY,
@@ -243,5 +259,17 @@ mod tests {
         assert_eq!(answer.status(), 200);
         assert_eq!(answer.body(), b"ok");
         assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn a_response_over_the_limit_is_refused_with_a_clear_error() {
+        let dir = TempDir::new().unwrap();
+        let path = socket(&dir);
+        serve_ok_once(&path);
+        let answer = forward_limited(&path, request(Method::GET), counting(&AtomicU32::new(0)), 1)
+            .await
+            .unwrap_err();
+        assert_eq!(answer.status(), 502);
+        assert_eq!(answer.body(), b"local response too large");
     }
 }

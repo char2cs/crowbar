@@ -49,12 +49,7 @@ impl WindowStore {
             path: self.path.clone(),
             source,
         })?;
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|source| self.io(source))?;
-        }
-        let staging = self.path.with_extension("json.tmp");
-        std::fs::write(&staging, text).map_err(|source| self.io(source))?;
-        std::fs::rename(&staging, &self.path).map_err(|source| self.io(source))
+        atomic_file::write(&self.path, text.as_bytes()).map_err(|source| self.io(source))
     }
 
     fn io(

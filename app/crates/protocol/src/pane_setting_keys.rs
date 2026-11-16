@@ -1,8 +1,8 @@
 /// The settings a version 1 `settings` frame may carry, by their names in the settings
-/// catalog: editor, terminal, browser, file tree, typography, icon theme, tab limit and chat
-/// landing surface. The theme itself travels in the `theme` frame, and shell-only settings
+/// catalog: editor, terminal, browser, file tree, typography, icon theme, tab limit, chat
+/// landing surface and the user's keybinding overrides for the chords the panes serve themselves. The theme itself travels in the `theme` frame, and shell-only settings
 /// (sidebar, tab list, window) never leave the shell.
-pub const PANE_SETTING_KEYS: [&str; 45] = [
+pub const PANE_SETTING_KEYS: [&str; 46] = [
     "autoSave",
     "fontFamily",
     "fontSize",
@@ -48,6 +48,7 @@ pub const PANE_SETTING_KEYS: [&str; 45] = [
     "showGitStatusInFileTree",
     "compactGitStatusBadges",
     "diffViewMode",
+    "keybindingUserOverrides",
 ];
 
 #[cfg(test)]
@@ -62,6 +63,10 @@ mod tests {
             assert!(SettingKey::new(key).is_ok(), "{key}");
             assert!(seen.insert(key), "{key} twice");
         }
+        assert!(
+            seen.contains("keybindingUserOverrides"),
+            "panes serve their own chords"
+        );
     }
 
     #[test]

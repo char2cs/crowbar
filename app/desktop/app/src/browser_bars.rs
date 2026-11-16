@@ -3,9 +3,11 @@ use std::collections::BTreeMap;
 
 use browser_chrome::{BrowserBar, BrowserBarEvent};
 use gpui::{AnyView, App, AppContext as _, Entity};
+use pane_host::BrowseAction;
 use protocol::PaneId;
 
 use crate::browser_ids::BrowserIds;
+use crate::picking_panes::PickingPanes;
 use crate::shell_request::ShellRequest;
 
 const CHROME_HEIGHT: f32 = 40.0;
@@ -13,6 +15,7 @@ const CHROME_HEIGHT: f32 = 40.0;
 pub(crate) struct BrowserBars {
     ids: BrowserIds,
     bars: RefCell<BTreeMap<PaneId, Entity<BrowserBar>>>,
+    picking: PickingPanes,
     requests: async_channel::Sender<ShellRequest>,
 }
 
@@ -24,6 +27,7 @@ impl BrowserBars {
         Self {
             ids,
             bars: RefCell::default(),
+            picking: PickingPanes::default(),
             requests,
         }
     }
@@ -61,6 +65,43 @@ impl BrowserBars {
         if let Some(bar) = bar {
             bar.update(cx, |bar, cx| bar.set_address(address, cx));
         }
+    }
+
+    pub(crate) fn toggle_pick(
+        &self,
+        pane: &PaneId,
+        cx: &mut App,
+    ) -> BrowseAction {
+        let action = self.picking.toggle(pane);
+        self.show_picking(pane, cx);
+        action
+    }
+
+    pub(crate) fn finish_pick(
+        &self,
+        pane: &PaneId,
+        cx: &mut App,
+    ) -> bool {
+        let pending = self.picking.finish(pane);
+        self.show_picking(pane, cx);
+        pending
+    }
+
+    fn show_picking(
+        &self,
+        pane: &PaneId,
+        cx: &mut App,
+    ) {
+        let picking = self.picking.is_picking(pane);
+        let bar = self.bars.borrow().get(pane).cloned();
+        let Some(bar) = bar else {
+            return;
+        };
+        if picking {
+            bar.update(cx, BrowserBar::begin_pick);
+            return;
+        }
+        bar.update(cx, BrowserBar::end_pick);
     }
 
     fn create(

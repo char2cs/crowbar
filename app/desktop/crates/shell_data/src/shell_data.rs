@@ -28,6 +28,7 @@ use crate::settings_slot::SettingsSlot;
 use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_view::SidebarView;
 use crate::state::State;
+use crate::system_check::SystemCheck;
 use crate::system_fonts::SystemFonts;
 
 /// Owns the stream tasks; dropping it stops them.
@@ -162,6 +163,7 @@ impl ShellData {
                 | Command::OpenAllFiles { .. }
                 | Command::OpenTerminalAt { .. }
                 | Command::UploadFile { .. }
+                | Command::UploadPaths { .. }
                 | Command::GenerateImage { .. }
                 | Command::AddFolderToWorkspace
                 | Command::CreateEnvTemplate { .. }
@@ -241,6 +243,30 @@ impl ShellData {
         let reading = Arc::clone(&core);
         self.settings.install(move |key| reading.get(key));
         Ok(core)
+    }
+
+    /// Probes git and the forge CLIs on this computer's daemon, signalling `signal` as each answers.
+    ///
+    /// # Errors
+    /// [`Error::Stream`] when no local host is followed.
+    pub fn system_check(
+        &self,
+        signal: ChangeSignal,
+    ) -> Result<Arc<SystemCheck>> {
+        let local = self
+            .hub
+            .read(State::local_client)
+            .ok_or_else(|| Error::Stream("no local host is followed".to_owned()))?;
+        Ok(SystemCheck::start(
+            local,
+            self.commands.handle.clone(),
+            signal,
+        ))
+    }
+
+    /// Whether this install follows a daemon of its own; a phone does not.
+    pub fn has_local_host(&self) -> bool {
+        self.hub.read(|state| state.local_client().is_some())
     }
 
     /// A fresh attempt at pairing a host, signalling `signal` after each of its steps.

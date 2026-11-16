@@ -40,6 +40,7 @@ const HOSTS: &str = "hosts";
 const DESCRIPTORS: &str = "descriptors";
 const UPLOAD_DESCRIPTOR: &str = "agents.uploadDescriptor";
 const ADD_HOST: &str = "hosts.add";
+const CLEAR_BROWSING_DATA: &str = "browser.clearData";
 
 /// Thread-safe state behind the settings modal's backend: it holds the values, the agent list,
 /// and the changes the UI thread has yet to be told about.
@@ -230,6 +231,7 @@ impl SettingsCore {
             values.set(Key::new(key.as_str()), value.clone());
         }
         Snapshot::new(values)
+            .with_capability(CLEAR_BROWSING_DATA)
             .with_choices("themes", font_choices::themes())
             .with_choices("fonts", font_choices::fonts(&self.fonts))
             .with_choices("monoFonts", font_choices::monospace(&self.fonts))
@@ -327,6 +329,10 @@ impl SettingsCore {
         }
         if id == ADD_HOST {
             (self.outcome)(Outcome::PairHost);
+            return Ok(());
+        }
+        if id == CLEAR_BROWSING_DATA {
+            (self.outcome)(Outcome::ClearBrowsingData);
             return Ok(());
         }
         Err(Error::Unavailable(format!("{id} is not available here")))
@@ -797,6 +803,12 @@ mod tests {
         Box::pin(std::future::ready(()))
     }
 
+    fn clearing_browsing_data_is_offered_and_asks_the_shell_to_clear() {
+        let rig = open(|_| {});
+        assert!(rig.core.invoke("browser.clearData").is_ok());
+        assert_eq!(*locked(&rig.told), [Outcome::ClearBrowsingData]);
+    }
+
     type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
 
     fn unknown_sessions_as_a_case() -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
@@ -804,7 +816,11 @@ mod tests {
         Box::pin(std::future::ready(()))
     }
 
-    const CASES: [Case; 10] = [
+    const CASES: [Case; 11] = [
+        || {
+            clearing_browsing_data_is_offered_and_asks_the_shell_to_clear();
+            Box::pin(std::future::ready(()))
+        },
         adding_a_host_asks_the_shell_to_open_the_pairing_dialog,
         || Box::pin(the_agents_and_the_permission_level_come_from_the_daemon()),
         || Box::pin(the_lists_wait_for_the_daemon_link_instead_of_failing_on_its_startup()),

@@ -1,0 +1,20 @@
+[package]
+name = "oobe_view"
+description = "The first-run screens of the Crowbar shell: tagline, system check, first space, add host."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+shell_data.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

@@ -14,10 +14,12 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+atomic_file.workspace = true
 async-channel.workspace = true
 browser_chrome.workspace = true
 browser_nav.workspace = true
 branch_import_view.workspace = true
+oobe_view.workspace = true
 pairing_view.workspace = true
 remote_folder_picker.workspace = true
 command_palette.workspace = true

@@ -48,18 +48,7 @@ impl SettingFile {
             .collect();
         let text =
             serde_json::to_string_pretty(&stored).map_err(|source| self.json_error(source))?;
-        self.ensure_directory()?;
-        std::fs::write(&self.path, text).map_err(|source| self.file_error(source))
-    }
-
-    fn ensure_directory(&self) -> Result<()> {
-        let Some(parent) = self.path.parent() else {
-            return Ok(());
-        };
-        std::fs::create_dir_all(parent).map_err(|source| Error::File {
-            path: parent.to_owned(),
-            source,
-        })
+        atomic_file::write(&self.path, text.as_bytes()).map_err(|source| self.file_error(source))
     }
 
     fn file_error(

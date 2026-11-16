@@ -11,4 +11,8 @@ pub enum BrowseAction {
     Forward,
     /// Load the current page again.
     Reload,
+    /// Start picking elements in the page; the result comes back as a page update.
+    Pick,
+    /// End a pick in progress.
+    CancelPick,
 }

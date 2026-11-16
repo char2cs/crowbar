@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 use settings_ui::{Line, Record, RecordFlag, Tone};
 
+use crate::artwork;
 use crate::provider::Provider;
 use crate::switch::Switch;
 
@@ -15,13 +16,24 @@ pub(crate) fn of(providers: &[Provider]) -> Vec<Record> {
 }
 
 fn record(provider: &Provider) -> Record {
-    Record::new(provider.id.as_str(), name_of(provider))
+    let record = Record::new(provider.id.as_str(), name_of(provider))
         .status(status_of(provider))
-        .line(Line::plain(provider.id.as_str()).mono())
-        .flag(flag(CONNECTED, "Installed", provider.connected))
+        .line(Line::plain(provider.id.as_str()).mono());
+    with_artwork(record, provider)
+        .flag(flag(CONNECTED, "Installed", provider.connected).as_dot())
         .flag(flag(TOOLS, "Tools", provider.mcp_enabled))
         .flag(flag(ENABLED, "Enabled", provider.enabled))
         .movable()
+}
+
+fn with_artwork(
+    record: Record,
+    provider: &Provider,
+) -> Record {
+    match artwork::vetted(&provider.icon) {
+        Some(markup) => record.artwork(markup),
+        None => record,
+    }
 }
 
 fn flag(

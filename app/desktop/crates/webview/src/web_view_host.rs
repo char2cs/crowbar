@@ -7,6 +7,7 @@ use crate::error::Result;
 use crate::host_config::HostConfig;
 use crate::parent_window::ParentWindow;
 use crate::platform::Platform;
+use crate::snapshot::Snapshot;
 use crate::web_view_config::WebViewConfig;
 use crate::web_view_handle::WebViewHandle;
 use crate::web_view_id::WebViewId;
@@ -43,6 +44,23 @@ impl WebViewHost {
             platform,
             next_id: Cell::new(0),
         }
+    }
+
+    /// Deletes cookies, cache and site storage of every browser view.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped or the engine refuses.
+    pub fn clear_browsing_data(&self) -> Result<()> {
+        self.platform.clear_browsing_data()
+    }
+
+    /// The pixels of several views, asked together under one deadline, in the order of `ids`.
+    #[must_use]
+    pub fn snapshot_all(
+        &self,
+        ids: &[WebViewId],
+    ) -> Vec<Result<Option<Snapshot>>> {
+        self.platform.snapshot_all(ids)
     }
 
     /// Creates a web view inside `window` and returns its handle.
@@ -158,6 +176,14 @@ mod tests {
             mock.calls().is_empty() && mock.live_views().is_empty(),
             "nothing recorded"
         );
+    }
+
+    #[test]
+    fn clearing_browsing_data_reaches_the_backend() {
+        let mock = Rc::new(MockPlatform::default());
+        let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
+        assert!(host.clear_browsing_data().is_ok(), "accepted");
+        assert_eq!(mock.calls(), [Call::ClearBrowsingData]);
     }
 
     fn kinds() -> Vec<(&'static str, WebViewKind)> {
