@@ -83,7 +83,7 @@ mod tests {
     use crate::fingerprint::{certificate_digest, fingerprint_of};
     use rustls::client::danger::ServerCertVerifier;
     use rustls::crypto::aws_lc_rs;
-    // PLATFORM: rustls DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
+    // SPEC: https://docs.rs/rustls/latest/rustls/struct.DigitallySignedStruct.html DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
     use rustls::internal::msgs::codec::Codec;
     use rustls::pki_types::{
         CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,

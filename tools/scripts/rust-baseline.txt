@@ -64,7 +64,6 @@ app/crates/transport/src/origin_policy.rs	bool-param	1
 app/crates/transport/src/os_keychain.rs	bool-param	2
 app/crates/transport/src/pairing.rs	swallowed-error	1
 app/crates/transport/src/pin.rs	bool-param	1
-app/crates/transport/src/pinned_verifier.rs	platform-ref	1
 app/crates/transport/src/probe.rs	swallowed-error	2
 app/crates/transport/src/relay.rs	direct-time	1
 app/crates/transport/src/relay.rs	fn-count	1
@@ -84,7 +83,6 @@ app/crates/transport/src/socket_trust.rs	table-driven	1
 app/crates/transport/src/token_book.rs	bool-param	2
 app/crates/transport/src/transport.rs	real-infra	3
 app/crates/transport/src/unpinned_probe_verifier.rs	bool-param	2
-app/crates/transport/src/unpinned_probe_verifier.rs	platform-ref	1
 app/crates/transport/tests/relay.rs	bool-param	2
 app/crates/transport/tests/remote.rs	real-infra	2
 app/crates/transport/tests/support/echo_daemon.rs	bool-param	1
@@ -638,7 +636,6 @@ app/mobile/src-tauri/src/api_proxy/pairing.rs	result-string	9
 app/mobile/src-tauri/src/api_proxy/pairing/pairing_request.rs	result-string	1
 app/mobile/src-tauri/src/api_proxy/probe.rs	real-infra	1
 app/mobile/src-tauri/src/api_proxy/probe.rs	result-string	3
-app/mobile/src-tauri/src/api_proxy/probe/unpinned_probe_verifier.rs	platform-ref	1
 app/mobile/src-tauri/src/api_proxy/remote.rs	map-err-ignore	1
 app/mobile/src-tauri/src/api_proxy/remote.rs	real-infra	1
 app/mobile/src-tauri/src/api_proxy/remote.rs	result-string	3

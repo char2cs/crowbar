@@ -41,7 +41,7 @@ impl ServerCertVerifier for UnpinnedProbeVerifier {
         verify_tls13_signature(message, cert, dss, &self.algorithms)
     }
 
-    // PLATFORM: rustls accepts only what the pinned client accepts, so any host probed is one pairing can reach.
+    // SPEC: https://docs.rs/rustls/latest/rustls/ the verifier accepts only what the pinned client accepts, so any host probed is one pairing can reach.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         vec![SignatureScheme::ECDSA_NISTP256_SHA256]
     }
