@@ -6,12 +6,12 @@ use gpui::{
     App, AppContext, Div, DragMoveEvent, InteractiveElement, MouseButton, MouseDownEvent, Stateful,
     StatefulInteractiveElement, Window,
 };
+use ui::DraggedRow;
 
 use crate::drag_point::DragPoint;
 use crate::drag_press::DragPress;
-use crate::dragged_row::DraggedRow;
 use crate::row_action::{RowAction, RowHandler};
-use crate::row_ghost::RowGhost;
+use crate::row_ghost::{GhostBuild, RowGhost};
 use crate::row_id::RowId;
 
 type Reporter = (RowId, RowHandler);
@@ -19,16 +19,17 @@ type Reporter = (RowId, RowHandler);
 pub(crate) fn draggable(
     shell: Stateful<Div>,
     payload: DraggedRow,
+    ghost: GhostBuild,
     handler: &RowHandler,
 ) -> Stateful<Div> {
-    let reporter = || (payload.row.clone(), Rc::clone(handler));
+    let reporter = || (RowId::from(payload.row.as_ref()), Rc::clone(handler));
     let (pressed, over, dropped) = (reporter(), reporter(), reporter());
     shell
         .on_mouse_down(MouseButton::Left, move |event, window, cx| {
             report_press(&pressed, event, window, cx);
         })
-        .on_drag(payload, |dragged, _, _, cx| {
-            cx.new(|_| RowGhost::new(Rc::clone(&dragged.ghost)))
+        .on_drag(payload, move |_, _, _, cx| {
+            cx.new(|_| RowGhost::new(Rc::clone(&ghost)))
         })
         .on_drag_move(move |event: &DragMoveEvent<DraggedRow>, window, cx| {
             report_over(&over, event, window, cx);
@@ -58,7 +59,7 @@ fn report_drop(
     cx: &mut App,
 ) {
     handler(
-        RowAction::Dropped(dragged.row.clone(), row.clone()),
+        RowAction::Dropped(RowId::from(dragged.row.as_ref()), row.clone()),
         window,
         cx,
     );
@@ -75,7 +76,7 @@ fn report_over(
         return;
     }
     let point = DragPoint {
-        subject: event.drag(cx).row.clone(),
+        subject: RowId::from(event.drag(cx).row.as_ref()),
         target: row.clone(),
         bounds: event.bounds,
         at,
@@ -85,6 +86,8 @@ fn report_over(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use gpui::{IntoElement, Modifiers, ParentElement, TestAppContext, point, px};
     use ui::{Surface, Theme};
 
@@ -94,9 +97,13 @@ mod tests {
 
     fn payload() -> DraggedRow {
         DraggedRow {
-            row: RowId::from("r"),
-            ghost: Rc::new(|_| gpui::div().into_any_element()),
+            row: Arc::from("r"),
+            chat: None,
         }
+    }
+
+    fn ghost() -> GhostBuild {
+        Rc::new(|_| gpui::div().into_any_element())
     }
 
     #[gpui::test]
@@ -105,7 +112,7 @@ mod tests {
         let cx = mount(cx, move |_, cx| {
             let palette = Theme::of(cx).palette(Surface::Chrome);
             let shell = row_shell("row".into(), 0, palette).child("label");
-            draggable(shell, payload(), &handler)
+            draggable(shell, payload(), ghost(), &handler)
         });
         let none = Modifiers::none();
         let start = point(px(40.0), px(18.0));

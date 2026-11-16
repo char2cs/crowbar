@@ -47,7 +47,7 @@ impl Render for Sidebar {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| this.end_resize(cx)),
+                cx.listener(|this, _, _, cx| this.release_pointer(cx)),
             );
         let row = match geometry.side {
             DockSide::Left => row.child(side_column).child(handle).child(content),

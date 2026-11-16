@@ -1,16 +1,16 @@
 //! A normal row of the chats tree.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Icon, Palette, Spinner, Surface};
+use ui::{DraggedRow, Icon, Palette, Spinner, Surface};
 
 use crate::cluster_spec::ClusterSpec;
-use crate::dragged_row::DraggedRow;
 use crate::expansion::Expansion;
 use crate::mark_view::mark_view;
 use crate::presence::Presence;
@@ -25,6 +25,7 @@ use crate::row_ghost::GhostBuild;
 use crate::row_glyph::RowGlyph;
 use crate::row_id::RowId;
 use crate::row_input::RowInput;
+use crate::row_kind::RowKind;
 use crate::row_label::label;
 use crate::row_shell::row_shell;
 
@@ -75,15 +76,21 @@ impl RenderOnce for TreeRow {
             .child(cluster(&spec));
         let shell = self.drag.style(shell, palette);
         let shell = tracked(shell, &self.row.id, &self.bounds);
-        let payload = DraggedRow {
-            row: self.row.id.clone(),
-            ghost: ghost_of(self.row.clone(), self.expansion, self.width),
-        };
+        let payload = payload_of(&self.row);
+        let ghost = ghost_of(self.row.clone(), self.expansion, self.width);
         let (handler, free) = (Rc::clone(&self.handler), self.input.is_none());
-        let shell = shell.when(free, move |d| draggable(d, payload, &handler));
+        let shell = shell.when(free, move |d| draggable(d, payload, ghost, &handler));
         let shell = with_menu(shell, &self.row.id, &self.handler);
         let (id, handler) = (self.row.id.clone(), Rc::clone(&self.handler));
         shell.when(self.input.is_none(), move |d| open_on_click(d, id, handler))
+    }
+}
+
+fn payload_of(row: &Row) -> DraggedRow {
+    let id: Arc<str> = Arc::from(row.id.as_str());
+    DraggedRow {
+        chat: (row.kind == RowKind::Chat).then(|| Arc::clone(&id)),
+        row: id,
     }
 }
 
@@ -181,6 +188,18 @@ mod tests {
 
     use super::*;
     use crate::test_support::{chat, measure, recording_handler};
+
+    #[test]
+    fn only_a_chat_row_carries_a_chat_to_open() {
+        let chat_row = payload_of(&chat("Refactor"));
+        assert_eq!(
+            chat_row.chat.as_deref(),
+            Some(chat_row.row.as_ref()),
+            "chat"
+        );
+        let folder = Row::new("f", RowKind::Folder, 1, "src");
+        assert_eq!(payload_of(&folder).chat, None, "folder");
+    }
 
     #[gpui::test]
     fn the_ghost_is_the_bare_row_without_the_list_margins(cx: &mut TestAppContext) {

@@ -82,6 +82,23 @@ impl Sidebar {
         window.request_animation_frame();
     }
 
+    pub(crate) fn release_pointer(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.end_resize(cx);
+        self.release_drag(cx);
+    }
+
+    fn release_drag(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.drag.press.is_some() || self.drag.lifted.is_some() {
+            self.end_drag(cx);
+        }
+    }
+
     pub(crate) fn end_drag(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -182,6 +199,19 @@ mod tests {
             this.preview_drag((subject.clone(), target.clone(), DropMode::After), cx);
             assert!(this.drag.is_lifted(&subject), "source");
             assert_eq!(this.drag.mode_on(&target), Some(DropMode::After), "target");
+        });
+    }
+
+    #[gpui::test]
+    fn a_release_anywhere_ends_a_drag_that_never_reached_a_row(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoData::rich());
+        sidebar.update(cx, |this, cx| {
+            this.press_row(press("working"));
+            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
+            assert!(this.drag.lifted.is_some(), "lifted");
+            this.release_drag(cx);
+            assert!(this.drag.lifted.is_none(), "dropped elsewhere");
+            assert!(this.drag.press.is_none(), "press forgotten");
         });
     }
 

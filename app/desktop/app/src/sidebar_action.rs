@@ -12,6 +12,7 @@ pub(crate) enum SidebarAction {
     ChooseSpaceFolder(String),
     ImportBranches(String),
     Reveal(String),
+    SetFileTreeFlag { key: &'static str, on: bool },
     Unserved,
 }
 
@@ -33,6 +34,10 @@ pub(crate) fn action_for(command: &sidebar::Command) -> Result<SidebarAction> {
             Ok(SidebarAction::ImportBranches(row.as_str().to_owned()))
         },
         sidebar::Command::RevealFile { path } => Ok(SidebarAction::Reveal(path.clone())),
+        sidebar::Command::SetFileTreeFlag { flag, on } => Ok(SidebarAction::SetFileTreeFlag {
+            key: flag.setting_key(),
+            on: *on,
+        }),
         _ => Ok(SidebarAction::Unserved),
     }
 }
@@ -64,6 +69,16 @@ mod tests {
                     path: "src/a.rs".into(),
                 },
                 SidebarAction::Reveal("src/a.rs".into()),
+            ),
+            (
+                Command::SetFileTreeFlag {
+                    flag: sidebar::FileTreeFlag::Gitignored,
+                    on: false,
+                },
+                SidebarAction::SetFileTreeFlag {
+                    key: "showGitignoredFilesInFileTree",
+                    on: false,
+                },
             ),
         ];
         for (command, expected) in cases {

@@ -24,6 +24,7 @@ use crate::pairing_session::PairingSession;
 use crate::panel_loader;
 use crate::setting_file::SettingFile;
 use crate::settings_core::SettingsCore;
+use crate::settings_slot::SettingsSlot;
 use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_view::SidebarView;
 use crate::state::State;
@@ -35,6 +36,7 @@ pub struct ShellData {
     commands: SidebarCommands,
     fleet: Arc<Fleet>,
     desk: HostDesk,
+    settings: SettingsSlot,
 }
 
 impl std::fmt::Debug for ShellData {
@@ -100,6 +102,7 @@ impl ShellData {
             commands,
             fleet,
             desk,
+            settings: SettingsSlot::default(),
         }
     }
 
@@ -113,7 +116,7 @@ impl ShellData {
 
     /// The sidebar's read side.
     pub fn view(&self) -> SidebarView {
-        SidebarView::new(Arc::clone(&self.hub))
+        SidebarView::new(Arc::clone(&self.hub), self.settings.clone())
     }
 
     /// The on-disk root of the workspace the Files panel follows; `None` when none is followed
@@ -152,6 +155,7 @@ impl ShellData {
                 | Command::GenerateImage { .. }
                 | Command::AddFolderToWorkspace
                 | Command::CreateEnvTemplate { .. }
+                | Command::SetFileTreeFlag { .. }
         )
     }
 
@@ -218,12 +222,14 @@ impl ShellData {
             Arc::clone(&self.hub),
             self.commands.handle.clone(),
         );
-        SettingsCore::open(
+        let core = SettingsCore::open(
             parts,
             (local, signal),
             (fonts, Arc::clone(&self.commands.outcome)),
             (Arc::clone(&self.fleet), self.desk.clone()),
-        )
+        )?;
+        self.settings.install(&core);
+        Ok(core)
     }
 
     /// A fresh attempt at pairing a host, signalling `signal` after each of its steps.
@@ -443,6 +449,10 @@ mod tests {
     fn the_shells_own_commands_are_not_served_here() {
         assert!(!ShellData::serves(&Command::OpenSettings));
         assert!(!ShellData::serves(&Command::OpenRow(RowId::from("x"))));
+        assert!(!ShellData::serves(&Command::SetFileTreeFlag {
+            flag: sidebar::FileTreeFlag::Hidden,
+            on: false,
+        }));
         assert!(ShellData::serves(&Command::NewThread(ProjectId::from("p"))));
     }
 

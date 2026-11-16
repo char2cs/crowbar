@@ -7,9 +7,8 @@ use gpui::{
     AnyElement, Context, DragMoveEvent, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window, div, px,
 };
-use ui::{Motion, ScrollArea};
+use ui::{DraggedRow, Motion, ScrollArea};
 
-use crate::dragged_row::DraggedRow;
 use crate::edge_scroll::pull;
 use crate::notice::Notice;
 use crate::notice_row::NoticeRow;

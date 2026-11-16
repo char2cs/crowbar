@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use crate::file_density::FileDensity;
 use crate::file_tree_flag::FileTreeFlag;
 
-const DEFAULT_INDENT: f32 = 14.0;
+const DEFAULT_INDENT: f32 = 16.0;
 
 /// The file-tree settings the sidebar draws with. The shell reads them from its settings store
 /// on every render, so a change shows without a restart.
@@ -64,7 +64,7 @@ mod tests {
     #[test]
     fn the_defaults_match_the_settings_defaults_and_light_no_filter() {
         let view = FileTreeView::default();
-        assert!((view.indent - 14.0).abs() < f32::EPSILON);
+        assert!((view.indent - 16.0).abs() < f32::EPSILON);
         assert!(!view.compact_folders && !view.compact_badges);
         assert!(!view.any_filter_off());
     }

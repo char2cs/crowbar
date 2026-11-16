@@ -9,6 +9,7 @@ use sidebar::{
 
 use crate::files_reads;
 use crate::hub::Hub;
+use crate::settings_slot::SettingsSlot;
 use crate::sidebar_reads as reads;
 use crate::space_icons;
 
@@ -16,11 +17,15 @@ use crate::space_icons;
 #[derive(Debug, Clone)]
 pub struct SidebarView {
     hub: Arc<Hub>,
+    settings: SettingsSlot,
 }
 
 impl SidebarView {
-    pub(crate) fn new(hub: Arc<Hub>) -> Self {
-        Self { hub }
+    pub(crate) fn new(
+        hub: Arc<Hub>,
+        settings: SettingsSlot,
+    ) -> Self {
+        Self { hub, settings }
     }
 }
 
@@ -105,6 +110,10 @@ impl SidebarData for SidebarView {
     fn changes(&self) -> Changes {
         self.hub.read(reads::changes)
     }
+
+    fn file_tree_view(&self) -> sidebar::FileTreeView {
+        crate::file_tree_reads::view_of(|key| self.settings.get(key))
+    }
 }
 
 #[cfg(test)]
@@ -115,11 +124,12 @@ mod tests {
     #[test]
     fn the_view_answers_from_the_shared_state() {
         let (state, _) = state();
-        let view = SidebarView::new(Hub::new(state, Arc::new(|| {})));
+        let view = SidebarView::new(Hub::new(state, Arc::new(|| {})), SettingsSlot::default());
         assert_eq!(view.sync(), ScopeSync::Ready);
         assert_eq!(view.projects().len(), 1);
         assert!(!view.can_start_terminal_thread());
         assert_eq!(view.files().len(), 0);
         assert_eq!(view.changes(), Changes::default());
+        assert_eq!(view.file_tree_view(), sidebar::FileTreeView::default());
     }
 }
