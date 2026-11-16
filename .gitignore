@@ -45,3 +45,4 @@ app/mobile/icons-compiler/.build/
 app/mobile/.tauri/
 app/mobile/ios/.build/
 /core
+__pycache__/
