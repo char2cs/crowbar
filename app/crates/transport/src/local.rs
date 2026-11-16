@@ -56,11 +56,18 @@ where
         match connect_once(locator).await {
             Ok(stream) => return Ok(stream),
             Err(failure) if attempt >= CONNECT_ATTEMPTS => return Err(failure),
-            Err(_) => {},
+            Err(failure) => log_retry(attempt, &failure),
         }
         wait(attempt).await;
         attempt += 1;
     }
+}
+
+fn log_retry(
+    attempt: u32,
+    failure: &Error,
+) {
+    tracing::debug!("daemon socket not ready (attempt {attempt}): {failure}");
 }
 
 async fn connect_for<W, F>(

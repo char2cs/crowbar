@@ -6,6 +6,8 @@ use crate::error::Error;
 const API_PREFIX: &str = "/v0";
 const EXTENSION_ROUTES: &str = "/v0/ext/";
 const ENCODED_ESCAPES: [&str; 4] = ["%2e", "%2f", "%5c", "%00"];
+const FIRST_PRINTABLE: u8 = 0x20;
+const DELETE: u8 = 0x7f;
 
 /// Header the transport sets on every extension-scoped request, HTTP and WebSocket alike, and
 /// strips from every other, so a daemon can apply its own per-origin check without trusting the
@@ -51,7 +53,7 @@ fn allows(
 }
 
 fn is_plain_path(path: &str) -> bool {
-    let control = |b: u8| b < 0x20 || b == 0x7f || b == b'\\';
+    let control = |b: u8| b < FIRST_PRINTABLE || b == DELETE || b == b'\\';
     let is_malformed = !path.starts_with('/') || path.contains("//");
     if is_malformed || path.bytes().any(control) {
         return false;

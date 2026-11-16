@@ -23,10 +23,11 @@ pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// [`Error::NoCertificate`].
 pub async fn probe_fingerprint(endpoint: &str) -> Result<String, Error> {
     let endpoint = Endpoint::parse(endpoint)?;
-    match tokio::time::timeout(PROBE_TIMEOUT, read_fingerprint(&endpoint)).await {
-        Ok(result) => result,
-        Err(_) => Err(Error::ProbeTimeout(endpoint.to_string())),
-    }
+    let read = tokio::time::timeout(PROBE_TIMEOUT, read_fingerprint(&endpoint)).await;
+    read.map_err(|deadline| Error::ProbeTimeout {
+        endpoint: endpoint.to_string(),
+        deadline,
+    })?
 }
 
 async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, Error> {
@@ -51,7 +52,9 @@ async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, Error> {
         .and_then(|chain| chain.first())
         .map(|cert| fingerprint_of(cert))
         .ok_or_else(|| Error::NoCertificate(endpoint.to_string()))?;
-    tls.shutdown().await.ok();
+    if let Err(error) = tls.shutdown().await {
+        tracing::debug!("probe connection did not close cleanly: {error}");
+    }
     Ok(fingerprint)
 }
 

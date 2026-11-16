@@ -8,8 +8,9 @@ use tokio_tungstenite::{WebSocketStream, accept_hdr_async_with_config};
 use tokio_util::sync::CancellationToken;
 
 use crate::admission::Admission;
-use crate::bridge::{bridge, close_message};
+use crate::bridge::bridge;
 use crate::bridge_limits::BridgeLimits;
+use crate::close_message::close_message;
 use crate::error::Error;
 use crate::gate::Gate;
 use crate::host_target::HostTarget;
@@ -31,7 +32,7 @@ pub(crate) async fn run<S>(
     let client = match tokio::time::timeout(state.config.handshake_timeout, handshake).await {
         Ok(Ok(client)) => client,
         Ok(Err(e)) => return tracing::debug!("relay handshake refused: {e}"),
-        Err(_) => return tracing::debug!("relay handshake timed out"),
+        Err(elapsed) => return tracing::debug!("relay handshake timed out: {elapsed}"),
     };
     drop(handshake_slot);
     let Ok(admission) = admission.await else {
@@ -134,6 +135,7 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use super::*;
+    use crate::adapters::tokio_now;
     use crate::connection_book::ConnectionBook;
     use crate::exact_origins::ExactOrigins;
     use crate::host_registry::HostRegistry;
@@ -144,7 +146,7 @@ mod tests {
 
     fn state(handshake_timeout: Duration) -> Arc<RelayState> {
         let transport = Transport::new(
-            Arc::new(std::env::temp_dir().join("cb-session.sock")),
+            Arc::new(std::path::PathBuf::from("/nonexistent/cb-session.sock")),
             Arc::new(HostRegistry::in_memory()),
             Arc::new(MemoryTokenStore::default()),
         );
@@ -160,6 +162,7 @@ mod tests {
             connections: ConnectionBook::new(4, 4),
             port: 1,
             shutdown: CancellationToken::new(),
+            clock: Arc::new(tokio_now),
         })
     }
 

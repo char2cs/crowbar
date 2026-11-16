@@ -16,8 +16,7 @@ use crate::token_store::TokenStore;
 pub(crate) const REMOTE_BODY_LIMIT: usize = 256 * 1024 * 1024;
 
 pub(crate) fn bearer(token: &str) -> Result<HeaderValue, Error> {
-    let mut value =
-        HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Error::BadToken)?;
+    let mut value = HeaderValue::from_str(&format!("Bearer {token}")).map_err(Error::BadToken)?;
     value.set_sensitive(true);
     Ok(value)
 }
@@ -108,7 +107,7 @@ mod tests {
     #[test]
     fn a_bearer_header_is_sensitive_and_refuses_newlines() {
         assert!(bearer("abc").unwrap().is_sensitive());
-        assert!(matches!(bearer("a\nb"), Err(Error::BadToken)));
+        assert!(matches!(bearer("a\nb"), Err(Error::BadToken(_))));
     }
 
     #[tokio::test]
@@ -136,8 +135,9 @@ mod tests {
 
     type Case = (Respond, Error, u16, Option<&'static str>);
 
-    fn cases() -> [Case; 4] {
-        [
+    #[test]
+    fn each_failure_is_answered_with_its_status_and_a_marker_the_page_can_act_on() {
+        let cases: [Case; 4] = [
             (
                 dial_response,
                 Error::HostUnreachable("down".into()),
@@ -162,12 +162,8 @@ mod tests {
                 502,
                 Some(UNKNOWN_HOST),
             ),
-        ]
-    }
-
-    #[test]
-    fn each_failure_is_answered_with_its_status_and_a_marker_the_page_can_act_on() {
-        for (respond, error, status, marker) in cases() {
+        ];
+        for (respond, error, status, marker) in cases {
             let answer = respond(&error);
             assert_eq!(answer.status(), status, "{error}");
             assert_eq!(marker_of(&answer), marker, "{error}");

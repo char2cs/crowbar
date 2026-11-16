@@ -226,7 +226,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_request_that_cannot_be_routed_is_answered_without_reaching_a_daemon() {
-        assert_answers(&transport(std::env::temp_dir().join("cb-none.sock"))).await;
+        assert_answers(&transport(std::path::PathBuf::from(
+            "/nonexistent/cb-none.sock",
+        )))
+        .await;
     }
 
     #[tokio::test]
@@ -234,7 +237,7 @@ mod tests {
         let tokens = Arc::new(MemoryTokenStore::default());
         tokens.set("host-1", "entry").unwrap();
         let transport = Transport::new(
-            Arc::new(std::env::temp_dir().join("cb-none.sock")),
+            Arc::new(std::path::PathBuf::from("/nonexistent/cb-none.sock")),
             Arc::new(HostRegistry::in_memory()),
             Arc::clone(&tokens) as Arc<dyn TokenStore>,
         );
@@ -287,7 +290,7 @@ mod tests {
             .await
             .unwrap();
         let transport = Transport::new(
-            Arc::new(std::env::temp_dir().join("cb-none.sock")),
+            Arc::new(std::path::PathBuf::from("/nonexistent/cb-none.sock")),
             Arc::clone(&registry),
             Arc::new(StuckStore),
         );

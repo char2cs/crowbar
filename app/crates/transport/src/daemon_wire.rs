@@ -25,7 +25,7 @@ fn routed_uri(
         return Err(Error::InvalidRequest("the request target is not absolute"));
     }
     let path_and_query = PathAndQuery::try_from(target)
-        .map_err(|_| Error::InvalidRequest("the request target is not valid"))?;
+        .map_err(|source| Error::malformed("the request target", source))?;
     let uri = Uri::builder()
         .scheme(SCHEME)
         .authority(authority)
@@ -40,19 +40,19 @@ fn routed_uri(
 
 fn header_name(name: &str) -> Result<HeaderName, Error> {
     HeaderName::from_bytes(name.as_bytes())
-        .map_err(|_| Error::InvalidRequest("a request header name is not valid"))
+        .map_err(|source| Error::malformed("a request header name", source))
 }
 
 fn header_value(value: &str) -> Result<HeaderValue, Error> {
     HeaderValue::from_str(value)
-        .map_err(|_| Error::InvalidRequest("a request header value is not valid"))
+        .map_err(|source| Error::malformed("a request header value", source))
 }
 
 pub(crate) fn to_http(request: DaemonRequest) -> Result<Routed, Error> {
     let origin = request.origin().clone();
     let uri = routed_uri(authority(request.host()), request.target().as_str())?;
     let method = Method::from_bytes(request.method().as_str().as_bytes())
-        .map_err(|_| Error::InvalidRequest("the request method is not valid"))?;
+        .map_err(|source| Error::malformed("the request method", source))?;
     let mut builder = Request::builder().method(method).uri(uri);
     for (name, value) in request.headers() {
         builder = builder.header(header_name(name)?, header_value(value)?);
@@ -165,7 +165,7 @@ mod tests {
             .unwrap();
         let cases = [bad_name, bad_value];
         for case in cases {
-            assert!(matches!(to_http(case), Err(Error::InvalidRequest(_))));
+            assert!(matches!(to_http(case), Err(Error::Malformed { .. })));
         }
     }
 

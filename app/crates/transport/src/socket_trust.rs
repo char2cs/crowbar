@@ -1,9 +1,9 @@
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use rustix::process::geteuid;
 use tokio::net::UnixStream;
 
+use crate::adapters::file_owner;
 use crate::error::Error;
 
 fn untrusted(why: String) -> Error {
@@ -27,9 +27,7 @@ pub(crate) fn verify_file(
     path: &Path,
     own: u32,
 ) -> Result<(), Error> {
-    let owner = std::fs::symlink_metadata(path)
-        .map_err(Error::LocalSocket)?
-        .uid();
+    let owner = file_owner(path).map_err(Error::LocalSocket)?;
     require_same_owner("the socket file", owner, own)
 }
 
@@ -59,7 +57,8 @@ mod tests {
     #[test]
     fn only_our_own_user_is_trusted() {
         assert!(require_same_owner("x", 501, 501).is_ok());
-        for other in [0, 502, u32::MAX] {
+        let cases = [0, 502, u32::MAX];
+        for other in cases {
             let err = require_same_owner("x", other, 501).unwrap_err();
             assert!(matches!(err, Error::UntrustedSocket(_)), "{other}");
         }

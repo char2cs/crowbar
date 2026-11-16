@@ -6,7 +6,7 @@ use crate::keychain::Keychain;
 use crate::read_error::ReadError;
 use crate::token_store::TokenStore;
 
-type Remembered = Result<Option<String>, String>;
+type Remembered = Result<Option<String>, ReadError>;
 
 /// Reads each host's entry from the keychain at most once per process, because every read can
 /// raise its own OS access prompt and callers read on every request and socket open. Found,
@@ -33,6 +33,10 @@ impl<K: Keychain> CachedTokenStore<K> {
     }
 }
 
+fn stored(failure: ReadError) -> Error {
+    Error::Store(failure.message)
+}
+
 impl<K: Keychain> TokenStore for CachedTokenStore<K> {
     fn load_entry(
         &self,
@@ -40,18 +44,14 @@ impl<K: Keychain> TokenStore for CachedTokenStore<K> {
     ) -> Result<Option<String>, Error> {
         let mut cache = self.cache();
         if let Some(cached) = cache.get(host_id) {
-            return cached.clone().map_err(Error::Store);
+            return cached.clone().map_err(stored);
         }
         let outcome = match self.keychain.read(host_id) {
-            Ok(entry) => Ok(entry),
-            Err(ReadError {
-                message,
-                denied: false,
-            }) => return Err(Error::Store(message)),
-            Err(ReadError { message, .. }) => Err(message),
+            Err(refusal) if !refusal.denied => return Err(stored(refusal)),
+            read => read,
         };
         cache.insert(host_id.to_owned(), outcome.clone());
-        outcome.map_err(Error::Store)
+        outcome.map_err(stored)
     }
 
     fn set(
@@ -121,13 +121,13 @@ mod tests {
         fn refuse_writes(&self) {
             *self.refuse_writes.lock().unwrap() = true;
         }
-    }
 
-    fn writable(refused: &Mutex<bool>) -> Result<(), Error> {
-        let refused = *refused.lock().unwrap();
-        (!refused)
-            .then_some(())
-            .ok_or_else(|| Error::Store("no secret service".into()))
+        fn ensure_writable(&self) -> Result<(), Error> {
+            let refused = *self.refuse_writes.lock().unwrap();
+            (!refused)
+                .then_some(())
+                .ok_or_else(|| Error::Store("no secret service".into()))
+        }
     }
 
     impl Keychain for Arc<Counting> {
@@ -148,7 +148,7 @@ mod tests {
             host_id: &str,
             entry: &str,
         ) -> Result<(), Error> {
-            writable(&self.refuse_writes)?;
+            self.ensure_writable()?;
             self.entries
                 .lock()
                 .unwrap()

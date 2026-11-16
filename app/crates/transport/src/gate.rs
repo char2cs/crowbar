@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -37,14 +38,25 @@ impl Callback for Gate {
         mut response: Response,
     ) -> Result<Response, ErrorResponse> {
         let admission = inspect(&self.state, request).map_err(refusal)?;
-        self.admitted
-            .send(admission)
-            .map_err(|_| refusal(StatusCode::SERVICE_UNAVAILABLE))?;
+        if self.admitted.send(admission).is_err() {
+            tracing::debug!("relay handshake refused: the session stopped waiting");
+            return Err(refusal(StatusCode::SERVICE_UNAVAILABLE));
+        }
         response.headers_mut().insert(
             header::SEC_WEBSOCKET_PROTOCOL,
             HeaderValue::from_static(RELAY_SUBPROTOCOL),
         );
         Ok(response)
+    }
+}
+
+fn because<E: Display>(
+    status: StatusCode,
+    what: &'static str,
+) -> impl FnOnce(E) -> StatusCode {
+    move |error| {
+        tracing::debug!("relay handshake refused: {what}: {error}");
+        status
     }
 }
 
@@ -90,8 +102,10 @@ fn permitted(
     if !state.policy.allows(scope, origin) {
         return Err(StatusCode::FORBIDDEN);
     }
-    access_scope::ensure_path_allowed(scope.origin(), path_and_query)
-        .map_err(|_| StatusCode::FORBIDDEN)
+    access_scope::ensure_path_allowed(scope.origin(), path_and_query).map_err(because(
+        StatusCode::FORBIDDEN,
+        "the path is outside the scope",
+    ))
 }
 
 fn requested_idle(offered: &[String]) -> Result<Option<Duration>, StatusCode> {
@@ -101,7 +115,10 @@ fn requested_idle(offered: &[String]) -> Result<Option<Duration>, StatusCode> {
     else {
         return Ok(None);
     };
-    let seconds: u64 = text.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let seconds: u64 = text.parse().map_err(because(
+        StatusCode::BAD_REQUEST,
+        "the idle request is not a number",
+    ))?;
     let clamped = seconds.clamp(MIN_IDLE_SECONDS, MAX_IDLE_SECONDS);
     Ok(Some(Duration::from_secs(clamped)))
 }
@@ -124,7 +141,9 @@ fn check_host(
 fn single_origin(request: &Request) -> Result<&str, StatusCode> {
     let mut origins = request.headers().get_all(header::ORIGIN).iter();
     match (origins.next(), origins.next()) {
-        (Some(origin), None) => origin.to_str().map_err(|_| StatusCode::FORBIDDEN),
+        (Some(origin), None) => origin
+            .to_str()
+            .map_err(because(StatusCode::FORBIDDEN, "the origin is not text")),
         _ => Err(StatusCode::FORBIDDEN),
     }
 }
@@ -148,6 +167,7 @@ mod tests {
     use protocol::{ExtensionId, HostId, PaneId, PaneOrigin, RelayScope};
 
     use super::*;
+    use crate::adapters::tokio_now;
     use crate::connection_book::ConnectionBook;
     use crate::exact_origins::ExactOrigins;
     use crate::host_registry::HostRegistry;
@@ -164,7 +184,7 @@ mod tests {
 
     fn state() -> Arc<RelayState> {
         let transport = Transport::new(
-            Arc::new(std::env::temp_dir().join("cb-gate.sock")),
+            Arc::new(std::path::PathBuf::from("/nonexistent/cb-gate.sock")),
             Arc::new(HostRegistry::in_memory()),
             Arc::new(MemoryTokenStore::default()),
         );
@@ -179,6 +199,7 @@ mod tests {
             connections: ConnectionBook::new(4, 4),
             port: PORT,
             shutdown: CancellationToken::new(),
+            clock: Arc::new(tokio_now),
         })
     }
 

@@ -1,28 +1,22 @@
-use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use protocol::{HostId, PaneId, RelayEndpoint, RelayScope};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Semaphore;
+use tokio::net::TcpListener;
 use tokio::sync::broadcast::{self, error::RecvError};
-use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::accept_loop::accept_loop;
 use crate::acceptor::Acceptor;
+use crate::adapters::tokio_now;
 use crate::connection_book::ConnectionBook;
 use crate::error::Error;
 use crate::origin_policy::OriginPolicy;
 use crate::relay_config::RelayConfig;
 use crate::relay_state::RelayState;
-use crate::session;
 use crate::stream_access::StreamAccess;
 use crate::token_book::TokenBook;
 use crate::transport::Transport;
-
-const ACCEPT_BACKOFF: Duration = Duration::from_millis(50);
 
 /// The loopback WebSocket relay: listens on `127.0.0.1` on a random port, checks each pane's
 /// token, `Host` and `Origin` before dialling the daemon, then bridges frames unchanged so
@@ -65,6 +59,7 @@ impl Relay {
             connections: ConnectionBook::new(config.max_connections, config.max_per_pane),
             tokens: Mutex::new(TokenBook::new(config.token_ttl)),
             shutdown: CancellationToken::new(),
+            clock: Arc::new(tokio_now),
             transport,
             config,
             policy,
@@ -109,7 +104,10 @@ impl StreamAccess for Relay {
         &self,
         scope: &RelayScope,
     ) -> Result<RelayEndpoint, Error> {
-        let token = self.state.tokens().issue(scope.clone(), Instant::now())?;
+        let token = self
+            .state
+            .tokens()
+            .issue(scope.clone(), (self.state.clock)())?;
         Ok(RelayEndpoint::new(
             format!("ws://127.0.0.1:{}", self.state.port),
             token,
@@ -121,69 +119,6 @@ impl StreamAccess for Relay {
         pane: &PaneId,
     ) {
         self.state.revoke_pane(pane);
-    }
-}
-
-async fn accept_loop<A: Acceptor>(
-    mut acceptor: A,
-    state: Arc<RelayState>,
-) {
-    let handshakes = Arc::new(Semaphore::new(state.config.max_handshakes));
-    while let Some(accepted) = state.shutdown.run_until_cancelled(acceptor.accept()).await {
-        greet(&state, &handshakes, accepted).await;
-    }
-}
-
-impl Acceptor for TcpListener {
-    type Stream = TcpStream;
-
-    fn local_port(&self) -> io::Result<u16> {
-        Ok(self.local_addr()?.port())
-    }
-
-    async fn accept(&mut self) -> io::Result<TcpStream> {
-        let (stream, _peer) = TcpListener::accept(self).await?;
-        Ok(stream)
-    }
-}
-
-async fn greet<S>(
-    state: &Arc<RelayState>,
-    handshakes: &Arc<Semaphore>,
-    accepted: io::Result<S>,
-) where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-{
-    let Ok(stream) = accepted else {
-        return tokio::time::sleep(ACCEPT_BACKOFF).await;
-    };
-    let Ok(permit) = Arc::clone(handshakes).try_acquire_owned() else {
-        return turn_away(stream, state.config.close_grace);
-    };
-    tokio::spawn(session::run(Arc::clone(state), stream, permit));
-}
-
-fn turn_away<S>(
-    stream: S,
-    grace: Duration,
-) where
-    S: AsyncWrite + Unpin + Send + 'static,
-{
-    tokio::spawn(refuse_busy(stream, grace));
-}
-
-async fn refuse_busy<S>(
-    mut stream: S,
-    grace: Duration,
-) where
-    S: AsyncWrite + Unpin,
-{
-    const BUSY: &[u8] =
-        b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-    match tokio::time::timeout(grace, stream.write_all(BUSY)).await {
-        Ok(Ok(())) => {},
-        Ok(Err(e)) => tracing::debug!("relay is busy and the refusal was not delivered: {e}"),
-        Err(_) => tracing::debug!("relay is busy and the refusal was not taken in time"),
     }
 }
 
@@ -202,6 +137,9 @@ async fn follow_removals(
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+    use std::time::Duration;
+
     use protocol::{HostId, PaneId, PaneOrigin};
     use tokio::sync::broadcast;
 
@@ -212,7 +150,7 @@ mod tests {
 
     fn transport() -> Arc<Transport> {
         Arc::new(Transport::new(
-            Arc::new(std::env::temp_dir().join("cb-relay-unit.sock")),
+            Arc::new(std::path::PathBuf::from("/nonexistent/cb-relay-unit.sock")),
             Arc::new(HostRegistry::in_memory()),
             Arc::new(MemoryTokenStore::default()),
         ))

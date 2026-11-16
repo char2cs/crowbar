@@ -147,7 +147,7 @@ mod tests {
 
     fn shell() -> (ShellTransport, Arc<RecordingAccess>) {
         let transport = Transport::new(
-            Arc::new(std::env::temp_dir().join("cb-shell-none.sock")),
+            Arc::new(std::path::PathBuf::from("/nonexistent/cb-shell-none.sock")),
             Arc::new(HostRegistry::in_memory()),
             Arc::new(MemoryTokenStore::default()),
         );
@@ -239,18 +239,6 @@ mod tests {
 
     type Kind = fn(&protocol::Error) -> bool;
 
-    fn cases() -> [(Error, Kind); 2] {
-        [
-            (
-                Error::UnknownHost(HostId::new("host-1").unwrap()),
-                |mapped| matches!(mapped, protocol::Error::UnknownHost(_)),
-            ),
-            (Error::Forbidden("x".into()), |mapped| {
-                matches!(mapped, protocol::Error::HostUnavailable(_))
-            }),
-        ]
-    }
-
     #[tokio::test]
     async fn revoking_a_pane_scope_revokes_that_pane_in_the_stream_access() {
         let (shell, access) = shell();
@@ -263,7 +251,16 @@ mod tests {
 
     #[test]
     fn errors_map_to_the_protocol_kinds() {
-        for (error, is_expected) in cases() {
+        let cases: [(Error, Kind); 2] = [
+            (
+                Error::UnknownHost(HostId::new("host-1").unwrap()),
+                |mapped| matches!(mapped, protocol::Error::UnknownHost(_)),
+            ),
+            (Error::Forbidden("x".into()), |mapped| {
+                matches!(mapped, protocol::Error::HostUnavailable(_))
+            }),
+        ];
+        for (error, is_expected) in cases {
             let described = error.to_string();
             assert!(is_expected(&into_protocol(error)), "{described}");
         }

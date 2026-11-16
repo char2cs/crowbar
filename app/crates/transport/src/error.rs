@@ -102,6 +102,15 @@ pub enum Error {
     /// The request could not be built.
     #[error("bad request: {0}")]
     BadRequest(#[source] Cause),
+    /// A part of the request is not valid.
+    #[error("invalid request: {part}: {source}")]
+    Malformed {
+        /// Which part of the request is refused.
+        part: &'static str,
+        /// Why the parser refused it.
+        #[source]
+        source: Cause,
+    },
     /// The answer passed the size cap.
     #[error("response too large")]
     TooLarge,
@@ -115,14 +124,20 @@ pub enum Error {
     #[error("no stored credential for this host \u{2014} pair it again")]
     NoCredential,
     /// The stored token cannot be sent as a header.
-    #[error("the stored credential is not a valid header value")]
-    BadToken,
+    #[error("the stored credential is not a valid header value: {0}")]
+    BadToken(#[source] http::header::InvalidHeaderValue),
     /// The blocking credential or registry task died.
     #[error("blocking task failed: {0}")]
     BlockingTask(String),
     /// The probe did not finish in time.
-    #[error("{0} did not answer within the probe deadline")]
-    ProbeTimeout(String),
+    #[error("{endpoint} did not answer within the probe deadline")]
+    ProbeTimeout {
+        /// The host probed.
+        endpoint: String,
+        /// The elapsed deadline.
+        #[source]
+        deadline: tokio::time::error::Elapsed,
+    },
     /// A TLS handshake failed.
     #[error("TLS handshake with {endpoint} failed: {reason}")]
     Handshake {
@@ -135,8 +150,14 @@ pub enum Error {
     #[error("{0} presented no certificate")]
     NoCertificate(String),
     /// Pairing did not finish in time.
-    #[error("{0} did not finish pairing in time")]
-    PairTimeout(String),
+    #[error("{endpoint} did not finish pairing in time")]
+    PairTimeout {
+        /// The host paired with.
+        endpoint: String,
+        /// The elapsed deadline.
+        #[source]
+        deadline: tokio::time::error::Elapsed,
+    },
     /// The exchange with a host being paired failed.
     #[error("pairing with {endpoint} failed: {source}")]
     PairExchange {
@@ -211,6 +232,16 @@ impl Error {
 
     pub(crate) fn bad_request(source: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::BadRequest(Box::new(source))
+    }
+
+    pub(crate) fn malformed(
+        part: &'static str,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::Malformed {
+            part,
+            source: Box::new(source),
+        }
     }
 
     pub(crate) fn websocket(source: impl std::error::Error + Send + Sync + 'static) -> Self {

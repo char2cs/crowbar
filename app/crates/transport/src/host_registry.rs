@@ -4,11 +4,13 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGua
 
 use protocol::HostId;
 
+use crate::adapters::FileHostsStorage;
 use crate::blocking::run_blocking;
 use crate::endpoint::Endpoint;
 use crate::error::Error;
 use crate::host_target::check_registrable;
 use crate::hosts_document::HostsDocument;
+use crate::hosts_storage::HostsStorage;
 
 type Hosts = BTreeMap<HostId, Endpoint>;
 
@@ -20,7 +22,7 @@ type Hosts = BTreeMap<HostId, Endpoint>;
 pub struct HostRegistry {
     hosts: RwLock<Hosts>,
     writer: Mutex<()>,
-    file: Option<PathBuf>,
+    storage: Option<Arc<dyn HostsStorage>>,
 }
 
 impl HostRegistry {
@@ -38,16 +40,15 @@ impl HostRegistry {
     /// [`Error::HostsIo`], [`Error::HostsCorrupt`], [`Error::HostsInvalid`] or
     /// [`Error::HostsVersion`] when the file cannot be read or understood.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, Error> {
-        let path = path.into();
-        let hosts = match std::fs::read(&path) {
-            Ok(bytes) => HostsDocument::parse(&path, &bytes)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Hosts::new(),
-            Err(source) => return Err(Error::HostsIo { path, source }),
-        };
+        Self::with_storage(Arc::new(FileHostsStorage::new(path.into())))
+    }
+
+    pub(crate) fn with_storage(storage: Arc<dyn HostsStorage>) -> Result<Self, Error> {
+        let hosts = HostsDocument::load(storage.as_ref())?;
         Ok(Self {
             hosts: RwLock::new(hosts),
             writer: Mutex::new(()),
-            file: Some(path),
+            storage: Some(storage),
         })
     }
 
@@ -122,8 +123,8 @@ impl HostRegistry {
         let _writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         let mut next = self.read().clone();
         edit(&mut next);
-        if let Some(path) = &self.file {
-            HostsDocument::save(path, &next)?;
+        if let Some(storage) = &self.storage {
+            HostsDocument::save(storage.as_ref(), &next)?;
         }
         *self.write() = next;
         Ok(())
@@ -140,9 +141,13 @@ impl HostRegistry {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+
     use tempfile::TempDir;
 
     use super::*;
+    use crate::test_support::MemoryHostsStorage;
 
     fn id(text: &str) -> HostId {
         HostId::new(text).unwrap()
@@ -150,12 +155,6 @@ mod tests {
 
     fn at(text: &str) -> Endpoint {
         Endpoint::parse(text).unwrap()
-    }
-
-    fn scratch() -> (TempDir, PathBuf) {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("hosts.json");
-        (dir, path)
     }
 
     #[test]
@@ -184,10 +183,15 @@ mod tests {
         assert_eq!(registry.list().len(), 0);
     }
 
+    fn reopened(storage: &Arc<MemoryHostsStorage>) -> HostRegistry {
+        let shared: Arc<dyn HostsStorage> = Arc::<MemoryHostsStorage>::clone(storage);
+        HostRegistry::with_storage(shared).unwrap()
+    }
+
     #[test]
     fn hosts_survive_a_restart() {
-        let (_dir, path) = scratch();
-        let first = HostRegistry::open(&path).unwrap();
+        let storage = MemoryHostsStorage::shared();
+        let first = reopened(&storage);
         first
             .insert_blocking(id("host-2"), at("[::1]:4000"))
             .unwrap();
@@ -196,25 +200,21 @@ mod tests {
             .unwrap();
         first.remove_blocking(&id("host-2")).unwrap();
 
-        let second = HostRegistry::open(&path).unwrap();
+        let second = reopened(&storage);
 
         assert_eq!(second.list(), vec![(id("host-1"), at("a.example:3737"))]);
     }
 
     #[test]
-    fn a_missing_file_is_an_empty_list() {
-        let (_dir, path) = scratch();
-        assert_eq!(HostRegistry::open(path).unwrap().list().len(), 0);
+    fn nothing_stored_is_an_empty_list() {
+        assert_eq!(reopened(&MemoryHostsStorage::shared()).list().len(), 0);
     }
 
     #[test]
     fn a_failed_write_leaves_the_list_as_it_was() {
-        let (dir, _) = scratch();
-        let blocked = dir.path().join("blocked");
-        std::fs::create_dir_all(&blocked).unwrap();
-        let registry = HostRegistry::open(blocked.join("hosts.json")).unwrap();
-        std::fs::remove_dir_all(&blocked).unwrap();
-        std::fs::write(&blocked, "a file where a directory must be").unwrap();
+        let storage = MemoryHostsStorage::shared();
+        let registry = reopened(&storage);
+        storage.fail_writes();
 
         let result = registry.insert_blocking(id("host-1"), at("1.2.3.4:1"));
 
@@ -224,21 +224,34 @@ mod tests {
 
     #[tokio::test]
     async fn the_async_writers_persist_through_the_blocking_pool() {
-        let (_dir, path) = scratch();
-        let registry = Arc::new(HostRegistry::open(&path).unwrap());
+        let storage = MemoryHostsStorage::shared();
+        let registry = Arc::new(reopened(&storage));
         registry
             .insert(id("host-1"), at("1.2.3.4:1"))
             .await
             .unwrap();
-        assert_eq!(HostRegistry::open(&path).unwrap().list().len(), 1);
+        assert_eq!(reopened(&storage).list().len(), 1);
         registry.remove(id("host-1")).await.unwrap();
-        assert_eq!(HostRegistry::open(&path).unwrap().list().len(), 0);
+        assert_eq!(reopened(&storage).list().len(), 0);
+    }
+
+    #[test]
+    fn a_file_registry_keeps_its_list_in_a_private_file_and_directory() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("sub").join("hosts.json");
+        HostRegistry::open(&path)
+            .unwrap()
+            .insert_blocking(id("host-1"), at("a.example:3737"))
+            .unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), 0o600, "file");
+        assert_eq!(mode(path.parent().unwrap()), 0o700, "directory");
+        assert_eq!(HostRegistry::open(&path).unwrap().list().len(), 1);
     }
 
     #[test]
     fn readers_are_not_blocked_while_a_write_is_on_disk() {
-        let (_dir, path) = scratch();
-        let registry = HostRegistry::open(&path).unwrap();
+        let registry = reopened(&MemoryHostsStorage::shared());
         registry
             .insert_blocking(id("host-1"), at("1.2.3.4:1"))
             .unwrap();

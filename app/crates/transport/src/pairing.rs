@@ -57,10 +57,11 @@ async fn within_deadline<T>(
     endpoint: &Endpoint,
     step: impl Future<Output = Result<T, Error>>,
 ) -> Result<T, Error> {
-    match tokio::time::timeout(PAIR_TIMEOUT, step).await {
-        Ok(result) => result,
-        Err(_) => Err(Error::PairTimeout(endpoint.to_string())),
-    }
+    let paired = tokio::time::timeout(PAIR_TIMEOUT, step).await;
+    paired.map_err(|deadline| Error::PairTimeout {
+        endpoint: endpoint.to_string(),
+        deadline,
+    })?
 }
 
 async fn record(

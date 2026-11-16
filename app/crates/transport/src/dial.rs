@@ -20,13 +20,14 @@ const KEEPALIVE_IDLE: Duration = Duration::from_secs(15);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(crate) async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Error> {
-    match tokio::time::timeout(DIAL_TIMEOUT, connect_pinned(host)).await {
-        Ok(result) => result,
-        Err(_) => Err(Error::HostUnreachable(format!(
+    let dialled = tokio::time::timeout(DIAL_TIMEOUT, connect_pinned(host)).await;
+    dialled.map_err(|elapsed| {
+        tracing::debug!("dial deadline: {elapsed}");
+        Error::HostUnreachable(format!(
             "{} did not answer within {DIAL_TIMEOUT:?}",
             host.endpoint
-        ))),
-    }
+        ))
+    })?
 }
 
 async fn connect_pinned(host: &RemoteHost) -> Result<TlsStream<TcpStream>, Error> {

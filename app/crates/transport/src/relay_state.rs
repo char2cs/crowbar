@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use http::StatusCode;
 use protocol::{HostId, PaneId, RelayScope};
-use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::clock::Clock;
 use crate::connection_book::ConnectionBook;
 use crate::connection_guard::ConnectionGuard;
 use crate::host_target::HostTarget;
@@ -25,6 +25,7 @@ pub(crate) struct RelayState {
     pub(crate) connections: Arc<ConnectionBook>,
     pub(crate) port: u16,
     pub(crate) shutdown: CancellationToken,
+    pub(crate) clock: Clock,
 }
 
 impl RelayState {
@@ -39,7 +40,7 @@ impl RelayState {
     ) -> Result<(RelayScope, ConnectionGuard), StatusCode> {
         let mut tokens = self.tokens();
         let scope = tokens
-            .authorize(token, Instant::now())
+            .authorize(token, (self.clock)())
             .ok_or(StatusCode::UNAUTHORIZED)?;
         accept(&scope)?;
         let guard = self
@@ -85,6 +86,7 @@ mod tests {
     use tokio::time::Instant;
 
     use super::*;
+    use crate::adapters::tokio_now;
     use crate::endpoint::Endpoint;
     use crate::exact_origins::ExactOrigins;
     use crate::host_registry::HostRegistry;
@@ -92,7 +94,7 @@ mod tests {
 
     fn state_with(registry: HostRegistry) -> RelayState {
         let transport = Transport::new(
-            Arc::new(std::env::temp_dir().join("cb-relay-state.sock")),
+            Arc::new(std::path::PathBuf::from("/nonexistent/cb-relay-state.sock")),
             Arc::new(registry),
             Arc::new(MemoryTokenStore::default()),
         );
@@ -104,6 +106,7 @@ mod tests {
             connections: ConnectionBook::new(4, 4),
             port: 1,
             shutdown: CancellationToken::new(),
+            clock: Arc::new(tokio_now),
         }
     }
 

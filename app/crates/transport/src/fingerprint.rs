@@ -1,9 +1,11 @@
 use sha2::{Digest, Sha256};
-use std::fmt::Write;
 
 pub(crate) const DIGEST_BYTES: usize = 32;
 pub(crate) type CertificateDigest = [u8; DIGEST_BYTES];
 
+const NIBBLE_BITS: u8 = 4;
+const NIBBLE_MASK: u8 = 0x0f;
+const HEX_RADIX: u32 = 16;
 const DISPLAY_BYTES: usize = 12;
 const GROUP_CHARS: usize = 4;
 
@@ -14,10 +16,11 @@ pub(crate) fn certificate_digest(der: &[u8]) -> CertificateDigest {
 
 #[must_use]
 pub(crate) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        write!(text, "{byte:02x}").ok();
-        text
-    })
+    bytes
+        .iter()
+        .flat_map(|byte| [byte >> NIBBLE_BITS, byte & NIBBLE_MASK])
+        .filter_map(|nibble| char::from_digit(u32::from(nibble), HEX_RADIX))
+        .collect()
 }
 
 /// A certificate's SHA-256 as grouped lowercase hex, byte-identical to the daemon's

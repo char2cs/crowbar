@@ -6,6 +6,8 @@ use zeroize::Zeroizing;
 use crate::fingerprint::{CertificateDigest, hex};
 
 const HEX_RADIX: u32 = 16;
+const TOKEN_FIELD: &str = "token";
+const PIN_FIELD: &str = "pin";
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Credential {
@@ -45,16 +47,18 @@ impl Credential {
     }
 
     pub(crate) fn encode(&self) -> Zeroizing<String> {
-        Zeroizing::new(json!({ "token": self.token.as_str(), "pin": hex(&self.pin) }).to_string())
+        Zeroizing::new(
+            json!({ TOKEN_FIELD: self.token.as_str(), PIN_FIELD: hex(&self.pin) }).to_string(),
+        )
     }
 
     pub(crate) fn decode(stored: &str) -> Option<Self> {
         let value: Value = serde_json::from_str(stored).ok()?;
         let token = value
-            .get("token")?
+            .get(TOKEN_FIELD)?
             .as_str()
             .filter(|t| !t.trim().is_empty())?;
-        let pin = parse_digest(value.get("pin")?.as_str()?)?;
+        let pin = parse_digest(value.get(PIN_FIELD)?.as_str()?)?;
         Some(Self::new(token.to_owned(), pin))
     }
 }

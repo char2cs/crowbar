@@ -1,8 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs::{DirBuilder, File, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use protocol::HostId;
 use serde::{Deserialize, Serialize};
@@ -11,10 +8,9 @@ use crate::endpoint::Endpoint;
 use crate::error::Error;
 use crate::host_entry::HostEntry;
 use crate::host_target::check_registrable;
+use crate::hosts_storage::HostsStorage;
 
 const FILE_VERSION: u32 = 1;
-const PRIVATE_FILE: u32 = 0o600;
-const PRIVATE_DIR: u32 = 0o700;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct HostsDocument {
@@ -54,23 +50,19 @@ impl HostsDocument {
         if doc.version != FILE_VERSION {
             return Err(unsupported_version(path, doc.version));
         }
-        let invalid = |why: String| Error::HostsInvalid {
-            path: path.to_path_buf(),
-            why,
-        };
-        let mut hosts = BTreeMap::new();
-        for entry in doc.hosts {
-            insert_registrable_host(&mut hosts, entry).map_err(invalid)?;
-        }
-        Ok(hosts)
+        doc.hosts
+            .into_iter()
+            .try_fold(BTreeMap::new(), |mut hosts, entry| {
+                insert_registrable_host(path, &mut hosts, entry).map(|()| hosts)
+            })
     }
 
     pub(crate) fn save(
-        path: &Path,
+        storage: &dyn HostsStorage,
         hosts: &BTreeMap<HostId, Endpoint>,
     ) -> Result<(), Error> {
         let io = |source| Error::HostsIo {
-            path: path.to_path_buf(),
+            path: storage.location().to_path_buf(),
             source,
         };
         let doc = Self {
@@ -78,81 +70,43 @@ impl HostsDocument {
             hosts: entries(hosts),
         };
         let bytes = serde_json::to_vec_pretty(&doc).map_err(|e| io(e.into()))?;
-        if let Some(dir) = path.parent() {
-            DirBuilder::new()
-                .recursive(true)
-                .mode(PRIVATE_DIR)
-                .create(dir)
-                .map_err(io)?;
+        storage.store(&bytes).map_err(io)
+    }
+
+    pub(crate) fn load(storage: &dyn HostsStorage) -> Result<BTreeMap<HostId, Endpoint>, Error> {
+        let stored = storage.load().map_err(|source| Error::HostsIo {
+            path: storage.location().to_path_buf(),
+            source,
+        })?;
+        match stored {
+            Some(bytes) => Self::parse(storage.location(), &bytes),
+            None => Ok(BTreeMap::new()),
         }
-        write_atomically(path, &bytes).map_err(io)
     }
-}
-
-fn staged_name(path: &Path) -> PathBuf {
-    let mut staged = path.as_os_str().to_owned();
-    staged.push(".tmp");
-    PathBuf::from(staged)
-}
-
-fn write_atomically(
-    path: &Path,
-    bytes: &[u8],
-) -> std::io::Result<()> {
-    let staged = staged_name(path);
-    let written = stage_and_rename(&staged, path, bytes);
-    if written.is_err()
-        && let Err(e) = std::fs::remove_file(&staged)
-    {
-        tracing::debug!("hosts file temp copy not removed: {e}");
-    }
-    written?;
-    match path.parent() {
-        Some(dir) => File::open(dir)?.sync_all(),
-        None => Ok(()),
-    }
-}
-
-fn stage_and_rename(
-    staged: &Path,
-    path: &Path,
-    bytes: &[u8],
-) -> std::io::Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(PRIVATE_FILE)
-        .open(staged)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    std::fs::rename(staged, path)
 }
 
 fn insert_registrable_host(
+    path: &Path,
     hosts: &mut BTreeMap<HostId, Endpoint>,
     entry: HostEntry,
-) -> Result<(), String> {
-    check_registrable(&entry.id).map_err(|e| format!("host {}: {e}", entry.id))?;
+) -> Result<(), Error> {
+    let invalid = |why: String| Error::HostsInvalid {
+        path: path.to_path_buf(),
+        why,
+    };
+    check_registrable(&entry.id).map_err(|e| invalid(format!("host {}: {e}", entry.id)))?;
     if hosts.insert(entry.id.clone(), entry.endpoint).is_some() {
-        return Err(format!("host {} is listed twice", entry.id));
+        return Err(invalid(format!("host {} is listed twice", entry.id)));
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
-
-    use tempfile::TempDir;
+    use std::path::PathBuf;
 
     use super::*;
-
-    fn scratch() -> (TempDir, PathBuf) {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("sub").join("hosts.json");
-        (dir, path)
-    }
+    use crate::test_support::MemoryHostsStorage;
 
     fn one_host() -> BTreeMap<HostId, Endpoint> {
         let mut hosts = BTreeMap::new();
@@ -164,28 +118,21 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_list_reads_back_privately_and_leaves_no_temp_file() {
-        let (_dir, path) = scratch();
-        HostsDocument::save(&path, &one_host()).unwrap();
-        let read = HostsDocument::parse(&path, &std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(read, one_host());
-        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(&path), PRIVATE_FILE, "file");
-        assert_eq!(mode(path.parent().unwrap()), PRIVATE_DIR, "directory");
-        assert!(!staged_name(&path).exists(), "temp copy renamed away");
+    fn a_saved_list_reads_back_and_nothing_stored_is_an_empty_list() {
+        let storage = MemoryHostsStorage::shared();
+        assert!(HostsDocument::load(storage.as_ref()).unwrap().is_empty());
+        HostsDocument::save(storage.as_ref(), &one_host()).unwrap();
+        assert_eq!(HostsDocument::load(storage.as_ref()).unwrap(), one_host());
     }
 
     #[test]
-    fn a_failed_save_removes_its_temp_copy() {
-        let (_dir, path) = scratch();
-        HostsDocument::save(&path, &one_host()).unwrap();
-        std::fs::remove_file(&path).unwrap();
-        std::fs::create_dir(&path).unwrap();
-        assert!(
-            HostsDocument::save(&path, &one_host()).is_err(),
-            "cannot replace a directory"
-        );
-        assert!(!staged_name(&path).exists(), "no stray temp copy");
+    fn a_failed_save_names_the_storage_and_keeps_the_stored_list() {
+        let storage = MemoryHostsStorage::shared();
+        HostsDocument::save(storage.as_ref(), &one_host()).unwrap();
+        storage.fail_writes();
+        let error = HostsDocument::save(storage.as_ref(), &BTreeMap::new()).unwrap_err();
+        assert!(matches!(error, Error::HostsIo { .. }), "{error}");
+        assert_eq!(HostsDocument::load(storage.as_ref()).unwrap(), one_host());
     }
 
     const CASES: [(&str, &str); 6] = [
