@@ -176,8 +176,8 @@ impl Dialog {
                 frame.w(fixed.width).h(fixed.height)
             },
             None => frame
-                .w_full()
-                .max_w(self.size.max_width())
+                .w(self.size.max_width())
+                .max_w_full()
                 .max_h(viewport.height - px(2.0 * VIEWPORT_PADDING)),
         };
         self.style
@@ -391,6 +391,31 @@ mod tests {
             f32::from(popup.size.width),
             300.0,
             "the body spans the popup width: no padding"
+        );
+    }
+
+    #[gpui::test]
+    fn a_body_that_wraps_is_not_cut_off_by_the_footer(cx: &mut TestAppContext) {
+        let question =
+            "notes.txt has unsaved changes. Do you want to save before closing? ".repeat(2);
+        let cx = open(cx, move |_, _| {
+            Dialog::new("d")
+                .title("Title")
+                .size(DialogSize::Sm)
+                .body(
+                    div()
+                        .debug_selector(|| "text".into())
+                        .child(question.clone()),
+                )
+                .footer(div().debug_selector(|| "footer".into()).child("Save"))
+        });
+        let text = cx.debug_bounds("text").unwrap_or_default();
+        let footer = cx.debug_bounds("footer").unwrap_or_default();
+        assert!(
+            text.bottom() <= footer.top(),
+            "the text ends at {:?}, the footer starts at {:?}",
+            text.bottom(),
+            footer.top()
         );
     }
 }
