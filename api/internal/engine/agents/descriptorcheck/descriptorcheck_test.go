@@ -2,6 +2,7 @@ package descriptorcheck_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,18 @@ func TestValidateAll_TheShippedDescriptorsAreClean(t *testing.T) {
 		want = append(want, a.ID())
 	}
 	assert.ElementsMatch(t, want, ids)
+}
+
+// Clients decode findings as a list, so a clean report must serialise it as [], never null.
+func TestValidateAll_ACleanReportSerialisesItsFindingsAsAnEmptyArray(t *testing.T) {
+	reports, err := descriptorcheck.ValidateAll("")
+	require.NoError(t, err)
+	require.NotEmpty(t, reports)
+	for _, rep := range reports {
+		encoded, err := json.Marshal(rep)
+		require.NoError(t, err)
+		assert.Contains(t, string(encoded), `"findings":[]`, rep.ID)
+	}
 }
 
 func TestValidateAll_AnOverrideShadowsTheShippedDescriptor(t *testing.T) {

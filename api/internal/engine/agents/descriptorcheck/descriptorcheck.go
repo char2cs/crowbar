@@ -67,7 +67,7 @@ func Validate(raw []byte) Report {
 	}
 	doc := document{root: &root}
 	d, failures := protocol.CheckDescriptor(raw)
-	rep := Report{ID: probeID(&root)}
+	rep := Report{ID: probeID(&root), Findings: []Finding{}}
 	rep.Findings = append(rep.Findings, unknownFields(raw, doc)...)
 	for _, f := range failures {
 		rep.Findings = append(rep.Findings, loadFinding(doc, f))
