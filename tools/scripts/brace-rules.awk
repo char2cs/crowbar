@@ -76,20 +76,22 @@ function has_bool(text) {
   if (lang == "swift") return text ~ /(^|[^A-Za-z_0-9])Bool([^A-Za-z_0-9]|$)/
   return text ~ /:[ \t]*boolean[ \t]*[,)]/
 }
-function check_params(text, start, last,   n, i, c, d, cur, np, nraw) {
+function check_params(text, start, last,   n, i, c, d, cur, np, nraw, plist) {
+  gsub(/->[ \t]*bool([^A-Za-z_0-9]|$)/, "->", text)
   gsub(/->|=>/, "", text)
   d = 0; np = 0; nraw = 0; cur = ""
   for (i = 1; i <= length(text); i++) {
     c = substr(text, i, 1)
     if (c ~ /[(\[{<]/) d++
     else if (c ~ /[)\]}>]/) d--
-    if (d == 0 && i > 1) break
+    if (d == 0 && i > 1) { plist = substr(text, 1, i); break }
     if (d == 1 && c == ",") { np += param_weight(cur); nraw += param_weight(cur) ? 1 : 0; cur = ""; continue }
     if (i != 1) cur = cur c
   }
   np += param_weight(cur); nraw += param_weight(cur) ? 1 : 0
+  if (plist == "") plist = text
   if (np > 4 && !in_trait_impl()) report(start, "param-count", np " parameters (max 4; a tuple or destructuring pattern counts each bound name): pass a struct/options object")
-  if (!(lang == "rust" && in_trait_impl()) && has_bool(text)) report(start, "bool-param", "boolean flag parameter: use an enum or two functions")
+  if (!(lang == "rust" && in_trait_impl()) && has_bool(plist)) report(start, "bool-param", "boolean flag parameter: use an enum or two functions")
   if (nraw >= 2 && start == last && lang != "ts") report(start, "param-layout", "one parameter per line, '(' on the signature line and ')' on its own line")
 }
 function is_const_def(code) {

@@ -3,16 +3,12 @@ app/mobile/ios/Sources/AppearanceCards.swift	platform-ref	1
 app/mobile/ios/Sources/CSSColor.swift	magic-number	2
 app/mobile/ios/Sources/ChromeOverlays.swift	magic-string	1
 app/mobile/ios/Sources/ChromeOverlays.swift	platform-ref	1
-app/mobile/ios/Sources/ConnectDrafts.swift	bool-param	1
 app/mobile/ios/Sources/CrowbarFont.swift	magic-number	3
 app/mobile/ios/Sources/CrowbarFontModifier.swift	magic-number	9
 app/mobile/ios/Sources/CrowbarIcon.swift	spec-ref	1
 app/mobile/ios/Sources/Dialogs.swift	bool-param	1
-app/mobile/ios/Sources/DrawerSwipe.swift	bool-param	5
 app/mobile/ios/Sources/DrawerSwipe.swift	platform-ref	1
-app/mobile/ios/Sources/EffortDial.swift	bool-param	1
 app/mobile/ios/Sources/HostListSection.swift	platform-ref	2
-app/mobile/ios/Sources/KeyboardFit.swift	bool-param	1
 app/mobile/ios/Sources/KeyboardFit.swift	platform-ref	3
 app/mobile/ios/Sources/LinkTarget.swift	test-missing	1
 app/mobile/ios/Sources/ModelPickerSheet.swift	platform-ref	1
@@ -24,9 +20,7 @@ app/mobile/ios/Sources/OKLabMatrix.swift	spec-ref	1
 app/mobile/ios/Sources/PathParser.swift	magic-number	1
 app/mobile/ios/Sources/PhosphorIcon.swift	test-missing	1
 app/mobile/ios/Sources/PlusMenuSheet.swift	platform-ref	1
-app/mobile/ios/Sources/RowMenu.swift	bool-param	1
 app/mobile/ios/Sources/RowMenu.swift	platform-ref	2
 app/mobile/ios/Sources/SecondaryPage.swift	platform-ref	1
 app/mobile/ios/Sources/SheetPlan.swift	platform-ref	2
 app/mobile/ios/Sources/SidebarPalette.swift	test-missing	1
-app/mobile/ios/Sources/StripCatcher.swift	bool-param	2

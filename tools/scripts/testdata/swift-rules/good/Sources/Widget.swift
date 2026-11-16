@@ -8,6 +8,10 @@ public struct Widget {
     guard taps < 10 else { return self }
     return Widget(taps: taps + 1)
   }
+
+  func isWorn(limit: Int) -> Bool {
+    taps >= limit
+  }
 }
 
 extension Widget: Equatable {}

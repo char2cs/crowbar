@@ -12,6 +12,19 @@ pub fn join_names(items: &[&str]) -> Vec<String> {
     items.iter().map(|item| item.to_uppercase()).collect()
 }
 
+/// Tells whether the name is empty.
+pub fn is_blank(name: &str) -> bool {
+    name.is_empty()
+}
+
+/// Counts the items the predicate accepts.
+pub fn count_where(
+    items: &[u32],
+    keep: impl Fn(u32) -> bool,
+) -> usize {
+    items.iter().filter(|item| keep(**item)).count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -28,6 +41,12 @@ mod tests {
     #[test]
     fn adds_the_extra() {
         assert_eq!(sum_pairs((1, 1), 1u32), 3);
+    }
+
+    #[test]
+    fn predicates_are_not_flags() {
+        assert!(is_blank(""));
+        assert_eq!(count_where(&[1, 2], |item| item > 1), 1);
     }
 
     #[test]
