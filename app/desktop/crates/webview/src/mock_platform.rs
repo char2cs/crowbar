@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::bounds::Bounds;
 use crate::call::Call;
+use crate::color::Color;
 use crate::error::{Error, Result};
 use crate::parent_window::ParentWindow;
 use crate::platform::Platform;
@@ -104,6 +105,7 @@ impl Platform for MockPlatform {
             kind: config.kind,
             bounds: config.bounds,
             visibility: config.visibility,
+            background: config.background,
         });
         self.live.borrow_mut().insert(id, config.on_ipc);
         Ok(())
@@ -126,6 +128,16 @@ impl Platform for MockPlatform {
     ) -> Result<()> {
         self.require_live(id)?;
         self.record(Call::SetVisibility { id, visibility });
+        Ok(())
+    }
+
+    fn set_background(
+        &self,
+        id: WebViewId,
+        color: Color,
+    ) -> Result<()> {
+        self.require_live(id)?;
+        self.record(Call::SetBackground { id, color });
         Ok(())
     }
 
@@ -226,6 +238,7 @@ mod tests {
             bounds: rect(0.0, 0.0, 10.0, 10.0),
             kind: WebViewKind::Core,
             visibility: Visibility::Shown,
+            background: None,
             initialization_script: None,
             on_ipc,
             on_page: None,

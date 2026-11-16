@@ -278,6 +278,10 @@ impl ShellState {
         if let Err(error) = self.host.set_theme(tokens) {
             tracing::warn!(%error, "sending the theme to panes failed");
         }
+        let surface = crate::pane_theme::surface_color(theme);
+        if let Err(error) = self.host.set_background(surface) {
+            tracing::warn!(%error, "colouring the pane web views failed");
+        }
     }
 
     pub(crate) fn set_pane_settings(

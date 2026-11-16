@@ -75,6 +75,10 @@ pub(crate) fn common_attributes<'a>(
         .with_bounds(to_rect(config.bounds))
         .with_visible(config.visibility == Visibility::Shown)
         .with_ipc_handler(move |request| on_ipc(request.into_body()));
+    let builder = match config.background {
+        Some(color) => builder.with_background_color(color.rgba()),
+        None => builder,
+    };
     let builder = match &config.on_page {
         Some(handler) => watch_pages(builder, handler),
         None => builder,

@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use webview::{Bounds, IpcHandler, Visibility, WebViewConfig, WebViewHost, WebViewKind};
+use webview::{Bounds, Color, IpcHandler, Visibility, WebViewConfig, WebViewHost, WebViewKind};
 
 use crate::bootstrap::bootstrap_script;
 use crate::browser_slot::{page_handler, pick_handler};
@@ -20,6 +20,7 @@ pub(crate) struct SlotFactory {
     config: PaneHostConfig,
     gate: Arc<InboxGate>,
     next: Cell<u64>,
+    background: Cell<Option<Color>>,
 }
 
 impl SlotFactory {
@@ -33,7 +34,15 @@ impl SlotFactory {
             config,
             gate,
             next: Cell::new(0),
+            background: Cell::new(None),
         }
+    }
+
+    pub(crate) fn set_background(
+        &self,
+        color: Color,
+    ) {
+        self.background.set(Some(color));
     }
 
     pub(crate) fn clear_browsing_data(&self) -> webview::Result<()> {
@@ -92,6 +101,7 @@ impl SlotFactory {
             bounds,
             kind: WebViewKind::Browser,
             visibility: Visibility::Hidden,
+            background: None,
             initialization_script: None,
             on_ipc: pick_handler(owner.clone(), self.gate.sink()),
             on_page: Some(page_handler(owner.clone(), self.gate.sink())),
@@ -108,6 +118,7 @@ impl SlotFactory {
             bounds,
             kind,
             visibility: Visibility::Hidden,
+            background: self.background.get(),
             initialization_script: Some(bootstrap_script(&self.config.scheme, &self.config.host)),
             on_ipc: self.ipc_for(owner),
             on_page: self
@@ -203,6 +214,39 @@ mod tests {
             factory.create(request()).unwrap().id,
             SlotId(1),
             "ids advance"
+        );
+    }
+
+    const SURFACE: Color = Color {
+        red: 10,
+        green: 20,
+        blue: 30,
+        alpha: 255,
+    };
+
+    fn created_backgrounds(mock: &MockPlatform) -> Vec<Option<Color>> {
+        mock.calls()
+            .iter()
+            .filter_map(|call| match call {
+                Call::Create { background, .. } => Some(*background),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_pane_view_is_born_in_the_surface_colour_and_a_browser_view_keeps_the_engine_default() {
+        let mock = Rc::new(MockPlatform::default());
+        let (factory, _inbox) = factory(&mock);
+        factory.set_background(SURFACE);
+        factory.create(request()).unwrap();
+        let mut browser = request();
+        browser.kind = WebViewKind::Browser;
+        factory.create(browser).unwrap();
+        assert_eq!(
+            created_backgrounds(&mock),
+            vec![Some(SURFACE), None],
+            "pane, browser"
         );
     }
 

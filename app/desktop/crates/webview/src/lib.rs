@@ -32,6 +32,7 @@
 //!         bounds: Bounds { x: 0.0, y: 0.0, width: 400.0, height: 300.0 },
 //!         kind: WebViewKind::Core,
 //!         visibility: Visibility::Shown,
+//!         background: None,
 //!         initialization_script: None,
 //!         on_ipc: Arc::new(|_| {}),
 //!         on_page: None,
@@ -47,6 +48,7 @@ mod bounds;
 mod builder_support;
 #[cfg(feature = "mock")]
 mod call;
+mod color;
 mod error;
 mod host_config;
 #[cfg(feature = "mock")]
@@ -84,9 +86,12 @@ mod xlib_parent;
 #[cfg(target_os = "macos")]
 mod appkit_parent;
 #[cfg(target_os = "macos")]
+mod macos_data_store;
+#[cfg(target_os = "macos")]
 mod macos_platform;
 
 pub use bounds::Bounds;
+pub use color::Color;
 pub use error::{Error, Result};
 pub use host_config::HostConfig;
 pub use page_event::{PageEvent, PageHandler};

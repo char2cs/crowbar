@@ -9,6 +9,7 @@ use wry::{WebContext, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
 use crate::bounds::Bounds;
 use crate::builder_support::{common_attributes, register_scheme, to_rect};
+use crate::color::Color;
 use crate::error::{Error, Result};
 use crate::host_config::HostConfig;
 use crate::live_view::LiveView;
@@ -93,6 +94,14 @@ impl GtkState {
             .live(id)?
             .view
             .set_visible(visibility == Visibility::Shown)?)
+    }
+
+    pub(crate) fn set_background(
+        &self,
+        id: WebViewId,
+        color: Color,
+    ) -> Result<()> {
+        Ok(self.live(id)?.view.set_background_color(color.rgba())?)
     }
 
     pub(crate) fn eval(
@@ -263,6 +272,7 @@ mod tests {
             bounds: rect(0.0, 0.0, 1.0, 1.0),
             kind: WebViewKind::Core,
             visibility: Visibility::Hidden,
+            background: None,
             initialization_script: None,
             on_ipc: Arc::new(|_| {}),
             on_page: None,

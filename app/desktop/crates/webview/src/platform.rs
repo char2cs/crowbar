@@ -1,4 +1,5 @@
 use crate::bounds::Bounds;
+use crate::color::Color;
 use crate::error::Result;
 use crate::parent_window::ParentWindow;
 use crate::snapshot::Snapshot;
@@ -40,6 +41,16 @@ pub trait Platform {
         &self,
         id: WebViewId,
         visibility: Visibility,
+    ) -> Result<()>;
+
+    /// Changes the colour a view shows where its page has not painted.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
+    fn set_background(
+        &self,
+        id: WebViewId,
+        color: Color,
     ) -> Result<()>;
 
     /// Runs a script in the page.
@@ -151,6 +162,7 @@ mod tests {
             bounds: rect(0.0, 0.0, 1.0, 1.0),
             kind: WebViewKind::Core,
             visibility: Visibility::Hidden,
+            background: None,
             initialization_script: None,
             on_ipc: Arc::new(|_| {}),
             on_page: None,

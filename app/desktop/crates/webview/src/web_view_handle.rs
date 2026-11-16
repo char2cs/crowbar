@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use crate::bounds::Bounds;
+use crate::color::Color;
 use crate::error::Result;
 use crate::platform::Platform;
 use crate::snapshot::Snapshot;
@@ -71,6 +72,17 @@ impl WebViewHandle {
     /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn hide(&self) -> Result<()> {
         self.platform.set_visibility(self.id, Visibility::Hidden)
+    }
+
+    /// Changes the colour shown where the page has not painted.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped.
+    pub fn set_background(
+        &self,
+        color: Color,
+    ) -> Result<()> {
+        self.platform.set_background(self.id, color)
     }
 
     /// Runs a script in the page.
@@ -181,6 +193,7 @@ mod tests {
             bounds,
             kind: WebViewKind::Core,
             visibility: Visibility::Shown,
+            background: None,
             initialization_script: None,
             on_ipc: Arc::new(|_| {}),
             on_page: None,
@@ -188,6 +201,26 @@ mod tests {
         mock.create(WebViewId(0), ParentWindow::X11(1), config)
             .unwrap();
         (Rc::clone(&mock), WebViewHandle::new(mock, WebViewId(0)))
+    }
+
+    #[test]
+    fn a_new_background_reaches_the_backend_for_that_view() {
+        let (mock, view) = handle();
+        let color = Color {
+            red: 9,
+            green: 8,
+            blue: 7,
+            alpha: 255,
+        };
+        view.set_background(color).unwrap();
+        assert_eq!(
+            mock.calls().last(),
+            Some(&Call::SetBackground {
+                id: view.id(),
+                color
+            }),
+            "recorded"
+        );
     }
 
     #[test]

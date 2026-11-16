@@ -142,6 +142,7 @@ mod tests {
             bounds: rect(1.0, 2.0, 3.0, 4.0),
             kind,
             visibility: Visibility::Hidden,
+            background: None,
             initialization_script: None,
             on_ipc: Arc::new(|_| {}),
             on_page: None,
@@ -175,6 +176,30 @@ mod tests {
         assert!(
             mock.calls().is_empty() && mock.live_views().is_empty(),
             "nothing recorded"
+        );
+    }
+
+    #[test]
+    fn the_background_of_the_config_is_what_the_view_is_created_with() {
+        let mock = Rc::new(MockPlatform::default());
+        let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
+        let color = crate::color::Color {
+            red: 1,
+            green: 2,
+            blue: 3,
+            alpha: 255,
+        };
+        let mut with_background = config(WebViewKind::Core);
+        with_background.background = Some(color);
+        host.create_in(ParentWindow::X11(7), with_background)
+            .unwrap();
+        assert!(
+            matches!(
+                mock.calls().first(),
+                Some(Call::Create { background: Some(made), .. }) if *made == color
+            ),
+            "{:?}",
+            mock.calls()
         );
     }
 

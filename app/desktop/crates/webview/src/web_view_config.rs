@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::bounds::Bounds;
+use crate::color::Color;
 use crate::page_event::PageHandler;
 use crate::visibility::Visibility;
 use crate::web_view_kind::WebViewKind;
@@ -21,6 +22,8 @@ pub struct WebViewConfig {
     pub kind: WebViewKind,
     /// Initial visibility.
     pub visibility: Visibility,
+    /// What the view shows before its page paints; `None` leaves the engine default.
+    pub background: Option<Color>,
     /// Script run in every page before its own scripts.
     pub initialization_script: Option<String>,
     /// Receives the page's ipc messages.
@@ -68,6 +71,7 @@ mod tests {
             bounds: rect(0.0, 0.0, 1.0, 1.0),
             kind: WebViewKind::Core,
             visibility: Visibility::Hidden,
+            background: None,
             initialization_script: Some("secret-script".into()),
             on_ipc: Arc::new(|_| {}),
             on_page: None,

@@ -6,6 +6,7 @@ use gtk::glib;
 
 use crate::bounded_wait::{collect_within, wait_for};
 use crate::bounds::Bounds;
+use crate::color::Color;
 use crate::create_reply::CreateReply;
 use crate::error::{Error, Result};
 use crate::gtk_state::GtkState;
@@ -184,6 +185,16 @@ impl Platform for LinuxPlatform {
     ) -> Result<()> {
         self.post_logged("set_visibility", move |state| {
             state.set_visibility(id, visibility)
+        })
+    }
+
+    fn set_background(
+        &self,
+        id: WebViewId,
+        color: Color,
+    ) -> Result<()> {
+        self.post_logged("set_background", move |state| {
+            state.set_background(id, color)
         })
     }
 

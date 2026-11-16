@@ -42,6 +42,7 @@ mod multiplicity;
 mod origin_table;
 mod overlay;
 mod owned_pane;
+mod pane_background;
 mod pane_bundles;
 mod pane_display;
 mod pane_host;

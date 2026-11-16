@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use webview::WebViewKind;
+use webview::{WebViewHandle, WebViewKind};
 
 use crate::slot::Slot;
 use crate::slot_id::SlotId;
@@ -43,6 +43,10 @@ impl SlotPool {
         id: SlotId,
     ) -> Option<&Slot> {
         self.slots.get(&id)
+    }
+
+    pub(crate) fn views(&self) -> impl Iterator<Item = (&WebViewKind, &WebViewHandle)> {
+        self.slots.values().map(|slot| (&slot.kind, &slot.handle))
     }
 
     pub(crate) fn len(&self) -> usize {

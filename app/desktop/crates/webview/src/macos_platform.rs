@@ -5,14 +5,15 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use objc2_foundation::MainThreadMarker;
-use protocol::ExtensionId;
 use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
 use crate::appkit_parent::AppkitParent;
 use crate::bounds::Bounds;
 use crate::builder_support::{common_attributes, register_scheme, to_rect};
+use crate::color::Color;
 use crate::error::{Error, Result};
 use crate::host_config::HostConfig;
+use crate::macos_data_store::{BROWSER_STORE, store_identifier};
 use crate::parent_window::ParentWindow;
 use crate::platform::Platform;
 use crate::protocol_handler::ProtocolHandler;
@@ -106,6 +107,14 @@ impl Platform for MacosPlatform {
         self.with_view(id, |view| view.set_visible(visibility == Visibility::Shown))
     }
 
+    fn set_background(
+        &self,
+        id: WebViewId,
+        color: Color,
+    ) -> Result<()> {
+        self.with_view(id, |view| view.set_background_color(color.rgba()))
+    }
+
     fn eval(
         &self,
         id: WebViewId,
@@ -148,27 +157,33 @@ impl Platform for MacosPlatform {
     }
 }
 
-const STORE_ID_BYTES: usize = 16;
-const BROWSER_STORE: [u8; STORE_ID_BYTES] = *b"crowbar.browser!";
-
-fn store_identifier(extension: &ExtensionId) -> [u8; STORE_ID_BYTES] {
-    const OFFSET_BASIS: u128 = 0x6c62_2727_e07b_b014_62b8_2175_6295_c58d;
-    const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
-    let hash = extension.as_str().bytes().fold(OFFSET_BASIS, |hash, byte| {
-        (hash ^ u128::from(byte)).wrapping_mul(PRIME)
-    });
-    hash.to_be_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol_handler::ProtocolResponder;
+    use crate::protocol_request::ProtocolRequest;
+
+    struct Silent;
+
+    impl ProtocolHandler for Silent {
+        fn handle(
+            &self,
+            _request: ProtocolRequest,
+            _respond: ProtocolResponder,
+        ) {
+        }
+    }
 
     #[test]
-    fn extensions_get_distinct_stable_store_identifiers() {
-        let git = ExtensionId::new("git").unwrap();
-        let draw = ExtensionId::new("draw").unwrap();
-        assert_eq!(store_identifier(&git), store_identifier(&git), "stable");
-        assert_ne!(store_identifier(&git), store_identifier(&draw), "distinct");
+    fn a_backend_cannot_start_off_the_main_thread() {
+        let config = HostConfig {
+            scheme: "crowbar".into(),
+            protocol: Arc::new(Silent),
+            data_dir: None,
+        };
+        let started = std::thread::spawn(move || MacosPlatform::start(config).map(drop))
+            .join()
+            .unwrap();
+        assert!(matches!(started, Err(Error::NotMainThread)), "refused");
     }
 }

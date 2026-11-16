@@ -1,4 +1,5 @@
 use crate::bounds::Bounds;
+use crate::color::Color;
 use crate::parent_window::ParentWindow;
 use crate::visibility::Visibility;
 use crate::web_view_id::WebViewId;
@@ -21,6 +22,8 @@ pub enum Call {
         bounds: Bounds,
         /// Initial visibility.
         visibility: Visibility,
+        /// Colour shown before the page paints.
+        background: Option<Color>,
     },
     /// A view was moved or resized.
     SetBounds {
@@ -35,6 +38,13 @@ pub enum Call {
         id: WebViewId,
         /// The new visibility.
         visibility: Visibility,
+    },
+    /// A view got another colour to show before its page paints.
+    SetBackground {
+        /// The view.
+        id: WebViewId,
+        /// The new colour.
+        color: Color,
     },
     /// A script was run.
     Eval {

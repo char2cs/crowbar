@@ -239,6 +239,7 @@ pub(crate) fn blank_config(kind: WebViewKind) -> WebViewConfig {
         bounds: bounds(),
         kind,
         visibility: Visibility::Hidden,
+        background: None,
         initialization_script: None,
         on_ipc: Arc::new(|_| {}),
         on_page: None,
