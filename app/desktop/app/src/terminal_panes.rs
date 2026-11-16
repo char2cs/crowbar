@@ -1,15 +1,16 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use gpui::{AnyView, App, AppContext as _, Entity, Window};
 use protocol::PaneId;
 use terminal::DaemonFrame;
-use terminal_session::{Ends, SessionBase, TerminalSessions};
+use terminal_session::{Ends, TerminalSessions};
 use terminal_view::{TerminalLink, TerminalSettings, TerminalView};
 
 use crate::chat_terminals::ChatTerminals;
 use crate::plan::Plan;
 use crate::terminal_ids::TerminalIds;
+use crate::terminal_owner::TerminalOwner;
 
 const STARTING: &str = "Starting the chat's terminal...\r\n";
 const NO_CHAT: &str = "Open a chat first: a terminal runs in a chat's workspace.\r\n";
@@ -19,6 +20,7 @@ pub(crate) struct TerminalPanes {
     sessions: TerminalSessions,
     chats: ChatTerminals,
     views: RefCell<BTreeMap<PaneId, Entity<TerminalView>>>,
+    waiting: RefCell<BTreeSet<PaneId>>,
     settings: RefCell<TerminalSettings>,
 }
 
@@ -32,6 +34,7 @@ impl TerminalPanes {
             sessions,
             chats,
             views: RefCell::default(),
+            waiting: RefCell::default(),
             settings: RefCell::default(),
         }
     }
@@ -67,54 +70,88 @@ impl TerminalPanes {
         if !self.ids.contains(pane) {
             return None;
         }
-        let chat = self.ids.chat_of(pane);
+        let owner = self.ids.owner_of(pane);
         let existing = self.views.borrow().get(pane).cloned();
-        let view = existing.unwrap_or_else(|| self.create((pane, chat.as_deref()), window, cx));
+        let view = existing.unwrap_or_else(|| self.create((pane, owner.as_ref()), window, cx));
         Some(view.into())
     }
 
     fn create(
         &self,
-        (pane, chat): (&PaneId, Option<&str>),
+        (pane, owner): (&PaneId, Option<&TerminalOwner>),
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<TerminalView> {
         let (link, peer) = TerminalLink::open();
         let view = cx.new(|cx| TerminalView::new(link, self.settings.borrow().clone(), window, cx));
         let (frames, messages) = peer.into_channels();
-        self.connect(pane, chat, Ends { frames, messages });
+        self.connect((pane, owner), Ends { frames, messages });
         self.views.borrow_mut().insert(pane.clone(), view.clone());
         view
     }
 
     fn connect(
         &self,
-        pane: &PaneId,
-        chat: Option<&str>,
+        (pane, owner): (&PaneId, Option<&TerminalOwner>),
         ends: Ends,
     ) {
-        let Some(Ok(base)) = chat.map(SessionBase::chat) else {
+        let base = owner.map(TerminalOwner::base);
+        let (Some(owner), Some(Ok(base))) = (owner, base) else {
             notify(&ends, NO_CHAT);
             return;
         };
         let pane = pane.clone();
-        let state = chat.and_then(|chat| self.chats.state(chat));
-        match Plan::of(state.as_ref()) {
+        match self.plan_for(owner) {
             Plan::Own => self.sessions.start(base, pane, ends),
             Plan::Watch(session) => self.sessions.watch((base, session), pane, ends),
-            Plan::Resume => self.resume(&ends, chat),
+            Plan::Resume => self.resume(&pane, owner, &ends),
+        }
+    }
+
+    fn plan_for(
+        &self,
+        owner: &TerminalOwner,
+    ) -> Plan {
+        match owner {
+            TerminalOwner::Chat(chat) => Plan::of(self.chats.state(chat).as_ref()),
+            TerminalOwner::Home(_) => Plan::Own,
         }
     }
 
     fn resume(
         &self,
+        pane: &PaneId,
+        owner: &TerminalOwner,
         ends: &Ends,
-        chat: Option<&str>,
     ) {
         notify(ends, STARTING);
-        if let Some(chat) = chat {
+        self.waiting.borrow_mut().insert(pane.clone());
+        if let TerminalOwner::Chat(chat) = owner {
             self.chats.resume(chat);
         }
+    }
+
+    pub(crate) fn attached(&self) -> bool {
+        let ready: Vec<PaneId> = self
+            .waiting
+            .borrow()
+            .iter()
+            .filter(|pane| self.is_ready(pane))
+            .cloned()
+            .collect();
+        for pane in &ready {
+            self.waiting.borrow_mut().remove(pane);
+            self.views.borrow_mut().remove(pane);
+        }
+        !ready.is_empty()
+    }
+
+    fn is_ready(
+        &self,
+        pane: &PaneId,
+    ) -> bool {
+        let owner = self.ids.owner_of(pane);
+        owner.is_none_or(|owner| !matches!(self.plan_for(&owner), Plan::Resume))
     }
 }
 
@@ -130,13 +167,16 @@ fn notify(
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
     use gpui::TestAppContext;
     use model::{Command, Layout, PaneInstance, TabId};
     use protocol::{PaneState, PaneTypeId, Params};
+    use shell_data::{ChatPhase, ChatSurface, ChatTerminal};
 
     use super::*;
     use crate::core_panes::TERMINAL;
-    use crate::test_support::idle_terminals;
+    use crate::test_support::{idle_terminals, idle_terminals_for};
 
     fn layout_with_terminal(chat: Option<&str>) -> Layout {
         let mut layout = Layout::default();
@@ -233,6 +273,48 @@ mod tests {
         assert!(
             after.0 < before.0,
             "{after:?} should have fewer columns than {before:?}"
+        );
+    }
+
+    fn dormant_then_live() -> (ChatTerminals, Rc<RefCell<ChatTerminal>>) {
+        let state = Rc::new(RefCell::new(ChatTerminal {
+            surface: ChatSurface::Terminal,
+            live_runner_id: None,
+            terminal_session_id: None,
+            phase: ChatPhase::Dormant,
+        }));
+        let seen = Rc::clone(&state);
+        let chats = ChatTerminals::new(
+            Rc::new(move |_| Some(seen.borrow().clone())),
+            Rc::new(|_| {}),
+        );
+        (chats, state)
+    }
+
+    #[gpui::test]
+    fn a_dormant_chat_terminal_is_rebuilt_once_its_runner_appears(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap());
+        let (chats, state) = dormant_then_live();
+        let ids = TerminalIds::default();
+        ids.follow(&layout_with_terminal(Some("c1")));
+        let panes = idle_terminals_for(ids, chats);
+        let (_root, cx) = cx.add_window_view(|_, _| gpui::Empty);
+        let pane = PaneId::new("t1").unwrap();
+        let first = cx.update(|window, cx| panes.view(&pane, window, cx));
+        assert!(!panes.attached(), "still dormant");
+        let live = ChatTerminal {
+            live_runner_id: Some("r".into()),
+            terminal_session_id: Some("s1".into()),
+            phase: ChatPhase::Live,
+            ..state.borrow().clone()
+        };
+        *state.borrow_mut() = live;
+        assert!(panes.attached(), "the runner appeared");
+        let second = cx.update(|window, cx| panes.view(&pane, window, cx));
+        assert_ne!(
+            first.map(|view| view.entity_id()),
+            second.map(|view| view.entity_id()),
+            "a view bound to the new session"
         );
     }
 }

@@ -29,6 +29,10 @@ impl ShellPaneSource {
         }
     }
 
+    pub(crate) fn terminals_attached(&self) -> bool {
+        self.terminals.attached()
+    }
+
     pub(crate) fn apply_terminal_settings(
         &self,
         settings: terminal_view::TerminalSettings,

@@ -103,6 +103,16 @@ impl PaneSpec {
         Self::new(TERMINAL, params, state)
     }
 
+    pub(crate) fn home_terminal(
+        id: &str,
+        project: &str,
+    ) -> Result<Self> {
+        let params = Params::default()
+            .with("terminalId", id)?
+            .with("projectId", project)?;
+        Self::new(TERMINAL, params, PaneState::default())
+    }
+
     pub(crate) fn browser(id: &str) -> Result<Self> {
         let params = Params::default().with("browserId", id)?;
         Self::new(BROWSER, params, PaneState::default())

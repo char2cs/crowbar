@@ -6,11 +6,12 @@ use model::{Layout, PaneInstance, Tab};
 use protocol::{PaneId, PaneTitle};
 
 use crate::core_panes::TERMINAL;
+use crate::terminal_owner::TerminalOwner;
 use crate::titles::Titles;
 
 const DEFAULT_LABEL: &str = "Terminal";
 
-type Chats = BTreeMap<PaneId, Option<String>>;
+type Chats = BTreeMap<PaneId, Option<TerminalOwner>>;
 type Labels = BTreeMap<PaneId, String>;
 
 #[derive(Debug, Clone, Default)]
@@ -27,10 +28,10 @@ impl TerminalIds {
         self.panes.borrow().contains_key(pane)
     }
 
-    pub(crate) fn chat_of(
+    pub(crate) fn owner_of(
         &self,
         pane: &PaneId,
-    ) -> Option<String> {
+    ) -> Option<TerminalOwner> {
         self.panes.borrow().get(pane).cloned().flatten()
     }
 
@@ -41,7 +42,7 @@ impl TerminalIds {
         let terminals = terminals_in(layout);
         let chats = terminals
             .iter()
-            .map(|(pane, instance)| (pane.clone(), chat_of(instance)));
+            .map(|(pane, instance)| (pane.clone(), TerminalOwner::of(&instance.params)));
         let labels = terminals
             .iter()
             .map(|(pane, instance)| (pane.clone(), label_of(instance)));
@@ -82,10 +83,6 @@ fn terminals_in(layout: &Layout) -> Vec<(PaneId, &PaneInstance)> {
         .flat_map(Tab::pane_ids)
         .filter_map(terminal)
         .collect()
-}
-
-fn chat_of(instance: &PaneInstance) -> Option<String> {
-    instance.params.get("threadId").map(str::to_owned)
 }
 
 fn label_of(instance: &PaneInstance) -> String {
@@ -151,8 +148,12 @@ mod tests {
         let ids = TerminalIds::default();
         ids.follow(&layout);
         let (t1, t2) = (PaneId::new("t1").unwrap(), PaneId::new("t2").unwrap());
-        assert_eq!(ids.chat_of(&t1), Some("c1".to_owned()), "with chat");
-        assert_eq!(ids.chat_of(&t2), None, "without chat");
+        assert_eq!(
+            ids.owner_of(&t1),
+            Some(TerminalOwner::Chat("c1".to_owned())),
+            "with chat"
+        );
+        assert_eq!(ids.owner_of(&t2), None, "without chat");
         assert!(ids.contains(&t2), "still a terminal");
         assert!(
             !ids.contains(&PaneId::new("p3").unwrap()),
