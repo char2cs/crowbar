@@ -194,7 +194,7 @@ fn state_in(
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
     use model::{Command, DragSubject};
 
     use super::*;
@@ -273,6 +273,22 @@ mod tests {
             (true, false),
             "dragging before, then not"
         );
+    }
+
+    #[gpui::test]
+    fn dragging_a_strip_tab_over_the_layout_opens_the_overlay_that_freezes_web_views(
+        cx: &mut TestAppContext
+    ) {
+        let harness = open_with(cx, &stacked_layout(), stacking());
+        let (view, cx) = (harness.view, harness.cx);
+        let size = view.read_with(cx, |view, _| view.bounds.size);
+        let tab = point(size.width * 0.5 + px(40.0), px(20.0));
+        let none = Modifiers::none();
+        cx.simulate_mouse_down(tab, MouseButton::Left, none);
+        cx.simulate_mouse_move(tab + point(px(20.0), px(2.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(tab + point(px(25.0), px(10.0)), MouseButton::Left, none);
+        let dragging = view.read_with(cx, |view, _| view.drop.is_dragging());
+        assert!(dragging, "the first moves of a strip tab drag open the overlay");
     }
 
     #[gpui::test]
