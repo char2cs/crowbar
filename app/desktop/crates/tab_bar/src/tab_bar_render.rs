@@ -18,6 +18,7 @@ use crate::strip_metrics::{
 };
 use crate::tab_bar::TabBar;
 use crate::tab_bar_event::TabBarEvent;
+use crate::tab_bar_pointer::follow_pointer;
 use crate::tab_drop::TabDrop;
 use crate::tab_shell::{CloseAction, TabShell};
 
@@ -35,6 +36,7 @@ impl Render for TabBar {
         }
         self.scroll_for_drag();
         let view = cx.entity();
+        let pointer = view.clone();
         div()
             .id("tab-bar")
             .relative()
@@ -43,7 +45,7 @@ impl Render for TabBar {
             .child(
                 canvas(
                     move |bounds, _, cx: &mut App| view.update(cx, |this, _| this.row = bounds),
-                    |_, (), _, _| {},
+                    move |_, (), window, cx| follow_pointer(&pointer, window, cx),
                 )
                 .absolute()
                 .size_full(),
@@ -52,7 +54,6 @@ impl Render for TabBar {
             .children(self.ghost())
             .children(self.drop_line(now, motion, cx))
             .children(self.menu_layers(window, cx))
-            .on_mouse_move(cx.listener(Self::moved))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::released))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::released))
             .on_drag_move::<DragSubject>(cx.listener(Self::drag_over))

@@ -1,5 +1,6 @@
 use gpui::{
-    Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window,
+    App, Context, Entity, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    Window,
 };
 use model::Command;
 use ui::Motion;
@@ -11,6 +12,23 @@ use crate::strip_drag::StripDrag;
 use crate::strip_metrics;
 use crate::tab_bar::TabBar;
 use crate::tab_bar_event::TabBarEvent;
+
+pub(crate) fn follow_pointer(
+    bar: &Entity<TabBar>,
+    window: &mut Window,
+    cx: &App,
+) {
+    let state = bar.read(cx);
+    if state.press.is_none() && state.drag.is_none() {
+        return;
+    }
+    let bar = bar.clone();
+    window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+        phase
+            .bubble()
+            .then(|| bar.update(cx, |bar, cx| bar.moved(event, window, cx)));
+    });
+}
 
 impl TabBar {
     pub(crate) fn pressed(
@@ -191,6 +209,22 @@ mod tests {
                 to_index: 1
             }]],
             "first tab moved to the second slot, and no activation"
+        );
+    }
+
+    #[gpui::test]
+    fn a_dragged_tab_keeps_following_the_pointer_below_the_bar(cx: &mut TestAppContext) {
+        let harness = open(cx, tabs(), 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        let none = Modifiers::none();
+        cx.simulate_mouse_down(point(px(108.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(130.0), px(21.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(400.0), px(300.0)), MouseButton::Left, none);
+        let pointer = bar.read_with(cx, |bar, _| bar.drag.as_ref().map(|drag| drag.pointer));
+        assert_eq!(
+            pointer,
+            Some(point(px(400.0), px(300.0))),
+            "the ghost follows the pointer out of the bar"
         );
     }
 
