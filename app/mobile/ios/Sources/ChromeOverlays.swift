@@ -5,7 +5,7 @@ import WebKit
 @available(iOS 26.0, *)
 final class ChromeOverlays {
   private let model: ChromeModel
-  private let scheme = AppScheme()
+  private let scheme: AppScheme
   private let sidebar: PageChannel
   private let settings: PageChannel
   private let files: PageChannel
@@ -133,9 +133,11 @@ final class ChromeOverlays {
   init(
     model: ChromeModel,
     webview: WKWebView,
+    scheme: AppScheme,
     send: @escaping (ChromeIntent) -> Void
   ) {
     self.model = model
+    self.scheme = scheme
     self.webview = webview
     sidebar = PageChannel(
       handler: "sidebar",

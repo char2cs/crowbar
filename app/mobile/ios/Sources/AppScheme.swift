@@ -2,9 +2,10 @@ import Foundation
 import WebKit
 
 @_silgen_name("crowbar_chrome_dev_url")
-private func crowbarChromeDevURL() -> UnsafePointer<CChar>?
+private func crowbarChromeDevURL(_ frontend: UnsafeRawPointer) -> UnsafePointer<CChar>?
 @_silgen_name("crowbar_chrome_asset")
 private func crowbarChromeAsset(
+  _ frontend: UnsafeRawPointer,
   _ path: UnsafePointer<CChar>,
   _ len: UnsafeMutablePointer<Int>,
   _ mime: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
@@ -17,8 +18,15 @@ private func crowbarChromeAssetFree(
 )
 
 final class AppScheme: NSObject, WKURLSchemeHandler {
-  private let devURL = crowbarChromeDevURL().map { String(cString: $0) }
+  private let frontend: UnsafeRawPointer
+  private let devURL: String?
   private var stopped = Set<ObjectIdentifier>()
+
+  init(frontend: UnsafeRawPointer) {
+    self.frontend = frontend
+    devURL = crowbarChromeDevURL(frontend).map { String(cString: $0) }
+    super.init()
+  }
 
   func webView(
     _ webView: WKWebView,
@@ -79,7 +87,7 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
     var len = 0
     var mime: UnsafeMutablePointer<CChar>?
     let path = url.path.isEmpty ? "/" : url.path
-    guard let bytes = path.withCString({ crowbarChromeAsset($0, &len, &mime) }) else {
+    guard let bytes = path.withCString({ crowbarChromeAsset(frontend, $0, &len, &mime) }) else {
       return respond(task, SchemeReply(url: url, status: HTTPStatus.notFound))
     }
     let body = Data(bytes: bytes, count: len)

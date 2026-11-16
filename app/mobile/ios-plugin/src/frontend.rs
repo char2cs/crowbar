@@ -1,6 +1,5 @@
 use crate::frontend_asset::FrontendAsset;
 use std::ffi::{CStr, CString};
-use std::sync::OnceLock;
 use tauri::Url;
 
 type Resolve = Box<dyn Fn(String) -> Option<FrontendAsset> + Send + Sync>;
@@ -9,10 +8,6 @@ pub(crate) struct Frontend {
     dev_url: Option<CString>,
     resolve: Resolve,
 }
-
-// PLATFORM: ios Swift reaches the frontend through context-free C functions, so the installed
-// PLATFORM: ios frontend is process-wide because the C functions carry no context.
-static FRONTEND: OnceLock<Frontend> = OnceLock::new();
 
 impl Frontend {
     pub(crate) fn new(
@@ -26,15 +21,8 @@ impl Frontend {
         }
     }
 
-    pub(crate) fn install(
-        dev_url: Option<Url>,
-        resolve: impl Fn(String) -> Option<FrontendAsset> + Send + Sync + 'static,
-    ) {
-        FRONTEND.get_or_init(|| Self::new(dev_url, resolve));
-    }
-
-    pub(crate) fn installed() -> Option<&'static Self> {
-        FRONTEND.get()
+    pub(crate) fn address(&self) -> usize {
+        std::ptr::from_ref(self).expose_provenance()
     }
 
     pub(crate) fn dev_url(&self) -> Option<&CStr> {
@@ -75,6 +63,16 @@ mod tests {
                 "dev url for {given}"
             );
         }
+    }
+
+    #[test]
+    fn address_is_where_the_frontend_lives() {
+        let frontend = Frontend::new(None, |_| None);
+        assert_eq!(
+            frontend.address(),
+            std::ptr::from_ref(&frontend).expose_provenance(),
+            "Swift hands this address back to find the frontend"
+        );
     }
 
     #[test]

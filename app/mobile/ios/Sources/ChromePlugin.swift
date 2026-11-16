@@ -7,12 +7,18 @@ import WebKit
 class ChromePlugin: Plugin {
   private let model = ChromeModel()
   private var webview: WKWebView?
+  private var frontend: UnsafeRawPointer?
   private var overlays: AnyObject?
 
   override func load(webview: WKWebView) {
     self.webview = webview
     webview.isOpaque = false
     webview.backgroundColor = UIColor(named: "LaunchBackground")
+  }
+
+  @objc public func attachFrontend(_ invoke: Invoke) throws {
+    frontend = try invoke.parseArgs(FrontendHandle.self).pointer
+    invoke.resolve()
   }
 
   @objc public func setChrome(_ invoke: Invoke) throws {
@@ -124,8 +130,10 @@ class ChromePlugin: Plugin {
   @available(iOS 26.0, *)
   private func mounted() -> ChromeOverlays? {
     if let overlays = overlays as? ChromeOverlays { return overlays }
-    guard let webview else { return nil }
-    let overlays = ChromeOverlays(model: model, webview: webview) { [weak self] intent in
+    guard let webview, let frontend else { return nil }
+    let scheme = AppScheme(frontend: frontend)
+    let overlays = ChromeOverlays(model: model, webview: webview, scheme: scheme) {
+      [weak self] intent in
       self?.trigger("intent", data: intent.payload)
     }
     self.overlays = overlays

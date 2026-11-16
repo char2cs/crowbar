@@ -1,8 +1,11 @@
 use crate::frontend::Frontend;
 use crate::frontend_asset::FrontendAsset;
+#[cfg(target_os = "ios")]
+use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 use tauri::plugin::{Builder, PluginApi, TauriPlugin};
-use tauri::{AppHandle, Asset, Runtime};
+use tauri::{AppHandle, Asset, Manager, Runtime};
 
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_crowbar_chrome);
@@ -29,17 +32,23 @@ fn attach<R: Runtime>(
         .then(|| app.config().build.dev_url.clone())
         .flatten();
     let resolver = app.asset_resolver();
-    Frontend::install(dev_url, move |path| {
+    let frontend = Arc::new(Frontend::new(dev_url, move |path| {
         resolver.get(path).map(into_frontend_asset)
-    });
-    register_swift_plugin(api)
+    }));
+    let address = frontend.address();
+    app.manage(frontend);
+    register_swift_plugin(api, address)
 }
 
 // PLATFORM: tauri hands a command with no Rust handler to the Swift plugin, so there are no Rust commands:
 // PLATFORM: tauri payload and channels stay intact, where a Rust wrapper would re-key the payload.
 #[cfg(target_os = "ios")]
-fn register_swift_plugin<R: Runtime>(api: &PluginApi<R, ()>) -> Result<(), Box<dyn Error>> {
-    api.register_ios_plugin(init_plugin_crowbar_chrome)?;
+fn register_swift_plugin<R: Runtime>(
+    api: &PluginApi<R, ()>,
+    frontend: usize,
+) -> Result<(), Box<dyn Error>> {
+    let plugin = api.register_ios_plugin(init_plugin_crowbar_chrome)?;
+    plugin.run_mobile_plugin::<()>("attachFrontend", HashMap::from([("frontend", frontend)]))?;
     Ok(())
 }
 
@@ -48,7 +57,10 @@ fn register_swift_plugin<R: Runtime>(api: &PluginApi<R, ()>) -> Result<(), Box<d
     clippy::unnecessary_wraps,
     reason = "same signature as the iOS registration"
 )]
-fn register_swift_plugin<R: Runtime>(_api: &PluginApi<R, ()>) -> Result<(), Box<dyn Error>> {
+fn register_swift_plugin<R: Runtime>(
+    _api: &PluginApi<R, ()>,
+    _frontend: usize,
+) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 

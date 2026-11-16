@@ -5,23 +5,27 @@
 
 use crate::font::font;
 use crate::frontend::Frontend;
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, c_void, CStr, CString};
 use std::ptr::{null, null_mut};
 
 #[no_mangle]
-pub(crate) extern "C" fn crowbar_chrome_dev_url() -> *const c_char {
-    Frontend::installed()
+pub(crate) unsafe extern "C" fn crowbar_chrome_dev_url(frontend: *const c_void) -> *const c_char {
+    // SAFETY: Swift passes back the address `Frontend::address` gave it, which tauri state keeps alive.
+    let frontend = unsafe { frontend.cast::<Frontend>().as_ref() };
+    frontend
         .and_then(Frontend::dev_url)
         .map_or(null(), CStr::as_ptr)
 }
 
 #[no_mangle]
 pub(crate) unsafe extern "C" fn crowbar_chrome_asset(
+    frontend: *const c_void,
     path: *const c_char,
     len: *mut usize,
     mime: *mut *mut c_char,
 ) -> *mut u8 {
-    let Some(frontend) = Frontend::installed() else {
+    // SAFETY: Swift passes back the address `Frontend::address` gave it, which tauri state keeps alive.
+    let Some(frontend) = (unsafe { frontend.cast::<Frontend>().as_ref() }) else {
         return null_mut();
     };
     // SAFETY: the caller passes a NUL-terminated string that outlives this call.
@@ -71,10 +75,7 @@ pub(crate) unsafe extern "C" fn crowbar_chrome_font(
 mod tests {
     use super::*;
     use crate::frontend_asset::FrontendAsset;
-    use std::sync::Once;
     use tauri::Url;
-
-    static INSTALL: Once = Once::new();
 
     fn fixture_asset(path: &str) -> Option<FrontendAsset> {
         (path == "/index.html").then(|| FrontendAsset {
@@ -83,23 +84,32 @@ mod tests {
         })
     }
 
-    fn install_fixture() {
-        INSTALL.call_once(|| {
-            let dev_url = Url::parse("http://localhost:1420/").expect("fixture url parses");
-            Frontend::install(Some(dev_url), |path| fixture_asset(&path));
-        });
+    fn fixture() -> Frontend {
+        let dev_url = Url::parse("http://localhost:1420/").expect("fixture url parses");
+        Frontend::new(Some(dev_url), |path| fixture_asset(&path))
+    }
+
+    fn address(frontend: &Frontend) -> *const c_void {
+        std::ptr::with_exposed_provenance(frontend.address())
     }
 
     type Served = (Vec<u8>, Vec<u8>);
     type Expected = Option<(&'static [u8], &'static [u8])>;
 
     fn fetch(path: &str) -> Option<Served> {
-        install_fixture();
+        let frontend = fixture();
         let path = CString::new(path).expect("no interior NUL");
         let mut len = 0usize;
         let mut mime: *mut c_char = null_mut();
         // SAFETY: `path` is NUL-terminated and `len` and `mime` are writable.
-        let bytes = unsafe { crowbar_chrome_asset(path.as_ptr(), &raw mut len, &raw mut mime) };
+        let bytes = unsafe {
+            crowbar_chrome_asset(
+                address(&frontend),
+                path.as_ptr(),
+                &raw mut len,
+                &raw mut mime,
+            )
+        };
         if bytes.is_null() {
             return None;
         }
@@ -114,8 +124,9 @@ mod tests {
 
     #[test]
     fn dev_url_is_served_as_a_c_string() {
-        install_fixture();
-        let url = crowbar_chrome_dev_url();
+        let frontend = fixture();
+        // SAFETY: the address is of the live fixture frontend.
+        let url = unsafe { crowbar_chrome_dev_url(address(&frontend)) };
         assert!(!url.is_null(), "a dev frontend exposes its url");
         // SAFETY: the pointer is non-null and owned by the installed frontend for the process life.
         let url = unsafe { CStr::from_ptr(url) };
