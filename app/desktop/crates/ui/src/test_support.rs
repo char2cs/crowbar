@@ -3,10 +3,12 @@
 
 mod area;
 mod channels;
+mod clicks;
 mod field;
 mod probe;
 
 pub(crate) use area::{area, area_text, area_with};
 pub(crate) use channels::channel_byte;
+pub(crate) use clicks::press;
 pub(crate) use field::{field, text_of};
 pub(crate) use probe::{measure, open};

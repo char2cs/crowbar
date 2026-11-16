@@ -1,5 +1,6 @@
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use gtk::glib;
 
@@ -9,9 +10,12 @@ use crate::gtk_state::GtkState;
 use crate::host_config::HostConfig;
 use crate::parent_window::ParentWindow;
 use crate::platform::Platform;
+use crate::snapshot::Snapshot;
 use crate::visibility::Visibility;
 use crate::web_view_config::WebViewConfig;
 use crate::web_view_id::WebViewId;
+
+const SNAPSHOT_PATIENCE: Duration = Duration::from_millis(400);
 
 type Job = Box<dyn FnOnce(&mut GtkState) + Send>;
 
@@ -184,6 +188,19 @@ impl Platform for LinuxPlatform {
         id: WebViewId,
     ) -> Result<()> {
         self.post_logged("focus_parent", move |state| state.focus_parent(id))
+    }
+
+    fn snapshot(
+        &self,
+        id: WebViewId,
+    ) -> Result<Option<Snapshot>> {
+        let (reply, answer) = mpsc::channel();
+        self.post(move |state| state.snapshot(id, reply))?;
+        if let Ok(result) = answer.recv_timeout(SNAPSHOT_PATIENCE) {
+            return result;
+        }
+        tracing::debug!("a web view did not answer a snapshot in time");
+        Ok(None)
     }
 
     fn destroy(

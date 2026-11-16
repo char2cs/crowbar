@@ -22,6 +22,7 @@ wry.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 async-channel.workspace = true
 gtk.workspace = true
+webkit2gtk.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSThread"] }

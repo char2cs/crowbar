@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use model::Layout;
 use protocol::{
-    DaemonTransport, ExtensionStatus, KeyBinding, Lifecycle, PaneId, PaneTypeId, ShellFrame,
-    ThemeTokens, decode_pane_frame, encode,
+    DaemonTransport, ExtensionStatus, KeyBinding, Lifecycle, PaneId, PaneTypeId, SettingValues,
+    ShellFrame, ThemeTokens, decode_pane_frame, encode,
 };
 use webview::WebViewHost;
 
@@ -43,6 +43,7 @@ pub struct PaneHost {
     pub(crate) panes: BTreeMap<PaneId, PaneRuntime>,
     pub(crate) keybindings: Vec<KeyBinding>,
     pub(crate) theme: Option<ThemeTokens>,
+    pub(crate) settings: Option<SettingValues>,
     pub(crate) overlay: Overlay,
     pub(crate) focused: Option<PaneId>,
     pub(crate) inbox: async_channel::Receiver<IpcMessage>,
@@ -87,6 +88,7 @@ impl PaneHost {
             panes: BTreeMap::new(),
             keybindings: Vec::new(),
             theme: None,
+            settings: None,
             overlay: Overlay::Inactive,
             focused: None,
             inbox,

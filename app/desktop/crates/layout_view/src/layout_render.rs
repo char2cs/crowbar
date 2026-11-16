@@ -7,7 +7,7 @@ use gpui::{
 };
 use model::{Axis, DragSubject, PaneSlot, Rect, Sash as ModelSash};
 use protocol::PaneId;
-use ui::{Motion, Sash, SashDrag, Surface, Theme, Wordmark};
+use ui::{DraggedRow, Motion, Sash, SashDrag, Surface, Theme, Wordmark};
 
 use crate::layout_view::LayoutView;
 use crate::pane_cell::{CellAction, PaneCell};
@@ -54,8 +54,10 @@ impl Render for LayoutView {
             .children(self.sashes(cx))
             .children(self.preview(now, motion, cx))
             .on_drag_move::<DragSubject>(cx.listener(Self::drag_over))
+            .on_drag_move::<DraggedRow>(cx.listener(Self::row_over))
             .on_drag_move::<SashDrag>(cx.listener(Self::sash_moved))
             .on_drop::<DragSubject>(cx.listener(Self::dropped))
+            .on_drop::<DraggedRow>(cx.listener(Self::row_dropped))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::released))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::released))
     }

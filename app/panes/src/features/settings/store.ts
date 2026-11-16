@@ -8,7 +8,9 @@ import {
 import {
   applySettingSideEffect,
   applySettingsSideEffects,
+  applyTypographySettings,
 } from '@/features/settings/lib/settings-effects'
+import { resolveShellSettings, writeSettingToShell } from '@/features/settings/lib/shell-settings'
 import { initializeSettingsState } from '@/features/settings/lib/settings-bootstrap'
 import { normalizeSettingValue } from '@/features/settings/lib/settings-normalization'
 import {
@@ -78,6 +80,14 @@ export const useSettingsStore = create(
           })
         },
 
+        applyShellSettings: (values: Readonly<Record<string, unknown>>) => {
+          const next = resolveShellSettings(useSettingsStore.getState().settings, values)
+          set((state) => {
+            state.settings = next
+          })
+          applyTypographySettings(next)
+        },
+
         resetToDefaults: async () => {
           const nextSettings = getDefaultSettingsSnapshot()
 
@@ -91,6 +101,7 @@ export const useSettingsStore = create(
 
         updateSetting: async <K extends keyof Settings>(key: K, value: Settings[K]) => {
           const normalizedValue = normalizeSettingValue(key, value)
+          if (writeSettingToShell(key, normalizedValue)) return
 
           set((state) => {
             state.settings[key] = normalizedValue

@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use gpui::{Context, Pixels, Point, Window};
-use ui::ToastKind;
+use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use crate::command::Command;
 use crate::error::Error;
@@ -128,7 +128,11 @@ impl Sidebar {
                 true
             },
             Err(Error::Refused { reason }) => {
-                self.toast((ToastKind::Error, reason), None, cx);
+                self.toast(
+                    ToastContent::new(ToastKind::Error, reason),
+                    (None, ToastLifetime::Auto),
+                    cx,
+                );
                 false
             },
             Err(_) => false,

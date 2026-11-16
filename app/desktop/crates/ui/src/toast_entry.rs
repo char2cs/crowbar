@@ -8,6 +8,7 @@ use crate::toast_lifetime::ToastLifetime;
 
 pub(crate) struct ToastEntry {
     pub(crate) id: ToastId,
+    pub(crate) key: Option<SharedString>,
     pub(crate) kind: ToastKind,
     pub(crate) message: SharedString,
     pub(crate) lifetime: ToastLifetime,
@@ -29,6 +30,7 @@ mod tests {
     fn entry(lifetime: ToastLifetime) -> ToastEntry {
         ToastEntry {
             id: ToastId(0),
+            key: None,
             kind: ToastKind::Info,
             message: "m".into(),
             lifetime,

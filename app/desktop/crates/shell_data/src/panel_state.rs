@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use sidebar::{Changes, GitStatus};
 
 use crate::file_entry::FileEntry;
+use crate::gitignore_rules::IgnoreRules;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PanelState {
@@ -12,9 +13,11 @@ pub(crate) struct PanelState {
     pub(crate) listings: HashMap<String, Vec<FileEntry>>,
     pub(crate) expanded: HashSet<String>,
     pub(crate) statuses: HashMap<String, GitStatus>,
+    pub(crate) ignores: IgnoreRules,
     pub(crate) changes: Changes,
     pub(crate) staged: HashSet<String>,
     pub(crate) open_threads: u32,
+    pub(crate) committing: bool,
 }
 
 impl PanelState {
@@ -39,6 +42,17 @@ impl PanelState {
     ) {
         if self.chat.as_deref() == Some(chat) {
             self.listings.insert(directory.to_owned(), entries);
+        }
+    }
+
+    pub(crate) fn learn_ignore(
+        &mut self,
+        chat: &str,
+        directory: &str,
+        text: &str,
+    ) {
+        if self.chat.as_deref() == Some(chat) {
+            self.ignores.learn(directory, text);
         }
     }
 

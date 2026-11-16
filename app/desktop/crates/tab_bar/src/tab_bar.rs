@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::time::Instant;
 
-use gpui::{Bounds, Context, Entity, EventEmitter, Pixels, ScrollHandle};
+use gpui::{Bounds, Context, Entity, EventEmitter, Pixels, Point, ScrollHandle};
 use model::TabId;
 use ui::Menu;
 
@@ -30,6 +30,7 @@ pub struct TabBar {
     pub(crate) incoming: Option<IncomingDrop>,
     pub(crate) settle: Option<Settle>,
     pub(crate) menu: Option<Entity<Menu>>,
+    pub(crate) menu_at: Point<Pixels>,
     pub(crate) clock: Rc<dyn Clock>,
 }
 
@@ -72,6 +73,7 @@ impl TabBar {
             incoming: None,
             settle: None,
             menu: None,
+            menu_at: Point::default(),
             clock,
         }
     }

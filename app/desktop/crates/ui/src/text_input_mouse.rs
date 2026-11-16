@@ -1,8 +1,28 @@
 //! Pointer handling of [`TextInput`]: click to place the caret, drag to select.
 
-use gpui::{Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window};
+use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, Window};
+
+use crate::selection_drag::SelectionDrag;
 
 use crate::text_input::TextInput;
+
+impl SelectionDrag for TextInput {
+    fn selecting(&self) -> bool {
+        self.selecting
+    }
+
+    fn drag_selection(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if !self.selecting {
+            return;
+        }
+        self.buffer.select_to(self.offset_at(position));
+        cx.notify();
+    }
+}
 
 impl TextInput {
     fn offset_at(
@@ -29,25 +49,8 @@ impl TextInput {
     ) {
         self.selecting = true;
         let offset = self.offset_at(event.position);
-        if event.modifiers.shift {
-            self.buffer.select_to(offset);
-            cx.notify();
-            return;
-        }
-        self.buffer.move_to(offset);
-        cx.notify();
-    }
-
-    pub(crate) fn on_mouse_move(
-        &mut self,
-        event: &MouseMoveEvent,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if !self.selecting {
-            return;
-        }
-        self.buffer.select_to(self.offset_at(event.position));
+        self.buffer
+            .press(offset, (event.click_count, event.modifiers.shift));
         cx.notify();
     }
 
@@ -65,7 +68,7 @@ impl TextInput {
 mod tests {
     use gpui::{Modifiers, TestAppContext, point, px};
 
-    use crate::test_support::{field, text_of};
+    use crate::test_support::{field, press, text_of};
 
     #[gpui::test]
     fn clicking_past_the_text_puts_the_caret_at_its_end(cx: &mut TestAppContext) {
@@ -84,5 +87,17 @@ mod tests {
         cx.simulate_click(point(px(11.0), px(16.0)), Modifiers::none());
         cx.simulate_input("!");
         assert_eq!(text_of(&input, cx), "!abc");
+    }
+
+    #[gpui::test]
+    fn double_click_selects_a_word_and_triple_click_everything(cx: &mut TestAppContext) {
+        let (input, cx) = field(cx);
+        cx.simulate_input("hello big world");
+        press(cx, point(px(14.0), px(16.0)), 2);
+        cx.simulate_input("X");
+        assert_eq!(text_of(&input, cx), "X big world");
+        press(cx, point(px(14.0), px(16.0)), 3);
+        cx.simulate_input("Y");
+        assert_eq!(text_of(&input, cx), "Y");
     }
 }

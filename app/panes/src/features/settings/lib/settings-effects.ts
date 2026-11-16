@@ -121,7 +121,7 @@ function syncMacOSWindowAppearance(themeType: 'light' | 'dark') {
   })
 }
 
-function cacheFontSettings(
+export function applyTypographySettings(
   settings: Pick<
     Settings,
     'fontFamily' | 'uiFontFamily' | 'uiFontSize' | 'markdownFontSize' | 'headingFontFamily'
@@ -137,7 +137,7 @@ function cacheFontSettings(
 }
 
 export function applySettingsSideEffects(settings: Settings) {
-  cacheFontSettings(settings)
+  applyTypographySettings(settings)
   applyWindowTransparency(settings.windowTransparency)
   applyThemeMode(settings.themeMode)
   void applyTheme(settings.theme)
@@ -170,7 +170,7 @@ export function applySettingSideEffect<K extends keyof Settings>(
     key === 'markdownFontSize' ||
     key === 'headingFontFamily'
   ) {
-    cacheFontSettings(getSettings())
+    applyTypographySettings(getSettings())
   }
 
   if (key === 'windowTransparency') {

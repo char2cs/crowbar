@@ -20,11 +20,7 @@ fn entry(
 
 pub(crate) fn filter_menu(view: &FileTreeView) -> Vec<MenuEntry> {
     vec![
-        entry(
-            "Hidden Files",
-            IconName::FolderOpen,
-            (view, FileTreeFlag::Hidden),
-        ),
+        entry("Hidden Files", IconName::Eye, (view, FileTreeFlag::Hidden)),
         entry(
             "Gitignored Files",
             IconName::GitBranch,
@@ -58,6 +54,16 @@ mod tests {
             return None;
         };
         Some((*flag, *on, *checked))
+    }
+
+    #[test]
+    fn hidden_files_carry_the_eye() {
+        let entries = filter_menu(&FileTreeView::default());
+        let icon = match entries.first() {
+            Some(MenuEntry::Action { icon, .. }) => *icon,
+            _ => None,
+        };
+        assert_eq!(icon, Some(IconName::Eye));
     }
 
     #[test]

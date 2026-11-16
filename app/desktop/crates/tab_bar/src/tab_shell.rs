@@ -137,6 +137,7 @@ fn member_glyph(
     let icon = match kind {
         MemberKind::Chat => IconName::ChatsCircle,
         MemberKind::Terminal => IconName::Terminal,
+        MemberKind::NewTab => IconName::Plus,
     };
     Icon::new(icon)
         .weight(IconWeight::Regular)

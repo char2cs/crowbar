@@ -13,10 +13,7 @@ function applyTokens(tokens: ThemeTokens): void {
   if (themeType === 'light' || themeType === 'dark') void updateSetting('themeMode', themeType)
 }
 
-/** Makes the shell's `theme-id` and `theme-type` tokens the pane's `theme` and `themeMode` settings once `settingsReady` resolves, so the pane looks like the shell around it; returns the stop. */
-export function followShellAppearance(
-  client: Pick<PaneClient, 'onTheme'>,
-  settingsReady: Promise<unknown>,
-): () => void {
-  return client.onTheme((tokens) => void settingsReady.then(() => applyTokens(tokens)))
+/** Makes the shell's `theme-id` and `theme-type` tokens the pane's `theme` and `themeMode` settings, so the pane looks like the shell around it; returns the stop. */
+export function followShellAppearance(client: Pick<PaneClient, 'onTheme'>): () => void {
+  return client.onTheme(applyTokens)
 }

@@ -150,11 +150,12 @@ impl LayoutView {
 
 #[cfg(test)]
 mod tests {
+    use crate::layout_event::LayoutEvent;
     use crate::layout_view::LayoutView;
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
     use model::{Command, Edge};
 
-    use crate::test_support::{layout_of, open, pane_id};
+    use crate::test_support::{layout_of, open, open_under_row_source, pane_id};
 
     fn side_by_side() -> model::Layout {
         layout_of("a", &[("b", "a", Edge::Right)])
@@ -227,6 +228,45 @@ mod tests {
             (first_extent - expected).abs() < 1.5,
             "first extent {first_extent} vs {expected}"
         );
+    }
+
+    #[gpui::test]
+    fn dragging_a_chat_row_onto_a_pane_asks_to_open_it_at_the_zone_under_the_pointer(
+        cx: &mut TestAppContext
+    ) {
+        let layout = layout_of("a", &[]);
+        let harness = open_under_row_source(cx, &layout);
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+        let size = view.read_with(cx, |view, _| view.bounds.size);
+        let (width, height) = (f32::from(size.width), f32::from(size.height));
+        let zones = [
+            ((width / 2.0, height / 2.0), Edge::Right),
+            ((width / 2.0, height - 10.0), Edge::Bottom),
+            ((width / 2.0, 20.0), Edge::Top),
+            ((20.0, height / 2.0), Edge::Left),
+        ];
+        for ((x, y), _) in zones {
+            let none = Modifiers::none();
+            cx.simulate_mouse_down(point(px(4.0), px(4.0)), MouseButton::Left, none);
+            cx.simulate_mouse_move(point(px(40.0), px(40.0)), MouseButton::Left, none);
+            cx.simulate_mouse_move(point(px(x), px(y)), MouseButton::Left, none);
+            cx.simulate_mouse_up(point(px(x), px(y)), MouseButton::Left, none);
+        }
+        let edges: Vec<_> = opened
+            .borrow()
+            .iter()
+            .map(|event| match event {
+                LayoutEvent::OpenChat {
+                    chat, placement, ..
+                } => (chat.clone(), placement.target.clone(), placement.edge),
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        let expected: Vec<_> = zones
+            .iter()
+            .map(|(_, edge)| ("t1".to_owned(), pane_id("a"), *edge))
+            .collect();
+        assert_eq!(edges, expected, "centre, bottom, top and left");
     }
 
     #[gpui::test]

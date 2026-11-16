@@ -45,9 +45,7 @@ impl SettingValues {
         &self,
         key: &str,
     ) -> Option<&Value> {
-        SettingKey::new(key)
-            .ok()
-            .and_then(|key| self.0.get(&key))
+        SettingKey::new(key).ok().and_then(|key| self.0.get(&key))
     }
 
     /// The number of values.

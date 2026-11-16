@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use protocol::{PANE_SETTING_KEYS, SettingValues};
 use serde_json::{Number, Value as Json, json};
 use settings_ui::{Key, Value};
@@ -17,6 +19,25 @@ fn json_of(value: &Value) -> Option<Json> {
     }
 }
 
+pub(crate) fn value_of(json: &Json) -> Option<Value> {
+    match json {
+        Json::Bool(flag) => Some(Value::Bool(*flag)),
+        Json::String(text) => Some(Value::Text(text.clone())),
+        Json::Number(number) => number.as_f64().map(Value::Number),
+        Json::Array(items) => items
+            .iter()
+            .map(|item| item.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>()
+            .map(Value::List),
+        Json::Object(pairs) => pairs
+            .iter()
+            .map(|(key, item)| item.as_str().map(|text| (key.clone(), text.to_owned())))
+            .collect::<Option<BTreeMap<_, _>>>()
+            .map(Value::Map),
+        Json::Null => None,
+    }
+}
+
 pub(crate) fn values_of(stored: impl Fn(&Key) -> Option<Value>) -> protocol::Result<SettingValues> {
     PANE_SETTING_KEYS
         .iter()
@@ -30,11 +51,15 @@ pub(crate) fn values_of(stored: impl Fn(&Key) -> Option<Value>) -> protocol::Res
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::*;
 
-    fn stored(key: &Key) -> Option<Value> {
+    struct Case {
+        name: &'static str,
+        stored: Option<Value>,
+        json: Option<Json>,
+    }
+
+    fn stored_value(key: &Key) -> Option<Value> {
         match key.as_str() {
             "wordWrap" => Some(Value::Bool(true)),
             "tabSize" => Some(Value::Number(4.0)),
@@ -42,14 +67,13 @@ mod tests {
             "hiddenFilePatterns" => Some(Value::List(vec!["*.log".to_owned()])),
             "fontSize" => Some(Value::Number(f64::NAN)),
             "theme" => Some(Value::from("frosted")),
-            "keybindingUserOverrides" => Some(Value::Map(BTreeMap::new())),
             _ => None,
         }
     }
 
     #[test]
     fn stored_values_the_panes_follow_become_json_and_the_rest_stay_home() {
-        let values = values_of(stored).unwrap();
+        let values = values_of(stored_value).unwrap();
         assert_eq!(
             serde_json::to_value(&values).unwrap(),
             json!({
@@ -60,22 +84,52 @@ mod tests {
             }),
             "followed values only; a non-finite number and shell-owned keys are left out"
         );
+        assert!(values_of(|_| None).unwrap().is_empty(), "nothing stored");
+    }
+
+    fn case(
+        name: &'static str,
+        stored: Option<Value>,
+        json: Json,
+    ) -> Case {
+        Case {
+            name,
+            stored,
+            json: Some(json),
+        }
+    }
+
+    fn cases() -> Vec<Case> {
+        let list = Value::List(vec!["a".to_owned()]);
+        let pairs = Value::Map(BTreeMap::from([("k".to_owned(), "v".to_owned())]));
+        vec![
+            case("flag", Some(Value::Bool(true)), json!(true)),
+            case("text", Some(Value::from("x")), json!("x")),
+            case("number", Some(Value::Number(4.0)), json!(4)),
+            case("list", Some(list), json!(["a"])),
+            case("pairs", Some(pairs), json!({"k": "v"})),
+            case("a list of numbers is no list of text", None, json!([1])),
+            case("null", None, Json::Null),
+        ]
     }
 
     #[test]
-    fn nothing_stored_means_an_empty_set() {
-        assert!(values_of(|_| None).unwrap().is_empty(), "empty");
+    fn json_converts_to_the_shapes_the_catalog_stores() {
+        for case in cases() {
+            let json = case.json.unwrap();
+            assert_eq!(value_of(&json), case.stored, "{}", case.name);
+        }
     }
 
     #[test]
     fn only_followed_keys_wake_the_push() {
         for (name, expected) in [
-            ("wordWrap", true),
-            ("browserZoom", true),
-            ("theme", false),
-            ("sidebarPosition", false),
+            ("wordWrap", Some(())),
+            ("browserZoom", Some(())),
+            ("theme", None),
+            ("sidebarPosition", None),
         ] {
-            assert_eq!(follows(&Key::new(name)), expected, "{name}");
+            assert_eq!(follows(&Key::new(name)).then_some(()), expected, "{name}");
         }
     }
 }

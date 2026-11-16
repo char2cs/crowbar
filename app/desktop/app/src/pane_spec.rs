@@ -2,7 +2,7 @@ use model::{Command, Layout, PaneInstance};
 use protocol::{PaneState, PaneTypeId, Params};
 use serde_json::json;
 
-use crate::core_panes::{BROWSER, CONSOLE, EDITOR, REVIEW, TERMINAL};
+use crate::core_panes::{BROWSER, CONSOLE, EDITOR, NEW_TAB, REVIEW, TERMINAL};
 use crate::error::Result;
 use crate::pane_opener::open_commands;
 use crate::serials::Serials;
@@ -111,6 +111,18 @@ impl PaneSpec {
             .with("terminalId", id)?
             .with("projectId", project)?;
         Self::new(TERMINAL, params, PaneState::default())
+    }
+
+    pub(crate) fn new_tab(
+        id: &str,
+        chat: Option<&str>,
+    ) -> Result<Self> {
+        let params = Params::default().with("newTabId", id)?;
+        let params = match chat {
+            Some(chat) => params.with("threadId", chat)?,
+            None => params,
+        };
+        Self::new(NEW_TAB, params, PaneState::default())
     }
 
     pub(crate) fn browser(id: &str) -> Result<Self> {

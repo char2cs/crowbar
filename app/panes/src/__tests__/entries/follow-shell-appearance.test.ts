@@ -27,22 +27,8 @@ describe('followShellAppearance', () => {
     ['only the theme', { 'theme-id': 'nord' }, [['theme', 'nord']]],
     ['an unknown mode is ignored', { 'theme-type': 'sepia' }, []],
     ['other tokens are ignored', { 'color-bg': '#fff' }, []],
-  ])('%s', async (_name, tokens, calls) => {
-    const ready = Promise.resolve()
-    followShellAppearance(shellThatSends(tokens), ready)
-    await ready
-    await Promise.resolve()
+  ])('%s', (_name, tokens, calls) => {
+    followShellAppearance(shellThatSends(tokens))
     expect(updateSetting.mock.calls).toEqual(calls)
-  })
-
-  it('waits for the settings to load before applying', async () => {
-    let load: () => void = () => {}
-    const ready = new Promise<void>((resolve) => (load = resolve))
-    followShellAppearance(shellThatSends({ 'theme-id': 'nord' }), ready)
-    expect(updateSetting).not.toHaveBeenCalled()
-    load()
-    await ready
-    await Promise.resolve()
-    expect(updateSetting).toHaveBeenCalledWith('theme', 'nord')
   })
 })

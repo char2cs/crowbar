@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::bounds::Bounds;
 use crate::error::Result;
 use crate::platform::Platform;
+use crate::snapshot::Snapshot;
 use crate::visibility::Visibility;
 use crate::web_view_id::WebViewId;
 
@@ -108,6 +109,14 @@ impl WebViewHandle {
     /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn focus_parent(&self) -> Result<()> {
         self.platform.focus_parent(self.id)
+    }
+
+    /// The pixels the page shows now, when the backend can read them back.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped.
+    pub fn snapshot(&self) -> Result<Option<Snapshot>> {
+        self.platform.snapshot(self.id)
     }
 
     /// Delivers a text message to the page by calling its [`RECEIVER`] function.

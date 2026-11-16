@@ -23,7 +23,11 @@ impl ShellView {
     ) {
         let id = format!("t{}", self.state.serials().next_pane());
         let chat = focused_chat(self.state.layout());
-        self.open_spec(PaneSpec::terminal(&id, chat.as_deref(), None), cx);
+        let spec = match (chat, self.data.active_project()) {
+            (None, Some(project)) => PaneSpec::home_terminal(&id, &project),
+            (chat, _) => PaneSpec::terminal(&id, chat.as_deref(), None),
+        };
+        self.open_spec(spec, cx);
     }
 
     pub(super) fn new_browser(

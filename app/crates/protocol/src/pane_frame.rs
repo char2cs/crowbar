@@ -102,6 +102,19 @@ pub enum PaneFrame {
         /// The setting to follow.
         key: SettingKey,
     },
+    /// `settings.set`: asks the shell to store one of the settings a `settings` frame carries.
+    /// The shell stays the owner: the pane sees the new value when the shell pushes the set
+    /// again, and a key outside the frame's vocabulary or a `version` the shell does not speak
+    /// is ignored.
+    #[serde(rename = "settings.set")]
+    SettingsSet {
+        /// The vocabulary version, [`SETTINGS_FRAME_VERSION`](crate::SETTINGS_FRAME_VERSION).
+        version: u32,
+        /// The setting to store.
+        key: SettingKey,
+        /// Its new value.
+        value: Value,
+    },
     /// `composer.attach`: adds an attachment to the composer's draft.
     #[serde(rename = "composer.attach")]
     ComposerAttach {

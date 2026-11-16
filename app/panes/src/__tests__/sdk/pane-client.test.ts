@@ -41,6 +41,11 @@ describe('PaneClient', () => {
       { kind: 'pane.open', typeId: 'core.files', params: { spaceId: 's1' } },
     ],
     [
+      'asks the shell to store a setting',
+      (client: PaneClient) => client.setSetting('showMinimap', true),
+      { kind: 'settings.set', version: 1, key: 'showMinimap', value: true },
+    ],
+    [
       'runs a command',
       (client: PaneClient) => client.runCommand('workbench.settings'),
       { kind: 'command.run', command: 'workbench.settings' },
@@ -137,6 +142,15 @@ describe('PaneClient', () => {
     expect(changed).toHaveBeenCalledWith(16)
     stop()
     expect(pane.posted[2]).toEqual({ sdk: 1, kind: 'unsubscribe', id: subscription.id })
+  })
+
+  it('hears the shell settings of the version it speaks and no other', () => {
+    const client = new PaneClient(pane.channel, 'core.chat')
+    const heard = vi.fn()
+    client.onSettings(heard)
+    pane.deliver({ sdk: 1, kind: 'settings', version: 1, values: { wordWrap: true } })
+    pane.deliver({ sdk: 1, kind: 'settings', version: 2, values: { wordWrap: false } })
+    expect(heard.mock.calls).toEqual([[{ wordWrap: true }]])
   })
 
   it('ignores text that is not a frame', () => {

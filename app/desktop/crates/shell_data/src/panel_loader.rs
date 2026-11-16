@@ -42,7 +42,9 @@ pub(crate) async fn load_directory(
     }) else {
         return;
     };
+    let held = entries.clone();
     hub.edit(|state| state.panels.list(chat, directory, entries));
+    crate::ignore_files::learn(hub, client, (chat, directory), &held).await;
 }
 
 pub(crate) async fn load_changes(

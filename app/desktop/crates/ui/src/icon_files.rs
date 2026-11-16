@@ -141,6 +141,7 @@ pub(crate) const FILES: &[IconFile] = &[
     file!(ArrowsOutCardinal, Regular, "regular", "arrows-out-cardinal"),
     file!(XCircle, Regular, "regular", "x-circle"),
     file!(Funnel, Regular, "regular", "funnel"),
+    file!(Eye, Regular, "regular", "eye"),
     file!(UploadSimple, Regular, "regular", "upload-simple"),
     file!(PencilSimple, Regular, "regular", "pencil-simple"),
     file!(SidebarToggle, Regular, "regular", "sidebar-toggle"),

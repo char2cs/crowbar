@@ -12,6 +12,7 @@ use terminal_session::TerminalSessions;
 use ui::Overlays;
 
 use super::ShellView;
+use super::built::Built;
 use crate::browser_bars::BrowserBars;
 use crate::chat_terminals::ChatTerminals;
 use crate::daemon_link::DaemonLink;
@@ -76,7 +77,10 @@ pub(super) fn build_panes(
         state.titles(),
         state.serials(),
         bars,
-        terminals,
+        (
+            terminals,
+            crate::new_tab_panes::NewTabPanes::new(requests.clone()),
+        ),
     ));
     let view_source = Rc::clone(&source);
     let layout = cx.new(|_| LayoutView::new(view_source));
@@ -154,6 +158,31 @@ pub(super) fn subscribe_all(
             this.on_startup(event, window, cx);
         }),
     ]
+}
+
+pub(super) fn build_children(
+    (state, link, preferences_path): (&ShellState, &DaemonLink, &std::path::Path),
+    requests: &async_channel::Sender<ShellRequest>,
+    window: &mut Window,
+    cx: &mut Context<'_, ShellView>,
+) -> Built {
+    let (data, data_queued) = start_data(link, requests);
+    let (layout, tabs, workspace, source) = build_panes((state, link, &data), requests, cx);
+    let sidebar = build_sidebar((requests, &data), preferences_path, &workspace, cx);
+    let startup = build_startup(requests, cx);
+    let notices = super::notices::build_notices(&sidebar, cx);
+    let subscriptions = subscribe_all((&workspace, &tabs, &layout, &sidebar, &startup), window, cx);
+    Built {
+        data,
+        data_queued,
+        layout,
+        tabs,
+        source,
+        sidebar,
+        startup,
+        notices,
+        subscriptions,
+    }
 }
 
 #[cfg(test)]

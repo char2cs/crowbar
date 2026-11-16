@@ -16,14 +16,17 @@ use shell_keys::Keymap;
 use sidebar::{Sidebar, SidebarEvent};
 use startup_view::{StartupEvent, StartupInput, StartupView};
 use tab_bar::{SidebarState, TabBar, TabBarEvent, TabView};
-use ui::{Surface, Theme, ToastKind};
+use ui::{Surface, Theme, ToastKind, ToastQueue};
 
 mod appearance_settings;
 mod browsing;
+mod built;
 mod children;
 mod data_events;
 mod file_actions;
+mod file_tree_flag;
 mod keymap_settings;
+mod new_tab;
 mod notices;
 mod outcomes;
 mod pane_commands;
@@ -38,16 +41,13 @@ use crate::focused_chat::focused_chat;
 use crate::holes::visible_panes;
 use crate::hover_tracker::HoverTracker;
 use crate::notice_key::NoticeKey;
-use crate::notices::Notices;
 use crate::shell_pane_source::ShellPaneSource;
 use crate::shell_parts::ShellParts;
 use crate::shell_request::ShellRequest;
 use crate::shell_state::ShellState;
 use crate::workspace_event::WorkspaceEvent;
 
-use self::children::{
-    build_panes, build_sidebar, build_startup, overlay_channel, start_data, subscribe_all,
-};
+use self::children::{build_children, overlay_channel};
 use self::pump::{drain, member};
 
 const WINDOW_CANNOT_HOST: &str = "This window cannot show panes: it is not an X11 window. Restart Crowbar under X11 or XWayland.";
@@ -81,7 +81,7 @@ pub(crate) struct ShellView {
     placement: Option<(webview::ParentWindow, webview::Bounds)>,
     overlays_open: bool,
     hover: HoverTracker,
-    notices: Notices,
+    notices: Entity<ToastQueue>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -103,20 +103,16 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let (requests, queue) = overlay_channel(cx);
-        let (data, data_queued) = start_data(&link, &requests);
-        let (layout, tabs, workspace, source) = build_panes((&state, &link, &data), &requests, cx);
-        let sidebar = build_sidebar((&requests, &data), &preferences_path, &workspace, cx);
-        let startup = build_startup(&requests, cx);
-        let subs = subscribe_all((&workspace, &tabs, &layout, &sidebar, &startup), window, cx);
+        let built = build_children((&state, &link, &preferences_path), &requests, window, cx);
         let mut view = Self {
             state,
             link,
             preferences_path,
-            sidebar,
-            tabs,
-            layout,
-            source,
-            startup: Some(startup),
+            sidebar: built.sidebar,
+            tabs: built.tabs,
+            layout: built.layout,
+            source: built.source,
+            startup: Some(built.startup),
             settings: None,
             palette: None,
             branch_import: None,
@@ -131,14 +127,14 @@ impl ShellView {
             family_names: crate::family_names::FamilyNames::default(),
             system_fonts: shell_data::SystemFonts::default(),
             requests,
-            data,
-            data_queued,
+            data: built.data,
+            data_queued: built.data_queued,
             settings_backend: None,
             placement: None,
             overlays_open: false,
             hover: HoverTracker::default(),
-            notices: Notices::default(),
-            subscriptions: subs,
+            notices: built.notices,
+            subscriptions: built.subscriptions,
         };
         view.begin(queue, window, cx);
         view
@@ -152,7 +148,7 @@ impl ShellView {
     ) {
         window.focus(&self.focus);
         self.system_fonts = crate::installed_fonts::installed(cx);
-        self.announce_start();
+        self.announce_start(cx);
         self.spawn_tasks(queue, window, cx);
         self.refresh(cx);
         self.watch_keymap();
@@ -225,6 +221,9 @@ impl ShellView {
             ShellRequest::KeymapChanged => self.on_keymap_changed(cx),
             ShellRequest::AppearanceChanged => self.apply_appearance(cx),
             ShellRequest::PaneSettingsChanged => self.push_pane_settings(),
+            ShellRequest::NewTabChoice { pane, action } => {
+                self.choose_in_new_tab((&pane, action), window, cx);
+            },
             ShellRequest::Browse { pane, event } => self.browse(&pane, event, cx),
             ShellRequest::Command(command) => self.run_shell_command(command, window, cx),
             ShellRequest::Overlays { open } => {
@@ -251,6 +250,9 @@ impl ShellView {
             Ok(SidebarAction::ChooseSpaceFolder(host)) => self.choose_space_folder(&host, cx),
             Ok(SidebarAction::ImportBranches(row)) => self.show_branch_import(&row, window, cx),
             Ok(SidebarAction::Reveal(path)) => self.reveal_workspace_path(&path),
+            Ok(SidebarAction::SetFileTreeFlag { key, on }) => {
+                self.set_file_tree_flag((key, on), cx);
+            },
             Ok(SidebarAction::Unserved) => self.perform_file_action(command, window, cx),
             Err(error) => tracing::warn!(%error, "a sidebar command was invalid"),
         }
@@ -337,10 +339,15 @@ impl ShellView {
         event: &LayoutEvent,
         cx: &mut Context<'_, Self>,
     ) {
-        let LayoutEvent::Apply(command) = event else {
-            return;
-        };
-        self.state.apply(vec![command.clone()]);
+        match event {
+            LayoutEvent::Apply(command) => self.state.apply(vec![command.clone()]),
+            LayoutEvent::OpenChat {
+                chat,
+                tab,
+                placement,
+            } => self.state.open_chat_at(chat, (*tab, placement.clone())),
+            _ => return,
+        }
         self.refresh(cx);
     }
 
@@ -361,6 +368,7 @@ impl ShellView {
         if let Err(error) = preferences.save(&self.preferences_path) {
             tracing::warn!(%error, "saving the sidebar preferences failed");
         }
+        self.place_notices(cx);
         self.refresh(cx);
     }
 
@@ -397,6 +405,7 @@ impl ShellView {
         let (chrome, sidebar_state) = self.chrome(cx);
         let titles = self.state.titles();
         let layout = self.state.layout();
+        self.source.follow_new_tabs(layout, &titles);
         let tabs: Vec<TabView> = layout
             .tabs()
             .iter()
@@ -453,6 +462,7 @@ impl Render for ShellView {
             .relative()
             .bg(palette.background())
             .child(self.sidebar.clone())
+            .children(self.state.frozen_elements())
             .children(layer(self.settings.as_ref()))
             .children(layer(self.palette.as_ref()))
             .children(layer(self.branch_import.as_ref()))
@@ -460,7 +470,7 @@ impl Render for ShellView {
             .children(self.prompt_layer())
             .children(layer(self.pairing.as_ref()))
             .children(layer(self.startup.as_ref()))
-            .children(self.notices_element(cx))
+            .child(self.notices.clone())
     }
 }
 

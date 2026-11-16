@@ -6,7 +6,7 @@ use gpui::{
 };
 use model::{Command, DragSubject, Sash};
 use protocol::PaneId;
-use ui::{Motion, Overlays, SashDrag};
+use ui::{DraggedRow, Motion, Overlays, SashDrag};
 
 use crate::drop_hit::DropHit;
 use crate::layout_event::LayoutEvent;
@@ -21,7 +21,29 @@ impl LayoutView {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let position = event.event.position;
+        let subject = event.drag(cx).clone();
+        self.hover(&subject, event.event.position, cx);
+    }
+
+    pub(crate) fn row_over(
+        &mut self,
+        event: &DragMoveEvent<DraggedRow>,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(chat) = event.drag(cx).chat.as_deref() else {
+            return;
+        };
+        let subject = DragSubject::Chat(chat.to_owned());
+        self.hover(&subject, event.event.position, cx);
+    }
+
+    fn hover(
+        &mut self,
+        subject: &DragSubject,
+        position: Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(tab) = &self.tab else {
             return;
         };
@@ -30,10 +52,9 @@ impl LayoutView {
             cx.notify();
             return;
         }
-        let subject = event.drag(cx).clone();
         let slots = tab.layout(self.local());
         let hit = DropHit {
-            subject: &subject,
+            subject,
             point: self.local_point(position),
             slots: &slots,
             window_bounds: self.bounds,
@@ -49,14 +70,34 @@ impl LayoutView {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let command = self
+        self.release(subject, cx);
+    }
+
+    pub(crate) fn row_dropped(
+        &mut self,
+        row: &DraggedRow,
+        _: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(chat) = row.chat.as_deref() else {
+            return;
+        };
+        self.release(&DragSubject::Chat(chat.to_owned()), cx);
+    }
+
+    fn release(
+        &mut self,
+        subject: &DragSubject,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let event = self
             .tab
             .as_ref()
-            .and_then(|tab| self.drop.command(subject, tab));
+            .and_then(|tab| self.drop.event(subject, tab));
         self.drop.clear();
         cx.notify();
-        if let Some(command) = command {
-            cx.emit(LayoutEvent::Apply(command));
+        if let Some(event) = event {
+            cx.emit(event);
         }
     }
 

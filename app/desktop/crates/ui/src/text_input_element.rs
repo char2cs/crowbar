@@ -12,6 +12,7 @@ use gpui::{
 use crate::keyframes::Keyframes;
 use crate::motion::Motion;
 use crate::palette::Palette;
+use crate::selection_drag::capture_pointer;
 use crate::text_frame::TextFrame;
 use crate::text_surface::TextSurface;
 use crate::timing;
@@ -245,6 +246,7 @@ impl<S: TextSurface> Element for TextInputElement<S> {
         cx: &mut App,
     ) {
         let bounds = self.aligned(bounds, &prepaint.line, cx);
+        capture_pointer(&self.input, window, cx);
         let focus = self.input.read(cx).input_focus();
         window.handle_input(
             &focus,

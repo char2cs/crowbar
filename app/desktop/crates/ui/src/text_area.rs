@@ -6,8 +6,8 @@ use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, Bounds, Context, CursorStyle, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString,
-    Styled, Window, div, px,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
+    SharedString, Styled, Task, Window, div, px,
 };
 
 use crate::opaque_debug::opaque_debug;
@@ -44,6 +44,8 @@ pub struct TextArea {
     pub(crate) revealed: usize,
     pub(crate) goal: Option<(usize, Pixels)>,
     pub(crate) selecting: bool,
+    pub(crate) pointer: Point<Pixels>,
+    pub(crate) autoscroll: Option<Task<()>>,
     surface: Surface,
     size: TextAreaSize,
     limit: Option<Pixels>,
@@ -128,6 +130,8 @@ impl TextArea {
             revealed: 0,
             goal: None,
             selecting: false,
+            pointer: Point::default(),
+            autoscroll: None,
             surface: Surface::default(),
             size: TextAreaSize::default(),
             limit: None,
@@ -195,6 +199,7 @@ impl TextArea {
     ) {
         self.condition = condition;
         self.selecting = false;
+        self.autoscroll = None;
         cx.notify();
     }
 
@@ -289,7 +294,6 @@ impl TextArea {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
-            .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .cursor(CursorStyle::IBeam)
     }

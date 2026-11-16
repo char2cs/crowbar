@@ -1,19 +1,21 @@
 use std::path::Path;
 
-use model::{Command, Layout, LayoutHistory};
+use model::{Command, Layout, LayoutHistory, Placement, TabId};
 use pane_host::{HostEvent, IpcMessage, LayoutSnapshot, Overlay, PaneHost, VisiblePane};
 use protocol::{PaneId, PaneTypeId, Params};
 use webview::ParentWindow;
 
 use crate::browser_ids::BrowserIds;
 use crate::closed_panes::ClosedPanes;
+use crate::core_panes::{chat_params, chat_type};
 use crate::error::{Error, Result};
 use crate::event_commands::commands_for;
+use crate::frozen_layer::FrozenLayer;
 use crate::layout_store::LayoutStore;
 use crate::layout_writer::LayoutWriter;
 use crate::loaded_layout::LoadedLayout;
 use crate::outcome::Outcome;
-use crate::pane_opener::open_commands;
+use crate::pane_opener::{open_at, open_commands};
 use crate::pane_spec::PaneSpec;
 use crate::serials::Serials;
 use crate::terminal_ids::TerminalIds;
@@ -29,6 +31,7 @@ pub(crate) struct ShellState {
     terminals: TerminalIds,
     serials: Serials,
     closed: ClosedPanes,
+    frozen: FrozenLayer,
 }
 
 impl std::fmt::Debug for ShellState {
@@ -69,6 +72,7 @@ impl ShellState {
             terminals,
             serials,
             closed: ClosedPanes::default(),
+            frozen: FrozenLayer::default(),
         })
     }
 
@@ -154,6 +158,20 @@ impl ShellState {
         }
     }
 
+    pub(crate) fn open_chat_at(
+        &mut self,
+        chat: &str,
+        (tab, placement): (TabId, Placement),
+    ) {
+        let opened = chat_type()
+            .and_then(|type_id| Ok((type_id, chat_params(chat)?)))
+            .and_then(|pane| open_at(pane, (tab, placement), &self.serials));
+        match opened {
+            Ok(command) => self.apply(vec![command]),
+            Err(error) => tracing::warn!(%error, "could not open the dropped chat"),
+        }
+    }
+
     pub(crate) fn open_spec(
         &mut self,
         spec: PaneSpec,
@@ -177,6 +195,7 @@ impl ShellState {
         parent: ParentWindow,
         visible: Vec<VisiblePane>,
     ) -> Outcome {
+        self.frozen.set_holes(&visible);
         let snapshot = LayoutSnapshot::from_layout(self.history.layout(), parent, visible);
         let report = self.host.sync(&snapshot);
         if let Some(error) = report.failure {
@@ -226,8 +245,26 @@ impl ShellState {
         &mut self,
         overlay: Overlay,
     ) {
+        if overlay == Overlay::Active {
+            return self.freeze_panes();
+        }
         if let Err(error) = self.host.set_overlay(overlay) {
-            tracing::warn!(%error, "hiding web views for an overlay failed");
+            tracing::warn!(%error, "showing web views after an overlay failed");
+        }
+        self.frozen.replace(Vec::new());
+    }
+
+    pub(crate) fn frozen_elements(&self) -> Vec<gpui::AnyElement> {
+        self.frozen.elements()
+    }
+
+    fn freeze_panes(&mut self) {
+        if self.host.is_overlaid() {
+            return;
+        }
+        match self.host.freeze() {
+            Ok(frozen) => self.frozen.replace(frozen),
+            Err(error) => tracing::warn!(%error, "hiding web views for an overlay failed"),
         }
     }
 
@@ -258,6 +295,7 @@ impl ShellState {
             } => self.open_pane(type_id, params),
             HostEvent::CommandRequested { command, .. } => outcome.commands.push(command),
             HostEvent::HoverChanged { pane, hovered } => outcome.hover.push((pane, hovered)),
+            HostEvent::SettingRequested { key, value, .. } => outcome.settings.push((key, value)),
             HostEvent::StateChanged { .. } | HostEvent::StateDiscarded { .. } => {},
             HostEvent::ShellCall { frame, .. } => serve_frame(&frame),
             HostEvent::BrowserPage { pane, update } => self.note_page(pane, update, outcome),
@@ -527,6 +565,23 @@ mod tests {
             rig.shell.titles().get(&pane).map(|t| t.to_string()),
             Some("src".into())
         );
+    }
+
+    #[test]
+    fn a_chat_dropped_on_a_pane_opens_beside_it_and_an_open_one_moves() {
+        let mut rig = rig();
+        open_chat(&mut rig.shell, "t1");
+        open_chat(&mut rig.shell, "t2");
+        let first = rig.shell.layout().tabs()[0].pane_ids()[0].clone();
+        let tab = rig.shell.layout().tabs()[0].id();
+        let placement = Placement {
+            target: first,
+            edge: model::Edge::Left,
+        };
+        rig.shell.open_chat_at("t3", (tab, placement.clone()));
+        assert_eq!(rig.shell.layout().pane_count(), 3, "t3 opened");
+        rig.shell.open_chat_at("t2", (tab, placement));
+        assert_eq!(rig.shell.layout().pane_count(), 3, "t2 moved, not copied");
     }
 
     #[test]

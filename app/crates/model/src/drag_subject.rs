@@ -12,6 +12,8 @@ pub enum DragSubject {
     Pane(PaneId),
     /// A pane that is not open yet, for instance a chat dragged out of the sidebar.
     Open(PaneInstance),
+    /// A chat dragged out of the sidebar by its id; the owner of the layout builds its pane.
+    Chat(String),
     /// A whole tab, dragged inside the tab bar.
     Tab(TabId),
 }

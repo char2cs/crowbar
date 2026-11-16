@@ -2,11 +2,12 @@
 
 use std::ops::Range;
 
+use crate::selection_drag::SelectionDrag;
 use gpui::{Bounds, EntityInputHandler, FocusHandle, Pixels, SharedString};
 
 use crate::text_area_layout::TextAreaLayout;
 
-pub(crate) trait TextAreaSurface: EntityInputHandler {
+pub(crate) trait TextAreaSurface: EntityInputHandler + SelectionDrag {
     fn content(&self) -> &str;
     fn hint(&self) -> &SharedString;
     fn marked_range(&self) -> Option<Range<usize>>;

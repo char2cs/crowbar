@@ -54,6 +54,7 @@ pub(crate) fn open(
     active: u64,
 ) -> Harness<'_> {
     cx.update(|cx| {
+        ui::init(cx).expect("ui init");
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
     });

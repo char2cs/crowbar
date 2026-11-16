@@ -1,7 +1,5 @@
 //! The visible rows of the Files panel.
 
-use std::collections::HashMap;
-
 use sidebar::{Expansion, FileKind, FileRow, GitStatus};
 
 use crate::file_entry::FileEntry;
@@ -29,7 +27,7 @@ fn entry_rows(
     depth: u8,
 ) -> Vec<FileRow> {
     let expansion = expansion_of(panel, entry);
-    let mut rows = vec![row(entry, (expansion, depth), &panel.statuses)];
+    let mut rows = vec![row(entry, (expansion, depth), panel)];
     if entry.is_directory() && expansion == Expansion::Expanded {
         rows.extend(level(panel, &entry.path, depth.saturating_add(1)));
     }
@@ -49,14 +47,14 @@ fn expansion_of(
 fn row(
     entry: &FileEntry,
     (expansion, depth): (Expansion, u8),
-    statuses: &HashMap<String, GitStatus>,
+    panel: &PanelState,
 ) -> FileRow {
     FileRow {
         path: entry.path.clone(),
         name: entry.name.clone(),
         depth,
         kind: kind_of(entry, expansion),
-        status: status_of(entry, statuses),
+        status: status_of(entry, panel),
     }
 }
 
@@ -72,11 +70,15 @@ fn kind_of(
 
 fn status_of(
     entry: &FileEntry,
-    statuses: &HashMap<String, GitStatus>,
+    panel: &PanelState,
 ) -> GitStatus {
     let (path, directory) = (entry.path.as_str(), entry.is_directory());
+    let statuses = &panel.statuses;
     if let Some(status) = statuses.get(path) {
         return *status;
+    }
+    if panel.ignores.ignores(path, entry.entry_kind()) {
+        return GitStatus::Ignored;
     }
     let inside = |changed: &str| directory && changed.starts_with(&format!("{path}/"));
     if statuses.keys().any(|changed| inside(changed)) {
@@ -145,5 +147,20 @@ mod tests {
         panel.statuses.clear();
         panel.statuses.insert("src/m.rs".into(), GitStatus::Added);
         assert_eq!(of(&panel)[0].status, GitStatus::Modified);
+    }
+
+    #[test]
+    fn a_path_the_gitignore_hides_reads_as_ignored_unless_git_reports_it() {
+        let mut panel = panel();
+        panel.toggle("src");
+        panel.statuses.clear();
+        panel.statuses.insert("a.txt".into(), GitStatus::Untracked);
+        panel.ignores.learn("", "src/\na.txt");
+        let rows = of(&panel);
+        let statuses: Vec<_> = rows.iter().map(|row| row.status).collect();
+        assert_eq!(
+            statuses,
+            [GitStatus::Ignored, GitStatus::Ignored, GitStatus::Untracked]
+        );
     }
 }

@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window, canvas, deferred, div, px,
+    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Window, canvas, deferred, div, px,
 };
 use model::{Command, DragSubject, TabId};
 use ui::{Motion, Surface, Theme, layer};
@@ -51,7 +51,7 @@ impl Render for TabBar {
             .child(self.row(now, motion, cx))
             .children(self.ghost())
             .children(self.drop_line(now, motion, cx))
-            .children(self.menu.clone().map(|menu| menu_layer(&menu)))
+            .children(self.menu_layers(window, cx))
             .on_mouse_move(cx.listener(Self::moved))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::released))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::released))
@@ -174,7 +174,9 @@ impl TabBar {
             )
             .on_mouse_down(
                 MouseButton::Right,
-                cx.listener(move |this, _, window, cx| this.open_menu(index, window, cx)),
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    this.open_menu((index, event.position), window, cx);
+                }),
             )
             .child(TabShell {
                 id: ("tab", index).into(),
@@ -316,12 +318,6 @@ impl TabBar {
             self.scroll.set_offset(offset);
         }
     }
-}
-
-fn menu_layer(menu: &gpui::Entity<ui::Menu>) -> AnyElement {
-    deferred(gpui::anchored().child(menu.clone()))
-        .with_priority(layer::MENU)
-        .into_any_element()
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! The merge box of the followed workspace, with why merging may be blocked.
 
-use sidebar::{MergeBox, MergeStrategy};
+use sidebar::{MergeBox, MergeStrategy, MergeWork};
 
 use crate::files_reads::followed_workspace;
 use crate::merge_inputs::MergeInputs;
@@ -53,6 +53,19 @@ fn operation_of<'a>(
         .max_by(|a, b| a.created_at.cmp(&b.created_at))
 }
 
+fn work_of(
+    state: &State,
+    operation: Option<&crate::operation_record::OperationRecord>,
+) -> MergeWork {
+    if operation.is_some_and(|op| IN_FLIGHT.contains(&op.state.as_str())) {
+        return MergeWork::Merging;
+    }
+    if state.panels.committing {
+        return MergeWork::Committing;
+    }
+    MergeWork::Idle
+}
+
 pub(crate) fn merge_box(state: &State) -> Option<MergeBox> {
     let workspace = followed_workspace(state)?;
     let parent = parent_branch(state, workspace);
@@ -77,7 +90,7 @@ pub(crate) fn merge_box(state: &State) -> Option<MergeBox> {
         merged: workspace.status == MERGED,
         blocked: inputs.blocked(),
         strategy: strategy_of(&workspace.merge_strategy),
-        merging: operation.is_some_and(|op| IN_FLIGHT.contains(&op.state.as_str())),
+        work: work_of(state, operation),
         working: busy.map(|problem| problem.message.clone()),
         error: failed
             .filter(|problem| problem.code != CHAT_BUSY)
@@ -100,6 +113,9 @@ mod tests {
         let found = merge_box(&state).expect("a followed workspace has a merge box");
         assert!(found.blocked.is_some());
         assert_eq!(found.strategy, MergeStrategy::Merge);
-        assert!(!found.merging && !found.merged);
+        assert!(found.work == MergeWork::Idle && !found.merged);
+        state.panels.committing = true;
+        let committing = merge_box(&state).expect("still followed");
+        assert_eq!(committing.work, MergeWork::Committing);
     }
 }

@@ -9,6 +9,7 @@ pub(crate) const EDITOR: &str = "core.editor";
 pub(crate) const REVIEW: &str = "core.review";
 pub(crate) const CONSOLE: &str = "core.console";
 pub(crate) const TERMINAL: &str = "core.terminal";
+pub(crate) const NEW_TAB: &str = "core.newtab";
 pub(crate) const BROWSER: &str = browser_nav::BROWSER_PANE_TYPE;
 
 pub(crate) fn chat_type() -> Result<PaneTypeId> {
@@ -19,7 +20,7 @@ pub(crate) fn chat_params(thread: &str) -> Result<Params> {
     Ok(Params::default().with("threadId", thread)?)
 }
 
-const TYPES: [CoreType; 5] = [
+const TYPES: [CoreType; 6] = [
     CoreType {
         id: EDITOR,
         title: "File",
@@ -47,6 +48,14 @@ const TYPES: [CoreType; 5] = [
     CoreType {
         id: TERMINAL,
         title: "Terminal",
+        entry: "",
+        kind: PaneKind::Native,
+        lifecycle: PaneLifecycle::KeepAlive,
+        multiplicity: Multiplicity::Many,
+    },
+    CoreType {
+        id: NEW_TAB,
+        title: "New Tab",
         entry: "",
         kind: PaneKind::Native,
         lifecycle: PaneLifecycle::KeepAlive,
@@ -101,12 +110,13 @@ mod tests {
         registry
     }
 
-    const CASES: [(&str, bool); 6] = [
+    const CASES: [(&str, bool); 7] = [
         (CHAT, true),
         (EDITOR, true),
         (REVIEW, true),
         (CONSOLE, true),
         (TERMINAL, false),
+        (NEW_TAB, false),
         (BROWSER, false),
     ];
 

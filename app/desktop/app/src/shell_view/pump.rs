@@ -28,13 +28,11 @@ fn kind_of(
     layout: &model::Layout,
     pane: &protocol::PaneId,
 ) -> MemberKind {
-    let is_terminal = layout
-        .pane(pane)
-        .is_some_and(|instance| instance.type_id.as_str() == crate::core_panes::TERMINAL);
-    if is_terminal {
-        return MemberKind::Terminal;
+    match layout.pane(pane).map(|instance| instance.type_id.as_str()) {
+        Some(crate::core_panes::TERMINAL) => MemberKind::Terminal,
+        Some(crate::core_panes::NEW_TAB) => MemberKind::NewTab,
+        _ => MemberKind::Chat,
     }
-    MemberKind::Chat
 }
 
 fn untitled(kind: MemberKind) -> &'static str {

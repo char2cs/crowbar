@@ -66,6 +66,15 @@ impl TextArea {
         self.edit(Edit::Other, cx, |buffer| buffer.erase_toward(edge));
     }
 
+    pub(crate) fn erase_word(
+        &mut self,
+        direction: Direction,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let edge = self.buffer.word_boundary(direction);
+        self.edit(Edit::Other, cx, |buffer| buffer.erase_toward(edge));
+    }
+
     pub(crate) fn paste(
         &mut self,
         cx: &mut Context<'_, Self>,

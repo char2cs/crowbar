@@ -1,7 +1,7 @@
 use browser_nav::PageUpdate;
 use protocol::{
     CommandId, EventName, MethodName, PaneFrame, PaneId, PaneState, PaneTitle, PaneTypeId, Params,
-    RequestId,
+    RequestId, SettingKey,
 };
 use serde_json::Value;
 
@@ -78,6 +78,15 @@ pub enum HostEvent {
         pane: PaneId,
         /// The frame as received.
         frame: PaneFrame,
+    },
+    /// A pane asked the shell to store a setting; the shell writes it and pushes the set back.
+    SettingRequested {
+        /// The pane.
+        pane: PaneId,
+        /// The setting, one the `settings` frame carries.
+        key: SettingKey,
+        /// Its new value.
+        value: Value,
     },
     /// The pointer entered or left a pane's page, which GPUI cannot see over a web view.
     HoverChanged {

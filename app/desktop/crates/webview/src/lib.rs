@@ -55,6 +55,7 @@ mod platform;
 mod protocol_handler;
 mod protocol_request;
 mod protocol_response;
+mod snapshot;
 mod visibility;
 mod web_view_config;
 mod web_view_handle;
@@ -68,6 +69,8 @@ mod gtk_state;
 mod linux_platform;
 #[cfg(target_os = "linux")]
 mod live_view;
+#[cfg(target_os = "linux")]
+mod surface_pixels;
 #[cfg(target_os = "linux")]
 mod xlib_parent;
 
@@ -85,6 +88,7 @@ pub use platform::Platform;
 pub use protocol_handler::{ProtocolHandler, ProtocolResponder};
 pub use protocol_request::ProtocolRequest;
 pub use protocol_response::ProtocolResponse;
+pub use snapshot::Snapshot;
 pub use visibility::Visibility;
 pub use web_view_config::{IpcHandler, WebViewConfig};
 pub use web_view_handle::{RECEIVER, WebViewHandle};

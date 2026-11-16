@@ -3,9 +3,10 @@ import type { LifecycleMessage } from './lifecycle-message'
 import type { PaneChannel } from './pane-channel'
 import type { PaneFrame } from './pane-frame'
 import type { PaneParams } from './pane-params'
+import type { SettingValues } from './setting-values'
 import type { ShellFrame } from './shell-frame'
 import type { ThemeTokens } from './theme-tokens'
-import { MAX_STATE_BYTES, SDK_MAJOR, SDK_VERSION } from './sdk-limits'
+import { MAX_STATE_BYTES, SDK_MAJOR, SDK_VERSION, SETTINGS_FRAME_VERSION } from './sdk-limits'
 import { PaneRequestError } from './pane-request-error'
 
 type Listener<T> = (value: T) => void
@@ -28,6 +29,7 @@ export class PaneClient {
   private readonly pending = new Map<number, Pending>()
   private readonly lifecycle = new Set<Listener<LifecycleMessage>>()
   private readonly themes = new Set<Listener<ThemeTokens>>()
+  private readonly shellSettings = new Set<Listener<SettingValues>>()
   private readonly events = new Map<string, EventSubscription>()
   private readonly settings = new Map<number, Listener<unknown>>()
 
@@ -51,6 +53,11 @@ export class PaneClient {
   /** Hears the design tokens on mount and whenever the theme changes; returns the stop. */
   onTheme(listener: Listener<ThemeTokens>): () => void {
     return this.listen(this.themes, listener)
+  }
+
+  /** Hears the shell's settings on mount and whenever one changes, the whole set each time; returns the stop. */
+  onSettings(listener: Listener<SettingValues>): () => void {
+    return this.listen(this.shellSettings, listener)
   }
 
   /** Sets the pane's tab title, cutting it to the shell's limit. */
@@ -85,6 +92,11 @@ export class PaneClient {
   /** Reads one setting. */
   getSetting(key: string): Promise<unknown> {
     return this.call((id) => ({ kind: 'settings.get', id, key }))
+  }
+
+  /** Asks the shell to store a setting it owns; the new value arrives with the shell's next `settings` frame. */
+  setSetting(key: string, value: unknown): void {
+    this.send({ kind: 'settings.set', version: SETTINGS_FRAME_VERSION, key, value })
   }
 
   /** Follows a manifest-declared event, subscribing once per event name; returns the stop. */
@@ -156,6 +168,9 @@ export class PaneClient {
     }
     if (frame.kind === 'settings.changed') this.settings.get(frame.id)?.(frame.value)
     if (frame.kind === 'theme') this.themes.forEach((listener) => listener(frame.tokens))
+    if (frame.kind === 'settings' && frame.version === SETTINGS_FRAME_VERSION) {
+      this.shellSettings.forEach((listener) => listener(frame.values))
+    }
   }
 
   private answer(frame: Extract<ShellFrame, { kind: 'response' }>): void {

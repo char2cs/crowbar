@@ -25,11 +25,16 @@ pub(crate) async fn run(
     if let Some(row) = plan.pending.clone() {
         hub.edit(|state| state.add_local(row));
     }
-    let Err(reason) = carry_out(hub, &plan).await else {
-        finish(hub, plan.after, outcome).await;
-        return;
-    };
-    fail(hub, row_id.as_deref(), outcome, &reason);
+    if plan.committing {
+        hub.edit(|state| state.panels.committing = true);
+    }
+    match carry_out(hub, &plan).await {
+        Ok(()) => finish(hub, plan.after, outcome).await,
+        Err(reason) => fail(hub, row_id.as_deref(), outcome, &reason),
+    }
+    if plan.committing {
+        hub.edit(|state| state.panels.committing = false);
+    }
 }
 
 async fn carry_out(
@@ -246,13 +251,30 @@ mod tests {
         );
     }
 
+    async fn a_commit_is_marked_while_it_runs_and_unmarked_when_it_ends_either_way() {
+        let (state, daemon) = state();
+        daemon.ok("POST", "/v0/chats/hc/git/commit", "{}");
+        daemon.answer(
+            ("POST", "/v0/chats/hc/git/refused"),
+            409,
+            r#"{"success":false,"error":"nothing to commit"}"#,
+        );
+        let hub = Hub::new(state, Arc::new(|| {}));
+        for path in ["commit", "refused"] {
+            let call = Call::post(format!("/v0/chats/hc/git/{path}"));
+            run(&hub, Plan::of("local", vec![call]).committing(), &sink().0).await;
+            assert!(!hub.read(|state| state.panels.committing), "{path}");
+        }
+    }
+
     type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
 
-    const CASES: [Case; 4] = [
+    const CASES: [Case; 5] = [
         || Box::pin(a_create_picks_an_agent_sends_its_call_and_opens_the_chat()),
         || Box::pin(a_refusal_stays_on_the_pending_row_and_reaches_the_shell()),
         || Box::pin(no_enabled_agent_stops_before_any_create_and_a_drop_plan_only_forgets()),
         || Box::pin(selecting_a_created_space_makes_it_active()),
+        || Box::pin(a_commit_is_marked_while_it_runs_and_unmarked_when_it_ends_either_way()),
     ];
 
     async fn run_all() {

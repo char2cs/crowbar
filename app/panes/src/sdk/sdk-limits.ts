@@ -1,6 +1,9 @@
 /** The pane SDK major version every frame carries as `sdk`. */
 export const SDK_MAJOR = 1
 
+/** The version of the `settings` frame's vocabulary this SDK reads; a frame of another version is ignored. */
+export const SETTINGS_FRAME_VERSION = 1
+
 /** The `<major>.<minor>` version a page announces in `pane.register`. */
 export const SDK_VERSION = '1.0'
 

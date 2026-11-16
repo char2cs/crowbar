@@ -13,7 +13,6 @@ use ui::{
 use crate::after_merge::AfterMerge;
 use crate::command::Command;
 use crate::merge_box::MergeBox;
-use crate::merge_draft::commit_label;
 use crate::merge_facts::MergeFacts;
 use crate::merge_strategy::MergeStrategy;
 use crate::scale::{ICON_LARGE, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS, TEXT_LARGE, TEXT_SMALL};
@@ -101,7 +100,7 @@ impl Sidebar {
             .px(SPACE_LG)
             .pb(SPACE_LG);
         if facts.offers_commit() {
-            content = content.child(self.commit_form(&merge.uncommitted, cx));
+            content = content.child(self.commit_form((merge, facts), cx));
         }
         content = content
             .child(Self::strategy_select(merge.strategy, cx))
@@ -132,9 +131,10 @@ impl Sidebar {
 
     fn commit_form(
         &mut self,
-        uncommitted: &[String],
+        (merge, facts): (&MergeBox, MergeFacts<'_>),
         cx: &mut Context<'_, Self>,
     ) -> Div {
+        let uncommitted = &merge.uncommitted;
         let paths = self.merge.paths(uncommitted);
         let sidebar = cx.entity();
         let rows = uncommitted
@@ -148,11 +148,11 @@ impl Sidebar {
             .max_h(px(LIST_MAX_HEIGHT))
             .overflow_y_scroll()
             .children(rows);
-        let commit = Button::new("merge-commit", commit_label(paths.len()))
+        let commit = Button::new("merge-commit", facts.commit_label(paths.len()))
             .size(ButtonSize::Sm)
             .variant(ButtonVariant::Secondary)
             .on_click(cx.listener(|this, _, _, cx| this.commit_changes(cx)));
-        let commit = commit.when(paths.is_empty(), Button::disabled);
+        let commit = commit.when(!facts.can_commit(paths.len()), Button::disabled);
         div()
             .flex()
             .flex_col()
@@ -199,7 +199,7 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn commit_changes(
+    pub(crate) fn commit_changes(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -208,7 +208,7 @@ impl Sidebar {
         };
         let message = self.merge.message.read(cx).text().trim().to_owned();
         let paths = self.merge.paths(&merge.uncommitted);
-        if message.is_empty() || paths.is_empty() {
+        if message.is_empty() || !MergeFacts::of(&merge).can_commit(paths.len()) {
             return;
         }
         self.send(Command::CommitChanges { message, paths }, cx);
@@ -283,6 +283,7 @@ mod tests {
     use crate::after_merge::AfterMerge;
     use crate::command::Command;
     use crate::merge_box::MergeBox;
+    use crate::merge_work::MergeWork;
     use crate::sidebar::Sidebar;
     use crate::test_support::prelude::*;
 
@@ -316,6 +317,40 @@ mod tests {
             },
         ];
         assert_eq!(recorder.sent(), want);
+    }
+
+    #[gpui::test]
+    fn submitting_the_message_commits_the_ticked_files(cx: &mut TestAppContext) {
+        let (recorder, sidebar, cx) = open(cx, DemoData::reference().with_merge_box(open_box()));
+        sidebar.update(cx, |this, cx| {
+            this.merge
+                .message
+                .update(cx, |field, cx| field.set_text("fix", cx));
+            this.merge
+                .message
+                .update(cx, |_, cx| cx.emit(ui::TextInputEvent::Submitted));
+        });
+        let want = vec![Command::CommitChanges {
+            message: "fix".into(),
+            paths: vec!["a.rs".into(), "b.rs".into()],
+        }];
+        assert_eq!(recorder.sent(), want);
+    }
+
+    #[gpui::test]
+    fn a_running_commit_blocks_another(cx: &mut TestAppContext) {
+        let busy = MergeBox {
+            work: MergeWork::Committing,
+            ..open_box()
+        };
+        let (recorder, sidebar, cx) = open(cx, DemoData::reference().with_merge_box(busy));
+        sidebar.update(cx, |this, cx| {
+            this.merge
+                .message
+                .update(cx, |field, cx| field.set_text("again", cx));
+            this.commit_changes(cx);
+        });
+        assert_eq!(recorder.sent(), Vec::<Command>::new());
     }
 
     #[gpui::test]

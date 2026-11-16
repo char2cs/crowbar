@@ -84,7 +84,7 @@ impl TabBar {
                 .flat_map(|tab| &tab.members)
                 .find(|member| &member.pane == pane)
                 .map_or_else(String::new, |member| member.label.to_string()),
-            DragSubject::Open(_) | DragSubject::Tab(_) => String::new(),
+            DragSubject::Open(_) | DragSubject::Chat(_) | DragSubject::Tab(_) => String::new(),
         }
     }
 }

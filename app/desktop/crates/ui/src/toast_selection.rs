@@ -34,6 +34,7 @@ mod tests {
             .zip(0..)
             .map(|(&lifetime, id)| ToastEntry {
                 id: ToastId(id),
+                key: None,
                 kind: ToastKind::Info,
                 message: "m".into(),
                 lifetime,

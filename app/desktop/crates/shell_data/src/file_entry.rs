@@ -2,6 +2,8 @@
 
 use serde::Deserialize;
 
+use crate::entry_kind::EntryKind;
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(default)]
 pub(crate) struct FileEntry {
@@ -14,6 +16,13 @@ pub(crate) struct FileEntry {
 impl FileEntry {
     pub(crate) fn is_directory(&self) -> bool {
         self.kind == "directory"
+    }
+
+    pub(crate) fn entry_kind(&self) -> EntryKind {
+        if self.is_directory() {
+            return EntryKind::Folder;
+        }
+        EntryKind::File
     }
 }
 

@@ -1,0 +1,27 @@
+//! The daemon route of a workspace document.
+
+use crate::query_encode::encode;
+
+pub(crate) fn content(
+    workspace: &str,
+    path: &str,
+) -> String {
+    format!(
+        "/v0/documents/content?workspace={}&path={}",
+        encode(workspace),
+        encode(path)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_workspace_and_path_are_encoded() {
+        assert_eq!(
+            content("w 1", "a/b.txt"),
+            "/v0/documents/content?workspace=w%201&path=a/b.txt"
+        );
+    }
+}

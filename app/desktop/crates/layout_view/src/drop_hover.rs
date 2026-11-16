@@ -6,6 +6,7 @@ use ui::{Motion, OverlayGuard, Overlays};
 
 use crate::drop_hit::DropHit;
 use crate::drop_target::DropTarget;
+use crate::layout_event::LayoutEvent;
 use crate::rect_tween::RectTween;
 
 #[derive(Debug, Default)]
@@ -38,12 +39,20 @@ impl DropHover {
             .is_some_and(|tween| tween.is_running(now, motion))
     }
 
-    pub(crate) fn command(
+    pub(crate) fn event(
         &self,
         subject: &DragSubject,
         tab: &Tab,
-    ) -> Option<model::Command> {
-        self.target.as_ref()?.command(subject, tab)
+    ) -> Option<LayoutEvent> {
+        let target = self.target.as_ref()?;
+        match subject {
+            DragSubject::Chat(chat) => Some(LayoutEvent::OpenChat {
+                chat: chat.clone(),
+                tab: tab.id(),
+                placement: target.placement(),
+            }),
+            _ => target.command(subject, tab).map(LayoutEvent::Apply),
+        }
     }
 
     pub(crate) fn over(
@@ -162,6 +171,39 @@ mod tests {
             hover.preview(Instant::now(), Motion::default()).is_none(),
             "no preview"
         );
+    }
+
+    #[gpui::test]
+    fn releasing_a_chat_row_over_a_pane_asks_to_open_the_chat_there(cx: &mut TestAppContext) {
+        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
+        let tab = layout.active_tab().expect("tab");
+        let slots = tab.layout(CONTENT);
+        let subject = DragSubject::Chat("t1".into());
+        let mut hover = DropHover::default();
+        let hit = hit_at(&subject, (410.0, 200.0), &slots);
+        cx.update(|cx| hover.over(hit, cx));
+        let placement = model::Placement {
+            target: pane_id("b"),
+            edge: Edge::Left,
+        };
+        let expected = LayoutEvent::OpenChat {
+            chat: "t1".into(),
+            tab: tab.id(),
+            placement,
+        };
+        assert_eq!(
+            hover.event(&subject, tab),
+            Some(expected),
+            "open t1 on the left of b"
+        );
+    }
+
+    #[test]
+    fn releasing_over_no_pane_asks_for_nothing() {
+        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
+        let tab = layout.active_tab().expect("tab");
+        let subject = DragSubject::Chat("t1".into());
+        assert_eq!(DropHover::default().event(&subject, tab), None, "no target");
     }
 
     #[gpui::test]

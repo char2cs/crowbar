@@ -2,9 +2,12 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Instant;
 
-use gpui::{App, Entity, TestAppContext, VisualTestContext};
+use gpui::{
+    App, AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, TestAppContext, VisualTestContext, Window, div, px,
+};
 use model::{Command, Layout};
-use ui::{Motion, Theme};
+use ui::{DragGhost, DraggedRow, Motion, Theme};
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
@@ -14,19 +17,51 @@ pub(crate) struct Harness<'a> {
     pub(crate) view: Entity<LayoutView>,
     pub(crate) cx: &'a mut VisualTestContext,
     pub(crate) commands: Rc<RefCell<Vec<Command>>>,
+    pub(crate) opened: Rc<RefCell<Vec<LayoutEvent>>>,
     pub(crate) clock: Rc<Cell<Instant>>,
 }
 
-fn record_commands(
+type Sinks = (Rc<RefCell<Vec<Command>>>, Rc<RefCell<Vec<LayoutEvent>>>);
+
+fn record_events(
     view: &Entity<LayoutView>,
-    sink: Rc<RefCell<Vec<Command>>>,
+    (commands, opened): Sinks,
     cx: &mut App,
 ) {
-    cx.subscribe(view, move |_, event: &LayoutEvent, _| {
-        let LayoutEvent::Apply(command) = event;
-        sink.borrow_mut().push(command.clone());
+    cx.subscribe(view, move |_, event: &LayoutEvent, _| match event {
+        LayoutEvent::Apply(command) => commands.borrow_mut().push(command.clone()),
+        other => opened.borrow_mut().push(other.clone()),
     })
     .detach();
+}
+
+struct RowSource {
+    view: Entity<LayoutView>,
+}
+
+const SOURCE_SIZE: f32 = 8.0;
+
+impl Render for RowSource {
+    fn render(
+        &mut self,
+        _: &mut Window,
+        _: &mut Context<'_, Self>,
+    ) -> impl IntoElement {
+        let payload = DraggedRow {
+            row: "t1".into(),
+            chat: Some("t1".into()),
+        };
+        let source = div()
+            .id("row-source")
+            .absolute()
+            .top_0()
+            .left_0()
+            .size(px(SOURCE_SIZE))
+            .on_drag(payload, |_, _, _, cx| {
+                cx.new(|_| DragGhost::new("t1", SOURCE_SIZE))
+            });
+        div().size_full().child(self.view.clone()).child(source)
+    }
 }
 
 pub(crate) fn open<'a>(
@@ -44,8 +79,9 @@ pub(crate) fn open<'a>(
         LayoutView::with_clock(source, Rc::new(move || reading.get()))
     });
     let commands = Rc::new(RefCell::new(Vec::new()));
-    let sink = Rc::clone(&commands);
-    cx.update(|_, cx| record_commands(&view, sink, cx));
+    let opened = Rc::new(RefCell::new(Vec::new()));
+    let sinks = (Rc::clone(&commands), Rc::clone(&opened));
+    cx.update(|_, cx| record_events(&view, sinks, cx));
     let tab = layout.active_tab().cloned();
     view.update(cx, |view, cx| view.set_tab(tab, cx));
     cx.run_until_parked();
@@ -53,6 +89,39 @@ pub(crate) fn open<'a>(
         view,
         cx,
         commands,
+        opened,
+        clock,
+    }
+}
+
+pub(crate) fn open_under_row_source<'a>(
+    cx: &'a mut TestAppContext,
+    layout: &Layout,
+) -> Harness<'a> {
+    cx.update(|cx| {
+        cx.set_global(Theme::default());
+        cx.set_global(Motion::default());
+    });
+    let clock = Rc::new(Cell::new(Instant::now()));
+    let reading = Rc::clone(&clock);
+    let (host, cx) = cx.add_window_view(move |_, cx| {
+        let source = Rc::new(FakeSource::starting_at_first_tab());
+        let view = cx.new(|_| LayoutView::with_clock(source, Rc::new(move || reading.get())));
+        RowSource { view }
+    });
+    let view = host.read_with(cx, |host, _| host.view.clone());
+    let commands = Rc::new(RefCell::new(Vec::new()));
+    let opened = Rc::new(RefCell::new(Vec::new()));
+    let sinks = (Rc::clone(&commands), Rc::clone(&opened));
+    cx.update(|_, cx| record_events(&view, sinks, cx));
+    let tab = layout.active_tab().cloned();
+    view.update(cx, |view, cx| view.set_tab(tab, cx));
+    cx.run_until_parked();
+    Harness {
+        view,
+        cx,
+        commands,
+        opened,
         clock,
     }
 }

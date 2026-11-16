@@ -17,6 +17,10 @@ pub(crate) enum ShellRequest {
     PaneSettingsChanged,
     /// The stored theme, theme mode or UI font size changed.
     AppearanceChanged,
+    NewTabChoice {
+        pane: protocol::PaneId,
+        action: crate::new_tab_action::NewTabAction,
+    },
     Browse {
         pane: protocol::PaneId,
         event: browser_chrome::BrowserBarEvent,

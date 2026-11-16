@@ -4,7 +4,7 @@ use gpui::{KeyBinding, actions};
 
 use crate::text_input_actions::{
     Backspace, Cancel, Copy, Cut, Delete, End, Home, Left, Paste, Right, SelectAll, SelectLeft,
-    SelectRight, Submit,
+    SelectRight, Submit, word_bindings,
 };
 
 actions!(
@@ -21,6 +21,10 @@ actions!(
         DocumentEnd,
         Undo,
         Redo,
+        PageUp,
+        PageDown,
+        SelectPageUp,
+        SelectPageDown,
     ]
 );
 
@@ -28,7 +32,8 @@ pub(crate) const CONTEXT: &str = "UiTextArea";
 
 pub(crate) fn bindings() -> Vec<KeyBinding> {
     let context = Some(CONTEXT);
-    vec![
+    let mut all = word_bindings(context);
+    all.extend([
         KeyBinding::new("backspace", Backspace, context),
         KeyBinding::new("delete", Delete, context),
         KeyBinding::new("left", Left, context),
@@ -55,7 +60,12 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("enter", Newline, context),
         KeyBinding::new("secondary-enter", Submit, context),
         KeyBinding::new("escape", Cancel, context),
-    ]
+        KeyBinding::new("pageup", PageUp, context),
+        KeyBinding::new("pagedown", PageDown, context),
+        KeyBinding::new("shift-pageup", SelectPageUp, context),
+        KeyBinding::new("shift-pagedown", SelectPageDown, context),
+    ]);
+    all
 }
 
 #[cfg(test)]
@@ -66,6 +76,6 @@ mod tests {
     fn every_binding_is_scoped_to_the_text_area() {
         let bindings = bindings();
         assert!(bindings.iter().all(|binding| binding.predicate().is_some()));
-        assert!(bindings.len() > 20);
+        assert_eq!(bindings.len(), 42);
     }
 }

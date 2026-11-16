@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use gpui::{Context, EventEmitter, Pixels, Point, Task};
+use gpui::{Context, EventEmitter, Pixels, Point, SharedString, Task};
 
 use crate::opaque_debug::opaque_debug;
 use crate::timing;
@@ -45,6 +45,54 @@ impl ToastQueue {
         lifetime: ToastLifetime,
         cx: &mut Context<'_, Self>,
     ) -> ToastId {
+        self.insert(None, (content, lifetime), cx)
+    }
+
+    /// Shows a toast under `key`: a live toast with the same key is rewritten in place (replaying its
+    /// shake or pulse), otherwise a new one is added.
+    pub fn show(
+        &mut self,
+        key: impl Into<SharedString>,
+        (content, lifetime): (ToastContent, ToastLifetime),
+        cx: &mut Context<'_, Self>,
+    ) -> ToastId {
+        let key = key.into();
+        let held = self
+            .entries
+            .iter()
+            .find(|entry| entry.key.as_ref() == Some(&key) && !entry.leaving)
+            .map(|entry| entry.id);
+        let Some(id) = held else {
+            return self.insert(Some(key), (content, lifetime), cx);
+        };
+        self.restyle(id, (content, lifetime), cx);
+        id
+    }
+
+    /// Dismisses the live toast shown under `key`, if any.
+    pub fn clear(
+        &mut self,
+        key: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let held = self
+            .entries
+            .iter()
+            .find(|entry| {
+                entry.key.as_ref().is_some_and(|held| held.as_ref() == key) && !entry.leaving
+            })
+            .map(|entry| entry.id);
+        if let Some(id) = held {
+            self.dismiss(id, cx);
+        }
+    }
+
+    fn insert(
+        &mut self,
+        key: Option<SharedString>,
+        (content, lifetime): (ToastContent, ToastLifetime),
+        cx: &mut Context<'_, Self>,
+    ) -> ToastId {
         let ToastContent { kind, message } = content;
         let id = ToastId(self.next);
         self.next += 1;
@@ -53,6 +101,7 @@ impl ToastQueue {
             0,
             ToastEntry {
                 id,
+                key,
                 kind,
                 message,
                 lifetime,
@@ -65,6 +114,24 @@ impl ToastQueue {
         id
     }
 
+    fn restyle(
+        &mut self,
+        id: ToastId,
+        (content, lifetime): (ToastContent, ToastLifetime),
+        cx: &mut Context<'_, Self>,
+    ) {
+        let ToastContent { kind, message } = content;
+        let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else {
+            return;
+        };
+        entry.kind = kind;
+        entry.message = message;
+        entry.lifetime = lifetime;
+        entry.updates += 1;
+        entry.timer = Self::expiry(id, lifetime.timeout(kind), cx);
+        cx.notify();
+    }
+
     /// Rewrites a toast in place, replays its error shake or success pulse and restarts its expiry.
     pub fn replace(
         &mut self,
@@ -72,18 +139,15 @@ impl ToastQueue {
         content: ToastContent,
         cx: &mut Context<'_, Self>,
     ) {
-        let ToastContent { kind, message } = content;
-        let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else {
+        let live = self
+            .entries
+            .iter()
+            .find(|entry| entry.id == id && !entry.leaving)
+            .map(|entry| entry.lifetime);
+        let Some(lifetime) = live else {
             return;
         };
-        if entry.leaving {
-            return;
-        }
-        entry.kind = kind;
-        entry.message = message;
-        entry.updates += 1;
-        entry.timer = Self::expiry(id, entry.lifetime.timeout(kind), cx);
-        cx.notify();
+        self.restyle(id, (content, lifetime), cx);
     }
 
     /// Fades a toast out and removes it.
@@ -111,6 +175,11 @@ impl ToastQueue {
     ) {
         self.placement = placement;
         cx.notify();
+    }
+
+    /// Where the column sits now.
+    pub fn placement(&self) -> ToastPlacement {
+        self.placement
     }
 
     /// How many toasts the queue holds, leaving ones included.
@@ -203,6 +272,17 @@ mod tests {
         })
     }
 
+    fn show_daemon(
+        queue: &Entity<ToastQueue>,
+        (text, lifetime): (&'static str, ToastLifetime),
+        cx: &mut TestAppContext,
+    ) -> ToastId {
+        queue.update(cx, |queue, cx| {
+            let content = ToastContent::new(ToastKind::Error, text);
+            queue.show("daemon", (content, lifetime), cx)
+        })
+    }
+
     fn record_removals(
         queue: &Entity<ToastQueue>,
         sink: &Rc<RefCell<Vec<ToastQueueEvent>>>,
@@ -279,6 +359,34 @@ mod tests {
         assert_eq!(state, Some((1, ToastKind::Success, "Done".to_owned())));
         advance(cx, Duration::from_secs(2));
         assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 0);
+    }
+
+    #[gpui::test]
+    fn a_keyed_toast_is_rewritten_in_place_and_clearing_dismisses_it(cx: &mut TestAppContext) {
+        let queue = queue(cx);
+        let first = show_daemon(&queue, ("down", ToastLifetime::Pinned), cx);
+        let second = show_daemon(&queue, ("still down", ToastLifetime::Pinned), cx);
+        assert_eq!(first, second);
+        let state = queue.read_with(cx, |queue, _| {
+            queue
+                .entries
+                .iter()
+                .map(|e| (e.updates, e.message.to_string()))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(state, [(1, "still down".to_owned())]);
+        advance(cx, Duration::from_secs(600));
+        assert_eq!(
+            queue.read_with(cx, |queue, _| queue.len()),
+            1,
+            "pinned stays"
+        );
+        queue.update(cx, |queue, cx| queue.clear("absent", cx));
+        queue.update(cx, |queue, cx| queue.clear("daemon", cx));
+        advance(cx, timing::SLOW);
+        assert!(queue.read_with(cx, |queue, _| queue.is_empty()));
+        let third = show_daemon(&queue, ("down again", ToastLifetime::Auto), cx);
+        assert_ne!(first, third, "a cleared key starts a new toast");
     }
 
     #[gpui::test]

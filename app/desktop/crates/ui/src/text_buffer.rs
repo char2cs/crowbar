@@ -4,6 +4,9 @@ use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::direction::Direction;
+use crate::text_words;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct TextBuffer {
     text: String,
@@ -105,6 +108,38 @@ impl TextBuffer {
             .grapheme_indices(true)
             .find_map(|(index, _)| (index > offset).then_some(index))
             .unwrap_or(self.text.len())
+    }
+
+    pub(crate) fn word_boundary(
+        &self,
+        direction: Direction,
+    ) -> usize {
+        let from = self.cursor();
+        match direction {
+            Direction::Forward => text_words::next_end(&self.text, from),
+            Direction::Backward => text_words::previous_start(&self.text, from),
+        }
+    }
+
+    pub(crate) fn press(
+        &mut self,
+        offset: usize,
+        (clicks, extend): (usize, bool),
+    ) {
+        let offset = self.clamp(offset);
+        let span = match clicks {
+            0 | 1 => None,
+            2 => Some(text_words::around(&self.text, offset)),
+            _ => Some(text_words::line_around(&self.text, offset)),
+        };
+        match (span, extend) {
+            (Some(span), _) => {
+                self.selection = span;
+                self.reversed = false;
+            },
+            (None, true) => self.select_to(offset),
+            (None, false) => self.move_to(offset),
+        }
     }
 
     pub(crate) fn erase_toward(
@@ -305,6 +340,32 @@ mod tests {
             buffer.erase_toward(edge);
             assert_eq!(buffer.text(), want, "{text} {from}..{to} edge {edge}");
         }
+    }
+
+    #[test]
+    fn presses_place_the_caret_select_a_word_or_a_line_and_extend_on_shift() {
+        type Case = (usize, usize, bool, Range<usize>);
+        let cases: &[Case] = &[
+            (5, 1, false, 5..5),
+            (5, 1, true, 4..5),
+            (5, 2, false, 4..7),
+            (5, 3, false, 0..7),
+            (9, 3, true, 8..11),
+        ];
+        for (offset, clicks, extend, want) in cases {
+            let mut buffer = TextBuffer::with_text("one two\nsix");
+            buffer.move_to(4);
+            buffer.press(*offset, (*clicks, *extend));
+            assert_eq!(buffer.selection(), *want, "{offset} x{clicks} {extend}");
+        }
+    }
+
+    #[test]
+    fn word_boundaries_start_from_the_caret() {
+        let mut buffer = TextBuffer::with_text("one two");
+        buffer.move_to(4);
+        assert_eq!(buffer.word_boundary(Direction::Backward), 0);
+        assert_eq!(buffer.word_boundary(Direction::Forward), 7);
     }
 
     #[test]

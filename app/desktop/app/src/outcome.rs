@@ -6,4 +6,5 @@ pub(crate) struct Outcome {
     pub(crate) hover: Vec<(PaneId, bool)>,
     pub(crate) commands: Vec<CommandId>,
     pub(crate) pages: Vec<(PaneId, String)>,
+    pub(crate) settings: Vec<(protocol::SettingKey, serde_json::Value)>,
 }

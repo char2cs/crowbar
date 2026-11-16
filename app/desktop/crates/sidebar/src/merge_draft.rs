@@ -2,26 +2,54 @@
 
 use std::collections::BTreeSet;
 
-use gpui::{AppContext as _, Context, Entity};
-use ui::{Surface, TextInput};
+use gpui::{AppContext as _, Context, Entity, Subscription, px};
+use ui::{Surface, TextArea, TextAreaSize, TextInputEvent};
 
 use crate::after_merge::AfterMerge;
 
 const PLACEHOLDER: &str = "Describe the change…";
+const MESSAGE_MAX_HEIGHT: f32 = 160.0;
 
 #[derive(Debug)]
 pub(crate) struct MergeDraft {
     pub(crate) after: AfterMerge,
-    pub(crate) message: Entity<TextInput>,
+    pub(crate) message: Entity<TextArea>,
     pub(crate) skipped: BTreeSet<String>,
+    _submit: Subscription,
+}
+
+type Commit<T> = fn(&mut T, &mut Context<'_, T>);
+
+fn submit_on<T: 'static>(
+    event: &TextInputEvent,
+    commit: Commit<T>,
+    this: &mut T,
+    cx: &mut Context<'_, T>,
+) {
+    if matches!(event, TextInputEvent::Submitted) {
+        commit(this, cx);
+    }
 }
 
 impl MergeDraft {
-    pub(crate) fn new<T: 'static>(cx: &mut Context<'_, T>) -> Self {
+    pub(crate) fn new<T: 'static>(
+        cx: &mut Context<'_, T>,
+        commit: Commit<T>,
+    ) -> Self {
+        let message = cx.new(|cx| {
+            TextArea::new(PLACEHOLDER, cx)
+                .on(Surface::Chrome)
+                .size(TextAreaSize::Small)
+                .max_height(px(MESSAGE_MAX_HEIGHT))
+        });
+        let submit = cx.subscribe(&message, move |this, _, event: &TextInputEvent, cx| {
+            submit_on(event, commit, this, cx);
+        });
         Self {
             after: AfterMerge::default(),
-            message: cx.new(|cx| TextInput::new(PLACEHOLDER, cx).on(Surface::Chrome)),
+            message,
             skipped: BTreeSet::new(),
+            _submit: submit,
         }
     }
 
@@ -46,28 +74,8 @@ impl MergeDraft {
     }
 }
 
-pub(crate) fn commit_label(count: usize) -> String {
-    match count {
-        1 => "Commit 1 change".to_owned(),
-        _ => format!("Commit {count} changes"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn the_commit_button_counts_the_ticked_changes() {
-        let cases = [
-            (0, "Commit 0 changes"),
-            (1, "Commit 1 change"),
-            (4, "Commit 4 changes"),
-        ];
-        for (count, label) in cases {
-            assert_eq!(commit_label(count), label);
-        }
-    }
 
     #[gpui::test]
     fn unticking_a_path_leaves_it_out_and_ticking_again_restores_it(cx: &mut gpui::TestAppContext) {

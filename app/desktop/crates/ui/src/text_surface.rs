@@ -2,9 +2,10 @@
 
 use std::ops::Range;
 
+use crate::selection_drag::SelectionDrag;
 use gpui::{Bounds, EntityInputHandler, FocusHandle, Pixels, ShapedLine, SharedString};
 
-pub(crate) trait TextSurface: EntityInputHandler {
+pub(crate) trait TextSurface: EntityInputHandler + SelectionDrag {
     fn centered(&self) -> bool;
     fn content(&self) -> &str;
     fn hint(&self) -> &SharedString;

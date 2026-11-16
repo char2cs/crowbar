@@ -90,7 +90,10 @@ mod tests {
             Titles::default(),
             Serials::above(&Layout::default()),
             bars,
-            idle_terminals(TerminalIds::default()),
+            (
+                idle_terminals(TerminalIds::default()),
+                crate::new_tab_panes::NewTabPanes::new(async_channel::unbounded().0),
+            ),
         ))
     }
 

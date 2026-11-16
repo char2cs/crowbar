@@ -4,8 +4,8 @@ use protocol::{
     AttachmentId, AttachmentType, CommandId, DisplayText, ErrorCode, EventName, ExtensionId,
     ExtensionStatus, KeyBinding, KeyChord, Lifecycle, MethodName, PaneFrame, PaneId, PaneState,
     PaneTitle, PaneTypeId, Params, RequestId, RpcError, RpcOutcome, RpcResponse, SDK_VERSION,
-    SdkVersion, SettingKey, ShellFrame, SpaceId, StatusKind, ThemeTokens, decode_pane_frame,
-    decode_shell_frame, encode,
+    SETTINGS_FRAME_VERSION, SdkVersion, SettingKey, SettingValues, ShellFrame, SpaceId, StatusKind,
+    ThemeTokens, decode_pane_frame, decode_shell_frame, encode,
 };
 use serde_json::{Value, json};
 
@@ -74,6 +74,11 @@ fn the_sdk_frames_for_settings_composer_and_attachments_round_trip() {
             id: RequestId::new(6),
             key,
         },
+        PaneFrame::SettingsSet {
+            version: SETTINGS_FRAME_VERSION,
+            key: SettingKey::new("showMinimap").unwrap(),
+            value: json!(true),
+        },
         PaneFrame::ComposerAttach {
             attachment_type: AttachmentType::new("excalidraw.drawing").unwrap(),
             payload: json!({"elements": []}),
@@ -141,6 +146,12 @@ fn the_sdk_push_frames_for_keybindings_settings_and_theme_round_trip() {
         ShellFrame::Theme {
             tokens: ThemeTokens::default().with("color-bg", "#111").unwrap(),
         },
+        ShellFrame::Settings {
+            version: SETTINGS_FRAME_VERSION,
+            values: SettingValues::default()
+                .with("wordWrap", json!(true))
+                .unwrap(),
+        },
     ];
     assert_shell_frames_round_trip(&cases).unwrap();
 }
@@ -199,6 +210,24 @@ fn wire_shapes_are_camel_case_with_dotted_kinds() {
         encode(&register).unwrap(),
         r#"{"sdk":1,"kind":"pane.register","typeId":"core.chat","sdkVersion":"1.0"}"#,
         "register"
+    );
+}
+
+#[test]
+fn the_settings_frame_is_versioned_and_carries_the_whole_set() {
+    let frame = ShellFrame::Settings {
+        version: SETTINGS_FRAME_VERSION,
+        values: SettingValues::default().with("tabSize", json!(4)).unwrap(),
+    };
+    assert_eq!(
+        encode(&frame).unwrap(),
+        r#"{"sdk":1,"kind":"settings","version":1,"values":{"tabSize":4}}"#,
+        "shape"
+    );
+    assert!(
+        decode_shell_frame(r#"{"sdk":1,"kind":"settings","version":1,"values":{"a b":1}}"#)
+            .is_err(),
+        "a bad key is refused"
     );
 }
 

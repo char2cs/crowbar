@@ -14,3 +14,4 @@ export type PaneFrame =
   | { kind: 'shell.reveal'; path: string }
   | { kind: 'settings.get'; id: number; key: string }
   | { kind: 'settings.subscribe'; id: number; key: string }
+  | { kind: 'settings.set'; version: number; key: string; value: unknown }

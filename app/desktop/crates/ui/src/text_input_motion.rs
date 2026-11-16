@@ -60,6 +60,36 @@ impl TextInput {
         cx.notify();
     }
 
+    pub(crate) fn move_by_word(
+        &mut self,
+        direction: Direction,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.buffer.move_to(self.buffer.word_boundary(direction));
+        cx.notify();
+    }
+
+    pub(crate) fn extend_by_word(
+        &mut self,
+        direction: Direction,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.buffer.select_to(self.buffer.word_boundary(direction));
+        cx.notify();
+    }
+
+    pub(crate) fn erase_word(
+        &mut self,
+        direction: Direction,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.buffer.selection().is_empty() {
+            self.buffer.select_to(self.buffer.word_boundary(direction));
+        }
+        self.replace_text_in_range(None, "", window, cx);
+    }
+
     pub(crate) fn erase(
         &mut self,
         direction: Direction,
@@ -135,6 +165,22 @@ mod tests {
         assert_eq!(text_of(&input, cx), "axbc");
         cx.simulate_keystrokes("shift-right shift-right left y");
         assert_eq!(text_of(&input, cx), "axybc");
+    }
+
+    #[gpui::test]
+    fn word_keys_move_select_and_delete_by_word(cx: &mut TestAppContext) {
+        let (input, cx) = field(cx);
+        cx.simulate_input("one two three");
+        cx.simulate_keystrokes("ctrl-left ctrl-left x");
+        assert_eq!(text_of(&input, cx), "one xtwo three");
+        cx.simulate_keystrokes("ctrl-right ctrl-right y");
+        assert_eq!(text_of(&input, cx), "one xtwo threey");
+        cx.simulate_keystrokes("ctrl-shift-left z");
+        assert_eq!(text_of(&input, cx), "one xtwo z");
+        cx.simulate_keystrokes("ctrl-backspace");
+        assert_eq!(text_of(&input, cx), "one xtwo ");
+        cx.simulate_keystrokes("alt-left alt-delete");
+        assert_eq!(text_of(&input, cx), "one  ");
     }
 
     #[gpui::test]

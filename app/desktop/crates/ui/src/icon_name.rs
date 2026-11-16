@@ -97,6 +97,7 @@ icon_names! {
     ArrowsOutCardinal => "arrows-out-cardinal",
     XCircle => "x-circle",
     Funnel => "funnel",
+    Eye => "eye",
     UploadSimple => "upload-simple",
     PencilSimple => "pencil-simple",
     SidebarToggle => "sidebar-toggle",

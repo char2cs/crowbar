@@ -1,8 +1,8 @@
 //! Command line of the sidebar gallery.
 
 use gpui::App;
-use sidebar::{DemoData, DropMode, Mode, Preferences, RowId, Visibility};
-use ui::{Theme, ThemeId, ThemeMode};
+use sidebar::{DemoData, DropMode, MergeBox, Mode, Preferences, RowId, Visibility};
+use ui::{Theme, ThemeId, ThemeMode, ToastContent, ToastKind, ToastLifetime};
 
 const DEFAULT_SIZE: (f32, f32) = (1200.0, 800.0);
 
@@ -15,6 +15,7 @@ pub(crate) struct Arguments {
     width: Option<f32>,
     closed: bool,
     drag: Option<String>,
+    toasts: bool,
 }
 
 fn flag(name: &str) -> Option<String> {
@@ -54,6 +55,7 @@ impl Arguments {
             width: flag("width").and_then(|value| value.parse().ok()),
             closed: std::env::args().any(|arg| arg == "--closed"),
             drag: flag("drag"),
+            toasts: std::env::args().any(|arg| arg == "--toasts"),
         }
     }
 
@@ -75,6 +77,11 @@ impl Arguments {
         match self.data.as_str() {
             "rich" => DemoData::rich(),
             "loading" => DemoData::loading(),
+            "merge" => DemoData::reference().with_merge_box(MergeBox {
+                parent: Some("main".into()),
+                uncommitted: vec!["src/lib.rs".into(), "src/main.rs".into()],
+                ..MergeBox::default()
+            }),
             _ => DemoData::reference(),
         }
     }
@@ -88,6 +95,26 @@ impl Arguments {
             _ => DropMode::Into,
         };
         Some((RowId::from(subject), RowId::from(target), mode))
+    }
+
+    pub(crate) fn toasts(&self) -> Vec<(ToastContent, ToastLifetime)> {
+        if !self.toasts {
+            return Vec::new();
+        }
+        vec![
+            (
+                ToastContent::new(ToastKind::Error, "Backend unavailable: restarting"),
+                ToastLifetime::Pinned,
+            ),
+            (
+                ToastContent::new(ToastKind::Success, "Merged into main"),
+                ToastLifetime::Pinned,
+            ),
+            (
+                ToastContent::new(ToastKind::Info, "Copied the branch name"),
+                ToastLifetime::Pinned,
+            ),
+        ]
     }
 
     fn visibility(
@@ -125,6 +152,7 @@ mod tests {
             width: None,
             closed: false,
             drag: drag.map(str::to_owned),
+            toasts: false,
         }
     }
 
@@ -139,9 +167,18 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_gallery_starts_with_the_sidebar_closed() {
-        let mut arguments = with_drag(None);
-        arguments.closed = true;
-        assert_eq!(arguments.preferences().visibility, Visibility::Closed);
+    fn flags_decide_what_the_gallery_opens_with() {
+        const CASES: [(bool, bool, Visibility, usize); 3] = [
+            (false, false, Visibility::Open, 0),
+            (true, false, Visibility::Closed, 0),
+            (false, true, Visibility::Open, 3),
+        ];
+        for (closed, toasts, visibility, shown) in CASES {
+            let mut arguments = with_drag(None);
+            arguments.closed = closed;
+            arguments.toasts = toasts;
+            assert_eq!(arguments.preferences().visibility, visibility);
+            assert_eq!(arguments.toasts().len(), shown);
+        }
     }
 }

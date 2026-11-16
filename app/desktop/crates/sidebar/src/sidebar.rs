@@ -2,8 +2,8 @@
 
 use std::rc::Rc;
 
-use gpui::{AnyView, Context, Entity, EventEmitter, FocusHandle};
-use ui::{CubicBezier, Glide};
+use gpui::{AnyView, AppContext as _, Context, Entity, EventEmitter, FocusHandle};
+use ui::{CubicBezier, Glide, ToastQueue};
 
 use crate::command_sink::CommandSink;
 use crate::drag_state::DragState;
@@ -24,7 +24,6 @@ use crate::scrolls::Scrolls;
 use crate::sidebar_data::SidebarData;
 use crate::sidebar_event::SidebarEvent;
 use crate::space_draft::SpaceDraft;
-use crate::toast_stack::ToastStack;
 use crate::tree_state::TreeState;
 use crate::work_at_risk::WorkAtRisk;
 
@@ -53,7 +52,7 @@ pub struct Sidebar {
     pub(crate) question: Option<Question>,
     pub(crate) merge: MergeDraft,
     pub(crate) search: Option<FileSearch>,
-    pub(crate) toasts: ToastStack,
+    pub(crate) toasts: Entity<ToastQueue>,
     pub(crate) drag: DragState,
     pub(crate) row_bounds: RowBounds,
 }
@@ -69,6 +68,7 @@ impl Sidebar {
         content: AnyView,
         (preferences, cx): (Preferences, &mut Context<'_, Self>),
     ) -> Self {
+        let dock = preferences.panel().side();
         Self {
             data,
             sink,
@@ -88,9 +88,9 @@ impl Sidebar {
             space: None,
             icon_editor: Self::space_icon_editor(cx),
             question: None,
-            merge: MergeDraft::new(cx),
+            merge: MergeDraft::new(cx, Self::commit_changes),
             search: None,
-            toasts: ToastStack::default(),
+            toasts: cx.new(|_| ToastQueue::new(dock.docked_toasts())),
             drag: DragState::default(),
             row_bounds: RowBounds::default(),
         }
@@ -142,6 +142,9 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         self.panel.dock_to(side);
+        self.toasts.update(cx, |queue, cx| {
+            queue.set_placement(side.docked_toasts(), cx);
+        });
         Self::changed(cx);
     }
 

@@ -1,4 +1,4 @@
-use model::{Command, Layout, PaneInstance, TabId};
+use model::{Command, Layout, PaneInstance, Placement, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
 use crate::error::Result;
@@ -23,6 +23,25 @@ pub(crate) fn open_commands(
         return Ok(open_in_new_tab(serials.next_tab(), instance));
     };
     Ok(vec![open_pane(tab.id(), instance)])
+}
+
+pub(crate) fn open_at(
+    pane: (PaneTypeId, Params),
+    (tab, placement): (TabId, Placement),
+    serials: &Serials,
+) -> Result<Command> {
+    let (type_id, params) = pane;
+    let instance = PaneInstance {
+        pane_id: PaneId::new(serials.next_pane())?,
+        type_id,
+        params,
+        state: PaneState::default(),
+    };
+    Ok(Command::OpenPane {
+        tab,
+        instance,
+        placement: Some(placement),
+    })
 }
 
 fn open_pane(
@@ -62,7 +81,7 @@ fn focus_commands(
 
 #[cfg(test)]
 mod tests {
-    use model::TabId;
+    use model::{Edge, TabId};
 
     use super::*;
 
@@ -136,5 +155,44 @@ mod tests {
                 "{name}: tab"
             );
         }
+    }
+
+    fn dropped(
+        layout: &mut Layout,
+        thread_name: &str,
+        (target, edge): (&str, Edge),
+    ) {
+        let placement = Placement {
+            target: PaneId::new(target).unwrap(),
+            edge,
+        };
+        let serials = Serials::above(layout);
+        let command = open_at(
+            (chat(), thread(thread_name)),
+            (TabId(1), placement),
+            &serials,
+        )
+        .unwrap();
+        apply(layout, vec![command]);
+    }
+
+    #[test]
+    fn a_chat_dropped_on_a_pane_opens_beside_it_on_that_side() {
+        let mut layout = open_all(&["a"]);
+        dropped(&mut layout, "b", ("p1", Edge::Left));
+        let tab = layout.active_tab().unwrap();
+        assert_eq!(layout.pane_count(), 2, "two panes");
+        let names: Vec<_> = tab.pane_ids().iter().map(ToString::to_string).collect();
+        assert_eq!(names, ["p2", "p1"], "the new chat is left of the first");
+    }
+
+    #[test]
+    fn a_chat_that_is_open_is_moved_by_a_drop_never_duplicated() {
+        let mut layout = open_all(&["a", "b"]);
+        dropped(&mut layout, "a", ("p2", Edge::Right));
+        assert_eq!(layout.pane_count(), 2, "still two panes");
+        let tab = layout.active_tab().unwrap();
+        let names: Vec<_> = tab.pane_ids().iter().map(ToString::to_string).collect();
+        assert_eq!(names, ["p2", "p1"], "a moved to the right of b");
     }
 }

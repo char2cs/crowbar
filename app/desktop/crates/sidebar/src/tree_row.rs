@@ -78,11 +78,12 @@ impl RenderOnce for TreeRow {
         let shell = tracked(shell, &self.row.id, &self.bounds);
         let payload = payload_of(&self.row);
         let ghost = ghost_of(self.row.clone(), self.expansion, self.width);
-        let (handler, free) = (Rc::clone(&self.handler), self.input.is_none());
-        let shell = shell.when(free, move |d| draggable(d, payload, ghost, &handler));
+        let live = self.input.is_none() && self.drag.ghost.is_none();
+        let handler = Rc::clone(&self.handler);
+        let shell = shell.when(live, move |d| draggable(d, payload, ghost, &handler));
         let shell = with_menu(shell, &self.row.id, &self.handler);
         let (id, handler) = (self.row.id.clone(), Rc::clone(&self.handler));
-        shell.when(self.input.is_none(), move |d| open_on_click(d, id, handler))
+        shell.when(live, move |d| open_on_click(d, id, handler))
     }
 }
 
@@ -184,10 +185,10 @@ fn glyph_box(
 
 #[cfg(test)]
 mod tests {
-    use gpui::TestAppContext;
+    use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
 
     use super::*;
-    use crate::test_support::{chat, measure, recording_handler};
+    use crate::test_support::{chat, measure, mount, recording_handler};
 
     #[test]
     fn only_a_chat_row_carries_a_chat_to_open() {
@@ -206,6 +207,27 @@ mod tests {
         let ghost = ghost_of(chat("Refactor"), Expansion::Expanded, 180.0);
         let bounds = measure(cx, move |_, cx| ghost(cx));
         assert_eq!(f32::from(bounds.size.height), 36.0);
+    }
+
+    #[gpui::test]
+    fn the_ghost_under_the_pointer_takes_no_part_in_the_drag(cx: &mut TestAppContext) {
+        let (handler, seen) = recording_handler();
+        let cx = mount(cx, move |_, _| TreeRow {
+            row: chat("Refactor"),
+            expansion: Expansion::Expanded,
+            input: None,
+            drag: RowDrag::lifted(294.0),
+            bounds: RowBounds::default(),
+            width: 294.0,
+            handler: Rc::clone(&handler),
+        });
+        let none = Modifiers::none();
+        let start = point(px(40.0), px(18.0));
+        cx.simulate_mouse_down(start, MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(80.0), px(18.0)), MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(120.0), px(18.0)), MouseButton::Left, none);
+        cx.simulate_mouse_up(point(px(120.0), px(18.0)), MouseButton::Left, none);
+        assert!(seen.borrow().is_empty(), "the ghost reports nothing");
     }
 
     #[gpui::test]

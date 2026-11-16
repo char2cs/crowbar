@@ -12,7 +12,6 @@ use crate::file_entry::FileEntry;
 use crate::file_target::{self, FileTarget};
 use crate::hub::Hub;
 use crate::panel_loader::{load_directory, read, tree_path};
-use crate::query_encode::encode;
 
 const NOT_FOUND: u16 = 404;
 const BASE64: &str = "base64";
@@ -133,11 +132,7 @@ impl FileSession {
         &self,
         path: &str,
     ) -> String {
-        format!(
-            "/v0/documents/content?workspace={}&path={}",
-            encode(&self.target.workspace),
-            encode(path)
-        )
+        crate::document_route::content(&self.target.workspace, path)
     }
 }
 

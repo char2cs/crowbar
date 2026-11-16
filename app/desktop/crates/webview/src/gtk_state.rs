@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::mpsc;
 
 use protocol::ExtensionId;
+use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::{WebContext, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
 use crate::bounds::Bounds;
@@ -12,11 +14,22 @@ use crate::host_config::HostConfig;
 use crate::live_view::LiveView;
 use crate::parent_window::ParentWindow;
 use crate::protocol_handler::ProtocolHandler;
+use crate::snapshot::Snapshot;
+use crate::surface_pixels::snapshot_of;
 use crate::visibility::Visibility;
 use crate::web_view_config::WebViewConfig;
 use crate::web_view_id::WebViewId;
 use crate::web_view_kind::WebViewKind;
 use crate::xlib_parent::XlibParent;
+
+fn answer(
+    reply: &mpsc::Sender<Result<Option<Snapshot>>>,
+    result: Result<Option<Snapshot>>,
+) {
+    if reply.send(result).is_err() {
+        tracing::debug!("a snapshot arrived after its caller gave up");
+    }
+}
 
 pub(crate) struct GtkState {
     scheme: String,
@@ -108,6 +121,23 @@ impl GtkState {
         id: WebViewId,
     ) -> Result<()> {
         Ok(self.live(id)?.view.focus_parent()?)
+    }
+
+    pub(crate) fn snapshot(
+        &self,
+        id: WebViewId,
+        reply: mpsc::Sender<Result<Option<Snapshot>>>,
+    ) {
+        let page = match self.live(id) {
+            Ok(live) => live.view.webview(),
+            Err(error) => return answer(&reply, Err(error)),
+        };
+        page.snapshot(
+            SnapshotRegion::Visible,
+            SnapshotOptions::NONE,
+            None::<&gtk::gio::Cancellable>,
+            move |surface| answer(&reply, Ok(surface.ok().and_then(snapshot_of))),
+        );
     }
 
     pub(crate) fn destroy(

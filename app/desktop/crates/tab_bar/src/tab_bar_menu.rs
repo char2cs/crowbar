@@ -1,4 +1,6 @@
-use gpui::{AppContext as _, Context, DismissEvent, Entity, Window};
+use gpui::{
+    AnyElement, App, AppContext as _, Context, DismissEvent, Entity, Pixels, Point, Window,
+};
 use model::{Command, TabId};
 use ui::{Menu, MenuAction, MenuItem};
 
@@ -8,7 +10,7 @@ use crate::tab_bar_event::TabBarEvent;
 impl TabBar {
     pub(crate) fn open_menu(
         &mut self,
-        index: usize,
+        (index, at): (usize, Point<Pixels>),
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
@@ -32,7 +34,33 @@ impl TabBar {
         })
         .detach();
         self.menu = Some(menu);
+        self.menu_at = at;
         cx.notify();
+    }
+}
+
+impl TabBar {
+    fn close_menu(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.menu = None;
+        cx.notify();
+    }
+
+    pub(crate) fn menu_layers(
+        &self,
+        window: &Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Vec<AnyElement> {
+        let Some(menu) = self.menu.clone() else {
+            return Vec::new();
+        };
+        let bar = cx.entity();
+        let away = ui::popup::click_away(window, move |_, cx: &mut App| {
+            bar.update(cx, Self::close_menu);
+        });
+        vec![away, ui::popup::at(self.menu_at, menu)]
     }
 }
 
@@ -71,5 +99,45 @@ mod tests {
             Modifiers::none(),
         );
         bar.read_with(cx, |bar, _| assert!(bar.menu.is_some(), "a context menu"));
+    }
+
+    fn right_click_at(
+        cx: &mut gpui::VisualTestContext,
+        x: f32,
+    ) {
+        cx.simulate_mouse_down(
+            point(px(x), px(21.0)),
+            MouseButton::Right,
+            Modifiers::none(),
+        );
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn escape_closes_the_menu(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        right_click_at(cx, 100.0);
+        cx.simulate_keystrokes("escape");
+        bar.read_with(cx, |bar, _| assert!(bar.menu.is_none(), "closed"));
+    }
+
+    #[gpui::test]
+    fn pressing_outside_closes_the_menu(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        right_click_at(cx, 100.0);
+        cx.simulate_click(point(px(700.0), px(400.0)), Modifiers::none());
+        bar.read_with(cx, |bar, _| assert!(bar.menu.is_none(), "closed"));
+    }
+
+    #[gpui::test]
+    fn the_menu_opens_where_the_pointer_is(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        right_click_at(cx, 100.0);
+        bar.read_with(cx, |bar, _| {
+            assert_eq!(bar.menu_at, point(px(100.0), px(21.0)));
+        });
     }
 }

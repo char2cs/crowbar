@@ -11,6 +11,7 @@ use gpui::{
 use crate::motion::Motion;
 use crate::palette::Palette;
 use crate::pose::Pose;
+use crate::selection_drag::capture_pointer;
 use crate::text_area_frame::TextAreaFrame;
 use crate::text_area_layout::TextAreaLayout;
 use crate::text_area_scroll::{clamp, reveal};
@@ -181,6 +182,7 @@ impl<S: TextAreaSurface> Element for TextAreaElement<S> {
         window: &mut Window,
         cx: &mut App,
     ) {
+        capture_pointer(&self.area, window, cx);
         let focus = self.area.read(cx).input_focus();
         let editable = self.area.read(cx).editable();
         if editable {

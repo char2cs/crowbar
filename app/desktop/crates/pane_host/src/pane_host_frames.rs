@@ -6,6 +6,7 @@ use crate::host_event::HostEvent;
 use crate::pane_host::PaneHost;
 use crate::pane_phase::PanePhase;
 use crate::pane_runtime::PaneRuntime;
+use crate::pane_settings::setting_event;
 use crate::stage::Stage;
 
 fn wanted_stage(
@@ -105,6 +106,7 @@ impl PaneHost {
             },
             PaneFrame::Subscribe { id, event } => HostEvent::Subscribed { pane, id, event },
             PaneFrame::Unsubscribe { id } => HostEvent::Unsubscribed { pane, id },
+            frame @ PaneFrame::SettingsSet { .. } => return Ok(setting_event(pane, frame)),
             PaneFrame::RunCommand { command } => HostEvent::CommandRequested { pane, command },
             frame @ (PaneFrame::SettingsGet { .. }
             | PaneFrame::SettingsSubscribe { .. }
@@ -149,10 +151,13 @@ impl PaneHost {
             let bindings = self.keybindings.clone();
             self.send(pane, &ShellFrame::Keybindings { bindings })?;
         }
-        let Some(tokens) = self.theme.clone() else {
-            return Ok(());
-        };
-        self.send(pane, &ShellFrame::Theme { tokens })
+        if let Some(tokens) = self.theme.clone() {
+            self.send(pane, &ShellFrame::Theme { tokens })?;
+        }
+        match self.settings_context() {
+            Some(frame) => self.send(pane, &frame),
+            None => Ok(()),
+        }
     }
 
     pub(crate) fn fail(

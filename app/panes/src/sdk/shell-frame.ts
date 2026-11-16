@@ -1,5 +1,6 @@
 import type { LifecycleMessage } from './lifecycle-message'
 import type { RpcFailure } from './rpc-failure'
+import type { SettingValues } from './setting-values'
 import type { ThemeTokens } from './theme-tokens'
 
 /** The frames the shell sends that a pane acts on. */
@@ -15,3 +16,4 @@ export type ShellFrame =
     }
   | { kind: 'settings.changed'; id: number; key: string; value: unknown }
   | { kind: 'theme'; tokens: ThemeTokens }
+  | { kind: 'settings'; version: number; values: SettingValues }

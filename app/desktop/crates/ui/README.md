@@ -73,8 +73,9 @@ commands and `TextInputEvent` with the single-line field. Build it with `TextAre
   `Ctrl+Z`, `Ctrl+Shift+Z`/`Ctrl+Y` undo and redo (typed runs undo as one step, an IME composition as one step).
 - `TextAreaSize` (`Small` 66, `Default` 70, `Large` 74 minimum box), `invalid()` (destructive border, ring at
   16%/24%), `disabled()` (64% opacity, no focus, no editing); `set_condition` switches them at runtime.
-- Not done: double/triple click selection, word-wise movement, Page Up/Down, drag-selecting past the field edge
-  (GPUI only delivers `mouse_move` to hovered elements).
+- Double click selects a word, triple click the line; `Ctrl`/`Alt` + arrows, `Backspace` and `Delete` move, select
+  and delete by word; Page Up/Down (text area) move a viewport. Both fields keep selecting while the pointer is
+  held outside them, and the text area scrolls a row every 50ms while the pointer is above or below it.
 
 ## Toasts
 
@@ -89,7 +90,8 @@ GPUI has no per-element scale, so the pulse widens and narrows the card box with
 seconds, `Pinned` never (the `timeout: 0` toast); loading toasts never expire either. `ToastPlacement::Docked(side)`
 is the open-sidebar column (full width, newest at the bottom, three transient toasts, pinned ones always kept),
 `Floating(side)` the collapsed-sidebar column (288px, 16px from the bottom and the side, every toast). Call
-`set_placement` when the sidebar collapses. Swiping a card 40px toward the sidebar edge (or down) dismisses it; the
+`set_placement` when the sidebar collapses. `show(key, (content, lifetime), cx)` rewrites the live toast of a key
+in place and `clear(key, cx)` dismisses it, so owners keep no second list of ids. Swiping a card 40px toward the sidebar edge (or down) dismisses it; the
 gesture only tracks while the pointer is over the card.
 
 Mount the queue inside a relatively positioned container: it positions itself absolutely.

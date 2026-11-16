@@ -1,7 +1,7 @@
 use settings_ui::{Change, SettingsBackend};
 
 use super::ShellView;
-use crate::pane_settings::{follows, values_of};
+use crate::pane_settings::{follows, value_of, values_of};
 use crate::shell_request::ShellRequest;
 
 fn notify_when_a_followed_setting_moves(
@@ -18,6 +18,19 @@ fn notify_when_a_followed_setting_moves(
     }
 }
 
+fn store_one(
+    backend: &impl SettingsBackend,
+    key: &protocol::SettingKey,
+    json: &serde_json::Value,
+) {
+    let Some(value) = value_of(json) else {
+        return tracing::warn!(%key, "a pane wrote a setting value of no known shape");
+    };
+    if let Err(error) = backend.set(&settings_ui::Key::new(key.as_str()), value) {
+        tracing::warn!(%key, %error, "storing a pane's setting failed");
+    }
+}
+
 impl ShellView {
     pub(super) fn watch_pane_settings(&mut self) {
         let Some(backend) = self.settings_backend() else {
@@ -29,6 +42,18 @@ impl ShellView {
                 notify_when_a_followed_setting_moves(&requests, change);
             })));
         self.push_pane_settings();
+    }
+
+    pub(super) fn store_pane_settings(
+        &mut self,
+        writes: Vec<(protocol::SettingKey, serde_json::Value)>,
+    ) {
+        let Some(backend) = self.settings_backend() else {
+            return;
+        };
+        for (key, json) in writes {
+            store_one(&backend, &key, &json);
+        }
     }
 
     pub(super) fn push_pane_settings(&mut self) {

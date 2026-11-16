@@ -53,7 +53,7 @@ impl TabDrop {
             (DragSubject::Open(instance), Self::Reorder(index)) => {
                 open_in_new_tab(instance, *index, new_tab, tabs.len())
             },
-            (DragSubject::Tab(_), _) => Vec::new(),
+            (DragSubject::Tab(_) | DragSubject::Chat(_), _) => Vec::new(),
         }
     }
 }
@@ -255,6 +255,12 @@ mod tests {
             name: "a tab drag yields no commands here",
             drop: TabDrop::Reorder(0),
             subject: || DragSubject::Tab(TabId(2)),
+            expected: Vec::new,
+        },
+        Case {
+            name: "a chat row yields no commands here: the layout owns its drop",
+            drop: TabDrop::Merge(TabId(1)),
+            subject: || DragSubject::Chat("t1".into()),
             expected: Vec::new,
         },
     ];

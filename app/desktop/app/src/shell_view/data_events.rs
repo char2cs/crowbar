@@ -39,6 +39,9 @@ impl ShellView {
             backend.deliver_pending();
         }
         self.sidebar.update(cx, |_, cx| cx.notify());
+        if self.source.terminals_attached() {
+            self.refresh(cx);
+        }
         if let Some(dialog) = &self.branch_import {
             dialog.update(cx, |_, cx| cx.notify());
         }

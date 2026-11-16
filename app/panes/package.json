@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:panes": "for pane in chat editor review console; do PANE=$pane vite build -c vite.pane.config.ts || exit 1; done",
+    "build:panes": "for pane in chat editor review console; do PANE=$pane vite build -c vite.pane.config.ts || exit 1; done && node scripts/verify-pane-css.mjs",
     "postbuild": "node scripts/verify-worker-bundles.mjs",
     "preview": "vite preview",
     "test": "vitest run",

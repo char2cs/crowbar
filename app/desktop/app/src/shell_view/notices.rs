@@ -1,17 +1,20 @@
-use gpui::{
-    AnyElement, Context, Div, InteractiveElement, IntoElement, ParentElement, SharedString,
-    Stateful, StatefulInteractiveElement, Styled, div, px,
-};
+use gpui::{AppContext as _, Context, Entity};
+use sidebar::{Sidebar, Visibility};
 use startup_view::StartupInput;
-use ui::{Toast, ToastKind};
+use ui::{ToastContent, ToastKind, ToastLifetime, ToastQueue};
 
 use super::ShellView;
 use crate::daemon_notice::{DaemonNotice, daemon_notice};
 use crate::notice_key::NoticeKey;
-use crate::notices::Notices;
+use crate::notices::floating_at;
 
-const NOTICE_MARGIN: f32 = 16.0;
-const NOTICE_GAP: f32 = 8.0;
+pub(super) fn build_notices(
+    sidebar: &Entity<Sidebar>,
+    cx: &mut Context<'_, ShellView>,
+) -> Entity<ToastQueue> {
+    let side = sidebar.read(cx).preferences().side;
+    cx.new(|_| ToastQueue::new(floating_at(side)))
+}
 
 impl ShellView {
     pub(super) fn track_daemon(
@@ -19,16 +22,22 @@ impl ShellView {
         input: &StartupInput,
         cx: &mut Context<'_, Self>,
     ) {
-        note_daemon(&mut self.notices, input);
-        cx.notify();
+        match daemon_notice(input) {
+            DaemonNotice::Clear => self.clear_notice(NoticeKey::Daemon, cx),
+            DaemonNotice::Show(text) => {
+                self.show_notice(NoticeKey::Daemon, (ToastKind::Error, text), cx);
+            },
+        }
     }
 
-    pub(super) fn announce_start(&mut self) {
+    pub(super) fn announce_start(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(text) = self.state.take_notice() else {
             return;
         };
-        self.notices
-            .set(NoticeKey::Layout, ToastKind::Warning, text);
+        self.show_notice(NoticeKey::Layout, (ToastKind::Warning, text), cx);
     }
 
     pub(super) fn show_notice(
@@ -37,73 +46,47 @@ impl ShellView {
         (kind, text): (ToastKind, String),
         cx: &mut Context<'_, Self>,
     ) {
-        self.notices.set(key, kind, text);
-        cx.notify();
-    }
-
-    pub(super) fn notices_element(
-        &self,
-        cx: &mut Context<'_, Self>,
-    ) -> Option<AnyElement> {
-        if self.notices.is_empty() {
-            return None;
+        let content = ToastContent::new(kind, text);
+        let lifetime = key.lifetime();
+        let preferences = self.sidebar.read(cx).preferences();
+        if preferences.visibility == Visibility::Open {
+            self.toast_in_sidebar(key, (content, lifetime), cx);
+            return;
         }
-        let toasts = self
-            .notices
-            .iter()
-            .map(|(key, kind, text)| notice_card((*key, *kind, text.clone()), cx));
-        Some(
-            div()
-                .absolute()
-                .bottom(px(NOTICE_MARGIN))
-                .right(px(NOTICE_MARGIN))
-                .flex()
-                .flex_col()
-                .gap(px(NOTICE_GAP))
-                .children(toasts)
-                .into_any_element(),
-        )
+        self.notices.update(cx, |queue, cx| {
+            queue.show(key.slug(), (content, lifetime), cx);
+        });
     }
-}
 
-fn note_daemon(
-    notices: &mut Notices,
-    input: &StartupInput,
-) {
-    match daemon_notice(input) {
-        DaemonNotice::Clear => notices.clear(NoticeKey::Daemon),
-        DaemonNotice::Show(text) => notices.set(NoticeKey::Daemon, ToastKind::Error, text),
+    fn toast_in_sidebar(
+        &self,
+        key: NoticeKey,
+        (content, lifetime): (ToastContent, ToastLifetime),
+        cx: &mut Context<'_, Self>,
+    ) {
+        let slug = Some(key.slug());
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.toast(content, (slug, lifetime), cx);
+        });
     }
-}
 
-fn notice_card(
-    (key, kind, text): (NoticeKey, ToastKind, SharedString),
-    cx: &mut Context<'_, ShellView>,
-) -> Stateful<Div> {
-    div()
-        .id(("notice", key as usize))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.notices.clear(key);
-            cx.notify();
-        }))
-        .child(Toast::new(("toast", key as usize), kind, text))
-}
+    pub(super) fn clear_notice(
+        &mut self,
+        key: NoticeKey,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.clear_toast(key.slug(), cx));
+        self.notices
+            .update(cx, |queue, cx| queue.clear(key.slug(), cx));
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_daemon_outage_raises_a_notice_and_recovery_clears_it() {
-        let mut notices = Notices::default();
-        let halted = StartupInput::Halted {
-            reason: None,
-            message: "boom".into(),
-        };
-        note_daemon(&mut notices, &halted);
-        note_daemon(&mut notices, &halted);
-        assert_eq!(notices.iter().count(), 1, "one notice, not stacked");
-        note_daemon(&mut notices, &StartupInput::Ready);
-        assert!(notices.is_empty(), "recovered");
+    pub(super) fn place_notices(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let side = self.sidebar.read(cx).preferences().side;
+        self.notices
+            .update(cx, |queue, cx| queue.set_placement(floating_at(side), cx));
     }
 }

@@ -12,6 +12,7 @@ publish.workspace = true
 base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 getrandom = "0.3"
+ignore = { version = "0.4", default-features = false }
 protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true

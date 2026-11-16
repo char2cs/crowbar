@@ -38,6 +38,18 @@ impl TextInput {
             .on_action(cx.listener(|this, _: &actions::SelectRight, _, cx| {
                 this.extend_selection(Direction::Forward, cx);
             }))
+            .on_action(cx.listener(|this, _: &actions::WordLeft, _, cx| {
+                this.move_by_word(Direction::Backward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &actions::WordRight, _, cx| {
+                this.move_by_word(Direction::Forward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &actions::SelectWordLeft, _, cx| {
+                this.extend_by_word(Direction::Backward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &actions::SelectWordRight, _, cx| {
+                this.extend_by_word(Direction::Forward, cx);
+            }))
             .on_action(cx.listener(|this, _: &actions::SelectAll, _, cx| {
                 this.buffer.select_all();
                 cx.notify();
@@ -63,6 +75,16 @@ impl TextInput {
             .on_action(cx.listener(|this, _: &actions::Delete, window, cx| {
                 this.erase(Direction::Forward, window, cx);
             }))
+            .on_action(
+                cx.listener(|this, _: &actions::DeleteWordLeft, window, cx| {
+                    this.erase_word(Direction::Backward, window, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &actions::DeleteWordRight, window, cx| {
+                    this.erase_word(Direction::Forward, window, cx);
+                }),
+            )
             .on_action(cx.listener(|this, _: &actions::Paste, window, cx| this.paste(window, cx)))
             .on_action(cx.listener(|this, _: &actions::Copy, _, cx| this.copy(cx)))
             .on_action(cx.listener(|this, _: &actions::Cut, window, cx| this.cut(window, cx)))

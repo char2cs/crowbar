@@ -16,6 +16,8 @@ pub const TOAST_SUCCESS: Duration = Duration::from_millis(320);
 pub const TOAST_ERROR: Duration = Duration::from_millis(280);
 /// Scrollbar fade-out delay after the pointer leaves.
 pub const SCROLLBAR_HIDE_DELAY: Duration = Duration::from_millis(300);
+/// How often a text area scrolls one row while a selection is dragged past its edge.
+pub const AUTOSCROLL: Duration = Duration::from_millis(50);
 /// How long an automatic toast stays.
 pub const TOAST_TIMEOUT: Duration = Duration::from_secs(5);
 /// Skeleton shimmer cycle.

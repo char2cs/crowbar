@@ -21,6 +21,12 @@ const PANES_PREFIX: &str = "/panes/";
 const FONTS_PREFIX: &str = "/fonts/";
 const RELAY_PATH: &str = "/__crowbar/relay";
 
+fn core_bundle(path: &str) -> Route {
+    Route::CoreBundle {
+        path: path.to_owned(),
+    }
+}
+
 pub(crate) fn parse(
     scheme: &str,
     uri: &str,
@@ -35,18 +41,14 @@ pub(crate) fn parse(
         return Some(Route::Relay { host });
     }
     if path_and_query.starts_with(FONTS_PREFIX) {
-        return Some(Route::CoreBundle {
-            path: path_and_query.trim_start_matches('/').to_owned(),
-        });
+        return Some(core_bundle(path_and_query.trim_start_matches('/')));
     }
     let Some(panes) = path_and_query.strip_prefix(PANES_PREFIX) else {
         return Some(daemon_route(host, path_and_query));
     };
     let path = panes.split('?').next().unwrap_or_default();
     match path.strip_prefix("core/") {
-        Some(core) => Some(Route::CoreBundle {
-            path: core.to_owned(),
-        }),
+        Some(core) => Some(core_bundle(core)),
         None => extension_route(path),
     }
 }

@@ -35,6 +35,18 @@ impl TextArea {
             .on_action(cx.listener(|this, _: &shared::Right, _, cx| {
                 this.move_caret(Direction::Forward, cx);
             }))
+            .on_action(cx.listener(|this, _: &shared::WordLeft, _, cx| {
+                this.move_by_word(Direction::Backward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &shared::WordRight, _, cx| {
+                this.move_by_word(Direction::Forward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &area::PageUp, _, cx| {
+                this.page(Direction::Backward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &area::PageDown, _, cx| {
+                this.page(Direction::Forward, cx);
+            }))
             .on_action(cx.listener(|this, _: &area::Up, _, cx| {
                 this.move_vertically(Direction::Backward, cx);
             }))
@@ -78,6 +90,18 @@ impl TextArea {
             .on_action(cx.listener(|this, _: &area::SelectEnd, _, cx| {
                 this.extend_to_row_edge(Direction::Forward, cx);
             }))
+            .on_action(cx.listener(|this, _: &shared::SelectWordLeft, _, cx| {
+                this.extend_by_word(Direction::Backward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &shared::SelectWordRight, _, cx| {
+                this.extend_by_word(Direction::Forward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &area::SelectPageUp, _, cx| {
+                this.extend_page(Direction::Backward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &area::SelectPageDown, _, cx| {
+                this.extend_page(Direction::Forward, cx);
+            }))
             .on_action(cx.listener(|this, _: &shared::SelectAll, _, cx| {
                 this.buffer.select_all();
                 cx.notify();
@@ -94,6 +118,12 @@ impl TextArea {
             }))
             .on_action(cx.listener(|this, _: &shared::Delete, _, cx| {
                 this.erase(Direction::Forward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &shared::DeleteWordLeft, _, cx| {
+                this.erase_word(Direction::Backward, cx);
+            }))
+            .on_action(cx.listener(|this, _: &shared::DeleteWordRight, _, cx| {
+                this.erase_word(Direction::Forward, cx);
             }))
             .on_action(cx.listener(|this, _: &shared::Paste, _, cx| this.paste(cx)))
             .on_action(cx.listener(|this, _: &shared::Copy, _, cx| this.copy(cx)))

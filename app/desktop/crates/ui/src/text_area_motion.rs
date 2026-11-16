@@ -43,7 +43,25 @@ impl TextArea {
         cx.notify();
     }
 
-    fn goal_x(&self) -> Pixels {
+    pub(crate) fn move_by_word(
+        &mut self,
+        direction: Direction,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.buffer.move_to(self.buffer.word_boundary(direction));
+        cx.notify();
+    }
+
+    pub(crate) fn extend_by_word(
+        &mut self,
+        direction: Direction,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.buffer.select_to(self.buffer.word_boundary(direction));
+        cx.notify();
+    }
+
+    pub(crate) fn goal_x(&self) -> Pixels {
         let cursor = self.buffer.cursor();
         match self.goal {
             Some((at, x)) if at == cursor => x,
@@ -51,7 +69,7 @@ impl TextArea {
         }
     }
 
-    fn vertical_target(
+    pub(crate) fn vertical_target(
         &mut self,
         direction: Direction,
     ) -> usize {
@@ -164,6 +182,21 @@ mod tests {
         cx.simulate_keystrokes("ctrl-end");
         cx.simulate_input(">");
         assert_eq!(area_text(&area, cx), "<one\n[two]\nthree>");
+    }
+
+    #[gpui::test]
+    fn word_keys_move_select_and_delete_by_word_across_rows(cx: &mut TestAppContext) {
+        let (area, cx) = area(cx);
+        area.update(cx, |area, cx| area.set_text("one two\nthree", cx));
+        cx.run_until_parked();
+        cx.simulate_keystrokes("ctrl-left ctrl-left");
+        cx.simulate_input("X");
+        assert_eq!(area_text(&area, cx), "one Xtwo\nthree");
+        cx.simulate_keystrokes("ctrl-right ctrl-right ctrl-shift-left");
+        cx.simulate_input("Y");
+        assert_eq!(area_text(&area, cx), "one Xtwo\nY");
+        cx.simulate_keystrokes("alt-left ctrl-delete ctrl-backspace");
+        assert_eq!(area_text(&area, cx), "one ");
     }
 
     #[gpui::test]

@@ -85,7 +85,9 @@ pub(crate) fn commit(
         Call::post(format!("{base}/commit"))
             .json(json!({"subject": subject.trim(), "body": body.trim()})),
     );
-    Ok(Plan::of(held.host, calls).then(After::ReloadChanges))
+    Ok(Plan::of(held.host, calls)
+        .then(After::ReloadChanges)
+        .committing())
 }
 
 #[cfg(test)]
@@ -144,6 +146,7 @@ mod tests {
             committed.calls[1].body,
             Some(json!({"subject": "Fix it", "body": "because"}))
         );
+        assert!(committed.committing && !merged.committing);
     }
 
     #[test]

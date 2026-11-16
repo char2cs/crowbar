@@ -1,6 +1,7 @@
 use crate::bounds::Bounds;
 use crate::error::Result;
 use crate::parent_window::ParentWindow;
+use crate::snapshot::Snapshot;
 use crate::visibility::Visibility;
 use crate::web_view_config::WebViewConfig;
 use crate::web_view_id::WebViewId;
@@ -78,6 +79,18 @@ pub trait Platform {
         &self,
         id: WebViewId,
     ) -> Result<()>;
+
+    /// The pixels the web view shows now, or `None` when this backend cannot read them back or
+    /// the page did not answer in time.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
+    fn snapshot(
+        &self,
+        _id: WebViewId,
+    ) -> Result<Option<Snapshot>> {
+        Ok(None)
+    }
 
     /// Destroys a web view and frees its resources.
     ///

@@ -5,8 +5,9 @@
 //! Shows the sidebar over a stand-in content area; used to capture parity screenshots.
 //!
 //! Usage: `sidebar_gallery [--theme crowbar|frosted] [--mode light|dark] [--size WxH]
-//! [--data reference|rich|loading] [--panel chats|files|changes] [--width N] [--closed]
-//! [--drag subject:target:before|after|into]`.
+//! [--data reference|rich|loading|merge] [--panel chats|files|changes] [--width N] [--closed]
+//! [--drag subject:target:before|after|into] [--toasts]`; `--data merge` opens a merge box with
+//! uncommitted files.
 
 mod arguments;
 mod content;
@@ -14,7 +15,8 @@ mod content;
 use std::rc::Rc;
 
 use gpui::{
-    App, AppContext as _, Application, Bounds, Entity, WindowBounds, WindowOptions, px, size,
+    App, AppContext as _, Application, Bounds, Context, Entity, WindowBounds, WindowOptions, px,
+    size,
 };
 use sidebar::Sidebar;
 use ui::{Surface, Theme};
@@ -22,11 +24,22 @@ use ui::{Surface, Theme};
 use crate::arguments::Arguments;
 use crate::content::Content;
 
+fn show_toasts(
+    sidebar: &mut Sidebar,
+    arguments: &Arguments,
+    cx: &mut Context<'_, Sidebar>,
+) {
+    for (content, lifetime) in arguments.toasts() {
+        sidebar.toast(content, (None, lifetime), cx);
+    }
+}
+
 fn preview(
     sidebar: &Entity<Sidebar>,
     arguments: &Arguments,
     cx: &mut App,
 ) {
+    sidebar.update(cx, |this, cx| show_toasts(this, arguments, cx));
     let Some(drag) = arguments.drag() else {
         return;
     };

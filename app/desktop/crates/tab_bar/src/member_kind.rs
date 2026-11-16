@@ -6,4 +6,6 @@ pub enum MemberKind {
     Chat,
     /// A terminal session.
     Terminal,
+    /// The New Tab page.
+    NewTab,
 }

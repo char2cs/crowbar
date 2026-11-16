@@ -71,17 +71,15 @@ impl DropTarget {
     }
 
     /// The model command that performs the drop of `subject` into `tab`: a pane of the same tab
-    /// moves, a pane of another tab joins this one, and a chat that is not open yet opens.
+    /// moves, a pane of another tab joins this one, and a chat that is not open yet opens. A chat
+    /// dragged from the sidebar has no pane yet, so it yields `None`: its owner builds the pane.
     #[must_use]
     pub fn command(
         &self,
         subject: &DragSubject,
         tab: &Tab,
     ) -> Option<Command> {
-        let placement = Placement {
-            target: self.pane.clone(),
-            edge: self.edge,
-        };
+        let placement = self.placement();
         match subject {
             DragSubject::Pane(pane) if tab.pane(pane).is_some() => Some(Command::MovePane {
                 pane: pane.clone(),
@@ -97,7 +95,16 @@ impl DropTarget {
                 instance: instance.clone(),
                 placement: Some(placement),
             }),
-            DragSubject::Tab(_) => None,
+            DragSubject::Chat(_) | DragSubject::Tab(_) => None,
+        }
+    }
+
+    /// The pane and side as the model's placement.
+    #[must_use]
+    pub fn placement(&self) -> Placement {
+        Placement {
+            target: self.pane.clone(),
+            edge: self.edge,
         }
     }
 }
@@ -171,6 +178,22 @@ mod tests {
             DropTarget::resolve(&subject, (100.0, 200.0), &slots),
             None,
             "tab drag"
+        );
+    }
+
+    #[test]
+    fn a_chat_row_targets_the_pane_under_it_like_an_unopened_chat() {
+        let layout = two_panes();
+        let slots = layout.active_tab().expect("tab").layout(CONTENT);
+        let subject = DragSubject::Chat("t1".into());
+        let target = DropTarget::resolve(&subject, (600.0, 200.0), &slots).expect("target");
+        assert_eq!(
+            target,
+            DropTarget {
+                pane: pane_id("b"),
+                edge: Edge::Right
+            },
+            "the centre of b adds beside it, to the right"
         );
     }
 
@@ -260,6 +283,26 @@ mod tests {
                 instance: chat("c"),
                 placement
             }
+        );
+    }
+
+    #[test]
+    fn a_chat_row_has_no_pane_to_command_with_yet() {
+        let layout = two_panes();
+        let tab = layout.active_tab().expect("tab");
+        let target = target_on(Edge::Left);
+        assert_eq!(
+            target.command(&DragSubject::Chat("t1".into()), tab),
+            None,
+            "the owner builds the pane"
+        );
+        assert_eq!(
+            target.placement(),
+            Placement {
+                target: pane_id("a"),
+                edge: Edge::Left
+            },
+            "placement"
         );
     }
 

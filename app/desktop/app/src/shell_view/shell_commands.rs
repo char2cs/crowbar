@@ -70,18 +70,6 @@ impl ShellView {
         }
     }
 
-    fn new_tab(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let id = self.state.serials().next_tab();
-        self.state.apply(vec![Command::AddTab {
-            id,
-            title: String::new(),
-        }]);
-        self.refresh(cx);
-    }
-
     // SPEC: the chat opens through `Outcome::OpenChat` once the daemon has created it.
     fn new_chat(&self) {
         let Some(project) = self.data.view().active_project() else {

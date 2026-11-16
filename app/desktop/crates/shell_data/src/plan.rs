@@ -12,6 +12,7 @@ pub(crate) struct Plan {
     pub(crate) after: After,
     pub(crate) dropping: Option<String>,
     pub(crate) needs_provider: bool,
+    pub(crate) committing: bool,
 }
 
 impl Plan {
@@ -26,6 +27,7 @@ impl Plan {
             after: After::Nothing,
             dropping: None,
             needs_provider: false,
+            committing: false,
         }
     }
 
@@ -44,6 +46,12 @@ impl Plan {
         after: After,
     ) -> Self {
         self.after = after;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn committing(mut self) -> Self {
+        self.committing = true;
         self
     }
 

@@ -18,7 +18,9 @@ impl ShellView {
             hover,
             commands,
             pages,
+            settings,
         } = outcome;
+        self.store_pane_settings(settings);
         for (pane, address) in pages {
             self.source.show_address(&pane, &address, cx);
         }
