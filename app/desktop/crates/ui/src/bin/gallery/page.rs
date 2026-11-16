@@ -5,10 +5,12 @@ use gpui::{
     AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
     ScrollHandle, StatefulInteractiveElement, Styled, Window, div,
 };
-use ui::{Surface, TextInput, Theme, spacing};
+use ui::{Surface, TextArea, TextInput, Theme, ToastQueue, spacing};
 
 use crate::section::section;
-use crate::{buttons, feedback, icons, inputs, overlays, structure, toggles, typography};
+use crate::{
+    buttons, feedback, icons, inputs, overlays, structure, textarea, toasts, toggles, typography,
+};
 
 pub(crate) struct Page {
     only: Option<String>,
@@ -18,6 +20,8 @@ pub(crate) struct Page {
     pub(crate) segment: usize,
     pub(crate) choice: Option<usize>,
     pub(crate) input: Entity<TextInput>,
+    areas: Vec<Entity<TextArea>>,
+    queues: Vec<Entity<ToastQueue>>,
     pub(crate) scroll: ScrollHandle,
 }
 
@@ -34,6 +38,8 @@ impl Page {
             segment: 0,
             choice: Some(1),
             input: TextInput::build("Search", cx),
+            areas: textarea::areas(cx),
+            queues: toasts::queues(cx),
             scroll: ScrollHandle::new(),
         }
     }
@@ -54,12 +60,27 @@ impl Page {
         self.only.as_deref().is_none_or(|only| only == name)
     }
 
+    fn editors(&self) -> Vec<(&'static str, &'static str, AnyElement)> {
+        vec![
+            (
+                "textarea",
+                "TEXT AREA",
+                textarea::textarea(&self.areas).into_any_element(),
+            ),
+            (
+                "toasts",
+                "TOASTS",
+                toasts::toasts(&self.queues).into_any_element(),
+            ),
+        ]
+    }
+
     fn sections(
         &self,
         cx: &mut Context<'_, Self>,
     ) -> Vec<(&'static str, &'static str, AnyElement)> {
         let page = cx.entity();
-        vec![
+        let mut sections = vec![
             ("buttons", "BUTTONS", buttons::buttons().into_any_element()),
             (
                 "inputs",
@@ -88,7 +109,9 @@ impl Page {
                 "TYPOGRAPHY",
                 typography::typography().into_any_element(),
             ),
-        ]
+        ];
+        sections.extend(self.editors());
+        sections
     }
 }
 

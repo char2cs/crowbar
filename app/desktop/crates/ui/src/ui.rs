@@ -6,6 +6,7 @@ use crate::appearance::Appearance;
 use crate::error::Error;
 use crate::font;
 use crate::motion::Motion;
+use crate::shimmer_clock::ShimmerClock;
 use crate::theme::Theme;
 
 /// Registers fonts, installs the default [`Theme`] and the [`Motion`] preference.
@@ -21,9 +22,11 @@ pub fn init(cx: &mut App) -> Result<(), Error> {
     let system = Appearance::from(cx.window_appearance());
     cx.set_global(Theme::default().with_system(system));
     cx.set_global(Motion::default());
+    cx.set_global(ShimmerClock::starting_now());
     cx.bind_keys(crate::menu_actions::bindings());
     cx.bind_keys(crate::popover_actions::bindings());
     cx.bind_keys(crate::text_input_actions::bindings());
+    cx.bind_keys(crate::text_area_actions::bindings());
     Ok(())
 }
 

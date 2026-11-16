@@ -107,6 +107,16 @@ impl TextBuffer {
             .unwrap_or(self.text.len())
     }
 
+    pub(crate) fn erase_toward(
+        &mut self,
+        edge: usize,
+    ) {
+        if self.selection.is_empty() {
+            self.select_to(edge);
+        }
+        self.replace(None, "");
+    }
+
     pub(crate) fn replace(
         &mut self,
         range: Option<Range<usize>>,
@@ -278,6 +288,23 @@ mod tests {
         assert_eq!(buffer.cursor(), 0);
         buffer.replace(Some(0..99), "x");
         assert_eq!(buffer.text(), "x");
+    }
+
+    #[test]
+    fn erasing_removes_the_selection_or_the_span_to_the_edge() {
+        type Case = (&'static str, usize, usize, usize, &'static str);
+        const CASES: &[Case] = &[
+            ("abc", 1, 1, 0, "bc"),
+            ("abc", 1, 1, 2, "ac"),
+            ("abc", 0, 2, 3, "c"),
+        ];
+        for &(text, from, to, edge, want) in CASES {
+            let mut buffer = TextBuffer::with_text(text);
+            buffer.move_to(from);
+            buffer.select_to(to);
+            buffer.erase_toward(edge);
+            assert_eq!(buffer.text(), want, "{text} {from}..{to} edge {edge}");
+        }
     }
 
     #[test]

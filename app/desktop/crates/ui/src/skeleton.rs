@@ -1,27 +1,29 @@
-//! Placeholder block with a travelling highlight.
+//! Placeholder block with a viewport-fixed travelling highlight.
 
-use gpui::InteractiveElement as _;
 use gpui::{
-    AnimationExt, App, ElementId, Hsla, IntoElement, ParentElement, Pixels, RenderOnce, Styled,
-    Window, div, hsla, linear_color_stop, linear_gradient, relative,
+    App, Bounds, ElementId, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Pixels,
+    RenderOnce, Styled as _, Window, canvas, div, fill, hsla, linear_color_stop, linear_gradient,
+    point, size,
 };
 
 use crate::appearance::Appearance;
-use crate::cubic_bezier::CubicBezier;
-use crate::motion::Motion;
 use crate::opaque_debug::opaque_debug;
 use crate::radius;
+use crate::shimmer_clock::ShimmerClock;
+use crate::skeleton_stripe::stripes;
+use crate::stripe::Stripe;
 use crate::surface::Surface;
 use crate::theme::Theme;
-use crate::timing;
 
-const BAND: f32 = 0.4;
-const IDLE: f32 = 0.3;
 const LIGHT_HIGHLIGHT: f32 = 0.64;
 const DARK_HIGHLIGHT: f32 = 0.04;
 const GRADIENT_ANGLE: f32 = 90.0;
 
-/// A muted rounded block whose highlight sweeps across it every two seconds.
+/// A muted rounded block whose highlight sweeps across the window every two seconds.
+///
+/// Like the CSS `background-attachment: fixed` of the React original, the highlight belongs to the
+/// window, not to the block: every skeleton on screen shows the same stripe, tilted 120 degrees, and
+/// the cycle starts one second in.
 #[derive(IntoElement)]
 pub struct Skeleton {
     id: ElementId,
@@ -44,22 +46,47 @@ impl Skeleton {
     }
 }
 
-fn half(
-    from: Hsla,
-    to: Hsla,
-) -> impl IntoElement {
-    div().h_full().w(relative(BAND)).bg(linear_gradient(
+fn paint_half(
+    window: &mut Window,
+    span: &std::ops::Range<Pixels>,
+    (top, bottom): (Pixels, Pixels),
+    (from, to): (Hsla, Hsla),
+) {
+    let area = Bounds::new(
+        point(span.start, top),
+        size(span.end - span.start, bottom - top),
+    );
+    let gradient = linear_gradient(
         GRADIENT_ANGLE,
         linear_color_stop(from, 0.0),
         linear_color_stop(to, 1.0),
-    ))
+    );
+    window.paint_quad(fill(area, gradient));
 }
 
-fn band_left(delta: f32) -> f32 {
-    if delta < IDLE {
-        return 1.0;
+fn paint_stripe(
+    window: &mut Window,
+    stripe: &Stripe,
+    rows: (Pixels, Pixels),
+    glow: Hsla,
+) {
+    let clear = hsla(0.0, 0.0, 1.0, 0.0);
+    paint_half(window, &stripe.rises(), rows, (clear, glow));
+    paint_half(window, &stripe.falls(), rows, (glow, clear));
+}
+
+fn shimmer(
+    bounds: Bounds<Pixels>,
+    glow: Hsla,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let phase = ShimmerClock::of(cx).phase();
+    let row = bounds.center().y;
+    for stripe in stripes(phase, window.viewport_size(), row) {
+        paint_stripe(window, &stripe, (bounds.top(), bounds.bottom()), glow);
     }
-    -BAND + (delta - IDLE) / (1.0 - IDLE) * (1.0 + BAND)
+    window.request_animation_frame();
 }
 
 impl RenderOnce for Skeleton {
@@ -73,21 +100,13 @@ impl RenderOnce for Skeleton {
             Appearance::Light => LIGHT_HIGHLIGHT,
             Appearance::Dark => DARK_HIGHLIGHT,
         };
-        let (clear, glow) = (hsla(0.0, 0.0, 1.0, 0.0), hsla(0.0, 0.0, 1.0, alpha));
-        let band = div()
-            .id((self.id.clone(), "band"))
-            .absolute()
-            .top_0()
-            .h_full()
-            .w(relative(BAND))
-            .flex()
-            .child(half(clear, glow))
-            .child(half(glow, clear))
-            .with_animation(
-                self.id.clone(),
-                Motion::essential_loop(timing::SKELETON, CubicBezier::LINEAR),
-                |band, delta| band.left(relative(band_left(delta))),
-            );
+        let glow = hsla(0.0, 0.0, 1.0, alpha);
+        let band = canvas(
+            |_, _, _| (),
+            move |bounds, (), window, cx| shimmer(bounds, glow, window, cx),
+        )
+        .absolute()
+        .size_full();
         div()
             .id(self.id)
             .relative()
@@ -109,20 +128,6 @@ mod tests {
 
     use super::*;
     use crate::test_support::measure;
-
-    #[test]
-    fn the_highlight_rests_then_crosses_in_seventy_percent_of_the_cycle() {
-        const CASES: &[(f32, f32)] = &[
-            (0.0, 1.0),
-            (0.29, 1.0),
-            (0.3, -0.4),
-            (0.65, 0.3),
-            (1.0, 1.0),
-        ];
-        for &(delta, left) in CASES {
-            assert!((band_left(delta) - left).abs() < 1e-5, "{delta}");
-        }
-    }
 
     #[gpui::test]
     fn block_has_the_requested_size(cx: &mut TestAppContext) {

@@ -67,7 +67,8 @@ pub(crate) fn beside(content: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
-pub(crate) fn at(
+/// A popup placed with its top-left corner at `position`.
+pub fn at(
     position: Point<Pixels>,
     content: impl IntoElement,
 ) -> AnyElement {
@@ -81,7 +82,8 @@ pub(crate) fn at(
     .into_any_element()
 }
 
-pub(crate) fn click_away(
+/// A window-sized layer behind a popup; a press on it, with either button, runs `on_press`.
+pub fn click_away(
     window: &Window,
     on_press: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {

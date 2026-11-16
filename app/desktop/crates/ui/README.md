@@ -32,8 +32,9 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 | Icons | `Icon`, `IconName`, `IconWeight`, `assets()` (Phosphor: 56 icons, 92 weight files) | verified |
 | Motion | `CubicBezier`, `Keyframes`, `Motion` (reduced motion, animation factory) | verified |
 | Controls | `Button` (with `loading()`), `ButtonVariant`, `ButtonSize`, `Switch`, `Checkbox`, `TextInput`, `Select`, `Tabs`, `TabItem`, `TabsStyle` | verified |
+| Text area | `TextArea`, `TextAreaSize`, `TextAreaCondition` | unverified (no React golden at component level) |
 | Overlays | `OverlayHost`, `Overlays`, `OverlayGuard`, `Menu`, `MenuItem`, `MenuAction`, `DropdownMenu`, `ContextMenu` (right click, `MenuAction::submenu`, arrow/left/right keys), `Popover`, `Dialog`, `DialogSize`, `Tooltip`, `TooltipSide` | unverified |
-| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
+| Display | `Badge`, `Kbd`, `Toast`, `ToastKind`, `ToastQueue`, `ToastContent`, `ToastId`, `ToastLifetime`, `ToastPlacement`, `ToastSide`, `ToastPhase`, `ToastQueueEvent`, `Separator`, `Skeleton`, `Spinner`, `ProgressBar`, `EmptyState`, `ScrollArea`, `Sash`, `SashDrag`, `DragHandle`, `Axis` | verified |
 
 ## Conventions for consumers
 
@@ -50,13 +51,54 @@ Status: `verified` = implemented, unit tested and rendered in the gallery (crowb
 
 `cargo run -p ui --bin gallery -- --theme crowbar --mode dark --section buttons --size 1200x800` renders every
 component in every state. Sections: `buttons`, `inputs`, `toggles`, `feedback`, `structure`, `icons`,
-`overlays`, `dialog`. The Docker recipe lives in `app/desktop/tests/docker`.
+`overlays`, `dialog`, `textarea`, `toasts`. The Docker recipe lives in `app/desktop/tests/docker`.
 
 ## Settings modal additions
 
 `TextInputStyle` (`Standard`, `Compact` 28px, `Stepper` 24px centred) with `TextInput::style` and `leading_icon`;
 `hover_fill` (150ms background fade on hover); `DialogExtent` with `Dialog::flush` (fixed-size dialog with an
 unruled header and no body padding); `Select::compact` (28px trigger); `IconName::Minus`.
+
+## Text area
+
+`TextArea` is a multi-line `TextInput`: it shares `TextBuffer` (selection, graphemes, UTF-16 for IME), the clipboard
+commands and `TextInputEvent` with the single-line field. Build it with `TextArea::build(placeholder, cx)` (or
+`cx.new(|cx| TextArea::new(..).size(..).max_height(..))`), render the entity, subscribe to `TextInputEvent`.
+
+- `Enter` inserts a newline, `Ctrl+Enter` (`Cmd+Enter`) emits `Submitted`, `Escape` emits `Cancelled`, like the React
+  `onKeyDown` of the review composer and commit form.
+- Wraps to its width, grows with its text from three rows (`min-h-17.5`), stops at `max_height` and scrolls; the
+  caret is kept in view, the wheel scrolls.
+- Up/Down keep the column across rows, Home/End go to the visual row edge, `Ctrl+Home/End` to the document edges,
+  `Ctrl+Z`, `Ctrl+Shift+Z`/`Ctrl+Y` undo and redo (typed runs undo as one step, an IME composition as one step).
+- `TextAreaSize` (`Small` 66, `Default` 70, `Large` 74 minimum box), `invalid()` (destructive border, ring at
+  16%/24%), `disabled()` (64% opacity, no focus, no editing); `set_condition` switches them at runtime.
+- Not done: double/triple click selection, word-wise movement, Page Up/Down, drag-selecting past the field edge
+  (GPUI only delivers `mouse_move` to hovered elements).
+
+## Toasts
+
+`Toast` stays a stateless card. New: `on_close(handler)` (corner close button, 14px X, 50% opacity, 100% and a muted
+fill on hover), `full_width()`, `leaving()` (fade out), a 200ms fade in on first paint, and the success pulse.
+GPUI has no per-element scale, so the pulse widens and narrows the card box with a negative percentage margin
+(2.5% at the 30% keyframe, 0.99 at 60%); the text inside is not scaled.
+
+`ToastQueue` is the entity that owns the list, like the base-ui manager behind `SidebarToastOverlay`: newest first,
+`push(ToastContent, ToastLifetime, cx)`, `replace(id, content, cx)` (replays shake or pulse, restarts expiry),
+`dismiss(id, cx)` (200ms fade, then removed and `ToastQueueEvent::Removed`). `ToastLifetime::Auto` expires after five
+seconds, `Pinned` never (the `timeout: 0` toast); loading toasts never expire either. `ToastPlacement::Docked(side)`
+is the open-sidebar column (full width, newest at the bottom, three transient toasts, pinned ones always kept),
+`Floating(side)` the collapsed-sidebar column (288px, 16px from the bottom and the side, every toast). Call
+`set_placement` when the sidebar collapses. Swiping a card 40px toward the sidebar edge (or down) dismisses it; the
+gesture only tracks while the pointer is over the card.
+
+Mount the queue inside a relatively positioned container: it positions itself absolutely.
+
+## Skeleton
+
+The highlight now follows the CSS original: a 120 degree stripe fixed to the window (`background-attachment: fixed`,
+2x viewport tile), starting one second into the cycle, in phase for every skeleton through `ShimmerClock`
+(installed by `ui::init`; without it each frame starts from zero).
 
 ## Assets and licenses
 

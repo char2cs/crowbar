@@ -15,6 +15,8 @@ mod overlays;
 mod page;
 mod section;
 mod structure;
+mod textarea;
+mod toasts;
 mod toggles;
 mod typography;
 

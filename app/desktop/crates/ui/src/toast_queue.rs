@@ -1,0 +1,319 @@
+//! The list of live toasts: expiry, dismissal, pinning, swipe and placement.
+
+use std::time::Duration;
+
+use gpui::{Context, EventEmitter, Pixels, Point, Task};
+
+use crate::opaque_debug::opaque_debug;
+use crate::timing;
+use crate::toast_content::ToastContent;
+use crate::toast_entry::ToastEntry;
+use crate::toast_id::ToastId;
+use crate::toast_lifetime::ToastLifetime;
+use crate::toast_placement::ToastPlacement;
+use crate::toast_queue_event::ToastQueueEvent;
+use crate::toast_swipe::ToastSwipe;
+
+/// A queue entity that owns the toasts of one column; render it inside a relatively positioned container.
+///
+/// Newest toasts come first. Automatic toasts expire after five seconds, pinned ones stay until
+/// [`ToastQueue::dismiss`], the close button or a swipe removes them.
+pub struct ToastQueue {
+    pub(crate) entries: Vec<ToastEntry>,
+    pub(crate) placement: ToastPlacement,
+    pub(crate) swipe: Option<ToastSwipe>,
+    next: u64,
+}
+
+impl EventEmitter<ToastQueueEvent> for ToastQueue {}
+
+impl ToastQueue {
+    /// An empty queue shown at `placement`.
+    pub fn new(placement: ToastPlacement) -> Self {
+        Self {
+            entries: Vec::new(),
+            placement,
+            swipe: None,
+            next: 0,
+        }
+    }
+
+    /// Adds a toast on top of the others.
+    pub fn push(
+        &mut self,
+        content: ToastContent,
+        lifetime: ToastLifetime,
+        cx: &mut Context<'_, Self>,
+    ) -> ToastId {
+        let ToastContent { kind, message } = content;
+        let id = ToastId(self.next);
+        self.next += 1;
+        let timer = Self::expiry(id, lifetime.timeout(kind), cx);
+        self.entries.insert(
+            0,
+            ToastEntry {
+                id,
+                kind,
+                message,
+                lifetime,
+                updates: 0,
+                leaving: false,
+                timer,
+            },
+        );
+        cx.notify();
+        id
+    }
+
+    /// Rewrites a toast in place, replays its error shake or success pulse and restarts its expiry.
+    pub fn replace(
+        &mut self,
+        id: ToastId,
+        content: ToastContent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let ToastContent { kind, message } = content;
+        let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else {
+            return;
+        };
+        if entry.leaving {
+            return;
+        }
+        entry.kind = kind;
+        entry.message = message;
+        entry.updates += 1;
+        entry.timer = Self::expiry(id, entry.lifetime.timeout(kind), cx);
+        cx.notify();
+    }
+
+    /// Fades a toast out and removes it.
+    pub fn dismiss(
+        &mut self,
+        id: ToastId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else {
+            return;
+        };
+        if entry.leaving {
+            return;
+        }
+        entry.leaving = true;
+        entry.timer = Some(Self::after(timing::SLOW, id, cx, Self::remove));
+        cx.notify();
+    }
+
+    /// Moves the column, for example when the sidebar collapses.
+    pub fn set_placement(
+        &mut self,
+        placement: ToastPlacement,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.placement = placement;
+        cx.notify();
+    }
+
+    /// How many toasts the queue holds, leaving ones included.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether the queue holds no toast.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub(crate) fn begin_swipe(
+        &mut self,
+        toast: ToastId,
+        origin: Point<Pixels>,
+    ) {
+        self.swipe = Some(ToastSwipe { toast, origin });
+    }
+
+    pub(crate) fn drag_swipe(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(swipe) = self.swipe else {
+            return;
+        };
+        if !swipe.dismisses(position, self.placement.side()) {
+            return;
+        }
+        self.swipe = None;
+        self.dismiss(swipe.toast, cx);
+    }
+
+    fn expiry(
+        id: ToastId,
+        timeout: Option<Duration>,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<Task<()>> {
+        timeout.map(|delay| Self::after(delay, id, cx, Self::dismiss))
+    }
+
+    fn after(
+        delay: Duration,
+        id: ToastId,
+        cx: &mut Context<'_, Self>,
+        then: fn(&mut Self, ToastId, &mut Context<'_, Self>),
+    ) -> Task<()> {
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            this.update(cx, |queue, cx| then(queue, id, cx)).ok();
+        })
+    }
+
+    fn remove(
+        &mut self,
+        id: ToastId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.entries.retain(|entry| entry.id != id);
+        cx.emit(ToastQueueEvent::Removed(id));
+        cx.notify();
+    }
+}
+
+opaque_debug!(ToastQueue);
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use gpui::{AppContext as _, Entity, TestAppContext};
+
+    use super::*;
+    use crate::toast_kind::ToastKind;
+
+    fn queue(cx: &mut TestAppContext) -> Entity<ToastQueue> {
+        cx.new(|_| ToastQueue::new(ToastPlacement::default()))
+    }
+
+    fn push(
+        queue: &Entity<ToastQueue>,
+        lifetime: ToastLifetime,
+        cx: &mut TestAppContext,
+    ) -> ToastId {
+        queue.update(cx, |queue, cx| {
+            queue.push(ToastContent::new(ToastKind::Info, "Saved"), lifetime, cx)
+        })
+    }
+
+    fn record_removals(
+        queue: &Entity<ToastQueue>,
+        sink: &Rc<RefCell<Vec<ToastQueueEvent>>>,
+        cx: &mut TestAppContext,
+    ) {
+        let sink = Rc::clone(sink);
+        let record = move |_, event: &ToastQueueEvent, _: &mut gpui::App| {
+            sink.borrow_mut().push(*event);
+        };
+        cx.update(|cx| cx.subscribe(queue, record).detach());
+    }
+
+    fn advance(
+        cx: &mut TestAppContext,
+        by: Duration,
+    ) {
+        cx.executor().advance_clock(by);
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn an_automatic_toast_expires_after_five_seconds_and_a_pinned_one_stays(
+        cx: &mut TestAppContext
+    ) {
+        let queue = queue(cx);
+        push(&queue, ToastLifetime::Auto, cx);
+        push(&queue, ToastLifetime::Pinned, cx);
+        advance(
+            cx,
+            timing::TOAST_TIMEOUT.saturating_sub(Duration::from_millis(1)),
+        );
+        assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 2);
+        advance(cx, Duration::from_millis(1) + timing::SLOW);
+        let left = queue.read_with(cx, |queue, _| {
+            queue.entries.iter().map(|e| e.id).collect::<Vec<_>>()
+        });
+        assert_eq!(left, [ToastId(1)]);
+        advance(cx, Duration::from_secs(600));
+        assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 1);
+    }
+
+    #[gpui::test]
+    fn dismissing_fades_first_then_removes_and_reports_it(cx: &mut TestAppContext) {
+        let queue = queue(cx);
+        let removed = Rc::new(RefCell::new(Vec::new()));
+        record_removals(&queue, &removed, cx);
+        let id = push(&queue, ToastLifetime::Pinned, cx);
+        queue.update(cx, |queue, cx| queue.dismiss(id, cx));
+        let leaving = queue.read_with(cx, |queue, _| {
+            queue.entries.first().is_some_and(|e| e.leaving)
+        });
+        assert!(leaving);
+        assert!(removed.borrow().is_empty());
+        advance(cx, timing::SLOW);
+        assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 0);
+        assert_eq!(*removed.borrow(), [ToastQueueEvent::Removed(id)]);
+    }
+
+    #[gpui::test]
+    fn replacing_restarts_the_expiry_and_counts_the_update(cx: &mut TestAppContext) {
+        let queue = queue(cx);
+        let id = push(&queue, ToastLifetime::Auto, cx);
+        advance(cx, Duration::from_secs(4));
+        queue.update(cx, |queue, cx| {
+            queue.replace(id, ToastContent::new(ToastKind::Success, "Done"), cx);
+        });
+        advance(cx, Duration::from_secs(4));
+        let state = queue.read_with(cx, |queue, _| {
+            queue
+                .entries
+                .first()
+                .map(|e| (e.updates, e.kind, e.message.to_string()))
+        });
+        assert_eq!(state, Some((1, ToastKind::Success, "Done".to_owned())));
+        advance(cx, Duration::from_secs(2));
+        assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 0);
+    }
+
+    #[gpui::test]
+    fn the_newest_toast_comes_first_and_unknown_ids_are_ignored(cx: &mut TestAppContext) {
+        let queue = queue(cx);
+        let first = push(&queue, ToastLifetime::Pinned, cx);
+        let second = push(&queue, ToastLifetime::Pinned, cx);
+        queue.update(cx, |queue, cx| {
+            queue.dismiss(ToastId(99), cx);
+            queue.replace(ToastId(99), ToastContent::new(ToastKind::Error, "x"), cx);
+        });
+        let order = queue.read_with(cx, |queue, _| {
+            queue.entries.iter().map(|e| e.id).collect::<Vec<_>>()
+        });
+        assert_eq!(order, [second, first]);
+    }
+
+    #[gpui::test]
+    fn a_swipe_past_the_threshold_dismisses_the_toast(cx: &mut TestAppContext) {
+        let queue = queue(cx);
+        let id = push(&queue, ToastLifetime::Pinned, cx);
+        queue.update(cx, |queue, cx| {
+            queue.begin_swipe(id, gpui::point(gpui::px(200.0), gpui::px(10.0)));
+            queue.drag_swipe(gpui::point(gpui::px(180.0), gpui::px(10.0)), cx);
+        });
+        let leaving = queue.read_with(cx, |queue, _| {
+            queue.entries.first().is_some_and(|e| e.leaving)
+        });
+        assert!(!leaving, "20px is below the threshold");
+        queue.update(cx, |queue, cx| {
+            queue.drag_swipe(gpui::point(gpui::px(150.0), gpui::px(10.0)), cx);
+        });
+        let leaving = queue.read_with(cx, |queue, _| {
+            queue.entries.first().is_some_and(|e| e.leaving)
+        });
+        assert!(leaving);
+    }
+}

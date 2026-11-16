@@ -16,8 +16,8 @@ use crate::text_frame::TextFrame;
 use crate::text_surface::TextSurface;
 use crate::timing;
 
-const PLACEHOLDER_OPACITY: f32 = 0.72;
-const CARET_WIDTH: f32 = 1.0;
+pub(crate) const PLACEHOLDER_OPACITY: f32 = 0.72;
+pub(crate) const CARET_WIDTH: f32 = 1.0;
 
 pub(crate) struct TextInputElement<S: TextSurface> {
     input: Entity<S>,
@@ -148,7 +148,7 @@ fn plain_run(
     }
 }
 
-fn runs_for(
+pub(crate) fn runs_for(
     len: usize,
     marked: Option<Range<usize>>,
     base: &TextRun,
@@ -181,7 +181,7 @@ fn runs_for(
     .collect()
 }
 
-fn caret_color(
+pub(crate) fn caret_color(
     color: Hsla,
     since: Instant,
     motion: Motion,

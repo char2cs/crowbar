@@ -85,6 +85,9 @@ impl Menu {
     ) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle);
+        // The pressed ancestor takes focus after the click handler ran; claim it back.
+        let later = focus_handle.clone();
+        window.defer(cx, move |window, _| window.focus(&later));
         Self {
             items,
             highlighted: None,
