@@ -95,5 +95,6 @@ impl Render for Demo {
                     .child(div().h(px(STRIP)))
                     .child(div().flex_1().child(self.view.clone())),
             )
+            .children(self.view.read(cx).drop_preview(cx))
     }
 }

@@ -15,6 +15,23 @@ pub(crate) fn stack_target(tab: &Tab) -> Option<PaneId> {
         .or_else(|| tab.pane_ids().into_iter().find(stackable))
 }
 
+pub(crate) fn listed(tab: &Tab) -> Vec<PaneId> {
+    let chats: Vec<PaneId> = tab
+        .pane_ids()
+        .into_iter()
+        .filter(|pane| tab.pane(pane).is_some_and(|found| !stacks(&found.type_id)))
+        .collect();
+    if !chats.is_empty() {
+        return chats;
+    }
+    tab.pane_ids()
+        .first()
+        .and_then(|first| tab.group_of(first))
+        .map(|group| group.active().clone())
+        .into_iter()
+        .collect()
+}
+
 pub(crate) fn place(
     tab: &Tab,
     instance: PaneInstance,
@@ -145,6 +162,40 @@ mod tests {
                 .map(|strip| strip.iter().map(|name| (*name).to_owned()).collect())
                 .collect();
             assert_eq!(strips(&layout), expected, "{}", case.name);
+        }
+    }
+
+    struct Listing {
+        name: &'static str,
+        opened: &'static [(&'static str, &'static str)],
+        listed: &'static [&'static str],
+    }
+
+    const LISTINGS: &[Listing] = &[
+        Listing {
+            name: "chats are the view tabs, strips are not",
+            opened: &[
+                ("a", "core.chat"),
+                ("b", "core.chat"),
+                ("t1", "core.terminal"),
+                ("t2", "core.terminal"),
+            ],
+            listed: &["a", "b"],
+        },
+        Listing {
+            name: "a tab of one strip lists the shown pane of it",
+            opened: &[("t1", "core.terminal"), ("t2", "core.editor")],
+            listed: &["t2"],
+        },
+    ];
+
+    #[test]
+    fn the_top_bar_lists_chats_and_only_falls_back_to_a_strip_when_there_is_none() {
+        for case in LISTINGS {
+            let layout = layout_of(case.opened);
+            let tab = layout.active_tab().unwrap();
+            let names: Vec<String> = listed(tab).iter().map(ToString::to_string).collect();
+            assert_eq!(names, case.listed, "{}", case.name);
         }
     }
 

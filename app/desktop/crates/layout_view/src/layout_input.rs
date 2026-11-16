@@ -39,7 +39,7 @@ impl LayoutView {
         self.hover(&subject, event.event.position, cx);
     }
 
-    fn hover(
+    pub(crate) fn hover(
         &mut self,
         subject: &DragSubject,
         position: Point<Pixels>,

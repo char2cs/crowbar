@@ -153,12 +153,33 @@ mod tests {
     use crate::layout_event::LayoutEvent;
     use crate::layout_view::LayoutView;
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
-    use model::{Command, Edge};
+    use model::{Command, DragSubject, Edge};
 
     use crate::test_support::{layout_of, open, open_under_row_source, pane_id};
 
     fn side_by_side() -> model::Layout {
         layout_of("a", &[("b", "a", Edge::Right)])
+    }
+
+    #[gpui::test]
+    fn a_drag_over_a_pane_offers_a_preview_in_window_coordinates_until_it_ends(
+        cx: &mut TestAppContext
+    ) {
+        let harness = open(cx, &side_by_side());
+        let (view, cx) = (harness.view, harness.cx);
+        let over = DragSubject::Chat("t1".into());
+        let at = point(px(10.0), px(100.0));
+        view.update(cx, |view, cx| view.hover(&over, at, cx));
+        let shown = view.read_with(cx, |view, cx| view.drop_preview(cx).is_some());
+        view.update(cx, |view, cx| {
+            view.hover(&over, point(px(-5.0), px(-5.0)), cx);
+        });
+        let gone = view.read_with(cx, |view, cx| view.drop_preview(cx).is_none());
+        assert_eq!(
+            (shown, gone),
+            (true, true),
+            "preview while over a pane, none outside"
+        );
     }
 
     #[gpui::test]

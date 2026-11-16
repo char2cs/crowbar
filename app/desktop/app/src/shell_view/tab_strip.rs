@@ -22,7 +22,13 @@ impl ShellView {
             .tabs()
             .iter()
             .filter(|tab| scope.lists(project.as_deref(), &self.tab_projects(tab)))
-            .map(|tab| TabView::from_tab(tab, |pane| member((&titles, layout), pane)))
+            .map(|tab| TabView {
+                id: tab.id(),
+                members: crate::stack_policy::listed(tab)
+                    .iter()
+                    .map(|pane| member((&titles, layout), pane))
+                    .collect(),
+            })
             .collect();
         let active = layout.active_tab().map(Tab::id);
         self.tabs
@@ -44,10 +50,79 @@ impl ShellView {
         &self,
         tab: &Tab,
     ) -> Vec<String> {
-        tab.pane_ids()
-            .iter()
-            .filter_map(|pane| tab.pane(pane)?.params.get("threadId"))
-            .filter_map(|chat| self.data.chat_project(chat))
-            .collect()
+        projects_of(tab, |chat| self.data.chat_project(chat))
+    }
+}
+
+fn projects_of(
+    tab: &Tab,
+    project_of: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    tab.pane_ids()
+        .iter()
+        .filter_map(|pane| tab.pane(pane)?.params.get("threadId"))
+        .filter_map(project_of)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pane(
+        id: &str,
+        params: protocol::Params,
+    ) -> model::PaneInstance {
+        model::PaneInstance {
+            pane_id: protocol::PaneId::new(id).unwrap(),
+            type_id: protocol::PaneTypeId::new(crate::core_panes::CHAT).unwrap(),
+            params,
+            state: protocol::PaneState::default(),
+        }
+    }
+
+    fn open(
+        layout: &mut model::Layout,
+        tab: model::TabId,
+        instance: model::PaneInstance,
+    ) {
+        layout
+            .apply(model::Command::OpenPane {
+                tab,
+                instance,
+                placement: None,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn a_tab_belongs_to_the_projects_of_the_chats_its_panes_hold() {
+        let tab = model::TabId(1);
+        let mut layout = model::Layout::default();
+        layout
+            .apply(model::Command::AddTab {
+                id: tab,
+                title: "t".into(),
+            })
+            .unwrap();
+        let held = [
+            pane(
+                "c1",
+                protocol::Params::default().with("threadId", "a").unwrap(),
+            ),
+            pane(
+                "c2",
+                protocol::Params::default()
+                    .with("threadId", "unknown")
+                    .unwrap(),
+            ),
+            pane("c3", protocol::Params::default()),
+        ];
+        for instance in held {
+            open(&mut layout, tab, instance);
+        }
+        let found = layout.tabs().iter().find(|held| held.id() == tab).unwrap();
+        let projects = projects_of(found, |chat| (chat == "a").then(|| "p1".to_owned()));
+        assert_eq!(projects, ["p1"]);
     }
 }

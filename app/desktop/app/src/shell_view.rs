@@ -465,6 +465,7 @@ impl Render for ShellView {
             .bg(palette.background())
             .child(self.sidebar.clone())
             .children(self.state.frozen_elements())
+            .children(self.layout.read(cx).drop_preview(cx))
             .children(layer(self.settings.as_ref()))
             .children(layer(self.palette.as_ref()))
             .children(layer(self.branch_import.as_ref()))
@@ -474,5 +475,31 @@ impl Render for ShellView {
             .children(layer(self.startup.as_ref()))
             .children(self.readout.view.clone())
             .child(self.notices.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{AppContext as _, TestAppContext};
+
+    use super::*;
+
+    struct Probe;
+
+    impl Render for Probe {
+        fn render(
+            &mut self,
+            _: &mut Window,
+            _: &mut Context<'_, Self>,
+        ) -> impl IntoElement {
+            div()
+        }
+    }
+
+    #[gpui::test]
+    fn an_open_overlay_gets_a_full_window_layer_and_a_closed_one_none(cx: &mut TestAppContext) {
+        let open = cx.new(|_| Probe);
+        assert!(layer(Some(&open)).is_some(), "open");
+        assert!(layer::<Probe>(None).is_none(), "closed");
     }
 }

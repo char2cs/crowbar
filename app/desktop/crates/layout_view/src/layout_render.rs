@@ -52,7 +52,6 @@ impl Render for LayoutView {
             .children(self.logo())
             .children(self.pane_cells(window, cx))
             .children(self.sashes(cx))
-            .children(self.preview(now, motion, cx))
             .on_drag_move::<DragSubject>(cx.listener(Self::drag_over))
             .on_drag_move::<DraggedRow>(cx.listener(Self::row_over))
             .on_drag_move::<SashDrag>(cx.listener(Self::sash_moved))
@@ -199,15 +198,24 @@ impl LayoutView {
             .into_any_element()
     }
 
-    fn preview(
+    /// The highlight of where a drag in progress would land, in window coordinates. The shell
+    /// draws it above the frozen pane snapshots, which would cover it inside this view.
+    #[must_use]
+    pub fn drop_preview(
         &self,
-        now: Instant,
-        motion: Motion,
         cx: &App,
     ) -> Option<AnyElement> {
-        let rect = self.drop.preview(now, motion)?;
+        let rect = self.drop.preview(self.clock.now(), Motion::of(cx))?;
         let palette = Theme::of(cx).palette(Surface::Window);
-        Some(preview_box(rect, palette.secondary()).into_any_element())
+        let highlight = preview_box(rect, palette.secondary());
+        let area = div()
+            .absolute()
+            .left(self.bounds.origin.x)
+            .top(self.bounds.origin.y)
+            .w(self.bounds.size.width)
+            .h(self.bounds.size.height)
+            .child(highlight);
+        Some(area.into_any_element())
     }
 
     fn enter_action(
