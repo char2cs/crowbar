@@ -27,16 +27,20 @@ interface EventSubscription {
   listeners: Set<Listener<unknown>>
 }
 
+function settleWith(
+  timer: ReturnType<typeof setTimeout>,
+  settle: (value: unknown) => void,
+): (value: unknown) => void {
+  return (value) => {
+    clearTimeout(timer)
+    settle(value)
+  }
+}
+
 function settling(timer: ReturnType<typeof setTimeout>, pending: Pending): Pending {
   return {
-    resolve: (value) => {
-      clearTimeout(timer)
-      pending.resolve(value)
-    },
-    reject: (error) => {
-      clearTimeout(timer)
-      pending.reject(error)
-    },
+    resolve: settleWith(timer, pending.resolve),
+    reject: settleWith(timer, pending.reject),
   }
 }
 
