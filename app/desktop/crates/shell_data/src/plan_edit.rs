@@ -8,6 +8,7 @@ use crate::host_slot::HostSlot;
 use crate::new_id;
 use crate::pending_rows;
 use crate::plan::Plan;
+use crate::plan_error::PlanError;
 use crate::routes;
 use crate::sidebar_reads::host_of;
 use crate::state::State;
@@ -17,18 +18,18 @@ use crate::target_kind::TargetKind;
 fn locate(
     state: &State,
     row: &str,
-) -> Result<(Target, String), String> {
-    let target = resolve(state, row).ok_or("this row is not loaded any more")?;
+) -> Result<(Target, String), PlanError> {
+    let target = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
     let host = host_of(state, &target.project)
         .map(|slot| slot.spec.id.clone())
-        .ok_or("this space is not loaded yet")?;
+        .ok_or(PlanError::SpaceNotLoaded)?;
     Ok((target, host))
 }
 
 pub(crate) fn rename(
     state: &State,
     (row, name): (&str, &str),
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let (target, host) = locate(state, row)?;
     let (project, repo) = (&target.project, &target.repo);
     let call = match &target.kind {
@@ -56,7 +57,7 @@ pub(crate) fn rename(
 pub(crate) fn remove(
     state: &State,
     row: &str,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let (target, host) = locate(state, row)?;
     let (project, repo) = (&target.project, &target.repo);
     let call = match &target.kind {
@@ -77,8 +78,8 @@ pub(crate) fn remove(
 pub(crate) fn remove_project(
     state: &State,
     project: &ProjectId,
-) -> Result<Plan, String> {
-    let slot = host_of(state, project.as_str()).ok_or("this space is not loaded yet")?;
+) -> Result<Plan, PlanError> {
+    let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
     let call = Call::delete(routes::project(project.as_str())).idempotent(&new_id::uuid());
     Ok(Plan::of(&slot.spec.id, vec![call]))
 }
@@ -87,7 +88,7 @@ pub(crate) fn verb(
     state: &State,
     row: &str,
     (verb, body): (&str, Option<serde_json::Value>),
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let (target, host) = locate(state, row)?;
     let path = format!(
         "{}/{}/{verb}",
@@ -107,7 +108,7 @@ pub(crate) fn verb(
 pub(crate) fn dismiss(
     state: &State,
     row: &str,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     if state.local_rows.iter().any(|held| held.id == row) {
         let mut plan = Plan::of("", Vec::new());
         plan.dropping = Some(row.to_owned());
@@ -117,7 +118,7 @@ pub(crate) fn dismiss(
         .hosts
         .iter()
         .find_map(|slot| dismissal(slot, row))
-        .ok_or_else(|| "there is nothing to dismiss".to_owned())
+        .ok_or(PlanError::NothingToDismiss)
 }
 
 fn dismissal(

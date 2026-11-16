@@ -13,6 +13,7 @@ use crate::file_entry::FileEntry;
 use crate::file_target::{self, FileTarget};
 use crate::hub::Hub;
 use crate::panel_loader::{load_directory, tree_path};
+use crate::plan_error::PlanError;
 
 const NOT_FOUND: u16 = 404;
 const BASE64: &str = "base64";
@@ -42,11 +43,11 @@ pub(crate) struct FileSession {
 }
 
 impl FileSession {
-    pub(crate) fn of(hub: &Hub) -> std::result::Result<Self, String> {
+    pub(crate) fn of(hub: &Hub) -> std::result::Result<Self, PlanError> {
         let target = hub.read(file_target::of)?;
         let client = hub
             .read(|state| state.client_of_chat(&target.chat))
-            .ok_or("this workspace is not loaded yet")?;
+            .ok_or(PlanError::WorkspaceNotLoaded)?;
         Ok(Self { client, target })
     }
 

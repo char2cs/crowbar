@@ -7,6 +7,7 @@ use crate::call::Call;
 use crate::chat_record::ChatRecord;
 use crate::host_slot::HostSlot;
 use crate::plan::Plan;
+use crate::plan_error::PlanError;
 use crate::state::State;
 
 const UNTITLED: &str = "Untitled chat";
@@ -14,13 +15,13 @@ const UNTITLED: &str = "Untitled chat";
 pub(crate) fn kill(
     state: &State,
     row: &RowId,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let chat = row.as_str();
     let slot = state
         .hosts
         .iter()
         .find(|slot| slot.store.chats.get(chat).is_some())
-        .ok_or("this chat is not loaded any more")?;
+        .ok_or(PlanError::ChatNotLoaded)?;
     let call = Call::post(format!("/v0/chats/{chat}/kill"));
     Ok(Plan::of(&slot.spec.id, vec![call]).then(After::ReloadChanges))
 }
@@ -28,12 +29,12 @@ pub(crate) fn kill(
 pub(crate) fn resume(
     state: &State,
     chat: &str,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let slot = state
         .hosts
         .iter()
         .find(|slot| slot.store.chats.get(chat).is_some())
-        .ok_or("this chat is not loaded any more")?;
+        .ok_or(PlanError::ChatNotLoaded)?;
     let call = Call::post(format!("/v0/chats/{chat}/resume"));
     Ok(Plan::of(&slot.spec.id, vec![call]))
 }

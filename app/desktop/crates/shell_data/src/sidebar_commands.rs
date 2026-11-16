@@ -13,6 +13,7 @@ use crate::panel_loader;
 use crate::plan::Plan;
 use crate::plan_agent;
 use crate::plan_create;
+use crate::plan_error::PlanError;
 use crate::planner;
 use crate::runner;
 use crate::sidebar_reads::{active_project, host_of};
@@ -35,12 +36,6 @@ impl std::fmt::Debug for SidebarCommands {
         formatter
             .debug_struct("SidebarCommands")
             .finish_non_exhaustive()
-    }
-}
-
-fn refused(reason: impl Into<String>) -> Error {
-    Error::Refused {
-        reason: reason.into(),
     }
 }
 
@@ -122,9 +117,9 @@ impl SidebarCommands {
 
     fn run(
         &self,
-        plan: Result<Plan, String>,
+        plan: Result<Plan, PlanError>,
     ) -> Result<(), Error> {
-        let plan = plan.map_err(refused)?;
+        let plan = plan.map_err(Error::from)?;
         let (hub, outcome) = (Arc::clone(&self.hub), Arc::clone(&self.outcome));
         self.handle
             .spawn(async move { runner::run(&hub, plan, &outcome).await });
@@ -227,6 +222,15 @@ mod tests {
         assert_eq!(listed, 1);
     }
 
+    fn assert_all_refused(
+        commands: &SidebarCommands,
+        cases: [Command; 6],
+    ) {
+        for command in cases {
+            assert!(commands.dispatch(command).is_err());
+        }
+    }
+
     #[tokio::test]
     async fn the_shells_own_commands_are_refused() {
         let (commands, _) = commands();
@@ -238,10 +242,6 @@ mod tests {
             Command::ImportBranches(sidebar::RowId::from("r")),
             Command::OpenFile("a".into()),
         ];
-        assert!(
-            !cases
-                .into_iter()
-                .any(|command| commands.dispatch(command).is_ok())
-        );
+        assert_all_refused(&commands, cases);
     }
 }

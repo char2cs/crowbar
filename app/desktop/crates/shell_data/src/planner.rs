@@ -9,6 +9,7 @@ use crate::plan::Plan;
 use crate::plan_agent;
 use crate::plan_create;
 use crate::plan_edit;
+use crate::plan_error::PlanError;
 use crate::plan_icon;
 use crate::plan_merge;
 use crate::plan_move;
@@ -19,7 +20,7 @@ use crate::surface::Surface;
 pub(crate) fn plan(
     state: &State,
     command: &Command,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let id = new_id::uuid();
     match command {
         Command::NewThread(_)
@@ -41,7 +42,7 @@ fn creation(
     state: &State,
     command: &Command,
     id: &str,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     match command {
         Command::NewThread(project) => {
             plan_create::home_thread(state, project, id, Surface::Default)
@@ -76,7 +77,7 @@ fn creation(
             plan.calls.extend(plan_icon::calls(id, icon)?);
             Ok(plan)
         },
-        other => Err(format!("{other:?} is not a data command")),
+        other => Err(PlanError::NotADataCommand(format!("{other:?}"))),
     }
 }
 
@@ -84,9 +85,9 @@ fn space_icon(
     state: &State,
     project: &sidebar::ProjectId,
     icon: &sidebar::SpaceIcon,
-) -> Result<Plan, String> {
-    let slot = crate::sidebar_reads::host_of(state, project.as_str())
-        .ok_or("this space is not loaded yet")?;
+) -> Result<Plan, PlanError> {
+    let slot =
+        crate::sidebar_reads::host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
     Ok(Plan::of(
         &slot.spec.id,
         plan_icon::calls(project.as_str(), icon)?,
@@ -96,7 +97,7 @@ fn space_icon(
 fn edit(
     state: &State,
     command: &Command,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     match command {
         Command::DeleteProject(project) => plan_edit::remove_project(state, project),
         Command::Rename { row, name } => plan_edit::rename(state, (row.as_str(), name)),
@@ -127,7 +128,7 @@ fn edit(
         Command::Drop { row, target, mode } => {
             plan_move::drop_row(state, (row.as_str(), target.as_str()), *mode)
         },
-        other => Err(format!("{other:?} is not a data command")),
+        other => Err(PlanError::NotADataCommand(format!("{other:?}"))),
     }
 }
 
@@ -139,7 +140,7 @@ mod tests {
     use crate::after::After;
     use crate::test_support::state;
 
-    fn plan_of(command: &Command) -> Result<Plan, String> {
+    fn plan_of(command: &Command) -> Result<Plan, PlanError> {
         let (state, _) = state();
         plan(&state, command)
     }

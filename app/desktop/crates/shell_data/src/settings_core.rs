@@ -24,7 +24,6 @@ use crate::loadable::Loadable;
 use crate::outcome::{Outcome, OutcomeSink};
 use crate::provider::Provider;
 use crate::providers;
-use crate::runner;
 use crate::setting_file::SettingFile;
 use crate::state::State;
 use crate::switch::Switch;
@@ -170,7 +169,7 @@ impl SettingsCore {
         text: Vec<u8>,
     ) {
         if let Err(error) = descriptors::upload(&self.local, text).await {
-            (self.outcome)(Outcome::Failed(runner::reason_of(&error)));
+            (self.outcome)(Outcome::Failed(error.reason()));
         }
         self.read_agents().await;
         self.read_descriptors().await;

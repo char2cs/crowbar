@@ -55,12 +55,14 @@ impl LegacyStore for LegacySqlite {
                 Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
             })
             .map_err(|e| self.failed(e))?;
-        let mut entries = BTreeMap::new();
-        for row in rows {
-            let (key, value) = row.map_err(|e| self.failed(e))?;
-            entries.extend(decode(&value).map(|text| (key, text)));
-        }
-        Ok(entries)
+        rows.map(|row| row.map_err(|e| self.failed(e))).try_fold(
+            BTreeMap::new(),
+            |mut entries, row| {
+                let (key, value) = row?;
+                entries.extend(decode(&value).map(|text| (key, text)));
+                Ok(entries)
+            },
+        )
     }
 }
 
@@ -74,8 +76,10 @@ mod tests {
 
     #[test]
     fn values_decode_from_utf16_and_latin1() {
-        assert_eq!(decode(&utf16("\"dark\"")).as_deref(), Some("\"dark\""));
-        assert_eq!(decode(&[1, b'4']).as_deref(), Some("4"));
+        let cases = [(utf16("\"dark\""), "\"dark\""), (vec![1, b'4'], "4")];
+        for (bytes, text) in cases {
+            assert_eq!(decode(&bytes).as_deref(), Some(text));
+        }
     }
 
     #[test]

@@ -36,12 +36,21 @@ pub(crate) fn unwrap(
             path: path.to_owned(),
             source,
         }),
-        Err(_) => Err(Error::Refused {
-            path: path.to_owned(),
-            status,
-            code: None,
-            message: format!("the daemon answered {status}"),
-        }),
+        Err(unparsed) => Err(unparsed_refusal(path, status, &unparsed)),
+    }
+}
+
+fn unparsed_refusal(
+    path: &str,
+    status: u16,
+    unparsed: &serde_json::Error,
+) -> Error {
+    tracing::debug!("{path}: the error body is not an envelope: {unparsed}");
+    Error::Refused {
+        path: path.to_owned(),
+        status,
+        code: None,
+        message: format!("the daemon answered {status}"),
     }
 }
 

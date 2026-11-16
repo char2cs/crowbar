@@ -1,5 +1,6 @@
 //! The chat a panel follows and the host that holds it.
 
+use crate::plan_error::PlanError;
 use crate::state::State;
 
 pub(crate) struct OpenChat<'a> {
@@ -8,14 +9,18 @@ pub(crate) struct OpenChat<'a> {
 }
 
 impl<'a> OpenChat<'a> {
-    pub(crate) fn of(state: &'a State) -> Result<Self, String> {
-        let chat = state.panels.chat.as_deref().ok_or("no workspace is open")?;
+    pub(crate) fn of(state: &'a State) -> Result<Self, PlanError> {
+        let chat = state
+            .panels
+            .chat
+            .as_deref()
+            .ok_or(PlanError::NoWorkspaceOpen)?;
         let host = state
             .hosts
             .iter()
             .find(|slot| slot.store.chats.get(chat).is_some())
             .map(|slot| slot.spec.id.as_str())
-            .ok_or("this workspace is not loaded yet")?;
+            .ok_or(PlanError::WorkspaceNotLoaded)?;
         Ok(Self { chat, host })
     }
 }

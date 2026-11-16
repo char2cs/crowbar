@@ -6,6 +6,7 @@ use sidebar::DropMode;
 use crate::call::Call;
 use crate::placement::slot_for;
 use crate::plan::Plan;
+use crate::plan_error::PlanError;
 use crate::routes;
 use crate::sidebar_reads::{active_project, host_of, tree};
 use crate::slot::Slot;
@@ -17,10 +18,10 @@ pub(crate) fn drop_row(
     state: &State,
     (row, target): (&str, &str),
     mode: DropMode,
-) -> Result<Plan, String> {
-    let project = active_project(state).ok_or("no space is open")?;
+) -> Result<Plan, PlanError> {
+    let project = active_project(state).ok_or(PlanError::NoSpaceOpen)?;
     let rows = tree(state, &project).rows;
-    let slot = slot_for(&rows, (row, target), mode).ok_or("this row cannot go there")?;
+    let slot = slot_for(&rows, (row, target), mode).ok_or(PlanError::CannotGoThere)?;
     place(state, row, &slot)
 }
 
@@ -28,11 +29,11 @@ fn place(
     state: &State,
     row: &str,
     slot: &Slot,
-) -> Result<Plan, String> {
-    let moved = resolve(state, row).ok_or("this row is not loaded any more")?;
+) -> Result<Plan, PlanError> {
+    let moved = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
     let host = host_of(state, &moved.project)
         .map(|held| held.spec.id.clone())
-        .ok_or("this space is not loaded yet")?;
+        .ok_or(PlanError::SpaceNotLoaded)?;
     let (project, repo) = (&moved.project, &moved.repo);
     let body = json!({"parentId": slot.parent, "order": slot.index});
     let path = match &moved.kind {
@@ -55,7 +56,7 @@ fn place(
             )
         },
         TargetKind::RepoHeader { .. } => {
-            return Err("repositories are ordered inside their space, not by dragging".to_owned());
+            return Err(PlanError::RepositoryNotDraggable);
         },
     };
     Ok(Plan::of(&host, vec![Call::patch(path).json(body)]))

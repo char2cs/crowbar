@@ -10,12 +10,13 @@ use crate::merge_reads::strategy_wire;
 use crate::new_id;
 use crate::open_chat::OpenChat;
 use crate::plan::Plan;
+use crate::plan_error::PlanError;
 use crate::state::State;
 
 pub(crate) fn set_strategy(
     state: &State,
     strategy: MergeStrategy,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let held = OpenChat::of(state)?;
     let call = Call::patch(format!("/v0/chats/{}/review", held.chat))
         .json(json!({"mergeStrategy": strategy_wire(strategy)}));
@@ -26,8 +27,8 @@ fn merge_call(
     state: &State,
     chat: &str,
     after: AfterMerge,
-) -> Result<Call, String> {
-    let workspace = followed_workspace(state).ok_or("this workspace is not loaded yet")?;
+) -> Result<Call, PlanError> {
+    let workspace = followed_workspace(state).ok_or(PlanError::WorkspaceNotLoaded)?;
     let strategy = match workspace.merge_strategy.as_str() {
         "squash" | "rebase" => workspace.merge_strategy.as_str(),
         _ => "merge",
@@ -41,15 +42,15 @@ fn merge_call(
 pub(crate) fn merge(
     state: &State,
     after: AfterMerge,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let held = OpenChat::of(state)?;
     let call = merge_call(state, held.chat, after)?;
     Ok(Plan::of(held.host, vec![call]).then(After::ReloadChanges))
 }
 
-pub(crate) fn stop_and_merge(state: &State) -> Result<Plan, String> {
+pub(crate) fn stop_and_merge(state: &State) -> Result<Plan, PlanError> {
     let held = OpenChat::of(state)?;
-    let workspace = followed_workspace(state).ok_or("this workspace is not loaded yet")?;
+    let workspace = followed_workspace(state).ok_or(PlanError::WorkspaceNotLoaded)?;
     let mut calls: Vec<Call> = state
         .hosts
         .iter()
@@ -64,7 +65,7 @@ pub(crate) fn stop_and_merge(state: &State) -> Result<Plan, String> {
 pub(crate) fn commit(
     state: &State,
     (message, paths): (&str, &[String]),
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let held = OpenChat::of(state)?;
     let base = format!("/v0/chats/{}/git", held.chat);
     let (subject, body) = message

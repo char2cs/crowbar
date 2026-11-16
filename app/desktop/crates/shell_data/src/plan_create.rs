@@ -7,6 +7,7 @@ use crate::after::After;
 use crate::call::Call;
 use crate::pending_row::PendingRow;
 use crate::plan::Plan;
+use crate::plan_error::PlanError;
 use crate::routes;
 use crate::scope_items::default_workspace;
 use crate::sidebar_reads::host_of;
@@ -18,16 +19,17 @@ use crate::target_kind::TargetKind;
 const NEW_THREAD: &str = "New thread";
 const NEW_WORKSPACE: &str = "New workspace";
 const NEW_FOLDER: &str = "New folder";
+const PARENT_ID: &str = "parentId";
+const NAME: &str = "name";
 
 pub(crate) fn home_thread(
     state: &State,
     project: &ProjectId,
     id: &str,
     surface: Surface,
-) -> Result<Plan, String> {
-    let slot = host_of(state, project.as_str()).ok_or("this space is not loaded yet")?;
-    let home = default_workspace(&slot.store, (project.as_str(), ""))
-        .ok_or("this space has no home to run a thread in yet")?;
+) -> Result<Plan, PlanError> {
+    let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
+    let home = default_workspace(&slot.store, (project.as_str(), "")).ok_or(PlanError::NoHome)?;
     let body = chat_body(id, (&home.id, ""), surface);
     let path = routes::chats(project.as_str(), "");
     let row = pending(id, NEW_THREAD, ("", ""));
@@ -42,8 +44,8 @@ pub(crate) fn thread(
     row: &str,
     id: &str,
     surface: Surface,
-) -> Result<Plan, String> {
-    let target = resolve(state, row).ok_or("this row is not loaded any more")?;
+) -> Result<Plan, PlanError> {
+    let target = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
     let workspace = workspace_for(state, &target)?;
     let parent = parent_chat(&target)?;
     let body = chat_body(id, (&workspace, &parent), surface);
@@ -56,7 +58,7 @@ pub(crate) fn thread(
         .with_provider())
 }
 
-fn parent_chat(target: &Target) -> Result<String, String> {
+fn parent_chat(target: &Target) -> Result<String, PlanError> {
     if matches!(target.kind, TargetKind::Branch { .. }) {
         return target.chat().map(str::to_owned);
     }
@@ -67,13 +69,13 @@ pub(crate) fn fork(
     state: &State,
     (parent, name): (&str, &str),
     id: &str,
-) -> Result<Plan, String> {
-    let target = resolve(state, parent).ok_or("this row is not loaded any more")?;
+) -> Result<Plan, PlanError> {
+    let target = resolve(state, parent).ok_or(PlanError::RowNotLoaded)?;
     if target.repo.is_empty() {
-        return Err("a project home has no worktree to fork".into());
+        return Err(PlanError::HomeHasNoWorktree);
     }
     let owner = target.chat()?.to_owned();
-    let body = json!({"id": id, "provider": null, "parentId": owner, "ownWorktree": true});
+    let body = json!({"id": id, "provider": null, PARENT_ID: owner, "ownWorktree": true});
     let body = Some(name).filter(|given| !given.is_empty()).map_or_else(
         || body.clone(),
         |given| with_field(body.clone(), "branch", json!(given)),
@@ -94,11 +96,11 @@ pub(crate) fn folder(
     state: &State,
     row: Option<&str>,
     project: Option<&ProjectId>,
-) -> Result<Plan, String> {
+) -> Result<Plan, PlanError> {
     let (project_id, repo, parent, host) =
         row.map_or_else(|| at_top(state, project), |row| beside(state, row))?;
     let call = Call::post(routes::folders(&project_id, &repo))
-        .json(json!({"name": NEW_FOLDER, "parentId": parent}));
+        .json(json!({NAME: NEW_FOLDER, PARENT_ID: parent}));
     Ok(Plan::of(&host, vec![call]))
 }
 
@@ -107,8 +109,8 @@ type FolderPlace = (String, String, String, String);
 fn beside(
     state: &State,
     row: &str,
-) -> Result<FolderPlace, String> {
-    let target = resolve(state, row).ok_or("this row is not loaded any more")?;
+) -> Result<FolderPlace, PlanError> {
+    let target = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
     let parent = folder_parent(&target)?;
     let host = host_id(state, &target)?;
     Ok((target.project, target.repo, parent, host))
@@ -117,9 +119,9 @@ fn beside(
 fn at_top(
     state: &State,
     project: Option<&ProjectId>,
-) -> Result<FolderPlace, String> {
-    let project = project.ok_or("no space is open")?;
-    let slot = host_of(state, project.as_str()).ok_or("this space is not loaded yet")?;
+) -> Result<FolderPlace, PlanError> {
+    let project = project.ok_or(PlanError::NoSpaceOpen)?;
+    let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
     Ok((
         project.as_str().to_owned(),
         String::new(),
@@ -131,8 +133,8 @@ fn at_top(
 pub(crate) fn make_branch(
     state: &State,
     (row, name): (&str, &str),
-) -> Result<Plan, String> {
-    let target = resolve(state, row).ok_or("this row is not loaded any more")?;
+) -> Result<Plan, PlanError> {
+    let target = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
     let path = format!(
         "{}/{}/branch-out",
         routes::chats(&target.project, &target.repo),
@@ -150,7 +152,7 @@ pub(crate) fn space(
     id: &str,
 ) -> Plan {
     let call = Call::post("/v0/projects")
-        .json(json!({"name": name, "path": folder}))
+        .json(json!({NAME: name, "path": folder}))
         .idempotent(id);
     Plan::of(host.as_str(), vec![call]).then(After::SelectProject(id.to_owned()))
 }
@@ -159,20 +161,20 @@ pub(crate) fn repo(
     state: &State,
     project: Option<&ProjectId>,
     (path, id): (&str, &str),
-) -> Result<Plan, String> {
-    let project = project.ok_or("no space is open")?;
-    let slot = host_of(state, project.as_str()).ok_or("this space is not loaded yet")?;
+) -> Result<Plan, PlanError> {
+    let project = project.ok_or(PlanError::NoSpaceOpen)?;
+    let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
     let name = std::path::Path::new(path)
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
-        .ok_or("this folder has no name")?;
+        .ok_or(PlanError::FolderHasNoName)?;
     let call = Call::post(routes::repos(project.as_str()))
-        .json(json!({"name": name, "path": path}))
+        .json(json!({NAME: name, "path": path}))
         .idempotent(id);
     Ok(Plan::of(&slot.spec.id, vec![call]))
 }
 
-fn folder_parent(target: &Target) -> Result<String, String> {
+fn folder_parent(target: &Target) -> Result<String, PlanError> {
     match target.kind {
         TargetKind::Folder => Ok(target.id.clone()),
         TargetKind::Branch { .. } => Ok(target.chat()?.to_owned()),
@@ -183,25 +185,23 @@ fn folder_parent(target: &Target) -> Result<String, String> {
 fn workspace_for(
     state: &State,
     target: &Target,
-) -> Result<String, String> {
+) -> Result<String, PlanError> {
     if let Some(workspace) = target.workspace().filter(|workspace| !workspace.is_empty()) {
         return Ok(workspace.to_owned());
     }
-    let slot = host_of(state, &target.project).ok_or("this space is not loaded yet")?;
+    let slot = host_of(state, &target.project).ok_or(PlanError::SpaceNotLoaded)?;
     default_workspace(&slot.store, (&target.project, &target.repo))
         .map(|ws| ws.id.clone())
-        .ok_or_else(|| {
-            "start a thread from a workspace row, a folder has none to run it in".to_owned()
-        })
+        .ok_or(PlanError::NoWorkspaceToRunIn)
 }
 
 fn host_id(
     state: &State,
     target: &Target,
-) -> Result<String, String> {
+) -> Result<String, PlanError> {
     host_of(state, &target.project)
         .map(|slot| slot.spec.id.clone())
-        .ok_or_else(|| "this space is not loaded yet".to_owned())
+        .ok_or(PlanError::SpaceNotLoaded)
 }
 
 fn chat_body(
@@ -209,7 +209,7 @@ fn chat_body(
     (workspace, parent): (&str, &str),
     surface: Surface,
 ) -> serde_json::Value {
-    let body = json!({"id": id, "provider": null, "parentId": parent, "workspaceId": workspace});
+    let body = json!({"id": id, "provider": null, PARENT_ID: parent, "workspaceId": workspace});
     if surface == Surface::Terminal {
         return with_field(body, "surface", json!("terminal"));
     }

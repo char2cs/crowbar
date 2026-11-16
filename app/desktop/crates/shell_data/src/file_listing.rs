@@ -48,7 +48,7 @@ impl SidebarCommands {
         directory: &str,
         done: FileDone<Vec<String>>,
     ) -> Result<(), Error> {
-        let session = FileSession::of(&self.hub).map_err(|reason| Error::Refused { reason })?;
+        let session = FileSession::of(&self.hub).map_err(Error::from)?;
         let directory = directory.to_owned();
         self.handle
             .spawn(async move { done(walk(&session, &directory).await) });

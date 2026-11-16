@@ -15,15 +15,18 @@ pub(crate) fn build(items: &[ForestItem]) -> Vec<ForestTree> {
     for item in items {
         parents.insert(item.id.clone(), parent_of(item, &by_id, &parents));
     }
-    let mut children: BTreeMap<String, Vec<&ForestItem>> = BTreeMap::new();
-    for item in items {
-        let parent = parents.get(&item.id).cloned().flatten();
-        let rooted = closes_cycle(&item.id, &parents);
-        children
-            .entry(parent.filter(|_| !rooted).unwrap_or_default())
-            .or_default()
-            .push(item);
-    }
+    let children = items.iter().fold(
+        BTreeMap::<String, Vec<&ForestItem>>::new(),
+        |mut children, item| {
+            let parent = parents.get(&item.id).cloned().flatten();
+            let rooted = closes_cycle(&item.id, &parents);
+            children
+                .entry(parent.filter(|_| !rooted).unwrap_or_default())
+                .or_default()
+                .push(item);
+            children
+        },
+    );
     level("", &children)
 }
 

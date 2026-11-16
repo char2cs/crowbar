@@ -4,10 +4,10 @@ use crate::after::After;
 use crate::call::Call;
 use crate::changes_reload;
 use crate::daemon_client::DaemonClient;
-use crate::error::Error;
 use crate::hub::Hub;
 use crate::outcome::{Outcome, OutcomeSink};
 use crate::plan::Plan;
+use crate::plan_error::PlanError;
 use crate::provider::Provider;
 use crate::providers;
 use crate::state::State;
@@ -31,7 +31,7 @@ pub(crate) async fn run(
     }
     match carry_out(hub, &plan).await {
         Ok(()) => finish(hub, plan.after, outcome).await,
-        Err(reason) => fail(hub, row_id.as_deref(), outcome, &reason),
+        Err(reason) => fail(hub, row_id.as_deref(), outcome, &reason.to_string()),
     }
     if plan.committing {
         hub.edit(|state| state.panels.committing = false);
@@ -41,10 +41,10 @@ pub(crate) async fn run(
 async fn carry_out(
     hub: &Hub,
     plan: &Plan,
-) -> Result<(), String> {
+) -> Result<(), PlanError> {
     let client = hub
         .read(|state| client_of(state, &plan.host))
-        .ok_or_else(|| format!("host {} is not known", plan.host))?;
+        .ok_or_else(|| PlanError::UnknownHost(plan.host.clone()))?;
     let provider = chosen_provider(hub, &client, plan).await?;
     for call in plan.calls.iter().cloned() {
         send(&client, call, provider.as_ref().zip(Some(plan.landing))).await?;
@@ -56,7 +56,7 @@ async fn chosen_provider(
     hub: &Hub,
     client: &DaemonClient,
     plan: &Plan,
-) -> Result<Option<Provider>, String> {
+) -> Result<Option<Provider>, PlanError> {
     if !plan.needs_provider {
         return Ok(None);
     }
@@ -67,16 +67,12 @@ async fn send(
     client: &DaemonClient,
     mut call: Call,
     chosen: Option<(&Provider, Surface)>,
-) -> Result<(), String> {
+) -> Result<(), PlanError> {
     if let Some((body, (provider, landing))) = call.body.as_mut().zip(chosen) {
         providers::fill(body, &provider.id);
         providers::land(body, (provider, landing));
     }
-    client
-        .send(call)
-        .await
-        .map(drop)
-        .map_err(|error| reason_of(&error))
+    client.send(call).await.map(drop).map_err(PlanError::Daemon)
 }
 
 fn client_of(
@@ -94,15 +90,13 @@ async fn pick_provider(
     client: &DaemonClient,
     hub: &Hub,
     host: &str,
-) -> Result<Provider, String> {
-    let all = providers::list(client)
-        .await
-        .map_err(|error| reason_of(&error))?;
+) -> Result<Provider, PlanError> {
+    let all = providers::list(client).await.map_err(PlanError::Daemon)?;
     let terminal = all.iter().any(Provider::offers_terminal);
     hub.edit(|state| state.set_terminal_threads(host, Some(terminal).into()));
     providers::pick(&all)
         .cloned()
-        .ok_or_else(|| "no agent is enabled on this host; enable one in Settings".to_owned())
+        .ok_or(PlanError::NoAgentEnabled)
 }
 
 async fn finish(
@@ -128,13 +122,6 @@ fn fail(
         hub.edit(|state| state.fail_local(id, reason));
     }
     outcome(Outcome::Failed(reason.to_owned()));
-}
-
-pub(crate) fn reason_of(error: &Error) -> String {
-    match error {
-        Error::Refused { message, .. } => message.clone(),
-        other => other.to_string(),
-    }
 }
 
 #[cfg(test)]

@@ -110,7 +110,7 @@ impl SidebarCommands {
         &self,
         path: &str,
     ) -> Result<(), Error> {
-        let target = self.hub.read(file_target::of).map_err(refused)?;
+        let target = self.hub.read(file_target::of).map_err(Error::from)?;
         let client = self
             .hub
             .read(|state| state.client_of_chat(&target.chat))
@@ -159,7 +159,7 @@ impl SidebarCommands {
         &self,
         make: impl FnOnce(&FileTarget) -> (Call, String),
     ) -> Result<(), Error> {
-        let target = self.hub.read(file_target::of).map_err(refused)?;
+        let target = self.hub.read(file_target::of).map_err(Error::from)?;
         let (call, reload) = make(&target);
         let plan = Plan::of(&target.host, vec![call]);
         let (hub, outcome) = (Arc::clone(&self.hub), Arc::clone(&self.outcome));
@@ -244,7 +244,7 @@ impl SidebarCommands {
         &self,
         path: &str,
     ) -> Result<(), Error> {
-        let target = self.hub.read(file_target::of).map_err(refused)?;
+        let target = self.hub.read(file_target::of).map_err(Error::from)?;
         let client = self
             .hub
             .read(|state| state.client_of_chat(&target.chat))

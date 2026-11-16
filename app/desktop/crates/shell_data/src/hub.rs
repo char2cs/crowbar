@@ -57,13 +57,15 @@ impl Hub {
     ) -> Option<R> {
         let mut found = None;
         let mut edits = self.edits.subscribe();
-        edits
+        let waited = edits
             .wait_for(|()| {
                 found = self.read(&mut ready);
                 found.is_some()
             })
-            .await
-            .ok();
+            .await;
+        if let Err(closed) = waited {
+            tracing::debug!("the hub stopped before the awaited state arrived: {closed}");
+        }
         found
     }
 }

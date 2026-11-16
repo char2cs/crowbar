@@ -7,12 +7,13 @@ use sidebar::SpaceIcon;
 
 use crate::call::Call;
 use crate::multipart;
+use crate::plan_error::PlanError;
 
 const PNG: &str = "image/png";
 const JPEG: &str = "image/jpeg";
 const WEBP: &str = "image/webp";
 
-fn mime_of(path: &str) -> Result<&'static str, String> {
+fn mime_of(path: &str) -> Result<&'static str, PlanError> {
     let extension = Path::new(path)
         .extension()
         .and_then(std::ffi::OsStr::to_str)
@@ -21,17 +22,16 @@ fn mime_of(path: &str) -> Result<&'static str, String> {
         Some("png") => Ok(PNG),
         Some("jpg" | "jpeg") => Ok(JPEG),
         Some("webp") => Ok(WEBP),
-        _ => Err("The icon must be a png, jpeg or webp image.".to_owned()),
+        _ => Err(PlanError::IconType),
     }
 }
 
 fn upload(
     base: &str,
     path: &str,
-) -> Result<Call, String> {
+) -> Result<Call, PlanError> {
     let mime = mime_of(path)?;
-    let bytes =
-        std::fs::read(path).map_err(|error| format!("The icon could not be read: {error}"))?;
+    let bytes = std::fs::read(path).map_err(PlanError::IconUnreadable)?;
     let name = Path::new(path)
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
@@ -43,7 +43,7 @@ fn upload(
 pub(crate) fn calls(
     project: &str,
     icon: &SpaceIcon,
-) -> Result<Vec<Call>, String> {
+) -> Result<Vec<Call>, PlanError> {
     let base = format!("{}/icon", crate::routes::project(project));
     let call = match icon {
         SpaceIcon::Default => Call::delete(base),

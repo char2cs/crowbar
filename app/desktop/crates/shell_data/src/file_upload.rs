@@ -64,7 +64,7 @@ impl SidebarCommands {
         sources: Vec<PathBuf>,
         done: FileDone<Vec<String>>,
     ) -> Result<(), Error> {
-        let session = FileSession::of(&self.hub).map_err(|reason| Error::Refused { reason })?;
+        let session = FileSession::of(&self.hub).map_err(Error::from)?;
         let (hub, directory) = (std::sync::Arc::clone(&self.hub), directory.to_owned());
         self.handle.spawn(async move {
             done(copy_all((&hub, &session), &directory, &sources).await);

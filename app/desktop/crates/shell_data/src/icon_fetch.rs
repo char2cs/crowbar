@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::call::Call;
 use crate::daemon_client::DaemonClient;
 use crate::hub::Hub;
+use crate::icon_ask::IconAsk;
 use crate::state::State;
 
 const MAX_ICON_BYTES: usize = 8 * 1024 * 1024;
@@ -13,19 +14,19 @@ const MAX_ICON_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) fn wanted(
     hub: &Hub,
     host: &str,
-) -> Vec<(String, String, PathBuf)> {
+) -> Vec<IconAsk> {
     hub.edit(|state| begin_all(state, host))
 }
 
 fn begin_all(
     state: &mut State,
     host: &str,
-) -> Vec<(String, String, PathBuf)> {
+) -> Vec<IconAsk> {
     projects_with_images(state, host)
         .into_iter()
         .filter_map(|(project, url)| {
             let path = state.icons.begin(&project, &url)?;
-            Some((project, url, path))
+            Some(IconAsk { project, url, path })
         })
         .collect()
 }
@@ -57,20 +58,20 @@ pub(crate) fn follow(
 fn spawn_fetch(
     hub: &Arc<Hub>,
     client: &DaemonClient,
-    (project, url, path): (String, String, PathBuf),
+    ask: IconAsk,
 ) {
     let (hub, client) = (Arc::clone(hub), client.clone());
-    tokio::spawn(async move { fetch(&hub, &client, (&project, &url), path).await });
+    tokio::spawn(async move { fetch(&hub, &client, ask).await });
 }
 
 async fn fetch(
     hub: &Hub,
     client: &DaemonClient,
-    (project, url): (&str, &str),
-    path: PathBuf,
+    ask: IconAsk,
 ) {
-    let stored = save(client, url, path).await;
-    hub.edit(|state| state.icons.finish(project, url, stored));
+    let IconAsk { project, url, path } = ask;
+    let stored = save(client, &url, path).await;
+    hub.edit(|state| state.icons.finish(&project, &url, stored));
 }
 
 async fn save(
@@ -97,11 +98,7 @@ fn write_atomically(
     path: &Path,
     bytes: &[u8],
 ) -> Option<PathBuf> {
-    let parent = path.parent()?;
-    let staging = path.with_extension("part");
-    std::fs::create_dir_all(parent)
-        .and_then(|()| std::fs::write(&staging, bytes))
-        .and_then(|()| std::fs::rename(&staging, path))
+    atomic_file::write(path, bytes)
         .inspect_err(|error| tracing::warn!(%error, ?path, "a space image could not be kept"))
         .ok()?;
     Some(path.to_owned())
@@ -140,30 +137,32 @@ mod tests {
         let asks = wanted(&hub, "local");
         assert_eq!(asks.len(), 1);
         assert!(wanted(&hub, "local").is_empty(), "already in flight");
-        let (project, url, path) = asks.into_iter().next().unwrap();
-        fetch(&hub, &client, (&project, &url), path.clone()).await;
+        let ask = asks.into_iter().next().unwrap();
+        let path = ask.path.clone();
+        fetch(&hub, &client, ask).await;
         assert_eq!(std::fs::read(&path).unwrap(), b"PNGBYTES");
         assert!(wanted(&hub, "local").is_empty(), "held");
         let held = hub.read(|state| state.icons.file_for("p", URL).map(ToOwned::to_owned));
         assert_eq!(held, Some(path));
     }
 
-    #[tokio::test]
-    async fn a_hostile_version_in_the_avatar_url_asks_for_nothing_and_writes_nothing() {
+    fn asks_for(version: &str) -> usize {
         let (mut state, _daemon) = state();
         let dir = tempfile::tempdir().unwrap();
-        let icons = dir.path().join("icons");
-        state.icons = IconCache::in_dir(icons.clone());
-        state.apply(
-            "local",
-            decode(
-                r#"{"t":"entity","scope":"projects","kind":"project","id":"p","v":9,"data":{"id":"p","name":"A","avatarUrl":"/v0/projects/p/icon?v=../../escaped"}}"#,
-            )
-            .unwrap(),
+        state.icons = IconCache::in_dir(dir.path().join("icons"));
+        let frame = format!(
+            r#"{{"t":"entity","scope":"projects","kind":"project","id":"p","v":9,"data":{{"id":"p","name":"A","avatarUrl":"/v0/projects/p/icon?v={version}"}}}}"#
         );
-        let hub = hub_of(state);
-        assert_eq!(wanted(&hub, "local").len(), 0, "no icon is requested");
-        assert!(!dir.path().join("escaped").exists());
+        state.apply("local", decode(&frame).unwrap());
+        wanted(&hub_of(state), "local").len()
+    }
+
+    #[test]
+    fn a_hostile_version_in_the_avatar_url_asks_for_nothing() {
+        let cases = ["../../escaped", "a/b"];
+        for version in cases {
+            assert_eq!(asks_for(version), 0, "{version}");
+        }
     }
 
     #[tokio::test]

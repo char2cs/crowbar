@@ -6,6 +6,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::chat_record::ChatRecord;
+use crate::entity_stamp::EntityStamp;
 use crate::folder_record::FolderRecord;
 use crate::frame::Frame;
 use crate::operation_record::OperationRecord;
@@ -16,6 +17,13 @@ use crate::table::Table;
 use crate::workspace_record::WorkspaceRecord;
 
 pub(crate) const PROJECTS_SCOPE: &str = "projects";
+const PROJECT: &str = "project";
+const REPO: &str = "repo";
+const WORKSPACE: &str = "workspace";
+const CHAT: &str = "chat";
+const FOLDER: &str = "folder";
+const OPERATION: &str = "operation";
+const PRESENCE: &str = "presence";
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct EntityStore {
@@ -51,17 +59,34 @@ impl EntityStore {
     ) {
         match frame {
             Frame::Ready { epoch } => self.new_epoch(epoch),
-            Frame::Entity {
-                scope,
-                kind,
-                id,
-                v,
-                data,
-                gone,
-            } if scope == PROJECTS_SCOPE => self.entity((&kind, &id), v, (data, gone)),
+            Frame::Entity { ref scope, .. } if scope == PROJECTS_SCOPE => self.entity_frame(frame),
             Frame::Synced { scope, unread } if scope == PROJECTS_SCOPE => self.finish(&unread),
             _ => {},
         }
+    }
+
+    fn entity_frame(
+        &mut self,
+        frame: Frame,
+    ) {
+        let Frame::Entity {
+            kind,
+            id,
+            v,
+            data,
+            gone,
+            ..
+        } = frame
+        else {
+            return;
+        };
+        let stamp = EntityStamp {
+            kind: &kind,
+            id: &id,
+            version: v,
+            gone,
+        };
+        self.entity(&stamp, data);
     }
 
     fn new_epoch(
@@ -82,28 +107,32 @@ impl EntityStore {
 
     fn entity(
         &mut self,
-        (kind, id): (&str, &str),
-        version: u64,
-        (data, gone): (Option<Value>, bool),
+        stamp: &EntityStamp<'_>,
+        data: Option<Value>,
     ) {
+        let &EntityStamp {
+            kind,
+            id,
+            version,
+            gone,
+        } = stamp;
         if let Some(fresh) = self.fresh.as_mut() {
             fresh.insert(format!("{kind}:{id}"));
         }
         if gone {
-            self.forget(kind, id);
-            return;
+            return self.forget(kind, id);
         }
         let Some(data) = data else {
             return;
         };
         match kind {
-            "project" => put(&mut self.projects, (id, version), data),
-            "repo" => put(&mut self.repos, (id, version), data),
-            "workspace" => put(&mut self.workspaces, (id, version), data),
-            "chat" => put(&mut self.chats, (id, version), data),
-            "folder" => put(&mut self.folders, (id, version), data),
-            "operation" => put(&mut self.operations, (id, version), data),
-            "presence" => put(&mut self.presence, (id, version), data),
+            PROJECT => put(&mut self.projects, (id, version), data),
+            REPO => put(&mut self.repos, (id, version), data),
+            WORKSPACE => put(&mut self.workspaces, (id, version), data),
+            CHAT => put(&mut self.chats, (id, version), data),
+            FOLDER => put(&mut self.folders, (id, version), data),
+            OPERATION => put(&mut self.operations, (id, version), data),
+            PRESENCE => put(&mut self.presence, (id, version), data),
             _ => {},
         }
     }
@@ -114,13 +143,13 @@ impl EntityStore {
         id: &str,
     ) {
         match kind {
-            "project" => self.projects.remove(id),
-            "repo" => self.repos.remove(id),
-            "workspace" => self.workspaces.remove(id),
-            "chat" => self.chats.remove(id),
-            "folder" => self.folders.remove(id),
-            "operation" => self.operations.remove(id),
-            "presence" => self.presence.remove(id),
+            PROJECT => self.projects.remove(id),
+            REPO => self.repos.remove(id),
+            WORKSPACE => self.workspaces.remove(id),
+            CHAT => self.chats.remove(id),
+            FOLDER => self.folders.remove(id),
+            OPERATION => self.operations.remove(id),
+            PRESENCE => self.presence.remove(id),
             _ => {},
         }
     }
@@ -143,18 +172,18 @@ impl EntityStore {
     ) {
         let held = |kind: &str, id: &str| fresh.contains(&format!("{kind}:{id}"));
         let unreadable = |owner: &str| unread.iter().any(|name| name == owner);
-        self.projects.retain(|id, _| held("project", id));
-        self.repos.retain(|id, _| held("repo", id));
-        self.operations.retain(|id, _| held("operation", id));
-        self.presence.retain(|id, _| held("presence", id));
+        self.projects.retain(|id, _| held(PROJECT, id));
+        self.repos.retain(|id, _| held(REPO, id));
+        self.operations.retain(|id, _| held(OPERATION, id));
+        self.presence.retain(|id, _| held(PRESENCE, id));
         self.workspaces.retain(|id, row| {
-            held("workspace", id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
+            held(WORKSPACE, id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
         });
         self.chats.retain(|id, row| {
-            held("chat", id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
+            held(CHAT, id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
         });
         self.folders.retain(|id, row| {
-            held("folder", id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
+            held(FOLDER, id) || unreadable(&row.repo_id) || unreadable(&row.project_id)
         });
     }
 }

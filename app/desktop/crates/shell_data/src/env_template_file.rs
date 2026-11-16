@@ -60,7 +60,7 @@ impl SidebarCommands {
         overwrite: Overwrite,
         done: FileDone<TemplateOutcome>,
     ) -> Result<(), Error> {
-        let session = FileSession::of(&self.hub).map_err(|reason| Error::Refused { reason })?;
+        let session = FileSession::of(&self.hub).map_err(Error::from)?;
         let hub = Arc::clone(&self.hub);
         let (source, target) = (source.to_owned(), target.to_owned());
         self.handle.spawn(async move {

@@ -1,5 +1,6 @@
 //! The chat, workspace and host a file operation of the Files panel runs against.
 
+use crate::plan_error::PlanError;
 use crate::state::State;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,17 +10,17 @@ pub(crate) struct FileTarget {
     pub(crate) workspace: String,
 }
 
-pub(crate) fn of(state: &State) -> Result<FileTarget, String> {
+pub(crate) fn of(state: &State) -> Result<FileTarget, PlanError> {
     let chat = state
         .panels
         .chat
         .clone()
-        .ok_or("no workspace is open to change files in")?;
+        .ok_or(PlanError::NoWorkspaceToChange)?;
     let slot = state
         .hosts
         .iter()
         .find(|slot| slot.store.chats.get(&chat).is_some())
-        .ok_or("this workspace is not loaded yet")?;
+        .ok_or(PlanError::WorkspaceNotLoaded)?;
     let workspace = slot
         .store
         .chats

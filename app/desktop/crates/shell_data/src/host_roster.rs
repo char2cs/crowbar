@@ -13,7 +13,6 @@ use crate::fleet::Fleet;
 use crate::host_desk::HostDesk;
 use crate::hub::Hub;
 use crate::outcome::{Outcome, OutcomeSink};
-use crate::runner;
 
 const REFUSED_BY_HOST: u16 = 401;
 const NO_CLIENT_ID: &str =
@@ -88,7 +87,7 @@ impl HostRoster {
             Err(Error::Refused { status, .. }) if status == REFUSED_BY_HOST => {
                 self.forget(host).await;
             },
-            Err(error) => self.keep(host, &runner::reason_of(&error)),
+            Err(error) => self.keep(host, &error.reason()),
         }
     }
 

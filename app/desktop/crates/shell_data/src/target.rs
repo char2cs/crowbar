@@ -2,6 +2,7 @@
 
 use crate::chat_record::ChatRecord;
 use crate::entity_store::EntityStore;
+use crate::plan_error::PlanError;
 use crate::scope_items;
 use crate::state::State;
 use crate::target_kind::TargetKind;
@@ -17,13 +18,11 @@ pub(crate) struct Target {
 }
 
 impl Target {
-    pub(crate) fn chat(&self) -> Result<&str, String> {
+    pub(crate) fn chat(&self) -> Result<&str, PlanError> {
         match &self.kind {
-            TargetKind::Branch { owner, .. } if owner.is_empty() => {
-                Err("its chat is still loading, try again in a moment".to_owned())
-            },
+            TargetKind::Branch { owner, .. } if owner.is_empty() => Err(PlanError::ChatLoading),
             TargetKind::Branch { owner, .. } => Ok(owner),
-            TargetKind::Folder => Err("a folder has no chat".to_owned()),
+            TargetKind::Folder => Err(PlanError::FolderHasNoChat),
             _ => Ok(&self.id),
         }
     }
@@ -174,7 +173,7 @@ mod tests {
     #[test]
     fn a_branch_acts_through_its_owner_and_a_folder_has_no_chat() {
         let (state, _) = state();
-        assert_eq!(resolve(&state, "bo").unwrap().chat(), Ok("bo"));
+        assert_eq!(resolve(&state, "bo").unwrap().chat().unwrap(), "bo");
         assert!(resolve(&state, "f").unwrap().chat().is_err());
         assert_eq!(resolve(&state, "t").unwrap().workspace(), Some("b"));
     }
