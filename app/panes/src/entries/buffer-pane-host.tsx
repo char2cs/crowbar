@@ -12,6 +12,7 @@ import {
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { saveBuffer } from '@/features/editor/lib/buffer-save'
+import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
 import { hasUnsavedEdits, type PaneContent } from '@/features/panes/types/pane-content'
 import { report } from '@/lib/errors/report'
 import type { PaneClient } from '@/sdk/pane-client'
@@ -68,6 +69,7 @@ export function BufferPaneHost({
   }, [wsId, saved, open])
 
   useShellReporting(client, buffer)
+  useSaveKeyboard()
 
   if (!wsId) return null
   return (

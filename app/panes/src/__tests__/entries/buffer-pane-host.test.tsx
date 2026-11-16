@@ -12,8 +12,11 @@ vi.mock('@/features/agent/hooks/use-chat-entity', () => ({
 vi.mock('@/features/panes/components/pane-editor-view-content', () => ({
   PaneEditorViewContent: () => null,
 }))
-vi.mock('@/features/panes/components/editor-host-registry', () => ({
-  EditorHostRegistry: () => null,
+const { saveActiveBuffer } = vi.hoisted(() => ({ saveActiveBuffer: vi.fn() }))
+vi.mock('@/features/editor/lib/buffer-save', () => ({
+  saveActiveBuffer,
+  saveAllDirtyBuffers: vi.fn(),
+  saveBuffer: vi.fn(),
 }))
 
 const { BufferPaneHost } = await import('@/entries/buffer-pane-host')
@@ -36,39 +39,62 @@ function withDirtyTab(s: ReturnType<typeof windowPaneStore.getState>) {
   return { ...next, buffers: [dirty] }
 }
 
-function client(overrides: { setTitle?: (title: string) => void } = {}) {
+function client() {
   return {
-    setTitle: overrides.setTitle ?? vi.fn(),
+    setTitle: vi.fn(),
     setDirty: vi.fn(),
     onSave: vi.fn(() => () => undefined),
   }
 }
 
-describe('BufferPaneHost', () => {
-  it('opens the saved buffer in the chat workspace and titles the pane with the tab', async () => {
-    const setTitle = vi.fn()
-    const open = vi.fn((_ws: string, _saved: unknown) => {
-      windowPaneStore.setState(withOpenTab)
-      return Promise.resolve('b1')
-    })
-    bufferSession.setState({ chatId: 'c1', saved: { path: 'a.ts' }, active: false })
-    await act(async () => {
-      render(<BufferPaneHost client={client({ setTitle })} open={open} />)
-    })
-    expect(open).toHaveBeenCalledWith('ws1', { path: 'a.ts' })
-    expect(setTitle).toHaveBeenCalledWith('a.ts')
-  })
+type Shell = ReturnType<typeof client>
+type Case = {
+  behaviour: string
+  tab: typeof withOpenTab
+  act?: () => void
+  expectation: (shell: Shell, open: ReturnType<typeof vi.fn>) => void
+}
 
-  it('reports unsaved edits to the shell', async () => {
+const cases: Case[] = [
+  {
+    behaviour: 'opens the saved buffer in the chat workspace',
+    tab: withOpenTab,
+    expectation: (_shell, open) => expect(open).toHaveBeenCalledWith('ws1', { path: 'a.ts' }),
+  },
+  {
+    behaviour: 'titles the pane with the tab',
+    tab: withOpenTab,
+    expectation: (shell) => expect(shell.setTitle).toHaveBeenCalledWith('a.ts'),
+  },
+  {
+    behaviour: 'reports unsaved edits to the shell',
+    tab: withDirtyTab,
+    expectation: (shell) => expect(shell.setDirty).toHaveBeenLastCalledWith(true),
+  },
+  {
+    behaviour: 'saves the pane buffer on mod+s, which no shell key reaches inside a pane web view',
+    tab: withDirtyTab,
+    act: () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true })),
+    expectation: () => expect(saveActiveBuffer).toHaveBeenCalledTimes(1),
+  },
+]
+
+describe('BufferPaneHost', () => {
+  it.each(cases)('$behaviour', async ({ tab, act, expectation }) => {
     const shell = client()
     const open = vi.fn(() => {
-      windowPaneStore.setState(withDirtyTab)
+      windowPaneStore.setState(tab)
       return Promise.resolve('b1')
     })
     bufferSession.setState({ chatId: 'c1', saved: { path: 'a.ts' }, active: false })
-    await act(async () => {
-      render(<BufferPaneHost client={shell} open={open} />)
-    })
-    expect(shell.setDirty).toHaveBeenLastCalledWith(true)
+    await renderHost(shell, open)
+    act?.()
+    expectation(shell, open)
   })
 })
+
+async function renderHost(shell: Shell, open: () => Promise<string>) {
+  await act(async () => {
+    render(<BufferPaneHost client={shell} open={open} />)
+  })
+}
