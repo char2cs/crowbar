@@ -4,7 +4,6 @@ use crate::readout_snapshot::ReadoutSnapshot;
 
 const SEGMENT_GAP: &str = "  ";
 
-/// The text of the build readout, one entry per line.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ReadoutLines {
     pub(crate) build: String,

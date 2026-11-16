@@ -4,8 +4,6 @@ use serde_json::json;
 
 pub(crate) const HOMEPAGE_KEY: &str = "browserHomepage";
 
-/// The state a new browser pane starts with: its address is the homepage when that names a
-/// loadable page, and a blank bar otherwise.
 pub(crate) fn homepage_state(
     stored: Option<&str>,
     engine: &SearchEngine,

@@ -1,6 +1,5 @@
 use sidebar::HostState;
 
-/// What the daemon link looks like in the readout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ReadoutNet {
     Ok,

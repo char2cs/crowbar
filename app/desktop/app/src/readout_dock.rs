@@ -1,6 +1,5 @@
 use sidebar::{DockSide, Preferences, Visibility};
 
-/// Where the readout sits: at the foot of the open sidebar, or across the top while it is closed.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum ReadoutDock {
     #[default]

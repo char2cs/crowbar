@@ -25,17 +25,12 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 
 import { ProjectHomeNotice } from '@/features/workspace/components/project-home-notice'
 
-// ProjectHomeNotice only surfaces the loading/error state; WorkspaceHost retains and paints the home
-// workspace like any other.
 describe('ProjectHomeNotice', () => {
-  it('renders nothing while the home workspace id is still resolving', () => {
-    useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: false })
-    const { container } = render(<ProjectHomeNotice />)
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('renders nothing once resolved — WorkspaceHost (an Outlet sibling in IDEShell) paints the content', () => {
-    useHomeWorkspaceStateMock.mockReturnValue({ wsId: 'ws-home-1', error: false })
+  it.each([
+    ['while the home workspace id is still resolving', { wsId: null, error: false }],
+    ['once resolved, when WorkspaceHost paints the content', { wsId: 'ws-home-1', error: false }],
+  ])('renders nothing %s', (_name, state) => {
+    useHomeWorkspaceStateMock.mockReturnValue(state)
     const { container } = render(<ProjectHomeNotice />)
     expect(container).toBeEmptyDOMElement()
   })
@@ -47,34 +42,24 @@ describe('ProjectHomeNotice', () => {
     expect(screen.getByText(/connect to this project's host/i)).toBeInTheDocument()
   })
 
-  // The route stays while the host the project may be on is down; it must not stay blank.
-  describe('on an install that paired a remote host', () => {
+  describe('on an install that paired a remote host that is down', () => {
     afterEach(() => {
       resetHostWorld()
       destroyHostRuntime('h1')
     })
 
-    it('says Project Home is unavailable while the only host that may hold it is down', () => {
+    it.each([
+      ['says Project Home is unavailable while the only host that may hold it is down', null, true],
+      ['keeps showing a cached home workspace', 'ws-cached', false],
+    ])('%s', (_name, wsId, noticeShown) => {
       pairRemoteHost('h1')
       getOrCreateHostRuntime('h1').getState().setStatus('down')
       loadProjects(projectOn('p-other', 'local'))
-      useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, error: false })
-
-      render(<ProjectHomeNotice />)
-
-      expect(screen.getByText(/unavailable/i)).toBeInTheDocument()
-    })
-
-    // The last-known home workspace is shown read-only; the host being down is no reason to hide it.
-    it('keeps showing a cached home workspace while its host is down', () => {
-      pairRemoteHost('h1')
-      getOrCreateHostRuntime('h1').getState().setStatus('down')
-      loadProjects(projectOn('p-other', 'local'))
-      useHomeWorkspaceStateMock.mockReturnValue({ wsId: 'ws-cached', error: false, stale: true })
+      useHomeWorkspaceStateMock.mockReturnValue({ wsId, error: false })
 
       const { container } = render(<ProjectHomeNotice />)
 
-      expect(container).toBeEmptyDOMElement()
+      expect(container.textContent?.includes('unavailable') ?? false).toBe(noticeShown)
     })
   })
 })

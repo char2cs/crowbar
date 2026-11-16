@@ -2,7 +2,6 @@ use sidebar::Mode;
 
 use crate::core_panes::{BROWSER, CHAT, EDITOR, NEW_TAB, REVIEW, TERMINAL};
 
-/// The sidebar mode a pane of `type_id` pulls toward; `None` for a pane that pulls nowhere.
 pub(crate) fn surface_of(type_id: &str) -> Option<Mode> {
     match type_id {
         EDITOR => Some(Mode::Files),
@@ -12,9 +11,6 @@ pub(crate) fn surface_of(type_id: &str) -> Option<Mode> {
     }
 }
 
-/// Records that focus now sits on a `now` surface, and says which mode the sidebar should follow
-/// to: only a change from a surface seen before counts, so the focus restored at startup and
-/// panes that pull nowhere leave the chosen mode alone.
 pub(crate) fn crossing(
     last: &mut Option<Mode>,
     now: Option<Mode>,

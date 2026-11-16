@@ -6,7 +6,6 @@ use crate::frame_stats::FrameStats;
 const WINDOW: Duration = Duration::from_secs(1);
 const DROP_GAP: Duration = Duration::from_millis(34);
 
-/// Remembers when the window painted during the last second.
 #[derive(Debug, Default)]
 pub(crate) struct FrameClock {
     painted: VecDeque<Instant>,

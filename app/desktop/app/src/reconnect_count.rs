@@ -1,7 +1,5 @@
 use crate::readout_net::ReadoutNet;
 
-/// The reconnect count after the link moved from `before` to `now`: a drop from `Ok` into
-/// trouble counts once, so the first connection at startup does not.
 pub(crate) fn recount(
     count: u32,
     (before, now): (ReadoutNet, ReadoutNet),

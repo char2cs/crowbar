@@ -51,7 +51,6 @@ impl Hub {
         result
     }
 
-    /// Waits until `ready` finds what it looks for in the state; it is asked again after every edit.
     pub(crate) async fn until<R>(
         &self,
         mut ready: impl FnMut(&State) -> Option<R>,

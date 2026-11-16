@@ -1,6 +1,5 @@
 const ALL: &str = "all";
 
-/// Which tabs the strip lists, from the `tabListScope` setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum TabScope {
     /// The tabs of the active project.
@@ -18,8 +17,6 @@ impl TabScope {
         }
     }
 
-    /// Whether a tab whose chats belong to `projects` is listed while `active` is the current
-    /// project. A tab without a known chat project, such as a new tab page, is always listed.
     pub(crate) fn lists(
         self,
         active: Option<&str>,

@@ -18,7 +18,10 @@ pub(super) const BUILD_READOUT: &str = "buildReadout";
 const SAMPLE_EVERY: Duration = Duration::from_secs(1);
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const CHANNEL: &str = if cfg!(debug_assertions) { "dev " } else { "" };
+#[cfg(debug_assertions)]
+const CHANNEL: &str = "dev ";
+#[cfg(not(debug_assertions))]
+const CHANNEL: &str = "";
 
 fn build_text(channel: &str) -> String {
     format!("{channel}{VERSION}")

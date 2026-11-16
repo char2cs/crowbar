@@ -4,30 +4,40 @@ import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-s
 import { useSettingsStore } from '@/features/settings/store'
 import type { SettingValues } from '@/sdk/setting-values'
 
+function replay(frames: SettingValues[], listener: (values: SettingValues) => void) {
+  frames.forEach(listener)
+  return () => {}
+}
+
 function shellThatSends(...frames: SettingValues[]) {
   return {
     setSetting: () => {},
-    onSettings: (listener: (values: SettingValues) => void) => {
-      frames.forEach(listener)
-      return () => {}
-    },
+    onSettings: (listener: (values: SettingValues) => void) => replay(frames, listener),
   }
 }
+
+const defaults = getDefaultSettingsSnapshot()
 
 describe('followShellSettings', () => {
   beforeEach(() => {
     useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
   })
 
-  it('makes the shell values the pane settings, so an editor option reaches the pane', () => {
-    followShellSettings(shellThatSends({ wordWrap: true, tabSize: 4, maxOpenTabs: 7 }))
+  it.each([
+    [
+      'makes the shell values the pane settings, so an editor option reaches the pane',
+      [{ wordWrap: true, tabSize: 4, maxOpenTabs: 7 }],
+      [true, 4, 7],
+    ],
+    [
+      'takes the whole set each time: a reset key returns to its default',
+      [{ wordWrap: true, tabSize: 4 }, {}],
+      [defaults.wordWrap, defaults.tabSize, defaults.maxOpenTabs],
+    ],
+  ])('%s', (_name, frames, expected) => {
+    followShellSettings(shellThatSends(...frames))
     const { settings } = useSettingsStore.getState()
-    expect([settings.wordWrap, settings.tabSize, settings.maxOpenTabs]).toEqual([true, 4, 7])
-  })
-
-  it('takes the whole set each time: a reset key returns to its default', () => {
-    followShellSettings(shellThatSends({ wordWrap: true }, {}))
-    expect(useSettingsStore.getState().settings.wordWrap).toBe(false)
+    expect([settings.wordWrap, settings.tabSize, settings.maxOpenTabs]).toEqual(expected)
   })
 
   it('sends the pane writes to the shell and keeps no copy of them', () => {

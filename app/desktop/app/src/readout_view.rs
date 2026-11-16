@@ -11,11 +11,17 @@ const TOP_WIDTH: f32 = 340.0;
 const WARNING_OPACITY: f32 = 1.0;
 const QUIET_OPACITY: f32 = 0.7;
 
-/// The build readout: build, link and frame lines that take no pointer events.
 #[derive(Debug, Default)]
 pub(crate) struct ReadoutView {
     lines: ReadoutLines,
     dock: ReadoutDock,
+}
+
+fn opacity_of(lines: &ReadoutLines) -> f32 {
+    if lines.warns {
+        return WARNING_OPACITY;
+    }
+    QUIET_OPACITY
 }
 
 impl ReadoutView {
@@ -38,16 +44,10 @@ impl Render for ReadoutView {
     ) -> impl IntoElement {
         let theme = Theme::of(cx);
         let palette = theme.palette(Surface::Chrome);
-        let color = if self.lines.warns {
-            palette.git_deleted()
-        } else {
-            palette.muted_foreground()
-        };
-        let opacity = if self.lines.warns {
-            WARNING_OPACITY
-        } else {
-            QUIET_OPACITY
-        };
+        let mut color = palette.muted_foreground();
+        if self.lines.warns {
+            color = palette.git_deleted();
+        }
         let text = div()
             .absolute()
             .flex()
@@ -57,7 +57,7 @@ impl Render for ReadoutView {
             .text_size(px(TEXT_SIZE))
             .font_family(theme.mono_family())
             .text_color(color)
-            .opacity(opacity)
+            .opacity(opacity_of(&self.lines))
             .child(self.lines.build.clone())
             .child(self.lines.net.clone())
             .child(self.lines.stats.clone());
@@ -74,5 +74,48 @@ impl Render for ReadoutView {
                 .h(px(FOOT_HEIGHT)),
             ReadoutDock::Top => text.top_0().left_0().right_0().mx_auto().w(px(TOP_WIDTH)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{AppContext as _, TestAppContext};
+
+    use super::*;
+
+    fn warning() -> ReadoutLines {
+        ReadoutLines {
+            warns: true,
+            ..ReadoutLines::default()
+        }
+    }
+
+    #[test]
+    fn a_warning_reads_at_full_strength_and_a_quiet_readout_dims() {
+        let cases = [
+            (warning(), WARNING_OPACITY),
+            (ReadoutLines::default(), QUIET_OPACITY),
+        ];
+        for (lines, opacity) in cases {
+            assert!(
+                (opacity_of(&lines) - opacity).abs() < f32::EPSILON,
+                "{lines:?}"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn showing_replaces_the_lines_and_the_dock(cx: &mut TestAppContext) {
+        let view = cx.new(|_| ReadoutView::default());
+        let lines = ReadoutLines {
+            net: "net DOWN".into(),
+            warns: true,
+            ..ReadoutLines::default()
+        };
+        view.update(cx, |view, cx| {
+            view.show((lines.clone(), ReadoutDock::Right(300.0)), cx);
+        });
+        let shown = view.read_with(cx, |view, _| (view.lines.clone(), view.dock));
+        assert_eq!(shown, (lines, ReadoutDock::Right(300.0)));
     }
 }

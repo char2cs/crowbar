@@ -1,9 +1,10 @@
+import { create } from 'zustand'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 import { normalizeSettings } from '@/features/settings/lib/settings-normalization'
 import type { Settings } from '@/features/settings/types/settings'
 
-// The settings the shell owns for panes: the keys of its `settings` frame (PANE_SETTING_KEYS in the protocol crate).
-const SHELL_KEYS: ReadonlySet<string> = new Set([
+// SPEC: the keys of the shell's `settings` frame, PANE_SETTING_KEYS in the protocol crate.
+const SHELL_KEYS: readonly string[] = [
   'autoSave',
   'fontFamily',
   'fontSize',
@@ -49,7 +50,7 @@ const SHELL_KEYS: ReadonlySet<string> = new Set([
   'showGitStatusInFileTree',
   'compactGitStatusBadges',
   'diffViewMode',
-])
+]
 
 function sameShape(fallback: unknown, value: unknown): boolean {
   if (Array.isArray(fallback)) return Array.isArray(value)
@@ -72,19 +73,18 @@ export function resolveShellSettings(
 
 type SettingsWriter = (key: string, value: unknown) => void
 
-let writer: SettingsWriter | null = null
+const useShellRoute = create<{ send: SettingsWriter | null }>(() => ({ send: null }))
 
 /** Sends writes to shell-owned settings to the shell instead of keeping them in the pane; returns the stop. */
 export function routeSettingsToShell(send: SettingsWriter): () => void {
-  writer = send
-  return () => {
-    writer = null
-  }
+  useShellRoute.setState({ send })
+  return () => useShellRoute.setState({ send: null })
 }
 
 /** Hands a write to the shell when the key is shell-owned and a route is set; false means the pane keeps the write itself. */
 export function writeSettingToShell(key: string, value: unknown): boolean {
-  if (!writer || !SHELL_KEYS.has(key)) return false
-  writer(key, value)
+  const { send } = useShellRoute.getState()
+  if (!send || !SHELL_KEYS.includes(key)) return false
+  send(key, value)
   return true
 }

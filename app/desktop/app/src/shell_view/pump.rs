@@ -69,21 +69,27 @@ async fn stepped<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core_panes::{CHAT, NEW_TAB, TERMINAL};
     use crate::titles::Titles;
 
-    #[test]
-    fn a_member_is_idle_and_carries_its_pane_and_title() {
-        let titles = Titles::default();
-        let pane = protocol::PaneId::new("p7").unwrap();
-        titles.set(pane.clone(), protocol::PaneTitle::new("Review").unwrap());
-        let member = member((&titles, &model::Layout::default()), &pane);
-        assert_eq!(member.pane, pane, "pane");
-        assert_eq!(member.label.as_ref(), "Review", "title");
-        assert!(!member.working, "idle");
-    }
+    type Case = (
+        &'static str,
+        Option<&'static str>,
+        (MemberKind, &'static str, bool),
+    );
 
-    #[test]
-    fn a_terminal_member_is_named_and_drawn_as_a_terminal() {
+    const CASES: [Case; 5] = [
+        (CHAT, Some("Review"), (MemberKind::Chat, "Review", false)),
+        (TERMINAL, Some("zsh"), (MemberKind::Terminal, "zsh", false)),
+        (CHAT, None, (MemberKind::Chat, NEW_CHAT, true)),
+        (TERMINAL, None, (MemberKind::Terminal, "Terminal", true)),
+        (NEW_TAB, None, (MemberKind::NewTab, NEW_CHAT, true)),
+    ];
+
+    fn layout_holding(
+        pane: &protocol::PaneId,
+        type_id: &str,
+    ) -> model::Layout {
         let mut layout = model::Layout::default();
         let tab = model::TabId(1);
         layout
@@ -92,10 +98,9 @@ mod tests {
                 title: "t".into(),
             })
             .unwrap();
-        let pane = protocol::PaneId::new("t1").unwrap();
         let instance = model::PaneInstance {
             pane_id: pane.clone(),
-            type_id: protocol::PaneTypeId::new(crate::core_panes::TERMINAL).unwrap(),
+            type_id: protocol::PaneTypeId::new(type_id).unwrap(),
             params: protocol::Params::default(),
             state: protocol::PaneState::default(),
         };
@@ -106,27 +111,33 @@ mod tests {
                 placement: None,
             })
             .unwrap();
-        let member = member((&Titles::default(), &layout), &pane);
-        assert_eq!(member.kind, MemberKind::Terminal, "glyph");
-        assert_eq!(member.label.as_ref(), "Terminal", "label");
+        layout
+    }
+
+    fn titled(
+        pane: &protocol::PaneId,
+        title: Option<&str>,
+    ) -> Titles {
+        let titles = Titles::default();
+        if let Some(text) = title {
+            titles.set(pane.clone(), protocol::PaneTitle::new(text).unwrap());
+        }
+        titles
     }
 
     #[test]
-    fn member_labels_fall_back_to_new_chat_until_a_title_arrives() {
-        let titles = Titles::default();
-        let pane = protocol::PaneId::new("p1").unwrap();
-        let before = member((&titles, &model::Layout::default()), &pane);
-        assert_eq!(
-            (before.label.as_ref(), before.provisional),
-            (NEW_CHAT, true),
-            "unnamed"
-        );
-        titles.set(pane.clone(), protocol::PaneTitle::new("Fix").unwrap());
-        let after = member((&titles, &model::Layout::default()), &pane);
-        assert_eq!(
-            (after.label.as_ref(), after.provisional),
-            ("Fix", false),
-            "named"
-        );
+    fn a_member_carries_its_pane_and_a_title_or_the_kind_default_until_one_arrives() {
+        for (type_id, title, (kind, label, provisional)) in CASES {
+            let pane = protocol::PaneId::new("p7").unwrap();
+            let titles = titled(&pane, title);
+            let member = member((&titles, &layout_holding(&pane, type_id)), &pane);
+            assert_eq!(
+                (member.pane, member.label.as_ref(), member.kind),
+                (pane, label, kind),
+                "{type_id} {title:?}"
+            );
+            assert_eq!(member.provisional, provisional, "{type_id} {title:?}");
+            assert!(!member.working, "{type_id} {title:?}");
+        }
     }
 }

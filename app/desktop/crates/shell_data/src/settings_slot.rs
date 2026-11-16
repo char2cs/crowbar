@@ -4,26 +4,37 @@ use std::sync::{Arc, OnceLock};
 
 use settings_ui::{Key, Value};
 
-use crate::settings_core::SettingsCore;
+type Reader = Arc<dyn Fn(&Key) -> Option<Value> + Send + Sync>;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub(crate) struct SettingsSlot {
-    core: Arc<OnceLock<Arc<SettingsCore>>>,
+    reader: Arc<OnceLock<Reader>>,
+}
+
+impl std::fmt::Debug for SettingsSlot {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.debug_struct("SettingsSlot")
+            .field("installed", &self.reader.get().is_some())
+            .finish()
+    }
 }
 
 impl SettingsSlot {
     pub(crate) fn install(
         &self,
-        core: &Arc<SettingsCore>,
+        reader: impl Fn(&Key) -> Option<Value> + Send + Sync + 'static,
     ) {
-        self.core.get_or_init(|| Arc::clone(core));
+        self.reader.get_or_init(|| Arc::new(reader));
     }
 
     pub(crate) fn get(
         &self,
         key: &str,
     ) -> Option<Value> {
-        self.core.get()?.get(&Key::new(key))
+        self.reader.get()?(&Key::new(key))
     }
 }
 

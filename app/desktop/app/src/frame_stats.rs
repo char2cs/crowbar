@@ -1,4 +1,3 @@
-/// How the window painted over the last second.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct FrameStats {
     pub(crate) fps: usize,

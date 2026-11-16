@@ -238,7 +238,8 @@ impl ShellData {
             (fonts, Arc::clone(&self.commands.outcome)),
             (Arc::clone(&self.fleet), self.desk.clone()),
         )?;
-        self.settings.install(&core);
+        let reading = Arc::clone(&core);
+        self.settings.install(move |key| reading.get(key));
         Ok(core)
     }
 

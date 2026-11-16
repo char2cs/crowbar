@@ -8,8 +8,7 @@ interface WorkspaceScopeState {
   listeners: Record<string, ReadonlySet<() => void>>
 }
 
-// Dependency-free on purpose, so the URL builders resolve scopes without pulling in the
-// editor/Monaco workspace-store graph.
+/** The workspace scopes and their listeners; dependency-free so the URL builders resolve scopes without pulling in the editor/Monaco workspace-store graph. */
 export const useWorkspaceScopeStore = create<WorkspaceScopeState>(() => ({
   scopes: {},
   listeners: {},
