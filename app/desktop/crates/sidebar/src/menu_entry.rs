@@ -2,6 +2,7 @@
 
 use ui::IconName;
 
+use crate::check::Check;
 use crate::intent::Intent;
 use crate::tone::Tone;
 
@@ -12,7 +13,7 @@ pub(crate) enum MenuEntry {
         icon: Option<IconName>,
         tone: Tone,
         intent: Intent,
-        checked: Option<bool>,
+        checked: Option<Check>,
     },
     Separator,
     Submenu {
@@ -40,14 +41,14 @@ impl MenuEntry {
     pub(crate) fn toggle(
         label: &str,
         icon: IconName,
-        (on, intent): (bool, Intent),
+        (check, intent): (Check, Intent),
     ) -> Self {
         Self::Action {
             label: label.to_owned(),
             icon: Some(icon),
             tone: Tone::Normal,
             intent,
-            checked: Some(on),
+            checked: Some(check),
         }
     }
 

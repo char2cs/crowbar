@@ -22,24 +22,23 @@ pub(crate) fn number_control(
     let typed = range.parse(&frame.state.field_text(row));
     let at_min = typed.is_some_and(|value| value <= range.min);
     let at_max = typed.is_some_and(|value| value >= range.max);
-    let step = |name: &str, icon: IconName, nudge: Nudge, blocked: bool| {
+    let step = |name: &str, icon: IconName, nudge: Nudge| {
         Button::icon_only(element_id(name, row.key.as_str()), icon)
             .on_click(frame.sink.send(Intent::Nudge(row.clone(), nudge)))
-            .when(blocked, Button::disabled)
     };
     div()
         .flex()
         .items_center()
         .gap(spacing::TIGHT)
         .w(px(width.pixels()))
-        .child(step("minus", IconName::Minus, Nudge::Down, at_min))
+        .child(step("minus", IconName::Minus, Nudge::Down).when(at_min, Button::disabled))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .children(frame.fields.get(&row.key).cloned()),
         )
-        .child(step("plus", IconName::Plus, Nudge::Up, at_max))
+        .child(step("plus", IconName::Plus, Nudge::Up).when(at_max, Button::disabled))
 }
 
 #[cfg(test)]

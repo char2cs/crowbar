@@ -3,7 +3,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Div, ElementId, FontWeight, HighlightStyle, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    ParentElement, Pixels, RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled,
     StyledText, Window, div, px,
 };
 use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
@@ -56,7 +56,6 @@ impl RenderOnce for FileTreeRow {
         let action = RowAction::Intent(Intent::Send(command(&entry)));
         let letter = entry.status.letter().map(letter_badge);
         let menu = file_menu(&entry, &self.scope, &self.handler);
-        let editing = self.input.is_some();
         let matched = matched_range(&entry.name, &self.look);
         let name = name_cell(&entry, self.input.as_ref(), (mono, palette));
         let name = match (&matched, self.input.is_some()) {
@@ -64,7 +63,8 @@ impl RenderOnce for FileTreeRow {
             _ => name,
         };
         let focus = row_focus(&id, window, cx);
-        let shaped = frame(id, (&entry, self.selected), (&self.look, palette));
+        let shaped = frame(id, &entry, (&self.look, palette))
+            .when(self.selected, |row| row.bg(palette.sidebar_element_idle()));
         let tinted = shaped.when(matched.is_some() && !self.selected, |row| {
             row.bg(palette.accent().opacity(MATCH_TINT))
         });
@@ -76,14 +76,14 @@ impl RenderOnce for FileTreeRow {
             .children(
                 entry
                     .counts
-                    .map(|counts| counts_view(counts, (mono, self.look.compact_badges), palette)),
+                    .map(|counts| counts_view(counts, (mono, count_gap(&self.look)), palette)),
             )
             .on_drop(file_drop::on_drop(
                 &self.handler,
                 file_drop::drop_directory(&entry),
             ))
             .on_click(select_then(&self.handler, (entry.path.clone(), action)));
-        if editing {
+        if self.input.is_some() {
             return row.into_any_element();
         }
         ContextMenu::new(menu_id(&entry), row, menu).into_any_element()
@@ -96,7 +96,7 @@ fn menu_id(entry: &FileTreeEntry) -> SharedString {
 
 fn frame(
     id: ElementId,
-    (entry, selected): (&FileTreeEntry, bool),
+    entry: &FileTreeEntry,
     (look, palette): (&TreeLook, &Palette),
 ) -> Stateful<Div> {
     div()
@@ -116,7 +116,6 @@ fn frame(
         .text_color(status_color(entry.status, palette))
         .opacity(faded(entry.status))
         .cursor_pointer()
-        .when(selected, |row| row.bg(palette.sidebar_element_idle()))
         .hover(move |style| style.bg(palette.sidebar_element_idle()))
 }
 
@@ -252,15 +251,18 @@ fn letter_badge(letter: char) -> Div {
         .child(letter.to_string())
 }
 
+fn count_gap(look: &TreeLook) -> Pixels {
+    if look.compact_badges {
+        return px(TIGHT_COUNT_GAP);
+    }
+    SPACE_XS
+}
+
 fn counts_view(
     (added, deleted): (u32, u32),
-    (mono, tight): (&'static str, bool),
+    (mono, gap): (&'static str, Pixels),
     palette: &Palette,
 ) -> Div {
-    let gap = [SPACE_XS, px(TIGHT_COUNT_GAP)]
-        .get(usize::from(tight))
-        .copied()
-        .unwrap_or(SPACE_XS);
     div()
         .flex()
         .gap(gap)

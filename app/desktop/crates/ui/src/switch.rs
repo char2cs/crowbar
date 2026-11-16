@@ -75,7 +75,7 @@ impl Switch {
     #[must_use]
     pub fn on_change(
         mut self,
-        handler: impl Fn(bool, &mut Window, &mut App) + 'static,
+        handler: impl Fn(Pose, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_change = Some(Box::new(handler));
         self
@@ -134,7 +134,7 @@ impl RenderOnce for Switch {
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .child(thumb(slide, palette))
             .when_some(self.on_change.filter(|_| enabled), move |d, handler| {
-                d.on_click(move |_, window, cx| handler(!checked, window, cx))
+                d.on_click(move |_, window, cx| handler(Pose::from(!checked), window, cx))
             })
     }
 }
@@ -168,7 +168,8 @@ mod tests {
         let sink = Rc::clone(&seen);
         let cx = open(cx, move |_, _| {
             let sink = Rc::clone(&sink);
-            Switch::new("s", checked).on_change(move |value, _, _| sink.set(Some(value)))
+            Switch::new("s", checked)
+                .on_change(move |value, _, _| sink.set(Some(bool::from(value))))
         });
         cx.simulate_click(point(px(10.0), px(9.0)), gpui::Modifiers::none());
         seen.get()

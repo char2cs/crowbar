@@ -178,7 +178,7 @@ fn flag_box(
     let toggled = flag_intent(source, record, &flag.id);
     let sink = frame.sink.clone();
     let switch = Switch::new(id, flag.on)
-        .on_change(move |on, window, cx| sink.deliver(toggled(on), (window, cx)));
+        .on_change(move |on, window, cx| sink.deliver(toggled(bool::from(on)), (window, cx)));
     div()
         .flex()
         .justify_center()

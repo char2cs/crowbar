@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::block::Block;
 use crate::condition::Condition;
+use crate::filter::{Filter, matches};
 use crate::key::Key;
 use crate::page::Page;
 use crate::page_id::PageId;
@@ -25,14 +26,6 @@ pub(crate) struct Visibility {
 
 fn words(query: &str) -> Vec<String> {
     query.split_whitespace().map(str::to_lowercase).collect()
-}
-
-fn matches(
-    words: &[String],
-    texts: &[&str],
-) -> bool {
-    let haystack = texts.join("\n").to_lowercase();
-    words.iter().all(|word| haystack.contains(word.as_str()))
 }
 
 fn row_texts(
@@ -66,16 +59,27 @@ impl Visibility {
         visibility
     }
 
+    fn page_filter<'a>(
+        &self,
+        page: &Page,
+        words: &'a [String],
+    ) -> Filter<'a> {
+        if !self.searching || matches(words, &[&page.label]) {
+            return Filter::Everything;
+        }
+        Filter::Words(words)
+    }
+
     fn add_page(
         &mut self,
         page: &Page,
         scope: &Scope<'_>,
         words: &[String],
     ) {
-        let whole = !self.searching || matches(words, &[&page.label]);
-        let mut any = whole;
+        let filter = self.page_filter(page, words);
+        let mut any = matches!(filter, Filter::Everything);
         for (index, block) in page.blocks.iter().enumerate() {
-            any |= self.add_block((page, index, block), scope, (words, whole));
+            any |= self.add_block((page, index, block), scope, filter);
         }
         if any {
             self.pages.push(page.id.clone());
@@ -86,21 +90,21 @@ impl Visibility {
         &mut self,
         (page, index, block): (&Page, usize, &Block),
         scope: &Scope<'_>,
-        (words, whole): (&[String], bool),
+        filter: Filter<'_>,
     ) -> bool {
         match block {
-            Block::Section(section) => self.add_rows(section, scope, (words, whole)),
-            Block::Shortcuts(group) => self.add_shortcuts(group, (words, whole)),
-            other => self.add_plain((page, index, other), (words, whole)),
+            Block::Section(section) => self.add_rows(section, scope, filter),
+            Block::Shortcuts(group) => self.add_shortcuts(group, filter),
+            other => self.add_plain((page, index, other), filter),
         }
     }
 
     fn add_plain(
         &mut self,
         (page, index, block): (&Page, usize, &Block),
-        (words, whole): (&[String], bool),
+        filter: Filter<'_>,
     ) -> bool {
-        let shown = whole || matches(words, &[&block_text(block)]);
+        let shown = filter.admits(&[&block_text(block)]);
         if shown {
             self.blocks.insert((page.id.clone(), index));
         }
@@ -111,13 +115,13 @@ impl Visibility {
         &mut self,
         section: &Section,
         scope: &Scope<'_>,
-        (words, whole): (&[String], bool),
+        filter: Filter<'_>,
     ) -> bool {
         let shown: Vec<&Row> = section
             .rows
             .iter()
             .filter(|row| holds(row.when.as_ref(), scope))
-            .filter(|row| whole || matches(words, &[&row_texts(row, section)]))
+            .filter(|row| filter.admits(&[&row_texts(row, section)]))
             .collect();
         self.rows.extend(shown.iter().map(|row| row.key.clone()));
         !shown.is_empty()
@@ -126,7 +130,7 @@ impl Visibility {
     fn add_shortcuts(
         &mut self,
         group: &ShortcutGroup,
-        (words, whole): (&[String], bool),
+        filter: Filter<'_>,
     ) -> bool {
         let shown: Vec<&Shortcut> = group
             .shortcuts
@@ -137,7 +141,7 @@ impl Visibility {
                     shortcut.command.as_str(),
                     group.title.as_str(),
                 ];
-                whole || matches(words, &texts)
+                filter.admits(&texts)
             })
             .collect();
         self.shortcuts

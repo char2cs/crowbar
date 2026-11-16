@@ -2,20 +2,34 @@
 
 use ui::IconName;
 
+use crate::check::Check;
 use crate::command::Command;
 use crate::file_tree_flag::FileTreeFlag;
 use crate::file_tree_view::FileTreeView;
 use crate::intent::Intent;
 use crate::menu_entry::MenuEntry;
 
+fn state(
+    view: &FileTreeView,
+    flag: FileTreeFlag,
+) -> Check {
+    if view.flag(flag) {
+        return Check::On;
+    }
+    Check::Off
+}
+
 fn entry(
     label: &str,
     icon: IconName,
     (view, flag): (&FileTreeView, FileTreeFlag),
 ) -> MenuEntry {
-    let on = view.flag(flag);
-    let command = Command::SetFileTreeFlag { flag, on: !on };
-    MenuEntry::toggle(label, icon, (on, Intent::Send(command)))
+    let check = state(view, flag);
+    let command = Command::SetFileTreeFlag {
+        flag,
+        on: check == Check::Off,
+    };
+    MenuEntry::toggle(label, icon, (check, Intent::Send(command)))
 }
 
 pub(crate) fn filter_menu(view: &FileTreeView) -> Vec<MenuEntry> {
@@ -39,7 +53,7 @@ pub(crate) fn filter_menu(view: &FileTreeView) -> Vec<MenuEntry> {
 mod tests {
     use super::*;
 
-    type Sent = (FileTreeFlag, bool, Option<bool>);
+    type Sent = (FileTreeFlag, bool, Option<Check>);
 
     fn sends(
         entries: &[MenuEntry],
@@ -74,16 +88,16 @@ mod tests {
         assert_eq!(entries.len(), 4);
         assert_eq!(
             sends(&entries, 0),
-            Some((FileTreeFlag::Hidden, false, Some(true)))
+            Some((FileTreeFlag::Hidden, false, Some(Check::On)))
         );
         assert_eq!(
             sends(&entries, 1),
-            Some((FileTreeFlag::Gitignored, true, Some(false)))
+            Some((FileTreeFlag::Gitignored, true, Some(Check::Off)))
         );
         assert_eq!(entries[2], MenuEntry::Separator);
         assert_eq!(
             sends(&entries, 3),
-            Some((FileTreeFlag::GitStatus, false, Some(true)))
+            Some((FileTreeFlag::GitStatus, false, Some(Check::On)))
         );
     }
 }

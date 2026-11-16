@@ -39,7 +39,7 @@ mod tests {
     fn case(
         bytes: Range<usize>,
         closes_line: Pose,
-        (index, holds): (usize, bool),
+        (index, holds): (usize, Pose),
     ) -> Case {
         let row = TextRow {
             caret_end: bytes.end,
@@ -49,17 +49,21 @@ mod tests {
             line: 0,
             closes_line: closes_line == Pose::On,
         };
-        Case { row, index, holds }
+        Case {
+            row,
+            index,
+            holds: holds == Pose::On,
+        }
     }
 
     #[test]
     fn a_wrap_point_belongs_to_the_row_it_starts() {
         let cases = [
-            case(0..5, Pose::Off, (4, true)),
-            case(0..5, Pose::Off, (5, false)),
-            case(0..5, Pose::On, (5, true)),
-            case(0..5, Pose::On, (6, false)),
-            case(3..3, Pose::On, (3, true)),
+            case(0..5, Pose::Off, (4, Pose::On)),
+            case(0..5, Pose::Off, (5, Pose::Off)),
+            case(0..5, Pose::On, (5, Pose::On)),
+            case(0..5, Pose::On, (6, Pose::Off)),
+            case(3..3, Pose::On, (3, Pose::On)),
         ];
         for case in cases {
             assert_eq!(

@@ -18,7 +18,7 @@ pub(crate) fn body(
     (window, cx): (&mut Window, &mut App),
 ) -> AnyElement {
     let sink = frame.sink.clone();
-    let capturing = frame.state.capturing().is_some();
+    let capture = frame.state.capturing().map(|_| KeyMode::Capturing);
     let focused = focus.clone();
     div()
         .id("settings-body")
@@ -28,7 +28,7 @@ pub(crate) fn body(
         .min_w_0()
         .overflow_hidden()
         .on_key_down(move |event, window, cx| {
-            let mode = key_mode((capturing, focused.is_focused(window)));
+            let mode = capture.unwrap_or_else(|| rail_or_page(&focused, window));
             handle_key(&sink, (event, mode), (window, cx));
         })
         .child(rail(frame, (&mut *window, &mut *cx)))
@@ -36,12 +36,14 @@ pub(crate) fn body(
         .into_any_element()
 }
 
-fn key_mode((capturing, focused): (bool, bool)) -> KeyMode {
-    match (capturing, focused) {
-        (true, _) => KeyMode::Capturing,
-        (false, true) => KeyMode::Rail,
-        (false, false) => KeyMode::Page,
+fn rail_or_page(
+    focus: &FocusHandle,
+    window: &Window,
+) -> KeyMode {
+    if focus.is_focused(window) {
+        return KeyMode::Rail;
     }
+    KeyMode::Page
 }
 
 fn handle_key(

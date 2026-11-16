@@ -2,4 +2,6 @@
 
 use gpui::{App, Window};
 
-pub(crate) type ToggleHandler = Box<dyn Fn(bool, &mut Window, &mut App) + 'static>;
+use crate::pose::Pose;
+
+pub(crate) type ToggleHandler = Box<dyn Fn(Pose, &mut Window, &mut App) + 'static>;

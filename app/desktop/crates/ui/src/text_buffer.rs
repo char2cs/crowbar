@@ -5,6 +5,7 @@ use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::direction::Direction;
+use crate::pose::Pose;
 use crate::text_words;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -124,7 +125,7 @@ impl TextBuffer {
     pub(crate) fn press(
         &mut self,
         offset: usize,
-        (clicks, extend): (usize, bool),
+        (clicks, extend): (usize, Pose),
     ) {
         let offset = self.clamp(offset);
         let span = match clicks {
@@ -132,7 +133,7 @@ impl TextBuffer {
             2 => Some(text_words::around(&self.text, offset)),
             _ => Some(text_words::line_around(&self.text, offset)),
         };
-        match (span, extend) {
+        match (span, extend == Pose::On) {
             (Some(span), _) => {
                 self.selection = span;
                 self.reversed = false;
@@ -344,19 +345,19 @@ mod tests {
 
     #[test]
     fn presses_place_the_caret_select_a_word_or_a_line_and_extend_on_shift() {
-        type Case = (usize, usize, bool, Range<usize>);
+        type Case = (usize, usize, Pose, Range<usize>);
         let cases: &[Case] = &[
-            (5, 1, false, 5..5),
-            (5, 1, true, 4..5),
-            (5, 2, false, 4..7),
-            (5, 3, false, 0..7),
-            (9, 3, true, 8..11),
+            (5, 1, Pose::Off, 5..5),
+            (5, 1, Pose::On, 4..5),
+            (5, 2, Pose::Off, 4..7),
+            (5, 3, Pose::Off, 0..7),
+            (9, 3, Pose::On, 8..11),
         ];
         for (offset, clicks, extend, want) in cases {
             let mut buffer = TextBuffer::with_text("one two\nsix");
             buffer.move_to(4);
             buffer.press(*offset, (*clicks, *extend));
-            assert_eq!(buffer.selection(), *want, "{offset} x{clicks} {extend}");
+            assert_eq!(buffer.selection(), *want, "{offset} x{clicks} {extend:?}");
         }
     }
 

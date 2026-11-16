@@ -42,29 +42,29 @@ impl EdgeContact {
         content: Rect,
         chrome: ChromeContext,
     ) -> Self {
-        let pick = |drawn: bool, amount: f32| amount * f32::from(drawn);
+        let pick = |amount: Option<f32>| amount.unwrap_or_default();
         let at_left = near(slot.x, content.x);
         let at_right = near(slot.x + slot.width, content.x + content.width);
         let at_bottom = near(slot.y + slot.height, content.y + content.height);
         let window_left = at_left && chrome.sidebar != SidebarEdge::Left;
         let window_right = at_right && chrome.sidebar != SidebarEdge::Right;
         let margin = Insets {
-            left: pick(!at_left, MARGIN),
+            left: pick((!at_left).then_some(MARGIN)),
             top: top_margin(slot, content, chrome),
-            right: pick(!at_right, MARGIN),
-            bottom: pick(!at_bottom, MARGIN),
+            right: pick((!at_right).then_some(MARGIN)),
+            bottom: pick((!at_bottom).then_some(MARGIN)),
         };
         let border = Insets {
-            left: pick(!window_left, BORDER),
+            left: pick((!window_left).then_some(BORDER)),
             top: BORDER,
-            right: pick(!window_right, BORDER),
-            bottom: pick(!at_bottom, BORDER),
+            right: pick((!window_right).then_some(BORDER)),
+            bottom: pick((!at_bottom).then_some(BORDER)),
         };
         let radius = Corners {
-            top_left: pick(!window_left, RADIUS),
-            top_right: pick(!window_right, RADIUS),
-            bottom_left: pick(!(window_left || at_bottom), RADIUS),
-            bottom_right: pick(!(window_right || at_bottom), RADIUS),
+            top_left: pick((!window_left).then_some(RADIUS)),
+            top_right: pick((!window_right).then_some(RADIUS)),
+            bottom_left: pick((!(window_left || at_bottom)).then_some(RADIUS)),
+            bottom_right: pick((!(window_right || at_bottom)).then_some(RADIUS)),
         };
         Self {
             margin,

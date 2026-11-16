@@ -2,6 +2,7 @@
 
 use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, Window};
 
+use crate::pose::Pose;
 use crate::selection_drag::SelectionDrag;
 
 use crate::text_input::TextInput;
@@ -49,8 +50,10 @@ impl TextInput {
     ) {
         self.selecting = true;
         let offset = self.offset_at(event.position);
-        self.buffer
-            .press(offset, (event.click_count, event.modifiers.shift));
+        self.buffer.press(
+            offset,
+            (event.click_count, Pose::from(event.modifiers.shift)),
+        );
         cx.notify();
     }
 

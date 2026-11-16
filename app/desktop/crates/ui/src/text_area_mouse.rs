@@ -3,6 +3,7 @@
 use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent, Window, point};
 
 use crate::direction::Direction;
+use crate::pose::Pose;
 use crate::selection_drag::SelectionDrag;
 use crate::text_area::TextArea;
 use crate::text_area_scroll::clamp;
@@ -54,8 +55,10 @@ impl TextArea {
     ) {
         self.selecting = true;
         let offset = self.offset_at(event.position);
-        self.buffer
-            .press(offset, (event.click_count, event.modifiers.shift));
+        self.buffer.press(
+            offset,
+            (event.click_count, Pose::from(event.modifiers.shift)),
+        );
         cx.notify();
     }
 

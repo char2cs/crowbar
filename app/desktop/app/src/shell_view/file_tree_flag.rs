@@ -15,7 +15,7 @@ fn refusal(error: &settings_ui::Error) -> (ToastKind, String) {
 impl ShellView {
     pub(super) fn set_file_tree_flag(
         &mut self,
-        (key, on): (&'static str, bool),
+        (key, value): (&'static str, Value),
         cx: &mut Context<'_, Self>,
     ) {
         let Some(backend) = self.settings_backend() else {
@@ -25,7 +25,7 @@ impl ShellView {
             );
             return;
         };
-        if let Err(error) = backend.set(&Key::new(key), Value::Bool(on)) {
+        if let Err(error) = backend.set(&Key::new(key), value) {
             self.show_notice(NoticeKey::Command, refusal(&error), cx);
         }
     }

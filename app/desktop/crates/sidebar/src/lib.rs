@@ -12,6 +12,7 @@ mod changed_file;
 mod changes;
 mod changes_panel;
 mod chats;
+mod check;
 mod clip_mode;
 mod cluster_spec;
 mod command;

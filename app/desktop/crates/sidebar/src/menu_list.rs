@@ -8,6 +8,7 @@ use gpui::{
 };
 use ui::{Icon, IconName, Palette, Surface, Theme, radius, shadow, text_size};
 
+use crate::check::Check;
 use crate::intent::Intent;
 use crate::item_look::ItemLook;
 use crate::menu_entry::MenuEntry;
@@ -74,20 +75,6 @@ impl RenderOnce for MenuList {
     }
 }
 
-fn look(
-    (icon, checked): (Option<IconName>, Option<bool>),
-    tone: Tone,
-    (active, palette): (bool, &'static Palette),
-) -> ItemLook {
-    ItemLook {
-        icon,
-        tone,
-        active,
-        checked,
-        palette,
-    }
-}
-
 impl MenuList {
     fn row(
         &self,
@@ -107,7 +94,13 @@ impl MenuList {
             } => self.action_row(
                 index,
                 (label, intent),
-                look((*icon, *checked), *tone, (active, palette)),
+                ItemLook {
+                    icon: *icon,
+                    tone: *tone,
+                    active,
+                    checked: *checked,
+                    palette,
+                },
             ),
             MenuEntry::Submenu {
                 label,
@@ -116,7 +109,13 @@ impl MenuList {
             } => self.submenu_row(
                 index,
                 (label, entries),
-                look((*icon, None), Tone::Normal, (active, palette)),
+                ItemLook {
+                    icon: *icon,
+                    tone: Tone::Normal,
+                    active,
+                    checked: None,
+                    palette,
+                },
             ),
         }
     }
@@ -235,12 +234,12 @@ fn item(
 }
 
 fn check_slot(
-    checked: Option<bool>,
+    checked: Option<Check>,
     palette: &Palette,
 ) -> Option<Div> {
-    let on = checked?;
+    let check = checked?;
     let slot = div().ml_auto().flex().justify_center().size(ICON_LARGE);
-    if !on {
+    if check == Check::Off {
         return Some(slot);
     }
     let mark = Icon::new(IconName::Check)

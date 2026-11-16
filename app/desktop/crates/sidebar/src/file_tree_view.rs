@@ -73,31 +73,20 @@ mod tests {
         assert!(!view.any_filter_off());
     }
 
-    fn shown_of(on: [bool; 3]) -> BTreeSet<FileTreeFlag> {
-        FileTreeFlag::ALL
-            .into_iter()
-            .zip(on)
-            .filter(|(_, on)| *on)
-            .map(|(flag, _)| flag)
-            .collect()
-    }
-
-    fn view_with(on: [bool; 3]) -> FileTreeView {
+    fn view_without(off: FileTreeFlag) -> FileTreeView {
         FileTreeView {
-            shown: shown_of(on),
+            shown: FileTreeFlag::ALL
+                .into_iter()
+                .filter(|flag| *flag != off)
+                .collect(),
             ..FileTreeView::default()
         }
     }
 
     #[test]
     fn turning_a_switch_off_lights_the_filter_and_reads_back() {
-        let cases = [
-            (FileTreeFlag::Hidden, false, true, true),
-            (FileTreeFlag::Gitignored, true, false, true),
-            (FileTreeFlag::GitStatus, true, true, false),
-        ];
-        for (flag, hidden, ignored, status) in cases {
-            let view = view_with([hidden, ignored, status]);
+        for flag in FileTreeFlag::ALL {
+            let view = view_without(flag);
             assert!(view.any_filter_off(), "{flag:?}");
             assert!(!view.flag(flag), "{flag:?}");
         }

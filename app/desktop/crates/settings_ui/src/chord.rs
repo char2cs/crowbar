@@ -14,9 +14,9 @@ impl Chord {
     pub fn parse(text: &str) -> Option<Self> {
         let lowered = text.trim().to_lowercase();
         let mut rest = lowered.as_str();
-        let mut present = [false; MODIFIER_COUNT];
+        let mut seen: Vec<usize> = Vec::new();
         while let Some((slot, tail)) = take_modifier(rest) {
-            claim(&mut present, slot)?;
+            claim(&mut seen, slot)?;
             rest = tail;
         }
         let dangling = rest.len() > 1 && rest.ends_with('+');
@@ -26,9 +26,9 @@ impl Chord {
         }
         let words = MODIFIERS
             .iter()
-            .zip(present)
-            .filter(|&(_, on)| on)
-            .map(|(word, _)| *word);
+            .enumerate()
+            .filter(|(slot, _)| seen.contains(slot))
+            .map(|(_, word)| *word);
         Some(Self(words.chain([rest]).collect::<Vec<_>>().join("+")))
     }
 
@@ -51,12 +51,14 @@ impl Chord {
 }
 
 fn claim(
-    present: &mut [bool; MODIFIER_COUNT],
+    seen: &mut Vec<usize>,
     slot: usize,
 ) -> Option<()> {
-    let flag = present.get_mut(slot)?;
-    let repeated = std::mem::replace(flag, true);
-    (!repeated).then_some(())
+    if seen.contains(&slot) {
+        return None;
+    }
+    seen.push(slot);
+    Some(())
 }
 
 fn take_modifier(text: &str) -> Option<(usize, &str)> {

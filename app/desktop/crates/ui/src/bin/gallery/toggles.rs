@@ -15,7 +15,8 @@ fn switches(
 ) -> impl IntoElement {
     let owner = entity.clone();
     let switch = Switch::new("switch", page.switch_on).on_change(move |value, _, cx| {
-        owner.update(cx, |page, cx| page.edit(cx, |page| page.switch_on = value));
+        let on = bool::from(value);
+        owner.update(cx, |page, cx| page.edit(cx, |page| page.switch_on = on));
     });
     row()
         .gap(spacing::STEP_4)
@@ -30,7 +31,8 @@ fn checkboxes(
 ) -> impl IntoElement {
     let owner = entity.clone();
     let checkbox = Checkbox::new("check", page.checked).on_change(move |value, _, cx| {
-        owner.update(cx, |page, cx| page.edit(cx, |page| page.checked = value));
+        let on = bool::from(value);
+        owner.update(cx, |page, cx| page.edit(cx, |page| page.checked = on));
     });
     row()
         .gap(spacing::STEP_4)

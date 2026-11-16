@@ -37,6 +37,7 @@ mod fake_state;
 mod field_control;
 mod field_input;
 mod fields;
+mod filter;
 mod flag_look;
 mod frame;
 mod header;
