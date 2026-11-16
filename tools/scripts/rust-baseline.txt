@@ -573,7 +573,6 @@ app/desktop/crates/terminal_view/src/terminal_view.rs	fn-count	1
 app/desktop/crates/terminal_view/src/terminal_view_mouse.rs	bool-param	3
 app/desktop/crates/terminal_view/src/terminal_view_mouse.rs	fn-count	1
 app/desktop/crates/terminal_view/src/terminal_view_paint.rs	bool-param	3
-app/desktop/crates/terminal_view/src/terminal_view_session.rs	fn-count	1
 app/desktop/crates/terminal_view/src/theme_palette.rs	bool-param	1
 app/desktop/crates/ui/src/assets.rs	real-infra	3
 app/desktop/crates/ui/src/bin/gallery/page.rs	bool-param	1
@@ -647,7 +646,7 @@ app/desktop/crates/webview/src/web_view_handle.rs	fn-count	1
 app/desktop/crates/webview/src/web_view_handle.rs	table-driven	1
 app/desktop/crates/webview/src/web_view_host.rs	table-driven	1
 app/desktop/crates/window_state/src/window_store.rs	direct-fs	1
-app/desktop/crates/window_state/src/window_store.rs	real-infra	3
+app/desktop/crates/window_state/src/window_store.rs	real-infra	1
 app/mobile/ios-plugin/src/font.rs	platform-ref	2
 app/mobile/ios-plugin/src/frontend.rs	platform-ref	2
 app/mobile/ios-plugin/src/ios_plugin.rs	platform-ref	2

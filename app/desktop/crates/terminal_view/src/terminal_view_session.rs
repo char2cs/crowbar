@@ -15,33 +15,25 @@ impl TerminalView {
         frames: &[DaemonFrame],
         cx: &mut Context<'_, Self>,
     ) {
-        for frame in frames {
-            self.apply_frame(frame, cx);
+        if frames
+            .iter()
+            .any(|frame| matches!(frame, DaemonFrame::Output(_)))
+        {
+            self.run_pending_command();
+        }
+        for event in self.terminal.apply_batch(frames) {
+            Self::handle_event(event, cx);
+        }
+        if frames
+            .iter()
+            .any(|frame| matches!(frame, DaemonFrame::Snapshot(_)))
+        {
+            self.terminal.scroll_to_bottom();
         }
         cx.notify();
     }
 
-    fn apply_frame(
-        &mut self,
-        frame: &DaemonFrame,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.run_pending_command(frame);
-        for event in self.terminal.apply(frame) {
-            Self::handle_event(event, cx);
-        }
-        if matches!(frame, DaemonFrame::Snapshot(_)) {
-            self.terminal.scroll_to_bottom();
-        }
-    }
-
-    fn run_pending_command(
-        &mut self,
-        frame: &DaemonFrame,
-    ) {
-        if !matches!(frame, DaemonFrame::Output(_)) {
-            return;
-        }
+    fn run_pending_command(&mut self) {
         if let Some(command) = self.pending_command.take() {
             self.send(ClientMessage::Input(format!("{command}\n")));
         }
@@ -58,6 +50,7 @@ impl TerminalView {
             TerminalEvent::ResetTitle => cx.emit(TerminalViewEvent::TitleChanged(String::new())),
             TerminalEvent::Bell => cx.emit(TerminalViewEvent::Bell),
             TerminalEvent::ClipboardStore(text) => {
+                cx.emit(TerminalViewEvent::ClipboardWritten(text.len()));
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             },
             TerminalEvent::Exit(code) => cx.emit(TerminalViewEvent::Exited(code)),
@@ -191,6 +184,17 @@ mod tests {
             TerminalViewEvent::Exited(2),
         ];
         assert_eq!(events.borrow().as_slice(), expected);
+    }
+
+    #[gpui::test]
+    fn an_osc_52_store_writes_the_clipboard_and_tells_the_host(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx);
+        let events = record_events::<TerminalView, TerminalViewEvent>(cx, &harness.view);
+        feed(&harness, cx, "\x1b]52;c;aGk=\x07");
+        assert_eq!(
+            events.borrow().as_slice(),
+            [TerminalViewEvent::ClipboardWritten(2)]
+        );
     }
 
     #[gpui::test]

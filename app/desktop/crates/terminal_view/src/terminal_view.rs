@@ -161,7 +161,7 @@ impl TerminalView {
         let text = terminal::format_dropped_paths(paths.paths());
         window.focus(&self.focus);
         if !text.is_empty() {
-            self.send_text(&text, cx);
+            self.paste(&text, cx);
         }
     }
 }

@@ -14,6 +14,8 @@ use crate::toast_placement::ToastPlacement;
 use crate::toast_queue_event::ToastQueueEvent;
 use crate::toast_swipe::ToastSwipe;
 
+const MAX_TOASTS: usize = 8;
+
 /// A queue entity that owns the toasts of one column; render it inside a relatively positioned container.
 ///
 /// Newest toasts come first. Automatic toasts expire after five seconds, pinned ones stay until
@@ -110,8 +112,21 @@ impl ToastQueue {
                 timer,
             },
         );
+        self.evict_overflow(cx);
         cx.notify();
         id
+    }
+
+    fn evict_overflow(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        while self.entries.len() > MAX_TOASTS {
+            let oldest_unpinned = self.entries.iter().rposition(|entry| !entry.is_pinned());
+            let index = oldest_unpinned.unwrap_or(self.entries.len() - 1);
+            let evicted = self.entries.remove(index);
+            cx.emit(ToastQueueEvent::Removed(evicted.id));
+        }
     }
 
     fn restyle(
@@ -322,6 +337,20 @@ mod tests {
         assert_eq!(left, [ToastId(1)]);
         advance(cx, Duration::from_secs(600));
         assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 1);
+    }
+
+    #[gpui::test]
+    fn pinned_toasts_are_capped_and_the_oldest_goes_first(cx: &mut TestAppContext) {
+        let queue = queue(cx);
+        let ids: Vec<ToastId> = (0..MAX_TOASTS + 3)
+            .map(|_| push(&queue, ToastLifetime::Pinned, cx))
+            .collect();
+        let kept = queue.read_with(cx, |queue, _| {
+            queue.entries.iter().map(|e| e.id).collect::<Vec<_>>()
+        });
+        assert_eq!(kept.len(), MAX_TOASTS);
+        assert_eq!(kept.first(), ids.last());
+        assert!(!kept.contains(&ids[0]));
     }
 
     #[gpui::test]

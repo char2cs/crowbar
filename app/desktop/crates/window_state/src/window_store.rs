@@ -29,12 +29,23 @@ impl WindowStore {
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
             Err(source) => return Err(self.io(source)),
         };
-        serde_json::from_str(&text)
-            .map(Some)
-            .map_err(|source| Error::Corrupt {
-                path: self.path.clone(),
-                source,
-            })
+        self.parse(&text).map(Some)
+    }
+
+    fn parse(
+        &self,
+        text: &str,
+    ) -> Result<WindowState, Error> {
+        let state: WindowState = serde_json::from_str(text).map_err(|source| Error::Corrupt {
+            path: self.path.clone(),
+            source,
+        })?;
+        let path = self.path.clone();
+        state
+            .bounds
+            .validated()
+            .map(|_| state)
+            .ok_or(Error::OutOfRange { path })
     }
 
     /// Saves `state` atomically (write beside, then rename), creating the directory.
@@ -88,13 +99,14 @@ mod tests {
     }
 
     #[test]
-    fn a_damaged_file_is_reported() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("window.json");
-        std::fs::write(&path, "{nope").unwrap();
+    fn damaged_or_out_of_range_text_is_reported() {
+        const NOT_FINITE: &str =
+            r#"{"bounds":{"x":0.0,"y":0.0,"width":1e39,"height":600.0},"maximized":false}"#;
+        let store = WindowStore::new(Path::new("window.json"));
+        assert!(matches!(store.parse("{nope"), Err(Error::Corrupt { .. })));
         assert!(matches!(
-            WindowStore::new(&path).load(),
-            Err(Error::Corrupt { .. })
+            store.parse(NOT_FINITE),
+            Err(Error::OutOfRange { .. })
         ));
     }
 }

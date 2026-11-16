@@ -86,12 +86,24 @@ impl Terminal {
         &mut self,
         frame: &DaemonFrame,
     ) -> Vec<TerminalEvent> {
-        let exit = self.feed.apply(&mut self.term, frame);
+        self.apply_batch(std::slice::from_ref(frame))
+    }
+
+    /// Applies `frames` in order and rescans an active search once for the whole batch, so fast
+    /// output does not rescan the scrollback per frame.
+    pub fn apply_batch(
+        &mut self,
+        frames: &[DaemonFrame],
+    ) -> Vec<TerminalEvent> {
+        let exits: Vec<i32> = frames
+            .iter()
+            .filter_map(|frame| self.feed.apply(&mut self.term, frame))
+            .collect();
         if let Some(search) = self.search.as_mut() {
             search.refresh(&self.term);
         }
         let mut events = self.drain_events();
-        events.extend(exit.map(TerminalEvent::Exit));
+        events.extend(exits.into_iter().map(TerminalEvent::Exit));
         events
     }
 
@@ -394,12 +406,16 @@ fn side_of(side: CellSide) -> Side {
     }
 }
 
+const MAX_CLIPBOARD_BYTES: usize = 64 * 1024;
+
 fn terminal_event(event: Event) -> Option<TerminalEvent> {
     match event {
         Event::Title(title) => Some(TerminalEvent::Title(title)),
         Event::ResetTitle => Some(TerminalEvent::ResetTitle),
         Event::Bell => Some(TerminalEvent::Bell),
-        Event::ClipboardStore(_, text) => Some(TerminalEvent::ClipboardStore(text)),
+        Event::ClipboardStore(_, text) => {
+            (text.len() <= MAX_CLIPBOARD_BYTES).then_some(TerminalEvent::ClipboardStore(text))
+        },
         _ => None,
     }
 }
@@ -520,6 +536,35 @@ mod tests {
             0,
             "clearing the search drops the highlights"
         );
+    }
+
+    #[test]
+    fn a_batch_updates_the_search_matches_once_for_all_its_frames() {
+        let mut terminal = shown("");
+        let query = SearchQuery {
+            text: "ab".into(),
+            options: SearchOptions::NONE,
+        };
+        assert_eq!(terminal.search(query).map(|s| s.total).ok(), Some(0));
+        let frames = [
+            DaemonFrame::Output(b"ab ".to_vec()),
+            DaemonFrame::Output(b"ab ".to_vec()),
+            DaemonFrame::Exit(0),
+        ];
+        let events = terminal.apply_batch(&frames);
+        assert_eq!(terminal.search_next().total, 2);
+        assert_eq!(events, vec![TerminalEvent::Exit(0)]);
+    }
+
+    #[test]
+    fn a_clipboard_store_over_the_cap_is_dropped() {
+        let mut terminal = empty_terminal(COLUMNS, LINES);
+        let store =
+            |encoded: &str| DaemonFrame::Output(format!("\x1b]52;c;{encoded}\x07").into_bytes());
+        let small = terminal.apply(&store("aGk="));
+        assert_eq!(small, vec![TerminalEvent::ClipboardStore("hi".into())]);
+        let over = "eHh4".repeat((MAX_CLIPBOARD_BYTES + 3) / 3);
+        assert_eq!(terminal.apply(&store(&over)), Vec::new());
     }
 
     #[test]

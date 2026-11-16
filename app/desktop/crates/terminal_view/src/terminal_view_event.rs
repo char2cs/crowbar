@@ -9,6 +9,8 @@ pub enum TerminalViewEvent {
     TitleChanged(String),
     /// The bell rang.
     Bell,
+    /// The program replaced the clipboard (OSC 52) with this many bytes; the host may tell the user.
+    ClipboardWritten(usize),
     /// The session's process ended with this code.
     Exited(i32),
     /// A web link was activated with the modifier held; the host decides how to open it.

@@ -22,4 +22,10 @@ pub enum Error {
         #[source]
         source: serde_json::Error,
     },
+    /// The state file holds bounds that are not finite numbers or not positive sizes.
+    #[error("window state file {path} holds bounds that are not finite")]
+    OutOfRange {
+        /// The state file.
+        path: PathBuf,
+    },
 }

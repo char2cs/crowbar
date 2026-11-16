@@ -1,13 +1,16 @@
 //! Undo and redo snapshots of an editable text.
 
+use std::collections::VecDeque;
+
 use crate::edit::Edit;
 use crate::text_buffer::TextBuffer;
 
 const DEPTH: usize = 200;
+const BYTE_BUDGET: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Default)]
 pub(crate) struct TextHistory {
-    undo: Vec<TextBuffer>,
+    undo: VecDeque<TextBuffer>,
     redo: Vec<TextBuffer>,
     typing: bool,
 }
@@ -24,17 +27,37 @@ impl TextHistory {
         if continues {
             return;
         }
-        self.undo.push(before.clone());
-        if self.undo.len() > DEPTH {
-            self.undo.remove(0);
+        self.undo.push_back(before.clone());
+        self.trim();
+    }
+
+    fn trim(&mut self) {
+        let mut bytes = self.bytes();
+        while let Some(freed) = self.evict_oldest(bytes) {
+            bytes -= freed;
         }
+    }
+
+    fn evict_oldest(
+        &mut self,
+        bytes: usize,
+    ) -> Option<usize> {
+        let too_large = self.undo.len() > DEPTH || bytes > BYTE_BUDGET;
+        if self.undo.len() < 2 || !too_large {
+            return None;
+        }
+        self.undo.pop_front().map(|oldest| oldest.text().len())
+    }
+
+    fn bytes(&self) -> usize {
+        self.undo.iter().map(|buffer| buffer.text().len()).sum()
     }
 
     pub(crate) fn undo(
         &mut self,
         current: &TextBuffer,
     ) -> Option<TextBuffer> {
-        let previous = self.undo.pop()?;
+        let previous = self.undo.pop_back()?;
         self.redo.push(current.clone());
         self.typing = false;
         Some(previous)
@@ -45,7 +68,7 @@ impl TextHistory {
         current: &TextBuffer,
     ) -> Option<TextBuffer> {
         let next = self.redo.pop()?;
-        self.undo.push(current.clone());
+        self.undo.push_back(current.clone());
         self.typing = false;
         Some(next)
     }
@@ -103,6 +126,16 @@ mod tests {
         history.break_typing();
         history.record(&buffer("ab"), Edit::Typing);
         assert_eq!(history.undo.len(), 2);
+    }
+
+    #[test]
+    fn large_snapshots_are_capped_by_size_but_the_latest_is_kept() {
+        let mut history = TextHistory::default();
+        let large = buffer(&"x".repeat(BYTE_BUDGET / 4 + 1));
+        for _ in 0..10 {
+            history.record(&large, Edit::Other);
+        }
+        assert!(history.undo.len() <= 4 && !history.undo.is_empty());
     }
 
     #[test]
