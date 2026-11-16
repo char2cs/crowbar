@@ -346,16 +346,18 @@ impl Render for OobeView {
             .relative()
             .font_family(Theme::of(cx).ui_family())
             .child(backdrop(self.screen))
-            .child(
-                div()
-                    .absolute()
-                    .size_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(content),
-            )
+            .child(stage(content))
     }
+}
+
+fn stage(content: Div) -> Div {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(content)
 }
 
 #[cfg(test)]
@@ -402,6 +404,16 @@ mod tests {
         let sink = Rc::clone(&seen);
         cx.update(|_, cx| cx.subscribe(view, collect(sink)).detach());
         seen
+    }
+
+    #[test]
+    fn the_stage_is_pinned_to_every_edge_because_a_percent_size_collapses_in_the_live_window() {
+        let mut shown = stage(div());
+        let inset = &shown.style().inset;
+        let pinned = [inset.top, inset.left, inset.right, inset.bottom]
+            .iter()
+            .all(|edge| *edge == Some(gpui::px(0.0).into()));
+        assert!(pinned, "{inset:?}");
     }
 
     #[gpui::test]

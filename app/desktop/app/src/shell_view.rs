@@ -488,7 +488,7 @@ impl ShellView {
 }
 
 fn layer<V: Render>(view: Option<&Entity<V>>) -> Option<Div> {
-    view.map(|view| div().absolute().size_full().child(view.clone()))
+    view.map(|view| div().absolute().inset_0().child(view.clone()))
 }
 
 impl Render for ShellView {
@@ -546,5 +546,18 @@ mod tests {
         let open = cx.new(|_| Probe);
         assert!(layer(Some(&open)).is_some(), "open");
         assert!(layer::<Probe>(None).is_none(), "closed");
+    }
+
+    #[gpui::test]
+    fn a_layer_is_pinned_to_every_window_edge_because_a_percent_size_collapses_in_the_live_window(
+        cx: &mut TestAppContext
+    ) {
+        let open = cx.new(|_| Probe);
+        let mut shown = layer(Some(&open)).expect("an open overlay has a layer");
+        let inset = &shown.style().inset;
+        let pinned = [inset.top, inset.left, inset.right, inset.bottom]
+            .iter()
+            .all(|edge| *edge == Some(gpui::px(0.0).into()));
+        assert!(pinned, "{inset:?}");
     }
 }
