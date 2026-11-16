@@ -2,7 +2,6 @@
 app/crates/atomic_file/src/atomic_file.rs	direct-fs	6
 app/crates/atomic_file/src/atomic_file.rs	real-infra	6
 app/crates/browser_nav/src/browser_nav.rs	bool-param	4
-app/crates/browser_nav/src/browser_nav.rs	spec-ref	1
 app/crates/browser_nav/src/browser_url.rs	bool-param	1
 app/crates/browser_nav/src/browser_url.rs	map-err-ignore	1
 app/crates/browser_nav/src/page_state.rs	bool-param	1
@@ -95,25 +94,21 @@ app/crates/transport/tests/support/tls_host.rs	real-infra	4
 app/crates/transport/tests/transport.rs	real-infra	6
 app/desktop/app/src	cycle	1
 app/desktop/app/src/app_menu.rs	bool-param	1
-app/desktop/app/src/app_menu.rs	platform-ref	1
 app/desktop/app/src/app_options.rs	real-infra	3
 app/desktop/app/src/browser_bars.rs	bool-param	1
 app/desktop/app/src/browser_ids.rs	bool-param	2
-app/desktop/app/src/core_type.rs	spec-ref	2
 app/desktop/app/src/daemon_link.rs	bool-param	1
 app/desktop/app/src/daemon_link.rs	fn-count	1
 app/desktop/app/src/daemon_link.rs	real-infra	2
 app/desktop/app/src/daemon_link.rs	swallowed-error	2
 app/desktop/app/src/diagnostics_export.rs	direct-time	1
 app/desktop/app/src/diagnostics_export.rs	real-infra	4
-app/desktop/app/src/diagnostics_export.rs	spec-ref	1
 app/desktop/app/src/diagnostics_export.rs	swallowed-error	1
 app/desktop/app/src/dirty_panes.rs	bool-param	2
 app/desktop/app/src/dropped_files.rs	bool-param	1
 app/desktop/app/src/file_reply.rs	result-string	3
 app/desktop/app/src/focus_neighbour.rs	bool-param	1
 app/desktop/app/src/focus_neighbour.rs	param-count	1
-app/desktop/app/src/focus_neighbour.rs	spec-ref	1
 app/desktop/app/src/host_builder.rs	real-infra	1
 app/desktop/app/src/installed_fonts.rs	bool-param	1
 app/desktop/app/src/layout_store.rs	direct-fs	2
@@ -129,7 +124,6 @@ app/desktop/app/src/pane_settings.rs	table-driven	1
 app/desktop/app/src/pane_spec.rs	fn-count	1
 app/desktop/app/src/pane_spec.rs	magic-number	2
 app/desktop/app/src/pane_spec.rs	magic-string	2
-app/desktop/app/src/pane_spec.rs	spec-ref	1
 app/desktop/app/src/pending_file.rs	bool-param	1
 app/desktop/app/src/picking_panes.rs	bool-param	2
 app/desktop/app/src/readout_net.rs	bool-param	1
@@ -165,7 +159,6 @@ app/desktop/app/src/shell_view/readout.rs	bool-param	1
 app/desktop/app/src/shell_view/readout.rs	direct-time	1
 app/desktop/app/src/shell_view/remote_folder.rs	bool-param	1
 app/desktop/app/src/shell_view/shell_commands.rs	fn-count	1
-app/desktop/app/src/shell_view/shell_commands.rs	spec-ref	2
 app/desktop/app/src/shell_view/tab_strip.rs	bool-param	1
 app/desktop/app/src/sidebar_requests.rs	map-err-ignore	1
 app/desktop/app/src/sidebar_requests.rs	real-infra	1
@@ -179,9 +172,7 @@ app/desktop/app/src/terminal_panes.rs	bool-param	3
 app/desktop/app/src/titles.rs	bool-param	1
 app/desktop/app/src/transport_book.rs	real-infra	1
 app/desktop/app/src/window_memory.rs	bool-param	1
-app/desktop/app/src/window_memory.rs	platform-ref	1
 app/desktop/app/src/window_title.rs	bool-param	1
-app/desktop/app/src/window_vibrancy.rs	platform-ref	1
 app/desktop/crates/branch_import_view/src/branch_import_view.rs	fn-count	1
 app/desktop/crates/branch_import_view/src/selection.rs	bool-param	2
 app/desktop/crates/command_palette/src/fuzzy_match.rs	named-return	3
@@ -251,7 +242,6 @@ app/desktop/crates/pairing_view/src/pairing_source.rs	trait-size	1
 app/desktop/crates/pairing_view/src/pairing_view.rs	bool-param	1
 app/desktop/crates/pairing_view/src/pairing_view.rs	fn-count	1
 app/desktop/crates/pane_host/src/browser_slot.rs	bool-param	2
-app/desktop/crates/pane_host/src/browser_slot.rs	spec-ref	2
 app/desktop/crates/pane_host/src/dir_bundle.rs	direct-fs	1
 app/desktop/crates/pane_host/src/dir_bundle.rs	real-infra	5
 app/desktop/crates/pane_host/src/dir_bundle.rs	table-driven	1
@@ -268,7 +258,6 @@ app/desktop/crates/pane_host/src/pane_runtime.rs	bool-param	2
 app/desktop/crates/pane_host/src/policy.rs	bool-param	2
 app/desktop/crates/pane_host/src/route.rs	table-driven	1
 app/desktop/crates/pane_host/src/slot_factory.rs	bool-param	1
-app/desktop/crates/pane_host/src/slot_factory.rs	spec-ref	1
 app/desktop/crates/pane_host/src/test_support/fixture.rs	bool-param	1
 app/desktop/crates/remote_folder_picker/src/folder_source.rs	bool-param	1
 app/desktop/crates/remote_folder_picker/src/folder_source.rs	trait-size	1
@@ -436,9 +425,7 @@ app/desktop/crates/shell_diagnostics/src/rotating_log.rs	real-infra	3
 app/desktop/crates/shell_diagnostics/src/shell_diagnostics.rs	direct-fs	1
 app/desktop/crates/shell_diagnostics/src/shell_diagnostics.rs	map-err-ignore	1
 app/desktop/crates/shell_diagnostics/src/sink_writer.rs	real-infra	2
-app/desktop/crates/shell_keys/src/command_table.rs	spec-ref	1
 app/desktop/crates/shell_keys/src/keymap.rs	named-return	1
-app/desktop/crates/shell_keys/src/keystroke.rs	spec-ref	2
 app/desktop/crates/shell_platform/src/shell_platform.rs	bool-param	1
 app/desktop/crates/sidebar/src/act.rs	bool-param	1
 app/desktop/crates/sidebar/src/act.rs	direct-time	3
@@ -479,7 +466,6 @@ app/desktop/crates/sidebar/src/menu_entry.rs	bool-param	1
 app/desktop/crates/sidebar/src/menu_lines.rs	bool-param	1
 app/desktop/crates/sidebar/src/menu_list.rs	bool-param	2
 app/desktop/crates/sidebar/src/menu_list.rs	param-count	1
-app/desktop/crates/sidebar/src/menu_ops.rs	platform-ref	1
 app/desktop/crates/sidebar/src/menu_scope.rs	bool-param	1
 app/desktop/crates/sidebar/src/merge_card.rs	fn-count	1
 app/desktop/crates/sidebar/src/merge_facts.rs	bool-param	5
@@ -592,7 +578,6 @@ app/desktop/crates/ui/src/hover_fill.rs	bool-param	1
 app/desktop/crates/ui/src/hover_fill.rs	param-count	1
 app/desktop/crates/ui/src/icon_files.rs	magic-string	8
 app/desktop/crates/ui/src/menu.rs	fn-count	1
-app/desktop/crates/ui/src/menu.rs	platform-ref	1
 app/desktop/crates/ui/src/menu_item.rs	bool-param	1
 app/desktop/crates/ui/src/motion.rs	bool-param	1
 app/desktop/crates/ui/src/select.rs	fn-count	1
@@ -637,7 +622,6 @@ app/desktop/crates/webview/src/gtk_state.rs	direct-fs	1
 app/desktop/crates/webview/src/gtk_state.rs	fn-count	1
 app/desktop/crates/webview/src/linux_platform.rs	fn-count	1
 app/desktop/crates/webview/src/linux_platform.rs	map-err-ignore	2
-app/desktop/crates/webview/src/macos_platform.rs	platform-ref	1
 app/desktop/crates/webview/src/mock_platform.rs	fn-count	1
 app/desktop/crates/webview/src/mock_platform.rs	table-driven	1
 app/desktop/crates/webview/src/parent_window.rs	map-err-ignore	1
@@ -647,11 +631,7 @@ app/desktop/crates/webview/src/web_view_handle.rs	table-driven	1
 app/desktop/crates/webview/src/web_view_host.rs	table-driven	1
 app/desktop/crates/window_state/src/window_store.rs	direct-fs	1
 app/desktop/crates/window_state/src/window_store.rs	real-infra	1
-app/mobile/ios-plugin/src/font.rs	platform-ref	2
-app/mobile/ios-plugin/src/frontend.rs	platform-ref	2
-app/mobile/ios-plugin/src/ios_plugin.rs	platform-ref	2
 app/mobile/src-tauri/src	cycle	1
-app/mobile/src-tauri/src/api_proxy.rs	platform-ref	1
 app/mobile/src-tauri/src/api_proxy.rs	swallowed-error	1
 app/mobile/src-tauri/src/api_proxy/pairing.rs	map-err-ignore	1
 app/mobile/src-tauri/src/api_proxy/pairing.rs	result-string	9
@@ -659,7 +639,6 @@ app/mobile/src-tauri/src/api_proxy/pairing/pairing_request.rs	result-string	1
 app/mobile/src-tauri/src/api_proxy/probe.rs	real-infra	1
 app/mobile/src-tauri/src/api_proxy/probe.rs	result-string	3
 app/mobile/src-tauri/src/api_proxy/probe/unpinned_probe_verifier.rs	platform-ref	1
-app/mobile/src-tauri/src/api_proxy/proxy_answer.rs	platform-ref	2
 app/mobile/src-tauri/src/api_proxy/remote.rs	map-err-ignore	1
 app/mobile/src-tauri/src/api_proxy/remote.rs	real-infra	1
 app/mobile/src-tauri/src/api_proxy/remote.rs	result-string	3
@@ -677,7 +656,6 @@ app/mobile/src-tauri/src/hosts/endpoint.rs	bool-param	4
 app/mobile/src-tauri/src/hosts/endpoint.rs	result-string	2
 app/mobile/src-tauri/src/hosts/host_registry.rs	result-string	1
 app/mobile/src-tauri/src/navigation.rs	bool-param	1
-app/mobile/src-tauri/src/navigation.rs	platform-ref	2
 app/mobile/src-tauri/src/test_support/proxy_fakes.rs	bool-param	3
 app/mobile/src-tauri/src/test_support/proxy_fakes.rs	real-infra	6
 app/mobile/src-tauri/src/tls_pin.rs	bool-param	1

@@ -15,7 +15,6 @@ use crate::direction::Direction;
 use crate::focus_neighbour::focus_neighbour;
 use crate::project_slot::project_at;
 
-// SPEC: only the relative placement of panes matters when looking for a neighbour.
 const UNIT_EXTENT: f32 = 1000.0;
 const PRIMARY_IS_COMMAND: bool = cfg!(target_os = "macos");
 const RELATIVE_BOUNDS: model::Rect = model::Rect {
@@ -103,7 +102,6 @@ impl ShellView {
         }
     }
 
-    // SPEC: the chat opens through `Outcome::OpenChat` once the daemon has created it.
     fn new_terminal_chat(&self) {
         let terminal_ok = self.data.view().can_start_terminal_thread();
         if terminal_ok {

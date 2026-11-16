@@ -8,8 +8,8 @@ pub(crate) enum Navigation {
     Block,
 }
 
-// PLATFORM: no `data:`/`blob:` here: a document of either has an opaque origin and must never
-// PLATFORM: replace the app; their downloads never reach this check.
+// PLATFORM: ios webkit has no `data:`/`blob:` here: a document of either has an opaque origin and must never
+// PLATFORM: ios webkit never routes their downloads through this check, so replacing the app is moot.
 const APP_SCHEMES: [&str; 5] = ["tauri", "crowbar", "asset", "ipc", "about"];
 const EXTERNAL_SCHEMES: [&str; 4] = ["http", "https", "mailto", "tel"];
 const APP_HOST: &str = "tauri.localhost";

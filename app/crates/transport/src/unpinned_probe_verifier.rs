@@ -46,7 +46,7 @@ impl ServerCertVerifier for UnpinnedProbeVerifier {
 #[cfg(test)]
 mod tests {
     use rustls::crypto::aws_lc_rs;
-    // PLATFORM: DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
+    // PLATFORM: rustls DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
     use rustls::internal::msgs::codec::Codec;
 
     use super::*;

@@ -10,8 +10,8 @@ pub(crate) struct Frontend {
     resolve: Resolve,
 }
 
-// PLATFORM: Swift reaches the frontend through context-free C functions, so the installed
-// PLATFORM: frontend is process-wide.
+// PLATFORM: ios Swift reaches the frontend through context-free C functions, so the installed
+// PLATFORM: ios frontend is process-wide because the C functions carry no context.
 static FRONTEND: OnceLock<Frontend> = OnceLock::new();
 
 impl Frontend {

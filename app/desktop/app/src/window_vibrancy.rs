@@ -2,7 +2,7 @@ use gpui::App;
 use ui::{Theme, Vibrancy};
 
 pub(crate) const fn of_platform() -> Vibrancy {
-    // PLATFORM: only macOS windows blur what is behind them; X11 and Wayland windows are opaque.
+    // PLATFORM: macos windows blur what is behind them; X11 and Wayland windows are opaque.
     if cfg!(target_os = "macos") {
         return Vibrancy::Translucent;
     }

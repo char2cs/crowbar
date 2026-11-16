@@ -17,7 +17,7 @@ const fn entry(
 
 const NEW_TAB: CommandEntry = entry(ShellCommand::NewTab, "tabs.new", "New tab", "mod+t");
 
-// SPEC: ids and chords follow app/panes/src/features/keymaps/registry.ts.
+// SPEC: app/panes/src/features/keymaps/registry.ts is the table these ids and chords follow.
 const TABLE: &[CommandEntry] = &[
     NEW_TAB,
     entry(ShellCommand::NewChat, "agent.newChat", "New chat", "mod+n"),

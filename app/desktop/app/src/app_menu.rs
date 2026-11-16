@@ -6,7 +6,7 @@ const APP_MENU: &str = "Crowbar";
 const EDIT_MENU: &str = "Edit";
 const QUIT_CHORD: &str = "cmd-q";
 
-// PLATFORM: only macOS draws the menu bar; its Edit menu routes Cut, Copy and Paste to a web view.
+// PLATFORM: macos only draws the menu bar; its Edit menu routes Cut, Copy and Paste to a web view.
 pub(crate) fn install(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.bind_keys([KeyBinding::new(QUIT_CHORD, Quit, None)]);

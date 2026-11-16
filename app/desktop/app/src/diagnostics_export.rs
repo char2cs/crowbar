@@ -9,7 +9,6 @@ const DUMP_TIMEOUT: Duration = Duration::from_secs(10);
 const DUMP_LIMIT_BYTES: usize = 8 * 1024 * 1024;
 const DOWNLOADS: &str = "Downloads";
 
-// SPEC: (file name in the bundle, daemon path), the dumps the old app's export carried.
 const DUMPS: &[(&str, &str)] = &[
     ("daemon-health.json", "/v0/health"),
     ("goroutine-dump.txt", "/debug/pprof/goroutine?debug=2"),

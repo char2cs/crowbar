@@ -78,7 +78,6 @@ mod tests {
         PaneId::new(name).unwrap()
     }
 
-    // SPEC: left column "a" over "b", right column "c".
     fn grid() -> Vec<PaneSlot> {
         vec![
             slot("a", (0.0, 0.0, 100.0, 50.0)),

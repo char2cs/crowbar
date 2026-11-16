@@ -63,7 +63,7 @@ impl MacosPlatform {
             WebViewKind::Core => scheme(WebViewBuilder::new()),
             WebViewKind::Extension(extension) => scheme(WebViewBuilder::new())
                 .with_data_store_identifier(store_identifier(extension)),
-            // PLATFORM: no custom scheme here, so a browser page cannot reach the pane protocol; the fixed identifier gives it a data store apart from core and every extension.
+            // PLATFORM: macos has no custom scheme here, so a browser page cannot reach the pane protocol; the fixed identifier gives it a data store apart from core and every extension.
             WebViewKind::Browser => WebViewBuilder::new().with_data_store_identifier(BROWSER_STORE),
         }
     }

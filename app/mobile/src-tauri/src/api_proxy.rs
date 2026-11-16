@@ -71,7 +71,7 @@ async fn route<R: Runtime>(
 }
 
 // PLATFORM: WebKit delivers task cancellation on the main thread; answering a stopped task from
-// PLATFORM: a worker races it, and WebKit's NSException there aborts the app.
+// PLATFORM: webkit answering a stopped task from a worker races it, and its NSException there aborts the app.
 fn respond_on_main<R: Runtime>(
     app: &AppHandle<R>,
     responder: UriSchemeResponder,

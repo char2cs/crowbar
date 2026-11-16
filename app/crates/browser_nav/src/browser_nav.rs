@@ -2,7 +2,6 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
 use crate::search_engine::SearchEngine;
 
-// SPEC: the characters JavaScript's encodeURIComponent leaves alone.
 const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')

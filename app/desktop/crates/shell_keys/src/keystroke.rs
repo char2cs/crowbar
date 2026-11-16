@@ -17,7 +17,6 @@ pub struct Keystroke {
     pub key: String,
 }
 
-// SPEC: three modifiers and the key.
 const MAX_PARTS: usize = 4;
 
 impl Keystroke {
@@ -45,7 +44,6 @@ impl Keystroke {
 mod tests {
     use super::*;
 
-    // SPEC: `modifiers` names the held ones, any of "mod", "shift" and "alt".
     fn stroke(
         modifiers: &str,
         key: &str,

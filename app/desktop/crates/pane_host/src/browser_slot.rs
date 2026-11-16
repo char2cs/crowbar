@@ -15,7 +15,6 @@ pub(crate) fn is_browser(type_id: &PaneTypeId) -> bool {
     type_id.as_str() == BROWSER_PANE_TYPE
 }
 
-// SPEC: params carry ids only, so a browser pane's address lives in its saved state.
 pub(crate) fn first_url(state: Option<&PaneState>) -> String {
     state
         .and_then(|state| state.as_value().get(URL_KEY))
@@ -24,7 +23,6 @@ pub(crate) fn first_url(state: Option<&PaneState>) -> String {
         .map_or_else(|| BLANK_URL.to_owned(), |url| url.as_str().to_owned())
 }
 
-// SPEC: the page gets no script bridge; this engine callback is its only channel, and a navigation to a scheme a browser pane may not load is cancelled.
 pub(crate) fn page_handler(
     owner: SlotOwner,
     sink: async_channel::Sender<IpcMessage>,

@@ -1,5 +1,5 @@
-// PLATFORM: CoreText cannot read woff2 and a Swift package's resources are not carried into
-// PLATFORM: the app, so the web's fonts ship as TrueType.
+// PLATFORM: ios CoreText cannot read woff2 and a Swift package's resources are not carried into
+// PLATFORM: ios needs TrueType, so the web's fonts ship in that form instead of woff2.
 static FONTS: [&[u8]; 2] = [
     include_bytes!("../assets/CalSansUI.ttf"),
     include_bytes!("../assets/InstrumentSerif.ttf"),

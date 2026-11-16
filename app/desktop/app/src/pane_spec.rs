@@ -138,7 +138,6 @@ fn opened_instance(command: &mut Command) -> Option<&mut PaneInstance> {
     }
 }
 
-// SPEC: FNV-1a, fixed because the id is saved with the layout and must not change.
 fn file_id(path: &str) -> String {
     let hash = path.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)

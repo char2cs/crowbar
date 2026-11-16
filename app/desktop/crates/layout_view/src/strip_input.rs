@@ -288,7 +288,10 @@ mod tests {
         cx.simulate_mouse_move(tab + point(px(20.0), px(2.0)), MouseButton::Left, none);
         cx.simulate_mouse_move(tab + point(px(25.0), px(10.0)), MouseButton::Left, none);
         let dragging = view.read_with(cx, |view, _| view.drop.is_dragging());
-        assert!(dragging, "the first moves of a strip tab drag open the overlay");
+        assert!(
+            dragging,
+            "the first moves of a strip tab drag open the overlay"
+        );
     }
 
     #[gpui::test]

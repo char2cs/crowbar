@@ -30,8 +30,8 @@ pub(crate) fn proxy_error(
     resp
 }
 
-// PLATFORM: the page reaches `crowbar://` cross-origin, so WebKit hides any answer without CORS
-// PLATFORM: headers (status and marker too); a daemon grants its own answers, the proxy's here.
+// PLATFORM: webkit hides any answer without CORS headers (status and marker too) because the
+// PLATFORM: webkit needs the proxy to grant its own answers, while a daemon grants its own.
 pub(crate) fn readable_by(
     origin: Option<http::HeaderValue>,
     mut resp: http::Response<Vec<u8>>,

@@ -35,8 +35,8 @@ fn attach<R: Runtime>(
     register_swift_plugin(api)
 }
 
-// PLATFORM: no Rust commands; Tauri hands a command with no Rust handler to the Swift plugin,
-// PLATFORM: payload and channels intact, where a Rust wrapper would re-key the payload.
+// PLATFORM: tauri hands a command with no Rust handler to the Swift plugin, so there are no Rust commands:
+// PLATFORM: tauri payload and channels stay intact, where a Rust wrapper would re-key the payload.
 #[cfg(target_os = "ios")]
 fn register_swift_plugin<R: Runtime>(api: &PluginApi<R, ()>) -> Result<(), Box<dyn Error>> {
     api.register_ios_plugin(init_plugin_crowbar_chrome)?;

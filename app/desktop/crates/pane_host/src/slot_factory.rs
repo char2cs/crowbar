@@ -90,7 +90,6 @@ impl SlotFactory {
         self.pane_config((kind.clone(), bounds), owner)
     }
 
-    // SPEC: a browser web view gets no bootstrap script and no relay token, and its ipc channel accepts only the result of a pick, so a page the user browses to can never reach the daemon.
     fn browser_config(
         &self,
         bounds: Bounds,

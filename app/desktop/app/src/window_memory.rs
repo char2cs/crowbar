@@ -99,7 +99,7 @@ fn window_bounds(placement: &Placement) -> WindowBounds {
 const MAC_OVERLAY: bool = cfg!(target_os = "macos");
 const TRAFFIC_LIGHTS: (f32, f32) = (12.0, 23.0);
 
-// PLATFORM: only macOS overlays the title bar; Linux keeps the system frame.
+// PLATFORM: macos overlays the title bar; Linux keeps the system frame.
 fn titlebar() -> TitlebarOptions {
     TitlebarOptions {
         title: Some(SharedString::from(WINDOW_TITLE)),
