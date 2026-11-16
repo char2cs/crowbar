@@ -14,6 +14,7 @@ use crate::error::{Error, Result};
 use crate::host_config::HostConfig;
 use crate::live_view::LiveView;
 use crate::parent_window::ParentWindow;
+use crate::placed::show_where_it_was;
 use crate::protocol_handler::ProtocolHandler;
 use crate::snapshot::Snapshot;
 use crate::surface_pixels::snapshot_of;
@@ -91,12 +92,10 @@ impl GtkState {
         visibility: Visibility,
     ) -> Result<()> {
         let view = &self.live(id)?.view;
-        if visibility == Visibility::Hidden {
-            return Ok(view.set_visible(false)?);
+        match visibility {
+            Visibility::Hidden => Ok(view.set_visible(false)?),
+            Visibility::Shown => show_where_it_was(view),
         }
-        let placed = view.bounds()?;
-        view.set_visible(true)?;
-        Ok(view.set_bounds(placed)?)
     }
 
     pub(crate) fn set_background(
@@ -231,10 +230,19 @@ impl GtkState {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    use gtk::prelude::{ContainerExt as _, WidgetExt as _};
 
     use super::*;
     use crate::protocol_handler::{ProtocolHandler, ProtocolResponder};
     use crate::protocol_request::ProtocolRequest;
+    use crate::protocol_response::ProtocolResponse;
+
+    const SAVE_PAGE: &str =
+        "<script>fetch('crowbar://app/save', { method: 'PUT', body: 'payload' })</script>";
+    const PAGE_WAIT: Duration = Duration::from_secs(30);
 
     fn rect(
         x: f64,
@@ -261,30 +269,99 @@ mod tests {
         }
     }
 
-    #[test]
-    #[ignore = "needs display"]
-    fn a_parent_that_is_not_an_x11_window_is_refused() {
-        gtk::init().unwrap();
-        let mut state = GtkState::new(HostConfig {
+    struct Recording(mpsc::Sender<ProtocolRequest>);
+
+    impl ProtocolHandler for Recording {
+        fn handle(
+            &self,
+            request: ProtocolRequest,
+            respond: ProtocolResponder,
+        ) {
+            let body = [SAVE_PAGE, "{}"][usize::from(!request.uri.ends_with("/page"))];
+            self.0.send(request).unwrap();
+            respond(ProtocolResponse {
+                status: 200,
+                headers: vec![("content-type".into(), "text/html".into())],
+                body: body.as_bytes().to_vec(),
+            });
+        }
+    }
+
+    fn state_serving(protocol: Arc<dyn ProtocolHandler>) -> GtkState {
+        GtkState::new(HostConfig {
             scheme: "crowbar".into(),
-            protocol: Arc::new(Silent),
+            protocol,
             data_dir: None,
-        });
-        let config = WebViewConfig {
-            url: "about:blank".into(),
-            bounds: rect(0.0, 0.0, 1.0, 1.0),
+        })
+    }
+
+    fn config_at(
+        url: &str,
+        bounds: Bounds,
+    ) -> WebViewConfig {
+        WebViewConfig {
+            url: url.into(),
+            bounds,
             kind: WebViewKind::Core,
-            visibility: Visibility::Hidden,
+            visibility: Visibility::Shown,
             background: None,
             initialization_script: None,
             on_ipc: Arc::new(|_| {}),
             on_page: None,
-        };
-        let id = WebViewId(1);
-        let refused = state.create(id, ParentWindow::AppKit(1), &config);
+        }
+    }
+
+    fn pump_once(
+        requests: &mpsc::Receiver<ProtocolRequest>,
+        deadline: Instant,
+    ) -> Option<ProtocolRequest> {
+        gtk::main_iteration_do(true);
+        let saved = requests.try_iter().find(|request| request.method == "PUT");
+        assert!(
+            saved.is_some() || Instant::now() < deadline,
+            "the page's PUT never reached the protocol handler"
+        );
+        saved
+    }
+
+    fn pump_until_save(requests: &mpsc::Receiver<ProtocolRequest>) -> ProtocolRequest {
+        gtk::glib::timeout_add_local_once(PAGE_WAIT, || {});
+        let deadline = Instant::now() + PAGE_WAIT;
+        std::iter::repeat_with(|| pump_once(requests, deadline))
+            .flatten()
+            .next()
+            .unwrap()
+    }
+
+    fn a_parent_that_is_not_an_x11_window_is_refused() {
+        let mut state = state_serving(Arc::new(Silent));
+        let config = config_at("about:blank", rect(0.0, 0.0, 1.0, 1.0));
+        let refused = state.create(WebViewId(1), ParentWindow::AppKit(1), &config);
         assert!(
             matches!(refused, Err(Error::UnsupportedParent(_))),
             "refused"
         );
+    }
+
+    fn a_page_request_body_reaches_the_protocol_handler() {
+        let (sender, requests) = mpsc::channel();
+        let mut state = state_serving(Arc::new(Recording(sender)));
+        let config = config_at("crowbar://app/page", rect(0.0, 0.0, 100.0, 100.0));
+        let host = gtk::Fixed::new();
+        let _view = common_attributes(state.builder_for(&WebViewKind::Core), "wv-1", &config)
+            .build_gtk(&host)
+            .unwrap();
+        let window = gtk::Window::new(gtk::WindowType::Toplevel);
+        window.add(&host);
+        window.show_all();
+        assert_eq!(pump_until_save(&requests).body, b"payload", "the PUT body");
+    }
+
+    #[test]
+    #[ignore = "needs display"]
+    fn live_gtk_web_views() {
+        gtk::init().unwrap();
+        a_parent_that_is_not_an_x11_window_is_refused();
+        a_page_request_body_reaches_the_protocol_handler();
     }
 }

@@ -79,6 +79,8 @@ mod linux_platform;
 #[cfg(target_os = "linux")]
 mod live_view;
 #[cfg(target_os = "linux")]
+mod placed;
+#[cfg(target_os = "linux")]
 mod surface_pixels;
 #[cfg(target_os = "linux")]
 mod xlib_parent;
