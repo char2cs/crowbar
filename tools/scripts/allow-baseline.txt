@@ -57,8 +57,6 @@ app/desktop/crates/terminal/benches/bulk_output.rs	allow-lint:clippy::print_stdo
 app/desktop/crates/terminal/src/lib.rs	allow-lint:clippy::cast_possible_truncation	1
 app/desktop/crates/terminal/src/lib.rs	allow-lint:clippy::cast_precision_loss	1
 app/desktop/crates/terminal/src/lib.rs	allow-lint:clippy::cast_sign_loss	1
-app/desktop/crates/terminal/src/lib.rs	allow-lint:clippy::match_bool	1
-app/desktop/crates/terminal/src/lib.rs	allow-lint:clippy::too_many_arguments	1
 app/desktop/crates/terminal_session/src/lib.rs	allow-lint:clippy::match_bool	1
 app/desktop/crates/terminal_session/src/lib.rs	allow-lint:clippy::too_many_arguments	1
 app/desktop/crates/terminal_session/src/terminal_sessions.rs	allow-lint:clippy::result_large_err	1
@@ -69,7 +67,6 @@ app/desktop/crates/terminal_view/examples/terminal_demo/main.rs	allow-lint:clipp
 app/desktop/crates/terminal_view/src/lib.rs	allow-lint:clippy::cast_possible_truncation	1
 app/desktop/crates/terminal_view/src/lib.rs	allow-lint:clippy::cast_precision_loss	1
 app/desktop/crates/terminal_view/src/lib.rs	allow-lint:clippy::cast_sign_loss	1
-app/desktop/crates/terminal_view/src/lib.rs	allow-lint:clippy::match_bool	1
 app/desktop/crates/terminal_view/src/lib.rs	allow-lint:clippy::too_many_arguments	1
 app/desktop/crates/ui/src/bin/gallery/main.rs	allow-lint:clippy::print_stderr	1
 app/desktop/crates/ui/src/color.rs	allow-lint:clippy::cast_lossless	1

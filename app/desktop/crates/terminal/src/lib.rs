@@ -2,18 +2,10 @@
 //! render snapshots, with selection, search, links and key, mouse and paste encoding. No GPUI.
 
 #![allow(
-    clippy::match_bool,
-    reason = "the rules forbid `else`, so a two-way choice on a bool is a match"
-)]
-#![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "cell and pixel geometry stays far below f32 precision and the usize range"
-)]
-#![allow(
-    clippy::too_many_arguments,
-    reason = "the four-parameter limit of the manifest does not count `self`"
 )]
 
 mod address_runs;

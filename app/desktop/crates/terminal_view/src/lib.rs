@@ -2,18 +2,14 @@
 //! find bar and scrollbar, over the `terminal` crate's emulator.
 
 #![allow(
-    clippy::match_bool,
-    reason = "the rules forbid `else`, so a two-way choice on a bool is a match"
+    clippy::too_many_arguments,
+    reason = "the four-parameter limit of the manifest does not count `self`"
 )]
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "cell and pixel geometry stays far below f32 precision and the usize range"
-)]
-#![allow(
-    clippy::too_many_arguments,
-    reason = "the four-parameter limit of the manifest does not count `self`"
 )]
 
 mod ansi_colors;

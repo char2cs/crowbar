@@ -336,10 +336,10 @@ impl Terminal {
 
     /// Which screen buffer shows.
     pub fn screen_buffer(&self) -> ScreenBuffer {
-        match self.term.mode().contains(TermMode::ALT_SCREEN) {
-            true => ScreenBuffer::Alternate,
-            false => ScreenBuffer::Primary,
+        if self.term.mode().contains(TermMode::ALT_SCREEN) {
+            return ScreenBuffer::Alternate;
         }
+        ScreenBuffer::Primary
     }
 
     /// Whether the program wants focus-in and focus-out reports.
@@ -380,10 +380,10 @@ impl Terminal {
     }
 
     fn cursor_keys(&self) -> CursorKeys {
-        match self.term.mode().contains(TermMode::APP_CURSOR) {
-            true => CursorKeys::Application,
-            false => CursorKeys::Normal,
+        if self.term.mode().contains(TermMode::APP_CURSOR) {
+            return CursorKeys::Application;
         }
+        CursorKeys::Normal
     }
 
     /// The bytes for pasted text.
@@ -391,11 +391,10 @@ impl Terminal {
         &self,
         text: &str,
     ) -> Vec<u8> {
-        let mode = match self.term.mode().contains(TermMode::BRACKETED_PASTE) {
-            true => PasteMode::Bracketed,
-            false => PasteMode::Plain,
-        };
-        encode_paste(text, mode)
+        if self.term.mode().contains(TermMode::BRACKETED_PASTE) {
+            return encode_paste(text, PasteMode::Bracketed);
+        }
+        encode_paste(text, PasteMode::Plain)
     }
 }
 

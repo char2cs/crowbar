@@ -170,10 +170,7 @@ impl TerminalView {
             return;
         }
         let palette = terminal_palette(cx);
-        let focus = match self.focused {
-            true => FocusState::Focused,
-            false => FocusState::Unfocused,
-        };
+        let focus = FocusState::from(self.focused);
         let look = CursorLook {
             color: colors.foreground,
             glyph_color: crate::theme_palette::hsla_of(palette.background),

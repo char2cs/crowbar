@@ -142,11 +142,11 @@ impl<'a> RowBuilder<'a> {
     }
 }
 
-fn cell_columns(flags: Flags) -> usize {
-    match flags.contains(Flags::WIDE_CHAR) {
-        true => WIDE_COLUMNS,
-        false => 1,
+pub(crate) fn cell_columns(flags: Flags) -> usize {
+    if flags.contains(Flags::WIDE_CHAR) {
+        return WIDE_COLUMNS;
     }
+    1
 }
 
 fn append_span(
@@ -168,10 +168,9 @@ fn append_span(
 fn glyph_text(cell: &Cell) -> String {
     let hidden = cell.flags.contains(Flags::HIDDEN);
     let mut text = String::new();
-    let blank = cell.c == '\0' || hidden;
-    text.push(match blank {
-        true => ' ',
-        false => cell.c,
+    text.push(match (hidden, cell.c) {
+        (true, _) | (false, '\0') => ' ',
+        (false, other) => other,
     });
     if let Some(marks) = cell.zerowidth() {
         text.extend(marks.iter());

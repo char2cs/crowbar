@@ -8,13 +8,11 @@ use alacritty_terminal::vte::ansi::CursorShape as EmulatorShape;
 use crate::color_source::ColorSource;
 use crate::cursor_cell::CursorCell;
 use crate::cursor_shape::CursorShape;
-use crate::row_builder::RowBuilder;
+use crate::row_builder::{RowBuilder, cell_columns};
 use crate::search_state::SearchState;
 use crate::snapshot::Snapshot;
 use crate::terminal_palette::TerminalPalette;
 use crate::viewport::Viewport;
-
-const WIDE_COLUMNS: usize = 2;
 
 pub(crate) fn viewport_of<T: EventListener>(term: &Term<T>) -> Viewport {
     Viewport {
@@ -85,16 +83,10 @@ fn cursor_of<T: EventListener>(
     let point = term.grid().cursor.point;
     let row = viewport.row_of(point.line)?;
     let cell = &term.grid()[point];
-    let wide = cell
-        .flags
-        .contains(alacritty_terminal::term::cell::Flags::WIDE_CHAR);
     Some(CursorCell {
         row,
         column: point.column.0,
-        columns: match wide {
-            true => WIDE_COLUMNS,
-            false => 1,
-        },
+        columns: cell_columns(cell.flags),
         shape,
         character: blank_as_space(cell.c),
     })

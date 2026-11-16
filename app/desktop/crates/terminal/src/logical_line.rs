@@ -7,9 +7,9 @@ use alacritty_terminal::term::Term;
 use alacritty_terminal::term::cell::{Cell, Flags};
 
 use crate::cell_ref::CellRef;
+use crate::row_builder::cell_columns;
 
 const MAX_WRAPPED_ROWS: usize = 64;
-const WIDE_COLUMNS: usize = 2;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct LogicalLine {
@@ -51,10 +51,7 @@ impl LogicalLine {
         if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
             return;
         }
-        let width = match cell.flags.contains(Flags::WIDE_CHAR) {
-            true => WIDE_COLUMNS,
-            false => 1,
-        };
+        let width = cell_columns(cell.flags);
         let character = match cell.c {
             '\0' => ' ',
             other => other,

@@ -5,15 +5,22 @@ use terminal::{KeyInput, Modifiers};
 
 pub(crate) fn key_input(keystroke: &Keystroke) -> KeyInput {
     let modifiers = modifiers_of(keystroke.modifiers);
-    let text = match modifiers.contains(Modifiers::ALT) {
-        true => meta_text(keystroke, modifiers),
-        false => keystroke.key_char.clone(),
-    };
+    let text = typed_text(keystroke, modifiers);
     KeyInput {
         key: keystroke.key.clone(),
         text,
         modifiers,
     }
+}
+
+fn typed_text(
+    keystroke: &Keystroke,
+    modifiers: Modifiers,
+) -> Option<String> {
+    if modifiers.contains(Modifiers::ALT) {
+        return meta_text(keystroke, modifiers);
+    }
+    keystroke.key_char.clone()
 }
 
 fn meta_text(

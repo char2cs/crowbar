@@ -125,11 +125,11 @@ impl SearchBar {
         option: SearchOptions,
         cx: &mut Context<'_, Self>,
     ) -> Button {
-        let active = self.options.contains(option);
-        let variant = match active {
-            true => ButtonVariant::Secondary,
-            false => ButtonVariant::Ghost,
-        };
+        let pressed = self
+            .options
+            .contains(option)
+            .then_some(ButtonVariant::Secondary);
+        let variant = pressed.unwrap_or(ButtonVariant::Ghost);
         let me = cx.entity();
         Button::new(id, label)
             .variant(variant)

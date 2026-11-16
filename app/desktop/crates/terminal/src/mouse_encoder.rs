@@ -89,10 +89,7 @@ fn button_code(
     encoding: MouseEncoding,
 ) -> u8 {
     let moving = matches!(event.action, MouseAction::Drag | MouseAction::Move);
-    let motion = match moving {
-        true => MOTION_BIT,
-        false => 0,
-    };
+    let motion = MOTION_BIT * u8::from(moving);
     let button = match (event.action, encoding) {
         (MouseAction::Release, MouseEncoding::Legacy | MouseEncoding::Utf8) => RELEASE_CODE,
         _ => base_code(event.button),

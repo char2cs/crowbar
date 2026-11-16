@@ -1,5 +1,7 @@
 //! Maps grid lines to visible rows.
 
+use std::cmp::Ordering;
+
 use alacritty_terminal::index::{Line, Point};
 
 use crate::highlight::Highlight;
@@ -50,13 +52,10 @@ impl Viewport {
         end: Point,
     ) -> Option<Highlight> {
         let row = self.row_of(line)?;
-        let start_column = match line == start.line {
-            true => start.column.0,
-            false => 0,
-        };
-        let end_column = match line == end.line {
-            true => end.column.0 + 1,
-            false => self.columns,
+        let start_column = usize::from(line == start.line) * start.column.0;
+        let end_column = match line.cmp(&end.line) {
+            Ordering::Equal => end.column.0 + 1,
+            _ => self.columns,
         };
         Some(Highlight {
             row,

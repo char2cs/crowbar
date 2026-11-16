@@ -9,6 +9,15 @@ pub(crate) enum FocusState {
     Unfocused,
 }
 
+impl From<bool> for FocusState {
+    fn from(focused: bool) -> Self {
+        if focused {
+            return Self::Focused;
+        }
+        Self::Unfocused
+    }
+}
+
 impl FocusState {
     pub(crate) fn report(self) -> &'static str {
         match self {
@@ -26,5 +35,7 @@ mod tests {
     fn focus_reports_use_the_xterm_sequences() {
         assert_eq!(FocusState::Focused.report(), "\x1b[I");
         assert_eq!(FocusState::Unfocused.report(), "\x1b[O");
+        assert_eq!(FocusState::from(true), FocusState::Focused);
+        assert_eq!(FocusState::from(false), FocusState::Unfocused);
     }
 }

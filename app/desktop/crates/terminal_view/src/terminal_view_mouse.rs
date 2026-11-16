@@ -1,5 +1,7 @@
 //! Mouse handling of the view: selection, reporting to the program, links, scrollbar and wheel.
 
+use std::cmp::Ordering;
+
 use gpui::{
     AsyncApp, ClipboardItem, Context, CursorStyle, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, WeakEntity, Window,
@@ -23,10 +25,9 @@ const AUTO_SCROLL_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 
 impl TerminalView {
     pub(crate) fn pointer_style(&self) -> CursorStyle {
-        match self.hovered.is_some() {
-            true => CursorStyle::PointingHand,
-            false => CursorStyle::IBeam,
-        }
+        self.hovered
+            .as_ref()
+            .map_or(CursorStyle::IBeam, |_| CursorStyle::PointingHand)
     }
 
     fn hit_at(
@@ -352,11 +353,7 @@ impl TerminalView {
             return;
         };
         let pointer = f32::from(position.y - layout.track.origin.y);
-        let on_thumb = pointer >= thumb.top && pointer <= thumb.top + thumb.length;
-        let grab = match on_thumb {
-            true => pointer - thumb.top,
-            false => thumb.length / HALF,
-        };
+        let grab = grab_offset(pointer, thumb);
         self.drag = DragState::ScrollbarThumb { grab };
         self.drag_thumb(position, grab, cx);
     }
@@ -424,9 +421,9 @@ impl TerminalView {
         modifiers: gpui::Modifiers,
         cx: &mut Context<'_, Self>,
     ) {
-        let button = match lines > 0 {
-            true => terminal::MouseButton::WheelUp,
-            false => terminal::MouseButton::WheelDown,
+        let button = match lines.cmp(&0) {
+            Ordering::Greater => terminal::MouseButton::WheelUp,
+            _ => terminal::MouseButton::WheelDown,
         };
         for _ in 0..lines.unsigned_abs() {
             let report = pointer_report(button, point, modifiers);
@@ -439,9 +436,9 @@ impl TerminalView {
         lines: i32,
         cx: &mut Context<'_, Self>,
     ) {
-        let key = match lines > 0 {
-            true => "up",
-            false => "down",
+        let key = match lines.cmp(&0) {
+            Ordering::Greater => "up",
+            _ => "down",
         };
         let input = terminal::KeyInput {
             key: key.to_owned(),
@@ -470,11 +467,21 @@ fn reported_button(button: MouseButton) -> Option<terminal::MouseButton> {
     }
 }
 
-pub(crate) fn link_modifier_held(modifiers: gpui::Modifiers) -> bool {
-    match cfg!(target_os = "macos") {
-        true => modifiers.platform,
-        false => modifiers.control,
+fn grab_offset(
+    pointer: f32,
+    thumb: ScrollbarThumb,
+) -> f32 {
+    if (thumb.top..=thumb.top + thumb.length).contains(&pointer) {
+        return pointer - thumb.top;
     }
+    thumb.length / HALF
+}
+
+pub(crate) fn link_modifier_held(modifiers: gpui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        return modifiers.platform;
+    }
+    modifiers.control
 }
 
 fn pointer_report(
