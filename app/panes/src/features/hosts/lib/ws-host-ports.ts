@@ -4,7 +4,6 @@ import { getHostRuntime, subscribeHostStatus } from '@/features/hosts/stores/hos
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 
-// SPEC: a remote host that is down or needs repair refuses every attempt, and an unpaired one is not dialled.
 function mayDial(hostId: string): boolean {
   if (hostId === LOCAL_HOST.id) return true
   if (!useHostConfigStore.getState().hosts.some((host) => host.id === hostId)) return false

@@ -35,7 +35,6 @@ export class ChatPaneMount {
 
   private mount(chatId: string | undefined): void {
     if (!chatId) throw new Error('the chat pane was opened without a threadId')
-    // SPEC: a chat lives in a view (view-integrity), so seat it by promoting the stage.
     windowPaneStore.setState((state) => {
       Object.assign(state, initialViewState())
       fillPane(state, ROOT_PANE_ID, chatId, null, '')

@@ -42,7 +42,8 @@ function withDirtyTab(s: ReturnType<typeof windowPaneStore.getState>) {
 function client() {
   return {
     setTitle: vi.fn(),
-    setDirty: vi.fn(),
+    markDirty: vi.fn(),
+    markClean: vi.fn(),
     onSave: vi.fn(() => () => undefined),
   }
 }
@@ -69,7 +70,7 @@ const cases: Case[] = [
   {
     behaviour: 'reports unsaved edits to the shell',
     tab: withDirtyTab,
-    expectation: (shell) => expect(shell.setDirty).toHaveBeenLastCalledWith(true),
+    expectation: (shell) => expect(shell.markDirty).toHaveBeenCalled(),
   },
   {
     behaviour: 'saves the pane buffer on mod+s, which no shell key reaches inside a pane web view',

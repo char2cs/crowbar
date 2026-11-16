@@ -3,7 +3,7 @@ import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-s
 import { normalizeSettings } from '@/features/settings/lib/settings-normalization'
 import type { Settings } from '@/features/settings/types/settings'
 
-// SPEC: the keys of the shell's `settings` frame, PANE_SETTING_KEYS in the protocol crate.
+// SPEC: app/crates/protocol/src/lib.rs the keys of the shell's `settings` frame (PANE_SETTING_KEYS).
 const SHELL_KEYS: readonly string[] = [
   'autoSave',
   'fontFamily',

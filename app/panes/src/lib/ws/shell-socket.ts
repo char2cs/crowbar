@@ -1,5 +1,6 @@
 import { shellConfig } from '@/sdk/shell-config'
 
+const HTTP_OK = 200
 const RELAY_SUBPROTOCOL = 'crowbar.relay.v1'
 const TOKEN_SUBPROTOCOL_PREFIX = 'crowbar.token.'
 
@@ -10,7 +11,7 @@ function freshRelay(api: string, cached: Relay | null | undefined): Relay | null
     const lookup = new XMLHttpRequest()
     lookup.open('GET', `${api}/__crowbar/relay`, false)
     lookup.send()
-    if (lookup.status !== 200) return cached
+    if (lookup.status !== HTTP_OK) return cached
     const relay = JSON.parse(lookup.responseText) as Relay
     ;(window as unknown as { __CROWBAR__: { ws?: Relay } }).__CROWBAR__.ws = relay
     return relay

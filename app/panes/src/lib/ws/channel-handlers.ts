@@ -20,7 +20,6 @@ function handleOpen(ch: Channel, socket: WsLike, ctx: ChannelContext, retry?: Re
     if (ctx.ports.isLocalHost(ch.hostId)) noteSocketOpened()
     reportChannelState(ch.endpoint, true, ch.hostId)
     for (const waiter of ch.waiters.splice(0)) waiter.resolve()
-    // SPEC: only a resumed open tells subscribers, not each attempt: a refetch while the daemon is down just fails.
     if (retry === undefined) return
     noteDaemonChange()
     ch.callbacks.forEach((cb) => cb({ reconnected: true }))
@@ -69,7 +68,6 @@ function handleClose(ch: Channel, ctx: ChannelContext) {
   return () => {
     const wasOpen = ch.opened
     ch.opened = false
-    // SPEC: a stale socket closing after a reconnect must not flag the endpoint as down.
     const isLive = ctx.channels.get(ch.endpoint) === ch
     if (isLive) reportChannelState(ch.endpoint, false, ch.hostId)
     const refusedLocally = isLive && !wasOpen && ctx.ports.isLocalHost(ch.hostId)

@@ -7,7 +7,6 @@ import { inShell } from './in-shell'
 import { openShellSocket } from './shell-socket'
 import type { WsLike } from './ws-like'
 
-// PLATFORM: the daemon pings each 30 s; a remote stream silent for two pings is half-open (network change, sleep).
 const REMOTE_READ_IDLE_TIMEOUT_MS = 60_000
 
 /** The live transport for the active environment: the shell's relay socket in the GPUI shell, the

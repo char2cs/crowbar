@@ -88,9 +88,14 @@ export class PaneClient {
     return this.listen(this.saves, listener)
   }
 
-  /** Tells the shell whether the pane holds work that closing would lose. */
-  setDirty(dirty: boolean): void {
-    this.send({ kind: 'pane.setDirty', dirty })
+  /** Tells the shell the pane holds work that closing would lose. */
+  markDirty(): void {
+    this.send({ kind: 'pane.setDirty', dirty: true })
+  }
+
+  /** Tells the shell the pane holds nothing that closing would lose. */
+  markClean(): void {
+    this.send({ kind: 'pane.setDirty', dirty: false })
   }
 
   /** Sets the pane's tab title, cutting it to the shell's limit. */

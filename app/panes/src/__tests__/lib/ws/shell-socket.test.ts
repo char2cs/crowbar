@@ -37,35 +37,45 @@ afterEach(() => {
   sockets.length = 0
 })
 
+type Lookup = { status: number; body: string }
+type Dial = { behaviour: string; cached: string; lookup?: Lookup; token: string }
+
+const dials: Dial[] = [
+  {
+    behaviour: 'dials the relay with the token in a subprotocol',
+    cached: 'tok123',
+    token: 'tok123',
+  },
+  {
+    behaviour: 'asks the shell for a new token on every connect so a long-open pane can reconnect',
+    cached: 'expired',
+    lookup: { status: 200, body: '{"url":"ws://127.0.0.1:41233","token":"renewed"}' },
+    token: 'renewed',
+  },
+  {
+    behaviour: 'falls back to the cached endpoint when the lookup fails',
+    cached: 'cached',
+    lookup: { status: 503, body: '' },
+    token: 'cached',
+  },
+]
+
 describe('openShellSocket', () => {
-  it('dials the relay with the token in a subprotocol, never in the URL', () => {
-    hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'tok123' })
+  it.each(dials)('$behaviour', ({ cached, lookup, token }) => {
+    hostedByShell({ url: 'ws://127.0.0.1:41233', token: cached })
+    if (lookup) relayLookup(lookup.status, lookup.body)
     openShellSocket('/v0/stream')
     expect(sockets).toEqual([
       {
         url: 'ws://127.0.0.1:41233/v0/stream',
-        protocols: ['crowbar.relay.v1', 'crowbar.token.tok123'],
+        protocols: ['crowbar.relay.v1', `crowbar.token.${token}`],
       },
     ])
-    expect(sockets[0]!.url).not.toContain('tok123')
+    expect(sockets[0]!.url).not.toContain(token)
   })
 
   it('refuses when the shell issued no relay endpoint', () => {
     hostedByShell(null)
     expect(() => openShellSocket('/v0/stream')).toThrow(/no relay endpoint/)
-  })
-
-  it('asks the shell for a new token on every connect so a long-open pane can reconnect', () => {
-    hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'expired' })
-    relayLookup(200, '{"url":"ws://127.0.0.1:41233","token":"renewed"}')
-    openShellSocket('/v0/stream')
-    expect(sockets[0]!.protocols).toEqual(['crowbar.relay.v1', 'crowbar.token.renewed'])
-  })
-
-  it('falls back to the cached endpoint when the lookup fails', () => {
-    hostedByShell({ url: 'ws://127.0.0.1:41233', token: 'cached' })
-    relayLookup(503, '')
-    openShellSocket('/v0/stream')
-    expect(sockets[0]!.protocols).toEqual(['crowbar.relay.v1', 'crowbar.token.cached'])
   })
 })

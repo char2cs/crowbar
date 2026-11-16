@@ -7,7 +7,6 @@ vi.mock('@/lib/ws/daemon-probe', () => ({
 }))
 
 class MockWebSocket {
-  // PLATFORM: vi.stubGlobal replaces the real WebSocket, so the mock carries the readyState constants production code compares against.
   static CONNECTING = 0
   static OPEN = 1
   static CLOSING = 2
@@ -51,7 +50,6 @@ const { createWSManager } = await import('@/lib/ws/create-ws-manager')
 const { hostPorts } = await import('@/features/hosts/lib/ws-host-ports')
 const { useConnectionStore } = await import('@/lib/ws/connection-store')
 
-// SPEC: the phone app has no local daemon, so a local endpoint is neither dialled nor reported down.
 describe('WSManager with no local daemon', () => {
   beforeEach(() => {
     install.localDaemon = false
@@ -103,7 +101,6 @@ describe('WSManager', () => {
     expect(MockWebSocket.instances[0].close).toHaveBeenCalled()
   })
 
-  // SPEC: a backend restart reopens the socket, keeps the subscribers and emits { reconnected: true }.
   it('reopens the socket and keeps subscribers after a close', () => {
     vi.useFakeTimers()
     try {
@@ -123,7 +120,6 @@ describe('WSManager', () => {
     }
   })
 
-  // SPEC: the sentinel means the stream is back, so each outage emits it once, on open.
   it('emits the reconnect sentinel once the stream is back, not per failed attempt', () => {
     vi.useFakeTimers()
     try {
@@ -184,13 +180,11 @@ describe('WSManager', () => {
       MockWebSocket.instances[0].simulateClose()
       vi.advanceTimersByTime(1000)
       expect(MockWebSocket.instances).toHaveLength(2)
-      // SPEC: a second socket dying at once makes the next attempt wait 2s, not 1s.
       MockWebSocket.instances[1].simulateClose()
       vi.advanceTimersByTime(1999)
       expect(MockWebSocket.instances).toHaveLength(2)
       vi.advanceTimersByTime(1)
       expect(MockWebSocket.instances).toHaveLength(3)
-      // SPEC: a successful open resets the backoff to the base delay.
       MockWebSocket.instances[2].simulateOpen()
       MockWebSocket.instances[2].simulateClose()
       vi.advanceTimersByTime(1000)
@@ -342,7 +336,6 @@ describe('WSManager', () => {
       ])
     })
 
-    // SPEC: the reconnect's own open is where its subscribers say again what they need.
     it('never replays on the reconnect what a socket that closed before opening held', () => {
       vi.useFakeTimers()
       try {
@@ -366,7 +359,6 @@ describe('WSManager', () => {
 
   it('opened rejects when the transport cannot carry a socket', async () => {
     vi.resetModules()
-    // SPEC: the real manager, loaded afresh over a transport that cannot carry a socket.
     vi.doUnmock('@/core/stream/ws-manager')
     vi.doMock('@/lib/ws/url', async (importOriginal) => ({
       ...(await importOriginal<typeof import('@/lib/ws/url')>()),

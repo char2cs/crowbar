@@ -38,8 +38,13 @@ describe('PaneClient', () => {
     ],
     [
       'reports unsaved work',
-      (client: PaneClient) => client.setDirty(true),
+      (client: PaneClient) => client.markDirty(),
       { kind: 'pane.setDirty', dirty: true },
+    ],
+    [
+      'reports no unsaved work',
+      (client: PaneClient) => client.markClean(),
+      { kind: 'pane.setDirty', dirty: false },
     ],
     [
       'opens a pane',

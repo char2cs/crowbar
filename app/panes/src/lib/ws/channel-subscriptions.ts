@@ -9,7 +9,6 @@ import { refuseWaiters } from './refuse-waiters'
 import type { StreamCallback } from './stream-callback'
 import { isWebSocketCapable } from './url'
 
-// SPEC: a transport that cannot carry a WebSocket throws on construction, and some installs have no local daemon.
 function cannotDial(ctx: ChannelContext, endpoint: string): boolean {
   if (!isWebSocketCapable()) return true
   const isLocal = ctx.ports.isLocalHost(splitHostPath(endpoint).hostId)
@@ -27,7 +26,6 @@ function retire(ctx: ChannelContext, current: Channel): void {
 function unsubscribe(ctx: ChannelContext, ch: Channel, cb: StreamCallback): void {
   ch.callbacks.delete(cb)
   if (ch.callbacks.size > 0) return
-  // SPEC: a reconnect may have replaced the channel since subscribing; close the live socket, not the stale one.
   const current = ctx.channels.get(ch.endpoint)
   const replaced = current?.callbacks !== ch.callbacks
   if (current && !replaced) retire(ctx, current)

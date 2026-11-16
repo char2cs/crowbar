@@ -19,10 +19,17 @@ import type { PaneClient } from '@/sdk/pane-client'
 import { bufferSession } from './buffer-session'
 import type { OpenBuffer } from './open-buffer'
 
-function useShellReporting(
-  client: Pick<PaneClient, 'setTitle' | 'setDirty' | 'onSave'>,
-  buffer: PaneContent | undefined,
-): void {
+type Shell = Pick<PaneClient, 'setTitle' | 'markDirty' | 'markClean' | 'onSave'>
+
+const WORK = { dirty: 'dirty', clean: 'clean' } as const
+type Work = (typeof WORK)[keyof typeof WORK]
+
+function reportWork(client: Shell, work: Work): void {
+  if (work === WORK.dirty) client.markDirty()
+  if (work === WORK.clean) client.markClean()
+}
+
+function useShellReporting(client: Shell, buffer: PaneContent | undefined): void {
   const dirty = buffer ? hasUnsavedEdits(buffer) : false
   const bufferId = buffer?.id
 
@@ -31,7 +38,7 @@ function useShellReporting(
   }, [client, buffer?.name])
 
   useEffect(() => {
-    client.setDirty(dirty)
+    reportWork(client, dirty ? WORK.dirty : WORK.clean)
   }, [client, dirty])
 
   useEffect(
@@ -45,13 +52,7 @@ function useShellReporting(
 }
 
 /** A file or a review in the pane's one tab, placed in the workspace of the chat the shell named, with the tab's name sent to the shell as the pane title and its unsaved edits reported so the shell asks before closing it. */
-export function BufferPaneHost({
-  client,
-  open,
-}: {
-  client: Pick<PaneClient, 'setTitle' | 'setDirty' | 'onSave'>
-  open: OpenBuffer
-}) {
+export function BufferPaneHost({ client, open }: { client: Shell; open: OpenBuffer }) {
   const chatId = useStore(bufferSession, (s) => s.chatId)
   const saved = useStore(bufferSession, (s) => s.saved)
   const active = useStore(bufferSession, (s) => s.active)
@@ -63,7 +64,6 @@ export function BufferPaneHost({
   useEffect(() => {
     if (!wsId) return
     setActiveWorkspaceId(wsId)
-    // SPEC: a remount of the effect must not open a second tab.
     if (windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds.length) return
     open(wsId, saved).catch((error: unknown) => report(error, { action: 'Open the pane' }))
   }, [wsId, saved, open])
