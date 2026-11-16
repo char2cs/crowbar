@@ -3,11 +3,14 @@ import { closeSocketQuietly } from '@/lib/ws/close-socket-quietly'
 import { fakeSocket } from '@/__tests__/__fixtures__/ws-context'
 
 describe('closeSocketQuietly', () => {
-  it.each([[WebSocket.OPEN], [WebSocket.CLOSED]])('closes a socket in state %i at once', (state) => {
-    const socket = fakeSocket(state)
-    closeSocketQuietly(socket)
-    expect(socket.close).toHaveBeenCalledOnce()
-  })
+  it.each([[WebSocket.OPEN], [WebSocket.CLOSED]])(
+    'closes a socket in state %i at once',
+    (state) => {
+      const socket = fakeSocket(state)
+      closeSocketQuietly(socket)
+      expect(socket.close).toHaveBeenCalledOnce()
+    },
+  )
 
   it('defers closing a connecting socket until it opens', () => {
     const socket = fakeSocket(WebSocket.CONNECTING)

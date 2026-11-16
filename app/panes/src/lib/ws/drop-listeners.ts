@@ -7,7 +7,11 @@ function removeListener(ctx: ChannelContext, endpoint: string, listener: VoidFun
 }
 
 /** Hears each drop of `endpoint`'s open socket; returns the unsubscribe. */
-export function onDrop(ctx: ChannelContext, endpoint: string, listener: VoidFunction): VoidFunction {
+export function onDrop(
+  ctx: ChannelContext,
+  endpoint: string,
+  listener: VoidFunction,
+): VoidFunction {
   const listeners = ctx.dropListeners.get(endpoint) ?? new Set()
   ctx.dropListeners.set(endpoint, listeners.add(listener))
   return () => removeListener(ctx, endpoint, listener)

@@ -14,7 +14,10 @@ const REMOTE_READ_IDLE_TIMEOUT_MS = 60_000
  *  native WebSocket in the browser, the unix-socket-bridged shim on desktop (where `crowbar://` has
  *  no native WebSocket). A host-qualified endpoint dials that host; the local daemon is a unix
  *  socket away, so only a remote stream gets the idle timeout. */
-export function createTransport(endpoint: string, isLocalHost: (hostId: string) => boolean): WsLike {
+export function createTransport(
+  endpoint: string,
+  isLocalHost: (hostId: string) => boolean,
+): WsLike {
   const { hostId, path } = splitHostPath(endpoint)
   const local = isLocalHost(hostId)
   if (inShell()) {

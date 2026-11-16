@@ -12,11 +12,36 @@ import {
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { saveBuffer } from '@/features/editor/lib/buffer-save'
-import { hasUnsavedEdits } from '@/features/panes/types/pane-content'
+import { hasUnsavedEdits, type PaneContent } from '@/features/panes/types/pane-content'
 import { report } from '@/lib/errors/report'
 import type { PaneClient } from '@/sdk/pane-client'
 import { bufferSession } from './buffer-session'
 import type { OpenBuffer } from './open-buffer'
+
+function useShellReporting(
+  client: Pick<PaneClient, 'setTitle' | 'setDirty' | 'onSave'>,
+  buffer: PaneContent | undefined,
+): void {
+  const dirty = buffer ? hasUnsavedEdits(buffer) : false
+  const bufferId = buffer?.id
+
+  useEffect(() => {
+    if (buffer?.name) client.setTitle(buffer.name)
+  }, [client, buffer?.name])
+
+  useEffect(() => {
+    client.setDirty(dirty)
+  }, [client, dirty])
+
+  useEffect(
+    () =>
+      client.onSave(() => {
+        if (!bufferId) return
+        saveBuffer(bufferId).catch((error: unknown) => report(error, { action: 'Save the file' }))
+      }),
+    [client, bufferId],
+  )
+}
 
 /** A file or a review in the pane's one tab, placed in the workspace of the chat the shell named, with the tab's name sent to the shell as the pane title and its unsaved edits reported so the shell asks before closing it. */
 export function BufferPaneHost({
@@ -42,25 +67,7 @@ export function BufferPaneHost({
     open(wsId, saved).catch((error: unknown) => report(error, { action: 'Open the pane' }))
   }, [wsId, saved, open])
 
-  useEffect(() => {
-    if (buffer?.name) client.setTitle(buffer.name)
-  }, [client, buffer?.name])
-
-  const dirty = buffer ? hasUnsavedEdits(buffer) : false
-  const bufferId = buffer?.id
-
-  useEffect(() => {
-    client.setDirty(dirty)
-  }, [client, dirty])
-
-  useEffect(
-    () =>
-      client.onSave(() => {
-        if (!bufferId) return
-        saveBuffer(bufferId).catch((error: unknown) => report(error, { action: 'Save the file' }))
-      }),
-    [client, bufferId],
-  )
+  useShellReporting(client, buffer)
 
   if (!wsId) return null
   return (

@@ -35,7 +35,11 @@ function unsubscribe(ctx: ChannelContext, ch: Channel, cb: StreamCallback): void
 }
 
 /** Joins `endpoint`'s channel, opening it for the first subscriber; the last to leave closes it. */
-export function subscribeTo(ctx: ChannelContext, endpoint: string, cb: StreamCallback): VoidFunction {
+export function subscribeTo(
+  ctx: ChannelContext,
+  endpoint: string,
+  cb: StreamCallback,
+): VoidFunction {
   if (cannotDial(ctx, endpoint)) {
     reportChannelGone(endpoint)
     return () => {}

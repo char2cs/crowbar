@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const state = vi.hoisted(() => ({ tauri: false, shell: false }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: () => state.tauri }))
 vi.mock('@/lib/ws/in-shell', () => ({ inShell: () => state.shell }))
-vi.mock('@/lib/ws/shell-socket', () => ({ openShellSocket: vi.fn((path: string) => ({ shell: path })) }))
+vi.mock('@/lib/ws/shell-socket', () => ({
+  openShellSocket: vi.fn((path: string) => ({ shell: path })),
+}))
 
 class FakeNative {
   static instances: FakeNative[] = []
@@ -41,8 +43,11 @@ describe('createTransport', () => {
     expect(() => createTransport('crowbar://box/v0/ws/x', isLocal)).toThrow(/no relay/)
   })
 
-  it.each([['/v0/ws/x'], ['crowbar://box/v0/ws/x']])('opens the unix-socket shim under Tauri for %s', (endpoint) => {
-    state.tauri = true
-    expect(createTransport(endpoint, isLocal)).toBeInstanceOf(TauriWebSocket)
-  })
+  it.each([['/v0/ws/x'], ['crowbar://box/v0/ws/x']])(
+    'opens the unix-socket shim under Tauri for %s',
+    (endpoint) => {
+      state.tauri = true
+      expect(createTransport(endpoint, isLocal)).toBeInstanceOf(TauriWebSocket)
+    },
+  )
 })

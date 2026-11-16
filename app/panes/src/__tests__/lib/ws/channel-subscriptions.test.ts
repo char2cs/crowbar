@@ -28,11 +28,14 @@ describe('subscribeTo', () => {
     expect(reject).toHaveBeenCalledOnce()
   })
 
-  it.each([['/v0/ws/x'], ['/v0/ws/y']])('does not dial local %s when the install has no local daemon', (endpoint) => {
-    const ctx = fakeContext({ ports: fakePorts({ hasLocalDaemon: () => false }) })
-    const off = subscribeTo(ctx, endpoint, vi.fn())
-    expect(ctx.channels.size).toBe(0)
-    expect(useConnectionStore.getState().status).toBe('idle')
-    off()
-  })
+  it.each([['/v0/ws/x'], ['/v0/ws/y']])(
+    'does not dial local %s when the install has no local daemon',
+    (endpoint) => {
+      const ctx = fakeContext({ ports: fakePorts({ hasLocalDaemon: () => false }) })
+      const off = subscribeTo(ctx, endpoint, vi.fn())
+      expect(ctx.channels.size).toBe(0)
+      expect(useConnectionStore.getState().status).toBe('idle')
+      off()
+    },
+  )
 })

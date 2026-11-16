@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { makePane } from '@/features/panes/lib/view-state'
@@ -19,14 +19,21 @@ vi.mock('@/features/panes/components/editor-host-registry', () => ({
 const { BufferPaneHost } = await import('@/entries/buffer-pane-host')
 
 afterEach(() => {
+  cleanup()
   bufferSession.setState({ chatId: null, saved: null, active: false })
-  windowPaneStore.setState({ buffers: [] })
+  windowPaneStore.setState(windowPaneStore.getInitialState(), true)
 })
 
 function withOpenTab(s: ReturnType<typeof windowPaneStore.getState>) {
   const buffer: PaneContent = { id: 'b1', type: 'newTabPage', name: 'a.ts', workspaceId: 'ws1' }
   const pane = makePane(ROOT_PANE_ID, null, { editorTabIds: ['b1'] })
   return { buffers: [...s.buffers, buffer], panes: { ...s.panes, [ROOT_PANE_ID]: pane } }
+}
+
+function withDirtyTab(s: ReturnType<typeof windowPaneStore.getState>) {
+  const next = withOpenTab(s)
+  const dirty = { ...next.buffers[0]!, type: 'editor', isDirty: true } as PaneContent
+  return { ...next, buffers: [dirty] }
 }
 
 function client(overrides: { setTitle?: (title: string) => void } = {}) {
@@ -55,11 +62,7 @@ describe('BufferPaneHost', () => {
   it('reports unsaved edits to the shell', async () => {
     const shell = client()
     const open = vi.fn(() => {
-      windowPaneStore.setState((s) => {
-        const next = withOpenTab(s)
-        const dirty = { ...next.buffers[0]!, type: 'editor', isDirty: true } as PaneContent
-        return { ...next, buffers: [dirty] }
-      })
+      windowPaneStore.setState(withDirtyTab)
       return Promise.resolve('b1')
     })
     bufferSession.setState({ chatId: 'c1', saved: { path: 'a.ts' }, active: false })

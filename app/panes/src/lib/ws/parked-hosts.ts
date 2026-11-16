@@ -34,7 +34,10 @@ export function createParkedHosts(
 
   function watch(hostId: string): void {
     if (watches.has(hostId)) return
-    watches.set(hostId, ports.onHostReady(hostId, () => reopenParked(hostId)))
+    watches.set(
+      hostId,
+      ports.onHostReady(hostId, () => reopenParked(hostId)),
+    )
   }
 
   function unwatchIfNoneParked(hostId: string): void {

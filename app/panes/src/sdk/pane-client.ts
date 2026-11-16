@@ -27,6 +27,19 @@ interface EventSubscription {
   listeners: Set<Listener<unknown>>
 }
 
+function settling(timer: ReturnType<typeof setTimeout>, pending: Pending): Pending {
+  return {
+    resolve: (value) => {
+      clearTimeout(timer)
+      pending.resolve(value)
+    },
+    reject: (error) => {
+      clearTimeout(timer)
+      pending.reject(error)
+    },
+  }
+}
+
 const encoder = new TextEncoder()
 
 /** The SDK client of one pane page: registers the pane type with the shell, receives lifecycle, theme, event and response frames, and sends titles, state and requests. */
@@ -124,24 +137,15 @@ export class PaneClient {
   private call(frame: (id: number) => PaneFrame): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(
-          new PaneRequestError({ code: 'Timeout', message: 'the shell did not answer in time' }),
-        )
-      }, REQUEST_TIMEOUT_MS)
-      this.pending.set(id, {
-        resolve: (value) => {
-          clearTimeout(timer)
-          resolve(value)
-        },
-        reject: (error) => {
-          clearTimeout(timer)
-          reject(error)
-        },
-      })
+      const timer = setTimeout(() => this.expire(id, reject), REQUEST_TIMEOUT_MS)
+      this.pending.set(id, settling(timer, { resolve, reject }))
       this.send(frame(id))
     })
+  }
+
+  private expire(id: number, reject: (error: unknown) => void): void {
+    this.pending.delete(id)
+    reject(new PaneRequestError({ code: 'Timeout', message: 'the shell did not answer in time' }))
   }
 
   private listen<T>(listeners: Set<Listener<T>>, listener: Listener<T>): () => void {

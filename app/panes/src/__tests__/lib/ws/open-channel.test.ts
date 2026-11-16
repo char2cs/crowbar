@@ -31,7 +31,10 @@ describe('openChannel', () => {
   })
 
   it('takes subscribers and waiters over from a retry', () => {
-    const old = fakeChannel({ callbacks: new Set([vi.fn()]), waiters: [{ resolve: vi.fn(), reject: vi.fn() }] })
+    const old = fakeChannel({
+      callbacks: new Set([vi.fn()]),
+      waiters: [{ resolve: vi.fn(), reject: vi.fn() }],
+    })
     const ch = openChannel(fakeContext(), old.endpoint, retryOf(old, 4000))
     expect(ch.callbacks).toBe(old.callbacks)
     expect(ch.waiters).toHaveLength(1)

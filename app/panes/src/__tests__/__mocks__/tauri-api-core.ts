@@ -8,3 +8,8 @@ export async function invoke(_cmd: string, _args?: Record<string, unknown>): Pro
 export function convertFileSrc(filePath: string, protocol = 'asset'): string {
   return `${protocol}://localhost/${encodeURIComponent(filePath)}`
 }
+
+// The streaming channel `ws_open` forwards each frame through; tests never receive any.
+export class Channel<T> {
+  onmessage: (message: T) => void = () => undefined
+}

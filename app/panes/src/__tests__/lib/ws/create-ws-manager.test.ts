@@ -386,15 +386,18 @@ describe('WSManager', () => {
     }
   })
 
-  it.each([['/v0/ws/git'], ['/v0/ws/files']])('a socket on %s that closes before it opened probes the daemon once', (endpoint) => {
-    const mgr = createWSManager(hostPorts)
-    const unsubscribe = mgr.subscribe(endpoint, vi.fn())
+  it.each([['/v0/ws/git'], ['/v0/ws/files']])(
+    'a socket on %s that closes before it opened probes the daemon once',
+    (endpoint) => {
+      const mgr = createWSManager(hostPorts)
+      const unsubscribe = mgr.subscribe(endpoint, vi.fn())
 
-    MockWebSocket.instances[0].simulateClose()
+      MockWebSocket.instances[0].simulateClose()
 
-    expect(probeDaemon).toHaveBeenCalledTimes(1)
-    unsubscribe()
-  })
+      expect(probeDaemon).toHaveBeenCalledTimes(1)
+      unsubscribe()
+    },
+  )
 
   it('a socket that closed after opening does not probe until a reconnect fails', () => {
     vi.useFakeTimers()

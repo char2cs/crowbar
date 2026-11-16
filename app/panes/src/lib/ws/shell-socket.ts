@@ -5,7 +5,6 @@ const TOKEN_SUBPROTOCOL_PREFIX = 'crowbar.token.'
 
 type Relay = { url: string; token: string }
 
-/** Asks the shell for a new relay endpoint, which replaces the pane's previous token. A relay token only has to outlive the connect that uses it, so every connect asks again; the cached endpoint is the fallback when the lookup fails. */
 function freshRelay(api: string, cached: Relay | null | undefined): Relay | null | undefined {
   try {
     const lookup = new XMLHttpRequest()
