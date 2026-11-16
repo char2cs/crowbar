@@ -1,0 +1,3 @@
+//! Fixture.
+
+mod m;

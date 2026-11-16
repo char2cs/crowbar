@@ -8,12 +8,12 @@ out=${1:-$repo/docs/plans/2026-11-14-standards-burndown.md}
 
 collect_rust() {
   local root=$1 label=$2
-  bash "$here/check-rust-rules.sh" "$root" 2>&1 | grep -E '^[^ ]+:[0-9]+: \[' | awk -v label="$label" '
+  bash "$here/check-rust-rules.sh" "$root" --strict 2>&1 | grep -v '\[baseline' | grep -E '^[^ ]+:[0-9]+: \[' | sed -E "s#^${root#"$repo"/}/##" | awk -v label="$label" '
     { split($1, p, "/"); unit = (p[1] == "crates" || p[1] == "tests") ? p[2] : (p[1] == "src" ? label : p[1])
       match($0, /\[[a-z-]+\]/); tag = substr($0, RSTART + 1, RLENGTH - 2); print "rust\t" unit "\t" tag }'
 }
 collect_ts() {
-  bash "$here/check-ts-rules.sh" 2>&1 | grep -E '^[^ ]+:[0-9]+: \[' | awk '{ split($1, p, "/"); unit = (p[3] == "" ? p[1] : p[1] "/" p[2]); match($0, /\[[a-z-]+\]/); print "ts\t" unit "\t" substr($0, RSTART + 1, RLENGTH - 2) }'
+  bash "$here/check-ts-rules.sh" --strict 2>&1 | grep -v '\[baseline' | grep -E '^[^ ]+:[0-9]+: \[' | sed -E 's#^app/panes/##' | awk '{ split($1, p, "/"); unit = (p[3] == "" ? p[1] : p[1] "/" p[2]); match($0, /\[[a-z-]+\]/); print "ts\t" unit "\t" substr($0, RSTART + 1, RLENGTH - 2) }'
 }
 
 {
@@ -26,7 +26,7 @@ collect_ts() {
   collect_rust "$repo/app/crates" ""
   collect_rust "$repo/app/desktop" "desktop/app"
   collect_rust "$repo/app/mobile/ios-plugin" "ios-plugin"
-  bash "$here/check-swift-rules.sh" 2>&1 | grep -E '^[^ ]+:[0-9]+: \[' | awk '{ match($0, /\[[a-z-]+\]/); print "swift\tios\t" substr($0, RSTART + 1, RLENGTH - 2) }'
+  bash "$here/check-swift-rules.sh" --strict 2>&1 | grep -v '\[baseline' | grep -E '^[^ ]+:[0-9]+: \[' | awk '{ match($0, /\[[a-z-]+\]/); print "swift\tios\t" substr($0, RSTART + 1, RLENGTH - 2) }'
   collect_ts
 } | awk -F'\t' '
   { n[$1 "\t" $2 "\t" $3]++; unit[$1 "\t" $2] += 1; tags[$3] += 1; total[$1 "\t" $2]++ }

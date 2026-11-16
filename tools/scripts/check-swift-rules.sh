@@ -11,7 +11,7 @@ status=0
 
 fail() { echo "$1"; status=1; }
 check_file() {
-  awk -v file="$1" -v mode="$3" -v stem="$4" -f "$awk_file" "$2" || status=1
+  awk -v file="$1" -v repo="$repo" -v mode="$3" -v stem="$4" -f "$here/tag-comments.awk" -f "$awk_file" "$2" || status=1
   awk -v file="$1" -v lang=swift -v mode="$3" -f "$here/brace-rules.awk" "$2" || status=1
 }
 
@@ -34,7 +34,7 @@ scan_package() {
     lines=$(grep -cvE '^[[:space:]]*(///?.*)?$' "$root/$rel")
     ((lines > max_lines)) && fail "$rel:1: [size] $lines lines (max $max_lines); split by concept"
     check_file "$rel" "$root/$rel" src "$stem"
-    if grep -qE '^[[:space:]]*((public|open|internal|private|fileprivate|static|override|mutating) +)*func[[:space:]]' "$root/$rel" \
+    if grep -qE '^[[:space:]]*((public|open|internal|private|fileprivate|static|override|mutating|convenience|required) +)*(func|init)[[:space:](<?]' "$root/$rel" \
       && ! grep -qE "^${stem}[[:space:]]+#" "$here/swift-test-exemptions.txt" 2>/dev/null; then
       [[ -n $(find "$root/Tests" -name "${stem}Tests.swift" 2>/dev/null) ]] || fail "$rel:1: [test-missing] needs Tests/<Target>/${stem}Tests.swift"
     fi
@@ -46,12 +46,13 @@ self_test() {
   status=0; out=$(scan_package "$td/good" 2>&1)
   if [[ -n $out ]]; then echo "FAIL good fixture reported:"; echo "$out"; rc=1; else echo "ok   good: clean"; fi
   for d in "$td"/bad/*/; do
-    tag=$(basename "$d"); status=0; out=$(scan_package "$d" 2>&1)
+    tag=$(basename "$d"); tag=${tag%%--*}; status=0; out=$(scan_package "$d" 2>&1)
     if grep -q "\[$tag\]" <<<"$out"; then echo "ok   bad/$tag"; else echo "FAIL bad/$tag not detected"; echo "$out"; rc=1; fi
   done
   tmp=$(mktemp -d); mkdir -p "$tmp/Sources"; seq 1 501 | sed 's/.*/let x = 1/' >"$tmp/Sources/Big.swift"
   status=0; out=$(scan_package "$tmp" 2>&1); rm -rf "$tmp"
   if grep -q '\[size\]' <<<"$out"; then echo "ok   size (501 lines)"; else echo "FAIL size not detected"; rc=1; fi
+  python3 -I "$here/check-ratchet.py" --self-test >/dev/null || rc=1
   exit $rc
 }
 
@@ -62,14 +63,20 @@ full() {
   command -v swift-format >/dev/null && { (cd "$root" && swift-format lint --strict --recursive --configuration .swift-format Sources Tests) || status=1; }
 }
 
-do_full=0; root=""
+do_full=0; root=""; ratchet_flags=()
 for a in "$@"; do
-  case $a in --self-test) self_test ;; --full) do_full=1 ;; *) root=$a ;; esac
+  case $a in --self-test) self_test ;; --full) do_full=1 ;; --strict|--shrink|--seed) ratchet_flags+=("$a") ;; --mobile) ;; *) root=$a ;; esac
 done
 if [[ -z $root ]]; then
   root="$repo/app/mobile/ios"
 fi
-scan_package "$root"
+root=$(cd "$root" && pwd)
+rel_root=${root#"$repo"/}
+findings=$(mktemp)
+trap 'rm -f "$findings"' EXIT
+scan_package "$root" | sed -E "s#^([^ :]+:[0-9]+: \\[)#$rel_root/\\1#" >"$findings"
+status=0
 ((do_full)) && full "$root"
+python3 -I "$here/check-ratchet.py" --lang swift --scope "$rel_root/" ${ratchet_flags[@]+"${ratchet_flags[@]}"} <"$findings" || status=1
 ((status)) && echo "check-swift-rules: violations found (see docs/swift-style.md)"
 exit $status

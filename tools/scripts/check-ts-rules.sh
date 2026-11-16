@@ -39,21 +39,9 @@ changed_files() {
   done | LC_ALL=C sort -k2
 }
 
-layer_check() {
-  local rel=$1 path=$2 mode=$3 n
-  [[ $mode == test ]] && return
-  case $rel in
-    src/lib/*|src/sdk/*|src/utils/*) grep -nE "from '@/(components|features|routes)/" "$path" | while IFS=: read -r n _; do echo "$rel:$n: [layer] lib/sdk never import components/features/routes"; done | grep . && status=1 ;;
-  esac
-  case $rel in
-    */stores/*) grep -nE "from '@/components/" "$path" | while IFS=: read -r n _; do echo "$rel:$n: [layer] stores never import components/"; done | grep . && status=1 ;;
-  esac
-  grep -nE "from '(\.\./){3,}" "$path" | while IFS=: read -r n _; do echo "$rel:$n: [layer] deep relative import: use the @/ alias"; done | grep . && status=1
-  return 0
-}
-
 scan() {
   local root=${1%/} all=$2 tag rel base stem mode lines src
+  local layer_files=()
   while read -r tag rel; do
     [[ -z $rel ]] && continue
     case "$rel" in node_modules/*|*.d.ts|*/generated/*|*.config.ts|*.config.js) continue ;; esac
@@ -83,9 +71,9 @@ scan() {
     fi
     lines=$(grep -cvE '^[[:space:]]*(//.*|\*.*|/\*.*)?$' "$root/$rel")
     ((lines > max_lines)) && [[ $mode == src ]] && fail "$rel:1: [size] $lines lines (max $max_lines); split by concept"
-    awk -v file="$rel" -v mode="$mode" -v stem="$stem" -f "$awk_file" "$root/$rel" || status=1
+    awk -v file="$rel" -v repo="$repo" -v mode="$mode" -v stem="$stem" -f "$here/tag-comments.awk" -f "$awk_file" "$root/$rel" || status=1
     awk -v file="$rel" -v lang=ts -v mode="$mode" -f "$here/brace-rules.awk" "$root/$rel" || status=1
-    layer_check "$rel" "$root/$rel" "$mode"
+    [[ $mode == src ]] && layer_files+=("$rel")
     if [[ $mode == src && $tag == A && $rel == src/* && $base != index.ts && $base != index.tsx ]]; then
       if grep -qE '(function|=>)' "$root/$rel" && ! grep -qE "^${rel//./\\.}[[:space:]]+#" "$exempt_file" 2>/dev/null; then
         local t=${rel#src/}; t=${t%.ts*}
@@ -96,6 +84,7 @@ scan() {
       fail "$rel:1: [barrel] index file that only re-exports: import from the defining module"
     fi
   done < <(changed_files "$root" "$all")
+  ((${#layer_files[@]})) && { python3 -I "$here/check-cycles.py" layer "$root" "${layer_files[@]}" || status=1; }
   local changed
   mapfile -t changed < <(changed_files "$root" "$all" | awk '{print $2}')
   ((${#changed[@]})) && { python3 -I "$here/check-cycles.py" ts "$root" "${changed[@]}" || status=1; }
@@ -106,12 +95,13 @@ self_test() {
   status=0; out=$(scan "$td/good" 1 2>&1)
   if [[ -n $out ]]; then echo "FAIL good fixture reported:"; echo "$out"; rc=1; else echo "ok   good: clean"; fi
   for d in "$td"/bad/*/; do
-    tag=$(basename "$d"); status=0; out=$(scan "$d" 1 2>&1)
+    tag=$(basename "$d"); tag=${tag%%--*}; status=0; out=$(scan "$d" 1 2>&1)
     if grep -q "\[$tag\]" <<<"$out"; then echo "ok   bad/$tag"; else echo "FAIL bad/$tag not detected"; echo "$out"; rc=1; fi
   done
   tmp=$(mktemp -d); mkdir -p "$tmp/src"; seq 1 501 | sed 's/.*/export const x = 1/' >"$tmp/src/big.ts"
   status=0; out=$(scan "$tmp" 1 2>&1); rm -rf "$tmp"
   if grep -q '\[size\]' <<<"$out"; then echo "ok   size (501 lines)"; else echo "FAIL size not detected"; rc=1; fi
+  python3 -I "$here/check-ratchet.py" --self-test >/dev/null || rc=1
   exit $rc
 }
 
@@ -126,13 +116,19 @@ full() {
   docker exec inventory-app sh -c "cd $work && { [ -d node_modules ] || bun install --frozen-lockfile >/dev/null; } && bunx eslint --max-warnings 0 ${files[*]} && bunx tsc --noEmit && bunx prettier --check ${files[*]}" || status=1
 }
 
-do_full=0; all=0; root=""
+do_full=0; all=0; root=""; ratchet_flags=()
 for a in "$@"; do
-  case $a in --self-test) self_test ;; --full) do_full=1 ;; --all) all=1 ;; *) root=$a ;; esac
+  case $a in --self-test) self_test ;; --full) do_full=1 ;; --all) all=1 ;; --strict|--shrink|--seed) ratchet_flags+=("$a") ;; --mobile) ;; *) root=$a ;; esac
 done
 [[ -z $root ]] && root="$repo/app/panes"
 root=$(cd "$root" && pwd)
-scan "$root" "$all"
+rel_root=${root#"$repo"/}
+findings=$(mktemp); scanned=$(mktemp)
+trap 'rm -f "$findings" "$scanned"' EXIT
+changed_files "$root" "$all" | awk -v p="$rel_root/" '{print p $2}' >"$scanned"
+scan "$root" "$all" | sed -E "s#^([^ :]+:[0-9]+: \\[)#$rel_root/\\1#" >"$findings"
+status=0
 ((do_full)) && full "$root"
+python3 -I "$here/check-ratchet.py" --lang ts --scope "$rel_root/" --scanned "$scanned" ${ratchet_flags[@]+"${ratchet_flags[@]}"} <"$findings" || status=1
 ((status)) && echo "check-ts-rules: violations found (see docs/ts-style.md)"
 exit $status

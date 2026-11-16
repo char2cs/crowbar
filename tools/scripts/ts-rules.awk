@@ -19,7 +19,8 @@ BEGIN { pend_doc = 0; types = 0; run_len = 0; mocks = 0; comps = 0; classes = 0 
   raw = $0
   if (raw ~ /^[ \t]*\/\//) {
     text = raw; sub(/^[ \t]*\/\/[ \t]*/, "", text)
-    if (text !~ /^(SPEC|PLATFORM|DEPRECATED):/ && text !~ /^(eslint-|@ts-|prettier-ignore|biome-)/ && text !~ /^[#!]?(region|endregion)/)
+    if (text ~ /^(SPEC|PLATFORM|SAFETY|DEPRECATED):/) check_tag(text, NR)
+    else if (text !~ /^(eslint-|@ts-|prettier-ignore|biome-)/ && text !~ /^[#!]?(region|endregion)/)
       report(NR, "comment", "comment: only SPEC:/PLATFORM:/DEPRECATED: allowed (manifest 7); delete it or rename for intent")
     if (text ~ /(TODO|FIXME|XXX|HACK)/ && text !~ /(#[0-9]+|https?:\/\/)/) report(NR, "todo", "TODO/FIXME without an issue reference (#123 or URL)")
     if (raw ~ /eslint-disable|ts-ignore|ts-nocheck|ts-expect-error/) check_directive(raw)

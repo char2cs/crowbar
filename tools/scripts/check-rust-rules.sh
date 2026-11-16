@@ -33,7 +33,7 @@ scan_root() {
 }
 
 check_file() { # rel path mode stem allow_unwrap allow_types
-  awk -v file="$1" -v mode="$3" -v stem="$4" -v allow_unwrap="$5" -v allow_types="$6" -f "$awk_file" "$2" || status=1
+  awk -v file="$1" -v repo="$repo" -v mode="$3" -v stem="$4" -v allow_unwrap="$5" -v allow_types="$6" -f "$here/tag-comments.awk" -f "$awk_file" "$2" || status=1
   awk -v file="$1" -v lang=rust -v mode="$3" -f "$here/brace-rules.awk" "$2" || status=1
 }
 
@@ -73,7 +73,7 @@ scan_source() {
     done | grep . && status=1
   fi
   grep -qE "^$(printf '%s' "$rel" | sed 's/[.[\*^$/]/\\&/g')[[:space:]]+#" "$here/rust-test-exemptions.txt" 2>/dev/null && exempt=1
-  awk -v file="$rel" -v mode=src -v stem="$stem" -v allow_unwrap="$allow_unwrap" -v allow_types="$allow_types" -v exempt="$exempt" -v is_entry="$entry" -f "$awk_file" "$path" || status=1
+  awk -v file="$rel" -v repo="$repo" -v mode=src -v stem="$stem" -v allow_unwrap="$allow_unwrap" -v allow_types="$allow_types" -v exempt="$exempt" -v is_entry="$entry" -f "$here/tag-comments.awk" -f "$awk_file" "$path" || status=1
   awk -v file="$rel" -v lang=rust -v mode=src -f "$here/brace-rules.awk" "$path" || status=1
 }
 
@@ -116,7 +116,7 @@ self_test() {
   out=$(run_dir "$td/good" 2>&1); status=0
   if [[ -n $out ]]; then echo "FAIL good fixture reported:"; echo "$out"; rc=1; else echo "ok   good: clean"; fi
   for case_dir in "$td"/bad/*/; do
-    tag=$(basename "$case_dir")
+    tag=$(basename "$case_dir"); tag=${tag%%--*}
     status=0; out=$(run_dir "$case_dir" 2>&1)
     if grep -q "\[$tag\]" <<<"$out"; then echo "ok   bad/$tag"; else echo "FAIL bad/$tag not detected"; echo "$out"; rc=1; fi
   done
@@ -124,6 +124,7 @@ self_test() {
   seq 1 501 | sed 's/.*/const X: u32 = 1;/' >"$tmp/src/big.rs"
   status=0; out=$(run_dir "$tmp" 2>&1); rm -rf "$tmp"
   if grep -q '\[size\]' <<<"$out"; then echo "ok   size (501 lines)"; else echo "FAIL size not detected"; rc=1; fi
+  python3 -I "$here/check-ratchet.py" --self-test || rc=1
   exit $rc
 }
 
@@ -142,18 +143,30 @@ full() {
 
 do_full=0
 mobile=0
+ratchet_flags=()
 roots=()
 for a in "$@"; do
   case $a in
     --self-test) self_test ;;
     --full) do_full=1 ;;
     --mobile) mobile=1 ;;
+    --strict|--shrink|--seed) ratchet_flags+=("$a") ;;
     *) roots+=("$a") ;;
   esac
 done
-((${#roots[@]})) || roots=("$repo/app/crates" "$repo/app/desktop")
-  ((mobile)) && roots+=("$repo/app/mobile/ios-plugin")
-for r in "${roots[@]}"; do [[ -d $r ]] && run_dir "$(cd "$r" && pwd)"; done
+((${#roots[@]})) || roots=("$repo/app/crates" "$repo/app/desktop" "$repo/app/mobile/src-tauri")
+((mobile)) && roots+=("$repo/app/mobile/ios-plugin")
+findings=$(mktemp)
+trap 'rm -f "$findings"' EXIT
+scopes=()
+for r in "${roots[@]}"; do
+  [[ -d $r ]] || continue
+  abs=$(cd "$r" && pwd); rel=${abs#"$repo"/}
+  scopes+=(--scope "$rel/")
+  run_dir "$abs" | sed -E "s#^([^ :]+:[0-9]+: \\[)#$rel/\\1#" >>"$findings"
+done
+status=0
 ((do_full)) && full
+python3 -I "$here/check-ratchet.py" --lang rust ${scopes[@]+"${scopes[@]}"} ${ratchet_flags[@]+"${ratchet_flags[@]}"} <"$findings" || status=1
 ((status)) && echo "check-rust-rules: violations found (see docs/rust-style.md)"
 exit $status

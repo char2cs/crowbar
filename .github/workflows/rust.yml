@@ -7,9 +7,9 @@ name: Rust shell
 on:
   pull_request:
     branches: [master, develop]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [develop]
+    branches: [develop, migration/rust-shell]
     paths:
       - 'app/crates/**'
       - 'app/desktop/**'
@@ -17,15 +17,10 @@ on:
       - 'app/*.toml'
       - 'app/mobile/ios/**'
       - 'app/mobile/ios-plugin/**'
-      - 'tools/scripts/check-rust-rules.sh'
-      - 'tools/scripts/rust-rules.awk'
-      - 'tools/scripts/check-swift-rules.sh'
-      - 'tools/scripts/swift-rules.awk'
-      - 'tools/scripts/check-ts-rules.sh'
-      - 'tools/scripts/ts-rules.awk'
-      - 'tools/scripts/brace-rules.awk'
-      - 'tools/scripts/check-standards.sh'
-      - 'tools/scripts/testdata/**'
+      - 'app/mobile/src-tauri/**'
+      - 'app/panes/**'
+      - 'docs/**'
+      - 'tools/scripts/**'
       - '.github/workflows/rust.yml'
 
 concurrency:
@@ -63,15 +58,11 @@ jobs:
               - 'app/Cargo.*'
               - 'app/*.toml'
               - 'app/mobile/ios-plugin/**'
-              - 'tools/scripts/check-rust-rules.sh'
-              - 'tools/scripts/rust-rules.awk'
-              - 'tools/scripts/testdata/rust-rules/**'
+              - 'tools/scripts/**'
               - '.github/workflows/rust.yml'
             swift:
               - 'app/mobile/ios/**'
-              - 'tools/scripts/check-swift-rules.sh'
-              - 'tools/scripts/swift-rules.awk'
-              - 'tools/scripts/testdata/swift-rules/**'
+              - 'tools/scripts/**'
               - '.github/workflows/rust.yml'
 
   rust-lint:
@@ -105,7 +96,7 @@ jobs:
       - name: Rust rules (docs/rust-style.md)
         run: |
           bash tools/scripts/check-rust-rules.sh --self-test
-          bash tools/scripts/check-rust-rules.sh
+          bash tools/scripts/check-rust-rules.sh --mobile
       - name: fmt
         run: cd app && cargo fmt --all --check
       - name: clippy
@@ -263,21 +254,32 @@ jobs:
       # The package depends on the generated .tauri/tauri-api, so building and
       # testing it needs the cargo build and runs in ci.yml (ios-checks).
 
+  # Runs on every push to the tracked branches and on draft and ready pull requests alike:
+  # the TypeScript rules, the Rust rules with --mobile (ios-plugin, src-tauri) and the Swift rules.
   standards:
     name: standards (Rabbyte manifest)
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Fetch the base branch the checkers diff against
-        run: git fetch origin develop:develop
+      - name: Make the base branch available as `develop`
+        run: git rev-parse --verify --quiet develop >/dev/null || git fetch --no-tags origin develop:develop
+      - name: Baselines only shrink
+        if: github.event_name == 'pull_request'
+        run: |
+          for f in rust ts swift allow; do
+            git show "origin/${{ github.base_ref }}:tools/scripts/$f-baseline.txt" >"/tmp/$f-old.txt" 2>/dev/null || continue
+            python3 -I tools/scripts/check-ratchet.py --guard "/tmp/$f-old.txt" "tools/scripts/$f-baseline.txt"
+          done
       - name: Rust, Swift and TypeScript rules (docs/rabbyte-manifest.md)
         run: |
           bash tools/scripts/check-standards.sh --self-test
           bash tools/scripts/check-standards.sh
+      - name: Merge gate, baselines ignored (pull requests into master)
+        if: github.event_name == 'pull_request' && github.base_ref == 'master'
+        run: bash tools/scripts/check-standards.sh --strict
 
   rust-ok:
     if: always()
