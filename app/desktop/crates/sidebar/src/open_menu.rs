@@ -11,4 +11,5 @@ pub(crate) struct OpenMenu {
     pub(crate) at: Point<Pixels>,
     pub(crate) cursor: MenuCursor,
     pub(crate) focus: FocusHandle,
+    pub(crate) filter: bool,
 }

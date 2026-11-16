@@ -18,6 +18,7 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) -> Option<AnyElement> {
         let menu = self.menu.as_ref()?;
+        let entries = self.menu_entries();
         let viewport = window.viewport_size();
         let (close_left, close_right) = (Self::closer(cx), Self::closer(cx));
         let away = div()
@@ -28,9 +29,9 @@ impl Sidebar {
             .on_mouse_down(MouseButton::Right, close_right);
         let list = MenuList {
             sidebar: cx.entity(),
-            entries: menu.entries.clone(),
             highlighted: menu.cursor.highlighted(),
-            submenu: menu.cursor.open_submenu(&menu.entries),
+            submenu: menu.cursor.open_submenu(&entries),
+            entries,
             focus: Some(menu.focus.clone()),
         };
         let popup = anchored()

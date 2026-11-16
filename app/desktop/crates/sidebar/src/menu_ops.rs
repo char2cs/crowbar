@@ -2,6 +2,7 @@
 
 use gpui::{Context, Pixels, Point, Window};
 
+use crate::filter_menu::filter_menu;
 use crate::intent::Intent;
 use crate::menu_cursor::MenuCursor;
 use crate::menu_entry::MenuEntry;
@@ -27,6 +28,7 @@ impl Sidebar {
             at,
             cursor,
             focus,
+            filter: false,
         });
         cx.notify();
     }
@@ -71,10 +73,11 @@ impl Sidebar {
         step: MenuStep,
         cx: &mut Context<'_, Self>,
     ) {
+        let entries = self.menu_entries();
         let Some(menu) = self.menu.as_mut() else {
             return;
         };
-        menu.cursor.step(step, &menu.entries);
+        menu.cursor.step(step, &entries);
         cx.notify();
     }
 
@@ -84,8 +87,20 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        self.menu = None;
+        if !self.menu.as_ref().is_some_and(|menu| menu.filter) {
+            self.menu = None;
+        }
         self.apply(intent, window, cx);
+    }
+
+    pub(crate) fn menu_entries(&self) -> Vec<MenuEntry> {
+        let Some(menu) = self.menu.as_ref() else {
+            return Vec::new();
+        };
+        if menu.filter {
+            return filter_menu(&self.data.file_tree_view());
+        }
+        menu.entries.clone()
     }
 
     fn choose_highlighted(
@@ -93,10 +108,11 @@ impl Sidebar {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let entries = self.menu_entries();
         let chosen = self
             .menu
             .as_ref()
-            .and_then(|menu| menu.cursor.chosen(&menu.entries));
+            .and_then(|menu| menu.cursor.chosen(&entries));
         if let Some(intent) = chosen {
             self.choose(intent, window, cx);
         }

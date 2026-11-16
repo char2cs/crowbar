@@ -13,6 +13,7 @@ use crate::menu_scope::MenuScope;
 use crate::new_entry::NewEntry;
 use crate::row_action::RowHandler;
 use crate::row_input::RowInput;
+use crate::tree_look::TreeLook;
 
 pub(crate) struct FilesContext {
     pub(crate) handler: RowHandler,
@@ -20,6 +21,7 @@ pub(crate) struct FilesContext {
     pub(crate) editing: Editing,
     pub(crate) input: Option<RowInput>,
     pub(crate) selected: Option<String>,
+    pub(crate) look: TreeLook,
 }
 
 fn entry(row: FileRow) -> FileTreeEntry {
@@ -43,6 +45,7 @@ impl FilesContext {
             selected: self.selected.as_deref() == Some(entry.path.as_str()),
             entry,
             input,
+            look: self.look.clone(),
             scope: Rc::clone(&self.scope),
             handler: Rc::clone(&self.handler),
         }
@@ -127,6 +130,7 @@ mod tests {
             editing,
             input: None,
             selected: None,
+            look: TreeLook::default(),
         }
     }
 

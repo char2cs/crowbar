@@ -11,7 +11,7 @@ use ui::{Icon, IconName, Palette, Surface, Theme, radius, shadow, text_size};
 use crate::intent::Intent;
 use crate::item_look::ItemLook;
 use crate::menu_entry::MenuEntry;
-use crate::scale::{ICON_LARGE, SPACE_MD, SPACE_XS};
+use crate::scale::{ICON_LARGE, ICON_MEDIUM, SPACE_MD, SPACE_XS};
 use crate::sidebar::Sidebar;
 use crate::tone::Tone;
 
@@ -75,7 +75,7 @@ impl RenderOnce for MenuList {
 }
 
 fn look(
-    icon: Option<IconName>,
+    (icon, checked): (Option<IconName>, Option<bool>),
     tone: Tone,
     (active, palette): (bool, &'static Palette),
 ) -> ItemLook {
@@ -83,6 +83,7 @@ fn look(
         icon,
         tone,
         active,
+        checked,
         palette,
     }
 }
@@ -102,10 +103,11 @@ impl MenuList {
                 icon,
                 tone,
                 intent,
+                checked,
             } => self.action_row(
                 index,
                 (label, intent),
-                look(*icon, *tone, (active, palette)),
+                look((*icon, *checked), *tone, (active, palette)),
             ),
             MenuEntry::Submenu {
                 label,
@@ -114,7 +116,7 @@ impl MenuList {
             } => self.submenu_row(
                 index,
                 (label, entries),
-                look(*icon, Tone::Normal, (active, palette)),
+                look((*icon, None), Tone::Normal, (active, palette)),
             ),
         }
     }
@@ -229,6 +231,22 @@ fn item(
         .cursor_pointer()
         .children(icon)
         .child(label.to_owned())
+        .children(check_slot(look.checked, palette))
+}
+
+fn check_slot(
+    checked: Option<bool>,
+    palette: &Palette,
+) -> Option<Div> {
+    let on = checked?;
+    let slot = div().ml_auto().flex().justify_center().size(ICON_LARGE);
+    if !on {
+        return Some(slot);
+    }
+    let mark = Icon::new(IconName::Check)
+        .size(ICON_MEDIUM)
+        .color(palette.primary());
+    Some(slot.child(mark))
 }
 
 #[cfg(test)]

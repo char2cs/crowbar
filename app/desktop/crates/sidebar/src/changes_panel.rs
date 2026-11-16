@@ -14,6 +14,7 @@ use crate::panel_message::panel_message;
 use crate::row_action::RowHandler;
 use crate::scale::{ICON_MEDIUM, SPACE_MD, SPACE_SM, SPACE_XS, TEXT_BODY, TEXT_CAPTION};
 use crate::sidebar::Sidebar;
+use crate::tree_look::TreeLook;
 
 const PILL_HEIGHT: Pixels = px(36.0);
 const PILL_SHADOW: f32 = 0.1;
@@ -96,9 +97,10 @@ fn count_line(
 
 fn rows<'a>(
     files: Vec<ChangedFile>,
-    (handler, scope): (&'a RowHandler, &'a std::rc::Rc<MenuScope>),
+    (handler, scope, look): (&'a RowHandler, &'a std::rc::Rc<MenuScope>, &'a TreeLook),
 ) -> impl Iterator<Item = FileTreeRow> + 'a {
     files.into_iter().map(|file| FileTreeRow {
+        look: look.clone(),
         entry: entry(file),
         input: None,
         selected: false,
@@ -119,13 +121,14 @@ impl Sidebar {
         }
         let handler = Self::row_handler(cx);
         let scope = std::rc::Rc::new(self.menu_scope());
+        let look = TreeLook::of(&self.data.file_tree_view(), None);
         let list = div()
             .flex()
             .flex_col()
             .child(branch_pill(&changes, Theme::of(cx).mono_family(), palette))
             .children(self.merge_card(cx))
             .child(count_line(changes.files.len(), palette))
-            .children(rows(changes.files, (&handler, &scope)));
+            .children(rows(changes.files, (&handler, &scope, &look)));
         ScrollArea::new("changes-scroll", &self.scrolls.changes, list).into_any_element()
     }
 }

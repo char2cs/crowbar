@@ -3,6 +3,7 @@
 use crate::changes::Changes;
 use crate::command::Command;
 use crate::file_row::FileRow;
+use crate::file_tree_view::FileTreeView;
 use crate::focus::Focus;
 use crate::host::Host;
 use crate::merge_box::MergeBox;
@@ -86,6 +87,10 @@ pub trait SidebarData {
         _project: &ProjectId,
     ) -> SpaceIcon {
         SpaceIcon::Default
+    }
+    /// How the file-tree settings shape the Files and Changes panels; read on every render.
+    fn file_tree_view(&self) -> FileTreeView {
+        FileTreeView::default()
     }
     /// Whether the shell can generate images, which shows that entry on directories.
     fn can_generate_image(&self) -> bool {

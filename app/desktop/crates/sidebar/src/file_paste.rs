@@ -66,7 +66,7 @@ impl Sidebar {
         let Some(key) = parsed else {
             return;
         };
-        let rows = self.data.files();
+        let rows = self.visible_files();
         let selected = self.tree.files.selected.as_deref();
         if let Some(intent) = step(&rows, selected, key) {
             cx.stop_propagation();

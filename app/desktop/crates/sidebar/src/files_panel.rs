@@ -18,6 +18,7 @@ use crate::row_input::RowInput;
 use crate::scale::SPACE_XS;
 use crate::shell_answers::ShellAnswers;
 use crate::sidebar::Sidebar;
+use crate::tree_look::TreeLook;
 
 const ROOT_STRIP: f32 = 48.0;
 const NO_MATCH: &str = "No matching files";
@@ -76,6 +77,10 @@ impl Sidebar {
             editing: self.tree.editing().clone(),
             input: self.row_input(),
             selected: self.tree.files.selected.clone(),
+            look: TreeLook::of(
+                &self.data.file_tree_view(),
+                self.search.as_ref().map(|search| search.query.as_str()),
+            ),
         };
         let strip = ContextMenu::new("files-root-menu", div().h(px(ROOT_STRIP)), root_menu);
         let list = div()
@@ -100,7 +105,7 @@ impl Sidebar {
             .size_full()
             .track_focus(&self.files_focus)
             .on_key_down(cx.listener(Self::files_key))
-            .children(self.file_search_box())
+            .children(self.file_search_box(cx))
             .child(div().flex_1().min_h_0().child(body))
             .into_any_element()
     }

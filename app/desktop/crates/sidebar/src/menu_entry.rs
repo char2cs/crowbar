@@ -12,6 +12,7 @@ pub(crate) enum MenuEntry {
         icon: Option<IconName>,
         tone: Tone,
         intent: Intent,
+        checked: Option<bool>,
     },
     Separator,
     Submenu {
@@ -32,6 +33,21 @@ impl MenuEntry {
             icon: Some(icon),
             tone: Tone::Normal,
             intent,
+            checked: None,
+        }
+    }
+
+    pub(crate) fn toggle(
+        label: &str,
+        icon: IconName,
+        (on, intent): (bool, Intent),
+    ) -> Self {
+        Self::Action {
+            label: label.to_owned(),
+            icon: Some(icon),
+            tone: Tone::Normal,
+            intent,
+            checked: Some(on),
         }
     }
 
@@ -45,6 +61,7 @@ impl MenuEntry {
             icon: Some(icon),
             tone: Tone::Destructive,
             intent,
+            checked: None,
         }
     }
 }

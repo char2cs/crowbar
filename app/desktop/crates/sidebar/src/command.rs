@@ -2,6 +2,7 @@
 
 use crate::after_merge::AfterMerge;
 use crate::drop_mode::DropMode;
+use crate::file_tree_flag::FileTreeFlag;
 use crate::host_id::HostId;
 use crate::merge_strategy::MergeStrategy;
 use crate::project_id::ProjectId;
@@ -223,6 +224,13 @@ pub enum Command {
     },
     /// Force-end the agent running on the chat `row`, after the sidebar's confirmation.
     KillAgent(RowId),
+    /// Switch a filter of the Files panel; the shell writes the setting the flag names.
+    SetFileTreeFlag {
+        /// The switch.
+        flag: FileTreeFlag,
+        /// The new state.
+        on: bool,
+    },
     /// Create `target` next to the env file `path`, with its values emptied.
     CreateEnvTemplate {
         /// The env file the template is made from.
