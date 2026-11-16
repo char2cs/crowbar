@@ -37,7 +37,7 @@ const HOST1_ENDPOINT = 'crowbar://host-1/v0/stream'
 const socket = sockets.of(LOCAL_ENDPOINT)
 const host1 = sockets.of(HOST1_ENDPOINT)
 
-vi.mock('@/lib/ws/manager', () => ({
+vi.mock('@/core/stream/ws-manager', () => ({
   wsManager: {
     subscribe: (endpoint: string, cb: (data: unknown) => void) => {
       sockets.of(endpoint).deliver = cb

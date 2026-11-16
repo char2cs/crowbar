@@ -1,5 +1,5 @@
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { wsManager } from '@/lib/ws/manager'
+import { wsManager } from '@/core/stream/ws-manager'
 import { listTabs, runAgentOp, type AgentRequest } from './agent-ops'
 import { useBrowserAgentStore } from './agent-activity-store'
 

@@ -61,6 +61,7 @@ beforeEach(() => {
 })
 
 const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { hostPorts } = await import('@/features/hosts/lib/ws-host-ports')
 const { useConnectionStore } = await import('@/lib/ws/connection-store')
 const { destroyHostRuntime, getOrCreateHostRuntime } =
   await import('@/features/hosts/stores/host-runtime-registry')
@@ -76,7 +77,7 @@ afterEach(() => resetHostWorld())
 describe('WSManager transport selection', () => {
   it('uses the native WebSocket in the browser', () => {
     isTauri.mockReturnValue(false)
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     mgr.subscribe('/v0/projects/p/repos/r/workspaces', vi.fn())
     expect(MockNativeWebSocket.instances).toHaveLength(1)
     expect(tauriInstances).toHaveLength(0)
@@ -84,7 +85,7 @@ describe('WSManager transport selection', () => {
 
   it('uses the TauriWebSocket shim on desktop', () => {
     isTauri.mockReturnValue(true)
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     mgr.subscribe('/v0/projects/p/repos/r/workspaces', vi.fn())
     expect(tauriInstances).toHaveLength(1)
     expect(MockNativeWebSocket.instances).toHaveLength(0)
@@ -93,7 +94,7 @@ describe('WSManager transport selection', () => {
 
   it('delivers frames through the Tauri shim onmessage to subscribers', () => {
     isTauri.mockReturnValue(true)
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const cb = vi.fn()
     mgr.subscribe('/v0/projects/p/repos/r/workspaces', cb)
     tauriInstances[0].onmessage?.({ data: '{"id":"ws-1"}' })
@@ -115,7 +116,7 @@ describe('WSManager in the GPUI shell', () => {
       host: 'local',
       ws: { url: 'ws://127.0.0.1:4100', token: 'abc' },
     }
-    createWSManager().subscribe('/v0/stream', vi.fn())
+    createWSManager(hostPorts).subscribe('/v0/stream', vi.fn())
     expect(MockNativeWebSocket.instances).toHaveLength(1)
     expect(MockNativeWebSocket.instances[0]).toMatchObject({
       url: 'ws://127.0.0.1:4100/v0/stream',
@@ -128,7 +129,7 @@ describe('WSManager in the GPUI shell', () => {
 describe('WSManager host routing', () => {
   it('dials a qualified endpoint on the desktop shim for that host, prefix stripped', () => {
     isTauri.mockReturnValue(true)
-    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
 
     expect(tauriInstances).toHaveLength(1)
     expect(tauriInstances[0].path).toBe('/v0/projects')
@@ -140,7 +141,7 @@ describe('WSManager host routing', () => {
   it('has a remote stream silent for two pings closed and reopened, its subscribers caught up', () => {
     vi.useFakeTimers()
     isTauri.mockReturnValue(true)
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const remote = vi.fn()
     const local = vi.fn()
     mgr.subscribe('crowbar://h1/v0/projects/p/repos', remote)
@@ -164,7 +165,7 @@ describe('WSManager host routing', () => {
 
   it('dials an unqualified endpoint exactly as before: the path alone, no options', () => {
     isTauri.mockReturnValue(true)
-    createWSManager().subscribe('/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('/v0/projects', vi.fn())
 
     expect(tauriInstances[0].path).toBe('/v0/projects')
     expect(tauriInstances[0].options).toBeUndefined()
@@ -172,7 +173,7 @@ describe('WSManager host routing', () => {
 
   it('reads the desktop spelling of the local daemon as local', () => {
     isTauri.mockReturnValue(true)
-    createWSManager().subscribe('crowbar://localhost/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://localhost/v0/projects', vi.fn())
 
     expect(tauriInstances[0].path).toBe('/v0/projects')
     expect(tauriInstances[0].options).toBeUndefined()
@@ -180,7 +181,7 @@ describe('WSManager host routing', () => {
 
   it('keeps one stream per host: the same path on two hosts shares nothing', () => {
     isTauri.mockReturnValue(true)
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const local = vi.fn()
     const h1 = vi.fn()
     const h2 = vi.fn()
@@ -205,7 +206,7 @@ describe('WSManager host routing', () => {
   it('cannot dial a remote host from the browser, and does not fall back to local', () => {
     isTauri.mockReturnValue(false)
 
-    expect(() => createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())).toThrow(
+    expect(() => createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())).toThrow(
       /desktop app/,
     )
     expect(MockNativeWebSocket.instances).toHaveLength(0)
@@ -216,7 +217,7 @@ describe('WSManager host routing', () => {
     (endpoint) => {
       isTauri.mockReturnValue(true)
 
-      expect(() => createWSManager().subscribe(endpoint, vi.fn())).toThrow()
+      expect(() => createWSManager(hostPorts).subscribe(endpoint, vi.fn())).toThrow()
       expect(tauriInstances).toHaveLength(0)
     },
   )
@@ -236,7 +237,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('surfaces a changed host identity, not just that the stream closed', () => {
-    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
 
     tauriInstances[0].onerror?.('host-identity-changed: the certificate no longer matches')
     tauriInstances[0].onclose?.()
@@ -248,7 +249,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('surfaces an unreachable host as a different failure', () => {
-    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
 
     tauriInstances[0].onerror?.('host-unreachable: cannot reach box:3737: connection refused')
     tauriInstances[0].onclose?.()
@@ -260,7 +261,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('records nothing for a failure that carries no marker', () => {
-    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
 
     tauriInstances[0].onerror?.('ws upgrade: HTTP error: 401 Unauthorized')
     tauriInstances[0].onclose?.()
@@ -269,7 +270,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('keeps the failure through reconnect attempts and drops it once the stream opens', () => {
-    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
     tauriInstances[0].onerror?.('host-unreachable: dial timed out')
     tauriInstances[0].onclose?.()
 
@@ -282,7 +283,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('drops the failure when the last subscriber leaves', () => {
-    const unsubscribe = createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    const unsubscribe = createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
     tauriInstances[0].onerror?.('host-identity-changed: x')
     tauriInstances[0].onclose?.()
 
@@ -292,7 +293,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('keeps each host’s failure apart', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
     mgr.subscribe('crowbar://h2/v0/projects', vi.fn())
 
@@ -303,7 +304,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('never lets a remote outage look like a local one', () => {
-    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
 
     tauriInstances[0].onopen?.()
     tauriInstances[0].onerror?.('host-identity-changed: certificate mismatch')
@@ -317,7 +318,7 @@ describe('WSManager remote stream failures', () => {
   it('opens nothing for a host that needs repair, and reopens every channel once it is up', () => {
     const h1 = getOrCreateHostRuntime('h1').getState()
     h1.setStatus('up')
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const projects = vi.fn()
     const repos = vi.fn()
     mgr.subscribe('crowbar://h1/v0/projects', projects)
@@ -350,7 +351,7 @@ describe('WSManager remote stream failures', () => {
   it('does not redial a host that is down, until it is up again', () => {
     const h1 = getOrCreateHostRuntime('h1').getState()
     h1.setStatus('up')
-    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
 
     h1.setStatus('down')
     tauriInstances[0].onerror?.('host-unreachable: connection refused')
@@ -366,7 +367,7 @@ describe('WSManager remote stream failures', () => {
   it('reopens nothing nobody holds any more', () => {
     const h1 = getOrCreateHostRuntime('h1').getState()
     h1.setStatus('needs-repair')
-    const unsubscribe = createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    const unsubscribe = createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
 
     unsubscribe()
     h1.setStatus('up')
@@ -379,7 +380,7 @@ describe('WSManager remote stream failures', () => {
   it('never dials a host that is not configured, however long its channel is held', () => {
     const h1 = getOrCreateHostRuntime('h1').getState()
     h1.setStatus('up')
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
     tauriInstances[0].onopen?.()
 
@@ -396,7 +397,7 @@ describe('WSManager remote stream failures', () => {
 
   it('holds back no other host and never the local daemon', () => {
     getOrCreateHostRuntime('h1').getState().setStatus('needs-repair')
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
 
     mgr.subscribe('/v0/projects', vi.fn())
     mgr.subscribe('crowbar://h2/v0/projects', vi.fn())
@@ -406,7 +407,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('keeps redialling an unreachable host, backing off', () => {
-    createWSManager().subscribe('crowbar://h1/v0/projects', vi.fn())
+    createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects', vi.fn())
 
     for (const [attempt, wait] of [
       [1, 1000],
@@ -423,7 +424,7 @@ describe('WSManager remote stream failures', () => {
   })
 
   it('does not let a remote stream stand in for the local backend’s connection', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     mgr.subscribe('/v0/projects', vi.fn())
     mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
 

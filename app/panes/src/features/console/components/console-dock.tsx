@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { useConsoleKeyboard } from '@/features/keymaps/hooks/use-console-keyboard'
 import { createConsoleController } from '@/features/console/lib/controller'
 import { useConsoleStore } from '@/features/console/stores/console-store'
-import { createTransport } from '@/lib/ws/create-ws-manager'
+import { openTransport } from '@/features/hosts/lib/open-transport'
 import { isWebSocketCapable } from '@/lib/ws/url'
 import { cn } from '@/utils/cn'
 import { ConsolePanel } from './console-panel'
@@ -19,7 +19,7 @@ export function ConsoleDock({ children }: { children: ReactNode }) {
     if (!isWebSocketCapable()) return
     const controller = createConsoleController({
       store: useConsoleStore,
-      open: createTransport,
+      open: openTransport,
       timers: {
         set: (fn, ms) => setTimeout(fn, ms),
         clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),

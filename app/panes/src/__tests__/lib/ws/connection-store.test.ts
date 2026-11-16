@@ -31,6 +31,7 @@ class MockWebSocket {
 vi.stubGlobal('WebSocket', MockWebSocket)
 
 const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { hostPorts } = await import('@/features/hosts/lib/ws-host-ports')
 const { useConnectionStore, reportChannelState, reportChannelGone, reportDaemonRefusal } =
   await import('@/lib/ws/connection-store')
 const { useDaemonHaltStore } = await import('@/features/window/stores/daemon-halt-store')
@@ -47,7 +48,7 @@ beforeEach(() => {
 
 describe('connection store', () => {
   it('starts idle and becomes connected when a channel opens', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     expect(status()).toBe('idle')
     mgr.subscribe('/v0/ws/git', vi.fn())
     expect(status()).toBe('idle') // connecting, not yet reported
@@ -56,7 +57,7 @@ describe('connection store', () => {
   })
 
   it('goes disconnected when every channel is closed, connected when any is open', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     mgr.subscribe('/v0/ws/git', vi.fn())
     mgr.subscribe('/v0/ws/files', vi.fn())
     MockWebSocket.instances[0].simulateOpen()
@@ -73,7 +74,7 @@ describe('connection store', () => {
   it('returns to connected after a successful reconnect', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       mgr.subscribe('/v0/ws/git', vi.fn())
       MockWebSocket.instances[0].simulateOpen()
       MockWebSocket.instances[0].simulateClose()
@@ -90,7 +91,7 @@ describe('connection store', () => {
   })
 
   it('returns to idle when the last subscriber leaves', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const unsub = mgr.subscribe('/v0/ws/git', vi.fn())
     MockWebSocket.instances[0].simulateOpen()
     expect(status()).toBe('connected')
@@ -101,7 +102,7 @@ describe('connection store', () => {
   it('a stale socket closing after reconnect does not flag the endpoint as down', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       mgr.subscribe('/v0/ws/git', vi.fn())
       MockWebSocket.instances[0].simulateClose()
       vi.advanceTimersByTime(1000)
@@ -153,7 +154,7 @@ describe('connection store', () => {
   it('counts a reconnect only when the backend comes back after being lost', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       mgr.subscribe('/v0/ws/git', vi.fn())
       MockWebSocket.instances[0].simulateOpen()
       expect(reconnects()).toBe(0) // the first connect is not a reconnect
@@ -175,7 +176,7 @@ describe('connection store', () => {
   it('a channel dropping while another stays open is degraded, not a lost backend', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       mgr.subscribe('/v0/ws/git', vi.fn())
       mgr.subscribe('/v0/ws/files', vi.fn())
       MockWebSocket.instances[0].simulateOpen()

@@ -9,7 +9,7 @@ const ws = vi.hoisted(() => ({
   subscribe: vi.fn(),
   send: vi.fn(),
 }))
-vi.mock('@/lib/ws/manager', () => ({ wsManager: ws }))
+vi.mock('@/core/stream/ws-manager', () => ({ wsManager: ws }))
 const api = vi.hoisted(() => ({ evaluate: vi.fn(), navigate: vi.fn(), close: vi.fn() }))
 vi.mock('@/lib/browser-bridge', () => ({ browserApi: api }))
 

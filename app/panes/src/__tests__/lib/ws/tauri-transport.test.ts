@@ -30,6 +30,7 @@ beforeEach(() => {
 
 const { TauriWebSocket } = await import('@/lib/ws/tauri-transport')
 const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { hostPorts } = await import('@/features/hosts/lib/ws-host-ports')
 const { useConnectionStore } = await import('@/lib/ws/connection-store')
 const { followStreamFailures } = await import('@/features/hosts/lib/host-failures')
 const { destroyHostRuntime, getHostRuntime, getOrCreateHostRuntime } =
@@ -180,7 +181,7 @@ describe('TauriWebSocket', () => {
     it('tells a changed identity from an unreachable host on a remote stream', async () => {
       invoke.mockRejectedValueOnce('host-identity-changed: certificate mismatch')
       invoke.mockRejectedValueOnce('host-unreachable: cannot reach box2:3737: connection refused')
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
 
       const stopChanged = mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
       const stopDown = mgr.subscribe('crowbar://h2/v0/projects', vi.fn())
@@ -220,7 +221,7 @@ describe('TauriWebSocket', () => {
         ).length
       try {
         invoke.mockRejectedValueOnce('host-identity-changed: certificate mismatch')
-        const mgr = createWSManager()
+        const mgr = createWSManager(hostPorts)
         const frames = vi.fn()
         mgr.subscribe('crowbar://h1/v0/projects', frames)
         mgr.subscribe('crowbar://h1/v0/projects', vi.fn())
@@ -266,7 +267,7 @@ describe('TauriWebSocket', () => {
       try {
         await vi.waitFor(() => expect(status()).toBe('up'))
         const frames = vi.fn()
-        stops.push(createWSManager().subscribe('crowbar://h1/v0/projects/p/repos', frames))
+        stops.push(createWSManager(hostPorts).subscribe('crowbar://h1/v0/projects/p/repos', frames))
         await vi.waitFor(() => expect(channels).toHaveLength(1))
 
         daemonUp = false
@@ -438,7 +439,7 @@ describe('the stream over the desktop transport', () => {
 
   it('subscribes every held scope on a ready that beat ws_open, applies the snapshot, and again after a daemon restart', async () => {
     // The real manager and stream, not setup's fake stream daemon.
-    vi.doUnmock('@/lib/ws/manager')
+    vi.doUnmock('@/core/stream/ws-manager')
     vi.doUnmock('@/core/stream/stream')
     vi.resetModules()
     const stream = await import('@/core/stream/stream')

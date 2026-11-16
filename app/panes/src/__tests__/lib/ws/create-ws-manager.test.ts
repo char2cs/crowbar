@@ -7,9 +7,7 @@ vi.mock('@/lib/ws/daemon-probe', () => ({
 }))
 
 class MockWebSocket {
-  // vi.stubGlobal replaces the real WebSocket, so the mock must carry the
-  // standard readyState constants — production code compares against them
-  // (e.g. the CONNECTING-vs-OPEN branch in closeSocketQuietly).
+  // PLATFORM: vi.stubGlobal replaces the real WebSocket, so the mock carries the readyState constants production code compares against.
   static CONNECTING = 0
   static OPEN = 1
   static CLOSING = 2
@@ -50,10 +48,10 @@ const install = vi.hoisted(() => ({ localDaemon: true }))
 vi.mock('@/features/hosts/lib/local-daemon', () => ({ hasLocalDaemon: () => install.localDaemon }))
 
 const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { hostPorts } = await import('@/features/hosts/lib/ws-host-ports')
 const { useConnectionStore } = await import('@/lib/ws/connection-store')
 
-// The phone app: a local endpoint has no daemon behind it, so it is neither dialled nor
-// reported down (which would raise "Backend unavailable" for a daemon that never existed).
+// SPEC: the phone app has no local daemon, so a local endpoint is neither dialled nor reported down.
 describe('WSManager with no local daemon', () => {
   beforeEach(() => {
     install.localDaemon = false
@@ -64,7 +62,7 @@ describe('WSManager with no local daemon', () => {
   })
 
   it('never dials a local endpoint and reports no local outage', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const unsubscribe = mgr.subscribe('/v0/ws/git', vi.fn())
 
     expect(MockWebSocket.instances).toHaveLength(0)
@@ -76,7 +74,7 @@ describe('WSManager with no local daemon', () => {
 
 describe('WSManager', () => {
   it('opens one socket for two subscribers to the same endpoint', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const cb1 = vi.fn()
     const cb2 = vi.fn()
     mgr.subscribe('/v0/ws/git', cb1)
@@ -85,7 +83,7 @@ describe('WSManager', () => {
   })
 
   it('calls all subscribers when a message arrives', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const cb1 = vi.fn()
     const cb2 = vi.fn()
     mgr.subscribe('/v0/ws/git', cb1)
@@ -96,7 +94,7 @@ describe('WSManager', () => {
   })
 
   it('closes socket when last subscriber unsubscribes', () => {
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const unsub1 = mgr.subscribe('/v0/ws/git', vi.fn())
     const unsub2 = mgr.subscribe('/v0/ws/git', vi.fn())
     unsub1()
@@ -105,12 +103,11 @@ describe('WSManager', () => {
     expect(MockWebSocket.instances[0].close).toHaveBeenCalled()
   })
 
-  // A backend restart must not kill subscriptions silently: the manager reopens the socket, keeps
-  // the subscribers, and emits { reconnected: true } so they can refetch missed state.
+  // SPEC: a backend restart reopens the socket, keeps the subscribers and emits { reconnected: true }.
   it('reopens the socket and keeps subscribers after a close', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       const cb = vi.fn()
       mgr.subscribe('/v0/ws/git', cb)
       MockWebSocket.instances[0].simulateClose()
@@ -126,12 +123,11 @@ describe('WSManager', () => {
     }
   })
 
-  // A refetch while the daemon is still down only fails (and retries): the
-  // sentinel means "the stream is back", so each outage emits it once, on open.
+  // SPEC: the sentinel means the stream is back, so each outage emits it once, on open.
   it('emits the reconnect sentinel once the stream is back, not per failed attempt', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       const cb = vi.fn()
       mgr.subscribe('/v0/ws/git', cb)
       MockWebSocket.instances[0].simulateClose()
@@ -154,7 +150,7 @@ describe('WSManager', () => {
   it('does not reopen when the last subscriber left during the reconnect delay', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       const unsub = mgr.subscribe('/v0/ws/git', vi.fn())
       MockWebSocket.instances[0].simulateClose()
       unsub()
@@ -168,7 +164,7 @@ describe('WSManager', () => {
   it('unsubscribing after a reconnect closes the live socket, not the stale one', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       const unsub = mgr.subscribe('/v0/ws/git', vi.fn())
       MockWebSocket.instances[0].simulateClose()
       vi.advanceTimersByTime(1000)
@@ -183,19 +179,18 @@ describe('WSManager', () => {
   it('backs off across consecutive failed reconnects', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       mgr.subscribe('/v0/ws/git', vi.fn())
       MockWebSocket.instances[0].simulateClose()
       vi.advanceTimersByTime(1000)
       expect(MockWebSocket.instances).toHaveLength(2)
-      // Second socket dies immediately (backend still down): the next attempt
-      // waits 2s, not 1s.
+      // SPEC: a second socket dying at once makes the next attempt wait 2s, not 1s.
       MockWebSocket.instances[1].simulateClose()
       vi.advanceTimersByTime(1999)
       expect(MockWebSocket.instances).toHaveLength(2)
       vi.advanceTimersByTime(1)
       expect(MockWebSocket.instances).toHaveLength(3)
-      // A successful open resets the backoff to the base delay.
+      // SPEC: a successful open resets the backoff to the base delay.
       MockWebSocket.instances[2].simulateOpen()
       MockWebSocket.instances[2].simulateClose()
       vi.advanceTimersByTime(1000)
@@ -221,7 +216,7 @@ describe('WSManager', () => {
       )
 
     it('resolves when the endpoint socket opens, and at once when it already is', async () => {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       const { socket } = connecting(mgr)
       const waiting = settled(mgr.opened('/v0/chats/c1/ws'))
 
@@ -234,7 +229,7 @@ describe('WSManager', () => {
     it('rejects when the socket closes before it opens', async () => {
       vi.useFakeTimers()
       try {
-        const mgr = createWSManager()
+        const mgr = createWSManager(hostPorts)
         const { socket } = connecting(mgr)
         const waiting = settled(mgr.opened('/v0/chats/c1/ws'))
 
@@ -249,7 +244,7 @@ describe('WSManager', () => {
     it('rejects with why the transport failed, as its cause', async () => {
       vi.useFakeTimers()
       try {
-        const mgr = createWSManager()
+        const mgr = createWSManager(hostPorts)
         const { socket } = connecting(mgr)
         const waiting = mgr.opened('/v0/chats/c1/ws').catch((error: unknown) => error)
 
@@ -265,7 +260,7 @@ describe('WSManager', () => {
     })
 
     it('rejects when nothing subscribes to the endpoint, or the last subscriber leaves first', async () => {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       expect(await settled(mgr.opened('/v0/chats/c1/ws'))).toBe('refused')
 
       const { unsubscribe } = connecting(mgr)
@@ -278,7 +273,7 @@ describe('WSManager', () => {
     it('waits on a dropped socket for the reconnect it is waiting to make, and that one alone', async () => {
       vi.useFakeTimers()
       try {
-        const mgr = createWSManager()
+        const mgr = createWSManager(hostPorts)
         const { socket } = connecting(mgr)
         socket.simulateOpen()
         socket.simulateClose()
@@ -301,7 +296,7 @@ describe('WSManager', () => {
     it('tells a drop listener when an open socket drops, never when its last subscriber leaves', () => {
       vi.useFakeTimers()
       try {
-        const mgr = createWSManager()
+        const mgr = createWSManager(hostPorts)
         const dropped = vi.fn()
         mgr.onDrop('/v0/chats/c1/ws', dropped)
         const { socket, unsubscribe } = connecting(mgr)
@@ -328,7 +323,7 @@ describe('WSManager', () => {
 
   describe('send', () => {
     it('holds what is sent while the socket connects and sends it once, in order, on open', () => {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       mgr.subscribe('/v0/stream', vi.fn())
       const socket = MockWebSocket.instances[0]
       socket.readyState = MockWebSocket.CONNECTING
@@ -347,11 +342,11 @@ describe('WSManager', () => {
       ])
     })
 
-    // The reconnect's own open is where its subscribers say again what they need.
+    // SPEC: the reconnect's own open is where its subscribers say again what they need.
     it('never replays on the reconnect what a socket that closed before opening held', () => {
       vi.useFakeTimers()
       try {
-        const mgr = createWSManager()
+        const mgr = createWSManager(hostPorts)
         mgr.subscribe('/v0/stream', vi.fn())
         const socket = MockWebSocket.instances[0]
         socket.readyState = MockWebSocket.CONNECTING
@@ -371,15 +366,16 @@ describe('WSManager', () => {
 
   it('opened rejects when the transport cannot carry a socket', async () => {
     vi.resetModules()
-    // The real manager, loaded afresh over a transport that cannot carry a socket.
-    vi.doUnmock('@/lib/ws/manager')
+    // SPEC: the real manager, loaded afresh over a transport that cannot carry a socket.
+    vi.doUnmock('@/core/stream/ws-manager')
     vi.doMock('@/lib/ws/url', async (importOriginal) => ({
       ...(await importOriginal<typeof import('@/lib/ws/url')>()),
       isWebSocketCapable: () => false,
     }))
     try {
       const fresh = await import('@/lib/ws/create-ws-manager')
-      const mgr = fresh.createWSManager()
+      const { hostPorts: freshPorts } = await import('@/features/hosts/lib/ws-host-ports')
+      const mgr = fresh.createWSManager(freshPorts)
       mgr.subscribe('/v0/chats/c1/ws', vi.fn())
 
       await expect(mgr.opened('/v0/chats/c1/ws')).rejects.toThrow()
@@ -390,9 +386,9 @@ describe('WSManager', () => {
     }
   })
 
-  it('a socket that closes before it opened probes the daemon once', () => {
-    const mgr = createWSManager()
-    const unsubscribe = mgr.subscribe('/v0/ws/git', vi.fn())
+  it.each([['/v0/ws/git'], ['/v0/ws/files']])('a socket on %s that closes before it opened probes the daemon once', (endpoint) => {
+    const mgr = createWSManager(hostPorts)
+    const unsubscribe = mgr.subscribe(endpoint, vi.fn())
 
     MockWebSocket.instances[0].simulateClose()
 
@@ -403,7 +399,7 @@ describe('WSManager', () => {
   it('a socket that closed after opening does not probe until a reconnect fails', () => {
     vi.useFakeTimers()
     try {
-      const mgr = createWSManager()
+      const mgr = createWSManager(hostPorts)
       const unsubscribe = mgr.subscribe('/v0/ws/git', vi.fn())
       MockWebSocket.instances[0].simulateOpen()
       MockWebSocket.instances[0].simulateClose()

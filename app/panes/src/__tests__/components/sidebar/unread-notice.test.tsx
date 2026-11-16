@@ -10,7 +10,7 @@ const socket = vi.hoisted(() => ({
   deliver: (_data: unknown) => {},
 }))
 
-vi.mock('@/lib/ws/manager', () => ({
+vi.mock('@/core/stream/ws-manager', () => ({
   wsManager: {
     subscribe: (_endpoint: string, cb: (data: unknown) => void) => {
       socket.deliver = cb

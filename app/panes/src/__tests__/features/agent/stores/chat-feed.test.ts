@@ -5,7 +5,7 @@ import { heldScopes, streamDaemon, streamDaemonFor } from '@/__tests__/__fixture
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { delta, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 import { getOrCreateHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
-import { wsManager } from '@/lib/ws/manager'
+import { wsManager } from '@/core/stream/ws-manager'
 
 const SCOPE = 'chat:chat-1'
 const feed = (chatId = 'chat-1') => chatStore.getState().feeds[chatId]

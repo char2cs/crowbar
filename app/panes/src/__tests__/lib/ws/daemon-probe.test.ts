@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { waitFor } from '@testing-library/react'
 import { noteSocketOpened, probeDaemon } from '@/lib/ws/daemon-probe'
 import { createWSManager } from '@/lib/ws/create-ws-manager'
+import { hostPorts } from '@/features/hosts/lib/ws-host-ports'
 import { reportChannelState, useConnectionStore } from '@/lib/ws/connection-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
@@ -142,7 +143,7 @@ describe('probeDaemon', () => {
   it('a daemon halted at load reaches the halt store through the first refused socket', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(halted))
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const unsubscribe = mgr.subscribe('/v0/ws/git', vi.fn())
 
     MockWebSocket.last!.readyState = MockWebSocket.CLOSED
@@ -166,7 +167,7 @@ describe('probeDaemon', () => {
       'fetch',
       vi.fn(() => new Promise((resolve) => (answer = resolve))),
     )
-    const mgr = createWSManager()
+    const mgr = createWSManager(hostPorts)
     const leaveGit = mgr.subscribe('/v0/ws/git', vi.fn())
     MockWebSocket.last!.drop()
     const inFlight = probeDaemon() // the one the refused socket sent

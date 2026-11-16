@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createConsoleController, type ConsoleController } from '@/features/console/lib/controller'
 import { useConsoleStore } from '@/features/console/stores/console-store'
-import { createTransport } from '@/lib/ws/create-ws-manager'
+import { openTransport } from '@/features/hosts/lib/open-transport'
 import type { LifecycleMessage } from '@/sdk/lifecycle-message'
 import type { PaneClient } from '@/sdk/pane-client'
 import { ConsolePane } from './console-pane'
@@ -34,7 +34,7 @@ export class ConsolePaneMount {
     useConsoleStore.getState().setOpen(true)
     this.controller ??= createConsoleController({
       store: useConsoleStore,
-      open: createTransport,
+      open: openTransport,
       timers: BROWSER_TIMERS,
     })
     this.root ??= createRoot(this.container)

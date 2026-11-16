@@ -263,8 +263,8 @@ if (typeof navigator !== 'undefined' && !navigator.clipboard) {
 // scope replays nothing and shows what the test seeded into chatStore. Every other endpoint keeps
 // the real manager.
 const setupManager = vi.hoisted(() => ({ current: null as unknown }))
-vi.mock('@/lib/ws/manager', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/ws/manager')>()
+vi.mock('@/core/stream/ws-manager', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/core/stream/ws-manager')>()
   const { streamDaemonFor } = await import('@/__tests__/__fixtures__/stream-daemon')
   const { splitHostPath } = await import('@/lib/host-path')
   const real = actual.wsManager
@@ -306,7 +306,7 @@ vi.mock('@/lib/ws/manager', async (importOriginal) => {
 // socket manager itself.
 vi.mock('@/core/stream/stream', async (importOriginal) => {
   const stream = await importOriginal<typeof import('@/core/stream/stream')>()
-  const { wsManager } = await import('@/lib/ws/manager')
+  const { wsManager } = await import('@/core/stream/ws-manager')
   if (wsManager === setupManager.current) stream.startStream()
   return stream
 })

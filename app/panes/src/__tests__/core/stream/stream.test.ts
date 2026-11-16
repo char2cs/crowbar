@@ -34,7 +34,7 @@ const sockets = vi.hoisted(() => {
   return { all, of }
 })
 
-vi.mock('@/lib/ws/manager', () => ({
+vi.mock('@/core/stream/ws-manager', () => ({
   wsManager: {
     subscribe: (endpoint: string, cb: (data: unknown) => void) => {
       const s = sockets.of(endpoint)

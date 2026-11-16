@@ -1,5 +1,5 @@
 import { report } from '@/lib/errors/report'
-import { wsManager } from '@/lib/ws/manager'
+import { wsManager } from '@/core/stream/ws-manager'
 import { qualify } from '@/lib/host-path'
 import { decodeFrame, FrameError, type Frame } from '@/core/stream/frames'
 import type { Problem } from '@/lib/errors/problem'
