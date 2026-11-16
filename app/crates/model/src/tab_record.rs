@@ -38,21 +38,27 @@ mod tests {
 
     #[test]
     fn a_consistent_record_becomes_a_tab() {
-        let record = stored(&json!({"node": "leaf", "pane": "a"}), &json!("a"));
+        let record = stored(
+            &json!({"node": "leaf", "panes": ["a"], "active": "a"}),
+            &json!("a"),
+        );
         let tab: Tab = serde_json::from_value(record).unwrap();
         assert_eq!(tab.len(), 1);
     }
 
     #[test]
     fn a_record_that_breaks_a_tab_invariant_is_refused() {
-        let leaf = json!({"node": "leaf", "pane": "a"});
+        let leaf = json!({"node": "leaf", "panes": ["a"], "active": "a"});
         let cases = [
             ("tree missing", stored(&json!(null), &json!("a"))),
             ("focus on nothing", stored(&leaf, &json!(null))),
             ("focus elsewhere", stored(&leaf, &json!("zz"))),
             (
                 "leaf without a pane",
-                stored(&json!({"node": "leaf", "pane": "zz"}), &json!("a")),
+                stored(
+                    &json!({"node": "leaf", "panes": ["zz"], "active": "zz"}),
+                    &json!("a"),
+                ),
             ),
         ];
         for (name, record) in cases {

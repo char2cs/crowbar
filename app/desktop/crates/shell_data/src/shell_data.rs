@@ -84,6 +84,8 @@ impl ShellData {
             .map(|slot| (slot.spec.id.clone(), slot.client.clone()))
             .collect();
         let mut state = State::new(slots);
+        let settings = SettingsSlot::default();
+        state.settings = settings.clone();
         state.icons = IconCache::in_dir(desk.notes.directory().join("space-icons"));
         let hub = Hub::new(state, signal);
         let fleet = Fleet::new(handle, &hub, transport);
@@ -102,7 +104,7 @@ impl ShellData {
             commands,
             fleet,
             desk,
-            settings: SettingsSlot::default(),
+            settings,
         }
     }
 
@@ -112,6 +114,14 @@ impl ShellData {
         chat: &str,
     ) -> Option<ChatTerminal> {
         self.hub.read(|state| ChatTerminal::of(state, chat))
+    }
+
+    /// The project `chat` belongs to; `None` when it is not loaded or has none.
+    pub fn chat_project(
+        &self,
+        chat: &str,
+    ) -> Option<String> {
+        self.hub.read(|state| crate::chat_project::of(state, chat))
     }
 
     /// The sidebar's read side.

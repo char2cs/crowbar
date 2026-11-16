@@ -133,7 +133,7 @@ impl LayoutView {
         cx: &mut App,
     ) {
         let (now, motion) = (self.clock.now(), Motion::of(cx));
-        let multiple = self.tab.as_ref().is_some_and(|tab| tab.len() > 1);
+        let multiple = self.tab.as_ref().is_some_and(|tab| tab.group_count() > 1);
         let focused = self.tab.as_ref().and_then(|tab| tab.focused().cloned());
         let ring = focused.filter(|_| multiple);
         if let Some(pane) = &ring {

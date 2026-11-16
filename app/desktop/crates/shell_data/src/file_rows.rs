@@ -138,15 +138,27 @@ mod tests {
         assert_eq!(rows[0].kind, FileKind::Directory(Expansion::Expanded));
     }
 
-    #[test]
-    fn status_is_inherited_from_an_untracked_directory_and_bubbles_to_a_parent() {
+    fn reporting(reported: &[(&str, GitStatus)]) -> PanelState {
         let mut panel = panel();
         panel.toggle("src");
-        let rows = of(&panel);
-        assert_eq!(rows[1].status, GitStatus::Untracked);
         panel.statuses.clear();
-        panel.statuses.insert("src/m.rs".into(), GitStatus::Added);
-        assert_eq!(of(&panel)[0].status, GitStatus::Modified);
+        for (path, status) in reported {
+            panel.statuses.insert((*path).into(), *status);
+        }
+        panel
+    }
+
+    #[test]
+    fn status_is_inherited_from_an_untracked_directory_and_bubbles_to_a_parent() {
+        type Case = (&'static [(&'static str, GitStatus)], usize, GitStatus);
+        const CASES: &[Case] = &[
+            (&[("src", GitStatus::Untracked)], 1, GitStatus::Untracked),
+            (&[("src/m.rs", GitStatus::Added)], 0, GitStatus::Modified),
+        ];
+        for (reported, row, expected) in CASES {
+            let panel = reporting(reported);
+            assert_eq!(of(&panel)[*row].status, *expected, "{reported:?}");
+        }
     }
 
     #[test]

@@ -83,6 +83,7 @@ icon_names! {
     Image => "image",
     Link => "link",
     FileText => "file-text",
+    File => "file",
     FolderSimplePlus => "folder-simple-plus",
     FolderMinus => "folder-minus",
     Scissors => "scissors",

@@ -73,7 +73,9 @@ impl NewTabPanes {
         pane: &PaneId,
         cx: &mut App,
     ) -> Entity<NewTabView> {
-        let view = cx.new(|_| NewTabView);
+        let view = cx.new(|_| NewTabView {
+            actions: NewTabAction::ALL,
+        });
         let (requests, owner) = (self.requests.clone(), pane.clone());
         cx.subscribe(&view, move |_, action: &NewTabAction, _| {
             forward(&requests, &owner, *action);
@@ -122,6 +124,30 @@ mod tests {
 
     use super::*;
 
+    fn instance(
+        index: usize,
+        type_id: &str,
+    ) -> PaneInstance {
+        PaneInstance {
+            pane_id: PaneId::new(format!("p{index}")).unwrap(),
+            type_id: PaneTypeId::new(type_id).unwrap(),
+            params: Params::default().with("n", index.to_string()).unwrap(),
+            state: PaneState::default(),
+        }
+    }
+
+    fn open(
+        layout: &mut Layout,
+        instance: PaneInstance,
+    ) {
+        let command = Command::OpenPane {
+            tab: TabId(1),
+            instance,
+            placement: None,
+        };
+        layout.apply(command).unwrap();
+    }
+
     fn layout_with(types: &[&str]) -> Layout {
         let mut layout = Layout::default();
         layout
@@ -131,20 +157,7 @@ mod tests {
             })
             .unwrap();
         for (index, type_id) in types.iter().enumerate() {
-            let instance = PaneInstance {
-                pane_id: PaneId::new(format!("p{index}")).unwrap(),
-                type_id: PaneTypeId::new(*type_id).unwrap(),
-                params: Params::default().with("n", index.to_string()).unwrap(),
-                state: PaneState::default(),
-            };
-            let (tab, placement) = (TabId(1), None);
-            layout
-                .apply(Command::OpenPane {
-                    tab,
-                    instance,
-                    placement,
-                })
-                .unwrap();
+            open(&mut layout, instance(index, type_id));
         }
         layout
     }

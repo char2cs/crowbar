@@ -125,6 +125,7 @@ pub(crate) const FILES: &[IconFile] = &[
     file!(Image, Regular, "regular", "image"),
     file!(Link, Regular, "regular", "link"),
     file!(FileText, Regular, "regular", "file-text"),
+    file!(File, Regular, "regular", "file"),
     file!(FolderSimplePlus, Regular, "regular", "folder-simple-plus"),
     file!(FolderMinus, Regular, "regular", "folder-minus"),
     file!(Scissors, Regular, "regular", "scissors"),

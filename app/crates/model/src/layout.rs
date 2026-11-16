@@ -431,7 +431,7 @@ mod tests {
             crate::tab_shape::TabShape {
                 id: TabId(2),
                 title: "two".into(),
-                tree: Some(crate::split_node::SplitNode::Leaf { pane: id("d") }),
+                tree: Some(crate::split_node::SplitNode::leaf(id("d"))),
                 focused: Some(id("d")),
             },
             [(id("d"), chat("d", "c1"))].into_iter().collect(),
@@ -524,7 +524,7 @@ mod tests {
         let mut layout = sample();
         let before = layout.clone();
         let mut arrangement = layout.arrangement();
-        arrangement.tabs[0].tree = Some(crate::split_node::SplitNode::Leaf { pane: id("ghost") });
+        arrangement.tabs[0].tree = Some(crate::split_node::SplitNode::leaf(id("ghost")));
         let step = UndoStep {
             arrangement,
             parked: BTreeMap::new(),

@@ -9,6 +9,7 @@ use protocol::PaneId;
 use ui::{DraggedRow, Motion, Overlays, SashDrag};
 
 use crate::drop_hit::DropHit;
+use crate::drop_target::DropTarget;
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use crate::pane_handle::PaneHandle;
@@ -52,11 +53,17 @@ impl LayoutView {
             cx.notify();
             return;
         }
-        let slots = tab.layout(self.local());
+        let slots = DropTarget::slots_for(subject, tab, self.local());
+        let joinable: Vec<PaneId> = slots
+            .iter()
+            .map(|slot| slot.pane.clone())
+            .filter(|pane| self.joins_strip(subject, pane))
+            .collect();
         let hit = DropHit {
             subject,
             point: self.local_point(position),
             slots: &slots,
+            joinable: &joinable,
             window_bounds: self.bounds,
             now: self.clock.now(),
         };
@@ -73,18 +80,6 @@ impl LayoutView {
         self.release(subject, cx);
     }
 
-    pub(crate) fn row_dropped(
-        &mut self,
-        row: &DraggedRow,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(chat) = row.chat.as_deref() else {
-            return;
-        };
-        self.release(&DragSubject::Chat(chat.to_owned()), cx);
-    }
-
     fn release(
         &mut self,
         subject: &DragSubject,
@@ -98,6 +93,19 @@ impl LayoutView {
         cx.notify();
         if let Some(event) = event {
             cx.emit(event);
+        }
+    }
+
+    pub(crate) fn row_released(
+        &mut self,
+        event: &MouseUpEvent,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let opened = self.tab.as_ref().and_then(|tab| self.drop.chat_event(tab));
+        self.released(event, window, cx);
+        if let Some(opened) = opened {
+            cx.emit(opened);
         }
     }
 

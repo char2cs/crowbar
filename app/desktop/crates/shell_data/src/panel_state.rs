@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use sidebar::{Changes, GitStatus};
 
 use crate::file_entry::FileEntry;
-use crate::gitignore_rules::IgnoreRules;
+use crate::ignore_rules::IgnoreRules;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PanelState {

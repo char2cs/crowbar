@@ -7,6 +7,7 @@ use protocol::PaneId;
 use settings_ui::{Key, SettingsBackend as _, Value};
 
 use super::ShellView;
+use crate::browser_homepage::{HOMEPAGE_KEY, homepage_state};
 use crate::search_engine_setting::{CUSTOM_URL_KEY, ENGINE_KEY, engine_from};
 
 impl ShellView {
@@ -23,6 +24,14 @@ impl ShellView {
         if let Err(error) = self.state.host().browse(pane, &action) {
             tracing::warn!(%error, "the browser pane could not be driven");
         }
+    }
+
+    pub(super) fn homepage_state(&mut self) -> protocol::PaneState {
+        let engine = self.search_engine();
+        let stored = self
+            .settings_backend()
+            .and_then(|backend| backend.get(&Key::new(HOMEPAGE_KEY)));
+        homepage_state(stored.as_ref().and_then(Value::as_text), &engine)
     }
 
     fn search_engine(&mut self) -> SearchEngine {

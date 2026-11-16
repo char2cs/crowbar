@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::file_density::FileDensity;
 use crate::file_tree_flag::FileTreeFlag;
+use crate::icon_theme::IconTheme;
 
 const DEFAULT_INDENT: f32 = 16.0;
 
@@ -26,6 +27,8 @@ pub struct FileTreeView {
     pub hidden_directories: Vec<String>,
     /// Whether the change counts sit closer together (`compactGitStatusBadges`).
     pub compact_badges: bool,
+    /// The glyph set of files and folders (`iconTheme`).
+    pub icons: IconTheme,
 }
 
 impl Default for FileTreeView {
@@ -38,6 +41,7 @@ impl Default for FileTreeView {
             hidden_files: Vec::new(),
             hidden_directories: Vec::new(),
             compact_badges: false,
+            icons: IconTheme::default(),
         }
     }
 }

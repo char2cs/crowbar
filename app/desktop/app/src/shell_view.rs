@@ -15,7 +15,7 @@ use shell_data::{SettingsAdapter, ShellData};
 use shell_keys::Keymap;
 use sidebar::{Sidebar, SidebarEvent};
 use startup_view::{StartupEvent, StartupInput, StartupView};
-use tab_bar::{SidebarState, TabBar, TabBarEvent, TabView};
+use tab_bar::{SidebarState, TabBar, TabBarEvent};
 use ui::{Surface, Theme, ToastKind, ToastQueue};
 
 mod appearance_settings;
@@ -25,6 +25,7 @@ mod children;
 mod data_events;
 mod file_actions;
 mod file_tree_flag;
+mod focus_follow;
 mod keymap_settings;
 mod new_tab;
 mod notices;
@@ -32,9 +33,11 @@ mod outcomes;
 mod pane_commands;
 mod pane_settings_watch;
 mod pump;
+mod readout;
 mod remote_folder;
 mod shell_commands;
 mod sidebar_position;
+mod tab_strip;
 
 use crate::daemon_link::DaemonLink;
 use crate::focused_chat::focused_chat;
@@ -48,7 +51,7 @@ use crate::shell_state::ShellState;
 use crate::workspace_event::WorkspaceEvent;
 
 use self::children::{build_children, overlay_channel};
-use self::pump::{drain, member};
+use self::pump::drain;
 
 const WINDOW_CANNOT_HOST: &str = "This window cannot show panes: it is not an X11 window. Restart Crowbar under X11 or XWayland.";
 
@@ -81,6 +84,8 @@ pub(crate) struct ShellView {
     placement: Option<(webview::ParentWindow, webview::Bounds)>,
     overlays_open: bool,
     hover: HoverTracker,
+    focus_surface: Option<sidebar::Mode>,
+    readout: crate::readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
     subscriptions: Vec<Subscription>,
 }
@@ -133,6 +138,8 @@ impl ShellView {
             placement: None,
             overlays_open: false,
             hover: HoverTracker::default(),
+            focus_surface: None,
+            readout: crate::readout_state::ReadoutState::default(),
             notices: built.notices,
             subscriptions: built.subscriptions,
         };
@@ -406,18 +413,12 @@ impl ShellView {
         let titles = self.state.titles();
         let layout = self.state.layout();
         self.source.follow_new_tabs(layout, &titles);
-        let tabs: Vec<TabView> = layout
-            .tabs()
-            .iter()
-            .map(|tab| TabView::from_tab(tab, |pane| member((&titles, layout), pane)))
-            .collect();
-        let active = layout.active_tab().map(model::Tab::id);
         let tab = layout.active_tab().cloned();
         self.data.focus_chat(focused_chat(layout).as_deref());
-        self.tabs.update(cx, |bar, cx| {
-            bar.set_tabs(tabs, active, cx);
-            bar.set_sidebar(sidebar_state, cx);
-        });
+        self.follow_focus(cx);
+        self.tabs
+            .update(cx, |bar, cx| bar.set_sidebar(sidebar_state, cx));
+        self.push_tabs(cx);
         self.layout.update(cx, |view, cx| {
             view.set_chrome(chrome, cx);
             view.set_tab(tab, cx);
@@ -455,6 +456,7 @@ impl Render for ShellView {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
+        self.readout.paint();
         div()
             .size_full()
             .track_focus(&self.focus)
@@ -470,31 +472,7 @@ impl Render for ShellView {
             .children(self.prompt_layer())
             .children(layer(self.pairing.as_ref()))
             .children(layer(self.startup.as_ref()))
+            .children(self.readout.view.clone())
             .child(self.notices.clone())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::chat_label::NEW_CHAT;
-
-    #[test]
-    fn member_labels_fall_back_to_new_chat_until_a_title_arrives() {
-        let titles = crate::titles::Titles::default();
-        let pane = protocol::PaneId::new("p1").unwrap();
-        let before = member((&titles, &model::Layout::default()), &pane);
-        assert_eq!(
-            (before.label.as_ref(), before.provisional),
-            (NEW_CHAT, true),
-            "unnamed"
-        );
-        titles.set(pane.clone(), protocol::PaneTitle::new("Fix").unwrap());
-        let after = member((&titles, &model::Layout::default()), &pane);
-        assert_eq!(
-            (after.label.as_ref(), after.provisional),
-            ("Fix", false),
-            "named"
-        );
     }
 }

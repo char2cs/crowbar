@@ -1,9 +1,10 @@
-use model::{Rect, Tab};
+use model::{GroupSlot, Rect, Tab};
 
 use crate::chrome_context::ChromeContext;
 use crate::pane_frame::PaneFrame;
 use crate::pane_hole::PaneHole;
 use crate::pane_source::PaneSource;
+use crate::pane_strip::STRIP_HEIGHT;
 
 /// The content hole of every pane of `tab` when the layout fills `content`. The shell gives
 /// these rectangles to the pane host in place of the model's raw slots, so web views sit inside
@@ -14,11 +15,11 @@ pub fn pane_holes(
     content: Rect,
     chrome: ChromeContext,
 ) -> Vec<PaneHole> {
-    tab.layout(content)
+    tab.groups(content)
         .into_iter()
-        .map(|slot| PaneHole {
-            rect: PaneFrame::new(slot.rect, content, chrome).hole,
-            pane: slot.pane,
+        .map(|group| PaneHole {
+            rect: below_strip(PaneFrame::new(group.rect, content, chrome).hole, &group),
+            pane: group.active,
         })
         .collect()
 }
@@ -37,6 +38,21 @@ pub fn pane_holes_with(
         .filter(|hole| !source.is_native(&hole.pane))
         .map(|hole| below_chrome(hole, source))
         .collect()
+}
+
+fn below_strip(
+    hole: Rect,
+    group: &GroupSlot,
+) -> Rect {
+    if group.panes.len() < 2 {
+        return hole;
+    }
+    let strip = STRIP_HEIGHT.min(hole.height);
+    Rect {
+        y: hole.y + strip,
+        height: hole.height - strip,
+        ..hole
+    }
 }
 
 fn below_chrome(
@@ -184,5 +200,35 @@ mod tests {
                 case.name
             );
         }
+    }
+
+    #[test]
+    fn a_group_with_a_strip_starts_its_hole_below_the_strip_and_hides_the_others() {
+        let mut layout = layout_of("a", &[("b", "a", Edge::Right)]);
+        let stacked = crate::test_support::chat("c");
+        layout
+            .apply(model::Command::OpenPaneInGroup {
+                instance: stacked,
+                onto: pane_id("b"),
+                index: None,
+            })
+            .expect("stack");
+        let tab = layout.active_tab().expect("tab");
+        let holes = pane_holes(tab, CONTENT, CHROME);
+        let plain = pane_holes(
+            layout_of("a", &[("b", "a", Edge::Right)])
+                .active_tab()
+                .expect("tab"),
+            CONTENT,
+            CHROME,
+        );
+        assert_eq!(holes.len(), 2, "one hole per group, not per pane");
+        assert_eq!(holes[1].pane, pane_id("c"), "the shown pane");
+        assert_eq!(
+            holes[1].rect.y - plain[1].rect.y,
+            STRIP_HEIGHT,
+            "below the strip"
+        );
+        assert_eq!(holes[0].rect, plain[0].rect, "a lone pane has no strip");
     }
 }

@@ -7,7 +7,9 @@ const WORDMARK_WIDTH: f32 = 128.0;
 const PAGE_GAP: f32 = 24.0;
 const ROW_GAP: f32 = 2.0;
 
-pub(crate) struct NewTabView;
+pub(crate) struct NewTabView {
+    pub(crate) actions: [NewTabAction; NewTabAction::ALL.len()],
+}
 
 impl EventEmitter<NewTabAction> for NewTabView {}
 
@@ -18,7 +20,7 @@ impl Render for NewTabView {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let palette = Theme::of(cx).palette(Surface::Window);
-        let rows = NewTabAction::ALL.map(|action| {
+        let rows = self.actions.map(|action| {
             Button::new(action.label(), action.label())
                 .icon(action.icon())
                 .variant(ButtonVariant::Ghost)
@@ -43,21 +45,26 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use gpui::{AppContext as _, TestAppContext};
+    use gpui::{App, AppContext as _, Entity, TestAppContext};
 
     use super::*;
+
+    fn listen(
+        view: &Entity<NewTabView>,
+        sink: Rc<RefCell<Vec<NewTabAction>>>,
+        cx: &mut TestAppContext,
+    ) {
+        let handler = move |_, action: &NewTabAction, _: &mut App| sink.borrow_mut().push(*action);
+        cx.update(|cx| cx.subscribe(view, handler).detach());
+    }
 
     #[gpui::test]
     fn the_view_is_an_emitter_of_actions(cx: &mut TestAppContext) {
         let heard = Rc::new(RefCell::new(Vec::new()));
-        let view = cx.new(|_| NewTabView);
-        let sink = Rc::clone(&heard);
-        cx.update(|cx| {
-            cx.subscribe(&view, move |_, action: &NewTabAction, _| {
-                sink.borrow_mut().push(*action);
-            })
-            .detach();
+        let view = cx.new(|_| NewTabView {
+            actions: NewTabAction::ALL,
         });
+        listen(&view, Rc::clone(&heard), cx);
         view.update(cx, |_, cx| cx.emit(NewTabAction::File));
         assert_eq!(*heard.borrow(), [NewTabAction::File]);
     }

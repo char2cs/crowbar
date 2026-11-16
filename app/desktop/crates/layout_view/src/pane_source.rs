@@ -1,6 +1,8 @@
 use gpui::{AnyElement, AnyView, App, SharedString, Window};
-use model::TabId;
+use model::{PaneInstance, TabId};
 use protocol::PaneId;
+
+use crate::tab_look::TabLook;
 
 /// What the layout view asks of the shell about a pane; the shell implements it, the view never
 /// looks a pane up itself.
@@ -41,6 +43,22 @@ pub trait PaneSource {
         _cx: &mut App,
     ) -> Option<AnyView> {
         None
+    }
+
+    /// How the pane's tab looks in a strip.
+    fn tab_look(
+        &self,
+        instance: &PaneInstance,
+    ) -> TabLook {
+        TabLook::plain(instance.type_id.to_string())
+    }
+
+    /// Whether the pane may be a tab of a strip. A chat never is: it only splits.
+    fn stacks(
+        &self,
+        _instance: &PaneInstance,
+    ) -> bool {
+        false
     }
 
     /// The chat title shown on the drag ghost of the pane.

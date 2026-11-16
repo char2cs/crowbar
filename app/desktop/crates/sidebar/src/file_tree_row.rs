@@ -10,7 +10,6 @@ use ui::{ContextMenu, Icon, IconName, IconWeight, Palette, Surface, Theme, radiu
 
 use crate::command::Command;
 use crate::expansion::Expansion;
-use crate::file_glyph::file_icon;
 use crate::file_kind::FileKind;
 use crate::file_menu::file_menu;
 use crate::file_search::highlight;
@@ -71,7 +70,7 @@ impl RenderOnce for FileTreeRow {
         });
         let row = ringed(tinted, &focus, palette)
             .child(chevron(&entry, palette))
-            .child(glyph(&entry))
+            .child(glyph(&entry, &self.look))
             .child(name)
             .children(letter)
             .children(
@@ -215,11 +214,19 @@ fn chevron(
     }
 }
 
-fn glyph(entry: &FileTreeEntry) -> Div {
-    let name = match entry.kind {
-        FileKind::Directory(Expansion::Expanded) => IconName::FolderOpen,
-        FileKind::Directory(Expansion::Collapsed) => IconName::Folder,
-        FileKind::File => file_icon(&entry.name),
+fn glyph(
+    entry: &FileTreeEntry,
+    look: &TreeLook,
+) -> Div {
+    let name = look.icons.glyph(entry.kind, &entry.name);
+    let icon = Icon::new(name).size(ICON_MEDIUM);
+    let tint = look
+        .icons
+        .folder_tint()
+        .filter(|_| matches!(entry.kind, FileKind::Directory(_)));
+    let icon = match tint {
+        Some(rgb) => icon.color(gpui::rgb(rgb).into()),
+        None => icon,
     };
     div()
         .flex()
@@ -227,7 +234,7 @@ fn glyph(entry: &FileTreeEntry) -> Div {
         .size(ICON_LARGE)
         .items_center()
         .justify_center()
-        .child(Icon::new(name).size(ICON_MEDIUM))
+        .child(icon)
 }
 
 fn letter_badge(letter: char) -> Div {

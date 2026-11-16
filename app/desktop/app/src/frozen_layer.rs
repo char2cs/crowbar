@@ -8,8 +8,6 @@ use pane_host::{FrozenPane, VisiblePane};
 use smallvec::SmallVec;
 use webview::{Bounds, Snapshot};
 
-/// The pixels of the web panes an overlay hid, drawn where those panes were so the page seems
-/// to sit under the overlay's scrim.
 #[derive(Default)]
 pub(crate) struct FrozenLayer {
     holes: Vec<VisiblePane>,
@@ -74,15 +72,17 @@ mod tests {
 
     use super::*;
 
+    const BOUNDS: Bounds = Bounds {
+        x: 10.0,
+        y: 20.0,
+        width: 30.0,
+        height: 40.0,
+    };
+
     fn hole(pane: &str) -> VisiblePane {
         VisiblePane {
             pane: PaneId::new(pane).unwrap(),
-            bounds: Bounds {
-                x: 10.0,
-                y: 20.0,
-                width: 30.0,
-                height: 40.0,
-            },
+            bounds: BOUNDS,
         }
     }
 

@@ -6,7 +6,7 @@ use gpui::StatefulInteractiveElement as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, Styled, Window, deferred, div, px,
+    SharedString, Styled, Window, anchored, deferred, div, px,
 };
 
 use crate::cubic_bezier::CubicBezier;
@@ -27,6 +27,7 @@ use crate::tooltip_side::TooltipSide;
 use crate::tween::Tween;
 use crate::ui_text::UiText;
 
+const WINDOW_MARGIN: f32 = 8.0;
 const SIDE_OFFSET: f32 = 6.0;
 const SLIDE: f32 = 4.0;
 const BORDER_OPACITY: f32 = 0.7;
@@ -102,6 +103,7 @@ impl Tooltip {
             .whitespace_nowrap()
             .shadow(shadow::lg(opacity::PERCENT_10))
             .opacity(opacity)
+            .debug_selector(|| "tooltip-card".into())
             .child(self.text.clone())
             .children(self.shortcut.clone().map(Kbd::new))
     }
@@ -142,7 +144,10 @@ impl RenderOnce for Tooltip {
             .on_hover(hover::listener(&hover_state))
             .child(self.trigger)
             .when(shown.value > 0.0, |d| {
-                d.child(deferred(placement.child(card)).with_priority(layer::TOOLTIP))
+                let snapped = anchored()
+                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
+                    .child(card);
+                d.child(placement.child(deferred(snapped).with_priority(layer::TOOLTIP)))
             })
     }
 }
@@ -165,6 +170,30 @@ mod tests {
             Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
         });
         assert_eq!(bare.size, wrapped.size);
+    }
+
+    #[gpui::test]
+    fn the_card_stays_inside_the_window_beside_a_trigger_at_its_edge(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            Tooltip::new(
+                "t",
+                "Settings and more",
+                Button::icon_only("b", IconName::Gear),
+            )
+        });
+        cx.update(|_, cx| cx.set_global(Motion::reduced()));
+        cx.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_mouse_move(point(px(11.0), px(11.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        let card = cx.debug_bounds("tooltip-card");
+        let trigger = cx.debug_bounds("probe").unwrap_or_default();
+        let card = card.unwrap_or_default();
+        assert!(f32::from(card.origin.x) >= WINDOW_MARGIN, "{card:?}");
+        assert!(
+            card.origin.y >= trigger.bottom(),
+            "below the trigger: {card:?}"
+        );
     }
 
     #[gpui::test]

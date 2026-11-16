@@ -46,7 +46,7 @@ Keyboard: `ctrl+j` terminal, `ctrl+t` New Tab page, `ctrl+shift+n` new file, "Ne
 
 1. A tab has exactly one focused pane (or none when empty) and it is always the active pane of its group.
 2. Focusing a hidden member makes it the active pane of its group.
-3. A newly opened or moved pane is active and focused.
+3. A newly opened pane, and a pane moved into another group (`MoveToGroup`), is active and focused. A pane dropped on an edge (`MovePane`) keeps the previous focus, as split moves did before.
 4. Closing a member: if it was active, the member now at the same index becomes active, else the last one (spec 5.1); if it was the focused pane the new active pane takes focus; if its group had other focus nothing else changes.
 5. Closing the last pane of a group removes the group; the sibling that absorbs the space is where focus goes (as for single panes today), and the closed pane's tab closes when it was the tab's last pane, showing the adjacent tab.
 6. Pane navigation (`mod+alt+arrow`) moves between groups by geometry (app `focus_neighbour`), focusing the active pane of the target group.
@@ -85,7 +85,11 @@ Unchanged: one minimum (`MIN_PANE_EXTENT`, 160 px), a 6 px sash, ratios stored a
 
 ## 9. Console dock
 
-The console is not a pane of the tree and not in the saved layout. Its state is `{ open, dock: top|right|bottom|left, mode: overlay|push, size }` with defaults closed, top, overlay, 420 px (min 160, max 80 percent of the window axis), kept in the window memory file next to window geometry. `ctrl+backtick` toggles it, Escape closes it, overlay mode closes on an outside press, push mode shrinks the layout area. Phase 2 of this plan; until it lands the toggle opens the console as a stackable pane so the log is reachable, and this is recorded in the final report as a known deviation.
+The console is not a pane of the tree and not in the saved layout. Its state is `{ open, dock: top|right|bottom|left, mode: overlay|push, size }` with defaults closed, top, overlay, 420 px (min 160, max 80 percent of the window axis), kept in the window memory file next to window geometry. `ctrl+backtick` toggles it, Escape closes it, overlay mode closes on an outside press, push mode shrinks the layout area. Phase 2 of this plan, owned with the shell view (it wraps the whole shell, so it is not a layout change); until it lands the toggle opens the console as a stackable pane so the log is reachable. This is a recorded deviation, not the intended end state.
+
+Decision: the dock is not part of the tab-strip change and is deferred to its own plan, `2026-11-16-console-dock.md`, a tracked gate item. Three reasons it cannot be a small hook: the console is a native pane, so in overlay mode it floats over native webview holes that sit above GPUI and need the frozen layer to be covered; push mode changes the area the shell hands to `visible_panes`, which `shell_view.rs` owns; and its state (dock, mode, size) needs a field in the window memory store that other agents are editing. Until then the console toggle opens a stackable pane in the focused strip (`stack_policy`), so the log stays reachable.
+
+Tests first for what remains: a dock-state test (defaults, cycle top-right-bottom-left, size clamp 160 to 80 percent, persistence round trip outside the layout file) must fail before the dock code is written.
 
 ## 10. Model changes
 
@@ -103,7 +107,7 @@ Tab::group_count()
 
 New commands (all one undo step, atomic, structural):
 
-- `OpenPaneInGroup { tab, instance, onto, index }`: opens a pane as a member of the group holding `onto`, at `index` (end when `None`). Same-identity panes are moved instead (as `OpenPane`).
+- `OpenPaneInGroup { instance, onto, index }` (the tab is the one holding `onto`): opens a pane as a member of the group holding `onto`, at `index` (end when `None`). Same-identity panes are moved instead (as `OpenPane`).
 - `MoveToGroup { pane, onto, index }`: moves an open pane, from any group of any tab, into the group holding `onto`; within one group it reorders. The destination tab becomes active; an emptied source tab closes.
 
 Existing commands become group aware without changing shape:

@@ -35,7 +35,9 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) {
         let id = format!("b{}", self.state.serials().next_pane());
-        self.open_spec(PaneSpec::browser(&id), cx);
+        let state = self.homepage_state();
+        let spec = PaneSpec::browser(&id).map(|spec| PaneSpec { state, ..spec });
+        self.open_spec(spec, cx);
     }
 
     pub(super) fn new_file(

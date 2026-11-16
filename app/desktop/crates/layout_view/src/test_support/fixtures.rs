@@ -55,3 +55,16 @@ fn open_beside(
     };
     layout.apply(command).expect("open pane");
 }
+
+/// Tab 1 with chat `a` beside a group of `b` and `c`.
+pub(crate) fn stacked_layout() -> Layout {
+    let mut layout = layout_of("a", &[("b", "a", model::Edge::Right)]);
+    layout
+        .apply(Command::OpenPaneInGroup {
+            instance: chat("c"),
+            onto: pane_id("b"),
+            index: None,
+        })
+        .expect("stack c with b");
+    layout
+}

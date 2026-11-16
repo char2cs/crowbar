@@ -38,6 +38,13 @@ enum Step {
         chat: Option<u8>,
         placement: Option<(u8, Edge)>,
     },
+    OpenInGroup {
+        pane: u8,
+        chat: Option<u8>,
+        onto: u8,
+        index: Option<u8>,
+    },
+    JoinGroup(u8, u8, Option<u8>),
     Close(u8),
     Focus(u8),
     MovePane(u8, u8, Edge),
@@ -73,6 +80,10 @@ fn step() -> impl Strategy<Value = Step> {
         1 => tab.clone().prop_map(Step::Rename),
         6 => (tab.clone(), pane.clone(), proptest::option::of(0..CHATS), proptest::option::of((0..PANES, edge())))
             .prop_map(|(tab, pane, chat, placement)| Step::Open { tab, pane, chat, placement }),
+        5 => (pane.clone(), proptest::option::of(0..CHATS), 0..PANES, proptest::option::of(0..4_u8))
+            .prop_map(|(pane, chat, onto, index)| Step::OpenInGroup { pane, chat, onto, index }),
+        4 => (pane.clone(), 0..PANES, proptest::option::of(0..4_u8))
+            .prop_map(|(p, onto, index)| Step::JoinGroup(p, onto, index)),
         3 => pane.clone().prop_map(Step::Close),
         1 => pane.clone().prop_map(Step::Focus),
         2 => (pane.clone(), 0..PANES, edge()).prop_map(|(p, t, e)| Step::MovePane(p, t, e)),
@@ -160,8 +171,8 @@ fn tab_command(step: &Step) -> Option<Command> {
     Some(command)
 }
 
-fn pane_command(step: &Step) -> Command {
-    match step.clone() {
+fn group_command(step: &Step) -> Option<Command> {
+    let command = match step.clone() {
         Step::Open {
             tab,
             pane,
@@ -172,6 +183,32 @@ fn pane_command(step: &Step) -> Command {
             instance: instance(pane, chat),
             placement: at.map(placement),
         },
+        Step::OpenInGroup {
+            pane,
+            chat,
+            onto,
+            index,
+        } => Command::OpenPaneInGroup {
+            instance: instance(pane, chat),
+            onto: pane_id(onto),
+            index: index.map(usize::from),
+        },
+        Step::JoinGroup(p, onto, index) => Command::MoveToGroup {
+            pane: pane_id(p),
+            onto: pane_id(onto),
+            index: index.map(usize::from),
+        },
+        _ => return None,
+    };
+    Some(command)
+}
+
+fn pane_command(step: &Step) -> Command {
+    group_command(step).unwrap_or_else(|| plain_pane_command(step))
+}
+
+fn plain_pane_command(step: &Step) -> Command {
+    match step.clone() {
         Step::Close(p) => Command::ClosePane { pane: pane_id(p) },
         Step::Focus(p) => Command::FocusPane { pane: pane_id(p) },
         Step::MovePane(p, t, e) => Command::MovePane {
@@ -253,7 +290,7 @@ fn check_transition(
             let expected: BTreeSet<_> = was.difference(&gone).cloned().collect();
             assert_eq!(now, expected, "{step:?}: exactly the tab's panes are gone");
         },
-        Step::Open { .. } => {
+        Step::Open { .. } | Step::OpenInGroup { .. } => {
             assert!(
                 was.is_subset(&now) && now.len() <= was.len() + 1,
                 "{step:?}: opens at most one pane and loses none"
@@ -304,7 +341,10 @@ fn check_focus(
         after.active_tab().is_some_and(|t| t.focused() == Some(&id))
     };
     match step {
-        Step::Focus(p) | Step::Detach(p, _) | Step::MoveToTab(p, _, _) => {
+        Step::Focus(p)
+        | Step::Detach(p, _)
+        | Step::MoveToTab(p, _, _)
+        | Step::JoinGroup(p, _, _) => {
             assert!(shown(*p), "{step:?}: the pane is shown and focused");
         },
         _ => {},

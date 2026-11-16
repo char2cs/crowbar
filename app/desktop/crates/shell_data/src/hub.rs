@@ -2,12 +2,15 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use tokio::sync::watch;
+
 use crate::change_signal::ChangeSignal;
 use crate::state::State;
 
 pub(crate) struct Hub {
     state: Mutex<State>,
     signal: ChangeSignal,
+    edits: watch::Sender<()>,
 }
 
 impl std::fmt::Debug for Hub {
@@ -27,6 +30,7 @@ impl Hub {
         Arc::new(Self {
             state: Mutex::new(state),
             signal,
+            edits: watch::channel(()).0,
         })
     }
 
@@ -42,8 +46,26 @@ impl Hub {
         change: impl FnOnce(&mut State) -> R,
     ) -> R {
         let result = change(&mut self.state.lock().unwrap_or_else(PoisonError::into_inner));
+        self.edits.send_replace(());
         (self.signal)();
         result
+    }
+
+    /// Waits until `ready` finds what it looks for in the state; it is asked again after every edit.
+    pub(crate) async fn until<R>(
+        &self,
+        mut ready: impl FnMut(&State) -> Option<R>,
+    ) -> Option<R> {
+        let mut found = None;
+        let mut edits = self.edits.subscribe();
+        edits
+            .wait_for(|()| {
+                found = self.read(&mut ready);
+                found.is_some()
+            })
+            .await
+            .ok();
+        found
     }
 }
 
@@ -52,6 +74,25 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    fn quiet_hub() -> Arc<Hub> {
+        Hub::new(State::new(Vec::new()), Arc::new(|| {}))
+    }
+
+    async fn selected_after_waiting(hub: Arc<Hub>) -> Option<String> {
+        hub.until(|state| state.selected_host.clone()).await
+    }
+
+    #[tokio::test]
+    async fn until_waits_for_the_edit_that_makes_the_state_ready() {
+        let hub = quiet_hub();
+        let waiter = tokio::spawn(selected_after_waiting(Arc::clone(&hub)));
+        hub.edit(|state| state.active_project = Some("p".into()));
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+        hub.edit(|state| state.selected_host = Some("h".into()));
+        assert_eq!(waiter.await.unwrap().as_deref(), Some("h"));
+    }
 
     #[test]
     fn an_edit_signals_and_a_read_does_not() {

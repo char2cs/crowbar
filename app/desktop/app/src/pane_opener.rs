@@ -22,7 +22,7 @@ pub(crate) fn open_commands(
     let Some(tab) = layout.active_tab() else {
         return Ok(open_in_new_tab(serials.next_tab(), instance));
     };
-    Ok(vec![open_pane(tab.id(), instance)])
+    Ok(vec![crate::stack_policy::place(tab, instance)])
 }
 
 pub(crate) fn open_at(

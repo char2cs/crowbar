@@ -120,7 +120,7 @@ fn leaves(
     out: &mut Vec<protocol::PaneId>,
 ) {
     match node {
-        SplitNode::Leaf { pane } => out.push(pane.clone()),
+        SplitNode::Leaf(group) => out.push(group.active().clone()),
         SplitNode::Split { first, second, .. } => {
             leaves(first, out);
             leaves(second, out);

@@ -5,8 +5,11 @@ use crate::axis::Axis;
 use crate::branch::Branch;
 use crate::division::Division;
 use crate::edge::Edge;
+use crate::group::Group;
+use crate::group_slot::GroupSlot;
 use crate::pane_slot::PaneSlot;
 use crate::rect::Rect;
+use crate::remaining::Remaining;
 use crate::sash::Sash;
 
 /// Thickness of the divider between two panes, in logical pixels. Panes share what is left, so
@@ -24,11 +27,8 @@ pub(crate) const EQUAL_SHARE: f32 = 0.5;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "node", rename_all = "camelCase")]
 pub enum SplitNode {
-    /// A pane.
-    Leaf {
-        /// The pane shown here.
-        pane: PaneId,
-    },
+    /// A group of stacked panes, one of them shown.
+    Leaf(Group),
     /// Two children sharing the available space.
     Split {
         /// How the children are arranged.
@@ -45,7 +45,7 @@ pub enum SplitNode {
 
 impl SplitNode {
     pub(crate) fn leaf(pane: PaneId) -> Self {
-        Self::Leaf { pane }
+        Self::Leaf(Group::single(pane))
     }
 
     pub(crate) fn collect_panes(
@@ -53,7 +53,7 @@ impl SplitNode {
         out: &mut Vec<PaneId>,
     ) {
         match self {
-            Self::Leaf { pane } => out.push(pane.clone()),
+            Self::Leaf(group) => out.extend(group.panes().iter().cloned()),
             Self::Split { first, second, .. } => {
                 first.collect_panes(out);
                 second.collect_panes(out);
@@ -63,14 +63,14 @@ impl SplitNode {
 
     fn first_pane(&self) -> &PaneId {
         match self {
-            Self::Leaf { pane } => pane,
+            Self::Leaf(group) => group.active(),
             Self::Split { first, .. } => first.first_pane(),
         }
     }
 
     fn last_pane(&self) -> &PaneId {
         match self {
-            Self::Leaf { pane } => pane,
+            Self::Leaf(group) => group.active(),
             Self::Split { second, .. } => second.last_pane(),
         }
     }
@@ -79,7 +79,39 @@ impl SplitNode {
         &self,
         id: &PaneId,
     ) -> bool {
-        matches!(self, Self::Leaf { pane } if pane == id)
+        matches!(self, Self::Leaf(group) if group.contains(id))
+    }
+
+    pub(crate) fn group_of(
+        &self,
+        pane: &PaneId,
+    ) -> Option<&Group> {
+        match self {
+            Self::Leaf(group) => group.contains(pane).then_some(group),
+            Self::Split { first, second, .. } => {
+                first.group_of(pane).or_else(|| second.group_of(pane))
+            },
+        }
+    }
+
+    pub(crate) fn group_of_mut(
+        &mut self,
+        pane: &PaneId,
+    ) -> Option<&mut Group> {
+        match self {
+            Self::Leaf(group) => group.contains(pane).then_some(group),
+            Self::Split { first, second, .. } => match first.group_of_mut(pane) {
+                Some(found) => Some(found),
+                None => second.group_of_mut(pane),
+            },
+        }
+    }
+
+    pub(crate) fn leaf_count(&self) -> usize {
+        match self {
+            Self::Leaf(_) => 1,
+            Self::Split { first, second, .. } => first.leaf_count() + second.leaf_count(),
+        }
     }
 
     pub(crate) fn split_leaf(
@@ -89,11 +121,11 @@ impl SplitNode {
         edge: Edge,
     ) -> bool {
         match self {
-            Self::Leaf { pane } if pane == target => {
-                *self = Self::beside(pane.clone(), new.clone(), edge);
+            Self::Leaf(group) if group.contains(target) => {
+                *self = Self::beside(Self::Leaf(group.clone()), Self::leaf(new.clone()), edge);
                 true
             },
-            Self::Leaf { .. } => false,
+            Self::Leaf(_) => false,
             Self::Split { first, second, .. } => {
                 first.split_leaf(target, new, edge) || second.split_leaf(target, new, edge)
             },
@@ -101,11 +133,10 @@ impl SplitNode {
     }
 
     fn beside(
-        existing: PaneId,
-        new: PaneId,
+        existing: Self,
+        fresh: Self,
         edge: Edge,
     ) -> Self {
-        let (existing, fresh) = (Self::leaf(existing), Self::leaf(new));
         if edge.new_pane_first() {
             return Self::split(edge.axis(), EQUAL_SHARE, fresh, existing);
         }
@@ -131,8 +162,11 @@ impl SplitNode {
         pane: &PaneId,
     ) -> Option<Self> {
         match self {
-            Self::Leaf { pane: own } if &own == pane => None,
-            Self::Leaf { .. } => Some(self),
+            Self::Leaf(mut group) if group.contains(pane) => match group.take(pane) {
+                Remaining::Nothing => None,
+                Remaining::Active(_) => Some(Self::Leaf(group)),
+            },
+            Self::Leaf(_) => Some(self),
             Self::Split {
                 axis,
                 ratio,
@@ -169,9 +203,7 @@ impl SplitNode {
         b: &PaneId,
     ) {
         match self {
-            Self::Leaf { pane } if pane == a => *pane = b.clone(),
-            Self::Leaf { pane } if pane == b => *pane = a.clone(),
-            Self::Leaf { .. } => {},
+            Self::Leaf(group) => group.exchange((a, b)),
             Self::Split { first, second, .. } => {
                 first.swap_leaves(a, b);
                 second.swap_leaves(a, b);
@@ -225,8 +257,8 @@ impl SplitNode {
         out: &mut Vec<PaneSlot>,
     ) {
         match self {
-            Self::Leaf { pane } => out.push(PaneSlot {
-                pane: pane.clone(),
+            Self::Leaf(group) => out.push(PaneSlot {
+                pane: group.active().clone(),
                 rect: bounds,
             }),
             Self::Split {
@@ -238,6 +270,30 @@ impl SplitNode {
                 let parts = divide(bounds, *axis, *ratio);
                 first.place_panes(parts.first, out);
                 second.place_panes(parts.second, out);
+            },
+        }
+    }
+
+    pub(crate) fn place_groups(
+        &self,
+        bounds: Rect,
+        out: &mut Vec<GroupSlot>,
+    ) {
+        match self {
+            Self::Leaf(group) => out.push(GroupSlot {
+                rect: bounds,
+                panes: group.panes().to_vec(),
+                active: group.active().clone(),
+            }),
+            Self::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => {
+                let parts = divide(bounds, *axis, *ratio);
+                first.place_groups(parts.first, out);
+                second.place_groups(parts.second, out);
             },
         }
     }
@@ -282,7 +338,7 @@ impl SplitNode {
 
     pub(crate) fn ratios_valid(&self) -> bool {
         match self {
-            Self::Leaf { .. } => true,
+            Self::Leaf(_) => true,
             Self::Split {
                 ratio,
                 first,
@@ -295,6 +351,13 @@ impl SplitNode {
                     && first.ratios_valid()
                     && second.ratios_valid()
             },
+        }
+    }
+
+    pub(crate) fn groups_valid(&self) -> bool {
+        match self {
+            Self::Leaf(group) => group.is_consistent(),
+            Self::Split { first, second, .. } => first.groups_valid() && second.groups_valid(),
         }
     }
 }

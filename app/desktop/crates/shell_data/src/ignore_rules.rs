@@ -1,46 +1,13 @@
 //! Which paths of a workspace its `.gitignore` files hide.
 
-use ignore::Match;
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
-
 use crate::entry_kind::EntryKind;
+use crate::rule_set::RuleSet;
 
 const GIT_DIRECTORY: &str = ".git";
 
-#[derive(Debug, Clone)]
-struct RuleSet {
-    directory: String,
-    matcher: Gitignore,
-}
-
-/// The loaded `.gitignore` files, each owning the directory it sits in.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct IgnoreRules {
     sets: Vec<RuleSet>,
-}
-
-fn depth_of(directory: &str) -> usize {
-    directory.split('/').filter(|part| !part.is_empty()).count()
-}
-
-fn relative_to<'a>(
-    path: &'a str,
-    directory: &str,
-) -> Option<&'a str> {
-    if directory.is_empty() {
-        return Some(path);
-    }
-    path.strip_prefix(directory)?.strip_prefix('/')
-}
-
-fn matcher_of(text: &str) -> Gitignore {
-    let mut builder = GitignoreBuilder::new("");
-    for line in text.lines() {
-        if let Err(error) = builder.add_line(None, line) {
-            tracing::debug!(%error, line, "a malformed ignore pattern is skipped");
-        }
-    }
-    builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
 fn ancestors(path: &str) -> impl Iterator<Item = &str> {
@@ -53,13 +20,9 @@ impl IgnoreRules {
         directory: &str,
         text: &str,
     ) {
-        self.sets.retain(|set| set.directory != directory);
-        self.sets.push(RuleSet {
-            directory: directory.to_owned(),
-            matcher: matcher_of(text),
-        });
-        self.sets
-            .sort_by_key(|set| (depth_of(&set.directory), set.directory.clone()));
+        self.sets.retain(|set| set.directory() != directory);
+        self.sets.push(RuleSet::parse(directory, text));
+        self.sets.sort_by_key(RuleSet::order);
     }
 
     pub(crate) fn ignores(
@@ -81,22 +44,9 @@ impl IgnoreRules {
     ) -> bool {
         self.sets
             .iter()
-            .filter_map(|set| verdict(set, path, kind))
+            .filter_map(|set| set.verdict(path, kind))
             .next_back()
             .unwrap_or(false)
-    }
-}
-
-fn verdict(
-    set: &RuleSet,
-    path: &str,
-    kind: EntryKind,
-) -> Option<bool> {
-    let relative = relative_to(path, &set.directory)?;
-    match set.matcher.matched(relative, kind == EntryKind::Folder) {
-        Match::Ignore(_) => Some(true),
-        Match::Whitelist(_) => Some(false),
-        Match::None => None,
     }
 }
 
@@ -189,16 +139,19 @@ mod tests {
         rules
     }
 
+    fn kind_of(path: &str) -> EntryKind {
+        if path.ends_with('/') {
+            return EntryKind::Folder;
+        }
+        EntryKind::File
+    }
+
     #[test]
     fn the_rules_hide_what_git_would() {
         for (name, files, path, hidden) in CASES {
-            let kind = if path.ends_with('/') {
-                EntryKind::Folder
-            } else {
-                EntryKind::File
-            };
             let bare = path.trim_end_matches('/');
-            assert_eq!(rules_of(files).ignores(bare, kind), hidden, "{name}");
+            let found = rules_of(files).ignores(bare, kind_of(path));
+            assert_eq!(found, hidden, "{name}");
         }
     }
 

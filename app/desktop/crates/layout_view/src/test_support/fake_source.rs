@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use gpui::{AnyElement, App, IntoElement, SharedString, Window, div};
-use model::TabId;
+use model::{PaneInstance, TabId};
 use protocol::PaneId;
 
 use crate::pane_source::PaneSource;
@@ -10,6 +10,7 @@ pub(crate) struct FakeSource {
     next: Cell<u64>,
     native: Vec<PaneId>,
     chrome: Vec<(PaneId, f32)>,
+    stacking: Vec<PaneId>,
 }
 
 const FIRST_TAB: u64 = 100;
@@ -20,6 +21,7 @@ impl FakeSource {
             next: Cell::new(FIRST_TAB),
             native: Vec::new(),
             chrome: Vec::new(),
+            stacking: Vec::new(),
         }
     }
 
@@ -28,6 +30,14 @@ impl FakeSource {
         pane: PaneId,
     ) -> Self {
         self.native.push(pane);
+        self
+    }
+
+    pub(crate) fn stacking(
+        mut self,
+        pane: PaneId,
+    ) -> Self {
+        self.stacking.push(pane);
         self
     }
 
@@ -66,6 +76,13 @@ impl PaneSource for FakeSource {
             .iter()
             .find(|(chromed, _)| chromed == pane)
             .map_or(0.0, |(_, height)| *height)
+    }
+
+    fn stacks(
+        &self,
+        instance: &PaneInstance,
+    ) -> bool {
+        self.stacking.contains(&instance.pane_id)
     }
 
     fn label(

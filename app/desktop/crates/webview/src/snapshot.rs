@@ -9,6 +9,8 @@ pub struct Snapshot {
     pub bgra: Vec<u8>,
 }
 
+const BYTES_PER_PIXEL: u64 = 4;
+
 impl Snapshot {
     /// A snapshot of `bgra` rows; `None` when the byte count does not match the size.
     #[must_use]
@@ -16,7 +18,7 @@ impl Snapshot {
         (width, height): (u32, u32),
         bgra: Vec<u8>,
     ) -> Option<Self> {
-        let expected = u64::from(width) * u64::from(height) * 4;
+        let expected = u64::from(width) * u64::from(height) * BYTES_PER_PIXEL;
         (bgra.len() as u64 == expected).then_some(Self {
             width,
             height,

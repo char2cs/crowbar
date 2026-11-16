@@ -1,5 +1,6 @@
 use crate::command::Command;
 use crate::error::Result;
+use crate::group_commands;
 use crate::layout::Layout;
 use crate::pane_commands;
 use crate::pane_instance::PaneInstance;
@@ -46,6 +47,14 @@ impl Layout {
                 instance,
                 placement,
             } => pane_commands::open(self, tab, instance, placement).map(none_removed),
+            Command::OpenPaneInGroup {
+                instance,
+                onto,
+                index,
+            } => group_commands::open(self, instance, (&onto, index)).map(none_removed),
+            Command::MoveToGroup { pane, onto, index } => {
+                group_commands::join(self, &pane, (&onto, index)).map(none_removed)
+            },
             Command::ClosePane { pane } => pane_commands::close(self, &pane),
             Command::FocusPane { pane } => pane_commands::focus(self, &pane).map(none_removed),
             Command::MovePane { pane, placement } => {

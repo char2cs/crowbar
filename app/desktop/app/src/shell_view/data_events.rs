@@ -39,6 +39,9 @@ impl ShellView {
             backend.deliver_pending();
         }
         self.sidebar.update(cx, |_, cx| cx.notify());
+        if self.narrows_tabs() {
+            self.push_tabs(cx);
+        }
         if self.source.terminals_attached() {
             self.refresh(cx);
         }

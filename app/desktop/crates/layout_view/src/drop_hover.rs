@@ -11,6 +11,7 @@ use crate::rect_tween::RectTween;
 
 #[derive(Debug, Default)]
 pub(crate) struct DropHover {
+    subject: Option<DragSubject>,
     target: Option<DropTarget>,
     preview: Option<RectTween>,
     overlay: Option<OverlayGuard>,
@@ -39,6 +40,16 @@ impl DropHover {
             .is_some_and(|tween| tween.is_running(now, motion))
     }
 
+    pub(crate) fn chat_event(
+        &self,
+        tab: &Tab,
+    ) -> Option<LayoutEvent> {
+        let subject = self.subject.as_ref()?;
+        matches!(subject, DragSubject::Chat(_))
+            .then(|| self.event(subject, tab))
+            .flatten()
+    }
+
     pub(crate) fn event(
         &self,
         subject: &DragSubject,
@@ -64,7 +75,8 @@ impl DropHover {
             .overlay
             .get_or_insert_with(|| Overlays::open(cx, hit.window_bounds));
         guard.update(hit.window_bounds);
-        let target = DropTarget::resolve(hit.subject, hit.point, hit.slots);
+        self.subject = Some(hit.subject.clone());
+        let target = DropTarget::resolve(hit.subject, hit.point, (hit.slots, hit.joinable));
         let rect = target
             .as_ref()
             .and_then(|target| preview_rect(target, hit.slots));
@@ -128,6 +140,7 @@ mod tests {
             subject,
             point,
             slots,
+            joinable: &[],
             window_bounds: bounds(),
             now: Instant::now(),
         }
@@ -196,6 +209,23 @@ mod tests {
             Some(expected),
             "open t1 on the left of b"
         );
+    }
+
+    #[gpui::test]
+    fn the_chat_hovered_last_is_the_one_a_release_opens(cx: &mut TestAppContext) {
+        let layout = layout_of("a", &[("b", "a", Edge::Right)]);
+        let tab = layout.active_tab().expect("tab");
+        let slots = tab.layout(CONTENT);
+        let subject = DragSubject::Chat("t1".into());
+        let mut hover = DropHover::default();
+        assert_eq!(hover.chat_event(tab), None, "nothing hovered yet");
+        let hit = hit_at(&subject, (410.0, 200.0), &slots);
+        cx.update(|cx| hover.over(hit, cx));
+        assert!(hover.chat_event(tab).is_some(), "a chat over a pane");
+        let pane = DragSubject::Pane(pane_id("a"));
+        let hit = hit_at(&pane, (410.0, 200.0), &slots);
+        cx.update(|cx| hover.over(hit, cx));
+        assert_eq!(hover.chat_event(tab), None, "a pane drag has its own drop");
     }
 
     #[test]

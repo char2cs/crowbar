@@ -39,14 +39,7 @@ impl HostBook for TransportBook {
     ) -> BookFuture<String> {
         let (registry, tokens) = (Arc::clone(&self.registry), Arc::clone(&self.tokens));
         Box::pin(async move {
-            let wire = PairRequest {
-                host_id: &request.host_id,
-                endpoint: &request.endpoint,
-                fingerprint: &request.fingerprint,
-                code: &request.code,
-                name: &request.name,
-            };
-            transport::pair_remote_host(&registry, &tokens, &wire)
+            transport::pair_remote_host(&registry, &tokens, &wire_of(&request))
                 .await
                 .map_err(|error| error.to_string())
         })
@@ -66,6 +59,16 @@ impl HostBook for TransportBook {
                 .map_err(|error| error.to_string())?;
             tokens.delete(&host).map_err(|error| error.to_string())
         })
+    }
+}
+
+fn wire_of(request: &PairingRequest) -> PairRequest<'_> {
+    PairRequest {
+        host_id: &request.host_id,
+        endpoint: &request.endpoint,
+        fingerprint: &request.fingerprint,
+        code: &request.code,
+        name: &request.name,
     }
 }
 

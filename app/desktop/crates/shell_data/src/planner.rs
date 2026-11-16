@@ -3,6 +3,7 @@
 use serde_json::json;
 use sidebar::Command;
 
+use crate::landing;
 use crate::new_id;
 use crate::plan::Plan;
 use crate::plan_agent;
@@ -28,7 +29,9 @@ pub(crate) fn plan(
         | Command::MakeBranch { .. }
         | Command::CreateFolder(_)
         | Command::CreateSpace { .. }
-        | Command::CreateSpaceWithIcon { .. } => creation(state, command, &id),
+        | Command::CreateSpaceWithIcon { .. } => {
+            creation(state, command, &id).map(|plan| plan.landing_on(landing::of(state, command)))
+        },
         other => edit(state, other),
     }
 }

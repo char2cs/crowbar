@@ -22,7 +22,7 @@ impl Sidebar {
         }
         let focus = cx.focus_handle();
         window.focus(&focus);
-        // The pressed ancestor takes focus after the click handler ran; claim it back.
+        // PLATFORM: the pressed ancestor takes focus after the click handler ran; claim it back.
         let later = focus.clone();
         window.defer(cx, move |window, _| window.focus(&later));
         let cursor = MenuCursor::default();

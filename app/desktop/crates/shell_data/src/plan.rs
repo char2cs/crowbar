@@ -3,6 +3,7 @@
 use crate::after::After;
 use crate::call::Call;
 use crate::pending_row::PendingRow;
+use crate::surface::Surface;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Plan {
@@ -12,6 +13,7 @@ pub(crate) struct Plan {
     pub(crate) after: After,
     pub(crate) dropping: Option<String>,
     pub(crate) needs_provider: bool,
+    pub(crate) landing: Surface,
     pub(crate) committing: bool,
 }
 
@@ -27,6 +29,7 @@ impl Plan {
             after: After::Nothing,
             dropping: None,
             needs_provider: false,
+            landing: Surface::Default,
             committing: false,
         }
     }
@@ -52,6 +55,15 @@ impl Plan {
     #[must_use]
     pub(crate) fn committing(mut self) -> Self {
         self.committing = true;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn landing_on(
+        mut self,
+        landing: Surface,
+    ) -> Self {
+        self.landing = landing;
         self
     }
 

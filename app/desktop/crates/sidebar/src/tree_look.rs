@@ -1,6 +1,7 @@
 //! How the settings dress a row of the Files and Changes panels.
 
 use crate::file_tree_view::FileTreeView;
+use crate::icon_theme::IconTheme;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TreeLook {
@@ -8,6 +9,7 @@ pub(crate) struct TreeLook {
     pub(crate) height: f32,
     pub(crate) query: Option<String>,
     pub(crate) compact_badges: bool,
+    pub(crate) icons: IconTheme,
 }
 
 impl TreeLook {
@@ -23,6 +25,7 @@ impl TreeLook {
                 .filter(|text| !text.is_empty())
                 .map(str::to_owned),
             compact_badges: view.compact_badges,
+            icons: view.icons,
         }
     }
 }

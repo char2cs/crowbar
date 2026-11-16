@@ -56,18 +56,42 @@ pub enum Command {
         /// Where to put it; `None` splits the focused pane to the right.
         placement: Option<Placement>,
     },
+    /// Opens a pane as a tab of the strip of the group that holds `onto`, at `index` among that
+    /// group's panes (the end when `None`), shows it and focuses it. A pane with the same type
+    /// and parameters that is already open anywhere is moved there instead and `instance` is
+    /// dropped.
+    OpenPaneInGroup {
+        /// The pane to add.
+        instance: PaneInstance,
+        /// Any pane of the group that receives it.
+        onto: PaneId,
+        /// Its position in the strip.
+        index: Option<usize>,
+    },
+    /// Moves an open pane into the group that holds `onto`, in this tab or another, at `index`
+    /// among the other panes of that group (the end when `None`). Inside one group it only
+    /// reorders the strip. The pane is shown and focused, its tab becomes active, and a source
+    /// tab left without panes closes.
+    MoveToGroup {
+        /// The pane to move.
+        pane: PaneId,
+        /// Any pane of the destination group.
+        onto: PaneId,
+        /// Its position in the strip.
+        index: Option<usize>,
+    },
     /// Removes a pane, and its tab when it was the tab's last pane. Focus goes to the
     /// neighbour that takes the freed space; when the tab closes, the adjacent tab is shown.
     ClosePane {
         /// The pane to remove.
         pane: PaneId,
     },
-    /// Focuses a pane and activates its tab.
+    /// Focuses a pane, shows it in its group and activates its tab.
     FocusPane {
         /// The pane to focus.
         pane: PaneId,
     },
-    /// Moves a pane next to another pane of the same tab.
+    /// Moves a pane next to another pane of the same tab, out of its group when it shares one.
     MovePane {
         /// The pane to move.
         pane: PaneId,
@@ -176,7 +200,7 @@ mod tests {
         ]
     }
 
-    fn pane_commands() -> [Command; 6] {
+    fn pane_commands() -> Vec<Command> {
         let pane = PaneId::new("a").unwrap();
         let other = PaneId::new("b").unwrap();
         let tab = TabId(1);
@@ -184,11 +208,11 @@ mod tests {
             target: other.clone(),
             edge: Edge::Left,
         };
-        let instance = instance(&pane);
-        [
+        let mut commands = group_commands(&pane, &other);
+        commands.extend([
             Command::OpenPane {
                 tab,
-                instance,
+                instance: instance(&pane),
                 placement: None,
             },
             Command::ClosePane { pane: pane.clone() },
@@ -206,9 +230,25 @@ mod tests {
                 new_tab: tab,
                 title: String::new(),
             },
-            Command::SwapPanes {
-                a: pane.clone(),
-                b: other,
+            Command::SwapPanes { a: pane, b: other },
+        ]);
+        commands
+    }
+
+    fn group_commands(
+        pane: &PaneId,
+        other: &PaneId,
+    ) -> Vec<Command> {
+        vec![
+            Command::OpenPaneInGroup {
+                instance: instance(pane),
+                onto: other.clone(),
+                index: None,
+            },
+            Command::MoveToGroup {
+                pane: pane.clone(),
+                onto: other.clone(),
+                index: None,
             },
         ]
     }

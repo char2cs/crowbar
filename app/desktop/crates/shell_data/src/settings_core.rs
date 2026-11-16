@@ -18,6 +18,7 @@ use crate::font_choices;
 use crate::host_desk::HostDesk;
 use crate::host_roster::HostRoster;
 use crate::hub::Hub;
+use crate::link_state::LinkState;
 use crate::live_records::{self, KILL, REMOVE_ANYWAY, REVOKE};
 use crate::loadable::Loadable;
 use crate::outcome::{Outcome, OutcomeSink};
@@ -25,6 +26,7 @@ use crate::provider::Provider;
 use crate::providers;
 use crate::runner;
 use crate::setting_file::SettingFile;
+use crate::state::State;
 use crate::switch::Switch;
 use crate::system_fonts::SystemFonts;
 use crate::typed::typed;
@@ -67,6 +69,22 @@ impl std::fmt::Debug for SettingsCore {
     }
 }
 
+fn local_link(state: &State) -> Option<LinkState> {
+    state
+        .hosts
+        .iter()
+        .find(|slot| slot.spec.endpoint.is_none())
+        .map(|slot| slot.link)
+}
+
+fn answered(state: &State) -> Option<LinkState> {
+    local_link(state).filter(|link| *link != LinkState::Connecting)
+}
+
+fn live(state: &State) -> Option<LinkState> {
+    local_link(state).filter(|link| *link == LinkState::Live)
+}
+
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -104,10 +122,23 @@ impl SettingsCore {
     fn refresh(self: &Arc<Self>) {
         let core = Arc::clone(self);
         self.handle.spawn(async move {
+            core.when_the_daemon_answers().await;
             core.read_permission().await;
             core.read_agents().await;
             core.read_descriptors().await;
         });
+    }
+
+    async fn when_the_daemon_answers(&self) {
+        let reached = self.hub.until(answered).await;
+        if reached == Some(LinkState::Live) {
+            return;
+        }
+        *locked(&self.agents) = Loadable::Failed;
+        *locked(&self.descriptors) = Loadable::Failed;
+        self.push(Change::Records(AGENTS.to_owned()));
+        self.push(Change::Records(DESCRIPTORS.to_owned()));
+        self.hub.until(live).await;
     }
 
     async fn read_descriptors(&self) {
@@ -484,6 +515,13 @@ mod tests {
     const PROVIDERS: &str = r#"[{"id":"claude","displayName":"Claude","enabled":true,"mcpEnabled":true,"connected":true},{"id":"codex","enabled":true,"mcpEnabled":true}]"#;
 
     fn open(daemon_setup: impl FnOnce(&FakeDaemon)) -> Rig {
+        open_on(LinkState::Live, daemon_setup)
+    }
+
+    fn open_on(
+        link: LinkState,
+        daemon_setup: impl FnOnce(&FakeDaemon),
+    ) -> Rig {
         let (state, daemon) = state();
         daemon_setup(&daemon);
         let dir = tempfile::tempdir().unwrap();
@@ -494,6 +532,7 @@ mod tests {
         let heard = Arc::clone(&told);
         let sink: OutcomeSink = Arc::new(move |outcome| locked(&heard).push(outcome));
         let hub = Hub::new(state, Arc::clone(&signal));
+        hub.edit(|state| state.link("local", link));
         let local = hub.read(|state| state.hosts[0].client.clone());
         let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
         let fleet = Fleet::new(&Handle::current(), &hub, &transport);
@@ -563,6 +602,32 @@ mod tests {
             rig.core.get(&Key::new("defaultPermissionLevel")),
             Some(Value::Text("trusted".into()))
         );
+    }
+
+    async fn the_lists_wait_for_the_daemon_link_instead_of_failing_on_its_startup() {
+        let rig = open_on(LinkState::Connecting, |daemon| {
+            daemon.ok("GET", "/v0/settings/chat/providers", PROVIDERS);
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(rig.core.records("agents"), Records::Loading);
+        rig.core
+            .hub
+            .edit(|state| state.link("local", LinkState::Live));
+        rig.changes_until(agents_ready).await;
+        assert!(matches!(rig.core.records("agents"), Records::Ready(list) if list.len() == 2));
+    }
+
+    async fn a_link_that_is_down_fails_the_lists_until_it_comes_up() {
+        let rig = open_on(LinkState::Down, |daemon| {
+            daemon.ok("GET", "/v0/settings/chat/providers", PROVIDERS);
+        });
+        rig.changes_until(agents_ready).await;
+        assert_eq!(rig.core.records("agents"), Records::Failed);
+        rig.core
+            .hub
+            .edit(|state| state.link("local", LinkState::Live));
+        rig.changes_until(agents_ready).await;
+        assert!(matches!(rig.core.records("agents"), Records::Ready(list) if list.len() == 2));
     }
 
     async fn an_unreachable_daemon_fails_the_agent_list() {
@@ -739,9 +804,11 @@ mod tests {
         Box::pin(std::future::ready(()))
     }
 
-    const CASES: [Case; 8] = [
+    const CASES: [Case; 10] = [
         adding_a_host_asks_the_shell_to_open_the_pairing_dialog,
         || Box::pin(the_agents_and_the_permission_level_come_from_the_daemon()),
+        || Box::pin(the_lists_wait_for_the_daemon_link_instead_of_failing_on_its_startup()),
+        || Box::pin(a_link_that_is_down_fails_the_lists_until_it_comes_up()),
         || Box::pin(an_unreachable_daemon_fails_the_agent_list()),
         || {
             Box::pin(

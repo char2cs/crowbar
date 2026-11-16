@@ -10,6 +10,7 @@ use crate::pane_instance::PaneInstance;
 use crate::pane_slot::PaneSlot;
 use crate::placement::Placement;
 use crate::rect::Rect;
+use crate::remaining::Remaining;
 use crate::sash::Sash;
 use crate::split_node::{EQUAL_SHARE, SplitNode, extent_of, ratio_for};
 use crate::tab_id::TabId;
@@ -19,11 +20,12 @@ use crate::tab_shape::TabShape;
 /// Most panes one tab may hold; bounds the tree depth and the cost of every tree walk.
 pub const MAX_PANES_PER_TAB: usize = 64;
 
-/// A tab: its panes arranged in a split tree, and which pane has focus.
+/// A tab: its panes arranged in a split tree of groups, and which pane has focus.
 ///
-/// Invariants, kept by every operation and checked on load: the tree's leaves are exactly the
-/// panes, each pane appears once, every split has two children, the focused pane exists and a
-/// tab without panes has no tree and no focus. A tab only changes through [`Layout::apply`].
+/// Invariants, kept by every operation and checked on load: the groups at the tree's leaves
+/// hold exactly the panes, each pane appears once, every group is non-empty and shows one of its
+/// members, every split has two children, the focused pane exists and is the one its group
+/// shows, and a tab without panes has no tree and no focus. A tab only changes through [`Layout::apply`].
 ///
 /// [`Layout::apply`]: crate::Layout::apply
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -31,9 +33,9 @@ pub const MAX_PANES_PER_TAB: usize = 64;
 pub struct Tab {
     id: TabId,
     title: String,
-    panes: BTreeMap<PaneId, PaneInstance>,
-    tree: Option<SplitNode>,
-    focused: Option<PaneId>,
+    pub(crate) panes: BTreeMap<PaneId, PaneInstance>,
+    pub(crate) tree: Option<SplitNode>,
+    pub(crate) focused: Option<PaneId>,
 }
 
 impl Tab {
@@ -252,11 +254,7 @@ impl Tab {
         pane: &PaneId,
     ) -> Result<PaneInstance> {
         self.require(pane)?;
-        let heir = self
-            .tree
-            .as_ref()
-            .and_then(|tree| tree.neighbour_of(pane))
-            .cloned();
+        let heir = self.heir_of(pane);
         let instance = self
             .panes
             .remove(pane)
@@ -266,6 +264,18 @@ impl Tab {
             self.focused = heir;
         }
         Ok(instance)
+    }
+
+    fn heir_of(
+        &self,
+        pane: &PaneId,
+    ) -> Option<PaneId> {
+        let tree = self.tree.as_ref()?;
+        let mut group = tree.group_of(pane)?.clone();
+        match group.take(pane) {
+            Remaining::Active(next) => Some(next),
+            Remaining::Nothing => tree.neighbour_of(pane).cloned(),
+        }
     }
 
     pub(crate) fn relocate(
@@ -303,6 +313,9 @@ impl Tab {
         if let Some(tree) = self.tree.as_mut() {
             tree.swap_leaves(a, b);
         }
+        if let Some(shown) = self.focused.clone().filter(|pane| pane == a || pane == b) {
+            self.show(&shown);
+        }
         Ok(())
     }
 
@@ -311,6 +324,7 @@ impl Tab {
         pane: &PaneId,
     ) -> Result<()> {
         self.require(pane)?;
+        self.show(pane);
         self.focused = Some(pane.clone());
         Ok(())
     }
@@ -362,6 +376,11 @@ impl Tab {
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
+        if !self.tree.as_ref().is_none_or(SplitNode::groups_valid) {
+            return Err(Error::Invalid(
+                "a group is empty, repeats a pane or shows a stranger",
+            ));
+        }
         let mut leaves = self.pane_ids();
         leaves.sort();
         let keys: Vec<PaneId> = self.panes.keys().cloned().collect();
@@ -378,7 +397,7 @@ impl Tab {
             return Err(Error::Invalid("split ratio out of range"));
         }
         let focus_ok = match &self.focused {
-            Some(id) => self.panes.contains_key(id),
+            Some(id) => self.is_shown(id),
             None => self.panes.is_empty(),
         };
         focus_ok
@@ -412,7 +431,7 @@ impl Tab {
         }
     }
 
-    fn require(
+    pub(crate) fn require(
         &self,
         pane: &PaneId,
     ) -> Result<()> {

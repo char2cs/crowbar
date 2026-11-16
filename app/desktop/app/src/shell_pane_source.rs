@@ -111,6 +111,24 @@ impl layout_view::PaneSource for ShellPaneSource {
         )
     }
 
+    fn tab_look(
+        &self,
+        instance: &model::PaneInstance,
+    ) -> layout_view::TabLook {
+        let title = self
+            .titles
+            .get(&instance.pane_id)
+            .map(|title| title.to_string());
+        crate::tab_looks::tab_look(instance, title.as_deref())
+    }
+
+    fn stacks(
+        &self,
+        instance: &model::PaneInstance,
+    ) -> bool {
+        crate::stack_policy::stacks(&instance.type_id)
+    }
+
     fn fresh_tab(
         &self,
         pane: &PaneId,

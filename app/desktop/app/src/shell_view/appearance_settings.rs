@@ -3,7 +3,9 @@ use settings_ui::{Change, Key, SettingsBackend, Value};
 use ui::{Theme, ThemeId, ThemeMode};
 
 use super::ShellView;
+use super::readout::BUILD_READOUT;
 use super::sidebar_position::SIDEBAR_POSITION;
+use super::tab_strip::TAB_LIST_SCOPE;
 use crate::family_names::FamilyNames;
 use crate::shell_request::ShellRequest;
 use crate::terminal_preferences::{KEYS, terminal_settings};
@@ -24,6 +26,8 @@ fn is_appearance(key: &Key) -> bool {
         HEADING_FAMILY,
         MONO_FAMILY,
         SIDEBAR_POSITION,
+        TAB_LIST_SCOPE,
+        BUILD_READOUT,
     ]
     .contains(&key.as_str())
         || KEYS.contains(&key.as_str())
@@ -132,6 +136,7 @@ impl ShellView {
         let terminal = terminal_settings(|key| backend.get(&Key::new(key)));
         self.source.apply_terminal_settings(terminal, cx);
         self.apply_sidebar_position(cx);
+        self.apply_readout(cx);
         self.refresh(cx);
     }
 }

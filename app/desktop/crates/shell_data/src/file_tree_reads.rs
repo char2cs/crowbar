@@ -1,7 +1,7 @@
 //! The Files and Changes panels' look, read from the stored settings.
 
 use settings_ui::Value;
-use sidebar::{FileDensity, FileTreeFlag, FileTreeView};
+use sidebar::{FileDensity, FileTreeFlag, FileTreeView, IconTheme};
 
 const INDENT: &str = "fileTreeIndentSize";
 const DENSITY: &str = "fileTreeDensity";
@@ -9,6 +9,7 @@ const COMPACT_FOLDERS: &str = "compactFoldersInFileTree";
 const HIDDEN_FILES: &str = "hiddenFilePatterns";
 const HIDDEN_DIRECTORIES: &str = "hiddenDirectoryPatterns";
 const COMPACT_BADGES: &str = "compactGitStatusBadges";
+const ICON_THEME: &str = "iconTheme";
 
 fn switch(
     read: &impl Fn(&str) -> Option<Value>,
@@ -57,6 +58,9 @@ pub(crate) fn view_of(read: impl Fn(&str) -> Option<Value>) -> FileTreeView {
         hidden_files: patterns(&read, HIDDEN_FILES),
         hidden_directories: patterns(&read, HIDDEN_DIRECTORIES),
         compact_badges: switch(&read, (COMPACT_BADGES, base.compact_badges)),
+        icons: read(ICON_THEME)
+            .and_then(|value| value.as_text().map(IconTheme::from_setting))
+            .unwrap_or(base.icons),
     }
 }
 
@@ -84,7 +88,7 @@ mod tests {
     #[test]
     fn each_stored_setting_moves_its_own_part_of_the_look() {
         let patterns = Value::List(vec!["*.log".into(), "tmp".into()]);
-        let cases: [Case; 9] = [
+        let cases: [Case; 10] = [
             ("fileTreeIndentSize", Value::Number(24.0), |view| {
                 (view.indent - 24.0).abs() < f32::EPSILON
             }),
@@ -107,6 +111,9 @@ mod tests {
             }),
             ("compactGitStatusBadges", Value::Bool(true), |view| {
                 view.compact_badges
+            }),
+            ("iconTheme", Value::Text("classic".into()), |view| {
+                view.icons == IconTheme::Classic
             }),
             ("hiddenFilePatterns", patterns.clone(), |view| {
                 view.hidden_files == ["*.log", "tmp"] && view.hidden_directories.is_empty()

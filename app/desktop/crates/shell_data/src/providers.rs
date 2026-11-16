@@ -6,6 +6,7 @@ use crate::call::Call;
 use crate::daemon_client::DaemonClient;
 use crate::error::Result;
 use crate::provider::Provider;
+use crate::surface::Surface;
 use crate::typed::typed;
 
 const PATH: &str = "/v0/settings/chat/providers";
@@ -28,6 +29,16 @@ pub(crate) fn fill(
 ) {
     if let Some(slot) = body.get_mut("provider") {
         *slot = Value::String(provider.to_owned());
+    }
+}
+
+pub(crate) fn land(
+    body: &mut Value,
+    (provider, landing): (&Provider, Surface),
+) {
+    let terminal = landing == Surface::Terminal && provider.lands_on_terminal();
+    if let Some(fields) = body.as_object_mut().filter(|_| terminal) {
+        fields.insert("surface".into(), Value::String("terminal".into()));
     }
 }
 
@@ -61,6 +72,26 @@ mod tests {
         assert_eq!(pick(&all).map(|p| p.id.as_str()), Some("b"));
         assert_eq!(pick(&all[..1]).map(|p| p.id.as_str()), Some("a"));
         assert!(pick(&all[2..]).is_none());
+    }
+
+    #[test]
+    fn a_terminal_landing_is_set_only_for_a_provider_that_starts_there() {
+        let able = Provider {
+            enabled: Switch::On,
+            has_terminal: Switch::On,
+            terminal_start_here: Switch::On,
+            ..Provider::default()
+        };
+        let cases = [
+            (&able, Surface::Terminal, Some("terminal")),
+            (&able, Surface::Default, None),
+            (&Provider::default(), Surface::Terminal, None),
+        ];
+        for (provider, landing, expected) in cases {
+            let mut body = json!({"id": "n"});
+            land(&mut body, (provider, landing));
+            assert_eq!(body.get("surface").and_then(Value::as_str), expected);
+        }
     }
 
     #[test]

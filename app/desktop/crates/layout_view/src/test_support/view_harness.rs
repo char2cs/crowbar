@@ -68,6 +68,14 @@ pub(crate) fn open<'a>(
     cx: &'a mut TestAppContext,
     layout: &Layout,
 ) -> Harness<'a> {
+    open_with(cx, layout, FakeSource::starting_at_first_tab())
+}
+
+pub(crate) fn open_with<'a>(
+    cx: &'a mut TestAppContext,
+    layout: &Layout,
+    source: FakeSource,
+) -> Harness<'a> {
     cx.update(|cx| {
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
@@ -75,8 +83,7 @@ pub(crate) fn open<'a>(
     let clock = Rc::new(Cell::new(Instant::now()));
     let reading = Rc::clone(&clock);
     let (view, cx) = cx.add_window_view(move |_, _| {
-        let source = Rc::new(FakeSource::starting_at_first_tab());
-        LayoutView::with_clock(source, Rc::new(move || reading.get()))
+        LayoutView::with_clock(Rc::new(source), Rc::new(move || reading.get()))
     });
     let commands = Rc::new(RefCell::new(Vec::new()));
     let opened = Rc::new(RefCell::new(Vec::new()));

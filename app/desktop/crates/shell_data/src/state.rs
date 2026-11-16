@@ -9,6 +9,7 @@ use crate::icon_cache::IconCache;
 use crate::link_state::LinkState;
 use crate::panel_state::PanelState;
 use crate::pending_row::PendingRow;
+use crate::settings_slot::SettingsSlot;
 use crate::switch::Switch;
 
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub(crate) struct State {
     pub(crate) panels: PanelState,
     pub(crate) unrevoked: BTreeMap<String, String>,
     pub(crate) icons: IconCache,
+    pub(crate) settings: SettingsSlot,
 }
 
 impl State {
@@ -32,6 +34,7 @@ impl State {
             panels: PanelState::default(),
             unrevoked: BTreeMap::new(),
             icons: IconCache::default(),
+            settings: SettingsSlot::default(),
         }
     }
 

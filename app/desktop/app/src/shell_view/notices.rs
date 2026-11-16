@@ -49,7 +49,7 @@ impl ShellView {
         let content = ToastContent::new(kind, text);
         let lifetime = key.lifetime();
         let preferences = self.sidebar.read(cx).preferences();
-        if preferences.visibility == Visibility::Open {
+        if shows_in_sidebar(preferences.visibility) {
             self.toast_in_sidebar(key, (content, lifetime), cx);
             return;
         }
@@ -88,5 +88,23 @@ impl ShellView {
         let side = self.sidebar.read(cx).preferences().side;
         self.notices
             .update(cx, |queue, cx| queue.set_placement(floating_at(side), cx));
+    }
+}
+
+const fn shows_in_sidebar(visibility: Visibility) -> bool {
+    matches!(visibility, Visibility::Open)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notices_go_to_the_sidebar_only_while_it_is_open() {
+        const CASES: &[(Visibility, bool)] =
+            &[(Visibility::Open, true), (Visibility::Closed, false)];
+        for (visibility, inside) in CASES {
+            assert_eq!(shows_in_sidebar(*visibility), *inside, "{visibility:?}");
+        }
     }
 }

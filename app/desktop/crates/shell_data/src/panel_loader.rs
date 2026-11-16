@@ -1,15 +1,13 @@
 //! Filling the Files and Changes panels for the focused chat.
 
-use crate::call::Call;
 use crate::daemon_client::DaemonClient;
-use crate::error::Result;
+use crate::daemon_read::read;
 use crate::file_entry::FileEntry;
 use crate::git_diff_body::GitDiffBody;
 use crate::git_status_body::GitStatusBody;
 use crate::hub::Hub;
 use crate::line_counts::{self, LineCounts};
 use crate::thread_body::{self, ThreadBody};
-use crate::typed::typed;
 
 const ROOT_QUERY: &str = ".";
 
@@ -21,14 +19,6 @@ pub(crate) fn tree_path(
         .filter(|name| !name.is_empty())
         .unwrap_or(ROOT_QUERY);
     format!("/v0/chats/{chat}/files/tree?path={dir}")
-}
-
-pub(crate) async fn read<T: serde::de::DeserializeOwned>(
-    client: &DaemonClient,
-    path: String,
-) -> Result<T> {
-    let data = client.send(Call::get(path.clone())).await?;
-    typed(&path, data)
 }
 
 pub(crate) async fn load_directory(

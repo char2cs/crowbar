@@ -57,8 +57,7 @@ impl Render for LayoutView {
             .on_drag_move::<DraggedRow>(cx.listener(Self::row_over))
             .on_drag_move::<SashDrag>(cx.listener(Self::sash_moved))
             .on_drop::<DragSubject>(cx.listener(Self::dropped))
-            .on_drop::<DraggedRow>(cx.listener(Self::row_dropped))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::released))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::row_released))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::released))
     }
 }
@@ -109,6 +108,7 @@ impl LayoutView {
         let frame = PaneFrame::new(slot.rect, self.local(), self.chrome);
         let content = self.source.content(&slot.pane, window, cx);
         let chrome = self.chrome_for(&slot.pane, window, cx);
+        let slot_pane = slot.pane.clone();
         PaneCell {
             handle: self.handle_for(&slot.pane, (now, motion), cx),
             ring_opacity: self.rings.opacity(&slot.pane, now, motion),
@@ -120,6 +120,7 @@ impl LayoutView {
             frame,
             content,
             chrome,
+            strip: self.strip_of(&slot_pane, cx),
         }
         .into_any_element()
     }
@@ -146,7 +147,7 @@ impl LayoutView {
         cx: &mut Context<'_, Self>,
     ) -> Option<PaneHandle> {
         let opacity = self.handles.opacity(pane, now, motion);
-        let crowded = self.tab.as_ref().is_some_and(|tab| tab.len() > 1);
+        let crowded = self.tab.as_ref().is_some_and(|tab| tab.group_count() > 1);
         if !crowded || opacity <= 0.0 {
             return None;
         }

@@ -1,12 +1,12 @@
 //! Reading the `.gitignore` files that a directory listing shows.
 
 use crate::daemon_client::DaemonClient;
+use crate::daemon_read::read;
 use crate::document_body::DocumentBody;
 use crate::document_route;
 use crate::file_entry::FileEntry;
 use crate::file_target;
 use crate::hub::Hub;
-use crate::panel_loader::read;
 
 const IGNORE_FILE: &str = ".gitignore";
 
@@ -58,6 +58,10 @@ mod tests {
         }
     }
 
+    fn quiet(state: crate::state::State) -> Arc<Hub> {
+        Hub::new(state, Arc::new(|| {}))
+    }
+
     fn hides_log(hub: &Hub) -> bool {
         hub.read(|state| state.panels.ignores.ignores("sub/a.log", EntryKind::File))
     }
@@ -80,7 +84,7 @@ mod tests {
         let (mut state, daemon) = state();
         state.panels.follow(Some("hc".into()));
         let client = state.hosts[0].client.clone();
-        let hub = Hub::new(state, Arc::new(|| {}));
+        let hub = quiet(state);
         let route = "/v0/documents/content?workspace=hw&path=sub/.gitignore";
         daemon.ok("GET", route, r#"{"content":"*.log"}"#);
         let entries = [entry(".gitignore", "file")];

@@ -6,12 +6,13 @@ use serde_json::json;
 
 use crate::call::Call;
 use crate::daemon_client::DaemonClient;
+use crate::daemon_read::read;
 use crate::document_body::DocumentBody;
 use crate::error::{Error, Result};
 use crate::file_entry::FileEntry;
 use crate::file_target::{self, FileTarget};
 use crate::hub::Hub;
-use crate::panel_loader::{load_directory, read, tree_path};
+use crate::panel_loader::{load_directory, tree_path};
 
 const NOT_FOUND: u16 = 404;
 const BASE64: &str = "base64";
