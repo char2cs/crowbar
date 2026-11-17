@@ -99,10 +99,11 @@ mod tests {
         }
     }
 
-    fn cases() -> Vec<Case> {
+    #[test]
+    fn json_converts_to_the_shapes_the_catalog_stores() {
         let list = Value::List(vec!["a".to_owned()]);
         let pairs = Value::Map(BTreeMap::from([("k".to_owned(), "v".to_owned())]));
-        vec![
+        let cases = vec![
             case("flag", Some(Value::Bool(true)), json!(true)),
             case("text", Some(Value::from("x")), json!("x")),
             case("number", Some(Value::Number(4.0)), json!(4)),
@@ -110,12 +111,8 @@ mod tests {
             case("pairs", Some(pairs), json!({"k": "v"})),
             case("a list of numbers is no list of text", None, json!([1])),
             case("null", None, Json::Null),
-        ]
-    }
-
-    #[test]
-    fn json_converts_to_the_shapes_the_catalog_stores() {
-        for case in cases() {
+        ];
+        for case in cases {
             let json = case.json.unwrap();
             assert_eq!(value_of(&json), case.stored, "{}", case.name);
         }

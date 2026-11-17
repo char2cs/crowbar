@@ -64,10 +64,11 @@ impl ShellView {
     ) {
         let names = names_of(pending.dirty(), &self.state.titles());
         let dialog = cx.new(|_| UnsavedDialog::new(&names));
-        self.subscriptions
-            .push(cx.subscribe(&dialog, |this, source, choice: &CloseChoice, cx| {
+        self.subscriptions.push(
+            cx.subscribe(&dialog, |this, source, choice: &CloseChoice, cx| {
                 this.on_unsaved_choice(source, *choice, cx);
-            }));
+            }),
+        );
         self.unsaved = Some(dialog);
         self.pending_close = Some(pending);
         self.update_overlay(cx);

@@ -3,6 +3,7 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use crate::byte_source::ByteSource;
 use crate::layout_files::LayoutFiles;
 use crate::layout_store::LayoutStore;
 use crate::test_support::FixedClock;
@@ -87,5 +88,14 @@ impl LayoutFiles for MemoryFiles {
             .ok_or_else(|| Error::from(ErrorKind::NotFound))?;
         files.insert(to.to_path_buf(), text);
         Ok(())
+    }
+}
+
+impl ByteSource for MemoryFiles {
+    fn read_bytes(
+        &self,
+        path: &Path,
+    ) -> Result<Vec<u8>> {
+        self.read(path).map(String::into_bytes)
     }
 }

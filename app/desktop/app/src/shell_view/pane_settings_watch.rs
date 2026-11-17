@@ -39,7 +39,7 @@ impl ShellView {
             return;
         };
         let requests = self.requests.clone();
-        self.pane_settings_watch =
+        self.watches.pane_settings =
             Some(backend.subscribe(std::rc::Rc::new(move |change: &Change| {
                 notify_when_a_followed_setting_moves(&requests, change);
             })));

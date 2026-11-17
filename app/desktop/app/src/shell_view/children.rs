@@ -2,31 +2,34 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use gpui::{AppContext as _, Context, Entity, Subscription, Window};
+use gpui::{AppContext as _, Context, Entity};
 use layout_view::LayoutView;
 use shell_data::{ShellData, ShellWiring};
-use sidebar::{Preferences, Sidebar, SidebarData, SidebarEvent};
+use sidebar::{Preferences, Sidebar, SidebarData};
 use startup_view::{MonotonicClock, StartupTiming, StartupView};
 use tab_bar::TabBar;
 use terminal_session::TerminalSessions;
-use ui::Overlays;
+use ui::{Overlays, ToastQueue};
 
-use super::ShellView;
 use super::built::Built;
+use super::pane_wiring::PaneWiring;
+use super::panes::Panes;
+use super::sidebar_wiring::SidebarWiring;
 use crate::browser_bars::BrowserBars;
 use crate::chat_terminals::ChatTerminals;
 use crate::daemon_link::DaemonLink;
+use crate::native_panes::NativePanes;
+use crate::notices::floating_at;
 use crate::overlay_requests::OverlayRequests;
 use crate::shell_pane_source::ShellPaneSource;
 use crate::shell_request::ShellRequest;
-use crate::shell_state::ShellState;
 use crate::sidebar_requests::SidebarRequests;
 use crate::startup_requests::StartupRequests;
 use crate::terminal_panes::TerminalPanes;
 use crate::workspace::Workspace;
 
-pub(super) fn overlay_channel(
-    cx: &mut Context<'_, ShellView>
+pub(super) fn overlay_channel<V: 'static>(
+    cx: &mut Context<'_, V>
 ) -> (
     async_channel::Sender<ShellRequest>,
     async_channel::Receiver<ShellRequest>,
@@ -56,65 +59,65 @@ fn terminal_sessions(link: &DaemonLink) -> TerminalSessions {
     TerminalSessions::new(transport, host, link.handle(), shell_data::CORE_ORIGIN)
 }
 
-pub(super) type Panes = (
-    Entity<LayoutView>,
-    Entity<TabBar>,
-    Entity<Workspace>,
-    Rc<ShellPaneSource>,
-);
-
-pub(super) fn build_panes(
-    (state, link, data): (&ShellState, &DaemonLink, &Rc<ShellData>),
-    requests: &async_channel::Sender<ShellRequest>,
-    cx: &mut Context<'_, ShellView>,
+pub(super) fn build_panes<V: 'static>(
+    wiring: &PaneWiring<'_>,
+    cx: &mut Context<'_, V>,
 ) -> Panes {
-    let bars = BrowserBars::new(state.browsers(), requests.clone());
+    let PaneWiring {
+        state,
+        link,
+        data,
+        requests,
+    } = wiring;
+    let bars = BrowserBars::new(state.browsers(), (*requests).clone());
     let terminals = TerminalPanes::new(
         state.terminals(),
         (terminal_sessions(link), ChatTerminals::of(data)),
     );
+    let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
     let source = Rc::new(ShellPaneSource::new(
         state.titles(),
         state.serials(),
         bars,
-        (
-            terminals,
-            crate::new_tab_panes::NewTabPanes::new(requests.clone()),
-        ),
+        NativePanes::new(terminals, new_tab),
     ));
     let view_source = Rc::clone(&source);
     let layout = cx.new(|_| LayoutView::new(view_source));
     let first_tab = state.serials().next_tab();
     let tabs = cx.new(|_| TabBar::new(first_tab));
     let workspace = cx.new(|_| Workspace::new(tabs.clone(), layout.clone()));
-    (layout, tabs, workspace, source)
+    Panes {
+        layout,
+        tabs,
+        workspace,
+        source,
+    }
 }
 
-pub(super) fn build_sidebar(
-    (requests, data): (&async_channel::Sender<ShellRequest>, &ShellData),
-    preferences_path: &std::path::Path,
-    workspace: &Entity<Workspace>,
-    cx: &mut Context<'_, ShellView>,
+pub(super) fn build_sidebar<V: 'static>(
+    wiring: &SidebarWiring<'_>,
+    cx: &mut Context<'_, V>,
 ) -> Entity<Sidebar> {
-    let view = Rc::new(data.view());
+    let view = Rc::new(wiring.data.view());
     let sink = Rc::new(SidebarRequests {
-        requests: requests.clone(),
-        data: data.commands(),
+        requests: wiring.requests.clone(),
+        data: wiring.data.commands(),
     });
-    let preferences = load_preferences(preferences_path);
+    let preferences = preferences_or_default(Preferences::load(wiring.preferences_path));
+    let workspace = wiring.workspace.clone();
     cx.new(|cx| {
         Sidebar::new(
             view as Rc<dyn SidebarData>,
             sink,
-            workspace.clone().into(),
+            workspace.into(),
             (preferences, cx),
         )
     })
 }
 
-pub(super) fn build_startup(
+pub(super) fn build_startup<V: 'static>(
     requests: &async_channel::Sender<ShellRequest>,
-    cx: &mut Context<'_, ShellView>,
+    cx: &mut Context<'_, V>,
 ) -> Entity<StartupView> {
     cx.new(|cx| {
         let actions = Rc::new(StartupRequests(requests.clone()));
@@ -127,65 +130,59 @@ pub(super) fn build_startup(
     })
 }
 
-fn load_preferences(path: &std::path::Path) -> Preferences {
-    Preferences::load(path).unwrap_or_else(|error| {
+fn preferences_or_default(loaded: Result<Preferences, sidebar::Error>) -> Preferences {
+    loaded.unwrap_or_else(|error| {
         tracing::warn!(%error, "sidebar preferences unreadable, using defaults");
         Preferences::default()
     })
 }
 
-type Children<'a> = (
-    &'a Entity<Workspace>,
-    &'a Entity<TabBar>,
-    &'a Entity<LayoutView>,
-    &'a Entity<Sidebar>,
-    &'a Entity<StartupView>,
-);
-
-pub(super) fn subscribe_all(
-    (workspace, tabs, layout, sidebar, startup): Children<'_>,
-    window: &mut Window,
-    cx: &mut Context<'_, ShellView>,
-) -> Vec<Subscription> {
-    vec![
-        cx.subscribe_in(workspace, window, |this, _, event, window, cx| {
-            this.on_workspace(event, window, cx);
-        }),
-        cx.subscribe(tabs, ShellView::on_tabs),
-        cx.subscribe(layout, ShellView::on_layout),
-        cx.subscribe(sidebar, |this, source, event: &SidebarEvent, cx| {
-            this.on_sidebar(source, *event, cx);
-        }),
-        cx.subscribe_in(startup, window, |this, _, event, window, cx| {
-            this.on_startup(*event, window, cx);
-        }),
-    ]
+fn build_notices<V: 'static>(
+    sidebar: &Entity<Sidebar>,
+    cx: &mut Context<'_, V>,
+) -> Entity<ToastQueue> {
+    let side = sidebar.read(cx).preferences().side;
+    cx.new(|_| ToastQueue::new(floating_at(side)))
 }
 
-pub(super) fn build_children(
+pub(super) fn build_children<V: 'static>(
     parts: &crate::shell_parts::ShellParts,
     requests: &async_channel::Sender<ShellRequest>,
-    window: &mut Window,
-    cx: &mut Context<'_, ShellView>,
+    cx: &mut Context<'_, V>,
 ) -> Built {
-    let (state, link) = (&parts.state, &*parts.link);
-    let preferences_path = parts.preferences_path.as_path();
+    let link = &*parts.link;
     let (data, data_queued) = start_data(link, requests);
-    let (layout, tabs, workspace, source) = build_panes((state, link, &data), requests, cx);
-    let sidebar = build_sidebar((requests, &data), preferences_path, &workspace, cx);
+    let panes = build_panes(
+        &PaneWiring {
+            state: &parts.state,
+            link,
+            data: &data,
+            requests,
+        },
+        cx,
+    );
+    let sidebar = build_sidebar(
+        &SidebarWiring {
+            requests,
+            data: &data,
+            preferences_path: parts.preferences_path.as_path(),
+            workspace: &panes.workspace,
+        },
+        cx,
+    );
     let startup = build_startup(requests, cx);
-    let notices = super::notices::build_notices(&sidebar, cx);
-    let subscriptions = subscribe_all((&workspace, &tabs, &layout, &sidebar, &startup), window, cx);
+    let notices = build_notices(&sidebar, cx);
     Built {
         data,
         data_queued,
-        layout,
-        tabs,
-        source,
+        layout: panes.layout,
+        tabs: panes.tabs,
+        workspace: panes.workspace,
+        source: panes.source,
         sidebar,
         startup,
         notices,
-        subscriptions,
+        subscriptions: Vec::new(),
     }
 }
 
@@ -194,12 +191,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unreadable_or_missing_preferences_fall_back_to_the_defaults() {
-        let dir = tempfile::tempdir().unwrap();
-        let corrupt = dir.path().join("corrupt.json");
-        std::fs::write(&corrupt, "{ not json").unwrap();
-        for path in [corrupt, dir.path().join("missing.json")] {
-            assert_eq!(load_preferences(&path), Preferences::default(), "{path:?}");
-        }
+    fn unreadable_preferences_fall_back_to_the_defaults() {
+        let corrupt = serde_json::from_str::<Preferences>("{ not json").unwrap_err();
+        let unreadable = sidebar::Error::ParsePreferences {
+            path: "preferences.json".into(),
+            source: corrupt,
+        };
+        let loaded = preferences_or_default(Err(unreadable));
+        assert_eq!(loaded, Preferences::default(), "fell back");
+    }
+
+    #[test]
+    fn readable_preferences_are_kept() {
+        let stored = Preferences {
+            side: sidebar::DockSide::Right,
+            ..Preferences::default()
+        };
+        assert_eq!(preferences_or_default(Ok(stored.clone())), stored, "kept");
     }
 }

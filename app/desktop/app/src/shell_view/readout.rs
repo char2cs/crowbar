@@ -61,7 +61,7 @@ impl ShellView {
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         if !shown {
-            self.readout = crate::readout_state::ReadoutState::new(Arc::clone(&self.clock));
+            self.readout = crate::readout_state::ReadoutState::new(Arc::clone(&self.ports.clock));
             cx.notify();
             return;
         }
@@ -89,7 +89,7 @@ impl ShellView {
             build: build_text(CHANNEL),
             net,
             reconnects: self.readout.reconnects,
-            frame: self.readout.clock.stats(self.clock.instant()),
+            frame: self.readout.clock.stats(self.ports.clock.instant()),
             counts: self.readout_counts(),
         };
         let dock = ReadoutDock::of(&self.sidebar.read(cx).preferences());

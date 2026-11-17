@@ -37,7 +37,7 @@ impl ShellView {
             return;
         };
         let requests = self.requests.clone();
-        self.keymap_watch = Some(backend.subscribe(std::rc::Rc::new(move |change: &Change| {
+        self.watches.keymap = Some(backend.subscribe(std::rc::Rc::new(move |change: &Change| {
             notify_when_overrides_move(&requests, change);
         })));
         self.reload_keymap();

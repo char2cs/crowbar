@@ -27,7 +27,7 @@ impl ShellView {
         self.open_dropped(&dropped, cx);
         self.finish_picks(picks, cx);
         for (pane, address) in pages {
-            self.source.show_address(&pane, &address, cx);
+            self.source.bars().show_address(&pane, &address, cx);
         }
         for (pane, hovered) in hover {
             let entered = hovered.then(|| self.hover.entered(pane.clone()));

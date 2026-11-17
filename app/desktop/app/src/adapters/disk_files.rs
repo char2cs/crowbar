@@ -1,12 +1,13 @@
 use std::io;
 use std::path::Path;
 
+use crate::byte_source::ByteSource;
 use crate::layout_files::LayoutFiles;
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct DiskLayoutFiles(());
+pub(crate) struct DiskFiles(());
 
-impl LayoutFiles for DiskLayoutFiles {
+impl LayoutFiles for DiskFiles {
     fn read(
         &self,
         path: &Path,
@@ -31,6 +32,15 @@ impl LayoutFiles for DiskLayoutFiles {
     }
 }
 
+impl ByteSource for DiskFiles {
+    fn read_bytes(
+        &self,
+        path: &Path,
+    ) -> io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::ErrorKind;
@@ -41,15 +51,24 @@ mod tests {
 
     #[test]
     fn reading_returns_the_text_and_a_missing_file_is_not_found() {
-        let files = DiskLayoutFiles::default();
-        assert!(files.read(Path::new(MANIFEST)).unwrap().contains("crowbar_desktop"));
+        let files = DiskFiles::default();
+        assert!(
+            files
+                .read(Path::new(MANIFEST))
+                .unwrap()
+                .contains("crowbar_desktop")
+        );
+        assert!(
+            !files.read_bytes(Path::new(MANIFEST)).unwrap().is_empty(),
+            "bytes"
+        );
         let missing = files.read(Path::new("/nonexistent-crowbar/layout.json"));
         assert_eq!(missing.unwrap_err().kind(), ErrorKind::NotFound);
     }
 
     #[test]
     fn writing_under_a_regular_file_and_renaming_a_missing_one_fail() {
-        let files = DiskLayoutFiles::default();
+        let files = DiskFiles::default();
         let beneath_a_file = Path::new(MANIFEST).join("layout.json");
         assert!(files.write(&beneath_a_file, b"{}").is_err(), "write");
         let missing = Path::new("/nonexistent-crowbar/a");

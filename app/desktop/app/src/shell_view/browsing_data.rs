@@ -10,7 +10,7 @@ const FAILED: &str = "Browsing data could not be cleared";
 fn notice_for(cleared: &pane_host::Result<()>) -> (ToastKind, String) {
     match cleared {
         Ok(()) => (ToastKind::Success, CLEARED.to_owned()),
-        Err(_) => (ToastKind::Error, FAILED.to_owned()),
+        Err(error) => (ToastKind::Error, format!("{FAILED}: {error}")),
     }
 }
 
@@ -33,13 +33,14 @@ mod tests {
 
     #[test]
     fn the_notice_says_whether_the_data_was_cleared() {
-        let refused = Err(pane_host::Error::WebView(webview::Error::HostStopped));
+        let refusal = || pane_host::Error::WebView(webview::Error::HostStopped);
+        let failure = format!("{FAILED}: {}", refusal());
         let cases = [
-            (Ok(()), ToastKind::Success, CLEARED),
-            (refused, ToastKind::Error, FAILED),
+            (Ok(()), ToastKind::Success, CLEARED.to_owned()),
+            (Err(refusal()), ToastKind::Error, failure),
         ];
         for (result, kind, text) in cases {
-            assert_eq!(notice_for(&result), (kind, text.to_owned()));
+            assert_eq!(notice_for(&result), (kind, text));
         }
     }
 }

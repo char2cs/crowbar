@@ -1,21 +1,13 @@
-use gpui::{AppContext as _, Context, Entity, Window};
-use sidebar::{Sidebar, Visibility};
+use gpui::{Context, Window};
+use sidebar::Visibility;
 use startup_view::StartupInput;
-use ui::{ToastContent, ToastKind, ToastLifetime, ToastQueue};
+use ui::{ToastContent, ToastKind, ToastLifetime};
 
 use super::ShellView;
 use crate::daemon_notice::{DaemonNotice, daemon_notice};
 use crate::notice_key::NoticeKey;
 use crate::notices::floating_at;
 use crate::save_report::SaveReport;
-
-pub(super) fn build_notices(
-    sidebar: &Entity<Sidebar>,
-    cx: &mut Context<'_, ShellView>,
-) -> Entity<ToastQueue> {
-    let side = sidebar.read(cx).preferences().side;
-    cx.new(|_| ToastQueue::new(floating_at(side)))
-}
 
 impl ShellView {
     pub(super) fn track_daemon(

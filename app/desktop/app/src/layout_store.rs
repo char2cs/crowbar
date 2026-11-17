@@ -4,7 +4,7 @@ use std::time::UNIX_EPOCH;
 
 use model::Layout;
 
-use crate::adapters::disk_layout_files::DiskLayoutFiles;
+use crate::adapters::disk_files::DiskFiles;
 use crate::adapters::system_clock::SystemClock;
 use crate::clock::Clock;
 use crate::error::{Error, Result};
@@ -30,7 +30,7 @@ impl LayoutStore {
     pub(crate) fn on_disk(path: PathBuf) -> Self {
         Self::new(
             path,
-            Arc::new(DiskLayoutFiles::default()),
+            Arc::new(DiskFiles::default()),
             Arc::new(SystemClock::default()),
         )
     }

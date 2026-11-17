@@ -1,19 +1,17 @@
-use gpui::{AnyElement, AnyView, App, IntoElement as _, SharedString, Window, div};
+use gpui::{AnyElement, AnyView, App, SharedString, Window};
 use model::TabId;
 use protocol::PaneId;
 
 use crate::browser_bars::BrowserBars;
-use crate::new_tab_panes::NewTabPanes;
+use crate::native_panes::NativePanes;
 use crate::serials::Serials;
-use crate::terminal_panes::TerminalPanes;
 use crate::titles::Titles;
 
 pub(crate) struct ShellPaneSource {
     titles: Titles,
     serials: Serials,
     bars: BrowserBars,
-    terminals: TerminalPanes,
-    new_tabs: NewTabPanes,
+    native: NativePanes,
 }
 
 impl ShellPaneSource {
@@ -21,60 +19,22 @@ impl ShellPaneSource {
         titles: Titles,
         serials: Serials,
         bars: BrowserBars,
-        (terminals, new_tabs): (TerminalPanes, NewTabPanes),
+        native: NativePanes,
     ) -> Self {
         Self {
             titles,
             serials,
             bars,
-            terminals,
-            new_tabs,
+            native,
         }
     }
 
-    pub(crate) fn follow_new_tabs(
-        &self,
-        layout: &model::Layout,
-        titles: &Titles,
-    ) {
-        self.new_tabs.follow(layout, titles);
+    pub(crate) fn native(&self) -> &NativePanes {
+        &self.native
     }
 
-    pub(crate) fn terminals_attached(&self) -> bool {
-        self.terminals.attached()
-    }
-
-    pub(crate) fn apply_terminal_settings(
-        &self,
-        settings: terminal_view::TerminalSettings,
-        cx: &mut App,
-    ) {
-        self.terminals.apply(settings, cx);
-    }
-
-    pub(crate) fn show_address(
-        &self,
-        pane: &PaneId,
-        address: &str,
-        cx: &mut App,
-    ) {
-        self.bars.show_address(pane, address, cx);
-    }
-
-    pub(crate) fn toggle_pick(
-        &self,
-        pane: &PaneId,
-        cx: &mut App,
-    ) -> pane_host::BrowseAction {
-        self.bars.toggle_pick(pane, cx)
-    }
-
-    pub(crate) fn finish_pick(
-        &self,
-        pane: &PaneId,
-        cx: &mut App,
-    ) -> bool {
-        self.bars.finish_pick(pane, cx)
+    pub(crate) fn bars(&self) -> &BrowserBars {
+        &self.bars
     }
 }
 
@@ -85,20 +45,14 @@ impl layout_view::PaneSource for ShellPaneSource {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        if let Some(page) = self.new_tabs.view(pane, cx) {
-            return page.into_any_element();
-        }
-        match self.terminals.view(pane, window, cx) {
-            Some(view) => view.into_any_element(),
-            None => div().into_any_element(),
-        }
+        self.native.content(pane, window, cx)
     }
 
     fn is_native(
         &self,
         pane: &PaneId,
     ) -> bool {
-        self.terminals.is_terminal(pane) || self.new_tabs.contains(pane)
+        self.native.is_native(pane)
     }
 
     fn chrome_height(
@@ -159,6 +113,7 @@ mod tests {
     use protocol::PaneTitle;
 
     use super::*;
+    use crate::new_tab_panes::NewTabPanes;
     use crate::terminal_ids::TerminalIds;
     use crate::test_support::idle_terminals;
 
@@ -176,7 +131,7 @@ mod tests {
             titles.clone(),
             Serials::above(&model::Layout::default()),
             no_bars(),
-            (
+            NativePanes::new(
                 idle_terminals(TerminalIds::default()),
                 NewTabPanes::new(async_channel::unbounded().0),
             ),
@@ -193,7 +148,7 @@ mod tests {
             Titles::default(),
             Serials::above(&model::Layout::default()),
             no_bars(),
-            (
+            NativePanes::new(
                 idle_terminals(TerminalIds::default()),
                 NewTabPanes::new(async_channel::unbounded().0),
             ),

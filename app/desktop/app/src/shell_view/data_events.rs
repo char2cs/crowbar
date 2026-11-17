@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use gpui::{AsyncApp, Context, PathPromptOptions, WeakEntity, Window};
 use shell_data::{Outcome as DataOutcome, SettingsAdapter};
@@ -6,15 +7,20 @@ use std::sync::atomic::Ordering;
 use ui::ToastKind;
 
 use super::ShellView;
+use crate::byte_source::ByteSource;
 use crate::core_panes::{chat_params, chat_type};
+use crate::logged::{closed_view, logged};
 use crate::notice_key::NoticeKey;
 use crate::settings_modal::{open_settings, settings_config};
 
 type Picked<E, C> = Result<Result<Option<Vec<PathBuf>>, E>, C>;
 
-fn first_read<E, C>(picked: Picked<E, C>) -> Option<std::io::Result<Vec<u8>>> {
+fn first_read<E, C>(
+    picked: Picked<E, C>,
+    files: &dyn ByteSource,
+) -> Option<std::io::Result<Vec<u8>>> {
     let paths = picked.ok()?.ok()??;
-    paths.first().map(std::fs::read)
+    paths.first().map(|path| files.read_bytes(path))
 }
 
 fn deliver(
@@ -25,8 +31,8 @@ fn deliver(
     let Some(read) = read else {
         return;
     };
-    this.update(cx, |this, cx| this.install_descriptor(read, cx))
-        .ok();
+    let delivered = this.update(cx, |this, cx| this.install_descriptor(read, cx));
+    closed_view(&delivered, "the descriptor");
 }
 
 impl ShellView {
@@ -43,7 +49,7 @@ impl ShellView {
         if self.narrows_tabs() {
             self.push_tabs(cx);
         }
-        if self.source.terminals_attached() {
+        if self.source.native().terminals_attached() {
             self.refresh(cx);
         }
         if let Some(dialog) = &self.branch_import {
@@ -65,7 +71,7 @@ impl ShellView {
     ) {
         match outcome {
             DataOutcome::OpenChat(chat) => self.open_chat(&chat, cx),
-            DataOutcome::PickDescriptor => Self::pick_descriptor(cx),
+            DataOutcome::PickDescriptor => self.pick_descriptor(cx),
             DataOutcome::PairHost => self.show_pairing(window, cx),
             DataOutcome::ClearBrowsingData => self.clear_browsing_data(cx),
             DataOutcome::CopyText(text) => {
@@ -89,15 +95,22 @@ impl ShellView {
         self.open_from_sidebar((type_id, params), cx);
     }
 
-    fn pick_descriptor(cx: &mut Context<'_, Self>) {
+    fn pick_descriptor(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) {
         let picked = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
             multiple: false,
             prompt: Some("Install".into()),
         });
-        cx.spawn(async move |this, cx| deliver(&this, cx, first_read(picked.await)))
-            .detach();
+        let files = Arc::clone(&self.ports.bytes);
+        cx.spawn(async move |this, cx| {
+            let read = first_read(picked.await, files.as_ref());
+            deliver(&this, cx, read);
+        })
+        .detach();
     }
 
     fn install_descriptor(
@@ -154,9 +167,7 @@ impl ShellView {
         };
         let opened = settings_config(self.requests.clone(), &backend, page)
             .map(|config| open_settings(config, window, cx));
-        self.settings = opened
-            .inspect_err(|error| tracing::error!(%error, "could not open settings"))
-            .ok();
+        self.settings = logged(opened, "could not open settings");
         if let Some(modal) = &self.settings {
             modal.read(cx).focus(window);
         }
@@ -166,20 +177,36 @@ impl ShellView {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::test_support::MemoryFiles;
+
+    const DESCRIPTOR: &str = "/picked/agent.yaml";
+
+    fn chosen(paths: Vec<&str>) -> Vec<PathBuf> {
+        paths.into_iter().map(PathBuf::from).collect()
+    }
 
     #[test]
     fn the_first_picked_file_is_read_and_a_cancelled_pick_reads_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("agent.yaml");
-        std::fs::write(&file, "name: a").unwrap();
-        let picked = first_read::<(), ()>(Ok(Ok(Some(vec![file]))));
-        assert_eq!(picked.unwrap().unwrap(), b"name: a", "read");
-        assert!(first_read::<(), ()>(Ok(Ok(None))).is_none(), "cancelled");
+        let files = MemoryFiles::default();
+        files.seed(Path::new(DESCRIPTOR), "name: a");
+        let read = first_read::<(), ()>(Ok(Ok(Some(chosen(vec![DESCRIPTOR])))), &files);
+        assert_eq!(read.unwrap().unwrap(), b"name: a", "read");
         assert!(
-            first_read::<(), ()>(Ok(Ok(Some(Vec::new())))).is_none(),
+            first_read::<(), ()>(Ok(Ok(None)), &files).is_none(),
+            "cancelled"
+        );
+        assert!(
+            first_read::<(), ()>(Ok(Ok(Some(chosen(Vec::new())))), &files).is_none(),
             "empty"
         );
-        assert!(first_read::<(), ()>(Err(())).is_none(), "prompt dropped");
+        assert!(
+            first_read::<(), ()>(Err(()), &files).is_none(),
+            "prompt dropped"
+        );
+        let missing = first_read::<(), ()>(Ok(Ok(Some(chosen(vec!["/picked/none.yaml"])))), &files);
+        assert!(missing.unwrap().is_err(), "unreadable");
     }
 }

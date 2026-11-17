@@ -42,9 +42,10 @@ impl ShellView {
         let Some(oobe) = oobe else {
             return;
         };
-        self.subscriptions.push(cx.subscribe(&oobe, |this, source, event: &OobeEvent, cx| {
-            this.on_oobe(source, *event, cx);
-        }));
+        self.subscriptions
+            .push(cx.subscribe(&oobe, |this, source, event: &OobeEvent, cx| {
+                this.on_oobe(source, *event, cx);
+            }));
         self.first_run = Some((landing, oobe));
         self.update_overlay(cx);
     }

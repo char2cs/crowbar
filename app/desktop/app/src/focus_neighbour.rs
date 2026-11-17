@@ -60,17 +60,24 @@ mod tests {
 
     fn slot(
         id: &str,
-        (x, y, width, height): (f32, f32, f32, f32),
+        rect: Rect,
     ) -> PaneSlot {
-        let rect = Rect {
-            x,
-            y,
-            width,
-            height,
-        };
         PaneSlot {
             pane: PaneId::new(id).unwrap(),
             rect,
+        }
+    }
+
+    fn rect(
+        x: f32,
+        y: f32,
+        size: (f32, f32),
+    ) -> Rect {
+        Rect {
+            x,
+            y,
+            width: size.0,
+            height: size.1,
         }
     }
 
@@ -80,9 +87,9 @@ mod tests {
 
     fn grid() -> Vec<PaneSlot> {
         vec![
-            slot("a", (0.0, 0.0, 100.0, 50.0)),
-            slot("b", (0.0, 54.0, 100.0, 46.0)),
-            slot("c", (104.0, 0.0, 96.0, 100.0)),
+            slot("a", rect(0.0, 0.0, (100.0, 50.0))),
+            slot("b", rect(0.0, 54.0, (100.0, 46.0))),
+            slot("c", rect(104.0, 0.0, (96.0, 100.0))),
         ]
     }
 

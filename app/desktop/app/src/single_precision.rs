@@ -15,7 +15,10 @@ mod tests {
     #[test]
     fn exact_values_survive_the_narrowing() {
         for &(wide, narrow) in CASES {
-            assert!((single_precision(wide) - narrow).abs() < f32::EPSILON, "{wide}");
+            assert!(
+                (single_precision(wide) - narrow).abs() < f32::EPSILON,
+                "{wide}"
+            );
         }
     }
 }

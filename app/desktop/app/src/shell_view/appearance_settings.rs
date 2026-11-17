@@ -79,9 +79,9 @@ pub(super) fn themed(
 ) -> Theme {
     let ((theme, mode, size), (ui, heading, mono)) = stored;
     let themed = base.with_id(id_of(theme)).with_mode(mode_of(mode));
-    let sized = size
-        .and_then(Value::as_number)
-        .map_or(themed, |points| themed.with_ui_font_size(single_precision(points)));
+    let sized = size.and_then(Value::as_number).map_or(themed, |points| {
+        themed.with_ui_font_size(single_precision(points))
+    });
     let faced = family_of(names, ui).map_or(sized, |family| sized.with_ui_family(family));
     let headed =
         family_of(names, heading).map_or(faced, |family| faced.with_heading_family(family));
@@ -97,7 +97,7 @@ impl ShellView {
             return;
         };
         let requests = self.requests.clone();
-        self.appearance_watch =
+        self.watches.appearance =
             Some(backend.subscribe(std::rc::Rc::new(move |change: &Change| {
                 notify_when_appearance_moves(&requests, change);
             })));
@@ -131,7 +131,7 @@ impl ShellView {
         let theme = themed(*Theme::of(cx), (stored, &mut self.family_names));
         theme.install(cx);
         let terminal = terminal_settings(|key| backend.get(&Key::new(key)));
-        self.source.apply_terminal_settings(terminal, cx);
+        self.source.native().apply_terminal_settings(terminal, cx);
         self.apply_sidebar_position(cx);
         self.apply_readout(cx);
         self.refresh(cx);

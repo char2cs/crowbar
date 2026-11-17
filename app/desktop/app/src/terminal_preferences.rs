@@ -73,7 +73,9 @@ fn rows(
     stored: Option<f64>,
     default: usize,
 ) -> usize {
-    stored.map_or(default, |value| terminal::floor_cells(single_precision(value)))
+    stored.map_or(default, |value| {
+        terminal::floor_cells(single_precision(value))
+    })
 }
 
 #[cfg(test)]

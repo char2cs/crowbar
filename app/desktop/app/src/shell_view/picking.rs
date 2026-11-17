@@ -12,10 +12,10 @@ impl ShellView {
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) {
-        let action = self.source.toggle_pick(pane, cx);
+        let action = self.source.bars().toggle_pick(pane, cx);
         if let Err(error) = self.state.host().browse(pane, &action) {
             tracing::warn!(%error, "the browser pane could not start a pick");
-            self.source.finish_pick(pane, cx);
+            self.source.bars().finish_pick(pane, cx);
         }
     }
 
@@ -35,7 +35,7 @@ impl ShellView {
         update: &PageUpdate,
         cx: &mut Context<'_, Self>,
     ) {
-        let asked = self.source.finish_pick(pane, cx).then_some(update);
+        let asked = self.source.bars().finish_pick(pane, cx).then_some(update);
         let Some(effect) = effect_of(asked, pane.as_str()) else {
             return;
         };

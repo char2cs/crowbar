@@ -1,16 +1,12 @@
-use std::path::Path;
-
-use branch_import_view::{BranchImportView, ImportEvent};
-use command_palette::{PaletteEntry, PaletteEvent, PalettePanel};
-use gpui::{AppContext as _, Context, Entity, KeyDownEvent, Window};
+use gpui::{Context, KeyDownEvent, Window};
 use model::Command;
-use pairing_view::{PairingEvent, PairingView};
-use settings_ui::{Chord, Primary};
-use shell_diagnostics::LogPaths;
 use shell_keys::{Keystroke, Modifier, ShellCommand};
 use sidebar::{CommandSink as _, Mode, Sidebar, SidebarData as _};
 
 use super::ShellView;
+
+mod dialogs;
+mod palette;
 use crate::direction::Direction;
 use crate::focus_neighbour::focus_neighbour;
 use crate::project_slot::project_at;
@@ -141,23 +137,6 @@ impl ShellView {
         }
     }
 
-    fn export_diagnostics(&self) {
-        let data_dir = self.preferences_path.parent().unwrap_or(Path::new(""));
-        crate::diagnostics_export::start(
-            &self.link,
-            LogPaths::in_data_dir(data_dir),
-            self.clock.wall(),
-        );
-    }
-
-    fn open_log(&self) {
-        let data_dir = self.preferences_path.parent().unwrap_or(Path::new(""));
-        let log = LogPaths::in_data_dir(data_dir).current();
-        if let Err(error) = shell_platform::open_path(&log) {
-            tracing::warn!(%error, "the log file could not be opened");
-        }
-    }
-
     fn set_sidebar_mode(
         &mut self,
         mode: Mode,
@@ -176,50 +155,12 @@ impl ShellView {
         };
         self.apply_guarded(vec![Command::CloseTab { tab }], cx);
     }
-
-    fn show_palette(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.palette.is_some() {
-            return;
-        }
-        let entries = palette_entries(&self.keymap);
-        let panel = cx.new(|cx| PalettePanel::new(entries, window, cx));
-        self.subscriptions
-            .push(cx.subscribe_in(&panel, window, |this, _, event, window, cx| {
-                this.on_palette(event, window, cx);
-            }));
-        self.palette = Some(panel);
-        self.update_overlay(cx);
-    }
-
-    fn on_palette(
-        &mut self,
-        event: &PaletteEvent,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.palette = None;
-        self.update_overlay(cx);
-        let chosen = match event {
-            PaletteEvent::Run(id) => ShellCommand::parse(id),
-            _ => None,
-        };
-        if let Some(command) = chosen {
-            self.run_shell_command(command, window, cx);
-        }
-    }
 }
 
 fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
     let modifiers = stroke.modifiers;
-    let primary = if PRIMARY_IS_COMMAND {
-        modifiers.platform
-    } else {
-        modifiers.control
-    };
+    let primary =
+        (PRIMARY_IS_COMMAND && modifiers.platform) || (!PRIMARY_IS_COMMAND && modifiers.control);
     let held = [
         (primary, Modifier::Primary),
         (modifiers.shift, Modifier::Shift),
@@ -235,107 +176,9 @@ fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
     }
 }
 
-fn palette_entries(keymap: &shell_keys::Keymap) -> Vec<PaletteEntry> {
-    ShellCommand::all()
-        .filter(|command| *command != ShellCommand::CommandPalette)
-        .map(|command| PaletteEntry {
-            id: command.id().to_owned(),
-            title: command.label().to_owned(),
-            shortcut: keymap
-                .chord_of(command)
-                .and_then(Chord::parse)
-                .map(|chord| chord.label(Primary::native())),
-        })
-        .collect()
-}
-
-impl ShellView {
-    pub(super) fn show_pairing(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.pairing.is_some() {
-            return;
-        }
-        let (signal, _) = crate::data_signal::callbacks(&self.requests, &self.data_queued);
-        let session = self.data.pairing(signal);
-        let dialog = cx.new(|cx| PairingView::new(session, window, cx));
-        self.subscriptions
-            .push(cx.subscribe(&dialog, |this, source, event: &PairingEvent, cx| {
-                this.on_pairing(source, *event, cx);
-            }));
-        self.pairing = Some(dialog);
-        self.update_overlay(cx);
-    }
-
-    fn on_pairing(
-        &mut self,
-        _: Entity<PairingView>,
-        event: PairingEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if matches!(event, PairingEvent::Close) {
-            self.pairing = None;
-            self.update_overlay(cx);
-        }
-    }
-
-    pub(super) fn show_branch_import(
-        &mut self,
-        row: &str,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.branch_import.is_some() {
-            return;
-        }
-        let (signal, _) = crate::data_signal::callbacks(&self.requests, &self.data_queued);
-        let opened = self
-            .data
-            .branch_import(&sidebar::RowId::from(row), signal)
-            .inspect_err(|error| tracing::warn!(%error, "the branch import could not open"));
-        let Ok(import) = opened else {
-            return;
-        };
-        let dialog = cx.new(|cx| BranchImportView::new(import, window, cx));
-        self.subscriptions
-            .push(cx.subscribe(&dialog, |this, source, event: &ImportEvent, cx| {
-                this.on_branch_import(source, *event, cx);
-            }));
-        self.branch_import = Some(dialog);
-        self.update_overlay(cx);
-    }
-
-    fn on_branch_import(
-        &mut self,
-        _: Entity<BranchImportView>,
-        _: ImportEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.branch_import = None;
-        self.update_overlay(cx);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_palette_lists_every_command_but_itself_with_its_shortcut() {
-        let entries = palette_entries(&shell_keys::Keymap::defaults());
-        assert!(
-            entries
-                .iter()
-                .all(|entry| entry.id != ShellCommand::CommandPalette.id())
-        );
-        let close = entries.iter().find(|entry| entry.id == "tabs.closeActive");
-        assert_eq!(
-            close.and_then(|entry| entry.shortcut.as_deref()),
-            Some("Ctrl+W")
-        );
-    }
 
     #[test]
     fn a_typed_key_becomes_a_chord() {

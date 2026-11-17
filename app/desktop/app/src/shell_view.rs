@@ -8,20 +8,21 @@ use gpui::{
     Context, Div, Entity, FocusHandle, InteractiveElement, IntoElement, ParentElement, Render,
     Styled, Subscription, Window, div,
 };
-use layout_view::{ChromeContext, LayoutEvent, LayoutView};
-use pane_host::{IpcMessage, Overlay};
+use layout_view::{ChromeContext, LayoutView};
+use pane_host::Overlay;
 use settings_ui::SettingsModal;
 use shell_data::{SettingsAdapter, ShellData};
 use shell_keys::Keymap;
-use sidebar::{Sidebar, SidebarEvent};
-use startup_view::{StartupEvent, StartupInput, StartupView};
-use tab_bar::{SidebarState, TabBar, TabBarEvent};
-use ui::{Surface, Theme, ToastKind, ToastQueue};
+use sidebar::Sidebar;
+use startup_view::StartupView;
+use tab_bar::{SidebarState, TabBar};
+use ui::{Surface, Theme, ToastQueue};
 
 mod appearance_settings;
 mod browsing;
 mod browsing_data;
 mod built;
+mod child_events;
 mod children;
 mod closing;
 mod data_events;
@@ -36,6 +37,8 @@ mod notices;
 mod outcomes;
 mod pane_commands;
 mod pane_settings_watch;
+mod pane_wiring;
+mod panes;
 mod pick_effect;
 mod picking;
 mod pump;
@@ -43,23 +46,23 @@ mod readout;
 mod remote_folder;
 mod shell_commands;
 mod sidebar_position;
+mod sidebar_wiring;
 mod tab_strip;
+mod watches;
+
+use self::watches::Watches;
 
 use crate::daemon_link::DaemonLink;
 use crate::focused_chat::focused_chat;
 use crate::holes::visible_panes;
 use crate::hover_tracker::HoverTracker;
-use crate::notice_key::NoticeKey;
+use crate::ports::Ports;
 use crate::shell_pane_source::ShellPaneSource;
 use crate::shell_parts::ShellParts;
 use crate::shell_request::ShellRequest;
 use crate::shell_state::ShellState;
-use crate::workspace_event::WorkspaceEvent;
 
 use self::children::{build_children, overlay_channel};
-use self::pump::drain;
-
-const WINDOW_CANNOT_HOST: &str = "This window cannot show panes: it is not an X11 window. Restart Crowbar under X11 or XWayland.";
 
 pub(crate) struct ShellView {
     state: ShellState,
@@ -82,9 +85,7 @@ pub(crate) struct ShellView {
     source: Rc<ShellPaneSource>,
     focus: FocusHandle,
     keymap: Keymap,
-    keymap_watch: Option<settings_ui::Subscription>,
-    appearance_watch: Option<settings_ui::Subscription>,
-    pane_settings_watch: Option<settings_ui::Subscription>,
+    watches: Watches,
     family_names: crate::family_names::FamilyNames,
     system_fonts: shell_data::SystemFonts,
     requests: async_channel::Sender<ShellRequest>,
@@ -95,7 +96,7 @@ pub(crate) struct ShellView {
     overlays_open: bool,
     hover: HoverTracker,
     focus_surface: Option<sidebar::Mode>,
-    clock: Arc<dyn crate::clock::Clock>,
+    ports: Ports,
     readout: crate::readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
     subscriptions: Vec<Subscription>,
@@ -108,7 +109,8 @@ impl ShellView {
         cx: &mut Context<'_, Self>,
     ) -> Self {
         let (requests, queue) = overlay_channel(cx);
-        let built = build_children(&parts, &requests, window, cx);
+        let mut built = build_children(&parts, &requests, cx);
+        built.subscriptions = Self::subscribe_children(&built, window, cx);
         let mut view = Self::assemble(parts, built, requests, cx.focus_handle());
         view.begin(queue, window, cx);
         view
@@ -141,9 +143,7 @@ impl ShellView {
             pending_close: None,
             focus,
             keymap: Keymap::defaults(),
-            keymap_watch: None,
-            appearance_watch: None,
-            pane_settings_watch: None,
+            watches: Watches::default(),
             family_names: crate::family_names::FamilyNames::default(),
             system_fonts: shell_data::SystemFonts::default(),
             requests,
@@ -154,8 +154,8 @@ impl ShellView {
             overlays_open: false,
             hover: HoverTracker::default(),
             focus_surface: None,
-            readout: crate::readout_state::ReadoutState::new(Arc::clone(&parts.clock)),
-            clock: parts.clock,
+            readout: crate::readout_state::ReadoutState::new(Arc::clone(&parts.ports.clock)),
+            ports: parts.ports,
             notices: built.notices,
             subscriptions: built.subscriptions,
         }
@@ -175,133 +175,6 @@ impl ShellView {
         self.watch_keymap();
         self.watch_appearance(cx);
         self.watch_pane_settings();
-    }
-
-    fn spawn_tasks(
-        &self,
-        queue: async_channel::Receiver<ShellRequest>,
-        window: &Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let inbox = self.state.host().inbox();
-        let phases = self.link.phases();
-        let saves = self.state.save_reports();
-        cx.spawn_in(window, async move |this, cx| {
-            drain(inbox, this, cx, Self::on_ipc).await;
-        })
-        .detach();
-        cx.spawn_in(window, async move |this, cx| {
-            drain(phases, this, cx, Self::feed_startup).await;
-        })
-        .detach();
-        cx.spawn_in(window, async move |this, cx| {
-            drain(saves, this, cx, Self::on_save_report).await;
-        })
-        .detach();
-        cx.spawn_in(window, async move |this, cx| {
-            drain(queue, this, cx, Self::handle).await;
-        })
-        .detach();
-    }
-
-    fn on_ipc(
-        &mut self,
-        message: IpcMessage,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let outcome = self.state.handle_ipc(message);
-        self.apply_outcome(outcome, cx);
-    }
-
-    fn feed_startup(
-        &mut self,
-        input: StartupInput,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        match &self.startup {
-            Some(startup) => startup.update(cx, |startup, cx| startup.apply(input, cx)),
-            None => self.track_daemon(&input, cx),
-        }
-    }
-
-    fn handle(
-        &mut self,
-        request: ShellRequest,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        match request {
-            ShellRequest::Sidebar(command) => self.on_sidebar_command(&command, window, cx),
-            ShellRequest::Startup(command) => {
-                crate::startup_command::perform(command, &self.link, cx);
-            },
-            ShellRequest::DataChanged => self.on_data_changed(cx),
-            ShellRequest::Outcome(outcome) => self.on_data_outcome(outcome, window, cx),
-            ShellRequest::CloseSettings => {
-                self.settings = None;
-                window.focus(&self.focus);
-                self.update_overlay(cx);
-            },
-            ShellRequest::Closing(choice) => self.choose_closing(choice, window, cx),
-            ShellRequest::SelectProject(slot) => self.select_project(slot),
-            ShellRequest::ResumeClosing => self.resume_closing(window, cx),
-            ShellRequest::KeymapChanged => self.on_keymap_changed(cx),
-            ShellRequest::AppearanceChanged => self.apply_appearance(cx),
-            ShellRequest::PaneSettingsChanged => self.push_pane_settings(),
-            ShellRequest::NewTabChoice { pane, action } => {
-                self.choose_in_new_tab((&pane, action), window, cx);
-            },
-            ShellRequest::Browse { pane, event } => self.browse(&pane, event, cx),
-            ShellRequest::Command(command) => self.run_shell_command(command, window, cx),
-            ShellRequest::Overlays { open } => {
-                self.overlays_open = open;
-                self.update_overlay(cx);
-            },
-        }
-    }
-
-    fn on_sidebar_command(
-        &mut self,
-        command: &sidebar::Command,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        use crate::sidebar_action::{SidebarAction, action_for};
-        match action_for(command) {
-            Ok(SidebarAction::Open(type_id, params)) => {
-                self.open_from_sidebar((type_id, params), cx);
-            },
-            Ok(SidebarAction::OpenSettings) => self.show_settings(window, cx),
-            Ok(SidebarAction::OpenHosts) => {
-                let hosts = settings_ui::PageId::from(crate::settings_modal::HOSTS_PAGE);
-                self.show_settings_page(Some(hosts), window, cx);
-            },
-            Ok(SidebarAction::OpenFile(path)) => self.open_workspace_file(&path, cx),
-            Ok(SidebarAction::ImportRepo) => self.choose_repo_folder(window, cx),
-            Ok(SidebarAction::ChooseSpaceFolder(host)) => self.choose_space_folder(&host, cx),
-            Ok(SidebarAction::ImportBranches(row)) => self.show_branch_import(&row, window, cx),
-            Ok(SidebarAction::Reveal(path)) => self.reveal_workspace_path(&path),
-            Ok(SidebarAction::SetFileTreeFlag { key, on }) => {
-                self.set_file_tree_flag((key, settings_ui::Value::Bool(on)), cx);
-            },
-            Ok(SidebarAction::Unserved) => self.perform_file_action(command, window, cx),
-            Err(error) => tracing::warn!(%error, "a sidebar command was invalid"),
-        }
-    }
-
-    fn open_from_sidebar(
-        &mut self,
-        (type_id, params): (protocol::PaneTypeId, protocol::Params),
-        cx: &mut Context<'_, Self>,
-    ) {
-        let chat = params
-            .get("threadId")
-            .and_then(|chat| self.data.chat_terminal(chat));
-        let (type_id, params) = crate::chat_route::route((type_id, params), chat);
-        self.state.open_pane(type_id, params);
-        self.refresh(cx);
     }
 
     fn overlay(&self) -> Overlay {
@@ -329,96 +202,6 @@ impl ShellView {
         cx.notify();
     }
 
-    fn on_workspace(
-        &mut self,
-        event: &WorkspaceEvent,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let WorkspaceEvent::Measured(bounds) = event;
-        match webview::ParentWindow::from_window(window) {
-            Ok(parent) => {
-                self.placement = Some((parent, crate::pixels::to_bounds(*bounds)));
-                self.sync(cx);
-            },
-            Err(error) => {
-                tracing::error!(%error, "the window cannot host web views");
-                self.show_notice(
-                    NoticeKey::Window,
-                    (ToastKind::Error, WINDOW_CANNOT_HOST.into()),
-                    cx,
-                );
-            },
-        }
-    }
-
-    fn on_tabs(
-        &mut self,
-        _: Entity<TabBar>,
-        event: &TabBarEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
-        match event {
-            TabBarEvent::Apply(commands) => self.apply_guarded(commands.clone(), cx),
-            TabBarEvent::ToggleSidebar => self.sidebar.update(cx, Sidebar::toggle),
-            _ => {},
-        }
-    }
-
-    fn on_layout(
-        &mut self,
-        _: Entity<LayoutView>,
-        event: &LayoutEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
-        match event {
-            LayoutEvent::Apply(command) => return self.apply_guarded(vec![command.clone()], cx),
-            LayoutEvent::OpenChat {
-                chat,
-                tab,
-                placement,
-            } => self.state.open_chat_at(chat, (*tab, placement.clone())),
-            _ => return,
-        }
-        self.refresh(cx);
-    }
-
-    fn on_sidebar(
-        &mut self,
-        _: Entity<Sidebar>,
-        event: SidebarEvent,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if !matches!(event, SidebarEvent::PreferencesChanged) {
-            return;
-        }
-        let preferences = self.sidebar.read(cx).preferences();
-        match preferences.save(&self.preferences_path) {
-            Ok(()) => self.clear_notice(NoticeKey::Preferences, cx),
-            Err(error) => {
-                tracing::warn!(%error, "saving the sidebar preferences failed");
-                let text = format!("Sidebar preferences could not be saved: {error}");
-                self.show_notice(NoticeKey::Preferences, (ToastKind::Error, text), cx);
-            },
-        }
-        self.place_notices(cx);
-        self.refresh(cx);
-    }
-
-    fn on_startup(
-        &mut self,
-        event: StartupEvent,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if !matches!(event, StartupEvent::HandedOver) {
-            return;
-        }
-        window.set_window_title(&self.window_title);
-        self.startup = None;
-        self.update_overlay(cx);
-    }
-
     fn chrome(
         &self,
         cx: &Context<'_, Self>,
@@ -434,7 +217,7 @@ impl ShellView {
         let (chrome, sidebar_state) = self.chrome(cx);
         let titles = self.state.titles();
         let layout = self.state.layout();
-        self.source.follow_new_tabs(layout, &titles);
+        self.source.native().follow(layout, &titles);
         let tab = layout.active_tab().cloned();
         self.data.focus_chat(focused_chat(layout).as_deref());
         self.follow_focus(cx);

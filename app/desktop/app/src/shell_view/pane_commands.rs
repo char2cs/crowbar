@@ -1,9 +1,9 @@
-use std::path::PathBuf;
-
-use gpui::{Context, PathPromptOptions, Window};
+use gpui::Context;
 use model::Command;
 
 use super::ShellView;
+
+mod files;
 use crate::focused_chat::focused_chat;
 use crate::pane_spec::PaneSpec;
 
@@ -23,10 +23,7 @@ impl ShellView {
     ) {
         let id = format!("t{}", self.state.serials().next_pane());
         let chat = focused_chat(self.state.layout());
-        let spec = match (chat, self.data.active_project()) {
-            (None, Some(project)) => PaneSpec::home_terminal(&id, &project),
-            (chat, _) => PaneSpec::terminal(&id, chat.as_deref(), None),
-        };
+        let spec = terminal_spec(&id, chat.as_deref(), self.data.active_project());
         self.open_spec(spec, cx);
     }
 
@@ -78,120 +75,6 @@ impl ShellView {
         self.refresh(cx);
     }
 
-    pub(super) fn reveal_workspace_path(
-        &self,
-        relative: &str,
-    ) {
-        let Some(root) = self.data.workspace_root() else {
-            tracing::info!("revealing needs a workspace on this computer");
-            return;
-        };
-        let Some(target) = crate::reveal_target::reveal_target(&root, relative) else {
-            tracing::warn!(path = relative, "a reveal path left the workspace");
-            return;
-        };
-        if let Err(error) = shell_platform::reveal_in_file_manager(&target) {
-            tracing::warn!(%error, "the file manager could not be opened");
-        }
-    }
-
-    pub(super) fn open_workspace_file(
-        &mut self,
-        path: &str,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(chat) = self.chat_for("a file") else {
-            return;
-        };
-        self.open_spec(PaneSpec::editor(&chat, path), cx);
-    }
-
-    pub(super) fn open_file_from_disk(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(chat) = self.chat_for("a file") else {
-            return;
-        };
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("Open".into()),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let path = match picked.await {
-                Ok(Ok(Some(paths))) => first_path(&paths),
-                _ => None,
-            };
-            match path {
-                Some(path) => this
-                    .update(cx, |this, cx| this.open_host_file(&chat, &path, cx))
-                    .ok(),
-                None => None,
-            }
-        })
-        .detach();
-    }
-
-    pub(super) fn import_repo(
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Add".into()),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let path = match picked.await {
-                Ok(Ok(Some(paths))) => first_path(&paths),
-                _ => None,
-            };
-            match path {
-                Some(path) => this.update(cx, |this, _| this.add_repo(&path)).ok(),
-                None => None,
-            }
-        })
-        .detach();
-    }
-
-    pub(super) fn open_dropped(
-        &mut self,
-        paths: &[protocol::FsPath],
-        cx: &mut Context<'_, Self>,
-    ) {
-        if paths.is_empty() {
-            return;
-        }
-        let Some(chat) = self.chat_for("a dropped file") else {
-            return;
-        };
-        for path in paths {
-            self.open_host_file(&chat, path.as_str(), cx);
-        }
-    }
-
-    fn open_host_file(
-        &mut self,
-        chat: &str,
-        path: &str,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.open_spec(PaneSpec::host_file(chat, path), cx);
-    }
-
-    pub(super) fn add_repo(
-        &self,
-        path: &str,
-    ) {
-        if let Err(error) = self.data.commands().import_repo(path) {
-            tracing::warn!(%error, "the repository was not added");
-        }
-    }
-
     fn chat_for(
         &self,
         what: &str,
@@ -218,24 +101,56 @@ impl ShellView {
     }
 }
 
-fn first_path(paths: &[PathBuf]) -> Option<String> {
-    paths
-        .first()
-        .map(|path| path.to_string_lossy().into_owned())
+fn terminal_spec(
+    id: &str,
+    chat: Option<&str>,
+    project: Option<String>,
+) -> crate::error::Result<PaneSpec> {
+    match (chat, project) {
+        (None, Some(project)) => PaneSpec::home_terminal(id, &project),
+        (chat, _) => PaneSpec::terminal(id, chat, None),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_first_picked_path_is_the_one_opened() {
-        let picked = [PathBuf::from("/a/one"), PathBuf::from("/a/two")];
-        assert_eq!(first_path(&picked).as_deref(), Some("/a/one"));
+    struct Case {
+        name: &'static str,
+        chat: Option<&'static str>,
+        project: Option<&'static str>,
+        param: (&'static str, Option<&'static str>),
     }
 
+    const CASES: &[Case] = &[
+        Case {
+            name: "no chat but a project opens the project's home terminal",
+            chat: None,
+            project: Some("p1"),
+            param: ("projectId", Some("p1")),
+        },
+        Case {
+            name: "a focused chat owns its terminal",
+            chat: Some("c1"),
+            project: Some("p1"),
+            param: ("threadId", Some("c1")),
+        },
+        Case {
+            name: "neither chat nor project opens a bare terminal",
+            chat: None,
+            project: None,
+            param: ("threadId", None),
+        },
+    ];
+
     #[test]
-    fn an_empty_pick_opens_nothing() {
-        assert_eq!(first_path(&[]), None);
+    fn a_new_terminal_belongs_to_the_focused_chat_or_else_the_project() {
+        for case in CASES {
+            let project = case.project.map(str::to_owned);
+            let spec = terminal_spec("t1", case.chat, project).unwrap();
+            let (key, expected) = case.param;
+            assert_eq!(spec.params.get(key), expected, "{}", case.name);
+        }
     }
 }

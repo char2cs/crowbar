@@ -6,6 +6,7 @@ mod app_options;
 mod browser_bars;
 mod browser_homepage;
 mod browser_ids;
+mod byte_source;
 mod chat_label;
 mod chat_route;
 mod chat_terminals;
@@ -49,6 +50,8 @@ mod layout_writer;
 mod legacy_settings;
 mod link_state;
 mod loaded_layout;
+mod logged;
+mod native_panes;
 mod new_tab_action;
 mod new_tab_panes;
 mod new_tab_view;
@@ -68,6 +71,7 @@ mod phase_input;
 mod picking_panes;
 mod pixels;
 mod plan;
+mod ports;
 mod project_slot;
 mod prompt_event;
 mod readout_dock;
@@ -123,11 +127,13 @@ use std::sync::Arc;
 use gpui::{App, AppContext as _, Application, Entity, Window};
 use shell_diagnostics::LogPaths;
 
+use crate::adapters::disk_files::DiskFiles;
 use crate::adapters::system_clock::SystemClock;
 use crate::app_options::AppOptions;
 use crate::daemon_link::DaemonLink;
 use crate::host_builder::build_host;
 use crate::layout_store::LayoutStore;
+use crate::ports::Ports;
 use crate::shell_parts::ShellParts;
 use crate::shell_state::ShellState;
 use crate::shell_view::ShellView;
@@ -178,6 +184,13 @@ fn start(
     cx.activate(true);
 }
 
+fn system_ports() -> Ports {
+    Ports {
+        clock: Arc::new(SystemClock::default()),
+        bytes: Arc::new(DiskFiles::default()),
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     x11_session::force_x11();
     let options = AppOptions::from_env(|key| std::env::var(key).ok());
@@ -196,7 +209,7 @@ fn main() -> anyhow::Result<()> {
         state,
         link,
         preferences_path,
-        clock: Arc::new(SystemClock::default()),
+        ports: system_ports(),
     };
     Application::new()
         .with_assets(ui::assets())
