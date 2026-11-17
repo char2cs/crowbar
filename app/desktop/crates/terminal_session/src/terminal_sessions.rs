@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use protocol::{DaemonTransport, HostId, PaneId, PaneOrigin, RelayScope};
-use tokio::net::TcpStream;
 use tokio::runtime::Handle;
 use tokio::time::timeout;
 use tokio_tungstenite::client_async;
@@ -11,6 +10,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::attachment::Attachment;
 use crate::binding::Binding;
+use crate::dial::{Dial, tcp_dial};
 use crate::ends::Ends;
 use crate::error::{Error, Result};
 use crate::handshake::{CONNECT_TIMEOUT, header, stream_error, within};
@@ -32,6 +32,7 @@ pub struct TerminalSessions {
     rest: Rest,
     runtime: Handle,
     origin: String,
+    dial: Dial,
 }
 
 impl std::fmt::Debug for TerminalSessions {
@@ -54,10 +55,25 @@ impl TerminalSessions {
         runtime: Handle,
         origin: &str,
     ) -> Self {
+        Self::dialing(
+            Rest { transport, host },
+            runtime,
+            origin,
+            Arc::new(tcp_dial),
+        )
+    }
+
+    pub(crate) fn dialing(
+        rest: Rest,
+        runtime: Handle,
+        origin: &str,
+        dial: Dial,
+    ) -> Self {
         Self {
-            rest: Rest { transport, host },
+            rest,
             runtime,
             origin: origin.to_owned(),
+            dial,
         }
     }
 
@@ -168,7 +184,7 @@ impl TerminalSessions {
             .relay_endpoint(&attachment.scope)
             .map_err(stream_error)?;
         let address = endpoint.url().trim_start_matches("ws://").to_owned();
-        let tcp = within(TcpStream::connect(&address)).await?;
+        let tcp = within((self.dial)(address)).await?;
         let url = format!("{}{}", endpoint.url(), base.stream_path(session));
         let mut request = url.into_client_request().map_err(stream_error)?;
         let protocols = format!("{RELAY_SUBPROTOCOL}, {TOKEN_PREFIX}{}", endpoint.token());
@@ -189,8 +205,9 @@ mod tests {
     use futures_util::StreamExt;
     use protocol::{DaemonRequest, DaemonResponse, RelayEndpoint, Responder};
     use terminal::DaemonFrame;
-    use tokio::net::TcpListener;
+    use tokio::io::DuplexStream;
     use tokio::sync::Notify;
+    use tokio::sync::mpsc::UnboundedReceiver;
     use tokio_tungstenite::accept_hdr_async;
     use tokio_tungstenite::tungstenite::Message;
     use tokio_tungstenite::tungstenite::handshake::server::{
@@ -199,6 +216,7 @@ mod tests {
     use tokio_tungstenite::tungstenite::http::HeaderValue;
 
     use super::*;
+    use crate::test_support::memory_dial::{memory_dial, refusing_dial};
 
     const CREATED: u16 = 201;
 
@@ -259,14 +277,24 @@ mod tests {
         }
     }
 
-    fn sessions(daemon: &Arc<Daemon>) -> TerminalSessions {
+    type Accepted = UnboundedReceiver<DuplexStream>;
+
+    fn sessions(
+        daemon: &Arc<Daemon>,
+        dial: Dial,
+    ) -> TerminalSessions {
         let transport: Arc<dyn DaemonTransport> = Arc::<Daemon>::clone(daemon);
         let host = HostId::new("local").unwrap();
-        TerminalSessions::new(transport, host, Handle::current(), "crowbar://local")
+        TerminalSessions::dialing(
+            Rest { transport, host },
+            Handle::current(),
+            "crowbar://local",
+            dial,
+        )
     }
 
-    async fn serve_output(listener: TcpListener) {
-        let (tcp, _) = listener.accept().await.unwrap();
+    async fn serve_output(accepted: &mut Accepted) {
+        let tcp = accepted.recv().await.unwrap();
         let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
         let output = Message::binary(vec![0, b'o', b'k']);
         socket.send(output).await.unwrap();
@@ -275,24 +303,24 @@ mod tests {
         socket.close(None).await.unwrap();
     }
 
-    async fn serve_then_drop(listener: TcpListener) {
-        let (tcp, _) = listener.accept().await.unwrap();
+    async fn serve_then_drop(mut accepted: Accepted) {
+        let tcp = accepted.recv().await.unwrap();
         let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
         socket.close(None).await.unwrap();
-        serve_output(listener).await;
+        serve_output(&mut accepted).await;
     }
 
-    async fn serve_held(listener: TcpListener) {
-        let (tcp, _) = listener.accept().await.unwrap();
+    async fn serve_held(mut accepted: Accepted) {
+        let tcp = accepted.recv().await.unwrap();
         let mut socket = accept_hdr_async(tcp, SelectRelay).await.unwrap();
         let output = Message::binary(vec![0, b'o', b'k']);
         socket.send(output).await.unwrap();
         while socket.next().await.is_some_and(|message| message.is_ok()) {}
     }
 
-    fn daemon_on(listener: &TcpListener) -> Arc<Daemon> {
+    fn daemon() -> Arc<Daemon> {
         Arc::new(Daemon {
-            relay: format!("ws://{}", listener.local_addr().unwrap()),
+            relay: "ws://relay".into(),
             seen: Mutex::default(),
             deleted: Notify::new(),
         })
@@ -366,11 +394,14 @@ mod tests {
     }
 
     async fn run_case(case: &Case) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let daemon = daemon_on(&listener);
+        let (dial, accepted) = memory_dial();
+        let daemon = daemon();
         let server = match case.relay {
-            Relay::Output => tokio::spawn(serve_output(listener)),
-            Relay::DropsOnce => tokio::spawn(serve_then_drop(listener)),
+            Relay::Output => tokio::spawn(async move {
+                let mut accepted = accepted;
+                serve_output(&mut accepted).await;
+            }),
+            Relay::DropsOnce => tokio::spawn(serve_then_drop(accepted)),
         };
         let (frames, view_frames) = unbounded();
         let (_view_messages, messages) = unbounded();
@@ -378,8 +409,8 @@ mod tests {
         let pane = PaneId::new("t1").unwrap();
         let ends = Ends { frames, messages };
         match case.watching {
-            Some(session) => sessions(&daemon).watch((base, session.into()), pane, ends),
-            None => sessions(&daemon).start(base, pane, ends),
+            Some(session) => sessions(&daemon, dial).watch((base, session.into()), pane, ends),
+            None => sessions(&daemon, dial).start(base, pane, ends),
         }
         let shown = all_frames(&view_frames).await;
         server.await.unwrap();
@@ -401,14 +432,14 @@ mod tests {
 
     #[tokio::test]
     async fn closing_the_view_kills_the_session_it_created() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let daemon = daemon_on(&listener);
-        let server = tokio::spawn(serve_held(listener));
+        let (dial, accepted) = memory_dial();
+        let daemon = daemon();
+        let server = tokio::spawn(serve_held(accepted));
         let (frames, view_frames) = unbounded();
         let (view_messages, messages) = unbounded();
         let base = SessionBase::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
-        sessions(&daemon).start(base, pane, Ends { frames, messages });
+        sessions(&daemon, dial).start(base, pane, Ends { frames, messages });
         first_output(&view_frames).await;
         drop(view_frames);
         drop(view_messages);
@@ -420,16 +451,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_session_that_cannot_connect_says_so_in_the_terminal() {
-        let daemon = Arc::new(Daemon {
-            relay: "ws://127.0.0.1:1".into(),
-            seen: Mutex::default(),
-            deleted: Notify::new(),
-        });
+        let daemon = daemon();
         let (frames, view_frames) = unbounded();
         let (_view_messages, messages) = unbounded();
         let base = SessionBase::chat("c1").unwrap();
         let pane = PaneId::new("t1").unwrap();
-        sessions(&daemon).start(base, pane, Ends { frames, messages });
+        sessions(&daemon, refusing_dial()).start(base, pane, Ends { frames, messages });
         let notice = notice_text(&view_frames).await;
         assert!(notice.contains("stream"), "names the stage");
     }

@@ -3,6 +3,8 @@
 
 mod attachment;
 mod binding;
+mod dial;
+mod duplex;
 mod ends;
 mod error;
 mod handshake;
@@ -13,6 +15,8 @@ mod session_base;
 mod stream;
 mod stream_end;
 mod terminal_sessions;
+#[cfg(test)]
+mod test_support;
 mod wire;
 
 pub use ends::Ends;
