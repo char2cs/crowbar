@@ -10,7 +10,8 @@ use crate::transport::Transport;
 use crate::upstream::UpstreamSocket;
 use crate::upstream_request::UpstreamRequest;
 
-const MAX_FRAME: usize = 16 << 20;
+const MEBIBYTE: usize = 1 << 20;
+const MAX_FRAME: usize = 16 * MEBIBYTE;
 
 /// A WebSocket to the local daemon that carries text frames, for the shell's own use.
 pub struct TextStream {

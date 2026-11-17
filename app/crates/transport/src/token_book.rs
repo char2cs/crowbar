@@ -93,6 +93,8 @@ mod tests {
 
     use super::*;
 
+    const TTL: Duration = Duration::from_secs(60);
+
     fn scope(
         pane: &str,
         host: &str,
@@ -104,21 +106,94 @@ mod tests {
         )
     }
 
+    struct Case {
+        what: &'static str,
+        act: fn(&mut TokenBook),
+        later: Duration,
+        alive: [bool; 3],
+    }
+
+    fn revoke_pane(book: &mut TokenBook) {
+        book.revoke_pane(&PaneId::new("p1").unwrap());
+    }
+
+    fn revoke_host(book: &mut TokenBook) {
+        book.revoke_host(&HostId::new("host-1").unwrap());
+    }
+
+    fn retain_local(book: &mut TokenBook) {
+        book.retain_hosts(|host| host.as_str() == "local");
+    }
+
+    fn issue_again(book: &mut TokenBook) {
+        book.issue(scope("p1", "local"), Instant::now()).unwrap();
+    }
+
+    fn nothing(_: &mut TokenBook) {}
+
     #[tokio::test(start_paused = true)]
-    async fn a_token_names_its_scope_until_it_expires() {
-        let mut book = TokenBook::new(Duration::from_secs(60));
-        let token = book.issue(scope("p1", "local"), Instant::now()).unwrap();
-        assert_eq!(
-            book.authorize(&token, Instant::now()),
-            Some(scope("p1", "local"))
-        );
-        tokio::time::advance(Duration::from_secs(61)).await;
-        assert_eq!(book.authorize(&token, Instant::now()), None);
+    async fn a_token_names_its_scope_until_it_expires_is_replaced_or_is_revoked() {
+        let cases = [
+            Case {
+                what: "untouched",
+                act: nothing,
+                later: Duration::ZERO,
+                alive: [true; 3],
+            },
+            Case {
+                what: "expired",
+                act: nothing,
+                later: TTL + Duration::from_secs(1),
+                alive: [false; 3],
+            },
+            Case {
+                what: "issued again for the same stream",
+                act: issue_again,
+                later: Duration::ZERO,
+                alive: [false, true, true],
+            },
+            Case {
+                what: "a pane revoked",
+                act: revoke_pane,
+                later: Duration::ZERO,
+                alive: [false, true, true],
+            },
+            Case {
+                what: "a host revoked",
+                act: revoke_host,
+                later: Duration::ZERO,
+                alive: [true, false, true],
+            },
+            Case {
+                what: "hosts retained",
+                act: retain_local,
+                later: Duration::ZERO,
+                alive: [true, false, true],
+            },
+        ];
+        for case in cases {
+            let mut book = TokenBook::new(TTL);
+            let scopes = [
+                scope("p1", "local"),
+                scope("p2", "host-1"),
+                scope("p3", "local"),
+            ];
+            let tokens = scopes
+                .clone()
+                .map(|scope| book.issue(scope, Instant::now()).unwrap());
+            (case.act)(&mut book);
+            let now = Instant::now() + case.later;
+            let alive = tokens.clone().map(|token| book.authorize(&token, now));
+            for ((live, wanted), scope) in alive.iter().zip(case.alive).zip(&scopes) {
+                let expected = wanted.then(|| scope.clone());
+                assert_eq!(live, &expected, "{}", case.what);
+            }
+        }
     }
 
     #[tokio::test(start_paused = true)]
     async fn tokens_are_long_random_and_distinct() {
-        let mut book = TokenBook::new(Duration::from_secs(60));
+        let mut book = TokenBook::new(TTL);
         let one = book.issue(scope("p1", "local"), Instant::now()).unwrap();
         let two = book.issue(scope("p2", "local"), Instant::now()).unwrap();
         assert_ne!(one, two);
@@ -128,39 +203,5 @@ mod tests {
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
         );
         assert_eq!(book.authorize("not-a-token", Instant::now()), None);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn issuing_again_for_the_same_stream_replaces_the_old_token() {
-        let mut book = TokenBook::new(Duration::from_secs(60));
-        let old = book.issue(scope("p1", "local"), Instant::now()).unwrap();
-        let other_host = book.issue(scope("p1", "host-1"), Instant::now()).unwrap();
-        let fresh = book.issue(scope("p1", "local"), Instant::now()).unwrap();
-        assert_eq!(book.authorize(&old, Instant::now()), None);
-        assert!(book.authorize(&fresh, Instant::now()).is_some());
-        assert!(book.authorize(&other_host, Instant::now()).is_some());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn revoking_a_pane_or_a_host_drops_exactly_their_tokens() {
-        let mut book = TokenBook::new(Duration::from_secs(60));
-        let a = book.issue(scope("p1", "local"), Instant::now()).unwrap();
-        let b = book.issue(scope("p2", "host-1"), Instant::now()).unwrap();
-        let c = book.issue(scope("p3", "local"), Instant::now()).unwrap();
-        book.revoke_pane(&PaneId::new("p1").unwrap());
-        book.revoke_host(&HostId::new("host-1").unwrap());
-        assert_eq!(book.authorize(&a, Instant::now()), None);
-        assert_eq!(book.authorize(&b, Instant::now()), None);
-        assert!(book.authorize(&c, Instant::now()).is_some());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn retaining_hosts_drops_the_tokens_of_hosts_that_are_no_longer_kept() {
-        let mut book = TokenBook::new(Duration::from_secs(60));
-        let kept = book.issue(scope("p1", "local"), Instant::now()).unwrap();
-        let gone = book.issue(scope("p2", "host-1"), Instant::now()).unwrap();
-        book.retain_hosts(|host| host.as_str() == "local");
-        assert!(book.authorize(&kept, Instant::now()).is_some());
-        assert_eq!(book.authorize(&gone, Instant::now()), None);
     }
 }

@@ -68,97 +68,97 @@ mod tests {
     use super::*;
 
     const STAGGER: Duration = Duration::from_millis(250);
+    const SLOW: Duration = Duration::from_millis(100);
+
+    #[derive(Clone, Copy)]
+    enum Behaviour {
+        Silent,
+        Answers(Duration),
+        Refuses,
+    }
+
+    struct Case {
+        what: &'static str,
+        addresses: &'static [Behaviour],
+        expected: Result<u8, io::ErrorKind>,
+        elapsed: Duration,
+    }
 
     fn addr(last: u8) -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, last)), 1)
     }
 
+    fn last_octet(address: SocketAddr) -> u8 {
+        match address {
+            SocketAddr::V4(v4) => v4.ip().octets()[3],
+            SocketAddr::V6(_) => 0,
+        }
+    }
+
     type Attempt = std::pin::Pin<Box<dyn Future<Output = io::Result<u8>> + Send>>;
 
-    async fn reply(
+    async fn attempt(
         last: u8,
-        after: Option<Duration>,
+        behaviour: Behaviour,
     ) -> io::Result<u8> {
-        let Some(after) = after else {
-            return std::future::pending().await;
-        };
-        tokio::time::sleep(after).await;
-        Ok(last)
+        match behaviour {
+            Behaviour::Silent => std::future::pending().await,
+            Behaviour::Refuses => Err(io::Error::from(io::ErrorKind::ConnectionRefused)),
+            Behaviour::Answers(after) => {
+                tokio::time::sleep(after).await;
+                Ok(last)
+            },
+        }
     }
 
-    fn answer(
-        slow: &'static [u8],
-        after: Duration,
-    ) -> impl Fn(SocketAddr) -> Attempt {
-        move |address| {
-            let last = match address {
-                SocketAddr::V4(v4) => v4.ip().octets()[3],
-                SocketAddr::V6(_) => 0,
+    #[tokio::test(start_paused = true)]
+    async fn the_first_address_to_connect_wins_and_a_dead_one_costs_at_most_a_stagger() {
+        let cases = [
+            Case {
+                what: "a dead first address costs one stagger",
+                addresses: &[Behaviour::Silent, Behaviour::Answers(Duration::ZERO)],
+                expected: Ok(2),
+                elapsed: STAGGER,
+            },
+            Case {
+                what: "a slow first address that answers in time wins",
+                addresses: &[Behaviour::Answers(SLOW), Behaviour::Answers(SLOW)],
+                expected: Ok(1),
+                elapsed: SLOW,
+            },
+            Case {
+                what: "a refusal starts the next address at once",
+                addresses: &[Behaviour::Refuses, Behaviour::Answers(Duration::ZERO)],
+                expected: Ok(2),
+                elapsed: Duration::ZERO,
+            },
+            Case {
+                what: "every address refusing returns the last error",
+                addresses: &[Behaviour::Refuses, Behaviour::Refuses],
+                expected: Err(io::ErrorKind::ConnectionRefused),
+                elapsed: Duration::ZERO,
+            },
+            Case {
+                what: "no address is an error",
+                addresses: &[],
+                expected: Err(io::ErrorKind::Other),
+                elapsed: Duration::ZERO,
+            },
+        ];
+        for case in cases {
+            let started = Instant::now();
+            let behaviours = case.addresses;
+            let count = u8::try_from(behaviours.len()).unwrap();
+            let connect = move |address: SocketAddr| -> Attempt {
+                let last = last_octet(address);
+                let behaviour = behaviours.get(usize::from(last) - 1).copied().unwrap();
+                Box::pin(attempt(last, behaviour))
             };
-            let after = (!slow.contains(&last)).then_some(after);
-            Box::pin(reply(last, after))
+            let addresses = (1..=count).map(addr).collect();
+            let outcome = first_connected(addresses, STAGGER, connect).await;
+            let seen = outcome.map_err(|error| error.kind());
+            assert_eq!(seen, case.expected, "{}", case.what);
+            assert_eq!(started.elapsed(), case.elapsed, "{}", case.what);
         }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_dead_first_address_costs_one_stagger_not_the_whole_budget() {
-        let started = Instant::now();
-        let connected = first_connected(
-            vec![addr(1), addr(2)],
-            STAGGER,
-            answer(&[1], Duration::ZERO),
-        )
-        .await
-        .unwrap();
-        assert_eq!(connected, 2);
-        assert_eq!(started.elapsed(), STAGGER);
-    }
-
-    fn refuse(address: SocketAddr) -> io::Result<u8> {
-        if address == addr(1) {
-            return Err(io::Error::from(io::ErrorKind::ConnectionRefused));
-        }
-        Ok(2)
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_attempt_starts_the_next_address_at_once() {
-        let started = Instant::now();
-        let refuse_first = |address: SocketAddr| std::future::ready(refuse(address));
-        assert_eq!(
-            first_connected(vec![addr(1), addr(2)], STAGGER, refuse_first)
-                .await
-                .unwrap(),
-            2
-        );
-        assert_eq!(started.elapsed(), Duration::ZERO);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_slow_first_address_that_answers_in_time_wins() {
-        let connected = first_connected(
-            vec![addr(1), addr(2)],
-            STAGGER,
-            answer(&[], Duration::from_millis(100)),
-        )
-        .await
-        .unwrap();
-        assert_eq!(connected, 1);
-    }
-
-    async fn refuse_all(_: SocketAddr) -> io::Result<u8> {
-        Err(io::Error::from(io::ErrorKind::ConnectionRefused))
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn when_every_address_fails_the_last_error_is_returned() {
-        let error = first_connected(vec![addr(1), addr(2)], STAGGER, refuse_all)
-            .await
-            .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::ConnectionRefused);
-        let none = first_connected(Vec::new(), STAGGER, refuse_all)
-            .await
-            .unwrap_err();
-        assert_eq!(none.kind(), io::ErrorKind::Other);
     }
 }
