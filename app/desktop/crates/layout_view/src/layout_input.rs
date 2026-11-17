@@ -1,127 +1,19 @@
 use std::time::Instant;
 
 use gpui::{
-    Bounds, Context, DragMoveEvent, MouseDownEvent, MouseUpEvent, Pixels, Point, Window, point, px,
+    Bounds, Context, DragMoveEvent, MouseDownEvent, Pixels, Point, Window, point, px,
     size,
 };
-use model::{Command, DragSubject, Sash};
+use model::{Command, Sash};
 use protocol::PaneId;
-use ui::{DraggedRow, Motion, Overlays, SashDrag};
+use ui::{Motion, Overlays, SashDrag};
 
-use crate::drop_hit::DropHit;
-use crate::drop_target::DropTarget;
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use crate::pane_handle::PaneHandle;
 use crate::sash_grab::SashGrab;
 
 impl LayoutView {
-    pub(crate) fn drag_over(
-        &mut self,
-        event: &DragMoveEvent<DragSubject>,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let subject = event.drag(cx).clone();
-        self.hover(&subject, event.event.position, cx);
-    }
-
-    pub(crate) fn row_over(
-        &mut self,
-        event: &DragMoveEvent<DraggedRow>,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(chat) = event.drag(cx).chat.as_deref() else {
-            return;
-        };
-        let subject = DragSubject::Chat(chat.to_owned());
-        self.hover(&subject, event.event.position, cx);
-    }
-
-    pub(crate) fn hover(
-        &mut self,
-        subject: &DragSubject,
-        position: Point<Pixels>,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(tab) = &self.tab else {
-            return;
-        };
-        if !self.bounds.contains(&position) {
-            self.drop.clear();
-            cx.notify();
-            return;
-        }
-        let slots = DropTarget::slots_for(subject, tab, self.local());
-        let joinable: Vec<PaneId> = slots
-            .iter()
-            .map(|slot| slot.pane.clone())
-            .filter(|pane| self.joins_strip(subject, pane))
-            .collect();
-        let hit = DropHit {
-            subject,
-            point: self.local_point(position),
-            slots: &slots,
-            joinable: &joinable,
-            window_bounds: self.bounds,
-            now: self.clock.now(),
-        };
-        self.drop.over(hit, cx);
-        cx.notify();
-    }
-
-    pub(crate) fn dropped(
-        &mut self,
-        subject: &DragSubject,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.release(subject, cx);
-    }
-
-    fn release(
-        &mut self,
-        subject: &DragSubject,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let event = self
-            .tab
-            .as_ref()
-            .and_then(|tab| self.drop.event(subject, tab));
-        self.drop.clear();
-        cx.notify();
-        if let Some(event) = event {
-            cx.emit(event);
-        }
-    }
-
-    pub(crate) fn row_released(
-        &mut self,
-        event: &MouseUpEvent,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let opened = self.tab.as_ref().and_then(|tab| self.drop.chat_event(tab));
-        self.released(event, window, cx);
-        if let Some(opened) = opened {
-            cx.emit(opened);
-        }
-    }
-
-    pub(crate) fn released(
-        &mut self,
-        _: &MouseUpEvent,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.sash = None;
-        if self.drop.is_dragging() {
-            self.drop.clear();
-            cx.notify();
-        }
-    }
-
     pub(crate) fn grab_sash(
         &mut self,
         sash: &Sash,
@@ -256,7 +148,7 @@ impl LayoutView {
         Some(Bounds::new(origin, size(px(width), px(height))))
     }
 
-    fn local_point(
+    pub(crate) fn local_point(
         &self,
         position: Point<Pixels>,
     ) -> (f32, f32) {

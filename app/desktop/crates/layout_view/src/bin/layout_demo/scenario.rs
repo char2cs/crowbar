@@ -1,13 +1,22 @@
 use model::{Command, Edge, Layout, PaneInstance, Placement, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
-pub(crate) fn instance(name: &str) -> PaneInstance {
-    PaneInstance {
-        pane_id: PaneId::new(name).expect("static id"),
-        type_id: PaneTypeId::new("core.chat").expect("static type"),
-        params: Params::default().with("chat", name).expect("static params"),
+pub(crate) type DemoResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+const CHIP_NAMES: [&str; 3] = ["delta", "epsilon", "zeta"];
+const CHAT_TYPE: &str = "core.chat";
+
+fn instance(name: &str) -> DemoResult<PaneInstance> {
+    Ok(PaneInstance {
+        pane_id: PaneId::new(name)?,
+        type_id: PaneTypeId::new(CHAT_TYPE)?,
+        params: Params::default().with("chat", name)?,
         state: PaneState::default(),
-    }
+    })
+}
+
+pub(crate) fn chips() -> DemoResult<Vec<PaneInstance>> {
+    CHIP_NAMES.into_iter().map(instance).collect()
 }
 
 const SPLIT: &[(&str, &str, Edge)] = &[("beta", "alpha", Edge::Right)];
@@ -19,19 +28,19 @@ const THREE: &[(&str, &str, Edge)] = &[
 fn open_beside(
     tab: TabId,
     (pane, beside, edge): &(&str, &str, Edge),
-) -> Command {
+) -> DemoResult<Command> {
     let placement = Some(Placement {
-        target: PaneId::new(*beside).expect("static id"),
+        target: PaneId::new(*beside)?,
         edge: *edge,
     });
-    Command::OpenPane {
+    Ok(Command::OpenPane {
         tab,
-        instance: instance(pane),
+        instance: instance(pane)?,
         placement,
-    }
+    })
 }
 
-pub(crate) fn build(name: &str) -> Layout {
+pub(crate) fn build(name: &str) -> DemoResult<Layout> {
     let panes = match name {
         "single" => &[][..],
         "three" => THREE,
@@ -39,22 +48,24 @@ pub(crate) fn build(name: &str) -> Layout {
     };
     let mut layout = Layout::default();
     let tab = TabId(1);
-    let mut commands = vec![
+    let first = [
         Command::AddTab {
             id: tab,
             title: "Tab".into(),
         },
         Command::OpenPane {
             tab,
-            instance: instance("alpha"),
+            instance: instance("alpha")?,
             placement: None,
         },
     ];
-    commands.extend(panes.iter().map(|split| open_beside(tab, split)));
-    drop(
-        commands
-            .into_iter()
-            .try_for_each(|command| layout.apply(command)),
-    );
-    layout
+    let besides = panes
+        .iter()
+        .map(|split| open_beside(tab, split))
+        .collect::<DemoResult<Vec<_>>>()?;
+    first
+        .into_iter()
+        .chain(besides)
+        .try_for_each(|command| layout.apply(command))?;
+    Ok(layout)
 }

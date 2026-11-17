@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
@@ -10,7 +9,7 @@ use protocol::PaneId;
 use ui::{DraggedRow, Motion, Sash, SashDrag, Surface, Theme, Wordmark};
 
 use crate::layout_view::LayoutView;
-use crate::pane_cell::{CellAction, PaneCell};
+use crate::pane_cell::PaneCell;
 use crate::pane_frame::PaneFrame;
 use crate::pane_handle::PaneHandle;
 
@@ -216,46 +215,6 @@ impl LayoutView {
             .h(self.bounds.size.height)
             .child(highlight);
         Some(area.into_any_element())
-    }
-
-    fn enter_action(
-        pane: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) -> CellAction {
-        let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |this, cx| this.pane_entered(&pane, cx)))
-    }
-
-    fn leave_action(
-        pane: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) -> CellAction {
-        let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |this, cx| this.pane_left(&pane, cx)))
-    }
-
-    fn press_action(
-        pane: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) -> CellAction {
-        let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |this, cx| this.pane_pressed(&pane, cx)))
-    }
-
-    fn detach_action(
-        pane: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) -> crate::pane_handle::HandleAction {
-        let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |this, cx| this.detach(&pane, cx)))
-    }
-
-    fn close_action(
-        pane: &PaneId,
-        cx: &mut Context<'_, Self>,
-    ) -> crate::pane_handle::HandleAction {
-        let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |_, cx| Self::close(&pane, cx)))
     }
 }
 

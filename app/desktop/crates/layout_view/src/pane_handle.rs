@@ -1,4 +1,3 @@
-use std::rc::Rc;
 
 use gpui::{
     App, AppContext as _, CursorStyle, ElementId, Hsla, InteractiveElement, IntoElement,
@@ -7,6 +6,7 @@ use gpui::{
 };
 use model::DragSubject;
 use protocol::PaneId;
+use crate::handle_button::{HandleAction, HandleButton};
 use ui::{DragGhost, Icon, IconName, IconWeight, Surface, Theme, Tooltip, shadow};
 
 const WIDTH: f32 = 69.0;
@@ -21,8 +21,6 @@ const GRIP: f32 = 10.0;
 const DETACH: f32 = 10.0;
 const CLOSE: f32 = 8.0;
 const GHOST_WIDTH: f32 = 160.0;
-
-pub(crate) type HandleAction = Rc<dyn Fn(&mut Window, &mut App)>;
 
 #[derive(IntoElement)]
 pub(crate) struct PaneHandle {
@@ -65,19 +63,39 @@ impl RenderOnce for PaneHandle {
                 "Drag this chat",
                 grip,
             ))
-            .child(button(
-                &name,
-                ("detach", "Open in its own tab"),
-                (IconName::ArrowsOutSimple, DETACH, ink),
-                self.on_detach,
-            ))
-            .child(button(
-                &name,
-                ("close", "Close this chat"),
-                (IconName::X, CLOSE, ink),
-                self.on_close,
-            ))
+            .child(detach_button(&name, ink, self.on_detach))
+            .child(close_button(&name, ink, self.on_close))
     }
+}
+
+fn detach_button(
+    pane: &str,
+    ink: Hsla,
+    action: HandleAction,
+) -> impl IntoElement {
+    let spec = HandleButton {
+        kind: "detach",
+        tip: "Open in its own tab",
+        glyph: (IconName::ArrowsOutSimple, DETACH),
+        ink,
+        action,
+    };
+    button(pane, spec)
+}
+
+fn close_button(
+    pane: &str,
+    ink: Hsla,
+    action: HandleAction,
+) -> impl IntoElement {
+    let spec = HandleButton {
+        kind: "close",
+        tip: "Close this chat",
+        glyph: (IconName::X, CLOSE),
+        ink,
+        action,
+    };
+    button(pane, spec)
 }
 
 fn element_id(
@@ -113,10 +131,15 @@ fn grip(
 
 fn button(
     pane: &str,
-    (kind, tip): (&'static str, &'static str),
-    (icon, size, ink): (IconName, f32, Hsla),
-    action: HandleAction,
+    spec: HandleButton,
 ) -> impl IntoElement {
+    let HandleButton {
+        kind,
+        tip,
+        glyph: (icon, size),
+        ink,
+        action,
+    } = spec;
     let face = div()
         .id(element_id(pane, kind))
         .size(px(BUTTON))

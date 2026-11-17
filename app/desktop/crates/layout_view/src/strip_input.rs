@@ -7,9 +7,8 @@ use protocol::PaneId;
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use crate::pane_strip::PaneStrip;
-use crate::strip_index::insertion_index;
 use crate::strip_tab::StripTab;
-use crate::tab_actions::{TabAction, TabActions, TabDrop};
+use crate::tab_actions::{TabAction, TabActions};
 use crate::tab_look::TabLook;
 use crate::tab_seat::TabSeat;
 use crate::tab_state::TabState;
@@ -127,59 +126,6 @@ impl LayoutView {
             |instance| self.source.tab_look(instance),
         )
     }
-
-    fn drop_action(
-        onto: &PaneId,
-        before: usize,
-        cx: &mut Context<'_, Self>,
-    ) -> TabDrop {
-        let (view, onto) = (cx.entity(), onto.clone());
-        Rc::new(move |subject, _, cx| {
-            cx.stop_propagation();
-            Self::drop_into(&view, subject, TabSeat::at(&onto, before), cx);
-        })
-    }
-
-    fn drop_into(
-        view: &gpui::Entity<Self>,
-        subject: &DragSubject,
-        seat: TabSeat<'_>,
-        cx: &mut gpui::App,
-    ) {
-        view.update(cx, |this, cx| this.strip_dropped(subject, seat, cx));
-    }
-
-    fn strip_dropped(
-        &mut self,
-        subject: &DragSubject,
-        seat: TabSeat<'_>,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let (onto, before) = (seat.pane, seat.index);
-        self.drop.clear();
-        cx.notify();
-        let DragSubject::Pane(pane) = subject else {
-            return;
-        };
-        let Some(tab) = &self.tab else {
-            return;
-        };
-        if !tab
-            .pane(pane)
-            .is_some_and(|dragged| self.source.stacks(dragged))
-        {
-            return;
-        }
-        let dragged = tab
-            .group_of(onto)
-            .and_then(|group| group.panes().iter().position(|member| member == pane));
-        let index = Some(insertion_index(before, dragged));
-        cx.emit(LayoutEvent::Apply(Command::MoveToGroup {
-            pane: pane.clone(),
-            onto: onto.clone(),
-            index,
-        }));
-    }
 }
 
 fn state_in(
@@ -251,27 +197,6 @@ mod tests {
             commands.borrow().as_slice(),
             &expected,
             "select, close, drop"
-        );
-    }
-
-    #[gpui::test]
-    fn dropping_on_a_strip_tab_ends_the_drag_and_releases_the_overlay(cx: &mut TestAppContext) {
-        let harness = open_with(cx, &stacked_layout(), stacking());
-        let (view, cx) = (harness.view, harness.cx);
-        let subject = DragSubject::Pane(pane_id("a"));
-        let drop = view.update(cx, |view, cx| {
-            let centre = view.bounds.center();
-            view.hover(&subject, centre, cx);
-            let strip = view.strip_of(&pane_id("b"), cx).expect("strip");
-            Rc::clone(&strip.tabs[0].actions.drop)
-        });
-        let hovering = view.read_with(cx, |view, _| view.drop.is_dragging());
-        cx.update(|window, cx| drop(&subject, window, cx));
-        let still = view.read_with(cx, |view, _| view.drop.is_dragging());
-        assert_eq!(
-            (hovering, still),
-            (true, false),
-            "dragging before, then not"
         );
     }
 

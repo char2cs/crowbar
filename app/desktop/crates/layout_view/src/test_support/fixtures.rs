@@ -42,8 +42,9 @@ pub(crate) fn layout_of(
 fn open_beside(
     layout: &mut Layout,
     tab: TabId,
-    (name, beside, edge): &(&str, &str, model::Edge),
+    split: &(&str, &str, model::Edge),
 ) {
+    let (name, beside, edge) = split;
     let placement = Some(Placement {
         target: pane_id(beside),
         edge: *edge,

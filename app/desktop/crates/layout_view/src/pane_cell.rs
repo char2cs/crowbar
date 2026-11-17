@@ -13,6 +13,7 @@ use crate::insets::Insets;
 
 use crate::pane_frame::PaneFrame;
 use crate::pane_handle::PaneHandle;
+use crate::ring_paint::RingPaint;
 use crate::pane_strip::{PaneStrip, STRIP_HEIGHT};
 
 const RING_WIDTH_LIGHT: f32 = 2.0;
@@ -71,8 +72,11 @@ impl RenderOnce for PaneCell {
             .child(ring(
                 &frame,
                 self.slot,
-                (palette.pane_accent(), ring_width(cx)),
-                self.ring_opacity,
+                &RingPaint {
+                    accent: palette.pane_accent(),
+                    width: ring_width(cx),
+                    opacity: self.ring_opacity,
+                },
             ))
             .when_some(self.handle, |cell, handle| {
                 let (left, top) = (handle_left - self.slot.x, frame.outer.y - self.slot.y);
@@ -144,9 +148,13 @@ fn ring_width(cx: &App) -> f32 {
 fn ring(
     frame: &PaneFrame,
     slot: Rect,
-    (accent, width): (gpui::Hsla, f32),
-    opacity: f32,
+    paint: &RingPaint,
 ) -> gpui::Div {
+    let RingPaint {
+        accent,
+        width,
+        opacity,
+    } = *paint;
     let drawn = |side: f32| width * f32::from(side > 0.0);
     let border = Insets {
         left: drawn(frame.border.left),

@@ -5,31 +5,29 @@ use gpui::{
     Window, div, px,
 };
 use layout_view::{ChromeContext, LayoutEvent, LayoutView, SidebarEdge};
-use model::{Layout, LayoutHistory};
+use model::{Layout, LayoutHistory, PaneInstance};
 use ui::{Surface, Theme};
 
 use crate::chip::chip;
 use crate::demo_source::DemoSource;
-use crate::scenario;
 
 const SIDEBAR: f32 = 296.0;
 const SIDEBAR_PADDING: f32 = 12.0;
 const SIDEBAR_GAP: f32 = 8.0;
 const STRIP: f32 = 42.0;
-const CHIPS: [&str; 3] = ["delta", "epsilon", "zeta"];
 
 pub(crate) struct Demo {
     history: LayoutHistory,
     view: Entity<LayoutView>,
+    chips: Vec<PaneInstance>,
     _events: Subscription,
 }
 
 impl Demo {
     pub(crate) fn new(
-        scenario: &str,
+        (layout, chips): (Layout, Vec<PaneInstance>),
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        let layout: Layout = scenario::build(scenario);
         let view = cx.new(|_| LayoutView::new(Rc::new(DemoSource::starting_at_first_tab())));
         let chrome = ChromeContext {
             sidebar: SidebarEdge::Left,
@@ -44,6 +42,7 @@ impl Demo {
         Self {
             history: LayoutHistory::new(layout),
             view,
+            chips,
             _events: events,
         }
     }
@@ -85,7 +84,7 @@ impl Render for Demo {
                     .flex()
                     .flex_col()
                     .gap(px(SIDEBAR_GAP))
-                    .children(CHIPS.map(|name| chip(name, cx))),
+                    .children(self.chips.iter().map(|instance| chip(instance, cx))),
             )
             .child(
                 div()
