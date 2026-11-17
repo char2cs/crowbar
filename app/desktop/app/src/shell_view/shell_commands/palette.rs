@@ -72,7 +72,11 @@ mod tests {
         let close = entries.iter().find(|entry| entry.id == "tabs.closeActive");
         assert_eq!(
             close.and_then(|entry| entry.shortcut.as_deref()),
-            Some(if cfg!(target_os = "macos") { "⌘W" } else { "Ctrl+W" })
+            Some(if cfg!(target_os = "macos") {
+                "⌘W"
+            } else {
+                "Ctrl+W"
+            })
         );
     }
 }
