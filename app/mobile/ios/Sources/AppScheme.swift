@@ -3,12 +3,12 @@ import WebKit
 
 @_silgen_name("crowbar_chrome_dev_url")
 private func crowbarChromeDevURL(_ frontend: UnsafeRawPointer) -> UnsafePointer<CChar>?
+
 @_silgen_name("crowbar_chrome_asset")
 private func crowbarChromeAsset(
   _ frontend: UnsafeRawPointer,
   _ path: UnsafePointer<CChar>,
-  _ len: UnsafeMutablePointer<Int>,
-  _ mime: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+  _ reply: UnsafeMutablePointer<AssetReply>
 ) -> UnsafeMutablePointer<UInt8>?
 @_silgen_name("crowbar_chrome_asset_free")
 private func crowbarChromeAssetFree(
@@ -90,15 +90,14 @@ final class AppScheme: NSObject, WKURLSchemeHandler {
     _ task: WKURLSchemeTask,
     url: URL
   ) {
-    var len = 0
-    var mime: UnsafeMutablePointer<CChar>?
+    var reply = AssetReply()
     let path = url.path.isEmpty ? "/" : url.path
-    guard let bytes = path.withCString({ crowbarChromeAsset(frontend, $0, &len, &mime) }) else {
+    guard let bytes = path.withCString({ crowbarChromeAsset(frontend, $0, &reply) }) else {
       return respond(task, SchemeReply(url: url, status: HTTPStatus.notFound))
     }
-    let body = Data(bytes: bytes, count: len)
-    let type = mime.map { String(cString: $0) } ?? "application/octet-stream"
-    crowbarChromeAssetFree(bytes, len, mime)
+    let body = Data(bytes: bytes, count: reply.len)
+    let type = reply.mime.map { String(cString: $0) } ?? "application/octet-stream"
+    crowbarChromeAssetFree(bytes, reply.len, reply.mime)
     respond(
       task,
       SchemeReply(url: url, status: HTTPStatus.success, headers: ["Content-Type": type], body: body)

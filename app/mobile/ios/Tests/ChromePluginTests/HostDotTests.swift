@@ -17,7 +17,8 @@ final class HostDotTests: XCTestCase {
     HostCase(state: "not-available", tone: .offline, words: "Host not available"),
     HostCase(state: "needs-repair", tone: .needsAttention, words: "Needs pairing again"),
     HostCase(state: "probing", tone: .unsettled, words: "Checking"),
-    HostCase(state: "something-new", tone: .unsettled, words: "Status unknown")]
+    HostCase(state: "something-new", tone: .unsettled, words: "Status unknown"),
+  ]
 
   func testEveryHostStateHasATonePhrase() {
     for item in cases {

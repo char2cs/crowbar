@@ -17,7 +17,8 @@ final class SheetPlanTests: XCTestCase {
 
   private static let shown: [(Event, SheetPlan.Step?)] = [
     (.update(.open), .present),
-    (.finished, SheetPlan.Step.none)]
+    (.finished, SheetPlan.Step.none),
+  ]
 
   private let cases = [
     Case(
@@ -26,14 +27,16 @@ final class SheetPlanTests: XCTestCase {
         (.dismissedByUser, nil),
         (.update(.open), SheetPlan.Step.none),
         (.update(.closed), SheetPlan.Step.none),
-        (.update(.open), .present)]
+        (.update(.open), .present),
+      ]
     ),
     Case(
       name: "a web close dismisses once",
       events: Self.shown + [
         (.update(.closed), .dismiss),
         (.update(.closed), SheetPlan.Step.none),
-        (.finished, SheetPlan.Step.none)]
+        (.finished, SheetPlan.Step.none),
+      ]
     ),
     Case(
       name: "flips during the animation settle to the last value",
@@ -42,7 +45,8 @@ final class SheetPlanTests: XCTestCase {
         (.update(.closed), SheetPlan.Step.none),
         (.finished, .dismiss),
         (.update(.open), SheetPlan.Step.none),
-        (.finished, .present)]
+        (.finished, .present),
+      ]
     ),
     Case(
       name: "open with no root waits for one",
@@ -51,7 +55,8 @@ final class SheetPlanTests: XCTestCase {
         (.noRoot, SheetPlan.Step.none),
         (.update(.open), .present),
         (.finished, SheetPlan.Step.none),
-        (.update(.open), SheetPlan.Step.none)]
+        (.update(.open), SheetPlan.Step.none),
+      ]
     ),
     Case(
       name: "closing while waiting for a root presents nothing",
@@ -59,8 +64,10 @@ final class SheetPlanTests: XCTestCase {
         (.update(.open), .present),
         (.noRoot, SheetPlan.Step.none),
         (.update(.closed), SheetPlan.Step.none),
-        (.update(.open), .present)]
-    )]
+        (.update(.open), .present),
+      ]
+    ),
+  ]
 
   func testEachScenarioFollowsItsPlan() {
     cases.forEach(run)

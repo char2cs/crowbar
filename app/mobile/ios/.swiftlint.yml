@@ -56,13 +56,15 @@ missing_docs:
 multiline_arguments:
   first_argument_location: next_line
   only_enforce_after_first_closure_on_first_line: true
+trailing_comma:
+  mandatory_comma: true
 no_magic_numbers:
   test_parent_classes: [XCTestCase]
 
 custom_rules:
   no_inline_comment:
     name: "No narrative comments"
-    regex: '(?<!:)//(?![/!])(?!\s*(SPEC|PLATFORM|DEPRECATED):)(?!\s*swiftlint:)'
+    regex: '(?<![:/])//(?![/!])(?!\s*(SPEC|PLATFORM|DEPRECATED):)(?!\s*swiftlint:)'
     message: "Only SPEC:, PLATFORM: and DEPRECATED: comments are allowed (swift-style M7)."
     severity: error
   no_bool_parameter:

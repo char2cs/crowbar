@@ -115,29 +115,29 @@ extension CrowbarIcon {
     case .lockOpen:
       phosphorArt([CrowbarIconPathsSecond.lockOpen])
     case .paintBrush:
-      phosphorArt([CrowbarIconPathsSecond.paintBrush])
+      phosphorArt([CrowbarIconPathsThird.paintBrush])
     case .paperclip:
-      phosphorArt([CrowbarIconPathsSecond.paperclip])
+      phosphorArt([CrowbarIconPathsThird.paperclip])
     case .palette:
-      phosphorArt([CrowbarIconPathsSecond.palette])
+      phosphorArt([CrowbarIconPathsThird.palette])
     case .pencilSimpleLine:
-      phosphorArt([CrowbarIconPathsSecond.pencilSimpleLine])
+      phosphorArt([CrowbarIconPathsThird.pencilSimpleLine])
     case .plus:
-      phosphorArt([CrowbarIconPathsSecond.plus])
+      phosphorArt([CrowbarIconPathsThird.plus])
     case .prohibit:
-      phosphorArt([CrowbarIconPathsSecond.prohibit])
+      phosphorArt([CrowbarIconPathsThird.prohibit])
     case .robot:
-      phosphorArt([CrowbarIconPathsSecond.robot])
+      phosphorArt([CrowbarIconPathsThird.robot])
     case .terminal:
-      phosphorArt([CrowbarIconPathsSecond.terminal])
+      phosphorArt([CrowbarIconPathsThird.terminal])
     case .terminalWindow:
-      phosphorArt([CrowbarIconPathsSecond.terminalWindow])
+      phosphorArt([CrowbarIconPathsThird.terminalWindow])
     case .trash:
-      phosphorArt([CrowbarIconPathsSecond.trash])
+      phosphorArt([CrowbarIconPathsThird.trash])
     case .xMark:
-      phosphorArt([CrowbarIconPathsSecond.xMark])
+      phosphorArt([CrowbarIconPathsThird.xMark])
     case .sidebarToggle:
-      chromeArt(CrowbarIconPathsSecond.sidebarToggle)
+      chromeArt(CrowbarIconPathsThird.sidebarToggle)
     }
   }
 }

@@ -29,7 +29,8 @@ struct HostPickerSheet: View {
     Button(
       action: { model.send(.of("closeHostPicker")) },
       label: {
-        PhosphorIcon(.xMark, emphasis: Self.closeEmphasis).foregroundStyle(palette?.text ?? .primary)
+        PhosphorIcon(.xMark, emphasis: Self.closeEmphasis)
+          .foregroundStyle(palette?.text ?? .primary)
       }
     )
     .accessibilityLabel("Close")

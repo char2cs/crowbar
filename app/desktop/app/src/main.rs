@@ -26,6 +26,7 @@ mod diagnostics_export;
 mod direction;
 mod dirty_panes;
 mod dropped_files;
+#[cfg(target_os = "linux")]
 mod env_change;
 mod error;
 mod event_commands;
@@ -120,6 +121,7 @@ mod window_title;
 mod window_vibrancy;
 mod workspace;
 mod workspace_event;
+#[cfg(target_os = "linux")]
 mod x11_session;
 
 use std::path::{Path, PathBuf};
@@ -194,6 +196,7 @@ fn system_ports() -> Ports {
 }
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
     x11_session::force_x11();
     let options = AppOptions::from_env(|key| std::env::var(key).ok());
     shell_diagnostics::start(

@@ -15,7 +15,7 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 getrandom = "0.3"
 ignore = { version = "0.4", default-features = false }
 protocol.workspace = true
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 serde.workspace = true
 serde_json.workspace = true
 settings_ui.workspace = true

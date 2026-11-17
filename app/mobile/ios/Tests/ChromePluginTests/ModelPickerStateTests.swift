@@ -73,5 +73,6 @@ final class ModelPickerStateTests: XCTestCase {
     FilterCase(query: "  ", providerIds: ["a", "b"], firstModelIds: ["1", "2"]),
     FilterCase(query: "deep", providerIds: ["a"], firstModelIds: ["2"]),
     FilterCase(query: "BETA", providerIds: ["b"], firstModelIds: ["3"]),
-    FilterCase(query: "zzz", providerIds: [], firstModelIds: [])]
+    FilterCase(query: "zzz", providerIds: [], firstModelIds: []),
+  ]
 }

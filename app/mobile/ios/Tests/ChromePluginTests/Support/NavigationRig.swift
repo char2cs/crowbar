@@ -5,7 +5,8 @@ import Foundation
 final class NavigationRig {
   private static let width = 400.0
   private static let strip = 72.0
-  private static let frameSeconds = 1.0 / 120
+  private static let framesPerSecond = 120.0
+  private static let frameSeconds = 1.0 / framesPerSecond
   private static let maxSettleFrames = 600
 
   var machine = NavigationMachine(width: Self.width, strip: Self.strip)

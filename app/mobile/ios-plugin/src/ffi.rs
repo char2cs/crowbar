@@ -3,6 +3,7 @@
     reason = "the C ABI Swift calls into is the plugin's one unsafe boundary"
 )]
 
+use crate::asset_reply::AssetReply;
 use crate::font::font;
 use crate::frontend::Frontend;
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -21,8 +22,7 @@ pub(crate) unsafe extern "C" fn crowbar_chrome_dev_url(frontend: *const c_void) 
 pub(crate) unsafe extern "C" fn crowbar_chrome_asset(
     frontend: *const c_void,
     path: *const c_char,
-    len: *mut usize,
-    mime: *mut *mut c_char,
+    reply: *mut AssetReply,
 ) -> *mut u8 {
     // SAFETY: Swift passes back the address `Frontend::address` gave it, which tauri state keeps alive.
     let Some(frontend) = (unsafe { frontend.cast::<Frontend>().as_ref() }) else {
@@ -39,10 +39,12 @@ pub(crate) unsafe extern "C" fn crowbar_chrome_asset(
         return null_mut();
     };
     let bytes = asset.bytes.into_boxed_slice();
-    // SAFETY: the caller passes a writable `usize`.
-    unsafe { *len = bytes.len() };
-    // SAFETY: the caller passes a writable pointer slot.
-    unsafe { *mime = mime_type.into_raw() };
+    let written = AssetReply {
+        len: bytes.len(),
+        mime: mime_type.into_raw(),
+    };
+    // SAFETY: the caller passes a writable `AssetReply`.
+    unsafe { *reply = written };
     Box::into_raw(bytes).cast()
 }
 
@@ -99,26 +101,22 @@ mod tests {
     fn fetch(path: &str) -> Option<Served> {
         let frontend = fixture();
         let path = CString::new(path).expect("no interior NUL");
-        let mut len = 0usize;
-        let mut mime: *mut c_char = null_mut();
-        // SAFETY: `path` is NUL-terminated and `len` and `mime` are writable.
-        let bytes = unsafe {
-            crowbar_chrome_asset(
-                address(&frontend),
-                path.as_ptr(),
-                &raw mut len,
-                &raw mut mime,
-            )
+        let mut reply = AssetReply {
+            len: 0,
+            mime: null_mut(),
         };
+        // SAFETY: `path` is NUL-terminated and `reply` is writable.
+        let bytes =
+            unsafe { crowbar_chrome_asset(address(&frontend), path.as_ptr(), &raw mut reply) };
         if bytes.is_null() {
             return None;
         }
-        // SAFETY: the call returned `len` bytes at `bytes`.
-        let body = unsafe { std::slice::from_raw_parts(bytes, len) }.to_vec();
+        // SAFETY: the call returned `reply.len` bytes at `bytes`.
+        let body = unsafe { std::slice::from_raw_parts(bytes, reply.len) }.to_vec();
         // SAFETY: the call returned a NUL-terminated mime type.
-        let mime_type = unsafe { CStr::from_ptr(mime) }.to_bytes().to_vec();
+        let mime_type = unsafe { CStr::from_ptr(reply.mime) }.to_bytes().to_vec();
         // SAFETY: exactly the values the call above returned, freed once.
-        unsafe { crowbar_chrome_asset_free(bytes, len, mime) };
+        unsafe { crowbar_chrome_asset_free(bytes, reply.len, reply.mime) };
         Some((body, mime_type))
     }
 

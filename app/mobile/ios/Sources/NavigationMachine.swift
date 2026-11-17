@@ -15,7 +15,7 @@ struct NavigationMachine {
   private static let filesGap = Screen.ide.rawValue
   private static let dragGaps = 0...filesGap
   private static let halfway = 0.5
-  private static let angularFrequency = 2 * Double.pi / response
+  private static let angularFrequency = (Double.pi + Double.pi) / response
   private static let dampingFactor = 2.0
 
   var width: Double
@@ -166,7 +166,8 @@ struct NavigationMachine {
   private mutating func tell(_ screen: Screen) -> [NavigationCommand] {
     let direction = intended < screen ? 1 : -1
     let raws = stride(from: intended.rawValue + direction, through: screen.rawValue, by: direction)
-    return raws.compactMap { Screen(rawValue: $0) }.map { next in
+    let screens = raws.compactMap { Screen(rawValue: $0) }
+    return screens.map { next in
       sent += 1
       let command = NavigationCommand.send(Self.intent(from: intended, to: next), seq: sent)
       intended = next
@@ -238,7 +239,9 @@ struct NavigationMachine {
     }
   }
 
-  private func shading(gap: Int?) -> (
+  private func shading(
+    gap: Int?
+  ) -> (
     amount: Double,
     dim: Double
   ) {

@@ -44,7 +44,8 @@ final class ChromePaletteTests: XCTestCase {
         """##,
       hasPalette: true,
       hasSidebar: false
-    )]
+    ),
+  ]
 
   func testThePaletteFollowsItsState() throws {
     for item in paletteCases {

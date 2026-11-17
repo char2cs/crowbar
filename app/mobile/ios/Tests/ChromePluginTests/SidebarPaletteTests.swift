@@ -15,7 +15,8 @@ final class SidebarPaletteTests: XCTestCase {
     PaletteCase(text: "#111", brand: "#f00", brandText: "#fff", isValid: true),
     PaletteCase(text: "not a colour", brand: "#ff0000", brandText: "#ffffff", isValid: false),
     PaletteCase(text: "#111111", brand: "not a colour", brandText: "#ffffff", isValid: false),
-    PaletteCase(text: "#111111", brand: "#ff0000", brandText: "not a colour", isValid: false)]
+    PaletteCase(text: "#111111", brand: "#ff0000", brandText: "not a colour", isValid: false),
+  ]
 
   func testPaletteExistsOnlyWhenEveryColourParses() {
     for entry in cases {

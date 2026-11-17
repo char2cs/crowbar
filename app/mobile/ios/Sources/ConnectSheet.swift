@@ -87,9 +87,9 @@ struct ConnectSheet: View {
       action: { model.send(drafts.submission(at: stage)) },
       label: { primaryContent }
     )
-      .buttonStyle(.glassProminent)
-      .tint(model.accent)
-      .disabled(busy || !drafts.canSubmit(at: stage))
+    .buttonStyle(.glassProminent)
+    .tint(model.accent)
+    .disabled(busy || !drafts.canSubmit(at: stage))
   }
 
   private var primaryContent: some View {

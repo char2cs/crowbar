@@ -113,6 +113,7 @@ impl TerminalView {
                 self.drag = DragState::Selecting;
                 cx.notify();
             },
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             MouseButton::Middle => self.paste_primary(cx),
             _ => {},
         }
@@ -126,13 +127,6 @@ impl TerminalView {
         if let Some(text) = cx.read_from_primary().and_then(|item| item.text()) {
             self.paste(&text, cx);
         }
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
-    pub(crate) fn paste_primary(
-        &mut self,
-        _: &mut Context<'_, Self>,
-    ) {
     }
 }
 

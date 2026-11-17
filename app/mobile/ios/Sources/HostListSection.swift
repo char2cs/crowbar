@@ -102,7 +102,7 @@ struct HostListSection: View {
         action: { send(.of("revokeHost", ["id": host.id])) },
         label: { RevokeLabel() }
       )
-        .tint(.red)
+      .tint(.red)
     }
   }
 }

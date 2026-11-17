@@ -13,8 +13,8 @@ final class ChromeStateTests: XCTestCase {
     XCTAssertNil(state.settings)
   }
 
-  func testChromeStateFull() throws {
-    let state = try decode(
+  private func fullState() throws -> ChromeState {
+    try decode(
       ChromeState.self,
       """
       {"accent":"#fff","welcome":{"visible":true,"label":"Connect"},
@@ -30,6 +30,10 @@ final class ChromeStateTests: XCTestCase {
          "brandLight":"#606c38","brandDark":"#98a86a"}}
       """
     )
+  }
+
+  func testChromeStateFull() throws {
+    let state = try fullState()
     XCTAssertEqual(state.connect?.stage, .fingerprint)
     XCTAssertNil(state.connect?.error)
     XCTAssertEqual(state.headers?.chat, [])
@@ -64,5 +68,6 @@ final class ChromeStateTests: XCTestCase {
     },
     RejectedCase(name: "stage") {
       try JSONDecoder().decode(ConnectStage.self, from: Data(#""done""#.utf8))
-    }]
+    },
+  ]
 }

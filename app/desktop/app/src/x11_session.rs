@@ -11,13 +11,9 @@ pub(crate) fn x11_changes() -> [EnvChange; 2] {
     ]
 }
 
-#[cfg(target_os = "linux")]
 pub(crate) fn force_x11() {
     x11_changes().into_iter().for_each(EnvChange::apply);
 }
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn force_x11() {}
 
 #[cfg(test)]
 mod tests {
