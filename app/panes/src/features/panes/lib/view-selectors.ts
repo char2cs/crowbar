@@ -60,11 +60,3 @@ export function selectIsFocusedPaneEmpty(state: {
 }): boolean {
   return isPaneEmpty(state.panes[state.activePaneId])
 }
-
-/** Whether some pane holds `chatId`, off the memoized index. Subscribe per row. */
-export function selectChatHasView(
-  state: { panes: Record<string, PaneGroup> },
-  chatId: string,
-): boolean {
-  return chatPaneIndex(state.panes).has(chatId)
-}

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HostNotResolvedError } from '@/lib/host-path'
-import { projectAssetURL, projectBase, projectBaseOnHost, repoBase } from '@/lib/project-url'
+import { projectAssetURL, projectBase, repoBase } from '@/lib/project-url'
 import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { recordWorkspaceScope, type WorkspaceScope } from '@/lib/workspace-scope'
@@ -109,11 +109,6 @@ describe('a remote project', () => {
       api.assetURL('/v0/projects/p-local/icon'),
     )
   })
-
-  it('projectBaseOnHost names the host itself, for a project created there a moment ago', () => {
-    expect(projectBaseOnHost('host-1', 'brand-new')).toBe('crowbar://host-1/v0/projects/brand-new')
-    expect(projectBaseOnHost('local', 'brand-new')).toBe('/v0/projects/brand-new')
-  })
 })
 
 describe('hosts paired but the host cannot be determined: HostNotResolvedError, never local', () => {
@@ -165,14 +160,6 @@ interface Mods {
 }
 type Call = (m: Mods) => Promise<unknown>
 const CALLS: [name: string, call: Call, method: string, path: string][] = [
-  ['fetchRepos', (m) => m.api.fetchRepos(P), 'GET', `/v0/projects/${P}/repos`],
-  [
-    'fetchWorkspaces',
-    (m) => m.api.fetchWorkspaces(P, R),
-    'GET',
-    `/v0/projects/${P}/repos/${R}/workspaces`,
-  ],
-  ['postRepo', (m) => m.api.postRepo(P, 'n', '/x', 'op'), 'POST', `/v0/projects/${P}/repos`],
   ['renameRepo', (m) => m.api.renameRepo(P, R, 'n'), 'PATCH', `/v0/projects/${P}/repos/${R}`],
   ['renameProject', (m) => m.api.renameProject(P, 'n'), 'PATCH', `/v0/projects/${P}`],
   ['deleteProject', (m) => m.api.deleteProject(P, 'op'), 'DELETE', `/v0/projects/${P}`],
@@ -289,7 +276,7 @@ describe('a remote project: every project-scoped call lands on its own host', ()
 
   it('a local project’s call stays on the local daemon while a remote is configured', async () => {
     loadProjects(project(P, 'local'), project('p2', 'host-2'))
-    expect(await requested(() => api.fetchRepos(P))).toEqual(['/v0/projects/p1/repos', 'GET'])
+    expect(await requested(() => api.renameProject(P, 'n'))).toEqual(['/v0/projects/p1', 'PATCH'])
   })
 })
 

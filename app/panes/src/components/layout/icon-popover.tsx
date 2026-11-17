@@ -15,22 +15,13 @@ import { apiFetch } from '@/lib/api/fetch'
 import { toast } from '@/features/window/stores/toast-store'
 import { putIconFile } from './icon-upload'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
-import { isTauri, convertFileSrc } from '@/lib/crowbar-bridge'
+import { isTauri } from '@/lib/crowbar-bridge'
 import { report } from '@/lib/errors/report'
-
-// A pick in `onStage` mode (create-space-panel.tsx): nothing is sent until the entity exists.
-// `previewUrl` loads at once (blob: for a File, asset:// for a Tauri path); `file`/`path` is
-// what the caller persists once it has an id.
-export type StagedIcon =
-  | { kind: 'emoji'; emoji: string }
-  | { kind: 'path'; path: string; previewUrl: string }
-  | { kind: 'file'; file: File; previewUrl: string }
-  | { kind: 'reset' }
 
 interface IconPopoverProps {
   /** The entity's host-qualified REST base (projectBase/repoBase); the daemon serves the same icon
-   *  routes under a project and a repo, so one component serves both. Unused with `onStage`. */
-  base?: string
+   *  routes under a project and a repo, so one component serves both. */
+  base: string
   /** Names the trigger and the preview image, for screen readers. */
   name: string
   /** The emoji currently set, if any. Wins over `iconUrl`. */
@@ -46,9 +37,6 @@ interface IconPopoverProps {
   trigger?: (version: number) => ReactNode
   /** Offer the GitHub owner-avatar button. Repos only: it reads the repo's `origin` remote. */
   github?: boolean
-  /** Stage picks locally instead of mutating `base`; the caller feeds them back as controlled
-   *  `emoji`/`iconUrl`. `base`/`github` are ignored: nothing has an origin before it exists. */
-  onStage?: (change: StagedIcon) => void
 }
 
 // The editable icon of a repo header and the project switcher. Only the mark opens it (clicks stop
@@ -63,21 +51,16 @@ export function IconPopover({
   fallbackLarge,
   trigger: triggerOverride,
   github = false,
-  onStage,
 }: IconPopoverProps) {
   const [emojiInput, setEmojiInput] = useState('')
   const [showEmojiInput, setShowEmojiInput] = useState(false)
   const [loading, setLoading] = useState(false)
   // The proxy URL is stable, so bump a cache-busting param after each mutation to refresh both
-  // marks. Not in `onStage` mode: a blob:/asset:// preview is fresh per pick and a query breaks it.
+  // marks.
   const [version, setVersion] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const src = iconUrl
-    ? onStage
-      ? iconUrl
-      : `${iconUrl}${iconUrl.includes('?') ? '&' : '?'}v=${version}`
-    : undefined
+  const src = iconUrl ? `${iconUrl}${iconUrl.includes('?') ? '&' : '?'}v=${version}` : undefined
 
   /** Run a mutation, surface any failure, and refresh the cached image. */
   async function mutate(run: () => Promise<unknown>, failure: string) {
@@ -105,21 +88,12 @@ export function IconPopover({
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
     })
     if (typeof selected !== 'string') return
-    if (onStage) {
-      onStage({ kind: 'path', path: selected, previewUrl: convertFileSrc(selected) })
-      return
-    }
     await mutate(() => putIconFile(`${base}/icon`, selected), 'Failed to set icon')
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (onStage) {
-      onStage({ kind: 'file', file, previewUrl: URL.createObjectURL(file) })
-      if (fileRef.current) fileRef.current.value = ''
-      return
-    }
     const form = new FormData()
     form.append('icon', file)
     await mutate(
@@ -132,19 +106,15 @@ export function IconPopover({
   async function handleEmojiSubmit() {
     const value = emojiInput.trim()
     if (!value) return
-    if (onStage) {
-      onStage({ kind: 'emoji', emoji: value })
-    } else {
-      await mutate(
-        () =>
-          apiFetch(`${base}/icon/emoji`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ emoji: value }),
-          }),
-        'Failed to set emoji',
-      )
-    }
+    await mutate(
+      () =>
+        apiFetch(`${base}/icon/emoji`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emoji: value }),
+        }),
+      'Failed to set emoji',
+    )
     setEmojiInput('')
     setShowEmojiInput(false)
   }
@@ -165,10 +135,6 @@ export function IconPopover({
   }
 
   const handleReset = () => {
-    if (onStage) {
-      onStage({ kind: 'reset' })
-      return
-    }
     return mutate(() => apiFetch(`${base}/icon`, { method: 'DELETE' }), 'Failed to reset icon')
   }
 

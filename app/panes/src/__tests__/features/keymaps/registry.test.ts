@@ -13,7 +13,6 @@ import {
   AGENT_ZOOM_OUT,
   AGENT_ZOOM_RESET,
   CATEGORY_ORDER,
-  TOGGLE_CONSOLE,
   BROWSER_TOGGLE_PICK,
 } from '@/features/keymaps/registry'
 
@@ -48,12 +47,6 @@ describe('keymap registry — New Tab commands', () => {
   //
   it('binds Toggle chat/terminal view to mod+/, a chord macOS actually delivers', () => {
     expect(getCommand(AGENT_TOGGLE_VIEW_MODE)?.defaultChord).toBe('mod+/')
-  })
-
-  it('binds mod+` to the console toggle alone', () => {
-    expect(COMMANDS.filter((c) => c.defaultChord === 'mod+`').map((c) => c.id)).toEqual([
-      TOGGLE_CONSOLE,
-    ])
   })
 
   it('files Toggle chat/terminal view under its own Chats category', () => {
@@ -124,14 +117,6 @@ describe('keymap registry — chat zoom commands', () => {
     expect(getCommand(AGENT_ZOOM_IN)?.liveEditable).toBe(true)
     expect(getCommand(AGENT_ZOOM_OUT)?.liveEditable).toBe(true)
     expect(getCommand(AGENT_ZOOM_RESET)?.liveEditable).toBe(true)
-  })
-})
-
-describe('keymap registry — console', () => {
-  it('registers Toggle console as a live-editable Navigation command with a default chord', () => {
-    const command = getCommand(TOGGLE_CONSOLE)
-    expect(command).toMatchObject({ category: 'Navigation', liveEditable: true })
-    expect(command?.defaultChord).toBe('mod+`')
   })
 })
 

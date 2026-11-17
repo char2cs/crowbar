@@ -91,15 +91,3 @@ export function createEdgeScroller(
     },
   }
 }
-
-/** The nearest ancestor that actually scrolls. Resolved once per drag from the
- *  grabbed row, so the drag needs no ref plumbed down through the tree — and it
- *  keeps working if the sidebar's scroller is ever swapped for another one. */
-export function findScrollParent(from: HTMLElement | null): HTMLElement | null {
-  for (let node = from?.parentElement ?? null; node; node = node.parentElement) {
-    if (node.scrollHeight <= node.clientHeight) continue
-    const overflowY = getComputedStyle(node).overflowY
-    if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') return node
-  }
-  return null
-}

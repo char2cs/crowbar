@@ -2,7 +2,7 @@ import type { ReviewFileSummary } from '@/features/git/api/review-api'
 import type { GitDiff } from '@/features/git/types/git-types'
 
 // Stable-empty rule: reuse one module-level empty array so an empty summary maps
-// to a referentially stable result across renders (mirrors git-status-to-changed-files).
+// to a referentially stable result across renders (as the other selectors do).
 const EMPTY: GitDiff[] = []
 
 /** The files summary as GitDiff[], with ± counts. `lines` stays empty — the summary has no

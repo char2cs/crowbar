@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getReview,
-  setMergeStrategy,
-  mergeIntoParent,
   openThread,
   replyToThread,
   setThreadResolved,
@@ -61,15 +59,6 @@ function wireThreadDTO(overrides: Partial<ThreadDTO> = {}): ThreadDTO {
     ...overrides,
   }
 }
-
-describe('mergeIntoParent deleteSource', () => {
-  it('sends deleteSource:true when the caller opts to delete the child', async () => {
-    const fetchMock = mockFetchEnvelope(undefined)
-    await mergeIntoParent('ws-1', 'squash', true, 'op-1')
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(init.body as string)).toEqual({ strategy: 'squash', deleteSource: true })
-  })
-})
 
 describe('mapThread', () => {
   it('maps real ThreadDTO fields: line→lineNumber, resolved→isResolved, body+replies→messages', () => {
@@ -216,18 +205,6 @@ describe('review-api request shapes', () => {
     expect(review.conversations).toEqual([])
   })
 
-  it('setMergeStrategy PATCHes the chat-scoped /review with the strategy body', async () => {
-    const fetchMock = mockFetchEnvelope({ mergeStrategy: 'rebase' })
-
-    const result = await setMergeStrategy('ws-2', 'rebase')
-
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/v0/chats/chat-of-ws-2/review')
-    expect(init.method).toBe('PATCH')
-    expect(JSON.parse(init.body as string)).toEqual({ mergeStrategy: 'rebase' })
-    expect(result).toBe('rebase')
-  })
-
   it('openThread POSTs to first-class /threads (not /review/threads) with all fields', async () => {
     const fetchMock = mockFetchEnvelope(
       wireThreadDTO({
@@ -269,21 +246,6 @@ describe('review-api request shapes', () => {
     expect(thread.startLine).toBe(8)
     expect(thread.endLine).toBe(12)
     expect(thread.side).toBe('new')
-  })
-
-  // Merging is a worktree LIFECYCLE verb, not a review read: it goes to the
-  // chat that HOLDS the worktree, on the same repo-scoped chat prefix the other
-  // six verbs share — not to reviewBase and not to the retired workspace path.
-  it('mergeIntoParent POSTs to the owning chat’s /merge-into-parent verb', async () => {
-    const fetchMock = mockFetchEnvelope(null)
-
-    await mergeIntoParent('ws-5', 'squash', false, 'op-1')
-
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('/v0/projects/p1/repos/r1/chats/chat-of-ws-5/merge-into-parent')
-    expect(url).not.toContain('/workspaces/')
-    expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toEqual({ strategy: 'squash', deleteSource: false })
   })
 
   it('replyToThread POSTs to /threads/:id/replies (plural) with encoded id', async () => {

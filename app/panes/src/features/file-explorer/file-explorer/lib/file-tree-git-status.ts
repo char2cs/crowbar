@@ -27,9 +27,7 @@ function getGitStatusPriority(gitFile: GitFile): number {
   return gitFile.status === 'modified' && gitFile.staged ? priority + 1 : priority
 }
 
-export function getFileTreeGitStatusDecoration(
-  gitFile: GitFile,
-): FileTreeGitStatusDecoration | null {
+function getFileTreeGitStatusDecoration(gitFile: GitFile): FileTreeGitStatusDecoration | null {
   switch (gitFile.status) {
     case 'modified':
       return {

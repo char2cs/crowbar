@@ -1,6 +1,5 @@
 import '@/features/file-explorer/file-explorer/styles/file-explorer-tree.css'
 import type React from 'react'
-import { formatChangeCount } from '@/components/layout/format-change-count'
 import {
   ROW_GLYPH_BOX,
   ROW_HAS_VIEW_IDLE,
@@ -8,8 +7,6 @@ import {
   ROW_INDENT_STEP,
   ROW_NEST_TARGET,
   ROW_SHAPE,
-  ROW_SUBLABEL_ADD,
-  ROW_SUBLABEL_DEL,
 } from '@/components/layout/workspace-row-base'
 import { cn } from '@/lib/utils'
 import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
@@ -174,29 +171,5 @@ export function SidebarFileRow({
         </button>
       )}
     </div>
-  )
-}
-
-/** A row's trailing `+N -N`, in the chat tree's count tokens and formatter. */
-export function SidebarFileRowCounts({
-  additions,
-  deletions,
-  compact = false,
-}: {
-  additions: number
-  deletions: number
-  compact?: boolean
-}) {
-  if (additions <= 0 && deletions <= 0) return null
-  return (
-    <span
-      className={cn(
-        'flex items-center font-mono text-[11px] tabular-nums',
-        compact ? 'gap-0.5' : 'gap-1',
-      )}
-    >
-      {additions > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(additions)}</span>}
-      {deletions > 0 && <span className={ROW_SUBLABEL_DEL}>-{formatChangeCount(deletions)}</span>}
-    </span>
   )
 }

@@ -3,10 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
-import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
-import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
-import { useSettingsStore } from '@/features/settings/store'
-import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { ChatTabItem } from '@/features/tabs/components/chat-tab-item'
 import { resetChatStore, setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
@@ -73,29 +69,5 @@ describe('ChatTabItem', () => {
   it('renders no close affordance — it is never closable', () => {
     renderChatTab()
     expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument()
-  })
-})
-
-describe('ChatTabItem sidebar surface', () => {
-  // The mode follows focus only with the opt-in setting on.
-  beforeEach(() => {
-    useSettingsStore.setState({
-      settings: { ...getDefaultSettingsSnapshot(), sidebarFollowsFocus: true },
-    })
-  })
-  it('focusing the chat tab shows Chats', () => {
-    treeUiStore.setState({ activeTab: 'files' })
-    function FocusMode() {
-      useSidebarFocusMode()
-      return null
-    }
-    render(<FocusMode />)
-    renderChatTab({ isActive: true })
-
-    // Focus only moves the mode once the user has pressed something.
-    fireEvent.pointerDown(document.body)
-    act(() => screen.getByRole('tab').focus())
-
-    expect(treeUiStore.getState().activeTab).toBe('chats')
   })
 })

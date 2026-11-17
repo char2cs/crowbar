@@ -124,7 +124,7 @@ const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
 }
 
 /** A repo thread owning no worktree, not already moving, can be made a branch of its own. */
-export function canBranchOut(row: SidebarRow, movePending: boolean): boolean {
+function canBranchOut(row: SidebarRow, movePending: boolean): boolean {
   return row.kind === 'chat' && row.canBranchOut === true && !movePending
 }
 
@@ -163,7 +163,7 @@ export function rowIsLocked(rowId: string): boolean {
 // A row's menu, in order. A locked branch keeps its name (no Rename); Lock/Unlock only for a real
 // workspace branch with a worktree (the daemon refuses a placeholder's), never the project-home
 // checkout; "New thread in Terminal" is left out when the provider a new chat would start under has no terminal.
-export function rowMenuActions(
+function rowMenuActions(
   row: SidebarRow,
   { locked, canStartOnTerminal }: { locked: boolean; canStartOnTerminal: boolean },
 ): RowMenuAction[] {

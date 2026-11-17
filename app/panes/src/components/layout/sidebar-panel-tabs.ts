@@ -1,9 +1,8 @@
 import type React from 'react'
 import { ChatsCircle, FolderOpen, GitBranch } from '@phosphor-icons/react'
-import { useTreeUi, type SidebarTab } from '@/features/workspace/tree/tree-ui-store'
+import type { SidebarTab } from '@/features/workspace/tree/tree-ui-store'
 import {
   hasRepoWorkspace,
-  useFocusedWorkspaceContextStore,
   type FocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
 
@@ -29,24 +28,3 @@ export const SIDEBAR_PANEL_TABS: readonly SidebarPanelTabDescriptor[] = [
     hideWhenUnavailable: true,
   },
 ]
-
-const FALLBACK_SIDEBAR_PANEL_TAB: SidebarTab = 'chats'
-
-/** Stable string key of the available tabs, for a primitive-returning selector. */
-export function availableSidebarPanelTabsKey(ctx: FocusedWorkspaceContext): string {
-  return SIDEBAR_PANEL_TABS.filter((t) => t.available(ctx))
-    .map((t) => t.tab)
-    .join(',')
-}
-
-function resolveShownTab(chosen: SidebarTab, ctx: FocusedWorkspaceContext): SidebarTab {
-  const descriptor = SIDEBAR_PANEL_TABS.find((t) => t.tab === chosen)
-  return descriptor?.available(ctx) ? chosen : FALLBACK_SIDEBAR_PANEL_TAB
-}
-
-/** The mode on screen: the chosen one while the focused workspace offers it,
- *  else Chats. Derived, not written back, so the store stays the one owner. */
-export function useShownSidebarTab(): SidebarTab {
-  const chosen = useTreeUi((s) => s.activeTab)
-  return useFocusedWorkspaceContextStore((ctx) => resolveShownTab(chosen, ctx))
-}

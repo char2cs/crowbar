@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { postProject, postRepo, renameRepo, importBranches, renameWorkspaceBranch } from '@/lib/api'
+import { renameRepo, importBranches, renameWorkspaceBranch } from '@/lib/api'
 import { apiFetch } from '@/lib/api/fetch'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
@@ -26,24 +26,6 @@ function lastCall(): [string, RequestInit] {
 }
 
 describe('hierarchical mutations', () => {
-  test('POST /v0/projects sends its operation id', async () => {
-    await postProject('my-proj', '/tmp/my-proj', 'op-1', 'local')
-    const [url, init] = lastCall()
-    expect(url).toBe('/v0/projects')
-    expect(init.method).toBe('POST')
-    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op-1')
-    expect(JSON.parse(init.body as string)).toEqual({ name: 'my-proj', path: '/tmp/my-proj' })
-  })
-
-  test('POST /v0/projects/:p/repos sends its operation id', async () => {
-    await postRepo('p1', 'crowbar', '/tmp/crowbar', 'op-2')
-    const [url, init] = lastCall()
-    expect(url).toBe('/v0/projects/p1/repos')
-    expect(init.method).toBe('POST')
-    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op-2')
-    expect(JSON.parse(init.body as string)).toEqual({ name: 'crowbar', path: '/tmp/crowbar' })
-  })
-
   test('PATCH /v0/projects/:p/repos/:r body {name} → 204, resolves undefined', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
     const res = await renameRepo('p1', 'r1', 'New Name')

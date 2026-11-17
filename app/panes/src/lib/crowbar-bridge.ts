@@ -266,27 +266,6 @@ export async function setMacOSWindowAppearance(themeType: string): Promise<void>
   await tauriInvoke('set_vibrancy_appearance', { dark: themeType === 'dark' })
 }
 
-/** Move the macOS traffic lights to `(x, y)` (logical points, window-relative); the
- *  config-time position applies only at window creation. See `useMacTrafficLightSync`. */
-export async function setTrafficLightPosition(x: number, y: number): Promise<void> {
-  if (!isDesktopApp()) return
-  await tauriInvoke('set_traffic_light_position', { x, y })
-}
-
-/** Mirror the Toggle-console chord onto the Window-menu item so macOS cannot consume it
- *  first (Cmd+` cycles windows). `null` clears the accelerator. */
-export async function setConsoleMenuChord(chord: string | null): Promise<void> {
-  if (!isDesktopApp()) return
-  await tauriInvoke('set_console_menu_chord', { chord })
-}
-
-/** Subscribe to the host menu item being chosen in THIS window; resolves to an unsubscribe. */
-export async function onConsoleMenuToggle(handler: () => void): Promise<() => void> {
-  if (!isDesktopApp()) return () => {}
-  const { getCurrentWebview } = await import('@tauri-apps/api/webview')
-  return getCurrentWebview().listen('console:toggle', handler)
-}
-
 /** The shell destroys a closing window's page without `pagehide` (what drafts and held removals
  *  flush on), so the page gets it here first; Tauri destroys the window once this returns. */
 export async function hidePageOnWindowClose(): Promise<() => void> {

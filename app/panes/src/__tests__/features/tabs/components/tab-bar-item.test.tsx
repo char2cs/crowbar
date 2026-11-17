@@ -1,12 +1,7 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, it, expect, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
 import TabBarItem from '@/features/tabs/components/tab-bar-item'
-import type { BranchReviewContent, EditorContent } from '@/features/panes/types/pane-content'
-import { useSidebarFocusMode } from '@/components/layout/use-sidebar-focus-mode'
-import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
-import { useSettingsStore } from '@/features/settings/store'
-import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
-import { publishFocusedWorkspaceContext } from '@/features/window/stores/focused-workspace-context-store'
+import type { EditorContent } from '@/features/panes/types/pane-content'
 import { resetEntities, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
 vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
@@ -83,55 +78,7 @@ describe('TabBarItem on a locked workspace', () => {
   })
 })
 
-describe('TabBarItem sidebar surface', () => {
-  // The mode follows focus only with the opt-in setting on.
-  beforeEach(() => {
-    useSettingsStore.setState({
-      settings: { ...getDefaultSettingsSnapshot(), sidebarFollowsFocus: true },
-    })
-  })
-  function FocusMode() {
-    useSidebarFocusMode()
-    return null
-  }
-  const reviewBuffer: BranchReviewContent = {
-    id: 'review-1',
-    type: 'branchReview',
-    name: 'Branch Review',
-    wsId: 'w1',
-    isPinned: false,
-    workspaceId: 'w1',
-  }
-
-  beforeEach(() => {
-    treeUiStore.setState({ activeTab: 'chats' })
-    publishFocusedWorkspaceContext({
-      projectId: 'p1',
-      workspaceId: 'w1',
-      isProjectHome: false,
-      repoId: 'r1',
-      repoPath: '/repo',
-      rootPath: '/repo',
-    })
-  })
-
-  it('focusing an editor tab shows Files, and a review tab shows Git', () => {
-    render(
-      <>
-        <FocusMode />
-        <TabBarItem buffer={editorBuffer} isActive {...shared} />
-        <TabBarItem buffer={reviewBuffer} isActive {...shared} displayName="Branch Review" />
-      </>,
-    )
-    const [editorTab, reviewTab] = screen.getAllByRole('tab')
-    // Focus only moves the mode once the user has pressed something.
-    fireEvent.pointerDown(document.body)
-    act(() => editorTab.focus())
-    expect(treeUiStore.getState().activeTab).toBe('files')
-    act(() => reviewTab.focus())
-    expect(treeUiStore.getState().activeTab).toBe('git')
-  })
-
+describe('TabBarItem title', () => {
   it('exposes the full title of a long tab to assistive tech and the hover tooltip', async () => {
     const title = 'Crowbar - Bring your own agent. Keep your own context. Always.'
     const browserBuffer = {

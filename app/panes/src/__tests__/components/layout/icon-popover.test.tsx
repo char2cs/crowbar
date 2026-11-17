@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // @base-ui/react ships pure ESM and gets its own React copy in the
 // vitest/jsdom process. Popover/Avatar are mocked to plain, always-"open"
 // markup so this file can exercise IconPopover's own logic — which button
-// calls onStage vs. the network — without fighting Base UI's real
+// calls the network — without fighting Base UI's real
 // open/close mechanics.
 vi.mock('@/components/ui/popover', () => ({
   Popover: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -57,7 +57,7 @@ const baseProps = {
   fallbackLarge: <span>fallback-large</span>,
 }
 
-describe('IconPopover — real (non-staged) mode is unchanged', () => {
+describe('IconPopover — editing an icon', () => {
   it('emoji submit PUTs to base/icon/emoji', () => {
     render(<IconPopover {...baseProps} base="/v0/projects/p1" />)
     fireEvent.click(screen.getByRole('button', { name: 'Emoji' }))
@@ -252,85 +252,20 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
   })
 })
 
-describe('IconPopover — onStage mode stages locally instead of mutating the network', () => {
-  it('emoji submit calls onStage, never apiFetch', () => {
-    const onStage = vi.fn()
-    render(<IconPopover {...baseProps} onStage={onStage} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Emoji' }))
-    fireEvent.change(screen.getByPlaceholderText('Type an emoji…'), {
-      target: { value: '🎉' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Set' }))
-
-    expect(onStage).toHaveBeenCalledExactlyOnceWith({ kind: 'emoji', emoji: '🎉' })
-    expect(apiFetch).not.toHaveBeenCalled()
-  })
-
-  it('reset calls onStage with kind reset, never apiFetch', () => {
-    const onStage = vi.fn()
-    render(<IconPopover {...baseProps} onStage={onStage} emoji="🎉" />)
-    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
-
-    expect(onStage).toHaveBeenCalledExactlyOnceWith({ kind: 'reset' })
-    expect(apiFetch).not.toHaveBeenCalled()
-  })
-
-  // Desktop path: isTauri() true means Upload opens the native folder/file
-  // dialog rather than the hidden <input>, same branch the real mutation
-  // path already takes.
-  it('a Tauri-picked upload path calls onStage with a convertFileSrc preview, never apiFetch', async () => {
-    isTauri.mockReturnValue(true)
-    openDialog.mockResolvedValue('/Users/me/icon.png')
-    const onStage = vi.fn()
-    render(<IconPopover {...baseProps} onStage={onStage} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-
-    await vi.waitFor(() =>
-      expect(onStage).toHaveBeenCalledExactlyOnceWith({
-        kind: 'path',
-        path: '/Users/me/icon.png',
-        previewUrl: 'asset://staged/Users/me/icon.png',
-      }),
-    )
-    expect(apiFetch).not.toHaveBeenCalled()
-  })
-
-  // A staged preview URL (blob:/asset://) is a one-shot local pick, not the
-  // app's own stable proxy URL — appending the usual cache-bust query param
-  // to it would break it outright, so `src` must not do that in this mode.
-  it('does not append a cache-busting query param to a staged iconUrl', () => {
-    const onStage = vi.fn()
-    render(
-      <IconPopover {...baseProps} onStage={onStage} iconUrl="asset://staged/Users/me/icon.png" />,
-    )
-    // The mocked Popover renders trigger and content at once (both carry
-    // their own <img>), so assert over all of them rather than assume one.
-    const imgs = Array.from(document.querySelectorAll('img')) as HTMLImageElement[]
-    expect(imgs.length).toBeGreaterThan(0)
-    for (const img of imgs) {
-      expect(img.src).not.toContain('?v=')
-    }
-    expect(imgs.some((img) => img.src === 'asset://staged/Users/me/icon.png')).toBe(true)
-  })
-
-  // Regression: the big preview used to render ONLY AvatarImage when `src`
-  // was set, with no AvatarFallback sibling — Base UI's Fallback needs to
-  // be mounted alongside Image to catch a failed load at all, so any `src`
-  // that fails to load (the asset protocol was disabled when this first
-  // surfaced; even enabled, a bad path still can) rendered a blank square
-  // instead of falling back to the default glyph. Both must always be
-  // mounted together when there's a `src`.
-  it('mounts AvatarFallback alongside AvatarImage whenever src is set, so a failed load has somewhere to fall back to', () => {
-    const onStage = vi.fn()
+describe('IconPopover — a stored icon', () => {
+  // Regression: the big preview used to render ONLY AvatarImage when `src` was set, with no
+  // AvatarFallback sibling. Base UI's Fallback must be mounted alongside Image to catch a failed
+  // load, or a bad `src` renders a blank square instead of the default glyph.
+  it('mounts AvatarFallback alongside AvatarImage, so a failed load has somewhere to fall back to', () => {
     render(
       <IconPopover
         {...baseProps}
-        onStage={onStage}
-        iconUrl="asset://staged/Users/me/icon.png"
+        base="/v0/projects/p1"
+        iconUrl="/v0/projects/p1/icon"
         fallbackLarge={<span data-testid="fallback-large">fallback-large</span>}
       />,
     )
-    expect(document.querySelector('img[src="asset://staged/Users/me/icon.png"]')).not.toBeNull()
+    expect(document.querySelector('img[src^="/v0/projects/p1/icon"]')).not.toBeNull()
     expect(screen.getByTestId('fallback-large')).toBeInTheDocument()
   })
 })

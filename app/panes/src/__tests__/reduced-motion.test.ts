@@ -53,14 +53,6 @@ describe('spinner exemption hooks in the exempted components', () => {
     expect(read('components/ui/spinner.tsx')).toContain('animate-spin')
   })
 
-  it('inline spinners that rely on the .animate-spin exemption still use the plain class', () => {
-    for (const file of ['components/oobe/oobe-screen.tsx']) {
-      // The plain utility (not only a variant form) must be present — the
-      // class exemption matches `.animate-spin` and nothing else.
-      expect(read(file), file).toMatch(/[\s"']animate-spin[\s"']/)
-    }
-  })
-
   it('toast loading icons (variant-class spin) carry data-essential-motion', () => {
     const toast = read('components/ui/toast.tsx')
     const overlay = read('components/layout/sidebar-toast-overlay.tsx')

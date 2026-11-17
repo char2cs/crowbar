@@ -4,7 +4,6 @@ import type { GitFile, GitStatus } from '@/features/git/types/git-types'
 import {
   createFileTreeGitStatusLookup,
   getFileTreeEntryGitStatusDecoration,
-  getFileTreeGitStatusDecoration,
 } from '@/features/file-explorer/file-explorer/lib/file-tree-git-status'
 
 const gitFile = (path: string, status: GitFile['status'], staged = false): GitFile => ({
@@ -19,15 +18,20 @@ const fileEntry = (path: string, isDir = false): FileEntry => ({
   isDir,
 })
 
-describe('getFileTreeGitStatusDecoration', () => {
+const decorationOf = (file: GitFile) =>
+  createFileTreeGitStatusLookup({ branch: 'main', ahead: 0, behind: 0, files: [file] }).files.get(
+    file.path,
+  )
+
+describe('file tree git status colors', () => {
   test('maps modified files to staged and unstaged colors', () => {
-    expect(getFileTreeGitStatusDecoration(gitFile('src/app.ts', 'modified'))).toEqual({
+    expect(decorationOf(gitFile('src/app.ts', 'modified'))).toEqual({
       colorClassName: 'text-git-modified',
       label: 'Modified',
       statusLetter: 'M',
     })
 
-    expect(getFileTreeGitStatusDecoration(gitFile('src/app.ts', 'modified', true))).toEqual({
+    expect(decorationOf(gitFile('src/app.ts', 'modified', true))).toEqual({
       colorClassName: 'text-git-modified-staged',
       label: 'Modified (staged)',
       statusLetter: 'M',
@@ -35,22 +39,22 @@ describe('getFileTreeGitStatusDecoration', () => {
   })
 
   test('maps non-modified statuses to their file tree colors', () => {
-    expect(getFileTreeGitStatusDecoration(gitFile('added.ts', 'added'))).toEqual({
+    expect(decorationOf(gitFile('added.ts', 'added'))).toEqual({
       colorClassName: 'text-git-added',
       label: 'Added',
       statusLetter: 'A',
     })
-    expect(getFileTreeGitStatusDecoration(gitFile('deleted.ts', 'deleted'))).toEqual({
+    expect(decorationOf(gitFile('deleted.ts', 'deleted'))).toEqual({
       colorClassName: 'text-git-deleted',
       label: 'Deleted',
       statusLetter: 'D',
     })
-    expect(getFileTreeGitStatusDecoration(gitFile('untracked.ts', 'untracked'))).toEqual({
+    expect(decorationOf(gitFile('untracked.ts', 'untracked'))).toEqual({
       colorClassName: 'text-git-untracked',
       label: 'Untracked',
       statusLetter: 'U',
     })
-    expect(getFileTreeGitStatusDecoration(gitFile('renamed.ts', 'renamed'))).toEqual({
+    expect(decorationOf(gitFile('renamed.ts', 'renamed'))).toEqual({
       colorClassName: 'text-git-renamed',
       label: 'Renamed',
       statusLetter: 'R',

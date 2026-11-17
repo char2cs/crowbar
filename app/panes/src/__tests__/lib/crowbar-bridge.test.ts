@@ -25,8 +25,8 @@ describe('the desktop window commands', () => {
   it('reach the desktop app', async () => {
     const { invoke, bridge } = await loadInTauri(MAC)
     expect(bridge.isDesktopApp()).toBe(true)
-    await bridge.setTrafficLightPosition(12, 33)
-    expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 33 })
+    await bridge.setMacOSWindowAppearance('dark')
+    expect(invoke).toHaveBeenCalledWith('set_vibrancy_appearance', { dark: true })
   })
 
   // The shell destroys a closing window's page without `pagehide`, which drafts and held removals
@@ -58,12 +58,8 @@ describe('the desktop window commands', () => {
     const { invoke, bridge } = await loadInTauri(IPHONE)
     expect(bridge.isTauri()).toBe(true)
     expect(bridge.isDesktopApp()).toBe(false)
-    await bridge.setTrafficLightPosition(12, 33)
     await bridge.setMacOSWindowAppearance('dark')
-    await bridge.setConsoleMenuChord('cmd+`')
     await bridge.revealItemInFinder('/tmp/a')
-    const unlisten = await bridge.onConsoleMenuToggle(() => {})
-    unlisten()
     ;(await bridge.hidePageOnWindowClose())()
     expect(invoke).not.toHaveBeenCalled()
   })

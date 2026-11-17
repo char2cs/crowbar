@@ -15,12 +15,6 @@ export function projectBase(projectId: string): string {
   return qualify(hostIdForProject(projectId), projectPath(projectId))
 }
 
-/** {@link projectBase} for a host the caller chose itself — the project it just created there
- *  is not in the project list yet, so its row cannot name the host. */
-export function projectBaseOnHost(hostId: string, projectId: string): string {
-  return qualify(hostId, projectPath(projectId))
-}
-
 /** The REST/WS base of a repo: `/v0/projects/:p/repos/:r`, qualified with its project's host. */
 export function repoBase(projectId: string, repoId: string): string {
   const path = `${projectPath(projectId)}/repos/${encodeURIComponent(repoId)}`

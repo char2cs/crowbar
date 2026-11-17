@@ -20,7 +20,7 @@ describe('jump list — back/forward over file navigation history', () => {
     actions().clear()
   })
 
-  // Mirrors the recorder in use-navigation-history: leaving a buffer pushes the
+  // Leaving a buffer pushes the
   // buffer being left, so after visiting A -> B -> C the stack holds [A, B] and
   // the user is "present" at C.
   const visitAthenBthenC = () => {

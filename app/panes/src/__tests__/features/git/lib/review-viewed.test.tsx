@@ -2,19 +2,10 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { IDBFactory } from 'fake-indexeddb'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  isFileViewed,
-  useReviewViewed,
-  useReviewViewedById,
-} from '@/features/git/lib/review-viewed'
+import { isFileViewed, useReviewViewed } from '@/features/git/lib/review-viewed'
 import type { GitDiff } from '@/features/git/types/git-types'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import {
-  destroyWorkspaceStore,
-  detachedWorkspaceStore,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
 import { viewedMapOf } from '@/__tests__/__fixtures__/viewed'
 import {
   loadBranchReviewViewed,
@@ -85,40 +76,5 @@ describe('useReviewViewed', () => {
 
     act(() => result.current.setFilesViewed([files[0]], false))
     await waitFor(() => expect(viewedCount(result.current.viewed, files)).toBe(1))
-  })
-})
-
-describe('useReviewViewedById', () => {
-  it('reads the registered store with no provider, and stays inert until enabled', async () => {
-    const store = getOrCreateWorkspaceStore('ws-side')
-    try {
-      const a = file('a.ts')
-      await saveBranchReviewViewed('ws-side', await viewedMapOf([a]))
-
-      const { result, rerender } = renderHook(
-        ({ enabled }) => useReviewViewedById('ws-side', enabled),
-        { initialProps: { enabled: false } },
-      )
-      // Hidden panel: nothing is read from IndexedDB.
-      expect(store.getState().viewedLoaded).toBe(false)
-      expect(result.current.loaded).toBe(false)
-
-      rerender({ enabled: true })
-      await waitFor(() => expect(result.current.loaded).toBe(true))
-      expect(viewedCount(result.current.viewed, [a])).toBe(1)
-
-      act(() => result.current.setFilesViewed([a], false))
-      await waitFor(() => expect(viewedCount(result.current.viewed, [a])).toBe(0))
-      await waitFor(async () => expect(await loadBranchReviewViewed('ws-side')).toEqual({}))
-    } finally {
-      destroyWorkspaceStore('ws-side')
-    }
-  })
-
-  it('never loads for a workspace that is not mounted', async () => {
-    const { result } = renderHook(() => useReviewViewedById('ws-missing', true))
-    await act(async () => {})
-    expect(result.current.loaded).toBe(false)
-    expect(detachedWorkspaceStore().getState().viewedLoaded).toBe(false)
   })
 })

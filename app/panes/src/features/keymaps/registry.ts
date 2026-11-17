@@ -26,8 +26,6 @@ export const AGENT_ZOOM_RESET = 'agent.zoomReset'
 const EDITOR_SAVE = 'editor.save'
 const EDITOR_SAVE_ALL = 'editor.saveAll'
 
-export const TOGGLE_CONSOLE = 'navigation.toggleConsole'
-
 export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
 export const SIDEBAR_TAB_GIT = 'navigation.sidebarGit'
 export const SIDEBAR_TAB_CHATS = 'navigation.sidebarChats'
@@ -192,15 +190,8 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   // --- Navigation (live-editable) ---
-  {
-    id: TOGGLE_CONSOLE,
-    label: 'Toggle console',
-    category: 'Navigation',
-    defaultChord: 'mod+`',
-    liveEditable: true,
-  },
   // The digit IS the mode's position in the sidebar mode bar (Chats, Files,
-  // Git). Project switching rides mod+shift+digit (use-space-switcher-keyboard.ts).
+  // Git).
   {
     id: SIDEBAR_TAB_CHATS,
     label: 'Sidebar: Chats',

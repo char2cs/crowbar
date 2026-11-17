@@ -1,29 +1,13 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { BranchReviewShortcutButton } from '@/features/tabs/components/branch-review-shortcut-button'
 import TabNavigationButtons from '@/features/tabs/components/tab-navigation-buttons'
-import { SidebarProjectHeader } from '@/components/layout/sidebar-project-header'
 
-// SidebarProjectHeader reads useSidebar() only for the toggle's label and click
-// handler — neither affects the styling under test — so stub it rather than
-// stand up a SidebarProvider.
-vi.mock('@/components/ui/sidebar', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/components/ui/sidebar')>()),
-  useSidebar: () => ({ open: true, toggleSidebar: () => {} }),
-}))
-
-// The sidebar toggle exists twice: in SidebarProjectHeader while the sidebar is
-// open, and in the tab bar once it is hidden. They occupy the same corner, so
-// any divergence in size/radius/hover reads as the button changing shape when
-// you collapse the sidebar — which is exactly what happened when the tab-bar
-// copy was left on `icon-xs` (24px/8px) beside `icon-sm` peers (28px/6px).
-//
-// Compare the full class list rather than spot-checking a token: the drift was
-// three separate properties, and only whole-recipe equality catches the next one.
+// Compare the full class list rather than spot-checking a token: drift is several separate
+// properties, and only whole-recipe equality catches the next one.
 const classesOf = (el: HTMLElement) => new Set(el.className.split(/\s+/).filter(Boolean))
 
-// The mirror is the one legitimate difference — both toggles flip when the
-// sidebar is docked right, and only the toggles carry it.
+// The mirror is the one legitimate difference: the toggle flips when the sidebar is docked right.
 const MIRROR = 'scale-x-[-1]'
 const withoutMirror = (el: HTMLElement) => {
   const classes = classesOf(el)
@@ -54,24 +38,6 @@ describe('tab bar toolbar button parity', () => {
     const branchReview = classesOf(screen.getByRole('button', { name: 'Review this branch' }))
 
     expect(diff(toggle, branchReview)).toEqual([[], []])
-  })
-
-  it('renders the same toggle whether the sidebar is hidden or shown', () => {
-    const { unmount } = render(
-      <TabNavigationButtons
-        isBottomPane={false}
-        sidebarOpen={false}
-        sidebarPosition="left"
-        onToggleSidebar={() => {}}
-      />,
-    )
-    const hidden = withoutMirror(screen.getByRole('button', { name: 'Show sidebar' }))
-    unmount()
-
-    render(<SidebarProjectHeader />)
-    const shown = withoutMirror(screen.getByRole('button', { name: /sidebar$/i }))
-
-    expect(diff(hidden, shown)).toEqual([[], []])
   })
 
   it('mirrors only when the sidebar is docked right', () => {

@@ -1,10 +1,5 @@
 import { apiFetch } from '@/lib/api/fetch'
-import { operationHeaders, type OperationReply } from '@/core/entities/run-operation'
-import {
-  reviewBaseForWorkspace as reviewBase,
-  workspaceBase,
-  worktreeVerbBaseForWorkspace,
-} from '@/lib/workspace-scope-url'
+import { reviewBaseForWorkspace as reviewBase, workspaceBase } from '@/lib/workspace-scope-url'
 import type { DiffScope } from './review-window-api'
 import type { MultiFileDiff } from '../types/git-diff-types'
 import type {
@@ -136,34 +131,6 @@ export async function getReviewFiles(scope: DiffScope): Promise<ReviewFileSummar
 }
 
 // ── Writes ──────────────────────────────────────────────────────────
-
-/** Merge the branch into its parent; 202 with the operation under `opId`. deleteSource removes
- *  the merged child after a clean merge (a conflict keeps it). */
-export function mergeIntoParent(
-  wsId: string,
-  strategy: MergeStrategy,
-  deleteSource: boolean,
-  opId: string,
-): Promise<OperationReply> {
-  return apiFetch<OperationReply>(`${worktreeVerbBaseForWorkspace(wsId)}/merge-into-parent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...operationHeaders(opId) },
-    body: JSON.stringify({ strategy, deleteSource }),
-  })
-}
-
-/** PATCH the merge strategy for a workspace. */
-export async function setMergeStrategy(
-  wsId: string,
-  mergeStrategy: MergeStrategy,
-): Promise<MergeStrategy> {
-  const res = await apiFetch<{ mergeStrategy: MergeStrategy }>(reviewBase(wsId), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mergeStrategy }),
-  })
-  return res.mergeStrategy
-}
 
 export interface OpenThreadInput {
   filePath: string

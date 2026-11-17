@@ -38,17 +38,6 @@ export function handleTrash(id: string, drainMs?: number): boolean {
   return true
 }
 
-// Trashes a whole PROJECT through the same tray (§9); `RemovalTray` confirms the cascading kinds
-// before commit, so no dialog up front. False for an id no loaded project claims.
-export function handleTrashProject(projectId: string): boolean {
-  const currentRepos = readSelect(selectRepos)
-  const projects = readSelect(selectProjects)
-  const drafts = planRemoval([{ kind: 'project', id: projectId }], currentRepos, projects)
-  if (drafts.length === 0) return false
-  treeUiStore.getState().hold(drafts)
-  return true
-}
-
 // Trashes a whole REPO, which `handleTrash` cannot: the repo-home row resolves to its default
 // branch, and trashing that would delete one branch out from under the repo.
 export function handleTrashRepo(repoId: string): boolean {

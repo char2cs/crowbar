@@ -3,7 +3,6 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, onTestFinished,
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useWorkspaceGit } from '@/features/workspace/stores/hooks/use-workspace-git'
 import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
-import { useSidebarChangedFiles } from '@/features/git/hooks/use-sidebar-changed-files'
 import {
   markGitStatusChanged,
   requestGitRefresh,
@@ -322,9 +321,9 @@ describe('on an install that has paired a remote host', () => {
 describe('files summary ownership', () => {
   afterEach(() => destroyWorkspaceStore('ws-test'))
 
-  // The sidebar tree and the Files changed tab both read the workspace store's
-  // reviewFiles; the store alone fetches it when the git tick fires.
-  it('fetches the summary once per git tick for every consumer of the workspace', async () => {
+  // The Files changed tab reads the workspace store's reviewFiles; the store alone fetches it
+  // when the git tick fires.
+  it('fetches the summary once per git tick', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test', owningChatId: 'chat-test' })
     fetchGitData.mockResolvedValue({ status, commits: [], reviewFiles: [] })
     getReviewFiles.mockResolvedValue([])
@@ -335,7 +334,7 @@ describe('files summary ownership', () => {
     const { result } = renderHook(
       () => {
         useWorkspaceGit('ws-test', true, 'chat-test', false)
-        return { sidebar: useSidebarChangedFiles('ws-test'), tab: useReviewFilesSummary('ws-test') }
+        return { tab: useReviewFilesSummary('ws-test') }
       },
       { wrapper },
     )

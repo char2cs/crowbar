@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {
-  SidebarFileRow,
-  SidebarFileRowCounts,
-  TreeGuides,
-} from '@/components/sidebar/sidebar-file-row'
+import { SidebarFileRow, TreeGuides } from '@/components/sidebar/sidebar-file-row'
 import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 
 describe('SidebarFileRow', () => {
@@ -97,21 +93,5 @@ describe('SidebarFileRow', () => {
     await user.click(box)
     expect(onToggle).toHaveBeenCalledTimes(1)
     expect(onClick).not.toHaveBeenCalled()
-  })
-})
-
-describe('SidebarFileRowCounts', () => {
-  it('formats counts through the shared change-count formatter', () => {
-    render(<SidebarFileRowCounts additions={1500} deletions={3} />)
-    expect(screen.getByText('+2k')).toBeInTheDocument()
-    expect(screen.getByText('-3')).toBeInTheDocument()
-  })
-
-  it('omits a zero side and renders nothing when both are zero', () => {
-    const { container, rerender } = render(<SidebarFileRowCounts additions={0} deletions={4} />)
-    expect(screen.queryByText(/^\+/)).toBeNull()
-    expect(screen.getByText('-4')).toBeInTheDocument()
-    rerender(<SidebarFileRowCounts additions={0} deletions={0} />)
-    expect(container).toBeEmptyDOMElement()
   })
 })

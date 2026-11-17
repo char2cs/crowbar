@@ -157,4 +157,4 @@ export function SelectItem({
   )
 }
 
-export { SelectPrimitive, SelectPopup as SelectContent }
+export { SelectPopup as SelectContent }

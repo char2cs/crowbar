@@ -18,12 +18,6 @@ export interface Project {
   hostId: string
 }
 
-export interface Prerequisites {
-  git: { installed: boolean; version?: string }
-  gh: { installed: boolean; authed: boolean }
-  glab: { installed: boolean; authed: boolean }
-}
-
 // ---------------------------------------------------------------------------
 // Canonical DTOs (§5): camelCase mirrors of Go's `api/v0/dto`, as cached and as read.
 // ---------------------------------------------------------------------------

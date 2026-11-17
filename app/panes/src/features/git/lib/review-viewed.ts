@@ -1,7 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { useStore } from 'zustand'
 import type { GitDiff } from '@/features/git/types/git-types'
-import { useRegisteredWorkspaceStore } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 
@@ -48,11 +47,4 @@ function useViewedOf(store: WorkspaceStore, enabled: boolean): ReviewViewed {
  *  where the review is shown. */
 export function useReviewViewed(): ReviewViewed {
   return useViewedOf(useWorkspaceStore(), true)
-}
-
-/** The same for a surface outside the provider (the sidebar), by `wsId`. Loads only while
- *  `enabled` and the workspace is mounted (otherwise the registry returns a detached store). */
-export function useReviewViewedById(wsId: string, enabled: boolean): ReviewViewed {
-  const store = useRegisteredWorkspaceStore(wsId)
-  return useViewedOf(store, enabled && wsId !== '' && store.getState().workspaceId === wsId)
 }

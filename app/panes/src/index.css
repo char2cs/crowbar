@@ -177,14 +177,6 @@ html[data-row-dragging] * {
   cursor: grabbing !important;
 }
 
-/* A row dragged past the mandatory-snap carousel's edge makes WebKit scroll it a whole space away.
-   `hidden`, not `clip`, keeps programmatic scrollTo working; will-change restores the composited
-   layer `hidden` drops, without which every drag frame repaints the whole sidebar. */
-html[data-row-dragging] [data-sidebar-carousel] {
-  overflow-x: hidden;
-  will-change: transform;
-}
-
 /* One stepped translate of a sprite strip (-100% = `frames` frame-widths). Outside `@theme`:
    Tailwind emits those keyframes only for a used `--animate-*` utility, and this one is composed
    inline, so it would be tree-shaken from production. */
