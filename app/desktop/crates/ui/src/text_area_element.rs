@@ -16,7 +16,8 @@ use crate::text_area_layout::TextAreaLayout;
 use crate::text_area_scroll::{clamp, reveal};
 use crate::text_area_shape::TextAreaShape;
 use crate::text_area_surface::TextAreaSurface;
-use crate::text_input_element::{CARET_WIDTH, caret_color};
+use crate::text_input_element::CARET_WIDTH;
+use crate::text_paint::caret_color;
 use crate::viewport::Viewport;
 
 pub(crate) struct TextAreaElement<S: TextAreaSurface> {

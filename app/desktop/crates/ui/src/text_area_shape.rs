@@ -5,7 +5,8 @@ use gpui::{App, Entity, Hsla, Pixels, SharedString, TextRun, TextStyle, Window};
 use crate::shaping::Shaping;
 use crate::text_area_layout::TextAreaLayout;
 use crate::text_area_surface::TextAreaSurface;
-use crate::text_input_element::{PLACEHOLDER_OPACITY, runs_for};
+use crate::text_input_element::PLACEHOLDER_OPACITY;
+use crate::text_paint::runs_for;
 
 pub(crate) struct TextAreaShape<S: TextAreaSurface> {
     area: Entity<S>,

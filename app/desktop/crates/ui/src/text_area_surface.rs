@@ -1,26 +1,23 @@
 //! What the text area element needs from the field it paints.
 
-use std::ops::Range;
+use gpui::EntityInputHandler;
 
+use crate::field_editable::FieldEditable;
+use crate::field_focus::FieldFocus;
+use crate::field_selection::FieldSelection;
+use crate::field_text::FieldText;
 use crate::selection_drag::SelectionDrag;
-use gpui::{Bounds, EntityInputHandler, FocusHandle, Pixels, SharedString};
+use crate::text_area_caret::TextAreaCaret;
+use crate::text_area_sink::TextAreaSink;
 
-use crate::text_area_layout::TextAreaLayout;
-
-pub(crate) trait TextAreaSurface: EntityInputHandler + SelectionDrag {
-    fn content(&self) -> &str;
-    fn hint(&self) -> &SharedString;
-    fn marked_range(&self) -> Option<Range<usize>>;
-    fn selected_range(&self) -> Range<usize>;
-    fn cursor(&self) -> usize;
-    fn scroll(&self) -> Pixels;
-    fn revealed(&self) -> usize;
-    fn editable(&self) -> bool;
-    fn input_focus(&self) -> FocusHandle;
-    fn record_layout(
-        &mut self,
-        layout: TextAreaLayout,
-        bounds: Bounds<Pixels>,
-        scroll: Pixels,
-    );
+pub(crate) trait TextAreaSurface:
+    EntityInputHandler
+    + SelectionDrag
+    + FieldText
+    + FieldSelection
+    + FieldFocus
+    + FieldEditable
+    + TextAreaCaret
+    + TextAreaSink
+{
 }

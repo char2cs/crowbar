@@ -1,86 +1,19 @@
 //! Wrapped lines of a text area with the geometry the caret, selection and mouse need.
 
-use std::ops::Range;
-
-use gpui::{App, Bounds, Pixels, Point, TextAlign, Window, WrappedLine, point, px, size};
+use gpui::{Pixels, Point, Window, WrappedLine, point, px};
 
 use crate::direction::Direction;
 use crate::pose::Pose;
 use crate::shaping::Shaping;
+use crate::text_area_rows::{edges_of, span_of, text_row};
 use crate::text_row::TextRow;
-
-const NEWLINE_WIDTH: f32 = 4.0;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TextAreaLayout {
-    lines: Vec<WrappedLine>,
-    starts: Vec<usize>,
-    rows: Vec<TextRow>,
-    line_height: Pixels,
-}
-
-fn break_index(
-    wrapped: &WrappedLine,
-    boundary: &gpui::WrapBoundary,
-) -> usize {
-    wrapped
-        .runs()
-        .get(boundary.run_ix)
-        .and_then(|run| run.glyphs.get(boundary.glyph_ix))
-        .map_or(0, |glyph| glyph.index)
-}
-
-fn caret_before(
-    wrapped: &WrappedLine,
-    end: usize,
-) -> usize {
-    wrapped
-        .text
-        .get(..end)
-        .and_then(|head| head.chars().next_back())
-        .map_or(end, |last| end - last.len_utf8())
-}
-
-fn caret_edge(
-    wrapped: &WrappedLine,
-    to: usize,
-    closes_line: Pose,
-) -> usize {
-    if closes_line == Pose::On {
-        return to;
-    }
-    caret_before(wrapped, to)
-}
-
-fn text_row(
-    wrapped: &WrappedLine,
-    start: usize,
-    span: Range<usize>,
-    closes: Pose,
-) -> TextRow {
-    TextRow {
-        bytes: start + span.start..start + span.end,
-        caret_end: start + caret_edge(wrapped, span.end, closes),
-        top: px(0.0),
-        origin: wrapped.unwrapped_layout.x_for_index(span.start),
-        line: 0,
-        closes_line: closes == Pose::On,
-    }
-}
-
-fn span_of(pair: &[usize]) -> Range<usize> {
-    pair.first().copied().unwrap_or(0)..pair.last().copied().unwrap_or(0)
-}
-
-fn edges_of(wrapped: &WrappedLine) -> Vec<usize> {
-    let breaks = wrapped
-        .wrap_boundaries()
-        .iter()
-        .map(|boundary| break_index(wrapped, boundary));
-    std::iter::once(0)
-        .chain(breaks)
-        .chain(std::iter::once(wrapped.len()))
-        .collect()
+    pub(crate) lines: Vec<WrappedLine>,
+    pub(crate) starts: Vec<usize>,
+    pub(crate) rows: Vec<TextRow>,
+    pub(crate) line_height: Pixels,
 }
 
 impl TextAreaLayout {
@@ -151,14 +84,14 @@ impl TextAreaLayout {
         self.line_height
     }
 
-    fn row_position(
+    pub(crate) fn row_position(
         &self,
         index: usize,
     ) -> Option<usize> {
         self.rows.iter().position(|row| row.holds(index))
     }
 
-    fn x_in(
+    pub(crate) fn x_in(
         &self,
         row: &TextRow,
         index: usize,
@@ -222,109 +155,14 @@ impl TextAreaLayout {
             Direction::Forward => self.rows.last().map_or(0, |row| row.caret_end),
         }
     }
-
-    pub(crate) fn row_bounds(
-        &self,
-        index: usize,
-    ) -> Range<usize> {
-        let row = self.row_position(index).and_then(|at| self.rows.get(at));
-        row.map_or(index..index, |row| row.bytes.start..row.caret_end)
-    }
-
-    fn band(
-        &self,
-        row: &TextRow,
-        selection: &Range<usize>,
-    ) -> Option<Bounds<Pixels>> {
-        let touches = selection.start <= row.bytes.end && selection.end > row.bytes.start;
-        let from = selection.start.max(row.bytes.start);
-        let to = selection.end.min(row.bytes.end);
-        let newline = row.closes_line && selection.end > row.bytes.end;
-        let blank = from >= to && !newline;
-        if !touches || blank {
-            return None;
-        }
-        let extra = px(NEWLINE_WIDTH * f32::from(u8::from(newline)));
-        let (left, right) = (self.x_in(row, from), self.x_in(row, to) + extra);
-        Some(Bounds::new(
-            point(left, row.top),
-            size(right - left, self.line_height),
-        ))
-    }
-
-    pub(crate) fn selection_bounds(
-        &self,
-        selection: &Range<usize>,
-    ) -> Vec<Bounds<Pixels>> {
-        self.rows
-            .iter()
-            .filter_map(|row| self.band(row, selection))
-            .collect()
-    }
-
-    pub(crate) fn paint(
-        &self,
-        origin: Point<Pixels>,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        for (line, wrapped) in self.lines.iter().enumerate() {
-            let top = self
-                .rows
-                .iter()
-                .find(|row| row.line == line)
-                .map_or(px(0.0), |row| row.top);
-            let painted = wrapped.paint(
-                point(origin.x, origin.y + top),
-                self.line_height,
-                TextAlign::Left,
-                None,
-                window,
-                cx,
-            );
-            debug_assert!(painted.is_ok(), "wrapped line failed to paint");
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use gpui::{TestAppContext, TextRun, VisualTestContext, px};
+    use gpui::{TestAppContext, px};
 
     use super::*;
-
-    const LINE: f32 = 20.0;
-
-    fn run_of(text: &str) -> TextRun {
-        TextRun {
-            len: text.len(),
-            font: gpui::font("Cal Sans UI"),
-            color: gpui::black(),
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        }
-    }
-
-    fn layout_of(
-        text: &'static str,
-        wrap: Option<f32>,
-        cx: &mut VisualTestContext,
-    ) -> TextAreaLayout {
-        let runs = [run_of(text)];
-        let shaping = Shaping {
-            text: text.into(),
-            font_size: px(14.0),
-            runs: &runs,
-            wrap_width: wrap.map(px),
-            line_height: px(LINE),
-        };
-        cx.update(|window, _| TextAreaLayout::shape(shaping, window))
-    }
-
-    fn window(cx: &mut TestAppContext) -> &mut VisualTestContext {
-        crate::test_support::area(cx).1
-    }
+    use crate::test_support::text_layouts::{LINE, layout_of, window};
 
     #[gpui::test]
     fn each_newline_starts_a_row_and_empty_lines_keep_one(cx: &mut TestAppContext) {
@@ -382,18 +220,6 @@ mod tests {
                 "{x},{y}"
             );
         }
-    }
-
-    #[gpui::test]
-    fn selections_become_one_band_per_row(cx: &mut TestAppContext) {
-        let cx = window(cx);
-        let layout = layout_of("abc\n\nde", None, cx);
-        let bands = layout.selection_bounds(&(1..6));
-        assert_eq!(bands.len(), 3);
-        let tops: Vec<f32> = bands.iter().map(|band| f32::from(band.top())).collect();
-        assert_eq!(tops, [0.0, LINE, 2.0 * LINE]);
-        assert!(bands.iter().all(|band| band.size.width > px(0.0)));
-        assert_eq!(layout.selection_bounds(&(2..2)), Vec::new());
     }
 
     #[gpui::test]

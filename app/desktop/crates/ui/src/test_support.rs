@@ -6,6 +6,8 @@ mod channels;
 mod clicks;
 mod field;
 mod probe;
+pub(crate) mod text_layouts;
+pub(crate) mod toast_probe;
 
 pub(crate) use area::{area, area_text, area_with};
 pub(crate) use channels::channel_byte;

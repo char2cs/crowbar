@@ -1,81 +1,32 @@
 //! A single-line text field with selection, clipboard and input-method support.
 
-use std::ops::Range;
-
 use gpui::AppContext as _;
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, Bounds, Context, CursorStyle, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, ShapedLine,
-    SharedString, Styled, Window, div, px,
+    App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, ShapedLine,
+    SharedString, Window,
 };
 
-use crate::chrome::chrome;
-use crate::icon::Icon;
 use crate::icon_name::IconName;
 use crate::opaque_debug::opaque_debug;
 use crate::surface::Surface;
 use crate::text_buffer::TextBuffer;
-use crate::text_input_element::TextInputElement;
 use crate::text_input_event::TextInputEvent;
 use crate::text_input_style::TextInputStyle;
-use crate::text_size;
-use crate::text_surface::TextSurface;
-use crate::theme::Theme;
-
-const ICON_SIZE: f32 = 14.0;
-const ICON_INSET: f32 = 8.0;
-const ICON_CLEARANCE: f32 = 28.0;
 
 /// A text field entity; render it as a child and subscribe to [`TextInputEvent`].
 pub struct TextInput {
     pub(crate) buffer: TextBuffer,
-    placeholder: SharedString,
+    pub(crate) placeholder: SharedString,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) layout: Option<ShapedLine>,
     pub(crate) bounds: Option<Bounds<Pixels>>,
     pub(crate) selecting: bool,
-    surface: Surface,
+    pub(crate) surface: Surface,
     pub(crate) style: TextInputStyle,
-    leading: Option<IconName>,
+    pub(crate) leading: Option<IconName>,
 }
 
 impl EventEmitter<TextInputEvent> for TextInput {}
-
-impl TextSurface for TextInput {
-    fn centered(&self) -> bool {
-        self.style.centered()
-    }
-
-    fn content(&self) -> &str {
-        self.buffer.text()
-    }
-
-    fn hint(&self) -> &SharedString {
-        &self.placeholder
-    }
-
-    fn marked_range(&self) -> Option<Range<usize>> {
-        self.buffer.marked()
-    }
-
-    fn selected_range(&self) -> Range<usize> {
-        self.buffer.selection()
-    }
-
-    fn input_focus(&self) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-
-    fn record_layout(
-        &mut self,
-        line: ShapedLine,
-        bounds: Bounds<Pixels>,
-    ) {
-        self.layout = Some(line);
-        self.bounds = Some(bounds);
-    }
-}
 
 impl Focusable for TextInput {
     fn focus_handle(
@@ -178,108 +129,6 @@ impl TextInput {
         cx.emit(TextInputEvent::Changed(self.buffer.text().to_owned()));
         cx.notify();
     }
-}
-
-impl Render for TextInput {
-    fn render(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) -> impl IntoElement {
-        let theme = *Theme::of(cx);
-        let palette = theme.palette(self.surface);
-        let frame = chrome(
-            palette,
-            theme.appearance(),
-            self.focus_handle.is_focused(window).into(),
-        );
-        let (fill, border, shadows) = self.finish(palette, frame, window);
-        let field = self.field(cx);
-        let left = self
-            .leading
-            .map_or(self.style.padding(), |_| px(ICON_CLEARANCE));
-        Self::bind_actions(field, cx)
-            .relative()
-            .flex()
-            .items_center()
-            .w_full()
-            .h(self.style.height())
-            .pl(left)
-            .pr(self.style.padding())
-            .rounded(self.style.radius())
-            .border_1()
-            .border_color(border)
-            .bg(fill)
-            .text_color(palette.foreground())
-            .text_size(self.style.text(theme))
-            .line_height(text_size::LINE_HEIGHT)
-            .font_family(theme.ui_family())
-            .when(self.style == TextInputStyle::Bare, |d| {
-                d.font_weight(gpui::FontWeight::MEDIUM)
-            })
-            .shadow(shadows)
-            .children(self.leading.map(|icon| leading(icon, palette)))
-            .child(TextInputElement::new(cx.entity(), palette))
-    }
-}
-
-impl TextInput {
-    fn field(
-        &self,
-        cx: &mut Context<'_, Self>,
-    ) -> gpui::Stateful<gpui::Div> {
-        div()
-            .id("ui-text-input")
-            .key_context(crate::text_input_actions::CONTEXT)
-            .track_focus(&self.focus_handle)
-            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
-            .cursor(CursorStyle::IBeam)
-    }
-
-    fn stepper_border(
-        &self,
-        palette: &crate::palette::Palette,
-        border: gpui::Hsla,
-        window: &Window,
-    ) -> gpui::Hsla {
-        if self.focus_handle.is_focused(window) {
-            return border;
-        }
-        palette.border()
-    }
-
-    fn finish(
-        &self,
-        palette: &crate::palette::Palette,
-        frame: crate::chrome::Chrome,
-        window: &Window,
-    ) -> (gpui::Hsla, gpui::Hsla, Vec<gpui::BoxShadow>) {
-        if self.style == TextInputStyle::Bare {
-            let clear = gpui::hsla(0.0, 0.0, 0.0, 0.0);
-            return (clear, clear, Vec::new());
-        }
-        if self.style != TextInputStyle::Stepper {
-            return (frame.fill, frame.border, frame.shadows);
-        }
-        (
-            palette.muted(),
-            self.stepper_border(palette, frame.border, window),
-            Vec::new(),
-        )
-    }
-}
-
-fn leading(
-    icon: IconName,
-    palette: &crate::palette::Palette,
-) -> impl IntoElement {
-    div().absolute().left(px(ICON_INSET)).child(
-        Icon::new(icon)
-            .size(px(ICON_SIZE))
-            .color(palette.muted_foreground()),
-    )
 }
 
 opaque_debug!(TextInput);

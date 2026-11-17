@@ -1,20 +1,14 @@
 //! What the text element needs from the field it paints.
 
-use std::ops::Range;
+use gpui::EntityInputHandler;
 
+use crate::field_focus::FieldFocus;
+use crate::field_selection::FieldSelection;
+use crate::field_text::FieldText;
 use crate::selection_drag::SelectionDrag;
-use gpui::{Bounds, EntityInputHandler, FocusHandle, Pixels, ShapedLine, SharedString};
+use crate::text_input_layout::TextInputLayout;
 
-pub(crate) trait TextSurface: EntityInputHandler + SelectionDrag {
-    fn centered(&self) -> bool;
-    fn content(&self) -> &str;
-    fn hint(&self) -> &SharedString;
-    fn marked_range(&self) -> Option<Range<usize>>;
-    fn selected_range(&self) -> Range<usize>;
-    fn input_focus(&self) -> FocusHandle;
-    fn record_layout(
-        &mut self,
-        line: ShapedLine,
-        bounds: Bounds<Pixels>,
-    );
+pub(crate) trait TextSurface:
+    EntityInputHandler + SelectionDrag + FieldText + FieldSelection + FieldFocus + TextInputLayout
+{
 }

@@ -1,8 +1,6 @@
 //! The list of live toasts: expiry, dismissal, pinning, swipe and placement.
 
-use std::time::Duration;
-
-use gpui::{Context, EventEmitter, SharedString, Task};
+use gpui::{Context, EventEmitter, SharedString};
 
 use crate::opaque_debug::opaque_debug;
 use crate::timing;
@@ -184,27 +182,7 @@ impl ToastQueue {
         cx.notify();
     }
 
-    fn expiry(
-        id: ToastId,
-        timeout: Option<Duration>,
-        cx: &mut Context<'_, Self>,
-    ) -> Option<Task<()>> {
-        timeout.map(|delay| Self::after(delay, id, cx, Self::dismiss))
-    }
-
-    fn after(
-        delay: Duration,
-        id: ToastId,
-        cx: &mut Context<'_, Self>,
-        then: fn(&mut Self, ToastId, &mut Context<'_, Self>),
-    ) -> Task<()> {
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(delay).await;
-            note_dropped(this.update(cx, |queue, cx| then(queue, id, cx)));
-        })
-    }
-
-    fn remove(
+    pub(crate) fn remove(
         &mut self,
         id: ToastId,
         cx: &mut Context<'_, Self>,
@@ -217,35 +195,18 @@ impl ToastQueue {
 
 opaque_debug!(ToastQueue);
 
-fn note_dropped<Failure: std::fmt::Display>(update: Result<(), Failure>) {
-    if let Err(error) = update {
-        tracing::debug!(%error, "toast queue dropped before its timer fired");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use gpui::{AppContext as _, Entity, TestAppContext};
+    use std::time::Duration;
+
+    use gpui::{Entity, TestAppContext};
 
     use super::*;
+    use crate::test_support::toast_probe::{advance, push, queue};
     use crate::toast_kind::ToastKind;
-
-    fn queue(cx: &mut TestAppContext) -> Entity<ToastQueue> {
-        cx.new(|_| ToastQueue::new(ToastPlacement::default()))
-    }
-
-    fn push(
-        queue: &Entity<ToastQueue>,
-        lifetime: ToastLifetime,
-        cx: &mut TestAppContext,
-    ) -> ToastId {
-        queue.update(cx, |queue, cx| {
-            queue.push(ToastContent::new(ToastKind::Info, "Saved"), lifetime, cx)
-        })
-    }
 
     fn show_daemon(
         queue: &Entity<ToastQueue>,
@@ -268,35 +229,6 @@ mod tests {
             sink.borrow_mut().push(*event);
         };
         cx.update(|cx| cx.subscribe(queue, record).detach());
-    }
-
-    fn advance(
-        cx: &mut TestAppContext,
-        by: Duration,
-    ) {
-        cx.executor().advance_clock(by);
-        cx.run_until_parked();
-    }
-
-    #[gpui::test]
-    fn an_automatic_toast_expires_after_five_seconds_and_a_pinned_one_stays(
-        cx: &mut TestAppContext
-    ) {
-        let queue = queue(cx);
-        push(&queue, ToastLifetime::Auto, cx);
-        push(&queue, ToastLifetime::Pinned, cx);
-        advance(
-            cx,
-            timing::TOAST_TIMEOUT.saturating_sub(Duration::from_millis(1)),
-        );
-        assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 2);
-        advance(cx, Duration::from_millis(1) + timing::SLOW);
-        let left = queue.read_with(cx, |queue, _| {
-            queue.entries.iter().map(|e| e.id).collect::<Vec<_>>()
-        });
-        assert_eq!(left, [ToastId(1)]);
-        advance(cx, Duration::from_secs(600));
-        assert_eq!(queue.read_with(cx, |queue, _| queue.len()), 1);
     }
 
     #[gpui::test]
