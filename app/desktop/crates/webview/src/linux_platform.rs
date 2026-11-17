@@ -13,7 +13,7 @@ type Job = Box<dyn FnOnce(&mut GtkState) + Send>;
 #[derive(Debug)]
 pub(crate) struct LinuxPlatform {
     pub(crate) jobs: async_channel::Sender<Job>,
-    thread: Option<thread::JoinHandle<()>>,
+    pub(crate) thread: Option<thread::JoinHandle<()>>,
 }
 
 impl LinuxPlatform {

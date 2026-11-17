@@ -108,12 +108,11 @@ impl BrowsingData for LinuxPlatform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::host_fixtures::silent_host_config;
 
     #[test]
-    #[ignore = "needs display"]
-    fn requests_for_unknown_views_are_logged_not_returned() {
-        let platform = LinuxPlatform::start(silent_host_config()).unwrap();
+    fn requests_for_unknown_views_are_posted_not_answered_with_errors() {
+        let (jobs, _inbox) = async_channel::unbounded();
+        let platform = LinuxPlatform { jobs, thread: None };
         let id = WebViewId(9);
         assert!(
             platform.set_visibility(id, Visibility::Hidden).is_ok(),

@@ -229,16 +229,16 @@ jobs:
           key: build-${{ matrix.name }}
           cache-on-failure: true
       - name: Build release binary (app/desktop/app)
-        run: cd app && cargo build --locked --release -p app
+        run: cd app && cargo build --locked --release -p crowbar_desktop
       - name: Type-check x86_64 macOS (Intel) from the arm64 runner
         if: runner.os == 'macOS'
         run: |
           rustup target add x86_64-apple-darwin
-          cd app && cargo check --locked --release -p app --target x86_64-apple-darwin
+          cd app && cargo check --locked --release -p crowbar_desktop --target x86_64-apple-darwin
       - uses: actions/upload-artifact@v7
         with:
           name: app-${{ matrix.name }}
-          path: app/target/release/app
+          path: app/target/release/crowbar
           if-no-files-found: error
           retention-days: 7
 

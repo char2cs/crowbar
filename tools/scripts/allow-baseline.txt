@@ -1,3 +1,1 @@
 # Lint suppressions: path<TAB>allow-lint:<lint><TAB>count. Counts only shrink; never add or raise an entry.
-app/mobile/ios-plugin/src/ffi.rs	allow-lint:unsafe_code	1
-app/mobile/ios-plugin/src/ios_plugin.rs	allow-lint:clippy::unnecessary_wraps	1

@@ -45,6 +45,7 @@
 
 #[cfg(target_os = "linux")]
 mod adapters;
+#[cfg(target_os = "linux")]
 mod bitmap_rows;
 mod bounds;
 mod browsing_data;
@@ -67,6 +68,7 @@ mod platform;
 mod protocol_handler;
 mod protocol_request;
 mod protocol_response;
+#[cfg(target_os = "linux")]
 mod row_layout;
 mod snapshot;
 #[cfg(test)]
