@@ -39,10 +39,8 @@ app/desktop/app/src/sidebar_requests.rs	real-infra	1
 app/desktop/app/src/startup_command.rs	real-infra	2
 app/desktop/app/src/transport_book.rs	real-infra	1
 app/desktop/crates/daemon_supervisor/src/adapters/log_writer.rs	real-infra	13
-app/desktop/crates/daemon_supervisor/src/daemon_log.rs	real-infra	7
 app/desktop/crates/daemon_supervisor/src/daemon_paths.rs	real-infra	3
 app/desktop/crates/daemon_supervisor/src/locate_binary.rs	real-infra	6
-app/desktop/crates/daemon_supervisor/src/output_pump.rs	real-infra	4
 app/desktop/crates/daemon_supervisor/src/spawn_daemon.rs	real-infra	5
 app/desktop/crates/daemon_supervisor/src/stale_daemon.rs	real-infra	2
 app/desktop/crates/daemon_supervisor/src/supervision.rs	real-infra	2

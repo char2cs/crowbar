@@ -3,6 +3,8 @@ use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+use crate::log_sink::LogSink;
+
 const LOG_MODE: u32 = 0o600;
 const MODE_BITS: u32 = 0o777;
 
@@ -61,8 +63,10 @@ impl LogWriter {
             written,
         })
     }
+}
 
-    pub(crate) fn write(
+impl LogSink for LogWriter {
+    fn append(
         &mut self,
         text: &str,
     ) -> std::io::Result<()> {
@@ -93,8 +97,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.log");
         let mut writer = LogWriter::open(&path, 1 << 20).unwrap();
-        writer.write("one\n").unwrap();
-        writer.write("two\n").unwrap();
+        writer.append("one\n").unwrap();
+        writer.append("two\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\ntwo\n");
         assert_eq!(mode(&path), 0o600);
     }
@@ -141,7 +145,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("daemon.log");
             existing.inspect(|text| std::fs::write(&path, text).unwrap());
-            LogWriter::open(&path, cap).unwrap().write(entry).unwrap();
+            LogWriter::open(&path, cap).unwrap().append(entry).unwrap();
             let aside = std::fs::read_to_string(dir.path().join("daemon.log.1")).ok();
             assert_eq!(std::fs::read_to_string(&path).unwrap(), current, "{name}");
             assert_eq!(aside.as_deref(), rotated, "{name}: rotated");
@@ -154,7 +158,7 @@ mod tests {
         let path = dir.path().join("daemon.log");
         let mut writer = LogWriter::open(&path, 20).unwrap();
         for line in ["aaaaaaaaa\n", "bbbbbbbbb\n", "ccccccccc\n"] {
-            writer.write(line).unwrap();
+            writer.append(line).unwrap();
         }
         assert_eq!(
             std::fs::read_to_string(dir.path().join("daemon.log.1")).unwrap(),

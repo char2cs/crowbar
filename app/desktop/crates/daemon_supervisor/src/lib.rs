@@ -22,6 +22,7 @@ mod fill;
 mod health;
 mod locate_binary;
 mod log_message;
+mod log_sink;
 mod migration_progress;
 mod monitoring;
 mod output_pump;

@@ -7,6 +7,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::adapters::{LogWriter, private_dir};
 use crate::error::Error;
 use crate::log_message::LogMessage;
+use crate::log_sink::LogSink;
 use crate::reply::reply;
 
 const QUEUE_LINES: usize = 512;
@@ -62,23 +63,23 @@ fn format_lines(
 }
 
 fn note_drops(
-    writer: &mut LogWriter,
+    writer: &mut dyn LogSink,
     lost: u64,
 ) -> std::io::Result<()> {
     if lost == 0 {
         return Ok(());
     }
-    writer.write(&format!(
+    writer.append(&format!(
         "[log] {lost} log entries were dropped: the disk is slow\n"
     ))
 }
 
 fn write_message(
-    writer: &mut LogWriter,
+    writer: &mut dyn LogSink,
     message: LogMessage,
 ) -> std::io::Result<()> {
     match message {
-        LogMessage::Text(text) => writer.write(&text),
+        LogMessage::Text(text) => writer.append(&text),
         LogMessage::Flush(done) => {
             reply(done, ());
             Ok(())
@@ -87,18 +88,18 @@ fn write_message(
 }
 
 fn run_writer(
-    mut writer: LogWriter,
+    mut writer: Box<dyn LogSink>,
     mut queue: mpsc::Receiver<LogMessage>,
     dropped: &AtomicU64,
     path: &Path,
 ) {
     while let Some(message) = queue.blocking_recv() {
-        write_next(&mut writer, message, dropped, path);
+        write_next(writer.as_mut(), message, dropped, path);
     }
 }
 
 fn write_next(
-    writer: &mut LogWriter,
+    writer: &mut dyn LogSink,
     message: LogMessage,
     dropped: &AtomicU64,
     path: &Path,
@@ -127,13 +128,19 @@ impl DaemonLog {
             private_dir(dir).map_err(log_error)?;
         }
         let writer = LogWriter::open(path, max_bytes).map_err(log_error)?;
+        Self::over(Box::new(writer), path).map_err(log_error)
+    }
+
+    pub(crate) fn over(
+        sink: Box<dyn LogSink>,
+        label: &Path,
+    ) -> std::io::Result<Self> {
         let (queue, receiver) = mpsc::channel(QUEUE_LINES);
         let dropped = Arc::new(AtomicU64::new(0));
-        let (own, owned_path) = (Arc::clone(&dropped), path.to_path_buf());
+        let (own, owned_label) = (Arc::clone(&dropped), label.to_path_buf());
         std::thread::Builder::new()
             .name("daemon-log".to_owned())
-            .spawn(move || run_writer(writer, receiver, &own, &owned_path))
-            .map_err(log_error)?;
+            .spawn(move || run_writer(sink, receiver, &own, &owned_label))?;
         Ok(Self { queue, dropped })
     }
 
@@ -165,22 +172,20 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
+    use crate::test_support::memory_sink::MemorySink;
+
+    fn memory_log() -> (DaemonLog, MemorySink) {
+        let sink = MemorySink::default();
+        let log = DaemonLog::over(Box::new(sink.clone()), Path::new("memory")).unwrap();
+        (log, sink)
+    }
 
     async fn written(
-        path: &Path,
+        sink: &MemorySink,
         log: &DaemonLog,
     ) -> String {
         log.flush().await;
-        std::fs::read_to_string(path).unwrap()
-    }
-
-    fn log_numbered(
-        log: &DaemonLog,
-        count: u32,
-    ) {
-        for n in 0..count {
-            log.line("[out]", &format!("line number {n}"));
-        }
+        sink.text()
     }
 
     fn log_all(
@@ -196,11 +201,9 @@ mod tests {
 
     async fn assert_lines_written(cases: Vec<(&str, Lines<'_>, &str)>) {
         for (name, lines, expected) in cases {
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join("logs").join("daemon.log");
-            let log = DaemonLog::open(&path, 1 << 20).unwrap();
+            let (log, sink) = memory_log();
             log_all(&log, lines);
-            assert_eq!(written(&path, &log).await, expected, "{name}");
+            assert_eq!(written(&sink, &log).await, expected, "{name}");
         }
     }
 
@@ -234,12 +237,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_line_longer_than_the_cap_is_written_in_pieces_without_splitting_a_character() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        let log = DaemonLog::open(&path, 1 << 20).unwrap();
+        let (log, sink) = memory_log();
         let long = "é".repeat(MAX_LINE_BYTES);
         log.line("[out]", &long);
-        let text = written(&path, &log).await;
+        let text = written(&sink, &log).await;
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 2, "cut once: {} bytes", long.len());
         assert!(
@@ -253,20 +254,6 @@ mod tests {
             .filter_map(|line| line.strip_prefix("[out] "))
             .collect();
         assert_eq!(joined, long, "nothing lost");
-    }
-
-    #[tokio::test]
-    async fn the_log_rotates_by_size_while_the_daemon_runs() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        let log = DaemonLog::open(&path, 40).unwrap();
-        log_numbered(&log, 6);
-        let text = written(&path, &log).await;
-        assert!(dir.path().join("daemon.log.1").exists(), "rotated");
-        assert!(
-            text.len() <= 40 + "[out] line number 5\n".len(),
-            "current file stays near the cap: {text:?}"
-        );
     }
 
     #[test]
@@ -284,12 +271,10 @@ mod tests {
 
     #[tokio::test]
     async fn the_writer_says_how_many_entries_it_had_to_drop() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        let log = DaemonLog::open(&path, 1 << 20).unwrap();
+        let (log, sink) = memory_log();
         log.dropped.store(5, Ordering::Relaxed);
         log.line("[out]", "after");
-        let text = written(&path, &log).await;
+        let text = written(&sink, &log).await;
         assert!(text.contains("[log] 5 log entries were dropped"), "{text}");
         assert!(text.ends_with("[out] after\n"), "{text}");
     }

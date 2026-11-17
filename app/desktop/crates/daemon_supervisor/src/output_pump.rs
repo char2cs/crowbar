@@ -119,12 +119,14 @@ pub(crate) fn capture(
 #[cfg(test)]
 mod tests {
     use std::io::ErrorKind;
+    use std::path::Path;
     use std::pin::Pin;
     use std::task::{Context, Poll};
 
     use tokio::io::{AsyncWriteExt, ReadBuf};
 
     use super::*;
+    use crate::test_support::memory_sink::MemorySink;
 
     fn lines_of(chunks: &[&[u8]]) -> Vec<Vec<u8>> {
         let (mut pending, mut out) = (Vec::new(), Vec::new());
@@ -134,17 +136,21 @@ mod tests {
         out
     }
 
+    fn memory_log() -> (Arc<DaemonLog>, MemorySink) {
+        let sink = MemorySink::default();
+        let log = DaemonLog::over(Box::new(sink.clone()), Path::new("memory")).unwrap();
+        (Arc::new(log), sink)
+    }
+
     async fn pumped(input: &[u8]) -> String {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        let log = Arc::new(DaemonLog::open(&path, 1 << 20).unwrap());
+        let (log, sink) = memory_log();
         let (mut writer, reader) = tokio::io::duplex(1024);
         let task = tokio::spawn(pump(reader, "[out]", Arc::clone(&log)));
         writer.write_all(input).await.unwrap();
         drop(writer);
         task.await.unwrap();
         log.flush().await;
-        std::fs::read_to_string(&path).unwrap()
+        sink.text()
     }
 
     /// Fails `failures` times, then yields `data` and ends.
@@ -169,12 +175,10 @@ mod tests {
     }
 
     async fn pumped_from(reader: Flaky) -> String {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("daemon.log");
-        let log = Arc::new(DaemonLog::open(&path, 1 << 20).unwrap());
+        let (log, sink) = memory_log();
         pump(reader, "[err]", Arc::clone(&log)).await;
         log.flush().await;
-        std::fs::read_to_string(&path).unwrap()
+        sink.text()
     }
 
     #[test]
