@@ -54,6 +54,12 @@ impl PageState {
         self.loading
     }
 
+    /// The page title, once the page has set one.
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
     /// The tab label: the title, else the host, else a placeholder.
     #[must_use]
     pub fn name(&self) -> String {
@@ -83,12 +89,14 @@ mod tests {
     }
 
     #[test]
-    fn a_new_navigation_forgets_the_old_title() {
+    fn a_title_belongs_to_its_page_and_a_new_navigation_forgets_it() {
         let mut state = PageState::at("https://a.test");
+        assert_eq!(state.title(), None);
         state.apply(PageUpdate::title("Old"));
+        assert_eq!(state.title(), Some("Old"));
         state.apply(PageUpdate::Loading {
             url: "https://b.test".into(),
         });
-        assert_eq!(state.name(), "b.test");
+        assert_eq!((state.title(), state.name().as_str()), (None, "b.test"));
     }
 }

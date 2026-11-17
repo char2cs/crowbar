@@ -174,6 +174,7 @@ impl ShellView {
         self.system_fonts = crate::installed_fonts::installed(cx);
         self.announce_start(cx);
         self.spawn_tasks(queue, window, cx);
+        self.attach_agent_peer();
         self.refresh(cx);
         self.watch_keymap();
         self.watch_appearance(cx);
@@ -234,6 +235,7 @@ impl ShellView {
         });
         self.announce_evictions(cx);
         self.sync(cx);
+        self.state.publish_tabs();
         cx.notify();
     }
 

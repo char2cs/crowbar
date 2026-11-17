@@ -8,7 +8,7 @@ use tokio::sync::oneshot;
 use crate::expectation::Expectation;
 use crate::pending_forget::PendingForget;
 use crate::pending_reply::PendingReply;
-use crate::reply_scope::ReplyScope;
+use crate::reply_scope::{ReplyScope, merged};
 
 /// The requests that wait for an answer, shared by the loop that serves the daemon and the shell
 /// that does the work.
@@ -39,6 +39,14 @@ impl Replies {
             id.to_owned(),
             receiver,
         )
+    }
+
+    /// Whether request `id` is still waiting for an answer.
+    pub fn is_waiting(
+        &self,
+        id: &str,
+    ) -> bool {
+        self.lock().contains_key(id)
     }
 
     /// The shell answers request `id`. `false` when nobody waits for it any more.
@@ -105,10 +113,12 @@ impl Replies {
         }
     }
 
-    /// `pane` finished loading: answers the requests that waited for this load.
+    /// `pane` finished loading and shows `page`: answers the requests that waited for this
+    /// load with their result and, when both are objects, the fields of `page` added to it.
     pub fn loaded(
         &self,
         pane: &str,
+        page: &Value,
     ) {
         let ready: Vec<String> = self
             .lock()
@@ -117,18 +127,20 @@ impl Replies {
             .map(|(id, _)| id.clone())
             .collect();
         for id in ready {
-            self.finish_load(&id);
+            self.finish_load(&id, page);
         }
     }
 
     fn finish_load(
         &self,
         id: &str,
+        page: &Value,
     ) {
         let Some(entry) = self.lock().remove(id) else {
             return;
         };
         if let ReplyScope::LoadEnd { result, .. } = entry.scope {
+            let result = merged(result, page);
             let delivered = entry.sender.send(AgentAnswer::Done(result)).is_ok();
             tracing::debug!(delivered, "a navigation finished loading");
         }
@@ -217,16 +229,19 @@ mod tests {
     async fn a_navigation_is_answered_by_the_load_it_started_not_by_one_already_running() {
         let replies = Arc::new(Replies::default());
         let wait = replies.register("1", Some("b1"));
-        assert!(replies.after_load("1", "b1", json!({"url":"http://a.test/"})));
-        replies.loaded("b1");
+        let page = json!({"url":"http://a.test/","loading":false});
+        assert!(replies.after_load("1", "b1", json!({"tab":"b1"})));
+        replies.loaded("b1", &page);
         replies.loading("b2");
-        replies.loaded("b2");
-        replies.loading("b1");
-        replies.loaded("b1");
-        assert_eq!(
-            wait.wait(LIMIT).await,
-            AgentAnswer::Done(json!({"url":"http://a.test/"}))
+        replies.loaded("b2", &page);
+        assert!(
+            replies.is_waiting("1"),
+            "neither load was the one it waited for"
         );
+        replies.loading("b1");
+        replies.loaded("b1", &page);
+        let expected = json!({"tab":"b1","url":"http://a.test/","loading":false});
+        assert_eq!(wait.wait(LIMIT).await, AgentAnswer::Done(expected));
     }
 
     #[tokio::test(start_paused = true)]

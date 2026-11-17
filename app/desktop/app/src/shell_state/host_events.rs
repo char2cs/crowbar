@@ -102,13 +102,22 @@ impl ShellState {
         update: browser_nav::PageUpdate,
         outcome: &mut Outcome,
     ) {
+        self.pages.apply(pane.clone(), update.clone());
         match update {
-            browser_nav::PageUpdate::Loading { url } => outcome.pages.push((pane, url)),
+            browser_nav::PageUpdate::Loading { url } => {
+                self.replies.loading(pane.as_str());
+                outcome.pages.push((pane, url));
+            },
             browser_nav::PageUpdate::Loaded { url } => {
+                self.replies.loaded(pane.as_str(), &self.page_shown(&pane));
                 outcome.pages.push((pane.clone(), url.clone()));
+                outcome.loaded.push(pane.clone());
                 self.save_address(pane, &url);
             },
             browser_nav::PageUpdate::Title { title } => self.set_page_title(pane, title, outcome),
+            browser_nav::PageUpdate::AgentReply { id, answer } => {
+                self.replies.from_page(pane.as_str(), &id, answer);
+            },
             pick => outcome.picks.push((pane, pick)),
         }
     }

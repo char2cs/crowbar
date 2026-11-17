@@ -1,4 +1,4 @@
-use model::{Command, Layout, PaneInstance, Placement, TabId};
+use model::{Command, Layout, PaneInstance, Placement, Tab, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
 use crate::error::Result;
@@ -44,6 +44,13 @@ pub(crate) fn open_at(
     })
 }
 
+pub(crate) fn open_in_tab(
+    tab: &Tab,
+    instance: PaneInstance,
+) -> Command {
+    crate::stack_policy::place(tab, instance)
+}
+
 fn open_pane(
     tab: TabId,
     instance: PaneInstance,
@@ -70,7 +77,7 @@ fn focus_commands(
     layout: &Layout,
     pane: &PaneId,
 ) -> Vec<Command> {
-    let tab = layout.tab_of(pane).map(model::Tab::id);
+    let tab = layout.tab_of(pane).map(Tab::id);
     let mut commands: Vec<Command> = tab
         .map(|tab| Command::ActivateTab { tab })
         .into_iter()
@@ -150,7 +157,7 @@ mod tests {
                 "{name}: focus"
             );
             assert_eq!(
-                layout.active_tab().map(model::Tab::id),
+                layout.active_tab().map(Tab::id),
                 Some(TabId(1)),
                 "{name}: tab"
             );

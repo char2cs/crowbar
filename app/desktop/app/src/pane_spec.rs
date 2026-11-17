@@ -1,5 +1,5 @@
 use model::{Command, Layout, PaneInstance};
-use protocol::{PaneState, PaneTypeId, Params};
+use protocol::{PaneId, PaneState, PaneTypeId, Params};
 use serde_json::json;
 
 use crate::core_panes::{BROWSER, CONSOLE, NEW_TAB, REVIEW, TERMINAL};
@@ -39,6 +39,18 @@ impl PaneSpec {
             params,
             state,
         })
+    }
+
+    pub(crate) fn instance(
+        self,
+        pane_id: PaneId,
+    ) -> PaneInstance {
+        PaneInstance {
+            pane_id,
+            type_id: self.type_id,
+            params: self.params,
+            state: self.state,
+        }
     }
 
     pub(crate) fn of(instance: &PaneInstance) -> Self {
@@ -100,6 +112,21 @@ impl PaneSpec {
         let params = Params::default().with("browserId", id)?;
         Self::new(BROWSER, params, PaneState::default())
     }
+
+    pub(crate) fn agent_browser(
+        id: &str,
+        chat: &str,
+        url: Option<&str>,
+    ) -> Result<Self> {
+        let params = Params::default()
+            .with("browserId", id)?
+            .with(THREAD_ID, chat)?;
+        let state = match url {
+            Some(url) => PaneState::new(json!({ "url": url }))?,
+            None => PaneState::default(),
+        };
+        Self::new(BROWSER, params, state)
+    }
 }
 
 const THREAD_ID: &str = "threadId";
@@ -116,6 +143,15 @@ fn opened_instance(command: &mut Command) -> Option<&mut PaneInstance> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_browser_an_agent_opens_names_its_chat_and_its_first_page() {
+        let spec = PaneSpec::agent_browser("b1", "c1", Some("http://a.test/")).unwrap();
+        assert_eq!(spec.params.get("threadId"), Some("c1"));
+        assert_eq!(spec.state.as_value()["url"], "http://a.test/");
+        let blank = PaneSpec::agent_browser("b2", "c1", None).unwrap();
+        assert_eq!(blank.state, PaneState::default());
+    }
 
     #[test]
     fn a_new_pane_starts_with_its_state_and_an_open_one_is_only_focused() {

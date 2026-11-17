@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use browser_agent::{AgentCommand, run_peer};
 use browser_chrome::BrowserBarEvent;
 use browser_nav::{BrowserUrl, SearchEngine, resolve_address};
 use gpui::Context;
@@ -7,10 +10,41 @@ use protocol::PaneId;
 use settings_ui::{Key, SettingsRead as _, Value};
 
 use super::ShellView;
+use crate::agent_requests::AgentRequests;
 use crate::browser_homepage::{HOMEPAGE_KEY, homepage_state};
+use crate::daemon_peer::DaemonPeer;
 use crate::search_engine_setting::{CUSTOM_URL_KEY, ENGINE_KEY, engine_from};
 
 impl ShellView {
+    pub(super) fn attach_agent_peer(&mut self) {
+        let commands = Arc::new(AgentRequests::new(self.requests.clone()));
+        let session = self.state.peer_session(commands);
+        let peer = DaemonPeer::new(Arc::clone(&self.link.daemon));
+        self.link.handle().spawn(async move {
+            run_peer(&peer, session).await;
+        });
+    }
+
+    pub(super) fn run_agent(
+        &mut self,
+        command: &AgentCommand,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let parent = self.placement.map(|(parent, _)| parent);
+        self.state.run_agent(command, parent);
+        self.refresh(cx);
+    }
+
+    pub(super) fn run_deferred_agent(
+        &mut self,
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let parent = self.placement.map(|(parent, _)| parent);
+        self.state.run_deferred(pane, parent);
+        self.refresh(cx);
+    }
+
     pub(super) fn browse(
         &mut self,
         pane: &PaneId,

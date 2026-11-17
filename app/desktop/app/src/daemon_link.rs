@@ -28,6 +28,7 @@ pub(crate) struct DaemonLink {
     options: AppOptions,
     state: Arc<LinkState>,
     transport: Arc<dyn DaemonTransport>,
+    pub(crate) daemon: Arc<Transport>,
     registry: Arc<HostRegistry>,
     desk: shell_data::HostDesk,
     phases: async_channel::Receiver<StartupInput>,
@@ -57,13 +58,15 @@ impl DaemonLink {
         let (state, locator) = linked();
         let state = Arc::new(state);
         runtime.block_on(launch::try_launch(options, &state, &sender));
-        let (transport, registry, tokens) = runtime.block_on(build_transport(options, locator))?;
+        let (transport, daemon, registry, tokens) =
+            runtime.block_on(build_transport(options, locator))?;
         let desk = host_desk(options, &registry, tokens)?;
         Ok(Self {
             runtime,
             options: options.clone(),
             state,
             transport,
+            daemon,
             registry,
             desk,
             phases,
@@ -123,6 +126,7 @@ async fn build_transport(
     locator: watch::Receiver<Option<PathBuf>>,
 ) -> Result<(
     Arc<dyn DaemonTransport>,
+    Arc<Transport>,
     Arc<HostRegistry>,
     Arc<dyn TokenStore>,
 )> {
@@ -137,6 +141,7 @@ async fn build_transport(
         Arc::clone(&tokens),
     ));
     let origins = ExactOrigins::new(vec![CORE_ORIGIN.to_owned()], CORE_ORIGIN);
+    let daemon = Arc::clone(&transport);
     let relay = Relay::start(
         Arc::clone(&transport),
         Arc::new(origins),
@@ -149,7 +154,7 @@ async fn build_transport(
         transport,
         Arc::new(relay),
     );
-    Ok((Arc::new(shell), registry, tokens))
+    Ok((Arc::new(shell), daemon, registry, tokens))
 }
 
 #[cfg(test)]

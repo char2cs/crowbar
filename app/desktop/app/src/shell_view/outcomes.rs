@@ -22,6 +22,7 @@ impl ShellView {
             dropped,
             commands,
             pages,
+            loaded,
             picks,
             settings,
         } = outcome;
@@ -46,6 +47,10 @@ impl ShellView {
         }
         if titles_changed {
             self.refresh(cx);
+        }
+        self.state.publish_tabs();
+        for pane in &loaded {
+            self.run_deferred_agent(pane, cx);
         }
     }
 

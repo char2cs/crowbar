@@ -1,9 +1,13 @@
 use std::path::Path;
 
 use model::{Command, LayoutHistory};
+use std::sync::Arc;
+
+use browser_agent::Replies;
 use pane_host::{Keyboard, PaneHost};
 
 use crate::browser_ids::BrowserIds;
+use crate::browser_pages::BrowserPages;
 use crate::closed_panes::ClosedPanes;
 use crate::dirty_panes::DirtyPanes;
 use crate::error::{Error, Result};
@@ -16,9 +20,14 @@ use crate::terminal_ids::TerminalIds;
 use crate::titles::Titles;
 
 mod accessors;
+mod agent_call;
+mod agent_ops;
+mod agent_page;
+mod agent_tabs;
 mod host_events;
 mod host_settings;
 mod opening;
+mod page_step;
 mod renaming;
 
 pub(crate) struct ShellState {
@@ -36,6 +45,10 @@ pub(crate) struct ShellState {
     closed: ClosedPanes,
     frozen: FrozenLayer,
     keyboard: Keyboard,
+    pages: BrowserPages,
+    replies: Arc<Replies>,
+    pending_loads: crate::pending_loads::PendingLoads,
+    tabs_out: tokio::sync::watch::Sender<Vec<browser_agent::TabInfo>>,
 }
 
 impl std::fmt::Debug for ShellState {
@@ -81,6 +94,10 @@ impl ShellState {
             closed: ClosedPanes::default(),
             frozen: FrozenLayer::default(),
             keyboard: Keyboard::default(),
+            pages: BrowserPages::default(),
+            replies: Arc::default(),
+            pending_loads: crate::pending_loads::PendingLoads::default(),
+            tabs_out: tokio::sync::watch::channel(Vec::new()).0,
         })
     }
 

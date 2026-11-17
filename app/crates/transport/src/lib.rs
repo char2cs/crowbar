@@ -70,6 +70,8 @@ mod shell_transport;
 mod socket_locator;
 mod socket_trust;
 mod stream_access;
+#[cfg(feature = "loopback")]
+mod text_loopback;
 mod text_stream;
 mod tls_config;
 mod token_book;

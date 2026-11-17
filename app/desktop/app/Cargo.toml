@@ -16,6 +16,7 @@ path = "src/main.rs"
 anyhow = "1"
 atomic_file.workspace = true
 async-channel.workspace = true
+browser_agent.workspace = true
 browser_chrome.workspace = true
 browser_nav.workspace = true
 branch_import_view.workspace = true
@@ -25,7 +26,8 @@ remote_folder_picker.workspace = true
 command_palette.workspace = true
 daemon_supervisor.workspace = true
 gpui.workspace = true
-image.workspace = true
+image = { workspace = true, features = ["png"] }
+base64 = "0.22"
 layout_view.workspace = true
 model.workspace = true
 pane_host.workspace = true
@@ -53,6 +55,7 @@ window_state.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+transport = { workspace = true, features = ["loopback"] }
 webview = { workspace = true, features = ["mock"] }
 
 [lints]

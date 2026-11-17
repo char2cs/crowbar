@@ -10,13 +10,26 @@ use crate::visible_pane::VisiblePane;
 const PARKED_WIDTH: f64 = 1280.0;
 const PARKED_HEIGHT: f64 = 800.0;
 
+fn parked(pane: &PaneId) -> VisiblePane {
+    let bounds = Bounds {
+        x: 0.0,
+        y: 0.0,
+        width: PARKED_WIDTH,
+        height: PARKED_HEIGHT,
+    };
+    VisiblePane {
+        pane: pane.clone(),
+        bounds,
+    }
+}
+
 impl PaneHost {
     /// Gives a browser pane that has never been shown a hidden web view, so its page can load
     /// and be driven before anyone looks at it. A pane that already has a view is left alone;
     /// showing the pane later places the same view.
     ///
     /// # Errors
-    /// [`Error::NotShown`] when `pane` is not a browser pane of the last synced layout and
+    /// [`Error::NotShown`] when `pane` is not a browser pane of `layout` and
     /// [`Error::WebView`] when the web view layer fails.
     pub fn wake_browser(
         &mut self,
@@ -24,6 +37,7 @@ impl PaneHost {
         pane: &PaneId,
         layout: &Layout,
     ) -> Result<()> {
+        self.track(layout, pane);
         let runtime = self
             .panes
             .get(pane)
@@ -37,16 +51,16 @@ impl PaneHost {
             .get(&runtime.type_id)
             .cloned()
             .ok_or_else(|| Error::NotShown(pane.clone()))?;
-        let parked = VisiblePane {
-            pane: pane.clone(),
-            bounds: Bounds {
-                x: 0.0,
-                y: 0.0,
-                width: PARKED_WIDTH,
-                height: PARKED_HEIGHT,
-            },
-        };
-        self.assign_slot(parent, &pane_type, (&parked, layout))
+        self.assign_slot(parent, &pane_type, (&parked(pane), layout))
+    }
+
+    /// Whether a browser pane has a web view now, shown or hidden.
+    #[must_use]
+    pub fn has_view(
+        &self,
+        pane: &PaneId,
+    ) -> bool {
+        self.browser_slot(pane).is_ok()
     }
 
     /// The pixels the page of a browser pane shows now; `None` when the backend cannot read
@@ -107,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_synced_browser_pane_can_be_woken_and_captured() {
+    fn only_a_browser_pane_of_the_layout_can_be_woken_and_captured() {
         let mut f = fixture();
         f.host
             .registry_mut()
@@ -115,14 +129,11 @@ mod tests {
             .unwrap();
         f.sync(&[instance("p1", "core.chat")], &[], None);
         let chat = PaneId::new("p1").unwrap();
-        assert!(matches!(
-            f.host.wake_browser(WINDOW, &chat, &f.layout),
-            Err(Error::NotShown(_))
-        ));
-        assert!(matches!(
-            f.host.wake_browser(WINDOW, &browser_id(), &f.layout),
-            Err(Error::NotShown(_))
-        ));
+        let cases = [chat, browser_id()];
+        for pane in cases {
+            let woken = f.host.wake_browser(WINDOW, &pane, &f.layout);
+            assert!(matches!(woken, Err(Error::NotShown(_))), "{pane}");
+        }
         assert!(matches!(
             f.host.capture_browser(&browser_id()),
             Err(Error::NotShown(_))

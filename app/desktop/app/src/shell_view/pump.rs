@@ -1,5 +1,6 @@
 use gpui::{Context, Window};
 use pane_host::IpcMessage;
+use protocol::PaneId;
 use startup_view::StartupInput;
 use tab_bar::{MemberKind, MemberView};
 
@@ -12,7 +13,7 @@ const TERMINAL_LABEL: &str = "Terminal";
 
 pub(super) fn member(
     (titles, layout): (&crate::titles::Titles, &model::Layout),
-    pane: &protocol::PaneId,
+    pane: &PaneId,
 ) -> MemberView {
     let title = titles.get(pane);
     let kind = kind_of(layout, pane);
@@ -29,7 +30,7 @@ pub(super) fn member(
 
 fn kind_of(
     layout: &model::Layout,
-    pane: &protocol::PaneId,
+    pane: &PaneId,
 ) -> MemberKind {
     match layout.pane(pane).map(|instance| instance.type_id.as_str()) {
         Some(crate::core_panes::TERMINAL) => MemberKind::Terminal,
@@ -123,6 +124,7 @@ impl ShellView {
                 self.choose_in_new_tab((&pane, action), window, cx);
             },
             ShellRequest::Browse { pane, event } => self.browse(&pane, event, cx),
+            ShellRequest::Agent(command) => self.run_agent(&command, cx),
             ShellRequest::Command(command) => self.run_shell_command(command, window, cx),
             ShellRequest::Overlays { open } => {
                 self.overlays_open = open;
@@ -219,7 +221,7 @@ mod tests {
     ];
 
     fn layout_holding(
-        pane: &protocol::PaneId,
+        pane: &PaneId,
         type_id: &str,
     ) -> model::Layout {
         let mut layout = model::Layout::default();
@@ -247,7 +249,7 @@ mod tests {
     }
 
     fn titled(
-        pane: &protocol::PaneId,
+        pane: &PaneId,
         title: Option<&str>,
     ) -> Titles {
         let titles = Titles::default();
@@ -260,7 +262,7 @@ mod tests {
     #[test]
     fn a_member_carries_its_pane_and_a_title_or_the_kind_default_until_one_arrives() {
         for (type_id, title, (kind, label, provisional)) in CASES {
-            let pane = protocol::PaneId::new("p7").unwrap();
+            let pane = PaneId::new("p7").unwrap();
             let titles = titled(&pane, title);
             let member = member((&titles, &layout_holding(&pane, type_id)), &pane);
             assert_eq!(
