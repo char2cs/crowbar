@@ -7,7 +7,7 @@ use model::Command;
 use pairing_view::{PairingEvent, PairingView};
 use settings_ui::{Chord, Primary};
 use shell_diagnostics::LogPaths;
-use shell_keys::{Keystroke, ShellCommand};
+use shell_keys::{Keystroke, Modifier, ShellCommand};
 use sidebar::{CommandSink as _, Mode, Sidebar, SidebarData as _};
 
 use super::ShellView;
@@ -215,11 +215,22 @@ impl ShellView {
 
 fn keystroke_of(stroke: &gpui::Keystroke) -> Keystroke {
     let modifiers = stroke.modifiers;
+    let primary = if PRIMARY_IS_COMMAND {
+        modifiers.platform
+    } else {
+        modifiers.control
+    };
+    let held = [
+        (primary, Modifier::Primary),
+        (modifiers.shift, Modifier::Shift),
+        (modifiers.alt, Modifier::Alt),
+    ];
     Keystroke {
-        primary: (PRIMARY_IS_COMMAND && modifiers.platform)
-            || (!PRIMARY_IS_COMMAND && modifiers.control),
-        shift: modifiers.shift,
-        alt: modifiers.alt,
+        modifiers: held
+            .into_iter()
+            .filter(|(down, _)| *down)
+            .map(|(_, modifier)| modifier)
+            .collect(),
         key: stroke.key.clone(),
     }
 }

@@ -27,7 +27,6 @@ app/desktop/crates/daemon_supervisor/tests/daemon_supervisor.rs	allow-lint:clipp
 app/desktop/crates/shell_data/src/file_tree_reads.rs	allow-lint:clippy::cast_possible_truncation	1
 app/desktop/crates/shell_data/src/relay_dial.rs	allow-lint:clippy::result_large_err	2
 app/desktop/crates/shell_data/src/relay_dial.rs	allow-lint:clippy::unnecessary_wraps	1
-app/desktop/crates/shell_keys/src/keystroke.rs	allow-lint:clippy::struct_excessive_bools	1
 app/desktop/crates/terminal_view/examples/terminal_demo/main.rs	allow-lint:clippy::cast_possible_truncation	1
 app/desktop/crates/terminal_view/examples/terminal_demo/main.rs	allow-lint:clippy::cast_sign_loss	1
 app/desktop/crates/terminal_view/examples/terminal_demo/main.rs	allow-lint:clippy::print_stderr	1

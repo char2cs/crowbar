@@ -1,6 +1,7 @@
 use protocol::{CommandId, KeyBinding, KeyChord};
 
 use crate::keystroke::Keystroke;
+use crate::modifier::Modifier;
 
 const SLOTS: std::ops::RangeInclusive<u8> = 1..=9;
 const COMMAND_PREFIX: &str = "navigation.selectProject.";
@@ -19,7 +20,8 @@ pub fn project_slot_of_command(id: &str) -> Option<u8> {
 /// The slot a `mod+shift+<digit>` key press selects; the chord is fixed, never rebound.
 #[must_use]
 pub fn project_slot_of_stroke(stroke: &Keystroke) -> Option<u8> {
-    let is_chord = stroke.primary && stroke.shift && !stroke.alt;
+    let held = |modifier| stroke.modifiers.contains(modifier);
+    let is_chord = held(Modifier::Primary) && held(Modifier::Shift) && !held(Modifier::Alt);
     if !is_chord {
         return None;
     }
@@ -46,10 +48,17 @@ mod tests {
         modifiers: &str,
         key: &str,
     ) -> Keystroke {
+        let held = [
+            ('m', Modifier::Primary),
+            ('s', Modifier::Shift),
+            ('a', Modifier::Alt),
+        ];
         Keystroke {
-            primary: modifiers.contains('m'),
-            shift: modifiers.contains('s'),
-            alt: modifiers.contains('a'),
+            modifiers: held
+                .into_iter()
+                .filter(|(letter, _)| modifiers.contains(*letter))
+                .map(|(_, modifier)| modifier)
+                .collect(),
             key: key.to_owned(),
         }
     }

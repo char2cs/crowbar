@@ -67,15 +67,13 @@ impl ShellView {
 mod tests {
     use std::collections::BTreeMap;
 
-    use shell_keys::{Keystroke, ShellCommand};
+    use shell_keys::{Keystroke, Modifier, ShellCommand};
 
     use super::*;
 
     fn press(chord_key: &str) -> Keystroke {
         Keystroke {
-            primary: true,
-            shift: false,
-            alt: false,
+            modifiers: [Modifier::Primary].into_iter().collect(),
             key: chord_key.to_owned(),
         }
     }
@@ -105,7 +103,7 @@ mod tests {
         ];
         for (stored, key, expected) in cases {
             let mut stroke = press(key);
-            stroke.shift = true;
+            stroke.modifiers = [Modifier::Primary, Modifier::Shift].into_iter().collect();
             assert_eq!(
                 keymap_for(stored, Some(&compact)).resolve(&stroke),
                 expected,

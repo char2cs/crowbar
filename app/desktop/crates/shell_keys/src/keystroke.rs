@@ -1,23 +1,21 @@
 use crate::chord_text::dom_key;
+use crate::modifier::Modifier;
+use crate::modifiers::Modifiers;
 
 /// One key press as the shell's windowing layer reports it, free of any toolkit type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "three independent modifier keys mirror what the windowing layer reports"
-)]
 pub struct Keystroke {
-    /// The platform primary modifier is down: Command on macOS, Control elsewhere.
-    pub primary: bool,
-    /// Shift is down.
-    pub shift: bool,
-    /// Alt or Option is down.
-    pub alt: bool,
+    /// The modifier keys held down with the key.
+    pub modifiers: Modifiers,
     /// The key as the toolkit names it, for example `t`, `left` or `enter`.
     pub key: String,
 }
 
-const MAX_PARTS: usize = 4;
+const CHORD_NAMES: [(Modifier, &str); 3] = [
+    (Modifier::Primary, "mod"),
+    (Modifier::Shift, "shift"),
+    (Modifier::Alt, "alt"),
+];
 
 impl Keystroke {
     /// The canonical chord text (`mod+shift+t`), the notation of the keybindings settings and
@@ -25,17 +23,11 @@ impl Keystroke {
     #[must_use]
     pub fn chord(&self) -> Option<String> {
         let key = dom_key(&self.key)?;
-        let mut parts = Vec::with_capacity(MAX_PARTS);
-        if self.primary {
-            parts.push("mod");
-        }
-        if self.shift {
-            parts.push("shift");
-        }
-        if self.alt {
-            parts.push("alt");
-        }
-        parts.push(&key);
+        let held = CHORD_NAMES
+            .iter()
+            .filter(|(modifier, _)| self.modifiers.contains(*modifier))
+            .map(|&(_, name)| name);
+        let parts: Vec<&str> = held.chain(std::iter::once(key.as_str())).collect();
         Some(parts.join("+"))
     }
 }
@@ -48,10 +40,17 @@ mod tests {
         modifiers: &str,
         key: &str,
     ) -> Keystroke {
+        let held = [
+            ("mod", Modifier::Primary),
+            ("shift", Modifier::Shift),
+            ("alt", Modifier::Alt),
+        ];
         Keystroke {
-            primary: modifiers.contains("mod"),
-            shift: modifiers.contains("shift"),
-            alt: modifiers.contains("alt"),
+            modifiers: held
+                .into_iter()
+                .filter(|(name, _)| modifiers.contains(name))
+                .map(|(_, modifier)| modifier)
+                .collect(),
             key: key.to_owned(),
         }
     }
