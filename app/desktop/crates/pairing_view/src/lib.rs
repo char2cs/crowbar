@@ -5,10 +5,12 @@
 //! [`PairingEvent::Paired`] when the host is paired and [`PairingEvent::Close`] when it is dismissed.
 
 mod look;
+mod pairing_action;
 mod pairing_event;
 mod pairing_source;
 mod pairing_view;
 mod stage_copy;
+mod stage_widgets;
 
 pub use pairing_event::PairingEvent;
 pub use pairing_view::PairingView;

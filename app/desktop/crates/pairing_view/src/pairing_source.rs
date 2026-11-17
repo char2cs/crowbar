@@ -4,19 +4,13 @@ use std::sync::Arc;
 
 use shell_data::{PairingSession, PairingState};
 
+use crate::pairing_action::PairingAction;
+
 pub(crate) trait PairingSource {
     fn state(&self) -> PairingState;
-    fn edited(&self);
-    fn submit_address(
+    fn act(
         &self,
-        name: &str,
-        address: &str,
-    );
-    fn confirm(&self);
-    fn back(&self);
-    fn submit_code(
-        &self,
-        code: &str,
+        action: PairingAction,
     );
 }
 
@@ -25,31 +19,19 @@ impl PairingSource for Arc<PairingSession> {
         PairingSession::state(self)
     }
 
-    fn edited(&self) {
-        PairingSession::edited(self);
-    }
-
-    fn submit_address(
+    fn act(
         &self,
-        name: &str,
-        address: &str,
+        action: PairingAction,
     ) {
-        PairingSession::submit_address(self, name, address);
-    }
-
-    fn confirm(&self) {
-        PairingSession::confirm(self);
-    }
-
-    fn back(&self) {
-        PairingSession::back(self);
-    }
-
-    fn submit_code(
-        &self,
-        code: &str,
-    ) {
-        PairingSession::submit_code(self, code);
+        match action {
+            PairingAction::Edited => PairingSession::edited(self),
+            PairingAction::SubmitAddress { name, address } => {
+                PairingSession::submit_address(self, &name, &address);
+            },
+            PairingAction::Confirm => PairingSession::confirm(self),
+            PairingAction::Back => PairingSession::back(self),
+            PairingAction::SubmitCode(code) => PairingSession::submit_code(self, &code),
+        }
     }
 }
 

@@ -4,22 +4,24 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, AppContext as _, Context, Div, Entity, EventEmitter, IntoElement, ParentElement,
-    Render, SharedString, Styled, Subscription, Window, div,
+    Context, Div, Entity, EventEmitter, IntoElement, ParentElement,
+    Render, Styled, Subscription, Window, div,
 };
 use shell_data::{PairingPending, PairingSession, PairingStage, PairingState};
 use ui::{
-    Button, ButtonSize, ButtonVariant, Dialog, DialogSize, Palette, Surface, TextInput,
-    TextInputEvent, TextInputStyle, Theme,
+    Dialog, DialogSize, Palette, Surface, TextInput,
+    TextInputEvent, Theme,
 };
 
 use crate::look::{
-    ADDRESS_PLACEHOLDER, CODE_PLACEHOLDER, FINGERPRINT_PAD, FINGERPRINT_TINT, GAP, LABEL_GAP,
-    NAME_PLACEHOLDER, TEXT, TITLE,
+    ADDRESS_PLACEHOLDER, CODE_PLACEHOLDER, GAP,
+    NAME_PLACEHOLDER, TITLE,
 };
+use crate::pairing_action::PairingAction;
 use crate::pairing_event::PairingEvent;
 use crate::pairing_source::PairingSource;
 use crate::stage_copy;
+use crate::stage_widgets;
 
 const FIELDS: usize = 3;
 
@@ -47,55 +49,6 @@ impl std::fmt::Debug for PairingView {
 
 impl EventEmitter<PairingEvent> for PairingView {}
 
-fn field(
-    placeholder: &'static str,
-    cx: &mut Context<'_, PairingView>,
-) -> Entity<TextInput> {
-    cx.new(|cx| {
-        TextInput::new(placeholder, cx)
-            .on(Surface::Window)
-            .style(TextInputStyle::Compact)
-    })
-}
-
-fn muted(palette: &Palette) -> Div {
-    div().text_size(TEXT).text_color(palette.muted_foreground())
-}
-
-fn labelled(
-    label: &'static str,
-    palette: &Palette,
-    input: &Entity<TextInput>,
-) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(LABEL_GAP)
-        .child(muted(palette).child(label))
-        .child(input.clone())
-}
-
-fn fingerprint_box(
-    palette: &Palette,
-    fingerprint: &str,
-    mono: &'static str,
-) -> Div {
-    div()
-        .p(FINGERPRINT_PAD)
-        .rounded_md()
-        .bg(palette.accent().opacity(FINGERPRINT_TINT))
-        .text_size(TEXT)
-        .font_family(mono)
-        .child(SharedString::from(fingerprint.to_owned()))
-}
-
-fn text_of(
-    input: &Entity<TextInput>,
-    cx: &Context<'_, PairingView>,
-) -> String {
-    input.read(cx).text().to_owned()
-}
-
 impl PairingView {
     /// A dialog over `session`, with the name field focused.
     pub fn new(
@@ -111,9 +64,9 @@ impl PairingView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        let name = field(NAME_PLACEHOLDER, cx);
-        let address = field(ADDRESS_PLACEHOLDER, cx);
-        let code = field(CODE_PLACEHOLDER, cx);
+        let name = stage_widgets::field(NAME_PLACEHOLDER, cx);
+        let address = stage_widgets::field(ADDRESS_PLACEHOLDER, cx);
+        let code = stage_widgets::field(CODE_PLACEHOLDER, cx);
         name.read(cx).focus(window);
         let inputs = [&name, &address, &code].map(|input| cx.subscribe(input, Self::on_input));
         let seen = source.state().stage;
@@ -148,7 +101,7 @@ impl PairingView {
         cx: &mut Context<'_, Self>,
     ) {
         match event {
-            TextInputEvent::Changed(_) => self.source.edited(),
+            TextInputEvent::Changed(_) => self.source.act(PairingAction::Edited),
             TextInputEvent::Submitted => self.advance(cx),
             TextInputEvent::Cancelled => self.dismiss(cx),
             _ => {},
@@ -168,7 +121,7 @@ impl PairingView {
         }
     }
 
-    fn advance(
+    pub(crate) fn advance(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -176,16 +129,19 @@ impl PairingView {
             return;
         }
         match self.source.state().stage {
-            PairingStage::Address => self
+            PairingStage::Address => self.source.act(PairingAction::SubmitAddress {
+                name: stage_widgets::text_of(&self.name, cx),
+                address: stage_widgets::text_of(&self.address, cx),
+            }),
+            PairingStage::Fingerprint => self.source.act(PairingAction::Confirm),
+            PairingStage::Code => self
                 .source
-                .submit_address(&text_of(&self.name, cx), &text_of(&self.address, cx)),
-            PairingStage::Fingerprint => self.source.confirm(),
-            PairingStage::Code => self.source.submit_code(&text_of(&self.code, cx)),
+                .act(PairingAction::SubmitCode(stage_widgets::text_of(&self.code, cx))),
             PairingStage::Paired => cx.emit(PairingEvent::Close),
         }
     }
 
-    fn step_back(
+    pub(crate) fn step_back(
         &mut self,
         cx: &mut Context<'_, Self>,
     ) {
@@ -194,7 +150,7 @@ impl PairingView {
         }
         match self.source.state().stage {
             PairingStage::Address | PairingStage::Paired => cx.emit(PairingEvent::Close),
-            PairingStage::Fingerprint | PairingStage::Code => self.source.back(),
+            PairingStage::Fingerprint | PairingStage::Code => self.source.act(PairingAction::Back),
         }
     }
 
@@ -206,51 +162,16 @@ impl PairingView {
         let body = div().flex().flex_col().gap(GAP);
         match state.stage {
             PairingStage::Address => body
-                .child(labelled("Name", palette, &self.name))
-                .child(labelled("Address", palette, &self.address)),
-            PairingStage::Fingerprint => {
-                body.child(fingerprint_box(palette, &state.fingerprint, mono))
-            },
-            PairingStage::Code => body.child(labelled("Code", palette, &self.code)),
+                .child(stage_widgets::labelled("Name", palette, &self.name))
+                .child(stage_widgets::labelled("Address", palette, &self.address)),
+            PairingStage::Fingerprint => body.child(stage_widgets::fingerprint_box(
+                palette,
+                &state.fingerprint,
+                mono,
+            )),
+            PairingStage::Code => body.child(stage_widgets::labelled("Code", palette, &self.code)),
             PairingStage::Paired => body,
         }
-    }
-
-    fn messages(
-        state: &PairingState,
-        palette: &Palette,
-    ) -> Vec<AnyElement> {
-        let notice = state
-            .notice
-            .as_ref()
-            .map(|text| muted(palette).child(text.clone()).into_any_element());
-        let error = state.error.as_ref().map(|text| {
-            div()
-                .text_size(TEXT)
-                .text_color(palette.destructive())
-                .child(text.clone())
-                .into_any_element()
-        });
-        notice.into_iter().chain(error).collect()
-    }
-
-    fn footer(
-        state: &PairingState,
-        cx: &mut Context<'_, Self>,
-    ) -> Div {
-        let busy = state.pending != PairingPending::Idle;
-        let mut primary = Button::new("pair-primary", stage_copy::primary(state.stage))
-            .size(ButtonSize::Sm)
-            .on_click(cx.listener(|this, _, _, cx| this.advance(cx)));
-        let mut secondary = Button::new("pair-secondary", stage_copy::secondary(state.stage))
-            .variant(ButtonVariant::Ghost)
-            .size(ButtonSize::Sm)
-            .on_click(cx.listener(|this, _, _, cx| this.step_back(cx)));
-        if busy {
-            primary = primary.disabled();
-            secondary = secondary.disabled();
-        }
-        div().flex().gap(GAP).child(secondary).child(primary)
     }
 }
 
@@ -265,13 +186,19 @@ impl Render for PairingView {
         let me = cx.entity();
         let body = self
             .stage_body(&state, (&palette, Theme::of(cx).mono_family()))
-            .child(muted(&palette).child(stage_copy::lead(state.stage)))
-            .children(Self::messages(&state, &palette));
+            .child(stage_widgets::muted(&palette).child(stage_copy::lead(state.stage)))
+            .children(stage_widgets::messages(&state, &palette));
         Dialog::new("pairing")
             .title(TITLE)
             .size(DialogSize::Sm)
             .body(body)
-            .footer(Self::footer(&state, cx))
+            .footer(stage_widgets::footer(
+                &state,
+                (
+                    cx.listener(|this, _, _, cx| this.advance(cx)),
+                    cx.listener(|this, _, _, cx| this.step_back(cx)),
+                ),
+            ))
             .on_close(move |_, cx| me.update(cx, Self::dismiss))
     }
 }
@@ -304,31 +231,18 @@ mod tests {
             self.state.borrow().clone()
         }
 
-        fn edited(&self) {
-            self.note("edited".to_owned());
-        }
-
-        fn submit_address(
+        fn act(
             &self,
-            name: &str,
-            address: &str,
+            action: PairingAction,
         ) {
-            self.note(format!("address {name} {address}"));
-        }
-
-        fn confirm(&self) {
-            self.note("confirm".to_owned());
-        }
-
-        fn back(&self) {
-            self.note("back".to_owned());
-        }
-
-        fn submit_code(
-            &self,
-            code: &str,
-        ) {
-            self.note(format!("code {code}"));
+            let call = match action {
+                PairingAction::Edited => "edited".to_owned(),
+                PairingAction::SubmitAddress { name, address } => format!("address {name} {address}"),
+                PairingAction::Confirm => "confirm".to_owned(),
+                PairingAction::Back => "back".to_owned(),
+                PairingAction::SubmitCode(code) => format!("code {code}"),
+            };
+            self.note(call);
         }
     }
 
