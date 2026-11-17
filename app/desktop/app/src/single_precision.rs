@@ -2,7 +2,6 @@
 
 use gpui::Pixels;
 
-/// `value` as an `f32`, rounded to the nearest representable number.
 pub(crate) fn single_precision(value: f64) -> f32 {
     f32::from(Pixels::from(value))
 }

@@ -143,7 +143,11 @@ impl ShellView {
 
     fn export_diagnostics(&self) {
         let data_dir = self.preferences_path.parent().unwrap_or(Path::new(""));
-        crate::diagnostics_export::start(&self.link, LogPaths::in_data_dir(data_dir));
+        crate::diagnostics_export::start(
+            &self.link,
+            LogPaths::in_data_dir(data_dir),
+            self.clock.wall(),
+        );
     }
 
     fn open_log(&self) {

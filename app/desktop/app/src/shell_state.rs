@@ -442,24 +442,24 @@ mod tests {
     use protocol::{PaneFrame, PaneState, PaneTitle, encode};
     use serde_json::json;
     use std::rc::Rc;
+    use std::sync::Arc;
     use webview::{Bounds, Call, MockPlatform};
 
     use super::*;
     use crate::core_panes::{chat_params, chat_type};
-    use crate::test_support::mock_host;
+    use crate::test_support::{LAYOUT_PATH, MemoryFiles, mock_host};
 
     struct Rig {
         shell: ShellState,
         mock: Rc<MockPlatform>,
-        dir: tempfile::TempDir,
+        files: Arc<MemoryFiles>,
     }
 
     fn rig() -> Rig {
         let mock = Rc::new(MockPlatform::default());
-        let dir = tempfile::tempdir().unwrap();
-        let store = LayoutStore::new(dir.path().join("layout.json"));
-        let shell = ShellState::new(mock_host(&mock), store).unwrap();
-        Rig { shell, mock, dir }
+        let files = Arc::new(MemoryFiles::default());
+        let shell = ShellState::new(mock_host(&mock), files.store()).unwrap();
+        Rig { shell, mock, files }
     }
 
     fn open_chat(
@@ -643,26 +643,18 @@ mod tests {
         let mut rig = rig();
         open_chat(&mut rig.shell, "t1");
         let expected = rig.shell.layout().clone();
-        let Rig { shell, mock, dir } = rig;
+        let Rig { shell, mock, files } = rig;
         drop(shell);
-        let again = ShellState::new(
-            mock_host(&mock),
-            LayoutStore::new(dir.path().join("layout.json")),
-        )
-        .unwrap();
+        let again = ShellState::new(mock_host(&mock), files.store()).unwrap();
         assert_eq!(again.layout(), &expected, "same layout after loading");
     }
 
     #[test]
     fn a_corrupt_layout_file_starts_fresh_and_leaves_a_notice() {
         let mock = Rc::new(MockPlatform::default());
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("layout.json"), "garbage").unwrap();
-        let mut shell = ShellState::new(
-            mock_host(&mock),
-            LayoutStore::new(dir.path().join("layout.json")),
-        )
-        .unwrap();
+        let files = Arc::new(MemoryFiles::default());
+        files.seed(Path::new(LAYOUT_PATH), "garbage");
+        let mut shell = ShellState::new(mock_host(&mock), files.store()).unwrap();
         assert_eq!(shell.layout().pane_count(), 0, "fresh layout");
         let notice = shell.take_notice().unwrap();
         assert!(notice.contains("layout.json.bad-"), "{notice}");

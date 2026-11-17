@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
 use gpui::{AppContext as _, AsyncApp, Context, WeakEntity};
 use settings_ui::{Key, SettingsBackend as _};
@@ -60,7 +61,7 @@ impl ShellView {
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         if !shown {
-            self.readout = crate::readout_state::ReadoutState::default();
+            self.readout = crate::readout_state::ReadoutState::new(Arc::clone(&self.clock));
             cx.notify();
             return;
         }
@@ -88,7 +89,7 @@ impl ShellView {
             build: build_text(CHANNEL),
             net,
             reconnects: self.readout.reconnects,
-            frame: self.readout.clock.stats(Instant::now()),
+            frame: self.readout.clock.stats(self.clock.instant()),
             counts: self.readout_counts(),
         };
         let dock = ReadoutDock::of(&self.sidebar.read(cx).preferences());

@@ -95,6 +95,7 @@ pub(crate) struct ShellView {
     overlays_open: bool,
     hover: HoverTracker,
     focus_surface: Option<sidebar::Mode>,
+    clock: Arc<dyn crate::clock::Clock>,
     readout: crate::readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
     subscriptions: Vec<Subscription>,
@@ -153,7 +154,8 @@ impl ShellView {
             overlays_open: false,
             hover: HoverTracker::default(),
             focus_surface: None,
-            readout: crate::readout_state::ReadoutState::default(),
+            readout: crate::readout_state::ReadoutState::new(Arc::clone(&parts.clock)),
+            clock: parts.clock,
             notices: built.notices,
             subscriptions: built.subscriptions,
         }

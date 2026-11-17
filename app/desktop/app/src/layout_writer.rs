@@ -117,6 +117,7 @@ mod tests {
     use model::{Command, TabId};
 
     use super::*;
+    use crate::test_support::MemoryFiles;
 
     fn add_tab(id: u64) -> Command {
         Command::AddTab {
@@ -136,14 +137,13 @@ mod tests {
     const CASES: &[u64] = &[1, 20];
 
     fn saved_after_submitting(newest: u64) -> Layout {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("layout.json");
-        let writer = LayoutWriter::start(LayoutStore::new(path.clone())).unwrap();
+        let files = Arc::new(MemoryFiles::default());
+        let writer = LayoutWriter::start(files.store()).unwrap();
         for count in 1..=newest {
             writer.submit(layout_with_tabs(count));
         }
         drop(writer);
-        LayoutStore::new(path).load().unwrap()
+        files.store().load().unwrap()
     }
 
     #[test]
@@ -156,18 +156,15 @@ mod tests {
 
     #[test]
     fn a_writer_that_never_got_a_layout_writes_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("layout.json");
-        drop(LayoutWriter::start(LayoutStore::new(path.clone())).unwrap());
-        assert!(!path.exists(), "no file");
+        let files = Arc::new(MemoryFiles::default());
+        drop(LayoutWriter::start(files.store()).unwrap());
+        assert!(files.names().is_empty(), "no file");
     }
 
     #[test]
     fn a_layout_that_cannot_be_written_is_reported_to_the_shell() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("layout.json");
-        std::fs::create_dir(&path).unwrap();
-        let writer = LayoutWriter::start(LayoutStore::new(path)).unwrap();
+        let files = Arc::new(MemoryFiles::refusing_writes());
+        let writer = LayoutWriter::start(files.store()).unwrap();
         let reports = writer.reports();
         writer.submit(layout_with_tabs(1));
         drop(writer);

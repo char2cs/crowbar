@@ -1,5 +1,6 @@
 //! The Crowbar desktop shell: a GPUI window whose content area hosts panes as web views.
 
+mod adapters;
 mod app_menu;
 mod app_options;
 mod browser_bars;
@@ -9,6 +10,7 @@ mod chat_label;
 mod chat_route;
 mod chat_terminals;
 mod chrome;
+mod clock;
 mod close_choice;
 mod close_guard;
 mod close_step;
@@ -41,6 +43,7 @@ mod hover_tracker;
 mod installed_fonts;
 mod landing;
 mod launched;
+mod layout_files;
 mod layout_store;
 mod layout_writer;
 mod legacy_settings;
@@ -115,10 +118,12 @@ mod x11_session;
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{App, AppContext as _, Application, Entity, Window};
 use shell_diagnostics::LogPaths;
 
+use crate::adapters::system_clock::SystemClock;
 use crate::app_options::AppOptions;
 use crate::daemon_link::DaemonLink;
 use crate::host_builder::build_host;
@@ -183,7 +188,7 @@ fn main() -> anyhow::Result<()> {
     legacy_settings::import_old_settings(std::env::var_os("HOME").map(PathBuf::from), &options);
     let link = Rc::new(DaemonLink::start(&options)?);
     let host = build_host(&options, link.transport())?;
-    let store = LayoutStore::new(options.state_dir().join("layout.json"));
+    let store = LayoutStore::on_disk(options.state_dir().join("layout.json"));
     let state = ShellState::new(host, store)?;
     let preferences_path = options.state_dir().join("sidebar.json");
     let shutdown = Rc::clone(&link);
@@ -191,6 +196,7 @@ fn main() -> anyhow::Result<()> {
         state,
         link,
         preferences_path,
+        clock: Arc::new(SystemClock::default()),
     };
     Application::new()
         .with_assets(ui::assets())
