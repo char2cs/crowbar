@@ -50,9 +50,13 @@ fn evictable(
     instance: &PaneInstance,
     flags: &DirtyPanes,
 ) -> bool {
-    instance.type_id.as_str() != TERMINAL
-        && !flags.contains(&instance.pane_id)
-        && !visible(layout, &instance.pane_id)
+    let pane = &instance.pane_id;
+    let pinned = layout
+        .tab_of(pane)
+        .and_then(|tab| tab.group_of(pane))
+        .is_some_and(|group| group.is_pinned(pane));
+    let protected = instance.type_id.as_str() == TERMINAL || pinned;
+    !protected && !flags.contains(pane) && !visible(layout, pane)
 }
 
 fn held_with<'a>(
@@ -231,6 +235,25 @@ mod tests {
         let incoming = [open("e3", EDITOR, "t")];
         let gone = evictions(&layout, &incoming, 3, &flags);
         assert!(gone.is_empty(), "nothing is left to close: {gone:?}");
+    }
+
+    #[test]
+    fn a_pinned_tab_is_never_evicted() {
+        let mut layout = layout_of(&[
+            ("c", CHAT, "t"),
+            ("e1", EDITOR, "t"),
+            ("e2", EDITOR, "t"),
+            ("e3", EDITOR, "t"),
+        ]);
+        layout
+            .apply(Command::PinPane {
+                pane: PaneId::new("e1").unwrap(),
+            })
+            .unwrap();
+        let incoming = [open("e4", EDITOR, "t")];
+        let gone = evictions(&layout, &incoming, 3, &DirtyPanes::default());
+        let names: Vec<String> = gone.iter().map(ToString::to_string).collect();
+        assert_eq!(names, ["e2"], "the pinned e1 stays, the next hidden one goes");
     }
 
     #[test]

@@ -106,7 +106,9 @@ const THREAD_ID: &str = "threadId";
 
 fn opened_instance(command: &mut Command) -> Option<&mut PaneInstance> {
     match command {
-        Command::OpenPane { instance, .. } => Some(instance),
+        Command::OpenPane { instance, .. } | Command::OpenPaneInGroup { instance, .. } => {
+            Some(instance)
+        },
         _ => None,
     }
 }
@@ -130,6 +132,27 @@ mod tests {
             again.iter().all(|c| !matches!(c, Command::OpenPane { .. })),
             "no second pane"
         );
+    }
+
+    #[test]
+    fn a_pane_stacked_into_a_group_starts_with_its_state_too() {
+        let serials = Serials::above(&Layout::default());
+        let mut layout = Layout::default();
+        let chat = (
+            PaneTypeId::new(crate::core_panes::CHAT).unwrap(),
+            crate::core_panes::chat_params("c1").unwrap(),
+        );
+        for command in open_commands(&layout, chat, &serials).unwrap() {
+            layout.apply(command).unwrap();
+        }
+        for path in ["a.rs", "b.rs"] {
+            let spec = PaneSpec::editor("c1", path).unwrap();
+            for command in spec.clone().open_commands(&layout, &serials).unwrap() {
+                layout.apply(command).unwrap();
+            }
+            let opened = layout.find_pane(&spec.type_id, &spec.params).unwrap();
+            assert_eq!(opened.state, spec.state, "{path}");
+        }
     }
 
     type Case = (
