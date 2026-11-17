@@ -75,3 +75,46 @@ pub(crate) fn sample() -> Layout {
         open(2, instance("c")),
     ])
 }
+
+/// One tab (id 1) whose first group stacks `names` in order, the last one shown and focused.
+pub(crate) fn stacked(names: &[&str]) -> Layout {
+    let mut layout = Layout::default();
+    layout
+        .apply(Command::AddTab {
+            id: TabId(1),
+            title: "t".into(),
+        })
+        .unwrap();
+    layout.apply(open(1, instance(names[0]))).unwrap();
+    names[1..]
+        .iter()
+        .map(|name| stacked_in(name, names[0]))
+        .for_each(|command| layout.apply(command).unwrap());
+    layout
+}
+
+fn stacked_in(
+    name: &str,
+    onto: &str,
+) -> Command {
+    Command::OpenPaneInGroup {
+        instance: instance(name),
+        onto: id(onto),
+        index: None,
+    }
+}
+
+/// The first group of tab 1 written as its members in order, the pinned ones in brackets.
+pub(crate) fn strip(layout: &Layout) -> String {
+    let tab = layout.tab(TabId(1)).unwrap();
+    let group = tab.group_of(&tab.pane_ids()[0]).unwrap();
+    let written: Vec<String> = group
+        .panes()
+        .iter()
+        .map(|pane| {
+            let pinned = group.is_pinned(pane).then(|| format!("[{pane}]"));
+            pinned.unwrap_or_else(|| pane.to_string())
+        })
+        .collect();
+    written.join(" ")
+}

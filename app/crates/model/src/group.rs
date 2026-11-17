@@ -7,18 +7,24 @@ use crate::remaining::Remaining;
 /// The panes that share one place in a tab's split tree: a strip of stacked panes of which
 /// exactly one, the active pane, is shown.
 ///
-/// A group is never empty and its active pane is always one of its members.
+/// A group is never empty and its active pane is always one of its members. The first
+/// [`Group::pinned_count`] members are pinned: they stay in front of the others, and no pane
+/// moves across that line except by pinning or unpinning.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Group {
-    panes: Vec<PaneId>,
-    active: PaneId,
+    pub(crate) panes: Vec<PaneId>,
+    pub(crate) active: PaneId,
+    #[serde(default)]
+    pub(crate) pinned: usize,
 }
+
 
 impl Group {
     pub(crate) fn single(pane: PaneId) -> Self {
         Self {
             panes: vec![pane.clone()],
             active: pane,
+            pinned: 0,
         }
     }
 
@@ -72,7 +78,7 @@ impl Group {
         pane: PaneId,
         index: Option<usize>,
     ) -> Result<()> {
-        let at = Self::check_index(index, self.panes.len())?;
+        let at = Self::check_index(index, self.panes.len())?.max(self.pinned);
         self.panes.insert(at, pane.clone());
         self.active = pane;
         Ok(())
@@ -86,6 +92,9 @@ impl Group {
             return Remaining::Active(self.active.clone());
         };
         self.panes.remove(position);
+        if position < self.pinned {
+            self.pinned -= 1;
+        }
         let heir = self.panes.get(position).or_else(|| self.panes.last());
         let Some(heir) = heir.cloned() else {
             return Remaining::Nothing;
@@ -103,6 +112,7 @@ impl Group {
     ) -> Result<()> {
         let others = self.panes.len().saturating_sub(1);
         let at = Self::check_index(index, others)?;
+        let at = at.clamp(*self.reach(pane).start(), *self.reach(pane).end());
         self.panes.retain(|member| member != pane);
         self.panes.insert(at, pane.clone());
         self.active = pane.clone();
@@ -128,7 +138,9 @@ impl Group {
         let mut sorted: Vec<&PaneId> = self.panes.iter().collect();
         sorted.sort();
         sorted.dedup();
-        sorted.len() == self.panes.len() && self.contains(&self.active)
+        sorted.len() == self.panes.len()
+            && self.contains(&self.active)
+            && self.pinned <= self.panes.len()
     }
 }
 
@@ -147,6 +159,7 @@ mod tests {
         Group {
             panes: names.iter().map(|name| id(name)).collect(),
             active: id(active),
+            pinned: 0,
         }
     }
 
@@ -250,4 +263,12 @@ mod tests {
         assert!(!group(&["a", "b"], "z").is_consistent(), "active outside");
         assert!(!group(&[], "a").is_consistent(), "empty");
     }
+
+
+
+
+
+
+
+
 }

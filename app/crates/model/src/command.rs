@@ -86,6 +86,25 @@ pub enum Command {
         /// The pane to remove.
         pane: PaneId,
     },
+    /// Removes several panes at once, as one undo step: a bulk close of a strip, or of a whole
+    /// group. Every pane must exist and appear once, or nothing happens. A tab left without
+    /// panes closes; focus goes where closing the panes one by one would put it.
+    ClosePanes {
+        /// The panes to remove.
+        panes: Vec<PaneId>,
+    },
+    /// Pins a pane of a strip: it moves behind the already pinned tabs and stays in front of
+    /// the others. Does nothing when it is pinned.
+    PinPane {
+        /// The pane to pin.
+        pane: PaneId,
+    },
+    /// Unpins a pane of a strip: it becomes the first of the loose tabs. Does nothing when it
+    /// is not pinned.
+    UnpinPane {
+        /// The pane to unpin.
+        pane: PaneId,
+    },
     /// Focuses a pane, shows it in its group and activates its tab.
     FocusPane {
         /// The pane to focus.
@@ -216,6 +235,11 @@ mod tests {
                 placement: None,
             },
             Command::ClosePane { pane: pane.clone() },
+            Command::ClosePanes {
+                panes: vec![pane.clone()],
+            },
+            Command::PinPane { pane: pane.clone() },
+            Command::UnpinPane { pane: pane.clone() },
             Command::MovePane {
                 pane: pane.clone(),
                 placement,

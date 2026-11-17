@@ -1,10 +1,6 @@
 //! Public-API property tests: random command sequences never break an invariant, refused
 //! commands change nothing, panes are never lost or duplicated, and undo is exact.
 
-#![allow(
-    clippy::unwrap_used,
-    reason = "test: a failing fixture should fail loudly"
-)]
 
 use std::collections::{BTreeMap, BTreeSet};
 

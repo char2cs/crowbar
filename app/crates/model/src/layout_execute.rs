@@ -1,9 +1,11 @@
+use crate::close_panes;
 use crate::command::Command;
 use crate::error::Result;
 use crate::group_commands;
 use crate::layout::Layout;
 use crate::pane_commands;
 use crate::pane_instance::PaneInstance;
+use crate::pin_commands;
 use crate::tab_commands;
 
 impl Layout {
@@ -56,6 +58,9 @@ impl Layout {
                 group_commands::join(self, &pane, (&onto, index)).map(none_removed)
             },
             Command::ClosePane { pane } => pane_commands::close(self, &pane),
+            Command::ClosePanes { panes } => close_panes::close_many(self, &panes),
+            Command::PinPane { pane } => pin_commands::pin(self, &pane).map(none_removed),
+            Command::UnpinPane { pane } => pin_commands::unpin(self, &pane).map(none_removed),
             Command::FocusPane { pane } => pane_commands::focus(self, &pane).map(none_removed),
             Command::MovePane { pane, placement } => {
                 pane_commands::relocate(self, &pane, &placement).map(none_removed)
