@@ -14,8 +14,6 @@ function isRelay(value: unknown): value is Relay {
   return typeof url === 'string' && typeof token === 'string'
 }
 
-// A refused or malformed answer is no relay: the cached token may be the expired one the lookup
-// exists to replace. Only an unreachable lookup falls back to it.
 async function freshRelay(api: string, cached: Relay | null | undefined) {
   try {
     const response = await fetch(`${api}/__crowbar/relay`)
