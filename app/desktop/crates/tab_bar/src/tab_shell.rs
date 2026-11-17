@@ -148,10 +148,11 @@ fn member_glyph(
 
 fn member_row(
     id: &ElementId,
-    (index, count): (usize, usize),
+    place: (usize, usize),
     member: MemberView,
-    (look, palette): (ShellLook, &Palette),
+    style: (ShellLook, &Palette),
 ) -> impl IntoElement {
+    let ((index, count), (look, palette)) = (place, style);
     let (strong, muted) = ink(look, palette);
     let text = member_ink(look, strong, muted);
     let last = index + 1 == count;

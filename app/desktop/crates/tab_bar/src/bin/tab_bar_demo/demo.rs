@@ -2,7 +2,7 @@ use gpui::{
     App, AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled,
     Subscription, Window, div, px,
 };
-use model::LayoutHistory;
+use model::{Layout, LayoutHistory, PaneInstance};
 use tab_bar::{SidebarState, TabBar, TabBarEvent, TabView};
 use ui::{Surface, Theme};
 
@@ -13,11 +13,11 @@ const CLOSED_SCENARIO: &str = "closed";
 const SIDEBAR: f32 = 296.0;
 const SIDEBAR_PADDING: f32 = 12.0;
 const SIDEBAR_GAP: f32 = 8.0;
-const CHIPS: [&str; 2] = ["delta", "epsilon"];
 
 pub(crate) struct Demo {
     history: LayoutHistory,
     bar: Entity<TabBar>,
+    chips: Vec<PaneInstance>,
     closed: bool,
     _events: Subscription,
 }
@@ -42,9 +42,10 @@ fn sidebar_state(scenario: &str) -> SidebarState {
 impl Demo {
     pub(crate) fn new(
         name: &str,
+        (layout, chips): (Layout, Vec<PaneInstance>),
         cx: &mut Context<'_, Self>,
     ) -> Self {
-        let history = LayoutHistory::new(scenario::build(name));
+        let history = LayoutHistory::new(layout);
         let bar = cx.new(|_| TabBar::new(model::TabId(100)));
         let closed = name == CLOSED_SCENARIO;
         let (tabs, active) = views(&history);
@@ -57,6 +58,7 @@ impl Demo {
         Self {
             history,
             bar,
+            chips,
             closed,
             _events: events,
         }
@@ -98,7 +100,7 @@ impl Demo {
             .flex()
             .flex_col()
             .gap(px(SIDEBAR_GAP))
-            .children(CHIPS.map(|name| chip(name, cx)))
+            .children(self.chips.iter().map(|instance| chip(instance, cx)))
     }
 }
 

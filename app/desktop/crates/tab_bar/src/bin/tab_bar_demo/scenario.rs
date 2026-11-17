@@ -2,13 +2,22 @@ use model::{Command, Layout, PaneInstance, TabId};
 use protocol::{PaneId, PaneState, PaneTypeId, Params};
 use tab_bar::MemberView;
 
-pub(crate) fn instance(name: &str) -> PaneInstance {
-    PaneInstance {
-        pane_id: PaneId::new(name).expect("static id"),
-        type_id: PaneTypeId::new("core.chat").expect("static type"),
-        params: Params::default().with("chat", name).expect("static params"),
+pub(crate) type DemoResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+const CHIP_NAMES: [&str; 2] = ["delta", "epsilon"];
+const CHAT_TYPE: &str = "core.chat";
+
+fn instance(name: &str) -> DemoResult<PaneInstance> {
+    Ok(PaneInstance {
+        pane_id: PaneId::new(name)?,
+        type_id: PaneTypeId::new(CHAT_TYPE)?,
+        params: Params::default().with("chat", name)?,
         state: PaneState::default(),
-    }
+    })
+}
+
+pub(crate) fn chips() -> DemoResult<Vec<PaneInstance>> {
+    CHIP_NAMES.into_iter().map(instance).collect()
 }
 
 pub(crate) fn member(pane: &PaneId) -> MemberView {
@@ -34,7 +43,7 @@ const DEFAULT_TABS: u64 = 3;
 fn add_chat_tab(
     layout: &mut Layout,
     index: u64,
-) -> model::Result<()> {
+) -> DemoResult<()> {
     let title = format!("p{index}");
     let tab = TabId(index);
     layout.apply(Command::AddTab {
@@ -43,19 +52,20 @@ fn add_chat_tab(
     })?;
     layout.apply(Command::OpenPane {
         tab,
-        instance: instance(&title),
+        instance: instance(&title)?,
         placement: None,
-    })
+    })?;
+    Ok(())
 }
 
-pub(crate) fn build(name: &str) -> Layout {
+pub(crate) fn build(name: &str) -> DemoResult<Layout> {
     let count: u64 = match name {
         "one" => 1,
         "many" => MANY_TABS,
         _ => DEFAULT_TABS,
     };
     let mut layout = Layout::default();
-    drop((1..=count).try_for_each(|index| add_chat_tab(&mut layout, index)));
-    drop(layout.apply(Command::ActivateTab { tab: TabId(1) }));
-    layout
+    (1..=count).try_for_each(|index| add_chat_tab(&mut layout, index))?;
+    layout.apply(Command::ActivateTab { tab: TabId(1) })?;
+    Ok(layout)
 }
