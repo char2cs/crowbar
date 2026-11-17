@@ -19,17 +19,6 @@ app/crates/transport/tests/transport.rs	allow-lint:clippy::result_large_err	1
 app/crates/transport/tests/transport.rs	allow-lint:clippy::string_slice	1
 app/crates/transport/tests/transport.rs	allow-lint:clippy::unwrap_used	1
 app/desktop/app/src/env_change.rs	allow-lint:unsafe_code	1
-app/desktop/app/src/frozen_layer.rs	allow-lint:clippy::cast_possible_truncation	1
-app/desktop/app/src/holes.rs	allow-lint:clippy::cast_possible_truncation	1
-app/desktop/app/src/shell_view.rs	allow-lint:clippy::trivially_copy_pass_by_ref	2
-app/desktop/app/src/shell_view/appearance_settings.rs	allow-lint:clippy::cast_possible_truncation	1
-app/desktop/app/src/shell_view/closing.rs	allow-lint:clippy::trivially_copy_pass_by_ref	1
-app/desktop/app/src/shell_view/file_actions.rs	allow-lint:clippy::too_many_arguments	1
-app/desktop/app/src/shell_view/first_run.rs	allow-lint:clippy::trivially_copy_pass_by_ref	1
-app/desktop/app/src/shell_view/shell_commands.rs	allow-lint:clippy::too_many_arguments	1
-app/desktop/app/src/shell_view/shell_commands.rs	allow-lint:clippy::trivially_copy_pass_by_ref	2
-app/desktop/app/src/terminal_preferences.rs	allow-lint:clippy::cast_possible_truncation	2
-app/desktop/app/src/terminal_preferences.rs	allow-lint:clippy::cast_sign_loss	1
 app/desktop/crates/daemon_supervisor/tests/daemon_supervisor.rs	allow-lint:clippy::excessive_nesting	1
 app/desktop/crates/daemon_supervisor/tests/daemon_supervisor.rs	allow-lint:clippy::expect_used	1
 app/desktop/crates/daemon_supervisor/tests/daemon_supervisor.rs	allow-lint:clippy::indexing_slicing	1

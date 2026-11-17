@@ -6491,6 +6491,7 @@ dependencies = [
  "serde_json",
  "sidebar",
  "thiserror 2.0.21",
+ "tracing",
  "ui",
 ]
 
@@ -6719,6 +6720,8 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "protocol",
+ "thiserror 2.0.21",
+ "tracing",
  "ui",
 ]
 
@@ -7679,6 +7682,7 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "thiserror 2.0.21",
+ "tracing",
  "unicode-segmentation",
 ]
 
