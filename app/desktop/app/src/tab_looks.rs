@@ -17,6 +17,7 @@ pub(crate) fn tab_look(
         icon,
         path: None,
         dirty: false,
+        renamable: instance.type_id.as_str() == TERMINAL,
     };
     match file_path(instance) {
         Some(path) => look.at_path(path),
@@ -140,6 +141,14 @@ mod tests {
             let look = tab_look(&pane(case.kind, state), case.title);
             assert_eq!(look.label.as_ref(), case.label, "{}", case.name);
             assert_eq!(look.icon, case.icon, "{}: icon", case.name);
+        }
+    }
+
+    #[test]
+    fn only_a_terminal_tab_can_be_renamed() {
+        for (kind, expected) in [(TERMINAL, true), (EDITOR, false), (BROWSER, false)] {
+            let look = tab_look(&pane(kind, serde_json::Value::Null), None);
+            assert_eq!(look.renamable, expected, "{kind}");
         }
     }
 

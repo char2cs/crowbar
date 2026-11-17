@@ -81,6 +81,8 @@ mod readout_snapshot;
 mod readout_state;
 mod readout_view;
 mod reconnect_count;
+mod rename_event;
+mod rename_prompt;
 mod request_queue;
 mod reveal_target;
 mod save_health;

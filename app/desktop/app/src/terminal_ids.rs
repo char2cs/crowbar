@@ -10,6 +10,7 @@ use crate::terminal_owner::TerminalOwner;
 use crate::titles::Titles;
 
 const DEFAULT_LABEL: &str = "Terminal";
+pub(crate) const NAME_KEY: &str = "title";
 
 type Chats = BTreeMap<PaneId, Option<TerminalOwner>>;
 type Labels = BTreeMap<PaneId, String>;
@@ -86,13 +87,11 @@ fn terminals_in(layout: &Layout) -> Vec<(PaneId, &PaneInstance)> {
 }
 
 fn label_of(instance: &PaneInstance) -> String {
-    let folder = instance
-        .state
-        .as_value()
-        .get("directory")
-        .and_then(serde_json::Value::as_str)
-        .and_then(|path| path.rsplit('/').find(|part| !part.is_empty()));
-    folder.unwrap_or(DEFAULT_LABEL).to_owned()
+    let state = instance.state.as_value();
+    let text = |key: &str| state.get(key).and_then(serde_json::Value::as_str);
+    let named = text(NAME_KEY).filter(|name| !name.is_empty());
+    let folder = text("directory").and_then(|path| path.rsplit('/').find(|part| !part.is_empty()));
+    named.or(folder).unwrap_or(DEFAULT_LABEL).to_owned()
 }
 
 #[cfg(test)]
@@ -192,6 +191,20 @@ mod tests {
         let state = directory.map_or_else(PaneState::default, |dir| {
             PaneState::new(serde_json::json!({ "directory": dir })).unwrap()
         });
+        open_pane_with(layout, state);
+    }
+
+    fn open_with_state(
+        layout: &mut Layout,
+        state: serde_json::Value,
+    ) {
+        open_pane_with(layout, PaneState::new(state).unwrap());
+    }
+
+    fn open_pane_with(
+        layout: &mut Layout,
+        state: PaneState,
+    ) {
         let instance = PaneInstance {
             pane_id: PaneId::new("t1").unwrap(),
             type_id: PaneTypeId::new(TERMINAL).unwrap(),
@@ -225,6 +238,23 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn a_name_the_user_gave_wins_over_the_folder() {
+        let mut layout = Layout::default();
+        open_with_state(
+            &mut layout,
+            serde_json::json!({"directory": "/w/src", "title": "logs"}),
+        );
+        let (ids, titles) = (TerminalIds::default(), Titles::default());
+        ids.follow(&layout);
+        ids.name_into(&titles);
+        let pane = PaneId::new("t1").unwrap();
+        assert_eq!(
+            titles.get(&pane).map(|t| t.to_string()),
+            Some("logs".into())
+        );
     }
 
     #[test]

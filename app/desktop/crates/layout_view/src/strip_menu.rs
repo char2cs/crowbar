@@ -8,6 +8,7 @@ use ui::{IconName, MenuAction, MenuItem};
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use crate::path_action::PathAction;
+use crate::tab_look::TabLook;
 
 #[cfg(target_os = "macos")]
 const CLOSE_HINT: &str = "\u{2318}W";
@@ -26,13 +27,15 @@ impl LayoutView {
             let panes = group.closable(pane, scope);
             close_item(label, panes, &view)
         };
-        let mut items = vec![
-            MenuItem::Action(pin_action(group, pane, &view)),
+        let look = self.look_of(pane);
+        let mut items = vec![MenuItem::Action(pin_action(group, pane, &view))];
+        items.extend(rename_row(pane, &look, &view));
+        items.extend([
             MenuItem::Separator,
             MenuItem::Action(self.move_action(pane, &view)),
             MenuItem::Separator,
-        ];
-        items.extend(path_rows(self.look_of(pane).path.as_deref(), &view));
+        ]);
+        items.extend(path_rows(look.path.as_deref(), &view));
         items.extend([
             MenuItem::Action(single_close(pane, &view)),
             MenuItem::Action(closing("Close Others", CloseScope::Others)),
@@ -100,6 +103,19 @@ fn pin_action(
     applying("Pin Tab", command, view).icon(IconName::PushPin)
 }
 
+fn rename_row(
+    pane: &PaneId,
+    look: &TabLook,
+    view: &gpui::Entity<LayoutView>,
+) -> Option<MenuItem> {
+    let event = LayoutEvent::RenameTab {
+        pane: pane.clone(),
+        current: look.label.to_string(),
+    };
+    look.renamable
+        .then(|| MenuItem::Action(emitting("Rename", event, view).icon(IconName::PencilSimple)))
+}
+
 fn path_rows(
     path: Option<&str>,
     view: &gpui::Entity<LayoutView>,
@@ -109,22 +125,12 @@ fn path_rows(
     };
     let mut rows: Vec<MenuItem> = PathAction::ALL
         .into_iter()
-        .map(|action| MenuItem::Action(path_row(action, path, view)))
+        .map(|action| (action, LayoutEvent::tab_path(action, path)))
+        .map(|(action, event)| emitting(action.label(), event, view).icon(action.icon()))
+        .map(MenuItem::Action)
         .collect();
     rows.push(MenuItem::Separator);
     rows
-}
-
-fn path_row(
-    action: PathAction,
-    path: &str,
-    view: &gpui::Entity<LayoutView>,
-) -> MenuAction {
-    let event = LayoutEvent::TabPath {
-        action,
-        path: path.to_owned(),
-    };
-    emitting(action.label(), event, view).icon(action.icon())
 }
 
 fn single_close(
@@ -271,6 +277,25 @@ mod tests {
             let heard = chosen_path_row(cx, row.keys);
             assert_eq!(heard, [row.event()], "{}", row.name);
         }
+    }
+
+    #[gpui::test]
+    fn a_renamable_tab_offers_rename_right_after_pin(cx: &mut TestAppContext) {
+        let look = TabLook::plain("zsh").renamable();
+        let source = stacking().looking(pane_id("b"), look);
+        let harness = open_with(cx, &stacked_layout(), source);
+        let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
+        let size = view.read_with(cx, |view, _| view.bounds.size);
+        let tab = point(size.width * 0.5 + px(40.0), px(20.0));
+        cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_keystrokes("down down enter");
+        cx.run_until_parked();
+        let event = LayoutEvent::RenameTab {
+            pane: pane_id("b"),
+            current: "zsh".into(),
+        };
+        assert_eq!(opened.take(), [event], "rename");
     }
 
     struct Opened {

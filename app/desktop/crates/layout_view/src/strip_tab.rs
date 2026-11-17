@@ -58,12 +58,7 @@ impl RenderOnce for StripTab {
             remove,
             drop,
         } = self.actions;
-        let TabLook {
-            label,
-            icon,
-            path,
-            dirty,
-        } = self.look;
+        let (label, icon, dirty) = (self.look.label.clone(), self.look.icon, self.look.dirty);
         let dragging = dragging_of(self.pane, (label.clone(), drop), palette);
         let marks = Marks {
             unsaved: dirty && self.state == TabState::Active,
@@ -83,7 +78,7 @@ impl RenderOnce for StripTab {
                 end: self.end,
                 action: close,
             });
-        let tip = tooltip_text(&label, path.as_deref());
+        let tip = tooltip_text(&label, self.look.path.as_deref());
         div()
             .flex_none()
             .child(with_menu(&name, (tip, tab), self.menu))

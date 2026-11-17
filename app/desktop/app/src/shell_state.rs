@@ -19,6 +19,7 @@ mod accessors;
 mod host_events;
 mod host_settings;
 mod opening;
+mod renaming;
 
 pub(crate) struct ShellState {
     history: LayoutHistory,

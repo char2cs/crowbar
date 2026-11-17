@@ -32,6 +32,13 @@ pub enum LayoutEvent {
         /// The file, relative to its workspace.
         path: String,
     },
+    /// A tab menu row asked to rename the tab of `pane`, which is now called `current`.
+    RenameTab {
+        /// The tab's pane.
+        pane: PaneId,
+        /// The tab's present name.
+        current: String,
+    },
     /// Something the user should be told, such as why a key did nothing.
     Announce(String),
     /// The "+" button of a strip was pressed: open a New Tab page as a new tab of the group
@@ -40,4 +47,31 @@ pub enum LayoutEvent {
         /// Any pane of the group whose strip's button was pressed.
         onto: PaneId,
     },
+}
+
+impl LayoutEvent {
+    pub(crate) fn tab_path(
+        action: PathAction,
+        path: &str,
+    ) -> Self {
+        Self::TabPath {
+            action,
+            path: path.to_owned(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_path_event_names_the_action_and_the_file() {
+        let event = LayoutEvent::tab_path(PathAction::Reveal, "src/main.rs");
+        let expected = LayoutEvent::TabPath {
+            action: PathAction::Reveal,
+            path: "src/main.rs".into(),
+        };
+        assert_eq!(event, expected);
+    }
 }

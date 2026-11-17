@@ -129,10 +129,8 @@ impl PairingView {
             }),
             PairingStage::Fingerprint => self.source.act(PairingAction::Confirm),
             PairingStage::Code => {
-                self.source
-                    .act(PairingAction::SubmitCode(stage_widgets::text_of(
-                        &self.code, cx,
-                    )))
+                let code = stage_widgets::text_of(&self.code, cx);
+                self.source.act(PairingAction::SubmitCode(code));
             },
             PairingStage::Paired => cx.emit(PairingEvent::Close),
         }
@@ -223,6 +221,13 @@ mod tests {
         }
     }
 
+    fn address_call(
+        name: &str,
+        address: &str,
+    ) -> String {
+        format!("address {name} {address}")
+    }
+
     impl PairingSource for Fake {
         fn state(&self) -> PairingState {
             self.state.borrow().clone()
@@ -234,9 +239,7 @@ mod tests {
         ) {
             let call = match action {
                 PairingAction::Edited => "edited".to_owned(),
-                PairingAction::SubmitAddress { name, address } => {
-                    format!("address {name} {address}")
-                },
+                PairingAction::SubmitAddress { name, address } => address_call(&name, &address),
                 PairingAction::Confirm => "confirm".to_owned(),
                 PairingAction::Back => "back".to_owned(),
                 PairingAction::SubmitCode(code) => format!("code {code}"),

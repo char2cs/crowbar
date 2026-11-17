@@ -44,6 +44,7 @@ mod picking;
 mod pump;
 mod readout;
 mod remote_folder;
+mod renaming;
 mod shell_commands;
 mod sidebar_position;
 mod sidebar_wiring;
@@ -77,6 +78,7 @@ pub(crate) struct ShellView {
     branch_import: Option<Entity<branch_import_view::BranchImportView>>,
     remote_folders: Option<Entity<remote_folder_picker::RemoteFolderPicker>>,
     file_prompt: Option<Entity<crate::file_prompt::FilePrompt>>,
+    rename_prompt: Option<(protocol::PaneId, Entity<crate::rename_prompt::RenamePrompt>)>,
     pairing: Option<Entity<pairing_view::PairingView>>,
     first_run: Option<(crate::landing::Landing, Entity<oobe_view::OobeView>)>,
     window_title: String,
@@ -136,6 +138,7 @@ impl ShellView {
             branch_import: None,
             remote_folders: None,
             file_prompt: None,
+            rename_prompt: None,
             pairing: None,
             first_run: None,
             unsaved: None,
@@ -184,6 +187,7 @@ impl ShellView {
             || self.branch_import.is_some()
             || self.remote_folders.is_some()
             || self.file_prompt.is_some()
+            || self.rename_prompt.is_some()
             || self.pairing.is_some()
             || self.first_run.is_some()
             || self.unsaved.is_some()
@@ -291,6 +295,7 @@ impl Render for ShellView {
             .children(layer(self.branch_import.as_ref()))
             .children(layer(self.remote_folders.as_ref()))
             .children(self.prompt_layer())
+            .children(layer(self.rename_prompt.as_ref().map(|(_, prompt)| prompt)))
             .children(layer(self.first_run.as_ref().map(|(_, oobe)| oobe)))
             .children(layer(self.pairing.as_ref()))
             .children(layer(self.unsaved.as_ref()))

@@ -75,9 +75,8 @@ mod tests {
 
     impl LaggingView {
         fn settle(&self) -> String {
-            for queued in self.queued.borrow_mut().drain(..) {
-                self.settled.set(queued);
-            }
+            let latest = self.queued.borrow_mut().drain(..).next_back();
+            self.settled.set(latest.unwrap_or(self.settled.get()));
             format!("{:?}", self.settled.get())
         }
     }

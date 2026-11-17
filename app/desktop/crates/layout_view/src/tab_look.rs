@@ -13,6 +13,8 @@ pub struct TabLook {
     pub path: Option<String>,
     /// Whether the pane holds unsaved work.
     pub dirty: bool,
+    /// Whether the tab menu offers to rename the tab.
+    pub renamable: bool,
 }
 
 impl TabLook {
@@ -23,6 +25,7 @@ impl TabLook {
             icon: IconName::FileText,
             path: None,
             dirty: false,
+            renamable: false,
         }
     }
 
@@ -33,6 +36,13 @@ impl TabLook {
         path: impl Into<String>,
     ) -> Self {
         self.path = Some(path.into());
+        self
+    }
+
+    /// The same tab, which its menu offers to rename.
+    #[must_use]
+    pub fn renamable(mut self) -> Self {
+        self.renamable = true;
         self
     }
 
@@ -64,9 +74,10 @@ mod tests {
     fn a_look_can_name_its_file_and_mark_unsaved_work() {
         let look = TabLook::plain("main.rs").at_path("src/main.rs").unsaved();
         assert_eq!(
-            (look.path.as_deref(), look.dirty),
-            (Some("src/main.rs"), true),
+            (look.path.as_deref(), look.dirty, look.renamable),
+            (Some("src/main.rs"), true, false),
             "file and mark"
         );
+        assert!(TabLook::plain("zsh").renamable().renamable, "renamable");
     }
 }

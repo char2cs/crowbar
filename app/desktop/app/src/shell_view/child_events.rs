@@ -1,5 +1,5 @@
 use gpui::{Context, Entity, Subscription, Window};
-use layout_view::{LayoutEvent, LayoutView};
+use layout_view::LayoutEvent;
 use model::Command;
 use sidebar::{Sidebar, SidebarEvent};
 use startup_view::StartupEvent;
@@ -24,7 +24,9 @@ impl ShellView {
                 this.on_workspace(event, window, cx);
             }),
             cx.subscribe(&built.tabs, Self::on_tabs),
-            cx.subscribe(&built.layout, Self::on_layout),
+            cx.subscribe_in(&built.layout, window, |this, _, event, window, cx| {
+                this.on_layout(event, window, cx);
+            }),
             cx.subscribe(&built.sidebar, |this, source, event: &SidebarEvent, cx| {
                 this.on_sidebar(source, *event, cx);
             }),
@@ -72,8 +74,8 @@ impl ShellView {
 
     fn on_layout(
         &mut self,
-        _: Entity<LayoutView>,
         event: &LayoutEvent,
+        window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
         match event {
@@ -92,6 +94,9 @@ impl ShellView {
                 placement,
             } => self.state.open_chat_at(chat, (*tab, placement.clone())),
             LayoutEvent::NewTab { onto } => return self.new_tab_in(onto, cx),
+            LayoutEvent::RenameTab { pane, current } => {
+                return self.ask_rename((pane, current), window, cx);
+            },
             _ => return,
         }
         self.refresh(cx);
