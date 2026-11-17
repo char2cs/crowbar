@@ -33,5 +33,5 @@ only after a load end: during a navigation the live url is ahead, after a restar
 
 ## Risks
 
-- Layout writes per navigation request must not enter the undo history (`SetPaneState` already does not).
+- Layout writes per navigation request must not enter the undo history (check whether `SetPaneState` enters it).
 - A page that redirects to a blank or refused address must leave the saved address untouched.
