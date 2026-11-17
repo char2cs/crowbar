@@ -4,9 +4,12 @@
 //! remembered state into a [`Placement`] that is guaranteed to be on a connected display and
 //! not smaller than [`MIN_SIZE`], so a window left on an unplugged monitor comes back visible.
 
+mod adapters;
 mod error;
 mod placement;
 mod rect;
+mod state_file;
+mod test_support;
 mod window_state;
 mod window_store;
 
