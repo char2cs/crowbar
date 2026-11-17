@@ -219,3 +219,23 @@ Crate `crates/sidebar` (~230 files), data in `crates/shell_data`. Every `sidebar
 25. `browserZoom` has no native consumer for the browser pane; working-chat refusal toast on strip merge/reorder absent.
 
 Not covered by this audit (needs a live run): animation timing frame by frame, macOS-only behaviour, behaviour of the React panes under the pushed settings, and the effective result of `mod+n` over an editor area.
+
+## Update 2026-11-17 (rows re-checked in code and live on Xvfb)
+
+Live run: debug build in the shared builder, isolated `CROWBAR_HOME`, built pane bundle, seeded daemon. The rows below supersede the earlier ones with the same subject.
+
+| Item | Status now | Evidence |
+|---|---|---|
+| Keybinding preset block (Active preset select, Default and Compact, IDE note) | done | `settings_ui/src/catalog/keybindings.rs`, `app/src/shell_view/keymap_settings.rs`; seen on the Keybindings page |
+| `agent.newChatTerminal` | done | `ShellCommand::NewChatTerminal` handled in `shell_commands.rs` |
+| Project switch `mod+shift+<digit>` | done | `shell_keys::slot`, `shell_commands.rs` `switch_project_on` |
+| `OpenHostSettings` | done for the page, not the host | maps to `SidebarAction::OpenHosts` and opens the Hosts page; the host id is still dropped, so no host is pre-selected |
+| Clear Browsing Data (Linux) | done | button enabled, confirm dialog, `PaneHost::clear_browsing_data` to the browser store, toast "Browsing data cleared"; seen live |
+| Clear Browsing Data (macOS) | implemented, unverified | `webview/src/macos_browsing_data.rs` clears the shared browser data store through any open browser view, else through a throwaway view in the last window; `ViewCapture` was also missing for `MacosPlatform`, so the macOS build did not satisfy `Platform`. Unverified until the macOS CI runner |
+| Settings backdrop | dim done, blur not possible | scrim at 32% black on every `Dialog`; GPUI has no backdrop blur primitive, so the 8 px blur of the web dialog is a recorded deviation |
+| Agents list | done | grips, provider icons, Installed as a status dot, upload button below the permission row; seen live |
+| View-tab label truncation | fixed | cause: members of a set kept the resting glyph, which the spec drops for set members (spinner stays while working); each label lost 22 px. Test `tab_shell::tests::the_members_of_a_set_leave_their_labels_room_instead_of_a_resting_glyph`. Not reproduced live: merging two tabs by drag is not reachable with scripted pointer events |
+| Chat header and chat/terminal switch | fixed | the shell chat pane mounted only the chat surface; it now mounts the identity row (title, branch) and the header slot the surface draws its switch into (`app/panes/src/entries/chat-pane-header.tsx`). Seen live: title, branch path and the chat/terminal switch |
+| Changes panel mid-slide | not reproducible | the mode pill glides while the panel swaps; the panel is aligned at every captured frame (`d0`, `d1`); the space carousel only runs in Chats mode |
+| Pin view tabs | open, blocked | the model has `PinPane` (pane strips, in progress by the strips owner) but no tab-level pin; adding one touches `model/command.rs` and `layout_execute.rs` that are being edited. The web had no reachable pin UI (spec tabs-topbar 9.5), so this needs an owner decision on scope |
+| OOBE (tagline, System check, first space) | done | seen live on first launch |
