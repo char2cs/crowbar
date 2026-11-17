@@ -1,6 +1,5 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
-import { OOBE_TAGLINE } from '@/components/oobe/oobe-frame'
 import {
   CODE_SHAPE_NOTICE,
   usePairingFlow,
@@ -12,6 +11,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { readNativePalette } from '@/lib/native-palette'
 
 const WELCOME_LABEL = 'Let’s build together'
+const TAGLINE = 'The IDE where agents do the heavy lifting.'
 
 interface AddHostScreenProps {
   onPaired: (hostId: string) => void
@@ -47,7 +47,7 @@ export function AddHostScreen({ onPaired, onCancel }: AddHostScreenProps) {
           className="w-44 -translate-y-3 scale-150 text-white transition-[translate,scale] duration-500 ease-out group-data-[state=open]:translate-y-0 group-data-[state=open]:scale-100 motion-reduce:transition-none"
         />
         <p className="max-w-xs translate-y-2 scale-115 text-base text-white/80 transition-[translate,scale] duration-500 ease-out group-data-[state=open]:translate-y-0 group-data-[state=open]:scale-100 motion-reduce:transition-none">
-          {OOBE_TAGLINE}
+          {TAGLINE}
         </p>
       </div>
       <NativeConnect

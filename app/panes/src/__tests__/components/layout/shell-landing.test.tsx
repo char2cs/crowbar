@@ -1,5 +1,5 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import {
   createMemoryHistory,
   createRootRoute,
@@ -10,39 +10,8 @@ import {
 } from '@tanstack/react-router'
 import { ShellLanding } from '@/components/layout/shell-landing'
 import { useProjectStore } from '@/core/entities/active-project'
-import { startStream } from '@/core/stream/stream'
-import { reportMigrating, useConnectionStore } from '@/lib/ws/connection-store'
-import { projectDTO, resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
-
-const socket = vi.hoisted(() => ({
-  sent: [] as unknown[],
-  deliver: (_data: unknown) => {},
-  drop: () => {},
-}))
-
-vi.mock('@/core/stream/ws-manager', () => ({
-  wsManager: {
-    subscribe: (_endpoint: string, cb: (data: unknown) => void) => {
-      socket.deliver = cb
-      return () => {}
-    },
-    send: (_endpoint: string, data: unknown) => void socket.sent.push(data),
-    onDrop: (_endpoint: string, listener: () => void) => {
-      socket.drop = listener
-      return () => {}
-    },
-  },
-}))
-
-/** The socket drops and comes back: a projects sub still waiting for its synced failed. */
-const reconnect = () =>
-  act(() => {
-    socket.drop()
-    socket.deliver({ t: 'ready', epoch: 'e1' })
-  })
-
-// The daemon's boot gate refuses every route but health while it migrates.
-const MIGRATING = 'Crowbar is upgrading its data (step 5 of 7: chat-providers-from-history)'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+import { projectDTO, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
 
 function ProjectHome() {
   const { projectId } = useParams({ strict: false })
@@ -58,39 +27,36 @@ function renderLanding() {
     path: '/ide/$projectId/home',
     component: ProjectHome,
   })
-  const oobe = createRoute({
+  const addHost = createRoute({
     getParentRoute: () => root,
-    path: '/oobe',
-    component: () => <p>first-run screen</p>,
+    path: '/add-host',
+    component: () => <p>add a host</p>,
   })
   const router = createRouter({
-    routeTree: root.addChildren([landing, home, oobe]),
+    routeTree: root.addChildren([landing, home, addHost]),
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
   return render(<RouterProvider router={router} />)
 }
 
-beforeAll(() => {
-  startStream()
+beforeEach(() => {
+  resetHostWorld()
+  useProjectStore.setState({ activeProjectId: '' })
 })
 
-beforeEach(() => {
-  resetEntities()
-  useConnectionStore.setState(useConnectionStore.getInitialState())
-  useProjectStore.setState({ activeProjectId: '' })
-  reconnect()
-  socket.deliver({ t: 'synced', scope: 'projects' })
-  resetEntities()
-  reconnect()
-  socket.sent.length = 0
-})
+afterEach(() => resetHostWorld())
 
 describe('the landing', () => {
-  it('waits for the projects scope, then enters the project it names', async () => {
+  it('with no host paired, sends the install to the add-host screen', async () => {
     renderLanding()
-    await act(async () => {})
+    expect(await screen.findByText('add a host')).toBeTruthy()
+  })
+
+  it('waits on the paired hosts, then enters the project the first one lists', async () => {
+    pairRemoteHost('host-1', 'Studio')
+    renderLanding()
+    expect(await screen.findByText(/waiting for your hosts/i)).toBeTruthy()
     expect(screen.queryByText(/project home/)).toBeNull()
-    expect(screen.queryByText('first-run screen')).toBeNull()
 
     act(() => seedProjects([projectDTO({ id: 'proj-1' })]))
 
@@ -98,60 +64,21 @@ describe('the landing', () => {
   })
 
   // Projects imported without a reorder all sit at order 0, so the id decides, as on REST.
-  it('with no saved selection, enters the project the sidebar draws first', async () => {
+  it('with no saved selection, enters the project the list draws first', async () => {
+    pairRemoteHost()
+    seedProjects([
+      projectDTO({ id: 'b-first-made', order: 0 }),
+      projectDTO({ id: 'a-later', order: 0 }),
+    ])
     renderLanding()
-    act(() =>
-      seedProjects([
-        projectDTO({ id: 'b-first-made', order: 0 }),
-        projectDTO({ id: 'a-later', order: 0 }),
-      ]),
-    )
     expect(await screen.findByText('project home a-later')).toBeTruthy()
   })
 
-  it('opens the first-run screen when the daemon has no projects', async () => {
+  it('enters the saved project when its host lists it', async () => {
+    pairRemoteHost()
+    seedProjects([projectDTO({ id: 'p1', order: 0 }), projectDTO({ id: 'p2', order: 1 })])
+    useProjectStore.setState({ activeProjectId: 'p2' })
     renderLanding()
-    act(() => seedProjects([]))
-    expect(await screen.findByText('first-run screen')).toBeTruthy()
-  })
-
-  it('shows a migrating daemon as progress and enters the app once the projects land', async () => {
-    act(() => reportMigrating({ message: MIGRATING }))
-    renderLanding()
-
-    expect(await screen.findByRole('status', { name: MIGRATING })).toBeTruthy()
-    expect(screen.queryByRole('button')).toBeNull()
-
-    act(() => seedProjects([projectDTO({ id: 'proj-1' })]))
-    expect(await screen.findByText('project home proj-1')).toBeTruthy()
-  })
-
-  it('offers Retry once the projects keep failing to load, and Retry asks for them again', async () => {
-    renderLanding()
-    await act(async () => {})
-    reconnect()
-    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull()
-    reconnect()
-
-    socket.sent.length = 0
-    fireEvent.click(await screen.findByRole('button', { name: /retry/i }))
-    expect(socket.sent).toEqual([
-      { op: 'unsub', scope: 'projects' },
-      { op: 'sub', scope: 'projects' },
-    ])
-    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull()
-
-    act(() => {
-      socket.deliver({
-        t: 'entity',
-        scope: 'projects',
-        kind: 'project',
-        id: 'proj-1',
-        v: 1,
-        data: projectDTO({ id: 'proj-1' }),
-      })
-      socket.deliver({ t: 'synced', scope: 'projects' })
-    })
-    expect(await screen.findByText('project home proj-1')).toBeTruthy()
+    expect(await screen.findByText('project home p2')).toBeTruthy()
   })
 })

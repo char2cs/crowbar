@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import {
   createMemoryHistory,
   createRoute,
@@ -8,18 +8,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Route as RootRoute } from '@/routes/__root'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
-import { OobeScreen } from '@/components/oobe/oobe-screen'
-import { ApiError } from '@/lib/errors/api-error'
 import * as agentPeer from '@/features/browser/lib/agent-peer'
 import { browserApi } from '@/lib/browser-bridge'
-
-const postProject = vi.fn()
-vi.mock('@/lib/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/api')>()),
-  fetchPrerequisite: async (tool: string) =>
-    tool === 'git' ? { installed: true, version: 'git 2.0' } : { installed: true, authed: true },
-  postProject: (...a: unknown[]) => postProject(...a),
-}))
 
 const handlers = new Map<string, (event: { payload: unknown }) => void>()
 
@@ -98,21 +88,5 @@ describe('the root route', () => {
 
     expect(await screen.findByText('first-run screen')).toBeTruthy()
     expect(screen.queryByText(REASON)).toBeNull()
-  })
-
-  it('tells the first run why the daemon refused its import', async () => {
-    postProject.mockRejectedValue(new ApiError('/srv/app is already a project', 409))
-    renderRootOn('/oobe', OobeScreen)
-
-    fireEvent.click(await screen.findByRole('button', { name: /get started/i }))
-    const next = await screen.findByRole('button', { name: /continue/i })
-    await waitFor(() => expect(next).not.toBeDisabled(), { timeout: 3000 })
-    fireEvent.click(next)
-    fireEvent.click(await screen.findByRole('button', { name: /choose a folder/i }))
-    fireEvent.change(screen.getByLabelText('Space folder'), { target: { value: '/srv/app' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add space' }))
-
-    expect(await screen.findByText('Add “app” failed')).toBeTruthy()
-    expect(screen.getByText('/srv/app is already a project')).toBeTruthy()
   })
 })

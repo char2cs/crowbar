@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { AppShell } from '@/components/layout/app-shell'
+import { MobileShell } from '@/components/layout/mobile/mobile-shell'
 
 export const Route = createFileRoute('/_shell')({
-  component: AppShell,
+  component: MobileShell,
 })
