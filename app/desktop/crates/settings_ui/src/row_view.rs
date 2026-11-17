@@ -1,7 +1,7 @@
 //! A setting row: label, reset, description and control.
 
 use gpui::{App, IntoElement, ParentElement, Styled, Window, div, px};
-use ui::{Surface, Theme, UiText, hover_fill, radius};
+use ui::{HoverFill, Surface, Theme, UiText, radius};
 
 use crate::control_view::control_view;
 use crate::element_id::element_id;
@@ -39,12 +39,11 @@ pub(crate) fn row_view(
         .py(spacing::COMFORTABLE)
         .font_family(theme.ui_family())
         .text_size(text_size);
-    hover_fill(
-        base,
+    HoverFill::new(
         element_id("row", row.key.as_str()),
         palette.muted().opacity(WASH),
-        (&mut *window, &mut *cx),
     )
+    .apply(base, (&mut *window, &mut *cx))
     .child(div().flex_1().min_w_0().child(label).children(description))
     .child(
         div()

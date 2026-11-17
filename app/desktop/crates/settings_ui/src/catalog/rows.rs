@@ -5,11 +5,12 @@ use crate::row::Row;
 use crate::value::Value;
 
 pub(super) fn row(
-    (key, label): (&str, &str),
+    names: (&str, &str),
     description: &str,
     control: Control,
     default: impl Into<Value>,
 ) -> Row {
+    let (key, label) = names;
     Row::new(key, label, control)
         .describe(description)
         .default_value(default)

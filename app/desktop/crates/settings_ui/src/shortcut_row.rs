@@ -4,7 +4,7 @@ use gpui::{
     App, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, Window, div, px,
 };
-use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, UiText, hover_fill, radius};
+use ui::{HoverFill, Icon, IconName, IconWeight, Palette, Surface, Theme, UiText, radius};
 
 use crate::chord::Chord;
 use crate::chord_source::ChordSource;
@@ -26,9 +26,10 @@ const UNBOUND: &str = "Unbound";
 
 pub(crate) fn shortcut_row(
     frame: &Frame<'_>,
-    (group, shortcut): (&ShortcutGroup, &Shortcut),
+    entry: (&ShortcutGroup, &Shortcut),
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
+    let (group, shortcut) = entry;
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
     let command = shortcut.command.clone();
@@ -46,12 +47,11 @@ pub(crate) fn shortcut_row(
         .border_color(palette.border().opacity(BORDER_FADE))
         .font_family(theme.ui_family())
         .text_size(UiText::Sm.size(&theme));
-    hover_fill(
-        base,
+    HoverFill::new(
         element_id("shortcut", &command),
         palette.muted().opacity(0.5),
-        (window, cx),
     )
+    .apply(base, (window, cx))
     .child(label(shortcut, note, palette))
     .child(
         div()

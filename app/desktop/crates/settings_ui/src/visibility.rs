@@ -15,6 +15,10 @@ use crate::section::Section;
 use crate::shortcut::Shortcut;
 use crate::shortcut_group::ShortcutGroup;
 
+mod texts;
+
+use self::texts::{block_text, row_texts, words};
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Visibility {
     searching: bool,
@@ -22,20 +26,6 @@ pub(crate) struct Visibility {
     rows: BTreeSet<Key>,
     shortcuts: BTreeSet<String>,
     blocks: BTreeSet<(PageId, usize)>,
-}
-
-fn words(query: &str) -> Vec<String> {
-    query.split_whitespace().map(str::to_lowercase).collect()
-}
-
-fn row_texts(
-    row: &Row,
-    section: &Section,
-) -> String {
-    let mut texts = vec![row.label.as_str(), section.title.as_str()];
-    texts.extend(row.description.as_deref());
-    texts.extend(row.keywords.iter().map(String::as_str));
-    texts.join("\n")
 }
 
 impl Visibility {
@@ -88,14 +78,15 @@ impl Visibility {
 
     fn add_block(
         &mut self,
-        (page, index, block): (&Page, usize, &Block),
+        entry: (&Page, usize, &Block),
         scope: &Scope<'_>,
         filter: Filter<'_>,
     ) -> bool {
+        let (_, _, block) = entry;
         match block {
             Block::Section(section) => self.add_rows(section, scope, filter),
             Block::Shortcuts(group) => self.add_shortcuts(group, filter),
-            other => self.add_plain((page, index, other), filter),
+            other => self.add_plain((entry.0, entry.1, other), filter),
         }
     }
 
@@ -173,19 +164,6 @@ impl Visibility {
         index: usize,
     ) -> bool {
         self.blocks.contains(&(page.clone(), index))
-    }
-}
-
-fn block_text(block: &Block) -> String {
-    match block {
-        Block::Heading(heading) => format!("{}\n{}", heading.title, heading.description),
-        Block::List(list) => format!(
-            "{}\n{}",
-            list.title.as_deref().unwrap_or_default(),
-            list.intro.as_deref().unwrap_or_default()
-        ),
-        Block::Button(button) => button.label.clone(),
-        Block::Section(_) | Block::Shortcuts(_) => String::new(),
     }
 }
 

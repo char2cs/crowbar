@@ -1,5 +1,7 @@
 //! What every drawing function of the view needs.
 
+use gpui::{FocusHandle, ScrollHandle};
+
 use crate::fields::Fields;
 use crate::intent_sink::IntentSink;
 use crate::record_backend::RecordBackend;
@@ -11,4 +13,6 @@ pub(crate) struct Frame<'a> {
     pub(crate) sink: &'a IntentSink,
     pub(crate) fields: &'a Fields,
     pub(crate) records: &'a dyn RecordBackend,
+    pub(crate) focus: &'a FocusHandle,
+    pub(crate) scroll: &'a ScrollHandle,
 }

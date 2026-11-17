@@ -12,9 +12,10 @@ use crate::shortcuts_view::shortcuts_view;
 
 pub(crate) fn block_view(
     frame: &Frame<'_>,
-    (index, block): (usize, &Block),
+    entry: (usize, &Block),
     (window, cx): (&mut Window, &mut App),
 ) -> Option<AnyElement> {
+    let (index, block) = entry;
     match block {
         Block::Section(section) => section_view(frame, section, (window, cx)),
         Block::Shortcuts(group) => shortcuts_view(frame, group, (window, cx)),

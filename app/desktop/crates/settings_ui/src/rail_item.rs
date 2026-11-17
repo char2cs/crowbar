@@ -5,7 +5,7 @@ use gpui::{
     App, ElementId, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use ui::{Icon, IconWeight, Surface, Theme, hover_fill, radius};
+use ui::{HoverFill, Icon, IconWeight, Surface, Theme, radius};
 
 use crate::frame::Frame;
 use crate::icon_stem::icon_named;
@@ -38,7 +38,7 @@ pub(crate) fn rail_item(
         .rounded(radius::XL)
         .text_color(color);
     let fill = selected.map_or(palette.accent(), |_| palette.primary().opacity(ACTIVE_TINT));
-    let item = hover_fill(base, id, fill, (window, cx));
+    let item = HoverFill::new(id, fill).apply(base, (window, cx));
     let foreground = palette.foreground();
     item.when(active, |item| item.bg(fill))
         .when(!active, |item| {

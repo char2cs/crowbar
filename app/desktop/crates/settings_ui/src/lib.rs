@@ -79,6 +79,7 @@ mod record_backend;
 mod record_command;
 mod record_flag;
 mod record_marks;
+mod record_ref;
 mod record_view;
 mod records;
 mod refusal;

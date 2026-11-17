@@ -1,12 +1,13 @@
 //! The body of the modal: the rail and the page.
 
 use gpui::{
-    AnyElement, App, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
-    ScrollHandle, Styled, Window, div,
+    AnyElement, App, FocusHandle, InteractiveElement, IntoElement, ParentElement, Styled, Window,
+    div,
 };
 
 use crate::content::content;
 use crate::frame::Frame;
+use crate::intent::Intent;
 use crate::intent_sink::IntentSink;
 use crate::key_mode::KeyMode;
 use crate::key_routing::route;
@@ -14,9 +15,9 @@ use crate::rail::rail;
 
 pub(crate) fn body(
     frame: &Frame<'_>,
-    (focus, scroll): (&FocusHandle, &ScrollHandle),
     (window, cx): (&mut Window, &mut App),
 ) -> AnyElement {
+    let focus = frame.focus;
     let sink = frame.sink.clone();
     let capture = frame.state.capturing().map(|_| KeyMode::Capturing);
     let focused = focus.clone();
@@ -29,10 +30,10 @@ pub(crate) fn body(
         .overflow_hidden()
         .on_key_down(move |event, window, cx| {
             let mode = capture.unwrap_or_else(|| rail_or_page(&focused, window));
-            handle_key(&sink, (event, mode), (window, cx));
+            deliver_key(&sink, route(&event.keystroke, mode), (window, cx));
         })
         .child(rail(frame, (&mut *window, &mut *cx)))
-        .child(content(frame, scroll, (window, cx)))
+        .child(content(frame, frame.scroll, (window, cx)))
         .into_any_element()
 }
 
@@ -46,12 +47,12 @@ fn rail_or_page(
     KeyMode::Page
 }
 
-fn handle_key(
+fn deliver_key(
     sink: &IntentSink,
-    (event, mode): (&KeyDownEvent, KeyMode),
+    intent: Option<Intent>,
     (window, cx): (&mut Window, &mut App),
 ) {
-    let Some(intent) = route(&event.keystroke, mode) else {
+    let Some(intent) = intent else {
         return;
     };
     cx.stop_propagation();

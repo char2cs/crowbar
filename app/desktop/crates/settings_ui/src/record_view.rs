@@ -21,6 +21,7 @@ use crate::icon_stem::icon_named;
 use crate::intent::Intent;
 use crate::line::Line;
 use crate::record::Record;
+use crate::record_ref::RecordRef;
 use crate::spacing;
 use crate::tone_color::tone_color;
 
@@ -30,9 +31,10 @@ const ROW_MIN_HEIGHT: f32 = 44.0;
 
 pub(crate) fn record_view(
     frame: &Frame<'_>,
-    (source, record, index): (&str, &Record, usize),
+    entry: RecordRef<'_>,
     (_, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
+    let RecordRef { source, record, .. } = entry;
     let theme = *Theme::of(cx);
     let palette = theme.palette(Surface::Window);
     let leading = leading_icon(record, palette);
@@ -42,7 +44,7 @@ pub(crate) fn record_view(
         .as_ref()
         .map(|line| Badge::new(line.text.clone()).variant(ui::BadgeVariant::Secondary));
     let text = text_column(record, &theme);
-    let flags = flag_boxes(frame, (source, record), palette);
+    let flags = flag_boxes(frame, entry, palette);
     let grip = record.movable.then(|| grip(palette));
     let row = div()
         .id(element_id("record", &format!("{source}-{}", record.id)))
@@ -67,28 +69,34 @@ pub(crate) fn record_view(
                 .map(|action| action_button(frame, (source, record), action)),
         );
     if record.movable {
-        return draggable(row, frame, (source, record, index)).into_any_element();
+        return draggable(row, frame, entry).into_any_element();
     }
     row.into_any_element()
 }
 
 fn flag_boxes(
     frame: &Frame<'_>,
-    (source, record): (&str, &Record),
+    entry: RecordRef<'_>,
     palette: &ui::Palette,
 ) -> Vec<AnyElement> {
-    record
+    entry
+        .record
         .flags
         .iter()
-        .map(|flag| flag_box(frame, (source, record), (flag, palette)))
+        .map(|flag| flag_box(frame, entry, (flag, palette)))
         .collect()
 }
 
 fn draggable(
     row: gpui::Stateful<gpui::Div>,
     frame: &Frame<'_>,
-    (source, record, index): (&str, &Record, usize),
+    entry: RecordRef<'_>,
 ) -> impl IntoElement {
+    let RecordRef {
+        source,
+        record,
+        index,
+    } = entry;
     let drag = DragRecord {
         source: source.to_owned(),
         record: record.id.clone(),
@@ -168,9 +176,10 @@ fn line_text(
 
 fn flag_box(
     frame: &Frame<'_>,
-    (source, record): (&str, &Record),
+    entry: RecordRef<'_>,
     (flag, palette): (&RecordFlag, &ui::Palette),
 ) -> AnyElement {
+    let RecordRef { source, record, .. } = entry;
     let id = element_id("flag", &format!("{}-{}", record.id, flag.id));
     if flag.look == FlagLook::Dot {
         return dot_box(flag, palette).into_any_element();

@@ -8,6 +8,7 @@ use crate::intent::Intent;
 use crate::list_block::ListBlock;
 use crate::note_text::note_text;
 use crate::record_marks::FLAG_COLUMN;
+use crate::record_ref::RecordRef;
 use crate::record_view::record_view;
 use crate::records::Records;
 use crate::spacing;
@@ -76,14 +77,15 @@ fn failed(
 
 fn table(
     frame: &Frame<'_>,
-    (list, records): (&ListBlock, &[crate::record::Record]),
+    source: (&ListBlock, &[crate::record::Record]),
     (window, cx): (&mut Window, &mut App),
 ) -> impl IntoElement {
+    let (list, records) = source;
     let mut rows: Vec<AnyElement> = Vec::with_capacity(records.len());
     for (index, record) in records.iter().enumerate() {
         let row = record_view(
             frame,
-            (&list.source, record, index),
+            RecordRef::new(&list.source, record, index),
             (&mut *window, &mut *cx),
         );
         rows.push(row.into_any_element());

@@ -185,8 +185,10 @@ impl Render for SettingsModal {
             sink: &sink,
             fields: &self.fields,
             records: self.records.as_ref(),
+            focus: &self.focus,
+            scroll: &self.scroll,
         };
-        let content = body(&frame, (&self.focus, &self.scroll), (window, cx));
+        let content = body(&frame, (window, cx));
         let dialog = Dialog::new("settings")
             .title(TITLE)
             .flush(extent(window))

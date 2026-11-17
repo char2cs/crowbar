@@ -21,9 +21,10 @@ fn placeholder_and_style(control: &Control) -> Option<(&str, TextInputStyle)> {
 
 pub(crate) fn build<Owner: IntentRunner>(
     fields: &mut Fields,
-    (row, text): (&Row, &str),
+    content: (&Row, &str),
     (window, cx): (&mut Window, &mut Context<'_, Owner>),
 ) {
+    let (row, text) = content;
     let Some((placeholder, style)) = placeholder_and_style(&row.control) else {
         return;
     };

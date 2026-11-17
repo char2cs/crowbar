@@ -1,7 +1,3 @@
-#![allow(
-    clippy::print_stderr,
-    reason = "the preview reports startup failures on the terminal"
-)]
 //! Opens the settings modal over a fake backend; used to capture parity screenshots.
 //!
 //! Usage: `settings_preview [--theme crowbar|frosted] [--mode light|dark] [--page ID] [--query TEXT] [--size WxH]`.
@@ -9,6 +5,7 @@
 mod arguments;
 mod demo;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions, px, size};
@@ -16,17 +13,27 @@ use settings_ui::{ModalConfig, SettingsModal, default_schema};
 
 use crate::arguments::Arguments;
 
+#[derive(Debug, thiserror::Error)]
+enum Failure {
+    #[error("settings schema: {0}")]
+    Schema(#[from] settings_ui::Error),
+    #[error("init: {0}")]
+    Init(#[from] ui::Error),
+    #[error("open window: {0}")]
+    OpenWindow(String),
+}
+
 fn open(
     cx: &mut App,
     arguments: &Arguments,
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     let (width, height) = arguments.size();
     let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         ..WindowOptions::default()
     };
-    let schema = default_schema().map_err(|error| error.to_string())?;
+    let schema = default_schema()?;
     let backend = Rc::new(demo::backend());
     let mut config =
         ModalConfig::new(schema, Rc::clone(&backend) as _, backend).on_close(|_, cx| cx.quit());
@@ -38,14 +45,14 @@ fn open(
         cx.new(|cx| SettingsModal::new(config, window, cx).with_query(query.as_deref(), cx))
     })
     .map(drop)
-    .map_err(|error| error.to_string())
+    .map_err(|error| Failure::OpenWindow(error.to_string()))
 }
 
 fn start(
     cx: &mut App,
     arguments: &Arguments,
-) -> Result<(), String> {
-    ui::init(cx).map_err(|error| error.to_string())?;
+) -> Result<(), Failure> {
+    ui::init(cx)?;
     arguments.apply(cx);
     open(cx, arguments)?;
     cx.activate(true);
@@ -55,17 +62,21 @@ fn start(
 fn launch(
     cx: &mut App,
     arguments: &Arguments,
+    failure: &Rc<RefCell<Option<Failure>>>,
 ) {
     let Err(error) = start(cx, arguments) else {
         return;
     };
-    eprintln!("settings_preview: {error}");
+    *failure.borrow_mut() = Some(error);
     cx.quit();
 }
 
-fn main() {
+fn main() -> Result<(), Failure> {
     let arguments = Arguments::from_env();
+    let failure = Rc::new(RefCell::new(None));
+    let slot = Rc::clone(&failure);
     Application::new()
         .with_assets(ui::assets())
-        .run(move |cx: &mut App| launch(cx, &arguments));
+        .run(move |cx: &mut App| launch(cx, &arguments, &slot));
+    failure.take().map_or(Ok(()), Err)
 }

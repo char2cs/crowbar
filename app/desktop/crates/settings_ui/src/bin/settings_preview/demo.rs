@@ -33,6 +33,8 @@ fn snapshot() -> Snapshot {
 
 const SPARK: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"#d97757\"/></svg>";
 
+const TERMINAL_ICON: &str = "terminal-window";
+
 fn agents() -> Records {
     let claude = Record::new("claude", "Claude Code")
         .artwork(SPARK)
@@ -44,7 +46,7 @@ fn agents() -> Records {
         .flag(RecordFlag::new("tools", "Tools").on())
         .movable();
     let codex = Record::new("codex", "Codex")
-        .icon("terminal-window")
+        .icon(TERMINAL_ICON)
         .status(Tone::Warning)
         .line(Line::plain("Not signed in").toned(Tone::Warning))
         .flag(RecordFlag::new("connected", "Installed").as_dot())
@@ -56,7 +58,7 @@ fn agents() -> Records {
 
 fn sessions() -> Records {
     let session = Record::new("s1", "Crowbar - migration/rust-shell")
-        .icon("terminal-window")
+        .icon(TERMINAL_ICON)
         .status(Tone::Success)
         .line(Line::plain("Claude Code - 12 minutes").mono())
         .action(RecordAction::new("stop", "trash", "Stop session"));
@@ -65,7 +67,7 @@ fn sessions() -> Records {
 
 fn hosts() -> Records {
     let host = Record::new("h1", "build-box")
-        .icon("terminal-window")
+        .icon(TERMINAL_ICON)
         .status(Tone::Pending)
         .line(Line::plain("build-box.local:7421").mono())
         .action(RecordAction::new("revoke", "trash", "Revoke"));
