@@ -38,7 +38,10 @@ impl PaneHost {
         self.origins.remove(view);
         match driven {
             Ok(()) => self.pool.release(slot_id),
-            Err(_) => self.pool.discard(slot_id),
+            Err(ref error) => {
+                tracing::warn!(%error, "slot could not be parked, discarding it");
+                self.pool.discard(slot_id);
+            },
         }
         Ok(driven?)
     }

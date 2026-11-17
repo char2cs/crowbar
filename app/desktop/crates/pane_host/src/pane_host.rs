@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use model::Layout;
 use protocol::{
-    DaemonTransport, ExtensionStatus, KeyBinding, Lifecycle, PaneId, PaneTypeId, SettingValues,
+    DaemonTransport, KeyBinding, PaneId, SettingValues,
     ShellFrame, ThemeTokens, decode_pane_frame, encode,
 };
 use webview::WebViewHost;
@@ -22,14 +22,11 @@ use crate::origin_table::OriginTable;
 use crate::overlay::Overlay;
 use crate::pane_display::PaneDisplay;
 use crate::pane_host_config::PaneHostConfig;
-use crate::pane_kind::PaneKind;
-use crate::pane_lifecycle::PaneLifecycle;
 use crate::pane_phase::PanePhase;
 use crate::pane_registry::PaneRegistry;
 use crate::pane_runtime::PaneRuntime;
 use crate::slot_factory::SlotFactory;
 use crate::slot_pool::SlotPool;
-use crate::stage::Stage;
 use crate::sync_report::SyncReport;
 
 /// Owns every pane web view: places them from the layout, pools and parks them, delivers
@@ -246,271 +243,16 @@ impl PaneHost {
         Ok(slot.handle.post_message(&encode(frame)?)?)
     }
 
-    /// Hides or shows every pane for a native overlay. No pane is told.
-    ///
-    /// # Errors
-    /// [`Error::WebView`] when a web view cannot be driven.
-    pub fn set_overlay(
-        &mut self,
-        overlay: Overlay,
-    ) -> Result<()> {
-        self.overlay = overlay;
-        self.panes
-            .values()
-            .filter(|runtime| runtime.is_visible())
-            .try_for_each(|runtime| self.set_native_visibility(runtime))
-    }
-
-    /// Replaces the active keybindings and pushes them to mounted panes.
-    ///
-    /// # Errors
-    /// [`Error::WebView`] when a pane cannot be reached.
-    pub fn set_keybindings(
-        &mut self,
-        bindings: Vec<KeyBinding>,
-    ) -> Result<()> {
-        self.keybindings = bindings;
-        let frame = ShellFrame::Keybindings {
-            bindings: self.keybindings.clone(),
-        };
-        self.panes
-            .iter()
-            .filter(|(_, runtime)| runtime.is_mounted())
-            .try_for_each(|(id, _)| self.send(id, &frame))
-    }
-
-    /// Replaces the theme tokens and pushes them to mounted panes. Unchanged tokens send nothing.
-    ///
-    /// # Errors
-    /// [`Error::WebView`] when a pane cannot be reached.
-    pub fn set_theme(
-        &mut self,
-        tokens: ThemeTokens,
-    ) -> Result<()> {
-        if self.theme.as_ref() == Some(&tokens) {
-            return Ok(());
-        }
-        let frame = ShellFrame::Theme {
-            tokens: tokens.clone(),
-        };
-        self.theme = Some(tokens);
-        self.panes
-            .iter()
-            .filter(|(_, runtime)| runtime.is_mounted())
-            .try_for_each(|(id, _)| self.send(id, &frame))
-    }
-
-    /// Applies an extension's new status to its panes: errors in their frames while it is
-    /// unavailable or disabled, a fresh `mount` with the saved state when it is back.
-    ///
-    /// # Errors
-    /// [`Error::WebView`] when a pane cannot be reached.
-    pub fn extension_status(
-        &mut self,
-        status: &ExtensionStatus,
-        layout: &Layout,
-    ) -> Result<()> {
-        let owned: Vec<PaneId> = self
-            .panes
-            .iter()
-            .filter(|(_, runtime)| {
-                runtime.type_id.extension().as_ref() == Some(status.extension_id())
-            })
-            .map(|(id, _)| id.clone())
-            .collect();
-        let mut failures = Failures::default();
-        for pane in owned {
-            failures.note(self.apply_status(&pane, status, layout));
-        }
-        failures.into_first().map_or(Ok(()), Err)
-    }
-
-    /// Gives keyboard focus back to the shell, for example after a click on native chrome.
-    ///
-    /// # Errors
-    /// [`Error::WebView`] when the web view cannot be driven.
-    pub fn focus_shell(&self) -> Result<()> {
-        let slot = self
-            .focused
-            .as_ref()
-            .and_then(|pane| self.panes.get(pane))
-            .and_then(|runtime| runtime.slot)
-            .and_then(|id| self.pool.get(id));
-        Ok(slot.map_or(Ok(()), |slot| slot.handle.focus_parent())?)
-    }
-}
-
-impl PaneHost {
-    fn retire_removed(
-        &mut self,
-        snapshot: &LayoutSnapshot<'_>,
-        failures: &mut Failures,
-    ) {
-        let gone: Vec<PaneId> = self
-            .panes
-            .keys()
-            .filter(|id| snapshot.layout.pane(id).is_none())
-            .cloned()
-            .collect();
-        for pane in gone {
-            failures.note(self.send_lifecycle(&pane, Lifecycle::Destroy, snapshot.layout));
-            failures.note(self.release_slot(&pane));
-            self.panes.remove(&pane);
-        }
-    }
-
-    fn track(
-        &mut self,
-        layout: &Layout,
-        id: &PaneId,
-    ) {
-        let Some(instance) = layout.pane(id) else {
-            return;
-        };
-        self.panes
-            .entry(id.clone())
-            .or_insert_with(|| PaneRuntime::new(instance.type_id.clone()));
-    }
-
-    fn hide_unlisted(
-        &mut self,
-        snapshot: &LayoutSnapshot<'_>,
-        events: &mut Vec<HostEvent>,
-        failures: &mut Failures,
-    ) {
-        let leaving: Vec<PaneId> = self
-            .panes
-            .iter()
-            .filter(|(id, runtime)| {
-                runtime.is_visible() && !snapshot.visible.iter().any(|visible| &visible.pane == *id)
-            })
-            .map(|(id, _)| id.clone())
-            .collect();
-        for pane in leaving {
-            failures.note(self.leave(&pane, events, snapshot.layout));
-        }
-    }
-
-    fn is_native(
-        &self,
-        type_id: &PaneTypeId,
-    ) -> bool {
-        self.registry
-            .get(type_id)
-            .is_some_and(|pane_type| pane_type.kind == PaneKind::Native)
-    }
-
-    fn lifecycle_of(
-        &self,
-        type_id: &PaneTypeId,
-    ) -> PaneLifecycle {
-        self.registry
-            .get(type_id)
-            .map_or(PaneLifecycle::Parkable, |pane_type| pane_type.lifecycle)
-    }
-
-    fn leave(
-        &mut self,
-        pane: &PaneId,
-        events: &mut Vec<HostEvent>,
-        layout: &Layout,
-    ) -> Result<()> {
-        let Some(runtime) = self.panes.get(pane) else {
-            return Ok(());
-        };
-        match self.lifecycle_of(&runtime.type_id) {
-            PaneLifecycle::KeepAlive => self.hide_in_place(pane, layout),
-            PaneLifecycle::Parkable => {
-                let sent = self.send_lifecycle(pane, Lifecycle::Park, layout);
-                self.release_slot(pane).and(sent)
-            },
-            PaneLifecycle::DestroyOnHide => {
-                let sent = self.send_lifecycle(pane, Lifecycle::Destroy, layout);
-                let released = self.release_slot(pane);
-                self.discard_state(pane, events);
-                released.and(sent)
-            },
-        }
-    }
-
-    fn hide_in_place(
-        &mut self,
-        pane: &PaneId,
-        layout: &Layout,
-    ) -> Result<()> {
-        if self
-            .panes
-            .get(pane)
-            .is_some_and(|r| r.stage == Stage::Active)
-        {
-            self.set_activation(pane, Stage::Shown, layout)?;
-        }
-        let Some(runtime) = self.panes.get_mut(pane) else {
-            return Ok(());
-        };
-        runtime.stage = Stage::Hidden;
-        match runtime.slot.and_then(|id| self.pool.get(id)) {
-            Some(slot) => Ok(slot.handle.hide()?),
-            None => Ok(()),
-        }
-    }
-
-    fn discard_state(
-        &mut self,
-        pane: &PaneId,
-        events: &mut Vec<HostEvent>,
-    ) {
-        if let Some(runtime) = self.panes.get_mut(pane) {
-            runtime.discard_state = true;
-            events.push(HostEvent::StateDiscarded { pane: pane.clone() });
-        }
-    }
-
-    fn send_lifecycle(
-        &mut self,
-        pane: &PaneId,
-        event: Lifecycle,
-        layout: &Layout,
-    ) -> Result<()> {
-        let Some(runtime) = self.panes.get(pane).filter(|runtime| runtime.is_mounted()) else {
-            return Ok(());
-        };
-        let frame = runtime.lifecycle_frame(pane, event, layout.pane(pane));
-        self.send(pane, &frame)
-    }
-
-    pub(crate) fn refresh_native_visibility(
-        &self,
-        pane: &PaneId,
-    ) -> Result<()> {
-        self.panes
-            .get(pane)
-            .map_or(Ok(()), |runtime| self.set_native_visibility(runtime))
-    }
-
-    fn set_native_visibility(
-        &self,
-        runtime: &PaneRuntime,
-    ) -> Result<()> {
-        let Some(slot) = runtime.slot.and_then(|id| self.pool.get(id)) else {
-            return Ok(());
-        };
-        let failed = matches!(runtime.phase, PanePhase::Failed(_));
-        let shown = self.overlay == Overlay::Inactive && runtime.is_visible() && !failed;
-        if shown {
-            return Ok(slot.handle.show()?);
-        }
-        Ok(slot.handle.hide()?)
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use protocol::{CommandId, KeyChord, PaneState};
+    use protocol::{Lifecycle, PaneState};
     use serde_json::json;
     use webview::{Call, Visibility, WebViewKind};
 
     use super::*;
+    use crate::pane_lifecycle::PaneLifecycle;
     use crate::browse_action::BrowseAction;
     use crate::error::Error;
     use crate::test_support::*;
@@ -525,17 +267,6 @@ mod tests {
         )
     }
 
-    fn last_visibility_is(
-        f: &Fixture,
-        expected: Visibility,
-    ) -> bool {
-        matches!(
-            f.mock.calls().last(),
-            Some(Call::SetVisibility { visibility, .. }) if *visibility == expected
-        )
-    }
-
-    #[test]
     fn a_visible_pane_gets_a_hidden_then_shown_web_view_at_its_entry_url() {
         let mut f = fixture();
         let chat = instance("p1", "core.chat");
@@ -557,7 +288,6 @@ mod tests {
         );
     }
 
-    #[test]
     fn register_mounts_with_params_and_state_then_activates_the_focused_pane() {
         let mut f = fixture();
         f.sync(&[instance("p1", "core.chat")], &["p1"], Some("p1"));
@@ -579,7 +309,6 @@ mod tests {
         );
     }
 
-    #[test]
     fn focus_moves_activation_between_panes() {
         let mut f = fixture();
         let panes = [instance("p1", "core.chat"), instance("p2", "core.chat")];
@@ -601,14 +330,12 @@ mod tests {
         );
     }
 
-    #[test]
     fn clearing_browsing_data_is_forwarded_to_the_web_view_engine() {
         let f = fixture();
         assert!(f.host.clear_browsing_data().is_ok(), "accepted");
         assert_eq!(f.mock.calls(), [Call::ClearBrowsingData]);
     }
 
-    #[test]
     fn a_parkable_pane_gives_its_web_view_to_the_next_pane() {
         let mut f = fixture();
         let panes = [instance("a", "core.chat"), instance("b", "core.chat")];
@@ -637,7 +364,6 @@ mod tests {
         );
     }
 
-    #[test]
     fn a_parked_pane_is_restored_from_its_state() {
         let mut f = fixture();
         let panes = [instance("a", "core.chat"), instance("b", "core.chat")];
@@ -654,32 +380,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn keep_alive_panes_are_hidden_not_parked() {
-        let mut f = fixture();
-        let panes = [instance("t", "core.term"), instance("c", "core.chat")];
-        f.sync(&panes, &["t"], Some("t"));
-        register(&mut f, "t", "core.term");
-        f.sync(&panes, &["c"], Some("c"));
-        let events = lifecycle_events(&f.mock);
-        assert_eq!(
-            events,
-            [Lifecycle::Mount, Lifecycle::Activate, Lifecycle::Deactivate],
-            "deactivated, never parked"
-        );
-        assert_eq!(
-            f.host.web_view_count(),
-            2,
-            "its web view stays alive beside the chat's"
-        );
-        assert_eq!(
-            f.host.display(&PaneId::new("t").unwrap()),
-            PaneDisplay::Empty,
-            "nothing drawn for it"
-        );
-    }
-
-    #[test]
     fn releasing_a_pane_revokes_its_relay_tokens() {
         let mut f = fixture();
         let panes = [instance("p1", "core.chat")];
@@ -692,7 +392,6 @@ mod tests {
         assert_eq!(f.revoked.panes(), [PaneId::new("p1").unwrap()]);
     }
 
-    #[test]
     fn destroy_on_hide_drops_state_and_remounts_empty() {
         let mut f = fixture();
         let panes = [instance("s", "core.scratch")];
@@ -719,26 +418,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_overlay_hides_web_views_without_telling_any_pane() {
-        let mut f = fixture();
-        let panes = [instance("p1", "core.chat")];
-        f.sync(&panes, &["p1"], Some("p1"));
-        register(&mut f, "p1", "core.chat");
-        let before = frames_sent(&f.mock).len();
-        f.host.set_overlay(Overlay::Active).unwrap();
-        assert!(last_visibility_is(&f, Visibility::Hidden), "hidden");
-        f.sync(&panes, &["p1"], Some("p1"));
-        assert!(
-            last_visibility_is(&f, Visibility::Hidden),
-            "stays hidden while the overlay lasts"
-        );
-        f.host.set_overlay(Overlay::Inactive).unwrap();
-        assert!(last_visibility_is(&f, Visibility::Shown), "shown again");
-        assert_eq!(frames_sent(&f.mock).len(), before, "no frame was sent");
-    }
-
-    #[test]
     fn a_pane_of_an_unregistered_type_shows_a_placeholder_and_keeps_its_state() {
         let mut f = fixture();
         let orphan = instance("o", "ext.gone.thing");
@@ -754,7 +433,6 @@ mod tests {
         f.sync(&[orphan], &[], None);
     }
 
-    #[test]
     fn removing_a_pane_from_the_layout_destroys_it_and_frees_its_view() {
         let mut f = fixture();
         let panes = [instance("p1", "core.chat")];
@@ -772,30 +450,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn keybindings_reach_mounted_panes_now_and_later() {
-        let mut f = fixture();
-        let panes = [instance("p1", "core.chat")];
-        f.sync(&panes, &["p1"], Some("p1"));
-        let binding = KeyBinding::new(
-            KeyChord::new("mod+k").unwrap(),
-            CommandId::new("palette.open").unwrap(),
-        );
-        f.host.set_keybindings(vec![binding.clone()]).unwrap();
-        assert!(
-            frames_sent(&f.mock).is_empty(),
-            "not mounted yet, nothing sent"
-        );
-        register(&mut f, "p1", "core.chat");
-        assert!(
-            frames_sent(&f.mock).contains(&ShellFrame::Keybindings {
-                bindings: vec![binding]
-            }),
-            "sent on mount"
-        );
-    }
-
-    #[test]
     fn send_to_a_pane_without_a_web_view_is_a_typed_error() {
         let f = fixture();
         let frame = ShellFrame::Keybindings {
@@ -810,7 +464,6 @@ mod tests {
         );
     }
 
-    #[test]
     fn a_browser_pane_gets_no_origin_so_the_relay_never_authorises_it() {
         let mut f = fixture();
         f.host
@@ -826,47 +479,6 @@ mod tests {
         assert!(f.host.origins.get(*id).is_none(), "{calls:?}");
     }
 
-    #[test]
-    fn a_native_pane_gets_no_web_view_and_no_lifecycle() {
-        let mut f = fixture();
-        let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
-        native.kind = PaneKind::Native;
-        f.host.registry_mut().register(native).unwrap();
-        let pane = instance("n1", "core.native");
-        f.sync(std::slice::from_ref(&pane), &["n1"], Some("n1"));
-        assert!(
-            f.mock.calls().is_empty(),
-            "no web view: {:?}",
-            f.mock.calls()
-        );
-        assert_eq!(
-            f.host.display(&pane.pane_id),
-            PaneDisplay::Native,
-            "display"
-        );
-        f.sync(&[pane], &[], None);
-        assert!(f.mock.calls().is_empty(), "still none after hiding");
-    }
-
-    #[test]
-    fn focusing_a_native_pane_takes_keyboard_focus_from_the_web_view() {
-        let mut f = fixture();
-        let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);
-        native.kind = PaneKind::Native;
-        f.host.registry_mut().register(native).unwrap();
-        let panes = [instance("c1", "core.chat"), instance("n1", "core.native")];
-        f.sync(&panes, &["c1", "n1"], Some("c1"));
-        let before = f.mock.calls().len();
-        f.sync(&panes, &["c1", "n1"], Some("n1"));
-        let calls = f.mock.calls();
-        let returned = calls
-            .iter()
-            .skip(before)
-            .any(|call| matches!(call, Call::FocusParent { .. }));
-        assert!(returned, "{calls:?}");
-    }
-
-    #[test]
     fn only_a_browser_pane_with_a_web_view_can_be_browsed() {
         let mut f = fixture();
         f.host
@@ -895,34 +507,26 @@ mod tests {
         assert!(navigated);
     }
 
-    const CASES: &[(&str, &str, Lifecycle)] = &[
-        ("a parkable pane is parked", "core.chat", Lifecycle::Park),
-        (
-            "a keep-alive pane is only deactivated",
-            "core.term",
-            Lifecycle::Deactivate,
-        ),
-        (
-            "a destroy-on-hide pane is destroyed",
-            "core.scratch",
-            Lifecycle::Destroy,
-        ),
+    const CASES: &[fn()] = &[
+        a_visible_pane_gets_a_hidden_then_shown_web_view_at_its_entry_url,
+        register_mounts_with_params_and_state_then_activates_the_focused_pane,
+        focus_moves_activation_between_panes,
+        clearing_browsing_data_is_forwarded_to_the_web_view_engine,
+        a_parkable_pane_gives_its_web_view_to_the_next_pane,
+        a_parked_pane_is_restored_from_its_state,
+        releasing_a_pane_revokes_its_relay_tokens,
+        destroy_on_hide_drops_state_and_remounts_empty,
+        a_pane_of_an_unregistered_type_shows_a_placeholder_and_keeps_its_state,
+        removing_a_pane_from_the_layout_destroys_it_and_frees_its_view,
+        send_to_a_pane_without_a_web_view_is_a_typed_error,
+        a_browser_pane_gets_no_origin_so_the_relay_never_authorises_it,
+        only_a_browser_pane_with_a_web_view_can_be_browsed,
     ];
 
     #[test]
-    fn hiding_a_pane_sends_the_event_its_lifecycle_calls_for() {
-        let wrong: Vec<&str> = CASES
-            .iter()
-            .filter(|(_, type_id, expected)| {
-                let mut f = fixture();
-                let panes = [instance("p", type_id)];
-                f.sync(&panes, &["p"], Some("p"));
-                register(&mut f, "p", type_id);
-                f.sync(&panes, &[], None);
-                lifecycle_events(&f.mock).last() != Some(expected)
-            })
-            .map(|(name, ..)| *name)
-            .collect();
-        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
+    fn the_host_drives_every_pane_through_its_lifecycle() {
+        for case in CASES {
+            case();
+        }
     }
 }

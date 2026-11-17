@@ -14,6 +14,7 @@
 //! Pages talk to the host with the `sdk@1` frames of the `protocol` crate over ipc. The sender
 //! is the pane that owns the web view (a [`PaneHost`] decision), never a pane-supplied id.
 
+mod adapters;
 mod assignment;
 mod authorized;
 mod bootstrap;
@@ -22,7 +23,6 @@ mod browse_action;
 mod browser_slot;
 mod bundle_asset;
 mod bundle_source;
-mod dir_bundle;
 mod drop_message;
 mod entry_url;
 mod error;
@@ -49,8 +49,10 @@ mod pane_host;
 mod pane_host_config;
 mod pane_host_frames;
 mod pane_host_freeze;
+mod pane_host_messages;
 mod pane_host_refusals;
 mod pane_host_slots;
+mod pane_host_visibility;
 mod pane_kind;
 mod pane_lifecycle;
 mod pane_phase;
@@ -76,7 +78,7 @@ pub use assignment::Assignment;
 pub use browse_action::BrowseAction;
 pub use bundle_asset::BundleAsset;
 pub use bundle_source::BundleSource;
-pub use dir_bundle::DirBundle;
+pub use adapters::dir_bundle::DirBundle;
 pub use error::{Error, Result};
 pub use extension_bundles::ExtensionBundles;
 pub use frozen_pane::FrozenPane;

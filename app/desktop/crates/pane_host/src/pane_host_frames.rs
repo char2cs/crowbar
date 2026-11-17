@@ -237,12 +237,18 @@ mod tests {
 
     type Case = (&'static str, PaneFrame, HostEvent);
 
-    fn cases() -> Vec<Case> {
+    fn assert_events(cases: Vec<Case>) {
+        for (name, frame, expected) in cases {
+            assert_eq!(post(&mut started(), &frame), [expected], "{name}");
+        }
+    }
+
+    #[test]
+    fn content_frames_become_their_events() {
         let pane = PaneId::new("p1").unwrap();
         let title = PaneTitle::new("Hi").unwrap();
         let state = PaneState::new(json!({"k": 1})).unwrap();
-        let command = CommandId::new("palette.open").unwrap();
-        vec![
+        let cases: Vec<Case> = vec![
             (
                 "a title frame",
                 PaneFrame::SetTitle {
@@ -258,22 +264,17 @@ mod tests {
                 PaneFrame::SetState {
                     state: state.clone(),
                 },
-                HostEvent::StateChanged {
-                    pane: pane.clone(),
-                    state,
-                },
+                HostEvent::StateChanged { pane, state },
             ),
-        ]
-        .into_iter()
-        .chain(control_cases(pane, command))
-        .collect()
+        ];
+        assert_events(cases);
     }
 
-    fn control_cases(
-        pane: PaneId,
-        command: CommandId,
-    ) -> Vec<Case> {
-        vec![
+    #[test]
+    fn control_frames_become_their_events() {
+        let pane = PaneId::new("p1").unwrap();
+        let command = CommandId::new("palette.open").unwrap();
+        let cases: Vec<Case> = vec![
             (
                 "a dirty frame",
                 PaneFrame::SetDirty { dirty: true },
@@ -289,17 +290,8 @@ mod tests {
                 },
                 HostEvent::CommandRequested { pane, command },
             ),
-        ]
-    }
-
-    #[test]
-    fn frames_become_their_events() {
-        let wrong: Vec<&str> = cases()
-            .into_iter()
-            .filter(|(_, frame, expected)| post(&mut started(), frame) != [expected.clone()])
-            .map(|(name, ..)| name)
-            .collect();
-        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
+        ];
+        assert_events(cases);
     }
 
     #[test]

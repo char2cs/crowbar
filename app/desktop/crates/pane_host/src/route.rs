@@ -91,9 +91,10 @@ mod tests {
         }
     }
 
-    fn route_cases() -> [Case; 6] {
+    #[test]
+    fn uris_resolve_to_their_route_or_to_none() {
         let git = ExtensionId::new("git").unwrap();
-        [
+        let cases: Vec<Case> = vec![
             (
                 "crowbar://local/panes/core/chat/index.html",
                 Some(core("chat/index.html")),
@@ -115,38 +116,30 @@ mod tests {
                 Some(daemon("paired-1", "/v0/threads?limit=5")),
             ),
             ("crowbar://local", Some(daemon("local", "/"))),
-        ]
-    }
-
-    #[test]
-    fn bundle_and_daemon_routes() {
-        for (uri, expected) in route_cases() {
+            (
+                "crowbar://local/__crowbar/relay",
+                Some(Route::Relay {
+                    host: HostId::new("local").unwrap(),
+                }),
+            ),
+        ];
+        for (uri, expected) in cases {
             assert_eq!(parse("crowbar", uri), expected, "{uri}");
         }
     }
 
     #[test]
     fn malformed_uris_have_no_route() {
-        for uri in [
+        let cases = vec![
             "http://local/v0/x",
             "crowbar:/local/x",
             "crowbar://BAD HOST/x",
             "crowbar://local/panes/ext/Bad/x",
             "crowbar://local/panes/ext/git",
             "crowbar://local/panes/unknown/x",
-        ] {
+        ];
+        for uri in cases {
             assert_eq!(parse("crowbar", uri), None, "{uri}");
         }
-    }
-
-    #[test]
-    fn the_relay_route_is_recognised() {
-        assert_eq!(
-            parse("crowbar", "crowbar://local/__crowbar/relay"),
-            Some(Route::Relay {
-                host: HostId::new("local").unwrap()
-            }),
-            "relay"
-        );
     }
 }

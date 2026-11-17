@@ -15,6 +15,8 @@ use crate::pane_bundles::PaneBundles;
 use crate::policy::allows;
 use crate::route::{Route, parse};
 
+const CONTENT_TYPE: &str = "content-type";
+
 /// Serves the `crowbar://` scheme: pane bundles from their [`BundleSource`](crate::BundleSource) and everything
 /// else through the [`DaemonTransport`]. Every request is authorized against the origin of the
 /// web view that made it.
@@ -169,7 +171,7 @@ fn relay_response(endpoint: Result<RelayEndpoint, TransportError>) -> ProtocolRe
     match body {
         Ok(body) => ProtocolResponse {
             status: status::OK,
-            headers: vec![("content-type".into(), "application/json".into())],
+            headers: vec![(CONTENT_TYPE.into(), "application/json".into())],
             body,
         },
         Err(message) => error_response(status::BAD_GATEWAY, &message),
@@ -181,7 +183,7 @@ fn bundle_response(asset: Option<crate::bundle_asset::BundleAsset>) -> ProtocolR
         Some(asset) => ProtocolResponse {
             status: status::OK,
             headers: vec![
-                ("content-type".into(), asset.mime.into()),
+                (CONTENT_TYPE.into(), asset.mime.into()),
                 ("cache-control".into(), "no-cache".into()),
             ],
             body: asset.bytes,
@@ -213,7 +215,7 @@ fn error_response(
         .into_bytes();
     ProtocolResponse {
         status,
-        headers: vec![("content-type".into(), "application/json".into())],
+        headers: vec![(CONTENT_TYPE.into(), "application/json".into())],
         body,
     }
 }
@@ -349,7 +351,7 @@ mod tests {
             response
                 .headers
                 .iter()
-                .any(|(k, v)| k == "content-type" && v == "text/html"),
+                .any(|(k, v)| k == CONTENT_TYPE && v == "text/html"),
             "mime"
         );
         assert_eq!(
