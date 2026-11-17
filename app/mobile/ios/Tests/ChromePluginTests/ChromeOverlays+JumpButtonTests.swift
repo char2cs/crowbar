@@ -1,4 +1,4 @@
-// swiftlint:disable:this file_name - the checker names this test file after the source file it covers
+// swiftlint:disable:this file_name - named after the source file it covers
 
 import UIKit
 import XCTest
