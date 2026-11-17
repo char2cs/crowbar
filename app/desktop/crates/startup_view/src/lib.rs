@@ -5,13 +5,13 @@
 //! it when it emits [`StartupEvent::HandedOver`]. [`StartupMachine`] is the pure state machine
 //! underneath and can be driven without a window.
 
+mod adapters;
 mod command_button;
 mod detail_box;
 mod halt_panel;
 mod halt_reason;
 mod handover;
 mod migration_step;
-mod monotonic_clock;
 mod outage;
 mod outage_panel;
 mod spacing;
@@ -28,9 +28,9 @@ mod test_support;
 mod waiting_panel;
 mod wordmark;
 
+pub use adapters::monotonic_clock::MonotonicClock;
 pub use halt_reason::HaltReason;
 pub use migration_step::MigrationStep;
-pub use monotonic_clock::MonotonicClock;
 pub use outage::Outage;
 pub use startup_actions::StartupActions;
 pub use startup_clock::StartupClock;

@@ -52,10 +52,6 @@ fn parse_size(value: &str) -> Option<(f32, f32)> {
     Some((width.parse().ok()?, height.parse().ok()?))
 }
 
-
-
-
-
 fn play(
     view: &Entity<StartupView>,
     cx: &mut App,
@@ -72,15 +68,28 @@ async fn play_sequence(
     let sequence = std::iter::once(StartupInput::Starting)
         .chain((1..=STEPS).map(migrating))
         .chain(std::iter::once(StartupInput::Ready));
-    for input in sequence {
-        cx.background_executor().timer(STEP_TIME).await;
-        let applied = view.update(cx, |view, cx| view.apply(input, cx));
-        let Ok(()) = applied else {
-            return;
-        };
-    }
+    play_all(view, sequence, cx).await;
 }
 
+async fn play_all(
+    view: &Entity<StartupView>,
+    sequence: impl Iterator<Item = StartupInput>,
+    cx: &mut AsyncApp,
+) -> Option<()> {
+    for input in sequence {
+        step(view, input, cx).await?;
+    }
+    Some(())
+}
+
+async fn step(
+    view: &Entity<StartupView>,
+    input: StartupInput,
+    cx: &mut AsyncApp,
+) -> Option<()> {
+    cx.background_executor().timer(STEP_TIME).await;
+    view.update(cx, |view, cx| view.apply(input, cx)).ok()
+}
 
 fn build(
     phase: &str,

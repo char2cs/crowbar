@@ -20,11 +20,9 @@ pub(crate) fn click_across(
     }
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "extents are small positive pixel counts"
-)]
 fn steps(extent: f32) -> u16 {
-    (extent / STEP).ceil() as u16
+    let wanted = (extent / STEP).ceil();
+    (0..=u16::MAX)
+        .find(|count| f32::from(*count) >= wanted)
+        .unwrap_or(u16::MAX)
 }

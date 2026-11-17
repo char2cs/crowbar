@@ -101,15 +101,13 @@ fn migrating_announcement(
 }
 
 const PERCENT_SCALE: f32 = 100.0;
+const PERCENT_MAX: u8 = 100;
 
-/// `0.4` as `40`.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the fraction is clamped to 0..=1 so the percentage fits in u8"
-)]
 pub(crate) fn percent(fraction: f32) -> u8 {
-    (fraction.clamp(0.0, 1.0) * PERCENT_SCALE).round() as u8
+    let scaled = (fraction.clamp(0.0, 1.0) * PERCENT_SCALE).round();
+    (0..=PERCENT_MAX)
+        .find(|percent| f32::from(*percent) >= scaled)
+        .unwrap_or(PERCENT_MAX)
 }
 
 #[cfg(test)]

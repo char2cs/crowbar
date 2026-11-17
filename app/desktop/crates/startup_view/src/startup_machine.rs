@@ -1,7 +1,6 @@
 use std::mem::discriminant;
 use std::time::Duration;
 
-use crate::halt_reason::HaltReason;
 use crate::migration_step::MigrationStep;
 use crate::startup_input::StartupInput;
 use crate::startup_screen::StartupScreen;
@@ -27,6 +26,8 @@ pub struct StartupMachine {
     peak: Option<f32>,
     now: Duration,
 }
+
+mod progress;
 
 impl StartupMachine {
     /// A machine showing [`StartupScreen::Starting`] from `now`.
@@ -84,62 +85,6 @@ impl StartupMachine {
         [reveal, release].into_iter().flatten().min()
     }
 
-    fn screen_for(
-        &mut self,
-        input: StartupInput,
-    ) -> StartupScreen {
-        match input {
-            StartupInput::Starting => StartupScreen::Starting,
-            StartupInput::Ready => StartupScreen::Ready,
-            StartupInput::Migrating { step } => self.migrating(step),
-            StartupInput::Halted { reason, message } => self.halted(reason.as_deref(), message),
-            StartupInput::Unavailable(outage) => {
-                self.forget_run();
-                StartupScreen::Unavailable(outage)
-            },
-        }
-    }
-
-    fn halted(
-        &mut self,
-        code: Option<&str>,
-        message: String,
-    ) -> StartupScreen {
-        self.forget_run();
-        StartupScreen::Halted {
-            reason: HaltReason::from_code(code),
-            message,
-        }
-    }
-
-    fn migrating(
-        &mut self,
-        reported: Option<MigrationStep>,
-    ) -> StartupScreen {
-        if let Some(step) = reported.filter(|step| !self.is_stale(step)) {
-            self.peak = higher(self.peak, step.fraction());
-            self.step = Some(step);
-        }
-        StartupScreen::Migrating {
-            step: self.step.clone(),
-            fraction: self.peak,
-        }
-    }
-
-    fn is_stale(
-        &self,
-        reported: &MigrationStep,
-    ) -> bool {
-        self.step
-            .as_ref()
-            .is_some_and(|current| reported.index() < current.index())
-    }
-
-    fn forget_run(&mut self) {
-        self.step = None;
-        self.peak = None;
-    }
-
     fn admit(
         &mut self,
         target: StartupScreen,
@@ -179,19 +124,10 @@ impl StartupMachine {
     }
 }
 
-fn higher(
-    peak: Option<f32>,
-    reported: Option<f32>,
-) -> Option<f32> {
-    match (peak, reported) {
-        (Some(peak), Some(reported)) => Some(peak.max(reported)),
-        (peak, reported) => peak.or(reported),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::halt_reason::HaltReason;
     use crate::outage::Outage;
 
     const REVEAL: Duration = Duration::from_millis(250);

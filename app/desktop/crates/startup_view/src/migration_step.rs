@@ -41,15 +41,13 @@ impl MigrationStep {
     }
 
     /// `index / total` in `0.0..=1.0`, or `None` when the plan has no steps.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "step counts are tiny, f32 holds them exactly"
-    )]
     pub fn fraction(&self) -> Option<f32> {
         if self.total == 0 {
             return None;
         }
-        Some((self.index as f32 / self.total as f32).clamp(0.0, 1.0))
+        let index = f32::from(u16::try_from(self.index).unwrap_or(u16::MAX));
+        let total = f32::from(u16::try_from(self.total).unwrap_or(u16::MAX));
+        Some((index / total).clamp(0.0, 1.0))
     }
 }
 

@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::time::Duration;
 
 use gpui::{
     AnimationExt, App, Context, EventEmitter, IntoElement, ParentElement, Render, Styled, Task,
@@ -39,6 +38,8 @@ pub struct StartupView {
     wake: Option<Task<()>>,
     titled: String,
 }
+
+mod handover;
 
 impl StartupView {
     /// A view in its starting state; `actions` receives the user's commands.
@@ -97,79 +98,6 @@ impl StartupView {
     ) {
         self.machine.tick(self.clock.now());
         self.sync(cx);
-    }
-
-    fn remember_drawn_fraction(&mut self) {
-        if let StartupScreen::Migrating {
-            fraction: Some(fraction),
-            ..
-        } = self.machine.screen()
-        {
-            self.drawn_fraction = *fraction;
-        }
-    }
-
-    fn sync(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.was_revealed |= self.machine.is_revealed();
-        if matches!(self.machine.screen(), StartupScreen::Ready) {
-            self.begin_handover(cx);
-        }
-        self.schedule_wake(cx);
-        cx.notify();
-    }
-
-    fn begin_handover(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.handover != Handover::Waiting {
-            return;
-        }
-        if !self.was_revealed {
-            self.finish(cx);
-            return;
-        }
-        self.handover = Handover::Fading;
-        let fade = Motion::of(cx).duration(timing::SLOW);
-        self.wake = Some(Self::after(fade, cx, Self::finish));
-    }
-
-    fn finish(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.handover = Handover::Done;
-        self.wake = None;
-        cx.emit(StartupEvent::HandedOver);
-        cx.notify();
-    }
-
-    fn schedule_wake(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.handover != Handover::Waiting {
-            return;
-        }
-        let now = self.clock.now();
-        self.wake = self
-            .machine
-            .deadline()
-            .map(|deadline| Self::after(deadline.saturating_sub(now), cx, Self::tick));
-    }
-
-    fn after(
-        delay: Duration,
-        cx: &mut Context<'_, Self>,
-        then: fn(&mut Self, &mut Context<'_, Self>),
-    ) -> Task<()> {
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(delay).await;
-            this.update(cx, then).ok();
-        })
     }
 
     fn stage(
@@ -263,6 +191,12 @@ impl Render for StartupView {
     }
 }
 
+fn note_dropped<Failure: std::fmt::Display>(update: Result<(), Failure>) {
+    if let Err(error) = update {
+        tracing::debug!(%error, "startup view dropped before its timer fired");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -277,21 +211,21 @@ mod tests {
     use crate::startup_command::StartupCommand;
     use crate::test_support::{ManualClock, RecordingActions, click_across};
 
-    const REVEAL: Duration = Duration::from_millis(250);
-    const VISIBLE: Duration = Duration::from_millis(600);
+    pub(super) const REVEAL: Duration = Duration::from_millis(250);
+    pub(super) const VISIBLE: Duration = Duration::from_millis(600);
 
-    struct Harness {
-        view: Entity<StartupView>,
-        clock: Rc<ManualClock>,
-        actions: Rc<RecordingActions>,
-        events: Rc<RefCell<Vec<StartupEvent>>>,
+    pub(super) struct Harness {
+        pub(super) view: Entity<StartupView>,
+        pub(super) clock: Rc<ManualClock>,
+        pub(super) actions: Rc<RecordingActions>,
+        pub(super) events: Rc<RefCell<Vec<StartupEvent>>>,
     }
 
-    fn at(millis: u64) -> Duration {
+    pub(super) fn at(millis: u64) -> Duration {
         Duration::from_millis(millis)
     }
 
-    fn open(
+    pub(super) fn open(
         cx: &mut TestAppContext,
         timing: StartupTiming,
     ) -> (Harness, &mut VisualTestContext) {
@@ -324,7 +258,7 @@ mod tests {
         .detach();
     }
 
-    fn feed(
+    pub(super) fn feed(
         harness: &Harness,
         cx: &mut VisualTestContext,
         input: StartupInput,
@@ -332,7 +266,7 @@ mod tests {
         harness.view.update(cx, |view, cx| view.apply(input, cx));
     }
 
-    fn pass(
+    pub(super) fn pass(
         harness: &Harness,
         cx: &mut VisualTestContext,
         to: Duration,
@@ -343,52 +277,8 @@ mod tests {
         cx.run_until_parked();
     }
 
-    fn instant_timing() -> StartupTiming {
+    pub(super) fn instant_timing() -> StartupTiming {
         StartupTiming::new(Duration::ZERO, Duration::ZERO)
-    }
-
-    #[gpui::test]
-    fn a_start_that_finishes_inside_the_blank_time_hands_over_without_a_fade(
-        cx: &mut TestAppContext
-    ) {
-        let (harness, cx) = open(cx, StartupTiming::new(REVEAL, VISIBLE));
-        harness.clock.set(at(100));
-        feed(&harness, cx, StartupInput::Ready);
-        assert!(harness.view.read_with(cx, |view, _| view.is_handed_over()));
-        assert_eq!(*harness.events.borrow(), [StartupEvent::HandedOver]);
-    }
-
-    #[gpui::test]
-    fn a_visible_start_waits_out_the_minimum_then_fades_and_hands_over(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, StartupTiming::new(REVEAL, VISIBLE));
-        pass(&harness, cx, at(300));
-        feed(&harness, cx, StartupInput::Ready);
-        assert_eq!(
-            harness.view.read_with(cx, |view, _| view.phase()),
-            AppPhase::Starting
-        );
-        pass(&harness, cx, REVEAL + VISIBLE);
-        assert_eq!(
-            harness.view.read_with(cx, |view, _| view.phase()),
-            AppPhase::Ready
-        );
-        assert!(!harness.view.read_with(cx, |view, _| view.is_handed_over()));
-        pass(&harness, cx, REVEAL + VISIBLE + timing::SLOW);
-        assert!(harness.view.read_with(cx, |view, _| view.is_handed_over()));
-        assert_eq!(*harness.events.borrow(), [StartupEvent::HandedOver]);
-    }
-
-    #[gpui::test]
-    fn inputs_after_the_hand_over_are_ignored(cx: &mut TestAppContext) {
-        let (harness, cx) = open(cx, instant_timing());
-        feed(&harness, cx, StartupInput::Ready);
-        pass(&harness, cx, timing::SLOW);
-        feed(&harness, cx, StartupInput::Unavailable(Outage::Stopped));
-        assert_eq!(
-            harness.view.read_with(cx, |view, _| view.phase()),
-            AppPhase::Ready
-        );
-        assert_eq!(harness.events.borrow().len(), 1);
     }
 
     #[gpui::test]
