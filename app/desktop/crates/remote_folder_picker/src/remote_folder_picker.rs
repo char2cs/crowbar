@@ -12,7 +12,7 @@ use crate::folder_reader::FolderReader;
 use crate::folder_requests::FolderRequests;
 use crate::folder_source::FolderSource;
 use crate::picker_event::PickerEvent;
-use crate::picker_widgets::muted;
+use crate::muted::muted;
 use crate::row_look::{GAP, TITLE};
 
 /// The remote folder picker; it emits a [`PickerEvent`] when a folder is chosen or it is dismissed.

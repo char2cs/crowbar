@@ -1,13 +1,10 @@
-use gpui::{Div, ParentElement, SharedString, Styled, div};
+use gpui::{Div, ParentElement, SharedString, Styled};
 use ui::{Palette, Pose};
 
+use crate::muted::muted;
 use crate::remote_folder_picker::RemoteFolderPicker;
-use crate::row_look::{TEXT, TREE_HEIGHT};
+use crate::row_look::TREE_HEIGHT;
 use crate::tree_row::Toggle;
-
-pub(crate) fn muted(palette: &Palette) -> Div {
-    div().text_size(TEXT).text_color(palette.muted_foreground())
-}
 
 pub(crate) fn centred(
     palette: &Palette,
@@ -49,6 +46,7 @@ pub(crate) fn inert() -> Toggle {
 
 #[cfg(test)]
 mod tests {
+    use gpui::div;
     use ui::{Surface, Theme};
 
     use super::*;

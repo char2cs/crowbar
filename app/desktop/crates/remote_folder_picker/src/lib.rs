@@ -11,6 +11,7 @@ mod folder_row;
 mod folder_rows;
 mod folder_source;
 mod picker_actions;
+mod muted;
 mod picker_event;
 mod picker_panels;
 mod picker_widgets;
