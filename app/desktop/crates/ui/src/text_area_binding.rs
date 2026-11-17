@@ -159,7 +159,7 @@ mod tests {
         cx.simulate_input("a");
         cx.simulate_keystrokes("enter");
         assert_eq!((submitted.get(), area_text(&area, cx)), (0, "a\n".into()));
-        cx.simulate_keystrokes("ctrl-enter escape");
+        cx.simulate_keystrokes("secondary-enter escape");
         assert_eq!(
             (submitted.get(), cancelled.get(), area_text(&area, cx)),
             (1, 1, "a\n".into())

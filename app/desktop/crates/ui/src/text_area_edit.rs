@@ -166,11 +166,11 @@ mod tests {
     fn paste_keeps_newlines_and_cut_copy_round_trip(cx: &mut TestAppContext) {
         let (area, cx) = area(cx);
         cx.write_to_clipboard(ClipboardItem::new_string("a\r\nb".into()));
-        cx.simulate_keystrokes("ctrl-v");
+        cx.simulate_keystrokes("secondary-v");
         assert_eq!(area_text(&area, cx), "a\nb");
-        cx.simulate_keystrokes("ctrl-a ctrl-x");
+        cx.simulate_keystrokes("secondary-a secondary-x");
         assert_eq!(area_text(&area, cx), "");
-        cx.simulate_keystrokes("ctrl-v ctrl-v");
+        cx.simulate_keystrokes("secondary-v secondary-v");
         assert_eq!(area_text(&area, cx), "a\nba\nb");
     }
 
@@ -192,13 +192,13 @@ mod tests {
         cx.simulate_input("hello");
         cx.simulate_keystrokes("enter");
         cx.simulate_input("world");
-        cx.simulate_keystrokes("ctrl-z");
+        cx.simulate_keystrokes("secondary-z");
         assert_eq!(area_text(&area, cx), "hello\n");
-        cx.simulate_keystrokes("ctrl-z");
+        cx.simulate_keystrokes("secondary-z");
         assert_eq!(area_text(&area, cx), "hello");
-        cx.simulate_keystrokes("ctrl-z");
+        cx.simulate_keystrokes("secondary-z");
         assert_eq!(area_text(&area, cx), "");
-        cx.simulate_keystrokes("ctrl-shift-z ctrl-y");
+        cx.simulate_keystrokes("secondary-shift-z secondary-y");
         assert_eq!(area_text(&area, cx), "hello\n");
     }
 

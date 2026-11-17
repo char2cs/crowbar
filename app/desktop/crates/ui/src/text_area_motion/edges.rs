@@ -65,9 +65,9 @@ mod tests {
         cx.simulate_input("[");
         cx.simulate_keystrokes("end");
         cx.simulate_input("]");
-        cx.simulate_keystrokes("ctrl-home");
+        cx.simulate_keystrokes("secondary-home");
         cx.simulate_input("<");
-        cx.simulate_keystrokes("ctrl-end");
+        cx.simulate_keystrokes("secondary-end");
         cx.simulate_input(">");
         assert_eq!(area_text(&area, cx), "<one\n[two]\nthree>");
     }

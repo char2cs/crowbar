@@ -251,7 +251,7 @@ mod tests {
         let (entity, cx) = area(cx);
         let empty = grown_height(&entity, cx);
         entity.update(cx, |area, cx| area.set_text("1\n2\n3\n4\n5\n6", cx));
-        cx.simulate_keystrokes("ctrl-end");
+        cx.simulate_keystrokes("secondary-end");
         let six_rows = grown_height(&entity, cx);
         assert_eq!((empty, six_rows), (20.0, 120.0));
     }
@@ -260,11 +260,11 @@ mod tests {
     fn past_its_maximum_height_the_field_scrolls_to_follow_the_caret(cx: &mut TestAppContext) {
         let (entity, cx) = area_with(cx, |area| area.max_height(px(72.0)));
         entity.update(cx, |area, cx| area.set_text("1\n2\n3\n4\n5\n6\n7\n8", cx));
-        cx.simulate_keystrokes("ctrl-end");
+        cx.simulate_keystrokes("secondary-end");
         let (height, scroll) = entity.read_with(cx, |area, _| (grown_height_of(area), area.scroll));
         assert_eq!(height, 60.0);
         assert_eq!(scroll, px(100.0));
-        cx.simulate_keystrokes("ctrl-home");
+        cx.simulate_keystrokes("secondary-home");
         let back = entity.read_with(cx, |area, _| area.scroll);
         assert_eq!(back, px(0.0));
         assert_eq!(area_text(&entity, cx).lines().count(), 8);

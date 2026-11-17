@@ -170,7 +170,7 @@ mod tests {
         let (area, cx) = area(cx);
         area.update(cx, |area, cx| area.set_text("abc\ndef", cx));
         cx.run_until_parked();
-        cx.simulate_keystrokes("ctrl-home");
+        cx.simulate_keystrokes("secondary-home");
         cx.simulate_click(point(px(290.0), px(70.0)), Modifiers::none());
         cx.simulate_input("!");
         assert_eq!(area_text(&area, cx), "abc\ndef!");

@@ -62,7 +62,7 @@ mod tests {
         });
         area.update(cx, |area, cx| area.set_text(ROWS, cx));
         cx.run_until_parked();
-        cx.simulate_keystrokes("ctrl-home pagedown");
+        cx.simulate_keystrokes("secondary-home pagedown");
         cx.simulate_input("X");
         let paged = area_text(&area, cx);
         let landed = paged.lines().position(|line| line.starts_with('X'));

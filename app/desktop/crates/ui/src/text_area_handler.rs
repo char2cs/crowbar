@@ -134,7 +134,7 @@ mod tests {
             area.replace_text_in_range(None, "\u{4f60}", window, cx);
         });
         assert_eq!(area_text(&area, cx), "\u{4f60}");
-        cx.simulate_keystrokes("ctrl-z");
+        cx.simulate_keystrokes("secondary-z");
         assert_eq!(area_text(&area, cx), "");
     }
 

@@ -187,7 +187,7 @@ mod tests {
     fn select_all_then_typing_replaces_everything(cx: &mut TestAppContext) {
         let (input, cx) = field(cx);
         cx.simulate_input("abc");
-        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_keystrokes("secondary-a");
         cx.simulate_input("z");
         assert_eq!(text_of(&input, cx), "z");
     }
@@ -196,9 +196,9 @@ mod tests {
     fn cut_copy_and_paste_round_trip_through_the_clipboard(cx: &mut TestAppContext) {
         let (input, cx) = field(cx);
         cx.simulate_input("hello");
-        cx.simulate_keystrokes("ctrl-a ctrl-x");
+        cx.simulate_keystrokes("secondary-a secondary-x");
         assert_eq!(text_of(&input, cx), "");
-        cx.simulate_keystrokes("ctrl-v ctrl-v");
+        cx.simulate_keystrokes("secondary-v secondary-v");
         assert_eq!(text_of(&input, cx), "hellohello");
     }
 
@@ -206,7 +206,7 @@ mod tests {
     fn cut_without_a_selection_deletes_nothing(cx: &mut TestAppContext) {
         let (input, cx) = field(cx);
         cx.simulate_input("abc");
-        cx.simulate_keystrokes("ctrl-x");
+        cx.simulate_keystrokes("secondary-x");
         assert_eq!(text_of(&input, cx), "abc");
     }
 }
