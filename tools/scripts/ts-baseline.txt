@@ -1,13 +1,9 @@
 # Ratchet baseline for ts: path<TAB>rule<TAB>count. Counts only shrink; never add or raise an entry.
 app/panes/src/__tests__/lib/ws/create-ws-manager.test.ts	platform-ref	1
 app/panes/src/__tests__/lib/ws/create-ws-manager.test.ts	spec-ref	7
-app/panes/src/__tests__/lib/ws/shell-socket.test.ts	table-driven	1
-app/panes/src/entries/buffer-pane-host.tsx	spec-ref	1
 app/panes/src/entries/chat-pane-mount.tsx	spec-ref	1
 app/panes/src/features/hosts/lib/ws-host-ports.ts	spec-ref	1
 app/panes/src/features/settings/lib/shell-settings.ts	spec-ref	1
 app/panes/src/lib/ws/channel-handlers.ts	spec-ref	2
 app/panes/src/lib/ws/channel-subscriptions.ts	spec-ref	2
-app/panes/src/lib/ws/create-transport.ts	platform-ref	1
-app/panes/src/lib/ws/shell-socket.ts	magic-number	1
 app/panes/src/sdk/pane-client.ts	bool-param	1

@@ -9,7 +9,7 @@ import { splitHostPath } from '@/lib/host-path'
 import { wsUrl } from '@/lib/ws/url'
 import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import { inShell } from '@/lib/ws/in-shell'
-import { openShellSocket } from '@/lib/ws/shell-socket'
+import { ShellWebSocket } from '@/lib/ws/shell-web-socket'
 import { postShellFrame } from '@/sdk/post-shell-frame'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
@@ -170,9 +170,9 @@ export class TerminalConnection {
 function openSocket(qualified: string): TerminalSocket {
   const { hostId, path } = splitHostPath(qualified)
   if (inShell()) {
-    const shellSocket = openShellSocket(path)
+    const shellSocket = new ShellWebSocket(path)
     shellSocket.binaryType = 'arraybuffer'
-    return shellSocket as unknown as TerminalSocket
+    return shellSocket
   }
   if (isTauri()) {
     return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS, hostId })

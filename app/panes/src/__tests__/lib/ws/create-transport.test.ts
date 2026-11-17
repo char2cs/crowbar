@@ -3,8 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const state = vi.hoisted(() => ({ tauri: false, shell: false }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: () => state.tauri }))
 vi.mock('@/lib/ws/in-shell', () => ({ inShell: () => state.shell }))
-vi.mock('@/lib/ws/shell-socket', () => ({
-  openShellSocket: vi.fn((path: string) => ({ shell: path })),
+vi.mock('@/lib/ws/shell-web-socket', () => ({
+  ShellWebSocket: class {
+    constructor(public shell: string) {}
+  },
 }))
 
 class FakeNative {
@@ -35,7 +37,7 @@ describe('createTransport', () => {
 
   it('opens the shell relay for a local endpoint in the shell', () => {
     state.shell = true
-    expect(createTransport('/v0/ws/x', isLocal)).toEqual({ shell: '/v0/ws/x' })
+    expect(createTransport('/v0/ws/x', isLocal)).toMatchObject({ shell: '/v0/ws/x' })
   })
 
   it('has no relay for a remote host in the shell', () => {

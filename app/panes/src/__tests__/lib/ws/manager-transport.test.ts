@@ -104,11 +104,17 @@ describe('WSManager transport selection', () => {
 
 describe('WSManager in the GPUI shell', () => {
   afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.stubGlobal('WebSocket', MockNativeWebSocket)
     delete (window as unknown as Record<string, unknown>).crowbar
     delete (window as unknown as Record<string, unknown>).__CROWBAR__
   })
 
-  it('dials the shell relay with the pane token as a subprotocol', () => {
+  it('dials the shell relay with the pane token as a subprotocol', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 503 })),
+    )
     const win = window as unknown as Record<string, unknown>
     win.crowbar = { post: vi.fn(), onmessage: null }
     win.__CROWBAR__ = {
@@ -117,7 +123,7 @@ describe('WSManager in the GPUI shell', () => {
       ws: { url: 'ws://127.0.0.1:4100', token: 'abc' },
     }
     createWSManager(hostPorts).subscribe('/v0/stream', vi.fn())
-    expect(MockNativeWebSocket.instances).toHaveLength(1)
+    await vi.waitFor(() => expect(MockNativeWebSocket.instances).toHaveLength(1))
     expect(MockNativeWebSocket.instances[0]).toMatchObject({
       url: 'ws://127.0.0.1:4100/v0/stream',
       protocols: ['crowbar.relay.v1', 'crowbar.token.abc'],

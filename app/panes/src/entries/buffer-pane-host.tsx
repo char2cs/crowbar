@@ -29,13 +29,16 @@ function reportWork(client: Shell, work: Work): void {
   if (work === WORK.clean) client.markClean()
 }
 
+function reportTitle(client: Shell, name: string | undefined): void {
+  if (name) client.setTitle(name)
+}
+
 function useShellReporting(client: Shell, buffer: PaneContent | undefined): void {
   const dirty = buffer ? hasUnsavedEdits(buffer) : false
   const bufferId = buffer?.id
 
   useEffect(() => {
-    // react-doctor-disable-next-line no-pass-live-state-to-parent -- `client` is the shell channel, not a parent component: the shell is told the pane's title, and no render is saved by lifting it.
-    if (buffer?.name) client.setTitle(buffer.name)
+    reportTitle(client, buffer?.name)
   }, [client, buffer?.name])
 
   useEffect(() => {

@@ -4,7 +4,7 @@ import { splitHostPath } from '@/lib/host-path'
 import { wsUrl } from './url'
 import { TauriWebSocket } from './tauri-transport'
 import { inShell } from './in-shell'
-import { openShellSocket } from './shell-socket'
+import { ShellWebSocket } from './shell-web-socket'
 import type { WsLike } from './ws-like'
 
 const REMOTE_READ_IDLE_TIMEOUT_MS = 60_000
@@ -21,7 +21,7 @@ export function createTransport(
   const local = isLocalHost(hostId)
   if (inShell()) {
     if (!local) throw new Error(`host "${hostId}" has no relay for this pane`)
-    return openShellSocket(path) as WsLike
+    return new ShellWebSocket(path)
   }
   if (isTauri()) {
     if (local) return new TauriWebSocket(path)
