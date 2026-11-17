@@ -92,12 +92,11 @@ const refusals: { behaviour: string; lookup: Lookup }[] = [
 describe('ShellWebSocket', () => {
   it.each(dials)('$behaviour', async ({ cached, lookup, token }) => {
     hostedByShell({ url: 'ws://127.0.0.1:41233', token: cached })
-    if (lookup) relayLookup(lookup.status, lookup.body)
-    else
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => Promise.reject(new Error('offline'))),
-      )
+    const answer = async () =>
+      lookup
+        ? new Response(lookup.body, { status: lookup.status })
+        : Promise.reject(new Error('offline'))
+    vi.stubGlobal('fetch', vi.fn(answer))
     new ShellWebSocket('/v0/stream')
     const socket = await dialled()
     expect(socket.url).toBe('ws://127.0.0.1:41233/v0/stream')
