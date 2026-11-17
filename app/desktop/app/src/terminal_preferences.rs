@@ -2,6 +2,8 @@ use settings_ui::Value;
 use terminal::CursorShape;
 use terminal_view::TerminalSettings;
 
+use crate::single_precision::single_precision;
+
 pub(crate) const KEYS: [&str; 8] = [
     "terminalFontFamily",
     "terminalFontSize",
@@ -60,27 +62,18 @@ fn shape(stored: Option<&Value>) -> Option<CursorShape> {
     }
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "a clamped setting fits an f32 exactly enough"
-)]
 fn narrowed(
     stored: Option<f64>,
     default: f32,
 ) -> f32 {
-    stored.map_or(default, |value| value as f32)
+    stored.map_or(default, single_precision)
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "a clamped line count is positive and far below usize"
-)]
 fn rows(
     stored: Option<f64>,
     default: usize,
 ) -> usize {
-    stored.map_or(default, |value| value as usize)
+    stored.map_or(default, |value| terminal::floor_cells(single_precision(value)))
 }
 
 #[cfg(test)]

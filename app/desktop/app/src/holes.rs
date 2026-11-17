@@ -3,6 +3,8 @@ use model::{Rect, Tab};
 use pane_host::VisiblePane;
 use webview::Bounds;
 
+use crate::single_precision::single_precision;
+
 pub(crate) fn visible_panes(
     tab: Option<&Tab>,
     area: Bounds,
@@ -11,15 +13,11 @@ pub(crate) fn visible_panes(
     let Some(tab) = tab else {
         return Vec::new();
     };
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "window sizes in logical pixels are far below f32 precision limits"
-    )]
     let local = Rect {
         x: 0.0,
         y: 0.0,
-        width: area.width as f32,
-        height: area.height as f32,
+        width: single_precision(area.width),
+        height: single_precision(area.height),
     };
     pane_holes_with(tab, local, chrome, source)
         .into_iter()

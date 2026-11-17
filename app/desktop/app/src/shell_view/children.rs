@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use gpui::{AppContext as _, Context, Entity, Subscription, Window};
 use layout_view::LayoutView;
 use shell_data::{ShellData, ShellWiring};
-use sidebar::{Preferences, Sidebar, SidebarData};
+use sidebar::{Preferences, Sidebar, SidebarData, SidebarEvent};
 use startup_view::{MonotonicClock, StartupTiming, StartupView};
 use tab_bar::TabBar;
 use terminal_session::TerminalSessions;
@@ -153,9 +153,11 @@ pub(super) fn subscribe_all(
         }),
         cx.subscribe(tabs, ShellView::on_tabs),
         cx.subscribe(layout, ShellView::on_layout),
-        cx.subscribe(sidebar, ShellView::on_sidebar),
+        cx.subscribe(sidebar, |this, source, event: &SidebarEvent, cx| {
+            this.on_sidebar(source, *event, cx);
+        }),
         cx.subscribe_in(startup, window, |this, _, event, window, cx| {
-            this.on_startup(event, window, cx);
+            this.on_startup(*event, window, cx);
         }),
     ]
 }

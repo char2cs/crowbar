@@ -184,18 +184,15 @@ impl ShellView {
         let entries = palette_entries(&self.keymap);
         let panel = cx.new(|cx| PalettePanel::new(entries, window, cx));
         self.subscriptions
-            .push(cx.subscribe_in(&panel, window, Self::on_palette));
+            .push(cx.subscribe_in(&panel, window, |this, _, event, window, cx| {
+                this.on_palette(event, window, cx);
+            }));
         self.palette = Some(panel);
         self.update_overlay(cx);
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the gpui subscribe_in callback shape is fixed"
-    )]
     fn on_palette(
         &mut self,
-        _: &Entity<PalettePanel>,
         event: &PaletteEvent,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
@@ -250,19 +247,17 @@ impl ShellView {
         let session = self.data.pairing(signal);
         let dialog = cx.new(|cx| PairingView::new(session, window, cx));
         self.subscriptions
-            .push(cx.subscribe(&dialog, Self::on_pairing));
+            .push(cx.subscribe(&dialog, |this, source, event: &PairingEvent, cx| {
+                this.on_pairing(source, *event, cx);
+            }));
         self.pairing = Some(dialog);
         self.update_overlay(cx);
     }
 
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "gpui subscribe passes the event by reference"
-    )]
     fn on_pairing(
         &mut self,
         _: Entity<PairingView>,
-        event: &PairingEvent,
+        event: PairingEvent,
         cx: &mut Context<'_, Self>,
     ) {
         if matches!(event, PairingEvent::Close) {
@@ -290,19 +285,17 @@ impl ShellView {
         };
         let dialog = cx.new(|cx| BranchImportView::new(import, window, cx));
         self.subscriptions
-            .push(cx.subscribe(&dialog, Self::on_branch_import));
+            .push(cx.subscribe(&dialog, |this, source, event: &ImportEvent, cx| {
+                this.on_branch_import(source, *event, cx);
+            }));
         self.branch_import = Some(dialog);
         self.update_overlay(cx);
     }
 
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "gpui subscribe passes the event by reference"
-    )]
     fn on_branch_import(
         &mut self,
         _: Entity<BranchImportView>,
-        _: &ImportEvent,
+        _: ImportEvent,
         cx: &mut Context<'_, Self>,
     ) {
         self.branch_import = None;

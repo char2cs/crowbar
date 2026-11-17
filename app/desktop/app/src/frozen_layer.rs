@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, IntoElement as _, ObjectFit, ParentElement as _, Pixels, RenderImage, Styled,
-    StyledImage as _, div, img, px,
+    StyledImage as _, div, img,
 };
 use image::{Frame, RgbaImage};
 use pane_host::{FrozenPane, VisiblePane};
@@ -57,12 +57,8 @@ impl FrozenLayer {
     }
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "window coordinates fit an f32"
-)]
 fn logical(value: f64) -> Pixels {
-    px(value as f32)
+    Pixels::from(value)
 }
 
 fn image_of(snapshot: Snapshot) -> Option<Arc<RenderImage>> {

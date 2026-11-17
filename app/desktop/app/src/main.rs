@@ -89,6 +89,7 @@ mod shell_view;
 mod sidebar_action;
 mod sidebar_requests;
 mod sidebar_surface;
+mod single_precision;
 mod stack_policy;
 mod startup_action;
 mod startup_command;

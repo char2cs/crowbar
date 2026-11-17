@@ -42,7 +42,9 @@ impl ShellView {
         let Some(oobe) = oobe else {
             return;
         };
-        self.subscriptions.push(cx.subscribe(&oobe, Self::on_oobe));
+        self.subscriptions.push(cx.subscribe(&oobe, |this, source, event: &OobeEvent, cx| {
+            this.on_oobe(source, *event, cx);
+        }));
         self.first_run = Some((landing, oobe));
         self.update_overlay(cx);
     }
@@ -69,14 +71,10 @@ impl ShellView {
         }
     }
 
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "gpui subscribe passes the event by reference"
-    )]
     fn on_oobe(
         &mut self,
         _: Entity<OobeView>,
-        event: &OobeEvent,
+        event: OobeEvent,
         cx: &mut Context<'_, Self>,
     ) {
         match event {

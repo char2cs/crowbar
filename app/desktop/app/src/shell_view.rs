@@ -381,14 +381,10 @@ impl ShellView {
         self.refresh(cx);
     }
 
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "gpui subscription handlers receive the event by reference"
-    )]
     fn on_sidebar(
         &mut self,
         _: Entity<Sidebar>,
-        event: &SidebarEvent,
+        event: SidebarEvent,
         cx: &mut Context<'_, Self>,
     ) {
         if !matches!(event, SidebarEvent::PreferencesChanged) {
@@ -407,13 +403,9 @@ impl ShellView {
         self.refresh(cx);
     }
 
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "gpui subscription handlers receive the event by reference"
-    )]
     fn on_startup(
         &mut self,
-        event: &StartupEvent,
+        event: StartupEvent,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {

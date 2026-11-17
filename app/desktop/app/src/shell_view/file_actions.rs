@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use gpui::{
-    AppContext as _, AsyncWindowContext, Context, Entity, ParentElement as _, PathPromptOptions,
+    AppContext as _, AsyncWindowContext, Context, ParentElement as _, PathPromptOptions,
     Styled as _, WeakEntity, Window,
 };
 use shell_data::{Overwrite, TemplateOutcome};
@@ -205,18 +205,15 @@ impl ShellView {
         }
         let prompt = cx.new(|_| FilePrompt::new(pending));
         self.subscriptions
-            .push(cx.subscribe_in(&prompt, window, Self::on_file_prompt));
+            .push(cx.subscribe_in(&prompt, window, |this, _, event, window, cx| {
+                this.on_file_prompt(event, window, cx);
+            }));
         self.file_prompt = Some(prompt);
         self.update_overlay(cx);
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "gpui subscribe_in handlers receive self, entity, event, window and context"
-    )]
     fn on_file_prompt(
         &mut self,
-        _: &Entity<FilePrompt>,
         event: &PromptEvent,
         window: &mut Window,
         cx: &mut Context<'_, Self>,

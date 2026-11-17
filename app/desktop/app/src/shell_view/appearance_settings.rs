@@ -8,6 +8,7 @@ use super::sidebar_position::SIDEBAR_POSITION;
 use super::tab_strip::TAB_LIST_SCOPE;
 use crate::family_names::FamilyNames;
 use crate::shell_request::ShellRequest;
+use crate::single_precision::single_precision;
 use crate::terminal_preferences::{KEYS, terminal_settings};
 
 const THEME: &str = "theme";
@@ -72,10 +73,6 @@ fn family_of(
         .and_then(|name| names.intern(name))
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "a font size in points fits an f32 exactly enough"
-)]
 pub(super) fn themed(
     base: Theme,
     (stored, names): (Stored<'_>, &mut FamilyNames),
@@ -84,7 +81,7 @@ pub(super) fn themed(
     let themed = base.with_id(id_of(theme)).with_mode(mode_of(mode));
     let sized = size
         .and_then(Value::as_number)
-        .map_or(themed, |points| themed.with_ui_font_size(points as f32));
+        .map_or(themed, |points| themed.with_ui_font_size(single_precision(points)));
     let faced = family_of(names, ui).map_or(sized, |family| sized.with_ui_family(family));
     let headed =
         family_of(names, heading).map_or(faced, |family| faced.with_heading_family(family));
