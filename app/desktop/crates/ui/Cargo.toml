@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 gpui.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 unicode-segmentation.workspace = true
 
 [dev-dependencies]

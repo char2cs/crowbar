@@ -1,9 +1,10 @@
 //! Wiring of [`ToggleState`] into an element's hover and into animated properties.
 
-use std::time::Instant;
+use std::ops::Range;
 
 use gpui::{App, ElementId, Entity, Hsla, Window};
 
+use crate::adapters::system_clock;
 use crate::color_mix::mix;
 use crate::cubic_bezier::CubicBezier;
 use crate::motion::Motion;
@@ -37,7 +38,7 @@ pub(crate) fn position(
 ) -> f32 {
     let at = state
         .read(cx)
-        .position(tween, Motion::of(cx), Instant::now());
+        .position(tween, Motion::of(cx), system_clock::now());
     if at.running {
         window.request_animation_frame();
     }
@@ -46,16 +47,18 @@ pub(crate) fn position(
 
 pub(crate) fn color(
     state: &Entity<ToggleState>,
-    (rest, hot): (Hsla, Hsla),
+    shades: Range<Hsla>,
     window: &mut Window,
     cx: &App,
 ) -> Hsla {
     let tween = Tween::new(crate::timing::DEFAULT, CubicBezier::DEFAULT);
-    mix(rest, hot, position(state, tween, window, cx))
+    mix(shades.start, shades.end, position(state, tween, window, cx))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use gpui::{
         Context, InteractiveElement as _, IntoElement, Render, StatefulInteractiveElement as _,
         Styled as _, TestAppContext, VisualTestContext, Window, div, point, px,

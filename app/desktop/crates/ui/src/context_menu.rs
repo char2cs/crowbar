@@ -65,7 +65,7 @@ impl RenderOnce for ContextMenu {
         let wrapper = div().id(self.id).child(self.child).on_mouse_down(
             MouseButton::Right,
             move |event, window, cx| {
-                open_at((&opener, &spec), event.position, window, cx);
+                spec.open_at(&opener, event.position, (window, cx));
             },
         );
         let Some(menu) = open else {
@@ -78,21 +78,23 @@ impl RenderOnce for ContextMenu {
     }
 }
 
-fn open_at(
-    (state, spec): (&Entity<ContextState>, &MenuSpec),
-    at: Point<Pixels>,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let menu = spec.build(window, cx);
-    let owner = state.clone();
-    cx.subscribe(&menu, move |_, _: &DismissEvent, cx| close(&owner, cx))
-        .detach();
-    state.update(cx, |state, cx| {
-        state.open = Some(menu);
-        state.at = at;
-        cx.notify();
-    });
+impl MenuSpec {
+    fn open_at(
+        &self,
+        state: &Entity<ContextState>,
+        at: Point<Pixels>,
+        (window, cx): (&mut Window, &mut App),
+    ) {
+        let menu = self.build(window, cx);
+        let owner = state.clone();
+        cx.subscribe(&menu, move |_, _: &DismissEvent, cx| close(&owner, cx))
+            .detach();
+        state.update(cx, |state, cx| {
+            state.open = Some(menu);
+            state.at = at;
+            cx.notify();
+        });
+    }
 }
 
 fn close(

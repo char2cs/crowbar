@@ -8,17 +8,36 @@ use gpui::{
 use crate::hover;
 use crate::pose::Pose;
 
-/// Gives `base` the id `id` and a background that fades from transparent to `color` over 150ms on hover.
-pub fn hover_fill(
-    base: Div,
-    id: impl Into<ElementId>,
+/// A background that fades in over 150ms while the pointer is over an element.
+#[derive(Debug, Clone)]
+pub struct HoverFill {
+    id: ElementId,
     color: Hsla,
-    (window, cx): (&mut Window, &mut App),
-) -> Stateful<Div> {
-    let id = id.into();
-    let state = hover::track(&id, Pose::Off, window, cx);
-    let shown = hover::color(&state, (color.opacity(0.0), color), window, cx);
-    base.id(id).bg(shown).on_hover(hover::listener(&state))
+}
+
+impl HoverFill {
+    /// A fill of `color` for the element called `id`.
+    pub fn new(
+        id: impl Into<ElementId>,
+        color: Hsla,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            color,
+        }
+    }
+
+    /// Gives `base` the id and a background that fades from transparent to the colour on hover.
+    pub fn apply(
+        self,
+        base: Div,
+        (window, cx): (&mut Window, &mut App),
+    ) -> Stateful<Div> {
+        let state = hover::track(&self.id, Pose::Off, window, cx);
+        let transparent = self.color.opacity(0.0);
+        let shown = hover::color(&state, transparent..self.color, window, cx);
+        base.id(self.id).bg(shown).on_hover(hover::listener(&state))
+    }
 }
 
 #[cfg(test)]
@@ -53,12 +72,8 @@ mod tests {
                 window,
                 cx,
             ));
-            hover_fill(
-                div().size(px(40.0)),
-                "fill",
-                hsla(0.0, 0.0, 0.0, 0.5),
-                (window, cx),
-            )
+            HoverFill::new("fill", hsla(0.0, 0.0, 0.0, 0.5))
+                .apply(div().size(px(40.0)), (window, cx))
         }
     }
 

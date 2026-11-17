@@ -1,12 +1,11 @@
 //! Equal-width tab list with a sliding selection pill.
 
-use std::time::Instant;
-
 use gpui::{
     App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
     Styled, Window, div, px,
 };
 
+use crate::adapters::system_clock;
 use crate::cubic_bezier::CubicBezier;
 use crate::index_handler::IndexHandler;
 use crate::motion::Motion;
@@ -93,7 +92,9 @@ fn slide_position(
         SlideState::starting(selected)
     });
     slide.update(cx, |state, cx| state.go_to(selected, tween, cx));
-    let (position, running) = slide.read(cx).at(tween, Motion::of(cx), Instant::now());
+    let (position, running) = slide
+        .read(cx)
+        .at(tween, Motion::of(cx), system_clock::now());
     if running {
         window.request_animation_frame();
     }

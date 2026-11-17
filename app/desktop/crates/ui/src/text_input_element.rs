@@ -9,6 +9,7 @@ use gpui::{
     TextRun, UnderlineStyle, Window, fill, point, px, relative, size,
 };
 
+use crate::adapters::system_clock;
 use crate::keyframes::Keyframes;
 use crate::motion::Motion;
 use crate::palette::Palette;
@@ -73,7 +74,7 @@ impl<S: TextSurface> TextInputElement<S> {
         );
         let origin = point(bounds.left() + from, bounds.top());
         if selection.is_empty() {
-            let blink = caret_color(self.palette.foreground(), Instant::now(), motion);
+            let blink = caret_color(self.palette.foreground(), system_clock::now(), motion);
             let caret = Bounds::new(origin, size(px(CARET_WIDTH), bounds.size.height));
             return caret_frame(line, fill(caret, blink));
         }

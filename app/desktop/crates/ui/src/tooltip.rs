@@ -1,7 +1,5 @@
 //! Tooltips shown after a short hover delay.
 
-use std::time::Instant;
-
 use gpui::StatefulInteractiveElement as _;
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -9,6 +7,7 @@ use gpui::{
     SharedString, Styled, Window, anchored, deferred, div, px,
 };
 
+use crate::adapters::system_clock;
 use crate::cubic_bezier::CubicBezier;
 use crate::hover;
 use crate::kbd::Kbd;
@@ -131,7 +130,7 @@ impl RenderOnce for Tooltip {
         let tween = Tween::new(timing::DEFAULT, CubicBezier::EASE).delayed(timing::TOOLTIP_DELAY);
         let shown = hover_state
             .read(cx)
-            .entered(tween, Motion::of(cx), Instant::now());
+            .entered(tween, Motion::of(cx), system_clock::now());
         if shown.running {
             window.request_animation_frame();
         }

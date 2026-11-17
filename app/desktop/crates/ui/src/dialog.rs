@@ -4,8 +4,7 @@ use std::rc::Rc;
 
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Bounds, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, Styled, Window, anchored, div, hsla,
-    point, px,
+    MouseButton, ParentElement, RenderOnce, Styled, Window, anchored, div, hsla, point, px,
 };
 
 use crate::close_handler::CloseHandler;
@@ -48,6 +47,8 @@ pub struct Dialog {
     on_close: Option<CloseHandler>,
 }
 
+mod heading;
+
 impl Dialog {
     /// An empty dialog; render it at the root of the window while it is open.
     pub fn new(id: impl Into<ElementId>) -> Self {
@@ -62,47 +63,6 @@ impl Dialog {
             footer: None,
             on_close: None,
         }
-    }
-
-    /// Sets the heading.
-    #[must_use]
-    pub fn title(
-        mut self,
-        title: impl Into<SharedString>,
-    ) -> Self {
-        self.header = self.header.title(Some(title.into()));
-        self
-    }
-
-    /// Shows an icon before the title.
-    #[must_use]
-    pub fn icon(
-        mut self,
-        icon: IconName,
-    ) -> Self {
-        self.header = self.header.icon(Some(icon));
-        self
-    }
-
-    /// Picks the React dialog to reproduce: `AppDialog` (default) or the plain `Dialog`.
-    #[must_use]
-    pub fn style(
-        mut self,
-        style: DialogStyle,
-    ) -> Self {
-        self.style = style;
-        self.header = self.header.style(style);
-        self
-    }
-
-    /// Sets the maximum width.
-    #[must_use]
-    pub fn size(
-        mut self,
-        size: DialogSize,
-    ) -> Self {
-        self.size = size;
-        self
     }
 
     /// Fills `extent` of the window; the body then has no padding and the header no rule.

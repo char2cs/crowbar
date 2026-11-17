@@ -1,5 +1,7 @@
 //! Placeholder block with a viewport-fixed travelling highlight.
 
+use std::ops::Range;
+
 use gpui::{
     App, Bounds, ElementId, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Pixels,
     RenderOnce, Styled as _, Window, canvas, div, fill, hsla, linear_color_stop, linear_gradient,
@@ -48,18 +50,18 @@ impl Skeleton {
 
 fn paint_half(
     window: &mut Window,
-    span: &std::ops::Range<Pixels>,
-    (top, bottom): (Pixels, Pixels),
-    (from, to): (Hsla, Hsla),
+    span: &Range<Pixels>,
+    rows: Range<Pixels>,
+    shades: Range<Hsla>,
 ) {
     let area = Bounds::new(
-        point(span.start, top),
-        size(span.end - span.start, bottom - top),
+        point(span.start, rows.start),
+        size(span.end - span.start, rows.end - rows.start),
     );
     let gradient = linear_gradient(
         GRADIENT_ANGLE,
-        linear_color_stop(from, 0.0),
-        linear_color_stop(to, 1.0),
+        linear_color_stop(shades.start, 0.0),
+        linear_color_stop(shades.end, 1.0),
     );
     window.paint_quad(fill(area, gradient));
 }
@@ -67,12 +69,12 @@ fn paint_half(
 fn paint_stripe(
     window: &mut Window,
     stripe: &Stripe,
-    rows: (Pixels, Pixels),
+    rows: Range<Pixels>,
     glow: Hsla,
 ) {
     let clear = hsla(0.0, 0.0, 1.0, 0.0);
-    paint_half(window, &stripe.rises(), rows, (clear, glow));
-    paint_half(window, &stripe.falls(), rows, (glow, clear));
+    paint_half(window, &stripe.rises(), rows.clone(), clear..glow);
+    paint_half(window, &stripe.falls(), rows, glow..clear);
 }
 
 fn shimmer(
@@ -84,7 +86,7 @@ fn shimmer(
     let phase = ShimmerClock::of(cx).phase();
     let row = bounds.center().y;
     for stripe in stripes(phase, window.viewport_size(), row) {
-        paint_stripe(window, &stripe, (bounds.top(), bounds.bottom()), glow);
+        paint_stripe(window, &stripe, bounds.top()..bounds.bottom(), glow);
     }
     window.request_animation_frame();
 }

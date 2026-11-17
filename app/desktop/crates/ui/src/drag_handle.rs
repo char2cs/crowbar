@@ -55,7 +55,7 @@ impl RenderOnce for DragHandle {
         let state = hover::track(&self.id, Pose::Off, window, cx);
         let color = hover::color(
             &state,
-            (palette.muted_foreground(), palette.foreground()),
+            palette.muted_foreground()..palette.foreground(),
             window,
             cx,
         );

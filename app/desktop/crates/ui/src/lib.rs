@@ -2,6 +2,7 @@
 //!
 //! Entry point: [`init`]. See `README.md` for the public API status per component.
 
+mod adapters;
 mod appearance;
 mod assets;
 mod axis;
@@ -154,6 +155,7 @@ mod toast_entry;
 mod toast_id;
 mod toast_kind;
 mod toast_lifetime;
+mod toast_motion;
 mod toast_phase;
 mod toast_placement;
 mod toast_queue;
@@ -197,7 +199,7 @@ pub use empty_state::EmptyState;
 pub use error::Error;
 pub use focus_ring::focus_ring;
 pub use glide::Glide;
-pub use hover_fill::hover_fill;
+pub use hover_fill::HoverFill;
 pub use icon::Icon;
 pub use icon_name::IconName;
 pub use icon_weight::IconWeight;

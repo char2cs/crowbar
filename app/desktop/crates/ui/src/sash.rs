@@ -65,7 +65,7 @@ impl RenderOnce for Sash {
         let rest = palette.border().opacity(0.0);
         let color = hover::color(
             &state,
-            (rest, palette.border().opacity(HOVER_FILL)),
+            rest..palette.border().opacity(HOVER_FILL),
             window,
             cx,
         );

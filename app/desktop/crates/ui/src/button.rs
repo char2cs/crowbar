@@ -38,6 +38,8 @@ pub struct Button {
     on_click: Option<ClickHandler>,
 }
 
+mod appearance;
+
 impl Button {
     /// A labelled button.
     pub fn new(
@@ -71,46 +73,6 @@ impl Button {
             loading: false,
             on_click: None,
         }
-    }
-
-    /// Adds a leading icon to a labelled button.
-    #[must_use]
-    pub fn icon(
-        mut self,
-        icon: IconName,
-    ) -> Self {
-        self.icon = Some(icon);
-        self
-    }
-
-    /// Chooses the colour variant.
-    #[must_use]
-    pub fn variant(
-        mut self,
-        variant: ButtonVariant,
-    ) -> Self {
-        self.variant = variant;
-        self
-    }
-
-    /// Chooses the size step.
-    #[must_use]
-    pub fn size(
-        mut self,
-        size: ButtonSize,
-    ) -> Self {
-        self.size = size;
-        self
-    }
-
-    /// Paints the button with the palette of `surface`.
-    #[must_use]
-    pub fn on(
-        mut self,
-        surface: Surface,
-    ) -> Self {
-        self.surface = surface;
-        self
     }
 
     /// Disables the button: dimmed, no hover, no click.
@@ -195,7 +157,7 @@ impl RenderOnce for Button {
         let hover = hover::track(&self.id, Pose::Off, window, cx);
         let background = hover::color(
             &hover,
-            (colors.background, colors.hover_background),
+            colors.background..colors.hover_background,
             window,
             cx,
         );

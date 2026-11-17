@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use gpui::{Context, EventEmitter, Pixels, Point, SharedString, Task};
+use gpui::{Context, EventEmitter, SharedString, Task};
 
 use crate::opaque_debug::opaque_debug;
 use crate::timing;
@@ -26,6 +26,8 @@ pub struct ToastQueue {
     pub(crate) swipe: Option<ToastSwipe>,
     next: u64,
 }
+
+mod surface;
 
 impl EventEmitter<ToastQueueEvent> for ToastQueue {}
 
@@ -182,54 +184,6 @@ impl ToastQueue {
         cx.notify();
     }
 
-    /// Moves the column, for example when the sidebar collapses.
-    pub fn set_placement(
-        &mut self,
-        placement: ToastPlacement,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.placement = placement;
-        cx.notify();
-    }
-
-    /// Where the column sits now.
-    pub fn placement(&self) -> ToastPlacement {
-        self.placement
-    }
-
-    /// How many toasts the queue holds, leaving ones included.
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// Whether the queue holds no toast.
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    pub(crate) fn begin_swipe(
-        &mut self,
-        toast: ToastId,
-        origin: Point<Pixels>,
-    ) {
-        self.swipe = Some(ToastSwipe { toast, origin });
-    }
-
-    pub(crate) fn drag_swipe(
-        &mut self,
-        position: Point<Pixels>,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(swipe) = self.swipe else {
-            return;
-        };
-        if !swipe.dismisses(position, self.placement.side()) {
-            return;
-        }
-        self.swipe = None;
-        self.dismiss(swipe.toast, cx);
-    }
-
     fn expiry(
         id: ToastId,
         timeout: Option<Duration>,
@@ -246,7 +200,7 @@ impl ToastQueue {
     ) -> Task<()> {
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(delay).await;
-            this.update(cx, |queue, cx| then(queue, id, cx)).ok();
+            note_dropped(this.update(cx, |queue, cx| then(queue, id, cx)));
         })
     }
 
@@ -262,6 +216,12 @@ impl ToastQueue {
 }
 
 opaque_debug!(ToastQueue);
+
+fn note_dropped<Failure: std::fmt::Display>(update: Result<(), Failure>) {
+    if let Err(error) = update {
+        tracing::debug!(%error, "toast queue dropped before its timer fired");
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -431,26 +391,5 @@ mod tests {
             queue.entries.iter().map(|e| e.id).collect::<Vec<_>>()
         });
         assert_eq!(order, [second, first]);
-    }
-
-    #[gpui::test]
-    fn a_swipe_past_the_threshold_dismisses_the_toast(cx: &mut TestAppContext) {
-        let queue = queue(cx);
-        let id = push(&queue, ToastLifetime::Pinned, cx);
-        queue.update(cx, |queue, cx| {
-            queue.begin_swipe(id, gpui::point(gpui::px(200.0), gpui::px(10.0)));
-            queue.drag_swipe(gpui::point(gpui::px(180.0), gpui::px(10.0)), cx);
-        });
-        let leaving = queue.read_with(cx, |queue, _| {
-            queue.entries.first().is_some_and(|e| e.leaving)
-        });
-        assert!(!leaving, "20px is below the threshold");
-        queue.update(cx, |queue, cx| {
-            queue.drag_swipe(gpui::point(gpui::px(150.0), gpui::px(10.0)), cx);
-        });
-        let leaving = queue.read_with(cx, |queue, _| {
-            queue.entries.first().is_some_and(|e| e.leaving)
-        });
-        assert!(leaving);
     }
 }

@@ -109,7 +109,7 @@ impl TabCell {
             return style.active_text(palette);
         }
         let rest = palette.muted_foreground().opacity(MUTED_TEXT);
-        hover::color(hover_state, (rest, palette.foreground()), window, cx)
+        hover::color(hover_state, rest..palette.foreground(), window, cx)
     }
 
     fn icon_weight(&self) -> IconWeight {

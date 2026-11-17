@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use gpui::Context;
 
+use crate::adapters::system_clock;
 use crate::motion::Motion;
 use crate::pose::Pose;
 use crate::position::Position;
@@ -32,7 +33,7 @@ impl ToggleState {
             return;
         }
         self.pose = pose;
-        self.changed = Some(Instant::now());
+        self.changed = Some(system_clock::now());
         cx.notify();
     }
 

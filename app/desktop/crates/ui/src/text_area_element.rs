@@ -1,13 +1,12 @@
 //! Paints the wrapped text, selection and caret of a text area and registers its input handler.
 
-use std::time::Instant;
-
 use gpui::{
     App, AvailableSpace, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity,
     GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, Size, Style, Window, fill,
     point, px, relative, size,
 };
 
+use crate::adapters::system_clock;
 use crate::motion::Motion;
 use crate::palette::Palette;
 use crate::pose::Pose;
@@ -77,7 +76,11 @@ impl<S: TextAreaSurface> TextAreaElement<S> {
                 )
             })
             .collect();
-        let blink = caret_color(self.palette.foreground(), Instant::now(), Motion::of(cx));
+        let blink = caret_color(
+            self.palette.foreground(),
+            system_clock::now(),
+            Motion::of(cx),
+        );
         let spot = layout.point_for_index(area.cursor());
         let caret = Bounds::new(origin + spot, size(px(CARET_WIDTH), layout.line_height()));
         TextAreaFrame {

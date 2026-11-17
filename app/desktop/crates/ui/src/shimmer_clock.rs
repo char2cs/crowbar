@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{App, Global};
 
+use crate::adapters::system_clock;
 use crate::timing;
 
 const HEAD_START: f32 = 0.5;
@@ -18,7 +19,7 @@ impl Global for ShimmerClock {}
 impl ShimmerClock {
     pub(crate) fn starting_now() -> Self {
         Self {
-            start: Instant::now(),
+            start: system_clock::now(),
         }
     }
 

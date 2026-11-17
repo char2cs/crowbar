@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use gpui::Context;
 
+use crate::adapters::system_clock;
 use crate::motion::Motion;
 use crate::tween::Tween;
 
@@ -32,7 +33,7 @@ impl SlideState {
         if self.to == slot {
             return;
         }
-        let now = Instant::now();
+        let now = system_clock::now();
         self.from = self.at(tween, Motion::of(cx), now).0;
         self.to = slot;
         self.started = Some(now);

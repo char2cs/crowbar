@@ -54,25 +54,22 @@ fn caret_edge(
 
 fn text_row(
     wrapped: &WrappedLine,
-    (line, start): (usize, usize),
-    (from, to): (usize, usize),
-    (top, closes): (Pixels, Pose),
+    start: usize,
+    span: Range<usize>,
+    closes: Pose,
 ) -> TextRow {
     TextRow {
-        bytes: start + from..start + to,
-        caret_end: start + caret_edge(wrapped, to, closes),
-        top,
-        origin: wrapped.unwrapped_layout.x_for_index(from),
-        line,
+        bytes: start + span.start..start + span.end,
+        caret_end: start + caret_edge(wrapped, span.end, closes),
+        top: px(0.0),
+        origin: wrapped.unwrapped_layout.x_for_index(span.start),
+        line: 0,
         closes_line: closes == Pose::On,
     }
 }
 
-fn span_of(pair: &[usize]) -> (usize, usize) {
-    (
-        pair.first().copied().unwrap_or(0),
-        pair.last().copied().unwrap_or(0),
-    )
+fn span_of(pair: &[usize]) -> Range<usize> {
+    pair.first().copied().unwrap_or(0)..pair.last().copied().unwrap_or(0)
 }
 
 fn edges_of(wrapped: &WrappedLine) -> Vec<usize> {
@@ -133,8 +130,8 @@ impl TextAreaLayout {
         for (position, pair) in edges.windows(2).enumerate() {
             let closes = Pose::from(position == last);
             let top = self.line_height * self.rows.len();
-            let row = text_row(wrapped, (line, start), span_of(pair), (top, closes));
-            self.rows.push(row);
+            let row = text_row(wrapped, start, span_of(pair), closes);
+            self.rows.push(TextRow { top, line, ..row });
         }
         wrapped.len()
     }

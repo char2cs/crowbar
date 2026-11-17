@@ -1,11 +1,11 @@
 //! Caret movement of [`TextArea`] along characters, visual rows and the document.
 
-use std::ops::Range;
-
 use gpui::{Context, Pixels};
 
 use crate::direction::Direction;
 use crate::text_area::TextArea;
+
+mod edges;
 
 impl TextArea {
     fn boundary(
@@ -99,47 +99,6 @@ impl TextArea {
         self.buffer.select_to(target);
         cx.notify();
     }
-
-    fn row_edge(
-        &self,
-        direction: Direction,
-    ) -> usize {
-        let row: Range<usize> = self.layout.row_bounds(self.buffer.cursor());
-        match direction {
-            Direction::Backward => row.start,
-            Direction::Forward => row.end,
-        }
-    }
-
-    pub(crate) fn move_to_row_edge(
-        &mut self,
-        direction: Direction,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.buffer.move_to(self.row_edge(direction));
-        cx.notify();
-    }
-
-    pub(crate) fn extend_to_row_edge(
-        &mut self,
-        direction: Direction,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.buffer.select_to(self.row_edge(direction));
-        cx.notify();
-    }
-
-    pub(crate) fn move_to_document_edge(
-        &mut self,
-        direction: Direction,
-        cx: &mut Context<'_, Self>,
-    ) {
-        match direction {
-            Direction::Backward => self.buffer.move_to(0),
-            Direction::Forward => self.buffer.move_to(self.buffer.text().len()),
-        }
-        cx.notify();
-    }
 }
 
 #[cfg(test)]
@@ -166,22 +125,6 @@ mod tests {
         cx.simulate_keystrokes("left left left up up down down");
         cx.simulate_input("X");
         assert_eq!(area_text(&area, cx), "abcdef\nab\nabcXdef");
-    }
-
-    #[gpui::test]
-    fn home_end_and_document_edges(cx: &mut TestAppContext) {
-        let (area, cx) = area(cx);
-        area.update(cx, |area, cx| area.set_text("one\ntwo\nthree", cx));
-        cx.run_until_parked();
-        cx.simulate_keystrokes("up home");
-        cx.simulate_input("[");
-        cx.simulate_keystrokes("end");
-        cx.simulate_input("]");
-        cx.simulate_keystrokes("ctrl-home");
-        cx.simulate_input("<");
-        cx.simulate_keystrokes("ctrl-end");
-        cx.simulate_input(">");
-        assert_eq!(area_text(&area, cx), "<one\n[two]\nthree>");
     }
 
     #[gpui::test]

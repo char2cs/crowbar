@@ -9,11 +9,7 @@ use gpui::{
 };
 
 use crate::direction::Direction;
-use crate::menu_actions::{
-    CONTEXT, CloseSubmenu, Confirm, Dismiss, OpenSubmenu as OpenSubmenuAction, SelectNext,
-    SelectPrevious,
-};
-use crate::menu_cursor::step;
+use crate::menu_actions::{CONTEXT, SelectNext, SelectPrevious};
 use crate::menu_item::MenuItem;
 use crate::menu_level::MenuLevel;
 use crate::menu_navigation::MenuNavigation;
@@ -43,6 +39,8 @@ pub struct Menu {
     pub(crate) level: MenuLevel,
     pub(crate) submenu: Option<OpenSubmenu<Menu>>,
 }
+
+mod navigation;
 
 impl EventEmitter<DismissEvent> for Menu {}
 
@@ -107,94 +105,6 @@ impl Menu {
     ) -> Self {
         self.min_width = width;
         self
-    }
-
-    fn move_highlight(
-        &mut self,
-        direction: Direction,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.highlighted = step(&self.items, self.highlighted, direction);
-        cx.notify();
-    }
-
-    fn choose(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let Some(MenuItem::Action(action)) =
-            self.items.get(index).filter(|item| item.is_selectable())
-        else {
-            return;
-        };
-        if action.submenu.is_some() {
-            self.open_submenu(index, window, cx);
-            return;
-        }
-        let on_select = Rc::clone(&action.on_select);
-        cx.emit(DismissEvent);
-        on_select(window, cx);
-    }
-
-    fn confirm(
-        &mut self,
-        _: &Confirm,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if let Some(index) = self.highlighted {
-            self.choose(index, window, cx);
-        }
-    }
-
-    fn highlight(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.highlighted == Some(index) {
-            return;
-        }
-        self.highlighted = Some(index);
-        self.hover_submenu(index, window, cx);
-        cx.notify();
-    }
-
-    fn dismiss(
-        &mut self,
-        _: &Dismiss,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        match self.level {
-            MenuLevel::Root => cx.emit(DismissEvent),
-            MenuLevel::Nested => cx.emit(MenuNavigation::Back),
-        }
-    }
-
-    fn close_submenu(
-        &mut self,
-        _: &CloseSubmenu,
-        _: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if self.level == MenuLevel::Nested {
-            cx.emit(MenuNavigation::Back);
-        }
-    }
-
-    fn open_highlighted(
-        &mut self,
-        _: &OpenSubmenuAction,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if let Some(index) = self.highlighted {
-            self.open_submenu(index, window, cx);
-        }
     }
 
     fn hover_handler(entity: Entity<Self>) -> RowHandler {
@@ -313,7 +223,7 @@ mod tests {
     use crate::menu_actions;
     use crate::motion::Motion;
 
-    type Log = Rc<RefCell<Vec<&'static str>>>;
+    pub(super) type Log = Rc<RefCell<Vec<&'static str>>>;
 
     fn items(log: &Log) -> Vec<MenuItem> {
         let record = |name: &'static str| {
@@ -332,9 +242,9 @@ mod tests {
         *counter.borrow_mut() += 1;
     }
 
-    type Opened<'a> = (Entity<Menu>, &'a mut VisualTestContext, Rc<RefCell<u32>>);
+    pub(super) type Opened<'a> = (Entity<Menu>, &'a mut VisualTestContext, Rc<RefCell<u32>>);
 
-    fn open_menu<'a>(
+    pub(super) fn open_menu<'a>(
         cx: &'a mut TestAppContext,
         log: &Log,
     ) -> Opened<'a> {
@@ -352,32 +262,6 @@ mod tests {
                 .detach();
         });
         (menu, cx, dismissed)
-    }
-
-    #[gpui::test]
-    fn arrow_keys_skip_disabled_rows_and_enter_runs_the_highlighted_one(cx: &mut TestAppContext) {
-        let log = Log::default();
-        let (_, cx, dismissed) = open_menu(cx, &log);
-        cx.simulate_keystrokes("down down enter");
-        assert_eq!(*log.borrow(), ["last"]);
-        assert_eq!(*dismissed.borrow(), 1);
-    }
-
-    #[gpui::test]
-    fn up_from_nothing_selects_the_last_row(cx: &mut TestAppContext) {
-        let log = Log::default();
-        let (_, cx, _) = open_menu(cx, &log);
-        cx.simulate_keystrokes("up enter");
-        assert_eq!(*log.borrow(), ["last"]);
-    }
-
-    #[gpui::test]
-    fn enter_without_a_highlight_does_nothing(cx: &mut TestAppContext) {
-        let log = Log::default();
-        let (_, cx, dismissed) = open_menu(cx, &log);
-        cx.simulate_keystrokes("enter");
-        assert!(log.borrow().is_empty());
-        assert_eq!(*dismissed.borrow(), 0);
     }
 
     #[gpui::test]

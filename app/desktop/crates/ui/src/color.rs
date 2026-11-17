@@ -2,21 +2,17 @@
 
 use gpui::Rgba;
 
+const BYTE_MASK: u32 = 0xff;
 const BYTE_MAX: f32 = 255.0;
 const RED_SHIFT: u32 = 24;
 const GREEN_SHIFT: u32 = 16;
 const BLUE_SHIFT: u32 = 8;
 
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_lossless,
-    reason = "const context: the value is masked to one byte before the casts"
-)]
 const fn channel(
     value: u32,
     shift: u32,
 ) -> f32 {
-    (((value >> shift) & 0xff) as u8) as f32 / BYTE_MAX
+    (((value >> shift) & BYTE_MASK) as u8) as f32 / BYTE_MAX
 }
 
 pub(crate) const fn hex(value: u32) -> Rgba {
