@@ -911,6 +911,25 @@ mod tests {
     }
 
     #[test]
+    fn swapping_across_groups_leaves_the_same_panes_pinned() {
+        let mut layout = fixture();
+        apply(&mut layout, Command::PinPane { pane: id("a") });
+        let swap = Command::SwapPanes {
+            a: id("a"),
+            b: id("f"),
+        };
+        apply(&mut layout, swap);
+        let tab = layout.tab(TabId(1)).unwrap();
+        let pinned = |name: &str| {
+            let pane = id(name);
+            tab.group_of(&pane)
+                .is_some_and(|group| group.is_pinned(&pane))
+        };
+        let seen: Vec<bool> = ["a", "b", "c", "e", "f"].map(pinned).into();
+        assert_eq!(seen, [true, false, false, false, false], "only a is pinned");
+    }
+
+    #[test]
     fn swapping_inside_a_strip_reorders_it() {
         let mut layout = fixture();
         apply(

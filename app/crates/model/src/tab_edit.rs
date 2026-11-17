@@ -2,6 +2,7 @@ use protocol::{PaneId, PaneState};
 
 use crate::branch::Branch;
 use crate::error::{Error, Result};
+use crate::group::Group;
 use crate::placement::Placement;
 use crate::rect::Rect;
 use crate::split_extent::{extent_of, ratio_for};
@@ -42,7 +43,9 @@ impl Tab {
         self.require(a)?;
         self.require(b)?;
         if let Some(tree) = self.tree.as_mut() {
+            let pins = [a, b].map(|pane| (pane, pin_of(tree, pane)));
             tree.swap_leaves(a, b);
+            keep_pins(tree, pins);
         }
         if let Some(shown) = self.focused.clone().filter(|pane| pane == a || pane == b) {
             self.show(&shown);
@@ -134,6 +137,40 @@ impl Tab {
         focus_ok
             .then_some(())
             .ok_or(Error::Invalid("focus does not match the panes"))
+    }
+}
+
+type Restore = fn(&mut Group, &PaneId);
+
+fn pin_of(
+    tree: &SplitNode,
+    pane: &PaneId,
+) -> Restore {
+    let pinned = tree
+        .group_of(pane)
+        .is_some_and(|group| group.is_pinned(pane));
+    if pinned {
+        return Group::pin;
+    }
+    Group::unpin
+}
+
+fn keep_pins(
+    tree: &mut SplitNode,
+    pins: [(&PaneId, Restore); 2],
+) {
+    for (pane, restore) in pins {
+        keep_pin(tree, pane, restore);
+    }
+}
+
+fn keep_pin(
+    tree: &mut SplitNode,
+    pane: &PaneId,
+    restore: Restore,
+) {
+    if let Some(group) = tree.group_of_mut(pane) {
+        restore(group, pane);
     }
 }
 
