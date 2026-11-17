@@ -1,5 +1,6 @@
 use tauri::State;
 
+use crate::host_error::HostError;
 use crate::hosts::endpoint::parse_endpoint;
 use crate::hosts::HostRegistry;
 use crate::ws_bridge::WsBridgeManager;
@@ -13,7 +14,7 @@ pub(crate) fn register_remote_host(
     host_id: String,
     endpoint: &str,
     registry: State<'_, HostRegistry>,
-) -> Result<(), String> {
+) -> Result<(), HostError> {
     registry.insert(host_id, parse_endpoint(endpoint)?)
 }
 
@@ -65,7 +66,7 @@ mod tests {
             let err =
                 register_remote_host((*host_id).into(), endpoint, app.state::<HostRegistry>())
                     .unwrap_err();
-            assert!(err.contains(reason), "{host_id}: {err}");
+            assert!(err.to_string().contains(reason), "{host_id}: {err}");
             assert!(app.state::<HostRegistry>().get(host_id).is_none());
         }
     }

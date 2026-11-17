@@ -5,6 +5,7 @@ use tauri::ipc::Request;
 use tauri::{Manager, Runtime, State, Webview};
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::host_error::HostError;
 use crate::host_route::is_remote_host;
 use crate::host_tokens::TokenStore;
 use crate::hosts::HostRegistry;
@@ -26,8 +27,6 @@ use open_args::OpenArgs;
 use open_request::OpenRequest;
 pub(crate) use ws_bridge_manager::WsBridgeManager;
 
-const NO_LOCAL_DAEMON: &str = "no local daemon on this device";
-
 fn remote_host(host_id: Option<String>) -> Option<String> {
     host_id.filter(|host| is_remote_host(host))
 }
@@ -35,8 +34,8 @@ fn remote_host(host_id: Option<String>) -> Option<String> {
 async fn open_remote<R: Runtime>(
     args: OpenArgs,
     webview: &Webview<R>,
-) -> Result<(), String> {
-    let host_id = remote_host(args.host_id.clone()).ok_or(NO_LOCAL_DAEMON)?;
+) -> Result<(), HostError> {
+    let host_id = remote_host(args.host_id.clone()).ok_or(HostError::NoLocalDaemon)?;
     let on_message = args.channel(webview)?;
     let registry = webview.state::<HostRegistry>();
     let tokens = webview.state::<Arc<dyn TokenStore>>();
@@ -60,7 +59,7 @@ async fn open_remote<R: Runtime>(
 pub(crate) async fn ws_open<R: Runtime>(
     request: Request<'_>,
     webview: Webview<R>,
-) -> Result<(), String> {
+) -> Result<(), HostError> {
     open_remote(OpenArgs::from_request(&request)?, &webview).await
 }
 
@@ -69,20 +68,21 @@ pub(crate) async fn ws_send(
     conn_id: String,
     data: String,
     manager: State<'_, WsBridgeManager>,
-) -> Result<(), String> {
-    match manager.sender(&conn_id) {
-        Some(tx) => tx
-            .send(Message::Text(data.into()))
-            .map_err(|_| format!("ws connection {conn_id} is closed")),
-        None => Err(format!("no open ws connection {conn_id}")),
+) -> Result<(), HostError> {
+    let Some(tx) = manager.sender(&conn_id) else {
+        return Err(HostError::NoWsConnection(conn_id));
+    };
+    if tx.send(Message::Text(data.into())).is_err() {
+        return Err(HostError::WsClosed(conn_id));
     }
+    Ok(())
 }
 
 #[tauri::command]
 pub(crate) async fn ws_close(
     conn_id: String,
     manager: State<'_, WsBridgeManager>,
-) -> Result<(), String> {
+) -> Result<(), HostError> {
     manager.retire(&conn_id);
     Ok(())
 }
@@ -134,17 +134,17 @@ mod tests {
     async fn ws_send_reaches_an_open_connection_and_names_a_missing_one() {
         let (app, mut queue) = app_with_connection("c1");
         let sent = ws_send("c1".into(), "{}".into(), app.state()).await;
-        assert_eq!(sent, Ok(()));
+        assert!(sent.is_ok());
         assert_eq!(queue.recv().await, Some(Message::Text("{}".into())));
         let missing = ws_send("c2".into(), "{}".into(), app.state()).await;
-        assert_eq!(missing, Err("no open ws connection c2".to_owned()));
+        assert_eq!(missing.unwrap_err().to_string(), "no open ws connection c2");
     }
 
     #[tokio::test]
     async fn ws_close_retires_the_connection_and_a_later_send_fails() {
         let (app, _queue) = app_with_connection("c1");
-        assert_eq!(ws_close("c1".into(), app.state()).await, Ok(()));
+        assert!(ws_close("c1".into(), app.state()).await.is_ok());
         let sent = ws_send("c1".into(), "{}".into(), app.state()).await;
-        assert_eq!(sent, Err("no open ws connection c1".to_owned()));
+        assert_eq!(sent.unwrap_err().to_string(), "no open ws connection c1");
     }
 }

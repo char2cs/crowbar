@@ -19,6 +19,7 @@ use crate::host_tokens::{Credential, TokenStore};
 use crate::hosts::endpoint::parse_endpoint;
 use crate::hosts::HostRegistry;
 use crate::tls_pin::certificate_digest;
+use crate::token_error::TokenError;
 
 pub(crate) const HOST_ID: &str = "host-1";
 
@@ -60,8 +61,12 @@ impl Keychain {
         })
     }
 
-    fn check(&self) -> Result<(), String> {
-        self.broken.map_or(Ok(()), |reason| Err(reason.to_owned()))
+    fn check(&self) -> Result<(), TokenError> {
+        self.broken.map_or(Ok(()), |reason| {
+            Err(TokenError::new(keyring::Error::NoStorageAccess(
+                reason.into(),
+            )))
+        })
     }
 }
 
@@ -69,7 +74,7 @@ impl TokenStore for Keychain {
     fn get(
         &self,
         host_id: &str,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, TokenError> {
         self.check()?;
         Ok(self.tokens.lock().unwrap().get(host_id).cloned())
     }
@@ -78,7 +83,7 @@ impl TokenStore for Keychain {
         &self,
         host_id: &str,
         token: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), TokenError> {
         self.check()?;
         self.tokens
             .lock()
@@ -90,7 +95,7 @@ impl TokenStore for Keychain {
     fn delete(
         &self,
         _: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), TokenError> {
         unreachable!("the remote path never deletes a credential")
     }
 }

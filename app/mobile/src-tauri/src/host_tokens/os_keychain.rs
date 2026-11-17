@@ -1,5 +1,6 @@
 use super::keychain::Keychain;
 use super::read_error::ReadError;
+use crate::token_error::TokenError;
 
 pub(super) struct OsKeychain {
     service: &'static str,
@@ -23,13 +24,11 @@ impl Keychain for OsKeychain {
         &self,
         host_id: &str,
     ) -> Result<Option<String>, ReadError> {
-        let entry = self
-            .entry(host_id)
-            .map_err(|e| ReadError::from_keyring(&e))?;
+        let entry = self.entry(host_id).map_err(ReadError::from_keyring)?;
         match entry.get_password() {
             Ok(token) => Ok(Some(token)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(ReadError::from_keyring(&e)),
+            Err(e) => Err(ReadError::from_keyring(e)),
         }
     }
 
@@ -37,19 +36,19 @@ impl Keychain for OsKeychain {
         &self,
         host_id: &str,
         token: &str,
-    ) -> Result<(), String> {
-        let entry = self.entry(host_id).map_err(|e| e.to_string())?;
-        entry.set_password(token).map_err(|e| e.to_string())
+    ) -> Result<(), TokenError> {
+        let entry = self.entry(host_id).map_err(TokenError::new)?;
+        entry.set_password(token).map_err(TokenError::new)
     }
 
     fn remove(
         &self,
         host_id: &str,
-    ) -> Result<(), String> {
-        let entry = self.entry(host_id).map_err(|e| e.to_string())?;
+    ) -> Result<(), TokenError> {
+        let entry = self.entry(host_id).map_err(TokenError::new)?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(TokenError::new(e)),
         }
     }
 }

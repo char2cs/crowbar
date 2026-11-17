@@ -1,4 +1,5 @@
 use super::read_error::ReadError;
+use crate::token_error::TokenError;
 
 pub(super) trait Keychain: Send + Sync {
     fn read(
@@ -9,9 +10,9 @@ pub(super) trait Keychain: Send + Sync {
         &self,
         host_id: &str,
         token: &str,
-    ) -> Result<(), String>;
+    ) -> Result<(), TokenError>;
     fn remove(
         &self,
         host_id: &str,
-    ) -> Result<(), String>;
+    ) -> Result<(), TokenError>;
 }

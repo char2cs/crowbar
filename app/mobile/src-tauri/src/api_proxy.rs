@@ -8,6 +8,7 @@ use crate::host_route::is_remote_host;
 use crate::host_tokens::TokenStore;
 use crate::hosts::HostRegistry;
 use proxy_answer::{error_response, readable_by};
+pub(crate) use proxy_answer::{HOST_IDENTITY_CHANGED, HOST_UNREACHABLE, PROXY_HEADER};
 
 mod channel;
 pub(crate) mod pairing;
@@ -16,10 +17,6 @@ mod proxy_answer;
 pub(crate) mod remote;
 
 const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
-
-pub(crate) const PROXY_HEADER: &str = "x-crowbar-proxy";
-pub(crate) const HOST_UNREACHABLE: &str = "host-unreachable";
-pub(crate) const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
 
 fn remote_host_id(uri: &http::Uri) -> Option<&str> {
     uri.host().filter(|host| is_remote_host(host))
@@ -41,13 +38,18 @@ pub(crate) fn handle_request<R: Runtime>(
         let routed = route(&app, remote_host, request);
         let resp = match tokio::time::timeout(PROXY_TIMEOUT, routed).await {
             Ok(resp) => resp,
-            Err(_) => error_response(
-                http::StatusCode::GATEWAY_TIMEOUT,
-                "crowbar daemon did not answer in time",
-            ),
+            Err(elapsed) => unanswered(&elapsed),
         };
         respond_on_main(&app, responder, readable_by(origin, resp));
     });
+}
+
+fn unanswered(elapsed: &tokio::time::error::Elapsed) -> http::Response<Vec<u8>> {
+    log::warn!("api proxy: the daemon did not answer: {elapsed}");
+    error_response(
+        http::StatusCode::GATEWAY_TIMEOUT,
+        "crowbar daemon did not answer in time",
+    )
 }
 
 async fn route<R: Runtime>(

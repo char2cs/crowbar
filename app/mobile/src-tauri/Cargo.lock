@@ -683,6 +683,7 @@ dependencies = [
  "log",
  "rcgen",
  "rustls",
+ "serde",
  "serde_json",
  "sha2",
  "socket2",

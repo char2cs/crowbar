@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use super::endpoint::Endpoint;
 use super::validate_host_id;
+use crate::host_error::HostError;
 
 #[derive(Default)]
 pub(crate) struct HostRegistry(Mutex<HashMap<String, Endpoint>>);
@@ -23,7 +24,7 @@ impl HostRegistry {
         &self,
         host_id: String,
         endpoint: Endpoint,
-    ) -> Result<(), String> {
+    ) -> Result<(), HostError> {
         validate_host_id(&host_id)?;
         self.0
             .lock()

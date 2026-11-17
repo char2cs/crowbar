@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use tauri::State;
 
+use crate::host_error::HostError;
+
 mod credential;
 mod keychain;
 mod keychain_token_store;
@@ -22,13 +24,14 @@ pub(crate) use token_store::TokenStore;
 pub(crate) fn forget_host_token(
     host_id: &str,
     store: State<'_, Arc<dyn TokenStore>>,
-) -> Result<(), String> {
-    store.delete(host_id)
+) -> Result<(), HostError> {
+    Ok(store.delete(host_id)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::token_error::TokenError;
     use std::collections::HashMap;
     use std::sync::Mutex;
     use tauri::test::mock_app;
@@ -40,7 +43,7 @@ mod tests {
         fn get(
             &self,
             host_id: &str,
-        ) -> Result<Option<String>, String> {
+        ) -> Result<Option<String>, TokenError> {
             Ok(self.0.lock().unwrap().get(host_id).cloned())
         }
 
@@ -48,7 +51,7 @@ mod tests {
             &self,
             host_id: &str,
             token: &str,
-        ) -> Result<(), String> {
+        ) -> Result<(), TokenError> {
             self.0.lock().unwrap().insert(host_id.into(), token.into());
             Ok(())
         }
@@ -56,7 +59,7 @@ mod tests {
         fn delete(
             &self,
             host_id: &str,
-        ) -> Result<(), String> {
+        ) -> Result<(), TokenError> {
             self.0.lock().unwrap().remove(host_id);
             Ok(())
         }

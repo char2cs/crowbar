@@ -1,6 +1,8 @@
 use tauri::http;
 
-use super::PROXY_HEADER;
+pub(crate) const PROXY_HEADER: &str = "x-crowbar-proxy";
+pub(crate) const HOST_UNREACHABLE: &str = "host-unreachable";
+pub(crate) const HOST_IDENTITY_CHANGED: &str = "host-identity-changed";
 
 #[derive(Clone)]
 pub(crate) struct ProxyAnswer(());

@@ -3,23 +3,25 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::{client_async, WebSocketStream};
 
-pub(super) fn upgrade_request(path: &str) -> Result<Request, String> {
+use crate::host_error::HostError;
+
+pub(super) fn upgrade_request(path: &str) -> Result<Request, HostError> {
     format!("ws://localhost{path}")
         .into_client_request()
-        .map_err(|e| format!("build ws request: {e}"))
+        .map_err(HostError::BadWsRequest)
 }
 
 pub(super) async fn upgrade<T>(
     stream: T,
     request: Request,
-) -> Result<WebSocketStream<T>, String>
+) -> Result<WebSocketStream<T>, HostError>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    let (ws, _response) = client_async(request, stream).await.map_err(|e| {
-        log::error!("ws_open: ws upgrade failed: {e}");
-        format!("ws upgrade: {e}")
-    })?;
+    let (ws, _response) = client_async(request, stream)
+        .await
+        .inspect_err(|e| log::error!("ws_open: ws upgrade failed: {e}"))
+        .map_err(HostError::WsUpgrade)?;
     Ok(ws)
 }
 
@@ -47,6 +49,6 @@ mod tests {
         drop(server);
         let request = upgrade_request("/v0/x").unwrap();
         let error = upgrade(client, request).await.expect_err("no handshake");
-        assert!(error.starts_with("ws upgrade: "), "{error}");
+        assert!(error.to_string().starts_with("ws upgrade: "), "{error}");
     }
 }

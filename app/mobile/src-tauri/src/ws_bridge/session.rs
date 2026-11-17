@@ -55,7 +55,15 @@ fn forward<S: FrameSink>(
             None
         },
         Ok(Some(Ok(_))) => None,
-        Ok(Some(Err(_)) | None) | Err(_) => Some(true),
+        Ok(Some(Err(error))) => {
+            log::debug!("ws bridge: the daemon stream failed: {error}");
+            Some(true)
+        },
+        Ok(None) => Some(true),
+        Err(elapsed) => {
+            log::debug!("ws bridge: the daemon stream went idle: {elapsed}");
+            Some(true)
+        },
     }
 }
 

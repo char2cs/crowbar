@@ -11,29 +11,32 @@ use super::paired_host::PairedHost;
 use super::upgrade::{upgrade, upgrade_request};
 use super::ws_bridge_manager::WsBridgeManager;
 use crate::api_proxy::remote::{dial, DialError, RemoteHost, DIAL_TIMEOUT};
+use crate::host_error::HostError;
 
-fn rejected(error: &DialError) -> String {
+fn rejected(error: DialError) -> HostError {
     log::error!("ws_open: {error}");
-    format!("{}: {error}", error.marker())
+    HostError::Rejected {
+        marker: error.marker(),
+        source: Box::new(error),
+    }
 }
 
 async fn upgraded_within_deadline<T>(
     stream: T,
     request: Request,
     host: &RemoteHost,
-) -> Result<WebSocketStream<T>, String>
+) -> Result<WebSocketStream<T>, HostError>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    let unanswered = || {
-        rejected(&DialError::Unreachable(format!(
-            "{} did not answer the upgrade within {DIAL_TIMEOUT:?}",
-            host.endpoint
-        )))
-    };
     tokio::time::timeout(DIAL_TIMEOUT, upgrade(stream, request))
         .await
-        .map_err(|_| unanswered())?
+        .map_err(|elapsed| {
+            rejected(DialError::Unreachable(format!(
+                "{} did not answer the upgrade within {DIAL_TIMEOUT:?} ({elapsed})",
+                host.endpoint
+            )))
+        })?
 }
 
 pub(super) async fn open_remote_bridge<S: FrameSink>(
@@ -41,12 +44,12 @@ pub(super) async fn open_remote_bridge<S: FrameSink>(
     on_message: S,
     manager: &WsBridgeManager,
     request: OpenRequest,
-) -> Result<JoinHandle<()>, String> {
+) -> Result<JoinHandle<()>, HostError> {
     let mut handshake = upgrade_request(&request.path)?;
     handshake
         .headers_mut()
         .insert(AUTHORIZATION, paired.authorization);
-    let tls = dial(&paired.host).await.map_err(|error| rejected(&error))?;
+    let tls = dial(&paired.host).await.map_err(rejected)?;
     let ws = upgraded_within_deadline(tls, handshake, &paired.host).await?;
     let request = OpenRequest {
         host_id: Some(paired.host_id),
@@ -159,7 +162,7 @@ mod tests {
         registry: &HostRegistry,
         manager: &WsBridgeManager,
         sink: Frames,
-    ) -> Result<JoinHandle<()>, String> {
+    ) -> Result<JoinHandle<()>, HostError> {
         let stored = paired("sometoken", target.cert);
         let keychain = Keychain::holding(&[(target.host_id, &stored)]);
         let pair = paired_host(registry, &keychain, target.host_id).await?;
@@ -171,7 +174,7 @@ mod tests {
         cert: &[u8],
         manager: &WsBridgeManager,
         sink: Frames,
-    ) -> Result<JoinHandle<()>, String> {
+    ) -> Result<JoinHandle<()>, HostError> {
         let target = Target {
             host_id: HOST_ID,
             cert,
@@ -182,9 +185,9 @@ mod tests {
 
     fn marked(
         marker: &str,
-        err: &str,
+        err: &HostError,
     ) -> bool {
-        err.starts_with(&format!("{marker}: "))
+        err.to_string().starts_with(&format!("{marker}: "))
     }
 
     #[tokio::test]
@@ -330,7 +333,7 @@ mod tests {
             .expect("must fail at the deadline")
             .expect_err("silent host");
         assert!(marked(HOST_UNREACHABLE, &err), "{err}");
-        assert!(err.contains("did not answer within"), "{err}");
+        assert!(err.to_string().contains("did not answer within"), "{err}");
     }
 
     #[tokio::test]
@@ -359,7 +362,10 @@ mod tests {
         let (opened, registered) = waited.expect("must fail at the deadline").unwrap();
         let err = opened.expect_err("a host that never upgrades is not bridged");
         assert!(marked(HOST_UNREACHABLE, &err), "{err}");
-        assert!(err.contains("did not answer the upgrade"), "{err}");
+        assert!(
+            err.to_string().contains("did not answer the upgrade"),
+            "{err}"
+        );
         assert!(!registered, "a stream that never opened was registered");
     }
 }

@@ -5,6 +5,7 @@ use tauri::http;
 use crate::api_proxy::proxy_answer::proxy_error;
 use crate::api_proxy::{HOST_IDENTITY_CHANGED, HOST_UNREACHABLE};
 
+#[derive(Debug)]
 pub(crate) enum DialError {
     Unreachable(String),
     IdentityChanged(String),
@@ -26,6 +27,8 @@ impl DialError {
         proxy_error(status, self.marker(), &self.to_string())
     }
 }
+
+impl std::error::Error for DialError {}
 
 impl fmt::Display for DialError {
     fn fmt(

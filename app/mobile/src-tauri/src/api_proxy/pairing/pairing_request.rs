@@ -2,6 +2,8 @@ use serde_json::Value;
 use tauri::ipc::{CommandArg, CommandItem, InvokeBody, InvokeError};
 use tauri::Runtime;
 
+use crate::host_error::HostError;
+
 const COMMAND: &str = "pair_remote_host";
 
 pub(crate) struct PairingRequest {
@@ -13,12 +15,12 @@ pub(crate) struct PairingRequest {
 }
 
 impl PairingRequest {
-    pub(super) fn from_body(body: &Value) -> Result<Self, String> {
+    pub(super) fn from_body(body: &Value) -> Result<Self, HostError> {
         let field = |key: &str| {
             body.get(key)
                 .and_then(Value::as_str)
                 .map(str::to_owned)
-                .ok_or_else(|| format!("command {COMMAND} missing required key {key}"))
+                .ok_or_else(|| HostError::missing_key(COMMAND, key))
         };
         Ok(Self {
             host_id: field("hostId")?,
@@ -33,11 +35,9 @@ impl PairingRequest {
 impl<'de, R: Runtime> CommandArg<'de, R> for PairingRequest {
     fn from_command(command: CommandItem<'de, R>) -> Result<Self, InvokeError> {
         let InvokeBody::Json(body) = command.message.payload() else {
-            return Err(InvokeError::from(format!(
-                "command {COMMAND} expects a JSON body"
-            )));
+            return Err(InvokeError::from_error(HostError::JsonExpected(COMMAND)));
         };
-        Self::from_body(body).map_err(InvokeError::from)
+        Self::from_body(body).map_err(InvokeError::from_error)
     }
 }
 
@@ -90,7 +90,8 @@ mod tests {
             let err = PairingRequest::from_body(&body).err().expect(key);
 
             assert!(
-                err.ends_with(&format!("missing required key {key}")),
+                err.to_string()
+                    .ends_with(&format!("missing required key {key}")),
                 "{err}"
             );
         }

@@ -1,13 +1,16 @@
+use crate::token_error::TokenError;
+
 pub(super) struct ReadError {
-    pub(super) message: String,
+    pub(super) error: TokenError,
     pub(super) denied: bool,
 }
 
 impl ReadError {
-    pub(super) fn from_keyring(error: &keyring::Error) -> Self {
+    pub(super) fn from_keyring(error: keyring::Error) -> Self {
+        let denied = is_denial(&error);
         Self {
-            message: error.to_string(),
-            denied: is_denial(error),
+            error: TokenError::new(error),
+            denied,
         }
     }
 }
@@ -32,9 +35,10 @@ mod tests {
             (keyring::Error::BadEncoding(vec![0xff]), true),
         ];
         for (error, denied) in cases {
-            let read = ReadError::from_keyring(&error);
-            assert_eq!(read.denied, denied, "{error}");
-            assert_eq!(read.message, error.to_string());
+            let text = error.to_string();
+            let read = ReadError::from_keyring(error);
+            assert_eq!(read.denied, denied, "{text}");
+            assert_eq!(read.error.to_string(), text);
         }
     }
 }

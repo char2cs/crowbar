@@ -8,6 +8,7 @@ use tokio_rustls::client::TlsStream;
 
 use super::channel::{open_channel, send};
 use super::remote::{bearer, dial, RemoteHost, REMOTE_BODY_LIMIT};
+use crate::host_error::HostError;
 use crate::host_tokens::{Credential, TokenStore};
 use crate::hosts::endpoint::parse_endpoint;
 use crate::hosts::{validate_host_id, HostRegistry};
@@ -25,7 +26,7 @@ pub(crate) async fn pair_remote_host(
     request: PairingRequest,
     registry: State<'_, HostRegistry>,
     tokens: State<'_, Arc<dyn TokenStore>>,
-) -> Result<String, String> {
+) -> Result<String, HostError> {
     pair(&registry, &tokens, request).await
 }
 
@@ -33,7 +34,7 @@ async fn pair(
     registry: &HostRegistry,
     tokens: &Arc<dyn TokenStore>,
     request: PairingRequest,
-) -> Result<String, String> {
+) -> Result<String, HostError> {
     let host = RemoteHost {
         endpoint: parse_endpoint(&request.endpoint)?,
         pin: Pin::Confirmed(request.fingerprint),
@@ -50,35 +51,31 @@ async fn pair(
 
 async fn within_deadline<T>(
     host: &RemoteHost,
-    step: impl Future<Output = Result<T, String>>,
-) -> Result<T, String> {
-    let timed_out = || {
-        format!(
-            "{} did not finish pairing within {PAIR_TIMEOUT:?}",
-            host.endpoint
-        )
-    };
+    step: impl Future<Output = Result<T, HostError>>,
+) -> Result<T, HostError> {
     tokio::time::timeout(PAIR_TIMEOUT, step)
         .await
-        .map_err(|_| timed_out())?
+        .map_err(|source| HostError::PairingTimeout {
+            endpoint: host.endpoint.to_string(),
+            limit: PAIR_TIMEOUT,
+            source,
+        })?
 }
 
 async fn undo_unkept(
     host: &RemoteHost,
     redeemed: &mut Redeemed,
-    unkept: String,
-) -> String {
-    let what = format!(
-        "the keychain could not keep the token for {} ({unkept})",
-        host.endpoint
-    );
-    match within_deadline(host, revoke(redeemed)).await {
-        Ok(()) => format!("{what}; the host revoked it"),
-        Err(why) => format!("{what}; revoking it on the host failed: {why}"),
+    unkept: HostError,
+) -> HostError {
+    let revocation = within_deadline(host, revoke(redeemed)).await.err();
+    HostError::KeychainRefused {
+        endpoint: host.endpoint.to_string(),
+        source: Box::new(unkept),
+        revocation: revocation.map(Box::new),
     }
 }
 
-async fn revoke(redeemed: &mut Redeemed) -> Result<(), String> {
+async fn revoke(redeemed: &mut Redeemed) -> Result<(), HostError> {
     let request = http::Request::builder()
         .method(http::Method::DELETE)
         .uri(format!("/v0/clients/{}", redeemed.client_id))
@@ -87,39 +84,42 @@ async fn revoke(redeemed: &mut Redeemed) -> Result<(), String> {
             bearer(&redeemed.credential.token)?,
         )
         .body(Vec::new())
-        .map_err(|e| e.to_string())?;
+        .map_err(HostError::BadRequest)?;
     let resp = send(&mut redeemed.channel, request, REMOTE_BODY_LIMIT)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(HostError::Transport)?;
     if resp.status().is_success() {
         return Ok(());
     }
-    Err(format!("the host answered {}", resp.status()))
+    Err(HostError::RevokeRefused(resp.status()))
 }
 
 fn redeem_request(
     code: &str,
     name: &str,
-) -> Result<http::Request<Vec<u8>>, String> {
+) -> Result<http::Request<Vec<u8>>, HostError> {
     let body = serde_json::json!({ "code": code, "name": name }).to_string();
     http::Request::builder()
         .method(http::Method::POST)
         .uri("/v0/pair")
         .header(http::header::CONTENT_TYPE, "application/json")
         .body(body.into_bytes())
-        .map_err(|e| e.to_string())
+        .map_err(HostError::BadRequest)
 }
 
 async fn redeem(
     host: &RemoteHost,
     code: &str,
     name: &str,
-) -> Result<Redeemed, String> {
-    let tls = dial(host).await.map_err(|e| e.to_string())?;
-    let pin =
-        peer_digest(&tls).ok_or_else(|| format!("{} presented no certificate", host.endpoint))?;
+) -> Result<Redeemed, HostError> {
+    let endpoint = host.endpoint.to_string();
+    let tls = dial(host).await.map_err(|e| HostError::Dial(Box::new(e)))?;
+    let pin = peer_digest(&tls).ok_or_else(|| HostError::NoCertificate(endpoint.clone()))?;
     let request = redeem_request(code, name)?;
-    let failed = |e| format!("pairing with {} failed: {e}", host.endpoint);
+    let failed = |source| HostError::PairingTransport {
+        endpoint: endpoint.clone(),
+        source,
+    };
     let mut channel = open_channel(tls).await.map_err(failed)?;
     let resp = send(&mut channel, request, REMOTE_BODY_LIMIT)
         .await
@@ -137,17 +137,14 @@ fn peer_digest(tls: &TlsStream<TcpStream>) -> Option<CertificateDigest> {
     chain.first().map(|cert| certificate_digest(cert))
 }
 
-fn pairing_answer(resp: &http::Response<Vec<u8>>) -> Result<(String, String), String> {
+fn pairing_answer(resp: &http::Response<Vec<u8>>) -> Result<(String, String), HostError> {
     let body: serde_json::Value = serde_json::from_slice(resp.body()).unwrap_or_default();
     if !resp.status().is_success() {
         let reason = body
             .get("error")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("no reason given");
-        return Err(format!(
-            "the host refused pairing ({}): {reason}",
-            resp.status()
-        ));
+        return Err(HostError::pairing_refused(resp.status(), reason));
     }
     let field = |name: &str| {
         body.get("data")
@@ -155,7 +152,7 @@ fn pairing_answer(resp: &http::Response<Vec<u8>>) -> Result<(String, String), St
             .and_then(serde_json::Value::as_str)
             .filter(|value| !value.trim().is_empty())
             .map(str::to_owned)
-            .ok_or_else(|| format!("the host's pairing answer carried no {name}"))
+            .ok_or_else(|| HostError::PairingAnswerLacks(name.to_owned()))
     };
     Ok((field("token")?, field("clientId")?))
 }
@@ -164,13 +161,14 @@ async fn keep_credential(
     tokens: &Arc<dyn TokenStore>,
     host_id: &str,
     credential: &Credential,
-) -> Result<(), String> {
+) -> Result<(), HostError> {
     let tokens = Arc::clone(tokens);
     let host_id = host_id.to_owned();
     let entry = credential.encode();
     tokio::task::spawn_blocking(move || tokens.set(&host_id, &entry))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(HostError::Interrupted)?
+        .map_err(HostError::Token)
 }
 
 #[cfg(test)]
@@ -288,7 +286,7 @@ mod tests {
             .await
             .expect_err("an impostor");
 
-        assert!(err.contains("identity changed"), "{err}");
+        assert!(err.to_string().contains("identity changed"), "{err}");
         let served = reported.await.unwrap();
         assert!(
             served.is_err(),
@@ -311,7 +309,10 @@ mod tests {
             .await
             .expect_err("a refused code");
 
-        assert!(err.contains("pairing code is not valid"), "{err}");
+        assert!(
+            err.to_string().contains("pairing code is not valid"),
+            "{err}"
+        );
         let kept = keychain.get(HOST_ID).unwrap();
         assert_eq!(kept.as_deref(), Some("previous-credential"));
         assert_eq!(registered(&registry).as_deref(), Some("10.0.0.1:3737"));
@@ -330,7 +331,7 @@ mod tests {
             .await
             .expect_err("nothing to revoke");
 
-        assert!(err.contains("no clientId"), "{err}");
+        assert!(err.to_string().contains("no clientId"), "{err}");
         assert_eq!(keychain.get(HOST_ID).unwrap(), None);
         assert!(registry.get(HOST_ID).is_none());
     }
@@ -350,8 +351,8 @@ mod tests {
             .await
             .expect_err("unstorable");
 
-        assert!(err.contains("keychain is locked"), "{err}");
-        assert!(err.ends_with("the host revoked it"), "{err}");
+        assert!(err.to_string().contains("keychain is locked"), "{err}");
+        assert!(err.to_string().ends_with("the host revoked it"), "{err}");
         assert!(registry.get(HOST_ID).is_none());
         let redeem = reported.recv().await.expect("the code was redeemed");
         assert!(redeem.starts_with("POST /v0/pair "), "{redeem}");
@@ -378,8 +379,11 @@ mod tests {
             .await
             .expect_err("unstorable");
 
-        assert!(err.contains("keychain is locked"), "{err}");
-        assert!(err.contains("revoking it on the host failed"), "{err}");
+        assert!(err.to_string().contains("keychain is locked"), "{err}");
+        assert!(
+            err.to_string().contains("revoking it on the host failed"),
+            "{err}"
+        );
         assert!(registry.get(HOST_ID).is_none());
     }
 
@@ -395,7 +399,7 @@ mod tests {
             .await
             .expect_err("the local daemon's name");
 
-        assert!(err.contains("host id"), "{err}");
+        assert!(err.to_string().contains("host id"), "{err}");
         assert!(reported.try_recv().is_err(), "the host was dialed");
         assert_eq!(keychain.get("localhost").unwrap(), None);
     }
@@ -425,8 +429,8 @@ mod tests {
         let (paired, registered, kept) = timed.await.expect("must fail at the deadline").unwrap();
 
         let err = paired.expect_err("a silent host is not paired");
-        assert!(err.contains("did not finish pairing"), "{err}");
-        assert_eq!(kept, Ok(None));
+        assert!(err.to_string().contains("did not finish pairing"), "{err}");
+        assert!(matches!(kept, Ok(None)));
         assert!(registered.is_none());
     }
 
@@ -472,7 +476,7 @@ mod tests {
 
             match (answer, expected) {
                 (Ok(got), Ok((token, id))) => assert_eq!(got, (token.to_string(), id.to_string())),
-                (Err(got), Err(fragment)) => assert!(got.contains(fragment), "{got}"),
+                (Err(got), Err(fragment)) => assert!(got.to_string().contains(fragment), "{got}"),
                 (got, _) => panic!("{body}: unexpected {got:?}"),
             }
         }

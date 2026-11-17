@@ -4,6 +4,10 @@ use serde_json::Value;
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, JavaScriptChannelId, Request};
 use tauri::{Runtime, Webview};
 
+use crate::host_error::HostError;
+
+const COMMAND: &str = "ws_open";
+
 pub(super) struct OpenArgs {
     pub(super) conn_id: String,
     pub(super) path: String,
@@ -15,11 +19,11 @@ pub(super) struct OpenArgs {
 fn required(
     args: &Value,
     key: &str,
-) -> Result<String, String> {
+) -> Result<String, HostError> {
     args.get(key)
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .ok_or_else(|| format!("invalid args `{key}` for command `ws_open`: expected a string"))
+        .ok_or_else(|| HostError::not_a_string(COMMAND, key))
 }
 
 fn optional_text(
@@ -30,7 +34,7 @@ fn optional_text(
 }
 
 impl OpenArgs {
-    pub(super) fn from_json(args: &Value) -> Result<Self, String> {
+    pub(super) fn from_json(args: &Value) -> Result<Self, HostError> {
         Ok(Self {
             conn_id: required(args, "connId")?,
             path: required(args, "path")?,
@@ -40,19 +44,19 @@ impl OpenArgs {
         })
     }
 
-    pub(super) fn from_request(request: &Request<'_>) -> Result<Self, String> {
+    pub(super) fn from_request(request: &Request<'_>) -> Result<Self, HostError> {
         match request.body() {
             InvokeBody::Json(args) => Self::from_json(args),
-            InvokeBody::Raw(_) => Err("ws_open expects JSON arguments".to_owned()),
+            InvokeBody::Raw(_) => Err(HostError::JsonExpected(COMMAND)),
         }
     }
 
     pub(super) fn channel<R: Runtime>(
         &self,
         webview: &Webview<R>,
-    ) -> Result<Channel<InvokeResponseBody>, String> {
+    ) -> Result<Channel<InvokeResponseBody>, HostError> {
         let id = JavaScriptChannelId::from_str(&self.on_message)
-            .map_err(|e| format!("invalid args `onMessage` for command `ws_open`: {e}"))?;
+            .map_err(|reason| HostError::bad_channel_id(COMMAND, reason))?;
         Ok(id.channel_on(webview.clone()))
     }
 }

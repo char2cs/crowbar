@@ -18,6 +18,7 @@ tauri = { version = "2", features = ["protocol-asset", "macos-private-api", "uns
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
+serde = "1"
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 hyper = { version = "1", features = ["full"] }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tauri::http::HeaderValue;
 
 use crate::api_proxy::remote::{bearer, stored_credential, RemoteHost};
+use crate::host_error::HostError;
 use crate::host_tokens::TokenStore;
 use crate::hosts::HostRegistry;
 
@@ -16,14 +17,14 @@ pub(super) async fn paired_host(
     registry: &HostRegistry,
     tokens: &Arc<dyn TokenStore>,
     host_id: &str,
-) -> Result<PairedHost, String> {
+) -> Result<PairedHost, HostError> {
     let endpoint = registry
         .get(host_id)
-        .ok_or_else(|| format!("unknown remote host {host_id}"))?;
+        .ok_or_else(|| HostError::UnknownHost(host_id.to_owned()))?;
     let credential = stored_credential(tokens, host_id)
         .await
-        .map_err(|e| format!("token lookup failed: {e}"))?
-        .ok_or("no stored credential for this host — pair it again")?;
+        .map_err(|e| HostError::LookupFailed(Box::new(e)))?
+        .ok_or(HostError::Unpaired)?;
     Ok(PairedHost {
         host_id: host_id.to_owned(),
         authorization: bearer(&credential.token)?,
@@ -68,7 +69,7 @@ mod tests {
         let registry = registry(&refused_endpoint());
         for (case, (keychain, reason)) in keychains().into_iter().enumerate() {
             let outcome = paired_host(&registry, &keychain, HOST_ID).await;
-            let err = outcome.err().unwrap_or_default();
+            let err = outcome.err().expect("refused").to_string();
             assert!(err.contains(reason), "case {case}: {err}");
         }
     }
@@ -79,10 +80,10 @@ mod tests {
         let registry = registry(&refused_endpoint());
         let keychain = Keychain::holding(&[(HOST_ID, &paired("sometoken", b"cert"))]);
         let pair = paired_host(&registry, &keychain, HOST_ID).await;
-        assert_eq!(pair.map(|p| p.host_id), Ok(HOST_ID.to_owned()));
+        assert_eq!(pair.map(|p| p.host_id).ok(), Some(HOST_ID.to_owned()));
         registry.remove(HOST_ID);
         let gone = paired_host(&registry, &keychain, HOST_ID).await;
-        let error = gone.err().unwrap_or_default();
+        let error = gone.err().expect("unknown").to_string();
         assert!(error.contains("unknown remote host"), "{error}");
     }
 }

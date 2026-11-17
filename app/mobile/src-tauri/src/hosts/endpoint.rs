@@ -3,6 +3,8 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use tokio::net::{lookup_host, TcpStream};
 
+use crate::host_error::HostError;
+
 const MAX_NAME_LEN: usize = 253;
 const MAX_LABEL_LEN: usize = 63;
 
@@ -33,8 +35,11 @@ fn is_valid_host(
     is_name_or_ipv4(host)
 }
 
-pub(crate) fn parse_endpoint(text: &str) -> Result<Endpoint, String> {
-    let malformed = |why: &str| format!("{text:?} is not a host:port address: {why}");
+pub(crate) fn parse_endpoint(text: &str) -> Result<Endpoint, HostError> {
+    let malformed = |why: &'static str| HostError::NotAnAddress {
+        text: text.to_owned(),
+        why,
+    };
     if !text.chars().all(is_address_char) {
         return Err(malformed("it holds characters no host or port does"));
     }
@@ -75,10 +80,13 @@ fn parse_port(text: &str) -> Option<u16> {
 }
 
 impl Endpoint {
-    pub(crate) async fn connect(&self) -> Result<TcpStream, String> {
+    pub(crate) async fn connect(&self) -> Result<TcpStream, HostError> {
         let addrs: Vec<SocketAddr> = lookup_host((self.host.as_str(), self.port))
             .await
-            .map_err(|e| format!("cannot resolve {}: {e}", self.host))?
+            .map_err(|source| HostError::Resolve {
+                host: self.host.clone(),
+                source,
+            })?
             .collect();
         let mut refused = None;
         for addr in addrs {
@@ -88,8 +96,11 @@ impl Endpoint {
             }
         }
         Err(match refused {
-            Some(e) => format!("cannot reach {self}: {e}"),
-            None => format!("cannot resolve {}: it has no addresses", self.host),
+            Some(source) => HostError::Refused {
+                endpoint: self.to_string(),
+                source,
+            },
+            None => HostError::NoAddress(self.host.clone()),
         })
     }
 }
@@ -171,7 +182,7 @@ mod tests {
 
     fn assert_refused(text: &str) {
         let err = parse_endpoint(text).expect_err(text);
-        assert!(err.contains("is not a host:port address"), "{err}");
+        assert!(matches!(err, HostError::NotAnAddress { .. }), "{err}");
     }
 
     #[test]

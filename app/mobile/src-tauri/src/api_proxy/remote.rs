@@ -12,6 +12,7 @@ use tokio_rustls::TlsConnector;
 
 use super::channel::proxy;
 use super::proxy_answer::error_response;
+use crate::host_error::HostError;
 use crate::host_tokens::{Credential, TokenStore};
 use crate::hosts::HostRegistry;
 use crate::tls_pin::pinned_client_config;
@@ -31,8 +32,11 @@ const SERVER_NAME: &str = "crowbar-remote";
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(15);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 
-pub(super) fn server_name() -> Result<ServerName<'static>, String> {
-    ServerName::try_from(SERVER_NAME).map_err(|error| format!("{SERVER_NAME}: {error}"))
+pub(super) fn server_name() -> Result<ServerName<'static>, HostError> {
+    ServerName::try_from(SERVER_NAME).map_err(|source| HostError::ServerName {
+        name: SERVER_NAME,
+        source,
+    })
 }
 
 pub(crate) async fn dial(host: &RemoteHost) -> Result<TlsStream<TcpStream>, DialError> {
@@ -49,14 +53,17 @@ async fn connect_pinned(host: &RemoteHost) -> Result<TlsStream<TcpStream>, DialE
         .endpoint
         .connect()
         .await
-        .map_err(DialError::Unreachable)?;
+        .map_err(|e| DialError::Unreachable(e.to_string()))?;
     probe_when_idle(&tcp)
         .map_err(|e| DialError::Unreachable(format!("cannot reach {}: {e}", host.endpoint)))?;
     let config = pinned_client_config(host.pin.clone())
         .map_err(|e| DialError::Unreachable(format!("cannot reach {}: {e}", host.endpoint)))?;
     let connector = TlsConnector::from(config);
     connector
-        .connect(server_name().map_err(DialError::Unreachable)?, tcp)
+        .connect(
+            server_name().map_err(|e| DialError::Unreachable(e.to_string()))?,
+            tcp,
+        )
         .await
         .map_err(|e| handshake_failure(host, &e))
 }
@@ -102,7 +109,7 @@ pub(super) async fn forward_remote(
     };
     let authorization = match bearer(&credential.token) {
         Ok(authorization) => authorization,
-        Err(e) => return error_response(http::StatusCode::INTERNAL_SERVER_ERROR, &e),
+        Err(e) => return error_response(http::StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     };
     request
         .headers_mut()
@@ -117,7 +124,7 @@ fn unpaired() -> http::Response<Vec<u8>> {
     )
 }
 
-fn lookup_failed(error: &str) -> http::Response<Vec<u8>> {
+fn lookup_failed(error: &HostError) -> http::Response<Vec<u8>> {
     let msg = format!("token lookup failed: {error}");
     error_response(http::StatusCode::INTERNAL_SERVER_ERROR, &msg)
 }
@@ -149,18 +156,18 @@ fn relay_failure(e: &(dyn std::error::Error + Send + Sync + 'static)) -> http::R
 pub(crate) async fn stored_credential(
     tokens: &Arc<dyn TokenStore>,
     host_id: &str,
-) -> Result<Option<Credential>, String> {
+) -> Result<Option<Credential>, HostError> {
     let tokens = Arc::clone(tokens);
     let host_id = host_id.to_owned();
     let stored = tokio::task::spawn_blocking(move || tokens.get(&host_id))
         .await
-        .map_err(|e| e.to_string())??;
+        .map_err(HostError::Interrupted)??;
     Ok(stored.as_deref().and_then(Credential::decode))
 }
 
-pub(crate) fn bearer(token: &str) -> Result<http::HeaderValue, String> {
+pub(crate) fn bearer(token: &str) -> Result<http::HeaderValue, HostError> {
     let mut value = http::HeaderValue::from_str(&format!("Bearer {token}"))
-        .map_err(|_| "the stored credential is not a valid header value".to_owned())?;
+        .map_err(HostError::InvalidCredential)?;
     value.set_sensitive(true);
     Ok(value)
 }

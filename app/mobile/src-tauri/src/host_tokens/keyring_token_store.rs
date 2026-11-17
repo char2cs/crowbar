@@ -1,6 +1,7 @@
 use super::keychain_token_store::KeychainTokenStore;
 use super::os_keychain::OsKeychain;
 use super::token_store::TokenStore;
+use crate::token_error::TokenError;
 
 const SERVICE: &str = "crowbar-desktop";
 
@@ -16,7 +17,7 @@ impl TokenStore for KeyringTokenStore {
     fn get(
         &self,
         host_id: &str,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, TokenError> {
         self.0.get(host_id)
     }
 
@@ -24,14 +25,14 @@ impl TokenStore for KeyringTokenStore {
         &self,
         host_id: &str,
         token: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), TokenError> {
         self.0.set(host_id, token)
     }
 
     fn delete(
         &self,
         host_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), TokenError> {
         self.0.delete(host_id)
     }
 }

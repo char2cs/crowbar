@@ -8,6 +8,7 @@ use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
 
 use super::remote::server_name;
+use crate::host_error::HostError;
 use crate::hosts::endpoint::{parse_endpoint, Endpoint};
 use crate::tls_pin::fingerprint_of;
 use unpinned_probe_verifier::UnpinnedProbeVerifier;
@@ -17,25 +18,28 @@ mod unpinned_probe_verifier;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tauri::command]
-pub(crate) async fn probe_remote_fingerprint(endpoint: String) -> Result<String, String> {
+pub(crate) async fn probe_remote_fingerprint(endpoint: String) -> Result<String, HostError> {
     let endpoint = parse_endpoint(&endpoint)?;
     tokio::time::timeout(PROBE_TIMEOUT, read_fingerprint(&endpoint))
         .await
-        .unwrap_or_else(|_| {
-            Err(format!(
-                "{endpoint} did not answer within {PROBE_TIMEOUT:?}"
-            ))
-        })
+        .map_err(|source| HostError::ProbeTimeout {
+            endpoint: endpoint.to_string(),
+            limit: PROBE_TIMEOUT,
+            source,
+        })?
 }
 
-async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, String> {
+async fn read_fingerprint(endpoint: &Endpoint) -> Result<String, HostError> {
     let tcp = endpoint.connect().await?;
     let mut tls = TlsConnector::from(unpinned_probe_config()?)
         .connect(server_name()?, tcp)
         .await
-        .map_err(|e| format!("TLS handshake with {endpoint} failed: {e}"))?;
+        .map_err(|source| HostError::Handshake {
+            endpoint: endpoint.to_string(),
+            source,
+        })?;
     let fingerprint = presented_fingerprint(&tls)
-        .ok_or_else(|| format!("{endpoint} presented no certificate"))?;
+        .ok_or_else(|| HostError::NoCertificate(endpoint.to_string()))?;
     if let Err(error) = tls.shutdown().await {
         log::debug!("probe: hang-up after reading the fingerprint failed: {error}");
     }
@@ -47,14 +51,14 @@ fn presented_fingerprint(tls: &TlsStream<TcpStream>) -> Option<String> {
     chain.first().map(|cert| fingerprint_of(cert))
 }
 
-fn unpinned_probe_config() -> Result<Arc<rustls::ClientConfig>, String> {
+fn unpinned_probe_config() -> Result<Arc<rustls::ClientConfig>, HostError> {
     let provider = Arc::new(aws_lc_rs::default_provider());
     let verifier = Arc::new(UnpinnedProbeVerifier {
         algorithms: provider.signature_verification_algorithms,
     });
     let config = rustls::ClientConfig::builder_with_provider(provider)
         .with_protocol_versions(&[&rustls::version::TLS13])
-        .map_err(|e| format!("TLS 1.3 is unavailable: {e}"))?
+        .map_err(HostError::TlsUnavailable)?
         .dangerous()
         .with_custom_certificate_verifier(verifier)
         .with_no_client_auth();
@@ -76,7 +80,7 @@ mod tests {
 
         let by_address = probe_remote_fingerprint(addr.to_string()).await;
 
-        assert_eq!(by_address, Ok(fingerprint_of(&cert)));
+        assert_eq!(by_address.ok(), Some(fingerprint_of(&cert)));
     }
 
     #[tokio::test]
@@ -92,11 +96,15 @@ mod tests {
             .expect_err("nothing answered");
 
         assert!(
-            unresolved.starts_with("cannot resolve nowhere.invalid"),
+            unresolved
+                .to_string()
+                .starts_with("cannot resolve nowhere.invalid"),
             "{unresolved}"
         );
         assert!(
-            silent.contains(&format!("cannot reach {refused}")),
+            silent
+                .to_string()
+                .contains(&format!("cannot reach {refused}")),
             "{silent}"
         );
     }
@@ -123,7 +131,10 @@ mod tests {
             let err = probe_remote_fingerprint(endpoint.clone())
                 .await
                 .expect_err(&endpoint);
-            assert!(err.contains("is not a host:port address"), "{err}");
+            assert!(
+                err.to_string().contains("is not a host:port address"),
+                "{err}"
+            );
         }
         assert!(reported.try_recv().is_err(), "the host was dialed");
     }
@@ -158,13 +169,13 @@ mod tests {
         let tls12_only = probe_remote_fingerprint(old.to_string()).await;
 
         let err = without_key.expect_err("a host that cannot sign has no certificate to show");
-        assert!(err.contains("TLS handshake"), "{err}");
+        assert!(err.to_string().contains("TLS handshake"), "{err}");
         assert!(
             replayed.await.unwrap().is_err(),
             "the replay completed a handshake"
         );
         let err = tls12_only.expect_err("pairing could never reach a TLS 1.2 host");
-        assert!(err.contains("TLS handshake"), "{err}");
+        assert!(err.to_string().contains("TLS handshake"), "{err}");
     }
 
     #[tokio::test(start_paused = true)]
@@ -178,7 +189,7 @@ mod tests {
         let result = probed.await.expect("must fail at the probe deadline");
 
         let err = result.expect_err("a silent host has no fingerprint");
-        assert!(err.contains("did not answer within"), "{err}");
+        assert!(err.to_string().contains("did not answer within"), "{err}");
     }
 
     #[test]

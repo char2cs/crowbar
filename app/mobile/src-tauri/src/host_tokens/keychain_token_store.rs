@@ -4,8 +4,9 @@ use std::sync::{Mutex, MutexGuard};
 use super::keychain::Keychain;
 use super::read_error::ReadError;
 use super::token_store::TokenStore;
+use crate::token_error::TokenError;
 
-type Cache = HashMap<String, Result<Option<String>, String>>;
+type Cache = HashMap<String, Result<Option<String>, TokenError>>;
 
 pub(super) struct KeychainTokenStore<K: Keychain> {
     keychain: K,
@@ -31,7 +32,7 @@ impl<K: Keychain> TokenStore for KeychainTokenStore<K> {
     fn get(
         &self,
         host_id: &str,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, TokenError> {
         let mut cache = self.cache();
         if let Some(cached) = cache.get(host_id) {
             return cached.clone();
@@ -39,10 +40,10 @@ impl<K: Keychain> TokenStore for KeychainTokenStore<K> {
         let stored = match self.keychain.read(host_id) {
             Ok(entry) => Ok(entry),
             Err(ReadError {
-                message,
+                error,
                 denied: false,
-            }) => return Err(message),
-            Err(ReadError { message, .. }) => Err(message),
+            }) => return Err(error),
+            Err(ReadError { error, .. }) => Err(error),
         };
         cache.insert(host_id.to_owned(), stored.clone());
         stored
@@ -52,7 +53,7 @@ impl<K: Keychain> TokenStore for KeychainTokenStore<K> {
         &self,
         host_id: &str,
         token: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), TokenError> {
         let mut cache = self.cache();
         self.keychain.write(host_id, token)?;
         cache.insert(host_id.to_owned(), Ok(Some(token.to_owned())));
@@ -62,7 +63,7 @@ impl<K: Keychain> TokenStore for KeychainTokenStore<K> {
     fn delete(
         &self,
         host_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), TokenError> {
         let mut cache = self.cache();
         self.keychain.remove(host_id)?;
         cache.insert(host_id.to_owned(), Ok(None));
@@ -110,14 +111,13 @@ mod tests {
             self.reads.fetch_add(1, Ordering::SeqCst);
             let mode = *self.mode.lock().unwrap();
             match mode {
-                Mode::Denied => Err(ReadError {
-                    message: "user denied".into(),
-                    denied: true,
-                }),
-                Mode::Locked => Err(ReadError {
-                    message: "keychain locked".into(),
-                    denied: false,
-                }),
+                Mode::Denied => Err(ReadError::from_keyring(keyring::Error::TooLong(
+                    "user denied".into(),
+                    1,
+                ))),
+                Mode::Locked => Err(ReadError::from_keyring(keyring::Error::NoStorageAccess(
+                    "keychain locked".into(),
+                ))),
                 Mode::Normal => Ok(self.entries.lock().unwrap().get(host_id).cloned()),
             }
         }
@@ -126,7 +126,7 @@ mod tests {
             &self,
             host_id: &str,
             token: &str,
-        ) -> Result<(), String> {
+        ) -> Result<(), TokenError> {
             let mut entries = self.entries.lock().unwrap();
             entries.insert(host_id.into(), token.into());
             Ok(())
@@ -135,7 +135,7 @@ mod tests {
         fn remove(
             &self,
             host_id: &str,
-        ) -> Result<(), String> {
+        ) -> Result<(), TokenError> {
             self.entries.lock().unwrap().remove(host_id);
             Ok(())
         }
@@ -205,7 +205,11 @@ mod tests {
         let (store, keychain) = cached(&[("a", "tok")]);
         keychain.set_mode(Mode::Denied);
         for _ in 0..5 {
-            assert_eq!(store.get("a"), Err("user denied".to_owned()));
+            assert!(store
+                .get("a")
+                .unwrap_err()
+                .to_string()
+                .contains("user denied"));
         }
         assert_eq!(keychain.reads(), 1);
         store.set("a", "fresh").unwrap();
@@ -217,7 +221,11 @@ mod tests {
     fn a_transient_failure_is_retried_on_the_next_get() {
         let (store, keychain) = cached(&[("a", "tok")]);
         keychain.set_mode(Mode::Locked);
-        assert_eq!(store.get("a"), Err("keychain locked".to_owned()));
+        assert!(store
+            .get("a")
+            .unwrap_err()
+            .to_string()
+            .contains("keychain locked"));
         keychain.set_mode(Mode::Normal);
         assert_eq!(store.get("a").unwrap(), Some("tok".to_owned()));
         assert_eq!(keychain.reads(), 2);
