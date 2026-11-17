@@ -1,0 +1,2 @@
+/// Works.
+pub fn work() {}

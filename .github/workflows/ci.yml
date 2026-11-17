@@ -289,6 +289,12 @@ jobs:
       - name: Cargo test
         # The GTK tests (browser tab placement) need a display.
         run: cd app/mobile/src-tauri && xvfb-run -a cargo test
+      # Opt-in real-infrastructure tests (#[ignore = "real-infra: ..."], docs/rust-style.md M41): loopback TLS servers
+      # for the pinned-certificate verifier. The OS keychain tests stay ignored: they need a keychain.
+      - name: Real-infrastructure tests
+        run: |
+          cd app/mobile/src-tauri
+          xvfb-run -a cargo test -- --include-ignored --skip host_tokens::keyring_token_store --skip host_tokens::os_keychain
       - name: Cargo build --release (Linux)
         run: cd app/mobile/src-tauri && cargo build --release
 

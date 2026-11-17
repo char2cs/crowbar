@@ -64,6 +64,7 @@ mod tests {
         a_host_without_a_usable_credential_is_re_run().await;
     }
 
+    #[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
     async fn a_host_without_a_usable_credential_is_re_run() {
         let _serialised = crate::test_support::fd_tests().await;
         let registry = registry(&refused_endpoint());
@@ -75,6 +76,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
     async fn an_unregistered_host_is_unknown_and_a_registered_one_is_paired() {
         let _serialised = crate::test_support::fd_tests().await;
         let registry = registry(&refused_endpoint());

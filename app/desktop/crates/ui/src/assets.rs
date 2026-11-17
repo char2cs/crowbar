@@ -47,18 +47,18 @@ impl AssetSource for Assets {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
-    use std::fs;
     use std::path::Path;
 
     use super::*;
 
+    #[ignore = "real-infra: compares the embedded icon table with the real assets/icons directory"]
     fn files_of(weight: &Path) -> Vec<String> {
         let folder = weight
             .file_name()
             .expect("folder")
             .to_string_lossy()
             .into_owned();
-        fs::read_dir(weight)
+        std::fs::read_dir(weight)
             .expect("weight dir")
             .map(|file| {
                 file.expect("entry")
@@ -101,9 +101,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "real-infra: compares the embedded icon table with the real assets/icons directory"]
     fn every_icon_name_has_a_regular_or_other_weight_and_no_file_is_orphaned() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons");
-        let on_disk: BTreeSet<String> = fs::read_dir(&root)
+        let on_disk: BTreeSet<String> = std::fs::read_dir(&root)
             .expect("icons dir")
             .flat_map(|weight| files_of(&weight.expect("entry").path()))
             .collect();

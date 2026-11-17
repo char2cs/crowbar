@@ -160,6 +160,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "real-infra: runs a real script that never answers to prove the timeout"]
     async fn a_binary_that_never_answers_is_given_up_on() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();

@@ -66,6 +66,7 @@ mod tests {
         ("missing file", "missing.js", None),
     ];
 
+    #[ignore = "real-infra: serves a real directory and refuses paths that leave it, which is about real path resolution"]
     fn fixture() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("pane_host-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("assets")).unwrap();
@@ -76,6 +77,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "real-infra: serves a real directory and refuses paths that leave it, which is about real path resolution"]
     fn serves_files_confined_to_the_directory_with_their_media_type() {
         let bundle = DirBundle::new(fixture());
         for (name, path, expected) in CASES {

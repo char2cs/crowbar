@@ -112,10 +112,12 @@ mod tests {
     use super::*;
     use crate::daemon_paths::DaemonPaths;
 
-    fn missing_binary(dir: &std::path::Path) -> SupervisorConfig {
+    const NOWHERE: &str = "/crowbar-test-missing";
+
+    fn missing_binary() -> SupervisorConfig {
         let paths = DaemonPaths {
-            socket: dir.join("d.sock"),
-            log: dir.join("d.log"),
+            socket: PathBuf::from(NOWHERE).join("d.sock"),
+            log: PathBuf::from(NOWHERE).join("d.log"),
         };
         let mut config = SupervisorConfig::new(
             PathBuf::from("/definitely/not/crowbar-api"),
@@ -143,8 +145,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_restart_while_the_daemon_is_not_up_is_accepted_and_one_after_stop_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let supervisor = Supervisor::start(missing_binary(dir.path()));
+        let supervisor = Supervisor::start(missing_binary());
         let mut events = supervisor.events();
         until_recovering(&mut events).await;
         supervisor.restart().await.unwrap();
@@ -159,8 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn dropping_the_handle_asks_the_task_to_stop_instead_of_leaving_it_running() {
-        let dir = tempfile::tempdir().unwrap();
-        let supervisor = Supervisor::start(missing_binary(dir.path()));
+        let supervisor = Supervisor::start(missing_binary());
         let mut events = supervisor.events();
         let commands = supervisor.commands.clone();
         drop(supervisor);

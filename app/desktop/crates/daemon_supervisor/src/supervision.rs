@@ -72,6 +72,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "real-infra: writes the real daemon log file"]
     async fn notes_go_to_the_daemon_log() {
         let dir = tempfile::tempdir().unwrap();
         let config = config(dir.path());

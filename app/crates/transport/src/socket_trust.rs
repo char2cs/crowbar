@@ -50,8 +50,6 @@ pub(crate) fn verify(
 
 #[cfg(test)]
 mod tests {
-    use tokio::net::UnixListener;
-
     use super::*;
 
     #[test]
@@ -65,10 +63,11 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "real-infra: binds a real unix socket to read its owner uid"]
     async fn a_socket_made_by_this_user_passes_and_one_claimed_by_another_does_not() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("d.sock");
-        let listener = UnixListener::bind(&path).unwrap();
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
         let client = UnixStream::connect(&path).await.unwrap();
         let _server = listener.accept().await.unwrap();
         assert!(verify(&path, &client).is_ok());

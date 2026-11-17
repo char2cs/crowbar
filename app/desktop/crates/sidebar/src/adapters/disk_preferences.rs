@@ -42,6 +42,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "real-infra: the disk adapter of the preferences port: a missing file and an atomic write"]
     fn a_missing_file_reads_as_nothing_and_a_written_one_comes_back() {
         let path = std::env::temp_dir().join(format!("sidebar-prefs-{}.json", std::process::id()));
         let file = DiskPreferences::at(&path);

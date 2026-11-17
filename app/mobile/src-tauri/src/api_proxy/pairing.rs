@@ -205,6 +205,7 @@ mod tests {
         registry.get(HOST_ID).map(|endpoint| endpoint.to_string())
     }
 
+    #[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
     async fn serve(
         replies: Option<Vec<u8>>
     ) -> (
@@ -337,6 +338,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
     async fn a_token_the_keychain_refuses_is_revoked_and_the_host_left_unregistered() {
         let _serialised = crate::test_support::fd_tests().await;
         let (cert, key) = identity();

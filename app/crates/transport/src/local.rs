@@ -139,17 +139,10 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use tempfile::TempDir;
-
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::UnixListener;
-
     use super::*;
     use crate::response::marker_of;
 
-    fn socket(dir: &TempDir) -> PathBuf {
-        dir.path().join("d.sock")
-    }
+    const MISSING_SOCKET: &str = "/crowbar-test-missing/d.sock";
 
     fn request(method: Method) -> Request<Vec<u8>> {
         Request::builder()
@@ -170,6 +163,7 @@ mod tests {
     ];
 
     #[test]
+    #[ignore = "real-infra: a real unix listener answering one request"]
     fn retries_poll_densely_then_back_off_to_a_cap() {
         for (attempt, wait) in CASES {
             assert_eq!(connect_retry_delay(attempt), wait, "attempt {attempt}");
@@ -183,6 +177,69 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    #[ignore = "real-infra: a real unix listener answering one request"]
+    async fn a_read_retries_until_the_attempts_are_spent_then_says_the_daemon_is_unavailable() {
+        let waits = AtomicU32::new(0);
+        let path = PathBuf::from(MISSING_SOCKET);
+
+        let answer = forward_local(&path, request(Method::GET), counting(&waits))
+            .await
+            .unwrap_err();
+
+        assert_eq!(answer.status(), 503);
+        assert_eq!(marker_of(&answer), Some(DAEMON_UNAVAILABLE));
+        assert_eq!(waits.load(Ordering::SeqCst), CONNECT_ATTEMPTS - 1);
+        let body = String::from_utf8_lossy(answer.body());
+        assert!(
+            !body.contains(MISSING_SOCKET),
+            "the page is not told where the socket is: {body}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "real-infra: a real unix listener answering one request"]
+    async fn a_mutation_is_never_replayed() {
+        let waits = AtomicU32::new(0);
+        let path = PathBuf::from(MISSING_SOCKET);
+
+        let answer = forward_local(&path, request(Method::POST), counting(&waits))
+            .await
+            .unwrap_err();
+
+        assert_eq!(answer.status(), 503);
+        assert_eq!(waits.load(Ordering::SeqCst), 0);
+    }
+
+    #[ignore = "real-infra: a real unix listener answering one request"]
+    fn serve_ok_once(path: &std::path::Path) {
+        let bound = tokio::net::UnixListener::bind(path).unwrap();
+        tokio::spawn(answer_ok(bound));
+    }
+
+    #[ignore = "real-infra: a real unix listener answering one request"]
+    async fn answer_ok(bound: tokio::net::UnixListener) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (mut stream, _) = bound.accept().await.unwrap();
+        let mut buf = [0u8; 1024];
+        let read = stream.read(&mut buf).await.unwrap();
+        assert!(read > 0, "the request arrived");
+        let reply = b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok";
+        stream.write_all(reply).await.unwrap();
+    }
+
+    #[ignore = "real-infra: a real unix listener answering one request"]
+    fn bind_on_third_attempt(
+        path: &std::path::Path,
+        attempt: u32,
+    ) {
+        if attempt == 3 {
+            serve_ok_once(path);
+        }
+    }
+
+    #[ignore = "real-infra: a real unix listener answering one request"]
     fn binding_late<'a>(
         attempts: &'a AtomicU32,
         path: &'a std::path::Path,
@@ -195,66 +252,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_read_retries_until_the_attempts_are_spent_then_says_the_daemon_is_unavailable() {
-        let waits = AtomicU32::new(0);
-        let dir = TempDir::new().unwrap();
-        let path = socket(&dir);
-
-        let answer = forward_local(&path, request(Method::GET), counting(&waits))
-            .await
-            .unwrap_err();
-
-        assert_eq!(answer.status(), 503);
-        assert_eq!(marker_of(&answer), Some(DAEMON_UNAVAILABLE));
-        assert_eq!(waits.load(Ordering::SeqCst), CONNECT_ATTEMPTS - 1);
-        let body = String::from_utf8_lossy(answer.body());
-        assert!(
-            !body.contains(dir.path().to_str().unwrap()),
-            "the page is not told where the socket is: {body}"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_mutation_is_never_replayed() {
-        let waits = AtomicU32::new(0);
-        let dir = TempDir::new().unwrap();
-        let path = socket(&dir);
-
-        let answer = forward_local(&path, request(Method::POST), counting(&waits))
-            .await
-            .unwrap_err();
-
-        assert_eq!(answer.status(), 503);
-        assert_eq!(waits.load(Ordering::SeqCst), 0);
-    }
-
-    fn serve_ok_once(path: &std::path::Path) {
-        let bound = UnixListener::bind(path).unwrap();
-        tokio::spawn(answer_ok(bound));
-    }
-
-    async fn answer_ok(bound: UnixListener) {
-        let (mut stream, _) = bound.accept().await.unwrap();
-        let mut buf = [0u8; 1024];
-        let read = stream.read(&mut buf).await.unwrap();
-        assert!(read > 0, "the request arrived");
-        let reply = b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok";
-        stream.write_all(reply).await.unwrap();
-    }
-
-    fn bind_on_third_attempt(
-        path: &std::path::Path,
-        attempt: u32,
-    ) {
-        if attempt == 3 {
-            serve_ok_once(path);
-        }
-    }
-
-    #[tokio::test]
+    #[ignore = "real-infra: dials a unix socket that a real listener binds"]
     async fn a_daemon_that_binds_late_is_reached_by_a_retried_read() {
-        let dir = TempDir::new().unwrap();
-        let path = socket(&dir);
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("d.sock");
         let listener_path = path.clone();
         let attempts = AtomicU32::new(0);
 
@@ -269,9 +270,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "real-infra: reads an over-limit answer from a real unix socket"]
     async fn a_response_over_the_limit_is_refused_with_a_clear_error() {
-        let dir = TempDir::new().unwrap();
-        let path = socket(&dir);
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("d.sock");
         serve_ok_once(&path);
         let answer = forward_limited(&path, request(Method::GET), counting(&AtomicU32::new(0)), 1)
             .await

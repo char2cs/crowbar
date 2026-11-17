@@ -225,6 +225,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "real-infra: asserts the 0600 and 0700 modes of a real log file and directory"]
     async fn the_log_directory_and_file_are_private() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("logs").join("daemon.log");

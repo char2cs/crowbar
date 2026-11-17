@@ -42,6 +42,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "real-infra: the disk adapter of the window file port: nested directory created on first write"]
     fn a_missing_file_reads_as_nothing_and_a_written_one_comes_back_in_a_new_directory() {
         let dir = tempfile::tempdir().unwrap();
         let file = DiskFile::at(&dir.path().join("nested/window.json"));

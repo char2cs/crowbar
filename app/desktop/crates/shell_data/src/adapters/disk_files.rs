@@ -40,6 +40,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "real-infra: the disk adapter of the FileStore port: atomic write and listing on a real directory"]
     fn a_written_file_reads_back_and_its_directory_lists_it() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("a.txt");

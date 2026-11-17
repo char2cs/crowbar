@@ -17,7 +17,7 @@
     reason = "test: async blocks nest by construction"
 )]
 
-#[path = "support/daemon.rs"]
+#[path = "support/real_infra/daemon.rs"]
 mod support;
 
 use daemon_supervisor::{DaemonEvent, Error, Supervisor, Timings};
@@ -31,6 +31,7 @@ fn is_ready(e: &DaemonEvent) -> bool {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_healthy_daemon_goes_starting_then_ready_and_stops_gracefully() {
     let (cfg, _home) = config("ok", fast_timings());
     let (socket, log) = (cfg.paths.socket.clone(), cfg.paths.log.clone());
@@ -59,6 +60,7 @@ async fn a_healthy_daemon_goes_starting_then_ready_and_stops_gracefully() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_daemon_that_halts_is_reported_and_not_respawned_until_asked() {
     let (cfg, _home) = config("halted", fast_timings());
     let supervisor = Supervisor::start(cfg);
@@ -80,6 +82,7 @@ async fn a_daemon_that_halts_is_reported_and_not_respawned_until_asked() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_crash_loop_backs_off_then_gives_up_with_a_report_and_a_manual_restart_gets_a_fresh_budget()
  {
     let (cfg, _home) = config("crash", fast_timings());
@@ -113,6 +116,7 @@ async fn a_crash_loop_backs_off_then_gives_up_with_a_report_and_a_manual_restart
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_daemon_that_dies_after_becoming_ready_is_recovered_and_comes_back() {
     let (cfg, _home) = config("die", fast_timings());
     let supervisor = Supervisor::start(cfg);
@@ -124,6 +128,7 @@ async fn a_daemon_that_dies_after_becoming_ready_is_recovered_and_comes_back() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_daemon_that_cannot_serve_is_recovered_with_the_reason_named() {
     let never_answers = Timings {
         health_attempts: 3,
@@ -162,6 +167,7 @@ async fn a_daemon_that_cannot_serve_is_recovered_with_the_reason_named() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_daemon_that_ignores_sigterm_is_killed_once_the_grace_runs_out() {
     let timings = Timings {
         sigterm_grace: Duration::from_millis(200),
@@ -180,6 +186,7 @@ async fn a_daemon_that_ignores_sigterm_is_killed_once_the_grace_runs_out() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn the_watchdog_kills_a_daemon_that_stops_answering_and_it_is_recovered() {
     let timings = Timings {
         watchdog_interval: Duration::from_millis(20),
@@ -210,6 +217,7 @@ async fn heard_until_ready(events: &mut Receiver<DaemonEvent>) -> Vec<DaemonEven
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_migrating_daemon_is_reported_step_by_step_and_then_ready() {
     let (cfg, _home) = config("steps", fast_timings());
     let supervisor = Supervisor::start(cfg);
@@ -239,6 +247,7 @@ async fn a_migrating_daemon_is_reported_step_by_step_and_then_ready() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_daemon_that_prints_bytes_that_are_not_utf8_never_wedges_on_a_full_pipe() {
     let (cfg, _home) = config("noisy", fast_timings());
     let log = cfg.paths.log.clone();

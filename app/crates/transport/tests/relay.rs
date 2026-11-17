@@ -9,7 +9,7 @@
     reason = "test code: a failing fake or assertion should fail the test loudly, and async blocks nest by construction"
 )]
 
-#[path = "support/echo_daemon.rs"]
+#[path = "support/real_infra/echo_daemon.rs"]
 mod echo_daemon;
 #[path = "support/memory_listener.rs"]
 mod memory_listener;
@@ -118,6 +118,7 @@ async fn within<T>(future: impl Future<Output = T>) -> T {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn text_and_binary_frames_round_trip_and_keep_their_kind() {
     let rig = rig();
     let token = rig.core_token("p1");
@@ -135,6 +136,7 @@ async fn text_and_binary_frames_round_trip_and_keep_their_kind() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn large_binary_frames_arrive_byte_identical() {
     let rig = rig();
     let token = rig.core_token("p1");
@@ -155,6 +157,7 @@ async fn large_binary_frames_arrive_byte_identical() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn a_message_over_the_cap_ends_the_stream_instead_of_being_buffered() {
     let config = RelayConfig {
         max_message_bytes: 1024,
@@ -171,6 +174,7 @@ async fn a_message_over_the_cap_ends_the_stream_instead_of_being_buffered() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn a_close_from_the_pane_is_echoed_with_its_code() {
     let rig = rig();
     let token = rig.core_token("p1");
@@ -256,6 +260,7 @@ const CASES: [(&str, Spoil, u16); 14] = [
 ];
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn a_dial_that_breaks_one_rule_is_refused_with_that_rules_status() {
     let rig = rig();
     let token = rig.core_token("p1");
@@ -272,6 +277,7 @@ async fn a_dial_that_breaks_one_rule_is_refused_with_that_rules_status() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn an_extension_token_reaches_only_its_own_extension_routes() {
     let rig = rig();
     let token = rig.extension_token("x1", "acme");
@@ -298,6 +304,7 @@ async fn an_extension_token_reaches_only_its_own_extension_routes() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn a_core_token_cannot_be_used_from_an_extension_origin() {
     let rig = rig();
     let token = rig.core_token("p1");
@@ -311,6 +318,7 @@ async fn a_core_token_cannot_be_used_from_an_extension_origin() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn issuing_again_replaces_the_old_token() {
     let rig = rig();
     let old = rig.core_token("p1");
@@ -320,6 +328,7 @@ async fn issuing_again_replaces_the_old_token() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn revoking_a_pane_closes_its_open_streams_with_a_policy_close_and_kills_its_token() {
     let rig = rig();
     let token = rig.core_token("p1");
@@ -340,6 +349,7 @@ async fn revoking_a_pane_closes_its_open_streams_with_a_policy_close_and_kills_i
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn the_connection_caps_hold_and_free_up_when_a_stream_closes() {
     let config = RelayConfig {
         max_per_pane: 2,
@@ -373,6 +383,7 @@ async fn an_expired_token_is_refused() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn removing_a_host_revokes_its_tokens() {
     let rig = rig();
     let id = HostId::new("host-1").unwrap();
@@ -383,6 +394,7 @@ async fn removing_a_host_revokes_its_tokens() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn the_relay_listens_on_loopback_only_and_names_its_port_in_the_endpoint() {
     let rig = rig();
     assert!(rig.relay.addr().is_ipv4() && rig.relay.addr().ip().is_loopback());
@@ -406,6 +418,7 @@ async fn until_refused(dialer: &MemoryDialer) {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn shutting_down_stops_accepting_connections() {
     let rig = rig();
     rig.relay.shutdown();
@@ -413,6 +426,7 @@ async fn shutting_down_stops_accepting_connections() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: relays to a fake daemon listening on a real unix socket"]
 async fn a_handshake_beyond_the_limit_is_answered_503_not_left_hanging() {
     let config = RelayConfig {
         max_handshakes: 1,

@@ -141,11 +141,6 @@ impl HostRegistry {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::Path;
-
-    use tempfile::TempDir;
-
     use super::*;
     use crate::test_support::MemoryHostsStorage;
 
@@ -236,8 +231,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "real-infra: asserts the 0600 and 0700 modes of a real file and directory"]
     fn a_file_registry_keeps_its_list_in_a_private_file_and_directory() {
-        let dir = TempDir::new().unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        use std::path::Path;
+
+        let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("sub").join("hosts.json");
         HostRegistry::open(&path)
             .unwrap()

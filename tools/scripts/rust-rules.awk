@@ -46,13 +46,31 @@ function track_trait(code,   d) {
     trait_name = ""
   }
 }
+function track_real_infra(raw,   reason) {
+  # A fn carrying #[ignore = "real-infra: what and why"] (a test, or a helper only such tests call) is exempt in its
+  # body, and so is any file under a `real_infra/` directory of test support; the CI job running --include-ignored runs them.
+  if (raw ~ /#\[ignore[ \t]*=[ \t]*"real-infra:/) {
+    reason = raw; sub(/^.*"real-infra:[ \t]*/, "", reason); sub(/".*$/, "", reason)
+    if (tag_words(reason) >= 3) ign_pending = 1
+    else report(NR, "real-infra", "#[ignore = \"real-infra: ...\"] needs a reason of at least three words (what and why)")
+  }
+  if (ign_pending && !ri_active && raw ~ /(^|[^A-Za-z_])fn[ \t]+[A-Za-z_]/) { ri_active = 1; ri_depth = 0; ri_open = 0 }
+  if (raw ~ /(^|[^A-Za-z_])fn[ \t]+[A-Za-z_]/) ign_pending = 0
+}
+function close_real_infra(raw,   st) {
+  if (!ri_active || ri_file + 0) return
+  st = strip(raw)
+  if (st ~ /\{/) ri_open = 1
+  ri_depth += brace_delta(st)
+  if (ri_open && ri_depth <= 0) ri_active = 0
+}
 function track_table(raw) {
   if (raw ~ /^[ \t]*\/\//) return
   if (raw ~ /(const|static)[ \t]+[A-Z_0-9]+[ \t]*:[ \t]*&?(\[|Vec|&\[)/ || raw ~ /let[ \t]+(mut[ \t]+)?[a-z_]*(cases|table|vectors|examples)[a-z_]*[ \t]*(:[^=]*)?=[ \t]*(&?\[|vec!\[)/) tbl_def = 1
   if (raw ~ /(^|[^A-Za-z_])for[ \t(].*[ \t)]in[ \t]+.*(CASES|cases|TABLE|table|VECTORS|vectors|\.iter\(\)|\.into_iter\(\)|&\[)/ || raw ~ /\.for_each\(/) tbl_iter = 1
   if (raw ~ /macro_rules!|#\[(rstest|test_case)|#\[case\(|test_case!/) tbl_macro = 1
 }
-BEGIN { pend_doc = 0; cfg_line = 0; in_t = 0; t_depth = 0; loc = 0 }
+BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth = 0; loc = 0 }
 {
   raw = $0
   if (cfg_line) {
@@ -72,9 +90,11 @@ BEGIN { pend_doc = 0; cfg_line = 0; in_t = 0; t_depth = 0; loc = 0 }
   if (mode == "test" || in_t) track_table(raw)
   if ((mode == "test" || in_t) && raw ~ /start_paused|time::pause/) paused = 1
   if ((mode == "test" || in_t) && (raw ~ /time::sleep/ || raw ~ /(^|[^A-Za-z_:.])sleep\(/) && raw !~ /thread::sleep/ && raw !~ /^[ \t]*\/\//) { nsleep++; sleep_line[nsleep] = NR }
-  if ((mode == "test" || in_t) && raw !~ /^[ \t]*\/\// && raw !~ /(Fake|Mock|InMemory|Stub|Recording)[A-Za-z_]*/ &&
+  if (mode == "test" || in_t) track_real_infra(raw)
+  if ((mode == "test" || in_t) && !ri_active && raw !~ /^[ \t]*\/\// && raw !~ /(Fake|Mock|InMemory|Stub|Recording)[A-Za-z_]*/ &&
       raw ~ /thread::sleep|Tcp(Stream|Listener)|UdpSocket|Unix(Stream|Listener|Datagram)|Command::new|home_dir\(\)|env::var\("HOME"\)|env::temp_dir|tempfile|tempdir|TempDir|std::fs|tokio::fs|fs::(read|write|create_dir|remove|copy|rename|File|metadata|OpenOptions)|File::(open|create)|OpenOptions::new|reqwest::/)
     report(NR, "real-infra", "test touches real infrastructure (socket, fs, tempdir, process, sleep): use an in-memory fake, a channel or a paused clock")
+  if (mode == "test" || in_t) close_real_infra(raw)
   if (mode == "test") next
   if (in_t) {
     st = strip(raw)

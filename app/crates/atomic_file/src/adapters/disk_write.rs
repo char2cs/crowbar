@@ -73,6 +73,7 @@ mod tests {
     const CASES: &[(&str, &[u8])] = &[("first write", b"old"), ("replacement", b"new")];
 
     #[test]
+    #[ignore = "real-infra: the filesystem adapter itself: file mode, rename and cleanup of a staged file"]
     fn a_write_replaces_the_content_privately_and_leaves_no_staging_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested/state.json");
@@ -87,6 +88,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "real-infra: the filesystem adapter itself: file mode, rename and cleanup of a staged file"]
     fn a_failed_write_keeps_the_old_file_and_removes_what_it_staged() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.json");

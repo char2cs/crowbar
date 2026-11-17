@@ -34,7 +34,9 @@ scan_root() {
 }
 
 check_file() { # rel path mode stem allow_unwrap allow_types
-  awk -v file="$1" -v repo="$repo" -v mode="$3" -v stem="$4" -v allow_unwrap="$5" -v allow_types="$6" -f "$here/tag-comments.awk" -f "$awk_file" "$2" || status=1
+  local ri_file=0
+  [[ "/$1" == */real_infra/* ]] && ri_file=1
+  awk -v ri_file="$ri_file" -v file="$1" -v repo="$repo" -v mode="$3" -v stem="$4" -v allow_unwrap="$5" -v allow_types="$6" -f "$here/tag-comments.awk" -f "$awk_file" "$2" || status=1
   awk -v file="$1" -v lang=rust -v mode="$3" -f "$here/brace-rules.awk" "$2" || status=1
 }
 

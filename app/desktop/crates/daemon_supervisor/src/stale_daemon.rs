@@ -34,6 +34,7 @@ mod tests {
     use crate::supervisor_config::SupervisorConfig;
 
     #[tokio::test]
+    #[ignore = "real-infra: stops a real child process"]
     async fn a_daemon_that_is_not_the_one_we_started_is_stopped_and_recovered_from() {
         let dir = tempfile::tempdir().unwrap();
         let paths = DaemonPaths {

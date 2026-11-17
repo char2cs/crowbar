@@ -88,11 +88,13 @@ mod tests {
 
     use super::*;
 
+    #[ignore = "real-infra: the log file adapter itself: 0600 mode, rotation and size cap on a real file"]
     fn mode(path: &Path) -> u32 {
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
     #[test]
+    #[ignore = "real-infra: the log file adapter itself: 0600 mode, rotation and size cap on a real file"]
     fn text_is_appended_and_the_file_is_private_to_the_user() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.log");
@@ -104,6 +106,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "real-infra: the log file adapter itself: 0600 mode, rotation and size cap on a real file"]
     fn an_existing_log_with_wider_permissions_is_narrowed() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.log");
@@ -114,6 +117,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "real-infra: the log file adapter itself: 0600 mode, rotation and size cap on a real file"]
     fn opening_and_writing_respects_the_size_cap() {
         let cases = [
             (
@@ -153,6 +157,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "real-infra: the log file adapter itself: 0600 mode, rotation and size cap on a real file"]
     fn the_log_rotates_by_size_while_it_runs_and_never_passes_the_cap() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.log");

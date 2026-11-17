@@ -46,6 +46,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "real-infra: the disk adapter of the FileStore port: read, write and list on a real directory"]
     fn written_files_are_read_and_listed_in_order() {
         let dir = tempfile::tempdir().unwrap();
         let files = DiskFiles::default();

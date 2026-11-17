@@ -10,7 +10,6 @@ use rustls::sign::{CertifiedKey, SingleCertAndKey};
 use rustls::SupportedProtocolVersion;
 use tauri::http;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, DuplexStream};
-use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use tokio_rustls::TlsAcceptor;
 
@@ -118,6 +117,7 @@ pub(crate) fn registry(endpoint: &str) -> HostRegistry {
     registry
 }
 
+#[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
 pub(crate) fn refused_endpoint() -> String {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().to_string()
@@ -134,6 +134,7 @@ pub(crate) fn response(
     .into_bytes()
 }
 
+#[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
 pub(crate) async fn serve_once_tls(
     cert: CertificateDer<'static>,
     key: PrivateKeyDer<'static>,
@@ -142,13 +143,14 @@ pub(crate) async fn serve_once_tls(
     serve_once_tls_speaking(rustls::DEFAULT_VERSIONS, cert, key, reply).await
 }
 
+#[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
 pub(crate) async fn serve_once_tls_speaking(
     versions: &[&'static SupportedProtocolVersion],
     cert: CertificateDer<'static>,
     key: PrivateKeyDer<'static>,
     reply: Option<Vec<u8>>,
 ) -> (SocketAddr, oneshot::Receiver<Result<String, String>>) {
-    let listener = TcpListener::bind("127.0.0.1:0")
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind test remote daemon");
     let addr = listener.local_addr().unwrap();
@@ -158,8 +160,9 @@ pub(crate) async fn serve_once_tls_speaking(
     (addr, reported)
 }
 
+#[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
 async fn serve_one(
-    listener: TcpListener,
+    listener: tokio::net::TcpListener,
     acceptor: TlsAcceptor,
     report: oneshot::Sender<Result<String, String>>,
     reply: Option<Vec<u8>>,
@@ -187,12 +190,13 @@ pub(crate) fn kept_alive(
     .into_bytes()
 }
 
+#[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
 pub(crate) async fn serve_tls_exchanges(
     cert: CertificateDer<'static>,
     key: PrivateKeyDer<'static>,
     replies: Vec<Vec<u8>>,
 ) -> (SocketAddr, mpsc::UnboundedReceiver<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0")
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind test remote daemon");
     let addr = listener.local_addr().unwrap();
@@ -202,8 +206,9 @@ pub(crate) async fn serve_tls_exchanges(
     (addr, reported)
 }
 
+#[ignore = "real-infra: pins certificates against a loopback TLS server; the rustls verifier is the unit under test"]
 async fn exchange(
-    listener: TcpListener,
+    listener: tokio::net::TcpListener,
     acceptor: TlsAcceptor,
     replies: Vec<Vec<u8>>,
     report: mpsc::UnboundedSender<String>,

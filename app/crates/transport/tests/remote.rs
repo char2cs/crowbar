@@ -11,7 +11,7 @@
 
 #[path = "support/http_daemon.rs"]
 mod http_daemon;
-#[path = "support/tls_host.rs"]
+#[path = "support/real_infra/tls_host.rs"]
 mod tls_host;
 
 use std::sync::Arc;
@@ -43,6 +43,7 @@ fn handler() -> Handler {
     })
 }
 
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 async fn host() -> TlsHost {
     TlsHost::start(identity(), &[&rustls::version::TLS13], handler()).await
 }
@@ -67,11 +68,14 @@ struct Rig {
     transport: Transport,
 }
 
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 fn rig() -> Rig {
     let registry = Arc::new(HostRegistry::in_memory());
     let tokens: Arc<dyn TokenStore> = Arc::new(MemoryTokenStore::default());
     let transport = Transport::new(
-        Arc::new(std::env::temp_dir().join("cb-remote-none.sock")),
+        Arc::new(std::path::PathBuf::from(
+            "/crowbar-test-missing/remote.sock",
+        )),
         Arc::clone(&registry),
         Arc::clone(&tokens),
     );
@@ -82,6 +86,7 @@ fn rig() -> Rig {
     }
 }
 
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 async fn pair(
     rig: &Rig,
     host: &TlsHost,
@@ -106,6 +111,7 @@ fn get(path: &str) -> Request<Vec<u8>> {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 async fn pairing_with_the_confirmed_fingerprint_registers_the_host_and_requests_carry_the_token() {
     let host = host().await;
     let rig = rig();
@@ -156,6 +162,7 @@ const CASES: [Case; 2] = [
 ];
 
 #[tokio::test]
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 async fn a_refused_pairing_is_reported_and_leaves_no_trace() {
     for (fingerprint, code, reads_as, seen) in CASES {
         let host = host().await;
@@ -177,6 +184,7 @@ async fn a_refused_pairing_is_reported_and_leaves_no_trace() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 async fn a_host_that_changes_its_certificate_after_pairing_never_sees_the_token() {
     let host = host().await;
     let rig = rig();
@@ -202,6 +210,7 @@ async fn a_host_that_changes_its_certificate_after_pairing_never_sees_the_token(
 }
 
 #[tokio::test]
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 async fn a_host_that_only_speaks_tls12_is_not_dialled_with_the_token() {
     let old = TlsHost::start(identity(), &[&rustls::version::TLS12], handler()).await;
     let rig = rig();
@@ -213,6 +222,7 @@ async fn a_host_that_only_speaks_tls12_is_not_dialled_with_the_token() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 async fn an_unreachable_host_is_marked_unreachable() {
     let host = host().await;
     let rig = rig();
@@ -263,6 +273,7 @@ impl TokenStore for FullKeychain {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: pairs and dials a fake host over a loopback TLS socket"]
 async fn a_token_the_keychain_cannot_keep_is_revoked_on_the_host() {
     let host = host().await;
     let registry = Arc::new(HostRegistry::in_memory());

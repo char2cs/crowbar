@@ -24,6 +24,15 @@ pub fn locate_binary(
     current_exe: Option<&Path>,
     path_var: Option<&OsStr>,
 ) -> Result<PathBuf, Error> {
+    locate_where(explicit, current_exe, path_var, is_executable_file)
+}
+
+fn locate_where(
+    explicit: Option<&Path>,
+    current_exe: Option<&Path>,
+    path_var: Option<&OsStr>,
+    is_executable: impl Fn(&Path) -> bool,
+) -> Result<PathBuf, Error> {
     if let Some(path) = explicit {
         return Ok(path.to_path_buf());
     }
@@ -38,7 +47,7 @@ pub fn locate_binary(
     let candidates: Vec<PathBuf> = beside.into_iter().chain(on_path).collect();
     candidates
         .iter()
-        .find(|candidate| is_executable_file(candidate))
+        .find(|candidate| is_executable(candidate))
         .cloned()
         .ok_or_else(|| Error::BinaryNotFound {
             looked: candidates
@@ -53,10 +62,16 @@ pub fn locate_binary(
 mod tests {
     use super::*;
 
-    fn dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cb-loc-{tag}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    const APP: &str = "/app";
+    const ON_PATH: &str = "/usr/bin";
+
+    fn at(dir: &str) -> PathBuf {
+        PathBuf::from(dir).join(BINARY_NAME)
+    }
+
+    fn search(is_executable: impl Fn(&Path) -> bool) -> Result<PathBuf, Error> {
+        let exe = Path::new(APP).join("crowbar");
+        locate_where(None, Some(&exe), Some(OsStr::new(ON_PATH)), is_executable)
     }
 
     #[test]
@@ -65,58 +80,53 @@ mod tests {
         assert_eq!(found, PathBuf::from("/x/crowbar-api"));
     }
 
-    fn stock(
-        places: &[PathBuf],
-        stocked: &[usize],
-    ) {
-        places
-            .iter()
-            .enumerate()
-            .filter(|(at, _)| stocked.contains(at))
-            .for_each(|(_, place)| {
-                let file = place.join(BINARY_NAME);
-                std::fs::write(&file, b"").unwrap();
-                std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
-            });
-    }
-
     #[test]
     fn the_binary_is_searched_beside_the_app_then_on_the_path() {
         let cases = [
-            ("beside beats path", &[0, 1][..], Some(0)),
-            ("path is searched", &[1][..], Some(1)),
-            ("a miss", &[][..], None),
+            (
+                "beside beats path",
+                vec![at(APP), at(ON_PATH)],
+                Some(at(APP)),
+            ),
+            ("path is searched", vec![at(ON_PATH)], Some(at(ON_PATH))),
+            ("a miss", vec![], None),
         ];
-        for (name, stocked, winner) in cases {
-            let places = [dir(&format!("{name}-app")), dir(&format!("{name}-path"))];
-            stock(&places, stocked);
-            let exe = places[0].join("crowbar");
-            let found = locate_binary(None, Some(&exe), Some(places[1].as_os_str()));
-            let expected = winner.map(|at: usize| places[at].join(BINARY_NAME));
-            assert_eq!(found.ok(), expected, "{name}");
+        for (name, executable, winner) in cases {
+            let found = search(|candidate| executable.iter().any(|path| path == candidate));
+            assert_eq!(found.ok(), winner, "{name}");
         }
     }
 
     #[test]
     fn a_miss_names_every_place_looked() {
-        let empty = dir("empty");
-        let err =
-            locate_binary(None, Some(&empty.join("crowbar")), Some(empty.as_os_str())).unwrap_err();
-        assert!(err.to_string().contains("crowbar-api"), "{err}");
+        let err = search(|_| false).unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains(&at(APP).display().to_string()),
+            "{message}"
+        );
+        assert!(
+            message.contains(&at(ON_PATH).display().to_string()),
+            "{message}"
+        );
     }
 
     #[test]
-    fn a_file_without_the_execute_bit_and_a_relative_path_entry_are_never_chosen() {
-        let place = dir("hostile");
-        let file = place.join(BINARY_NAME);
+    fn a_relative_path_entry_is_never_searched() {
+        let relative = std::env::join_paths(["", ".", "relative/bin"]).unwrap();
+        let found = locate_where(None, None, Some(&relative), |_| true);
+        assert!(found.is_err(), "relative entries");
+    }
+
+    #[test]
+    #[ignore = "real-infra: reads the execute bit of a real file"]
+    fn a_file_without_the_execute_bit_is_not_executable() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(BINARY_NAME);
         std::fs::write(&file, b"").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
-        let no_exec = locate_binary(None, None, Some(place.as_os_str()));
-        assert!(no_exec.is_err(), "not executable");
-        let relative = std::env::join_paths(["", ".", "relative/bin"]).unwrap();
-        assert!(
-            locate_binary(None, None, Some(&relative)).is_err(),
-            "relative entries"
-        );
+        assert!(!is_executable_file(&file));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(is_executable_file(&file));
     }
 }

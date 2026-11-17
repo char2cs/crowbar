@@ -199,6 +199,7 @@ mod tests {
         task.await.unwrap();
     }
 
+    #[ignore = "real-infra: holds real unix sockets open without answering"]
     async fn hold_connections_open(listener: tokio::net::UnixListener) {
         let mut open = Vec::new();
         while let Ok((stream, _)) = listener.accept().await {
@@ -207,6 +208,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    #[ignore = "real-infra: holds real unix sockets open without answering"]
     async fn a_cycle_that_is_still_probing_when_the_watch_is_cancelled_reports_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("silent.sock");

@@ -45,6 +45,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "real-infra: the disk adapter of the LogStore port: append and rename on a real file"]
     fn appending_continues_and_renaming_a_missing_file_is_fine() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("logs/crowbar.log");

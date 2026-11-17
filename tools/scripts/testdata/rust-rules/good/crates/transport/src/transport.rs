@@ -19,7 +19,27 @@ mod tests {
 
     #[test]
     fn accepts_a_valid_token() {
-        let token = HostToken::parse("ok").unwrap();
-        assert!(connect(&token).is_ok());
+        let cases = ["ok", "also-ok"];
+        for case in cases {
+            let token = HostToken::parse(case).unwrap();
+            assert!(connect(&token).is_ok());
+        }
+    }
+
+    #[test]
+    #[ignore = "real-infra: proves the real file mode of a written file"]
+    fn writes_a_real_file() {
+        std::fs::write("x", b"ok").unwrap();
+    }
+
+    #[ignore = "real-infra: reads one real file for the tests that need it"]
+    fn scratch() {
+        let _ = std::fs::read("x");
+    }
+
+    #[test]
+    #[ignore = "real-infra: dials a loopback unix socket"]
+    fn dials_a_socket() {
+        scratch();
     }
 }

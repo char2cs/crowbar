@@ -17,11 +17,11 @@ use std::sync::{Arc, Mutex};
 use http::{Method, Request};
 use protocol::ExtensionId;
 use protocol::PaneOrigin;
-use tokio::net::UnixListener;
 use transport::{EXTENSION_HEADER, HostRegistry, MemoryTokenStore, Transport};
 
 use crate::http_daemon::{Handler, Log, serve_http};
 
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 fn socket() -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("daemon.sock");
@@ -36,19 +36,21 @@ fn transport_at(path: std::path::PathBuf) -> Transport {
     )
 }
 
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 fn daemon(
     path: &std::path::Path,
     handler: Handler,
 ) -> Log {
-    let listener = UnixListener::bind(path).expect("bind daemon");
+    let listener = tokio::net::UnixListener::bind(path).expect("bind daemon");
     let log: Log = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&log);
     tokio::spawn(accept_loop(listener, handler, seen));
     log
 }
 
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 async fn accept_loop(
-    listener: UnixListener,
+    listener: tokio::net::UnixListener,
     handler: Handler,
     seen: Log,
 ) {
@@ -81,6 +83,7 @@ fn ok(body: &str) -> Handler {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_answer_returns() {
     let (_dir, path) = socket();
     let log = daemon(
@@ -113,6 +116,7 @@ async fn a_request_reaches_the_daemon_with_its_method_body_and_headers_and_the_a
 }
 
 #[tokio::test]
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 async fn the_extension_header_is_stamped_for_extensions_and_stripped_from_core_requests() {
     let (_dir, path) = socket();
     let log = daemon(&path, ok("{}"));
@@ -139,6 +143,7 @@ async fn the_extension_header_is_stamped_for_extensions_and_stripped_from_core_r
 }
 
 #[tokio::test]
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 async fn an_extension_cannot_reach_core_routes_and_the_daemon_never_hears_of_it() {
     let (_dir, path) = socket();
     let log = daemon(&path, ok("{}"));
@@ -162,6 +167,7 @@ async fn an_extension_cannot_reach_core_routes_and_the_daemon_never_hears_of_it(
 }
 
 #[tokio::test]
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() {
     let (_dir, path) = socket();
     daemon(
@@ -185,6 +191,7 @@ async fn a_daemon_supplied_proxy_marker_is_not_passed_to_the_page() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 async fn cors_is_granted_only_to_answers_the_proxy_wrote() {
     let (_dir, path) = socket();
     daemon(&path, ok("{}"));
@@ -217,6 +224,7 @@ async fn cors_is_granted_only_to_answers_the_proxy_wrote() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 async fn a_large_body_goes_through_intact_in_both_directions() {
     let (_dir, path) = socket();
     daemon(
@@ -241,6 +249,7 @@ async fn a_large_body_goes_through_intact_in_both_directions() {
 }
 
 #[tokio::test]
+#[ignore = "real-infra: end to end against a fake daemon on a real unix socket"]
 async fn an_unregistered_remote_host_is_a_bad_gateway() {
     let (_dir, path) = socket();
     let transport = transport_at(path);

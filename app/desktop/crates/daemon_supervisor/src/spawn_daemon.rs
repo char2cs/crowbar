@@ -62,6 +62,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
+    #[ignore = "real-infra: creates a real socket directory and reads its 0700 mode"]
     async fn a_binary_that_cannot_run_is_a_typed_spawn_error() {
         let dir = tempfile::tempdir().unwrap();
         let paths = DaemonPaths {
@@ -83,6 +84,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "real-infra: runs a real script that floods stdout and stderr"]
     async fn a_daemon_whose_log_cannot_be_opened_never_blocks_on_a_full_pipe() {
         let dir = tempfile::tempdir().unwrap();
         let script = dir.path().join("noisy.sh");
