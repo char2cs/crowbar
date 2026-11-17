@@ -5,7 +5,9 @@ import WebKit
 
 @available(iOS 26.0, *)
 final class OverlaysRig {
-  static let screen = CGRect(x: 0, y: 0, width: 400, height: 800)
+  static let width: CGFloat = 400
+  static let height: CGFloat = 800
+  static let screen = CGRect(x: 0, y: 0, width: width, height: height)
   private static let hostStubBytes = 1
 
   let webview: WKWebView
