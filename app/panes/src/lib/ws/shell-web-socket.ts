@@ -8,11 +8,20 @@ const TOKEN_SUBPROTOCOL_PREFIX = 'crowbar.token.'
 
 type Relay = { url: string; token: string }
 
+function isRelay(value: unknown): value is Relay {
+  if (typeof value !== 'object' || value === null) return false
+  const { url, token } = value as Record<string, unknown>
+  return typeof url === 'string' && typeof token === 'string'
+}
+
+// A refused or malformed answer is no relay: the cached token may be the expired one the lookup
+// exists to replace. Only an unreachable lookup falls back to it.
 async function freshRelay(api: string, cached: Relay | null | undefined) {
   try {
     const response = await fetch(`${api}/__crowbar/relay`)
-    if (!response.ok) return cached
-    const relay = (await response.json()) as Relay
+    if (!response.ok) return null
+    const relay: unknown = await response.json()
+    if (!isRelay(relay)) return null
     ;(window as unknown as { __CROWBAR__: { ws?: Relay } }).__CROWBAR__.ws = relay
     return relay
   } catch (error) {
