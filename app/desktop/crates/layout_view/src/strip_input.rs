@@ -63,12 +63,12 @@ impl LayoutView {
         let look = self.look_of(pane);
         StripTab {
             pane: pane.clone(),
-            label: look.label,
-            icon: look.icon,
+            look,
             state: state_in(group, pane),
             end: end_of(group, pane),
             menu: self.tab_menu(group, pane, cx),
             actions: Self::actions_of(group, seat, cx),
+            ringed: false,
         }
     }
 

@@ -1,5 +1,7 @@
-use gpui::{Context, FocusHandle, Pixels, ScrollHandle, px};
+use gpui::{App, Context, Entity, FocusHandle, Pixels, ScrollHandle, Window, px};
 use protocol::PaneId;
+
+use crate::input_mode::InputMode;
 
 const OVERFLOW_SLACK: f32 = 1.0;
 pub(crate) struct StripState {
@@ -7,15 +9,48 @@ pub(crate) struct StripState {
     pub(crate) focus: FocusHandle,
     pub(crate) overflowing: bool,
     pub(crate) shown: Option<PaneId>,
+    pub(crate) mode: InputMode,
 }
 
 impl StripState {
+    pub(crate) fn use_mode(
+        state: &Entity<Self>,
+        mode: InputMode,
+        cx: &mut App,
+    ) {
+        state.update(cx, |state, cx| state.switch_to(mode, cx));
+    }
+
+    fn switch_to(
+        &mut self,
+        mode: InputMode,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.mode == mode {
+            return;
+        }
+        self.mode = mode;
+        cx.notify();
+    }
+
+    pub(crate) fn shown_mode(
+        state: &Entity<Self>,
+        focus: &FocusHandle,
+        (window, cx): (&Window, &App),
+    ) -> InputMode {
+        if focus.is_focused(window) {
+            return state.read(cx).mode;
+        }
+        InputMode::Pointer
+    }
+
     pub(crate) fn new(cx: &mut Context<'_, Self>) -> Self {
         Self {
             scroll: ScrollHandle::new(),
             focus: cx.focus_handle(),
             overflowing: false,
             shown: None,
+            mode: InputMode::default(),
         }
     }
     pub(crate) fn follow(

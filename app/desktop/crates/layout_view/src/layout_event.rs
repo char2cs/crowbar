@@ -1,6 +1,8 @@
 use model::{Command, Placement, TabId};
 use protocol::PaneId;
 
+use crate::path_action::PathAction;
+
 /// What a [`LayoutView`](crate::LayoutView) asks its owner to do.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -22,6 +24,13 @@ pub enum LayoutEvent {
     StripFocus {
         /// The tab's pane.
         pane: PaneId,
+    },
+    /// A tab menu row asked to do `action` with the file at `path`, relative to its workspace.
+    TabPath {
+        /// What to do.
+        action: PathAction,
+        /// The file, relative to its workspace.
+        path: String,
     },
     /// Something the user should be told, such as why a key did nothing.
     Announce(String),

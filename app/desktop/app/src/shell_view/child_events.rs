@@ -85,6 +85,7 @@ impl ShellView {
             LayoutEvent::Announce(text) => {
                 return self.show_notice(NoticeKey::Command, (ToastKind::Info, text.clone()), cx);
             },
+            LayoutEvent::TabPath { action, path } => self.act_on_path(*action, path, cx),
             LayoutEvent::OpenChat {
                 chat,
                 tab,

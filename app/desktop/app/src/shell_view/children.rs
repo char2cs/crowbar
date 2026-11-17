@@ -75,12 +75,9 @@ pub(super) fn build_panes<V: 'static>(
         (terminal_sessions(link), ChatTerminals::of(data)),
     );
     let new_tab = crate::new_tab_panes::NewTabPanes::new((*requests).clone());
-    let source = Rc::new(ShellPaneSource::new(
-        state.titles(),
-        state.serials(),
-        bars,
-        NativePanes::new(terminals, new_tab),
-    ));
+    let panes = NativePanes::new(terminals, new_tab);
+    let source = ShellPaneSource::new(state.titles(), state.serials(), bars, panes);
+    let source = Rc::new(source.marking(state.dirty()));
     let view_source = Rc::clone(&source);
     let layout = cx.new(|_| LayoutView::new(view_source));
     let first_tab = state.serials().next_tab();

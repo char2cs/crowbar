@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use gpui::{Context, PathPromptOptions, Window};
+use gpui::{ClipboardItem, Context, PathPromptOptions, Window};
+use layout_view::PathAction;
 
 use super::ShellView;
 use crate::pane_spec::PaneSpec;
@@ -21,6 +22,39 @@ impl ShellView {
         if let Err(error) = shell_platform::reveal_in_file_manager(&target) {
             tracing::warn!(%error, "the file manager could not be opened");
         }
+    }
+
+    pub(in crate::shell_view) fn act_on_path(
+        &mut self,
+        action: PathAction,
+        relative: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match action {
+            PathAction::CopyRelativePath => {
+                cx.write_to_clipboard(ClipboardItem::new_string(relative.to_owned()));
+            },
+            PathAction::CopyPath => self.copy_absolute(relative, cx),
+            PathAction::Reveal => self.reveal_workspace_path(relative),
+            PathAction::OpenInTerminal => {
+                let folder = relative.rsplit_once('/').map_or("", |(folder, _)| folder);
+                self.open_terminal_at(folder, cx);
+            },
+            _ => {},
+        }
+    }
+
+    fn copy_absolute(
+        &self,
+        relative: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(root) = self.data.workspace_root() else {
+            tracing::info!("copying a full path needs a workspace on this computer");
+            return;
+        };
+        let full = root.join(relative).to_string_lossy().into_owned();
+        cx.write_to_clipboard(ClipboardItem::new_string(full));
     }
 
     pub(in crate::shell_view) fn open_workspace_file(

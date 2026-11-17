@@ -3,6 +3,7 @@ use model::TabId;
 use protocol::PaneId;
 
 use crate::browser_bars::BrowserBars;
+use crate::dirty_panes::DirtyPanes;
 use crate::native_panes::NativePanes;
 use crate::serials::Serials;
 use crate::titles::Titles;
@@ -12,6 +13,7 @@ pub(crate) struct ShellPaneSource {
     serials: Serials,
     bars: BrowserBars,
     native: NativePanes,
+    dirty: DirtyPanes,
 }
 
 impl ShellPaneSource {
@@ -26,7 +28,16 @@ impl ShellPaneSource {
             serials,
             bars,
             native,
+            dirty: DirtyPanes::default(),
         }
+    }
+
+    pub(crate) fn marking(
+        mut self,
+        dirty: DirtyPanes,
+    ) -> Self {
+        self.dirty = dirty;
+        self
     }
 
     pub(crate) fn native(&self) -> &NativePanes {
@@ -83,7 +94,11 @@ impl layout_view::PaneTabs for ShellPaneSource {
             .titles
             .get(&instance.pane_id)
             .map(|title| title.to_string());
-        crate::tab_looks::tab_look(instance, title.as_deref())
+        let look = crate::tab_looks::tab_look(instance, title.as_deref());
+        if self.dirty.contains(&instance.pane_id) {
+            return look.unsaved();
+        }
+        look
     }
 
     fn stacks(
@@ -163,5 +178,75 @@ mod tests {
         let (first, _) = source.fresh_tab(&pane);
         let (second, _) = source.fresh_tab(&pane);
         assert_ne!(first, second, "never the same id twice");
+    }
+
+    enum Edit {
+        Type,
+        Save,
+    }
+
+    impl Edit {
+        fn apply(
+            &self,
+            dirty: &DirtyPanes,
+            pane: &PaneId,
+        ) {
+            match self {
+                Self::Type => dirty.mark(pane.clone()),
+                Self::Save => dirty.clear(pane),
+            }
+        }
+    }
+
+    struct Case {
+        name: &'static str,
+        edit: Edit,
+        marked: bool,
+    }
+
+    const CASES: [Case; 3] = [
+        Case {
+            name: "saved",
+            edit: Edit::Save,
+            marked: false,
+        },
+        Case {
+            name: "edited",
+            edit: Edit::Type,
+            marked: true,
+        },
+        Case {
+            name: "saved again",
+            edit: Edit::Save,
+            marked: false,
+        },
+    ];
+
+    #[test]
+    fn a_tab_is_marked_exactly_while_its_pane_has_unsaved_work() {
+        use layout_view::PaneTabs as _;
+        let dirty = DirtyPanes::default();
+        let source = ShellPaneSource::new(
+            Titles::default(),
+            Serials::above(&model::Layout::default()),
+            no_bars(),
+            NativePanes::new(
+                idle_terminals(TerminalIds::default()),
+                NewTabPanes::new(async_channel::unbounded().0),
+            ),
+        )
+        .marking(dirty.clone());
+        let pane = PaneId::new("p1").unwrap();
+        let instance = model::PaneInstance {
+            pane_id: pane.clone(),
+            type_id: protocol::PaneTypeId::new("core.terminal").unwrap(),
+            params: protocol::Params::default(),
+            state: protocol::PaneState::default(),
+        };
+        for case in &CASES {
+            case.edit.apply(&dirty, &pane);
+            let look = source.tab_look(&instance);
+            assert_eq!(look.dirty, case.marked, "{}", case.name);
+        }
     }
 }

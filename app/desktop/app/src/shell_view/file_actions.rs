@@ -118,7 +118,7 @@ impl ShellView {
         }
     }
 
-    fn open_terminal_at(
+    pub(super) fn open_terminal_at(
         &mut self,
         directory: &str,
         cx: &mut Context<'_, Self>,

@@ -12,10 +12,25 @@ pub(crate) fn tab_look(
 ) -> TabLook {
     let (fallback, icon) = by_type(instance);
     let label = title.filter(|text| !text.is_empty()).unwrap_or(&fallback);
-    TabLook {
+    let look = TabLook {
         label: label.to_owned().into(),
         icon,
+        path: None,
+        dirty: false,
+    };
+    match file_path(instance) {
+        Some(path) => look.at_path(path),
+        None => look,
     }
+}
+
+fn file_path(instance: &PaneInstance) -> Option<String> {
+    if instance.type_id.as_str() != EDITOR {
+        return None;
+    }
+    let state = instance.state.as_value();
+    let path = state.get("path").and_then(serde_json::Value::as_str);
+    path.filter(|path| !path.is_empty()).map(str::to_owned)
 }
 
 fn by_type(instance: &PaneInstance) -> (String, IconName) {
@@ -125,6 +140,25 @@ mod tests {
             let look = tab_look(&pane(case.kind, state), case.title);
             assert_eq!(look.label.as_ref(), case.label, "{}", case.name);
             assert_eq!(look.icon, case.icon, "{}: icon", case.name);
+        }
+    }
+
+    #[test]
+    fn only_a_saved_file_names_its_path_for_the_tab_menu() {
+        let cases = [
+            (
+                "a file",
+                EDITOR,
+                r#"{"path": "src/main.rs"}"#,
+                Some("src/main.rs"),
+            ),
+            ("an untitled file", EDITOR, r#"{"untitled": true}"#, None),
+            ("a terminal", TERMINAL, r#"{"path": "x"}"#, None),
+        ];
+        for (name, kind, state, expected) in cases {
+            let state = serde_json::from_str(state).unwrap();
+            let look = tab_look(&pane(kind, state), None);
+            assert_eq!(look.path.as_deref(), expected, "{name}");
         }
     }
 }
