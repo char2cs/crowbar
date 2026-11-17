@@ -23,7 +23,7 @@ final class ModelPickerModelTests: XCTestCase {
           icon: icon,
           fallbackIcon: "Robot",
           models: []
-        )
+        ),
       ],
       selected: nil,
       efforts: [],

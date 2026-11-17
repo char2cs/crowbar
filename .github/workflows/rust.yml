@@ -233,8 +233,9 @@ jobs:
       - name: Type-check x86_64 macOS (Intel) from the arm64 runner
         if: runner.os == 'macOS'
         run: |
+          cd app
           rustup target add x86_64-apple-darwin
-          cd app && cargo check --locked --release -p crowbar_desktop --target x86_64-apple-darwin
+          cargo check --locked --release -p crowbar_desktop --target x86_64-apple-darwin
       - uses: actions/upload-artifact@v7
         with:
           name: app-${{ matrix.name }}

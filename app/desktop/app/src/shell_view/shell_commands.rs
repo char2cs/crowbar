@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn a_typed_key_becomes_a_chord() {
-        let stroke = gpui::Keystroke::parse("ctrl-shift-t").unwrap();
+        let stroke = gpui::Keystroke::parse("secondary-shift-t").unwrap();
         assert_eq!(
             keystroke_of(&stroke).chord().as_deref(),
             Some("mod+shift+t")
