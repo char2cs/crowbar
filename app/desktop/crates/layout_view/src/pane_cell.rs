@@ -13,8 +13,8 @@ use crate::insets::Insets;
 
 use crate::pane_frame::PaneFrame;
 use crate::pane_handle::PaneHandle;
-use crate::ring_paint::RingPaint;
 use crate::pane_strip::{PaneStrip, STRIP_HEIGHT};
+use crate::ring_paint::RingPaint;
 
 const RING_WIDTH_LIGHT: f32 = 2.0;
 const RING_WIDTH_DARK: f32 = 1.0;

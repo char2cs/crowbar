@@ -77,6 +77,7 @@ pub(crate) fn open_with<'a>(
     source: FakeSource,
 ) -> Harness<'a> {
     cx.update(|cx| {
+        ui::init(cx).expect("ui init");
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
     });
@@ -106,6 +107,7 @@ pub(crate) fn open_under_row_source<'a>(
     layout: &Layout,
 ) -> Harness<'a> {
     cx.update(|cx| {
+        ui::init(cx).expect("ui init");
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
     });

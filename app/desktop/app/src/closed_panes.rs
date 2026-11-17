@@ -80,7 +80,7 @@ mod tests {
 
     type Case = (&'static str, fn() -> Command, &'static [&'static str]);
 
-    const CASES: [Case; 3] = [
+    const CASES: [Case; 4] = [
         (
             "a tab closes its panes",
             || Command::CloseTab { tab: TabId(1) },
@@ -92,6 +92,13 @@ mod tests {
                 pane: PaneId::new("b").unwrap(),
             },
             &["b"],
+        ),
+        (
+            "a bulk close names each of its panes",
+            || Command::ClosePanes {
+                panes: vec![PaneId::new("a").unwrap(), PaneId::new("b").unwrap()],
+            },
+            &["a", "b"],
         ),
         (
             "other commands close nothing",

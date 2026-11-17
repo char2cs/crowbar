@@ -22,6 +22,18 @@ impl ShellView {
         self.open_spec(PaneSpec::new_tab(&page, chat.as_deref()), cx);
     }
 
+    pub(super) fn new_tab_in(
+        &mut self,
+        onto: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.state
+            .apply(vec![Command::FocusPane { pane: onto.clone() }]);
+        let chat = focused_chat(self.state.layout());
+        let page = page_name(&self.state.serials().next_pane());
+        self.open_spec(PaneSpec::new_tab(&page, chat.as_deref()), cx);
+    }
+
     pub(super) fn choose_in_new_tab(
         &mut self,
         (page, action): (&PaneId, NewTabAction),

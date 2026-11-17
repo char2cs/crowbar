@@ -69,3 +69,21 @@ pub(crate) fn stacked_layout() -> Layout {
         .expect("stack c with b");
     layout
 }
+
+/// Tab 1 holding one group that stacks `a`, `b` and `c`, with `shown` shown and focused.
+pub(crate) fn strip_layout(shown: &str) -> Layout {
+    let mut layout = layout_of("a", &[]);
+    for name in ["b", "c"] {
+        let open = Command::OpenPaneInGroup {
+            instance: chat(name),
+            onto: pane_id("a"),
+            index: None,
+        };
+        layout.apply(open).expect("stack");
+    }
+    let focus = Command::FocusPane {
+        pane: pane_id(shown),
+    };
+    layout.apply(focus).expect("focus");
+    layout
+}

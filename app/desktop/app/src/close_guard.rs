@@ -11,6 +11,7 @@ pub(crate) fn closing_panes(
 ) -> Vec<PaneId> {
     match command {
         Command::ClosePane { pane } => vec![pane.clone()],
+        Command::ClosePanes { panes } => panes.clone(),
         Command::CloseTab { tab } => layout.tab(*tab).map_or_else(Vec::new, model::Tab::pane_ids),
         _ => Vec::new(),
     }
@@ -70,6 +71,15 @@ mod tests {
         }
     }
 
+    fn close_many(panes: &[&str]) -> Command {
+        Command::ClosePanes {
+            panes: panes
+                .iter()
+                .map(|pane| PaneId::new(pane).unwrap())
+                .collect(),
+        }
+    }
+
     struct Case {
         name: &'static str,
         commands: Vec<Command>,
@@ -96,6 +106,11 @@ mod tests {
             Case {
                 name: "bulk close names each once",
                 commands: vec![close("a"), close("a"), close("b")],
+                expected: vec!["a"],
+            },
+            Case {
+                name: "a bulk close names the dirty panes among its list",
+                commands: vec![close_many(&["a", "b"])],
                 expected: vec!["a"],
             },
             Case {

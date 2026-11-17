@@ -1,13 +1,18 @@
 use gpui::{
     App, AppContext as _, CursorStyle, ElementId, FontWeight, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, px,
+    MouseButton, MouseDownEvent, ParentElement, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 use model::DragSubject;
 use protocol::PaneId;
-use ui::{DragGhost, Icon, IconName, Palette, Surface, Theme};
+use std::rc::Rc;
 
+use ui::{ContextMenu, DragGhost, Icon, IconName, MenuItem, Palette, Surface, Theme};
+
+use crate::close_button::CloseButton;
 use crate::tab_actions::{TabAction, TabActions};
+use crate::tab_dragging::TabDragging;
+use crate::tab_end::TabEnd;
 use crate::tab_state::TabState;
 
 pub(crate) const HEIGHT: f32 = 32.0;
@@ -16,10 +21,6 @@ const PAD_LEFT: f32 = 10.0;
 const PAD_RIGHT: f32 = 32.0;
 const GAP: f32 = 6.0;
 const ICON: f32 = 14.0;
-const CLOSE: f32 = 20.0;
-const CLOSE_INSET: f32 = 6.0;
-const CLOSE_GLYPH: f32 = 12.0;
-const CLOSE_OPACITY: f32 = 0.6;
 const LABEL_SIZE: f32 = 13.0;
 const GHOST_WIDTH: f32 = 160.0;
 const DROP_LINE: f32 = 2.0;
@@ -30,6 +31,8 @@ pub(crate) struct StripTab {
     pub(crate) label: SharedString,
     pub(crate) icon: IconName,
     pub(crate) state: TabState,
+    pub(crate) end: TabEnd,
+    pub(crate) menu: Rc<[MenuItem]>,
     pub(crate) actions: TabActions,
 }
 
@@ -41,39 +44,72 @@ impl RenderOnce for StripTab {
     ) -> impl IntoElement {
         let theme = *Theme::of(cx);
         let palette = theme.palette(Surface::Window);
-        let ink = self.state.ink(palette);
         let name = self.pane.as_str().to_owned();
         let TabActions {
             select,
             close,
+            remove,
             drop,
         } = self.actions;
-        let ghost = self.label.clone();
-        let subject = DragSubject::Pane(self.pane);
-        let line = palette.primary();
-        frame(&name, self.state, palette)
+        let dragging = TabDragging {
+            subject: DragSubject::Pane(self.pane),
+            ghost: self.label.clone(),
+            line: palette.primary(),
+            drop,
+        };
+        let tab = frame(&name, self.state, palette)
             .font_family(theme.ui_family())
-            .on_mouse_down(MouseButton::Left, move |_, window, cx| select(window, cx))
-            .on_drag(subject, move |_, _, _, cx| {
-                cx.new(|_| DragGhost::new(ghost.clone(), GHOST_WIDTH))
-            })
-            .drag_over::<DragSubject>(move |tab, _, _, _| {
-                tab.border_l(px(DROP_LINE)).border_color(line)
-            })
-            .on_drop::<DragSubject>(move |subject, window, cx| drop(subject, window, cx))
+            .on_mouse_down(MouseButton::Left, press(select))
+            .on_mouse_down(MouseButton::Middle, press(remove));
+        let ink = self.state.ink(palette);
+        let tab = draggable(tab, dragging)
             .child(Icon::new(self.icon).size(px(ICON)).color(ink))
-            .child(
-                div()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(self.label),
-            )
-            .child(close_button(&name, self.state, palette, close))
+            .child(label(self.label))
+            .child(CloseButton {
+                name: name.clone(),
+                state: self.state,
+                end: self.end,
+                action: close,
+            });
+        div()
+            .flex_none()
+            .child(ContextMenu::new(group_of(&name), tab, self.menu))
     }
 }
 
-fn group_of(name: &str) -> SharedString {
+fn press(action: TabAction) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) {
+    move |_, window, cx| {
+        cx.stop_propagation();
+        action(window, cx);
+    }
+}
+
+fn label(text: SharedString) -> gpui::Div {
+    div()
+        .min_w_0()
+        .overflow_hidden()
+        .text_ellipsis()
+        .child(text)
+}
+
+fn draggable(
+    tab: gpui::Stateful<gpui::Div>,
+    dragging: TabDragging,
+) -> gpui::Stateful<gpui::Div> {
+    let TabDragging {
+        subject,
+        ghost,
+        line,
+        drop,
+    } = dragging;
+    tab.on_drag(subject, move |_, _, _, cx| {
+        cx.new(|_| DragGhost::new(ghost.clone(), GHOST_WIDTH))
+    })
+    .drag_over::<DragSubject>(move |tab, _, _, _| tab.border_l(px(DROP_LINE)).border_color(line))
+    .on_drop::<DragSubject>(move |subject, window, cx| drop(subject, window, cx))
+}
+
+pub(crate) fn group_of(name: &str) -> SharedString {
     SharedString::from(format!("strip-tab-{name}"))
 }
 
@@ -105,34 +141,6 @@ fn frame(
         .hover(move |tab| tab.bg(hover_fill).text_color(hover_ink))
 }
 
-fn close_button(
-    name: &str,
-    state: TabState,
-    palette: &Palette,
-    on_close: TabAction,
-) -> impl IntoElement {
-    let (rest, ink) = (state.rest_opacity(), state.ink(palette));
-    div()
-        .id(ElementId::from(SharedString::from(format!(
-            "strip-close-{name}"
-        ))))
-        .absolute()
-        .right(px(CLOSE_INSET))
-        .top(px((HEIGHT - CLOSE) / 2.0))
-        .size(px(CLOSE))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(ui::radius::MD)
-        .opacity(rest)
-        .group_hover(group_of(name), |button| button.opacity(CLOSE_OPACITY))
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-            cx.stop_propagation();
-            on_close(window, cx);
-        })
-        .child(Icon::new(IconName::X).size(px(CLOSE_GLYPH)).color(ink))
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -153,6 +161,8 @@ mod tests {
             label: "File".into(),
             icon: IconName::X,
             state: TabState::Idle,
+            end: TabEnd::Close,
+            menu: Rc::from(Vec::new()),
             actions,
         }
     }
@@ -163,7 +173,8 @@ mod tests {
         let drop: TabDrop = Rc::new(|_, _, _| {});
         TabActions {
             select,
-            close: nothing,
+            close: Rc::clone(&nothing),
+            remove: nothing,
             drop,
         }
     }

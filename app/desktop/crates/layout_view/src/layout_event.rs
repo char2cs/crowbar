@@ -1,4 +1,5 @@
 use model::{Command, Placement, TabId};
+use protocol::PaneId;
 
 /// What a [`LayoutView`](crate::LayoutView) asks its owner to do.
 #[derive(Debug, Clone, PartialEq)]
@@ -15,5 +16,11 @@ pub enum LayoutEvent {
         tab: TabId,
         /// The pane and side the chat lands next to.
         placement: Placement,
+    },
+    /// The "+" button of a strip was pressed: open a New Tab page as a new tab of the group
+    /// holding `onto`.
+    NewTab {
+        /// Any pane of the group whose strip's button was pressed.
+        onto: PaneId,
     },
 }

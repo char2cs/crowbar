@@ -82,6 +82,7 @@ impl ShellView {
                 tab,
                 placement,
             } => self.state.open_chat_at(chat, (*tab, placement.clone())),
+            LayoutEvent::NewTab { onto } => return self.new_tab_in(onto, cx),
             _ => return,
         }
         self.refresh(cx);

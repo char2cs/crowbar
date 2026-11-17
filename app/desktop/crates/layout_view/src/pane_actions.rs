@@ -3,9 +3,9 @@ use std::rc::Rc;
 use gpui::Context;
 use protocol::PaneId;
 
+use crate::handle_button::HandleAction;
 use crate::layout_view::LayoutView;
 use crate::pane_cell::CellAction;
-use crate::handle_button::HandleAction;
 
 impl LayoutView {
     pub(crate) fn enter_action(
@@ -45,7 +45,7 @@ impl LayoutView {
         cx: &mut Context<'_, Self>,
     ) -> HandleAction {
         let (view, pane) = (cx.entity(), pane.clone());
-        Rc::new(move |_, cx| view.update(cx, |_, cx| Self::close(&pane, cx)))
+        Rc::new(move |_, cx| view.update(cx, |this, cx| this.close_group(&pane, cx)))
     }
 }
 
@@ -55,7 +55,13 @@ mod tests {
     use model::Edge;
 
     use super::*;
-    use crate::test_support::{layout_of, open, pane_id};
+    use crate::test_support::{FakeSource, layout_of, open, open_with, pane_id, stacked_layout};
+
+    fn stacking() -> FakeSource {
+        FakeSource::starting_at_first_tab()
+            .stacking(pane_id("b"))
+            .stacking(pane_id("c"))
+    }
 
     #[gpui::test]
     fn the_enter_and_leave_actions_move_the_hover_to_their_pane_and_off_it(
@@ -93,5 +99,20 @@ mod tests {
             close(window, cx);
         });
         assert_eq!(commands.borrow().len(), 2, "one command per action");
+    }
+
+    #[gpui::test]
+    fn closing_a_group_from_its_handle_closes_every_tab_in_one_command(cx: &mut TestAppContext) {
+        let harness = open_with(cx, &stacked_layout(), stacking());
+        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let close = view.update(cx, |_, cx| LayoutView::close_action(&pane_id("b"), cx));
+        cx.update(|window, cx| close(window, cx));
+        assert_eq!(
+            commands.borrow().as_slice(),
+            &[model::Command::ClosePanes {
+                panes: vec![pane_id("b"), pane_id("c")]
+            }],
+            "both tabs of the group at once"
+        );
     }
 }

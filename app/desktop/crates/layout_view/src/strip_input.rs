@@ -9,6 +9,7 @@ use crate::layout_view::LayoutView;
 use crate::pane_strip::PaneStrip;
 use crate::strip_tab::StripTab;
 use crate::tab_actions::{TabAction, TabActions};
+use crate::tab_end::TabEnd;
 use crate::tab_look::TabLook;
 use crate::tab_seat::TabSeat;
 use crate::tab_state::TabState;
@@ -39,8 +40,16 @@ impl LayoutView {
             .collect();
         let end = group.panes().len();
         Some(PaneStrip {
+            key: group.panes().first()?.clone(),
             tabs,
+            shown: group
+                .panes()
+                .iter()
+                .position(|pane| pane == group.active())?,
             at_end_drop: Self::drop_action(group.active(), end, cx),
+            add: Self::add_action(group.active(), cx),
+            keys: Self::keys_action(group, cx),
+            overflow: self.overflow_of(group, cx),
         })
     }
 
@@ -57,6 +66,8 @@ impl LayoutView {
             label: look.label,
             icon: look.icon,
             state: state_in(group, pane),
+            end: end_of(group, pane),
+            menu: self.tab_menu(group, pane, cx),
             actions: Self::actions_of(group, seat, cx),
         }
     }
@@ -66,14 +77,28 @@ impl LayoutView {
         seat: TabSeat<'_>,
         cx: &mut Context<'_, Self>,
     ) -> TabActions {
+        let remove = Self::strip_close_action(seat.pane, cx);
         TabActions {
             select: Self::select_action(seat.pane, cx),
-            close: Self::strip_close_action(seat.pane, cx),
+            close: Self::end_action(group, seat.pane, &remove, cx),
+            remove,
             drop: Self::drop_action(group.active(), seat.index, cx),
         }
     }
 
-    fn select_action(
+    fn end_action(
+        group: &Group,
+        pane: &PaneId,
+        remove: &TabAction,
+        cx: &mut Context<'_, Self>,
+    ) -> TabAction {
+        if group.is_pinned(pane) {
+            return Self::unpin_action(pane, cx);
+        }
+        Rc::clone(remove)
+    }
+
+    pub(crate) fn select_action(
         pane: &PaneId,
         cx: &mut Context<'_, Self>,
     ) -> TabAction {
@@ -116,7 +141,7 @@ impl LayoutView {
         !own_group && stacks(dragged) && stacks(target)
     }
 
-    fn look_of(
+    pub(crate) fn look_of(
         &self,
         pane: &PaneId,
     ) -> TabLook {
@@ -128,7 +153,17 @@ impl LayoutView {
     }
 }
 
-fn state_in(
+fn end_of(
+    group: &Group,
+    pane: &PaneId,
+) -> TabEnd {
+    if group.is_pinned(pane) {
+        return TabEnd::Unpin;
+    }
+    TabEnd::Close
+}
+
+pub(crate) fn state_in(
     group: &Group,
     pane: &PaneId,
 ) -> TabState {
@@ -233,6 +268,26 @@ mod tests {
             joins,
             [false, true, false],
             "b and c share a group; a does not"
+        );
+    }
+
+    #[gpui::test]
+    fn pressing_a_tab_of_an_unfocused_group_focuses_that_tab_and_nothing_else(
+        cx: &mut TestAppContext
+    ) {
+        let mut layout = stacked_layout();
+        layout
+            .apply(Command::FocusPane { pane: pane_id("a") })
+            .unwrap();
+        let harness = open_with(cx, &layout, stacking());
+        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let size = view.read_with(cx, |view, _| view.bounds.size);
+        let tab = point(size.width * 0.5 + px(40.0), px(20.0));
+        cx.simulate_mouse_down(tab, MouseButton::Left, Modifiers::none());
+        assert_eq!(
+            commands.borrow().as_slice(),
+            &[Command::FocusPane { pane: pane_id("b") }],
+            "the pane press behind the tab must not undo it"
         );
     }
 }

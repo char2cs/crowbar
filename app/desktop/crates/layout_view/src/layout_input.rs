@@ -1,8 +1,7 @@
 use std::time::Instant;
 
 use gpui::{
-    Bounds, Context, DragMoveEvent, MouseDownEvent, Pixels, Point, Window, point, px,
-    size,
+    Bounds, Context, DragMoveEvent, MouseDownEvent, Pixels, Point, Window, point, px, size,
 };
 use model::{Command, Sash};
 use protocol::PaneId;
@@ -102,6 +101,23 @@ impl LayoutView {
             new_tab,
             title,
         }));
+    }
+    pub(crate) fn close_group(
+        &mut self,
+        pane: &PaneId,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let members = self
+            .tab
+            .as_ref()
+            .and_then(|tab| tab.group_of(pane))
+            .map(|group| group.panes().to_vec());
+        match members {
+            Some(panes) if panes.len() > 1 => {
+                cx.emit(LayoutEvent::Apply(Command::ClosePanes { panes }));
+            },
+            _ => Self::close(pane, cx),
+        }
     }
 
     pub(crate) fn close(

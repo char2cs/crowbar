@@ -1,4 +1,4 @@
-
+use crate::handle_button::{HandleAction, HandleButton};
 use gpui::{
     App, AppContext as _, CursorStyle, ElementId, Hsla, InteractiveElement, IntoElement,
     MouseButton, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
@@ -6,7 +6,6 @@ use gpui::{
 };
 use model::DragSubject;
 use protocol::PaneId;
-use crate::handle_button::{HandleAction, HandleButton};
 use ui::{DragGhost, Icon, IconName, IconWeight, Surface, Theme, Tooltip, shadow};
 
 const WIDTH: f32 = 69.0;
