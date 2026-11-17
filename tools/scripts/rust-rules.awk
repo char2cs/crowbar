@@ -87,7 +87,7 @@ BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth =
       check_allow(allow_buf, allow_line)
     }
   }
-  if (raw ~ /^[ \t]*#\[(tokio::)?test\]/ && (mode == "test" || in_t)) ntests++
+  if (raw ~ /^[ \t]*#\[(tokio::)?test(\([^]]*\))?\]/ && (mode == "test" || in_t)) ntests++
   if (mode == "test" || in_t) track_table(raw)
   if ((mode == "test" || in_t) && raw ~ /start_paused|time::pause/) paused = 1
   if ((mode == "test" || in_t) && (raw ~ /time::sleep/ || raw ~ /(^|[^A-Za-z_:.])sleep\(/) && raw !~ /thread::sleep/ && raw !~ /^[ \t]*\/\//) { nsleep++; sleep_line[nsleep] = NR }
@@ -108,7 +108,7 @@ BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth =
   }
   if (!t_body && raw ~ /^[ \t]*#\[cfg\(.*test/ && raw !~ /not\(test\)/) { cfg_line = NR; next }
   if (raw ~ /^[ \t]*#\[path *=/ || raw ~ /^[ \t]*mod tests[ \t]*;/) { report(NR, "test-sibling", "tests live in an inline `mod tests {}` in this file, not a sibling *_tests.rs"); next }
-  if (raw ~ /^[ \t]*#\[(tokio::)?test\]/) { if (!t_body) report(NR, "test-in-src", "#[test] outside the file's `mod tests`"); next }
+  if (raw ~ /^[ \t]*#\[(tokio::)?test(\([^]]*\))?\]/) { if (!t_body) report(NR, "test-in-src", "#[test] outside the file's `mod tests`"); next }
   if (t_body) {
     s = strip(raw); i = index(s, "//")
     if (i) { text = substr(s, i + 2); sub(/^[ \t]+/, "", text); if (raw !~ /^[ \t]*\/\/\//) { if (text !~ /^(SAFETY|SPEC|PLATFORM|DEPRECATED):/) report(NR, "comment", "inline comment (only SAFETY:/SPEC:/PLATFORM:/DEPRECATED: allowed)"); else check_tag(text, NR); if (text ~ /^SAFETY:/) seen_safety = 1 } }
