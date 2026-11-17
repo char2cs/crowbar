@@ -16,11 +16,22 @@ final class ChromeOverlaysLayersTests: XCTestCase {
     XCTAssertEqual(rig.overlays.hosted.count, 2)
 
     let page = WKWebView()
-    let layer = rig.overlays.pageLayer(page, leading: 72, trailing: 8)
+    let layer = rig.overlays.pageLayer(
+      page,
+      leading: OverlaysRig.leadingInset,
+      trailing: OverlaysRig.trailingInset
+    )
     layer.frame = OverlaysRig.screen
     layer.layoutIfNeeded()
     XCTAssertTrue(page.superview === layer)
-    XCTAssertEqual(page.frame, CGRect(x: 72, y: 0, width: 320, height: 800))
+    let inset = OverlaysRig.leadingInset + OverlaysRig.trailingInset
+    let expected = CGRect(
+      x: OverlaysRig.leadingInset,
+      y: 0,
+      width: OverlaysRig.width - inset,
+      height: OverlaysRig.height
+    )
+    XCTAssertEqual(page.frame, expected)
   }
 
   func testFadesEndAtFullOrZeroAlphaAndIgnoreNothing() {

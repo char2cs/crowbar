@@ -36,14 +36,15 @@ final class ChromeOverlaysJumpButtonTests: XCTestCase {
     let view = try XCTUnwrap(rig.overlays.jumpButton)
     XCTAssertTrue(view.isHidden)
     XCTAssertTrue(view.superview === rig.webview)
+    let bottomGap = 100.0
     rig.overlays.applyJumpToLatest(
-      JumpToLatestState(owner: "chat", visible: true, bottom: 100, label: "Jump")
+      JumpToLatestState(owner: "chat", visible: true, bottom: bottomGap, label: "Jump")
     )
     XCTAssertEqual(rig.model.jumpOwner, "chat")
     XCTAssertEqual(rig.model.jumpLabel, "Jump")
     XCTAssertFalse(view.isHidden)
     XCTAssertEqual(view.alpha, 1)
     XCTAssertEqual(view.center.x, rig.webview.bounds.midX)
-    XCTAssertEqual(view.center.y, 800 - 100 - GlassCircle.diameter / 2)
+    XCTAssertEqual(view.center.y, OverlaysRig.height - CGFloat(bottomGap) - GlassCircle.diameter / 2)
   }
 }

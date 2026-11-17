@@ -5,8 +5,8 @@ import XCTest
 @testable import tauri_plugin_crowbar_chrome
 
 final class KeyboardFitTests: XCTestCase {
-  private let screen = CGRect(x: 0, y: 0, width: 400, height: 800)
-  private let keyboard = CGRect(x: 0, y: 500, width: 400, height: 300)
+  private let screen = OverlaysRig.screen
+  private let keyboard = CGRect(x: 0, y: 500, width: OverlaysRig.width, height: 300)
 
   private func post(_ name: Notification.Name) {
     var info: [AnyHashable: Any] = [:]

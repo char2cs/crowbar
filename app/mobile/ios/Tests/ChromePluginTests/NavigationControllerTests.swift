@@ -6,7 +6,7 @@ import XCTest
 
 @available(iOS 26.0, *)
 final class NavigationControllerTests: XCTestCase {
-  private let screen = CGRect(x: 0, y: 0, width: 400, height: 800)
+  private let screen = OverlaysRig.screen
 
   private func makeHost() -> (
     host: UIView,

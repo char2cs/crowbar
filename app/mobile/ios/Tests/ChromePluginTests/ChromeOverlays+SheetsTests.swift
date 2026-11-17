@@ -1,5 +1,6 @@
 // swiftlint:disable:this file_name - named after the source file it covers
 
+import SwiftUI
 import UIKit
 import XCTest
 
@@ -18,6 +19,26 @@ final class ChromeOverlaysSheetsTests: XCTestCase {
     PickCase(pick: ChromeOverlays.pickAttachSource, type: "pickAttachSource", id: "photos"),
   ]
 
+  private static let tolerance: CGFloat = 0.01
+
+  private func assertColor(
+    _ color: Color?,
+    red: CGFloat,
+    green: CGFloat,
+    blue: CGFloat
+  ) throws {
+    let resolved = UIColor(try XCTUnwrap(color))
+    var seenRed: CGFloat = 0
+    var seenGreen: CGFloat = 0
+    var seenBlue: CGFloat = 0
+    var seenAlpha: CGFloat = 0
+    XCTAssertTrue(resolved.getRed(&seenRed, green: &seenGreen, blue: &seenBlue, alpha: &seenAlpha))
+    XCTAssertEqual(seenRed, red, accuracy: Self.tolerance)
+    XCTAssertEqual(seenGreen, green, accuracy: Self.tolerance)
+    XCTAssertEqual(seenBlue, blue, accuracy: Self.tolerance)
+    XCTAssertEqual(seenAlpha, 1, accuracy: Self.tolerance)
+  }
+
   func testPickingFromASheetSendsTheIntentOnceItIsClosed() {
     for item in cases {
       let rig = OverlaysRig()
@@ -34,8 +55,8 @@ final class ChromeOverlaysSheetsTests: XCTestCase {
       ##"{"accent":"#ff0000","brandGround":"#00ff00","appearance":"dark"}"##
     )
     rig.overlays.applyTheme(theme)
-    XCTAssertNotNil(rig.model.accent)
-    XCTAssertNotNil(rig.model.brandGround)
+    try assertColor(rig.model.accent, red: 1, green: 0, blue: 0)
+    try assertColor(rig.model.brandGround, red: 0, green: 1, blue: 0)
 
     let picker = try decode(
       ModelPickerState.self,

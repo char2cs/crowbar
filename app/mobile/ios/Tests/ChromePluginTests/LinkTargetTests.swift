@@ -7,7 +7,7 @@ import XCTest
 @available(iOS 26.0, *)
 final class LinkTargetTests: XCTestCase {
   func testTargetDoesNotKeepTheControllerAlive() {
-    let screen = CGRect(x: 0, y: 0, width: 400, height: 800)
+    let screen = OverlaysRig.screen
     let host = UIView(frame: screen)
     let webview = WKWebView(frame: screen)
     host.addSubview(webview)
