@@ -39,7 +39,10 @@ fn open_terminal_window(
     arguments: &Arguments,
     cx: &mut App,
 ) -> gpui::Result<()> {
-    let size = size(px(f32::from(arguments.width)), px(f32::from(arguments.height)));
+    let size = size(
+        px(f32::from(arguments.width)),
+        px(f32::from(arguments.height)),
+    );
     let bounds = Bounds::centered(None, size, cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),

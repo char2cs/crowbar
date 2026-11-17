@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{AppContext as _, AsyncApp, Context, WeakEntity};
-use settings_ui::{Key, SettingsBackend as _};
-use sidebar::{HostKind, SidebarData as _};
+use settings_ui::{Key, SettingsRead as _};
+use sidebar::{HostKind, PaneFocus as _, SpaceList as _};
 
 use super::ShellView;
 use crate::core_panes::TERMINAL;

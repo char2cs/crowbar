@@ -1,5 +1,5 @@
 use gpui::Context;
-use settings_ui::{Change, Key, SettingsBackend, Value};
+use settings_ui::{Change, Key, SettingsFollow as _, SettingsRead as _, Value};
 use ui::{Theme, ThemeId, ThemeMode};
 
 use super::ShellView;

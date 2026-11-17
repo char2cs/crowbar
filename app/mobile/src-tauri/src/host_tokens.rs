@@ -17,15 +17,15 @@ pub(crate) use keyring_token_store::KeyringTokenStore;
 pub(crate) use token_store::TokenStore;
 
 #[tauri::command]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "tauri injects managed state by value"
-)]
-pub(crate) fn forget_host_token(
-    host_id: &str,
+pub(crate) async fn forget_host_token(
+    host_id: String,
     store: State<'_, Arc<dyn TokenStore>>,
 ) -> Result<(), HostError> {
-    Ok(store.delete(host_id)?)
+    let store = Arc::clone(store.inner());
+    tokio::task::spawn_blocking(move || store.delete(&host_id))
+        .await
+        .map_err(HostError::Interrupted)??;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -72,7 +72,7 @@ mod tests {
         store.set("a", "ta").unwrap();
         store.set("b", "tb").unwrap();
         app.manage(Arc::new(store) as Arc<dyn TokenStore>);
-        forget_host_token("a", app.state()).unwrap();
+        tauri::async_runtime::block_on(forget_host_token("a".into(), app.state())).unwrap();
         let store = app.state::<Arc<dyn TokenStore>>();
         assert_eq!(store.get("a").unwrap(), None);
         assert_eq!(store.get("b").unwrap(), Some("tb".to_owned()));

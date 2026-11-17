@@ -10,10 +10,6 @@ use crate::{api_proxy, host_commands, host_tokens, init_scripts, logging, naviga
 
 /// Starts the app; on a build failure it logs the cause and aborts, as a startup panic would.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tauri::generate_context! expands to a process exit on a corrupt context"
-)]
 pub fn run() {
     match assemble::<tauri::Wry>().build(tauri::generate_context!()) {
         Ok(app) => app.run(|_, _| {}),
@@ -49,7 +45,9 @@ fn base_builder<R: Runtime>() -> Builder<R> {
         .plugin(init_scripts::bootstrap())
         .plugin(navigation::plugin())
         .plugin(tauri_plugin_crowbar_chrome::init())
-        .register_asynchronous_uri_scheme_protocol("crowbar", api_proxy::handle_request);
+        .register_asynchronous_uri_scheme_protocol("crowbar", |ctx, request, responder| {
+            api_proxy::handle_request(&ctx, request, responder);
+        });
     with_console_forward(builder)
 }
 

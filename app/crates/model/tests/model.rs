@@ -1,7 +1,6 @@
 //! Public-API property tests: random command sequences never break an invariant, refused
 //! commands change nothing, panes are never lost or duplicated, and undo is exact.
 
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use model::{
@@ -96,44 +95,51 @@ fn sequence() -> impl Strategy<Value = Vec<Step>> {
     proptest::collection::vec(step(), 1..60)
 }
 
-fn pane_id(n: u8) -> PaneId {
-    PaneId::new(format!("p{n}")).unwrap()
+type Fixture<T> = Result<T, Box<dyn std::error::Error>>;
+
+fn failed(error: &dyn std::error::Error) -> TestCaseError {
+    TestCaseError::fail(error.to_string())
+}
+
+fn pane_id(n: u8) -> Fixture<PaneId> {
+    Ok(PaneId::new(format!("p{n}"))?)
 }
 
 fn tab_id(n: u8) -> TabId {
     TabId(u64::from(n))
 }
 
-fn placement((target, edge): (u8, Edge)) -> Placement {
-    Placement {
-        target: pane_id(target),
+fn placement((target, edge): (u8, Edge)) -> Fixture<Placement> {
+    Ok(Placement {
+        target: pane_id(target)?,
         edge,
-    }
+    })
 }
 
 fn instance(
     pane: u8,
     chat: Option<u8>,
-) -> PaneInstance {
+) -> Fixture<PaneInstance> {
     let (type_id, params) = match chat {
         Some(chat) => (
             "core.chat",
-            Params::default()
-                .with("chatId", format!("c{chat}"))
-                .unwrap(),
+            Params::default().with("chatId", format!("c{chat}"))?,
         ),
         None => ("core.terminal", Params::default()),
     };
-    PaneInstance {
-        pane_id: pane_id(pane),
-        type_id: PaneTypeId::new(type_id).unwrap(),
+    Ok(PaneInstance {
+        pane_id: pane_id(pane)?,
+        type_id: PaneTypeId::new(type_id)?,
         params,
         state: PaneState::default(),
-    }
+    })
 }
 
-fn command(step: &Step) -> Command {
-    tab_command(step).unwrap_or_else(|| pane_command(step))
+fn command(step: &Step) -> Fixture<Command> {
+    match tab_command(step) {
+        Some(command) => Ok(command),
+        None => pane_command(step),
+    }
 }
 
 fn tab_command(step: &Step) -> Option<Command> {
@@ -167,7 +173,7 @@ fn tab_command(step: &Step) -> Option<Command> {
     Some(command)
 }
 
-fn group_command(step: &Step) -> Option<Command> {
+fn group_command(step: &Step) -> Fixture<Option<Command>> {
     let command = match step.clone() {
         Step::Open {
             tab,
@@ -176,8 +182,8 @@ fn group_command(step: &Step) -> Option<Command> {
             placement: at,
         } => Command::OpenPane {
             tab: tab_id(tab),
-            instance: instance(pane, chat),
-            placement: at.map(placement),
+            instance: instance(pane, chat)?,
+            placement: at.map(placement).transpose()?,
         },
         Step::OpenInGroup {
             pane,
@@ -185,52 +191,56 @@ fn group_command(step: &Step) -> Option<Command> {
             onto,
             index,
         } => Command::OpenPaneInGroup {
-            instance: instance(pane, chat),
-            onto: pane_id(onto),
+            instance: instance(pane, chat)?,
+            onto: pane_id(onto)?,
             index: index.map(usize::from),
         },
         Step::JoinGroup(p, onto, index) => Command::MoveToGroup {
-            pane: pane_id(p),
-            onto: pane_id(onto),
+            pane: pane_id(p)?,
+            onto: pane_id(onto)?,
             index: index.map(usize::from),
         },
-        _ => return None,
+        _ => return Ok(None),
     };
-    Some(command)
+    Ok(Some(command))
 }
 
-fn pane_command(step: &Step) -> Command {
-    group_command(step).unwrap_or_else(|| plain_pane_command(step))
+fn pane_command(step: &Step) -> Fixture<Command> {
+    match group_command(step)? {
+        Some(command) => Ok(command),
+        None => plain_pane_command(step),
+    }
 }
 
-fn plain_pane_command(step: &Step) -> Command {
-    match step.clone() {
-        Step::Close(p) => Command::ClosePane { pane: pane_id(p) },
-        Step::Focus(p) => Command::FocusPane { pane: pane_id(p) },
+fn plain_pane_command(step: &Step) -> Fixture<Command> {
+    let command = match step.clone() {
+        Step::Close(p) => Command::ClosePane { pane: pane_id(p)? },
+        Step::Focus(p) => Command::FocusPane { pane: pane_id(p)? },
         Step::MovePane(p, t, e) => Command::MovePane {
-            pane: pane_id(p),
-            placement: placement((t, e)),
+            pane: pane_id(p)?,
+            placement: placement((t, e))?,
         },
         Step::MoveToTab(p, t, at) => Command::MovePaneToTab {
-            pane: pane_id(p),
+            pane: pane_id(p)?,
             to: tab_id(t),
-            placement: at.map(placement),
+            placement: at.map(placement).transpose()?,
         },
         Step::Detach(p, t) => Command::DetachPane {
-            pane: pane_id(p),
+            pane: pane_id(p)?,
             new_tab: tab_id(t),
             title: "detached".into(),
         },
         Step::Swap(a, b) => Command::SwapPanes {
-            a: pane_id(a),
-            b: pane_id(b),
+            a: pane_id(a)?,
+            b: pane_id(b)?,
         },
         Step::SetState(p, s) => Command::SetPaneState {
-            pane: pane_id(p),
-            state: PaneState::new(json!({ "s": s })).unwrap(),
+            pane: pane_id(p)?,
+            state: PaneState::new(json!({ "s": s }))?,
         },
         other => unreachable!("{other:?} is a tab step"),
-    }
+    };
+    Ok(command)
 }
 
 fn panes(layout: &Layout) -> BTreeSet<PaneId> {
@@ -268,15 +278,12 @@ fn check_transition(
     step: &Step,
     before: &Layout,
     after: &Layout,
-) {
+) -> Fixture<()> {
     let (was, now) = (panes(before), panes(after));
     match step {
         Step::Close(p) => {
-            let expected: BTreeSet<_> = was
-                .iter()
-                .filter(|id| **id != pane_id(*p))
-                .cloned()
-                .collect();
+            let closed = pane_id(*p)?;
+            let expected: BTreeSet<_> = was.iter().filter(|id| **id != closed).cloned().collect();
             assert_eq!(now, expected, "{step:?}: exactly the closed pane is gone");
         },
         Step::CloseTab(t) => {
@@ -296,6 +303,7 @@ fn check_transition(
     }
     check_what_stayed(step, before, after);
     check_focus(step, after);
+    Ok(())
 }
 
 fn check_what_stayed(
@@ -320,7 +328,7 @@ fn check_what_stayed(
     }
     let (old_state, new_state) = (states(before), states(after));
     for (id, state) in &old_state {
-        let touched = matches!(step, Step::SetState(p, _) if pane_id(*p) == *id);
+        let touched = matches!(step, Step::SetState(p, _) if pane_id(*p).is_ok_and(|named| named == *id));
         assert!(
             touched || new_state.get(id).is_none_or(|n| n == state),
             "{step:?}: {id} lost its state"
@@ -333,8 +341,7 @@ fn check_focus(
     after: &Layout,
 ) {
     let shown = |pane: u8| {
-        let id = pane_id(pane);
-        after.active_tab().is_some_and(|t| t.focused() == Some(&id))
+        pane_id(pane).is_ok_and(|id| after.active_tab().is_some_and(|t| t.focused() == Some(&id)))
     };
     match step {
         Step::Focus(p)
@@ -354,12 +361,12 @@ fn check_focus(
     }
 }
 
-fn run(steps: &[Step]) -> Layout {
+fn run(steps: &[Step]) -> Fixture<Layout> {
     let mut layout = Layout::default();
     for step in steps {
         let before = layout.clone();
-        match layout.apply(command(step)) {
-            Ok(()) => check_transition(step, &before, &layout),
+        match layout.apply(command(step)?) {
+            Ok(()) => check_transition(step, &before, &layout)?,
             Err(_) => assert_eq!(
                 layout, before,
                 "{step:?}: a refused command changed the layout"
@@ -368,7 +375,7 @@ fn run(steps: &[Step]) -> Layout {
         let valid = layout.validate();
         assert!(valid.is_ok(), "{step:?}: {valid:?}");
     }
-    layout
+    Ok(layout)
 }
 
 proptest! {
@@ -376,7 +383,7 @@ proptest! {
 
     #[test]
     fn random_sequences_keep_every_invariant(steps in sequence()) {
-        let layout = run(&steps);
+        let layout = run(&steps).map_err(|error| failed(&*error))?;
         let json = serde_json::to_value(&layout).unwrap();
         let loaded: Layout = serde_json::from_value(json).unwrap();
         prop_assert_eq!(loaded, layout, "a valid layout survives a round trip through its stored form");
@@ -386,7 +393,7 @@ proptest! {
     fn undoing_everything_empties_the_layout_and_redoing_restores_it(steps in sequence()) {
         let mut history = LayoutHistory::default();
         for step in &steps {
-            history.apply(command(step)).ok();
+            history.apply(command(step).map_err(|error| failed(&*error))?).ok();
         }
         let last = history.layout().clone();
         while history.undo() {
@@ -409,7 +416,7 @@ proptest! {
         let mut before_each = Vec::new();
         for step in &structural {
             let before = history.layout().clone();
-            let applied = history.apply(command(step)).is_ok();
+            let applied = history.apply(command(step).map_err(|error| failed(&*error))?).is_ok();
             let changed = history.layout() != &before;
             before_each.extend((applied && changed).then_some(before));
         }
@@ -421,7 +428,7 @@ proptest! {
 
     #[test]
     fn panes_never_overlap_or_leave_the_screen(steps in sequence()) {
-        let layout = run(&steps);
+        let layout = run(&steps).map_err(|error| failed(&*error))?;
         for tab in layout.tabs() {
             let slots = tab.layout(SCREEN);
             prop_assert!(slots.iter().all(|slot| on_screen(slot.rect)), "a pane left the screen");
@@ -459,30 +466,57 @@ fn first_overlap(slots: &[model::PaneSlot]) -> Option<String> {
 fn type_into_pane(
     history: &mut LayoutHistory,
     keystroke: u32,
-) {
-    let draft = "x".repeat(usize::try_from(keystroke % 512).unwrap());
+) -> Fixture<()> {
+    let draft = "x".repeat(usize::try_from(keystroke % 512)?);
     let command = Command::SetPaneState {
-        pane: pane_id(2),
-        state: PaneState::new(json!({ "draft": draft })).unwrap(),
+        pane: pane_id(2)?,
+        state: PaneState::new(json!({ "draft": draft }))?,
     };
-    history.apply(command).unwrap();
+    history.apply(command)?;
+    Ok(())
 }
 
 #[test]
-fn state_sent_per_keystroke_never_grows_history_or_copies_the_layout() {
+fn state_sent_per_keystroke_never_grows_history_or_copies_the_layout() -> Fixture<()> {
     let mut history = LayoutHistory::default();
-    history.apply(command(&Step::AddTab(0))).unwrap();
+    history.apply(command(&Step::AddTab(0))?)?;
     for pane in 0..4 {
-        history.apply(command(&open_step(pane))).unwrap();
+        history.apply(command(&open_step(pane))?)?;
     }
     for keystroke in 0..2000_u32 {
-        type_into_pane(&mut history, keystroke);
+        type_into_pane(&mut history, keystroke)?;
     }
     let mut undone = 0;
     while history.undo() {
         undone += 1;
     }
     assert_eq!(undone, 5, "only the five structural commands are undoable");
+    Ok(())
+}
+
+#[test]
+fn commands_naming_nothing_that_exists_are_refused_and_change_nothing() -> Fixture<()> {
+    let cases = [
+        ("closing an unknown tab", Command::CloseTab { tab: tab_id(1) }),
+        (
+            "activating an unknown tab",
+            Command::ActivateTab { tab: tab_id(1) },
+        ),
+        (
+            "closing an unknown pane",
+            Command::ClosePane { pane: pane_id(1)? },
+        ),
+        (
+            "focusing an unknown pane",
+            Command::FocusPane { pane: pane_id(1)? },
+        ),
+    ];
+    for (name, refused) in cases {
+        let mut layout = Layout::default();
+        assert!(layout.apply(refused).is_err(), "{name}");
+        assert_eq!(layout, Layout::default(), "{name}");
+    }
+    Ok(())
 }
 
 fn open_step(pane: u8) -> Step {

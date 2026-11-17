@@ -3,62 +3,34 @@
 
 use std::cell::RefCell;
 
-use crate::activity::Activity;
-use crate::avatar_tint::AvatarTint;
-use crate::changed_file::ChangedFile;
-use crate::changes::Changes;
 use crate::command::Command;
 use crate::command_sink::CommandSink;
+use crate::demo_rows::{reference_rows, rich_rows};
 use crate::error::Error;
-use crate::expansion::Expansion;
-use crate::file_kind::FileKind;
-use crate::file_row::FileRow;
 use crate::focus::Focus;
-use crate::git_status::GitStatus;
-use crate::host::Host;
-use crate::host_id::HostId;
-use crate::host_kind::HostKind;
-use crate::host_state::HostState;
-use crate::lock::Lock;
-use crate::mark::Mark;
 use crate::merge_box::MergeBox;
-use crate::move_target::MoveTarget;
-use crate::nesting::Nesting;
-use crate::presence::Presence;
-use crate::project::Project;
 use crate::project_id::ProjectId;
-use crate::project_tree::ProjectTree;
 use crate::row::Row;
 use crate::row_id::RowId;
-use crate::row_kind::RowKind;
 use crate::running_agent::RunningAgent;
 use crate::scope_sync::ScopeSync;
-use crate::sidebar_data::SidebarData;
 use crate::titling::Titling;
-use crate::workspace::Workspace;
-use crate::workspace_status::WorkspaceStatus;
-use crate::worktree::Worktree;
 
-const MAIN: &str = "main";
 const RICH_COUNTS: (usize, usize) = (3, 2);
-const SYNC_LOOP_ADDED: u32 = 42;
-const SYNC_LOOP_DELETED: u32 = 7;
-const SPIKE_ADDED: u32 = 3;
-const SPIKE_DELETED: u32 = 1;
 
 /// The fixed workspace of the gallery; rows can be renamed and removed through the sink.
 #[derive(Debug)]
 pub struct DemoData {
-    rows: RefCell<Vec<Row>>,
-    active: RefCell<ProjectId>,
-    spaces: usize,
-    hosts: usize,
-    sync: ScopeSync,
-    focus: Focus,
-    refused: Vec<Command>,
-    removable: Vec<String>,
-    merge: Option<MergeBox>,
-    running: Vec<RunningAgent>,
+    pub(crate) rows: RefCell<Vec<Row>>,
+    pub(crate) active: RefCell<ProjectId>,
+    pub(crate) spaces: usize,
+    pub(crate) hosts: usize,
+    pub(crate) sync: ScopeSync,
+    pub(crate) focus: Focus,
+    pub(crate) refused: Vec<Command>,
+    pub(crate) removable: Vec<String>,
+    pub(crate) merge: Option<MergeBox>,
+    pub(crate) running: Vec<RunningAgent>,
 }
 
 impl DemoData {
@@ -155,246 +127,6 @@ impl DemoData {
     }
 }
 
-fn branch(
-    id: &str,
-    depth: u8,
-    label: &str,
-    workspace: Workspace,
-) -> Row {
-    let mut row = Row::new(id, RowKind::Branch, depth, label);
-    row.workspace = Some(workspace);
-    row
-}
-
-fn landed(
-    status: WorkspaceStatus,
-    branch: &str,
-    added: u32,
-    deleted: u32,
-) -> Workspace {
-    Workspace {
-        status,
-        branch: branch.to_owned(),
-        added,
-        deleted,
-        held_by_path: None,
-    }
-}
-
-fn repo_header(
-    id: &str,
-    label: &str,
-    letter: char,
-    tint: AvatarTint,
-) -> Row {
-    let mut row = Row::new(id, RowKind::RepoHeader, 0, label);
-    row.mark = Some(Mark::Letter { letter, tint });
-    row.nesting = Nesting::Parent;
-    row
-}
-
-fn reference_rows() -> Vec<Row> {
-    let mut main = branch(
-        MAIN,
-        1,
-        MAIN,
-        landed(WorkspaceStatus::Locked, MAIN, 0, 0),
-    );
-    main.lock = Lock::Locked;
-    let mut chat = Row::new("chat", RowKind::Branch, 1, "Untitled chat");
-    chat.titling = Titling::Provisional;
-    chat.presence = Presence::Open;
-    chat.worktree = Worktree::Owned;
-    chat.workspace = Some(landed(WorkspaceStatus::New, "inv-rb", 1, 0));
-    vec![
-        repo_header("demo", "demo", 'D', AvatarTint::Slate),
-        main,
-        chat,
-    ]
-}
-
-fn rich_rows() -> Vec<Row> {
-    let mut rows = reference_rows();
-    let mut working = Row::new("working", RowKind::Chat, 1, "Refactor the sync loop");
-    working.activity = Activity::Working;
-    working.workspace = Some(landed(
-        WorkspaceStatus::PrOpen,
-        "sync-loop",
-        SYNC_LOOP_ADDED,
-        SYNC_LOOP_DELETED,
-    ));
-    let mut folder = Row::new("folder", RowKind::Folder, 1, "Experiments");
-    folder.nesting = Nesting::Parent;
-    let child = branch(
-        "child",
-        2,
-        "spike",
-        landed(
-            WorkspaceStatus::PrMerged,
-            "spike",
-            SPIKE_ADDED,
-            SPIKE_DELETED,
-        ),
-    );
-    rows.extend([working, folder, child]);
-    rows
-}
-
-impl SidebarData for DemoData {
-    fn sync(&self) -> ScopeSync {
-        self.sync
-    }
-
-    fn hosts(&self) -> Vec<Host> {
-        let local = Host {
-            id: HostId::from("local"),
-            name: "This computer".into(),
-            kind: HostKind::Local,
-            state: HostState::Up,
-            endpoint: None,
-        };
-        if self.hosts < 2 {
-            return vec![local];
-        }
-        let remote = Host {
-            id: HostId::from("devbox"),
-            name: "devbox".into(),
-            kind: HostKind::Remote,
-            state: HostState::Down,
-            endpoint: Some("devbox.internal:7421".into()),
-        };
-        vec![local, remote]
-    }
-
-    fn projects(&self) -> Vec<Project> {
-        let names = [
-            ("inv", Mark::Fallback),
-            ("website", Mark::Fallback),
-            (
-                "api",
-                Mark::Letter {
-                    letter: 'A',
-                    tint: AvatarTint::Emerald,
-                },
-            ),
-        ];
-        names
-            .into_iter()
-            .take(self.spaces)
-            .map(|(name, mark)| Project {
-                id: ProjectId::from(name),
-                name: name.to_owned(),
-                mark,
-                host: HostId::from("local"),
-            })
-            .collect()
-    }
-
-    fn active_project(&self) -> Option<ProjectId> {
-        Some(self.active.borrow().clone())
-    }
-
-    fn tree(
-        &self,
-        project: &ProjectId,
-    ) -> ProjectTree {
-        let mut tree = ProjectTree::default();
-        if project == &*self.active.borrow() {
-            tree.rows.clone_from(&self.rows.borrow());
-        }
-        tree
-    }
-
-    fn focus(&self) -> Focus {
-        self.focus
-    }
-
-    fn move_targets(
-        &self,
-        _row: &RowId,
-    ) -> Vec<MoveTarget> {
-        Vec::new()
-    }
-
-    fn can_start_terminal_thread(&self) -> bool {
-        true
-    }
-
-    fn files(&self) -> Vec<FileRow> {
-        let file = |path: &str, name: &str, depth, kind, status| FileRow {
-            path: path.to_owned(),
-            name: name.to_owned(),
-            depth,
-            kind,
-            status,
-        };
-        vec![
-            file(
-                "src",
-                "src",
-                0,
-                FileKind::Directory(Expansion::Expanded),
-                GitStatus::Clean,
-            ),
-            file(
-                "src/main.rs",
-                "main.rs",
-                1,
-                FileKind::File,
-                GitStatus::Modified,
-            ),
-            file("src/lib.rs", "lib.rs", 1, FileKind::File, GitStatus::Added),
-            file(
-                "README.md",
-                "README.md",
-                0,
-                FileKind::File,
-                GitStatus::Clean,
-            ),
-        ]
-    }
-
-    fn serves(
-        &self,
-        command: &Command,
-    ) -> bool {
-        !self.refused.contains(command)
-    }
-
-    fn can_remove_folder(
-        &self,
-        path: &str,
-    ) -> bool {
-        self.removable.iter().any(|folder| folder == path)
-    }
-
-    fn workspace_root(&self) -> Option<String> {
-        Some("/work/demo".to_owned())
-    }
-
-    fn merge_box(&self) -> Option<MergeBox> {
-        self.merge.clone()
-    }
-
-    fn running_agents(&self) -> Vec<RunningAgent> {
-        self.running.clone()
-    }
-
-    fn changes(&self) -> Changes {
-        let file = ChangedFile {
-            path: "src/lib.rs".into(),
-            status: GitStatus::Added,
-            added: 1,
-            deleted: 0,
-        };
-        Changes {
-            branch: "inv-rb".into(),
-            parent: Some(MAIN.into()),
-            files: vec![file],
-        }
-    }
-}
-
 fn already_exists(name: &str) -> Error {
     Error::Refused {
         reason: format!("\"{name}\" already exists"),
@@ -440,6 +172,7 @@ impl CommandSink for DemoData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::active_space::ActiveSpace as _;
 
     #[test]
     fn renaming_to_a_taken_name_is_refused_and_leaves_the_tree_alone() {
@@ -470,21 +203,5 @@ mod tests {
                 .iter()
                 .all(|row| row.id != RowId::from("chat"))
         );
-    }
-
-    type CountCase = (&'static str, fn() -> DemoData, usize, usize);
-
-    const COUNT_CASES: &[CountCase] = &[
-        ("the reference data", DemoData::reference, 2, 1),
-        ("the rich data", DemoData::rich, 3, 2),
-    ];
-
-    #[test]
-    fn the_data_lists_its_spaces_and_hosts() {
-        for (name, build, spaces, hosts) in COUNT_CASES {
-            let data = build();
-            assert_eq!(data.projects().len(), *spaces, "{name}: spaces");
-            assert_eq!(data.hosts().len(), *hosts, "{name}: hosts");
-        }
     }
 }

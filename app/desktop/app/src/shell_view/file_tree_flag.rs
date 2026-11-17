@@ -1,5 +1,5 @@
 use gpui::Context;
-use settings_ui::{Key, SettingsBackend, Value};
+use settings_ui::{Key, SettingsWrite as _, Value};
 use ui::ToastKind;
 
 use super::ShellView;

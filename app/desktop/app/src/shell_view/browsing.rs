@@ -4,7 +4,7 @@ use gpui::Context;
 use pane_host::BrowseAction;
 use protocol::PaneId;
 
-use settings_ui::{Key, SettingsBackend as _, Value};
+use settings_ui::{Key, SettingsRead as _, Value};
 
 use super::ShellView;
 use crate::browser_homepage::{HOMEPAGE_KEY, homepage_state};

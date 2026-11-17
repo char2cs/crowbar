@@ -1,6 +1,6 @@
 use gpui::Context;
 use model::Tab;
-use settings_ui::{Key, SettingsBackend as _};
+use settings_ui::{Key, SettingsRead as _};
 use tab_bar::TabView;
 
 use super::ShellView;

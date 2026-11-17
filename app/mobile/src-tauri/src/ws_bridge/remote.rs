@@ -140,7 +140,9 @@ mod tests {
         cert: CertificateDer<'static>,
         key: PrivateKeyDer<'static>,
     ) -> (SocketAddr, oneshot::Receiver<Seen>) {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
         let addr = listener.local_addr().unwrap();
         let acceptor = tls_acceptor(rustls::DEFAULT_VERSIONS, cert, key);
         let (report, reported) = oneshot::channel();

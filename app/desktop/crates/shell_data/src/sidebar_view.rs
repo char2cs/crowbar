@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use sidebar::{
-    Changes, FileRow, Focus, Host, MoveTarget, Project, ProjectId, ProjectTree, RowId, ScopeSync,
-    SidebarData,
+    ActiveSpace, Focus, Host, MoveTarget, PaneFocus, Project, ProjectId, ProjectTree, RowActions,
+    RowId, ScopeSync, SpaceList,
 };
 
 use crate::files_reads;
@@ -17,8 +17,8 @@ use crate::space_icons;
 /// What `sidebar::SidebarData` reads, answered from the entities the streams delivered.
 #[derive(Debug, Clone)]
 pub struct SidebarView {
-    hub: Arc<Hub>,
-    settings: SettingsSlot,
+    pub(crate) hub: Arc<Hub>,
+    pub(crate) settings: SettingsSlot,
 }
 
 impl SidebarView {
@@ -30,7 +30,7 @@ impl SidebarView {
     }
 }
 
-impl SidebarData for SidebarView {
+impl SpaceList for SidebarView {
     fn sync(&self) -> ScopeSync {
         self.hub.read(reads::sync)
     }
@@ -42,7 +42,9 @@ impl SidebarData for SidebarView {
     fn projects(&self) -> Vec<Project> {
         self.hub.read(reads::projects)
     }
+}
 
+impl ActiveSpace for SidebarView {
     fn active_project(&self) -> Option<ProjectId> {
         self.hub.read(reads::active_project)
     }
@@ -54,16 +56,35 @@ impl SidebarData for SidebarView {
         self.hub.read(|state| reads::tree(state, project))
     }
 
-    fn workspace_root(&self) -> Option<String> {
-        self.hub.read(files_reads::root)
+    fn space_icon(
+        &self,
+        project: &ProjectId,
+    ) -> sidebar::SpaceIcon {
+        self.hub.read(|state| space_icons::of(state, project))
     }
+}
 
-    fn merge_box(&self) -> Option<sidebar::MergeBox> {
-        self.hub.read(crate::merge_reads::merge_box)
+impl PaneFocus for SidebarView {
+    fn focus(&self) -> Focus {
+        self.hub.read(reads::focus)
     }
 
     fn running_agents(&self) -> Vec<sidebar::RunningAgent> {
         self.hub.read(crate::plan_agent::running)
+    }
+
+    fn can_start_terminal_thread(&self) -> bool {
+        self.hub
+            .read(|state| reads::shown(state).is_some_and(|slot| slot.terminal_threads))
+    }
+}
+
+impl RowActions for SidebarView {
+    fn move_targets(
+        &self,
+        row: &RowId,
+    ) -> Vec<MoveTarget> {
+        self.hub.read(|state| reads::move_targets(state, row))
     }
 
     fn serves(
@@ -72,53 +93,12 @@ impl SidebarData for SidebarView {
     ) -> bool {
         files_reads::shown(command)
     }
-
-    fn files_locked(&self) -> bool {
-        self.hub.read(files_reads::locked)
-    }
-
-    fn files_are_local(&self) -> bool {
-        self.hub.read(files_reads::local)
-    }
-
-    fn space_icon(
-        &self,
-        project: &ProjectId,
-    ) -> sidebar::SpaceIcon {
-        self.hub.read(|state| space_icons::of(state, project))
-    }
-
-    fn focus(&self) -> Focus {
-        self.hub.read(reads::focus)
-    }
-
-    fn move_targets(
-        &self,
-        row: &RowId,
-    ) -> Vec<MoveTarget> {
-        self.hub.read(|state| reads::move_targets(state, row))
-    }
-
-    fn can_start_terminal_thread(&self) -> bool {
-        self.hub
-            .read(|state| reads::shown(state).is_some_and(|slot| slot.terminal_threads))
-    }
-
-    fn files(&self) -> Vec<FileRow> {
-        self.hub.read(reads::files)
-    }
-
-    fn changes(&self) -> Changes {
-        self.hub.read(reads::changes)
-    }
-
-    fn file_tree_view(&self) -> sidebar::FileTreeView {
-        crate::file_tree_reads::view_of(|key| self.settings.get(key))
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use sidebar::{Changes, ChangesSource as _, FilesSource as _};
+
     use super::*;
     use crate::test_support::state;
 

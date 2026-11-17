@@ -4,7 +4,10 @@ use gpui::{AnyElement, App, IntoElement, SharedString, Window, div};
 use model::{PaneInstance, TabId};
 use protocol::PaneId;
 
-use crate::pane_source::PaneSource;
+use crate::pane_chrome::PaneChrome;
+use crate::pane_content::PaneContent;
+use crate::pane_detach::PaneDetach;
+use crate::pane_tabs::PaneTabs;
 
 pub(crate) struct FakeSource {
     next: Cell<u64>,
@@ -51,7 +54,7 @@ impl FakeSource {
     }
 }
 
-impl PaneSource for FakeSource {
+impl PaneContent for FakeSource {
     fn content(
         &self,
         _pane: &PaneId,
@@ -67,7 +70,9 @@ impl PaneSource for FakeSource {
     ) -> bool {
         self.native.contains(pane)
     }
+}
 
+impl PaneChrome for FakeSource {
     fn chrome_height(
         &self,
         pane: &PaneId,
@@ -77,14 +82,18 @@ impl PaneSource for FakeSource {
             .find(|(chromed, _)| chromed == pane)
             .map_or(0.0, |(_, height)| *height)
     }
+}
 
+impl PaneTabs for FakeSource {
     fn stacks(
         &self,
         instance: &PaneInstance,
     ) -> bool {
         self.stacking.contains(&instance.pane_id)
     }
+}
 
+impl PaneDetach for FakeSource {
     fn label(
         &self,
         pane: &PaneId,

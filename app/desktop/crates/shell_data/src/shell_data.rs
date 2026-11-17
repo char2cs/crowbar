@@ -204,7 +204,9 @@ mod tests {
     use crate::dial::Dial;
     use crate::error::{Error, Result};
     use protocol::DaemonTransport;
-    use sidebar::{Command, CommandSink as _, ProjectId, RowId, ScopeSync, SidebarData as _};
+    use sidebar::{
+        ActiveSpace as _, Command, CommandSink as _, ProjectId, RowId, ScopeSync, SpaceList as _,
+    };
     use tokio::sync::{Notify, mpsc};
 
     use super::*;

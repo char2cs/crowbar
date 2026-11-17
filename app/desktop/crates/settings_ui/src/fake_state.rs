@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::record_command::RecordCommand;
 use crate::records::Records;
-use crate::settings_backend::Listener;
+use crate::settings_follow::Listener;
 use crate::snapshot::Snapshot;
 
 #[derive(Default)]

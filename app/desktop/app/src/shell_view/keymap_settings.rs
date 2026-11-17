@@ -1,6 +1,7 @@
 use gpui::Context;
 use settings_ui::{
-    Change, KEYBINDING_OVERRIDES, KEYBINDING_PRESET, Key, SettingsBackend, Value, preset_overrides,
+    Change, KEYBINDING_OVERRIDES, KEYBINDING_PRESET, Key, SettingsFollow as _, SettingsRead as _,
+    Value, preset_overrides,
 };
 use shell_keys::Keymap;
 

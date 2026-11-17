@@ -38,7 +38,7 @@ impl ShellPaneSource {
     }
 }
 
-impl layout_view::PaneSource for ShellPaneSource {
+impl layout_view::PaneContent for ShellPaneSource {
     fn content(
         &self,
         pane: &PaneId,
@@ -54,7 +54,9 @@ impl layout_view::PaneSource for ShellPaneSource {
     ) -> bool {
         self.native.is_native(pane)
     }
+}
 
+impl layout_view::PaneChrome for ShellPaneSource {
     fn chrome_height(
         &self,
         pane: &PaneId,
@@ -70,17 +72,9 @@ impl layout_view::PaneSource for ShellPaneSource {
     ) -> Option<AnyView> {
         self.bars.view(pane, cx)
     }
+}
 
-    fn label(
-        &self,
-        pane: &PaneId,
-    ) -> SharedString {
-        self.titles.get(pane).map_or_else(
-            || crate::chat_label::NEW_CHAT.into(),
-            |title| title.to_string().into(),
-        )
-    }
-
+impl layout_view::PaneTabs for ShellPaneSource {
     fn tab_look(
         &self,
         instance: &model::PaneInstance,
@@ -98,6 +92,18 @@ impl layout_view::PaneSource for ShellPaneSource {
     ) -> bool {
         crate::stack_policy::stacks(&instance.type_id)
     }
+}
+
+impl layout_view::PaneDetach for ShellPaneSource {
+    fn label(
+        &self,
+        pane: &PaneId,
+    ) -> SharedString {
+        self.titles.get(pane).map_or_else(
+            || crate::chat_label::NEW_CHAT.into(),
+            |title| title.to_string().into(),
+        )
+    }
 
     fn fresh_tab(
         &self,
@@ -109,7 +115,7 @@ impl layout_view::PaneSource for ShellPaneSource {
 
 #[cfg(test)]
 mod tests {
-    use layout_view::PaneSource as _;
+    use layout_view::PaneDetach as _;
     use protocol::PaneTitle;
 
     use super::*;

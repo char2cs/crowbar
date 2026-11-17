@@ -185,6 +185,7 @@ mod shell_wiring;
 mod sidebar_commands;
 mod sidebar_reads;
 mod sidebar_view;
+mod sidebar_view_panels;
 mod slot;
 mod space_icons;
 mod state;

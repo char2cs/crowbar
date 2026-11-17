@@ -22,12 +22,8 @@ fn remote_host_id(uri: &http::Uri) -> Option<&str> {
     uri.host().filter(|host| is_remote_host(host))
 }
 
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "tauri hands the scheme context to the handler by value"
-)]
 pub(crate) fn handle_request<R: Runtime>(
-    ctx: UriSchemeContext<'_, R>,
+    ctx: &UriSchemeContext<'_, R>,
     request: http::Request<Vec<u8>>,
     responder: UriSchemeResponder,
 ) {

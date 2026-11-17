@@ -70,7 +70,7 @@ mod tests {
 
     use crate::intent::Intent;
     use crate::key::Key;
-    use crate::settings_backend::SettingsBackend;
+    use crate::settings_read::SettingsRead as _;
     use crate::test_support::{inspect, open, row, run};
     use crate::value::Value;
 

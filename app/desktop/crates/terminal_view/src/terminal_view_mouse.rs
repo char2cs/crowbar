@@ -165,17 +165,26 @@ mod tests {
     }
 
     #[gpui::test]
-    fn two_presses_on_one_cell_select_a_word_only_while_the_window_is_open(cx: &mut TestAppContext) {
+    fn two_presses_on_one_cell_select_a_word_only_while_the_window_is_open(
+        cx: &mut TestAppContext
+    ) {
         let (harness, cx) = open(cx);
         feed(&harness, cx, "hello world");
         let position = cell_position(&harness, cx, 2);
-        let cases = [("inside the window", MULTI_CLICK_WINDOW / 2, true), ("past it", MULTI_CLICK_WINDOW * 2, false)];
+        let cases = [
+            ("inside the window", MULTI_CLICK_WINDOW / 2, true),
+            ("past it", MULTI_CLICK_WINDOW * 2, false),
+        ];
         for (name, gap, selects_word) in cases {
             cx.simulate_event(press(position, Modifiers::default()));
             cx.executor().advance_clock(gap);
             cx.simulate_event(press(position, Modifiers::default()));
             let selected = harness.view.read_with(cx, |view, _| view.selected_text());
-            assert_eq!(selected.is_some_and(|text| text.starts_with("hello")), selects_word, "{name}");
+            assert_eq!(
+                selected.is_some_and(|text| text.starts_with("hello")),
+                selects_word,
+                "{name}"
+            );
             cx.executor().advance_clock(MULTI_CLICK_WINDOW * 2);
         }
     }

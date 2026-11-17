@@ -161,7 +161,7 @@ mod tests {
     use crate::key::Key;
     use crate::modifier::Modifier;
     use crate::pressed::Pressed;
-    use crate::settings_backend::SettingsBackend;
+    use crate::settings_read::SettingsRead as _;
     use crate::test_support::{inspect, open, run};
     use crate::value::Value;
 

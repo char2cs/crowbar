@@ -1,17 +1,1 @@
 # Ratchet baseline for rust: path<TAB>rule<TAB>count. Counts only shrink; never add or raise an entry.
-app/crates/model/tests/model.rs	table-driven	1
-app/crates/protocol/tests/protocol.rs	table-driven	1
-app/desktop/crates/layout_view/src/pane_source.rs	trait-size	1
-app/desktop/crates/settings_ui/src/control.rs	fn-count	1
-app/desktop/crates/settings_ui/src/document.rs	fn-count	1
-app/desktop/crates/settings_ui/src/fake_backend.rs	fn-count	1
-app/desktop/crates/settings_ui/src/settings_backend.rs	trait-size	1
-app/desktop/crates/settings_ui/src/settings_state.rs	fn-count	1
-app/desktop/crates/shell_data/src/sidebar_view.rs	fn-count	1
-app/desktop/crates/sidebar/src/demo_data.rs	fn-count	1
-app/desktop/crates/sidebar/src/sidebar_data.rs	fn-count	1
-app/desktop/crates/sidebar/src/sidebar_data.rs	trait-size	1
-app/desktop/crates/terminal_view/examples/terminal_demo/local_pty.rs	direct-fs	1
-app/desktop/crates/terminal_view/examples/terminal_demo/main.rs	result-string	1
-app/desktop/crates/terminal_view/src/terminal_view.rs	direct-time	1
-app/desktop/crates/webview/src/web_view_handle.rs	table-driven	1

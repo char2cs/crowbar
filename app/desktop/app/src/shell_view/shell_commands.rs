@@ -1,7 +1,7 @@
 use gpui::{Context, KeyDownEvent, Window};
 use model::Command;
 use shell_keys::{Keystroke, Modifier, ShellCommand};
-use sidebar::{CommandSink as _, Mode, Sidebar, SidebarData as _};
+use sidebar::{ActiveSpace as _, CommandSink as _, Mode, PaneFocus as _, Sidebar, SpaceList as _};
 
 use super::ShellView;
 

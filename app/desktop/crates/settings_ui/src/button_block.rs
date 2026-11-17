@@ -63,7 +63,7 @@ mod tests {
         use crate::key::Key;
         use crate::modifier::Modifier;
         use crate::pressed::Pressed;
-        use crate::settings_backend::SettingsBackend;
+        use crate::settings_read::SettingsRead as _;
         use crate::value::Value;
 
         let (harness, cx) = open(cx, "keybindings");

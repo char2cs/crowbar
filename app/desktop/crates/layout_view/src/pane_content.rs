@@ -1,0 +1,51 @@
+//! What fills a pane's content rectangle.
+
+use gpui::{AnyElement, App, Window};
+use protocol::PaneId;
+
+/// What fills a pane's content rectangle.
+pub trait PaneContent {
+    /// What fills the pane's content hole. The real shell returns an empty element, because the
+    /// pane host's web view covers the hole.
+    fn content(
+        &self,
+        pane: &PaneId,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement;
+
+    /// Whether the pane is drawn by a native view that fills its whole content rectangle, so no
+    /// web view and no hole are reserved for it.
+    fn is_native(
+        &self,
+        _pane: &PaneId,
+    ) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{IntoElement as _, div};
+
+    use super::*;
+    use crate::test_support::pane_id;
+
+    struct Hosted;
+
+    impl PaneContent for Hosted {
+        fn content(
+            &self,
+            _pane: &PaneId,
+            _window: &mut Window,
+            _cx: &mut App,
+        ) -> AnyElement {
+            div().into_any_element()
+        }
+    }
+
+    #[test]
+    fn a_pane_is_hosted_by_a_web_view_unless_it_says_otherwise() {
+        assert!(!Hosted.is_native(&pane_id("a")));
+    }
+}

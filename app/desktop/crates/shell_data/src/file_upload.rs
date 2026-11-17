@@ -3,12 +3,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use sidebar::Error;
 
 use crate::file_done::FileDone;
 use crate::file_error::FileError;
 use crate::file_session::{FileSession, join};
 use crate::file_store::FileStore;
+use crate::hub::Hub;
 use crate::sidebar_commands::SidebarCommands;
 
 fn name_of(source: &Path) -> Result<String, FileError> {
@@ -30,33 +32,36 @@ async fn read_local(
     })
 }
 
-struct Upload<'a> {
-    session: &'a FileSession,
-    files: &'a Arc<dyn FileStore>,
-    directory: &'a str,
+struct FileUpload {
+    session: FileSession,
+    hub: Arc<Hub>,
+    files: Arc<dyn FileStore>,
+    directory: String,
 }
 
-impl Upload<'_> {
+impl FileUpload {
     async fn copy_one(
         &self,
         source: &Path,
     ) -> Result<String, FileError> {
-        let destination = join(self.directory, &name_of(source)?);
-        let bytes = read_local(self.files, source).await?;
+        let destination = join(&self.directory, &name_of(source)?);
+        let bytes = read_local(&self.files, source).await?;
         self.session.create_file(&destination).await?;
         self.session.write_bytes(&destination, &bytes).await?;
         Ok(destination)
     }
 
-    async fn copy_all(
-        &self,
-        sources: &[PathBuf],
-    ) -> Result<Vec<String>, FileError> {
-        let mut copies = Vec::new();
-        for source in sources {
-            copies.push(self.copy_one(source).await?);
-        }
-        Ok(copies)
+    async fn run(
+        self,
+        sources: Vec<PathBuf>,
+        done: FileDone<Vec<String>>,
+    ) {
+        let copied = futures_util::stream::iter(&sources)
+            .then(|source| self.copy_one(source))
+            .try_collect()
+            .await;
+        self.session.reload(&self.hub, &self.directory).await;
+        done(copied);
     }
 }
 
@@ -73,19 +78,13 @@ impl SidebarCommands {
         sources: Vec<PathBuf>,
         done: FileDone<Vec<String>>,
     ) -> Result<(), Error> {
-        let session = FileSession::of(&self.hub).map_err(Error::from)?;
-        let (hub, files) = (Arc::clone(&self.hub), Arc::clone(&self.files));
-        let directory = directory.to_owned();
-        self.handle.spawn(async move {
-            let upload = Upload {
-                session: &session,
-                files: &files,
-                directory: &directory,
-            };
-            let copied = upload.copy_all(&sources).await;
-            session.reload(&hub, &directory).await;
-            done(copied);
-        });
+        let upload = FileUpload {
+            session: FileSession::of(&self.hub).map_err(Error::from)?,
+            hub: Arc::clone(&self.hub),
+            files: Arc::clone(&self.files),
+            directory: directory.to_owned(),
+        };
+        self.handle.spawn(upload.run(sources, done));
         Ok(())
     }
 }

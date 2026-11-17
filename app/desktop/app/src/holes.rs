@@ -42,7 +42,7 @@ fn placed(
 
 #[cfg(test)]
 mod tests {
-    use layout_view::{PaneSource, SidebarEdge};
+    use layout_view::{PaneChrome, PaneContent, PaneDetach, PaneTabs, SidebarEdge};
     use model::{Command, Layout, PaneInstance, TabId};
     use protocol::{PaneId, PaneState, PaneTypeId, Params};
 
@@ -50,7 +50,7 @@ mod tests {
 
     struct NoChrome;
 
-    impl PaneSource for NoChrome {
+    impl PaneContent for NoChrome {
         fn content(
             &self,
             _pane: &PaneId,
@@ -59,7 +59,13 @@ mod tests {
         ) -> gpui::AnyElement {
             gpui::IntoElement::into_any_element(gpui::Empty)
         }
+    }
 
+    impl PaneChrome for NoChrome {}
+
+    impl PaneTabs for NoChrome {}
+
+    impl PaneDetach for NoChrome {
         fn label(
             &self,
             _pane: &PaneId,

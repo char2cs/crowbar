@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use gpui::{AnyElement, App, IntoElement, ParentElement, SharedString, Styled, Window, div, px};
-use layout_view::PaneSource;
+use layout_view::{PaneChrome, PaneContent, PaneDetach, PaneTabs};
 use model::TabId;
 use protocol::PaneId;
 use ui::{Surface, Theme, text_size};
@@ -21,7 +21,7 @@ impl DemoSource {
     }
 }
 
-impl PaneSource for DemoSource {
+impl PaneContent for DemoSource {
     fn content(
         &self,
         pane: &PaneId,
@@ -40,7 +40,13 @@ impl PaneSource for DemoSource {
             ))
             .into_any_element()
     }
+}
 
+impl PaneChrome for DemoSource {}
+
+impl PaneTabs for DemoSource {}
+
+impl PaneDetach for DemoSource {
     fn label(
         &self,
         pane: &PaneId,

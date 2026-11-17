@@ -95,15 +95,15 @@ fn handle_message(
 
 fn write_all(
     writer: &OwnedFd,
-    mut bytes: &[u8],
+    bytes: &[u8],
 ) -> bool {
-    while !bytes.is_empty() {
-        let Ok(written) = write(writer, bytes) else {
-            return false;
-        };
-        bytes = bytes.get(written..).unwrap_or_default();
+    if bytes.is_empty() {
+        return true;
     }
-    true
+    let Ok(written) = write(writer, bytes) else {
+        return false;
+    };
+    write_all(writer, bytes.get(written..).unwrap_or_default())
 }
 
 fn window_size(

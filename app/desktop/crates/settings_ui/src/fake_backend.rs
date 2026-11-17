@@ -4,23 +4,18 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::change::Change;
-use crate::error::Error;
 use crate::fake_state::FakeState;
 use crate::key::Key;
-use crate::record_backend::RecordBackend;
 use crate::record_command::RecordCommand;
 use crate::records::Records;
-use crate::settings_backend::{Listener, SettingsBackend};
+use crate::settings_follow::Listener;
 use crate::snapshot::Snapshot;
-use crate::subscription::Subscription;
 use crate::value::Value;
-
-const REFUSAL_REASON: &str = "the fake backend is refusing writes";
 
 /// A [`SettingsBackend`] and [`RecordBackend`] that keep everything in memory and log what they were asked to do.
 #[derive(Clone, Default)]
 pub struct FakeBackend {
-    state: Rc<RefCell<FakeState>>,
+    pub(crate) state: Rc<RefCell<FakeState>>,
 }
 
 impl FakeBackend {
@@ -83,7 +78,7 @@ impl FakeBackend {
         self.notify(&Change::Setting(key.clone(), value));
     }
 
-    fn notify(
+    pub(crate) fn notify(
         &self,
         change: &Change,
     ) {
@@ -91,17 +86,6 @@ impl FakeBackend {
         for listener in listeners {
             listener(change);
         }
-    }
-
-    fn edit_records(
-        &self,
-        source: &str,
-        edit: impl FnOnce(&mut Vec<crate::record::Record>),
-    ) {
-        if let Some(Records::Ready(list)) = self.state.borrow_mut().records.get_mut(source) {
-            edit(list);
-        }
-        self.notify(&Change::Records(source.to_owned()));
     }
 }
 
@@ -116,150 +100,19 @@ impl std::fmt::Debug for FakeBackend {
     }
 }
 
-fn refusal(key: &Key) -> Error {
-    Error::Rejected {
-        key: key.clone(),
-        reason: REFUSAL_REASON.to_owned(),
-    }
-}
-
-impl SettingsBackend for FakeBackend {
-    fn snapshot(&self) -> Snapshot {
-        self.state.borrow().snapshot.clone()
-    }
-
-    fn get(
-        &self,
-        key: &Key,
-    ) -> Option<Value> {
-        self.state.borrow().snapshot.values.get(key).cloned()
-    }
-
-    fn set(
-        &self,
-        key: &Key,
-        value: Value,
-    ) -> Result<(), Error> {
-        if self.state.borrow().refusing {
-            return Err(refusal(key));
-        }
-        self.publish(key, value);
-        Ok(())
-    }
-
-    fn invoke(
-        &self,
-        id: &str,
-    ) -> Result<(), Error> {
-        self.state.borrow_mut().invoked.push(id.to_owned());
-        Ok(())
-    }
-
-    fn subscribe(
-        &self,
-        listener: Listener,
-    ) -> Subscription {
-        let id = {
-            let mut state = self.state.borrow_mut();
-            state.next_listener += 1;
-            let id = state.next_listener;
-            state.listeners.insert(id, listener);
-            id
-        };
-        let state = Rc::clone(&self.state);
-        Subscription::new(move || {
-            state.borrow_mut().listeners.remove(&id);
-        })
-    }
-}
-
-impl RecordBackend for FakeBackend {
-    fn records(
-        &self,
-        source: &str,
-    ) -> Records {
-        self.state
-            .borrow()
-            .records
-            .get(source)
-            .cloned()
-            .unwrap_or(Records::Loading)
-    }
-
-    fn apply(
-        &self,
-        source: &str,
-        record: &str,
-        command: RecordCommand,
-    ) -> Result<(), Error> {
-        self.state.borrow_mut().commands.push((
-            source.to_owned(),
-            record.to_owned(),
-            command.clone(),
-        ));
-        let id = record.to_owned();
-        self.edit_records(source, |list| match command {
-            RecordCommand::SetFlag { flag, on } => flag_slot(list, &id, &flag)
-                .into_iter()
-                .for_each(|slot| slot.on = on),
-            RecordCommand::Move { to } => move_record(list, &id, to),
-            RecordCommand::Run { .. } => list.retain(|entry| entry.id != id),
-            RecordCommand::Refresh => {},
-        });
-        Ok(())
-    }
-}
-
-fn flag_slot<'a>(
-    list: &'a mut [crate::record::Record],
-    id: &str,
-    flag: &str,
-) -> Option<&'a mut crate::record_flag::RecordFlag> {
-    list.iter_mut()
-        .filter(|entry| entry.id == id)
-        .flat_map(|entry| entry.flags.iter_mut())
-        .find(|candidate| candidate.id == flag)
-}
-
-fn move_record(
-    list: &mut Vec<crate::record::Record>,
-    id: &str,
-    to: usize,
-) {
-    let Some(from) = list.iter().position(|entry| entry.id == id) else {
-        return;
-    };
-    let entry = list.remove(from);
-    list.insert(to.min(list.len()), entry);
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{Case, run_cases};
     use std::cell::RefCell;
 
     use super::*;
-    use crate::record::Record;
-    use crate::record_flag::RecordFlag;
+    use crate::error::Error;
+    use crate::settings_follow::SettingsFollow as _;
+    use crate::settings_read::SettingsRead as _;
+    use crate::settings_write::SettingsWrite as _;
 
-    fn backend() -> FakeBackend {
-        let list = vec![
-            Record::new("a", "A").flag(RecordFlag::new("enabled", "Enable").on()),
-            Record::new("b", "B"),
-            Record::new("c", "C"),
-        ];
-        FakeBackend::new(Snapshot::default()).with_records("agents", Records::Ready(list))
-    }
-
-    fn ids(backend: &FakeBackend) -> Vec<String> {
-        match backend.records("agents") {
-            Records::Ready(list) => list.iter().map(|record| record.id.clone()).collect(),
-            other => panic!("expected a ready list, got {other:?}"),
-        }
-    }
-
+    #[test]
     fn writes_are_stored_announced_and_can_be_refused() {
-        let backend = backend();
+        let backend = FakeBackend::default();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = Rc::clone(&seen);
         let subscription = backend.subscribe(Rc::new(move |change| {
@@ -292,66 +145,10 @@ mod tests {
         );
     }
 
-    fn record_commands_edit_the_list_and_are_logged() {
-        let backend = backend();
-        backend
-            .apply(
-                "agents",
-                "a",
-                RecordCommand::SetFlag {
-                    flag: "enabled".to_owned(),
-                    on: false,
-                },
-            )
-            .unwrap();
-        let Records::Ready(list) = backend.records("agents") else {
-            panic!("list is ready");
-        };
-        assert!(
-            list.first()
-                .is_some_and(|record| record.flags.iter().all(|flag| !flag.on))
-        );
-        backend
-            .apply("agents", "c", RecordCommand::Move { to: 0 })
-            .unwrap();
-        assert_eq!(ids(&backend), ["c", "a", "b"]);
-        backend
-            .apply(
-                "agents",
-                "b",
-                RecordCommand::Run {
-                    action: "kill".to_owned(),
-                },
-            )
-            .unwrap();
-        assert_eq!(ids(&backend), ["c", "a"]);
-        assert_eq!(backend.commands().len(), 3);
-    }
-
+    #[test]
     fn actions_are_logged_and_unknown_lists_are_loading() {
-        let backend = backend();
+        let backend = FakeBackend::default();
         backend.invoke("hosts.add").unwrap();
         assert_eq!(backend.invoked(), ["hosts.add"]);
-        assert_eq!(backend.records("nope"), Records::Loading);
-    }
-
-    const CASES: &[Case] = &[
-        (
-            "writes are stored announced and can be refused",
-            writes_are_stored_announced_and_can_be_refused,
-        ),
-        (
-            "record commands edit the list and are logged",
-            record_commands_edit_the_list_and_are_logged,
-        ),
-        (
-            "actions are logged and unknown lists are loading",
-            actions_are_logged_and_unknown_lists_are_loading,
-        ),
-    ];
-
-    #[test]
-    fn every_scenario_holds() {
-        run_cases(CASES);
     }
 }

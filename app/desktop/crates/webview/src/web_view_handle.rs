@@ -149,27 +149,30 @@ mod tests {
 
     #[test]
     fn show_and_hide_only_change_visibility() {
+        type Change = fn(&WebViewHandle);
+        let cases: [(&str, Change, Visibility); 2] = [
+            ("hide", |view| view.hide().unwrap(), Visibility::Hidden),
+            ("show", |view| view.show().unwrap(), Visibility::Shown),
+        ];
+        for (name, change, expected) in cases {
+            assert_change_is_visibility_only(name, change, expected);
+        }
+    }
+
+    fn assert_change_is_visibility_only(
+        name: &str,
+        change: fn(&WebViewHandle),
+        expected: Visibility,
+    ) {
         let (mock, view) = handle();
-        view.hide().unwrap();
-        view.show().unwrap();
-        let visibilities: Vec<Visibility> = mock
-            .calls()
-            .iter()
-            .filter_map(|call| match call {
-                Call::SetVisibility { visibility, .. } => Some(*visibility),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            visibilities,
-            [Visibility::Hidden, Visibility::Shown],
-            "hide then show"
-        );
-        assert_eq!(
-            mock.calls().len(),
-            3,
-            "create plus two visibility changes, nothing else"
-        );
+        change(&view);
+        let calls = mock.calls();
+        let visibility = Call::SetVisibility {
+            id: view.id(),
+            visibility: expected,
+        };
+        assert_eq!(calls.last(), Some(&visibility), "{name}");
+        assert_eq!(calls.len(), 2, "{name}: create plus one visibility change");
     }
 
     #[test]

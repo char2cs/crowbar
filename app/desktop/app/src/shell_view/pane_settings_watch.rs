@@ -1,4 +1,4 @@
-use settings_ui::{Change, SettingsBackend};
+use settings_ui::{Change, SettingsBackend, SettingsFollow as _, SettingsRead as _};
 
 use super::ShellView;
 use crate::pane_settings::{follows, value_of, values_of};

@@ -1,6 +1,6 @@
 use gpui::{AppContext as _, Context, Entity};
 use oobe_view::{OobeEvent, OobeView};
-use sidebar::{Command, CommandSink as _, Host, HostId, HostKind, SidebarData as _};
+use sidebar::{Command, CommandSink as _, Host, HostId, HostKind, SpaceList as _};
 
 use super::ShellView;
 use crate::hosts::Hosts;
