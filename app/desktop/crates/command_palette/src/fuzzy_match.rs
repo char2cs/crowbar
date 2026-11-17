@@ -58,13 +58,11 @@ fn tightest_start(
     lowered: &[char],
     end: usize,
 ) -> usize {
-    let mut at = end + 1;
-    let mut start = 0;
-    for letter in wanted.iter().rev() {
+    let (_, start) = wanted.iter().rev().fold((end + 1, 0), |(at, _), letter| {
         let head = lowered.get(..at).unwrap_or(lowered);
-        start = head.iter().rposition(|c| c == letter).unwrap_or(0);
-        at = start;
-    }
+        let start = head.iter().rposition(|c| c == letter).unwrap_or(0);
+        (start, start)
+    });
     start
 }
 
@@ -73,30 +71,31 @@ fn forward_positions(
     lowered: &[char],
     start: usize,
 ) -> Vec<usize> {
-    let mut at = start;
-    let mut positions = Vec::with_capacity(wanted.len());
-    for letter in wanted {
-        let found = lowered
-            .get(at..)
-            .and_then(|tail| tail.iter().position(|c| c == letter))
-            .map_or(at, |offset| at + offset);
-        positions.push(found);
-        at = found + 1;
-    }
-    positions
+    wanted
+        .iter()
+        .scan(start, |at, letter| {
+            let found = lowered
+                .get(*at..)
+                .and_then(|tail| tail.iter().position(|c| c == letter))
+                .map_or(*at, |offset| *at + offset);
+            *at = found + 1;
+            Some(found)
+        })
+        .collect()
 }
 
 fn score(
     positions: &[usize],
     chars: &[char],
 ) -> i32 {
-    let mut total = 0;
-    let mut previous: Option<usize> = None;
-    for &position in positions {
-        total += letter_score(position, previous, chars);
-        previous = Some(position);
-    }
-    total
+    positions
+        .iter()
+        .scan(None, |previous: &mut Option<usize>, &position| {
+            let points = letter_score(position, *previous, chars);
+            *previous = Some(position);
+            Some(points)
+        })
+        .sum()
 }
 
 fn letter_score(
