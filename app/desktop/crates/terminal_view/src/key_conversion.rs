@@ -54,6 +54,13 @@ pub(crate) fn terminal_modifiers(held: gpui::Modifiers) -> Modifiers {
     modifiers_of(held)
 }
 
+pub(crate) fn link_modifier_held(modifiers: gpui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        return modifiers.platform;
+    }
+    modifiers.control
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,6 +71,24 @@ mod tests {
             key: source.to_owned(),
             key_char: None,
         })
+    }
+
+    #[test]
+    fn the_link_modifier_is_the_platform_key_on_macos_and_control_elsewhere() {
+        let held = |control: bool, platform: bool| gpui::Modifiers {
+            control,
+            platform,
+            ..gpui::Modifiers::default()
+        };
+        let macos = cfg!(target_os = "macos");
+        let cases = [
+            ("control", held(true, false), !macos),
+            ("platform", held(false, true), macos),
+            ("none", held(false, false), false),
+        ];
+        for (name, modifiers, expected) in cases {
+            assert_eq!(link_modifier_held(modifiers), expected, "{name}");
+        }
     }
 
     #[test]

@@ -1,38 +1,21 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc;
 
 use protocol::ExtensionId;
-use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt as _};
 use wry::{WebContext, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
 use crate::adapters::browser_data_dir;
-use crate::bounds::Bounds;
-use crate::builder_support::{common_attributes, register_scheme, to_rect};
-use crate::color::Color;
+use crate::builder_support::{common_attributes, register_scheme};
 use crate::error::{Error, Result};
 use crate::host_config::HostConfig;
 use crate::live_view::LiveView;
 use crate::parent_window::ParentWindow;
-use crate::placed::show_where_it_was;
 use crate::protocol_handler::ProtocolHandler;
-use crate::snapshot::Snapshot;
-use crate::surface_pixels::snapshot_of;
-use crate::visibility::Visibility;
 use crate::web_view_config::WebViewConfig;
 use crate::web_view_id::WebViewId;
 use crate::web_view_kind::WebViewKind;
 use crate::xlib_parent::XlibParent;
-
-fn answer(
-    reply: &mpsc::Sender<Result<Option<Snapshot>>>,
-    result: Result<Option<Snapshot>>,
-) {
-    if reply.send(result).is_err() {
-        tracing::debug!("a snapshot arrived after its caller gave up");
-    }
-}
 
 const BROWSER_DIR: &str = "browser";
 
@@ -43,7 +26,7 @@ pub(crate) struct GtkState {
     core_context: WebContext,
     browser_context: WebContext,
     extension_contexts: HashMap<ExtensionId, WebContext>,
-    views: HashMap<WebViewId, LiveView>,
+    pub(crate) views: HashMap<WebViewId, LiveView>,
 }
 
 impl GtkState {
@@ -79,81 +62,6 @@ impl GtkState {
         Ok(())
     }
 
-    pub(crate) fn set_bounds(
-        &self,
-        id: WebViewId,
-        bounds: Bounds,
-    ) -> Result<()> {
-        Ok(self.live(id)?.view.set_bounds(to_rect(bounds))?)
-    }
-
-    pub(crate) fn set_visibility(
-        &self,
-        id: WebViewId,
-        visibility: Visibility,
-    ) -> Result<()> {
-        let view = &self.live(id)?.view;
-        match visibility {
-            Visibility::Hidden => Ok(view.set_visible(false)?),
-            Visibility::Shown => show_where_it_was(view),
-        }
-    }
-
-    pub(crate) fn set_background(
-        &self,
-        id: WebViewId,
-        color: Color,
-    ) -> Result<()> {
-        Ok(self.live(id)?.view.set_background_color(color.rgba())?)
-    }
-
-    pub(crate) fn eval(
-        &self,
-        id: WebViewId,
-        script: &str,
-    ) -> Result<()> {
-        Ok(self.live(id)?.view.evaluate_script(script)?)
-    }
-
-    pub(crate) fn navigate(
-        &self,
-        id: WebViewId,
-        url: &str,
-    ) -> Result<()> {
-        Ok(self.live(id)?.view.load_url(url)?)
-    }
-
-    pub(crate) fn focus(
-        &self,
-        id: WebViewId,
-    ) -> Result<()> {
-        Ok(self.live(id)?.view.focus()?)
-    }
-
-    pub(crate) fn focus_parent(
-        &self,
-        id: WebViewId,
-    ) -> Result<()> {
-        Ok(self.live(id)?.view.focus_parent()?)
-    }
-
-    pub(crate) fn snapshot(
-        &self,
-        id: WebViewId,
-        reply: mpsc::Sender<Result<Option<Snapshot>>>,
-    ) {
-        let page = match self.live(id) {
-            Ok(live) => live.view.webview(),
-            Err(error) => return answer(&reply, Err(error)),
-        };
-        page.snapshot(
-            SnapshotRegion::Visible,
-            SnapshotOptions::NONE,
-            None::<&gtk::gio::Cancellable>,
-            move |surface| answer(&reply, Ok(surface.ok().and_then(snapshot_of))),
-        );
-    }
-
     pub(crate) fn clear_browsing_data(&mut self) -> Result<()> {
         let open = self
             .views
@@ -178,7 +86,7 @@ impl GtkState {
             .ok_or(Error::UnknownWebView(id))
     }
 
-    fn live(
+    pub(crate) fn live(
         &self,
         id: WebViewId,
     ) -> Result<&LiveView> {
@@ -232,9 +140,11 @@ mod tests {
     use gtk::prelude::{ContainerExt as _, WidgetExt as _};
 
     use super::*;
+    use crate::bounds::Bounds;
     use crate::protocol_handler::{ProtocolHandler, ProtocolResponder};
     use crate::protocol_request::ProtocolRequest;
     use crate::protocol_response::ProtocolResponse;
+    use crate::visibility::Visibility;
 
     const SAVE_PAGE: &str =
         "<script>fetch('crowbar://app/save', { method: 'PUT', body: 'payload' })</script>";

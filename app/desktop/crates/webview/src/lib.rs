@@ -47,6 +47,7 @@
 mod adapters;
 mod bitmap_rows;
 mod bounds;
+mod browsing_data;
 mod builder_support;
 #[cfg(feature = "mock")]
 mod call;
@@ -54,7 +55,12 @@ mod color;
 mod error;
 mod host_config;
 #[cfg(feature = "mock")]
+mod mock_page;
+#[cfg(feature = "mock")]
 mod mock_platform;
+#[cfg(feature = "mock")]
+mod mock_views;
+mod page_control;
 mod page_event;
 mod parent_window;
 mod platform;
@@ -63,12 +69,19 @@ mod protocol_request;
 mod protocol_response;
 mod row_layout;
 mod snapshot;
+#[cfg(test)]
+mod test_support;
+mod view_capture;
+mod view_focus;
+mod view_layout;
+mod view_lifecycle;
 mod visibility;
 mod web_view_config;
 mod web_view_handle;
 mod web_view_host;
 mod web_view_id;
 mod web_view_kind;
+mod web_view_page;
 
 #[cfg(target_os = "linux")]
 mod bounded_wait;
@@ -77,7 +90,13 @@ mod create_reply;
 #[cfg(target_os = "linux")]
 mod gtk_state;
 #[cfg(target_os = "linux")]
+mod gtk_view_ops;
+#[cfg(target_os = "linux")]
+mod linux_page;
+#[cfg(target_os = "linux")]
 mod linux_platform;
+#[cfg(target_os = "linux")]
+mod linux_views;
 #[cfg(target_os = "linux")]
 mod live_view;
 #[cfg(target_os = "linux")]
@@ -95,9 +114,11 @@ mod macos_data_store;
 mod macos_platform;
 
 pub use bounds::Bounds;
+pub use browsing_data::BrowsingData;
 pub use color::Color;
 pub use error::{Error, Result};
 pub use host_config::HostConfig;
+pub use page_control::PageControl;
 pub use page_event::{PageEvent, PageHandler};
 pub use parent_window::ParentWindow;
 pub use platform::Platform;
@@ -105,6 +126,10 @@ pub use protocol_handler::{ProtocolHandler, ProtocolResponder};
 pub use protocol_request::ProtocolRequest;
 pub use protocol_response::ProtocolResponse;
 pub use snapshot::Snapshot;
+pub use view_capture::ViewCapture;
+pub use view_focus::ViewFocus;
+pub use view_layout::ViewLayout;
+pub use view_lifecycle::ViewLifecycle;
 pub use visibility::Visibility;
 pub use web_view_config::{IpcHandler, WebViewConfig};
 pub use web_view_handle::{RECEIVER, WebViewHandle};

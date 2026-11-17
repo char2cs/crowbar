@@ -211,31 +211,26 @@ mod tests {
         assert_eq!(mock.calls(), [Call::ClearBrowsingData]);
     }
 
-    fn kinds() -> Vec<(&'static str, WebViewKind)> {
-        let git = protocol::ExtensionId::new("git").unwrap();
-        vec![
-            ("core", WebViewKind::Core),
-            ("extension", WebViewKind::Extension(git)),
-        ]
-    }
-
     #[test]
     fn the_config_reaches_the_backend_unchanged() {
-        let wrong: Vec<&str> = kinds()
-            .into_iter()
-            .filter(|(_, kind)| {
-                let mock = Rc::new(MockPlatform::default());
-                let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
-                let _view = host
-                    .create_in(ParentWindow::X11(7), config(kind.clone()))
-                    .unwrap();
-                !matches!(
+        let git = protocol::ExtensionId::new("git").unwrap();
+        let cases = [
+            ("core", WebViewKind::Core),
+            ("extension", WebViewKind::Extension(git)),
+        ];
+        for (name, kind) in cases {
+            let mock = Rc::new(MockPlatform::default());
+            let host = WebViewHost::with_platform(Rc::<MockPlatform>::clone(&mock));
+            let _view = host
+                .create_in(ParentWindow::X11(7), config(kind.clone()))
+                .unwrap();
+            assert!(
+                matches!(
                     mock.calls().first(),
-                    Some(Call::Create { parent: ParentWindow::X11(7), kind: made, visibility: Visibility::Hidden, .. }) if made == kind
-                )
-            })
-            .map(|(name, _)| name)
-            .collect();
-        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
+                    Some(Call::Create { parent: ParentWindow::X11(7), kind: made, visibility: Visibility::Hidden, .. }) if *made == kind
+                ),
+                "{name}"
+            );
+        }
     }
 }

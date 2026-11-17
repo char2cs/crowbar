@@ -37,13 +37,16 @@ mod terminal_peer;
 mod terminal_settings;
 mod terminal_view;
 mod terminal_view_api;
+mod terminal_view_drag;
 mod terminal_view_event;
 mod terminal_view_ime;
 mod terminal_view_input;
 mod terminal_view_mouse;
 mod terminal_view_paint;
+mod terminal_view_release;
 mod terminal_view_search;
 mod terminal_view_session;
+mod terminal_view_wheel;
 #[cfg(test)]
 mod test_support;
 mod theme_palette;

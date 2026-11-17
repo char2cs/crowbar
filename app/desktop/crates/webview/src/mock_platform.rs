@@ -1,23 +1,19 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
-use crate::bounds::Bounds;
 use crate::call::Call;
-use crate::color::Color;
 use crate::error::{Error, Result};
-use crate::parent_window::ParentWindow;
 use crate::platform::Platform;
-use crate::visibility::Visibility;
-use crate::web_view_config::{IpcHandler, WebViewConfig};
+use crate::web_view_config::IpcHandler;
 use crate::web_view_id::WebViewId;
 
 /// A backend that records calls instead of showing anything, for tests of code built on
 /// [`WebViewHost`](crate::WebViewHost).
 #[derive(Default)]
 pub struct MockPlatform {
-    calls: RefCell<Vec<Call>>,
-    live: RefCell<HashMap<WebViewId, IpcHandler>>,
-    fail_next_create: Cell<bool>,
+    pub(crate) calls: RefCell<Vec<Call>>,
+    pub(crate) live: RefCell<HashMap<WebViewId, IpcHandler>>,
+    pub(crate) fail_next_create: Cell<bool>,
 }
 
 impl std::fmt::Debug for MockPlatform {
@@ -70,7 +66,7 @@ impl MockPlatform {
         Ok(())
     }
 
-    fn require_live(
+    pub(crate) fn require_live(
         &self,
         id: WebViewId,
     ) -> Result<()> {
@@ -80,7 +76,7 @@ impl MockPlatform {
         Err(Error::UnknownWebView(id))
     }
 
-    fn record(
+    pub(crate) fn record(
         &self,
         call: Call,
     ) {
@@ -88,134 +84,20 @@ impl MockPlatform {
     }
 }
 
-impl Platform for MockPlatform {
-    fn create(
-        &self,
-        id: WebViewId,
-        parent: ParentWindow,
-        config: WebViewConfig,
-    ) -> Result<()> {
-        if self.fail_next_create.replace(false) {
-            return Err(Error::HostStopped);
-        }
-        self.record(Call::Create {
-            id,
-            parent,
-            url: config.url,
-            kind: config.kind,
-            bounds: config.bounds,
-            visibility: config.visibility,
-            background: config.background,
-        });
-        self.live.borrow_mut().insert(id, config.on_ipc);
-        Ok(())
-    }
-
-    fn set_bounds(
-        &self,
-        id: WebViewId,
-        bounds: Bounds,
-    ) -> Result<()> {
-        self.require_live(id)?;
-        self.record(Call::SetBounds { id, bounds });
-        Ok(())
-    }
-
-    fn set_visibility(
-        &self,
-        id: WebViewId,
-        visibility: Visibility,
-    ) -> Result<()> {
-        self.require_live(id)?;
-        self.record(Call::SetVisibility { id, visibility });
-        Ok(())
-    }
-
-    fn set_background(
-        &self,
-        id: WebViewId,
-        color: Color,
-    ) -> Result<()> {
-        self.require_live(id)?;
-        self.record(Call::SetBackground { id, color });
-        Ok(())
-    }
-
-    fn eval(
-        &self,
-        id: WebViewId,
-        script: &str,
-    ) -> Result<()> {
-        self.require_live(id)?;
-        self.record(Call::Eval {
-            id,
-            script: script.to_owned(),
-        });
-        Ok(())
-    }
-
-    fn navigate(
-        &self,
-        id: WebViewId,
-        url: &str,
-    ) -> Result<()> {
-        self.require_live(id)?;
-        self.record(Call::Navigate {
-            id,
-            url: url.to_owned(),
-        });
-        Ok(())
-    }
-
-    fn focus(
-        &self,
-        id: WebViewId,
-    ) -> Result<()> {
-        self.require_live(id)?;
-        self.record(Call::Focus { id });
-        Ok(())
-    }
-
-    fn focus_parent(
-        &self,
-        id: WebViewId,
-    ) -> Result<()> {
-        self.require_live(id)?;
-        self.record(Call::FocusParent { id });
-        Ok(())
-    }
-
-    fn snapshot_all(
-        &self,
-        ids: &[WebViewId],
-    ) -> Vec<Result<Option<crate::snapshot::Snapshot>>> {
-        self.record(Call::SnapshotAll { ids: ids.to_vec() });
-        ids.iter().map(|_| Ok(None)).collect()
-    }
-
-    fn clear_browsing_data(&self) -> Result<()> {
-        self.record(Call::ClearBrowsingData);
-        Ok(())
-    }
-
-    fn destroy(
-        &self,
-        id: WebViewId,
-    ) -> Result<()> {
-        self.live
-            .borrow_mut()
-            .remove(&id)
-            .ok_or(Error::UnknownWebView(id))?;
-        self.record(Call::Destroy { id });
-        Ok(())
-    }
-}
+impl Platform for MockPlatform {}
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use crate::bounds::Bounds;
+    use crate::page_control::PageControl;
+    use crate::parent_window::ParentWindow;
+    use crate::view_layout::ViewLayout;
+    use crate::view_lifecycle::ViewLifecycle;
+    use crate::visibility::Visibility;
+    use crate::web_view_config::WebViewConfig;
     use crate::web_view_kind::WebViewKind;
 
     fn rect(
@@ -281,17 +163,15 @@ mod tests {
     #[test]
     fn unknown_views_are_errors() {
         let mock = MockPlatform::default();
-        let wrong: Vec<&str> = CASES
-            .iter()
-            .filter(|(_, operation)| {
-                !matches!(
+        for (name, operation) in CASES {
+            assert!(
+                matches!(
                     operation(&mock, WebViewId(5)),
                     Err(Error::UnknownWebView(_))
-                )
-            })
-            .map(|(name, _)| *name)
-            .collect();
-        assert!(wrong.is_empty(), "failed cases: {wrong:?}");
+                ),
+                "{name}"
+            );
+        }
     }
 
     #[test]

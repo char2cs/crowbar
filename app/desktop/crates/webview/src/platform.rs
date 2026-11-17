@@ -1,133 +1,18 @@
-use crate::bounds::Bounds;
-use crate::color::Color;
-use crate::error::Result;
-use crate::parent_window::ParentWindow;
-use crate::snapshot::Snapshot;
-use crate::visibility::Visibility;
-use crate::web_view_config::WebViewConfig;
-use crate::web_view_id::WebViewId;
+use crate::browsing_data::BrowsingData;
+use crate::page_control::PageControl;
+use crate::view_capture::ViewCapture;
+use crate::view_focus::ViewFocus;
+use crate::view_layout::ViewLayout;
+use crate::view_lifecycle::ViewLifecycle;
 
-/// The operations a platform backend offers. One implementation per platform; a recording
-/// implementation exists for tests of crates built on top (feature `mock`).
+/// The operations a platform backend offers, as the small capabilities they are made of. One
+/// implementation per platform; a recording implementation exists for tests of crates built on
+/// top (feature `mock`).
 ///
 /// Backends live on the thread that created them (the GPUI main thread), hence no `Send`.
-pub trait Platform {
-    /// Creates a web view as a child of `parent`.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the engine cannot create the view.
-    fn create(
-        &self,
-        id: WebViewId,
-        parent: ParentWindow,
-        config: WebViewConfig,
-    ) -> Result<()>;
-
-    /// Moves and resizes a web view.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn set_bounds(
-        &self,
-        id: WebViewId,
-        bounds: Bounds,
-    ) -> Result<()>;
-
-    /// Shows or hides a web view without unloading it.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn set_visibility(
-        &self,
-        id: WebViewId,
-        visibility: Visibility,
-    ) -> Result<()>;
-
-    /// Changes the colour a view shows where its page has not painted.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn set_background(
-        &self,
-        id: WebViewId,
-        color: Color,
-    ) -> Result<()>;
-
-    /// Runs a script in the page.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn eval(
-        &self,
-        id: WebViewId,
-        script: &str,
-    ) -> Result<()>;
-
-    /// Loads another page into an existing web view.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn navigate(
-        &self,
-        id: WebViewId,
-        url: &str,
-    ) -> Result<()>;
-
-    /// Gives keyboard focus to the page.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn focus(
-        &self,
-        id: WebViewId,
-    ) -> Result<()>;
-
-    /// Takes keyboard focus back from the page to the parent window.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn focus_parent(
-        &self,
-        id: WebViewId,
-    ) -> Result<()>;
-
-    /// The pixels the web view shows now, or `None` when this backend cannot read them back or
-    /// the page did not answer in time.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn snapshot(
-        &self,
-        _id: WebViewId,
-    ) -> Result<Option<Snapshot>> {
-        Ok(None)
-    }
-
-    /// The pixels of several views at once. A backend that has to ask each view for its pixels
-    /// asks them together and waits once, so a slow view costs one deadline, not one each.
-    /// The answers are in the order of `ids`.
-    fn snapshot_all(
-        &self,
-        ids: &[WebViewId],
-    ) -> Vec<Result<Option<Snapshot>>> {
-        ids.iter().map(|id| self.snapshot(*id)).collect()
-    }
-
-    /// Deletes cookies, cache and site storage of the browser views' own store. Core and
-    /// extension views keep theirs.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped or the engine refuses.
-    fn clear_browsing_data(&self) -> Result<()>;
-
-    /// Destroys a web view and frees its resources.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
-    fn destroy(
-        &self,
-        id: WebViewId,
-    ) -> Result<()>;
+pub trait Platform:
+    ViewLifecycle + ViewLayout + PageControl + ViewFocus + ViewCapture + BrowsingData
+{
 }
 
 #[cfg(test)]
@@ -136,7 +21,12 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::bounds::Bounds;
     use crate::mock_platform::MockPlatform;
+    use crate::parent_window::ParentWindow;
+    use crate::visibility::Visibility;
+    use crate::web_view_config::WebViewConfig;
+    use crate::web_view_id::WebViewId;
     use crate::web_view_kind::WebViewKind;
 
     fn rect(

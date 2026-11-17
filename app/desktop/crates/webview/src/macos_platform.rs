@@ -14,9 +14,13 @@ use crate::color::Color;
 use crate::error::{Error, Result};
 use crate::host_config::HostConfig;
 use crate::macos_data_store::{BROWSER_STORE, store_identifier};
+use crate::page_control::PageControl;
 use crate::parent_window::ParentWindow;
 use crate::platform::Platform;
 use crate::protocol_handler::ProtocolHandler;
+use crate::view_focus::ViewFocus;
+use crate::view_layout::ViewLayout;
+use crate::view_lifecycle::ViewLifecycle;
 use crate::visibility::Visibility;
 use crate::web_view_config::WebViewConfig;
 use crate::web_view_id::WebViewId;
@@ -69,7 +73,7 @@ impl MacosPlatform {
     }
 }
 
-impl Platform for MacosPlatform {
+impl ViewLifecycle for MacosPlatform {
     fn create(
         &self,
         id: WebViewId,
@@ -91,6 +95,19 @@ impl Platform for MacosPlatform {
         Ok(())
     }
 
+    fn destroy(
+        &self,
+        id: WebViewId,
+    ) -> Result<()> {
+        self.views
+            .borrow_mut()
+            .remove(&id)
+            .map(drop)
+            .ok_or(Error::UnknownWebView(id))
+    }
+}
+
+impl ViewLayout for MacosPlatform {
     fn set_bounds(
         &self,
         id: WebViewId,
@@ -114,7 +131,9 @@ impl Platform for MacosPlatform {
     ) -> Result<()> {
         self.with_view(id, |view| view.set_background_color(color.rgba()))
     }
+}
 
+impl PageControl for MacosPlatform {
     fn eval(
         &self,
         id: WebViewId,
@@ -130,7 +149,11 @@ impl Platform for MacosPlatform {
     ) -> Result<()> {
         self.with_view(id, |view| view.load_url(url))
     }
+}
 
+impl Platform for MacosPlatform {}
+
+impl ViewFocus for MacosPlatform {
     fn focus(
         &self,
         id: WebViewId,
@@ -143,17 +166,6 @@ impl Platform for MacosPlatform {
         id: WebViewId,
     ) -> Result<()> {
         self.with_view(id, WebView::focus_parent)
-    }
-
-    fn destroy(
-        &self,
-        id: WebViewId,
-    ) -> Result<()> {
-        self.views
-            .borrow_mut()
-            .remove(&id)
-            .map(drop)
-            .ok_or(Error::UnknownWebView(id))
     }
 }
 
