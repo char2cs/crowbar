@@ -141,7 +141,7 @@ impl ShellState {
 #[cfg(test)]
 mod tests {
     use browser_agent::AgentOp;
-    use browser_nav::{AgentAnswer, BrowserUrl};
+    use browser_nav::{AgentAnswer, BrowserUrl, PageUpdate};
     use serde_json::json;
     use webview::{Call, ParentWindow};
 
@@ -229,15 +229,23 @@ mod tests {
             .into_iter()
             .any(|call| matches!(call, Call::Navigate { url, .. } if url.contains("a.test")));
         assert!(created, "the view loads the address");
-        rig.shell.replies.loading(pane.as_str());
-        rig.shell
-            .replies
-            .loaded(pane.as_str(), &json!({"url": "http://a.test/"}));
+        let mut seen = crate::outcome::Outcome::default();
+        let landed = [("about:blank", true), ("http://a.test/", false)];
+        for (url, still_waiting) in landed {
+            let (loading, loaded) = (
+                PageUpdate::Loading { url: url.into() },
+                PageUpdate::Loaded { url: url.into() },
+            );
+            rig.shell.note_page(pane.clone(), loading, &mut seen);
+            rig.shell.note_page(pane.clone(), loaded, &mut seen);
+            let waiting = rig.shell.replies.is_waiting("1");
+            assert_eq!(waiting, still_waiting, "{url}");
+        }
         let answer = settled(wait);
         assert_eq!(
             answer,
             AgentAnswer::Done(
-                json!({"tab": pane.as_str(), "reused": false, "url": "http://a.test/"})
+                json!({"tab": pane.as_str(), "reused": false, "url": "http://a.test/", "title": "", "loading": false})
             )
         );
     }

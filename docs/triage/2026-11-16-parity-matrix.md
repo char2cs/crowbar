@@ -256,3 +256,17 @@ The React desktop shell (`IDEShell` and everything only it reached) is deleted; 
 | Window title from the chat title (`use-document-title`) | recorded as missing (gap 8) |
 | macOS traffic-light follow (`use-mac-traffic-light-sync`) | recorded as unverified (gap 20) |
 | Jump list recorder for editor file switches (`use-navigation-history`): back and forward arrows over files visited | not covered and not recorded before: the jump list store still gets go-to-definition entries, but no code records plain file switches. Needs an owner decision |
+
+## Update 2026-11-17 (the daemon's browser tools)
+
+The React `BrowserAgentPeer` (`browser-agent-peer.tsx`, `agent-ops.ts`, `agent-peer.ts`, `BrowserEventsListener`) was deleted with the desktop shell; the shell now answers the daemon's browser tools itself. The rows below supersede the `pick element` row and gap 13 above.
+| Item | Status now | Evidence |
+|---|---|---|
+| Agent browser tools (`browser_open`, `navigate`, `close`, `back`, `forward`, `reload`, `eval`, `screenshot`, `snapshot`, `click`, `type`, `press_key`, `scroll`, `wait`, `resolve`) | done for the local daemon, seen live | `crates/browser_agent` (protocol, waits, per-pane reply authorisation), `app/src/shell_state/agent_{ops,page,tabs}.rs`, `transport::TextStream`; every op answered on Xvfb with a real WebKitGTK view and the real daemon serving the shell. The tool requests came from a scripted stand-in on the daemon socket, not from a provider run: no agent was run |
+| Tab inventory and chat ownership | done | `app/src/browser_tabs.rs`; a chat reaches only browsers that carry its `threadId`, or sit in a tab that holds its chat |
+| Browser in a tab nobody is looking at | done | `PaneHost::wake_browser` gives a never-shown browser a hidden view; eval, snapshot and screenshot answered with the tab in the background |
+| Navigation waits | done | a request that loads a page answers when the load it started ends (`Replies::after_load`), never on a timer; the view's own `about:blank` load is not counted |
+| Hosts other than the local daemon | missing | the peer socket is opened on the local daemon only; a remote host's agents cannot drive this window's browsers |
+| Open/navigate answer carries the title | partial | the answer is built when the load ends; the page title usually arrives just after, so `title` is often empty (the tab list has it a moment later) |
+| Pick element (button and `browser.togglePick`) | done | `BrowserBarEvent::TogglePick`, `shell_view/picking.rs`; the earlier "missing" row was stale |
+| Stop loading | missing | the bar has no stop button; the loading state itself is tracked (`PageState::is_loading`) and reported to the daemon in the tab list |

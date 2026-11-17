@@ -10,6 +10,12 @@ const BLANK: &str = "about:blank";
 pub struct BrowserUrl(String);
 
 impl BrowserUrl {
+    /// Whether `text` is the empty page every browser view starts on, which no request waits for.
+    #[must_use]
+    pub fn is_blank(text: &str) -> bool {
+        text == BLANK
+    }
+
     /// Parses `text` and checks its scheme.
     ///
     /// # Errors

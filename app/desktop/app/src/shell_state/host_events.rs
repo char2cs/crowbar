@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use browser_nav::BrowserUrl;
 use pane_host::{HostEvent, IpcMessage, LayoutSnapshot, VisiblePane};
 use protocol::PaneId;
 use webview::ParentWindow;
@@ -96,7 +97,7 @@ impl ShellState {
         }
     }
 
-    fn note_page(
+    pub(super) fn note_page(
         &mut self,
         pane: PaneId,
         update: browser_nav::PageUpdate,
@@ -105,13 +106,12 @@ impl ShellState {
         self.pages.apply(pane.clone(), update.clone());
         match update {
             browser_nav::PageUpdate::Loading { url } => {
-                self.replies.loading(pane.as_str());
+                self.page_loading(&pane, &url);
                 outcome.pages.push((pane, url));
             },
             browser_nav::PageUpdate::Loaded { url } => {
-                self.replies.loaded(pane.as_str(), &self.page_shown(&pane));
+                self.page_loaded(&pane, &url, outcome);
                 outcome.pages.push((pane.clone(), url.clone()));
-                outcome.loaded.push(pane.clone());
                 self.save_address(pane, &url);
             },
             browser_nav::PageUpdate::Title { title } => self.set_page_title(pane, title, outcome),
@@ -120,6 +120,29 @@ impl ShellState {
             },
             pick => outcome.picks.push((pane, pick)),
         }
+    }
+
+    fn page_loading(
+        &self,
+        pane: &PaneId,
+        url: &str,
+    ) {
+        if !BrowserUrl::is_blank(url) {
+            self.replies.loading(pane.as_str());
+        }
+    }
+
+    fn page_loaded(
+        &self,
+        pane: &PaneId,
+        url: &str,
+        outcome: &mut Outcome,
+    ) {
+        if BrowserUrl::is_blank(url) {
+            return;
+        }
+        self.replies.loaded(pane.as_str(), &self.page_shown(pane));
+        outcome.loaded.push(pane.clone());
     }
 
     fn set_page_title(
