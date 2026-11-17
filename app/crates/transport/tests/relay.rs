@@ -84,27 +84,32 @@ async fn echoing_client(
 async fn reconnect(
     rig: &RelayRig,
     token: &str,
-) -> Client {
-    loop {
-        if let Some(client) = echoing_client(rig, token).await {
-            return client;
-        }
+) -> Option<Client> {
+    let mut client = echoing_client(rig, token).await;
+    while client.is_none() {
         tokio::task::yield_now().await;
+        client = echoing_client(rig, token).await;
     }
+    client
+}
+
+async fn refusal(
+    rig: &RelayRig,
+    token: &str,
+) -> Option<u16> {
+    status_of(&good(rig, token).connect().await.err()?)
 }
 
 async fn refused_once_revoked(
     rig: &RelayRig,
     token: &str,
-) -> u16 {
-    loop {
-        if let Err(error) = good(rig, token).connect().await
-            && let Some(status) = status_of(&error)
-        {
-            return status;
-        }
+) -> Option<u16> {
+    let mut status = refusal(rig, token).await;
+    while status.is_none() {
         tokio::task::yield_now().await;
+        status = refusal(rig, token).await;
     }
+    status
 }
 
 async fn drained(ws: &mut Client) {
@@ -378,7 +383,9 @@ async fn the_connection_caps_hold_and_free_up_when_a_stream_closes() -> TestResu
     );
     first.close(None).await.unwrap();
     within(drained(&mut first)).await?;
-    let reopened = within(reconnect(&rig, &token)).await?;
+    let reopened = within(reconnect(&rig, &token))
+        .await?
+        .ok_or("the pane never reconnected")?;
     drop(reopened);
     Ok(())
 }
@@ -404,7 +411,7 @@ async fn removing_a_host_revokes_its_tokens() -> TestResult {
     let scope = protocol::RelayScope::new(id.clone(), PaneId::new("p1").unwrap(), PaneOrigin::Core);
     let token = rig.relay.issue(&scope).unwrap().token().to_owned();
     rig.transport.remove_host(&id).await.unwrap();
-    assert_eq!(within(refused_once_revoked(&rig, &token)).await?, 401);
+    assert_eq!(within(refused_once_revoked(&rig, &token)).await?, Some(401));
     Ok(())
 }
 

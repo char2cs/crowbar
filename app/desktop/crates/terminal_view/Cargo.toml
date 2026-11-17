@@ -18,6 +18,7 @@ ui.workspace = true
 [dev-dependencies]
 alacritty_terminal = "=0.25.1"
 rustix = { version = "1", features = ["fs"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
 gpui = { workspace = true, features = ["test-support"] }
 
 [lints]

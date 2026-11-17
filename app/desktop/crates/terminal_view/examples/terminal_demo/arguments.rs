@@ -2,15 +2,15 @@
 
 use ui::ThemeMode;
 
-const DEFAULT_WIDTH: f32 = 1000.0;
-const DEFAULT_HEIGHT: f32 = 640.0;
+const DEFAULT_WIDTH: u16 = 1000;
+const DEFAULT_HEIGHT: u16 = 640;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Arguments {
     pub(crate) mode: ThemeMode,
     pub(crate) command: String,
-    pub(crate) width: f32,
-    pub(crate) height: f32,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
 }
 
 impl Arguments {
@@ -70,8 +70,8 @@ mod tests {
         let mut arguments = Arguments {
             mode: ThemeMode::Dark,
             command: String::new(),
-            width: 1.0,
-            height: 1.0,
+            width: 1,
+            height: 1,
         };
         arguments.set("--mode", "light");
         arguments.set("--type", "ls");
@@ -79,6 +79,6 @@ mod tests {
         arguments.set("--size", "bad");
         assert_eq!(arguments.mode, ThemeMode::Light);
         assert_eq!(arguments.command, "ls");
-        assert_eq!((arguments.width, arguments.height), (800.0, 600.0));
+        assert_eq!((arguments.width, arguments.height), (800, 600));
     }
 }

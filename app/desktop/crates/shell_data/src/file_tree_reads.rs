@@ -27,17 +27,14 @@ fn patterns(
         .unwrap_or_default()
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "an indent in pixels fits an f32 exactly enough"
-)]
 fn indent(
     read: &impl Fn(&str) -> Option<Value>,
     fallback: f32,
 ) -> f32 {
     read(INDENT)
         .and_then(|value| value.as_number())
-        .map_or(fallback, |pixels| pixels as f32)
+        .and_then(|pixels| pixels.to_string().parse::<f32>().ok())
+        .unwrap_or(fallback)
 }
 
 pub(crate) fn view_of(read: impl Fn(&str) -> Option<Value>) -> FileTreeView {

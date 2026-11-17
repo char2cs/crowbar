@@ -138,41 +138,37 @@ mod tests {
     use futures_util::{SinkExt, StreamExt};
     use tokio::io::{DuplexStream, duplex};
     use tokio_tungstenite::tungstenite::Message;
-    use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+    use tokio_tungstenite::tungstenite::handshake::server::{
+        Callback, ErrorResponse, Request, Response,
+    };
 
     use super::*;
 
     type Seen = (Option<HeaderValue>, Option<HeaderValue>);
 
-    #[allow(
-        clippy::result_large_err,
-        clippy::unnecessary_wraps,
-        reason = "tungstenite's handshake callback fixes the error type"
-    )]
-    fn answer(
-        seen: &mut Option<Seen>,
-        request: &Request,
-        mut response: Response,
-    ) -> std::result::Result<Response, ErrorResponse> {
-        *seen = Some((
-            request.headers().get("origin").cloned(),
-            request.headers().get("sec-websocket-protocol").cloned(),
-        ));
-        response.headers_mut().insert(
-            "sec-websocket-protocol",
-            HeaderValue::from_static(RELAY_SUBPROTOCOL),
-        );
-        Ok(response)
+    struct Record<'a>(&'a mut Option<Seen>);
+
+    impl Callback for Record<'_> {
+        fn on_request(
+            self,
+            request: &Request,
+            mut response: Response,
+        ) -> std::result::Result<Response, ErrorResponse> {
+            *self.0 = Some((
+                request.headers().get("origin").cloned(),
+                request.headers().get("sec-websocket-protocol").cloned(),
+            ));
+            response.headers_mut().insert(
+                "sec-websocket-protocol",
+                HeaderValue::from_static(RELAY_SUBPROTOCOL),
+            );
+            Ok(response)
+        }
     }
 
-    #[allow(
-        clippy::result_large_err,
-        reason = "tungstenite's handshake callback fixes the error type"
-    )]
     async fn serve(io: DuplexStream) -> (Option<Seen>, Message) {
         let mut seen = None;
-        let callback = |request: &Request, response: Response| answer(&mut seen, request, response);
-        let mut socket = tokio_tungstenite::accept_hdr_async(io, callback)
+        let mut socket = tokio_tungstenite::accept_hdr_async(io, Record(&mut seen))
             .await
             .unwrap();
         socket

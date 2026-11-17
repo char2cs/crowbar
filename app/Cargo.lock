@@ -7160,6 +7160,7 @@ dependencies = [
  "rustix 1.1.6",
  "terminal",
  "tracing",
+ "tracing-subscriber",
  "ui",
 ]
 

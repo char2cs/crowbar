@@ -30,35 +30,34 @@ async fn read_local(
     })
 }
 
-async fn copy_one(
-    (session, files): (&FileSession, &Arc<dyn FileStore>),
-    (directory, source): (&str, &Path),
-) -> Result<String, FileError> {
-    let destination = join(directory, &name_of(source)?);
-    let bytes = read_local(files, source).await?;
-    session.create_file(&destination).await?;
-    session.write_bytes(&destination, &bytes).await?;
-    Ok(destination)
+struct Upload<'a> {
+    session: &'a FileSession,
+    files: &'a Arc<dyn FileStore>,
+    directory: &'a str,
 }
 
-async fn copy_all(
-    (session, files): (&FileSession, &Arc<dyn FileStore>),
-    (directory, sources): (&str, &[PathBuf]),
-) -> Result<Vec<String>, FileError> {
-    let mut copies = Vec::new();
-    let copied = copy_into(&mut copies, (session, files), (directory, sources)).await;
-    copied.map(|()| copies)
-}
-
-async fn copy_into(
-    copies: &mut Vec<String>,
-    (session, files): (&FileSession, &Arc<dyn FileStore>),
-    (directory, sources): (&str, &[PathBuf]),
-) -> Result<(), FileError> {
-    for source in sources {
-        copies.push(copy_one((session, files), (directory, source)).await?);
+impl Upload<'_> {
+    async fn copy_one(
+        &self,
+        source: &Path,
+    ) -> Result<String, FileError> {
+        let destination = join(self.directory, &name_of(source)?);
+        let bytes = read_local(self.files, source).await?;
+        self.session.create_file(&destination).await?;
+        self.session.write_bytes(&destination, &bytes).await?;
+        Ok(destination)
     }
-    Ok(())
+
+    async fn copy_all(
+        &self,
+        sources: &[PathBuf],
+    ) -> Result<Vec<String>, FileError> {
+        let mut copies = Vec::new();
+        for source in sources {
+            copies.push(self.copy_one(source).await?);
+        }
+        Ok(copies)
+    }
 }
 
 impl SidebarCommands {
@@ -78,7 +77,12 @@ impl SidebarCommands {
         let (hub, files) = (Arc::clone(&self.hub), Arc::clone(&self.files));
         let directory = directory.to_owned();
         self.handle.spawn(async move {
-            let copied = copy_all((&session, &files), (&directory, &sources)).await;
+            let upload = Upload {
+                session: &session,
+                files: &files,
+                directory: &directory,
+            };
+            let copied = upload.copy_all(&sources).await;
             session.reload(&hub, &directory).await;
             done(copied);
         });

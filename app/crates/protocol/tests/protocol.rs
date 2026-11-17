@@ -212,13 +212,14 @@ fn the_settings_frame_is_versioned_and_carries_the_whole_set() {
 
 #[test]
 fn lifecycle_names_are_lower_camel_case() {
-    for (event, name) in [
+    let cases = [
         (Lifecycle::Mount, "mount"),
         (Lifecycle::Activate, "activate"),
         (Lifecycle::Deactivate, "deactivate"),
         (Lifecycle::Park, "park"),
         (Lifecycle::Destroy, "destroy"),
-    ] {
+    ];
+    for (event, name) in cases {
         assert_eq!(
             serde_json::to_string(&event).unwrap(),
             format!("\"{name}\""),

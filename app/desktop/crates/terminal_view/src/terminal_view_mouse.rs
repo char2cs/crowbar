@@ -107,7 +107,8 @@ impl TerminalView {
     ) {
         match button {
             MouseButton::Left => {
-                let kind = self.clicks.press(hit.point, self.clock.elapsed());
+                let elapsed = cx.background_executor().now().duration_since(self.epoch);
+                let kind = self.clicks.press(hit.point, elapsed);
                 self.terminal.begin_selection(hit.point, hit.side, kind);
                 self.drag = DragState::Selecting;
                 cx.notify();
@@ -137,11 +138,15 @@ impl TerminalView {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use gpui::{Modifiers, TestAppContext};
 
     use crate::terminal_view::TerminalView;
     use crate::terminal_view_event::TerminalViewEvent;
     use crate::test_support::{cell_position, feed, open, press, record_events};
+
+    const MULTI_CLICK_WINDOW: Duration = Duration::from_millis(500);
 
     #[gpui::test]
     fn a_modifier_click_on_a_url_asks_the_host_to_open_it(cx: &mut TestAppContext) {
@@ -157,5 +162,21 @@ mod tests {
         cx.simulate_event(press(position, modifiers));
         let opened = events.borrow().iter().any(|event| matches!(event, TerminalViewEvent::OpenUrl { url, .. } if url == "https://x.dev/a"));
         assert!(opened, "{:?}", events.borrow());
+    }
+
+    #[gpui::test]
+    fn two_presses_on_one_cell_select_a_word_only_while_the_window_is_open(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx);
+        feed(&harness, cx, "hello world");
+        let position = cell_position(&harness, cx, 2);
+        let cases = [("inside the window", MULTI_CLICK_WINDOW / 2, true), ("past it", MULTI_CLICK_WINDOW * 2, false)];
+        for (name, gap, selects_word) in cases {
+            cx.simulate_event(press(position, Modifiers::default()));
+            cx.executor().advance_clock(gap);
+            cx.simulate_event(press(position, Modifiers::default()));
+            let selected = harness.view.read_with(cx, |view, _| view.selected_text());
+            assert_eq!(selected.is_some_and(|text| text.starts_with("hello")), selects_word, "{name}");
+            cx.executor().advance_clock(MULTI_CLICK_WINDOW * 2);
+        }
     }
 }
