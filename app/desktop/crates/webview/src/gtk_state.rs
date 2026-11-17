@@ -6,12 +6,13 @@ use protocol::ExtensionId;
 use wry::{WebContext, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
 
 use crate::adapters::browser_data_dir;
-use crate::builder_support::{common_attributes, register_scheme};
+use crate::builder_support::{common_attributes, register_scheme, to_rect};
 use crate::error::{Error, Result};
 use crate::host_config::HostConfig;
 use crate::live_view::LiveView;
 use crate::parent_window::ParentWindow;
 use crate::protocol_handler::ProtocolHandler;
+use crate::remembered_place::RememberedPlace;
 use crate::web_view_config::WebViewConfig;
 use crate::web_view_id::WebViewId;
 use crate::web_view_kind::WebViewKind;
@@ -58,7 +59,15 @@ impl GtkState {
         let id_text = id.to_string();
         let view =
             common_attributes(builder, &id_text, config).build_as_child(&XlibParent(window))?;
-        self.views.insert(id, LiveView { view, kind });
+        let wanted = to_rect(config.bounds);
+        self.views.insert(
+            id,
+            LiveView {
+                view,
+                kind,
+                place: RememberedPlace::new(wanted),
+            },
+        );
         Ok(())
     }
 

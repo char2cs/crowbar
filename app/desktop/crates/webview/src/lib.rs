@@ -102,6 +102,8 @@ mod live_view;
 #[cfg(target_os = "linux")]
 mod placed;
 #[cfg(target_os = "linux")]
+mod remembered_place;
+#[cfg(target_os = "linux")]
 mod surface_pixels;
 #[cfg(target_os = "linux")]
 mod xlib_parent;

@@ -8,7 +8,6 @@ use crate::builder_support::to_rect;
 use crate::color::Color;
 use crate::error::Result;
 use crate::gtk_state::GtkState;
-use crate::placed::show_where_it_was;
 use crate::snapshot::Snapshot;
 use crate::surface_pixels::snapshot_of;
 use crate::visibility::Visibility;
@@ -29,7 +28,8 @@ impl GtkState {
         id: WebViewId,
         bounds: Bounds,
     ) -> Result<()> {
-        Ok(self.live(id)?.view.set_bounds(to_rect(bounds))?)
+        let live = self.live(id)?;
+        live.place.place(&live.view, to_rect(bounds))
     }
 
     pub(crate) fn set_visibility(
@@ -37,10 +37,10 @@ impl GtkState {
         id: WebViewId,
         visibility: Visibility,
     ) -> Result<()> {
-        let view = &self.live(id)?.view;
+        let live = self.live(id)?;
         match visibility {
-            Visibility::Hidden => Ok(view.set_visible(false)?),
-            Visibility::Shown => show_where_it_was(view),
+            Visibility::Hidden => Ok(live.view.set_visible(false)?),
+            Visibility::Shown => live.place.show(&live.view),
         }
     }
 
