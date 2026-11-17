@@ -17,8 +17,8 @@ impl sidebar::CommandSink for SidebarRequests {
         }
         self.requests
             .try_send(ShellRequest::Sidebar(command))
-            .map_err(|_| sidebar::Error::Refused {
-                reason: "the shell is closing".into(),
+            .map_err(|error| sidebar::Error::Refused {
+                reason: format!("the shell is closing: {error}"),
             })
     }
 }

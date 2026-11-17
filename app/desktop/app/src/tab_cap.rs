@@ -86,12 +86,15 @@ pub(crate) fn evictions(
     limit: usize,
     flags: &DirtyPanes,
 ) -> Vec<PaneId> {
-    let mut chosen: Vec<PaneId> = Vec::new();
-    for incoming in commands.iter().filter_map(opened).filter(|i| counts(i)) {
-        let held = held_with(layout, incoming, &chosen);
-        chosen.extend(victim_when_full(layout, &held, limit, flags));
-    }
-    chosen
+    commands
+        .iter()
+        .filter_map(opened)
+        .filter(|incoming| counts(incoming))
+        .fold(Vec::new(), |mut chosen, incoming| {
+            let held = held_with(layout, incoming, &chosen);
+            chosen.extend(victim_when_full(layout, &held, limit, flags));
+            chosen
+        })
 }
 
 fn victim_when_full(

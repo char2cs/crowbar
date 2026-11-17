@@ -4,6 +4,7 @@ use std::thread::JoinHandle;
 use async_channel::{Receiver, Sender};
 use model::Layout;
 
+use crate::error::Error;
 use crate::layout_store::LayoutStore;
 use crate::pending_layout::PendingLayout;
 use crate::save_health::SaveHealth;
@@ -81,10 +82,9 @@ fn run(
 fn save_logged(
     store: &LayoutStore,
     layout: &Layout,
-) -> Result<(), String> {
-    store.save(layout).map_err(|error| {
+) -> Result<(), Error> {
+    store.save(layout).inspect_err(|error| {
         tracing::error!(%error, "saving the layout failed");
-        error.to_string()
     })
 }
 

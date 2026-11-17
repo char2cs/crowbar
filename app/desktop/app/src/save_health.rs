@@ -1,3 +1,4 @@
+use crate::error::Error;
 use crate::save_report::SaveReport;
 
 #[derive(Debug, Default)]
@@ -8,11 +9,11 @@ pub(crate) struct SaveHealth {
 impl SaveHealth {
     pub(crate) fn record(
         &mut self,
-        outcome: Result<(), String>,
+        outcome: Result<(), Error>,
     ) -> Option<SaveReport> {
         let was_failing = std::mem::replace(&mut self.failing, outcome.is_err());
         match (outcome, was_failing) {
-            (Err(reason), false) => Some(SaveReport::Failed(reason)),
+            (Err(error), false) => Some(SaveReport::Failed(error.to_string())),
             (Ok(()), true) => Some(SaveReport::Recovered),
             _ => None,
         }
@@ -21,6 +22,8 @@ impl SaveHealth {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     type Step = Result<(), &'static str>;
@@ -49,6 +52,10 @@ mod tests {
         },
     ];
 
+    fn failure_of(step: &Step) -> Result<(), Error> {
+        step.map_err(|reason| Error::Write(PathBuf::from("layout"), std::io::Error::other(reason)))
+    }
+
     fn label(report: &SaveReport) -> &'static str {
         match report {
             SaveReport::Failed(_) => "failed",
@@ -63,7 +70,7 @@ mod tests {
             let seen: Vec<_> = case
                 .steps
                 .iter()
-                .map(|step| health.record(step.map_err(str::to_owned)))
+                .map(|step| health.record(failure_of(step)))
                 .collect();
             let labels: Vec<_> = seen
                 .iter()

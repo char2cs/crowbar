@@ -52,8 +52,8 @@ impl PaneSpec {
         path: &str,
     ) -> Result<Self> {
         let params = Params::default()
-            .with("threadId", chat)?
-            .with("fileId", file_id(path))?;
+            .with(THREAD_ID, chat)?
+            .with(FILE_ID, file_id(path))?;
         Self::new(EDITOR, params, PaneState::new(json!({ "path": path }))?)
     }
 
@@ -62,8 +62,8 @@ impl PaneSpec {
         id: &str,
     ) -> Result<Self> {
         let params = Params::default()
-            .with("threadId", chat)?
-            .with("fileId", format!("u{id}"))?;
+            .with(THREAD_ID, chat)?
+            .with(FILE_ID, format!("u{id}"))?;
         Self::new(EDITOR, params, PaneState::new(json!({ "untitled": true }))?)
     }
 
@@ -72,14 +72,14 @@ impl PaneSpec {
         path: &str,
     ) -> Result<Self> {
         let params = Params::default()
-            .with("threadId", chat)?
-            .with("fileId", file_id(path))?;
+            .with(THREAD_ID, chat)?
+            .with(FILE_ID, file_id(path))?;
         let state = PaneState::new(json!({ "path": path, "absolute": true }))?;
         Self::new(EDITOR, params, state)
     }
 
     pub(crate) fn review(chat: &str) -> Result<Self> {
-        let params = Params::default().with("threadId", chat)?;
+        let params = Params::default().with(THREAD_ID, chat)?;
         Self::new(REVIEW, params, PaneState::default())
     }
 
@@ -94,7 +94,7 @@ impl PaneSpec {
     ) -> Result<Self> {
         let params = Params::default().with("terminalId", id)?;
         let params = match chat {
-            Some(chat) => params.with("threadId", chat)?,
+            Some(chat) => params.with(THREAD_ID, chat)?,
             None => params,
         };
         let state = directory.map_or_else(PaneState::default, |dir| {
@@ -119,7 +119,7 @@ impl PaneSpec {
     ) -> Result<Self> {
         let params = Params::default().with("newTabId", id)?;
         let params = match chat {
-            Some(chat) => params.with("threadId", chat)?,
+            Some(chat) => params.with(THREAD_ID, chat)?,
             None => params,
         };
         Self::new(NEW_TAB, params, PaneState::default())
@@ -138,9 +138,14 @@ fn opened_instance(command: &mut Command) -> Option<&mut PaneInstance> {
     }
 }
 
+const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0100_0000_01b3;
+const THREAD_ID: &str = "threadId";
+const FILE_ID: &str = "fileId";
+
 fn file_id(path: &str) -> String {
-    let hash = path.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    let hash = path.bytes().fold(FNV_OFFSET_BASIS, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
     });
     format!("f{hash:016x}")
 }
