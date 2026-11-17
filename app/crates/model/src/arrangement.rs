@@ -1,5 +1,6 @@
 use protocol::PaneId;
 
+use crate::split_node::SplitNode;
 use crate::tab_id::TabId;
 use crate::tab_shape::TabShape;
 
@@ -11,11 +12,11 @@ pub(crate) struct Arrangement {
 
 impl Arrangement {
     pub(crate) fn pane_ids(&self) -> Vec<PaneId> {
-        let trees = self.tabs.iter().filter_map(|tab| tab.tree.as_ref());
-        trees.fold(Vec::new(), |mut ids, tree| {
-            tree.collect_panes(&mut ids);
-            ids
-        })
+        self.tabs
+            .iter()
+            .filter_map(|tab| tab.tree.as_ref())
+            .flat_map(SplitNode::pane_ids)
+            .collect()
     }
 }
 

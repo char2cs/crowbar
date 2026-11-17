@@ -114,8 +114,13 @@ impl Group {
         a: &PaneId,
         b: &PaneId,
     ) {
+        let exchanged = |member: &PaneId| match member {
+            same if same == a => b.clone(),
+            same if same == b => a.clone(),
+            other => other.clone(),
+        };
         for member in self.panes.iter_mut().chain([&mut self.active]) {
-            exchanged(member, a, b);
+            *member = exchanged(member);
         }
     }
 
@@ -124,20 +129,6 @@ impl Group {
         sorted.sort();
         sorted.dedup();
         sorted.len() == self.panes.len() && self.contains(&self.active)
-    }
-}
-
-fn exchanged(
-    member: &mut PaneId,
-    a: &PaneId,
-    b: &PaneId,
-) {
-    if member == a {
-        *member = b.clone();
-        return;
-    }
-    if member == b {
-        *member = a.clone();
     }
 }
 

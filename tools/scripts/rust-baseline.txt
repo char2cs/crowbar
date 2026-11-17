@@ -1,9 +1,4 @@
 # Ratchet baseline for rust: path<TAB>rule<TAB>count. Counts only shrink; never add or raise an entry.
-app/crates/model/src/group.rs	fn-count	1
-app/crates/model/src/layout.rs	fn-count	1
-app/crates/model/src/split_node.rs	fn-count	1
-app/crates/model/src/tab.rs	fn-count	1
-app/crates/model/src/tab.rs	named-return	2
 app/crates/model/tests/model.rs	table-driven	1
 app/crates/protocol/tests/protocol.rs	table-driven	1
 app/crates/transport/src/host_registry.rs	real-infra	3
