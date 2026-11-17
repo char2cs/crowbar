@@ -36,7 +36,7 @@ export function useBrowserWebview({ bufferId, hasUrl, visible, placeholderRef }:
       if (existing) after(existing, () => browserApi.park(bufferId), 'Hide the page')
       return
     }
-    const ready = existing ?? ensureWebview(bufferId, rectOf(node), false)
+    const ready = existing ?? ensureWebview(bufferId, rectOf(node))
     if (!ready) return
     if (existing) after(existing, () => browserApi.unpark(bufferId, rectOf(node)), 'Show the page')
     const resize = () => browserApi.setBounds(bufferId, rectOf(node))

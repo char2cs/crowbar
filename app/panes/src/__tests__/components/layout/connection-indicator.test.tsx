@@ -8,7 +8,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 import { toast } from '@/features/window/stores/toast-store'
 import { useConnectionStore, reportChannelState, reportMigrating } from '@/lib/ws/connection-store'
 import { ConnectionIndicator } from '@/components/layout/connection-indicator'
-import { useDaemonCrashStore } from '@/features/window/stores/daemon-crash-store'
 
 const SHOW_DELAY_MS = 500
 
@@ -19,7 +18,6 @@ function shown() {
 beforeEach(() => {
   vi.clearAllMocks()
   useConnectionStore.setState(useConnectionStore.getInitialState())
-  useDaemonCrashStore.getState().clear()
   vi.useFakeTimers()
 })
 
@@ -28,22 +26,6 @@ afterEach(() => {
 })
 
 describe('ConnectionIndicator', () => {
-  it('never says "Reconnecting" in a crash loop, where nothing reconnects', () => {
-    render(<ConnectionIndicator />)
-    act(() => useConnectionStore.setState({ status: 'disconnected' }))
-    act(() => {
-      vi.advanceTimersByTime(SHOW_DELAY_MS)
-    })
-    expect(shown()).toHaveLength(1)
-
-    act(() => useDaemonCrashStore.getState().crashed('panic: boom'))
-    expect(toast.dismissByKey).toHaveBeenCalledWith('connection-indicator')
-    act(() => {
-      vi.advanceTimersByTime(SHOW_DELAY_MS * 10)
-    })
-    expect(shown()).toHaveLength(1)
-  })
-
   it('renders nothing', () => {
     const { container } = render(<ConnectionIndicator />)
     expect(container).toBeEmptyDOMElement()

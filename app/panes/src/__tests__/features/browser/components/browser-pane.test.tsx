@@ -6,9 +6,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import { useConsoleStore } from '@/features/console/stores/console-store'
 import { useSidebarPeekStore } from '@/features/window/stores/sidebar-peek-store'
 import { PaneEditorViewContent } from '@/features/panes/components/pane-editor-view-content'
-import { runAgentOp } from '@/features/browser/lib/agent-ops'
-import { ensureWebview } from '@/features/browser/lib/ensure-webview'
-import { useStore } from 'zustand'
 import { BrowserPane } from '@/features/browser/components/browser-pane'
 import { toastManager } from '@/lib/toast-manager'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -333,15 +330,6 @@ describe('BrowserPane', () => {
     expect(api.close).not.toHaveBeenCalled()
   })
 
-  it('unparks a webview the agent made, at the placeholder, without reloading it', async () => {
-    const id = openBrowser('https://a.test')
-    await ensureWebview(id, { x: 0, y: 0, width: 1280, height: 800 }, true)
-    expect(api.open).toHaveBeenCalledWith(id, 'https://a.test', expect.anything(), 1, true)
-    renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />)
-    await vi.waitFor(() => expect(api.unpark).toHaveBeenLastCalledWith(id, rect))
-    expect(api.open).toHaveBeenCalledTimes(1)
-  })
-
   it('remounting a tab whose webview exists does not open another', () => {
     const id = openBrowser('https://a.test')
     renderPane(<BrowserPane paneId="p-this" bufferId={id} visible />).unmount()
@@ -441,39 +429,5 @@ describe('a browser tab hosted by its pane', () => {
     expect(api.park).not.toHaveBeenCalled()
     rerender(hosted(id, true))
     await vi.waitFor(() => expect(api.park).toHaveBeenLastCalledWith(id))
-  })
-})
-
-describe('an agent op on a restored tab that was never shown', () => {
-  it('creates it parked beside the visible tab, which stays selected and in place', async () => {
-    const { paneActions, bufferActions } = windowPaneStore.getState()
-    paneActions.openChat('chat-a', { workspaceId: 'ws-a' })
-    const first = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
-    bufferActions.setBrowserLocation(first, { url: 'https://a.test/' })
-    const second = bufferActions.openContent({ type: 'browser', workspaceId: 'ws-test' })
-    bufferActions.setBrowserLocation(second, { url: 'https://b.test/' })
-    function Host() {
-      const pane = windowPaneStore.getState().paneActions.getPaneByEditorTabId(first)
-      const active = useStore(windowPaneStore, (s) => s.panes[pane?.id ?? '']?.activeEditorTabId)
-      return (
-        <>
-          <BrowserPane paneId="p-this" bufferId={first} visible={active === first} />
-          <BrowserPane paneId="p-this" bufferId={second} visible={active === second} />
-        </>
-      )
-    }
-    renderPane(<Host />)
-    expect(api.open).toHaveBeenCalledTimes(1)
-    expect(api.open.mock.calls[0][0]).toBe(second)
-    await runAgentOp({ chatId: 'chat-a', op: 'reload', tab: first, args: {} })
-    expect(api.open.mock.calls.map((c) => [c[0], c[4]])).toEqual([
-      [second, false],
-      [first, true],
-    ])
-    expect(api.reload).toHaveBeenCalledWith(first)
-    expect(api.unpark).not.toHaveBeenCalled()
-    expect(windowPaneStore.getState().paneActions.getPaneByEditorTabId(first)).toMatchObject({
-      activeEditorTabId: second,
-    })
   })
 })

@@ -5,21 +5,16 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { registerWebview, webviewCreated } from './webview-registry'
 
 /**
- * The tab's webview, made on first call: at `rect` and on screen, or parked
- * there (see `browser_open`). Undefined while the tab has no page to load.
- * The pane and the agent both come through here, so a tab never gets two.
+ * The tab's webview, made on first call at `rect` and on screen. Undefined while the tab has
+ * no page to load; a second call for the same tab returns the first's creation.
  */
-export function ensureWebview(
-  bufferId: string,
-  rect: BrowserRect,
-  parked: boolean,
-): Promise<unknown> | undefined {
+export function ensureWebview(bufferId: string, rect: BrowserRect): Promise<unknown> | undefined {
   const existing = webviewCreated(bufferId)
   if (existing) return existing
   const buffer = windowPaneStore.getState().bufferActions.getBufferById(bufferId)
   if (buffer?.type !== 'browser' || buffer.url === '') return undefined
   const zoom = useSettingsStore.getState().settings.browserZoom / 100
-  const created = browserApi.open(bufferId, buffer.url, rect, zoom, parked)
+  const created = browserApi.open(bufferId, buffer.url, rect, zoom, false)
   registerWebview(bufferId, created)
   void created.catch((err: unknown) => report(err, { action: 'Open the page' }))
   return created

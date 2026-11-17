@@ -29,30 +29,6 @@ describe('the desktop window commands', () => {
     expect(invoke).toHaveBeenCalledWith('set_vibrancy_appearance', { dark: true })
   })
 
-  // The shell destroys a closing window's page without `pagehide`, which drafts and held removals
-  // flush on; the page must see it before the window goes.
-  it('gives the page its pagehide before a closing desktop window is destroyed', async () => {
-    const { invoke, bridge } = await loadInTauri(MAC)
-    const callbacks: Array<(event: unknown) => unknown> = []
-    const internals = window as unknown as Record<string, Record<string, unknown>>
-    internals.__TAURI_INTERNALS__.metadata = { currentWindow: { label: 'main' } }
-    internals.__TAURI_INTERNALS__.transformCallback = (cb: never) => callbacks.push(cb) - 1
-    const seen: string[] = []
-    const onPagehide = () => seen.push('pagehide')
-    window.addEventListener('pagehide', onPagehide)
-    invoke.mockImplementation(async (...args: unknown[]) => seen.push(String(args[0])) as never)
-
-    await bridge.hidePageOnWindowClose()
-    const listen = invoke.mock.calls.find((call: unknown[]) => call[0] === 'plugin:event|listen')
-    const { event, handler } = (listen as unknown[])[1] as { event: string; handler: number }
-    seen.length = 0
-    await callbacks[handler]({ event, id: 7, payload: null })
-    window.removeEventListener('pagehide', onPagehide)
-
-    expect(event).toBe('tauri://close-requested')
-    expect(seen).toEqual(['pagehide', 'plugin:window|destroy'])
-  })
-
   // The phone app is Tauri too, but has no desktop window: those commands do not exist there.
   it('are never invoked in the phone app', async () => {
     const { invoke, bridge } = await loadInTauri(IPHONE)
@@ -60,7 +36,6 @@ describe('the desktop window commands', () => {
     expect(bridge.isDesktopApp()).toBe(false)
     await bridge.setMacOSWindowAppearance('dark')
     await bridge.revealItemInFinder('/tmp/a')
-    ;(await bridge.hidePageOnWindowClose())()
     expect(invoke).not.toHaveBeenCalled()
   })
 })

@@ -266,16 +266,6 @@ export async function setMacOSWindowAppearance(themeType: string): Promise<void>
   await tauriInvoke('set_vibrancy_appearance', { dark: themeType === 'dark' })
 }
 
-/** The shell destroys a closing window's page without `pagehide` (what drafts and held removals
- *  flush on), so the page gets it here first; Tauri destroys the window once this returns. */
-export async function hidePageOnWindowClose(): Promise<() => void> {
-  if (!isDesktopApp()) return () => {}
-  const { getCurrentWindow } = await import('@tauri-apps/api/window')
-  return getCurrentWindow().onCloseRequested(() => {
-    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }))
-  })
-}
-
 // ── Native Context Menu ───────────────────────────────────────────────────────
 
 type NativeMenuEntry = TauriMenu.MenuItem | TauriMenu.Submenu | TauriMenu.PredefinedMenuItem
@@ -402,23 +392,6 @@ async function tauriInvoke<T = void>(cmd: string, args?: Record<string, unknown>
 export async function exportDiagnostics(): Promise<string> {
   if (!isDesktopApp()) throw new UserFacingError('Diagnostics export requires the desktop app')
   return tauriInvoke<string>('diagnostics_export')
-}
-
-/** The desktop supervisor's crash-loop report, or null while it still respawns the daemon. */
-export async function daemonCrashReport(): Promise<string | null> {
-  if (!isDesktopApp()) return null
-  return tauriInvoke<string | null>('daemon_crash_report')
-}
-
-/** Starts a daemon the supervisor gave up on, with a fresh restart budget. */
-export async function restartDaemon(): Promise<void> {
-  await tauriInvoke('daemon_restart')
-}
-
-/** Shows the daemon log in the OS file manager. */
-export async function revealDaemonLog(): Promise<void> {
-  if (postShellFrame({ kind: 'command.run', command: 'app.openLog' })) return
-  await tauriInvoke('reveal_daemon_log')
 }
 
 // ── Remote Hosts ──────────────────────────────────────────────────────────────

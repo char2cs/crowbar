@@ -8,7 +8,7 @@ interface DaemonHaltState {
 }
 
 // Global UI state (features/window/stores): the root route renders the halt in
-// place of every route, and the health listener is what learns of it.
+// place of every route; the daemon probe and the connection store are what learn of it.
 export const useDaemonHaltStore = create<DaemonHaltState>()((set) => ({
   message: null,
   halt: (message) => set({ message }),

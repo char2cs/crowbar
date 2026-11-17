@@ -10,17 +10,14 @@ import { routeTree } from './routeTree.gen'
 import { connectDaemonEvents } from '@/lib/events/connect'
 import { initializeSettingsStore } from '@/features/settings/store'
 import { startSettingsStorageSync } from '@/features/settings/lib/settings-storage-sync'
-import { startHostThemeSync } from '@/features/terminal/lib/host-theme'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
 import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/instrumentation'
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import { hydrateCriticalStores } from '@/lib/boot'
-import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 import { startHostStatus } from '@/features/hosts/lib/host-status'
 import { installGlobalReporting, report } from '@/lib/errors/report'
 import { startStream } from '@/core/stream/stream'
 import { followChatLifecycle } from '@/features/agent/stores/chat-lifecycle'
-import { hidePageOnWindowClose } from '@/lib/crowbar-bridge'
 import '@/core/entities/entity-store'
 
 // First in boot: perf marks are no-ops until the observer exists, and it self-gates via
@@ -53,13 +50,6 @@ if (import.meta.hot) import.meta.hot.dispose(() => stopHostStatus())
 const disconnectDaemonEvents = connectDaemonEvents()
 import.meta.hot?.dispose(disconnectDaemonEvents)
 
-// At boot, not on terminal open: the daemon seeds these colours into each PTY it spawns, and a CLI
-// querying the background has asked before any client attaches. The phone has no local daemon.
-if (hasLocalDaemon()) {
-  const stopHostThemeSync = startHostThemeSync()
-  if (import.meta.hot) import.meta.hot.dispose(() => stopHostThemeSync())
-}
-
 // Register all built-in icon themes with the registry before React renders
 // so the icon theme dropdown in settings is populated when first opened
 initializeIconThemes()
@@ -76,10 +66,6 @@ if (import.meta.hot) import.meta.hot.dispose(() => stopSettingsStorageSync())
 // Once startup settles, so neither first file-open nor cold launch pays for the editor chunks;
 // here rather than in pane-container module scope so it runs exactly once.
 prefetchEditorChunks()
-
-void hidePageOnWindowClose()
-  .then((stop) => import.meta.hot?.dispose(stop))
-  .catch((err: unknown) => report(err, { action: 'Watch the window close' }))
 
 // react-scan is opt-in even in dev (it costs about half of dev-mode performance):
 //   localStorage.setItem('crowbar:react-scan', '1') then reload.
