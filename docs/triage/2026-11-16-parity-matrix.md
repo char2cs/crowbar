@@ -239,3 +239,20 @@ Live run: debug build in the shared builder, isolated `CROWBAR_HOME`, built pane
 | Changes panel mid-slide | not reproducible | the mode pill glides while the panel swaps; the panel is aligned at every captured frame (`d0`, `d1`); the space carousel only runs in Chats mode |
 | Pin view tabs | open, blocked | the model has `PinPane` (pane strips, in progress by the strips owner) but no tab-level pin; adding one touches `model/command.rs` and `layout_execute.rs` that are being edited. The web had no reachable pin UI (spec tabs-topbar 9.5), so this needs an owner decision on scope |
 | OOBE (tagline, System check, first space) | done | seen live on first launch |
+
+## Update 2026-11-17 (desktop shell removed from `app/panes`)
+
+The React desktop shell (`IDEShell` and everything only it reached) is deleted; `app/panes` keeps the phone shell, the pane entries and the sdk. Each removed surface, and where it lives now:
+
+| Removed web surface | Where it lives now |
+|---|---|
+| Sidebar frame, body, foot, mode bar, peek, split pane, tree, row menu, space scroller, unread notice, tree foot, active-sessions section, host picker, project header, create-space panel | `crates/sidebar` (section 3) |
+| Sidebar mode follows pane focus (`use-sidebar-focus-mode`) | `shell_view/focus_follow.rs` |
+| OOBE screen and `/oobe` route | `crates/oobe_view`; the phone keeps `/add-host` (`features/hosts/components/add-host-screen.tsx`) |
+| Console dock and its keyboard hook | recorded as missing in section 5; the toggle opens the console pane |
+| Changes panel (git panel, changed files tree, commit form, merge box) | `crates/sidebar` `changes_panel.rs`, `merge_box.rs` (section 3) |
+| Remote folder picker, add repository and import project modals | `crates/remote_folder_picker`, `crates/branch_import_view` |
+| Space switcher keyboard (`mod+shift+<digit>`) | `shell_keys::slot` (update above) |
+| Window title from the chat title (`use-document-title`) | recorded as missing (gap 8) |
+| macOS traffic-light follow (`use-mac-traffic-light-sync`) | recorded as unverified (gap 20) |
+| Jump list recorder for editor file switches (`use-navigation-history`): back and forward arrows over files visited | not covered and not recorded before: the jump list store still gets go-to-definition entries, but no code records plain file switches. Needs an owner decision |
