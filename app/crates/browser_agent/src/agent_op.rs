@@ -12,6 +12,10 @@ const PAGE_OP_LIMIT: Duration = Duration::from_secs(15);
 const EVAL_LIMIT: Duration = Duration::from_secs(30);
 const WAIT_SLACK: Duration = Duration::from_secs(1);
 const URL: &str = "url";
+const TIMEOUT_MS: &str = "timeoutMs";
+const NEW_TAB: &str = "newTab";
+const JS: &str = "js";
+const ARGS: &str = "args";
 
 /// What an agent asked of a browser tab, checked before anything is run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,9 +77,7 @@ impl AgentOp {
             "reload" => Ok(Self::Reload),
             "eval" => eval_of(args),
             "screenshot" => Ok(Self::Screenshot),
-            other => DomOp::of(other)
-                .map(|dom| page_of(dom, args))
-                .ok_or_else(|| Error::UnknownOp(other.to_owned())),
+            other => dom_of(other, args),
         }
     }
 
@@ -94,23 +96,48 @@ impl AgentOp {
 }
 
 fn wait_ms(args: &Value) -> Duration {
-    let asked = args.get("timeoutMs").and_then(Value::as_u64);
+    let asked = args.get(TIMEOUT_MS).and_then(Value::as_u64);
     Duration::from_millis(asked.unwrap_or(DEFAULT_WAIT_MS).clamp(1, MAX_WAIT_MS))
+}
+
+fn dom_of(
+    op: &str,
+    args: &Value,
+) -> Result<AgentOp, Error> {
+    match DomOp::of(op) {
+        Some(dom) => page_of(dom, args),
+        None => Err(Error::UnknownOp(op.to_owned())),
+    }
+}
+
+fn object_of(
+    op: DomOp,
+    args: &Value,
+) -> Result<serde_json::Map<String, Value>, Error> {
+    match args {
+        Value::Null => Ok(serde_json::Map::new()),
+        Value::Object(fields) => Ok(fields.clone()),
+        _ => Err(Error::Argument {
+            op: op.name(),
+            name: ARGS,
+            expected: "an object",
+        }),
+    }
 }
 
 fn page_of(
     op: DomOp,
     args: &Value,
-) -> AgentOp {
-    let mut fields = args.as_object().cloned().unwrap_or_default();
+) -> Result<AgentOp, Error> {
+    let mut fields = object_of(op, args)?;
     if op == DomOp::Wait {
         let clamped = u64::try_from(wait_ms(args).as_millis()).unwrap_or(MAX_WAIT_MS);
-        fields.insert("timeoutMs".into(), clamped.into());
+        fields.insert(TIMEOUT_MS.into(), clamped.into());
     }
-    AgentOp::Page {
+    Ok(AgentOp::Page {
         op,
         args: Value::Object(fields),
-    }
+    })
 }
 
 fn open_of(args: &Value) -> Result<AgentOp, Error> {
@@ -118,16 +145,16 @@ fn open_of(args: &Value) -> Result<AgentOp, Error> {
         None | Some(Value::Null) => None,
         Some(_) => Some(required_url("open", args)?),
     };
-    let new_tab = args.get("newTab").and_then(Value::as_bool) == Some(true);
+    let new_tab = args.get(NEW_TAB).and_then(Value::as_bool) == Some(true);
     Ok(AgentOp::Open { url, new_tab })
 }
 
 fn eval_of(args: &Value) -> Result<AgentOp, Error> {
-    let js = args.get("js").and_then(Value::as_str);
+    let js = args.get(JS).and_then(Value::as_str);
     js.map(|js| AgentOp::Eval { js: js.to_owned() })
         .ok_or(Error::Argument {
             op: "eval",
-            name: "js",
+            name: JS,
             expected: "a string",
         })
 }
@@ -189,7 +216,7 @@ mod tests {
             ),
         ];
         for (op, args, expected) in cases {
-            assert_eq!(AgentOp::parse(op, &args), Ok(expected), "{op} {args}");
+            assert_eq!(AgentOp::parse(op, &args).unwrap(), expected, "{op} {args}");
         }
     }
 
@@ -218,7 +245,7 @@ mod tests {
             ),
         ];
         for (op, args, expected) in cases {
-            assert_eq!(AgentOp::parse(op, &args), Ok(expected), "{op}");
+            assert_eq!(AgentOp::parse(op, &args).unwrap(), expected, "{op}");
         }
     }
 
@@ -236,6 +263,8 @@ mod tests {
             ("open", json!({"url":3}), "url must be a string"),
             ("eval", json!({}), "js must be a string"),
             ("teleport", json!({}), "teleport"),
+            ("click", json!([1]), "args must be an object"),
+            ("snapshot", json!("x"), "args must be an object"),
         ];
         for (op, args, mentions) in cases {
             let error = AgentOp::parse(op, &args).unwrap_err().to_string();

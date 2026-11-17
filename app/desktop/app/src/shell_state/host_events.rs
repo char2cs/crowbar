@@ -116,7 +116,7 @@ impl ShellState {
             },
             browser_nav::PageUpdate::Title { title } => self.set_page_title(pane, title, outcome),
             browser_nav::PageUpdate::AgentReply { id, answer } => {
-                self.replies.from_page(pane.as_str(), &id, answer);
+                self.answer_from_page(&pane, &id, answer);
             },
             pick => outcome.picks.push((pane, pick)),
         }

@@ -15,9 +15,13 @@ pub async fn run_peer<C: PeerConnector>(
     connector: &C,
     session: PeerSession,
 ) {
-    while attach_once(connector, &session).await != Ending::WindowGone {
+    while !window_gone(&session) && attach_once(connector, &session).await != Ending::WindowGone {
         tokio::time::sleep(RECONNECT_AFTER).await;
     }
+}
+
+fn window_gone(session: &PeerSession) -> bool {
+    session.tabs.has_changed().is_err()
 }
 
 async fn attach_once<C: PeerConnector>(
@@ -75,5 +79,21 @@ mod tests {
         attached
             .await
             .expect("the loop ends when the window is gone");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_window_that_goes_while_the_daemon_is_down_ends_the_loop() {
+        let (tabs, tabs_rx) = watch::channel(vec![tab("http://a.test/")]);
+        let session = PeerSession {
+            tabs: tabs_rx,
+            commands: Arc::new(RecordingShell::default()),
+            replies: Arc::new(Replies::default()),
+        };
+        drop(tabs);
+        let ended = tokio::time::timeout(Duration::from_secs(60), attach(Vec::new(), session));
+        assert!(
+            ended.await.is_ok(),
+            "the loop kept retrying for a gone window"
+        );
     }
 }

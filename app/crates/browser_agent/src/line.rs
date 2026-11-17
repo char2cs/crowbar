@@ -1,7 +1,8 @@
 use std::ops::ControlFlow;
 
 use browser_nav::AgentAnswer;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
+use tokio::task::{JoinError, JoinSet};
 
 use crate::agent_command::AgentCommand;
 use crate::agent_op::AgentOp;
@@ -20,19 +21,16 @@ type Finished = (String, AgentAnswer);
 pub(crate) struct Line<'a> {
     session: &'a PeerSession,
     tabs: watch::Receiver<Vec<TabInfo>>,
-    answers: mpsc::UnboundedSender<Finished>,
-    finished: mpsc::UnboundedReceiver<Finished>,
+    requests: JoinSet<Finished>,
     heard: Option<Vec<TabInfo>>,
 }
 
 impl<'a> Line<'a> {
     pub(crate) fn new(session: &'a PeerSession) -> Self {
-        let (answers, finished) = mpsc::unbounded_channel();
         Self {
             session,
             tabs: session.tabs.clone(),
-            answers,
-            finished,
+            requests: JoinSet::new(),
             heard: None,
         }
     }
@@ -41,7 +39,7 @@ impl<'a> Line<'a> {
         &mut self,
         stream: &mut S,
     ) -> ControlFlow<Ending> {
-        let event = next_event(stream, &mut self.finished, &mut self.tabs).await;
+        let event = next_event(stream, &mut self.requests, &mut self.tabs).await;
         let sent = match event {
             ConnectionEvent::Lost => return ControlFlow::Break(Ending::Lost),
             ConnectionEvent::WindowGone => return ControlFlow::Break(Ending::WindowGone),
@@ -50,7 +48,7 @@ impl<'a> Line<'a> {
                 Ok(())
             },
             ConnectionEvent::Done(id, answer) => stream.send(response_frame(&id, &answer)).await,
-            ConnectionEvent::TabsChanged => Ok(()),
+            ConnectionEvent::TabsChanged | ConnectionEvent::Idle => Ok(()),
         };
         let reported = match sent {
             Ok(()) => self.report(stream).await,
@@ -69,8 +67,8 @@ impl<'a> Line<'a> {
         match PeerFrame::decode(text) {
             Some(PeerFrame::Hello) => self.heard = None,
             Some(PeerFrame::Request(request)) => {
-                let task = answer_request(request, self.session.clone(), self.answers.clone());
-                tokio::spawn(task);
+                self.requests
+                    .spawn(answer_request(request, self.session.clone()));
             },
             None => tracing::debug!("the daemon sent a frame the browser peer does not know"),
         }
@@ -92,18 +90,24 @@ impl<'a> Line<'a> {
 
 async fn next_event<S: PeerStream>(
     stream: &mut S,
-    finished: &mut mpsc::UnboundedReceiver<Finished>,
+    requests: &mut JoinSet<Finished>,
     tabs: &mut watch::Receiver<Vec<TabInfo>>,
 ) -> ConnectionEvent {
     tokio::select! {
         frame = stream.recv() => frame.map_or(ConnectionEvent::Lost, ConnectionEvent::Frame),
-        done = finished.recv() => done.map_or(ConnectionEvent::Lost, done_event),
+        Some(done) = requests.join_next() => done_event(done),
         changed = tabs.changed() => tabs_event(changed),
     }
 }
 
-fn done_event((id, answer): Finished) -> ConnectionEvent {
-    ConnectionEvent::Done(id, answer)
+fn done_event(done: Result<Finished, JoinError>) -> ConnectionEvent {
+    match done {
+        Ok((id, answer)) => ConnectionEvent::Done(id, answer),
+        Err(error) => {
+            tracing::warn!(%error, "a browser request ended without an answer");
+            ConnectionEvent::Idle
+        },
+    }
 }
 
 fn tabs_event(changed: Result<(), watch::error::RecvError>) -> ConnectionEvent {
@@ -115,13 +119,10 @@ fn tabs_event(changed: Result<(), watch::error::RecvError>) -> ConnectionEvent {
 async fn answer_request(
     request: AgentRequest,
     session: PeerSession,
-    answers: mpsc::UnboundedSender<Finished>,
-) {
+) -> Finished {
     let id = request.id.clone();
     let answer = carry_out(&session, request).await;
-    if answers.send((id, answer)).is_err() {
-        tracing::debug!("a browser request finished after its connection ended");
-    }
+    (id, answer)
 }
 
 async fn carry_out(
@@ -147,6 +148,7 @@ async fn carry_out(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use tokio::sync::watch;
 
@@ -168,5 +170,33 @@ mod tests {
         assert_eq!(at.step(&mut stream).await, ControlFlow::Continue(()));
         drop(daemon);
         assert_eq!(at.step(&mut stream).await, ControlFlow::Break(Ending::Lost));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_requests_of_a_connection_that_ends_stop_waiting() {
+        let (_tabs, tabs_rx) = watch::channel(vec![tab("http://a.test/")]);
+        let replies = Arc::new(Replies::default());
+        let session = PeerSession {
+            tabs: tabs_rx,
+            commands: Arc::new(RecordingShell::default()),
+            replies: Arc::clone(&replies),
+        };
+        let (mut stream, daemon) = line();
+        let mut at = Line::new(&session);
+        let request = serde_json::json!({
+            "type":"request","id":"7","op":"snapshot","chatId":"c1","tab":"b1","args":{}
+        });
+        daemon.say(&request);
+        let heard = at.step(&mut stream).await;
+        assert_eq!(heard, ControlFlow::Continue(()));
+        let quiet = tokio::time::timeout(Duration::from_millis(1), at.step(&mut stream)).await;
+        assert!(quiet.is_err(), "nothing else happens");
+        assert!(replies.is_waiting("7"));
+        drop(at);
+        tokio::task::yield_now().await;
+        assert!(
+            !replies.is_waiting("7"),
+            "the request was cancelled with its line"
+        );
     }
 }

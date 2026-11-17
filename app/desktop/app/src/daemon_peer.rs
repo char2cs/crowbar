@@ -25,7 +25,7 @@ impl PeerConnector for DaemonPeer {
             .transport
             .open_text_stream(PEER_PATH)
             .await
-            .map_err(|error| Error::Stream(error.to_string()))?;
+            .map_err(|error| Error::Stream(Box::new(error)))?;
         Ok(PeerLine::new(stream))
     }
 }

@@ -1,4 +1,4 @@
-use browser_agent::{AgentCommand, AgentOp};
+use browser_agent::{AgentCommand, AgentOp, Arming, Delivery};
 use browser_nav::{AgentAnswer, BrowserUrl};
 use pane_host::BrowseAction;
 use protocol::PaneId;
@@ -7,14 +7,24 @@ use webview::ParentWindow;
 
 use super::ShellState;
 use super::agent_call::AgentCall;
+use super::agent_progress::AgentProgress;
+use super::navigation_target::NavigationTarget;
 use crate::browser_tabs::{chat_browser, chat_tab, owned_browser};
 
 const CHAT_NOT_OPEN: &str =
     "this chat is not open in the Crowbar window, so it has no pane to hold a browser";
 const NOT_OPENED: &str = "the browser could not be opened in this chat's pane";
+const NOT_WAITING: &str = "the request is no longer waiting for an answer";
+const TAB: &str = "tab";
+const REUSED: &str = "reused";
+const FRAGMENT: char = '#';
 
-pub(super) fn failed(text: impl Into<String>) -> AgentAnswer {
-    AgentAnswer::Failed(text.into())
+pub(super) fn failed(text: impl Into<String>) -> AgentProgress {
+    AgentProgress::Answered(AgentAnswer::Failed(text.into()))
+}
+
+pub(super) fn done(value: Value) -> AgentProgress {
+    AgentProgress::Answered(AgentAnswer::Done(value))
 }
 
 impl ShellState {
@@ -24,8 +34,9 @@ impl ShellState {
         parent: Option<ParentWindow>,
     ) {
         let call = AgentCall { command, parent };
-        if let Some(answer) = self.agent_answer(&call) {
-            self.replies.complete(&command.id, answer);
+        if let AgentProgress::Answered(answer) = self.agent_answer(&call) {
+            let delivery = self.replies.complete(&command.id, answer);
+            tracing::debug!(?delivery, id = %command.id, "an agent request was answered");
         }
         self.publish_tabs();
     }
@@ -49,17 +60,14 @@ impl ShellState {
     fn agent_answer(
         &mut self,
         call: &AgentCall<'_>,
-    ) -> Option<AgentAnswer> {
+    ) -> AgentProgress {
         let command = call.command;
         if matches!(command.op, AgentOp::Open { .. }) {
             return self.agent_open(call);
         }
         let owned = owned_browser(self.history.layout(), &command.chat_id, &command.tab);
         let Some(pane) = owned else {
-            return Some(failed(format!(
-                "no such tab {:?} in this chat",
-                command.tab
-            )));
+            return failed(format!("no such tab {:?} in this chat", command.tab));
         };
         self.agent_tab(call, &pane)
     }
@@ -67,57 +75,58 @@ impl ShellState {
     fn agent_open(
         &mut self,
         call: &AgentCall<'_>,
-    ) -> Option<AgentAnswer> {
+    ) -> AgentProgress {
         let AgentOp::Open { url, new_tab } = &call.command.op else {
-            return None;
+            return failed("not an open request");
         };
         let chat = call.command.chat_id.as_str();
         if chat_tab(self.history.layout(), chat).is_none() {
-            return Some(failed(CHAT_NOT_OPEN));
+            return failed(CHAT_NOT_OPEN);
         }
         let existing = chat_browser(self.history.layout(), chat).filter(|_| !*new_tab);
         if let Some(pane) = existing {
-            let base = json!({ "tab": pane.as_str(), "reused": true });
+            let answer = json!({ TAB: pane.as_str(), REUSED: true });
             return match url {
-                Some(url) => self.agent_navigate(call, &pane, (url, base)),
-                None => Some(AgentAnswer::Done(base)),
+                Some(url) => self.agent_navigate(call, &pane, NavigationTarget { url, answer }),
+                None => done(answer),
             };
         }
-        let Some(pane) = self.open_agent_browser(chat, url.as_ref()) else {
-            return Some(failed(NOT_OPENED));
-        };
-        let base = json!({ "tab": pane.as_str(), "reused": false });
-        self.agent_first_load(call, &pane, base)
+        match self.open_agent_browser(chat, url.as_ref()) {
+            Ok(pane) => self.agent_first_load(call, &pane),
+            Err(error) => failed(format!("{NOT_OPENED}: {error:#}")),
+        }
     }
 
     fn agent_first_load(
         &mut self,
         call: &AgentCall<'_>,
         pane: &PaneId,
-        base: Value,
-    ) -> Option<AgentAnswer> {
-        if self.page_address(pane).is_empty() {
-            return Some(AgentAnswer::Done(base));
+    ) -> AgentProgress {
+        let answer = json!({ TAB: pane.as_str(), REUSED: false });
+        let address = self.page_address(pane);
+        if address.is_empty() || BrowserUrl::is_blank(&address) {
+            return done(answer);
         }
         if let Err(error) = self.bring_up(call.parent, pane) {
-            return Some(failed(error.to_string()));
+            return failed(error.to_string());
         }
-        self.replies
-            .after_load(&call.command.id, pane.as_str(), base);
-        None
+        self.wait_for_load(call, pane, answer)
     }
 
     fn agent_tab(
         &mut self,
         call: &AgentCall<'_>,
         pane: &PaneId,
-    ) -> Option<AgentAnswer> {
+    ) -> AgentProgress {
         match &call.command.op {
             AgentOp::Close => {
                 self.close_pane(pane.clone());
-                Some(AgentAnswer::Done(Value::from("closed")))
+                done(Value::from("closed"))
             },
-            AgentOp::Navigate { url } => self.agent_navigate(call, pane, (url, json!({}))),
+            AgentOp::Navigate { url } => {
+                let answer = json!({});
+                self.agent_navigate(call, pane, NavigationTarget { url, answer })
+            },
             _ => self.agent_in_page(call, pane),
         }
     }
@@ -126,16 +135,65 @@ impl ShellState {
         &mut self,
         call: &AgentCall<'_>,
         pane: &PaneId,
-        (url, base): (&BrowserUrl, Value),
-    ) -> Option<AgentAnswer> {
+        target: NavigationTarget<'_>,
+    ) -> AgentProgress {
         if let Err(error) = self.bring_up(call.parent, pane) {
-            return Some(failed(error.to_string()));
+            return failed(error.to_string());
         }
-        self.replies
-            .after_load(&call.command.id, pane.as_str(), base);
-        let went = self.host.browse(pane, &BrowseAction::Go(url.clone()));
-        went.err().map(|error| failed(error.to_string()))
+        let same_document = only_the_fragment_differs(&self.page_address(pane), target.url);
+        if let Err(error) = self
+            .host
+            .browse(pane, &BrowseAction::Go(target.url.clone()))
+        {
+            return failed(error.to_string());
+        }
+        if same_document {
+            return done(target.answer);
+        }
+        self.wait_for_load(call, pane, target.answer)
     }
+
+    fn wait_for_load(
+        &self,
+        call: &AgentCall<'_>,
+        pane: &PaneId,
+        answer: Value,
+    ) -> AgentProgress {
+        match self
+            .replies
+            .after_load(&call.command.id, pane.as_str(), answer)
+        {
+            Arming::Armed => AgentProgress::Waiting,
+            Arming::NotWaiting => failed(NOT_WAITING),
+        }
+    }
+
+    pub(super) fn answer_from_page(
+        &self,
+        pane: &PaneId,
+        id: &str,
+        answer: AgentAnswer,
+    ) {
+        match self.replies.from_page(pane.as_str(), id, answer) {
+            Delivery::Delivered => {},
+            Delivery::NotWaiting => {
+                tracing::debug!(id, "a page answered a request nobody awaits");
+            },
+            Delivery::Refused => {
+                tracing::warn!(id, pane = %pane, "a page answered for another tab");
+            },
+        }
+    }
+}
+
+fn only_the_fragment_differs(
+    current: &str,
+    target: &BrowserUrl,
+) -> bool {
+    let wanted = target.as_str();
+    let moves_within = wanted.contains(FRAGMENT) && !current.is_empty();
+    let without = |url: &str| url.split(FRAGMENT).next().map(str::to_owned);
+    moves_within && without(current) == without(wanted)
 }
 
 #[cfg(test)]
@@ -276,16 +334,36 @@ mod tests {
         assert_eq!(rig.shell.browser_tabs(), []);
     }
 
+    fn go(url: &str) -> AgentOp {
+        AgentOp::Navigate {
+            url: BrowserUrl::parse(url).unwrap(),
+        }
+    }
+
+    fn pane_of(rig: &ShellRig) -> PaneId {
+        PaneId::new(rig.shell.browser_tabs()[0].id.as_str()).unwrap()
+    }
+
+    fn page_loads(
+        rig: &mut ShellRig,
+        pane: &PaneId,
+        url: &str,
+    ) {
+        let mut seen = crate::outcome::Outcome::default();
+        let loading = PageUpdate::Loading { url: url.into() };
+        let loaded = PageUpdate::Loaded { url: url.into() };
+        rig.shell.note_page(pane.clone(), loading, &mut seen);
+        rig.shell.note_page(pane.clone(), loaded, &mut seen);
+    }
+
     #[test]
-    fn navigating_loads_the_address_in_the_view_and_waits_for_the_page() {
+    fn navigating_loads_the_address_in_the_view_and_answers_when_the_page_has_loaded() {
         let mut rig = chat_rig();
         run(&mut rig, &command("1", ("c1", ""), open_op(None)));
         let tab = rig.shell.browser_tabs()[0].id.clone();
-        let go = AgentOp::Navigate {
-            url: BrowserUrl::parse("http://b.test/").unwrap(),
-        };
         let wait = rig.shell.replies.register("2", None);
-        rig.shell.run_agent(&command("2", ("c1", &tab), go), WINDOW);
+        let go_b = command("2", ("c1", &tab), go("http://b.test/"));
+        rig.shell.run_agent(&go_b, WINDOW);
         assert!(rig.shell.replies.is_waiting("2"));
         let went = rig
             .mock
@@ -293,7 +371,43 @@ mod tests {
             .into_iter()
             .any(|call| matches!(call, Call::Navigate { url, .. } if url.contains("b.test")));
         assert!(went, "the view was sent there");
-        drop(wait);
+        let pane = pane_of(&rig);
+        page_loads(&mut rig, &pane, "http://b.test/");
+        let answer = settled(wait);
+        assert!(matches!(answer, AgentAnswer::Done(_)), "{answer:?}");
+    }
+
+    #[test]
+    fn a_navigation_that_only_moves_the_fragment_answers_at_once() {
+        let mut rig = chat_rig();
+        let open = command("1", ("c1", ""), open_op(Some("http://a.test/page")));
+        let first = rig.shell.replies.register("1", None);
+        rig.shell.run_agent(&open, WINDOW);
+        let pane = pane_of(&rig);
+        page_loads(&mut rig, &pane, "http://a.test/page");
+        drop(first);
+        let answer = run(
+            &mut rig,
+            &command("2", ("c1", pane.as_str()), go("http://a.test/page#top")),
+        );
+        assert!(matches!(answer, AgentAnswer::Done(_)), "{answer:?}");
+    }
+
+    #[test]
+    fn a_navigation_waiting_for_a_tab_that_is_closed_fails_without_waiting_for_the_limit() {
+        let mut rig = chat_rig();
+        run(&mut rig, &command("1", ("c1", ""), open_op(None)));
+        let tab = rig.shell.browser_tabs()[0].id.clone();
+        let wait = rig.shell.replies.register("2", None);
+        let go_b = command("2", ("c1", &tab), go("http://b.test/"));
+        rig.shell.run_agent(&go_b, WINDOW);
+        rig.shell.close_pane(PaneId::new(&tab).unwrap());
+        rig.shell.publish_tabs();
+        let answer = settled(wait);
+        assert!(
+            matches!(&answer, AgentAnswer::Failed(why) if why.contains("closed")),
+            "{answer:?}"
+        );
     }
 
     #[test]
@@ -302,10 +416,8 @@ mod tests {
         run(&mut rig, &command("1", ("c1", ""), open_op(None)));
         let tab = rig.shell.browser_tabs()[0].id.clone();
         let wait = rig.shell.replies.register("2", None);
-        let go = AgentOp::Navigate {
-            url: BrowserUrl::parse("http://b.test/").unwrap(),
-        };
-        rig.shell.run_agent(&command("2", ("c1", &tab), go), None);
+        let go_b = command("2", ("c1", &tab), go("http://b.test/"));
+        rig.shell.run_agent(&go_b, None);
         let answer = settled(wait);
         assert!(matches!(answer, AgentAnswer::Failed(_)), "{answer:?}");
     }

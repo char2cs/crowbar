@@ -23,6 +23,19 @@ impl PendingLoads {
     ) -> Vec<AgentCommand> {
         self.waiting.remove(pane).unwrap_or_default()
     }
+
+    pub(crate) fn take_closed(
+        &mut self,
+        is_open: impl Fn(&PaneId) -> bool,
+    ) -> Vec<AgentCommand> {
+        let gone: Vec<PaneId> = self
+            .waiting
+            .keys()
+            .filter(|pane| !is_open(pane))
+            .cloned()
+            .collect();
+        gone.iter().flat_map(|pane| self.take(pane)).collect()
+    }
 }
 
 #[cfg(test)]
@@ -52,5 +65,19 @@ mod tests {
         assert_eq!(ids(loads.take(&first)), ["1", "3"]);
         assert_eq!(ids(loads.take(&first)), Vec::<String>::new(), "taken once");
         assert_eq!(ids(loads.take(&second)), ["2"]);
+    }
+
+    #[test]
+    fn what_waited_for_a_pane_that_closed_is_handed_back_and_the_rest_stays() {
+        let mut loads = PendingLoads::default();
+        let (open, closed) = (PaneId::new("b1").unwrap(), PaneId::new("b2").unwrap());
+        loads.defer(open.clone(), command("1"));
+        loads.defer(closed, command("2"));
+        let gone = loads.take_closed(|pane| *pane == open);
+        assert_eq!(
+            gone.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["2"]
+        );
+        assert_eq!(loads.take(&open).len(), 1, "the open pane keeps its wait");
     }
 }

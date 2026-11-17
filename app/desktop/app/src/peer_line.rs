@@ -23,7 +23,7 @@ impl PeerStream for PeerLine {
         self.stream
             .send(text)
             .await
-            .map_err(|error| Error::Stream(error.to_string()))
+            .map_err(|error| Error::Stream(Box::new(error)))
     }
 }
 

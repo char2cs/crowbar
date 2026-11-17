@@ -5,5 +5,6 @@ pub(crate) enum ConnectionEvent {
     Lost,
     Done(String, AgentAnswer),
     TabsChanged,
+    Idle,
     WindowGone,
 }

@@ -1,5 +1,6 @@
 use std::io::Cursor;
 
+use anyhow::Context as _;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use image::imageops::FilterType;
@@ -10,8 +11,11 @@ use webview::Snapshot;
 const MAX_WIDTH: u32 = 1280;
 const OPAQUE: u32 = 255;
 const CHANNELS: usize = 4;
+const PNG: &str = "png";
+const WIDTH: &str = "width";
+const HEIGHT: &str = "height";
 
-pub(crate) fn png_of(snapshot: &Snapshot) -> Option<Value> {
+pub(crate) fn png_of(snapshot: &Snapshot) -> anyhow::Result<Value> {
     let rgba: Vec<u8> = snapshot
         .bgra
         .as_chunks::<CHANNELS>()
@@ -20,17 +24,25 @@ pub(crate) fn png_of(snapshot: &Snapshot) -> Option<Value> {
         .copied()
         .flat_map(straight_rgba)
         .collect();
-    let mut image = RgbaImage::from_raw(snapshot.width, snapshot.height, rgba)?;
+    let (width, height) = (snapshot.width, snapshot.height);
+    let mut image = RgbaImage::from_raw(width, height, rgba).with_context(|| {
+        format!(
+            "the {width}x{height} snapshot does not match its {} bytes",
+            snapshot.bgra.len()
+        )
+    })?;
     if image.width() > MAX_WIDTH {
         let height = scaled_height(image.width(), image.height());
         image = image::imageops::resize(&image, MAX_WIDTH, height, FilterType::Triangle);
     }
     let mut png = Cursor::new(Vec::new());
-    image.write_to(&mut png, ImageFormat::Png).ok()?;
-    Some(json!({
-        "png": STANDARD.encode(png.into_inner()),
-        "width": image.width(),
-        "height": image.height(),
+    image
+        .write_to(&mut png, ImageFormat::Png)
+        .context("the picture could not be encoded as a PNG")?;
+    Ok(json!({
+        PNG: STANDARD.encode(png.into_inner()),
+        WIDTH: image.width(),
+        HEIGHT: image.height(),
     }))
 }
 
@@ -56,7 +68,7 @@ mod tests {
     use super::*;
 
     fn decoded(shot: &Value) -> RgbaImage {
-        let bytes = STANDARD.decode(shot["png"].as_str().unwrap()).unwrap();
+        let bytes = STANDARD.decode(shot[PNG].as_str().unwrap()).unwrap();
         image::load_from_memory_with_format(&bytes, ImageFormat::Png)
             .unwrap()
             .to_rgba8()
@@ -74,7 +86,7 @@ mod tests {
     fn the_picture_keeps_its_colours_and_tells_its_size() {
         let shot = png_of(&solid(2, 1)).unwrap();
         assert_eq!(
-            (shot["width"].clone(), shot["height"].clone()),
+            (shot[WIDTH].clone(), shot[HEIGHT].clone()),
             (json!(2), json!(1))
         );
         assert_eq!(
@@ -91,7 +103,7 @@ mod tests {
         assert_eq!(pixel, [255, 199, 99, 128]);
         let wide = png_of(&solid(2560, 400)).unwrap();
         assert_eq!(
-            (wide["width"].clone(), wide["height"].clone()),
+            (wide[WIDTH].clone(), wide[HEIGHT].clone()),
             (json!(1280), json!(200))
         );
     }

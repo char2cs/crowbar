@@ -31,7 +31,7 @@ impl PeerStream for FakeStream {
         let sent = self
             .outbound
             .send(text)
-            .map_err(|e| Error::Stream(e.to_string()));
+            .map_err(|error| Error::Stream(Box::new(error)));
         std::future::ready(sent)
     }
 }

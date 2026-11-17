@@ -323,14 +323,28 @@ mod tests {
         }
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_daemon_that_halts_or_never_answers_well_ends_the_wait_with_the_reason() {
-        let cases = [Failing::halted(), Failing::unreachable(), Failing::refused()];
+    async fn each_ends_as_expected(cases: [Failing; 3]) {
         for case in cases {
             let outcome = wait_with(&case.daemon, &timings(case.attempts), ignore).await;
-            assert!(how_it_ended(case.gave_up, &outcome), "{}: {outcome:?}", case.what);
-            let dialled = case.dials.is_none_or(|dials| case.daemon.dialled() == dials);
+            assert!(
+                how_it_ended(case.gave_up, &outcome),
+                "{}: {outcome:?}",
+                case.what
+            );
+            let dialled = case
+                .dials
+                .is_none_or(|dials| case.daemon.dialled() == dials);
             assert!(dialled, "{}: one dial per attempt", case.what);
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_daemon_that_halts_or_never_answers_well_ends_the_wait_with_the_reason() {
+        let cases = [
+            Failing::halted(),
+            Failing::unreachable(),
+            Failing::refused(),
+        ];
+        each_ends_as_expected(cases).await;
     }
 }

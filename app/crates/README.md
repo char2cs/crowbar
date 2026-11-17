@@ -110,7 +110,7 @@ tests/<crate>.rs         public-API tests; tests/support/ shared fakes
 
 ## reuse by mobile
 
-`transport` depends on neither gpui nor tauri, so `app/mobile/src-tauri` can use it by path instead of its own `api_proxy`, `hosts`, `host_tokens`, `tls_pin` and `ws_bridge`. Mobile is not rewired yet; the originals stay until it is. What mobile supplies: a `SocketLocator`, a `TokenStore` (`OsKeychain` behind the `os-keychain` feature, or its own), an `OriginPolicy` (`ExactOrigins` with the iOS webview origins), and either a `ShellTransport` or `Transport::handle` called from its custom protocol handler, plus a `Relay` if its panes open WebSockets.
+`transport` depends on neither gpui nor tauri, so `app/mobile/src-tauri` can use it by path instead of its own `api_proxy`, `hosts`, `host_tokens`, `tls_pin` and `ws_bridge`. Mobile (the only Tauri app left) still carries its own copies; `crowbar_desktop` is the only user of this crate today, and the originals stay until mobile is rewired. What mobile supplies: a `SocketLocator`, a `TokenStore` (`OsKeychain` behind the `os-keychain` feature, or its own), an `OriginPolicy` (`ExactOrigins` with the iOS webview origins), and either a `ShellTransport` or `Transport::handle` called from its custom protocol handler, plus a `Relay` if its panes open WebSockets.
 
 ## known gaps
 

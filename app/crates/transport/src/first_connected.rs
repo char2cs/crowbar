@@ -111,54 +111,63 @@ mod tests {
         }
     }
 
+    const CASES: &[Case] = &[
+        Case {
+            what: "a dead first address costs one stagger",
+            addresses: &[Behaviour::Silent, Behaviour::Answers(Duration::ZERO)],
+            expected: Ok(2),
+            elapsed: STAGGER,
+        },
+        Case {
+            what: "a slow first address that answers in time wins",
+            addresses: &[Behaviour::Answers(SLOW), Behaviour::Answers(SLOW)],
+            expected: Ok(1),
+            elapsed: SLOW,
+        },
+        Case {
+            what: "a refusal starts the next address at once",
+            addresses: &[Behaviour::Refuses, Behaviour::Answers(Duration::ZERO)],
+            expected: Ok(2),
+            elapsed: Duration::ZERO,
+        },
+        Case {
+            what: "every address refusing returns the last error",
+            addresses: &[Behaviour::Refuses, Behaviour::Refuses],
+            expected: Err(io::ErrorKind::ConnectionRefused),
+            elapsed: Duration::ZERO,
+        },
+        Case {
+            what: "no address is an error",
+            addresses: &[],
+            expected: Err(io::ErrorKind::Other),
+            elapsed: Duration::ZERO,
+        },
+    ];
+
+    async fn run(case: &Case) -> (Result<u8, io::ErrorKind>, Duration) {
+        let started = Instant::now();
+        let behaviours = case.addresses;
+        let connect = move |address: SocketAddr| -> Attempt {
+            let last = last_octet(address);
+            let behaviour = behaviours.get(usize::from(last) - 1).copied().unwrap();
+            Box::pin(attempt(last, behaviour))
+        };
+        let count = u8::try_from(behaviours.len()).unwrap();
+        let addresses = (1..=count).map(addr).collect();
+        let outcome = first_connected(addresses, STAGGER, connect).await;
+        (outcome.map_err(|error| error.kind()), started.elapsed())
+    }
+
+    async fn every_case() {
+        for case in CASES {
+            let (seen, elapsed) = run(case).await;
+            assert_eq!(seen, case.expected, "{}", case.what);
+            assert_eq!(elapsed, case.elapsed, "{}", case.what);
+        }
+    }
+
     #[tokio::test(start_paused = true)]
     async fn the_first_address_to_connect_wins_and_a_dead_one_costs_at_most_a_stagger() {
-        let cases = [
-            Case {
-                what: "a dead first address costs one stagger",
-                addresses: &[Behaviour::Silent, Behaviour::Answers(Duration::ZERO)],
-                expected: Ok(2),
-                elapsed: STAGGER,
-            },
-            Case {
-                what: "a slow first address that answers in time wins",
-                addresses: &[Behaviour::Answers(SLOW), Behaviour::Answers(SLOW)],
-                expected: Ok(1),
-                elapsed: SLOW,
-            },
-            Case {
-                what: "a refusal starts the next address at once",
-                addresses: &[Behaviour::Refuses, Behaviour::Answers(Duration::ZERO)],
-                expected: Ok(2),
-                elapsed: Duration::ZERO,
-            },
-            Case {
-                what: "every address refusing returns the last error",
-                addresses: &[Behaviour::Refuses, Behaviour::Refuses],
-                expected: Err(io::ErrorKind::ConnectionRefused),
-                elapsed: Duration::ZERO,
-            },
-            Case {
-                what: "no address is an error",
-                addresses: &[],
-                expected: Err(io::ErrorKind::Other),
-                elapsed: Duration::ZERO,
-            },
-        ];
-        for case in cases {
-            let started = Instant::now();
-            let behaviours = case.addresses;
-            let count = u8::try_from(behaviours.len()).unwrap();
-            let connect = move |address: SocketAddr| -> Attempt {
-                let last = last_octet(address);
-                let behaviour = behaviours.get(usize::from(last) - 1).copied().unwrap();
-                Box::pin(attempt(last, behaviour))
-            };
-            let addresses = (1..=count).map(addr).collect();
-            let outcome = first_connected(addresses, STAGGER, connect).await;
-            let seen = outcome.map_err(|error| error.kind());
-            assert_eq!(seen, case.expected, "{}", case.what);
-            assert_eq!(started.elapsed(), case.elapsed, "{}", case.what);
-        }
+        every_case().await;
     }
 }

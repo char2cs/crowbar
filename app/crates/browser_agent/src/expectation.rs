@@ -9,7 +9,7 @@ use crate::pending_forget::PendingForget;
 /// A request's wait for its answer. Dropping it, or giving up, forgets the request.
 pub struct Expectation {
     forget: Arc<dyn PendingForget>,
-    id: String,
+    entry: (String, u64),
     receiver: oneshot::Receiver<AgentAnswer>,
 }
 
@@ -19,7 +19,7 @@ impl std::fmt::Debug for Expectation {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         f.debug_struct("Expectation")
-            .field("id", &self.id)
+            .field("id", &self.entry.0)
             .finish_non_exhaustive()
     }
 }
@@ -27,12 +27,12 @@ impl std::fmt::Debug for Expectation {
 impl Expectation {
     pub(crate) fn new(
         forget: Arc<dyn PendingForget>,
-        id: String,
+        entry: (String, u64),
         receiver: oneshot::Receiver<AgentAnswer>,
     ) -> Self {
         Self {
             forget,
-            id,
+            entry,
             receiver,
         }
     }
@@ -58,7 +58,7 @@ impl Expectation {
 
 impl Drop for Expectation {
     fn drop(&mut self) {
-        self.forget.forget(&self.id);
+        self.forget.forget(&self.entry);
     }
 }
 
@@ -69,25 +69,25 @@ mod tests {
     use super::*;
 
     #[derive(Default)]
-    struct Forgotten(Mutex<Vec<String>>);
+    struct Forgotten(Mutex<Vec<(String, u64)>>);
 
     impl PendingForget for Forgotten {
         fn forget(
             &self,
-            id: &str,
+            entry: &(String, u64),
         ) {
-            self.0.lock().unwrap().push(id.to_owned());
+            self.0.lock().unwrap().push(entry.clone());
         }
     }
 
     const LIMIT: Duration = Duration::from_secs(1);
 
-    async fn outcome_of(reply: Option<AgentAnswer>) -> (AgentAnswer, Vec<String>) {
+    async fn outcome_of(reply: Option<AgentAnswer>) -> (AgentAnswer, Vec<(String, u64)>) {
         let forgotten = Arc::new(Forgotten::default());
         let (sender, receiver) = oneshot::channel();
         let wait = Expectation::new(
             Arc::clone(&forgotten) as Arc<dyn PendingForget>,
-            "5".into(),
+            ("5".into(), 7),
             receiver,
         );
         let sent = reply.map(|answer| sender.send(answer));
@@ -105,10 +105,10 @@ mod tests {
         let (answered, seen) = outcome_of(Some(AgentAnswer::Done("ok".into()))).await;
         assert_eq!(
             (answered, seen),
-            (AgentAnswer::Done("ok".into()), vec!["5".to_owned()])
+            (AgentAnswer::Done("ok".into()), vec![("5".to_owned(), 7)])
         );
         let (silent, seen) = outcome_of(None).await;
         assert!(matches!(silent, AgentAnswer::Failed(_)), "{silent:?}");
-        assert_eq!(seen, ["5"]);
+        assert_eq!(seen, [("5".to_owned(), 7)]);
     }
 }

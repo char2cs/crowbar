@@ -365,9 +365,7 @@ mod tests {
         peer.requests.recv().await.is_none()
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_stream_that_cannot_dial_is_down_and_one_without_controls_stops() {
-        let cases = [Ending::NoConnection, Ending::ControlsDropped];
+    async fn each_holds(cases: [Ending; 2]) {
         for ending in cases {
             let held = match ending {
                 Ending::NoConnection => no_connection_is_down().await,
@@ -375,5 +373,11 @@ mod tests {
             };
             assert!(held, "{ending:?}");
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_that_cannot_dial_is_down_and_one_without_controls_stops() {
+        let cases = [Ending::NoConnection, Ending::ControlsDropped];
+        each_holds(cases).await;
     }
 }

@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use browser_nav::AgentAnswer;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+use crate::arming::Arming;
+use crate::delivery::Delivery;
 use crate::expectation::Expectation;
 use crate::pending_forget::PendingForget;
 use crate::pending_reply::PendingReply;
@@ -19,10 +22,13 @@ use crate::reply_scope::{ReplyScope, merged};
 #[derive(Debug, Default)]
 pub struct Replies {
     pending: Mutex<BTreeMap<String, PendingReply>>,
+    serial: AtomicU64,
 }
 
 impl Replies {
-    /// Starts waiting for request `id`. `pane` is the tab the request is about, when it has one;
+    /// Starts waiting for request `id`. A request registered under the same id before is
+    /// replaced: the daemon numbers its requests again after a restart, so an id may come back.
+    /// `pane` is the tab the request is about, when it has one;
     /// the page of that pane may answer too.
     #[must_use]
     pub fn register(
@@ -32,11 +38,18 @@ impl Replies {
     ) -> Expectation {
         let (sender, receiver) = oneshot::channel();
         let scope = pane.map_or(ReplyScope::Shell, |pane| ReplyScope::Page(pane.to_owned()));
-        self.lock()
-            .insert(id.to_owned(), PendingReply { scope, sender });
+        let serial = self.serial.fetch_add(1, Ordering::Relaxed);
+        self.lock().insert(
+            id.to_owned(),
+            PendingReply {
+                serial,
+                scope,
+                sender,
+            },
+        );
         Expectation::new(
             Arc::clone(self) as Arc<dyn PendingForget>,
-            id.to_owned(),
+            (id.to_owned(), serial),
             receiver,
         )
     }
@@ -49,38 +62,39 @@ impl Replies {
         self.lock().contains_key(id)
     }
 
-    /// The shell answers request `id`. `false` when nobody waits for it any more.
+    /// The shell answers request `id`: [`Delivery::NotWaiting`] when nobody waits for it any
+    /// more.
     pub fn complete(
         &self,
         id: &str,
         answer: AgentAnswer,
-    ) -> bool {
+    ) -> Delivery {
         let Some(pending) = self.lock().remove(id) else {
-            return false;
+            return Delivery::NotWaiting;
         };
-        pending.sender.send(answer).is_ok()
+        pending.deliver(answer)
     }
 
-    /// The page of `pane` answers request `id`. Refused, with the wait left running, when the
-    /// request is about another pane or is not waiting for a page.
+    /// The page of `pane` answers request `id`. [`Delivery::Refused`], with the wait left
+    /// running, when the request is about another pane or is not waiting for a page.
     pub fn from_page(
         &self,
         pane: &str,
         id: &str,
         answer: AgentAnswer,
-    ) -> bool {
+    ) -> Delivery {
         let mut pending = self.lock();
         let Some(entry) = pending.get(id) else {
-            return false;
+            return Delivery::NotWaiting;
         };
         if !matches!(&entry.scope, ReplyScope::Page(owner) if owner == pane) {
-            return false;
+            return Delivery::Refused;
         }
         let Some(entry) = pending.remove(id) else {
-            return false;
+            return Delivery::NotWaiting;
         };
         drop(pending);
-        entry.sender.send(answer).is_ok()
+        entry.deliver(answer)
     }
 
     /// Request `id` is answered with `result` once `pane` has navigated and finished loading.
@@ -89,17 +103,47 @@ impl Replies {
         id: &str,
         pane: &str,
         result: Value,
-    ) -> bool {
+    ) -> Arming {
         let mut pending = self.lock();
         let Some(entry) = pending.get_mut(id) else {
-            return false;
+            return Arming::NotWaiting;
         };
         entry.scope = ReplyScope::LoadEnd {
             pane: pane.to_owned(),
             armed: false,
             result,
         };
-        true
+        Arming::Armed
+    }
+
+    /// Fails the requests that wait for the load of a pane `is_open` no longer knows, so they
+    /// do not wait for a load that cannot come.
+    pub fn abandon_loads(
+        &self,
+        is_open: impl Fn(&str) -> bool,
+        reason: &str,
+    ) {
+        let gone: Vec<String> = self
+            .lock()
+            .iter()
+            .filter(|(_, entry)| entry.scope.waits_on_closed(&is_open))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in gone {
+            self.fail(&id, reason);
+        }
+    }
+
+    fn fail(
+        &self,
+        id: &str,
+        reason: &str,
+    ) {
+        let Some(entry) = self.lock().remove(id) else {
+            return;
+        };
+        let delivery = entry.deliver(AgentAnswer::Failed(reason.to_owned()));
+        tracing::debug!(?delivery, id, "a navigation lost its pane");
     }
 
     /// `pane` started loading a page: the requests waiting for its next load end now wait for
@@ -109,7 +153,7 @@ impl Replies {
         pane: &str,
     ) {
         for entry in self.lock().values_mut() {
-            arm(&mut entry.scope, pane);
+            entry.scope.arm(pane);
         }
     }
 
@@ -123,7 +167,7 @@ impl Replies {
         let ready: Vec<String> = self
             .lock()
             .iter()
-            .filter(|(_, entry)| is_armed_for(&entry.scope, pane))
+            .filter(|(_, entry)| entry.scope.is_armed_for(pane))
             .map(|(id, _)| id.clone())
             .collect();
         for id in ready {
@@ -154,31 +198,13 @@ impl Replies {
 impl PendingForget for Replies {
     fn forget(
         &self,
-        id: &str,
+        (id, serial): &(String, u64),
     ) {
-        self.lock().remove(id);
+        let mut pending = self.lock();
+        if pending.get(id).is_some_and(|entry| entry.serial == *serial) {
+            pending.remove(id);
+        }
     }
-}
-
-fn arm(
-    scope: &mut ReplyScope,
-    pane: &str,
-) {
-    match scope {
-        ReplyScope::LoadEnd {
-            pane: waiting,
-            armed,
-            ..
-        } if waiting == pane => *armed = true,
-        _ => {},
-    }
-}
-
-fn is_armed_for(
-    scope: &ReplyScope,
-    pane: &str,
-) -> bool {
-    matches!(scope, ReplyScope::LoadEnd { pane: waiting, armed: true, .. } if waiting == pane)
 }
 
 #[cfg(test)]
@@ -195,34 +221,68 @@ mod tests {
         AgentAnswer::Done(json!(value))
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn the_shell_answers_any_waiting_request_once() {
-        let replies = Arc::new(Replies::default());
-        let wait = replies.register("1", None);
-        assert!(replies.complete("1", done("done")));
-        assert!(!replies.complete("1", done("again")), "answered once");
-        assert_eq!(wait.wait(LIMIT).await, done("done"));
+    struct Case {
+        scope: Option<&'static str>,
+        page: Option<&'static str>,
+        expected: Delivery,
+        again: Delivery,
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_page_answers_only_for_its_own_pane() {
+    const CASES: &[Case] = &[
+        Case {
+            scope: None,
+            page: None,
+            expected: Delivery::Delivered,
+            again: Delivery::NotWaiting,
+        },
+        Case {
+            scope: Some("b1"),
+            page: Some("b1"),
+            expected: Delivery::Delivered,
+            again: Delivery::NotWaiting,
+        },
+        Case {
+            scope: Some("b1"),
+            page: Some("b2"),
+            expected: Delivery::Refused,
+            again: Delivery::Delivered,
+        },
+        Case {
+            scope: None,
+            page: Some("b1"),
+            expected: Delivery::Refused,
+            again: Delivery::Delivered,
+        },
+    ];
+
+    fn offer(case: &Case) {
         let replies = Arc::new(Replies::default());
-        let wait = replies.register("1", Some("b1"));
-        assert!(
-            !replies.from_page("b2", "1", done("forged")),
-            "another pane"
+        let wait = replies.register("1", case.scope);
+        let offered = match case.page {
+            Some(pane) => replies.from_page(pane, "1", done("page")),
+            None => replies.complete("1", done("shell")),
+        };
+        assert_eq!(offered, case.expected, "{:?} {:?}", case.scope, case.page);
+        let delivered = case.expected == Delivery::Delivered;
+        assert_eq!(
+            replies.is_waiting("1"),
+            !delivered,
+            "a refusal keeps the wait"
         );
-        assert!(replies.from_page("b1", "1", done("mine")));
-        assert_eq!(wait.wait(LIMIT).await, done("mine"));
+        let again = replies.complete("1", done("again"));
+        assert_eq!(again, case.again, "answered once");
+        drop(wait);
+    }
+
+    fn every_case() {
+        for case in CASES {
+            offer(case);
+        }
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_request_that_is_not_about_a_pane_takes_no_page_answer() {
-        let replies = Arc::new(Replies::default());
-        let wait = replies.register("1", None);
-        assert!(!replies.from_page("b1", "1", done("forged")));
-        assert!(replies.complete("1", done("shell")));
-        assert_eq!(wait.wait(LIMIT).await, done("shell"));
+    async fn the_shell_answers_any_request_once_and_a_page_only_its_own() {
+        every_case();
     }
 
     #[tokio::test(start_paused = true)]
@@ -230,7 +290,8 @@ mod tests {
         let replies = Arc::new(Replies::default());
         let wait = replies.register("1", Some("b1"));
         let page = json!({"url":"http://a.test/","loading":false});
-        assert!(replies.after_load("1", "b1", json!({"tab":"b1"})));
+        let armed = replies.after_load("1", "b1", json!({"tab":"b1"}));
+        assert_eq!(armed, Arming::Armed);
         replies.loaded("b1", &page);
         replies.loading("b2");
         replies.loaded("b2", &page);
@@ -242,10 +303,12 @@ mod tests {
         replies.loaded("b1", &page);
         let expected = json!({"tab":"b1","url":"http://a.test/","loading":false});
         assert_eq!(wait.wait(LIMIT).await, AgentAnswer::Done(expected));
+        let late = replies.after_load("1", "b1", json!({}));
+        assert_eq!(late, Arming::NotWaiting);
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_wait_that_nobody_answers_ends_at_its_limit_and_is_forgotten() {
+    async fn a_wait_that_nobody_answers_or_that_is_dropped_is_forgotten() {
         let replies = Arc::new(Replies::default());
         let wait = replies.register("1", Some("b1"));
         let outcome = wait.wait(LIMIT).await;
@@ -253,13 +316,35 @@ mod tests {
             matches!(&outcome, AgentAnswer::Failed(text) if text.contains("no answer")),
             "{outcome:?}"
         );
-        assert!(!replies.complete("1", done("late")), "forgotten");
+        assert_eq!(replies.complete("1", done("late")), Delivery::NotWaiting);
+        drop(replies.register("2", None));
+        assert_eq!(replies.complete("2", done("late")), Delivery::NotWaiting);
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_wait_that_is_dropped_is_forgotten() {
+    async fn a_navigation_whose_pane_is_gone_fails_at_once_and_the_others_keep_waiting() {
         let replies = Arc::new(Replies::default());
-        drop(replies.register("1", None));
-        assert!(!replies.complete("1", done("late")));
+        let lost = replies.register("1", Some("b1"));
+        let kept = replies.register("2", Some("b2"));
+        replies.after_load("1", "b1", json!({}));
+        replies.after_load("2", "b2", json!({}));
+        replies.abandon_loads(|pane| pane == "b2", "the tab was closed");
+        assert_eq!(
+            lost.wait(LIMIT).await,
+            AgentAnswer::Failed("the tab was closed".into())
+        );
+        assert!(replies.is_waiting("2"));
+        drop(kept);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_old_wait_that_ends_does_not_forget_a_newer_request_with_the_same_id() {
+        let replies = Arc::new(Replies::default());
+        let old = replies.register("1", None);
+        let new = replies.register("1", None);
+        drop(old);
+        assert!(replies.is_waiting("1"), "the newer request still waits");
+        assert_eq!(replies.complete("1", done("mine")), Delivery::Delivered);
+        assert_eq!(new.wait(LIMIT).await, done("mine"));
     }
 }

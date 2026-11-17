@@ -131,64 +131,77 @@ mod tests {
 
     fn nothing(_: &mut TokenBook) {}
 
+    const CASES: &[Case] = &[
+        Case {
+            what: "untouched",
+            act: nothing,
+            later: Duration::ZERO,
+            alive: [true; 3],
+        },
+        Case {
+            what: "expired",
+            act: nothing,
+            later: Duration::from_secs(61),
+            alive: [false; 3],
+        },
+        Case {
+            what: "issued again for the same stream",
+            act: issue_again,
+            later: Duration::ZERO,
+            alive: [false, true, true],
+        },
+        Case {
+            what: "a pane revoked",
+            act: revoke_pane,
+            later: Duration::ZERO,
+            alive: [false, true, true],
+        },
+        Case {
+            what: "a host revoked",
+            act: revoke_host,
+            later: Duration::ZERO,
+            alive: [true, false, true],
+        },
+        Case {
+            what: "hosts retained",
+            act: retain_local,
+            later: Duration::ZERO,
+            alive: [true, false, true],
+        },
+    ];
+
+    fn scopes() -> [RelayScope; 3] {
+        [
+            scope("p1", "local"),
+            scope("p2", "host-1"),
+            scope("p3", "local"),
+        ]
+    }
+
+    fn who_is_still_named(case: &Case) -> [Option<RelayScope>; 3] {
+        let mut book = TokenBook::new(TTL);
+        let tokens = scopes().map(|scope| book.issue(scope, Instant::now()).unwrap());
+        (case.act)(&mut book);
+        let now = Instant::now() + case.later;
+        tokens.map(|token| book.authorize(&token, now))
+    }
+
+    fn who_should_be(case: &Case) -> [Option<RelayScope>; 3] {
+        let [first, second, third] = scopes();
+        let [x, y, z] = case.alive;
+        [x.then_some(first), y.then_some(second), z.then_some(third)]
+    }
+
+    fn every_case() {
+        for case in CASES {
+            let named = who_is_still_named(case);
+            assert_eq!(named, who_should_be(case), "{}", case.what);
+        }
+    }
+
     #[tokio::test(start_paused = true)]
     async fn a_token_names_its_scope_until_it_expires_is_replaced_or_is_revoked() {
-        let cases = [
-            Case {
-                what: "untouched",
-                act: nothing,
-                later: Duration::ZERO,
-                alive: [true; 3],
-            },
-            Case {
-                what: "expired",
-                act: nothing,
-                later: TTL + Duration::from_secs(1),
-                alive: [false; 3],
-            },
-            Case {
-                what: "issued again for the same stream",
-                act: issue_again,
-                later: Duration::ZERO,
-                alive: [false, true, true],
-            },
-            Case {
-                what: "a pane revoked",
-                act: revoke_pane,
-                later: Duration::ZERO,
-                alive: [false, true, true],
-            },
-            Case {
-                what: "a host revoked",
-                act: revoke_host,
-                later: Duration::ZERO,
-                alive: [true, false, true],
-            },
-            Case {
-                what: "hosts retained",
-                act: retain_local,
-                later: Duration::ZERO,
-                alive: [true, false, true],
-            },
-        ];
-        for case in cases {
-            let mut book = TokenBook::new(TTL);
-            let scopes = [
-                scope("p1", "local"),
-                scope("p2", "host-1"),
-                scope("p3", "local"),
-            ];
-            let tokens = scopes
-                .clone()
-                .map(|scope| book.issue(scope, Instant::now()).unwrap());
-            (case.act)(&mut book);
-            let now = Instant::now() + case.later;
-            let alive = tokens.clone().map(|token| book.authorize(&token, now));
-            for ((live, wanted), scope) in alive.iter().zip(case.alive).zip(&scopes) {
-                let expected = wanted.then(|| scope.clone());
-                assert_eq!(live, &expected, "{}", case.what);
-            }
-        }
+        every_case();
     }
 
     #[tokio::test(start_paused = true)]

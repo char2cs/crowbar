@@ -10,9 +10,11 @@
 mod agent_command;
 mod agent_op;
 mod agent_request;
+mod arming;
 mod browser_agent;
 mod connection;
 mod connection_event;
+mod delivery;
 mod dom_op;
 mod ending;
 mod error;
@@ -34,7 +36,9 @@ mod test_support;
 
 pub use agent_command::AgentCommand;
 pub use agent_op::AgentOp;
+pub use arming::Arming;
 pub use browser_agent::run_peer;
+pub use delivery::Delivery;
 pub use dom_op::DomOp;
 pub use error::Error;
 pub use expectation::Expectation;

@@ -1,5 +1,5 @@
 /// Why a request of the daemon cannot be carried out.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
     /// The operation is not one the browser tools define.
@@ -26,5 +26,5 @@ pub enum Error {
     },
     /// The connection to the daemon failed.
     #[error("the daemon connection failed: {0}")]
-    Stream(String),
+    Stream(#[source] Box<dyn std::error::Error + Send + Sync>),
 }

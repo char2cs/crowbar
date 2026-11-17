@@ -1,11 +1,12 @@
-use browser_nav::AgentAnswer;
+use browser_nav::{BrowserUrl, PageState};
 use pane_host::BrowseAction;
 use protocol::PaneId;
 use webview::ParentWindow;
 
 use super::ShellState;
 use super::agent_call::AgentCall;
-use super::agent_ops::failed;
+use super::agent_ops::{done, failed};
+use super::agent_progress::AgentProgress;
 use super::page_step::PageStep;
 use crate::page_shot::png_of;
 use crate::view_life::ViewLife;
@@ -18,47 +19,61 @@ impl ShellState {
         &mut self,
         call: &AgentCall<'_>,
         pane: &PaneId,
-    ) -> Option<AgentAnswer> {
-        if self.page_address(pane).is_empty() {
-            return Some(failed(NO_PAGE));
+    ) -> AgentProgress {
+        let address = self.page_address(pane);
+        if address.is_empty() || BrowserUrl::is_blank(&address) {
+            return failed(NO_PAGE);
         }
         match self.bring_up(call.parent, pane) {
-            Err(error) => return Some(failed(error.to_string())),
-            Ok(ViewLife::Fresh) => {
-                self.pending_loads.defer(pane.clone(), call.command.clone());
-                return None;
-            },
+            Err(error) => return failed(error.to_string()),
+            Ok(ViewLife::Fresh) => return self.defer_until_loaded(call, pane),
             Ok(ViewLife::Live) => {},
         }
+        if self.pages.get(pane).is_some_and(PageState::is_loading) {
+            return self.defer_until_loaded(call, pane);
+        }
         self.agent_page_step(call, pane)
+    }
+
+    fn defer_until_loaded(
+        &mut self,
+        call: &AgentCall<'_>,
+        pane: &PaneId,
+    ) -> AgentProgress {
+        self.pending_loads.defer(pane.clone(), call.command.clone());
+        AgentProgress::Waiting
     }
 
     fn agent_page_step(
         &self,
         call: &AgentCall<'_>,
         pane: &PaneId,
-    ) -> Option<AgentAnswer> {
+    ) -> AgentProgress {
         let sent = match PageStep::of(call.command) {
             PageStep::Browse(action, said) => {
-                return Some(match self.host.browse(pane, &action) {
-                    Ok(()) => AgentAnswer::Done(said.into()),
+                return match self.host.browse(pane, &action) {
+                    Ok(()) => done(said.into()),
                     Err(error) => failed(error.to_string()),
-                });
+                };
             },
-            PageStep::Shot => return Some(self.agent_shot(pane)),
+            PageStep::Shot => return self.agent_shot(pane),
             PageStep::Script(js) => self.host.browse(pane, &BrowseAction::Script(js)),
-            PageStep::Refused(why) => return Some(failed(why)),
+            PageStep::Refused(why) => return failed(why),
         };
-        sent.err().map(|error| failed(error.to_string()))
+        match sent {
+            Ok(()) => AgentProgress::Waiting,
+            Err(error) => failed(error.to_string()),
+        }
     }
 
     fn agent_shot(
         &self,
         pane: &PaneId,
-    ) -> AgentAnswer {
+    ) -> AgentProgress {
         match self.host.capture_browser(pane) {
-            Ok(Some(snapshot)) => {
-                png_of(&snapshot).map_or_else(|| failed(NOT_READABLE), AgentAnswer::Done)
+            Ok(Some(snapshot)) => match png_of(&snapshot) {
+                Ok(shot) => done(shot),
+                Err(error) => failed(format!("{NOT_READABLE}: {error:#}")),
             },
             Ok(None) => failed(NOT_READABLE),
             Err(error) => failed(error.to_string()),
@@ -82,8 +97,8 @@ impl ShellState {
 
 #[cfg(test)]
 mod tests {
-    use browser_agent::{AgentCommand, AgentOp, DomOp};
-    use browser_nav::{AgentAnswer, BrowserUrl};
+    use browser_agent::{AgentCommand, AgentOp, Delivery, DomOp};
+    use browser_nav::{AgentAnswer, BrowserUrl, PageUpdate};
     use serde_json::json;
     use webview::{Call, ParentWindow};
 
@@ -148,12 +163,40 @@ mod tests {
             "{:?}",
             scripts(&rig)
         );
-        assert!(
-            rig.shell
-                .replies
-                .from_page(&tab, "2", AgentAnswer::Done(json!("ok")))
-        );
+        let delivered = rig
+            .shell
+            .replies
+            .from_page(&tab, "2", AgentAnswer::Done(json!("ok")));
+        assert_eq!(delivered, Delivery::Delivered);
         assert_eq!(settled(wait), AgentAnswer::Done(json!("ok")));
+    }
+
+    #[test]
+    fn a_page_operation_on_a_view_that_is_still_loading_waits_for_the_load() {
+        let (mut rig, tab) = rig_with_a_page();
+        let pane = PaneId::new(&tab).unwrap();
+        let mut seen = crate::outcome::Outcome::default();
+        let loading = PageUpdate::Loading {
+            url: "http://a.test/next".into(),
+        };
+        rig.shell.note_page(pane.clone(), loading, &mut seen);
+        let click = AgentOp::Page {
+            op: DomOp::Click,
+            args: json!({"ref": "e3"}),
+        };
+        let wait = rig.shell.replies.register("2", Some(&tab));
+        rig.shell.run_agent(&command("2", &tab, click), WINDOW);
+        let ran = |rig: &ShellRig| scripts(rig).iter().any(|js| js.contains("e3"));
+        assert!(!ran(&rig), "the view is mid-navigation");
+        let loaded = PageUpdate::Loaded {
+            url: "http://a.test/next".into(),
+        };
+        rig.shell.note_page(pane.clone(), loaded, &mut seen);
+        rig.shell.run_deferred(&pane, WINDOW);
+        assert!(ran(&rig), "the load ended, so the operation ran");
+        let said = AgentAnswer::Done(json!("ok"));
+        rig.shell.replies.from_page(&tab, "2", said.clone());
+        assert_eq!(settled(wait), said);
     }
 
     #[test]

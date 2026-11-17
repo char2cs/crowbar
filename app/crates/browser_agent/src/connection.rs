@@ -20,6 +20,7 @@ pub(crate) async fn serve<S: PeerStream>(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use browser_nav::AgentAnswer;
     use serde_json::{Value, json};
@@ -27,6 +28,7 @@ mod tests {
 
     use super::*;
     use crate::agent_op::AgentOp;
+    use crate::delivery::Delivery;
     use crate::replies::Replies;
     use crate::tab_commands::TabCommands;
     use crate::tab_info::TabInfo;
@@ -68,11 +70,6 @@ mod tests {
         json!({"type":"request","id":id,"op":op,"chatId":"c1","tab":"b1","args":args})
     }
 
-    async fn settle() {
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
-    }
-
     #[tokio::test(start_paused = true)]
     async fn a_hello_is_answered_with_the_tabs_and_a_change_is_reported_once() {
         let mut rig = rig();
@@ -86,8 +83,8 @@ mod tests {
             second["tabs"][0]["url"], "http://b.test/",
             "an equal list is not repeated"
         );
-        settle().await;
-        assert!(rig.daemon.nothing_waits());
+        let more = tokio::time::timeout(Duration::from_millis(1), rig.daemon.next()).await;
+        assert!(more.is_err(), "nothing more was reported");
     }
 
     #[tokio::test(start_paused = true)]
@@ -95,17 +92,18 @@ mod tests {
         let mut rig = rig();
         rig.daemon.say(&request("7", "click", &json!({"ref":"e1"})));
         let _tabs = rig.daemon.next().await;
-        settle().await;
-        let received = rig.shell.received();
-        let named = received
-            .first()
-            .map(|c| (c.id.as_str(), c.chat_id.as_str(), c.tab.as_str()));
-        assert_eq!(named, Some(("7", "c1", "b1")));
-        assert!(matches!(received[0].op, AgentOp::Page { .. }));
-        assert!(
-            rig.replies
-                .from_page("b1", "7", AgentAnswer::Done(json!("clicked")))
+        let received = rig.shell.first().await;
+        let named = (
+            received.id.as_str(),
+            received.chat_id.as_str(),
+            received.tab.as_str(),
         );
+        assert_eq!(named, ("7", "c1", "b1"));
+        assert!(matches!(received.op, AgentOp::Page { .. }));
+        let delivered = rig
+            .replies
+            .from_page("b1", "7", AgentAnswer::Done(json!("clicked")));
+        assert_eq!(delivered, Delivery::Delivered);
         let answer = rig.daemon.next().await;
         assert_eq!(
             answer,
@@ -113,38 +111,32 @@ mod tests {
         );
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_request_the_shell_could_not_carry_out_is_answered_without_asking_it() {
+    const CASES: &[(&str, &str, &str)] = &[
+        ("navigate", r#"{"url":"file:///etc/passwd"}"#, "file"),
+        ("snapshot", "{}", "no answer"),
+    ];
+
+    async fn fails_under_its_id(failure: &(&str, &str, &str)) {
+        let (op, args, mentions) = *failure;
         let mut rig = rig();
-        rig.daemon.say(&request(
-            "8",
-            "navigate",
-            &json!({"url":"file:///etc/passwd"}),
-        ));
+        let args: Value = serde_json::from_str(args).unwrap();
+        rig.daemon.say(&request("9", op, &args));
         let _tabs = rig.daemon.next().await;
         let answer = rig.daemon.next().await;
-        assert_eq!(answer["ok"], false);
-        assert!(
-            answer["error"].as_str().unwrap().contains("file"),
-            "{answer}"
-        );
-        assert_eq!(rig.shell.received().len(), 0);
+        assert_eq!((&answer["ok"], &answer["id"]), (&json!(false), &json!("9")));
+        let error = answer["error"].as_str().unwrap();
+        assert!(error.contains(mentions), "{op}: {answer}");
+    }
+
+    async fn every_failure() {
+        for failure in CASES {
+            fails_under_its_id(failure).await;
+        }
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_request_nobody_answers_fails_at_its_limit() {
-        let mut rig = rig();
-        rig.daemon.say(&request("9", "snapshot", &json!({})));
-        let _tabs = rig.daemon.next().await;
-        let answer = rig.daemon.next().await;
-        assert_eq!(
-            (answer["ok"].clone(), answer["id"].clone()),
-            (json!(false), json!("9"))
-        );
-        assert!(
-            answer["error"].as_str().unwrap().contains("no answer"),
-            "{answer}"
-        );
+    async fn a_request_that_cannot_be_carried_out_or_is_never_answered_fails_under_its_id() {
+        every_failure().await;
     }
 
     #[tokio::test(start_paused = true)]

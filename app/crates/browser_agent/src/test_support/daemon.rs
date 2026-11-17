@@ -1,6 +1,8 @@
 use serde_json::Value;
 use tokio::sync::mpsc;
 
+use crate::test_support::FakeStream;
+
 pub(crate) struct Daemon {
     to_window: mpsc::UnboundedSender<String>,
     from_window: mpsc::UnboundedReceiver<String>,
@@ -26,10 +28,6 @@ impl Daemon {
         serde_json::from_str(&text).expect("the window sent json")
     }
 
-    pub(crate) fn nothing_waits(&mut self) -> bool {
-        self.from_window.try_recv().is_err()
-    }
-
     pub(crate) fn say(
         &self,
         frame: &Value,
@@ -38,4 +36,13 @@ impl Daemon {
             .send(frame.to_string())
             .expect("the window listens");
     }
+}
+
+pub(crate) fn line() -> (FakeStream, Daemon) {
+    let (to_window, inbound) = mpsc::unbounded_channel();
+    let (outbound, from_window) = mpsc::unbounded_channel();
+    (
+        FakeStream::new(inbound, outbound),
+        Daemon::new(to_window, from_window),
+    )
 }
