@@ -1,0 +1,66 @@
+use gpui::{Div, ParentElement, SharedString, Styled, div};
+use ui::{Palette, Pose};
+
+use crate::remote_folder_picker::RemoteFolderPicker;
+use crate::row_look::{TEXT, TREE_HEIGHT};
+use crate::tree_row::Toggle;
+
+pub(crate) fn muted(palette: &Palette) -> Div {
+    div().text_size(TEXT).text_color(palette.muted_foreground())
+}
+
+pub(crate) fn centred(
+    palette: &Palette,
+    text: impl Into<SharedString>,
+) -> Div {
+    muted(palette)
+        .h(TREE_HEIGHT)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(text.into())
+}
+
+pub(crate) fn highlighted(
+    row: Div,
+    palette: &Palette,
+    chosen: Pose,
+) -> Div {
+    match chosen {
+        Pose::On => row.bg(palette.accent()),
+        Pose::Off => row,
+    }
+}
+
+pub(crate) fn toggler(
+    view: &gpui::Entity<RemoteFolderPicker>,
+    path: &str,
+) -> Toggle {
+    let (view, path) = (view.clone(), path.to_owned());
+    Box::new(move |_, cx| {
+        cx.stop_propagation();
+        view.update(cx, |this, cx| this.toggle(&path, cx));
+    })
+}
+
+pub(crate) fn inert() -> Toggle {
+    Box::new(|_, _| {})
+}
+
+#[cfg(test)]
+mod tests {
+    use ui::{Surface, Theme};
+
+    use super::*;
+
+    #[test]
+    fn only_a_chosen_row_gets_the_accent_background() {
+        let theme = Theme::default();
+        let palette = theme.palette(Surface::Window);
+        let cases = [(Pose::On, true), (Pose::Off, false)];
+        for (chosen, painted) in cases {
+            let mut row = highlighted(div(), palette, chosen);
+            assert_eq!(row.style().background.is_some(), painted, "{chosen:?}");
+        }
+    }
+}

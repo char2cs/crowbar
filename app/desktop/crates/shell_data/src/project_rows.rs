@@ -17,7 +17,7 @@ pub(crate) fn of(
     project: &str,
     pending: &[PendingRow],
 ) -> Vec<Row> {
-    let mut rows = scope_rows(store, (project, ""), pending, 0);
+    let mut rows = scope_rows(store, (project, ""), pending);
     let mut repos: Vec<&RepoRecord> = store
         .repos
         .values()
@@ -25,7 +25,7 @@ pub(crate) fn of(
         .collect();
     repos.sort_by(|a, b| (a.order, &a.id).cmp(&(b.order, &b.id)));
     for repo in repos {
-        let body = scope_rows(store, (project, &repo.id), pending, 1);
+        let body = scope_rows(store, (project, &repo.id), pending);
         rows.push(header(store, repo, body.len()));
         rows.extend(body);
     }
@@ -36,8 +36,8 @@ fn scope_rows(
     store: &EntityStore,
     (project, repo): (&str, &str),
     pending: &[PendingRow],
-    depth: u8,
 ) -> Vec<Row> {
+    let depth = u8::from(!repo.is_empty());
     let ScopeItems { items, owners } = scope_items::of(store, (project, repo), pending);
     let trees = forest::fold_owners(forest::build(&items), &owners);
     let emitter = RowEmitter {

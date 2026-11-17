@@ -68,56 +68,99 @@ impl MergeInputs<'_> {
 mod tests {
     use super::*;
 
-    fn reason(
-        (added, uncommitted, status): (u32, usize, &str),
-        (open_threads, can_merge, has_parent): (u32, bool, bool),
-    ) -> Option<String> {
+    struct Case<'a> {
+        added: u32,
+        uncommitted: usize,
+        status: &'a str,
+        open_threads: u32,
+        can_merge: bool,
+        has_parent: bool,
+    }
+
+    fn reason(case: &Case<'_>) -> Option<String> {
         let workspace = WorkspaceRecord {
-            added,
-            status: status.to_owned(),
-            can_merge_locally: can_merge,
+            added: case.added,
+            status: case.status.to_owned(),
+            can_merge_locally: case.can_merge,
             ..WorkspaceRecord::default()
         };
         let inputs = MergeInputs {
-            parent: has_parent.then_some("main"),
-            uncommitted,
-            open_threads,
+            parent: case.has_parent.then_some("main"),
+            uncommitted: case.uncommitted,
+            open_threads: case.open_threads,
             workspace: &workspace,
         };
         inputs.blocked()
     }
 
+    const MERGEABLE: Case<'static> = Case {
+        added: 3,
+        uncommitted: 0,
+        status: "",
+        open_threads: 0,
+        can_merge: true,
+        has_parent: true,
+    };
+
     #[test]
-    fn the_first_applicable_reason_blocks_the_merge() {
+    fn a_branch_with_nothing_or_unsettled_work_cannot_merge() {
         let cases = [
             (
-                reason((0, 0, ""), (0, true, true)),
+                Case {
+                    added: 0,
+                    ..MERGEABLE
+                },
                 "Nothing to merge yet — this branch has no changes.",
             ),
             (
-                reason((3, 2, ""), (0, true, true)),
+                Case {
+                    uncommitted: 2,
+                    ..MERGEABLE
+                },
                 "2 uncommitted changes — commit them first.",
             ),
             (
-                reason((3, 0, "pr-conflicts"), (0, true, true)),
+                Case {
+                    status: "pr-conflicts",
+                    ..MERGEABLE
+                },
                 "Conflicts with main — resolve them first.",
             ),
+        ];
+        for (case, expected) in cases {
+            assert_eq!(reason(&case).as_deref(), Some(expected));
+        }
+        assert_eq!(reason(&MERGEABLE), None);
+    }
+
+    #[test]
+    fn a_protected_orphaned_or_discussed_branch_cannot_merge() {
+        let cases = [
             (
-                reason((3, 0, ""), (0, false, true)),
+                Case {
+                    can_merge: false,
+                    ..MERGEABLE
+                },
                 "main is protected — open a pull request instead.",
             ),
             (
-                reason((3, 0, ""), (0, true, false)),
+                Case {
+                    has_parent: false,
+                    ..MERGEABLE
+                },
                 "This branch has no parent to merge into.",
             ),
             (
-                reason((3, 0, ""), (1, true, true)),
+                Case {
+                    open_threads: 1,
+                    ..MERGEABLE
+                },
                 "1 open thread must be resolved before merging.",
             ),
         ];
-        for (found, expected) in cases {
-            assert_eq!(found.as_deref(), Some(expected));
+        for (case, expected) in cases {
+            assert_eq!(reason(&case).as_deref(), Some(expected));
         }
-        assert_eq!(reason((3, 0, ""), (0, true, true)), None);
+        assert_eq!(reason(&MERGEABLE), None);
     }
 }

@@ -1,8 +1,8 @@
 //! What the sidebar reads, derived from the shared state.
 
 use sidebar::{
-    Changes, FileRow, Focus, Host, HostId, HostKind, MoveTarget, Notice, Project, ProjectId,
-    ProjectTree, Reach, RowKind, ScopeSync,
+    Changes, FileRow, Focus, HostId, MoveTarget, Notice, Project, ProjectId, ProjectTree, Reach,
+    RowKind, ScopeSync,
 };
 
 use crate::file_rows;
@@ -35,27 +35,6 @@ pub(crate) fn sync(state: &State) -> ScopeSync {
         return ScopeSync::Ready;
     }
     ScopeSync::Pending
-}
-
-pub(crate) fn hosts(state: &State) -> Vec<Host> {
-    state.hosts.iter().map(host_of_slot).collect()
-}
-
-fn host_of_slot(slot: &HostSlot) -> Host {
-    Host {
-        id: HostId::from(slot.spec.id.as_str()),
-        name: slot.spec.name.clone(),
-        kind: host_kind(slot),
-        state: slot.link.host_state(),
-        endpoint: slot.spec.endpoint.clone(),
-    }
-}
-
-fn host_kind(slot: &HostSlot) -> HostKind {
-    if slot.spec.endpoint.is_some() {
-        return HostKind::Remote;
-    }
-    HostKind::Local
 }
 
 fn reach_of(slot: &HostSlot) -> Reach {
@@ -181,7 +160,7 @@ pub(crate) fn changes(state: &State) -> Changes {
 
 #[cfg(test)]
 mod tests {
-    use sidebar::{Focus, HostState, ProjectId, Reach, RowId, ScopeSync};
+    use sidebar::{Focus, ProjectId, Reach, RowId, ScopeSync};
 
     use super::*;
     use crate::entity_store::EntityStore;
@@ -194,11 +173,6 @@ mod tests {
         assert_eq!(sync(state), ScopeSync::Ready);
         assert_eq!(projects(state).len(), 1);
         assert_eq!(active_project(state), Some(ProjectId::from("p")));
-        let hosts = hosts(state);
-        assert_eq!(
-            (hosts[0].name.as_str(), hosts[0].state),
-            ("This computer", HostState::Probing)
-        );
     }
 
     fn tree_reach_follows_the_stream(state: &mut State) {

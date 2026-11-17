@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicBool;
 
 use gpui::{AppContext as _, Context, Entity, Subscription, Window};
 use layout_view::LayoutView;
-use shell_data::ShellData;
+use shell_data::{ShellData, ShellWiring};
 use sidebar::{Preferences, Sidebar, SidebarData};
 use startup_view::{MonotonicClock, StartupTiming, StartupView};
 use tab_bar::TabBar;
@@ -41,13 +41,13 @@ pub(super) fn start_data(
     requests: &async_channel::Sender<ShellRequest>,
 ) -> (Rc<ShellData>, Arc<AtomicBool>) {
     let queued = Arc::new(AtomicBool::new(false));
-    let callbacks = crate::data_signal::callbacks(requests, &queued);
-    let data = ShellData::start(
-        &link.handle(),
-        &link.transport(),
-        (link.hosts(), link.desk()),
-        callbacks,
-    );
+    let (signal, outcome) = crate::data_signal::callbacks(requests, &queued);
+    let wiring = ShellWiring {
+        desk: link.desk(),
+        signal,
+        outcome,
+    };
+    let data = ShellData::start(&link.handle(), &link.transport(), link.hosts(), wiring);
     (Rc::new(data), queued)
 }
 

@@ -4,6 +4,7 @@ use sidebar::Error;
 
 use crate::file_done::FileDone;
 use crate::file_entry::FileEntry;
+use crate::file_error::FileError;
 use crate::file_session::FileSession;
 use crate::sidebar_commands::SidebarCommands;
 
@@ -18,23 +19,23 @@ fn paths_by_kind(entries: Vec<FileEntry>) -> (Vec<String>, Vec<String>) {
     (paths(directories), paths(files))
 }
 
+fn sorted(mut paths: Vec<String>) -> Vec<String> {
+    paths.sort();
+    paths
+}
+
 async fn walk(
     session: &FileSession,
     root: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, FileError> {
     let mut directories = vec![root.to_owned()];
     let mut files = Vec::new();
     while let Some(directory) = directories.pop() {
-        let entries = session
-            .list(&directory)
-            .await
-            .map_err(|error| error.to_string())?;
-        let (more_directories, more_files) = paths_by_kind(entries);
+        let (more_directories, more_files) = paths_by_kind(session.list(&directory).await?);
         directories.extend(more_directories);
         files.extend(more_files);
     }
-    files.sort();
-    Ok(files)
+    Ok(sorted(files))
 }
 
 impl SidebarCommands {
@@ -62,25 +63,11 @@ mod tests {
 
     use serde_json::json;
 
-    use tokio::runtime::Handle;
-
     use super::*;
-    use crate::fleet::Fleet;
-    use crate::hub::Hub;
-    use crate::test_support::{FakeDaemon, state};
+    use crate::test_support::{FakeDaemon, followed_commands};
 
     fn commands() -> (SidebarCommands, Arc<FakeDaemon>) {
-        let (mut state, daemon) = state();
-        state.panels.follow(Some("hc".into()));
-        let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
-        let hub = Hub::new(state, Arc::new(|| {}));
-        let commands = SidebarCommands {
-            fleet: Fleet::new(&Handle::current(), &hub, &transport),
-            hub,
-            handle: Handle::current(),
-            outcome: Arc::new(|_| {}),
-        };
-        (commands, daemon)
+        followed_commands(Arc::new(|_| {}), &Arc::default())
     }
 
     #[tokio::test]

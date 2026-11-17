@@ -32,7 +32,7 @@ pub(crate) fn reason(
 mod tests {
     use super::*;
     use crate::host_note::HostNote;
-    use crate::test_support::state;
+    use crate::test_support::{notes, state};
 
     #[test]
     fn a_known_address_or_a_known_fingerprint_is_already_paired() {
@@ -40,8 +40,7 @@ mod tests {
         state.hosts[0].spec.endpoint = Some("box:3737".into());
         state.hosts[0].spec.name = "Lab".into();
         let hub = Hub::new(state, std::sync::Arc::new(|| {}));
-        let dir = tempfile::tempdir().unwrap();
-        let notes = HostNotes::open(dir.path().join("n.json")).unwrap();
+        let notes = notes();
         let note = HostNote {
             name: "Den".into(),
             client_id: "c".into(),

@@ -79,9 +79,7 @@ app/desktop/crates/settings_ui/src/settings_backend.rs	trait-size	1
 app/desktop/crates/settings_ui/src/settings_state.rs	fn-count	1
 app/desktop/crates/shell_data/src/icon_fetch.rs	real-infra	4
 app/desktop/crates/shell_data/src/legacy_sqlite.rs	real-infra	1
-app/desktop/crates/shell_data/src/shell_data.rs	real-infra	1
 app/desktop/crates/shell_data/src/sidebar_view.rs	fn-count	1
-app/desktop/crates/shell_data/src/test_support/fake_book.rs	real-infra	2
 app/desktop/crates/sidebar/src/demo_data.rs	fn-count	1
 app/desktop/crates/sidebar/src/sidebar_data.rs	fn-count	1
 app/desktop/crates/sidebar/src/sidebar_data.rs	trait-size	1

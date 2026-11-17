@@ -74,7 +74,7 @@ fn chat_target(
     chat: &ChatRecord,
 ) -> Target {
     let scope = (chat.project_id.as_str(), chat.repo_id.as_str());
-    let kind = chat_kind(store, scope, &chat.id, &chat.workspace_id);
+    let kind = chat_kind(store, chat);
     of(&chat.id, scope, kind)
 }
 
@@ -101,31 +101,28 @@ fn branch(ws: &WorkspaceRecord) -> TargetKind {
 
 fn chat_kind(
     store: &EntityStore,
-    (project, repo): (&str, &str),
-    id: &str,
-    ground: &str,
+    chat: &ChatRecord,
 ) -> TargetKind {
-    let checkout = scope_items::default_workspace(store, (project, repo));
+    let checkout = scope_items::default_workspace(store, (&chat.project_id, &chat.repo_id));
     let header = checkout
-        .filter(|ws| ws.owning_chat_id == id && !repo.is_empty())
+        .filter(|ws| ws.owning_chat_id == chat.id && !chat.repo_id.is_empty())
         .map(|ws| TargetKind::RepoHeader {
             workspace: ws.id.clone(),
         });
-    header.unwrap_or_else(|| owned_kind(store, id, ground))
+    header.unwrap_or_else(|| owned_kind(store, chat))
 }
 
 fn owned_kind(
     store: &EntityStore,
-    id: &str,
-    ground: &str,
+    chat: &ChatRecord,
 ) -> TargetKind {
     let owned = store
         .workspaces
         .values()
-        .find(|ws| ws.owning_chat_id == id && !ws.is_default && !ws.repo_id.is_empty());
+        .find(|ws| ws.owning_chat_id == chat.id && !ws.is_default && !ws.repo_id.is_empty());
     owned.map_or_else(
         || TargetKind::Chat {
-            workspace: ground.to_owned(),
+            workspace: chat.workspace_id.clone(),
         },
         branch,
     )

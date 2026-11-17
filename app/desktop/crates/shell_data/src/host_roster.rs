@@ -11,7 +11,6 @@ use crate::daemon_client::DaemonClient;
 use crate::error::Error;
 use crate::fleet::Fleet;
 use crate::host_desk::HostDesk;
-use crate::hub::Hub;
 use crate::outcome::{Outcome, OutcomeSink};
 
 const REFUSED_BY_HOST: u16 = 401;
@@ -20,7 +19,6 @@ const NO_CLIENT_ID: &str =
 const STILL_LISTED: &str = "It will still list this computer as paired.";
 
 pub(crate) struct HostRoster {
-    hub: Arc<Hub>,
     fleet: Arc<Fleet>,
     desk: HostDesk,
     outcome: OutcomeSink,
@@ -29,11 +27,10 @@ pub(crate) struct HostRoster {
 
 impl HostRoster {
     pub(crate) fn new(
-        (hub, fleet, desk): (Arc<Hub>, Arc<Fleet>, HostDesk),
+        (fleet, desk): (Arc<Fleet>, HostDesk),
         (outcome, signal): (OutcomeSink, ChangeSignal),
     ) -> Arc<Self> {
         Arc::new(Self {
-            hub,
             fleet,
             desk,
             outcome,
@@ -65,7 +62,7 @@ impl HostRoster {
         &self,
         host: &str,
     ) -> Option<DaemonClient> {
-        self.hub.read(|state| {
+        self.fleet.hub().read(|state| {
             state
                 .hosts
                 .iter()
@@ -97,7 +94,7 @@ impl HostRoster {
         why: &str,
     ) {
         let message = format!("Couldn’t revoke it on the host: {why} {STILL_LISTED}");
-        self.hub.edit(|state| {
+        self.fleet.hub().edit(|state| {
             state.unrevoked.insert(host.to_owned(), message.clone());
         });
         (self.outcome)(Outcome::Failed(message));
@@ -111,7 +108,7 @@ impl HostRoster {
         self.fleet.forget(host);
         if let Err(error) = self.desk.book.unpair(host).await {
             tracing::warn!(%error, host, "the key of a removed host could not be forgotten");
-            (self.outcome)(Outcome::Failed(error));
+            (self.outcome)(Outcome::Failed(error.to_string()));
         }
         if let Err(error) = self.desk.notes.remove(host) {
             tracing::warn!(%error, host, "the note of a removed host could not be dropped");
@@ -126,9 +123,9 @@ mod tests {
 
     use super::*;
     use crate::host_note::HostNote;
-    use crate::host_notes::HostNotes;
     use crate::host_spec::HostSpec;
-    use crate::test_support::{CLIENT, FakeBook, FakeDaemon, state};
+    use crate::hub::Hub;
+    use crate::test_support::{CLIENT, FakeBook, FakeDaemon, notes, state};
 
     struct Rig {
         roster: Arc<HostRoster>,
@@ -137,14 +134,10 @@ mod tests {
         hub: Arc<Hub>,
         told: Arc<Mutex<Vec<Outcome>>>,
         fleet: Arc<Fleet>,
-        _dir: tempfile::TempDir,
     }
 
-    fn desk_in(
-        dir: &tempfile::TempDir,
-        book: &Arc<FakeBook>,
-    ) -> HostDesk {
-        let notes = Arc::new(HostNotes::open(dir.path().join("n.json")).unwrap());
+    fn desk_in(book: &Arc<FakeBook>) -> HostDesk {
+        let notes = Arc::new(notes());
         let note = HostNote {
             name: "Lab".into(),
             client_id: CLIENT.into(),
@@ -163,8 +156,7 @@ mod tests {
         let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
         let hub = Hub::new(state, Arc::new(|| {}));
         let fleet = Fleet::new(&Handle::current(), &hub, &transport);
-        let dir = tempfile::tempdir().unwrap();
-        let desk = desk_in(&dir, &book);
+        let desk = desk_in(&book);
         let spec = HostSpec {
             id: "lab".into(),
             name: "Lab".into(),
@@ -174,10 +166,7 @@ mod tests {
         let told = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&told);
         let outcome: OutcomeSink = Arc::new(move |outcome| sink.lock().unwrap().push(outcome));
-        let roster = HostRoster::new(
-            (Arc::clone(&hub), Arc::clone(&fleet), desk),
-            (outcome, Arc::new(|| {})),
-        );
+        let roster = HostRoster::new((Arc::clone(&fleet), desk), (outcome, Arc::new(|| {})));
         Rig {
             roster,
             book,
@@ -185,7 +174,6 @@ mod tests {
             hub,
             told,
             fleet,
-            _dir: dir,
         }
     }
 

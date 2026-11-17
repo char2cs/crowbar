@@ -11,13 +11,11 @@ const HIDDEN_DIRECTORIES: &str = "hiddenDirectoryPatterns";
 const COMPACT_BADGES: &str = "compactGitStatusBadges";
 const ICON_THEME: &str = "iconTheme";
 
-fn switch(
+fn stored_flag(
     read: &impl Fn(&str) -> Option<Value>,
-    (key, fallback): (&str, bool),
-) -> bool {
-    read(key)
-        .and_then(|value| value.as_bool())
-        .unwrap_or(fallback)
+    key: &str,
+) -> Option<bool> {
+    read(key).and_then(|value| value.as_bool())
 }
 
 fn patterns(
@@ -46,18 +44,18 @@ pub(crate) fn view_of(read: impl Fn(&str) -> Option<Value>) -> FileTreeView {
     let base = FileTreeView::default();
     let shown = FileTreeFlag::ALL
         .into_iter()
-        .filter(|flag| switch(&read, (flag.setting_key(), base.flag(*flag))))
+        .filter(|flag| stored_flag(&read, flag.setting_key()).unwrap_or_else(|| base.flag(*flag)))
         .collect();
     FileTreeView {
         indent: indent(&read, base.indent),
         density: read(DENSITY)
             .and_then(|value| value.as_text().map(FileDensity::from_setting))
             .unwrap_or(base.density),
-        compact_folders: switch(&read, (COMPACT_FOLDERS, base.compact_folders)),
+        compact_folders: stored_flag(&read, COMPACT_FOLDERS).unwrap_or(base.compact_folders),
         shown,
         hidden_files: patterns(&read, HIDDEN_FILES),
         hidden_directories: patterns(&read, HIDDEN_DIRECTORIES),
-        compact_badges: switch(&read, (COMPACT_BADGES, base.compact_badges)),
+        compact_badges: stored_flag(&read, COMPACT_BADGES).unwrap_or(base.compact_badges),
         icons: read(ICON_THEME)
             .and_then(|value| value.as_text().map(IconTheme::from_setting))
             .unwrap_or(base.icons),

@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+use crate::book_error::BookError;
 use crate::host_book::{BookFuture, HostBook};
 use crate::pairing_request::PairingRequest;
 
@@ -47,7 +48,9 @@ fn answer<T: Send + 'static>(
     failure: Option<String>,
     value: T,
 ) -> BookFuture<T> {
-    Box::pin(std::future::ready(failure.map_or(Ok(value), Err)))
+    Box::pin(std::future::ready(failure.map_or(Ok(value), |text| {
+        Err(BookError::new(std::io::Error::other(text)))
+    })))
 }
 
 impl HostBook for FakeBook {
@@ -75,15 +78,12 @@ impl HostBook for FakeBook {
     }
 }
 
-/// A desk over a fake book and notes in a temporary directory, which lives as long as it does.
-pub(crate) fn desk() -> (crate::host_desk::HostDesk, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let notes = crate::host_notes::HostNotes::open(dir.path().join("paired.json")).unwrap();
-    let desk = crate::host_desk::HostDesk {
+/// A desk over a fake book and in-memory notes.
+pub(crate) fn desk() -> crate::host_desk::HostDesk {
+    crate::host_desk::HostDesk {
         book: std::sync::Arc::new(FakeBook::default()),
-        notes: std::sync::Arc::new(notes),
-    };
-    (desk, dir)
+        notes: std::sync::Arc::new(super::notes()),
+    }
 }
 
 /// A fleet over `hub` and a desk, for tests that open a settings core.
@@ -95,7 +95,5 @@ pub(crate) fn fleet_and_desk(
 ) {
     let transport: std::sync::Arc<dyn protocol::DaemonTransport> = super::FakeDaemon::shared();
     let fleet = crate::fleet::Fleet::new(&tokio::runtime::Handle::current(), hub, &transport);
-    let (desk, dir) = desk();
-    drop(dir.keep());
-    (fleet, desk)
+    (fleet, desk())
 }

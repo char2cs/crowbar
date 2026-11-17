@@ -18,8 +18,7 @@ use crate::target_kind::TargetKind;
 
 const NEW_THREAD: &str = "New thread";
 const NEW_WORKSPACE: &str = "New workspace";
-const NEW_FOLDER: &str = "New folder";
-const PARENT_ID: &str = "parentId";
+pub(crate) const PARENT_ID: &str = "parentId";
 const NAME: &str = "name";
 
 pub(crate) fn home_thread(
@@ -92,44 +91,6 @@ pub(crate) fn fork(
         .with_provider())
 }
 
-pub(crate) fn folder(
-    state: &State,
-    row: Option<&str>,
-    project: Option<&ProjectId>,
-) -> Result<Plan, PlanError> {
-    let (project_id, repo, parent, host) =
-        row.map_or_else(|| at_top(state, project), |row| beside(state, row))?;
-    let call = Call::post(routes::folders(&project_id, &repo))
-        .json(json!({NAME: NEW_FOLDER, PARENT_ID: parent}));
-    Ok(Plan::of(&host, vec![call]))
-}
-
-type FolderPlace = (String, String, String, String);
-
-fn beside(
-    state: &State,
-    row: &str,
-) -> Result<FolderPlace, PlanError> {
-    let target = resolve(state, row).ok_or(PlanError::RowNotLoaded)?;
-    let parent = folder_parent(&target)?;
-    let host = host_id(state, &target)?;
-    Ok((target.project, target.repo, parent, host))
-}
-
-fn at_top(
-    state: &State,
-    project: Option<&ProjectId>,
-) -> Result<FolderPlace, PlanError> {
-    let project = project.ok_or(PlanError::NoSpaceOpen)?;
-    let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
-    Ok((
-        project.as_str().to_owned(),
-        String::new(),
-        String::new(),
-        slot.spec.id.clone(),
-    ))
-}
-
 pub(crate) fn make_branch(
     state: &State,
     (row, name): (&str, &str),
@@ -174,14 +135,6 @@ pub(crate) fn repo(
     Ok(Plan::of(&slot.spec.id, vec![call]))
 }
 
-fn folder_parent(target: &Target) -> Result<String, PlanError> {
-    match target.kind {
-        TargetKind::Folder => Ok(target.id.clone()),
-        TargetKind::Branch { .. } => Ok(target.chat()?.to_owned()),
-        _ => Ok(String::new()),
-    }
-}
-
 fn workspace_for(
     state: &State,
     target: &Target,
@@ -195,7 +148,7 @@ fn workspace_for(
         .ok_or(PlanError::NoWorkspaceToRunIn)
 }
 
-fn host_id(
+pub(crate) fn host_id(
     state: &State,
     target: &Target,
 ) -> Result<String, PlanError> {
@@ -266,12 +219,9 @@ mod tests {
         assert_eq!(body["surface"].as_str(), Some("terminal"));
     }
 
-    fn a_fork_of_a_home_row_is_refused_and_a_folder_with_no_row_needs_a_space() {
+    fn a_fork_of_a_home_row_is_refused() {
         let (state, _) = state();
         assert!(fork(&state, ("hc", ""), "n").is_err());
-        assert!(folder(&state, None, None).is_err());
-        let root = folder(&state, None, Some(&ProjectId::from("p"))).unwrap();
-        assert_eq!(root.calls[0].path, "/v0/projects/p/home/chats/folders");
     }
 
     fn make_branch_names_the_branch() {
@@ -310,7 +260,7 @@ mod tests {
         a_repo_is_added_on_the_host_of_its_space_local_or_remote,
         a_repo_needs_an_open_space_and_a_named_folder,
         a_thread_under_a_chat_runs_in_its_workspace_and_a_home_thread_in_the_home,
-        a_fork_of_a_home_row_is_refused_and_a_folder_with_no_row_needs_a_space,
+        a_fork_of_a_home_row_is_refused,
         make_branch_names_the_branch,
     ];
 

@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 use tokio::runtime::Handle;
 
-use crate::availability::Availability;
 use crate::branch_entry::BranchEntry;
 use crate::branch_listing::BranchListing;
+use crate::branch_rows;
 use crate::call::Call;
 use crate::change_signal::ChangeSignal;
 use crate::daemon_client::DaemonClient;
@@ -16,7 +16,6 @@ use crate::daemon_read::read;
 use crate::error::Error;
 use crate::held::Held;
 use crate::hub::Hub;
-use crate::import_branch::ImportBranch;
 use crate::import_plan::{self, ImportPlan};
 use crate::import_scope::ImportScope;
 use crate::loadable::Loadable;
@@ -73,10 +72,6 @@ fn scope_of(
         default_branch,
     };
     Some((scope, slot.client.clone()))
-}
-
-fn availability_rank(branch: &BranchEntry) -> bool {
-    branch.availability() != Availability::Protected
 }
 
 impl BranchImport {
@@ -147,7 +142,7 @@ impl BranchImport {
             return BranchListing::Failed;
         };
         match &held.branches {
-            Loadable::Ready(list) => BranchListing::Ready(rows(list)),
+            Loadable::Ready(list) => BranchListing::Ready(branch_rows::of(list)),
             Loadable::Failed => BranchListing::Failed,
             Loadable::Loading => BranchListing::Loading,
         }
@@ -195,25 +190,14 @@ impl BranchImport {
     }
 }
 
-fn rows(list: &[BranchEntry]) -> Vec<ImportBranch> {
-    let (free, protected): (Vec<_>, Vec<_>) =
-        list.iter().partition(|branch| availability_rank(branch));
-    protected
-        .into_iter()
-        .chain(free)
-        .map(|branch| ImportBranch {
-            name: branch.name.clone(),
-            availability: branch.availability(),
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use tokio::sync::Notify;
 
     use super::*;
+    use crate::availability::Availability;
     use crate::hub::Hub;
+    use crate::import_branch::ImportBranch;
     use crate::test_support::{FakeDaemon, state};
 
     const BRANCHES: &str = r#"[{"name":"free"},{"name":"main","isProtected":true},{"name":"done","hasWorkspace":true}]"#;

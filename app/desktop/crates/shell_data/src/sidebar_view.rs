@@ -8,6 +8,7 @@ use sidebar::{
 };
 
 use crate::files_reads;
+use crate::host_reads;
 use crate::hub::Hub;
 use crate::settings_slot::SettingsSlot;
 use crate::sidebar_reads as reads;
@@ -35,7 +36,7 @@ impl SidebarData for SidebarView {
     }
 
     fn hosts(&self) -> Vec<Host> {
-        self.hub.read(reads::hosts)
+        self.hub.read(host_reads::hosts)
     }
 
     fn projects(&self) -> Vec<Project> {

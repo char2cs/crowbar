@@ -2,20 +2,26 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use settings_ui::Value;
 
 use crate::error::{Error, Result};
+use crate::file_store::{FileStore, read_text};
 use crate::value_json::{from_json, to_json};
 
 #[derive(Debug, Clone)]
 pub(crate) struct SettingFile {
     path: PathBuf,
+    files: Arc<dyn FileStore>,
 }
 
 impl SettingFile {
-    pub(crate) fn new(path: PathBuf) -> Self {
-        Self { path }
+    pub(crate) fn new(
+        path: PathBuf,
+        files: Arc<dyn FileStore>,
+    ) -> Self {
+        Self { path, files }
     }
 
     pub(crate) fn load(&self) -> Result<BTreeMap<String, Value>> {
@@ -31,11 +37,7 @@ impl SettingFile {
     }
 
     fn read(&self) -> Result<Option<String>> {
-        match std::fs::read_to_string(&self.path) {
-            Ok(text) => Ok(Some(text)),
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(source) => Err(self.file_error(source)),
-        }
+        read_text(self.files.as_ref(), &self.path).map_err(|source| self.file_error(source))
     }
 
     pub(crate) fn save(
@@ -48,7 +50,9 @@ impl SettingFile {
             .collect();
         let text =
             serde_json::to_string_pretty(&stored).map_err(|source| self.json_error(source))?;
-        atomic_file::write(&self.path, text.as_bytes()).map_err(|source| self.file_error(source))
+        self.files
+            .write(&self.path, text.as_bytes())
+            .map_err(|source| self.file_error(source))
     }
 
     fn file_error(
@@ -75,11 +79,17 @@ impl SettingFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::FakeFiles;
+
+    const PATH: &str = "/state/settings.json";
+
+    fn file_on(files: &Arc<FakeFiles>) -> SettingFile {
+        SettingFile::new(PATH.into(), Arc::<FakeFiles>::clone(files))
+    }
 
     #[test]
     fn values_saved_are_loaded_and_a_missing_file_is_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = SettingFile::new(dir.path().join("nested/settings.json"));
+        let file = file_on(&Arc::default());
         assert!(file.load().unwrap().is_empty());
         let values = BTreeMap::from([
             ("theme".to_owned(), Value::Text("dark".into())),
@@ -91,12 +101,8 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_json_is_an_error_not_an_empty_set() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.json");
-        std::fs::write(&path, "{").unwrap();
-        assert!(matches!(
-            SettingFile::new(path).load(),
-            Err(Error::Json { .. })
-        ));
+        let files = Arc::new(FakeFiles::default());
+        files.put(PATH, b"{");
+        assert!(matches!(file_on(&files).load(), Err(Error::Json { .. })));
     }
 }

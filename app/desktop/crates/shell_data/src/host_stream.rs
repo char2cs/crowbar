@@ -16,10 +16,9 @@ use crate::frame::{Frame, decode};
 use crate::hub::Hub;
 use crate::icon_fetch;
 use crate::link_state::LinkState;
-use crate::provider::Provider;
-use crate::providers;
-use crate::step::Step;
+use crate::step::{Step, next_step};
 use crate::stream_control::StreamControl;
+use crate::terminal_support::read_terminal_support;
 
 const RESYNC: &str = "resync";
 
@@ -189,32 +188,6 @@ impl HostStream {
         if outgoing.send(request).is_err() {
             tracing::debug!(host = %self.host, "the stream closed before the subscription went out");
         }
-    }
-}
-
-async fn read_terminal_support(
-    hub: &Hub,
-    host: &str,
-    client: &DaemonClient,
-) {
-    let all = match providers::list(client).await {
-        Ok(all) => all,
-        Err(error) => {
-            tracing::warn!(host, %error, "the host's agents could not be listed");
-            return;
-        },
-    };
-    let terminal = all.iter().any(Provider::offers_terminal);
-    hub.edit(|state| state.set_terminal_threads(host, Some(terminal).into()));
-}
-
-async fn next_step(
-    incoming: &mut mpsc::Receiver<String>,
-    controls: &mut mpsc::UnboundedReceiver<StreamControl>,
-) -> Step {
-    tokio::select! {
-        text = incoming.recv() => Step::Frame(text),
-        control = controls.recv() => Step::Control(control),
     }
 }
 

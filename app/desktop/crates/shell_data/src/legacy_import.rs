@@ -1,8 +1,11 @@
 //! The one-time copy of the previous desktop app's settings into the shell's settings file.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use crate::adapters::DiskFiles;
 use crate::error::{Error, Result};
+use crate::file_store::FileStore;
 use crate::legacy_locate;
 use crate::legacy_merge::merge;
 use crate::legacy_sqlite::LegacySqlite;
@@ -29,7 +32,7 @@ impl LegacyImport {
         settings: PathBuf,
     ) -> Self {
         Self {
-            database: legacy_locate::under(user_home),
+            database: legacy_locate::under(&DiskFiles::default(), user_home),
             settings,
         }
     }
@@ -41,18 +44,26 @@ impl LegacyImport {
     /// [`Error::Legacy`] when the old database exists and cannot be read, and [`Error::File`] or
     /// [`Error::Json`] when the settings file cannot be read or written.
     pub fn run(&self) -> Result<usize> {
+        let files: Arc<dyn FileStore> = Arc::new(DiskFiles::default());
+        self.run_on(&files)
+    }
+
+    fn run_on(
+        &self,
+        files: &Arc<dyn FileStore>,
+    ) -> Result<usize> {
         let marker = marker_of(&self.settings);
-        if marker.exists() {
+        if files.read(&marker).is_ok() {
             return Ok(0);
         }
         let Some(database) = &self.database else {
             return Ok(0);
         };
         let taken = import(
-            &SettingFile::new(self.settings.clone()),
+            &SettingFile::new(self.settings.clone(), Arc::clone(files)),
             &LegacySqlite::new(database.clone()),
         )?;
-        atomic_file::write(&marker, b"").map_err(|source| Error::File {
+        files.write(&marker, b"").map_err(|source| Error::File {
             path: marker,
             source,
         })?;
@@ -78,23 +89,24 @@ fn marker_of(settings: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::*;
+    use crate::legacy_store::Entries;
+    use crate::test_support::FakeFiles;
 
-    struct Fixed(BTreeMap<String, String>);
+    struct Fixed(Entries);
 
     impl LegacyStore for Fixed {
-        fn entries(&self) -> Result<BTreeMap<String, String>> {
+        fn entries(&self) -> Result<Entries> {
             Ok(self.0.clone())
         }
     }
 
+    const SETTINGS: &str = "/state/settings.json";
+
     #[test]
     fn imported_settings_reach_the_file_and_existing_ones_stay() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = SettingFile::new(dir.path().join("settings.json"));
-        let entries = BTreeMap::from([
+        let file = SettingFile::new(SETTINGS.into(), Arc::new(FakeFiles::default()));
+        let entries = Entries::from([
             (
                 "crowbar:settings:themeMode".to_owned(),
                 "\"dark\"".to_owned(),
@@ -108,19 +120,22 @@ mod tests {
 
     #[test]
     fn the_marker_stops_a_second_import_and_no_database_leaves_no_marker() {
-        let dir = tempfile::tempdir().unwrap();
-        let settings = dir.path().join("settings.json");
+        let files: Arc<FakeFiles> = Arc::default();
+        let store: Arc<dyn FileStore> = Arc::<FakeFiles>::clone(&files);
+        let settings = PathBuf::from(SETTINGS);
         let none = LegacyImport {
             database: None,
             settings: settings.clone(),
         };
-        assert_eq!(none.run().unwrap(), 0);
-        assert!(!marker_of(&settings).exists());
+        assert_eq!(none.run_on(&store).unwrap(), 0);
+        assert!(store.read(&marker_of(&settings)).is_err());
         let missing = LegacyImport {
-            database: Some(dir.path().join("absent.localstorage")),
+            database: Some("/absent.localstorage".into()),
             settings: settings.clone(),
         };
-        assert!(missing.run().is_err());
-        assert!(!marker_of(&settings).exists());
+        assert!(missing.run_on(&store).is_err());
+        assert!(store.read(&marker_of(&settings)).is_err());
+        files.put("/state/legacy-imported", b"");
+        assert_eq!(missing.run_on(&store).unwrap(), 0);
     }
 }

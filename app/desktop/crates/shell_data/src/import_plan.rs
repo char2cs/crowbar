@@ -1,9 +1,10 @@
 //! What an import will do, as the dialog's hint states it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::availability::Availability;
 use crate::branch_entry::BranchEntry;
+use crate::parent_chains::ParentChains;
 use crate::pr_link::PrLink;
 
 /// How many branches come in and how many missing parents the daemon will create for them.
@@ -23,24 +24,17 @@ fn terminals(branches: &[BranchEntry]) -> HashSet<&str> {
         .collect()
 }
 
-type Chains<'a> = (
-    &'a HashMap<&'a str, &'a str>,
-    &'a HashSet<&'a str>,
-    &'a HashSet<&'a str>,
-);
-
 fn created_parents<'a>(
     branch: &'a str,
-    (base, stop, selected): Chains<'a>,
-    default_branch: &str,
+    chains: &ParentChains<'a>,
 ) -> Vec<&'a str> {
     let mut visited = HashSet::from([branch]);
-    std::iter::successors(base.get(branch).copied(), |parent| {
-        base.get(parent).copied()
+    std::iter::successors(chains.base.get(branch).copied(), |parent| {
+        chains.base.get(parent).copied()
     })
-    .take_while(|parent| *parent != default_branch && visited.insert(parent))
-    .take_while(|parent| !stop.contains(parent))
-    .filter(|parent| !selected.contains(parent))
+    .take_while(|parent| *parent != chains.default_branch && visited.insert(parent))
+    .take_while(|parent| !chains.stop.contains(parent))
+    .filter(|parent| !chains.selected.contains(parent))
     .collect()
 }
 
@@ -49,16 +43,19 @@ pub(crate) fn of(
     links: &[PrLink],
     (branches, default_branch): (&[BranchEntry], &str),
 ) -> ImportPlan {
-    let base: HashMap<&str, &str> = links
-        .iter()
-        .filter(|link| !link.head.is_empty() && !link.base.is_empty())
-        .map(|link| (link.head.as_str(), link.base.as_str()))
-        .collect();
-    let stop = terminals(branches);
-    let chosen: HashSet<&str> = selected.iter().map(String::as_str).collect();
+    let chains = ParentChains {
+        base: links
+            .iter()
+            .filter(|link| !link.head.is_empty() && !link.base.is_empty())
+            .map(|link| (link.head.as_str(), link.base.as_str()))
+            .collect(),
+        stop: terminals(branches),
+        selected: selected.iter().map(String::as_str).collect(),
+        default_branch,
+    };
     let parents: HashSet<&str> = selected
         .iter()
-        .flat_map(|branch| created_parents(branch, (&base, &stop, &chosen), default_branch))
+        .flat_map(|branch| created_parents(branch, &chains))
         .collect();
     ImportPlan {
         import_count: selected.len(),

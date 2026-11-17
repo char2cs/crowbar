@@ -3,20 +3,18 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use protocol::{DaemonTransport, HostId};
+use protocol::DaemonTransport;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
-use crate::core_origin::CORE_ORIGIN;
 use crate::daemon_client::DaemonClient;
-use crate::dial::{Dial, Dialled};
+use crate::dial::Dial;
 use crate::error::{Error, Result};
-use crate::host_slot::HostSlot;
+use crate::host_dialling::{relay_for, slot_for};
 use crate::host_spec::HostSpec;
 use crate::host_stream::HostStream;
 use crate::hub::Hub;
 use crate::member::Member;
-use crate::relay_dial::RelayDial;
 use crate::stream_control::StreamControl;
 
 pub(crate) struct Fleet {
@@ -38,30 +36,6 @@ impl std::fmt::Debug for Fleet {
     }
 }
 
-pub(crate) fn addressable(text: &str) -> Option<HostId> {
-    HostId::new(text)
-        .inspect_err(|error| tracing::warn!(host = text, %error, "a host id the transport cannot address is skipped"))
-        .ok()
-}
-
-pub(crate) fn relay_for(
-    transport: &Arc<dyn DaemonTransport>,
-    spec: HostSpec,
-) -> Option<Dialled> {
-    let id = addressable(&spec.id)?;
-    let dial: Arc<dyn Dial> = Arc::new(RelayDial::new(Arc::clone(transport), id, CORE_ORIGIN));
-    Some((spec, dial))
-}
-
-pub(crate) fn slot_for(
-    transport: &Arc<dyn DaemonTransport>,
-    spec: HostSpec,
-) -> Option<HostSlot> {
-    let id = addressable(&spec.id)?;
-    let client = DaemonClient::new(Arc::clone(transport), id);
-    Some(HostSlot::new(spec, client))
-}
-
 impl Fleet {
     pub(crate) fn new(
         handle: &Handle,
@@ -74,6 +48,14 @@ impl Fleet {
             transport: Arc::clone(transport),
             members: Mutex::default(),
         })
+    }
+
+    pub(crate) fn hub(&self) -> &Arc<Hub> {
+        &self.hub
+    }
+
+    pub(crate) fn handle(&self) -> &Handle {
+        &self.handle
     }
 
     fn held(&self) -> MutexGuard<'_, BTreeMap<String, Member>> {

@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 
 use crate::error::Result;
 
+pub(crate) type Entries = BTreeMap<String, String>;
+
 pub(crate) trait LegacyStore {
     /// Every `localStorage` entry of the old app, key to JSON text.
-    fn entries(&self) -> Result<BTreeMap<String, String>>;
+    fn entries(&self) -> Result<Entries>;
 }

@@ -7,6 +7,7 @@ use crate::git_diff_body::GitDiffBody;
 use crate::git_status_body::GitStatusBody;
 use crate::hub::Hub;
 use crate::line_counts::{self, LineCounts};
+use crate::listed_directory::ListedDirectory;
 use crate::thread_body::{self, ThreadBody};
 
 const ROOT_QUERY: &str = ".";
@@ -34,7 +35,12 @@ pub(crate) async fn load_directory(
     };
     let held = entries.clone();
     hub.edit(|state| state.panels.list(chat, directory, entries));
-    crate::ignore_files::learn(hub, client, (chat, directory), &held).await;
+    let listing = ListedDirectory {
+        chat,
+        directory,
+        entries: &held,
+    };
+    crate::ignore_files::learn(hub, client, &listing).await;
 }
 
 pub(crate) async fn load_changes(

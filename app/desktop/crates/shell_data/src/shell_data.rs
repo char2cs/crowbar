@@ -3,41 +3,33 @@
 use std::sync::Arc;
 
 use protocol::DaemonTransport;
-use sidebar::{Command, RowId};
+use sidebar::Command;
 use tokio::runtime::Handle;
 
-use crate::branch_import::BranchImport;
-use crate::change_signal::ChangeSignal;
+use crate::adapters::DiskFiles;
 use crate::chat_terminal::ChatTerminal;
 use crate::daemon_client::DaemonClient;
 use crate::dial::Dialled;
-use crate::error::{Error, Result};
-use crate::fleet::{Fleet, relay_for, slot_for};
-use crate::folder_browse::FolderBrowse;
-use crate::folder_choice::{self, FolderChoice};
+use crate::fleet::Fleet;
 use crate::host_desk::HostDesk;
+use crate::host_dialling::{relay_for, slot_for};
 use crate::host_spec::HostSpec;
 use crate::hub::Hub;
 use crate::icon_cache::IconCache;
-use crate::outcome::OutcomeSink;
-use crate::pairing_session::PairingSession;
 use crate::panel_loader;
-use crate::setting_file::SettingFile;
-use crate::settings_core::SettingsCore;
 use crate::settings_slot::SettingsSlot;
+use crate::shell_wiring::ShellWiring;
 use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_view::SidebarView;
 use crate::state::State;
-use crate::system_check::SystemCheck;
-use crate::system_fonts::SystemFonts;
 
 /// Owns the stream tasks; dropping it stops them.
 pub struct ShellData {
-    hub: Arc<Hub>,
-    commands: SidebarCommands,
-    fleet: Arc<Fleet>,
-    desk: HostDesk,
-    settings: SettingsSlot,
+    pub(crate) hub: Arc<Hub>,
+    pub(crate) commands: SidebarCommands,
+    pub(crate) fleet: Arc<Fleet>,
+    pub(crate) desk: HostDesk,
+    pub(crate) settings: SettingsSlot,
 }
 
 impl std::fmt::Debug for ShellData {
@@ -53,29 +45,33 @@ impl std::fmt::Debug for ShellData {
 }
 
 impl ShellData {
-    /// Follows `hosts` through `transport`'s relay. `signal` is called after every change and
-    /// `outcome` when a command needs the shell to act.
+    /// Follows `hosts` through `transport`'s relay, wired to the shell by `wiring`.
     ///
     /// A host whose id the transport cannot address is skipped and logged.
     pub fn start(
         handle: &Handle,
         transport: &Arc<dyn DaemonTransport>,
-        (hosts, desk): (Vec<HostSpec>, HostDesk),
-        (signal, outcome): (ChangeSignal, OutcomeSink),
+        hosts: Vec<HostSpec>,
+        wiring: ShellWiring,
     ) -> Self {
         let dialled = hosts
             .into_iter()
             .filter_map(|spec| relay_for(transport, spec))
             .collect();
-        Self::start_with(handle, transport, (dialled, desk), (signal, outcome))
+        Self::start_with(handle, transport, dialled, wiring)
     }
 
     pub(crate) fn start_with(
         handle: &Handle,
         transport: &Arc<dyn DaemonTransport>,
-        (hosts, desk): (Vec<Dialled>, HostDesk),
-        (signal, outcome): (ChangeSignal, OutcomeSink),
+        hosts: Vec<Dialled>,
+        wiring: ShellWiring,
     ) -> Self {
+        let ShellWiring {
+            desk,
+            signal,
+            outcome,
+        } = wiring;
         let (slots, dials): (Vec<_>, Vec<_>) = hosts
             .into_iter()
             .filter_map(|(spec, dial)| slot_for(transport, spec).map(|slot| (slot, dial)))
@@ -99,6 +95,7 @@ impl ShellData {
             handle: handle.clone(),
             outcome,
             fleet: Arc::clone(&fleet),
+            files: Arc::new(DiskFiles::default()),
         };
         Self {
             hub,
@@ -171,120 +168,6 @@ impl ShellData {
         )
     }
 
-    /// The import dialog's data for the repository header or branch `row`; the dialog loads the
-    /// remote branches and calls `signal` as they arrive.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when `row` is not a repository of a followed host.
-    pub fn branch_import(
-        &self,
-        row: &RowId,
-        signal: ChangeSignal,
-    ) -> Result<Arc<BranchImport>> {
-        let parts = (&self.hub, &self.commands.handle, &self.commands.outcome);
-        BranchImport::open(parts, row.as_str(), signal)
-    }
-
-    /// How the folder of a new repository is chosen for the open space.
-    pub fn folder_choice(&self) -> FolderChoice {
-        self.hub.read(folder_choice::of)
-    }
-
-    /// The remote folder picker's data for the host of the open space; the picker lists
-    /// directories as they are opened and calls `signal` as the answers arrive.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when no space is open.
-    pub fn folder_browse(
-        &self,
-        signal: ChangeSignal,
-    ) -> Result<Arc<FolderBrowse>> {
-        FolderBrowse::open((&self.hub, &self.commands.handle), signal)
-    }
-
-    /// The remote folder picker's data for the paired host `host`, for a space not yet made.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when `host` is not followed.
-    pub fn folder_browse_on(
-        &self,
-        host: &str,
-        signal: ChangeSignal,
-    ) -> Result<Arc<FolderBrowse>> {
-        FolderBrowse::open_on((&self.hub, &self.commands.handle), host, signal)
-    }
-
-    /// The settings the modal edits: the shell's file at `file`, and this computer's daemon.
-    ///
-    /// # Errors
-    /// [`Error::File`] or [`Error::Json`] when the settings file exists and cannot be read, and
-    /// [`Error::Stream`] when no local host is followed.
-    pub fn settings(
-        &self,
-        file: std::path::PathBuf,
-        signal: ChangeSignal,
-        fonts: SystemFonts,
-    ) -> Result<Arc<SettingsCore>> {
-        let local = self
-            .hub
-            .read(State::local_client)
-            .ok_or_else(|| Error::Stream("no local host is followed".to_owned()))?;
-        let parts = (
-            SettingFile::new(file),
-            Arc::clone(&self.hub),
-            self.commands.handle.clone(),
-        );
-        let core = SettingsCore::open(
-            parts,
-            (local, signal),
-            (fonts, Arc::clone(&self.commands.outcome)),
-            (Arc::clone(&self.fleet), self.desk.clone()),
-        )?;
-        let reading = Arc::clone(&core);
-        self.settings.install(move |key| reading.get(key));
-        Ok(core)
-    }
-
-    /// Probes git and the forge CLIs on this computer's daemon, signalling `signal` as each answers.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when no local host is followed.
-    pub fn system_check(
-        &self,
-        signal: ChangeSignal,
-    ) -> Result<Arc<SystemCheck>> {
-        let local = self
-            .hub
-            .read(State::local_client)
-            .ok_or_else(|| Error::Stream("no local host is followed".to_owned()))?;
-        Ok(SystemCheck::start(
-            local,
-            self.commands.handle.clone(),
-            signal,
-        ))
-    }
-
-    /// Whether this install follows a daemon of its own; a phone does not.
-    pub fn has_local_host(&self) -> bool {
-        self.hub.read(|state| state.local_client().is_some())
-    }
-
-    /// A fresh attempt at pairing a host, signalling `signal` after each of its steps.
-    pub fn pairing(
-        &self,
-        signal: ChangeSignal,
-    ) -> Arc<PairingSession> {
-        PairingSession::new(
-            (
-                Arc::clone(&self.hub),
-                Arc::clone(&self.fleet),
-                self.desk.clone(),
-            ),
-            self.commands.handle.clone(),
-            signal,
-        )
-    }
-
     /// Follows the chat of the focused pane: the Files and Changes panels show its workspace.
     /// Following the chat already followed does nothing.
     pub fn focus_chat(
@@ -319,6 +202,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::dial::Dial;
+    use crate::error::{Error, Result};
     use protocol::DaemonTransport;
     use sidebar::{Command, CommandSink as _, ProjectId, RowId, ScopeSync, SidebarData as _};
     use tokio::sync::{Notify, mpsc};
@@ -364,7 +248,6 @@ mod tests {
         requests: mpsc::UnboundedReceiver<String>,
         changed: Arc<Notify>,
         opened: Opened,
-        _dir: tempfile::TempDir,
     }
 
     fn start() -> Rig {
@@ -382,10 +265,6 @@ mod tests {
         let wake = Arc::clone(&changed);
         let opened = Opened::default();
         let keep = Arc::clone(&opened);
-        let sinks: (ChangeSignal, OutcomeSink) = (
-            Arc::new(move || wake.notify_one()),
-            Arc::new(move |outcome| keep.lock().unwrap().push(outcome)),
-        );
         let spec = HostSpec {
             id: "local".into(),
             name: "This computer".into(),
@@ -393,11 +272,15 @@ mod tests {
         };
         let dial: Arc<dyn Dial> =
             Arc::new(Once(Mutex::new(Some(Connection { incoming, outgoing }))));
-        let (desk, dir) = crate::test_support::desk();
-        let hosts = (vec![(spec, dial)], desk);
-        let data = ShellData::start_with(&Handle::current(), &transport, hosts, sinks);
+        let desk = crate::test_support::desk();
+        let wiring = ShellWiring {
+            desk,
+            signal: Arc::new(move || wake.notify_one()),
+            outcome: Arc::new(move |outcome| keep.lock().unwrap().push(outcome)),
+        };
+        let data =
+            ShellData::start_with(&Handle::current(), &transport, vec![(spec, dial)], wiring);
         Rig {
-            _dir: dir,
             data,
             frames_in,
             requests,

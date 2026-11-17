@@ -248,7 +248,7 @@ async fn deliver<V: 'static, T: Send + 'static>(
     };
     this.update_in(cx, |this, window, cx| match answer {
         Ok(value) => then(this, value, window, cx),
-        Err(reason) => failed(this, reason, cx),
+        Err(reason) => failed(this, reason.to_string(), cx),
     })
     .ok();
 }

@@ -65,14 +65,12 @@ mod tests {
         dir: &std::path::Path,
     ) -> shell_data::ShellData {
         let transport: Arc<dyn DaemonTransport> = Arc::new(NoDaemon);
-        let callbacks: (shell_data::ChangeSignal, shell_data::OutcomeSink) =
-            (Arc::new(|| {}), Arc::new(|_| {}));
-        shell_data::ShellData::start(
-            runtime.handle(),
-            &transport,
-            (Vec::new(), desk(dir)),
-            callbacks,
-        )
+        let wiring = shell_data::ShellWiring {
+            desk: desk(dir),
+            signal: Arc::new(|| {}),
+            outcome: Arc::new(|_| {}),
+        };
+        shell_data::ShellData::start(runtime.handle(), &transport, Vec::new(), wiring)
     }
 
     #[test]

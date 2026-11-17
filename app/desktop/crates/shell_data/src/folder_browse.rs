@@ -11,10 +11,9 @@ use crate::daemon_read::read;
 use crate::error::Error;
 use crate::folder_held::FolderHeld;
 use crate::folder_listing::FolderListing;
-use crate::followed::Followed;
+use crate::followed::{self, Followed};
 use crate::hub::Hub;
 use crate::query_encode::encode;
-use crate::sidebar_reads::{active_project, host_of};
 
 /// The directory the picker starts from.
 pub const ROOT_PATH: &str = "/";
@@ -40,31 +39,13 @@ impl std::fmt::Debug for FolderBrowse {
     }
 }
 
-fn followed(
-    state: &crate::state::State,
-    host: &str,
-) -> Option<Followed> {
-    let slot = state.hosts.iter().find(|slot| slot.spec.id == host)?;
-    Some(Followed {
-        id: slot.spec.id.clone(),
-        name: slot.spec.name.clone(),
-        client: slot.client.clone(),
-    })
-}
-
-fn host_of_open_space(state: &crate::state::State) -> Option<Followed> {
-    let project = active_project(state)?;
-    let slot = host_of(state, project.as_str())?;
-    followed(state, &slot.spec.id)
-}
-
 impl FolderBrowse {
     pub(crate) fn open(
         (hub, handle): (&Arc<Hub>, &Handle),
         signal: ChangeSignal,
     ) -> Result<Arc<Self>, Error> {
         let host = hub
-            .read(host_of_open_space)
+            .read(followed::of_open_space)
             .ok_or_else(|| Error::Stream("no space is open".to_owned()))?;
         Ok(Self::on(host, (hub, handle), signal))
     }
@@ -75,7 +56,7 @@ impl FolderBrowse {
         signal: ChangeSignal,
     ) -> Result<Arc<Self>, Error> {
         let found = hub
-            .read(|state| followed(state, host))
+            .read(|state| followed::named(state, host))
             .ok_or_else(|| Error::Stream(format!("host {host} is not followed")))?;
         Ok(Self::on(found, (hub, handle), signal))
     }

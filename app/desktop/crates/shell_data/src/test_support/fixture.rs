@@ -98,6 +98,11 @@ pub(crate) fn store_of(rows: &[(&str, &str, &str)]) -> EntityStore {
 }
 
 /// A state of one local host that has heard [`frames`], and the daemon its client talks to.
+/// A change signal nobody listens to.
+pub(crate) fn quiet() -> crate::change_signal::ChangeSignal {
+    Arc::new(|| ())
+}
+
 pub(crate) fn state() -> (State, Arc<FakeDaemon>) {
     let spec = HostSpec {
         id: "local".into(),

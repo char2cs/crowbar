@@ -3,10 +3,11 @@
 use std::future::Future;
 use std::pin::Pin;
 
+use crate::book_error::BookError;
 use crate::pairing_request::PairingRequest;
 
-/// A transport call that ends with a value or the transport's own error text.
-pub type BookFuture<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
+/// A transport call that ends with a value or the transport's own error.
+pub type BookFuture<T> = Pin<Box<dyn Future<Output = Result<T, BookError>> + Send>>;
 
 /// The paired hosts as the transport keeps them (their addresses and keys).
 pub trait HostBook: Send + Sync {

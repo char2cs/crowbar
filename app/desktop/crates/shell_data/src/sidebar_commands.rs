@@ -5,6 +5,7 @@ use std::sync::Arc;
 use sidebar::{Command, CommandSink, Error};
 use tokio::runtime::Handle;
 
+use crate::file_store::FileStore;
 use crate::fleet::Fleet;
 use crate::hub::Hub;
 use crate::new_id;
@@ -26,6 +27,7 @@ pub struct SidebarCommands {
     pub(crate) handle: Handle,
     pub(crate) outcome: OutcomeSink,
     pub(crate) fleet: Arc<Fleet>,
+    pub(crate) files: Arc<dyn FileStore>,
 }
 
 impl std::fmt::Debug for SidebarCommands {
@@ -112,7 +114,10 @@ impl SidebarCommands {
         &self,
         command: &Command,
     ) -> Result<(), Error> {
-        self.run(self.hub.read(|state| planner::plan(state, command)))
+        self.run(
+            self.hub
+                .read(|state| planner::plan((state, self.files.as_ref()), command)),
+        )
     }
 
     fn run(
@@ -153,22 +158,11 @@ impl CommandSink for SidebarCommands {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::state;
+    use crate::test_support::followed_commands;
     use sidebar::{HostId, ProjectId};
 
     fn commands() -> (SidebarCommands, Arc<crate::test_support::FakeDaemon>) {
-        let (mut state, daemon) = state();
-        state.panels.follow(Some("hc".into()));
-        let transport: Arc<dyn protocol::DaemonTransport> =
-            Arc::<crate::test_support::FakeDaemon>::clone(&daemon);
-        let hub = Hub::new(state, Arc::new(|| {}));
-        let commands = SidebarCommands {
-            fleet: Fleet::new(&Handle::current(), &hub, &transport),
-            hub,
-            handle: Handle::current(),
-            outcome: Arc::new(|_| {}),
-        };
-        (commands, daemon)
+        followed_commands(Arc::new(|_| {}), &Arc::default())
     }
 
     async fn until_listed(commands: &SidebarCommands) {

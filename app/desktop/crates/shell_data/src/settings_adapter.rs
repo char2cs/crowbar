@@ -139,7 +139,8 @@ mod tests {
     use super::*;
     use crate::change_signal::ChangeSignal;
     use crate::outcome::OutcomeSink;
-    use crate::test_support::state;
+    use crate::settings_wiring::SettingsWiring;
+    use crate::test_support::{FakeFiles, state};
 
     fn quiet_signal() -> ChangeSignal {
         Arc::new(|| {})
@@ -154,14 +155,20 @@ mod tests {
         let (state, _) = state();
         let hub = crate::hub::Hub::new(state, quiet_signal());
         let local = hub.read(|state| state.hosts[0].client.clone());
-        let dir = tempfile::tempdir().unwrap();
-        let file = crate::setting_file::SettingFile::new(dir.path().join("s.json"));
-        let core = SettingsCore::open(
-            (file, Arc::clone(&hub), tokio::runtime::Handle::current()),
-            (local, quiet_signal()),
-            (crate::system_fonts::SystemFonts::default(), quiet_outcome()),
-            crate::test_support::fleet_and_desk(&hub),
-        )
+        let file =
+            crate::setting_file::SettingFile::new("/s.json".into(), Arc::new(FakeFiles::default()));
+        let (fleet, desk) = crate::test_support::fleet_and_desk(&hub);
+        let core = SettingsCore::open(SettingsWiring {
+            file,
+            hub: Arc::clone(&hub),
+            handle: tokio::runtime::Handle::current(),
+            local,
+            signal: quiet_signal(),
+            fonts: crate::system_fonts::SystemFonts::default(),
+            outcome: quiet_outcome(),
+            fleet,
+            desk,
+        })
         .unwrap();
         let adapter = SettingsAdapter::new(Arc::clone(&core));
         let heard = Rc::new(Cell::new(0));

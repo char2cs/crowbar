@@ -1,12 +1,11 @@
 //! The WebKit `localStorage` database of the previous desktop app.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{Error, Result};
-use crate::legacy_store::LegacyStore;
+use crate::legacy_store::{Entries, LegacyStore};
 
 const QUERY: &str = "SELECT key, value FROM ItemTable";
 
@@ -46,7 +45,7 @@ fn decode(bytes: &[u8]) -> Option<String> {
 }
 
 impl LegacyStore for LegacySqlite {
-    fn entries(&self) -> Result<BTreeMap<String, String>> {
+    fn entries(&self) -> Result<Entries> {
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY;
         let db = Connection::open_with_flags(&self.path, flags).map_err(|e| self.failed(e))?;
         let mut statement = db.prepare(QUERY).map_err(|e| self.failed(e))?;
@@ -56,7 +55,7 @@ impl LegacyStore for LegacySqlite {
             })
             .map_err(|e| self.failed(e))?;
         rows.map(|row| row.map_err(|e| self.failed(e))).try_fold(
-            BTreeMap::new(),
+            Entries::new(),
             |mut entries, row| {
                 let (key, value) = row?;
                 entries.extend(decode(&value).map(|text| (key, text)));

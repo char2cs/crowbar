@@ -26,14 +26,13 @@ impl std::fmt::Debug for HostDesk {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::FakeBook;
+    use crate::test_support::{FakeBook, notes};
 
     #[test]
     fn the_desk_debugs_without_its_parts() {
-        let dir = tempfile::tempdir().unwrap();
         let desk = HostDesk {
             book: Arc::new(FakeBook::default()),
-            notes: Arc::new(HostNotes::open(dir.path().join("n.json")).unwrap()),
+            notes: Arc::new(notes()),
         };
         assert_eq!(format!("{desk:?}"), "HostDesk { .. }");
     }

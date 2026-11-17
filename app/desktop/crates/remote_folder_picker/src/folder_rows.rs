@@ -110,11 +110,12 @@ mod tests {
     use std::collections::{BTreeSet, HashMap};
 
     use super::*;
-    use crate::folder_source::FolderSource;
+    use crate::folder_reader::FolderReader;
+    use crate::folder_requests::FolderRequests;
 
     struct Listed(HashMap<String, FolderListing>);
 
-    impl FolderSource for Listed {
+    impl FolderReader for Listed {
         fn host_name(&self) -> String {
             "Box".to_owned()
         }
@@ -130,6 +131,9 @@ mod tests {
             self.0.get(path).cloned()
         }
 
+    }
+
+    impl FolderRequests for Listed {
         fn request(
             &self,
             _: &str,

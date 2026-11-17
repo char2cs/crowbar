@@ -17,6 +17,7 @@ use crate::plan_error::PlanError;
 
 const NOT_FOUND: u16 = 404;
 const BASE64: &str = "base64";
+pub(crate) const PATH_KEY: &str = "path";
 
 pub(crate) fn parent_of(path: &str) -> String {
     Path::new(path)
@@ -71,7 +72,7 @@ impl FileSession {
         path: &str,
     ) -> Result<()> {
         let route = format!("/v0/chats/{}/files", self.target.chat);
-        let body = json!({"path": path, "type": "file"});
+        let body = json!({PATH_KEY: path, "type": "file"});
         self.client.send(Call::post(route).json(body)).await?;
         Ok(())
     }
@@ -100,7 +101,7 @@ impl FileSession {
         path: &str,
         text: &str,
     ) -> Result<()> {
-        let body = json!({"workspaceId": self.target.workspace, "path": path, "content": text});
+        let body = json!({"workspaceId": self.target.workspace, PATH_KEY: path, "content": text});
         self.write(body).await
     }
 
@@ -113,7 +114,7 @@ impl FileSession {
         let content = base64::engine::general_purpose::STANDARD.encode(bytes);
         let body = json!({
             "workspaceId": self.target.workspace,
-            "path": path,
+            PATH_KEY: path,
             "content": content,
             "encoding": BASE64
         });

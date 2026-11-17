@@ -1,65 +1,23 @@
-//! The Files panel's changes to the workspace's files, each a daemon file route.
+//! The Files panel's menu commands, each checked against the listing and run as a file change.
 
 use std::path::Path;
 use std::sync::Arc;
 
-use serde_json::json;
 use sidebar::{Command, Error};
 
-use crate::call::Call;
 use crate::copy_name;
-use crate::daemon_client::DaemonClient;
-use crate::daemon_read::read;
-use crate::document_body::DocumentBody;
-use crate::file_target::{self, FileTarget};
-use crate::hub::Hub;
+use crate::file_session::parent_of;
+use crate::file_target;
 use crate::new_entry::NewEntry;
-use crate::outcome::{Outcome, OutcomeSink};
 use crate::panel_loader::load_directory;
-use crate::plan::Plan;
-use crate::query_encode::encode;
-use crate::runner;
+use crate::plan_error::PlanError;
 use crate::sidebar_commands::SidebarCommands;
 use crate::state::State;
 
-fn files_route(target: &FileTarget) -> String {
-    format!("/v0/chats/{}/files", target.chat)
-}
-
-fn parent_of(path: &str) -> String {
-    Path::new(path)
-        .parent()
-        .and_then(Path::to_str)
-        .unwrap_or_default()
-        .to_owned()
-}
-
-async fn change_and_reload(
-    hub: &Hub,
-    plan: Plan,
-    outcome: &OutcomeSink,
-    (client, chat, directory): (Option<DaemonClient>, String, String),
-) {
-    runner::run(hub, plan, outcome).await;
-    if let Some(client) = client {
-        load_directory(hub, &client, (&chat, &directory)).await;
+fn already_exists(path: &str) -> Error {
+    Error::Refused {
+        reason: format!("{} already exists", name_of(path)),
     }
-}
-
-async fn say_content(
-    client: &DaemonClient,
-    route: String,
-    outcome: &OutcomeSink,
-) {
-    let said = match read::<DocumentBody>(client, route).await {
-        Ok(body) => Outcome::CopyText(body.content),
-        Err(error) => Outcome::Failed(error.to_string()),
-    };
-    outcome(said);
-}
-
-fn refused(reason: String) -> Error {
-    Error::Refused { reason }
 }
 
 fn name_of(path: &str) -> &str {
@@ -87,7 +45,7 @@ impl SidebarCommands {
     ) -> Result<(), Error> {
         let taken = self.hub.read(|state| taken_in(state, &parent_of(path)));
         if taken.iter().any(|held| held == path) {
-            return Err(refused(format!("{} already exists", name_of(path))));
+            return Err(already_exists(path));
         }
         Ok(())
     }
@@ -114,11 +72,20 @@ impl SidebarCommands {
         let client = self
             .hub
             .read(|state| state.client_of_chat(&target.chat))
-            .ok_or_else(|| refused("this workspace is not loaded yet".to_owned()))?;
+            .ok_or(PlanError::WorkspaceNotLoaded)?;
         let (hub, path) = (Arc::clone(&self.hub), path.to_owned());
         self.handle
             .spawn(async move { load_directory(&hub, &client, (&target.chat, &path)).await });
         Ok(())
+    }
+
+    fn create_new(
+        &self,
+        path: &str,
+        entry: NewEntry,
+    ) -> Result<(), Error> {
+        self.require_free(path)?;
+        self.create_entry(path, entry)
     }
 
     pub(crate) fn file_command(
@@ -145,230 +112,17 @@ impl SidebarCommands {
             _ => return None,
         })
     }
-
-    fn create_new(
-        &self,
-        path: &str,
-        entry: NewEntry,
-    ) -> Result<(), Error> {
-        self.require_free(path)?;
-        self.create_entry(path, entry)
-    }
-
-    fn change_files(
-        &self,
-        make: impl FnOnce(&FileTarget) -> (Call, String),
-    ) -> Result<(), Error> {
-        let target = self.hub.read(file_target::of).map_err(Error::from)?;
-        let (call, reload) = make(&target);
-        let plan = Plan::of(&target.host, vec![call]);
-        let (hub, outcome) = (Arc::clone(&self.hub), Arc::clone(&self.outcome));
-        let client = self.hub.read(|state| state.client_of_chat(&target.chat));
-        let reload = (client, target.chat, reload);
-        self.handle
-            .spawn(async move { change_and_reload(&hub, plan, &outcome, reload).await });
-        Ok(())
-    }
-
-    /// Makes an empty file or directory at the workspace-relative `path`.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn create_entry(
-        &self,
-        path: &str,
-        entry: NewEntry,
-    ) -> Result<(), Error> {
-        self.change_files(|target| {
-            let body = json!({"path": path, "type": entry.kind()});
-            (Call::post(files_route(target)).json(body), parent_of(path))
-        })
-    }
-
-    /// Copies `source` to `destination`, both workspace-relative.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn duplicate_file(
-        &self,
-        source: &str,
-        destination: &str,
-    ) -> Result<(), Error> {
-        self.change_files(|target| {
-            let body = json!({"sourcePath": source, "destPath": destination});
-            let route = format!("{}/copy", files_route(target));
-            (Call::post(route).json(body), parent_of(destination))
-        })
-    }
-
-    /// Renames `path` to `new_path`, both workspace-relative.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn rename_file(
-        &self,
-        path: &str,
-        new_path: &str,
-    ) -> Result<(), Error> {
-        self.change_files(|target| {
-            let body = json!({"path": path, "newPath": new_path});
-            (
-                Call::patch(files_route(target)).json(body),
-                parent_of(new_path),
-            )
-        })
-    }
-
-    /// Deletes the workspace-relative `path`.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn delete_file(
-        &self,
-        path: &str,
-    ) -> Result<(), Error> {
-        self.change_files(|target| {
-            let body = json!({"path": path});
-            (
-                Call::delete(files_route(target)).json(body),
-                parent_of(path),
-            )
-        })
-    }
-
-    /// Reads the workspace-relative `path`; the shell is handed its text to put on the clipboard.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
-    pub fn copy_file_content(
-        &self,
-        path: &str,
-    ) -> Result<(), Error> {
-        let target = self.hub.read(file_target::of).map_err(Error::from)?;
-        let client = self
-            .hub
-            .read(|state| state.client_of_chat(&target.chat))
-            .ok_or_else(|| refused("this workspace is not loaded yet".to_owned()))?;
-        let route = format!(
-            "/v0/documents/content?workspace={}&path={}",
-            encode(&target.workspace),
-            encode(path)
-        );
-        let outcome = Arc::clone(&self.outcome);
-        self.handle
-            .spawn(async move { say_content(&client, route, &outcome).await });
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
-    use tokio::runtime::Handle;
+    use serde_json::json;
 
     use super::*;
-    use crate::fleet::Fleet;
-    use crate::hub::Hub;
-    use crate::test_support::{FakeDaemon, state};
+    use crate::test_support::{FakeDaemon, followed_commands};
 
-    type Said = Arc<Mutex<Vec<Outcome>>>;
-
-    fn commands() -> (SidebarCommands, Arc<FakeDaemon>, Said) {
-        let (mut state, daemon) = state();
-        state.panels.follow(Some("hc".into()));
-        let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
-        let hub = Hub::new(state, Arc::new(|| {}));
-        let said = Said::default();
-        let sink = Arc::clone(&said);
-        let commands = SidebarCommands {
-            fleet: Fleet::new(&Handle::current(), &hub, &transport),
-            hub,
-            handle: Handle::current(),
-            outcome: Arc::new(move |outcome| sink.lock().unwrap().push(outcome)),
-        };
-        (commands, daemon, said)
-    }
-
-    fn answer_files(
-        daemon: &FakeDaemon,
-        files: &str,
-    ) {
-        daemon.ok("POST", files, "{}");
-        daemon.ok("POST", &format!("{files}/copy"), "{}");
-        daemon.ok("PATCH", files, "{}");
-        daemon.ok("DELETE", files, "{}");
-        daemon.ok("GET", &format!("{files}/tree?path=src"), "[]");
-    }
-
-    async fn until_seen(
-        daemon: &FakeDaemon,
-        method: &str,
-        path: &str,
-    ) -> Option<serde_json::Value> {
-        let mut body = None;
-        while body.is_none() {
-            let call = daemon
-                .seen()
-                .into_iter()
-                .find(|call| call.method == method && call.path == path);
-            body = call.and_then(|call| call.body);
-            tokio::task::yield_now().await;
-        }
-        body
-    }
-
-    async fn until_said_count(
-        said: &Said,
-        count: usize,
-    ) {
-        while said.lock().unwrap().len() < count {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    async fn until_said(said: &Said) -> Outcome {
-        while said.lock().unwrap().is_empty() {
-            tokio::task::yield_now().await;
-        }
-        said.lock().unwrap()[0].clone()
-    }
-
-    async fn each_file_change_calls_its_route_with_workspace_relative_paths() {
-        let (commands, daemon, _) = commands();
-        let files = "/v0/chats/hc/files";
-        answer_files(&daemon, files);
-        commands
-            .create_entry("src/new", NewEntry::Directory)
-            .unwrap();
-        commands.duplicate_file("src/a", "src/b").unwrap();
-        commands.rename_file("src/b", "src/c").unwrap();
-        commands.delete_file("src/c").unwrap();
-        let made = until_seen(&daemon, "POST", files).await;
-        let copied = until_seen(&daemon, "POST", &format!("{files}/copy")).await;
-        let moved = until_seen(&daemon, "PATCH", files).await;
-        let gone = until_seen(&daemon, "DELETE", files).await;
-        assert_eq!(made, Some(json!({"path": "src/new", "type": "dir"})));
-        assert_eq!(
-            copied,
-            Some(json!({"sourcePath": "src/a", "destPath": "src/b"}))
-        );
-        assert_eq!(moved, Some(json!({"path": "src/b", "newPath": "src/c"})));
-        assert_eq!(gone, Some(json!({"path": "src/c"})));
-    }
-
-    async fn a_files_content_reaches_the_shell_and_a_refusal_is_said() {
-        let (commands, daemon, said) = commands();
-        daemon.ok(
-            "GET",
-            "/v0/documents/content?workspace=hw&path=a%20b.txt",
-            r#"{"content":"hello","encoding":"utf-8"}"#,
-        );
-        commands.copy_file_content("a b.txt").unwrap();
-        assert_eq!(until_said(&said).await, Outcome::CopyText("hello".into()));
-        commands.copy_file_content("missing").unwrap();
-        until_said_count(&said, 2).await;
-        assert!(matches!(said.lock().unwrap()[1], Outcome::Failed(_)));
+    fn commands() -> (SidebarCommands, Arc<FakeDaemon>) {
+        followed_commands(Arc::new(|_| {}), &Arc::default())
     }
 
     fn listed(commands: &SidebarCommands) {
@@ -382,10 +136,25 @@ mod tests {
             .edit(|state| state.panels.list("hc", "src", entries));
     }
 
+    async fn until_copied(daemon: &FakeDaemon) -> Option<serde_json::Value> {
+        let mut body = None;
+        while body.is_none() {
+            let call = daemon
+                .seen()
+                .into_iter()
+                .find(|call| call.method == "POST" && call.path.ends_with("/files/copy"));
+            body = call.and_then(|call| call.body);
+            tokio::task::yield_now().await;
+        }
+        body
+    }
+
+    #[tokio::test]
     async fn the_menu_commands_refuse_a_name_in_use_and_pick_a_free_copy_name() {
-        let (commands, daemon, _) = commands();
+        let (commands, daemon) = commands();
         listed(&commands);
-        answer_files(&daemon, "/v0/chats/hc/files");
+        daemon.ok("POST", "/v0/chats/hc/files/copy", "{}");
+        daemon.ok("GET", "/v0/chats/hc/files/tree?path=src", "[]");
         let taken = Command::CreateFile {
             path: "src/a.rs".into(),
         };
@@ -405,41 +174,22 @@ mod tests {
             path: "src/a.rs".into(),
         };
         commands.file_command(&copy).unwrap().unwrap();
-        let copied = until_seen(&daemon, "POST", "/v0/chats/hc/files/copy").await;
         assert_eq!(
-            copied,
+            until_copied(&daemon).await,
             Some(json!({"sourcePath": "src/a.rs", "destPath": "src/a copy 2.rs"}))
         );
         assert!(commands.file_command(&Command::OpenSettings).is_none());
     }
 
-    fn without_an_open_workspace_a_file_change_is_refused() {
-        let (commands, _, _) = commands();
-        commands.hub.edit(|state| state.panels.follow(None));
-        assert!(commands.delete_file("a").is_err());
-        assert!(commands.copy_file_content("a").is_err());
-    }
-
-    type Case = fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>;
-
-    const CASES: [Case; 4] = [
-        || {
-            without_an_open_workspace_a_file_change_is_refused();
-            Box::pin(async {})
-        },
-        || Box::pin(each_file_change_calls_its_route_with_workspace_relative_paths()),
-        || Box::pin(a_files_content_reaches_the_shell_and_a_refusal_is_said()),
-        || Box::pin(the_menu_commands_refuse_a_name_in_use_and_pick_a_free_copy_name()),
-    ];
-
-    async fn run_all() {
-        for case in CASES {
-            case().await;
-        }
-    }
-
     #[tokio::test]
-    async fn every_case_ends_as_it_says() {
-        run_all().await;
+    async fn without_an_open_workspace_a_file_command_is_refused() {
+        let (commands, _) = commands();
+        commands.hub.edit(|state| state.panels.follow(None));
+        let delete = Command::DeleteFile { path: "a".into() };
+        let refresh = Command::RefreshDirectory {
+            path: String::new(),
+        };
+        assert!(commands.file_command(&delete).unwrap().is_err());
+        assert!(commands.file_command(&refresh).unwrap().is_err());
     }
 }

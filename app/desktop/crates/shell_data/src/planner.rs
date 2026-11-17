@@ -3,6 +3,7 @@
 use serde_json::json;
 use sidebar::Command;
 
+use crate::file_store::FileStore;
 use crate::landing;
 use crate::new_id;
 use crate::plan::Plan;
@@ -10,6 +11,7 @@ use crate::plan_agent;
 use crate::plan_create;
 use crate::plan_edit;
 use crate::plan_error::PlanError;
+use crate::plan_folder;
 use crate::plan_icon;
 use crate::plan_merge;
 use crate::plan_move;
@@ -18,7 +20,7 @@ use crate::state::State;
 use crate::surface::Surface;
 
 pub(crate) fn plan(
-    state: &State,
+    (state, files): (&State, &dyn FileStore),
     command: &Command,
 ) -> Result<Plan, PlanError> {
     let id = new_id::uuid();
@@ -31,15 +33,14 @@ pub(crate) fn plan(
         | Command::MakeBranch { .. }
         | Command::CreateFolder(_)
         | Command::CreateSpace { .. }
-        | Command::CreateSpaceWithIcon { .. } => {
-            creation(state, command, &id).map(|plan| plan.landing_on(landing::of(state, command)))
-        },
-        other => edit(state, other),
+        | Command::CreateSpaceWithIcon { .. } => creation((state, files), command, &id)
+            .map(|plan| plan.landing_on(landing::of(state, command))),
+        other => edit((state, files), other),
     }
 }
 
 fn creation(
-    state: &State,
+    (state, files): (&State, &dyn FileStore),
     command: &Command,
     id: &str,
 ) -> Result<Plan, PlanError> {
@@ -58,7 +59,7 @@ fn creation(
         Command::MakeBranch { row, name } => plan_create::make_branch(state, (row.as_str(), name)),
         Command::CreateFolder(row) => {
             let active = active_project(state);
-            plan_create::folder(
+            plan_folder::folder(
                 state,
                 row.as_ref().map(sidebar::RowId::as_str),
                 active.as_ref(),
@@ -74,7 +75,7 @@ fn creation(
             icon,
         } => {
             let mut plan = plan_create::space((name, folder), host, id);
-            plan.calls.extend(plan_icon::calls(id, icon)?);
+            plan.calls.extend(plan_icon::calls(files, id, icon)?);
             Ok(plan)
         },
         other => Err(PlanError::NotADataCommand(format!("{other:?}"))),
@@ -82,7 +83,7 @@ fn creation(
 }
 
 fn space_icon(
-    state: &State,
+    (state, files): (&State, &dyn FileStore),
     project: &sidebar::ProjectId,
     icon: &sidebar::SpaceIcon,
 ) -> Result<Plan, PlanError> {
@@ -90,12 +91,12 @@ fn space_icon(
         crate::sidebar_reads::host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
     Ok(Plan::of(
         &slot.spec.id,
-        plan_icon::calls(project.as_str(), icon)?,
+        plan_icon::calls(files, project.as_str(), icon)?,
     ))
 }
 
 fn edit(
-    state: &State,
+    (state, files): (&State, &dyn FileStore),
     command: &Command,
 ) -> Result<Plan, PlanError> {
     match command {
@@ -112,7 +113,7 @@ fn edit(
         ),
         Command::Detach(row) => plan_edit::verb(state, row.as_str(), ("detach-holder", None)),
         Command::Retry(row) => plan_edit::verb(state, row.as_str(), ("retry-provision", None)),
-        Command::SetSpaceIcon { project, icon } => space_icon(state, project, icon),
+        Command::SetSpaceIcon { project, icon } => space_icon((state, files), project, icon),
         Command::SetMergeStrategy(strategy) => plan_merge::set_strategy(state, *strategy),
         Command::Merge { after } => plan_merge::merge(state, *after),
         Command::StopAndMerge => plan_merge::stop_and_merge(state),
@@ -138,11 +139,11 @@ mod tests {
 
     use super::*;
     use crate::after::After;
-    use crate::test_support::state;
+    use crate::test_support::{FakeFiles, state};
 
     fn plan_of(command: &Command) -> Result<Plan, PlanError> {
         let (state, _) = state();
-        plan(&state, command)
+        plan((&state, &FakeFiles::default()), command)
     }
 
     #[test]

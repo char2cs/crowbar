@@ -14,7 +14,24 @@ pub(crate) struct PairingHeld {
     pub(crate) name: String,
 }
 
+const CODE_DIGITS: usize = 6;
+
 impl PairingHeld {
+    pub(crate) fn code_shaped(code: &str) -> bool {
+        code.len() == CODE_DIGITS && code.bytes().all(|byte| byte.is_ascii_digit())
+    }
+
+    pub(crate) fn step_back(&mut self) {
+        let idle = self.state.pending == PairingPending::Idle;
+        self.state.error = None;
+        self.state.notice = None;
+        self.state.stage = match self.state.stage {
+            PairingStage::Code if idle => PairingStage::Fingerprint,
+            PairingStage::Fingerprint if idle => PairingStage::Address,
+            other => other,
+        };
+    }
+
     pub(crate) fn begin(
         &mut self,
         pending: PairingPending,
@@ -83,5 +100,9 @@ mod tests {
             ("box:3737", "Lab", "123456")
         );
         assert_eq!(request.host_id, held.host_id);
+        held.state.pending = PairingPending::Idle;
+        held.step_back();
+        assert_eq!(held.state.stage, PairingStage::Fingerprint);
+        assert!(PairingHeld::code_shaped("123456") && !PairingHeld::code_shaped("12345a"));
     }
 }

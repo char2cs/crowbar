@@ -2,15 +2,18 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use crate::adapters::DiskFiles;
 use crate::error::{Error, Result};
+use crate::file_store::{FileStore, read_text};
 use crate::host_note::HostNote;
 
 /// The paired hosts' notes, loaded once and written through on every change.
 #[derive(Debug)]
 pub struct HostNotes {
     path: PathBuf,
+    files: Arc<dyn FileStore>,
     notes: Mutex<BTreeMap<String, HostNote>>,
 }
 
@@ -26,16 +29,27 @@ impl HostNotes {
     /// # Errors
     /// [`Error::File`] or [`Error::Json`] when the file exists and cannot be read.
     pub fn open(path: PathBuf) -> Result<Self> {
-        let notes = match std::fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str(&text).map_err(|source| Error::Json {
+        Self::open_on(path, Arc::new(DiskFiles::default()))
+    }
+
+    pub(crate) fn open_on(
+        path: PathBuf,
+        files: Arc<dyn FileStore>,
+    ) -> Result<Self> {
+        let text = read_text(files.as_ref(), &path).map_err(|source| Error::File {
+            path: path.clone(),
+            source,
+        })?;
+        let notes = match text {
+            Some(text) => serde_json::from_str(&text).map_err(|source| Error::Json {
                 path: path.clone(),
                 source,
             })?,
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
-            Err(source) => return Err(Error::File { path, source }),
+            None => BTreeMap::new(),
         };
         Ok(Self {
             path,
+            files,
             notes: Mutex::new(notes),
         })
     }
@@ -107,16 +121,19 @@ impl HostNotes {
             path: self.path.clone(),
             source,
         })?;
-        atomic_file::write(&self.path, text.as_bytes()).map_err(|source| Error::File {
-            path: self.path.clone(),
-            source,
-        })
+        self.files
+            .write(&self.path, text.as_bytes())
+            .map_err(|source| Error::File {
+                path: self.path.clone(),
+                source,
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::FakeFiles;
 
     fn note(name: &str) -> HostNote {
         HostNote {
@@ -126,26 +143,33 @@ mod tests {
         }
     }
 
+    fn open(files: &Arc<FakeFiles>) -> HostNotes {
+        HostNotes::open_on("/state/paired.json".into(), Arc::<FakeFiles>::clone(files)).unwrap()
+    }
+
     #[test]
     fn notes_survive_a_reopen_and_forgetting_one_leaves_the_rest() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("state").join("paired.json");
-        let notes = HostNotes::open(path.clone()).unwrap();
+        let files = Arc::new(FakeFiles::default());
+        let notes = open(&files);
         assert_eq!(notes.all().len(), 0, "a missing file is no notes");
         notes.put("a", note("Alpha")).unwrap();
         notes.put("b", note("Beta")).unwrap();
         notes.remove("a").unwrap();
-        let again = HostNotes::open(path).unwrap();
+        let again = open(&files);
         assert_eq!(again.get("a"), None);
         assert_eq!(again.get("b"), Some(note("Beta")));
     }
 
     #[test]
-    fn a_note_that_cannot_be_written_is_not_kept() {
-        let dir = tempfile::tempdir().unwrap();
-        let notes = HostNotes::open(dir.path().join("paired.json")).unwrap();
-        std::fs::create_dir(dir.path().join("paired.json")).unwrap();
+    fn notes_that_cannot_be_written_or_read_are_errors_not_empty_notes() {
+        let files = Arc::new(FakeFiles::default());
+        let notes = open(&files);
+        files.refuse_writes();
         assert!(notes.put("a", note("Alpha")).is_err());
         assert_eq!(notes.get("a"), None);
+        let files = Arc::new(FakeFiles::default());
+        files.put("/state/paired.json", b"{");
+        let opened = HostNotes::open_on("/state/paired.json".into(), files);
+        assert!(matches!(opened, Err(Error::Json { .. })));
     }
 }

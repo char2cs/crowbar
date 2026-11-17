@@ -7,6 +7,7 @@ use crate::document_route;
 use crate::file_entry::FileEntry;
 use crate::file_target;
 use crate::hub::Hub;
+use crate::listed_directory::ListedDirectory;
 
 const IGNORE_FILE: &str = ".gitignore";
 
@@ -19,9 +20,13 @@ fn listed(entries: &[FileEntry]) -> Option<&FileEntry> {
 pub(crate) async fn learn(
     hub: &Hub,
     client: &DaemonClient,
-    (chat, directory): (&str, &str),
-    entries: &[FileEntry],
+    listing: &ListedDirectory<'_>,
 ) {
+    let ListedDirectory {
+        chat,
+        directory,
+        entries,
+    } = *listing;
     let Some(file) = listed(entries) else {
         return;
     };
@@ -88,9 +93,18 @@ mod tests {
         let route = "/v0/documents/content?workspace=hw&path=sub/.gitignore";
         daemon.ok("GET", route, r#"{"content":"*.log"}"#);
         let entries = [entry(".gitignore", "file")];
-        learn(&hub, &client, ("other", "sub"), &entries).await;
+        let elsewhere = ListedDirectory {
+            chat: "other",
+            directory: "sub",
+            entries: &entries,
+        };
+        learn(&hub, &client, &elsewhere).await;
         assert!(!hides_log(&hub));
-        learn(&hub, &client, ("hc", "sub"), &entries).await;
+        let followed = ListedDirectory {
+            chat: "hc",
+            ..elsewhere
+        };
+        learn(&hub, &client, &followed).await;
         assert!(hides_log(&hub));
     }
 }

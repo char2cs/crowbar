@@ -2,6 +2,7 @@
 
 use std::net::Ipv6Addr;
 
+use crate::endpoint_error::EndpointError;
 use crate::host_port::HostPort;
 use crate::ipv6_form::Ipv6Form;
 
@@ -14,10 +15,6 @@ const MAX_PORT_DIGITS: usize = 5;
 const MAX_OCTET_DIGITS: usize = 3;
 const SCHEMES: [&str; 3] = ["http://", "https://", "tcp://"];
 const FORBIDDEN: [char; 7] = ['@', '/', '?', '#', '%', '\\', ' '];
-
-pub(crate) const NOT_AN_ADDRESS: &str =
-    "Enter a host name or IP address, optionally with a port, like homelab.example.com:3737.";
-pub(crate) const NOT_A_PORT: &str = "The port must be a number from 1 to 65535.";
 
 fn without_scheme(typed: &str) -> &str {
     let bare = typed.trim();
@@ -102,7 +99,7 @@ fn name_or_ipv4(text: &str) -> Option<String> {
     valid.then_some(host)
 }
 
-pub(crate) fn normalize(typed: &str) -> Result<String, &'static str> {
+pub(crate) fn normalize(typed: &str) -> Result<String, EndpointError> {
     let bare = without_scheme(typed);
     let forbidden = bare
         .chars()
@@ -110,21 +107,21 @@ pub(crate) fn normalize(typed: &str) -> Result<String, &'static str> {
     let parts = (!forbidden)
         .then_some(bare)
         .and_then(split)
-        .ok_or(NOT_AN_ADDRESS)?;
-    let port = port_of(parts.port).ok_or(NOT_A_PORT)?;
+        .ok_or(EndpointError::NotAnAddress)?;
+    let port = port_of(parts.port).ok_or(EndpointError::NotAPort)?;
     let host = match parts.ipv6 {
         Ipv6Form::Yes => ipv6_host(parts.host),
         Ipv6Form::No => name_or_ipv4(parts.host),
     };
     host.map(|host| format!("{host}:{port}"))
-        .ok_or(NOT_AN_ADDRESS)
+        .ok_or(EndpointError::NotAnAddress)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    type Expected = Result<&'static str, &'static str>;
+    type Expected = Result<&'static str, EndpointError>;
 
     const CASES: [(&str, Expected); 16] = [
         ("homelab", Ok("homelab:3737")),
@@ -137,15 +134,15 @@ mod tests {
         ("[::1]:9", Ok("[::1]:9")),
         ("[FE80:0:0:0:0:0:0:1]", Ok("[fe80::1]:3737")),
         ("fe80::1", Ok("[fe80::1]:3737")),
-        ("", Err(NOT_AN_ADDRESS)),
-        ("a b", Err(NOT_AN_ADDRESS)),
-        ("user@box", Err(NOT_AN_ADDRESS)),
-        ("box/path", Err(NOT_AN_ADDRESS)),
-        ("1.2.3", Err(NOT_AN_ADDRESS)),
-        ("1.2.3.256", Err(NOT_AN_ADDRESS)),
-        ("box:0", Err(NOT_A_PORT)),
-        ("box:70000", Err(NOT_A_PORT)),
-        ("-box", Err(NOT_AN_ADDRESS)),
+        ("", Err(EndpointError::NotAnAddress)),
+        ("a b", Err(EndpointError::NotAnAddress)),
+        ("user@box", Err(EndpointError::NotAnAddress)),
+        ("box/path", Err(EndpointError::NotAnAddress)),
+        ("1.2.3", Err(EndpointError::NotAnAddress)),
+        ("1.2.3.256", Err(EndpointError::NotAnAddress)),
+        ("box:0", Err(EndpointError::NotAPort)),
+        ("box:70000", Err(EndpointError::NotAPort)),
+        ("-box", Err(EndpointError::NotAnAddress)),
     ];
 
     #[test]

@@ -4,33 +4,22 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use tokio::runtime::Handle;
-
-use crate::already_paired;
 use crate::change_signal::ChangeSignal;
 use crate::endpoint_text;
 use crate::fleet::Fleet;
 use crate::host_desk::HostDesk;
-use crate::host_note::HostNote;
-use crate::host_spec::HostSpec;
-use crate::hub::Hub;
-use crate::pairing_failure;
 use crate::pairing_held::PairingHeld;
 use crate::pairing_pending::PairingPending;
-use crate::pairing_request::PairingRequest;
 use crate::pairing_stage::PairingStage;
 use crate::pairing_state::PairingState;
 
-const CODE_DIGITS: usize = 6;
 const CODE_SHAPE_NOTICE: &str = "A pairing code is exactly 6 digits.";
 
 /// One attempt at adding a host. Mount one per attempt: a confirmed fingerprint never carries
 /// over to the next.
 pub struct PairingSession {
-    desk: HostDesk,
-    fleet: Arc<Fleet>,
-    hub: Arc<Hub>,
-    handle: Handle,
+    pub(crate) desk: HostDesk,
+    pub(crate) fleet: Arc<Fleet>,
     signal: ChangeSignal,
     held: Mutex<PairingHeld>,
 }
@@ -46,21 +35,14 @@ impl std::fmt::Debug for PairingSession {
     }
 }
 
-fn code_shaped(code: &str) -> bool {
-    code.len() == CODE_DIGITS && code.bytes().all(|byte| byte.is_ascii_digit())
-}
-
 impl PairingSession {
     pub(crate) fn new(
-        (hub, fleet, desk): (Arc<Hub>, Arc<Fleet>, HostDesk),
-        handle: Handle,
+        (fleet, desk): (Arc<Fleet>, HostDesk),
         signal: ChangeSignal,
     ) -> Arc<Self> {
         Arc::new(Self {
             desk,
             fleet,
-            hub,
-            handle,
             signal,
             held: Mutex::default(),
         })
@@ -70,7 +52,7 @@ impl PairingSession {
         self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn update<R>(
+    pub(crate) fn update<R>(
         &self,
         change: impl FnOnce(&mut PairingHeld) -> R,
     ) -> R {
@@ -104,13 +86,14 @@ impl PairingSession {
         }
         let endpoint = match endpoint_text::normalize(address) {
             Ok(endpoint) => endpoint,
-            Err(reason) => return self.fail_with(reason.to_owned()),
+            Err(reason) => return self.fail_with(reason.to_string()),
         };
         if !self.begin(PairingPending::Probing) {
             return;
         }
         let session = Arc::clone(self);
-        self.handle
+        self.fleet
+            .handle()
             .spawn(async move { session.probe(name, endpoint).await });
     }
 
@@ -128,31 +111,6 @@ impl PairingSession {
         self.update(|held| held.state.error = Some(error));
     }
 
-    async fn probe(
-        &self,
-        name: String,
-        endpoint: String,
-    ) {
-        let probed = self.desk.book.probe(&endpoint).await;
-        let outcome = probed
-            .map_err(|text| pairing_failure::words(&text, &endpoint, &name))
-            .and_then(|fingerprint| self.unpaired(&endpoint, fingerprint));
-        self.update(|held| match outcome {
-            Ok(fingerprint) => held.confirm_next(&name, &endpoint, fingerprint),
-            Err(error) => held.state.error = Some(error),
-        });
-        self.update(|held| held.state.pending = PairingPending::Idle);
-    }
-
-    fn unpaired(
-        &self,
-        endpoint: &str,
-        fingerprint: String,
-    ) -> Result<String, String> {
-        let known = already_paired::reason((&self.hub, &self.desk.notes), (endpoint, &fingerprint));
-        known.map_or(Ok(fingerprint), Err)
-    }
-
     /// The user compared the fingerprint with the host's own and accepts it.
     pub fn confirm(&self) {
         self.update(PairingHeld::enter_code);
@@ -160,16 +118,7 @@ impl PairingSession {
 
     /// One stage back, unless the host is answering.
     pub fn back(&self) {
-        self.update(|held| {
-            let idle = held.state.pending == PairingPending::Idle;
-            held.state.error = None;
-            held.state.notice = None;
-            held.state.stage = match held.state.stage {
-                PairingStage::Code if idle => PairingStage::Fingerprint,
-                PairingStage::Fingerprint if idle => PairingStage::Address,
-                other => other,
-            };
-        });
+        self.update(PairingHeld::step_back);
     }
 
     /// Redeems `code` at the host the confirmed fingerprint belongs to.
@@ -185,7 +134,7 @@ impl PairingSession {
         let Some(request) = request else {
             return;
         };
-        if !code_shaped(code) {
+        if !PairingHeld::code_shaped(code) {
             return self.update(|held| held.state.notice = Some(CODE_SHAPE_NOTICE.to_owned()));
         }
         if !self.begin(PairingPending::Pairing) {
@@ -193,59 +142,9 @@ impl PairingSession {
         }
         self.update(|held| held.state.notice = None);
         let session = Arc::clone(self);
-        self.handle
+        self.fleet
+            .handle()
             .spawn(async move { session.redeem(request).await });
-    }
-
-    async fn redeem(
-        &self,
-        request: PairingRequest,
-    ) {
-        let paired = self.desk.book.pair(request.clone()).await;
-        let outcome = match paired {
-            Ok(client_id) => self.keep(&request, client_id).await,
-            Err(text) => Err(pairing_failure::words(
-                &text,
-                &request.endpoint,
-                &request.name,
-            )),
-        };
-        self.update(|held| match outcome {
-            Ok(()) => held.state.stage = PairingStage::Paired,
-            Err(error) => held.state.error = Some(error),
-        });
-        self.update(|held| held.state.pending = PairingPending::Idle);
-    }
-
-    /// Remembers the pairing and starts following the host; a pairing that cannot be remembered
-    /// is undone, because a host without its client id could never be revoked.
-    async fn keep(
-        &self,
-        request: &PairingRequest,
-        client_id: String,
-    ) -> Result<(), String> {
-        let note = HostNote {
-            name: request.name.clone(),
-            client_id,
-            fingerprint: request.fingerprint.clone(),
-        };
-        let spec = HostSpec {
-            id: request.host_id.clone(),
-            name: request.name.clone(),
-            endpoint: Some(request.endpoint.clone()),
-        };
-        let saved = self.desk.notes.put(&request.host_id, note);
-        let followed = saved
-            .map_err(|error| error.to_string())
-            .and_then(|()| self.fleet.follow(spec).map_err(|error| error.to_string()));
-        let Err(text) = followed else {
-            return Ok(());
-        };
-        tracing::warn!(error = %text, host = %request.host_id, "a paired host could not be kept");
-        if let Err(error) = self.desk.book.unpair(&request.host_id).await {
-            tracing::warn!(%error, "the pairing could not be undone");
-        }
-        Err(pairing_failure::words("", &request.endpoint, &request.name))
     }
 }
 
@@ -255,8 +154,8 @@ mod tests {
 
     use super::*;
     use crate::host_book::HostBook;
-    use crate::host_notes::HostNotes;
-    use crate::test_support::{CLIENT, FakeBook, PRINT, state};
+    use crate::hub::Hub;
+    use crate::test_support::{CLIENT, FakeBook, PRINT, notes, state};
 
     struct Rig {
         session: Arc<PairingSession>,
@@ -264,36 +163,28 @@ mod tests {
         book: Arc<FakeBook>,
         fleet: Arc<Fleet>,
         changed: Arc<Notify>,
-        _dir: tempfile::TempDir,
     }
 
     fn rig(book: FakeBook) -> Rig {
         let (state, daemon) = state();
         let transport: Arc<dyn protocol::DaemonTransport> = daemon;
         let hub = Hub::new(state, Arc::new(|| {}));
-        let fleet = Fleet::new(&Handle::current(), &hub, &transport);
-        let dir = tempfile::tempdir().unwrap();
-        let notes = HostNotes::open(dir.path().join("paired.json")).unwrap();
+        let fleet = Fleet::new(&tokio::runtime::Handle::current(), &hub, &transport);
         let book = Arc::new(book);
         let desk = HostDesk {
             book: Arc::<FakeBook>::clone(&book) as Arc<dyn HostBook>,
-            notes: Arc::new(notes),
+            notes: Arc::new(notes()),
         };
         let changed = Arc::new(Notify::new());
         let wake = Arc::clone(&changed);
         let signal: ChangeSignal = Arc::new(move || wake.notify_one());
-        let session = PairingSession::new(
-            (Arc::clone(&hub), Arc::clone(&fleet), desk),
-            Handle::current(),
-            signal,
-        );
+        let session = PairingSession::new((Arc::clone(&fleet), desk), signal);
         Rig {
             session,
             hub,
             book,
             fleet,
             changed,
-            _dir: dir,
         }
     }
 

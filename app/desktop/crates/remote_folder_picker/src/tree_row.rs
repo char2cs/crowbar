@@ -60,9 +60,10 @@ fn note_color(
 pub(crate) fn tree_row(
     index: usize,
     row: &FolderRow,
-    (host, palette): (&str, &Palette),
+    look: (&str, &Palette),
     toggle: Toggle,
 ) -> Div {
+    let (host, palette) = look;
     match row {
         FolderRow::Note { level, note } => base(*level + 1)
             .text_color(note_color(note, palette))

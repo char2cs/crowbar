@@ -36,7 +36,7 @@ mod tests {
     use super::*;
     use crate::fleet::Fleet;
     use crate::hub::Hub;
-    use crate::test_support::{FakeDaemon, state};
+    use crate::test_support::{FakeDaemon, FakeFiles, state};
 
     fn opened(directories: &[&str]) -> SidebarCommands {
         let (mut state, daemon) = state();
@@ -51,6 +51,7 @@ mod tests {
             hub,
             handle: Handle::current(),
             outcome: Arc::new(|_| {}),
+            files: Arc::new(FakeFiles::default()),
         }
     }
 

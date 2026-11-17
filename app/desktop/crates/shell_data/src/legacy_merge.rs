@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use settings_ui::Value;
 
+use crate::legacy_store::Entries;
 use crate::value_json::from_json;
 
 const PREFIX: &str = "crowbar:settings:";
@@ -15,7 +16,7 @@ fn owned(key: &str) -> bool {
 
 pub(crate) fn merge(
     current: &mut BTreeMap<String, Value>,
-    entries: &BTreeMap<String, String>,
+    entries: &Entries,
 ) -> usize {
     let adopted: Vec<(String, Value)> = entries
         .iter()

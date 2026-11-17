@@ -6,6 +6,7 @@ use sidebar::Error;
 
 use crate::env_template::template_of;
 use crate::file_done::FileDone;
+use crate::file_error::FileError;
 use crate::file_session::{FileSession, join, parent_of};
 use crate::hub::Hub;
 use crate::overwrite::Overwrite;
@@ -13,37 +14,23 @@ use crate::sidebar_commands::SidebarCommands;
 use crate::template_outcome::TemplateOutcome;
 
 async fn make(
-    (hub, session): (&Hub, &FileSession),
+    session: &FileSession,
     (source, target): (&str, &str),
     overwrite: Overwrite,
-) -> Result<TemplateOutcome, String> {
-    let directory = parent_of(source);
-    let path = join(&directory, target);
+) -> Result<TemplateOutcome, FileError> {
+    let path = join(&parent_of(source), target);
     if path == source {
-        return Err(format!("{target} is the file the template is made from"));
+        return Err(FileError::TemplateOfItself(target.to_owned()));
     }
-    let exists = session
-        .exists(&path)
-        .await
-        .map_err(|error| error.to_string())?;
+    let exists = session.exists(&path).await?;
     if exists && overwrite == Overwrite::Ask {
         return Ok(TemplateOutcome::Exists(path));
     }
-    let text = session
-        .read_text(source)
-        .await
-        .map_err(|error| error.to_string())?;
+    let text = session.read_text(source).await?;
     if !exists {
-        session
-            .create_file(&path)
-            .await
-            .map_err(|error| error.to_string())?;
+        session.create_file(&path).await?;
     }
-    session
-        .write_text(&path, &template_of(&text))
-        .await
-        .map_err(|error| error.to_string())?;
-    session.reload(hub, &directory).await;
+    session.write_text(&path, &template_of(&text)).await?;
     Ok(TemplateOutcome::Created(path))
 }
 
@@ -64,9 +51,21 @@ impl SidebarCommands {
         let hub = Arc::clone(&self.hub);
         let (source, target) = (source.to_owned(), target.to_owned());
         self.handle.spawn(async move {
-            done(make((&hub, &session), (&source, &target), overwrite).await);
+            let made = make(&session, (&source, &target), overwrite).await;
+            reload_if_created(&made, &session, (hub.as_ref(), source.as_str())).await;
+            done(made);
         });
         Ok(())
+    }
+}
+
+async fn reload_if_created(
+    made: &Result<TemplateOutcome, FileError>,
+    session: &FileSession,
+    (hub, source): (&Hub, &str),
+) {
+    if matches!(made, Ok(TemplateOutcome::Created(_))) {
+        session.reload(hub, &parent_of(source)).await;
     }
 }
 
@@ -75,26 +74,15 @@ mod tests {
     use std::sync::mpsc;
 
     use serde_json::json;
-    use tokio::runtime::Handle;
 
     use super::*;
-    use crate::fleet::Fleet;
-    use crate::test_support::{FakeDaemon, state};
+    use crate::test_support::{FakeDaemon, followed_commands};
 
     const SOURCE_ROUTE: &str = "/v0/documents/content?workspace=hw&path=app/.env";
     const TARGET_ROUTE: &str = "/v0/documents/content?workspace=hw&path=app/.env.example";
 
     fn commands() -> (SidebarCommands, Arc<FakeDaemon>) {
-        let (mut state, daemon) = state();
-        state.panels.follow(Some("hc".into()));
-        let transport: Arc<dyn protocol::DaemonTransport> = Arc::<FakeDaemon>::clone(&daemon);
-        let hub = Hub::new(state, Arc::new(|| {}));
-        let commands = SidebarCommands {
-            fleet: Fleet::new(&Handle::current(), &hub, &transport),
-            hub,
-            handle: Handle::current(),
-            outcome: Arc::new(|_| {}),
-        };
+        let (commands, daemon) = followed_commands(Arc::new(|_| {}), &Arc::default());
         daemon.ok("GET", SOURCE_ROUTE, r#"{"content":"KEY=secret # keep\n"}"#);
         daemon.ok("POST", "/v0/chats/hc/files", "{}");
         daemon.ok("PUT", "/v0/documents/content", "{}");
@@ -106,7 +94,7 @@ mod tests {
         commands: &SidebarCommands,
         (source, target): (&str, &str),
         overwrite: Overwrite,
-    ) -> Result<TemplateOutcome, String> {
+    ) -> Result<TemplateOutcome, FileError> {
         let (sender, receiver) = mpsc::channel();
         let done: FileDone<TemplateOutcome> = Box::new(move |result| {
             sender.send(result).unwrap();
@@ -131,8 +119,8 @@ mod tests {
         let pair = ("app/.env", ".env.example");
         let made = run(&commands, pair, Overwrite::Ask).await;
         assert_eq!(
-            made,
-            Ok(TemplateOutcome::Created("app/.env.example".into()))
+            made.unwrap(),
+            TemplateOutcome::Created("app/.env.example".into())
         );
         let first =
             json!({"workspaceId": "hw", "path": "app/.env.example", "content": "KEY= # keep\n"});
@@ -140,8 +128,8 @@ mod tests {
         daemon.ok("GET", TARGET_ROUTE, r#"{"content":"OLD=1"}"#);
         let asked = run(&commands, pair, Overwrite::Ask).await;
         assert_eq!(
-            asked,
-            Ok(TemplateOutcome::Exists("app/.env.example".into()))
+            asked.unwrap(),
+            TemplateOutcome::Exists("app/.env.example".into())
         );
         assert_eq!(
             writes(&daemon),
@@ -150,8 +138,8 @@ mod tests {
         );
         let replaced = run(&commands, pair, Overwrite::Replace).await;
         assert_eq!(
-            replaced,
-            Ok(TemplateOutcome::Created("app/.env.example".into()))
+            replaced.unwrap(),
+            TemplateOutcome::Created("app/.env.example".into())
         );
         assert_eq!(writes(&daemon), [first.clone(), first]);
         let created = daemon

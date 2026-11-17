@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use protocol::HostId;
-use shell_data::{BookFuture, HostBook, PairingRequest};
+use shell_data::{BookError, BookFuture, HostBook, PairingRequest};
 use transport::{HostRegistry, PairRequest, TokenStore};
 
 pub(crate) struct TransportBook {
@@ -29,7 +29,7 @@ impl HostBook for TransportBook {
         Box::pin(async move {
             transport::probe_fingerprint(&endpoint)
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(BookError::new)
         })
     }
 
@@ -41,7 +41,7 @@ impl HostBook for TransportBook {
         Box::pin(async move {
             transport::pair_remote_host(&registry, &tokens, &wire_of(&request))
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(BookError::new)
         })
     }
 
@@ -52,12 +52,9 @@ impl HostBook for TransportBook {
         let (registry, tokens) = (Arc::clone(&self.registry), Arc::clone(&self.tokens));
         let host = host.to_owned();
         Box::pin(async move {
-            let id = HostId::new(&host).map_err(|error| error.to_string())?;
-            registry
-                .remove(id)
-                .await
-                .map_err(|error| error.to_string())?;
-            tokens.delete(&host).map_err(|error| error.to_string())
+            let id = HostId::new(&host).map_err(BookError::new)?;
+            registry.remove(id).await.map_err(BookError::new)?;
+            tokens.delete(&host).map_err(BookError::new)
         })
     }
 }

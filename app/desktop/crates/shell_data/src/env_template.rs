@@ -1,5 +1,7 @@
 //! An env file with every value emptied: the keys and the comments stay.
 
+use crate::quote_state::QuoteState;
+
 const EXPORT: &str = "export";
 const NEWLINE: char = '\n';
 
@@ -25,31 +27,14 @@ fn value_of(line: &str) -> Option<&str> {
     exported.or_else(|| value_after_name(start))
 }
 
-fn advance(
-    (quote, escaped): (Option<char>, bool),
-    found: char,
-) -> (Option<char>, bool) {
-    if escaped {
-        return (quote, false);
-    }
-    if matches!((found, quote), ('\\', Some('"'))) {
-        return (quote, true);
-    }
-    let toggles = quote.map_or(matches!(found, '\'' | '"'), |open| open == found);
-    if toggles {
-        return (quote.map_or(Some(found), |_| None), false);
-    }
-    (quote, false)
-}
-
 fn comment_start(value: &str) -> Option<usize> {
-    let mut state = (None, false);
+    let mut state = QuoteState::Outside;
     let mut previous: Option<char> = None;
     value.char_indices().find_map(|(index, found)| {
         let spaced = previous.is_none_or(char::is_whitespace);
-        let opens = matches!((found, state.0, spaced), ('#', None, true));
+        let opens = found == '#' && state.is_outside() && spaced;
         let start = opens.then(|| index - previous.map_or(0, char::len_utf8));
-        state = advance(state, found);
+        state = state.after(found);
         previous = Some(found);
         start
     })
