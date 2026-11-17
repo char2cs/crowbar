@@ -174,16 +174,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancelling_ends_the_watch() {
-        let (wedged, _rx) = mpsc::channel(1);
-        let cancel = CancellationToken::new();
-        cancel.cancel();
-        watch(context("/nope.sock".into(), cancel, wedged)).await;
-    }
-
-    #[tokio::test]
-    async fn a_daemon_that_cannot_be_dialled_is_reported_wedged_after_the_threshold_with_no_pid_to_exonerate_it()
+    async fn a_cancelled_watch_ends_and_a_daemon_that_cannot_be_dialled_is_reported_wedged_after_the_threshold()
      {
+        let (silent, _rx) = mpsc::channel(1);
+        let stopped = CancellationToken::new();
+        stopped.cancel();
+        watch(context("/nope.sock".into(), stopped, silent)).await;
         let (wedged, mut asked) = mpsc::channel(1);
         let cancel = CancellationToken::new();
         let ctx = context("/definitely/absent.sock".into(), cancel.clone(), wedged);

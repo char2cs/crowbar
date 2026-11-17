@@ -349,26 +349,31 @@ mod tests {
         ControlsDropped,
     }
 
+    async fn no_connection_is_down() -> bool {
+        let rig = start(Vec::new());
+        rig.until(|state| state.hosts[0].link == LinkState::Down)
+            .await;
+        true
+    }
+
+    async fn dropped_controls_stop_the_stream() -> bool {
+        let (connection, mut peer) = pair();
+        let rig = start(vec![connection]);
+        peer.frames.send(READY.into()).await.unwrap();
+        peer.requests.recv().await.unwrap();
+        drop(rig.controls);
+        peer.requests.recv().await.is_none()
+    }
+
     #[tokio::test(start_paused = true)]
     async fn a_stream_that_cannot_dial_is_down_and_one_without_controls_stops() {
         let cases = [Ending::NoConnection, Ending::ControlsDropped];
         for ending in cases {
-            match ending {
-                Ending::NoConnection => {
-                    let rig = start(Vec::new());
-                    rig.until(|state| state.hosts[0].link == LinkState::Down)
-                        .await;
-                },
-                Ending::ControlsDropped => {
-                    let (connection, mut peer) = pair();
-                    let rig = start(vec![connection]);
-                    peer.frames.send(READY.into()).await.unwrap();
-                    peer.requests.recv().await.unwrap();
-                    drop(rig.controls);
-                    let stopped = peer.requests.recv().await.is_none();
-                    assert!(stopped, "{ending:?}: the stream dropped its end");
-                },
-            }
+            let held = match ending {
+                Ending::NoConnection => no_connection_is_down().await,
+                Ending::ControlsDropped => dropped_controls_stop_the_stream().await,
+            };
+            assert!(held, "{ending:?}");
         }
     }
 }
