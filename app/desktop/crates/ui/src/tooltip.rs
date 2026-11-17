@@ -141,6 +141,7 @@ impl RenderOnce for Tooltip {
             .relative()
             .flex_none()
             .on_hover(hover::listener(&hover_state))
+            .capture_any_mouse_down(dismiss(&hover_state))
             .child(self.trigger)
             .when(shown.value > 0.0, |d| {
                 let snapped = anchored()
@@ -149,6 +150,13 @@ impl RenderOnce for Tooltip {
                 d.child(placement.child(deferred(snapped).with_priority(layer::TOOLTIP)))
             })
     }
+}
+
+fn dismiss(
+    state: &gpui::Entity<crate::toggle_state::ToggleState>
+) -> impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static {
+    let state = state.clone();
+    move |_, _, cx| state.update(cx, |s, cx| s.set(Pose::Off, cx))
 }
 
 opaque_debug!(Tooltip);
@@ -192,6 +200,29 @@ mod tests {
         assert!(
             card.origin.y >= trigger.bottom(),
             "below the trigger: {card:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn pressing_the_trigger_dismisses_the_card(cx: &mut TestAppContext) {
+        let cx = open(cx, |_, _| {
+            Tooltip::new("t", "Settings", Button::icon_only("b", IconName::Gear))
+        });
+        cx.update(|_, cx| cx.set_global(Motion::reduced()));
+        cx.simulate_mouse_move(point(px(10.0), px(10.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_mouse_move(point(px(11.0), px(11.0)), None, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("tooltip-card").is_some(), "shown at rest");
+        cx.simulate_mouse_down(
+            point(px(11.0), px(11.0)),
+            gpui::MouseButton::Right,
+            gpui::Modifiers::none(),
+        );
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("tooltip-card").is_none(),
+            "gone after a press"
         );
     }
 
